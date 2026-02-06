@@ -27,7 +27,8 @@ Install a userscript manager for your browser:
 
 - **Chrome/Edge**: [Tampermonkey](https://www.tampermonkey.net/)
 - **Firefox**: [Tampermonkey](https://www.tampermonkey.net/) or [Greasemonkey](https://www.greasespot.net/)
-- **Safari**: [Userscripts](https://apps.apple.com/us/app/userscripts/id1463298887)
+- **Safari**: [Userscripts](https://apps.apple.com/us/app/userscripts/id1463298887) - (I will be working on this.. Chrome and Firefox confirmed to work)
+- **Atlas**: ChatGPT integrated browser, I am not too sure how to make it work on that yet, maybe a future direction..
 
 ### Install the Script
 
@@ -42,7 +43,7 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 
 ### Chrome Users: Important Setup
 
-Chrome requires **Developer Mode** enabled for Tampermonkey to work:
+Chrome requires **Developer Mode** enabled for Tampermonkey to work. I learned this the hard way, so that you don't have to:
 
 1. Go to `chrome://extensions/`
 2. Toggle **"Developer mode"** ON (top right corner)
@@ -108,6 +109,14 @@ To add a new AI platform:
 - [ ] Export conversation outline as markdown
 - [ ] Collapsible sections grouped by topic
 - [ ] Convert to standalone browser extension
+
+## Currently pursuing..
+
+2/6/2026 v4
+- I found that the current version (v4) works for awhile and then after awhile, the navigate tab won't come out, only in gemini on Chrome. It works well in Gemini when it's on Firefox, which is my main browser. Working on it to fix that problem. I'm guessing it's maybe a special unique feature that gemini has with chrome since they are both Google product?
+
+- Need to make it work on Safari, although I have to say what it once used to be my main and favorite browser is being used less everyday. Have to use userscripts for safari, not tampermonkey I belive.
+
 
 ## License
 
