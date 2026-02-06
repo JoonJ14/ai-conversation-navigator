@@ -2,6 +2,10 @@
 
 A browser userscript that adds a navigation sidebar to AI chat interfaces. Easily jump to any of your previous questions in long conversations.
 
+If you are like me, I just go on and on with chat ai, learning one thing and it spurs another questions. Which is good in a sense I am constantly learning, but it turns out to be one very long conversation script. I know that the models have to compress and save it to memory and I should start another chat to save token consumage, but I just continually ask in chat and it kinda shows the flow of thought and learning. I just like it this way, what can I say. So it becomes troublesome trying to go back to chat ai's previous answers, I have to play the guessing game of "I think you said something about this here somewhere...". I thought soon OpenAI or Anthropic would add simple feature on the scroll bar to show my previous questions and I can "jump" to that part of conversation, but it hasn't came out yet, so I decided to make my own, for now. 
+
+I still think they should make a feature like this for each of their company, which will show their different design philosophies and many other features that could come with this.
+
 ## Supported Platforms
 
 | Platform | Color | Status |
