@@ -121,7 +121,8 @@ To add a new AI platform:
 
 - Need to make it work on Safari, although I have to say what it once used to be my main and favorite browser is being used less everyday. Have to use userscripts for safari, not tampermonkey I belive.
 
-
+- I'm not really sure I like the 📍 design next to Navigate button, nor the word Navigate. I just can't think of better one at the moment, but I might change those soon.
+  
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.
