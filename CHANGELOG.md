@@ -18,14 +18,34 @@ All notable changes to this project will be documented in this file.
 ## [4.0] - 2026-02-05
 
 ### Added
-- Gemini (gemini.google.com) support with blue theme
+- Gemini (gemini.google.com) support with blue theme (`#4285f4` — Gemini's brand blue)
 - Platform-specific color themes for all four AI assistants
+- Fallback selectors for Gemini (`div.query-text` → `.query-text-line` → `p.query-text-line`)
 
 ### Supported Platforms
 - Claude (Orange)
 - ChatGPT (White/Gray)
 - Grok (Red)
 - Gemini (Blue)
+
+### Development Notes — Gemini Challenges
+Adding Gemini was the most complex platform integration. Key challenges we worked through:
+
+1. **Custom web components** — Initial web research suggested Gemini used custom elements like `<chat-window>`, `<model-response>`, and `<code-block>` instead of regular HTML divs. Existing userscripts referenced selectors like `chat-window infinite-scroller` and `#chat-history`, but these turned out to be outdated or incorrect.
+
+2. **Bundled user queries** — Unlike Claude/ChatGPT/Grok where user messages have clear, separate DOM elements, early research indicated Gemini might bundle user queries inside `<model-response>` elements alongside the AI's response. This would have required a completely different extraction approach.
+
+3. **Obfuscated Angular classes** — Gemini is built on Angular, which adds dynamically-generated attributes like `_ngcontent-ng-c2926687459` to elements. These change between sessions and can't be used as reliable selectors.
+
+4. **Finding the real selector** — The breakthrough came from manually inspecting the DOM using browser DevTools (right-click message → Inspect). This revealed the actual structure was simpler than expected:
+   ```html
+   <div class="query-text gds-body-l query-text-animated">
+       <p class="query-text-line ng-star-inserted">message text</p>
+   </div>
+   ```
+   The stable selector turned out to be `div.query-text` — the Angular-specific attributes were ignorable.
+
+5. **Lesson learned** — Web research and existing scripts can be outdated. The most reliable approach is always to manually inspect the live DOM with DevTools to find current selectors.
 
 ## [3.0] - 2026-02-05
 
