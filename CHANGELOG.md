@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [6.0] - 2026-02-07
+
+### Changed
+- **New hover-expand button design** — Button now shows only the platform icon by default, and smoothly expands to reveal "Navigate" text on hover. Cleaner look with a smaller screen footprint.
+- **Platform-specific icons** — Each platform now has a unique symbol on the toggle button instead of a generic 📍 pin emoji:
+  - Claude: ✳ (eight-spoked asterisk — evokes Anthropic's starburst logo)
+  - ChatGPT: ⏣ (benzene ring — evokes OpenAI's hexagonal logo)
+  - Grok: X (xAI / X branding)
+  - Gemini: ✦ (four-pointed star — evokes Gemini's sparkle)
+- Icons use common Unicode symbols to avoid any trademark, copyright, or proprietary issues with company logos
+
+### Design Notes
+The hover-expand design was chosen to balance minimalism with discoverability. The icon-only resting state keeps the button unobtrusive, while the hover expansion ensures users can always confirm what the button does. This design also scales well for potential future feature buttons (Search, Settings, etc.) that could stack alongside Navigate.
+
 ## [5.0] - 2026-02-07
 
 ### Fixed

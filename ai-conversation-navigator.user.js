@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      4.2
+// @version      6.0
 // @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Grok, and Gemini
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -47,6 +47,20 @@
 
     const theme = THEME[currentSite];
 
+    // Site-specific icons (common symbols to avoid trademark/copyright issues)
+    // ✳ Eight-spoked asterisk for Claude (evokes Anthropic's starburst)
+    // ⏣ Benzene ring for ChatGPT (evokes OpenAI's hexagonal logo)
+    // X for Grok (xAI / X branding)
+    // ✦ Four-pointed star for Gemini (evokes Gemini's sparkle)
+    const ICONS = {
+        [SITE.CLAUDE]: '\u2733',   // ✳
+        [SITE.CHATGPT]: '\u23E3',  // ⏣
+        [SITE.GROK]: 'X',
+        [SITE.GEMINI]: '\u2726'    // ✦
+    };
+
+    const siteIcon = ICONS[currentSite];
+
     // Site-specific title
     const siteTitles = {
         [SITE.CLAUDE]: 'Claude',
@@ -58,6 +72,7 @@
 
     // Inject styles
     const styles = `
+        /* === HOVER-EXPAND TOGGLE BUTTON === */
         #ai-nav-toggle {
             position: fixed !important;
             right: 0 !important;
@@ -67,27 +82,44 @@
             background: ${theme.accent} !important;
             color: ${theme.textColor} !important;
             border: ${currentSite === SITE.CHATGPT ? '1px solid #333' : 'none'} !important;
-            padding: 12px 8px !important;
             cursor: pointer !important;
             border-radius: 8px 0 0 8px !important;
-            font-size: 14px !important;
-            writing-mode: vertical-rl !important;
-            text-orientation: mixed !important;
-            box-shadow: -2px 0 10px rgba(0,0,0,0.2) !important;
-            transition: all 0.2s ease !important;
-            display: block !important;
+            box-shadow: -2px 0 10px rgba(0,0,0,0.3) !important;
+            display: flex !important;
+            align-items: center !important;
+            gap: 0px !important;
+            padding: 12px 12px !important;
+            font-weight: 800 !important;
+            font-size: 20px !important;
+            overflow: hidden !important;
+            transition: all 0.25s ease !important;
+            white-space: nowrap !important;
             visibility: visible !important;
             opacity: 1 !important;
             pointer-events: auto !important;
         }
         #ai-nav-toggle:hover {
-            background: ${theme.accentHover} !important;
-            padding-right: 12px !important;
+            padding-right: 16px !important;
+        }
+        #ai-nav-toggle .ai-nav-expand-text {
+            max-width: 0 !important;
+            opacity: 0 !important;
+            overflow: hidden !important;
+            transition: max-width 0.25s ease, opacity 0.2s ease, margin-left 0.25s ease !important;
+            font-size: 13px !important;
+            font-weight: 500 !important;
+            margin-left: 0 !important;
+        }
+        #ai-nav-toggle:hover .ai-nav-expand-text {
+            max-width: 80px !important;
+            opacity: 1 !important;
+            margin-left: 10px !important;
         }
         #ai-nav-toggle.open {
             right: 320px !important;
         }
 
+        /* === NAVIGATION PANEL === */
         #ai-nav-panel {
             position: fixed !important;
             right: -320px !important;
@@ -243,19 +275,19 @@
         return el;
     }
 
-    // --- Create toggle button ---
+    // --- Create toggle button (hover-expand: icon only, text appears on hover) ---
     function createToggle() {
-        return createElement('button', {
-            id: 'ai-nav-toggle',
-            textContent: '\uD83D\uDCCD Navigate',
-            onClick: handleToggleClick
-        });
+        const btn = createElement('button', { id: 'ai-nav-toggle', onClick: handleToggleClick }, [
+            document.createTextNode(siteIcon),
+            createElement('span', { className: 'ai-nav-expand-text', textContent: 'Navigate' })
+        ]);
+        return btn;
     }
 
     // --- Create panel (fully programmatic, no innerHTML) ---
     function createPanel() {
         const header = createElement('div', { id: 'ai-nav-header' }, [
-            createElement('h3', null, ['\uD83D\uDCAC ' + siteTitle + ' - Your Questions']),
+            createElement('h3', null, [siteIcon + ' ' + siteTitle + ' - Your Questions']),
             createElement('button', {
                 id: 'ai-nav-refresh',
                 textContent: '\u21BB Refresh',
@@ -500,5 +532,5 @@
     // Initial scan after page load
     setTimeout(scanConversation, 2000);
 
-    console.log('AI Conversation Navigator v4.2 loaded for ' + siteTitle + '!');
+    console.log('AI Conversation Navigator v6.0 loaded for ' + siteTitle + '!');
 })();

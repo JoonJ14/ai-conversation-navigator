@@ -13,7 +13,7 @@ Platform-specific issues, root causes, and how they were resolved. If you run in
 **Browser:** Chrome only (Firefox and other browsers were not affected)
 
 **Symptoms:**
-- The 📍 Navigate button appears on the right side of the screen
+- The toggle button appears on the right side of the screen
 - Clicking the button does nothing — the panel never slides out
 - The button may work initially after first install, then stop working after a page refresh
 - DevTools Console shows red errors:
