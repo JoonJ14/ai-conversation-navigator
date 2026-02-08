@@ -115,9 +115,11 @@ To add a new AI platform:
 - [ ] Convert to standalone browser extension
 
 ## Currently pursuing..
+2/7/2026 v5.0
+- Fixed the Gemini not working only on Chrome issue. It first worked when I tested v4.0, then it wouldn't work after awhile you hit refresh, and the previous questions tab won't come out. The troubleshooting is described in details in CHANGELOG.md
 
-2/6/2026 v4
-- I found that the current version (v4) works for awhile and then after awhile, the navigate tab won't come out, only in gemini on Chrome. It works well in Gemini when it's on Firefox, which is my main browser. Working on it to fix that problem. I'm guessing it's maybe a special unique feature that gemini has with chrome since they are both Google product?
+2/6/2026 v4.0
+- I found that the current version (v4) works for awhile and then after awhile, the navigate tab won't come out, only in gemini on Chrome. It works well in Gemini when it's on Firefox, which is my main browser. Working on it to fix that problem. I'm guessing it's maybe a special unique feature that gemini has with chrome since they are both Google product?  - Solved ✅ in v5.0 -
 
 - Need to make it work on Safari, although I have to say what it once used to be my main and favorite browser is being used less everyday. Have to use userscripts for safari, not tampermonkey I belive.
 
