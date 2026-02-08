@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.0] - 2026-02-07
+
+### Fixed
+- **Gemini on Chrome: Navigate button unresponsive** — Gemini enforces a Trusted Types Content Security Policy (CSP) that blocks all `innerHTML` assignments. The panel was being created as an empty shell, so clicking the button had nothing to show. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#gemini-navigate-button-does-nothing-chrome-only) for full details.
+
+### Changed
+- Replaced all `innerHTML` usage with programmatic DOM creation (`createElement`, `textContent`, `appendChild`) for full Trusted Types compliance
+- Added DOM Guardian (MutationObserver) to detect and re-inject elements if removed by SPA re-rendering
+- Added SPA navigation hooks (`pushState`, `replaceState`, `popstate`) for Gemini route changes
+- Added periodic health check (every 3 seconds) on Gemini to ensure elements survive DOM rebuilds
+- Increased z-index to max (`2147483647`) with `!important` on critical positioning and visibility styles
+- Merged duplicate click handlers on the toggle button into a single unified handler
+
 ## [4.0] - 2026-02-05
 
 ### Added

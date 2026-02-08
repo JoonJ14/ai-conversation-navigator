@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      4.0
+// @version      4.2
 // @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Grok, and Gemini
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -24,15 +24,10 @@
 
     function detectSite() {
         const hostname = window.location.hostname;
-        if (hostname.includes('claude.ai')) {
-            return SITE.CLAUDE;
-        } else if (hostname.includes('chatgpt.com') || hostname.includes('chat.openai.com')) {
-            return SITE.CHATGPT;
-        } else if (hostname.includes('grok.com')) {
-            return SITE.GROK;
-        } else if (hostname.includes('gemini.google.com')) {
-            return SITE.GEMINI;
-        }
+        if (hostname.includes('claude.ai')) return SITE.CLAUDE;
+        if (hostname.includes('chatgpt.com') || hostname.includes('chat.openai.com')) return SITE.CHATGPT;
+        if (hostname.includes('grok.com')) return SITE.GROK;
+        if (hostname.includes('gemini.google.com')) return SITE.GEMINI;
         return null;
     }
 
@@ -44,78 +39,74 @@
 
     // Site-specific colors
     const THEME = {
-        [SITE.CLAUDE]: {
-            accent: '#d97706',           // Orange
-            accentHover: '#b45309',
-            accentLight: 'rgba(217, 119, 6, 0.2)',
-            textColor: 'white'
-        },
-        [SITE.CHATGPT]: {
-            accent: '#ffffff',           // White
-            accentHover: '#e0e0e0',
-            accentLight: 'rgba(255, 255, 255, 0.15)',
-            textColor: '#1a1a1a'         // Dark text on white button
-        },
-        [SITE.GROK]: {
-            accent: '#dc2626',           // Red
-            accentHover: '#b91c1c',
-            accentLight: 'rgba(220, 38, 38, 0.2)',
-            textColor: 'white'
-        },
-        [SITE.GEMINI]: {
-            accent: '#4285f4',           // Google Blue
-            accentHover: '#3367d6',
-            accentLight: 'rgba(66, 133, 244, 0.2)',
-            textColor: 'white'
-        }
+        [SITE.CLAUDE]: { accent: '#d97706', accentHover: '#b45309', accentLight: 'rgba(217, 119, 6, 0.2)', textColor: 'white' },
+        [SITE.CHATGPT]: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)', textColor: '#1a1a1a' },
+        [SITE.GROK]: { accent: '#dc2626', accentHover: '#b91c1c', accentLight: 'rgba(220, 38, 38, 0.2)', textColor: 'white' },
+        [SITE.GEMINI]: { accent: '#4285f4', accentHover: '#3367d6', accentLight: 'rgba(66, 133, 244, 0.2)', textColor: 'white' }
     };
 
     const theme = THEME[currentSite];
 
+    // Site-specific title
+    const siteTitles = {
+        [SITE.CLAUDE]: 'Claude',
+        [SITE.CHATGPT]: 'ChatGPT',
+        [SITE.GROK]: 'Grok',
+        [SITE.GEMINI]: 'Gemini'
+    };
+    const siteTitle = siteTitles[currentSite];
+
     // Inject styles
     const styles = `
         #ai-nav-toggle {
-            position: fixed;
-            right: 0;
-            top: 50%;
-            transform: translateY(-50%);
-            z-index: 10000;
-            background: ${theme.accent};
-            color: ${theme.textColor};
-            border: ${currentSite === SITE.CHATGPT ? '1px solid #333' : 'none'};
-            padding: 12px 8px;
-            cursor: pointer;
-            border-radius: 8px 0 0 8px;
-            font-size: 14px;
-            writing-mode: vertical-rl;
-            text-orientation: mixed;
-            box-shadow: -2px 0 10px rgba(0,0,0,0.2);
-            transition: all 0.2s ease;
+            position: fixed !important;
+            right: 0 !important;
+            top: 50% !important;
+            transform: translateY(-50%) !important;
+            z-index: 2147483647 !important;
+            background: ${theme.accent} !important;
+            color: ${theme.textColor} !important;
+            border: ${currentSite === SITE.CHATGPT ? '1px solid #333' : 'none'} !important;
+            padding: 12px 8px !important;
+            cursor: pointer !important;
+            border-radius: 8px 0 0 8px !important;
+            font-size: 14px !important;
+            writing-mode: vertical-rl !important;
+            text-orientation: mixed !important;
+            box-shadow: -2px 0 10px rgba(0,0,0,0.2) !important;
+            transition: all 0.2s ease !important;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            pointer-events: auto !important;
         }
         #ai-nav-toggle:hover {
-            background: ${theme.accentHover};
-            padding-right: 12px;
+            background: ${theme.accentHover} !important;
+            padding-right: 12px !important;
         }
         #ai-nav-toggle.open {
-            right: 320px;
+            right: 320px !important;
         }
 
         #ai-nav-panel {
-            position: fixed;
-            right: -320px;
-            top: 0;
-            width: 320px;
-            height: 100vh;
-            background: #1a1a1a;
-            border-left: 1px solid #333;
-            z-index: 9999;
-            transition: right 0.3s ease;
-            display: flex;
-            flex-direction: column;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            position: fixed !important;
+            right: -320px !important;
+            top: 0 !important;
+            width: 320px !important;
+            height: 100vh !important;
+            background: #1a1a1a !important;
+            border-left: 1px solid #333 !important;
+            z-index: 2147483646 !important;
+            transition: right 0.3s ease !important;
+            display: flex !important;
+            flex-direction: column !important;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            pointer-events: auto !important;
         }
         #ai-nav-panel.open {
-            right: 0;
+            right: 0 !important;
         }
 
         #ai-nav-header {
@@ -205,87 +196,200 @@
         }
 
         /* Scrollbar styling */
-        #ai-nav-list::-webkit-scrollbar {
-            width: 6px;
-        }
-        #ai-nav-list::-webkit-scrollbar-track {
-            background: #1a1a1a;
-        }
-        #ai-nav-list::-webkit-scrollbar-thumb {
-            background: #444;
-            border-radius: 3px;
-        }
+        #ai-nav-list::-webkit-scrollbar { width: 6px; }
+        #ai-nav-list::-webkit-scrollbar-track { background: #1a1a1a; }
+        #ai-nav-list::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
     `;
 
     // Add styles to page
     const styleEl = document.createElement('style');
+    styleEl.id = 'ai-nav-style';
     styleEl.textContent = styles;
     document.head.appendChild(styleEl);
 
-    // Create toggle button
-    const toggle = document.createElement('button');
-    toggle.id = 'ai-nav-toggle';
-    toggle.textContent = '📍 Navigate';
-    document.body.appendChild(toggle);
-
-    // Create panel
-    const panel = document.createElement('div');
-    panel.id = 'ai-nav-panel';
-
-    // Site-specific title
-    const siteTitles = {
-        [SITE.CLAUDE]: 'Claude',
-        [SITE.CHATGPT]: 'ChatGPT',
-        [SITE.GROK]: 'Grok',
-        [SITE.GEMINI]: 'Gemini'
-    };
-    const siteTitle = siteTitles[currentSite];
-
-    panel.innerHTML = `
-        <div id="ai-nav-header">
-            <h3>💬 ${siteTitle} - Your Questions</h3>
-            <button id="ai-nav-refresh">↻ Refresh</button>
-        </div>
-        <div id="ai-nav-stats"></div>
-        <div id="ai-nav-list"></div>
-    `;
-    document.body.appendChild(panel);
-
-    // Toggle panel
+    // --- State ---
     let isOpen = false;
-    toggle.addEventListener('click', () => {
+    let scanInterval = null;
+
+    // ============================================================
+    // DOM CREATION HELPERS — No innerHTML anywhere (Trusted Types)
+    // ============================================================
+
+    function createElement(tag, attrs, children) {
+        const el = document.createElement(tag);
+        if (attrs) {
+            for (const [key, value] of Object.entries(attrs)) {
+                if (key === 'className') {
+                    el.className = value;
+                } else if (key === 'textContent') {
+                    el.textContent = value;
+                } else if (key.startsWith('on') && typeof value === 'function') {
+                    el.addEventListener(key.substring(2).toLowerCase(), value);
+                } else {
+                    el.setAttribute(key, value);
+                }
+            }
+        }
+        if (children) {
+            if (!Array.isArray(children)) children = [children];
+            for (const child of children) {
+                if (typeof child === 'string') {
+                    el.appendChild(document.createTextNode(child));
+                } else if (child) {
+                    el.appendChild(child);
+                }
+            }
+        }
+        return el;
+    }
+
+    // --- Create toggle button ---
+    function createToggle() {
+        return createElement('button', {
+            id: 'ai-nav-toggle',
+            textContent: '\uD83D\uDCCD Navigate',
+            onClick: handleToggleClick
+        });
+    }
+
+    // --- Create panel (fully programmatic, no innerHTML) ---
+    function createPanel() {
+        const header = createElement('div', { id: 'ai-nav-header' }, [
+            createElement('h3', null, ['\uD83D\uDCAC ' + siteTitle + ' - Your Questions']),
+            createElement('button', {
+                id: 'ai-nav-refresh',
+                textContent: '\u21BB Refresh',
+                onClick: scanConversation
+            })
+        ]);
+
+        const stats = createElement('div', { id: 'ai-nav-stats' });
+        const list = createElement('div', { id: 'ai-nav-list' });
+
+        return createElement('div', { id: 'ai-nav-panel' }, [header, stats, list]);
+    }
+
+    // --- Create empty state message ---
+    function createEmptyMessage() {
+        const container = createElement('div', { id: 'ai-nav-empty' });
+        container.appendChild(document.createTextNode('No messages found yet.'));
+        container.appendChild(createElement('br'));
+        container.appendChild(createElement('br'));
+        container.appendChild(document.createTextNode('Start a conversation and click refresh!'));
+        container.appendChild(createElement('br'));
+        container.appendChild(createElement('br'));
+        container.appendChild(createElement('small', null, [
+            'If messages exist but aren\'t detected,',
+            createElement('br'),
+            'the site\'s structure may have changed.'
+        ]));
+        return container;
+    }
+
+    // --- Create a nav item for a question ---
+    function createNavItem(msg, index, text) {
+        const summary = generateSummary(text);
+        const wordCount = text.split(/\s+/).length;
+
+        const item = createElement('div', { className: 'ai-nav-item' }, [
+            createElement('div', { className: 'ai-nav-number', textContent: 'Question #' + (index + 1) }),
+            createElement('div', { className: 'ai-nav-summary', textContent: summary }),
+            createElement('div', { className: 'ai-nav-meta', textContent: wordCount + ' words' })
+        ]);
+
+        item.addEventListener('click', function() {
+            msg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            var originalBg = msg.style.backgroundColor;
+            msg.style.backgroundColor = theme.accentLight;
+            msg.style.transition = 'background-color 0.3s';
+            setTimeout(function() {
+                msg.style.backgroundColor = originalBg;
+            }, 1500);
+        });
+
+        return item;
+    }
+
+    // --- Single unified toggle handler ---
+    function handleToggleClick() {
+        ensureElementsExist();
+
+        const panel = document.getElementById('ai-nav-panel');
+        const toggle = document.getElementById('ai-nav-toggle');
+
+        if (!panel || !toggle) {
+            console.warn('AI Nav: Elements missing even after re-inject attempt.');
+            return;
+        }
+
         isOpen = !isOpen;
         panel.classList.toggle('open', isOpen);
         toggle.classList.toggle('open', isOpen);
+
         if (isOpen) {
             scanConversation();
+            if (scanInterval) clearInterval(scanInterval);
+            scanInterval = setInterval(scanConversation, 10000);
+        } else {
+            if (scanInterval) {
+                clearInterval(scanInterval);
+                scanInterval = null;
+            }
         }
-    });
+    }
 
-    // Refresh button
-    document.getElementById('ai-nav-refresh').addEventListener('click', scanConversation);
+    // --- Ensure our elements exist in the DOM ---
+    function ensureElementsExist() {
+        if (!document.getElementById('ai-nav-style')) {
+            const s = document.createElement('style');
+            s.id = 'ai-nav-style';
+            s.textContent = styles;
+            document.head.appendChild(s);
+            console.log('AI Nav: Re-injected styles.');
+        }
 
-    // Generate smart summary
+        if (!document.getElementById('ai-nav-panel')) {
+            const panel = createPanel();
+            document.body.appendChild(panel);
+            if (isOpen) panel.classList.add('open');
+            console.log('AI Nav: Re-injected panel.');
+        }
+
+        if (!document.getElementById('ai-nav-toggle')) {
+            const toggle = createToggle();
+            document.body.appendChild(toggle);
+            if (isOpen) toggle.classList.add('open');
+            console.log('AI Nav: Re-injected toggle button.');
+        }
+    }
+
+    // --- DOM Guardian ---
+    function startDOMGuardian() {
+        const observer = new MutationObserver(function() {
+            if (!document.getElementById('ai-nav-toggle') || !document.getElementById('ai-nav-panel')) {
+                console.log('AI Nav: DOM Guardian detected missing elements, re-injecting...');
+                ensureElementsExist();
+            }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        return observer;
+    }
+
+    // --- Generate smart summary ---
     function generateSummary(text) {
-        // Clean up the text
         let summary = text.trim();
-
-        // Remove code blocks for summary
         summary = summary.replace(/```[\s\S]*?```/g, '[code]');
 
-        // If it's a question, try to capture the question
         const questionMatch = summary.match(/^[^.!?]*\?/);
         if (questionMatch && questionMatch[0].length > 10) {
             return questionMatch[0].trim();
         }
 
-        // Get first meaningful sentence or chunk
         const firstSentence = summary.match(/^[^.!?\n]+[.!?]?/);
         if (firstSentence) {
             summary = firstSentence[0];
         }
 
-        // Truncate if too long
         if (summary.length > 120) {
             summary = summary.substring(0, 117) + '...';
         }
@@ -293,142 +397,108 @@
         return summary || text.substring(0, 100) + '...';
     }
 
-    // Get user messages based on current site
+    // --- Get user messages based on current site ---
     function getUserMessages() {
         let messages = [];
 
         if (currentSite === SITE.CLAUDE) {
-            // Claude selectors - try multiple approaches
             messages = document.querySelectorAll('[data-testid="user-human-turn"]');
-            
-            if (messages.length === 0) {
-                messages = document.querySelectorAll('[data-testid="user-message"]');
-            }
-            if (messages.length === 0) {
-                messages = document.querySelectorAll('.font-user-message');
-            }
-        } 
+            if (messages.length === 0) messages = document.querySelectorAll('[data-testid="user-message"]');
+            if (messages.length === 0) messages = document.querySelectorAll('.font-user-message');
+        }
         else if (currentSite === SITE.CHATGPT) {
-            // ChatGPT selector - find all messages with author role, then filter to user only
             const allMessages = document.querySelectorAll('[data-message-author-role]');
-            messages = Array.from(allMessages).filter(msg => {
+            messages = Array.from(allMessages).filter(function(msg) {
                 return msg.getAttribute('data-message-author-role') === 'user';
             });
         }
         else if (currentSite === SITE.GROK) {
-            // Grok selector - message bubbles
             const allBubbles = document.querySelectorAll('div.message-bubble');
-            
             if (allBubbles.length > 0) {
-                messages = Array.from(allBubbles).filter((bubble, index) => {
-                    // Check if it has any user-indicating class
+                messages = Array.from(allBubbles).filter(function(bubble, index) {
                     const classList = bubble.className.toLowerCase();
-                    if (classList.includes('user') || classList.includes('human')) {
-                        return true;
-                    }
-                    // Check parent elements for user indicators
+                    if (classList.includes('user') || classList.includes('human')) return true;
                     const parent = bubble.closest('[class*="user"], [class*="human"], [data-role="user"]');
-                    if (parent) {
-                        return true;
-                    }
-                    // Fallback: alternating pattern heuristic
+                    if (parent) return true;
                     return index % 2 === 0;
                 });
             }
-            
-            // Fallback selectors for Grok
-            if (messages.length === 0) {
-                messages = document.querySelectorAll('[data-role="user"]');
-            }
-            if (messages.length === 0) {
-                messages = document.querySelectorAll('[class*="user-message"]');
-            }
+            if (messages.length === 0) messages = document.querySelectorAll('[data-role="user"]');
+            if (messages.length === 0) messages = document.querySelectorAll('[class*="user-message"]');
         }
         else if (currentSite === SITE.GEMINI) {
-            // Gemini selector - query-text contains user messages
             messages = document.querySelectorAll('div.query-text');
-            
-            // Fallback selectors for Gemini
-            if (messages.length === 0) {
-                messages = document.querySelectorAll('.query-text-line');
-            }
-            if (messages.length === 0) {
-                messages = document.querySelectorAll('p.query-text-line');
-            }
+            if (messages.length === 0) messages = document.querySelectorAll('.query-text-line');
+            if (messages.length === 0) messages = document.querySelectorAll('p.query-text-line');
+            if (messages.length === 0) messages = document.querySelectorAll('[data-query-text]');
+            if (messages.length === 0) messages = document.querySelectorAll('.user-query');
         }
 
         return messages;
     }
 
-    // Scan conversation for user messages
+    // --- Scan conversation for user messages ---
     function scanConversation() {
+        ensureElementsExist();
+
         const list = document.getElementById('ai-nav-list');
         const stats = document.getElementById('ai-nav-stats');
+        if (!list || !stats) return;
 
         const messages = getUserMessages();
 
+        // Clear list safely (no innerHTML)
+        while (list.firstChild) {
+            list.removeChild(list.firstChild);
+        }
+
         if (messages.length === 0) {
-            list.innerHTML = `<div id="ai-nav-empty">No messages found yet.<br><br>Start a conversation and click refresh!<br><br><small>If messages exist but aren't detected,<br>the site's structure may have changed.</small></div>`;
+            list.appendChild(createEmptyMessage());
             stats.textContent = '0 questions found';
             return;
         }
 
-        stats.textContent = `${messages.length} question${messages.length !== 1 ? 's' : ''} found`;
+        stats.textContent = messages.length + ' question' + (messages.length !== 1 ? 's' : '') + ' found';
 
-        list.innerHTML = '';
-
-        messages.forEach((msg, index) => {
+        messages.forEach(function(msg, index) {
             const text = msg.textContent || msg.innerText || '';
             if (!text.trim()) return;
-
-            const item = document.createElement('div');
-            item.className = 'ai-nav-item';
-
-            const summary = generateSummary(text);
-            const wordCount = text.split(/\s+/).length;
-
-            item.innerHTML = `
-                <div class="ai-nav-number">Question #${index + 1}</div>
-                <div class="ai-nav-summary">${escapeHtml(summary)}</div>
-                <div class="ai-nav-meta">${wordCount} words</div>
-            `;
-
-            item.addEventListener('click', () => {
-                msg.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                // Highlight briefly
-                const originalBg = msg.style.backgroundColor;
-                msg.style.backgroundColor = theme.accentLight;
-                msg.style.transition = 'background-color 0.3s';
-                setTimeout(() => {
-                    msg.style.backgroundColor = originalBg;
-                }, 1500);
-            });
-
-            list.appendChild(item);
+            list.appendChild(createNavItem(msg, index, text));
         });
     }
 
-    // Helper to escape HTML
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
+    // === INITIALIZATION ===
 
-    // Auto-scan when panel opens and periodically
-    let scanInterval;
-    toggle.addEventListener('click', () => {
-        if (isOpen) {
-            scanConversation();
-            // Rescan every 10 seconds while open
-            scanInterval = setInterval(scanConversation, 10000);
-        } else {
-            clearInterval(scanInterval);
-        }
-    });
+    document.body.appendChild(createToggle());
+    document.body.appendChild(createPanel());
+
+    // Start the DOM Guardian (critical for Gemini)
+    startDOMGuardian();
+
+    // SPA navigation hooks for Gemini
+    if (currentSite === SITE.GEMINI) {
+        const originalPushState = history.pushState;
+        const originalReplaceState = history.replaceState;
+
+        history.pushState = function() {
+            originalPushState.apply(this, arguments);
+            setTimeout(ensureElementsExist, 500);
+        };
+        history.replaceState = function() {
+            originalReplaceState.apply(this, arguments);
+            setTimeout(ensureElementsExist, 500);
+        };
+
+        window.addEventListener('popstate', function() {
+            setTimeout(ensureElementsExist, 500);
+        });
+
+        // Periodic health check for Gemini (every 3 seconds)
+        setInterval(ensureElementsExist, 3000);
+    }
 
     // Initial scan after page load
     setTimeout(scanConversation, 2000);
 
-    console.log(`AI Conversation Navigator v4.0 loaded for ${siteTitle}!`);
+    console.log('AI Conversation Navigator v4.2 loaded for ' + siteTitle + '!');
 })();
