@@ -49,6 +49,14 @@ Also added defensive measures for Gemini's aggressive SPA re-rendering:
 
 ## General Issues
 
+### Script not appearing?
+
+- Make sure the userscript manager is enabled
+- **Chrome users:** Enable **Developer Mode** in `chrome://extensions/`
+- **Still not working on Chrome 138+?** You may also need to enable **"Allow User Scripts"** in Tampermonkey's Details page, then **relaunch Chrome**
+- If you don't see the "Allow User Scripts" option, your Chrome version only needs Developer Mode
+- Try hard-refreshing the page (Ctrl+Shift+R / Cmd+Shift+R)
+
 ### Script not appearing on any site
 
 **Possible causes:**

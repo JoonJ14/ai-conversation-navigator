@@ -36,14 +36,24 @@ Install a userscript manager for your browser:
 - **Firefox**: [Tampermonkey](https://www.tampermonkey.net/) or [Greasemonkey](https://www.greasespot.net/)
 - **Safari**: [Userscripts](https://apps.apple.com/us/app/userscripts/id1463298887)
 
-### Chrome Users: Enable Developer Mode
+### Chrome Users: Important Setup
 
-Chrome requires Developer Mode for Tampermonkey to work:
+Chrome requires **Developer Mode** enabled for Tampermonkey to run userscripts:
 
 1. Go to `chrome://extensions/`
-2. Toggle **"Developer mode"** ON (top right corner)
-3. Refresh the AI chat page
+2. Toggle **"Developer mode"** ON (top-right corner)
+3. Refresh any open AI chat pages
 
+**Chrome 138+ (additional step required):**
+
+Newer versions of Chrome (138 and above) introduced an extra security requirement. If Developer Mode alone doesn't work:
+
+1. In `chrome://extensions/`, find **Tampermonkey** → click **Details**
+2. Toggle **"Allow User Scripts"** ON
+3. Click **"Relaunch"** when Chrome prompts you — changes won't take effect without this
+4. After relaunch, refresh any open AI chat pages
+
+> **Note:** If you don't see the "Allow User Scripts" option, you're likely on an older Chrome version where Developer Mode alone is sufficient. Don't panic — just make sure Developer Mode is on and you should be good to go.
 ### Install the Script
 
 #### Option 1: Direct Install
@@ -91,9 +101,14 @@ These are standard Unicode characters, not proprietary artwork, so there are no 
 
 See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for platform-specific issues and solutions.
 
-### Quick Fixes
+### Script not appearing?
+- Make sure the userscript manager is enabled
+- **Chrome users:** Enable **Developer Mode** in `chrome://extensions/`
+- **Still not working on Chrome 138+?** You may also need to enable **"Allow User Scripts"** in Tampermonkey's Details page, then **relaunch Chrome**
+- If you don't see the "Allow User Scripts" option, your Chrome version only needs Developer Mode
+- Try hard-refreshing the page (Ctrl+Shift+R / Cmd+Shift+R)
 
-- **Script not appearing?** — Make sure Tampermonkey is enabled. Chrome users: enable Developer Mode in `chrome://extensions/`
+### Quick Fixes
 - **Messages not detected?** — The platform may have updated its HTML. Try clicking ↻ Refresh in the panel, or open an issue.
 - **Gemini button broken on Chrome?** — Make sure you're on v5.0+. Earlier versions used `innerHTML` which is blocked by Gemini's Trusted Types CSP.
 
