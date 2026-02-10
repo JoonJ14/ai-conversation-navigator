@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator
+// @name         AI Conversation Navigator v6.1
 // @namespace    http://tampermonkey.net/
-// @version      6.0
+// @version      6.1
 // @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Grok, and Gemini
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -13,6 +13,15 @@
 
 (function() {
     'use strict';
+
+    // === DUPLICATE EXECUTION GUARD ===
+    // On Linux Firefox, Tampermonkey can fire the script twice or the
+    // MutationObserver can race with initialization. This prevents duplicates.
+    if (window._aiNavAlreadyLoaded) {
+        console.log('AI Nav: Script already loaded, skipping duplicate execution.');
+        return;
+    }
+    window._aiNavAlreadyLoaded = true;
 
     // Detect which site we're on
     const SITE = {
@@ -48,10 +57,6 @@
     const theme = THEME[currentSite];
 
     // Site-specific icons (common symbols to avoid trademark/copyright issues)
-    // ✳ Eight-spoked asterisk for Claude (evokes Anthropic's starburst)
-    // ⏣ Benzene ring for ChatGPT (evokes OpenAI's hexagonal logo)
-    // X for Grok (xAI / X branding)
-    // ✦ Four-pointed star for Gemini (evokes Gemini's sparkle)
     const ICONS = {
         [SITE.CLAUDE]: '\u2733',   // ✳
         [SITE.CHATGPT]: '\u23E3',  // ⏣
@@ -370,8 +375,26 @@
         }
     }
 
-    // --- Ensure our elements exist in the DOM ---
+    // --- Ensure our elements exist in the DOM (with duplicate cleanup) ---
     function ensureElementsExist() {
+        // --- Remove any duplicates first ---
+        const toggles = document.querySelectorAll('#ai-nav-toggle');
+        const panels = document.querySelectorAll('#ai-nav-panel');
+        const styleEls = document.querySelectorAll('#ai-nav-style');
+
+        if (toggles.length > 1) {
+            for (let i = 1; i < toggles.length; i++) toggles[i].remove();
+            console.log('AI Nav: Removed ' + (toggles.length - 1) + ' duplicate toggle(s).');
+        }
+        if (panels.length > 1) {
+            for (let i = 1; i < panels.length; i++) panels[i].remove();
+            console.log('AI Nav: Removed ' + (panels.length - 1) + ' duplicate panel(s).');
+        }
+        if (styleEls.length > 1) {
+            for (let i = 1; i < styleEls.length; i++) styleEls[i].remove();
+        }
+
+        // --- Re-inject if missing ---
         if (!document.getElementById('ai-nav-style')) {
             const s = document.createElement('style');
             s.id = 'ai-nav-style';
@@ -395,13 +418,18 @@
         }
     }
 
-    // --- DOM Guardian ---
+    // --- DOM Guardian (debounced to prevent race conditions on Linux Firefox) ---
     function startDOMGuardian() {
+        let guardianTimeout = null;
+
         const observer = new MutationObserver(function() {
-            if (!document.getElementById('ai-nav-toggle') || !document.getElementById('ai-nav-panel')) {
-                console.log('AI Nav: DOM Guardian detected missing elements, re-injecting...');
-                ensureElementsExist();
-            }
+            if (guardianTimeout) clearTimeout(guardianTimeout);
+            guardianTimeout = setTimeout(function() {
+                if (!document.getElementById('ai-nav-toggle') || !document.getElementById('ai-nav-panel')) {
+                    console.log('AI Nav: DOM Guardian detected missing elements, re-injecting...');
+                    ensureElementsExist();
+                }
+            }, 200);
         });
         observer.observe(document.body, { childList: true, subtree: true });
         return observer;
@@ -499,12 +527,16 @@
         });
     }
 
-    // === INITIALIZATION ===
+    // === INITIALIZATION (with duplicate guards) ===
 
-    document.body.appendChild(createToggle());
-    document.body.appendChild(createPanel());
+    if (!document.getElementById('ai-nav-toggle')) {
+        document.body.appendChild(createToggle());
+    }
+    if (!document.getElementById('ai-nav-panel')) {
+        document.body.appendChild(createPanel());
+    }
 
-    // Start the DOM Guardian (critical for Gemini)
+    // Start the DOM Guardian AFTER initial elements are in place
     startDOMGuardian();
 
     // SPA navigation hooks for Gemini
@@ -532,5 +564,5 @@
     // Initial scan after page load
     setTimeout(scanConversation, 2000);
 
-    console.log('AI Conversation Navigator v6.0 loaded for ' + siteTitle + '!');
+    console.log('AI Conversation Navigator v6.1 loaded for ' + siteTitle + '!');
 })();

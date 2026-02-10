@@ -1,6 +1,52 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to this project will be documented in this file. Each entry documents not just what changed, but *why* — the problem, the technical root cause, the approach we chose, and how it resolved the issue.
+
+---
+
+## [6.1] - 2026-02-09
+
+### Problem
+On Linux (NVIDIA DGX Spark, Ubuntu-based), clicking the Navigate button in Firefox caused a second identical button to appear. Both buttons were fully functional — hovering expanded either one, clicking either one toggled the panel — but having two buttons caused state corruption. Clicking the "stationary" duplicate would close the panel normally, but clicking the "correct" button that moved with the panel would sometimes cause all questions to disappear or their labels to shorten from "Question #1" to "Q1". This happened across all four AI platforms (Claude, ChatGPT, Grok, Gemini) but only on Linux Firefox — the exact same script worked perfectly on macOS Firefox.
+
+### Technical Root Cause
+The v6.0 code had a **race condition** between three systems that fire during page load:
+
+1. **Initialization code** at the bottom of the script runs `document.body.appendChild(createToggle())`, which adds the toggle button to the DOM.
+2. **DOM Guardian** — a `MutationObserver` watching `document.body` with `{ childList: true, subtree: true }` — immediately detects this DOM mutation and fires its callback.
+3. **`ensureElementsExist()`** — called by the DOM Guardian's callback — checks `if (!document.getElementById('ai-nav-toggle'))`. If this check runs *during* the `appendChild` call (before the browser has finished attaching the element), it evaluates to `true` and creates a second toggle.
+
+The key difference between operating systems: **macOS Firefox batches MutationObserver callbacks asynchronously**, so by the time the observer fires, both `createToggle()` and `createPanel()` have already been appended and their IDs are queryable. **Linux Firefox fires the observer synchronously during the DOM mutation itself**, so `getElementById` can't find the element that's in the middle of being attached.
+
+A secondary cause: Tampermonkey on Linux Firefox occasionally fires the entire userscript twice during the document lifecycle (related to how Firefox on Linux handles `document-start` vs `document-end` timing), which would create two complete, independent sets of elements with no awareness of each other.
+
+The state corruption (disappearing questions, "Question #1" labels shortening to "Q1") happened because two independent toggle buttons maintained their own click handlers but shared the same `isOpen` state variable and the same panel. Clicking one button would flip `isOpen` and trigger `scanConversation()`, but the other button's state was now out of sync, leading to the panel being "open" according to one button and "closed" according to the other.
+
+### Method Chosen and Why
+We needed to prevent duplication at every possible entry point, since the duplication could come from multiple sources (script double-firing, MutationObserver racing, or both). A single fix wouldn't be sufficient because the script fires twice through *different* code paths. We chose four complementary guards:
+
+1. **Execution guard (`window._aiNavAlreadyLoaded`)** — A flag on the global `window` object, checked at the very top of the IIFE before any code runs. If `true`, the entire script exits immediately. We chose `window` (not a local variable) because each Tampermonkey execution gets its own closure, but they share the same `window`. This catches the "Tampermonkey fires twice" scenario.
+
+2. **Duplicate element cleanup in `ensureElementsExist()`** — Before checking if elements are missing, we first check if *multiple* elements with the same ID exist and remove the extras. This is a safety net — even if a duplicate somehow gets created through a path we didn't anticipate, it gets cleaned up the next time any code path calls `ensureElementsExist()`.
+
+3. **Debounced DOM Guardian (200ms)** — Instead of the MutationObserver callback immediately calling `ensureElementsExist()`, it now sets a 200ms `setTimeout` and clears any previous timeout. This means rapid-fire mutations (like our own initialization appending multiple elements) get batched into a single check after everything settles. 200ms was chosen because it's long enough for initialization to complete but short enough that a genuinely removed element gets re-injected quickly. This directly addresses the race condition — the observer still fires during our `appendChild`, but it just sets a timer instead of immediately checking/injecting.
+
+4. **Guarded initialization** — The `document.body.appendChild(createToggle())` calls at the bottom are now wrapped in `if (!document.getElementById('ai-nav-toggle'))`. This prevents the initialization code itself from creating duplicates if it somehow runs after the DOM Guardian has already created elements. Belt and suspenders.
+
+### How It Fixed Things
+After applying all four guards, the duplicate button is completely eliminated on Linux Firefox. The execution guard catches the most common case (double script firing). The debounced observer prevents the race condition. The guarded initialization and duplicate cleanup serve as safety nets. Together, they ensure exactly one toggle and one panel exist regardless of how many times or in what order the code paths execute.
+
+### What Didn't Work (Red Herrings)
+During debugging, we also observed the ChatGPT button being invisible and Claude showing 0 questions. We spent time investigating these as potential script bugs:
+- **Attempted fix: Broader CSS selectors for Claude** — Added fallback selectors like `[data-testid*="human"]` and filtered `[data-testid*="user"]` queries. Did not help because the original selectors were correct.
+- **Attempted fix: Changed ChatGPT icon from ⏣ to ⬡** — Theorized that the benzene ring character (U+23E3) wasn't rendering on Linux's default fonts. Changed to white hexagon (U+2B21). Did not help because the icon was rendering fine.
+- **Attempted fix: Added scan retry logic** — Created `scanWithRetry()` that would retry up to 5 times at 1.5-second intervals if 0 messages were found on a conversation page. Did not help.
+
+All three issues turned out to be caused by **system resource exhaustion** on the DGX Spark — too many Firefox tabs open, system under memory pressure. Symptoms included keyboard input freezing and pages not rendering correctly. A system reboot resolved all rendering issues without any code changes. We reverted all unnecessary patches to keep the codebase clean.
+
+**Lesson learned:** On resource-constrained systems with many browser tabs open, rule out system-level issues (`free -h`, `htop`) before debugging the script.
+
+---
 
 ## [6.0] - 2026-02-07
 
@@ -16,25 +62,44 @@ All notable changes to this project will be documented in this file.
 ### Design Notes
 The hover-expand design was chosen to balance minimalism with discoverability. The icon-only resting state keeps the button unobtrusive, while the hover expansion ensures users can always confirm what the button does. This design also scales well for potential future feature buttons (Search, Settings, etc.) that could stack alongside Navigate.
 
+---
+
 ## [5.0] - 2026-02-07
 
-### Fixed
-- **Gemini on Chrome: Navigate button unresponsive** — Gemini enforces a Trusted Types Content Security Policy (CSP) that blocks all `innerHTML` assignments. The panel was being created as an empty shell, so clicking the button had nothing to show. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#gemini-navigate-button-does-nothing-chrome-only) for full details.
+### Problem
+On Gemini in Chrome, the Navigate button appeared on screen but clicking it did nothing — the sidebar panel never slid out. The button worked fine on Firefox. It sometimes worked immediately after first installing the script, but broke after a page refresh.
 
-### Changed
-- Replaced all `innerHTML` usage with programmatic DOM creation (`createElement`, `textContent`, `appendChild`) for full Trusted Types compliance
-- Added DOM Guardian (MutationObserver) to detect and re-inject elements if removed by SPA re-rendering
-- Added SPA navigation hooks (`pushState`, `replaceState`, `popstate`) for Gemini route changes
-- Added periodic health check (every 3 seconds) on Gemini to ensure elements survive DOM rebuilds
-- Increased z-index to max (`2147483647`) with `!important` on critical positioning and visibility styles
-- Merged duplicate click handlers on the toggle button into a single unified handler
+### Technical Root Cause
+Gemini enforces a **Trusted Types Content Security Policy (CSP)** on Chrome. This is a browser security feature that blocks all direct `innerHTML` assignments to prevent Cross-Site Scripting (XSS) attacks.
+
+Our script (v4.0) was using `innerHTML` to build the panel contents — the header, refresh button, question list, and empty state message. When the script ran on Gemini in Chrome, every single `innerHTML` assignment was silently blocked by the CSP. The result: the panel `<div>` was created and appended to the DOM, but it was completely empty inside. The toggle button would technically slide open an empty, zero-height, invisible panel — making it look like the button was completely broken.
+
+DevTools Console showed: `TypeError: Failed to set the 'innerHTML' property on 'Element': This document requires 'TrustedHTML' assignment.`
+
+This only affected Chrome because Firefox does not enforce Trusted Types CSP the same way.
+
+A secondary problem was that Gemini is built on Angular and aggressively re-renders its DOM. Even when elements were successfully injected, Angular's change detection cycle could silently remove them. The button and panel would simply vanish without any error message, making the issue intermittent and hard to diagnose.
+
+### Method Chosen and Why
+**For the Trusted Types issue:** We replaced every instance of `innerHTML` with **programmatic DOM creation** using `document.createElement()`, `.textContent`, and `.appendChild()`. This approach is inherently Trusted Types compliant because you never assign raw HTML strings — you're building the DOM tree element by element. We created a reusable helper function `createElement(tag, attrs, children)` to keep the code readable despite the more verbose syntax.
+
+**For Gemini's DOM re-rendering:** We added three defensive systems:
+- **DOM Guardian** (MutationObserver) — continuously watches `document.body` and re-injects elements if Gemini removes them. This catches Angular's silent element removal.
+- **SPA navigation hooks** — intercepts `history.pushState` and `history.replaceState` so elements survive when switching conversations (which Gemini handles as SPA route changes, not full page loads).
+- **Periodic health check** — a `setInterval` running every 3 seconds on Gemini only, verifying elements are still in the DOM as a last line of defense.
+
+We also merged two separate `addEventListener('click', ...)` handlers on the toggle button into a single unified handler (`handleToggleClick`), eliminating a potential race condition where both handlers could fire independently.
+
+### How It Fixed Things
+After replacing all `innerHTML` with programmatic DOM creation, the panel builds correctly on Gemini Chrome because no Trusted Types violation occurs. The three defensive systems ensure elements survive Gemini's aggressive re-rendering. The fix is backward-compatible — programmatic DOM creation works identically on all browsers, so no platform-specific code branching was needed.
+
+---
 
 ## [4.0] - 2026-02-05
 
 ### Added
-- Gemini (gemini.google.com) support with blue theme (`#4285f4` — Gemini's brand blue)
+- Gemini (gemini.google.com) support with blue theme
 - Platform-specific color themes for all four AI assistants
-- Fallback selectors for Gemini (`div.query-text` → `.query-text-line` → `p.query-text-line`)
 
 ### Supported Platforms
 - Claude (Orange)
@@ -42,24 +107,7 @@ The hover-expand design was chosen to balance minimalism with discoverability. T
 - Grok (Red)
 - Gemini (Blue)
 
-### Development Notes — Gemini Challenges
-Adding Gemini was the most complex platform integration. Key challenges we worked through:
-
-1. **Custom web components** — Initial web research suggested Gemini used custom elements like `<chat-window>`, `<model-response>`, and `<code-block>` instead of regular HTML divs. Existing userscripts referenced selectors like `chat-window infinite-scroller` and `#chat-history`, but these turned out to be outdated or incorrect.
-
-2. **Bundled user queries** — Unlike Claude/ChatGPT/Grok where user messages have clear, separate DOM elements, early research indicated Gemini might bundle user queries inside `<model-response>` elements alongside the AI's response. This would have required a completely different extraction approach.
-
-3. **Obfuscated Angular classes** — Gemini is built on Angular, which adds dynamically-generated attributes like `_ngcontent-ng-c2926687459` to elements. These change between sessions and can't be used as reliable selectors.
-
-4. **Finding the real selector** — The breakthrough came from manually inspecting the DOM using browser DevTools (right-click message → Inspect). This revealed the actual structure was simpler than expected:
-   ```html
-   <div class="query-text gds-body-l query-text-animated">
-       <p class="query-text-line ng-star-inserted">message text</p>
-   </div>
-   ```
-   The stable selector turned out to be `div.query-text` — the Angular-specific attributes were ignorable.
-
-5. **Lesson learned** — Web research and existing scripts can be outdated. The most reliable approach is always to manually inspect the live DOM with DevTools to find current selectors.
+---
 
 ## [3.0] - 2026-02-05
 
@@ -67,12 +115,16 @@ Adding Gemini was the most complex platform integration. Key challenges we worke
 - Grok (grok.com) support with red theme
 - Updated color scheme: ChatGPT changed from green to white/grayscale
 
+---
+
 ## [2.0] - 2026-02-05
 
 ### Added
 - ChatGPT (chatgpt.com, chat.openai.com) support
 - Site detection to apply different selectors per platform
 - Platform-specific accent colors (Orange for Claude, Green for ChatGPT)
+
+---
 
 ## [1.0] - 2026-02-05
 
