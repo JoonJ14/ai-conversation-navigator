@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [6.2] - 2026-02-12
+
+### Problem
+Opening the Navigate sidebar on **Claude Code** (`claude.ai/code`) showed the sidebar correctly (since the hostname is still `claude.ai`) but detected **0 questions** — no user messages appeared in the navigation list.
+
+### Technical Root Cause
+Claude Code uses a completely different DOM structure from Claude Chat. The existing selectors for Claude relied on `data-testid` attributes (`user-human-turn`, `user-message`) and the `.font-user-message` class — **none of which exist in Claude Code's DOM**.
+
+In Claude Code, the conversation uses a Tailwind CSS-based layout where:
+- Each turn is wrapped in a `div.pb-4` container
+- **User messages** are right-aligned via `div.flex.flex-col.items-end.ml-auto`
+- The message bubble uses `div.bg-bg-200.rounded-lg`
+- Text content sits inside nested `<p>` tags
+- There are no `data-testid` attributes anywhere in the DOM
+
+### Method Chosen and Why
+Added a **fallback selector chain** in `getUserMessages()` that activates only when the existing Claude Chat selectors find nothing:
+
+```javascript
+const bubbles = document.querySelectorAll('div.bg-bg-200.rounded-lg');
+messages = Array.from(bubbles).filter(function(bubble) {
+    return bubble.closest('.items-end');
+});
+```
+
+This approach:
+1. **Selects message bubbles** (`bg-bg-200.rounded-lg`) — the visible rounded containers that hold message text
+2. **Filters for user messages only** by checking if the bubble is inside a right-aligned container (`.items-end`) — assistant messages are left-aligned and won't match
+3. **Works well with existing scroll/highlight logic** — the bubble element is ideal for both `scrollIntoView()` and the background color highlight animation since it's the visually prominent container
+4. **Non-breaking** — only activates as a last fallback after all Claude Chat selectors fail, so Claude Chat continues to work unchanged
+
+---
+
 ## [6.1] - 2026-02-09
 
 ### Problem

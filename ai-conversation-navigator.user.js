@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v6.1
+// @name         AI Conversation Navigator v6.2
 // @namespace    http://tampermonkey.net/
-// @version      6.1
+// @version      6.2
 // @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Grok, and Gemini
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -462,9 +462,19 @@
         let messages = [];
 
         if (currentSite === SITE.CLAUDE) {
+            // Claude Chat selectors
             messages = document.querySelectorAll('[data-testid="user-human-turn"]');
             if (messages.length === 0) messages = document.querySelectorAll('[data-testid="user-message"]');
             if (messages.length === 0) messages = document.querySelectorAll('.font-user-message');
+
+            // Claude Code fallback: no data-testid attributes exist; user messages
+            // are right-aligned (items-end + ml-auto) with bg-bg-200 bubbles.
+            if (messages.length === 0) {
+                const bubbles = document.querySelectorAll('div.bg-bg-200.rounded-lg');
+                messages = Array.from(bubbles).filter(function(bubble) {
+                    return bubble.closest('.items-end');
+                });
+            }
         }
         else if (currentSite === SITE.CHATGPT) {
             const allMessages = document.querySelectorAll('[data-message-author-role]');
