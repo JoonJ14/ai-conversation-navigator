@@ -4,6 +4,76 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [6.3] - 2026-02-12
+
+### Problem
+On **Firefox + Linux only**, the Gemini site displayed **"You said"** prepended to every question summary in the navigation panel (e.g. "You said what is vertex ai?" instead of "what is vertex ai?"). This did not reproduce on macOS Firefox with the identical script and identical Gemini conversations.
+
+### Technical Root Cause
+Gemini includes a visually-hidden accessibility element (e.g. `<span class="sr-only">You said</span>`) inside each user message container for screen readers. When extracting text via `textContent`, this hidden text is included in the string — `textContent` returns **all** text within an element, including text from elements hidden via CSS.
+
+On Mac, Gemini may serve slightly different HTML based on user-agent detection, or the selector may land on a child element that excludes the accessibility span. On Firefox/Linux, the selected element captures the full container including the hidden prefix.
+
+### First Attempt — Failed
+Added a `text.replace(/^You said\s*/i, '')` regex strip in `scanConversation()` right after extracting `textContent`:
+
+```javascript
+let text = msg.textContent || msg.innerText || '';
+text = text.replace(/^You said\s*/i, '');
+```
+
+**Why it failed:** The `^` anchor in the regex matches only the very start of the string. But `textContent` on a DOM element with nested children returns the raw text of the entire subtree, **including whitespace and newlines from HTML indentation**. The actual string looked something like `"\n    You said i already updated..."` — the leading whitespace meant "You said" wasn't at position 0, so `^You said` never matched. The regex was correct in logic but wrong in assumption about the input format.
+
+**Tested:** Restarted Firefox, refreshed Gemini — "You said" still appeared on every question. Confirmed the fix did not work.
+
+### Second Attempt — Success
+Added `.trim()` to the text extraction **before** applying the regex:
+
+```javascript
+let text = (msg.textContent || msg.innerText || '').trim();
+text = text.replace(/^You said\s*/i, '');
+```
+
+**Why this works:** `.trim()` strips all leading and trailing whitespace (including `\n`, `\t`, spaces) from the raw `textContent` output. After trimming, the string starts directly with "You said", and the `^`-anchored regex now matches correctly. The trim is harmless for all other platforms — user message text never has meaningful leading/trailing whitespace.
+
+### Result
+After the second fix, question summaries on Gemini display clean text without the "You said" accessibility prefix. Confirmed working on Firefox/Linux after a full browser restart. The fix is a no-op on other platforms where the prefix doesn't exist.
+
+---
+
+## [6.2] - 2026-02-12
+
+### Problem
+Opening the Navigate sidebar on **Claude Code** (`claude.ai/code`) showed the sidebar correctly (since the hostname is still `claude.ai`) but detected **0 questions** — no user messages appeared in the navigation list.
+
+### Technical Root Cause
+Claude Code uses a completely different DOM structure from Claude Chat. The existing selectors for Claude relied on `data-testid` attributes (`user-human-turn`, `user-message`) and the `.font-user-message` class — **none of which exist in Claude Code's DOM**.
+
+In Claude Code, the conversation uses a Tailwind CSS-based layout where:
+- Each turn is wrapped in a `div.pb-4` container
+- **User messages** are right-aligned via `div.flex.flex-col.items-end.ml-auto`
+- The message bubble uses `div.bg-bg-200.rounded-lg`
+- Text content sits inside nested `<p>` tags
+- There are no `data-testid` attributes anywhere in the DOM
+
+### Method Chosen and Why
+Added a **fallback selector chain** in `getUserMessages()` that activates only when the existing Claude Chat selectors find nothing:
+
+```javascript
+const bubbles = document.querySelectorAll('div.bg-bg-200.rounded-lg');
+messages = Array.from(bubbles).filter(function(bubble) {
+    return bubble.closest('.items-end');
+});
+```
+
+This approach:
+1. **Selects message bubbles** (`bg-bg-200.rounded-lg`) — the visible rounded containers that hold message text
+2. **Filters for user messages only** by checking if the bubble is inside a right-aligned container (`.items-end`) — assistant messages are left-aligned and won't match
+3. **Works well with existing scroll/highlight logic** — the bubble element is ideal for both `scrollIntoView()` and the background color highlight animation since it's the visually prominent container
+4. **Non-breaking** — only activates as a last fallback after all Claude Chat selectors fail, so Claude Chat continues to work unchanged
+
+---
+
 ## [6.1] - 2026-02-09
 
 ### Problem
