@@ -95,7 +95,105 @@ Rule out system-level issues before debugging the script.
 
 ---
 
+## Claude Code
+
+### 0 questions detected on Claude Code (`claude.ai/code`)
+
+**Versions affected:** v6.1 and earlier
+**Fixed in:** v6.2
+**Browser:** All browsers
+**Platform:** All platforms
+
+#### What It Looked Like
+Opening the Navigate sidebar on Claude Code (`claude.ai/code`) showed the sidebar correctly — it appeared, themed in orange, with the Claude icon — but the question list was empty, showing "0 questions found". The sidebar worked perfectly on regular Claude Chat (`claude.ai/chat`), even in the same browser session.
+
+#### Why It Was Happening
+The extension detects Claude by checking if the hostname includes `claude.ai`, which matches both Claude Chat and Claude Code. However, the two products use **completely different DOM structures**.
+
+Claude Chat uses semantic `data-testid` attributes on its message elements:
+- `[data-testid="user-human-turn"]`
+- `[data-testid="user-message"]`
+- `.font-user-message`
+
+Claude Code uses **none** of these. Its conversation is built with a Tailwind CSS-based layout:
+- Each turn is wrapped in a `div.pb-4` container
+- User messages are right-aligned via `div.flex.flex-col.items-end.ml-auto`
+- The message bubble is a `div.bg-bg-200.rounded-lg`
+- Text sits inside nested `<p>` tags
+- There are zero `data-testid` attributes anywhere in the DOM
+
+Since the extension tried all three Claude Chat selectors, found nothing, and had no further fallback, it reported 0 questions.
+
+#### What We Did to Fix It and Why
+Added a **fallback selector chain** in `getUserMessages()` that only activates when all Claude Chat selectors find nothing:
+
+```javascript
+if (messages.length === 0) {
+    const bubbles = document.querySelectorAll('div.bg-bg-200.rounded-lg');
+    messages = Array.from(bubbles).filter(function(bubble) {
+        return bubble.closest('.items-end');
+    });
+}
+```
+
+This approach:
+1. **Selects message bubbles** (`bg-bg-200.rounded-lg`) — the visible rounded containers holding message text
+2. **Filters for user messages only** by checking if the bubble is inside a right-aligned container (`.items-end`) — assistant messages are left-aligned and won't match
+3. **Non-breaking** — only runs as a last fallback, so Claude Chat continues to work unchanged
+4. **Good scroll target** — the bubble element works well with `scrollIntoView()` and the highlight animation
+
+#### How It Resolved Things
+After the fix, Claude Code conversations show all user messages in the navigation panel, with correct summaries and click-to-scroll functionality. Claude Chat remains unaffected because its selectors match before the fallback is reached.
+
+#### Important Note: Firefox Crash False Positive
+During testing on Firefox/Linux, the fix initially appeared not to work — questions still showed 0 after refreshing the page. After Firefox crashed and was restarted, the questions appeared correctly. This was the same pattern observed during v6.1 debugging: when Firefox is about to crash (memory pressure, degraded process state), content scripts fail silently — DOM queries return empty results even though elements exist in the DOM. Refreshing doesn't help because the browser process itself is degraded. After a clean restart, everything works. If you see 0 questions on Claude Code despite having the correct version, check if Firefox is behaving sluggishly and consider restarting it.
+
+---
+
 ## Gemini
+
+### "You said" prefix on every question (Firefox + Linux only)
+
+**Versions affected:** v6.2
+**Fixed in:** v6.3
+**OS:** Linux (tested on NVIDIA DGX Spark, Ubuntu-based)
+**Browser:** Firefox
+**Not reproducible on:** macOS Firefox with the identical script
+
+#### What It Looked Like
+Every question in the navigation panel started with "You said" — for example, "You said what is vertex ai?" instead of "what is vertex ai?". This happened on every single question in the panel, making the summaries harder to read. The issue only appeared on Firefox running on Linux; the identical script on macOS Firefox showed clean question text.
+
+#### Why It Was Happening
+Gemini includes a visually-hidden accessibility element (e.g. `<span class="sr-only">You said</span>`) inside each user message container. This span is hidden via CSS (`position: absolute; width: 1px; height: 1px; overflow: hidden` or similar screen-reader-only styling) so sighted users never see it. However, `textContent` — the property our script uses to extract message text — returns **all** text within an element's subtree, including text from visually-hidden children.
+
+On macOS, Gemini may serve slightly different HTML based on user-agent detection, or the CSS selector may land on a child element that doesn't include the accessibility span. On Firefox/Linux, the selected element captures the full container including the hidden prefix.
+
+#### First Fix Attempt — Failed
+Added a regex strip after text extraction:
+
+```javascript
+let text = msg.textContent || msg.innerText || '';
+text = text.replace(/^You said\s*/i, '');
+```
+
+**Why it didn't work:** The `^` regex anchor matches only the very start of the string. But `textContent` from a DOM element with nested children includes whitespace and newlines from HTML indentation. The actual extracted string was something like `"\n    You said i already updated..."`. Because of the leading whitespace, "You said" wasn't at position 0, so the regex never matched.
+
+**Tested:** Restarted Firefox, refreshed Gemini — "You said" still appeared on every question.
+
+#### Second Fix Attempt — Success
+Added `.trim()` before applying the regex:
+
+```javascript
+let text = (msg.textContent || msg.innerText || '').trim();
+text = text.replace(/^You said\s*/i, '');
+```
+
+**Why this works:** `.trim()` strips all leading and trailing whitespace (spaces, `\n`, `\t`) from the raw `textContent`. After trimming, the string begins directly with "You said", so the `^`-anchored regex matches and removes it. The trim is harmless on all platforms — user message text never has meaningful leading/trailing whitespace.
+
+#### How It Resolved Things
+After the second fix, question summaries on Gemini display clean text without the "You said" prefix. Confirmed working on Firefox/Linux after a full browser restart. The fix is a no-op on other platforms and browsers where the prefix doesn't exist.
+
+---
 
 ### Navigate button does nothing (Chrome only)
 
@@ -169,12 +267,13 @@ document.querySelectorAll('[data-testid]').forEach(el => console.log(el.getAttri
 ```
 
 **Current selectors by platform:**
-| Platform | Primary Selector |
-|----------|-----------------|
-| Claude | `[data-testid="user-human-turn"]` |
-| ChatGPT | `[data-message-author-role="user"]` |
-| Grok | `div.message-bubble` |
-| Gemini | `div.query-text` |
+| Platform | Primary Selector | Fallbacks |
+|----------|-----------------|-----------|
+| Claude Chat | `[data-testid="user-human-turn"]` | `[data-testid="user-message"]`, `.font-user-message` |
+| Claude Code | `div.bg-bg-200.rounded-lg` filtered by `.items-end` parent | (activates only when all Claude Chat selectors fail) |
+| ChatGPT | `[data-message-author-role="user"]` | — |
+| Grok | `div.message-bubble` filtered by user/human class | `[data-role="user"]`, `[class*="user-message"]` |
+| Gemini | `div.query-text` | `.query-text-line`, `p.query-text-line`, `[data-query-text]`, `.user-query` |
 
 ---
 

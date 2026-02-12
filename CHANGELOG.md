@@ -7,23 +7,37 @@ All notable changes to this project will be documented in this file. Each entry 
 ## [6.3] - 2026-02-12
 
 ### Problem
-On **Firefox + Linux only**, the Gemini site displayed **"You said"** prepended to every question summary in the navigation panel (e.g. "You said what is vertex ai?" instead of "what is vertex ai?"). This did not reproduce on Mac.
+On **Firefox + Linux only**, the Gemini site displayed **"You said"** prepended to every question summary in the navigation panel (e.g. "You said what is vertex ai?" instead of "what is vertex ai?"). This did not reproduce on macOS Firefox with the identical script and identical Gemini conversations.
 
 ### Technical Root Cause
 Gemini includes a visually-hidden accessibility element (e.g. `<span class="sr-only">You said</span>`) inside each user message container for screen readers. When extracting text via `textContent`, this hidden text is included in the string — `textContent` returns **all** text within an element, including text from elements hidden via CSS.
 
 On Mac, Gemini may serve slightly different HTML based on user-agent detection, or the selector may land on a child element that excludes the accessibility span. On Firefox/Linux, the selected element captures the full container including the hidden prefix.
 
-### Method Chosen and Why
-Added a targeted `text.replace(/^You said\s*/i, '')` strip in `scanConversation()` immediately after extracting `textContent`. This approach:
+### First Attempt — Failed
+Added a `text.replace(/^You said\s*/i, '')` regex strip in `scanConversation()` right after extracting `textContent`:
 
-- **Fixes the visible bug** without changing which DOM elements are selected
-- **Is narrowly scoped** — only strips the exact prefix, not arbitrary substrings
-- **Is case-insensitive** — handles potential variations like "you said" vs "You said"
-- **Is harmless on other platforms** — if the prefix isn't present, the regex is a no-op
+```javascript
+let text = msg.textContent || msg.innerText || '';
+text = text.replace(/^You said\s*/i, '');
+```
+
+**Why it failed:** The `^` anchor in the regex matches only the very start of the string. But `textContent` on a DOM element with nested children returns the raw text of the entire subtree, **including whitespace and newlines from HTML indentation**. The actual string looked something like `"\n    You said i already updated..."` — the leading whitespace meant "You said" wasn't at position 0, so `^You said` never matched. The regex was correct in logic but wrong in assumption about the input format.
+
+**Tested:** Restarted Firefox, refreshed Gemini — "You said" still appeared on every question. Confirmed the fix did not work.
+
+### Second Attempt — Success
+Added `.trim()` to the text extraction **before** applying the regex:
+
+```javascript
+let text = (msg.textContent || msg.innerText || '').trim();
+text = text.replace(/^You said\s*/i, '');
+```
+
+**Why this works:** `.trim()` strips all leading and trailing whitespace (including `\n`, `\t`, spaces) from the raw `textContent` output. After trimming, the string starts directly with "You said", and the `^`-anchored regex now matches correctly. The trim is harmless for all other platforms — user message text never has meaningful leading/trailing whitespace.
 
 ### Result
-Question summaries on Gemini now display clean text without the "You said" accessibility prefix, consistent across all OS/browser combinations.
+After the second fix, question summaries on Gemini display clean text without the "You said" accessibility prefix. Confirmed working on Firefox/Linux after a full browser restart. The fix is a no-op on other platforms where the prefix doesn't exist.
 
 ---
 
