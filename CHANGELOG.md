@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [6.3] - 2026-02-12
+
+### Problem
+On **Firefox + Linux only**, the Gemini site displayed **"You said"** prepended to every question summary in the navigation panel (e.g. "You said what is vertex ai?" instead of "what is vertex ai?"). This did not reproduce on Mac.
+
+### Technical Root Cause
+Gemini includes a visually-hidden accessibility element (e.g. `<span class="sr-only">You said</span>`) inside each user message container for screen readers. When extracting text via `textContent`, this hidden text is included in the string — `textContent` returns **all** text within an element, including text from elements hidden via CSS.
+
+On Mac, Gemini may serve slightly different HTML based on user-agent detection, or the selector may land on a child element that excludes the accessibility span. On Firefox/Linux, the selected element captures the full container including the hidden prefix.
+
+### Method Chosen and Why
+Added a targeted `text.replace(/^You said\s*/i, '')` strip in `scanConversation()` immediately after extracting `textContent`. This approach:
+
+- **Fixes the visible bug** without changing which DOM elements are selected
+- **Is narrowly scoped** — only strips the exact prefix, not arbitrary substrings
+- **Is case-insensitive** — handles potential variations like "you said" vs "You said"
+- **Is harmless on other platforms** — if the prefix isn't present, the regex is a no-op
+
+### Result
+Question summaries on Gemini now display clean text without the "You said" accessibility prefix, consistent across all OS/browser combinations.
+
+---
+
 ## [6.2] - 2026-02-12
 
 ### Problem

@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v6.2
+// @name         AI Conversation Navigator v6.3
 // @namespace    http://tampermonkey.net/
-// @version      6.2
+// @version      6.3
 // @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Grok, and Gemini
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -531,7 +531,9 @@
         stats.textContent = messages.length + ' question' + (messages.length !== 1 ? 's' : '') + ' found';
 
         messages.forEach(function(msg, index) {
-            const text = msg.textContent || msg.innerText || '';
+            let text = msg.textContent || msg.innerText || '';
+            // Strip accessibility prefixes (e.g. Gemini adds "You said" for screen readers)
+            text = text.replace(/^You said\s*/i, '');
             if (!text.trim()) return;
             list.appendChild(createNavItem(msg, index, text));
         });
