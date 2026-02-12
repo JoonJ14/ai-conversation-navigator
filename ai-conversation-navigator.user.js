@@ -531,7 +531,7 @@
         stats.textContent = messages.length + ' question' + (messages.length !== 1 ? 's' : '') + ' found';
 
         messages.forEach(function(msg, index) {
-            let text = msg.textContent || msg.innerText || '';
+            let text = (msg.textContent || msg.innerText || '').trim();
             // Strip accessibility prefixes (e.g. Gemini adds "You said" for screen readers)
             text = text.replace(/^You said\s*/i, '');
             if (!text.trim()) return;
