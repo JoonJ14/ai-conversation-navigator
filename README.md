@@ -23,6 +23,12 @@ But until then, I'll just keep making, building, and improving this project. Sta
 
 > **Note on icons:** Each platform's button uses a common Unicode symbol that *evokes* the platform's branding rather than the actual company logo. This avoids any trademark or copyright concerns. See [Icon Choices](#icon-choices) for details.
 
+## Supported Web Browsers
+
+Chrome, Firefox
+
+Safari, Edge support coming soon... just need to fix some bugs. Everytime I create support for another browser or feature, it seems like there's small design errors or bugs. Even if it's exactly same code and same browser, switching hardware devices like Mac to Linux also brings in weird small errors. Just want to test them out fully before deplying them out fully.
+
 ## Features
 
 - **🔍 Hover-Expand Button** — Compact icon on the screen edge, smoothly reveals "Navigate" label on hover
@@ -41,7 +47,6 @@ Install a userscript manager for your browser:
 
 - **Chrome/Edge**: [Tampermonkey](https://www.tampermonkey.net/)
 - **Firefox**: [Tampermonkey](https://www.tampermonkey.net/) or [Greasemonkey](https://www.greasespot.net/)
-- **Safari**: [Userscripts](https://apps.apple.com/us/app/userscripts/id1463298887)
 
 ### Chrome Users: Important Setup
 
