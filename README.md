@@ -25,9 +25,9 @@ But until then, I'll just keep making, building, and improving this project. Sta
 
 ## Supported Web Browsers
 
-Chrome, Firefox
+Chrome, Firefox, Safari
 
-Safari, Edge support coming soon... just need to fix some bugs. Everytime I create support for another browser or feature, it seems like there's small design errors or bugs. Even if it's exactly same code and same browser, switching hardware devices like Mac to Linux also brings in weird small errors. Just want to test them out fully before deplying them out fully.
+Edge support coming soon... just need to fix some bugs. Everytime I create support for another browser or feature, it seems like there's small design errors or bugs. Even if it's exactly same code and same browser, switching hardware devices like Mac to Linux also brings in weird small errors. Just want to test them out fully before deploying them out fully.
 
 ## Features
 
@@ -47,6 +47,7 @@ Install a userscript manager for your browser:
 
 - **Chrome/Edge**: [Tampermonkey](https://www.tampermonkey.net/)
 - **Firefox**: [Tampermonkey](https://www.tampermonkey.net/) or [Greasemonkey](https://www.greasespot.net/)
+- **Safari**: [Userscripts](https://apps.apple.com/us/app/userscripts/id1463298887)
 
 ### Chrome Users: Important Setup
 
@@ -66,6 +67,35 @@ Newer versions of Chrome (138 and above) introduced an extra security requiremen
 4. After relaunch, refresh any open AI chat pages
 
 > **Note:** If you don't see the "Allow User Scripts" option, you're likely on an older Chrome version where Developer Mode alone is sufficient. Don't panic — just make sure Developer Mode is on and you should be good to go.
+
+### Safari Users: Permissions Setup
+
+After installing [Userscripts](https://apps.apple.com/us/app/userscripts/id1463298887), Safari will ask which websites the extension can access.
+
+**Recommended: Per-Site Permissions (default)**
+
+Grant access only to the AI chat sites you use:
+
+1. Open Safari → Settings → Extensions → Userscripts
+2. Under "Permissions", set to **"Ask for Each Website"** (this is the default)
+3. Visit each AI site you use ([claude.ai](https://claude.ai), [chatgpt.com](https://chatgpt.com), [grok.com](https://grok.com), [gemini.google.com](https://gemini.google.com))
+4. When Safari asks, click **"Allow for One Day"** or **"Always Allow on This Website"**
+
+This way the extension only has access to the specific sites you approve.
+
+**Alternative: Allow on All Websites**
+
+If you prefer not to approve each site individually, you can set the extension to **"Allow on All Websites"** — and it is still safe. Here's why:
+
+1. **`@match` rules are enforced by the extension** — The script's metadata declares exactly which URLs it should run on (`claude.ai`, `chatgpt.com`, `grok.com`, `gemini.google.com`). Userscripts.app reads these `@match` patterns and *only injects the script on those matching pages*, regardless of the Safari permission level.
+2. **The script itself only activates on recognized sites** — Even if somehow injected elsewhere, the code detects which platform it's on and does nothing if the site isn't one of the four supported platforms.
+3. **No data leaves your browser** — The script is purely local DOM manipulation. It doesn't make network requests, collect data, or communicate with any external server.
+4. **Fully open source** — You can read every line of the script to verify all of the above.
+
+So "Allow on All Websites" effectively behaves the same as per-site permissions for this script. But per-site is still the recommended default because it's good security hygiene for *any* extension.
+
+**Important quirk:** Unlike Tampermonkey, Userscripts.app does not auto-detect external file changes. If you manually edit or update the `.user.js` file outside of Safari, you must **open the Userscripts extension popup once** for the changes to take effect.
+
 ### Install the Script
 
 #### Option 1: Direct Install
@@ -118,6 +148,7 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for platform-specific issues and so
 - **Chrome users:** Enable **Developer Mode** in `chrome://extensions/`
 - **Still not working on Chrome 138+?** You may also need to enable **"Allow User Scripts"** in Tampermonkey's Details page, then **relaunch Chrome**
 - If you don't see the "Allow User Scripts" option, your Chrome version only needs Developer Mode
+- **Safari users:** Make sure you've granted Userscripts permission for the site (see [Safari Users: Permissions Setup](#safari-users-permissions-setup)). If you edited the script file externally, open the Userscripts extension popup once to reload changes.
 - Try hard-refreshing the page (Ctrl+Shift+R / Cmd+Shift+R)
 
 ### Quick Fixes
