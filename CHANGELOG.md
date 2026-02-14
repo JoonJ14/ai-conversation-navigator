@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [6.4] - 2026-02-14
+
+### Problem
+Opening the Navigate sidebar on **Codex web** (`chatgpt.com/codex`) showed the sidebar correctly (since the hostname is still `chatgpt.com`) but detected **0 questions** — no user messages appeared in the navigation list. The sidebar worked perfectly on regular ChatGPT Chat (`chatgpt.com`).
+
+### Technical Root Cause
+Codex web uses a completely different DOM structure from ChatGPT Chat. The existing ChatGPT selector relied on `data-message-author-role` attributes on message elements — **which do not exist in Codex web's DOM**.
+
+Codex web uses a task/thread-based interface where:
+- Each conversation is a **thread** containing multiple **turns**
+- Each turn contains **items** (user message, agent message, tool execution, diffs, etc.)
+- The DOM structure reflects this item-based model rather than ChatGPT's chat message model
+- There are no `data-message-author-role` attributes anywhere in the Codex web DOM
+
+Since the extension tried the ChatGPT Chat selector, found nothing, and had no further fallback, it reported 0 questions.
+
+### Method Chosen and Why
+Added a **fallback selector chain** in `getUserMessages()` that activates only when the existing ChatGPT Chat selector finds nothing — the same pattern used for Claude Code support in v6.2:
+
+```javascript
+// Codex web fallback selectors
+if (messages.length === 0) messages = document.querySelectorAll('[data-role="user"]');
+if (messages.length === 0) messages = document.querySelectorAll('[data-author-role="user"]');
+if (messages.length === 0) messages = document.querySelectorAll('[data-item-role="user"]');
+if (messages.length === 0) { /* class-name-based selectors */ }
+if (messages.length === 0) { /* right-aligned bubble fallback (Tailwind pattern) */ }
+```
+
+This approach:
+1. **Tries multiple data-attribute patterns** commonly used in React-based chat UIs — `data-role`, `data-author-role`, `data-item-role` — since Codex's exact attributes may vary across updates
+2. **Falls back to class-name matching** looking for elements with "user-message" or "UserMessage" in their class names
+3. **Last resort: layout-based detection** using right-aligned containers (`self-end`, `items-end`) similar to how Claude Code's user messages are right-aligned — filters for elements with actual text content to avoid matching empty layout containers
+4. **Non-breaking** — only activates as a last fallback after the ChatGPT Chat selector fails, so regular ChatGPT continues to work unchanged
+5. **No `@match` changes needed** — `chatgpt.com/*` already covers `chatgpt.com/codex`
+
+### Result
+Codex web conversations now have fallback selector support for detecting user messages. The broad fallback chain maximizes compatibility with Codex web's DOM structure. Regular ChatGPT Chat remains unaffected because its selector matches before any fallback is reached.
+
+---
+
 ## [6.3] - 2026-02-12
 
 ### Problem

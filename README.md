@@ -9,7 +9,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-6.0-blue)
+![Version](https://img.shields.io/badge/version-6.4-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -18,6 +18,7 @@ But until then, I'll just keep making, building, and improving this project. Sta
 |----------|------|-------|--------|
 | [Claude](https://claude.ai) | ✳ | 🟠 Orange | ✅ Supported |
 | [ChatGPT](https://chatgpt.com) | ⏣ | ⚪ White | ✅ Supported |
+| [Codex Web](https://chatgpt.com/codex) | ⏣ | ⚪ White | ✅ Supported |
 | [Grok](https://grok.com) | X | 🔴 Red | ✅ Supported |
 | [Gemini](https://gemini.google.com) | ✦ | 🔵 Blue | ✅ Supported |
 
@@ -112,7 +113,7 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 ## Usage
 
 1. Go to any supported AI chat platform
-2. Look for the platform icon (✳, ⏣, X, or ✦) on the right edge of the screen
+2. Look for the platform icon (✳, ⏣, X, or ✦) on the right edge of the screen (Codex web shares ChatGPT's ⏣ icon)
 3. Hover over it to see the "Navigate" label
 4. Click to open the navigation panel
 5. Click any question to jump to that part of the conversation
@@ -125,6 +126,7 @@ The script injects a hover-expand button and sidebar panel into AI chat pages. I
 |----------|----------|
 | Claude | `[data-testid="user-human-turn"]` |
 | ChatGPT | `[data-message-author-role="user"]` |
+| Codex Web | `[data-role="user"]` + fallback chain |
 | Grok | `div.message-bubble` |
 | Gemini | `div.query-text` |
 

@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v6.3
+// @name         AI Conversation Navigator v6.4
 // @namespace    http://tampermonkey.net/
-// @version      6.3
-// @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Grok, and Gemini
+// @version      6.4
+// @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Codex, Grok, and Gemini
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -481,6 +481,31 @@
             messages = Array.from(allMessages).filter(function(msg) {
                 return msg.getAttribute('data-message-author-role') === 'user';
             });
+
+            // Codex web fallback: chatgpt.com/codex uses a task/thread-based interface
+            // with different DOM structure from ChatGPT chat. No data-message-author-role
+            // attributes exist; user prompts are displayed as items within thread turns.
+            if (messages.length === 0) {
+                messages = document.querySelectorAll('[data-role="user"]');
+            }
+            if (messages.length === 0) {
+                messages = document.querySelectorAll('[data-author-role="user"]');
+            }
+            if (messages.length === 0) {
+                messages = document.querySelectorAll('[data-item-role="user"]');
+            }
+            if (messages.length === 0) {
+                var userEls = document.querySelectorAll('[class*="user-message"], [class*="UserMessage"]');
+                if (userEls.length > 0) messages = userEls;
+            }
+            if (messages.length === 0) {
+                // Last resort: right-aligned message bubbles (Tailwind pattern,
+                // similar to Claude Code fallback approach).
+                var bubbles = document.querySelectorAll('div.self-end, div.items-end > div');
+                messages = Array.from(bubbles).filter(function(el) {
+                    return el.textContent && el.textContent.trim().length > 0;
+                });
+            }
         }
         else if (currentSite === SITE.GROK) {
             const allBubbles = document.querySelectorAll('div.message-bubble');
@@ -576,5 +601,5 @@
     // Initial scan after page load
     setTimeout(scanConversation, 2000);
 
-    console.log('AI Conversation Navigator v6.1 loaded for ' + siteTitle + '!');
+    console.log('AI Conversation Navigator v6.4 loaded for ' + siteTitle + '!');
 })();

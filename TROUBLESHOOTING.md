@@ -150,6 +150,42 @@ During testing on Firefox/Linux, the fix initially appeared not to work — ques
 
 ---
 
+## Codex Web
+
+### 0 questions detected on Codex web (`chatgpt.com/codex`)
+
+**Versions affected:** v6.3 and earlier
+**Fixed in:** v6.4
+**Browser:** All browsers
+**Platform:** All platforms
+
+#### What It Looked Like
+Opening the Navigate sidebar on Codex web (`chatgpt.com/codex`) showed the sidebar correctly — it appeared, themed in white/gray, with the ChatGPT icon — but the question list was empty, showing "0 questions found". The sidebar worked perfectly on regular ChatGPT Chat (`chatgpt.com`), even in the same browser session.
+
+#### Why It Was Happening
+The extension detects ChatGPT by checking if the hostname includes `chatgpt.com`, which matches both ChatGPT Chat and Codex web. However, the two products use **completely different DOM structures**.
+
+ChatGPT Chat uses `data-message-author-role` attributes on message elements to identify user vs assistant messages. Codex web uses **none of these**. Its interface is built around a task/thread/item model where each conversation is a thread containing turns, and each turn contains typed items (user message, agent message, tool execution, diffs, etc.). The DOM reflects this item-based structure rather than a traditional chat message layout.
+
+Since the extension tried the ChatGPT Chat selector, found nothing, and had no further fallback, it reported 0 questions.
+
+#### What We Did to Fix It and Why
+Added a **fallback selector chain** in `getUserMessages()` that only activates when the ChatGPT Chat selector finds nothing — the same pattern used for Claude Code support:
+
+1. **Data attribute selectors** — Tries `[data-role="user"]`, `[data-author-role="user"]`, and `[data-item-role="user"]` to cover common React data-attribute patterns
+2. **Class name selectors** — Looks for elements with "user-message" or "UserMessage" in their class names
+3. **Layout-based fallback** — As a last resort, looks for right-aligned message containers (`self-end`, `items-end`) with text content, similar to the Claude Code approach
+
+The chain is ordered from most specific to most general. Each step only runs if all previous steps found nothing.
+
+#### How It Resolved Things
+After the fix, Codex web conversations have fallback selector support for detecting user messages. Regular ChatGPT Chat remains unaffected because its selector matches before the fallback is reached.
+
+#### Important Note: Selector Stability
+Because Codex web is a React-based SPA that may update its DOM structure frequently, the exact selectors that work may change over time. If you see 0 questions on Codex web despite having v6.4+, the DOM structure may have changed. Follow the diagnostic steps in the [General Issues](#messages-not-detected-0-questions-found) section to inspect the current DOM and identify the correct selectors.
+
+---
+
 ## Gemini
 
 ### "You said" prefix on every question (Firefox + Linux only)
@@ -272,6 +308,7 @@ document.querySelectorAll('[data-testid]').forEach(el => console.log(el.getAttri
 | Claude Chat | `[data-testid="user-human-turn"]` | `[data-testid="user-message"]`, `.font-user-message` |
 | Claude Code | `div.bg-bg-200.rounded-lg` filtered by `.items-end` parent | (activates only when all Claude Chat selectors fail) |
 | ChatGPT | `[data-message-author-role="user"]` | — |
+| Codex Web | `[data-role="user"]` | `[data-author-role="user"]`, `[data-item-role="user"]`, class-name matching, right-aligned bubbles (activates only when ChatGPT selector fails) |
 | Grok | `div.message-bubble` filtered by user/human class | `[data-role="user"]`, `[class*="user-message"]` |
 | Gemini | `div.query-text` | `.query-text-line`, `p.query-text-line`, `[data-query-text]`, `.user-query` |
 
