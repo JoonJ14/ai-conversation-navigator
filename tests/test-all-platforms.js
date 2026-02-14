@@ -1,23 +1,76 @@
 /**
  * AI Conversation Navigator — Automated Platform Test Suite
  *
- * Tests every supported platform by:
- *  1. Loading mock HTML into a headless Chromium page via Playwright
+ * Tests every supported platform across multiple browser engines by:
+ *  1. Loading mock HTML into headless browser pages via Playwright
  *  2. Faking window.location.hostname so the userscript detects the right platform
  *  3. Injecting the userscript
  *  4. Verifying: toggle button renders, panel opens, correct message count detected,
  *     theme colors match, icon matches, and navigation items are clickable.
  *
+ * Supported browser engines: chromium, firefox, webkit
+ *
  * Usage:
  *   NODE_PATH=/opt/node22/lib/node_modules node tests/test-all-platforms.js
+ *   NODE_PATH=/opt/node22/lib/node_modules node tests/test-all-platforms.js --browser chromium
+ *   NODE_PATH=/opt/node22/lib/node_modules node tests/test-all-platforms.js --browser chromium,firefox,webkit
  *
  * Or use the convenience script:
  *   ./tests/run-tests.sh
+ *   ./tests/run-tests.sh --browser firefox
+ *   ./tests/run-tests.sh --browser all
  */
 
-const { chromium } = require('playwright');
+const playwright = require('playwright');
 const fs = require('fs');
 const path = require('path');
+
+// ── Browser engine definitions ────────────────────────────────────────────────
+
+const BROWSER_ENGINES = {
+    chromium: {
+        name: 'Chromium',
+        launcher: playwright.chromium,
+        // Chromium-specific launch args for sandboxed/CI environments
+        launchArgs: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-gpu',
+            '--disable-dev-shm-usage',
+            '--single-process',
+        ],
+        // Hardcoded fallback paths for this specific dev environment
+        fallbackPaths: [
+            '/root/.cache/ms-playwright/chromium-1194/chrome-linux/chrome',
+            '/root/.cache/ms-playwright/chromium_headless_shell-1194/chrome-linux/headless_shell',
+        ],
+    },
+    firefox: {
+        name: 'Firefox',
+        launcher: playwright.firefox,
+        launchArgs: [],
+        fallbackPaths: [],
+    },
+    webkit: {
+        name: 'WebKit',
+        launcher: playwright.webkit,
+        launchArgs: [],
+        fallbackPaths: [],
+    },
+};
+
+// Parse --browser flag from CLI args (default: chromium only for local runs)
+function parseBrowserArg() {
+    const idx = process.argv.indexOf('--browser');
+    if (idx === -1) return ['chromium'];
+
+    const val = process.argv[idx + 1];
+    if (!val) return ['chromium'];
+
+    if (val === 'all') return Object.keys(BROWSER_ENGINES);
+
+    return val.split(',').map(b => b.trim().toLowerCase()).filter(b => BROWSER_ENGINES[b]);
+}
 
 // ── Platform definitions (must match the userscript) ──────────────────────────
 
@@ -301,46 +354,59 @@ async function testPlatform(page, platform, scriptContent) {
     return results;
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
+// ── Browser launcher ──────────────────────────────────────────────────────────
 
-async function main() {
-    console.log('');
-    console.log('========================================');
-    console.log(' AI Conversation Navigator — Test Suite');
-    console.log('========================================');
-    console.log('');
+async function launchBrowser(engineKey) {
+    const engine = BROWSER_ENGINES[engineKey];
 
-    // Read userscript
-    const scriptContent = getScriptContent();
+    // Try hardcoded fallback paths first (for local dev environments)
+    let executablePath;
+    for (const p of engine.fallbackPaths) {
+        if (fs.existsSync(p)) {
+            executablePath = p;
+            break;
+        }
+    }
 
-    // Launch browser — single page, reused for all tests (stable on old kernels)
-    const chromiumPath = '/root/.cache/ms-playwright/chromium-1194/chrome-linux/chrome';
-    const headlessShell = '/root/.cache/ms-playwright/chromium_headless_shell-1194/chrome-linux/headless_shell';
-    const execPath = fs.existsSync(chromiumPath) ? chromiumPath : headlessShell;
-
-    const browser = await chromium.launch({
+    const launchOptions = {
         headless: true,
-        executablePath: execPath,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-gpu',
-            '--disable-dev-shm-usage',
-            '--single-process',
-        ],
-    });
+    };
 
-    console.log(`Browser launched: ${execPath.split('/').pop()}`);
+    if (executablePath) {
+        launchOptions.executablePath = executablePath;
+    }
+
+    if (engine.launchArgs.length > 0) {
+        launchOptions.args = engine.launchArgs;
+    }
+
+    return engine.launcher.launch(launchOptions);
+}
+
+// ── Run all platform tests on a single browser engine ─────────────────────────
+
+async function runTestsOnEngine(engineKey, scriptContent) {
+    const engine = BROWSER_ENGINES[engineKey];
+
+    console.log(`  Launching ${engine.name}...`);
+
+    let browser;
+    try {
+        browser = await launchBrowser(engineKey);
+    } catch (err) {
+        console.log(`  SKIP — ${engine.name} not installed (${err.message.split('\n')[0]})`);
+        return { engineName: engine.name, skipped: true, results: [] };
+    }
+
+    console.log(`  ${engine.name} launched successfully`);
+    console.log('');
 
     const context = await browser.newContext();
     const page = await context.newPage();
 
-    console.log('');
-
-    // Run all platform tests sequentially on the same page
     const allResults = [];
     for (const platform of PLATFORMS) {
-        process.stdout.write(`Testing ${platform.name}... `);
+        process.stdout.write(`  Testing ${platform.name}... `);
         const result = await testPlatform(page, platform, scriptContent);
         allResults.push(result);
 
@@ -352,49 +418,97 @@ async function main() {
         }
     }
 
-    // Cleanup
     await context.close();
     await browser.close();
 
-    // ── Print detailed report ─────────────────────────────────────────────
+    return { engineName: engine.name, skipped: false, results: allResults };
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+
+async function main() {
+    const browsers = parseBrowserArg();
+
     console.log('');
+    console.log('========================================');
+    console.log(' AI Conversation Navigator — Test Suite');
+    console.log('========================================');
+    console.log(`  Browsers: ${browsers.map(b => BROWSER_ENGINES[b].name).join(', ')}`);
+    console.log(`  Platform: ${process.platform} (${process.arch})`);
+    console.log('========================================');
+    console.log('');
+
+    const scriptContent = getScriptContent();
+
+    // Run tests on each selected browser engine
+    const engineResults = [];
+    for (const engineKey of browsers) {
+        console.log(`── ${BROWSER_ENGINES[engineKey].name} ${'─'.repeat(38 - BROWSER_ENGINES[engineKey].name.length)}`);
+        const result = await runTestsOnEngine(engineKey, scriptContent);
+        engineResults.push(result);
+        console.log('');
+    }
+
+    // ── Print detailed report ─────────────────────────────────────────────
     console.log('========================================');
     console.log(' DETAILED RESULTS');
     console.log('========================================');
 
-    let totalTests = 0;
-    let totalPassed = 0;
-    let totalFailed = 0;
+    let grandTotalTests = 0;
+    let grandTotalPassed = 0;
+    let grandTotalFailed = 0;
+    let enginesSkipped = 0;
 
-    for (const result of allResults) {
-        const icon = result.passed ? '\u2705' : '\u274C';
+    for (const engineResult of engineResults) {
+        if (engineResult.skipped) {
+            console.log('');
+            console.log(`  ${engineResult.engineName}: SKIPPED (not installed)`);
+            enginesSkipped++;
+            continue;
+        }
+
         console.log('');
-        console.log(`${icon} ${result.name}`);
-        console.log('  ' + '-'.repeat(40));
+        console.log(`  ── ${engineResult.engineName} ──`);
 
-        for (const test of result.tests) {
-            const mark = test.status === 'PASS' ? '\u2713' : '\u2717';
-            console.log(`  ${mark} ${test.testName}: ${test.detail}`);
-            totalTests++;
-            if (test.status === 'PASS') totalPassed++;
-            else totalFailed++;
+        for (const result of engineResult.results) {
+            const icon = result.passed ? '\u2705' : '\u274C';
+            console.log('');
+            console.log(`  ${icon} ${result.name}`);
+            console.log('    ' + '-'.repeat(38));
+
+            for (const test of result.tests) {
+                const mark = test.status === 'PASS' ? '\u2713' : '\u2717';
+                console.log(`    ${mark} ${test.testName}: ${test.detail}`);
+                grandTotalTests++;
+                if (test.status === 'PASS') grandTotalPassed++;
+                else grandTotalFailed++;
+            }
         }
     }
 
     // ── Summary ───────────────────────────────────────────────────────────
-    const platformsPassed = allResults.filter(r => r.passed).length;
-    const platformsFailed = allResults.filter(r => !r.passed).length;
+    const enginesRun = engineResults.filter(e => !e.skipped);
+    const allPlatformResults = enginesRun.flatMap(e => e.results);
+    const platformsPassed = allPlatformResults.filter(r => r.passed).length;
+    const platformsFailed = allPlatformResults.filter(r => !r.passed).length;
 
     console.log('');
     console.log('========================================');
     console.log(' SUMMARY');
     console.log('========================================');
-    console.log(`  Platforms: ${platformsPassed} passed, ${platformsFailed} failed (${allResults.length} total)`);
-    console.log(`  Tests:     ${totalPassed} passed, ${totalFailed} failed (${totalTests} total)`);
+    console.log(`  Engines:   ${enginesRun.length} tested, ${enginesSkipped} skipped (${engineResults.length} total)`);
+    console.log(`  Platforms: ${platformsPassed} passed, ${platformsFailed} failed (${allPlatformResults.length} total)`);
+    console.log(`  Tests:     ${grandTotalPassed} passed, ${grandTotalFailed} failed (${grandTotalTests} total)`);
     console.log('========================================');
     console.log('');
 
-    process.exit(totalFailed > 0 ? 1 : 0);
+    // Fail if any tests failed or if ALL engines were skipped
+    if (grandTotalFailed > 0) process.exit(1);
+    if (enginesRun.length === 0) {
+        console.error('ERROR: No browser engines were available to test.');
+        process.exit(2);
+    }
+    process.exit(0);
 }
 
 main().catch((err) => {
