@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [6.4] - 2026-02-14
+
+### Problem
+Opening the Navigate sidebar on **Codex web** (`chatgpt.com/codex`) showed the sidebar correctly (since the hostname is still `chatgpt.com`) but detected **0 questions** — no user messages appeared in the navigation list. The sidebar worked perfectly on regular ChatGPT Chat (`chatgpt.com`).
+
+### Technical Root Cause
+Codex web uses a completely different DOM structure from ChatGPT Chat. The existing ChatGPT selector relied on `data-message-author-role` attributes on message elements — **which do not exist in Codex web's DOM**.
+
+Codex web uses a task/thread-based interface where:
+- Each conversation is a **thread** containing multiple **turns**
+- Each turn contains **items** (user message, agent message, tool execution, diffs, etc.)
+- The DOM structure reflects this item-based model rather than ChatGPT's chat message model
+- There are no `data-message-author-role` attributes anywhere in the Codex web DOM
+
+Since the extension tried the ChatGPT Chat selector, found nothing, and had no further fallback, it reported 0 questions.
+
+### Method Chosen and Why
+Added a **fallback selector** in `getUserMessages()` that activates only when the existing ChatGPT Chat selector finds nothing — the same pattern used for Claude Code support in v6.2:
+
+```javascript
+if (messages.length === 0) {
+    messages = document.querySelectorAll('div.self-end.bg-token-bg-tertiary');
+}
+```
+
+This approach:
+1. **Selects user message bubbles** (`self-end.bg-token-bg-tertiary`) — Codex web user messages are right-aligned (`self-end` in Tailwind) with a tertiary token background (`bg-token-bg-tertiary`), while agent messages are left-aligned and use a different background
+2. **Good scroll target** — the bubble element works well with both `scrollIntoView()` and the background color highlight animation since it's the visually prominent container
+3. **Non-breaking** — only activates as a fallback after the ChatGPT Chat selector fails, so regular ChatGPT continues to work unchanged
+4. **No `@match` changes needed** — `chatgpt.com/*` already covers `chatgpt.com/codex`
+
+### Result
+Codex web conversations now show all user messages in the navigation panel, with correct summaries and click-to-scroll functionality. Regular ChatGPT Chat remains unaffected because its selector matches before the fallback is reached.
+
+---
+
 ## [6.3] - 2026-02-12
 
 ### Problem

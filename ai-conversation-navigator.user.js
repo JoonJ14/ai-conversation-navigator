@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v6.3
+// @name         AI Conversation Navigator v6.4
 // @namespace    http://tampermonkey.net/
-// @version      6.3
-// @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Grok, and Gemini
+// @version      6.4
+// @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Codex, Grok, and Gemini
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -481,6 +481,14 @@
             messages = Array.from(allMessages).filter(function(msg) {
                 return msg.getAttribute('data-message-author-role') === 'user';
             });
+
+            // Codex web fallback: chatgpt.com/codex uses a task/thread-based interface
+            // with different DOM structure from ChatGPT chat. No data-message-author-role
+            // attributes exist; user messages are right-aligned (self-end) bubbles with
+            // bg-token-bg-tertiary background.
+            if (messages.length === 0) {
+                messages = document.querySelectorAll('div.self-end.bg-token-bg-tertiary');
+            }
         }
         else if (currentSite === SITE.GROK) {
             const allBubbles = document.querySelectorAll('div.message-bubble');
@@ -576,5 +584,5 @@
     // Initial scan after page load
     setTimeout(scanConversation, 2000);
 
-    console.log('AI Conversation Navigator v6.1 loaded for ' + siteTitle + '!');
+    console.log('AI Conversation Navigator v6.4 loaded for ' + siteTitle + '!');
 })();

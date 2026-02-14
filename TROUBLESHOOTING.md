@@ -150,6 +150,47 @@ During testing on Firefox/Linux, the fix initially appeared not to work — ques
 
 ---
 
+## Codex Web
+
+### 0 questions detected on Codex web (`chatgpt.com/codex`)
+
+**Versions affected:** v6.3 and earlier
+**Fixed in:** v6.4
+**Browser:** All browsers
+**Platform:** All platforms
+
+#### What It Looked Like
+Opening the Navigate sidebar on Codex web (`chatgpt.com/codex`) showed the sidebar correctly — it appeared, themed in white/gray, with the ChatGPT icon — but the question list was empty, showing "0 questions found". The sidebar worked perfectly on regular ChatGPT Chat (`chatgpt.com`), even in the same browser session.
+
+#### Why It Was Happening
+The extension detects ChatGPT by checking if the hostname includes `chatgpt.com`, which matches both ChatGPT Chat and Codex web. However, the two products use **completely different DOM structures**.
+
+ChatGPT Chat uses `data-message-author-role` attributes on message elements to identify user vs assistant messages. Codex web uses **none of these**. Its interface is built around a task/thread/item model where each conversation is a thread containing turns, and each turn contains typed items (user message, agent message, tool execution, diffs, etc.). The DOM reflects this item-based structure rather than a traditional chat message layout.
+
+Since the extension tried the ChatGPT Chat selector, found nothing, and had no further fallback, it reported 0 questions.
+
+#### What We Did to Fix It and Why
+Added a **fallback selector** in `getUserMessages()` that only activates when the ChatGPT Chat selector finds nothing — the same pattern used for Claude Code support:
+
+```javascript
+if (messages.length === 0) {
+    messages = document.querySelectorAll('div.self-end.bg-token-bg-tertiary');
+}
+```
+
+This approach:
+1. **Selects user message bubbles** (`self-end.bg-token-bg-tertiary`) — user messages in Codex web are right-aligned (`self-end`) with a tertiary token background, while agent messages are left-aligned and use a different background
+2. **Good scroll target** — the bubble element works well with `scrollIntoView()` and the highlight animation
+3. **Non-breaking** — only runs when the ChatGPT Chat selector finds nothing
+
+#### How It Resolved Things
+After the fix, Codex web conversations have fallback selector support for detecting user messages. Regular ChatGPT Chat remains unaffected because its selector matches before the fallback is reached.
+
+#### Important Note: Selector Stability
+Because Codex web is a React-based SPA that may update its DOM structure frequently, the exact selectors that work may change over time. If you see 0 questions on Codex web despite having v6.4+, the DOM structure may have changed. Follow the diagnostic steps in the [General Issues](#messages-not-detected-0-questions-found) section to inspect the current DOM and identify the correct selectors.
+
+---
+
 ## Gemini
 
 ### "You said" prefix on every question (Firefox + Linux only)
@@ -272,6 +313,7 @@ document.querySelectorAll('[data-testid]').forEach(el => console.log(el.getAttri
 | Claude Chat | `[data-testid="user-human-turn"]` | `[data-testid="user-message"]`, `.font-user-message` |
 | Claude Code | `div.bg-bg-200.rounded-lg` filtered by `.items-end` parent | (activates only when all Claude Chat selectors fail) |
 | ChatGPT | `[data-message-author-role="user"]` | — |
+| Codex Web | `div.self-end.bg-token-bg-tertiary` | (activates only when ChatGPT selector fails) |
 | Grok | `div.message-bubble` filtered by user/human class | `[data-role="user"]`, `[class*="user-message"]` |
 | Gemini | `div.query-text` | `.query-text-line`, `p.query-text-line`, `[data-query-text]`, `.user-query` |
 

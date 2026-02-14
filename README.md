@@ -9,10 +9,12 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-6.0-blue)
+![Version](https://img.shields.io/badge/version-6.4-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
+
+### AI Chatbots
 
 | Platform | Icon | Color | Status |
 |----------|------|-------|--------|
@@ -20,6 +22,15 @@ But until then, I'll just keep making, building, and improving this project. Sta
 | [ChatGPT](https://chatgpt.com) | ⏣ | ⚪ White | ✅ Supported |
 | [Grok](https://grok.com) | X | 🔴 Red | ✅ Supported |
 | [Gemini](https://gemini.google.com) | ✦ | 🔵 Blue | ✅ Supported |
+
+### Coding Agents (Web)
+
+| Platform | Icon | Color | Status |
+|----------|------|-------|--------|
+| [Claude Code](https://claude.ai/code) | ✳ | 🟠 Orange | ✅ Supported |
+| [Codex](https://chatgpt.com/codex) | ⏣ | ⚪ White | ✅ Supported |
+
+I use those coding agents mostly in terminal CLI, and I find them incredibly effective there too. Or inside the terminal of VS fork IDEs, like Cursor or Antigravity. Claude code on web is only a research preview, and codex even has a separate app for mac OS. However, I do think web version also has its merits and I do use them too, so I thought I'd add support on anyway.
 
 > **Note on icons:** Each platform's button uses a common Unicode symbol that *evokes* the platform's branding rather than the actual company logo. This avoids any trademark or copyright concerns. See [Icon Choices](#icon-choices) for details.
 
@@ -39,38 +50,51 @@ Chrome, Firefox, Safari, Edge
 
 ## Installation
 
-### Prerequisites
+### Step 1: Install a Userscript Manager
 
-Install a userscript manager for your browser:
+Install one of these extensions for your browser:
 
 - **Chrome/Edge**: [Tampermonkey](https://www.tampermonkey.net/)
 - **Firefox**: [Tampermonkey](https://www.tampermonkey.net/) or [Greasemonkey](https://www.greasespot.net/)
 - **Safari**: [Userscripts](https://apps.apple.com/us/app/userscripts/id1463298887)
 
-### Chrome Users: Important Setup
+### Step 2: Browser-Specific Setup
+
+Some browsers need extra configuration before userscripts will work. **Find your browser below**, follow those steps, then move on to [Step 3](#step-3-install-the-script).
+
+> **Firefox users:** No extra setup needed — skip straight to [Step 3](#step-3-install-the-script).
+
+<details>
+<summary><strong>Chrome</strong></summary>
 
 Chrome requires **Developer Mode** enabled for Tampermonkey to run userscripts:
 
-1. Go to `chrome://extensions/` or press puzzle button rigth next to URL slot
+1. Go to `chrome://extensions/` or press the puzzle button right next to the URL bar
 2. Toggle **"Developer mode"** ON (top-right corner)
 3. Find **Tampermonkey** → click **Details**
 4. Scroll down and toggle **"Allow User Scripts"** ON
 5. Click **"Relaunch"** when Chrome prompts you or refresh — changes won't take effect without this
 6. After relaunch, refresh any open AI chat pages
 
-### Edge Users: Important Setup
+</details>
+
+<details>
+<summary><strong>Edge</strong></summary>
 
 Edge is built on the same engine as Chrome, so the setup is very similar — but the URLs are different.
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) from the Edge Add-ons store
-2. Go to `edge://extensions/`or press puzzle button right next to the URL slot
+2. Go to `edge://extensions/` or press the puzzle button right next to the URL bar
 3. Toggle **"Developer mode"** ON (mid-left side of the screen)
 4. Find **Tampermonkey** → click **Details**
 5. Scroll down and toggle **"Allow User Scripts"** ON
 6. Click **"Relaunch"** when Edge prompts you or refresh — changes won't take effect without this
 7. After relaunch, refresh any open AI chat pages
 
-### Safari Users: Permissions Setup
+</details>
+
+<details>
+<summary><strong>Safari</strong></summary>
 
 After installing [Userscripts](https://apps.apple.com/us/app/userscripts/id1463298887), Safari will ask which websites the extension can access.
 
@@ -98,7 +122,9 @@ So "Allow on All Websites" effectively behaves the same as per-site permissions 
 
 **Important quirk:** Unlike Tampermonkey, Userscripts.app does not auto-detect external file changes. If you manually edit or update the `.user.js` file outside of Safari, you must **open the Userscripts extension popup once** for the changes to take effect.
 
-### Install the Script
+</details>
+
+### Step 3: Install the Script
 
 #### Option 1: Direct Install
 Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-conversation-navigator.user.js)
@@ -112,7 +138,7 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 ## Usage
 
 1. Go to any supported AI chat platform
-2. Look for the platform icon (✳, ⏣, X, or ✦) on the right edge of the screen
+2. Look for the platform icon (✳, ⏣, X, or ✦) on the right edge of the screen (Codex web shares ChatGPT's ⏣ icon)
 3. Hover over it to see the "Navigate" label
 4. Click to open the navigation panel
 5. Click any question to jump to that part of the conversation
@@ -124,7 +150,9 @@ The script injects a hover-expand button and sidebar panel into AI chat pages. I
 | Platform | Selector |
 |----------|----------|
 | Claude | `[data-testid="user-human-turn"]` |
+| Claude Code | `div.bg-bg-200.rounded-lg` + fallback chain |
 | ChatGPT | `[data-message-author-role="user"]` |
+| Codex Web | `div.self-end.bg-token-bg-tertiary` |
 | Grok | `div.message-bubble` |
 | Gemini | `div.query-text` |
 
@@ -179,6 +207,7 @@ To add a new AI platform:
 
 ## Future Ideas
 
+- [ ] **Support AI app-builder platforms** — Lovable, Bolt.new, and Replit all use chat-based interfaces with the same long-conversation pain point. See [ROADMAP.md](ROADMAP.md) for detailed research and implementation plans.
 - [ ] Search/filter questions
 - [ ] Keyboard shortcuts
 - [ ] Export conversation outline
