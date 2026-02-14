@@ -84,7 +84,7 @@ const PLATFORMS = [
         hostname: 'bolt.new',
         pathname: '/test-project',
         expectedMessages: 3,
-        expectedAccent: 'rgb(156, 125, 255)',   // #9C7DFF
+        expectedAccent: 'rgb(56, 189, 248)',     // #38BDF8
         expectedIcon: '\u26A1\uFE0E',           // ⚡ (text presentation)
     },
     {

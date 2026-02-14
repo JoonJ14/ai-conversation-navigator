@@ -36,11 +36,11 @@ I use those coding agents mostly in terminal CLI, and I find them incredibly eff
 
 | Platform | Icon | Color | Status |
 |----------|------|-------|--------|
-| [Bolt.new](https://bolt.new) | ⚡ | 🟣 Purple | ✅ Supported |
-| [Lovable](https://lovable.dev) | ♥ | 🟣 Violet | ✅ Supported |
-| [Replit](https://replit.com) | ⠕ | 🟠 Red-Orange | ✅ Supported (selectors may need tuning) |
+| [Bolt.new](https://bolt.new) | ⚡ | 🔵 Light Blue | ✅ Beta |
+| [Lovable](https://lovable.dev) | ♥ | 🟣 Violet | ✅ Beta |
+| [Replit](https://replit.com) | ⠕ | 🟠 Red-Orange | ✅ Beta |
 
-These AI-powered app-builder platforms all use chat-based interfaces where conversations get very long (10-30+ exchanges per project). None of them have built-in conversation navigation. Replit's selectors are speculative due to its Emotion CSS-in-JS architecture — live testing may be needed to fine-tune detection.
+> **Beta Notice:** We don't have accounts on these app-builder platforms, so support was developed using **mock DOM testing** — we built replica HTML pages based on open-source forks and research, then validated our selectors against those replicas with automated Playwright tests (see [TESTING.md](TESTING.md)). This means the script may be buggy or encounter issues on the real sites. **If you try it and run into problems, please [open an issue](https://github.com/JoonJ14/ai-conversation-navigator/issues) describing what you see.** Your real-world feedback is exactly what will help us fix selectors and make this work well. We genuinely welcome it.
 
 > **Note on icons:** Each platform's button uses a common Unicode symbol that *evokes* the platform's branding rather than the actual company logo. This avoids any trademark or copyright concerns. See [Icon Choices](#icon-choices) for details.
 
