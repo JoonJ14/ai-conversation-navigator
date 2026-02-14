@@ -14,14 +14,21 @@ But until then, I'll just keep making, building, and improving this project. Sta
 
 ## Supported Platforms
 
+### AI Chatbots
+
 | Platform | Icon | Color | Status |
 |----------|------|-------|--------|
 | [Claude](https://claude.ai) | ✳ | 🟠 Orange | ✅ Supported |
-| [Claude Code](https://claude.ai/code) | ✳ | 🟠 Orange | ✅ Supported |
 | [ChatGPT](https://chatgpt.com) | ⏣ | ⚪ White | ✅ Supported |
-| [Codex Web](https://chatgpt.com/codex) | ⏣ | ⚪ White | ✅ Supported |
 | [Grok](https://grok.com) | X | 🔴 Red | ✅ Supported |
 | [Gemini](https://gemini.google.com) | ✦ | 🔵 Blue | ✅ Supported |
+
+### Coding Agents (Web)
+
+| Platform | Icon | Color | Status |
+|----------|------|-------|--------|
+| [Claude Code](https://claude.ai/code) | ✳ | 🟠 Orange | ✅ Supported |
+| [Codex](https://chatgpt.com/codex) | ⏣ | ⚪ White | ✅ Supported |
 
 > **Note on icons:** Each platform's button uses a common Unicode symbol that *evokes* the platform's branding rather than the actual company logo. This avoids any trademark or copyright concerns. See [Icon Choices](#icon-choices) for details.
 
