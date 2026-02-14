@@ -60,7 +60,7 @@ Chrome requires **Developer Mode** enabled for Tampermonkey to run userscripts:
 
 ### Edge Users: Important Setup
 
-Edge is built on the same engine as Chrome, so the setup is very similar — but the URLs are different. **Read the steps below carefully before saying "it's not working"!**
+Edge is built on the same engine as Chrome, so the setup is very similar — but the URLs are different.
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) from the Edge Add-ons store
 2. Go to `edge://extensions/` (type this directly into the address bar)
