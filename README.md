@@ -17,6 +17,7 @@ But until then, I'll just keep making, building, and improving this project. Sta
 | Platform | Icon | Color | Status |
 |----------|------|-------|--------|
 | [Claude](https://claude.ai) | ✳ | 🟠 Orange | ✅ Supported |
+| [Claude Code](https://claude.ai/code) | ✳ | 🟠 Orange | ✅ Supported |
 | [ChatGPT](https://chatgpt.com) | ⏣ | ⚪ White | ✅ Supported |
 | [Codex Web](https://chatgpt.com/codex) | ⏣ | ⚪ White | ✅ Supported |
 | [Grok](https://grok.com) | X | 🔴 Red | ✅ Supported |
@@ -125,6 +126,7 @@ The script injects a hover-expand button and sidebar panel into AI chat pages. I
 | Platform | Selector |
 |----------|----------|
 | Claude | `[data-testid="user-human-turn"]` |
+| Claude Code | `div.bg-bg-200.rounded-lg` + fallback chain |
 | ChatGPT | `[data-message-author-role="user"]` |
 | Codex Web | `[data-role="user"]` + fallback chain |
 | Grok | `div.message-bubble` |
