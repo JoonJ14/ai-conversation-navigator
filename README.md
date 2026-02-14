@@ -192,6 +192,7 @@ To add a new AI platform:
 
 ## Future Ideas
 
+- [ ] **Support AI app-builder platforms** — Lovable, Bolt.new, and Replit all use chat-based interfaces with the same long-conversation pain point. See [ROADMAP.md](ROADMAP.md) for detailed research and implementation plans.
 - [ ] Search/filter questions
 - [ ] Keyboard shortcuts
 - [ ] Export conversation outline
