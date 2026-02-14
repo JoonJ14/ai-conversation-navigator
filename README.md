@@ -9,7 +9,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-6.4-blue)
+![Version](https://img.shields.io/badge/version-7.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -32,6 +32,16 @@ But until then, I'll just keep making, building, and improving this project. Sta
 
 I use those coding agents mostly in terminal CLI, and I find them incredibly effective there too. Or inside the terminal of VS fork IDEs, like Cursor or Antigravity. Claude code on web is only a research preview, and codex even has a separate app for mac OS. However, I do think web version also has its merits and I do use them too, so I thought I'd add support on anyway.
 
+### AI App-Builder Platforms
+
+| Platform | Icon | Color | Status |
+|----------|------|-------|--------|
+| [Bolt.new](https://bolt.new) | ⚡ | 🟣 Purple | ✅ Supported |
+| [Lovable](https://lovable.dev) | ♥ | 🟣 Violet | ✅ Supported |
+| [Replit](https://replit.com) | ⠕ | 🟠 Red-Orange | ✅ Supported (selectors may need tuning) |
+
+These AI-powered app-builder platforms all use chat-based interfaces where conversations get very long (10-30+ exchanges per project). None of them have built-in conversation navigation. Replit's selectors are speculative due to its Emotion CSS-in-JS architecture — live testing may be needed to fine-tune detection.
+
 > **Note on icons:** Each platform's button uses a common Unicode symbol that *evokes* the platform's branding rather than the actual company logo. This avoids any trademark or copyright concerns. See [Icon Choices](#icon-choices) for details.
 
 ## Supported Web Browsers
@@ -46,7 +56,7 @@ Chrome, Firefox, Safari, Edge
 - **🔄 Auto-Refresh** — Updates every 10 seconds while the panel is open
 - **🎨 Platform-Specific Themes** — Colors and icons match each platform's branding
 - **✨ Visual Feedback** — Briefly highlights the message when you navigate to it
-- **🛡️ Gemini-Resilient** — DOM Guardian and SPA hooks keep the button alive through Gemini's aggressive re-rendering
+- **🛡️ SPA-Resilient** — DOM Guardian, SPA navigation hooks, and periodic health checks keep the button alive through aggressive re-rendering (Gemini, Bolt, Lovable, Replit)
 
 ## Installation
 
@@ -138,7 +148,7 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 ## Usage
 
 1. Go to any supported AI chat platform
-2. Look for the platform icon (✳, ⏣, X, or ✦) on the right edge of the screen (Codex web shares ChatGPT's ⏣ icon)
+2. Look for the platform icon (✳, ⏣, X, ✦, ⚡, ♥, or ⠕) on the right edge of the screen
 3. Hover over it to see the "Navigate" label
 4. Click to open the navigation panel
 5. Click any question to jump to that part of the conversation
@@ -155,6 +165,9 @@ The script injects a hover-expand button and sidebar panel into AI chat pages. I
 | Codex Web | `div.self-end.bg-token-bg-tertiary` |
 | Grok | `div.message-bubble` |
 | Gemini | `div.query-text` |
+| Bolt.new | `[class*="backdrop-blur"][class*="rounded"]` + fallback chain |
+| Lovable | `div[role="log"] .justify-end` + fallback chain |
+| Replit | `data-*` attributes, ARIA roles, computed styles (multi-strategy) |
 
 ## Icon Choices
 
@@ -166,6 +179,9 @@ Each platform's toggle button uses a Unicode symbol chosen to suggest the platfo
 | ChatGPT | ⏣ (benzene ring) | Evokes OpenAI's hexagonal knot logo |
 | Grok | X | Represents xAI / X branding |
 | Gemini | ✦ (four-pointed star) | Evokes Gemini's sparkle motif |
+| Bolt.new | ⚡ (high voltage) | Evokes "Bolt" lightning branding |
+| Lovable | ♥ (heart suit) | Evokes Lovable's heart logo |
+| Replit | ⠕ (Braille dots-135) | Community-adopted symbol for Replit's three-dot prompt logo |
 
 These are standard Unicode characters, not proprietary artwork, so there are no trademark, copyright, or licensing concerns.
 
@@ -207,7 +223,7 @@ To add a new AI platform:
 
 ## Future Ideas
 
-- [ ] **Support AI app-builder platforms** — Lovable, Bolt.new, and Replit all use chat-based interfaces with the same long-conversation pain point. See [ROADMAP.md](ROADMAP.md) for detailed research and implementation plans.
+- [x] ~~**Support AI app-builder platforms** — Lovable, Bolt.new, and Replit~~ (added in v7.0)
 - [ ] Search/filter questions
 - [ ] Keyboard shortcuts
 - [ ] Export conversation outline
