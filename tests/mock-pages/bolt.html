@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html><head><title>Bolt Mock</title></head>
+<body>
+<!-- Bolt.new: User messages have backdrop-blur + rounded classes, NOT w-full.
+     Assistant messages have overflow-hidden + w-full.
+     Wrapped in a grid.w-full container. -->
+<div class="grid w-full" style="display:grid;gap:16px;">
+  <!-- User message: backdrop-blur + rounded, no w-full -->
+  <div class="backdrop-blur-sm rounded-lg bg-accent-500/10 ml-auto" style="backdrop-filter:blur(4px);padding:12px;border-radius:8px;background:rgba(156,125,255,0.1);">
+    <p>Create a landing page for my SaaS product with a hero section and pricing table</p>
+  </div>
+  <!-- Assistant message: overflow-hidden + w-full -->
+  <div class="overflow-hidden w-full">
+    <p>I'll create a modern landing page with a hero section...</p>
+  </div>
+  <!-- User message -->
+  <div class="backdrop-blur-sm rounded-xl bg-accent-500/10 ml-auto" style="backdrop-filter:blur(4px);padding:12px;border-radius:12px;background:rgba(156,125,255,0.1);">
+    <p>Add a dark mode toggle and make the pricing cards animate on hover</p>
+  </div>
+  <!-- Assistant message -->
+  <div class="overflow-hidden w-full">
+    <p>I've added dark mode support and hover animations...</p>
+  </div>
+  <!-- User message -->
+  <div class="backdrop-blur-sm rounded-lg bg-accent-500/10 ml-auto" style="backdrop-filter:blur(4px);padding:12px;border-radius:8px;background:rgba(156,125,255,0.1);">
+    <p>Now integrate Stripe checkout for the premium plan</p>
+  </div>
+</div>
+</body>
+</html>
