@@ -51,11 +51,11 @@ Install a userscript manager for your browser:
 
 Chrome requires **Developer Mode** enabled for Tampermonkey to run userscripts:
 
-1. Go to `chrome://extensions/`
+1. Go to `chrome://extensions/` or press puzzle button rigth next to URL slot
 2. Toggle **"Developer mode"** ON (top-right corner)
 3. Find **Tampermonkey** → click **Details**
 4. Scroll down and toggle **"Allow User Scripts"** ON
-5. Click **"Relaunch"** when Chrome prompts you — changes won't take effect without this
+5. Click **"Relaunch"** when Chrome prompts you or refresh — changes won't take effect without this
 6. After relaunch, refresh any open AI chat pages
 
 ### Edge Users: Important Setup
@@ -63,11 +63,11 @@ Chrome requires **Developer Mode** enabled for Tampermonkey to run userscripts:
 Edge is built on the same engine as Chrome, so the setup is very similar — but the URLs are different.
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) from the Edge Add-ons store
-2. Go to `edge://extensions/` (type this directly into the address bar)
-3. Toggle **"Developer mode"** ON (bottom-left corner)
+2. Go to `edge://extensions/`or press puzzle button right next to the URL slot
+3. Toggle **"Developer mode"** ON (mid-left side of the screen)
 4. Find **Tampermonkey** → click **Details**
 5. Scroll down and toggle **"Allow User Scripts"** ON
-6. Click **"Relaunch"** when Edge prompts you — changes won't take effect without this
+6. Click **"Relaunch"** when Edge prompts you or refresh — changes won't take effect without this
 7. After relaunch, refresh any open AI chat pages
 
 ### Safari Users: Permissions Setup
