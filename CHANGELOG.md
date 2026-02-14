@@ -21,26 +21,22 @@ Codex web uses a task/thread-based interface where:
 Since the extension tried the ChatGPT Chat selector, found nothing, and had no further fallback, it reported 0 questions.
 
 ### Method Chosen and Why
-Added a **fallback selector chain** in `getUserMessages()` that activates only when the existing ChatGPT Chat selector finds nothing — the same pattern used for Claude Code support in v6.2:
+Added a **fallback selector** in `getUserMessages()` that activates only when the existing ChatGPT Chat selector finds nothing — the same pattern used for Claude Code support in v6.2:
 
 ```javascript
-// Codex web fallback selectors
-if (messages.length === 0) messages = document.querySelectorAll('[data-role="user"]');
-if (messages.length === 0) messages = document.querySelectorAll('[data-author-role="user"]');
-if (messages.length === 0) messages = document.querySelectorAll('[data-item-role="user"]');
-if (messages.length === 0) { /* class-name-based selectors */ }
-if (messages.length === 0) { /* right-aligned bubble fallback (Tailwind pattern) */ }
+if (messages.length === 0) {
+    messages = document.querySelectorAll('div.self-end.bg-token-bg-tertiary');
+}
 ```
 
 This approach:
-1. **Tries multiple data-attribute patterns** commonly used in React-based chat UIs — `data-role`, `data-author-role`, `data-item-role` — since Codex's exact attributes may vary across updates
-2. **Falls back to class-name matching** looking for elements with "user-message" or "UserMessage" in their class names
-3. **Last resort: layout-based detection** using right-aligned containers (`self-end`, `items-end`) similar to how Claude Code's user messages are right-aligned — filters for elements with actual text content to avoid matching empty layout containers
-4. **Non-breaking** — only activates as a last fallback after the ChatGPT Chat selector fails, so regular ChatGPT continues to work unchanged
-5. **No `@match` changes needed** — `chatgpt.com/*` already covers `chatgpt.com/codex`
+1. **Selects user message bubbles** (`self-end.bg-token-bg-tertiary`) — Codex web user messages are right-aligned (`self-end` in Tailwind) with a tertiary token background (`bg-token-bg-tertiary`), while agent messages are left-aligned and use a different background
+2. **Good scroll target** — the bubble element works well with both `scrollIntoView()` and the background color highlight animation since it's the visually prominent container
+3. **Non-breaking** — only activates as a fallback after the ChatGPT Chat selector fails, so regular ChatGPT continues to work unchanged
+4. **No `@match` changes needed** — `chatgpt.com/*` already covers `chatgpt.com/codex`
 
 ### Result
-Codex web conversations now have fallback selector support for detecting user messages. The broad fallback chain maximizes compatibility with Codex web's DOM structure. Regular ChatGPT Chat remains unaffected because its selector matches before any fallback is reached.
+Codex web conversations now show all user messages in the navigation panel, with correct summaries and click-to-scroll functionality. Regular ChatGPT Chat remains unaffected because its selector matches before the fallback is reached.
 
 ---
 

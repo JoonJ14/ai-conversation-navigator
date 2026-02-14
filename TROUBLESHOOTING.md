@@ -170,13 +170,18 @@ ChatGPT Chat uses `data-message-author-role` attributes on message elements to i
 Since the extension tried the ChatGPT Chat selector, found nothing, and had no further fallback, it reported 0 questions.
 
 #### What We Did to Fix It and Why
-Added a **fallback selector chain** in `getUserMessages()` that only activates when the ChatGPT Chat selector finds nothing — the same pattern used for Claude Code support:
+Added a **fallback selector** in `getUserMessages()` that only activates when the ChatGPT Chat selector finds nothing — the same pattern used for Claude Code support:
 
-1. **Data attribute selectors** — Tries `[data-role="user"]`, `[data-author-role="user"]`, and `[data-item-role="user"]` to cover common React data-attribute patterns
-2. **Class name selectors** — Looks for elements with "user-message" or "UserMessage" in their class names
-3. **Layout-based fallback** — As a last resort, looks for right-aligned message containers (`self-end`, `items-end`) with text content, similar to the Claude Code approach
+```javascript
+if (messages.length === 0) {
+    messages = document.querySelectorAll('div.self-end.bg-token-bg-tertiary');
+}
+```
 
-The chain is ordered from most specific to most general. Each step only runs if all previous steps found nothing.
+This approach:
+1. **Selects user message bubbles** (`self-end.bg-token-bg-tertiary`) — user messages in Codex web are right-aligned (`self-end`) with a tertiary token background, while agent messages are left-aligned and use a different background
+2. **Good scroll target** — the bubble element works well with `scrollIntoView()` and the highlight animation
+3. **Non-breaking** — only runs when the ChatGPT Chat selector finds nothing
 
 #### How It Resolved Things
 After the fix, Codex web conversations have fallback selector support for detecting user messages. Regular ChatGPT Chat remains unaffected because its selector matches before the fallback is reached.
@@ -308,7 +313,7 @@ document.querySelectorAll('[data-testid]').forEach(el => console.log(el.getAttri
 | Claude Chat | `[data-testid="user-human-turn"]` | `[data-testid="user-message"]`, `.font-user-message` |
 | Claude Code | `div.bg-bg-200.rounded-lg` filtered by `.items-end` parent | (activates only when all Claude Chat selectors fail) |
 | ChatGPT | `[data-message-author-role="user"]` | — |
-| Codex Web | `[data-role="user"]` | `[data-author-role="user"]`, `[data-item-role="user"]`, class-name matching, right-aligned bubbles (activates only when ChatGPT selector fails) |
+| Codex Web | `div.self-end.bg-token-bg-tertiary` | (activates only when ChatGPT selector fails) |
 | Grok | `div.message-bubble` filtered by user/human class | `[data-role="user"]`, `[class*="user-message"]` |
 | Gemini | `div.query-text` | `.query-text-line`, `p.query-text-line`, `[data-query-text]`, `.user-query` |
 

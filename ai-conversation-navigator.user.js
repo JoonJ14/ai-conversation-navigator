@@ -484,27 +484,10 @@
 
             // Codex web fallback: chatgpt.com/codex uses a task/thread-based interface
             // with different DOM structure from ChatGPT chat. No data-message-author-role
-            // attributes exist; user prompts are displayed as items within thread turns.
+            // attributes exist; user messages are right-aligned (self-end) bubbles with
+            // bg-token-bg-tertiary background.
             if (messages.length === 0) {
-                messages = document.querySelectorAll('[data-role="user"]');
-            }
-            if (messages.length === 0) {
-                messages = document.querySelectorAll('[data-author-role="user"]');
-            }
-            if (messages.length === 0) {
-                messages = document.querySelectorAll('[data-item-role="user"]');
-            }
-            if (messages.length === 0) {
-                var userEls = document.querySelectorAll('[class*="user-message"], [class*="UserMessage"]');
-                if (userEls.length > 0) messages = userEls;
-            }
-            if (messages.length === 0) {
-                // Last resort: right-aligned message bubbles (Tailwind pattern,
-                // similar to Claude Code fallback approach).
-                var bubbles = document.querySelectorAll('div.self-end, div.items-end > div');
-                messages = Array.from(bubbles).filter(function(el) {
-                    return el.textContent && el.textContent.trim().length > 0;
-                });
+                messages = document.querySelectorAll('div.self-end.bg-token-bg-tertiary');
             }
         }
         else if (currentSite === SITE.GROK) {

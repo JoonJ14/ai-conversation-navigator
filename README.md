@@ -128,7 +128,7 @@ The script injects a hover-expand button and sidebar panel into AI chat pages. I
 | Claude | `[data-testid="user-human-turn"]` |
 | Claude Code | `div.bg-bg-200.rounded-lg` + fallback chain |
 | ChatGPT | `[data-message-author-role="user"]` |
-| Codex Web | `[data-role="user"]` + fallback chain |
+| Codex Web | `div.self-end.bg-token-bg-tertiary` |
 | Grok | `div.message-bubble` |
 | Gemini | `div.query-text` |
 
