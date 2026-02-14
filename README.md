@@ -25,9 +25,7 @@ But until then, I'll just keep making, building, and improving this project. Sta
 
 ## Supported Web Browsers
 
-Chrome, Firefox, Safari
-
-Edge support coming soon... just need to fix some bugs. Everytime I create support for another browser or feature, it seems like there's small design errors or bugs. Even if it's exactly same code and same browser, switching hardware devices like Mac to Linux also brings in weird small errors. Just want to test them out fully before deploying them out fully.
+Chrome, Firefox, Safari, Edge
 
 ## Features
 
@@ -55,18 +53,22 @@ Chrome requires **Developer Mode** enabled for Tampermonkey to run userscripts:
 
 1. Go to `chrome://extensions/`
 2. Toggle **"Developer mode"** ON (top-right corner)
-3. Refresh any open AI chat pages
+3. Find **Tampermonkey** → click **Details**
+4. Scroll down and toggle **"Allow User Scripts"** ON
+5. Click **"Relaunch"** when Chrome prompts you — changes won't take effect without this
+6. After relaunch, refresh any open AI chat pages
 
-**Chrome 138+ (additional step required):**
+### Edge Users: Important Setup
 
-Newer versions of Chrome (138 and above) introduced an extra security requirement. If Developer Mode alone doesn't work:
+Edge is built on the same engine as Chrome, so the setup is very similar — but the URLs are different. **Read the steps below carefully before saying "it's not working"!**
 
-1. In `chrome://extensions/`, find **Tampermonkey** → click **Details**
-2. Toggle **"Allow User Scripts"** ON
-3. Click **"Relaunch"** when Chrome prompts you — changes won't take effect without this
-4. After relaunch, refresh any open AI chat pages
-
-> **Note:** If you don't see the "Allow User Scripts" option, you're likely on an older Chrome version where Developer Mode alone is sufficient. Don't panic — just make sure Developer Mode is on and you should be good to go.
+1. Install [Tampermonkey](https://www.tampermonkey.net/) from the Edge Add-ons store
+2. Go to `edge://extensions/` (type this directly into the address bar)
+3. Toggle **"Developer mode"** ON (bottom-left corner)
+4. Find **Tampermonkey** → click **Details**
+5. Scroll down and toggle **"Allow User Scripts"** ON
+6. Click **"Relaunch"** when Edge prompts you — changes won't take effect without this
+7. After relaunch, refresh any open AI chat pages
 
 ### Safari Users: Permissions Setup
 
@@ -145,9 +147,8 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for platform-specific issues and so
 
 ### Script not appearing?
 - Make sure the userscript manager is enabled
-- **Chrome users:** Enable **Developer Mode** in `chrome://extensions/`
-- **Still not working on Chrome 138+?** You may also need to enable **"Allow User Scripts"** in Tampermonkey's Details page, then **relaunch Chrome**
-- If you don't see the "Allow User Scripts" option, your Chrome version only needs Developer Mode
+- **Chrome users:** Enable **Developer Mode** in `chrome://extensions/`, then find Tampermonkey → Details → enable **"Allow User Scripts"**, then **relaunch Chrome**
+- **Edge users:** Same as Chrome, but go to `edge://extensions/` instead. Enable **Developer Mode**, then find Tampermonkey → Details → enable **"Allow User Scripts"**, then **relaunch Edge**
 - **Safari users:** Make sure you've granted Userscripts permission for the site (see [Safari Users: Permissions Setup](#safari-users-permissions-setup)). If you edited the script file externally, open the Userscripts extension popup once to reload changes.
 - Try hard-refreshing the page (Ctrl+Shift+R / Cmd+Shift+R)
 
