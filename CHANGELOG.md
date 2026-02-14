@@ -4,6 +4,55 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [7.0] - 2026-02-14
+
+### Added — AI App-Builder Platform Support
+
+Added support for three AI app-builder platforms, expanding the navigator from 4 platforms to 7 (plus their sub-platform variants). These are the first non-chatbot platforms supported — all three are code-generation IDEs where users build apps through iterative conversation, and all three suffer from the same long-conversation navigation problem.
+
+#### Bolt.new (`bolt.new`)
+- **Theme:** Purple (`#9C7DFF`) — matches Bolt's accent-500 brand color
+- **Icon:** ⚡ (U+26A1, lightning bolt with text presentation selector to prevent emoji rendering)
+- **Selectors:** Multi-strategy fallback chain based on bolt.diy open-source fork analysis:
+  1. `backdrop-blur` + `rounded` elements that are not `w-full` (user messages have accent-tinted blur background)
+  2. `ml-auto` rounded bubbles (right-aligned user messages)
+  3. Structural filtering on `.grid.w-full > div` children — assistant messages have `overflow-hidden w-full`, user messages do not
+  4. Computed `backgroundColor` check as last resort (user messages have non-transparent accent tint)
+- **SPA hooks:** Yes — Remix-based routing requires `pushState`/`replaceState` interception + periodic health check
+- **Site detection:** Uses exact hostname match (`hostname === 'bolt.new'`) instead of `.includes()` to avoid matching deployed project subdomains (`yourapp.bolt.new`)
+- **Key technical note:** Bolt uses UnoCSS (not Tailwind), which has similar syntax but may generate different production class names. The computed-style fallback provides resilience against UnoCSS class name changes.
+
+#### Lovable (`lovable.dev`)
+- **Theme:** Violet (`#9b87f5`) — inspired by Lovable's heart gradient logo (warm-to-cool purple spectrum)
+- **Icon:** ♥ (U+2665, black heart suit — directly evokes the "Lovable" brand heart logo)
+- **Selectors:** Multi-strategy fallback chain based on Adorable open-source clone + Lovable.dev Add-ons extension analysis:
+  1. `div[role="log"] .justify-end` — ARIA log container + right-aligned user message wrappers
+  2. `bg-neutral-200.rounded-xl` / `bg-neutral-700.rounded-xl` bubbles inside `.justify-end` ancestors
+  3. `div.ChatMessageContainer .justify-end` — class name observed in extension DOM utils
+  4. `div.self-end[class*="bg-neutral"]` — alternate alignment pattern
+  5. Broad scan of `main` element filtering by alignment heuristics
+- **Page guard:** Only scans when URL contains `/projects/` (homepage, pricing, docs pages have no chat interface)
+- **SPA hooks:** Yes — React Router SPA requires `pushState`/`replaceState` interception + periodic health check
+- **Layout note:** Split-panel interface (chat left, preview right). Our fixed-position right sidebar overlays the preview panel when open, which is acceptable since users explicitly toggle navigation.
+
+#### Replit (`replit.com`)
+- **Theme:** Red-orange (`#F26522`) — Replit's official brand orange. Visually distinct from Claude's amber (`#d97706`) — Replit's is more red-leaning (hue 19°) vs Claude's warm amber (hue 40°).
+- **Icon:** ⠕ (U+2815, Braille Pattern Dots-135 — the Unicode character the Replit community adopted to simulate Replit's three-dot prompt logo)
+- **Selectors:** Defensive multi-strategy chain designed for Emotion CSS-in-JS (hash classes change per deployment):
+  1. `data-testid`, `data-message-role`, `data-role` attribute selectors (if Replit uses them)
+  2. ARIA `role="log"` container + computed style analysis (checking `marginLeft: auto`, `alignSelf: flex-end`, non-transparent `backgroundColor`)
+  3. Chat panel discovery via `textarea[placeholder*="message"]`, then structural scan of sibling elements with right-alignment and leaf-node heuristics
+- **SPA hooks:** Yes — Next.js SPA with Jotai state management and Crosis WebSocket streaming. Chat panel can be opened/closed/repositioned within the IDE's pane system.
+- **Key technical note:** This is the hardest platform to support due to Emotion's unstable hash classes. Selectors are necessarily speculative and will require live DOM validation. The fallback chain prioritizes stable attributes (`data-*`, ARIA roles, computed styles) over class names.
+
+### Architecture Notes
+
+- **SPA hooks consolidated:** The `history.pushState`/`replaceState` interception and periodic health check (previously Gemini-only) now applies to all four SPA platforms: Gemini, Bolt, Lovable, and Replit. This is a single shared code block rather than duplicated per-platform.
+- **No breaking changes:** All existing platform support (Claude, ChatGPT, Grok, Gemini, Claude Code, Codex) remains unchanged. New platforms are additive — new entries in lookup tables + new `else if` branches in `getUserMessages()`.
+- **Research methodology:** Each platform was researched by a dedicated agent in parallel — one expert per platform — analyzing open-source forks (bolt.diy), production extensions (Lovable.dev Add-ons), engineering blog posts (Replit RUI/Emotion), and community resources.
+
+---
+
 ## [6.4] - 2026-02-14
 
 ### Problem
