@@ -50,38 +50,51 @@ Chrome, Firefox, Safari, Edge
 
 ## Installation
 
-### Prerequisites
+### Step 1: Install a Userscript Manager
 
-Install a userscript manager for your browser:
+Install one of these extensions for your browser:
 
 - **Chrome/Edge**: [Tampermonkey](https://www.tampermonkey.net/)
 - **Firefox**: [Tampermonkey](https://www.tampermonkey.net/) or [Greasemonkey](https://www.greasespot.net/)
 - **Safari**: [Userscripts](https://apps.apple.com/us/app/userscripts/id1463298887)
 
-### Chrome Users: Important Setup
+### Step 2: Browser-Specific Setup
+
+Some browsers need extra configuration before userscripts will work. **Find your browser below**, follow those steps, then move on to [Step 3](#step-3-install-the-script).
+
+> **Firefox users:** No extra setup needed — skip straight to [Step 3](#step-3-install-the-script).
+
+<details>
+<summary><strong>Chrome</strong></summary>
 
 Chrome requires **Developer Mode** enabled for Tampermonkey to run userscripts:
 
-1. Go to `chrome://extensions/` or press puzzle button rigth next to URL slot
+1. Go to `chrome://extensions/` or press the puzzle button right next to the URL bar
 2. Toggle **"Developer mode"** ON (top-right corner)
 3. Find **Tampermonkey** → click **Details**
 4. Scroll down and toggle **"Allow User Scripts"** ON
 5. Click **"Relaunch"** when Chrome prompts you or refresh — changes won't take effect without this
 6. After relaunch, refresh any open AI chat pages
 
-### Edge Users: Important Setup
+</details>
+
+<details>
+<summary><strong>Edge</strong></summary>
 
 Edge is built on the same engine as Chrome, so the setup is very similar — but the URLs are different.
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) from the Edge Add-ons store
-2. Go to `edge://extensions/`or press puzzle button right next to the URL slot
+2. Go to `edge://extensions/` or press the puzzle button right next to the URL bar
 3. Toggle **"Developer mode"** ON (mid-left side of the screen)
 4. Find **Tampermonkey** → click **Details**
 5. Scroll down and toggle **"Allow User Scripts"** ON
 6. Click **"Relaunch"** when Edge prompts you or refresh — changes won't take effect without this
 7. After relaunch, refresh any open AI chat pages
 
-### Safari Users: Permissions Setup
+</details>
+
+<details>
+<summary><strong>Safari</strong></summary>
 
 After installing [Userscripts](https://apps.apple.com/us/app/userscripts/id1463298887), Safari will ask which websites the extension can access.
 
@@ -109,7 +122,9 @@ So "Allow on All Websites" effectively behaves the same as per-site permissions 
 
 **Important quirk:** Unlike Tampermonkey, Userscripts.app does not auto-detect external file changes. If you manually edit or update the `.user.js` file outside of Safari, you must **open the Userscripts extension popup once** for the changes to take effect.
 
-### Install the Script
+</details>
+
+### Step 3: Install the Script
 
 #### Option 1: Direct Install
 Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-conversation-navigator.user.js)
