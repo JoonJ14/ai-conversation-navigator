@@ -579,8 +579,8 @@
         // For left-chat: reposition button when panel opens/closes
         if (isLeftChat && toggle) {
             if (isOpen) {
-                // Move button to right edge of open panel (panel is 320px wide)
-                toggle.style.right = (window.innerWidth - 320) + 'px';
+                // Move button to left edge of panel (button is 32px wide, so right edge at x=32)
+                toggle.style.right = (window.innerWidth - 32) + 'px';
             } else {
                 // Restore to boundary position
                 _lastBoundaryX = null; // force recalculation
@@ -1052,7 +1052,7 @@
             if (isOpen) {
                 // right is viewport-relative, so update when window resizes while open
                 var toggle = document.getElementById('ai-nav-toggle');
-                if (toggle) toggle.style.right = (window.innerWidth - 320) + 'px';
+                if (toggle) toggle.style.right = (window.innerWidth - 32) + 'px';
             } else {
                 updateLeftChatPositions();
             }
