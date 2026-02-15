@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html><head><title>Replit Mock</title></head>
+<body>
+<!-- Replit: Emotion CSS-in-JS (hash classes). We test the data-* attribute path
+     and the ARIA role="log" + computed style path.
+     Using data-testid="user-message-X" which is the primary selector. -->
+<div class="workspace css-abc123">
+  <div class="editor-pane css-def456" style="width:60%;"></div>
+  <div class="chat-pane css-ghi789" style="width:40%;">
+    <div role="log" aria-label="Chat history">
+      <!-- User message with data-testid -->
+      <div data-testid="user-message-0" class="css-jkl012" style="margin-left:auto;padding:10px;background:#2a2a2a;border-radius:8px;">
+        <p>Create a Flask API with SQLAlchemy ORM and user authentication</p>
+      </div>
+      <!-- Assistant message -->
+      <div data-testid="assistant-message-0" class="css-mno345" style="padding:10px;">
+        <p>I'll set up the Flask project with SQLAlchemy...</p>
+      </div>
+      <!-- User message -->
+      <div data-testid="user-message-1" class="css-jkl012" style="margin-left:auto;padding:10px;background:#2a2a2a;border-radius:8px;">
+        <p>Add rate limiting and request validation middleware</p>
+      </div>
+      <!-- Assistant message -->
+      <div data-testid="assistant-message-1" class="css-mno345" style="padding:10px;">
+        <p>I've added Flask-Limiter for rate limiting...</p>
+      </div>
+      <!-- User message -->
+      <div data-testid="user-message-2" class="css-jkl012" style="margin-left:auto;padding:10px;background:#2a2a2a;border-radius:8px;">
+        <p>Deploy this to Replit with environment variables for secrets</p>
+      </div>
+    </div>
+    <textarea placeholder="Message Replit AI..."></textarea>
+  </div>
+</div>
+</body>
+</html>

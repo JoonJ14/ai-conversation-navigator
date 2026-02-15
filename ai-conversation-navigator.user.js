@@ -1,13 +1,16 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v6.4
+// @name         AI Conversation Navigator v7.0
 // @namespace    http://tampermonkey.net/
-// @version      6.4
-// @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Codex, Grok, and Gemini
+// @version      7.0
+// @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Codex, Grok, Gemini, Bolt, Lovable, and Replit
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
 // @match        https://grok.com/*
 // @match        https://gemini.google.com/*
+// @match        https://bolt.new/*
+// @match        https://lovable.dev/*
+// @match        https://replit.com/*
 // @grant        GM_addStyle
 // ==/UserScript==
 
@@ -28,7 +31,10 @@
         CLAUDE: 'claude',
         CHATGPT: 'chatgpt',
         GROK: 'grok',
-        GEMINI: 'gemini'
+        GEMINI: 'gemini',
+        BOLT: 'bolt',
+        LOVABLE: 'lovable',
+        REPLIT: 'replit'
     };
 
     function detectSite() {
@@ -37,6 +43,9 @@
         if (hostname.includes('chatgpt.com') || hostname.includes('chat.openai.com')) return SITE.CHATGPT;
         if (hostname.includes('grok.com')) return SITE.GROK;
         if (hostname.includes('gemini.google.com')) return SITE.GEMINI;
+        if (hostname === 'bolt.new') return SITE.BOLT;
+        if (hostname.includes('lovable.dev')) return SITE.LOVABLE;
+        if (hostname.includes('replit.com')) return SITE.REPLIT;
         return null;
     }
 
@@ -51,7 +60,10 @@
         [SITE.CLAUDE]: { accent: '#d97706', accentHover: '#b45309', accentLight: 'rgba(217, 119, 6, 0.2)', textColor: 'white' },
         [SITE.CHATGPT]: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)', textColor: '#1a1a1a' },
         [SITE.GROK]: { accent: '#dc2626', accentHover: '#b91c1c', accentLight: 'rgba(220, 38, 38, 0.2)', textColor: 'white' },
-        [SITE.GEMINI]: { accent: '#4285f4', accentHover: '#3367d6', accentLight: 'rgba(66, 133, 244, 0.2)', textColor: 'white' }
+        [SITE.GEMINI]: { accent: '#4285f4', accentHover: '#3367d6', accentLight: 'rgba(66, 133, 244, 0.2)', textColor: 'white' },
+        [SITE.BOLT]: { accent: '#38BDF8', accentHover: '#0EA5E9', accentLight: 'rgba(56, 189, 248, 0.2)', textColor: 'white' },
+        [SITE.LOVABLE]: { accent: '#9b87f5', accentHover: '#7c3aed', accentLight: 'rgba(155, 135, 245, 0.2)', textColor: 'white' },
+        [SITE.REPLIT]: { accent: '#F26522', accentHover: '#D4541A', accentLight: 'rgba(242, 101, 34, 0.2)', textColor: 'white' }
     };
 
     const theme = THEME[currentSite];
@@ -61,7 +73,10 @@
         [SITE.CLAUDE]: '\u2733',   // ✳
         [SITE.CHATGPT]: '\u23E3',  // ⏣
         [SITE.GROK]: 'X',
-        [SITE.GEMINI]: '\u2726'    // ✦
+        [SITE.GEMINI]: '\u2726',   // ✦
+        [SITE.BOLT]: '\u26A1\uFE0E',  // ⚡ (lightning bolt, text presentation)
+        [SITE.LOVABLE]: '\u2665',  // ♥ (heart suit)
+        [SITE.REPLIT]: '\u2815'    // ⠕ (Braille dots-135, Replit prompt logo)
     };
 
     const siteIcon = ICONS[currentSite];
@@ -71,7 +86,10 @@
         [SITE.CLAUDE]: 'Claude',
         [SITE.CHATGPT]: 'ChatGPT',
         [SITE.GROK]: 'Grok',
-        [SITE.GEMINI]: 'Gemini'
+        [SITE.GEMINI]: 'Gemini',
+        [SITE.BOLT]: 'Bolt',
+        [SITE.LOVABLE]: 'Lovable',
+        [SITE.REPLIT]: 'Replit'
     };
     const siteTitle = siteTitles[currentSite];
 
@@ -511,6 +529,164 @@
             if (messages.length === 0) messages = document.querySelectorAll('[data-query-text]');
             if (messages.length === 0) messages = document.querySelectorAll('.user-query');
         }
+        else if (currentSite === SITE.BOLT) {
+            // Bolt.new user messages: right-aligned bubbles with accent background + backdrop blur.
+            // Built with UnoCSS (Tailwind-like). User messages have bg-accent-500/10 + backdrop-blur-sm
+            // + ml-auto (right-aligned). Assistant messages have overflow-hidden + w-full (left/full-width).
+            // Source: bolt.diy open-source fork (UserMessage.tsx, AssistantMessage.tsx)
+
+            // Primary: accent-tinted backdrop-blur bubbles that are NOT full-width (user only)
+            var boltCandidates = document.querySelectorAll('[class*="backdrop-blur"][class*="rounded"]');
+            if (boltCandidates.length > 0) {
+                messages = Array.from(boltCandidates).filter(function(el) {
+                    var cls = el.className || '';
+                    return !cls.includes('w-full') && el.textContent.trim().length > 0;
+                });
+            }
+
+            // Fallback 1: right-aligned rounded bubbles inside chat area
+            if (messages.length === 0) {
+                var mlAutoBubbles = document.querySelectorAll('.ml-auto.rounded-lg, .ml-auto.rounded-xl');
+                messages = Array.from(mlAutoBubbles).filter(function(el) {
+                    return el.textContent.trim().length > 0;
+                });
+            }
+
+            // Fallback 2: distinguish by structure — assistant root is overflow-hidden w-full,
+            // user root is NOT. Check direct children of the grid wrapper.
+            if (messages.length === 0) {
+                var gridChildren = document.querySelectorAll('.grid.w-full > div');
+                messages = Array.from(gridChildren).filter(function(el) {
+                    var cls = el.className || '';
+                    // User messages do NOT have the overflow-hidden + w-full combo
+                    var isAssistant = cls.includes('overflow-hidden') && cls.includes('w-full');
+                    return !isAssistant && el.textContent.trim().length > 0;
+                });
+            }
+
+            // Fallback 3: computed style check — user messages have a non-transparent background
+            if (messages.length === 0) {
+                var chatArea = document.querySelector('[class*="max-w-chat"]');
+                if (chatArea) {
+                    var cells = chatArea.querySelectorAll('.grid > div');
+                    messages = Array.from(cells).filter(function(el) {
+                        var bg = window.getComputedStyle(el).backgroundColor;
+                        return bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent';
+                    });
+                }
+            }
+        }
+        else if (currentSite === SITE.LOVABLE) {
+            // Lovable user messages: right-aligned bubbles (justify-end) with neutral background.
+            // Built with React + Tailwind + shadcn/ui. Split-panel layout (chat left, preview right).
+            // User messages have justify-end wrapper + bg-neutral-200/700 rounded-xl bubble + ml-auto.
+            // Assistant messages are left-aligned with no background and prose class for markdown.
+            // Source: Adorable open-source clone, Lovable.dev Add-ons extension
+
+            // Guard: only scan on project pages where the chat exists
+            if (window.location.pathname.includes('/projects/')) {
+                // Primary: ARIA role="log" container + right-aligned message wrappers
+                var chatLog = document.querySelector('div[role="log"]');
+                if (chatLog) {
+                    messages = Array.from(chatLog.querySelectorAll('.justify-end')).filter(function(el) {
+                        return el.textContent.trim().length > 0;
+                    });
+                }
+
+                // Fallback 1: neutral-background bubbles inside right-aligned containers
+                if (messages.length === 0) {
+                    var lovableBubbles = document.querySelectorAll(
+                        'div.bg-neutral-200.rounded-xl, div.bg-neutral-700.rounded-xl'
+                    );
+                    messages = Array.from(lovableBubbles).filter(function(el) {
+                        return el.closest('.justify-end') || el.classList.contains('ml-auto');
+                    });
+                }
+
+                // Fallback 2: ChatMessageContainer class (from extension DOM utils)
+                if (messages.length === 0) {
+                    var lovableContainer = document.querySelector('div.ChatMessageContainer');
+                    if (lovableContainer) {
+                        messages = Array.from(lovableContainer.querySelectorAll('.justify-end')).filter(function(el) {
+                            return el.textContent.trim().length > 0;
+                        });
+                    }
+                }
+
+                // Fallback 3: self-end with neutral background
+                if (messages.length === 0) {
+                    messages = document.querySelectorAll('div.self-end[class*="bg-neutral"]');
+                }
+
+                // Fallback 4: broad scan — right-aligned divs within main
+                if (messages.length === 0) {
+                    var lovableMain = document.querySelector('main');
+                    if (lovableMain) {
+                        messages = Array.from(lovableMain.querySelectorAll('div')).filter(function(el) {
+                            var cls = el.className || '';
+                            var isRightAligned = cls.includes('justify-end') || cls.includes('self-end') || cls.includes('ml-auto');
+                            var hasText = el.textContent.trim().length > 5;
+                            var isNotNav = !el.closest('nav') && !el.closest('header');
+                            return isRightAligned && hasText && isNotNav;
+                        });
+                    }
+                }
+            }
+        }
+        else if (currentSite === SITE.REPLIT) {
+            // Replit user messages: React + Emotion CSS-in-JS (hash classes change per deployment).
+            // The AI Agent chat is a pane inside the IDE workspace. Cannot rely on class names.
+            // Must use data-* attributes, ARIA roles, structural patterns, and computed styles.
+            // Source: Replit engineering blog (RUI, Emotion, Jotai architecture)
+
+            // Primary: data-* attribute selectors (if Replit uses them)
+            messages = document.querySelectorAll('[data-testid*="user-message"]');
+            if (messages.length === 0) messages = document.querySelectorAll('[data-message-role="user"]');
+            if (messages.length === 0) messages = document.querySelectorAll('[data-role="user"]');
+
+            // Fallback 1: ARIA role="log" container + structural analysis
+            if (messages.length === 0) {
+                var replitLog = document.querySelector('[role="log"]');
+                if (!replitLog) replitLog = document.querySelector('[role="list"][aria-label*="chat"]');
+                if (replitLog) {
+                    // User messages typically have a distinct background or alignment
+                    var replitBlocks = replitLog.querySelectorAll(':scope > div > div, :scope > div');
+                    messages = Array.from(replitBlocks).filter(function(el) {
+                        var cls = el.className || '';
+                        var style = window.getComputedStyle(el);
+                        // User messages are often right-aligned or have a non-transparent bg
+                        var isRightAligned = cls.includes('end') || cls.includes('right') ||
+                            style.marginLeft === 'auto' || style.alignSelf === 'flex-end';
+                        var hasDistinctBg = style.backgroundColor && style.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
+                            style.backgroundColor !== 'transparent';
+                        return (isRightAligned || hasDistinctBg) && el.textContent.trim().length > 0;
+                    });
+                }
+            }
+
+            // Fallback 2: find chat panel via textarea, then scan siblings
+            if (messages.length === 0) {
+                var replitInput = document.querySelector('textarea[placeholder*="message"]') ||
+                    document.querySelector('textarea[placeholder*="Message"]') ||
+                    document.querySelector('[contenteditable="true"][role="textbox"]');
+                if (replitInput) {
+                    var replitChat = replitInput.closest('[class*="css-"]');
+                    if (replitChat && replitChat.parentElement) {
+                        var scrollContainer = replitChat.parentElement.querySelector('[style*="overflow"]') ||
+                            replitChat.parentElement;
+                        var allBlocks = scrollContainer.querySelectorAll('div');
+                        messages = Array.from(allBlocks).filter(function(el) {
+                            var style = window.getComputedStyle(el);
+                            var isAlignedRight = style.marginLeft === 'auto' || style.alignSelf === 'flex-end' ||
+                                style.textAlign === 'right';
+                            var hasContent = el.textContent.trim().length > 5;
+                            var isLeaf = el.querySelectorAll('div').length < 3;
+                            return isAlignedRight && hasContent && isLeaf;
+                        });
+                    }
+                }
+            }
+        }
 
         return messages;
     }
@@ -559,8 +735,10 @@
     // Start the DOM Guardian AFTER initial elements are in place
     startDOMGuardian();
 
-    // SPA navigation hooks for Gemini
-    if (currentSite === SITE.GEMINI) {
+    // SPA navigation hooks for platforms with aggressive DOM re-rendering
+    // Gemini (Angular), Bolt (Remix), Lovable (React Router), Replit (Next.js)
+    if (currentSite === SITE.GEMINI || currentSite === SITE.BOLT ||
+        currentSite === SITE.LOVABLE || currentSite === SITE.REPLIT) {
         const originalPushState = history.pushState;
         const originalReplaceState = history.replaceState;
 
@@ -577,12 +755,12 @@
             setTimeout(ensureElementsExist, 500);
         });
 
-        // Periodic health check for Gemini (every 3 seconds)
+        // Periodic health check (every 3 seconds) — these SPAs can silently remove injected elements
         setInterval(ensureElementsExist, 3000);
     }
 
     // Initial scan after page load
     setTimeout(scanConversation, 2000);
 
-    console.log('AI Conversation Navigator v6.4 loaded for ' + siteTitle + '!');
+    console.log('AI Conversation Navigator v7.0 loaded for ' + siteTitle + '!');
 })();

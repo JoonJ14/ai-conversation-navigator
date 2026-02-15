@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html><head><title>Lovable Mock</title></head>
+<body>
+<!-- Lovable: Split-panel layout. Chat has role="log" container.
+     User messages are justify-end wrappers with bg-neutral-200 rounded-xl bubbles.
+     Assistant messages are left-aligned with prose class. -->
+<main>
+  <div class="chat-panel" style="width:50%;">
+    <div role="log" aria-label="Chat messages">
+      <!-- User message: justify-end wrapper -->
+      <div class="flex justify-end" style="display:flex;justify-content:flex-end;">
+        <div class="bg-neutral-200 rounded-xl ml-auto" style="padding:12px;border-radius:12px;background:#e5e5e5;">
+          <p>Build me a task management app with drag-and-drop kanban boards</p>
+        </div>
+      </div>
+      <!-- Assistant message: left-aligned prose -->
+      <div class="flex justify-start">
+        <div class="prose">
+          <p>I'll create a kanban board with drag-and-drop functionality...</p>
+        </div>
+      </div>
+      <!-- User message -->
+      <div class="flex justify-end" style="display:flex;justify-content:flex-end;">
+        <div class="bg-neutral-200 rounded-xl ml-auto" style="padding:12px;border-radius:12px;background:#e5e5e5;">
+          <p>Add user authentication with Google OAuth</p>
+        </div>
+      </div>
+      <!-- Assistant message -->
+      <div class="flex justify-start">
+        <div class="prose">
+          <p>I've integrated Google OAuth for user authentication...</p>
+        </div>
+      </div>
+      <!-- User message -->
+      <div class="flex justify-end" style="display:flex;justify-content:flex-end;">
+        <div class="bg-neutral-200 rounded-xl ml-auto" style="padding:12px;border-radius:12px;background:#e5e5e5;">
+          <p>Now add real-time collaboration so multiple users can edit the same board</p>
+        </div>
+      </div>
+      <!-- User message -->
+      <div class="flex justify-end" style="display:flex;justify-content:flex-end;">
+        <div class="bg-neutral-200 rounded-xl ml-auto" style="padding:12px;border-radius:12px;background:#e5e5e5;">
+          <p>Also add a dark mode please</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="preview-panel" style="width:50%;">
+    <!-- Live preview iframe would go here -->
+  </div>
+</main>
+</body>
+</html>
