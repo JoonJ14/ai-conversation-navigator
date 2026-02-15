@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Button Position Mockups - AI Conversation Navigator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; color: #eee; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 20px; }
+
+  h1 { text-align: center; margin-bottom: 10px; font-size: 22px; color: #fff; }
+  .subtitle { text-align: center; color: #888; margin-bottom: 30px; font-size: 14px; }
+
+  .mockup-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .mockup-card {
+    background: #16213e;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #2a2a4a;
+  }
+
+  .mockup-label {
+    padding: 12px 16px;
+    font-weight: 700;
+    font-size: 14px;
+    border-bottom: 1px solid #2a2a4a;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .mockup-label .option-num {
+    background: #d97706;
+    color: #000;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+
+  .mockup-label .desc {
+    color: #aaa;
+    font-weight: 400;
+    font-size: 12px;
+    margin-left: auto;
+  }
+
+  /* The simulated platform layout */
+  .platform-sim {
+    display: flex;
+    height: 340px;
+    position: relative;
+  }
+
+  /* Chat panel (left side) */
+  .chat-panel {
+    width: 35%;
+    background: #1e1e2e;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid #333;
+    position: relative;
+  }
+
+  .chat-header {
+    padding: 10px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #888;
+    border-bottom: 1px solid #2a2a3a;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .chat-header .dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; }
+
+  .chat-messages {
+    flex: 1;
+    padding: 10px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .msg {
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 10px;
+    line-height: 1.4;
+    max-width: 85%;
+  }
+
+  .msg.user {
+    background: #3b82f6;
+    color: white;
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+  }
+
+  .msg.ai {
+    background: #2a2a4a;
+    color: #ccc;
+    align-self: flex-start;
+    border-bottom-left-radius: 2px;
+  }
+
+  .chat-input {
+    padding: 8px 10px;
+    border-top: 1px solid #2a2a3a;
+  }
+
+  .chat-input-box {
+    background: #2a2a3a;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 10px;
+    color: #666;
+  }
+
+  /* Workspace panel (right side) */
+  .workspace {
+    flex: 1;
+    background: #1a1a2e;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .workspace-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid #333;
+  }
+
+  .workspace-tab {
+    padding: 8px 14px;
+    font-size: 10px;
+    color: #666;
+    border-right: 1px solid #333;
+  }
+
+  .workspace-tab.active {
+    color: #eee;
+    background: #1e1e2e;
+    border-bottom: 2px solid #4ade80;
+  }
+
+  .code-lines {
+    padding: 10px;
+    font-family: 'Courier New', monospace;
+    font-size: 9px;
+    line-height: 1.8;
+    color: #555;
+  }
+
+  .code-lines .ln { color: #333; margin-right: 12px; }
+  .code-lines .kw { color: #c678dd; }
+  .code-lines .str { color: #98c379; }
+  .code-lines .fn { color: #61afef; }
+  .code-lines .cm { color: #5c6370; }
+
+  /* ============================================ */
+  /* BUTTON VARIANTS                              */
+  /* ============================================ */
+
+  /* Common button base */
+  .nav-btn {
+    background: #d97706;
+    color: white;
+    font-weight: 800;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    box-shadow: 2px 0 10px rgba(0,0,0,0.4);
+    transition: all 0.2s ease;
+  }
+
+  .nav-btn:hover {
+    background: #b45309;
+  }
+
+  .nav-btn .icon { font-size: 14px; }
+  .nav-btn .icon-sm { font-size: 12px; }
+
+  /* Option A: Middle of boundary edge (vertically centered) */
+  .btn-a {
+    position: absolute;
+    right: -16px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 44px;
+    border-radius: 0 6px 6px 0;
+    font-size: 12px;
+    writing-mode: vertical-rl;
+    letter-spacing: 1px;
+  }
+
+  /* Option B: Top-right corner of chat panel */
+  .btn-b {
+    position: absolute;
+    right: -16px;
+    top: 48px;
+    width: 16px;
+    height: 40px;
+    border-radius: 0 6px 6px 0;
+    font-size: 11px;
+  }
+
+  /* Option C: Bottom-right corner of chat, above input */
+  .btn-c {
+    position: absolute;
+    right: -16px;
+    bottom: 55px;
+    width: 16px;
+    height: 40px;
+    border-radius: 0 6px 6px 0;
+    font-size: 11px;
+  }
+
+  /* Option D: Thin strip along top of boundary */
+  .btn-d {
+    position: absolute;
+    right: -28px;
+    top: 48px;
+    width: 28px;
+    height: 28px;
+    border-radius: 0 6px 6px 0;
+    font-size: 11px;
+  }
+
+  /* Option E: Small circular button at boundary, vertically centered */
+  .btn-e {
+    position: absolute;
+    right: -14px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    font-size: 12px;
+  }
+
+  /* Option F: Minimal notch/tab at mid boundary */
+  .btn-f {
+    position: absolute;
+    right: -12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 12px;
+    height: 60px;
+    border-radius: 0 4px 4px 0;
+    font-size: 8px;
+    opacity: 0.7;
+  }
+  .btn-f:hover { opacity: 1; width: 16px; }
+
+  /* Annotations */
+  .annotation {
+    position: absolute;
+    font-size: 9px;
+    color: #d97706;
+    pointer-events: none;
+  }
+
+  .arrow-line {
+    position: absolute;
+    border: 1px dashed #d9770644;
+  }
+
+  /* Pros/cons */
+  .pros-cons {
+    padding: 10px 16px;
+    font-size: 11px;
+    line-height: 1.6;
+    border-top: 1px solid #2a2a4a;
+    color: #999;
+  }
+  .pros-cons .pro { color: #4ade80; }
+  .pros-cons .con { color: #f87171; }
+
+  /* Highlight pulse */
+  @keyframes pulse {
+    0%, 100% { box-shadow: 2px 0 10px rgba(217,119,6,0.3); }
+    50% { box-shadow: 2px 0 20px rgba(217,119,6,0.6); }
+  }
+  .nav-btn { animation: pulse 2s ease-in-out infinite; }
+
+  /* Boundary line indicator */
+  .boundary-line {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: #d97706;
+    opacity: 0.15;
+  }
+</style>
+</head>
+<body>
+
+<h1>Navigator Button Position Options</h1>
+<p class="subtitle">For platforms with left-side chat (Bolt, Lovable, Replit, V0, Base44, Emergent)</p>
+
+<div class="mockup-grid">
+
+  <!-- Option A: Middle of edge -->
+  <div class="mockup-card">
+    <div class="mockup-label">
+      <span class="option-num">A</span>
+      Mid-edge vertical tab
+      <span class="desc">Centered on boundary</span>
+    </div>
+    <div class="platform-sim">
+      <div class="chat-panel">
+        <div class="boundary-line"></div>
+        <div class="chat-header"><span class="dot"></span> AI Chat</div>
+        <div class="chat-messages">
+          <div class="msg user">Add a login page with email auth</div>
+          <div class="msg ai">I'll create a login page with email authentication. Let me set up the components...</div>
+          <div class="msg user">Also add password reset</div>
+          <div class="msg ai">Adding password reset flow with email verification...</div>
+        </div>
+        <div class="chat-input"><div class="chat-input-box">Type a message...</div></div>
+        <div class="nav-btn btn-a">✳</div>
+      </div>
+      <div class="workspace">
+        <div class="workspace-tabs">
+          <div class="workspace-tab active">App.tsx</div>
+          <div class="workspace-tab">Login.tsx</div>
+          <div class="workspace-tab">Preview</div>
+        </div>
+        <div class="code-lines">
+          <div><span class="ln">1</span><span class="kw">import</span> React <span class="kw">from</span> <span class="str">'react'</span>;</div>
+          <div><span class="ln">2</span><span class="kw">import</span> { Login } <span class="kw">from</span> <span class="str">'./Login'</span>;</div>
+          <div><span class="ln">3</span></div>
+          <div><span class="ln">4</span><span class="kw">export default function</span> <span class="fn">App</span>() {</div>
+          <div><span class="ln">5</span>  <span class="kw">return</span> (</div>
+          <div><span class="ln">6</span>    &lt;<span class="fn">Login</span> /&gt;</div>
+          <div><span class="ln">7</span>  );</div>
+          <div><span class="ln">8</span>}</div>
+        </div>
+      </div>
+    </div>
+    <div class="pros-cons">
+      <span class="pro">+</span> Easy to find, centered visually<br>
+      <span class="pro">+</span> Mirrors current right-side placement<br>
+      <span class="con">-</span> Slightly intrudes into workspace
+    </div>
+  </div>
+
+  <!-- Option B: Top of edge -->
+  <div class="mockup-card">
+    <div class="mockup-label">
+      <span class="option-num">B</span>
+      Top-edge tab
+      <span class="desc">Just below chat header</span>
+    </div>
+    <div class="platform-sim">
+      <div class="chat-panel">
+        <div class="boundary-line"></div>
+        <div class="chat-header"><span class="dot"></span> AI Chat</div>
+        <div class="chat-messages">
+          <div class="msg user">Add a login page with email auth</div>
+          <div class="msg ai">I'll create a login page with email authentication. Let me set up the components...</div>
+          <div class="msg user">Also add password reset</div>
+          <div class="msg ai">Adding password reset flow with email verification...</div>
+        </div>
+        <div class="chat-input"><div class="chat-input-box">Type a message...</div></div>
+        <div class="nav-btn btn-b">✳</div>
+      </div>
+      <div class="workspace">
+        <div class="workspace-tabs">
+          <div class="workspace-tab active">App.tsx</div>
+          <div class="workspace-tab">Login.tsx</div>
+          <div class="workspace-tab">Preview</div>
+        </div>
+        <div class="code-lines">
+          <div><span class="ln">1</span><span class="kw">import</span> React <span class="kw">from</span> <span class="str">'react'</span>;</div>
+          <div><span class="ln">2</span><span class="kw">import</span> { Login } <span class="kw">from</span> <span class="str">'./Login'</span>;</div>
+          <div><span class="ln">3</span></div>
+          <div><span class="ln">4</span><span class="kw">export default function</span> <span class="fn">App</span>() {</div>
+          <div><span class="ln">5</span>  <span class="kw">return</span> (</div>
+          <div><span class="ln">6</span>    &lt;<span class="fn">Login</span> /&gt;</div>
+          <div><span class="ln">7</span>  );</div>
+          <div><span class="ln">8</span>}</div>
+        </div>
+      </div>
+    </div>
+    <div class="pros-cons">
+      <span class="pro">+</span> Out of the way, near header<br>
+      <span class="pro">+</span> Doesn't block chat messages<br>
+      <span class="con">-</span> Could conflict with platform tabs/buttons
+    </div>
+  </div>
+
+  <!-- Option C: Bottom of edge -->
+  <div class="mockup-card">
+    <div class="mockup-label">
+      <span class="option-num">C</span>
+      Bottom-edge tab
+      <span class="desc">Above chat input</span>
+    </div>
+    <div class="platform-sim">
+      <div class="chat-panel">
+        <div class="boundary-line"></div>
+        <div class="chat-header"><span class="dot"></span> AI Chat</div>
+        <div class="chat-messages">
+          <div class="msg user">Add a login page with email auth</div>
+          <div class="msg ai">I'll create a login page with email authentication. Let me set up the components...</div>
+          <div class="msg user">Also add password reset</div>
+          <div class="msg ai">Adding password reset flow with email verification...</div>
+        </div>
+        <div class="chat-input"><div class="chat-input-box">Type a message...</div></div>
+        <div class="nav-btn btn-c">✳</div>
+      </div>
+      <div class="workspace">
+        <div class="workspace-tabs">
+          <div class="workspace-tab active">App.tsx</div>
+          <div class="workspace-tab">Login.tsx</div>
+          <div class="workspace-tab">Preview</div>
+        </div>
+        <div class="code-lines">
+          <div><span class="ln">1</span><span class="kw">import</span> React <span class="kw">from</span> <span class="str">'react'</span>;</div>
+          <div><span class="ln">2</span><span class="kw">import</span> { Login } <span class="kw">from</span> <span class="str">'./Login'</span>;</div>
+          <div><span class="ln">3</span></div>
+          <div><span class="ln">4</span><span class="kw">export default function</span> <span class="fn">App</span>() {</div>
+          <div><span class="ln">5</span>  <span class="kw">return</span> (</div>
+          <div><span class="ln">6</span>    &lt;<span class="fn">Login</span> /&gt;</div>
+          <div><span class="ln">7</span>  );</div>
+          <div><span class="ln">8</span>}</div>
+        </div>
+      </div>
+    </div>
+    <div class="pros-cons">
+      <span class="pro">+</span> Near input area where user focuses<br>
+      <span class="pro">+</span> Intuitive — navigate after typing<br>
+      <span class="con">-</span> Could feel crowded near input box
+    </div>
+  </div>
+
+  <!-- Option D: Small square button -->
+  <div class="mockup-card">
+    <div class="mockup-label">
+      <span class="option-num">D</span>
+      Small square tab
+      <span class="desc">Compact, top of boundary</span>
+    </div>
+    <div class="platform-sim">
+      <div class="chat-panel">
+        <div class="boundary-line"></div>
+        <div class="chat-header"><span class="dot"></span> AI Chat</div>
+        <div class="chat-messages">
+          <div class="msg user">Add a login page with email auth</div>
+          <div class="msg ai">I'll create a login page with email authentication. Let me set up the components...</div>
+          <div class="msg user">Also add password reset</div>
+          <div class="msg ai">Adding password reset flow with email verification...</div>
+        </div>
+        <div class="chat-input"><div class="chat-input-box">Type a message...</div></div>
+        <div class="nav-btn btn-d">✳</div>
+      </div>
+      <div class="workspace">
+        <div class="workspace-tabs">
+          <div class="workspace-tab active">App.tsx</div>
+          <div class="workspace-tab">Login.tsx</div>
+          <div class="workspace-tab">Preview</div>
+        </div>
+        <div class="code-lines">
+          <div><span class="ln">1</span><span class="kw">import</span> React <span class="kw">from</span> <span class="str">'react'</span>;</div>
+          <div><span class="ln">2</span><span class="kw">import</span> { Login } <span class="kw">from</span> <span class="str">'./Login'</span>;</div>
+          <div><span class="ln">3</span></div>
+          <div><span class="ln">4</span><span class="kw">export default function</span> <span class="fn">App</span>() {</div>
+          <div><span class="ln">5</span>  <span class="kw">return</span> (</div>
+          <div><span class="ln">6</span>    &lt;<span class="fn">Login</span> /&gt;</div>
+          <div><span class="ln">7</span>  );</div>
+          <div><span class="ln">8</span>}</div>
+        </div>
+      </div>
+    </div>
+    <div class="pros-cons">
+      <span class="pro">+</span> Very compact, minimal intrusion<br>
+      <span class="pro">+</span> Clear icon, easy to click<br>
+      <span class="con">-</span> Might be overlooked by new users
+    </div>
+  </div>
+
+  <!-- Option E: Circle button -->
+  <div class="mockup-card">
+    <div class="mockup-label">
+      <span class="option-num">E</span>
+      Circular floating button
+      <span class="desc">Circle on boundary</span>
+    </div>
+    <div class="platform-sim">
+      <div class="chat-panel">
+        <div class="boundary-line"></div>
+        <div class="chat-header"><span class="dot"></span> AI Chat</div>
+        <div class="chat-messages">
+          <div class="msg user">Add a login page with email auth</div>
+          <div class="msg ai">I'll create a login page with email authentication. Let me set up the components...</div>
+          <div class="msg user">Also add password reset</div>
+          <div class="msg ai">Adding password reset flow with email verification...</div>
+        </div>
+        <div class="chat-input"><div class="chat-input-box">Type a message...</div></div>
+        <div class="nav-btn btn-e">✳</div>
+      </div>
+      <div class="workspace">
+        <div class="workspace-tabs">
+          <div class="workspace-tab active">App.tsx</div>
+          <div class="workspace-tab">Login.tsx</div>
+          <div class="workspace-tab">Preview</div>
+        </div>
+        <div class="code-lines">
+          <div><span class="ln">1</span><span class="kw">import</span> React <span class="kw">from</span> <span class="str">'react'</span>;</div>
+          <div><span class="ln">2</span><span class="kw">import</span> { Login } <span class="kw">from</span> <span class="str">'./Login'</span>;</div>
+          <div><span class="ln">3</span></div>
+          <div><span class="ln">4</span><span class="kw">export default function</span> <span class="fn">App</span>() {</div>
+          <div><span class="ln">5</span>  <span class="kw">return</span> (</div>
+          <div><span class="ln">6</span>    &lt;<span class="fn">Login</span> /&gt;</div>
+          <div><span class="ln">7</span>  );</div>
+          <div><span class="ln">8</span>}</div>
+        </div>
+      </div>
+    </div>
+    <div class="pros-cons">
+      <span class="pro">+</span> Visually distinct, modern feel<br>
+      <span class="pro">+</span> Straddles the boundary naturally<br>
+      <span class="con">-</span> Covers content on both sides
+    </div>
+  </div>
+
+  <!-- Option F: Minimal notch -->
+  <div class="mockup-card">
+    <div class="mockup-label">
+      <span class="option-num">F</span>
+      Ultra-minimal notch
+      <span class="desc">Barely visible until hover</span>
+    </div>
+    <div class="platform-sim">
+      <div class="chat-panel">
+        <div class="boundary-line"></div>
+        <div class="chat-header"><span class="dot"></span> AI Chat</div>
+        <div class="chat-messages">
+          <div class="msg user">Add a login page with email auth</div>
+          <div class="msg ai">I'll create a login page with email authentication. Let me set up the components...</div>
+          <div class="msg user">Also add password reset</div>
+          <div class="msg ai">Adding password reset flow with email verification...</div>
+        </div>
+        <div class="chat-input"><div class="chat-input-box">Type a message...</div></div>
+        <div class="nav-btn btn-f">‹</div>
+      </div>
+      <div class="workspace">
+        <div class="workspace-tabs">
+          <div class="workspace-tab active">App.tsx</div>
+          <div class="workspace-tab">Login.tsx</div>
+          <div class="workspace-tab">Preview</div>
+        </div>
+        <div class="code-lines">
+          <div><span class="ln">1</span><span class="kw">import</span> React <span class="kw">from</span> <span class="str">'react'</span>;</div>
+          <div><span class="ln">2</span><span class="kw">import</span> { Login } <span class="kw">from</span> <span class="str">'./Login'</span>;</div>
+          <div><span class="ln">3</span></div>
+          <div><span class="ln">4</span><span class="kw">export default function</span> <span class="fn">App</span>() {</div>
+          <div><span class="ln">5</span>  <span class="kw">return</span> (</div>
+          <div><span class="ln">6</span>    &lt;<span class="fn">Login</span> /&gt;</div>
+          <div><span class="ln">7</span>  );</div>
+          <div><span class="ln">8</span>}</div>
+        </div>
+      </div>
+    </div>
+    <div class="pros-cons">
+      <span class="pro">+</span> Almost invisible, zero interference<br>
+      <span class="pro">+</span> Expands on hover for discoverability<br>
+      <span class="con">-</span> Hard to discover for first-time users
+    </div>
+  </div>
+
+</div>
+
+<div style="max-width: 1200px; margin: 30px auto; padding: 16px; background: #16213e; border-radius: 12px; border: 1px solid #2a2a4a;">
+  <p style="font-size: 13px; color: #888; text-align: center;">
+    <strong style="color: #d97706;">Note:</strong> The orange line along the boundary represents the chat/workspace divider.
+    All buttons are positioned along this edge. Hover over the buttons to see interactions.
+    The panel would slide open over the chat area (leftward) when clicked.
+  </p>
+</div>
+
+</body>
+</html>
