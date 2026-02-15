@@ -134,8 +134,8 @@
         /* === GHOST NOTCH V1 TOGGLE (left-chat platforms) === */
         #ai-nav-toggle {
             position: fixed !important;
-            right: auto !important;
-            left: 0 !important;
+            left: auto !important;
+            right: 65%;
             top: 50% !important;
             transform: translateY(-50%) !important;
             z-index: 2147483647 !important;
@@ -154,7 +154,7 @@
             font-weight: 800 !important;
             font-size: 20px !important;
             overflow: hidden !important;
-            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease, border-radius 0.3s ease, left 0.3s ease !important;
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease, border-radius 0.3s ease, right 0.3s ease !important;
             white-space: nowrap !important;
             visibility: visible !important;
             opacity: 0.35 !important;
@@ -462,8 +462,8 @@
 
         var toggle = document.getElementById('ai-nav-toggle');
         if (toggle && !isOpen) {
-            // Position button: right edge at the boundary, button extends leftward
-            toggle.style.left = (boundaryX - 8) + 'px'; // 8px = button width at rest
+            // Position button: right edge anchored at boundary, expands leftward into chat
+            toggle.style.right = (window.innerWidth - boundaryX) + 'px';
         }
     }
 
@@ -577,8 +577,8 @@
         // For left-chat: reposition button when panel opens/closes
         if (isLeftChat && toggle) {
             if (isOpen) {
-                // Move button to right edge of open panel (320px from left)
-                toggle.style.left = '320px';
+                // Move button to right edge of open panel (panel is 320px wide)
+                toggle.style.right = (window.innerWidth - 320) + 'px';
             } else {
                 // Restore to boundary position
                 _lastBoundaryX = null; // force recalculation
@@ -1047,7 +1047,13 @@
         // Reposition on window resize
         window.addEventListener('resize', function() {
             _lastBoundaryX = null; // force recalculation
-            if (!isOpen) updateLeftChatPositions();
+            if (isOpen) {
+                // right is viewport-relative, so update when window resizes while open
+                var toggle = document.getElementById('ai-nav-toggle');
+                if (toggle) toggle.style.right = (window.innerWidth - 320) + 'px';
+            } else {
+                updateLeftChatPositions();
+            }
         });
 
         // Periodic boundary check (chat panels can resize dynamically)
