@@ -169,6 +169,9 @@
         #ai-nav-toggle .ai-nav-expand-text {
             display: none !important;
         }
+        #ai-nav-toggle.ai-nav-positioned {
+            opacity: 0.35 !important;
+        }
         #ai-nav-toggle:hover {
             width: 32px !important;
             height: 40px !important;
@@ -505,7 +508,7 @@
             if (!_boundaryDetected) {
                 _boundaryDetected = true;
                 requestAnimationFrame(function() {
-                    toggle.style.opacity = '0.35';
+                    toggle.classList.add('ai-nav-positioned');
                 });
             }
         }
