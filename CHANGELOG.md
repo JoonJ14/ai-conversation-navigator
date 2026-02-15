@@ -273,7 +273,7 @@ The `history.pushState`/`replaceState` interception and periodic health check no
 Added support for three AI app-builder platforms, expanding the navigator from 4 platforms to 7 (plus their sub-platform variants). These are the first non-chatbot platforms supported — all three are code-generation IDEs where users build apps through iterative conversation, and all three suffer from the same long-conversation navigation problem.
 
 #### Bolt.new (`bolt.new`)
-- **Theme:** Purple (`#9C7DFF`) — matches Bolt's accent-500 brand color
+- **Theme:** Sky Blue (`#38BDF8`) — matches Bolt's sky-400 brand color
 - **Icon:** ⚡ (U+26A1, lightning bolt with text presentation selector to prevent emoji rendering)
 - **Selectors:** Multi-strategy fallback chain based on bolt.diy open-source fork analysis:
   1. `backdrop-blur` + `rounded` elements that are not `w-full` (user messages have accent-tinted blur background)

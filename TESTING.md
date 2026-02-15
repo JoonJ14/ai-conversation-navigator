@@ -317,7 +317,7 @@ The `PLATFORMS` array in `test-all-platforms.js` is the **central configuration*
 | Codex Web | chatgpt.com | codex.html | 2 | rgb(255, 255, 255) | ⏣ `\u23E3` |
 | Grok | grok.com | grok.html | 3 | rgb(220, 38, 38) | X |
 | Gemini | gemini.google.com | gemini.html | 3 | rgb(66, 133, 244) | ✦ `\u2726` |
-| Bolt.new | bolt.new | bolt.html | 3 | rgb(156, 125, 255) | ⚡ `\u26A1\uFE0E` |
+| Bolt.new | bolt.new | bolt.html | 3 | rgb(56, 189, 248) | ⚡ `\u26A1\uFE0E` |
 | Lovable | lovable.dev | lovable.html | 4 | rgb(155, 135, 245) | ♥ `\u2665` |
 | Replit | replit.com | replit.html | 3 | rgb(242, 101, 34) | ⠕ `\u2815` |
 

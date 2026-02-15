@@ -37,7 +37,7 @@ I use those coding agents mostly in terminal CLI, and I find them incredibly eff
 
 | Platform | Icon | Color | Button Style | Status |
 |----------|------|-------|-------------|--------|
-| [Bolt.new](https://bolt.new) | ⚡ | 🟣 Purple | Ghost Notch (left-chat) | ✅ Beta |
+| [Bolt.new](https://bolt.new) | ⚡ | 🩵 Sky Blue | Ghost Notch (left-chat) | ✅ Beta |
 | [Lovable](https://lovable.dev) | ♥ | 🟣 Violet | Ghost Notch (left-chat) | ✅ Beta |
 | [Replit](https://replit.com) | ⠕ | 🟠 Red-Orange | Ghost Notch (left-chat) | ✅ Beta |
 | [V0](https://v0.app) | △ | ⚪ White | Ghost Notch (left-chat) | ✅ Beta |

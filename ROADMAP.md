@@ -20,7 +20,7 @@ This document tracks features and platform expansions we're considering but have
 - Codex (`chatgpt.com/codex`)
 
 ### AI App-Builder Platforms (added in v7.0, expanded in v7.1)
-- Bolt.new (`bolt.new`) — Purple theme, ⚡ icon, ghost notch
+- Bolt.new (`bolt.new`) — Sky Blue theme, ⚡ icon, ghost notch
 - Lovable (`lovable.dev`) — Violet theme, ♥ icon, ghost notch
 - Replit (`replit.com`) — Orange theme, ⠕ icon, ghost notch
 - V0 (`v0.app`) — White theme, △ icon, ghost notch — added in v7.1
