@@ -129,30 +129,6 @@
     const LEFT_CHAT_SITES = [SITE.BOLT, SITE.LOVABLE, SITE.REPLIT, SITE.V0, SITE.BASE44, SITE.EMERGENT];
     const isLeftChat = LEFT_CHAT_SITES.includes(currentSite);
 
-    // --- Hide button on app-builder home/landing pages (no chat yet) ---
-    function isLeftChatHomePage() {
-        if (!isLeftChat) return false;
-        var path = window.location.pathname.replace(/\/+$/, '') || '/'; // normalize trailing slashes
-        switch (currentSite) {
-            case SITE.BOLT:     return path === '/';
-            case SITE.REPLIT:   return path === '/' || path === '/~';
-            case SITE.LOVABLE:  return path === '/';
-            case SITE.V0:       return path === '/';
-            case SITE.BASE44:   return path === '/';
-            case SITE.EMERGENT: return path === '/' || path === '/home';
-            default: return false;
-        }
-    }
-
-    function updateHomePageVisibility() {
-        if (!isLeftChat) return;
-        var hide = isLeftChatHomePage();
-        var toggle = document.getElementById('ai-nav-toggle');
-        var panel = document.getElementById('ai-nav-panel');
-        if (toggle) toggle.style.display = hide ? 'none' : '';
-        if (panel) panel.style.display = hide ? 'none' : '';
-    }
-
     // Inject styles — toggle button and panel differ for left-chat vs standard platforms
     const toggleStyles = isLeftChat ? `
         /* === GHOST NOTCH V1 TOGGLE (left-chat platforms) === */
@@ -514,8 +490,9 @@
             }
         }
 
-        // Last resort: assume chat is roughly 35% of viewport
-        return window.innerWidth * 0.35;
+        // No chat panel detected — return null to hide the button
+        // (prevents button from appearing on home/dashboard pages)
+        return null;
     }
 
     // --- Position toggle button AND panel at the chat boundary ---
@@ -527,14 +504,24 @@
         if (!isLeftChat) return;
 
         var boundaryX = getChatBoundaryX();
-        if (!boundaryX) return;
+        var toggle = document.getElementById('ai-nav-toggle');
+        var panel = document.getElementById('ai-nav-panel');
+
+        // No chat panel detected → hide everything (home/dashboard page)
+        if (!boundaryX) {
+            if (toggle) toggle.style.display = 'none';
+            if (panel) panel.style.display = 'none';
+            return;
+        }
+        // Chat detected → ensure visible
+        if (toggle) toggle.style.display = '';
+        if (panel) panel.style.display = '';
 
         // Only update if boundary changed significantly (avoid jitter)
         if (_lastBoundaryX && Math.abs(boundaryX - _lastBoundaryX) < 3) {
             // Boundary is stable across consecutive checks — safe to fade in
             if (!_boundaryDetected) {
                 _boundaryDetected = true;
-                var toggle = document.getElementById('ai-nav-toggle');
                 if (toggle) {
                     _fadeTimer = setTimeout(function() {
                         _fadeTimer = null;
@@ -554,13 +541,11 @@
         var rightVal = (window.innerWidth - boundaryX) + 'px';
 
         // Panel: right edge anchored at boundary (always, open or closed)
-        var panel = document.getElementById('ai-nav-panel');
         if (panel) {
             panel.style.right = rightVal;
         }
 
         // Button: right edge at boundary when closed (invisible until stable)
-        var toggle = document.getElementById('ai-nav-toggle');
         if (toggle && !isOpen) {
             toggle.style.right = rightVal;
             // Boundary shifted — if we already started fading in, cancel and restart
@@ -1115,9 +1100,6 @@
         document.body.appendChild(createPanel());
     }
 
-    // Hide on home/landing pages of app-builder sites
-    updateHomePageVisibility();
-
     // Start the DOM Guardian AFTER initial elements are in place
     startDOMGuardian();
 
@@ -1131,27 +1113,21 @@
         history.pushState = function() {
             originalPushState.apply(this, arguments);
             setTimeout(ensureElementsExist, 500);
-            setTimeout(updateHomePageVisibility, 550);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         };
         history.replaceState = function() {
             originalReplaceState.apply(this, arguments);
             setTimeout(ensureElementsExist, 500);
-            setTimeout(updateHomePageVisibility, 550);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         };
 
         window.addEventListener('popstate', function() {
             setTimeout(ensureElementsExist, 500);
-            setTimeout(updateHomePageVisibility, 550);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         });
 
         // Periodic health check (every 3 seconds) — these SPAs can silently remove injected elements
-        setInterval(function() {
-            ensureElementsExist();
-            updateHomePageVisibility();
-        }, 3000);
+        setInterval(ensureElementsExist, 3000);
     }
 
     // Left-chat: position button at chat boundary on init, resize, and periodically
