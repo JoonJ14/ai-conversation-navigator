@@ -32,14 +32,45 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v7.3
+## Current Status: v7.5
 
-The ghost notch button system for left-chat platforms has gone through three iterations (v7.1 → v7.2 → v7.3) to solve visibility issues on home/dashboard pages and boundary fluctuation bugs. The current v7.3 three-phase `updateLeftChatPositions()` architecture is stable. See CHANGELOG v7.3 and TROUBLESHOOTING for the full technical history.
+The extension now supports 14 platform variants across 12 websites. The ghost notch button system (v7.1 → v7.3) is stable, and v7.4/v7.5 focused on improving selector accuracy through live site testing. All 140 automated tests pass (10 tests × 14 platforms).
 
-**What still needs live testing:**
-- Replit selectors are speculative (Emotion CSS-in-JS hash classes). The `data-testid` approach should work but needs live DOM validation. If Replit doesn't use `data-testid`, the fallback chain (ARIA roles, computed styles) activates.
-- All left-chat platforms: the `_walkUpToChatContainer()` heuristic (`rect.left < 80`, width 200-65%, height > 40%) has been validated on Bolt, Lovable, and Emergent but not exhaustively on all viewport sizes.
+**What's working well:**
+- Claude, ChatGPT, Codex, Grok, Gemini, Perplexity, Firebase Studio — all selectors validated on live sites
+- Lovable, Base44 — selectors working correctly on live sites
+- Bolt.new — v7.5 reworked selectors to use `data-message-id` + `self-end` pattern, excluding the "You've used all your tokens" subscription warning
+- Ghost notch button positioning and boundary detection stable across all left-chat platforms
+
+**What needs live testing and follow-up work:**
 - Perplexity's `.group\/query` selector (Tailwind group variant) is stable but could change if Perplexity moves away from Tailwind.
+
+---
+
+## Next Priority: Platform Selector Deep-Dive
+
+These three platforms have confirmed issues from live site testing that need dedicated attention. A separate feature branch should be created for each to do focused live DOM inspection and selector iteration.
+
+### Replit — Question Deduplication (3x repeats)
+- **Issue:** Each question appears 3 times in the navigation panel
+- **Current state:** Nesting dedup + text-content dedup applied as mitigation, but root cause unknown
+- **What's needed:** Live DOM inspection to understand why 3 elements match per question
+- **Possible causes:** `data-testid*="user-message"` matching siblings, primary selector miss causing fallback 3x match, or Emotion CSS-in-JS class changes
+- **See:** TROUBLESHOOTING.md → "Replit — Questions repeating 3 times"
+
+### V0 — No Questions Detected
+- **Issue:** "0 questions found" despite multiple questions asked
+- **Current state:** 6+ data-attribute selectors and 5 structural fallbacks all return 0
+- **What's needed:** Live DOM inspection to discover V0's actual element structure
+- **Likely cause:** V0's Geist design system uses completely different patterns than assumed
+- **See:** TROUBLESHOOTING.md → "V0 — No questions detected"
+
+### Emergent — Button Visibility + Panel Spacing
+- **Issue 1:** Ghost notch button invisible until hover (even after opacity increase to 0.75)
+- **Issue 2:** Panel expanding with unexpected spacing/gap
+- **Current state:** Opacity and width increased, scrollbar offset applied, but may need design rethink
+- **What's needed:** Live testing to validate opacity, diagnose panel spacing, consider alternative button design
+- **See:** TROUBLESHOOTING.md → "Emergent — Button invisible until hover"
 
 ---
 

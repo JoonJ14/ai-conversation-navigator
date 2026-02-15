@@ -9,7 +9,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-7.1-blue)
+![Version](https://img.shields.io/badge/version-7.5-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -173,10 +173,10 @@ The script injects a hover-expand button and sidebar panel into AI chat pages. I
 | Grok | `div.message-bubble` |
 | Gemini | `div.query-text` |
 | Perplexity | `.group\/query` (Tailwind group variant) |
-| Bolt.new | `[class*="backdrop-blur"][class*="rounded"]` + fallback chain |
+| Bolt.new | `[data-message-id]` + `self-end` filter + fallback chain |
 | Lovable | `div[role="log"] .justify-end` + fallback chain |
-| Replit | `data-*` attributes, ARIA roles, computed styles (multi-strategy) |
-| V0 | `[data-role="user"]` + structural fallback |
+| Replit | `data-*` attributes + dedup, ARIA roles, computed styles (multi-strategy) |
+| V0 | `[data-role="user"]` + multi-attribute + structural fallback |
 | Base44 | `[id^="message-"]` + `.justify-end` filter |
 | Emergent | `[data-testid^="user-message"]` |
 | Firebase Studio | `[class*="_isUser_"]` (CSS Modules partial match) |

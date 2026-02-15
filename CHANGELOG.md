@@ -4,6 +4,121 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [7.5] - 2026-02-15
+
+### Problem — Platform Selectors Not Matching Live DOM
+
+After deploying v7.4 (which added mock test pages for 5 new platforms), live site testing on Bolt.new, Replit, V0, and Emergent revealed four distinct issues:
+
+1. **Bolt.new** showed "You've used all your tokens" (a subscription warning) instead of actual user questions
+2. **Replit** showed every question 3 times instead of once
+3. **V0** showed 0 questions found
+4. **Emergent** button was invisible until mouse hover, and the panel had spacing issues
+
+### Technical Root Causes and Fixes
+
+#### Bolt.new — Token Warning Picked Up as a Question
+
+**Root cause:** The v7.4 primary selector `[class*="backdrop-blur"][class*="rounded"]` was based on the bolt.diy open-source fork, but bolt.new's actual production DOM uses a different structure:
+- User messages: `<div data-message-id="..." class="self-end bg-bolt-elements-messages-background ...">` with text inside `<div class="_MarkdownContent_...">` children
+- The "You've used all your tokens" warning: a `<span>` inside a `<div class="bg-bolt-elements-prompt-subscribeButton-background">` at the bottom of the page
+
+The bolt.diy selectors found 0 user messages (no `backdrop-blur` in production), so fallbacks fired and matched the token warning text (which sat inside elements with `ml-auto` or `rounded-*` classes).
+
+**Fix:** Reworked the entire Bolt selector chain:
+1. **New primary:** `[data-message-id]` filtered by `self-end` class or `bg-bolt-elements-messages` — directly targets the production DOM structure
+2. **Fallback 1:** `.self-end[class*="bg-bolt-elements"]` — alternate attribute-based match
+3. **Fallback 2:** `[class*="_MarkdownContent_"]` inside `.self-end` parents — targets the text content divs
+4. **Fallback 3:** Original `backdrop-blur` + `rounded` pattern (kept for bolt.diy fork compatibility)
+5. **Fallback 4-5:** `ml-auto` rounded bubbles and grid children (kept from v7.4)
+6. **All selectors:** Added `subscribeButton` and `prompt-subscribe` exclusion filters to prevent token/subscription warnings from ever being matched
+
+Updated `tests/mock-pages/bolt.html` to use the production DOM structure (`data-message-id`, `self-end`, `bg-bolt-elements-messages-background`, `_MarkdownContent_`) and include a token warning element that should NOT be detected.
+
+#### Replit — 3x Question Duplication
+
+**Root cause:** The existing nesting deduplication (keep only innermost elements) handles the case where `data-testid*="user-message"` matches at multiple nesting levels (parent contains child). But on live Replit, 3 elements per message are matching the selector and they are NOT nested — they're siblings or cousins at the same DOM level. Each has identical `textContent`, but `el.contains(other)` returns `false` for all pairs, so nesting dedup keeps all 3.
+
+**Fix:** Added a second deduplication step after the existing nesting dedup:
+```javascript
+// Text-content dedup: keep only the first element for each unique text
+var replitSeen = {};
+var replitTextDeduped = [];
+for (var ri = 0; ri < replitMsgArr.length; ri++) {
+    var replitTxt = replitMsgArr[ri].textContent.trim();
+    if (replitTxt && !replitSeen[replitTxt]) {
+        replitSeen[replitTxt] = true;
+        replitTextDeduped.push(replitMsgArr[ri]);
+    }
+}
+```
+
+**Limitation:** This is a mitigation, not a root-cause fix. If a user genuinely asks the exact same question twice, the second instance would be filtered out. The proper fix requires live DOM inspection to understand why 3 elements match per question and to target only the correct one. See TROUBLESHOOTING.md for full diagnosis notes.
+
+#### V0 — No Questions Detected
+
+**Root cause:** All primary selectors (`[data-role="user"]`, `[data-message-role="user"]`, `[data-message-author-role="user"]`) and all 5 structural fallbacks return 0 results on the live V0 site. V0's Geist design system likely uses completely different data attributes and DOM patterns than what we assumed from research.
+
+**Fix:** Added more selector variants to increase coverage:
+- `[data-message-author="user"]`
+- `[data-testid*="user-message"]`
+- `[data-sender="user"]`
+- New fallback: `[data-message-id]` containers filtered by alignment classes (`justify-end`, `self-end`, `ml-auto`, or containing `bg-muted` children)
+
+**Limitation:** These additional selectors are educated guesses. Without live DOM inspection, we can't know V0's actual attribute patterns. See TROUBLESHOOTING.md for what's needed.
+
+#### Emergent — Button Invisible Until Hover
+
+**Root cause:** The ghost notch button at rest has `opacity: 0.35` and `width: 8px`. Against Emergent's dark interface, this combination makes the button virtually invisible — a 8px-wide strip at 35% opacity on a dark background doesn't register visually.
+
+**Fix:** Added Emergent-specific CSS overrides:
+```css
+#ai-nav-toggle.ai-nav-positioned {
+    opacity: 0.75 !important;  /* Was 0.35 for all platforms */
+    width: 14px !important;    /* Was 8px */
+}
+```
+
+This uses a conditional template literal in the CSS generation:
+```javascript
+opacity: ${currentSite === SITE.EMERGENT ? '0.75' : '0.35'} !important;
+${currentSite === SITE.EMERGENT ? 'width: 14px !important;' : ''}
+```
+
+**Limitation:** Still under investigation — the 0.75 opacity + 14px width may still be insufficient on some Emergent page backgrounds. The panel spacing issue (gap when panel expands) is also unresolved. See TROUBLESHOOTING.md.
+
+### Known Issues Remaining
+
+All four fixes improve the situation but three platforms (Replit, V0, Emergent) need further live DOM inspection for complete resolution. See TROUBLESHOOTING.md → "Known Issues Under Investigation" and ROADMAP.md → "Next Priority: Platform Selector Deep-Dive" for the full plan.
+
+---
+
+## [7.4] - 2026-02-15
+
+### Added — Mock Test Pages for 5 New Platforms + Selector Improvements
+
+Extended the automated test suite from 9 platform variants to 14 by adding mock HTML pages for V0, Base44, Emergent, Perplexity, and Firebase Studio. Also refined selectors and visibility for 6 platforms based on initial testing.
+
+#### New Mock Test Pages
+- `tests/mock-pages/v0.html` — V0 with `data-role="user"` + copy button filtering
+- `tests/mock-pages/base44.html` — Base44 with `id="message-{uuid}"` + justify-end filter
+- `tests/mock-pages/emergent.html` — Emergent with `data-testid="user-message-*"` + prose containers
+- `tests/mock-pages/perplexity.html` — Perplexity with `.group/query` Tailwind variant
+- `tests/mock-pages/firebase.html` — Firebase Studio with CSS Modules `_isUser_` pattern
+
+#### Selector Refinements
+- **Replit:** Added nesting deduplication — keeps only innermost elements when `data-testid*="user-message"` matches at multiple DOM levels
+- **Emergent:** Added deduplication (same pattern as Replit) + scrollbar offset (14px left shift to avoid thick scrollbar overlap)
+- **V0:** Added copy button/icon exclusion across all fallbacks
+
+#### Icon Change
+- **Firebase Studio:** Changed icon from ☄ (comet) to ✦ (four-pointed star) — same as Gemini since Firebase Studio runs Gemini under the hood, differentiated by the dark tangerine color theme
+
+### Test Suite Results
+All 140 tests pass (10 tests × 14 platform variants) on Chromium. The test infrastructure now covers every supported platform.
+
+---
+
 ## [7.3] - 2026-02-15
 
 ### Problem — Ghost Notch Button Appearing on Home/Dashboard Pages
