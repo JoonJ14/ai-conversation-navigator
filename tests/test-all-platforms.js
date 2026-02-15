@@ -14,11 +14,13 @@
  *   NODE_PATH=/opt/node22/lib/node_modules node tests/test-all-platforms.js
  *   NODE_PATH=/opt/node22/lib/node_modules node tests/test-all-platforms.js --browser chromium
  *   NODE_PATH=/opt/node22/lib/node_modules node tests/test-all-platforms.js --browser chromium,firefox,webkit
+ *   NODE_PATH=/opt/node22/lib/node_modules node tests/test-all-platforms.js --screenshots
  *
  * Or use the convenience script:
  *   ./tests/run-tests.sh
  *   ./tests/run-tests.sh --browser firefox
  *   ./tests/run-tests.sh --browser all
+ *   ./tests/run-tests.sh --screenshots
  */
 
 const playwright = require('playwright');
@@ -70,6 +72,16 @@ function parseBrowserArg() {
     if (val === 'all') return Object.keys(BROWSER_ENGINES);
 
     return val.split(',').map(b => b.trim().toLowerCase()).filter(b => BROWSER_ENGINES[b]);
+}
+
+// Check if --screenshots flag is present
+function shouldCaptureScreenshots() {
+    return process.argv.includes('--screenshots');
+}
+
+// Slugify a platform name for use in filenames (e.g. "Claude Code" → "claude-code")
+function slugify(name) {
+    return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
 // ── Platform definitions (must match the userscript) ──────────────────────────
@@ -222,8 +234,8 @@ async function setupRouteForPlatform(page, platform, scriptContent) {
 
 // ── Test runner ───────────────────────────────────────────────────────────────
 
-async function testPlatform(page, platform, scriptContent) {
-    const results = { name: platform.name, tests: [], passed: true };
+async function testPlatform(page, platform, scriptContent, screenshotOpts) {
+    const results = { name: platform.name, tests: [], passed: true, screenshots: [] };
 
     function assert(testName, condition, detail) {
         const status = condition ? 'PASS' : 'FAIL';
@@ -280,6 +292,14 @@ async function testPlatform(page, platform, scriptContent) {
         assert('Theme accent color', actualBg === platform.expectedAccent,
             `Expected "${platform.expectedAccent}", got "${actualBg}"`);
 
+        // ── SCREENSHOT: Toggle button visible ──
+        if (screenshotOpts) {
+            const slug = slugify(platform.name);
+            const filePath = path.join(screenshotOpts.dir, `${slug}-toggle.png`);
+            await page.screenshot({ path: filePath, fullPage: true });
+            results.screenshots.push({ label: 'Toggle button', path: filePath });
+        }
+
         // ── TEST 5: Click toggle to open panel ──
         await page.evaluate(() => {
             document.getElementById('ai-nav-toggle').click();
@@ -321,6 +341,14 @@ async function testPlatform(page, platform, scriptContent) {
         });
         assert('All items have summaries', allHaveSummaries,
             allHaveSummaries ? 'All summaries non-empty' : 'Some summaries missing');
+
+        // ── SCREENSHOT: Panel open with nav items ──
+        if (screenshotOpts) {
+            const slug = slugify(platform.name);
+            const filePath = path.join(screenshotOpts.dir, `${slug}-panel-open.png`);
+            await page.screenshot({ path: filePath, fullPage: true });
+            results.screenshots.push({ label: 'Panel open', path: filePath });
+        }
 
         // ── TEST 9: Nav items are clickable (don't throw) ──
         let clickable = true;
@@ -385,7 +413,7 @@ async function launchBrowser(engineKey) {
 
 // ── Run all platform tests on a single browser engine ─────────────────────────
 
-async function runTestsOnEngine(engineKey, scriptContent) {
+async function runTestsOnEngine(engineKey, scriptContent, captureScreenshots) {
     const engine = BROWSER_ENGINES[engineKey];
 
     console.log(`  Launching ${engine.name}...`);
@@ -401,13 +429,23 @@ async function runTestsOnEngine(engineKey, scriptContent) {
     console.log(`  ${engine.name} launched successfully`);
     console.log('');
 
+    // Set up screenshot directory for this engine
+    let screenshotOpts = null;
+    if (captureScreenshots) {
+        const screenshotDir = path.join(__dirname, 'screenshots', engineKey);
+        fs.mkdirSync(screenshotDir, { recursive: true });
+        screenshotOpts = { dir: screenshotDir };
+        console.log(`  Screenshots: ${screenshotDir}`);
+        console.log('');
+    }
+
     const context = await browser.newContext();
     const page = await context.newPage();
 
     const allResults = [];
     for (const platform of PLATFORMS) {
         process.stdout.write(`  Testing ${platform.name}... `);
-        const result = await testPlatform(page, platform, scriptContent);
+        const result = await testPlatform(page, platform, scriptContent, screenshotOpts);
         allResults.push(result);
 
         const failCount = result.tests.filter(t => t.status === 'FAIL').length;
@@ -428,6 +466,7 @@ async function runTestsOnEngine(engineKey, scriptContent) {
 
 async function main() {
     const browsers = parseBrowserArg();
+    const captureScreenshots = shouldCaptureScreenshots();
 
     console.log('');
     console.log('========================================');
@@ -435,6 +474,7 @@ async function main() {
     console.log('========================================');
     console.log(`  Browsers: ${browsers.map(b => BROWSER_ENGINES[b].name).join(', ')}`);
     console.log(`  Platform: ${process.platform} (${process.arch})`);
+    if (captureScreenshots) console.log('  Screenshots: ENABLED');
     console.log('========================================');
     console.log('');
 
@@ -444,8 +484,8 @@ async function main() {
     const engineResults = [];
     for (const engineKey of browsers) {
         console.log(`── ${BROWSER_ENGINES[engineKey].name} ${'─'.repeat(38 - BROWSER_ENGINES[engineKey].name.length)}`);
-        const result = await runTestsOnEngine(engineKey, scriptContent);
-        engineResults.push(result);
+        const result = await runTestsOnEngine(engineKey, scriptContent, captureScreenshots);
+        engineResults.push({ ...result, engineKey });
         console.log('');
     }
 
@@ -501,6 +541,45 @@ async function main() {
     console.log(`  Tests:     ${grandTotalPassed} passed, ${grandTotalFailed} failed (${grandTotalTests} total)`);
     console.log('========================================');
     console.log('');
+
+    // ── Generate SCREENSHOTS.md if screenshots were captured ──────────
+    if (captureScreenshots) {
+        const screenshotBaseDir = path.join(__dirname, 'screenshots');
+        const mdPath = path.join(screenshotBaseDir, 'SCREENSHOTS.md');
+        let md = '# Test Screenshots\n\n';
+        md += `Generated on ${new Date().toISOString().split('T')[0]} `;
+        md += `| Platform: ${process.platform} (${process.arch})\n\n`;
+
+        for (const engineResult of engineResults) {
+            if (engineResult.skipped) continue;
+
+            md += `## ${engineResult.engineName}\n\n`;
+
+            for (const result of engineResult.results) {
+                if (!result.screenshots || result.screenshots.length === 0) continue;
+
+                const status = result.passed ? 'PASS' : 'FAIL';
+                md += `### ${result.name} — ${status}\n\n`;
+
+                // Show toggle and panel-open side by side
+                md += '| Toggle Button | Panel Open |\n';
+                md += '|:---:|:---:|\n';
+
+                const toggleShot = result.screenshots.find(s => s.label === 'Toggle button');
+                const panelShot = result.screenshots.find(s => s.label === 'Panel open');
+                const toggleRel = toggleShot ? path.relative(screenshotBaseDir, toggleShot.path) : '';
+                const panelRel = panelShot ? path.relative(screenshotBaseDir, panelShot.path) : '';
+
+                const toggleCell = toggleRel ? `![${result.name} toggle](${toggleRel})` : 'N/A';
+                const panelCell = panelRel ? `![${result.name} panel](${panelRel})` : 'N/A';
+                md += `| ${toggleCell} | ${panelCell} |\n\n`;
+            }
+        }
+
+        fs.writeFileSync(mdPath, md);
+        console.log(`  Screenshots report: ${mdPath}`);
+        console.log('');
+    }
 
     // Fail if any tests failed or if ALL engines were skipped
     if (grandTotalFailed > 0) process.exit(1);

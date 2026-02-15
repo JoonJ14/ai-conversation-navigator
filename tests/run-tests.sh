@@ -6,6 +6,8 @@
 #   ./tests/run-tests.sh --browser firefox     # Run with Firefox only
 #   ./tests/run-tests.sh --browser all         # Run with all available engines
 #   ./tests/run-tests.sh --browser chromium,firefox,webkit
+#   ./tests/run-tests.sh --screenshots          # Capture PNG screenshots
+#   ./tests/run-tests.sh --browser all --screenshots
 #
 # This script:
 #   1. Serves mock HTML pages on localhost
