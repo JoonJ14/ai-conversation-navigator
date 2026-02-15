@@ -40,10 +40,10 @@ I use those coding agents mostly in terminal CLI, and I find them incredibly eff
 | [Bolt.new](https://bolt.new) | ⚡ | 🩵 Sky Blue | Ghost Notch (left-chat) | ✅ Beta |
 | [Lovable](https://lovable.dev) | ♥ | 🟣 Violet | Ghost Notch (left-chat) | ✅ Beta |
 | [Replit](https://replit.com) | ⠕ | 🟠 Red-Orange | Ghost Notch (left-chat) | ✅ Beta |
-| [V0](https://v0.app) | △ | ⚪ White | Ghost Notch (left-chat) | ✅ Beta |
+| [V0](https://v0.app) | ▽ | ⚪ White | Ghost Notch (left-chat) | ✅ Beta |
 | [Base44](https://app.base44.com) | ⬢ | 🟣 Indigo | Ghost Notch (left-chat) | ✅ Beta |
-| [Emergent](https://app.emergent.sh) | ✶ | 🟢 Emerald | Ghost Notch (left-chat) | ✅ Beta |
-| [Firebase Studio](https://studio.firebase.google.com) | ★ | 🟡 Amber | Standard (right-edge) | ✅ Beta |
+| [Emergent](https://app.emergent.sh) | e | 🟢 Emerald | Ghost Notch (left-chat) | ✅ Beta |
+| [Firebase Studio](https://studio.firebase.google.com) | ◆ | 🟠 Dark Tangerine | Standard (right-edge) | ✅ Beta |
 
 > **Beta Notice:** The initial support for these app-builder platforms was developed using **mock DOM testing** — we built replica HTML pages based on open-source forks and research, then validated our selectors against those replicas with automated Playwright tests (see [TESTING.md](TESTING.md)). Later, we created free accounts on each platform to test against the live sites and refine the selectors they use for the questions we ask. This means the selectors are informed by real DOM inspection, but these platforms update frequently and may change their HTML structure at any time. **If you try it and run into problems, please [open an issue](https://github.com/JoonJ14/ai-conversation-navigator/issues) describing what you see.** Your real-world feedback is exactly what will help us fix selectors and make this work well. We genuinely welcome it.
 
@@ -195,10 +195,10 @@ Each platform's toggle button uses a Unicode symbol chosen to suggest the platfo
 | Bolt.new | ⚡ (high voltage) | Evokes "Bolt" lightning branding |
 | Lovable | ♥ (heart suit) | Evokes Lovable's heart logo |
 | Replit | ⠕ (Braille dots-135) | Community-adopted symbol for Replit's three-dot prompt logo |
-| V0 | △ (white triangle) | Evokes Vercel's triangle/delta logo |
+| V0 | ▽ (inverted triangle) | Evokes Vercel's triangle/delta logo |
 | Base44 | ⬢ (black hexagon) | Evokes a modular building block |
-| Emergent | ✶ (six-pointed star) | Evokes emergence/creation |
-| Firebase Studio | ★ (star, text presentation) | Evokes Firebase's spark/star motif |
+| Emergent | e (lowercase letter) | Emergent brand initial |
+| Firebase Studio | ◆ (black diamond) | Evokes Firebase flame's angular shape |
 
 These are standard Unicode characters, not proprietary artwork, so there are no trademark, copyright, or licensing concerns.
 

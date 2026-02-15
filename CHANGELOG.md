@@ -171,7 +171,7 @@ Expanded from 7 platforms to 12, adding V0, Base44, Emergent, Perplexity, and Fi
 
 #### V0 (`v0.app`)
 - **Theme:** White (`#ffffff`) with dark text — matches Vercel's monochrome design language
-- **Icon:** △ (U+25B3, white up-pointing triangle — evokes Vercel's triangle/delta logo)
+- **Icon:** ▽ (U+25BD, white down-pointing triangle — evokes Vercel's triangle/delta logo)
 - **Selectors:** Multi-strategy chain:
   1. `[data-role="user"]` — data attribute selector (most reliable if present)
   2. `[data-message-role="user"]` — alternate data attribute pattern
@@ -190,7 +190,7 @@ Expanded from 7 platforms to 12, adding V0, Base44, Emergent, Perplexity, and Fi
 
 #### Emergent (`app.emergent.sh`)
 - **Theme:** Emerald green (`#10b981`) — matches Emergent's green accent color
-- **Icon:** ✶ (U+2736, six-pointed black star — evokes emergence/creation)
+- **Icon:** e (lowercase letter — Emergent brand initial)
 - **Selectors:** Highly reliable data-testid approach:
   1. `[data-testid^="user-message"]` — Emergent uses descriptive data-testid attributes, making this the most reliable selector of any platform
   2. Fallback: `[id^="user-"]` — alternate ID-based pattern
@@ -208,8 +208,8 @@ Expanded from 7 platforms to 12, adding V0, Base44, Emergent, Perplexity, and Fi
 - **@match note:** Both `www.perplexity.ai` and `perplexity.ai` are matched since Perplexity serves from both hostnames
 
 #### Firebase Studio (`studio.firebase.google.com`)
-- **Theme:** Amber/gold (`#f59e0b`) — matches Firebase's signature amber/flame color
-- **Icon:** ★ (U+2B50 with text presentation selector U+FE0E — evokes Firebase's spark/star motif, forced to text rendering to prevent emoji display)
+- **Theme:** Dark Tangerine (`#FFA611`) — matches Firebase's primary brand color
+- **Icon:** ◆ (U+25C6, black diamond — evokes Firebase flame's angular shape)
 - **Selectors:** CSS module class pattern:
   1. `[class*="_isUser_"]` — Firebase Studio uses CSS Modules which generate class names like `_isUser_abc123`. The hash suffix changes per build, but the `_isUser_` semantic prefix remains stable across deployments. This `*=` attribute selector matches any class containing that substring.
   2. Fallback: `[class*="_chatMessage_"]` elements filtered by checking if className string includes `_isUser_` — broader net catching all chat messages first, then filtering to user messages only

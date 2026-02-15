@@ -84,7 +84,7 @@
         [SITE.BASE44]: { accent: '#6366f1', accentHover: '#4f46e5', accentLight: 'rgba(99, 102, 241, 0.2)', textColor: 'white' },
         [SITE.EMERGENT]: { accent: '#10b981', accentHover: '#059669', accentLight: 'rgba(16, 185, 129, 0.2)', textColor: 'white' },
         [SITE.PERPLEXITY]: { accent: '#20b8cd', accentHover: '#1a9aab', accentLight: 'rgba(32, 184, 205, 0.2)', textColor: 'white' },
-        [SITE.FIREBASE_STUDIO]: { accent: '#f59e0b', accentHover: '#d97706', accentLight: 'rgba(245, 158, 11, 0.2)', textColor: 'white' }
+        [SITE.FIREBASE_STUDIO]: { accent: '#FFA611', accentHover: '#F5820D', accentLight: 'rgba(255, 166, 17, 0.2)', textColor: 'white' }
     };
 
     const theme = THEME[currentSite];
@@ -98,11 +98,11 @@
         [SITE.BOLT]: '\u26A1\uFE0E',  // ⚡ (lightning bolt, text presentation)
         [SITE.LOVABLE]: '\u2665',  // ♥ (heart suit)
         [SITE.REPLIT]: '\u2815',   // ⠕ (Braille dots-135, Replit prompt logo)
-        [SITE.V0]: '\u25B3',      // △ (triangle, Vercel logo shape)
+        [SITE.V0]: '\u25BD',      // ▽ (inverted triangle, Vercel logo shape)
         [SITE.BASE44]: '\u2B22',  // ⬢ (hexagon)
-        [SITE.EMERGENT]: '\u2736', // ✶ (six-pointed star)
+        [SITE.EMERGENT]: 'e',     // lowercase e (Emergent brand initial)
         [SITE.PERPLEXITY]: '\u29BE', // ⦾ (circled white bullet)
-        [SITE.FIREBASE_STUDIO]: '\u2B50\uFE0E' // ★ (star, text presentation)
+        [SITE.FIREBASE_STUDIO]: '\u25C6' // ◆ (black diamond, evokes Firebase flame's angular shape)
     };
 
     const siteIcon = ICONS[currentSite];
