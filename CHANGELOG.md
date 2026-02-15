@@ -4,6 +4,103 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [7.1] - 2026-02-15
+
+### Added — 5 New Platforms + Ghost Notch Button for Left-Chat Sites
+
+Expanded from 7 platforms to 12, adding V0, Base44, Emergent, Perplexity, and Firebase Studio. Also introduced a new "ghost notch" toggle button design for left-chat platforms where the chat panel sits on the left and a workspace/preview occupies the right.
+
+#### V0 (`v0.app`)
+- **Theme:** White (`#ffffff`) with dark text — matches Vercel's monochrome design language
+- **Icon:** △ (U+25B3, white up-pointing triangle — evokes Vercel's triangle/delta logo)
+- **Selectors:** Multi-strategy chain:
+  1. `[data-role="user"]` — data attribute selector (most reliable if present)
+  2. `[data-message-role="user"]` — alternate data attribute pattern
+  3. Structural fallback: `.justify-end`, `.self-end`, `.ml-auto` elements filtered by text content, excluding nav/header elements, and checking for leaf nodes (no nested right-aligned children)
+- **Layout:** Left-chat (chat on left, generated app preview on right) → uses ghost notch button
+- **SPA hooks:** Yes — Next.js-based routing requires pushState/replaceState interception
+
+#### Base44 (`app.base44.com`)
+- **Theme:** Indigo (`#6366f1`) — matches Base44's purple-indigo UI accents
+- **Icon:** ⬢ (U+2B22, black hexagon — evokes a modular building block, fitting Base44's "build anything" premise)
+- **Selectors:** Multi-strategy chain:
+  1. `[id^="message-"]` elements filtered by presence of `.justify-end` child (user messages are right-aligned within their message container, each message has `id="message-{uuid}"`)
+  2. Fallback: `.bg-slate-200.rounded-xl` elements (user message bubble styling)
+- **Layout:** Left-chat → uses ghost notch button
+- **SPA hooks:** Yes — React SPA with dynamic routing
+
+#### Emergent (`app.emergent.sh`)
+- **Theme:** Emerald green (`#10b981`) — matches Emergent's green accent color
+- **Icon:** ✶ (U+2736, six-pointed black star — evokes emergence/creation)
+- **Selectors:** Highly reliable data-testid approach:
+  1. `[data-testid^="user-message"]` — Emergent uses descriptive data-testid attributes, making this the most reliable selector of any platform
+  2. Fallback: `[id^="user-"]` — alternate ID-based pattern
+- **Layout:** Left-chat → uses ghost notch button
+- **SPA hooks:** Yes
+
+#### Perplexity (`perplexity.ai`)
+- **Theme:** Teal/cyan (`#20b8cd`) — matches Perplexity's signature teal brand color
+- **Icon:** ⦾ (U+29BE, circled white bullet — evokes Perplexity's circular logo/search motif)
+- **Selectors:** Tailwind group variant approach:
+  1. `.group\/query` — Perplexity uses Tailwind's group variant `.group/query` on each user query block. The `\/` is the CSS escape for the `/` character. This is a very stable selector since it's a semantic class name rather than a styling utility.
+  2. Fallback: `.group\/title .select-text` — alternate query text extraction pattern
+- **Layout:** Standard center-chat → uses right-edge hover-expand button
+- **SPA hooks:** Yes — Next.js SPA with aggressive client-side routing
+- **@match note:** Both `www.perplexity.ai` and `perplexity.ai` are matched since Perplexity serves from both hostnames
+
+#### Firebase Studio (`studio.firebase.google.com`)
+- **Theme:** Amber/gold (`#f59e0b`) — matches Firebase's signature amber/flame color
+- **Icon:** ★ (U+2B50 with text presentation selector U+FE0E — evokes Firebase's spark/star motif, forced to text rendering to prevent emoji display)
+- **Selectors:** CSS module class pattern:
+  1. `[class*="_isUser_"]` — Firebase Studio uses CSS Modules which generate class names like `_isUser_abc123`. The hash suffix changes per build, but the `_isUser_` semantic prefix remains stable across deployments. This `*=` attribute selector matches any class containing that substring.
+  2. Fallback: `[class*="_chatMessage_"]` elements filtered by checking if className string includes `_isUser_` — broader net catching all chat messages first, then filtering to user messages only
+- **Layout:** Standard center-chat (Gemini-based interface) → uses right-edge hover-expand button
+- **SPA hooks:** Yes — Angular-based (inherits Gemini's SPA behavior)
+- **Key technical note:** Firebase Studio is essentially Google's Gemini integrated into the Firebase console with a code workspace. It shares Gemini's Angular foundation and Trusted Types CSP enforcement, so the same programmatic DOM creation approach (no innerHTML) from v5.0 applies here.
+
+### Added — Ghost Notch V1 Toggle Button (Left-Chat Platforms)
+
+Introduced a new toggle button design for platforms where the chat panel occupies the left side of the screen (Bolt, Lovable, Replit, V0, Base44, Emergent). The standard right-edge button doesn't work well on these platforms because the right side is occupied by the app preview/workspace — clicking a button at the screen's right edge feels disconnected from the chat content.
+
+#### Design: Ghost Notch V1
+- **At rest:** An 8px-wide vertical bar at 35% opacity, positioned flush against the right edge of the chat panel. Nearly invisible — a subtle "notch" in the boundary between chat and workspace.
+- **On hover:** Expands to 32px wide, revealing the platform icon which scales in from 60% to 100%. Height shrinks from 52px to 40px for a more compact feel. Opacity rises to 100%. Uses `cubic-bezier(0.4, 0, 0.2, 1)` easing for a natural material-design feel.
+- **When open:** Button stays at 32px/full opacity. Panel slides from the left edge, covering the chat area. Button repositions to the right edge of the open panel (320px from left).
+- **Auto-close on navigate:** When user clicks a question in the nav panel, the panel closes first (350ms animation), then scrolls to and highlights the message. This is necessary because the panel overlays the chat — the user needs to see the destination.
+
+#### Boundary Detection (`getChatBoundaryX()`)
+The ghost notch button needs to know where the chat panel ends and the workspace begins. This boundary varies across platforms and can change when the user resizes panes.
+
+**Detection strategy:**
+1. Find the chat input element via a broad selector: `textarea[placeholder*="message" i]`, `textarea[placeholder*="Send" i]`, `textarea[placeholder*="Type" i]`, `[contenteditable="true"][role="textbox"]`, `textarea[class*="chat"]`, `textarea[class*="prompt"]`
+2. Walk up the DOM tree from the input, measuring each ancestor's bounding rect
+3. The chat panel is identified as the first ancestor that: starts near the left edge (`rect.left < 10`), is between 200px and 55% of viewport width, and is at least 40% of viewport height
+4. Return `rect.right` as the boundary X coordinate
+5. **Last resort fallback:** If no suitable ancestor is found, assume the chat occupies 35% of the viewport width
+
+**Positioning updates:**
+- Initial positioning runs at 1.5s and 3s after page load (delayed to let layouts settle)
+- Window resize listener forces recalculation (with 3px jitter threshold to avoid micro-updates)
+- Periodic check every 5 seconds for dynamic pane resizing (only when panel is closed)
+- SPA navigation hooks also trigger repositioning after route changes
+
+#### Panel Behavior (Left-Chat Mode)
+- Panel slides from the **left** edge (`left: -320px` → `left: 0`) instead of the right
+- Uses `border-right` instead of `border-left` for the panel edge
+- Toggle button animates its `left` position smoothly when panel opens/closes (via CSS `transition: left 0.3s ease`)
+
+### Changed — SPA Hooks Expanded
+The `history.pushState`/`replaceState` interception and periodic health check now applies to all SPA platforms: Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Firebase Studio, and Perplexity. Left-chat platforms also trigger `updateLeftChatPositions()` on navigation events.
+
+### Architecture Notes
+
+- **`isLeftChat` flag:** A single boolean computed at initialization that drives all left-chat vs standard behavioral differences. Controlled by the `LEFT_CHAT_SITES` array: `[SITE.BOLT, SITE.LOVABLE, SITE.REPLIT, SITE.V0, SITE.BASE44, SITE.EMERGENT]`.
+- **CSS is conditionally assembled:** `toggleStyles` and `panelStyles` are computed separately based on `isLeftChat`, then concatenated with the shared styles (header, stats, list items, scrollbar) into the final `styles` string. This avoids CSS specificity conflicts between the two button designs.
+- **No breaking changes:** All existing platforms (Claude, ChatGPT, Grok, Gemini, Claude Code, Codex, Bolt, Lovable, Replit) retain their exact previous behavior. The ghost notch is additive for left-chat sites; standard sites are untouched.
+- **`_lastBoundaryX` jitter guard:** Button position only updates when the boundary moves more than 3px, preventing visual jitter from sub-pixel layout recalculations.
+
+---
+
 ## [7.0] - 2026-02-14
 
 ### Added — AI App-Builder Platform Support

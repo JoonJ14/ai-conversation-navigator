@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ghost Notch Variations - AI Conversation Navigator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; color: #eee; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 20px; }
+
+  h1 { text-align: center; margin-bottom: 6px; font-size: 22px; color: #fff; }
+  .subtitle { text-align: center; color: #888; margin-bottom: 30px; font-size: 13px; line-height: 1.6; }
+
+  .mockup-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .mockup-card {
+    background: #16213e;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #2a2a4a;
+  }
+
+  .mockup-label {
+    padding: 12px 16px;
+    font-weight: 700;
+    font-size: 13px;
+    border-bottom: 1px solid #2a2a4a;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .mockup-label .option-num {
+    background: #d97706;
+    color: #000;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+
+  .mockup-label .desc {
+    color: #aaa;
+    font-weight: 400;
+    font-size: 11px;
+    margin-left: auto;
+  }
+
+  .platform-sim {
+    display: flex;
+    height: 340px;
+    position: relative;
+  }
+
+  .chat-panel {
+    width: 38%;
+    background: #1e1e2e;
+    display: flex;
+    flex-direction: column;
+    border-right: 2px solid #333;
+    position: relative;
+    overflow: visible;
+  }
+
+  .chat-header {
+    padding: 10px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #888;
+    border-bottom: 1px solid #2a2a3a;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .chat-header .dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; }
+
+  .chat-messages {
+    flex: 1;
+    padding: 10px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .msg {
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 10px;
+    line-height: 1.4;
+    max-width: 88%;
+  }
+  .msg.user {
+    background: #3b82f6;
+    color: white;
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+  }
+  .msg.ai {
+    background: #2a2a4a;
+    color: #ccc;
+    align-self: flex-start;
+    border-bottom-left-radius: 2px;
+  }
+
+  .chat-input {
+    padding: 8px 10px;
+    border-top: 1px solid #2a2a3a;
+  }
+  .chat-input-box {
+    background: #2a2a3a;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 10px;
+    color: #666;
+  }
+
+  .workspace {
+    flex: 1;
+    background: #1a1a2e;
+    position: relative;
+    overflow: hidden;
+  }
+  .workspace-tabs {
+    display: flex;
+    border-bottom: 1px solid #333;
+  }
+  .workspace-tab {
+    padding: 8px 14px;
+    font-size: 10px;
+    color: #666;
+    border-right: 1px solid #333;
+  }
+  .workspace-tab.active {
+    color: #eee;
+    background: #1e1e2e;
+    border-bottom: 2px solid #4ade80;
+  }
+  .code-lines {
+    padding: 10px;
+    font-family: 'Courier New', monospace;
+    font-size: 9px;
+    line-height: 1.8;
+    color: #555;
+  }
+  .code-lines .ln { color: #333; margin-right: 12px; }
+  .code-lines .kw { color: #c678dd; }
+  .code-lines .str { color: #98c379; }
+  .code-lines .fn { color: #61afef; }
+
+  /* Boundary indicator */
+  .chat-panel::after {
+    content: '';
+    position: absolute;
+    right: -1px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #d97706;
+    opacity: 0.2;
+    z-index: 5;
+  }
+
+  /* ============================================ */
+  /* GHOST NOTCH VARIATIONS                       */
+  /* All inside chat, flush right, extend left    */
+  /* ============================================ */
+
+  .nav-btn {
+    position: absolute;
+    right: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+  }
+
+  /* --- V1: Simple expand — thin bar grows wider, icon fades in --- */
+  .btn-v1 {
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 52px;
+    border-radius: 4px 0 0 4px;
+    background: #38BDF8;
+    opacity: 0.35;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+  }
+  .btn-v1 .btn-icon {
+    font-size: 14px;
+    opacity: 0;
+    transform: scale(0.6);
+    transition: all 0.25s ease 0.05s;
+  }
+  .btn-v1:hover {
+    width: 32px;
+    height: 40px;
+    opacity: 1;
+    border-radius: 6px 0 0 6px;
+  }
+  .btn-v1:hover .btn-icon {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  /* --- V2: Glow pulse at rest, smooth expand --- */
+  .btn-v2 {
+    top: 50%;
+    transform: translateY(-50%);
+    width: 6px;
+    height: 48px;
+    border-radius: 3px 0 0 3px;
+    background: #38BDF8;
+    opacity: 0.3;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+  }
+  @keyframes softGlow {
+    0%, 100% { box-shadow: -2px 0 6px rgba(56, 189, 248, 0.0); opacity: 0.3; }
+    50% { box-shadow: -2px 0 12px rgba(56, 189, 248, 0.4); opacity: 0.5; }
+  }
+  .btn-v2 { animation: softGlow 3s ease-in-out infinite; }
+  .btn-v2 .btn-icon {
+    font-size: 14px;
+    opacity: 0;
+    transition: opacity 0.2s ease 0.1s;
+  }
+  .btn-v2:hover {
+    width: 34px;
+    height: 34px;
+    opacity: 1;
+    border-radius: 8px 0 0 8px;
+    animation: none;
+    box-shadow: -3px 0 14px rgba(56, 189, 248, 0.3);
+  }
+  .btn-v2:hover .btn-icon { opacity: 1; }
+
+  /* --- V3: Expand with icon + "Nav" text label --- */
+  .btn-v3 {
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 50px;
+    border-radius: 4px 0 0 4px;
+    background: #38BDF8;
+    opacity: 0.35;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+    gap: 0;
+    white-space: nowrap;
+  }
+  .btn-v3 .btn-icon {
+    font-size: 13px;
+    opacity: 0;
+    flex-shrink: 0;
+    transition: opacity 0.2s ease 0.05s;
+  }
+  .btn-v3 .btn-text {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    opacity: 0;
+    max-width: 0;
+    overflow: hidden;
+    transition: all 0.25s ease 0.1s;
+  }
+  .btn-v3:hover {
+    width: auto;
+    height: 32px;
+    padding: 0 10px 0 8px;
+    opacity: 1;
+    border-radius: 6px 0 0 6px;
+    gap: 5px;
+  }
+  .btn-v3:hover .btn-icon { opacity: 1; }
+  .btn-v3:hover .btn-text { opacity: 1; max-width: 40px; }
+
+  /* --- V4: Dot → circle expand with icon --- */
+  .btn-v4 {
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 8px;
+    border-radius: 50% 0 0 50%;
+    background: #38BDF8;
+    opacity: 0.4;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+  }
+  .btn-v4 .btn-icon {
+    font-size: 14px;
+    opacity: 0;
+    transform: scale(0.3);
+    transition: all 0.25s ease 0.1s;
+  }
+  .btn-v4:hover {
+    width: 36px;
+    height: 36px;
+    border-radius: 50% 0 0 50%;
+    opacity: 1;
+    box-shadow: -2px 0 12px rgba(56, 189, 248, 0.25);
+  }
+  .btn-v4:hover .btn-icon {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  /* --- V5: Gradient fade at rest, slides out --- */
+  .btn-v5 {
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 44px;
+    border-radius: 6px 0 0 6px;
+    background: linear-gradient(to right, transparent 0%, rgba(56, 189, 248, 0.25) 100%);
+    opacity: 0.6;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+  }
+  .btn-v5 .btn-icon {
+    font-size: 13px;
+    opacity: 0.15;
+    transition: all 0.2s ease;
+  }
+  .btn-v5:hover {
+    width: 34px;
+    background: #38BDF8;
+    opacity: 1;
+    box-shadow: -2px 0 10px rgba(56, 189, 248, 0.2);
+  }
+  .btn-v5:hover .btn-icon { opacity: 1; }
+
+  /* --- V6: Invisible touch zone, tooltip popup with icon --- */
+  .btn-v6 {
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 80px;
+    background: transparent;
+    border-radius: 0;
+    transition: all 0.2s ease;
+  }
+  .btn-v6-line {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 40px;
+    border-radius: 2px 0 0 2px;
+    background: #38BDF8;
+    opacity: 0.3;
+    transition: all 0.25s ease;
+  }
+  .btn-v6-popup {
+    position: absolute;
+    right: 3px;
+    top: 50%;
+    transform: translateY(-50%) scale(0.7);
+    width: 36px;
+    height: 36px;
+    border-radius: 10px 0 0 10px;
+    background: #38BDF8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: -3px 0 14px rgba(56, 189, 248, 0.3);
+  }
+  .btn-v6-popup .btn-icon { font-size: 15px; }
+  .btn-v6:hover .btn-v6-line { opacity: 0; }
+  .btn-v6:hover .btn-v6-popup {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+    pointer-events: auto;
+  }
+
+  /* Behavior notes */
+  .behavior {
+    padding: 10px 16px;
+    font-size: 10px;
+    line-height: 1.7;
+    border-top: 1px solid #2a2a4a;
+    color: #777;
+  }
+  .behavior strong { color: #bbb; }
+  .behavior .rest { color: #f59e0b; }
+  .behavior .hover { color: #38BDF8; }
+  .behavior .star { color: #4ade80; }
+
+  /* Legend */
+  .legend {
+    max-width: 1200px;
+    margin: 24px auto 0;
+    padding: 14px 20px;
+    background: #16213e;
+    border-radius: 12px;
+    border: 1px solid #2a2a4a;
+    font-size: 12px;
+    color: #888;
+    text-align: center;
+    line-height: 1.8;
+  }
+  .legend strong { color: #d97706; }
+
+  /* Hover instruction overlay */
+  .hover-hint {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    color: #555;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<h1>Ghost Notch Variations</h1>
+<p class="subtitle">All variations: nearly invisible at rest, reveal platform icon on hover.<br>
+Button is INSIDE the chat, flush right boundary. Hover each to see the interaction.</p>
+
+<div class="mockup-grid">
+
+  <!-- V1: Simple expand -->
+  <div class="mockup-card">
+    <div class="mockup-label">
+      <span class="option-num">1</span>
+      Simple expand
+      <span class="desc">8px → 32px, icon scales in</span>
+    </div>
+    <div class="platform-sim">
+      <div class="chat-panel">
+        <div class="chat-header"><span class="dot"></span> Bolt AI</div>
+        <div class="chat-messages">
+          <div class="msg user">Add a login page with email auth</div>
+          <div class="msg ai">I'll create a login page with email authentication. Setting up components...</div>
+          <div class="msg user">Also add password reset flow</div>
+          <div class="msg ai">Adding password reset with email verification token and expiry...</div>
+          <div class="msg user">Make it mobile responsive too</div>
+        </div>
+        <div class="chat-input"><div class="chat-input-box">Type a message...</div></div>
+        <div class="nav-btn btn-v1"><span class="btn-icon">⚡</span></div>
+        <span class="hover-hint">↑ hover the thin blue line</span>
+      </div>
+      <div class="workspace">
+        <div class="workspace-tabs">
+          <div class="workspace-tab active">App.tsx</div>
+          <div class="workspace-tab">Login.tsx</div>
+          <div class="workspace-tab">Preview</div>
+        </div>
+        <div class="code-lines">
+          <div><span class="ln">1</span><span class="kw">import</span> React <span class="kw">from</span> <span class="str">'react'</span>;</div>
+          <div><span class="ln">2</span><span class="kw">import</span> { Login } <span class="kw">from</span> <span class="str">'./Login'</span>;</div>
+          <div><span class="ln">3</span><span class="kw">import</span> { Reset } <span class="kw">from</span> <span class="str">'./Reset'</span>;</div>
+          <div><span class="ln">4</span></div>
+          <div><span class="ln">5</span><span class="kw">export default function</span> <span class="fn">App</span>() {</div>
+          <div><span class="ln">6</span>  <span class="kw">return</span> &lt;<span class="fn">Login</span> /&gt;;</div>
+          <div><span class="ln">7</span>}</div>
+        </div>
+      </div>
+    </div>
+    <div class="behavior">
+      <span class="rest">Rest:</span> 8px thin bar, 35% opacity<br>
+      <span class="hover">Hover:</span> Grows to 32px, icon scales from 60% → 100%<br>
+      <span class="star">★</span> Clean, simple, predictable
+    </div>
+  </div>
+
+  <!-- V2: Glow pulse -->
+  <div class="mockup-card">
+    <div class="mockup-label">
+      <span class="option-num">2</span>
+      Breathing glow
+      <span class="desc">6px with soft pulse → 34px</span>
+    </div>
+    <div class="platform-sim">
+      <div class="chat-panel">
+        <div class="chat-header"><span class="dot"></span> Bolt AI</div>
+        <div class="chat-messages">
+          <div class="msg user">Add a login page with email auth</div>
+          <div class="msg ai">I'll create a login page with email authentication. Setting up components...</div>
+          <div class="msg user">Also add password reset flow</div>
+          <div class="msg ai">Adding password reset with email verification token and expiry...</div>
+          <div class="msg user">Make it mobile responsive too</div>
+        </div>
+        <div class="chat-input"><div class="chat-input-box">Type a message...</div></div>
+        <div class="nav-btn btn-v2"><span class="btn-icon">⚡</span></div>
+        <span class="hover-hint">↑ notice the gentle glow</span>
+      </div>
+      <div class="workspace">
+        <div class="workspace-tabs">
+          <div class="workspace-tab active">App.tsx</div>
+          <div class="workspace-tab">Login.tsx</div>
+          <div class="workspace-tab">Preview</div>
+        </div>
+        <div class="code-lines">
+          <div><span class="ln">1</span><span class="kw">import</span> React <span class="kw">from</span> <span class="str">'react'</span>;</div>
+          <div><span class="ln">2</span><span class="kw">import</span> { Login } <span class="kw">from</span> <span class="str">'./Login'</span>;</div>
+          <div><span class="ln">3</span><span class="kw">import</span> { Reset } <span class="kw">from</span> <span class="str">'./Reset'</span>;</div>
+          <div><span class="ln">4</span></div>
+          <div><span class="ln">5</span><span class="kw">export default function</span> <span class="fn">App</span>() {</div>
+          <div><span class="ln">6</span>  <span class="kw">return</span> &lt;<span class="fn">Login</span> /&gt;;</div>
+          <div><span class="ln">7</span>}</div>
+        </div>
+      </div>
+    </div>
+    <div class="behavior">
+      <span class="rest">Rest:</span> 6px bar with breathing glow animation (3s cycle)<br>
+      <span class="hover">Hover:</span> Glow stops, expands to 34px square with icon<br>
+      <span class="star">★</span> Subtle "I'm here" signal without being loud
+    </div>
+  </div>
+
+  <!-- V3: Icon + text label -->
+  <div class="mockup-card">
+    <div class="mockup-label">
+      <span class="option-num">3</span>
+      Icon + "Nav" label
+      <span class="desc">8px → pill with icon + text</span>
+    </div>
+    <div class="platform-sim">
+      <div class="chat-panel">
+        <div class="chat-header"><span class="dot"></span> Bolt AI</div>
+        <div class="chat-messages">
+          <div class="msg user">Add a login page with email auth</div>
+          <div class="msg ai">I'll create a login page with email authentication. Setting up components...</div>
+          <div class="msg user">Also add password reset flow</div>
+          <div class="msg ai">Adding password reset with email verification token and expiry...</div>
+          <div class="msg user">Make it mobile responsive too</div>
+        </div>
+        <div class="chat-input"><div class="chat-input-box">Type a message...</div></div>
+        <div class="nav-btn btn-v3"><span class="btn-icon">⚡</span><span class="btn-text">Nav</span></div>
+        <span class="hover-hint">↑ hover to see icon + label</span>
+      </div>
+      <div class="workspace">
+        <div class="workspace-tabs">
+          <div class="workspace-tab active">App.tsx</div>
+          <div class="workspace-tab">Login.tsx</div>
+          <div class="workspace-tab">Preview</div>
+        </div>
+        <div class="code-lines">
+          <div><span class="ln">1</span><span class="kw">import</span> React <span class="kw">from</span> <span class="str">'react'</span>;</div>
+          <div><span class="ln">2</span><span class="kw">import</span> { Login } <span class="kw">from</span> <span class="str">'./Login'</span>;</div>
+          <div><span class="ln">3</span><span class="kw">import</span> { Reset } <span class="kw">from</span> <span class="str">'./Reset'</span>;</div>
+          <div><span class="ln">4</span></div>
+          <div><span class="ln">5</span><span class="kw">export default function</span> <span class="fn">App</span>() {</div>
+          <div><span class="ln">6</span>  <span class="kw">return</span> &lt;<span class="fn">Login</span> /&gt;;</div>
+          <div><span class="ln">7</span>}</div>
+        </div>
+      </div>
+    </div>
+    <div class="behavior">
+      <span class="rest">Rest:</span> 8px thin bar, 35% opacity<br>
+      <span class="hover">Hover:</span> Expands to pill shape with ⚡ + "Nav" text<br>
+      <span class="star">★</span> Most informative — new users immediately get it
+    </div>
+  </div>
+
+  <!-- V4: Dot to circle -->
+  <div class="mockup-card">
+    <div class="mockup-label">
+      <span class="option-num">4</span>
+      Dot → circle bloom
+      <span class="desc">8px dot → 36px circle with icon</span>
+    </div>
+    <div class="platform-sim">
+      <div class="chat-panel">
+        <div class="chat-header"><span class="dot"></span> Bolt AI</div>
+        <div class="chat-messages">
+          <div class="msg user">Add a login page with email auth</div>
+          <div class="msg ai">I'll create a login page with email authentication. Setting up components...</div>
+          <div class="msg user">Also add password reset flow</div>
+          <div class="msg ai">Adding password reset with email verification token and expiry...</div>
+          <div class="msg user">Make it mobile responsive too</div>
+        </div>
+        <div class="chat-input"><div class="chat-input-box">Type a message...</div></div>
+        <div class="nav-btn btn-v4"><span class="btn-icon">⚡</span></div>
+        <span class="hover-hint">↑ hover the tiny dot</span>
+      </div>
+      <div class="workspace">
+        <div class="workspace-tabs">
+          <div class="workspace-tab active">App.tsx</div>
+          <div class="workspace-tab">Login.tsx</div>
+          <div class="workspace-tab">Preview</div>
+        </div>
+        <div class="code-lines">
+          <div><span class="ln">1</span><span class="kw">import</span> React <span class="kw">from</span> <span class="str">'react'</span>;</div>
+          <div><span class="ln">2</span><span class="kw">import</span> { Login } <span class="kw">from</span> <span class="str">'./Login'</span>;</div>
+          <div><span class="ln">3</span><span class="kw">import</span> { Reset } <span class="kw">from</span> <span class="str">'./Reset'</span>;</div>
+          <div><span class="ln">4</span></div>
+          <div><span class="ln">5</span><span class="kw">export default function</span> <span class="fn">App</span>() {</div>
+          <div><span class="ln">6</span>  <span class="kw">return</span> &lt;<span class="fn">Login</span> /&gt;;</div>
+          <div><span class="ln">7</span>}</div>
+        </div>
+      </div>
+    </div>
+    <div class="behavior">
+      <span class="rest">Rest:</span> Tiny 8px dot, 40% opacity<br>
+      <span class="hover">Hover:</span> Blooms into 36px half-circle, icon scales in<br>
+      <span class="star">★</span> Most minimal rest state — almost invisible
+    </div>
+  </div>
+
+  <!-- V5: Gradient ghost -->
+  <div class="mockup-card">
+    <div class="mockup-label">
+      <span class="option-num">5</span>
+      Gradient ghost
+      <span class="desc">Semi-transparent fade → solid</span>
+    </div>
+    <div class="platform-sim">
+      <div class="chat-panel">
+        <div class="chat-header"><span class="dot"></span> Bolt AI</div>
+        <div class="chat-messages">
+          <div class="msg user">Add a login page with email auth</div>
+          <div class="msg ai">I'll create a login page with email authentication. Setting up components...</div>
+          <div class="msg user">Also add password reset flow</div>
+          <div class="msg ai">Adding password reset with email verification token and expiry...</div>
+          <div class="msg user">Make it mobile responsive too</div>
+        </div>
+        <div class="chat-input"><div class="chat-input-box">Type a message...</div></div>
+        <div class="nav-btn btn-v5"><span class="btn-icon">⚡</span></div>
+        <span class="hover-hint">↑ faint icon already hints</span>
+      </div>
+      <div class="workspace">
+        <div class="workspace-tabs">
+          <div class="workspace-tab active">App.tsx</div>
+          <div class="workspace-tab">Login.tsx</div>
+          <div class="workspace-tab">Preview</div>
+        </div>
+        <div class="code-lines">
+          <div><span class="ln">1</span><span class="kw">import</span> React <span class="kw">from</span> <span class="str">'react'</span>;</div>
+          <div><span class="ln">2</span><span class="kw">import</span> { Login } <span class="kw">from</span> <span class="str">'./Login'</span>;</div>
+          <div><span class="ln">3</span><span class="kw">import</span> { Reset } <span class="kw">from</span> <span class="str">'./Reset'</span>;</div>
+          <div><span class="ln">4</span></div>
+          <div><span class="ln">5</span><span class="kw">export default function</span> <span class="fn">App</span>() {</div>
+          <div><span class="ln">6</span>  <span class="kw">return</span> &lt;<span class="fn">Login</span> /&gt;;</div>
+          <div><span class="ln">7</span>}</div>
+        </div>
+      </div>
+    </div>
+    <div class="behavior">
+      <span class="rest">Rest:</span> 20px wide gradient (transparent → 25% color), ghost icon at 15%<br>
+      <span class="hover">Hover:</span> Solidifies to 34px, icon goes full opacity<br>
+      <span class="star">★</span> Icon always faintly visible — best discoverability at rest
+    </div>
+  </div>
+
+  <!-- V6: Invisible zone + popup -->
+  <div class="mockup-card">
+    <div class="mockup-label">
+      <span class="option-num">6</span>
+      Invisible zone → popup
+      <span class="desc">3px whisker → floating button appears</span>
+    </div>
+    <div class="platform-sim">
+      <div class="chat-panel">
+        <div class="chat-header"><span class="dot"></span> Bolt AI</div>
+        <div class="chat-messages">
+          <div class="msg user">Add a login page with email auth</div>
+          <div class="msg ai">I'll create a login page with email authentication. Setting up components...</div>
+          <div class="msg user">Also add password reset flow</div>
+          <div class="msg ai">Adding password reset with email verification token and expiry...</div>
+          <div class="msg user">Make it mobile responsive too</div>
+        </div>
+        <div class="chat-input"><div class="chat-input-box">Type a message...</div></div>
+        <div class="nav-btn btn-v6">
+          <div class="btn-v6-line"></div>
+          <div class="btn-v6-popup"><span class="btn-icon">⚡</span></div>
+        </div>
+        <span class="hover-hint">↑ hover near the right edge</span>
+      </div>
+      <div class="workspace">
+        <div class="workspace-tabs">
+          <div class="workspace-tab active">App.tsx</div>
+          <div class="workspace-tab">Login.tsx</div>
+          <div class="workspace-tab">Preview</div>
+        </div>
+        <div class="code-lines">
+          <div><span class="ln">1</span><span class="kw">import</span> React <span class="kw">from</span> <span class="str">'react'</span>;</div>
+          <div><span class="ln">2</span><span class="kw">import</span> { Login } <span class="kw">from</span> <span class="str">'./Login'</span>;</div>
+          <div><span class="ln">3</span><span class="kw">import</span> { Reset } <span class="kw">from</span> <span class="str">'./Reset'</span>;</div>
+          <div><span class="ln">4</span></div>
+          <div><span class="ln">5</span><span class="kw">export default function</span> <span class="fn">App</span>() {</div>
+          <div><span class="ln">6</span>  <span class="kw">return</span> &lt;<span class="fn">Login</span> /&gt;;</div>
+          <div><span class="ln">7</span>}</div>
+        </div>
+      </div>
+    </div>
+    <div class="behavior">
+      <span class="rest">Rest:</span> Tiny 3px whisker + invisible 80px tall hover zone<br>
+      <span class="hover">Hover:</span> Whisker disappears, 36px button pops/scales in<br>
+      <span class="star">★</span> Most dramatic reveal — feels like a hidden feature
+    </div>
+  </div>
+
+</div>
+
+<div class="legend">
+  <strong>All 6 share the same principle:</strong> Ghost at rest → reveal icon on hover.<br>
+  They differ in: rest visibility, hover animation, and how much they intrude on chat content.<br>
+  <strong>V1-V4</strong> are more invisible at rest. <strong>V5</strong> hints at the icon. <strong>V6</strong> uses a hidden trigger zone.<br>
+  <strong style="color: #38BDF8;">Bolt theme shown</strong> — each platform would use its own accent color + icon.
+</div>
+
+</body>
+</html>
