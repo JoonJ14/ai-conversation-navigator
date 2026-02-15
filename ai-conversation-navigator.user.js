@@ -170,7 +170,8 @@
             display: none !important;
         }
         #ai-nav-toggle.ai-nav-positioned {
-            opacity: 0.35 !important;
+            opacity: ${currentSite === SITE.EMERGENT ? '0.75' : '0.35'} !important;
+            ${currentSite === SITE.EMERGENT ? 'width: 14px !important;' : ''}
             transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s ease, border-radius 0.3s ease, right 0.3s ease !important;
         }
         #ai-nav-toggle:hover {
@@ -853,59 +854,88 @@
             if (messages.length === 0) messages = document.querySelectorAll('.user-query');
         }
         else if (currentSite === SITE.BOLT) {
-            // Bolt.new user messages: right-aligned bubbles with accent background + backdrop blur.
-            // Built with UnoCSS (Tailwind-like). User messages have bg-accent-500/10 + backdrop-blur-sm
-            // + ml-auto (right-aligned). Assistant messages have overflow-hidden + w-full (left/full-width).
-            // Alert/error divs also use backdrop-blur + rounded but have "items-start gap-" pattern.
-            // Source: bolt.diy open-source fork (UserMessage.tsx, AssistantMessage.tsx)
+            // Bolt.new user messages: containers with data-message-id and self-end alignment.
+            // User messages have bg-bolt-elements-messages-background + self-end class.
+            // Assistant messages do NOT have self-end. Token/subscription warnings live in
+            // a separate prompt area (bg-bolt-elements-prompt-subscribeButton) — must exclude.
+            // Also supports bolt.diy fork which uses backdrop-blur + ml-auto pattern.
 
-            // Primary: accent-tinted backdrop-blur bubbles — exclude alerts and full-width (assistant)
-            var boltCandidates = document.querySelectorAll('[class*="backdrop-blur"][class*="rounded"]');
-            if (boltCandidates.length > 0) {
-                messages = Array.from(boltCandidates).filter(function(el) {
+            // Primary: data-message-id containers filtered to user messages (self-end)
+            var boltMsgAll = document.querySelectorAll('[data-message-id]');
+            if (boltMsgAll.length > 0) {
+                messages = Array.from(boltMsgAll).filter(function(el) {
                     var cls = el.className || '';
-                    // Exclude assistant messages (full-width)
-                    if (cls.includes('w-full')) return false;
-                    // Exclude alert/warning containers (have items-start + gap pattern)
-                    if (cls.includes('items-start') && cls.includes('gap-')) return false;
-                    // Exclude if parent is an alert container
-                    var parent = el.closest('[class*="items-start"][class*="gap-"]');
-                    if (parent && parent !== el) return false;
-                    return el.textContent.trim().length > 0;
+                    // User messages have self-end or contain a self-end child
+                    var isSelfEnd = cls.includes('self-end') || el.querySelector('.self-end');
+                    // Or have bolt-specific user message background
+                    var isBoltUserBg = cls.includes('bg-bolt-elements-messages');
+                    // Exclude subscription/token warning areas
+                    var isPromptArea = el.closest('[class*="subscribeButton"]') ||
+                        el.closest('[class*="prompt-subscribe"]');
+                    return (isSelfEnd || isBoltUserBg) && !isPromptArea && el.textContent.trim().length > 0;
                 });
             }
 
-            // Fallback 1: grid-cols user messages (grid grid-cols-1 pattern)
+            // Fallback 1: self-end elements with bolt message background
             if (messages.length === 0) {
-                var gridColMsgs = document.querySelectorAll('[class*="grid"][class*="grid-col"]');
-                messages = Array.from(gridColMsgs).filter(function(el) {
-                    var cls = el.className || '';
-                    // Must NOT be the full-width grid wrapper itself
-                    if (cls.includes('w-full') && el.querySelectorAll('[class*="backdrop-blur"]').length > 0) return false;
-                    // Must have meaningful text
-                    return el.textContent.trim().length > 5 && !cls.includes('items-start');
+                var boltSelfEnd = document.querySelectorAll('.self-end[class*="bg-bolt-elements"], [class*="bg-bolt-elements-messages-background"]');
+                messages = Array.from(boltSelfEnd).filter(function(el) {
+                    var isPromptArea = el.closest('[class*="subscribeButton"]') ||
+                        el.closest('[class*="prompt-subscribe"]');
+                    return !isPromptArea && el.textContent.trim().length > 0;
                 });
             }
 
-            // Fallback 2: right-aligned rounded bubbles inside chat area
+            // Fallback 2: MarkdownContent inside self-end containers (bolt.new specific)
+            if (messages.length === 0) {
+                var boltMarkdown = document.querySelectorAll('[class*="_MarkdownContent_"]');
+                messages = Array.from(boltMarkdown).filter(function(el) {
+                    var userParent = el.closest('.self-end, [class*="bg-bolt-elements-messages"]');
+                    var isPromptArea = el.closest('[class*="subscribeButton"]') ||
+                        el.closest('[class*="prompt-subscribe"]');
+                    return userParent && !isPromptArea && el.textContent.trim().length > 0;
+                });
+            }
+
+            // Fallback 3: bolt.diy fork — backdrop-blur + rounded bubbles (original pattern)
+            if (messages.length === 0) {
+                var boltCandidates = document.querySelectorAll('[class*="backdrop-blur"][class*="rounded"]');
+                if (boltCandidates.length > 0) {
+                    messages = Array.from(boltCandidates).filter(function(el) {
+                        var cls = el.className || '';
+                        if (cls.includes('w-full')) return false;
+                        if (cls.includes('items-start') && cls.includes('gap-')) return false;
+                        var parent = el.closest('[class*="items-start"][class*="gap-"]');
+                        if (parent && parent !== el) return false;
+                        var isPromptArea = el.closest('[class*="subscribeButton"]') ||
+                            el.closest('[class*="prompt-subscribe"]');
+                        return !isPromptArea && el.textContent.trim().length > 0;
+                    });
+                }
+            }
+
+            // Fallback 4: right-aligned rounded bubbles inside chat area
             if (messages.length === 0) {
                 var mlAutoBubbles = document.querySelectorAll('.ml-auto.rounded-lg, .ml-auto.rounded-xl');
                 messages = Array.from(mlAutoBubbles).filter(function(el) {
                     var cls = el.className || '';
                     if (cls.includes('items-start') && cls.includes('gap-')) return false;
-                    return el.textContent.trim().length > 0;
+                    var isPromptArea = el.closest('[class*="subscribeButton"]') ||
+                        el.closest('[class*="prompt-subscribe"]');
+                    return !isPromptArea && el.textContent.trim().length > 0;
                 });
             }
 
-            // Fallback 3: distinguish by structure — assistant root is overflow-hidden w-full,
-            // user root is NOT. Check direct children of the grid wrapper.
+            // Fallback 5: grid children — assistant is overflow-hidden w-full, user is NOT
             if (messages.length === 0) {
                 var gridChildren = document.querySelectorAll('.grid.w-full > div');
                 messages = Array.from(gridChildren).filter(function(el) {
                     var cls = el.className || '';
                     var isAssistant = cls.includes('overflow-hidden') && cls.includes('w-full');
                     var isAlert = cls.includes('items-start') && cls.includes('gap-');
-                    return !isAssistant && !isAlert && el.textContent.trim().length > 0;
+                    var isPromptArea = el.closest('[class*="subscribeButton"]') ||
+                        el.closest('[class*="prompt-subscribe"]');
+                    return !isAssistant && !isAlert && !isPromptArea && el.textContent.trim().length > 0;
                 });
             }
         }
@@ -978,9 +1008,9 @@
             if (messages.length === 0) messages = document.querySelectorAll('[data-role="user"]');
             if (messages.length === 0) messages = document.querySelectorAll('[data-author="user"]');
 
-            // Deduplicate: data-testid*="user-message" can match at multiple nesting levels
-            // (outer wrapper, middle container, inner text div). Keep only innermost matches
-            // so each question appears once, pointing to the actual text element.
+            // Deduplicate step 1: nesting — data-testid*="user-message" can match at multiple
+            // nesting levels (outer wrapper, middle container, inner text div).
+            // Keep only innermost matches so each question appears once.
             if (messages.length > 0) {
                 var replitArr = Array.from(messages);
                 var deduped = replitArr.filter(function(el) {
@@ -989,6 +1019,23 @@
                     });
                 });
                 if (deduped.length > 0) messages = deduped;
+            }
+
+            // Deduplicate step 2: text content — siblings/cousins at the same nesting
+            // level can match the same selector with identical text. Keep only the first
+            // element for each unique text to avoid showing the same question N times.
+            if (messages.length > 0) {
+                var replitSeen = {};
+                var replitTextDeduped = [];
+                var replitMsgArr = Array.isArray(messages) ? messages : Array.from(messages);
+                for (var ri = 0; ri < replitMsgArr.length; ri++) {
+                    var replitTxt = replitMsgArr[ri].textContent.trim();
+                    if (replitTxt && !replitSeen[replitTxt]) {
+                        replitSeen[replitTxt] = true;
+                        replitTextDeduped.push(replitMsgArr[ri]);
+                    }
+                }
+                if (replitTextDeduped.length > 0) messages = replitTextDeduped;
             }
 
             // Fallback 1: CSS module pattern — class contains "user" or "User"
@@ -1044,11 +1091,30 @@
         else if (currentSite === SITE.V0) {
             // V0 (Vercel): chat on left side of app builder.
             // User messages are right-aligned within the chat panel.
-            // Try data attributes first, then structural patterns.
+            // V0 uses Vercel's design system (Geist) with various data attributes and Tailwind.
+            // Try multiple data attribute patterns, then structural patterns.
             // Note: copy buttons and SVG icons also use justify-end/self-end — must filter them out.
             messages = document.querySelectorAll('[data-role="user"]');
             if (messages.length === 0) messages = document.querySelectorAll('[data-message-role="user"]');
             if (messages.length === 0) messages = document.querySelectorAll('[data-message-author-role="user"]');
+            if (messages.length === 0) messages = document.querySelectorAll('[data-message-author="user"]');
+            if (messages.length === 0) messages = document.querySelectorAll('[data-testid*="user-message"]');
+            if (messages.length === 0) messages = document.querySelectorAll('[data-sender="user"]');
+
+            // Fallback 0.5: data-message-id containers filtered to user messages (right-aligned)
+            if (messages.length === 0) {
+                var v0MsgAll = document.querySelectorAll('[data-message-id]');
+                if (v0MsgAll.length > 0) {
+                    messages = Array.from(v0MsgAll).filter(function(el) {
+                        var cls = el.className || '';
+                        var isUser = cls.includes('justify-end') || cls.includes('self-end') ||
+                            cls.includes('ml-auto') ||
+                            el.querySelector('.justify-end, .self-end, .ml-auto, [class*="bg-muted"]');
+                        var isNotButton = el.tagName !== 'BUTTON' && !el.closest('button');
+                        return isUser && isNotButton && el.textContent.trim().length > 0;
+                    });
+                }
+            }
 
             // Fallback 1: V0 user message bubbles — bg-muted rounded with ml-auto
             if (messages.length === 0) {
