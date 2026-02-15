@@ -516,40 +516,37 @@
             return;
         }
 
-        // Boundary found — check if stable across consecutive polls
-        if (_lastBoundaryX && Math.abs(boundaryX - _lastBoundaryX) < 3) {
-            // Stable! Only NOW make elements visible and start fade-in
-            if (!_boundaryDetected) {
-                _boundaryDetected = true;
-                if (toggle) toggle.style.display = '';
-                if (panel) panel.style.display = '';
-                if (toggle) {
-                    _fadeTimer = setTimeout(function() {
-                        _fadeTimer = null;
-                        toggle.classList.add('ai-nav-positioned');
-                    }, 300);
-                }
+        // Already confirmed — just update position smoothly, never hide
+        if (_boundaryDetected) {
+            if (!_lastBoundaryX || Math.abs(boundaryX - _lastBoundaryX) >= 3) {
+                _lastBoundaryX = boundaryX;
+                var rightVal = (window.innerWidth - boundaryX) + 'px';
+                if (panel) panel.style.right = rightVal;
+                if (toggle && !isOpen) toggle.style.right = rightVal;
             }
             return;
         }
 
-        // Boundary changed or first detection — position invisibly, wait for stability
+        // Not yet confirmed — require two consecutive stable polls before showing
+        if (_lastBoundaryX && Math.abs(boundaryX - _lastBoundaryX) < 3) {
+            // Stable! Show and fade in
+            _boundaryDetected = true;
+            if (toggle) toggle.style.display = '';
+            if (panel) panel.style.display = '';
+            if (toggle) {
+                _fadeTimer = setTimeout(function() {
+                    _fadeTimer = null;
+                    toggle.classList.add('ai-nav-positioned');
+                }, 300);
+            }
+            return;
+        }
+
+        // First detection or position still settling — store and position invisibly
         _lastBoundaryX = boundaryX;
         var rightVal = (window.innerWidth - boundaryX) + 'px';
-
-        // Panel: position but keep hidden
         if (panel) panel.style.right = rightVal;
-
-        // Button: position but keep hidden; cancel any in-progress fade
-        if (toggle && !isOpen) {
-            toggle.style.right = rightVal;
-            if (_boundaryDetected) {
-                if (_fadeTimer) { clearTimeout(_fadeTimer); _fadeTimer = null; }
-                toggle.style.display = 'none';
-                toggle.classList.remove('ai-nav-positioned');
-                _boundaryDetected = false;
-            }
-        }
+        if (toggle && !isOpen) toggle.style.right = rightVal;
     }
 
     // --- Create toggle button ---
