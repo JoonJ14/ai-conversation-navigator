@@ -3,11 +3,17 @@
 <body>
 <!-- Bolt.new: User messages have backdrop-blur + rounded classes, NOT w-full.
      Assistant messages have overflow-hidden + w-full.
+     Alert/error divs also have backdrop-blur + rounded BUT also have items-start + gap-3.
      Wrapped in a grid.w-full container. -->
 <div class="grid w-full" style="display:grid;gap:16px;">
   <!-- User message: backdrop-blur + rounded, no w-full -->
   <div class="backdrop-blur-sm rounded-lg bg-accent-500/10 ml-auto" style="backdrop-filter:blur(4px);padding:12px;border-radius:8px;background:rgba(156,125,255,0.1);">
     <p>Create a landing page for my SaaS product with a hero section and pricing table</p>
+  </div>
+  <!-- Alert/warning div (should NOT be detected) — has items-start + gap-3 -->
+  <div class="relative flex items-start gap-3 backdrop-blur-sm rounded-lg bg-yellow-500/10" style="backdrop-filter:blur(4px);padding:12px;border-radius:8px;background:rgba(234,179,8,0.1);">
+    <span>⚠️</span>
+    <p>Warning: Some dependencies may be outdated</p>
   </div>
   <!-- Assistant message: overflow-hidden + w-full -->
   <div class="overflow-hidden w-full">
@@ -16,6 +22,11 @@
   <!-- User message -->
   <div class="backdrop-blur-sm rounded-xl bg-accent-500/10 ml-auto" style="backdrop-filter:blur(4px);padding:12px;border-radius:12px;background:rgba(156,125,255,0.1);">
     <p>Add a dark mode toggle and make the pricing cards animate on hover</p>
+  </div>
+  <!-- Alert/error div (should NOT be detected) -->
+  <div class="relative flex items-start gap-3 backdrop-blur-sm rounded-md bg-red-500/10" style="backdrop-filter:blur(4px);padding:12px;border-radius:6px;background:rgba(239,68,68,0.1);">
+    <span>❌</span>
+    <p>Error: Failed to compile component</p>
   </div>
   <!-- Assistant message -->
   <div class="overflow-hidden w-full">

@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v7.3
+// @name         AI Conversation Navigator v7.4
 // @namespace    http://tampermonkey.net/
-// @version      7.3
+// @version      7.4
 // @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Codex, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -446,6 +446,11 @@
     function getChatBoundaryX() {
         if (!isLeftChat) return null;
 
+        // Lovable: only show on project pages (chat exists only inside /projects/)
+        if (currentSite === SITE.LOVABLE && !window.location.pathname.includes('/projects/')) {
+            return null;
+        }
+
         // Strategy 1: Find chat input and walk up to chat container
         var input = document.querySelector(
             'textarea[placeholder*="message" i], textarea[placeholder*="Message"], ' +
@@ -504,7 +509,9 @@
         var panel = document.getElementById('ai-nav-panel');
 
         // No chat panel detected → hide and reset all state
+        // But never hide while panel is actively open (user is interacting)
         if (!boundaryX) {
+            if (isOpen) return;
             if (toggle) toggle.style.display = 'none';
             if (panel) panel.style.display = 'none';
             _lastBoundaryX = null;
@@ -518,6 +525,10 @@
 
         // Already confirmed — just update position smoothly, never hide
         if (_boundaryDetected) {
+            // Safety: ensure toggle always has positioned class (DOM guardian may recreate it)
+            if (toggle && !toggle.classList.contains('ai-nav-positioned') && !isOpen) {
+                toggle.classList.add('ai-nav-positioned');
+            }
             if (!_lastBoundaryX || Math.abs(boundaryX - _lastBoundaryX) >= 3) {
                 _lastBoundaryX = boundaryX;
                 var rightVal = (window.innerWidth - boundaryX) + 'px';
@@ -659,7 +670,10 @@
         // For left-chat: push button left by panel width (mirrors standard right: 0 → 320)
         if (isLeftChat && toggle) {
             var bx = _lastBoundaryX || getChatBoundaryX() || (window.innerWidth * 0.35);
+            var rightVal = (window.innerWidth - bx) + 'px';
             if (isOpen) {
+                // Sync both panel and toggle to same boundary before opening
+                if (panel) panel.style.right = rightVal;
                 // Button pushed left by 320px from boundary — sits at panel's left edge
                 toggle.style.right = (window.innerWidth - bx + 320) + 'px';
             } else {
@@ -671,6 +685,11 @@
 
         if (isOpen) {
             scanConversation();
+            // Retry scan after delay if 0 questions found (virtual scroll / lazy rendering)
+            setTimeout(function() {
+                var items = document.querySelectorAll('.ai-nav-item');
+                if (items.length === 0) scanConversation();
+            }, 2000);
             if (scanInterval) clearInterval(scanInterval);
             scanInterval = setInterval(scanConversation, 10000);
         } else {
@@ -719,7 +738,15 @@
 
         if (!document.getElementById('ai-nav-toggle')) {
             const toggle = createToggle();
-            if (isLeftChat && !_boundaryDetected) toggle.style.display = 'none';
+            if (isLeftChat && !_boundaryDetected) {
+                toggle.style.display = 'none';
+            } else if (isLeftChat && _boundaryDetected) {
+                // Boundary already confirmed — restore positioned state immediately
+                toggle.classList.add('ai-nav-positioned');
+                if (_lastBoundaryX) {
+                    toggle.style.right = (window.innerWidth - _lastBoundaryX) + 'px';
+                }
+            }
             document.body.appendChild(toggle);
             if (isOpen) toggle.classList.add('open');
             console.log('AI Nav: Re-injected toggle button.');
@@ -823,47 +850,57 @@
             // Bolt.new user messages: right-aligned bubbles with accent background + backdrop blur.
             // Built with UnoCSS (Tailwind-like). User messages have bg-accent-500/10 + backdrop-blur-sm
             // + ml-auto (right-aligned). Assistant messages have overflow-hidden + w-full (left/full-width).
+            // Alert/error divs also use backdrop-blur + rounded but have "items-start gap-" pattern.
             // Source: bolt.diy open-source fork (UserMessage.tsx, AssistantMessage.tsx)
 
-            // Primary: accent-tinted backdrop-blur bubbles that are NOT full-width (user only)
+            // Primary: accent-tinted backdrop-blur bubbles — exclude alerts and full-width (assistant)
             var boltCandidates = document.querySelectorAll('[class*="backdrop-blur"][class*="rounded"]');
             if (boltCandidates.length > 0) {
                 messages = Array.from(boltCandidates).filter(function(el) {
                     var cls = el.className || '';
-                    return !cls.includes('w-full') && el.textContent.trim().length > 0;
-                });
-            }
-
-            // Fallback 1: right-aligned rounded bubbles inside chat area
-            if (messages.length === 0) {
-                var mlAutoBubbles = document.querySelectorAll('.ml-auto.rounded-lg, .ml-auto.rounded-xl');
-                messages = Array.from(mlAutoBubbles).filter(function(el) {
+                    // Exclude assistant messages (full-width)
+                    if (cls.includes('w-full')) return false;
+                    // Exclude alert/warning containers (have items-start + gap pattern)
+                    if (cls.includes('items-start') && cls.includes('gap-')) return false;
+                    // Exclude if parent is an alert container
+                    var parent = el.closest('[class*="items-start"][class*="gap-"]');
+                    if (parent && parent !== el) return false;
                     return el.textContent.trim().length > 0;
                 });
             }
 
-            // Fallback 2: distinguish by structure — assistant root is overflow-hidden w-full,
+            // Fallback 1: grid-cols user messages (grid grid-cols-1 pattern)
+            if (messages.length === 0) {
+                var gridColMsgs = document.querySelectorAll('[class*="grid"][class*="grid-col"]');
+                messages = Array.from(gridColMsgs).filter(function(el) {
+                    var cls = el.className || '';
+                    // Must NOT be the full-width grid wrapper itself
+                    if (cls.includes('w-full') && el.querySelectorAll('[class*="backdrop-blur"]').length > 0) return false;
+                    // Must have meaningful text
+                    return el.textContent.trim().length > 5 && !cls.includes('items-start');
+                });
+            }
+
+            // Fallback 2: right-aligned rounded bubbles inside chat area
+            if (messages.length === 0) {
+                var mlAutoBubbles = document.querySelectorAll('.ml-auto.rounded-lg, .ml-auto.rounded-xl');
+                messages = Array.from(mlAutoBubbles).filter(function(el) {
+                    var cls = el.className || '';
+                    if (cls.includes('items-start') && cls.includes('gap-')) return false;
+                    return el.textContent.trim().length > 0;
+                });
+            }
+
+            // Fallback 3: distinguish by structure — assistant root is overflow-hidden w-full,
             // user root is NOT. Check direct children of the grid wrapper.
             if (messages.length === 0) {
                 var gridChildren = document.querySelectorAll('.grid.w-full > div');
                 messages = Array.from(gridChildren).filter(function(el) {
                     var cls = el.className || '';
-                    // User messages do NOT have the overflow-hidden + w-full combo
                     var isAssistant = cls.includes('overflow-hidden') && cls.includes('w-full');
-                    return !isAssistant && el.textContent.trim().length > 0;
+                    var isAlert = cls.includes('items-start') && cls.includes('gap-');
+                    return !isAssistant && !isAlert && el.textContent.trim().length > 0;
                 });
-            }
-
-            // Fallback 3: computed style check — user messages have a non-transparent background
-            if (messages.length === 0) {
-                var chatArea = document.querySelector('[class*="max-w-chat"]');
-                if (chatArea) {
-                    var cells = chatArea.querySelectorAll('.grid > div');
-                    messages = Array.from(cells).filter(function(el) {
-                        var bg = window.getComputedStyle(el).backgroundColor;
-                        return bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent';
-                    });
-                }
             }
         }
         else if (currentSite === SITE.LOVABLE) {
@@ -929,22 +966,30 @@
             // Must use data-* attributes, ARIA roles, structural patterns, and computed styles.
             // Source: Replit engineering blog (RUI, Emotion, Jotai architecture)
 
-            // Primary: data-* attribute selectors (if Replit uses them)
+            // Primary: data-* attribute selectors
             messages = document.querySelectorAll('[data-testid*="user-message"]');
             if (messages.length === 0) messages = document.querySelectorAll('[data-message-role="user"]');
             if (messages.length === 0) messages = document.querySelectorAll('[data-role="user"]');
+            if (messages.length === 0) messages = document.querySelectorAll('[data-author="user"]');
 
-            // Fallback 1: ARIA role="log" container + structural analysis
+            // Fallback 1: CSS module pattern — class contains "user" or "User"
+            if (messages.length === 0) {
+                var replitUserEls = document.querySelectorAll('[class*="userMessage"], [class*="user-message"], [class*="UserMessage"]');
+                messages = Array.from(replitUserEls).filter(function(el) {
+                    return el.textContent.trim().length > 0;
+                });
+            }
+
+            // Fallback 2: ARIA role="log" container + structural analysis
             if (messages.length === 0) {
                 var replitLog = document.querySelector('[role="log"]');
-                if (!replitLog) replitLog = document.querySelector('[role="list"][aria-label*="chat"]');
+                if (!replitLog) replitLog = document.querySelector('[role="list"][aria-label*="chat" i]');
+                if (!replitLog) replitLog = document.querySelector('[aria-label*="Chat" i]');
                 if (replitLog) {
-                    // User messages typically have a distinct background or alignment
                     var replitBlocks = replitLog.querySelectorAll(':scope > div > div, :scope > div');
                     messages = Array.from(replitBlocks).filter(function(el) {
                         var cls = el.className || '';
                         var style = window.getComputedStyle(el);
-                        // User messages are often right-aligned or have a non-transparent bg
                         var isRightAligned = cls.includes('end') || cls.includes('right') ||
                             style.marginLeft === 'auto' || style.alignSelf === 'flex-end';
                         var hasDistinctBg = style.backgroundColor && style.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
@@ -954,9 +999,9 @@
                 }
             }
 
-            // Fallback 2: find chat panel via textarea, then scan siblings
+            // Fallback 3: find chat panel via textarea, then scan siblings
             if (messages.length === 0) {
-                var replitInput = document.querySelector('textarea[placeholder*="message"]') ||
+                var replitInput = document.querySelector('textarea[placeholder*="message" i]') ||
                     document.querySelector('textarea[placeholder*="Message"]') ||
                     document.querySelector('[contenteditable="true"][role="textbox"]');
                 if (replitInput) {
@@ -981,17 +1026,38 @@
             // V0 (Vercel): chat on left side of app builder.
             // User messages are right-aligned within the chat panel.
             // Try data attributes first, then structural patterns.
+            // Note: copy buttons and SVG icons also use justify-end/self-end — must filter them out.
             messages = document.querySelectorAll('[data-role="user"]');
             if (messages.length === 0) messages = document.querySelectorAll('[data-message-role="user"]');
 
-            // Fallback: right-aligned message bubbles
+            // Fallback 1: look inside a chat/message container specifically
+            if (messages.length === 0) {
+                var v0Container = document.querySelector('[class*="chat"], [class*="messages"], [role="log"], [class*="thread"]');
+                if (v0Container) {
+                    var v0Candidates = v0Container.querySelectorAll('.justify-end, .self-end, .ml-auto');
+                    messages = Array.from(v0Candidates).filter(function(el) {
+                        var hasText = el.textContent.trim().length > 10;
+                        var isNotButton = !el.closest('button') && el.tagName !== 'BUTTON';
+                        var isNotIcon = el.tagName !== 'SVG' && !el.querySelector('svg:only-child');
+                        var isLeaf = el.querySelectorAll('.justify-end, .self-end').length === 0;
+                        var isNotCopyWidget = !(el.className || '').includes('copy');
+                        return hasText && isNotButton && isNotIcon && isLeaf && isNotCopyWidget;
+                    });
+                }
+            }
+
+            // Fallback 2: broader scan with strict text length and element type filters
             if (messages.length === 0) {
                 var v0Bubbles = document.querySelectorAll('.justify-end, .self-end, .ml-auto');
                 messages = Array.from(v0Bubbles).filter(function(el) {
-                    var hasText = el.textContent.trim().length > 3;
-                    var isInChat = !el.closest('nav') && !el.closest('header');
+                    var text = el.textContent.trim();
+                    var hasText = text.length > 10;
+                    var isInChat = !el.closest('nav') && !el.closest('header') && !el.closest('[class*="toolbar"]');
+                    var isNotButton = !el.closest('button') && el.tagName !== 'BUTTON';
+                    var isNotIcon = el.tagName !== 'SVG' && !el.querySelector('svg:only-child');
                     var isLeaf = el.querySelectorAll('.justify-end, .self-end').length === 0;
-                    return hasText && isInChat && isLeaf;
+                    var isNotCopyWidget = !(el.className || '').includes('copy') && !(el.className || '').includes('transition');
+                    return hasText && isInChat && isLeaf && isNotButton && isNotIcon && isNotCopyWidget;
                 });
             }
         }
@@ -1011,12 +1077,27 @@
         }
         else if (currentSite === SITE.EMERGENT) {
             // Emergent: user messages have data-testid="user-message-{id}".
-            // Very reliable selector.
+            // The actual text content is often inside a nested div.prose element.
             messages = document.querySelectorAll('[data-testid^="user-message"]');
 
-            // Fallback: id starts with "user-"
+            // Fallback 1: id starts with "user-"
             if (messages.length === 0) {
                 messages = document.querySelectorAll('[id^="user-"]');
+            }
+
+            // Fallback 2: look for user task elements
+            if (messages.length === 0) {
+                messages = document.querySelectorAll('[id^="user-task"], [data-testid*="user-task"]');
+            }
+
+            // Fallback 3: right-aligned message bubbles in chat area
+            if (messages.length === 0) {
+                var emergentChat = document.querySelector('[role="log"], [class*="chat"], [class*="messages"]');
+                if (emergentChat) {
+                    messages = Array.from(emergentChat.querySelectorAll('.justify-end, .self-end, .ml-auto')).filter(function(el) {
+                        return el.textContent.trim().length > 5;
+                    });
+                }
             }
         }
         else if (currentSite === SITE.PERPLEXITY) {
@@ -1033,19 +1114,47 @@
             }
         }
         else if (currentSite === SITE.FIREBASE_STUDIO) {
-            // Firebase Studio (Gemini): CSS module classes with _isUser_ prefix.
-            // The hash suffix changes per build, but _isUser_ stays consistent.
-            var firebaseMessages = document.querySelectorAll('[class*="_isUser_"]');
+            // Firebase Studio (Gemini): CSS module classes with _isUser_ pattern.
+            // Class names look like: _chatMessage_qlgvg_30 _isUser_qlgvg_47
+            // The hash suffix changes per build, but _isUser_ and _chatMessage_ stay consistent.
+            // Message body text is inside _messageBody_ nested elements.
+
+            // Primary: elements with both _chatMessage_ and _isUser_ in class
+            var firebaseMessages = document.querySelectorAll('[class*="_chatMessage_"][class*="_isUser_"]');
             messages = Array.from(firebaseMessages).filter(function(el) {
                 return el.textContent.trim().length > 0;
             });
 
-            // Fallback: _chatMessage_ class (all messages), then filter by _isUser_
+            // Fallback 1: _isUser_ alone
+            if (messages.length === 0) {
+                firebaseMessages = document.querySelectorAll('[class*="_isUser_"]');
+                messages = Array.from(firebaseMessages).filter(function(el) {
+                    return el.textContent.trim().length > 0;
+                });
+            }
+
+            // Fallback 2: _chatMessage_ class (all messages), then filter by _isUser_
             if (messages.length === 0) {
                 var allFirebaseMessages = document.querySelectorAll('[class*="_chatMessage_"]');
                 messages = Array.from(allFirebaseMessages).filter(function(el) {
-                    return (el.className || '').includes('_isUser_');
+                    return (el.className || '').includes('_isUser_') || (el.className || '').includes('isUser');
                 });
+            }
+
+            // Fallback 3: look for isUser (camelCase, no underscores) pattern
+            if (messages.length === 0) {
+                messages = document.querySelectorAll('[class*="isUser"]');
+            }
+
+            // Fallback 4: right-aligned messages in chat area
+            if (messages.length === 0) {
+                var fbChat = document.querySelector('[class*="_chatContainer_"], [class*="_chat_"], [role="log"]');
+                if (fbChat) {
+                    messages = Array.from(fbChat.querySelectorAll('[class*="_messageBody_"]')).filter(function(el) {
+                        var parent = el.closest('[class*="_isUser_"]') || el.closest('[class*="isUser"]');
+                        return parent && el.textContent.trim().length > 0;
+                    });
+                }
             }
         }
 
@@ -1151,6 +1260,13 @@
             }
         });
 
+        // Scroll listener — repositions button when page/chat scrolls (boundary can shift)
+        window.addEventListener('scroll', function() {
+            if (!isOpen) {
+                updateLeftChatPositions();
+            }
+        }, { passive: true });
+
         // Periodic boundary check (chat panels can resize dynamically)
         setInterval(function() {
             if (!isOpen) {
@@ -1163,5 +1279,5 @@
     // Initial scan after page load
     setTimeout(scanConversation, 2000);
 
-    console.log('AI Conversation Navigator v7.3 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
+    console.log('AI Conversation Navigator v7.4 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
 })();

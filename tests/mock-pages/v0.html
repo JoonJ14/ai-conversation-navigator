@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html><head><title>V0 Mock</title></head>
+<body>
+<!-- V0 (Vercel): Chat on left side, preview on right.
+     User messages use data-role="user" attribute.
+     Copy buttons and icons should NOT be detected as messages. -->
+<div class="flex h-screen">
+  <div class="chat-panel" style="width:40%;">
+    <div class="messages" role="log">
+      <!-- User message with data-role -->
+      <div data-role="user" class="flex justify-end" style="display:flex;justify-content:flex-end;">
+        <div class="bg-muted rounded-xl ml-auto" style="padding:12px;border-radius:12px;background:#2a2a2a;">
+          <p>Build me a modern portfolio website with dark mode</p>
+        </div>
+      </div>
+      <!-- Copy button (should NOT be detected) -->
+      <button class="self-end copy-icon" style="width:24px;height:24px;">
+        <svg><rect/></svg>
+      </button>
+      <!-- Assistant message -->
+      <div data-role="assistant" class="flex justify-start">
+        <div class="prose">
+          <p>I'll create a sleek portfolio with dark mode support...</p>
+        </div>
+      </div>
+      <!-- User message -->
+      <div data-role="user" class="flex justify-end" style="display:flex;justify-content:flex-end;">
+        <div class="bg-muted rounded-xl ml-auto" style="padding:12px;border-radius:12px;background:#2a2a2a;">
+          <p>Add an animated hero section with a typing effect</p>
+        </div>
+      </div>
+      <!-- Copy button (should NOT be detected) -->
+      <button class="self-end copy-icon" style="width:24px;height:24px;">
+        <svg><rect/></svg>
+      </button>
+      <!-- Assistant message -->
+      <div data-role="assistant" class="flex justify-start">
+        <div class="prose">
+          <p>I've added a typewriter animation to the hero section...</p>
+        </div>
+      </div>
+      <!-- User message -->
+      <div data-role="user" class="flex justify-end" style="display:flex;justify-content:flex-end;">
+        <div class="bg-muted rounded-xl ml-auto" style="padding:12px;border-radius:12px;background:#2a2a2a;">
+          <p>Make it responsive and add a contact form with validation</p>
+        </div>
+      </div>
+    </div>
+    <textarea placeholder="Message v0..."></textarea>
+  </div>
+  <div class="preview-panel" style="width:60%;">
+    <iframe style="width:100%;height:100%;"></iframe>
+  </div>
+</div>
+</body>
+</html>
