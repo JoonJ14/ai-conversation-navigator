@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v7.1
+// @name         AI Conversation Navigator v7.2
 // @namespace    http://tampermonkey.net/
-// @version      7.1
+// @version      7.2
 // @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Codex, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -479,6 +479,17 @@
             }
         }
 
+        // Strategy 3: Find the right-side preview panel (iframe) — its left edge is the boundary
+        var iframes = document.querySelectorAll('iframe');
+        for (var i = 0; i < iframes.length; i++) {
+            var rect = iframes[i].getBoundingClientRect();
+            // Right-side preview panel: left edge in middle portion, tall, reasonably wide
+            if (rect.left > window.innerWidth * 0.25 && rect.left < window.innerWidth * 0.75 &&
+                rect.height > window.innerHeight * 0.3 && rect.width > window.innerWidth * 0.2) {
+                return rect.left;
+            }
+        }
+
         // Last resort: assume chat is roughly 35% of viewport
         return window.innerWidth * 0.35;
     }
@@ -486,6 +497,8 @@
     // --- Position toggle button AND panel at the chat boundary ---
     var _lastBoundaryX = null;
     var _boundaryDetected = false;
+    var _fadeTimer = null;
+    var _readyTimer = null;
     function updateLeftChatPositions() {
         if (!isLeftChat) return;
 
@@ -499,10 +512,12 @@
                 _boundaryDetected = true;
                 var toggle = document.getElementById('ai-nav-toggle');
                 if (toggle) {
-                    setTimeout(function() {
+                    _fadeTimer = setTimeout(function() {
+                        _fadeTimer = null;
                         toggle.classList.add('ai-nav-positioned');
                         // After fade completes, restore fast transitions for hover/click
-                        setTimeout(function() {
+                        _readyTimer = setTimeout(function() {
+                            _readyTimer = null;
                             toggle.classList.add('ai-nav-ready');
                         }, 3200);
                     }, 300);
@@ -524,6 +539,13 @@
         var toggle = document.getElementById('ai-nav-toggle');
         if (toggle && !isOpen) {
             toggle.style.right = rightVal;
+            // Boundary shifted — if we already started fading in, cancel and restart
+            if (_boundaryDetected) {
+                if (_fadeTimer) { clearTimeout(_fadeTimer); _fadeTimer = null; }
+                if (_readyTimer) { clearTimeout(_readyTimer); _readyTimer = null; }
+                toggle.classList.remove('ai-nav-positioned', 'ai-nav-ready');
+                _boundaryDetected = false;
+            }
         }
     }
 
@@ -1135,5 +1157,5 @@
     // Initial scan after page load
     setTimeout(scanConversation, 2000);
 
-    console.log('AI Conversation Navigator v7.1 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
+    console.log('AI Conversation Navigator v7.2 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
 })();
