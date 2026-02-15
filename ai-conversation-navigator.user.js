@@ -238,10 +238,10 @@
     `;
 
     const panelStyles = isLeftChat ? `
-        /* === NAVIGATION PANEL (left-chat: slides from left, covers chat) === */
+        /* === NAVIGATION PANEL (left-chat: reveals from right edge, covers chat) === */
         #ai-nav-panel {
             position: fixed !important;
-            left: -320px !important;
+            left: 0 !important;
             right: auto !important;
             top: 0 !important;
             width: 320px !important;
@@ -250,16 +250,18 @@
             border-right: 1px solid #333 !important;
             border-left: none !important;
             z-index: 2147483646 !important;
-            transition: left 0.3s ease !important;
+            clip-path: inset(0 0 0 100%) !important;
+            transition: clip-path 0.3s ease !important;
             display: flex !important;
             flex-direction: column !important;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
             visibility: visible !important;
             opacity: 1 !important;
-            pointer-events: auto !important;
+            pointer-events: none !important;
         }
         #ai-nav-panel.open {
-            left: 0 !important;
+            clip-path: inset(0 0 0 0) !important;
+            pointer-events: auto !important;
         }
     ` : `
         /* === NAVIGATION PANEL (standard: slides from right) === */
