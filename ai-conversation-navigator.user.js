@@ -171,10 +171,7 @@
         }
         #ai-nav-toggle.ai-nav-positioned {
             opacity: 0.35 !important;
-            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 3s ease, border-radius 0.3s ease, right 0.3s ease !important;
-        }
-        #ai-nav-toggle.ai-nav-ready {
-            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease, border-radius 0.3s ease, right 0.3s ease !important;
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s ease, border-radius 0.3s ease, right 0.3s ease !important;
         }
         #ai-nav-toggle:hover {
             width: 32px !important;
@@ -499,7 +496,6 @@
     var _lastBoundaryX = null;
     var _boundaryDetected = false;
     var _fadeTimer = null;
-    var _readyTimer = null;
     function updateLeftChatPositions() {
         if (!isLeftChat) return;
 
@@ -515,8 +511,7 @@
             if (_boundaryDetected) {
                 _boundaryDetected = false;
                 if (_fadeTimer) { clearTimeout(_fadeTimer); _fadeTimer = null; }
-                if (_readyTimer) { clearTimeout(_readyTimer); _readyTimer = null; }
-                if (toggle) toggle.classList.remove('ai-nav-positioned', 'ai-nav-ready');
+                if (toggle) toggle.classList.remove('ai-nav-positioned');
             }
             return;
         }
@@ -532,11 +527,6 @@
                     _fadeTimer = setTimeout(function() {
                         _fadeTimer = null;
                         toggle.classList.add('ai-nav-positioned');
-                        // After fade completes, restore fast transitions for hover/click
-                        _readyTimer = setTimeout(function() {
-                            _readyTimer = null;
-                            toggle.classList.add('ai-nav-ready');
-                        }, 3200);
                     }, 300);
                 }
             }
@@ -555,9 +545,8 @@
             toggle.style.right = rightVal;
             if (_boundaryDetected) {
                 if (_fadeTimer) { clearTimeout(_fadeTimer); _fadeTimer = null; }
-                if (_readyTimer) { clearTimeout(_readyTimer); _readyTimer = null; }
                 toggle.style.display = 'none';
-                toggle.classList.remove('ai-nav-positioned', 'ai-nav-ready');
+                toggle.classList.remove('ai-nav-positioned');
                 _boundaryDetected = false;
             }
         }
