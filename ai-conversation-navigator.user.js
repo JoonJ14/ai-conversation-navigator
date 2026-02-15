@@ -436,8 +436,8 @@
         while (el && el !== document.body) {
             var rect = el.getBoundingClientRect();
             // Chat panel: starts in the left portion of the viewport (allowing for icon sidebars
-            // up to ~80px), reasonable width (200-55% of viewport), and tall (≥40% viewport).
-            if (rect.left < 80 && rect.width > 200 && rect.width < window.innerWidth * 0.55 &&
+            // up to ~80px), reasonable width (200-65% of viewport), and tall (≥40% viewport).
+            if (rect.left < 80 && rect.width > 200 && rect.width < window.innerWidth * 0.65 &&
                 rect.height > window.innerHeight * 0.4) {
                 return rect.right;
             }
@@ -493,7 +493,23 @@
         if (!boundaryX) return;
 
         // Only update if boundary changed significantly (avoid jitter)
-        if (_lastBoundaryX && Math.abs(boundaryX - _lastBoundaryX) < 3) return;
+        if (_lastBoundaryX && Math.abs(boundaryX - _lastBoundaryX) < 3) {
+            // Boundary is stable across consecutive checks — safe to fade in
+            if (!_boundaryDetected) {
+                _boundaryDetected = true;
+                var toggle = document.getElementById('ai-nav-toggle');
+                if (toggle) {
+                    setTimeout(function() {
+                        toggle.classList.add('ai-nav-positioned');
+                        // After fade completes, restore fast transitions for hover/click
+                        setTimeout(function() {
+                            toggle.classList.add('ai-nav-ready');
+                        }, 3200);
+                    }, 300);
+                }
+            }
+            return;
+        }
         _lastBoundaryX = boundaryX;
 
         var rightVal = (window.innerWidth - boundaryX) + 'px';
@@ -504,21 +520,10 @@
             panel.style.right = rightVal;
         }
 
-        // Button: right edge at boundary when closed, pushed left by 320 when open
+        // Button: right edge at boundary when closed (invisible until stable)
         var toggle = document.getElementById('ai-nav-toggle');
         if (toggle && !isOpen) {
             toggle.style.right = rightVal;
-            // First successful detection: let position settle, then slow 3s fade-in
-            if (!_boundaryDetected) {
-                _boundaryDetected = true;
-                setTimeout(function() {
-                    toggle.classList.add('ai-nav-positioned');
-                    // After fade completes, restore fast transitions for hover/click
-                    setTimeout(function() {
-                        toggle.classList.add('ai-nav-ready');
-                    }, 3200);
-                }, 300);
-            }
         }
     }
 
@@ -1099,6 +1104,7 @@
         // Initial positioning — rapid retries for fast-rendering platforms,
         // then longer delays for slow-rendering ones (SPA frameworks)
         setTimeout(updateLeftChatPositions, 500);
+        setTimeout(updateLeftChatPositions, 900);
         setTimeout(updateLeftChatPositions, 1500);
         setTimeout(updateLeftChatPositions, 3000);
         setTimeout(updateLeftChatPositions, 6000);
