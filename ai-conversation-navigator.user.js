@@ -102,7 +102,7 @@
         [SITE.BASE44]: '\u2B22',  // ⬢ (hexagon)
         [SITE.EMERGENT]: 'e',     // lowercase e (Emergent brand initial)
         [SITE.PERPLEXITY]: '\u29BE', // ⦾ (circled white bullet)
-        [SITE.FIREBASE_STUDIO]: '\u25C6' // ◆ (black diamond, evokes Firebase flame's angular shape)
+        [SITE.FIREBASE_STUDIO]: '\u2604' // ☄ (comet, evokes Firebase's fiery branding)
     };
 
     const siteIcon = ICONS[currentSite];

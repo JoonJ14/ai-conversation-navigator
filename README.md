@@ -43,7 +43,7 @@ I use those coding agents mostly in terminal CLI, and I find them incredibly eff
 | [V0](https://v0.app) | ▽ | ⚪ White | Ghost Notch (left-chat) | ✅ Beta |
 | [Base44](https://app.base44.com) | ⬢ | 🟣 Indigo | Ghost Notch (left-chat) | ✅ Beta |
 | [Emergent](https://app.emergent.sh) | e | 🟢 Emerald | Ghost Notch (left-chat) | ✅ Beta |
-| [Firebase Studio](https://studio.firebase.google.com) | ◆ | 🟠 Dark Tangerine | Standard (right-edge) | ✅ Beta |
+| [Firebase Studio](https://studio.firebase.google.com) | ☄ | 🟠 Dark Tangerine | Standard (right-edge) | ✅ Beta |
 
 > **Beta Notice:** The initial support for these app-builder platforms was developed using **mock DOM testing** — we built replica HTML pages based on open-source forks and research, then validated our selectors against those replicas with automated Playwright tests (see [TESTING.md](TESTING.md)). Later, we created free accounts on each platform to test against the live sites and refine the selectors they use for the questions we ask. This means the selectors are informed by real DOM inspection, but these platforms update frequently and may change their HTML structure at any time. **If you try it and run into problems, please [open an issue](https://github.com/JoonJ14/ai-conversation-navigator/issues) describing what you see.** Your real-world feedback is exactly what will help us fix selectors and make this work well. We genuinely welcome it.
 
@@ -198,7 +198,7 @@ Each platform's toggle button uses a Unicode symbol chosen to suggest the platfo
 | V0 | ▽ (inverted triangle) | Evokes Vercel's triangle/delta logo |
 | Base44 | ⬢ (black hexagon) | Evokes a modular building block |
 | Emergent | e (lowercase letter) | Emergent brand initial |
-| Firebase Studio | ◆ (black diamond) | Evokes Firebase flame's angular shape |
+| Firebase Studio | ☄ (comet) | Evokes Firebase's fiery branding |
 
 These are standard Unicode characters, not proprietary artwork, so there are no trademark, copyright, or licensing concerns.
 

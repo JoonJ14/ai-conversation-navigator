@@ -26,7 +26,7 @@ This document tracks features and platform expansions we're considering but have
 - V0 (`v0.app`) — White theme, ▽ icon, ghost notch — added in v7.1
 - Base44 (`app.base44.com`) — Indigo theme, ⬢ icon, ghost notch — added in v7.1
 - Emergent (`app.emergent.sh`) — Emerald theme, e icon, ghost notch — added in v7.1
-- Firebase Studio (`studio.firebase.google.com`) — Dark Tangerine theme, ◆ icon, standard button — added in v7.1
+- Firebase Studio (`studio.firebase.google.com`) — Dark Tangerine theme, ☄ icon, standard button — added in v7.1
 
 **Note:** All app-builder platform selectors were developed using open-source forks, production extension analysis, and live site testing. Selectors may need tuning if platforms update their DOM structure. See CHANGELOG for per-platform selector details.
 

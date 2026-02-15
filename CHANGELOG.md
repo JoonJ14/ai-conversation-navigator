@@ -209,7 +209,7 @@ Expanded from 7 platforms to 12, adding V0, Base44, Emergent, Perplexity, and Fi
 
 #### Firebase Studio (`studio.firebase.google.com`)
 - **Theme:** Dark Tangerine (`#FFA611`) — matches Firebase's primary brand color
-- **Icon:** ◆ (U+25C6, black diamond — evokes Firebase flame's angular shape)
+- **Icon:** ☄ (U+2604, comet — evokes Firebase's fiery branding)
 - **Selectors:** CSS module class pattern:
   1. `[class*="_isUser_"]` — Firebase Studio uses CSS Modules which generate class names like `_isUser_abc123`. The hash suffix changes per build, but the `_isUser_` semantic prefix remains stable across deployments. This `*=` attribute selector matches any class containing that substring.
   2. Fallback: `[class*="_chatMessage_"]` elements filtered by checking if className string includes `_isUser_` — broader net catching all chat messages first, then filtering to user messages only
