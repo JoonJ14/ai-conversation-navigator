@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v7.2
+// @name         AI Conversation Navigator v7.3
 // @namespace    http://tampermonkey.net/
-// @version      7.2
+// @version      7.3
 // @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Codex, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -128,6 +128,30 @@
     // These get the ghost notch button (inside chat, flush against right boundary).
     const LEFT_CHAT_SITES = [SITE.BOLT, SITE.LOVABLE, SITE.REPLIT, SITE.V0, SITE.BASE44, SITE.EMERGENT];
     const isLeftChat = LEFT_CHAT_SITES.includes(currentSite);
+
+    // --- Hide button on app-builder home/landing pages (no chat yet) ---
+    function isLeftChatHomePage() {
+        if (!isLeftChat) return false;
+        var path = window.location.pathname.replace(/\/+$/, '') || '/'; // normalize trailing slashes
+        switch (currentSite) {
+            case SITE.BOLT:     return path === '/';
+            case SITE.REPLIT:   return path === '/' || path === '/~';
+            case SITE.LOVABLE:  return path === '/';
+            case SITE.V0:       return path === '/';
+            case SITE.BASE44:   return path === '/';
+            case SITE.EMERGENT: return path === '/' || path === '/home';
+            default: return false;
+        }
+    }
+
+    function updateHomePageVisibility() {
+        if (!isLeftChat) return;
+        var hide = isLeftChatHomePage();
+        var toggle = document.getElementById('ai-nav-toggle');
+        var panel = document.getElementById('ai-nav-panel');
+        if (toggle) toggle.style.display = hide ? 'none' : '';
+        if (panel) panel.style.display = hide ? 'none' : '';
+    }
 
     // Inject styles — toggle button and panel differ for left-chat vs standard platforms
     const toggleStyles = isLeftChat ? `
@@ -1091,6 +1115,9 @@
         document.body.appendChild(createPanel());
     }
 
+    // Hide on home/landing pages of app-builder sites
+    updateHomePageVisibility();
+
     // Start the DOM Guardian AFTER initial elements are in place
     startDOMGuardian();
 
@@ -1104,21 +1131,27 @@
         history.pushState = function() {
             originalPushState.apply(this, arguments);
             setTimeout(ensureElementsExist, 500);
+            setTimeout(updateHomePageVisibility, 550);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         };
         history.replaceState = function() {
             originalReplaceState.apply(this, arguments);
             setTimeout(ensureElementsExist, 500);
+            setTimeout(updateHomePageVisibility, 550);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         };
 
         window.addEventListener('popstate', function() {
             setTimeout(ensureElementsExist, 500);
+            setTimeout(updateHomePageVisibility, 550);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         });
 
         // Periodic health check (every 3 seconds) — these SPAs can silently remove injected elements
-        setInterval(ensureElementsExist, 3000);
+        setInterval(function() {
+            ensureElementsExist();
+            updateHomePageVisibility();
+        }, 3000);
     }
 
     // Left-chat: position button at chat boundary on init, resize, and periodically
@@ -1157,5 +1190,5 @@
     // Initial scan after page load
     setTimeout(scanConversation, 2000);
 
-    console.log('AI Conversation Navigator v7.2 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
+    console.log('AI Conversation Navigator v7.3 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
 })();
