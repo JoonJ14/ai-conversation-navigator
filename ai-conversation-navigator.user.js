@@ -157,7 +157,7 @@
             transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease, border-radius 0.3s ease, right 0.3s ease !important;
             white-space: nowrap !important;
             visibility: visible !important;
-            opacity: 0.35 !important;
+            opacity: 0 !important;
             pointer-events: auto !important;
         }
         #ai-nav-toggle .ai-nav-icon {
@@ -478,6 +478,7 @@
 
     // --- Position toggle button AND panel at the chat boundary ---
     var _lastBoundaryX = null;
+    var _boundaryDetected = false;
     function updateLeftChatPositions() {
         if (!isLeftChat) return;
 
@@ -500,6 +501,13 @@
         var toggle = document.getElementById('ai-nav-toggle');
         if (toggle && !isOpen) {
             toggle.style.right = rightVal;
+            // First successful detection: fade in the button (it starts at opacity 0)
+            if (!_boundaryDetected) {
+                _boundaryDetected = true;
+                requestAnimationFrame(function() {
+                    toggle.style.opacity = '0.35';
+                });
+            }
         }
     }
 
