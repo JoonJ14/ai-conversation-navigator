@@ -423,26 +423,52 @@
     }
 
     // --- Detect chat panel right edge for left-chat platforms ---
+    // Walk up from an element to find the chat panel container, return its right edge
+    function _walkUpToChatContainer(startEl) {
+        var el = startEl;
+        while (el && el !== document.body) {
+            var rect = el.getBoundingClientRect();
+            // Chat panel: starts in the left portion of the viewport (allowing for icon sidebars
+            // up to ~80px), reasonable width (200-55% of viewport), and tall (≥40% viewport).
+            if (rect.left < 80 && rect.width > 200 && rect.width < window.innerWidth * 0.55 &&
+                rect.height > window.innerHeight * 0.4) {
+                return rect.right;
+            }
+            el = el.parentElement;
+        }
+        return null;
+    }
+
     function getChatBoundaryX() {
         if (!isLeftChat) return null;
 
-        // Generic: find chat input textarea and walk up to find the chat container
+        // Strategy 1: Find chat input and walk up to chat container
         var input = document.querySelector(
             'textarea[placeholder*="message" i], textarea[placeholder*="Message"], ' +
             'textarea[placeholder*="Send" i], textarea[placeholder*="Type" i], ' +
-            '[contenteditable="true"][role="textbox"], ' +
+            '[contenteditable="true"][role="textbox"], [contenteditable="true"], ' +
             'textarea[class*="chat"], textarea[class*="prompt"]'
         );
         if (input) {
-            var el = input.parentElement;
-            while (el && el !== document.body) {
-                var rect = el.getBoundingClientRect();
-                // Chat panel is typically 200-600px wide and at least half the viewport height
-                if (rect.left < 10 && rect.width > 200 && rect.width < window.innerWidth * 0.55 &&
-                    rect.height > window.innerHeight * 0.4) {
-                    return rect.right;
-                }
-                el = el.parentElement;
+            var boundary = _walkUpToChatContainer(input);
+            if (boundary) return boundary;
+        }
+
+        // Strategy 2: Find a known message element (platform-specific) and walk up
+        var msgSelectors = {
+            bolt: '[class*="backdrop-blur"][class*="rounded"], [class*="max-w-chat"]',
+            lovable: 'div[role="log"], div.ChatMessageContainer, .justify-end',
+            replit: '[data-testid*="user-message"], [data-message-role="user"], [role="log"]',
+            v0: '[data-role="user"], [data-message-role="user"]',
+            base44: '[id^="message-"]',
+            emergent: '[data-testid^="user-message"], [id^="user-"]'
+        };
+        var sel = msgSelectors[currentSite];
+        if (sel) {
+            var msgEl = document.querySelector(sel);
+            if (msgEl) {
+                var boundary = _walkUpToChatContainer(msgEl);
+                if (boundary) return boundary;
             }
         }
 
@@ -1051,9 +1077,12 @@
 
     // Left-chat: position button at chat boundary on init, resize, and periodically
     if (isLeftChat) {
-        // Initial positioning (delayed to let the page layout settle)
+        // Initial positioning — rapid retries for fast-rendering platforms,
+        // then longer delays for slow-rendering ones (SPA frameworks)
+        setTimeout(updateLeftChatPositions, 500);
         setTimeout(updateLeftChatPositions, 1500);
         setTimeout(updateLeftChatPositions, 3000);
+        setTimeout(updateLeftChatPositions, 6000);
 
         // Reposition on window resize (right is viewport-relative)
         window.addEventListener('resize', function() {
@@ -1075,7 +1104,7 @@
                 _lastBoundaryX = null;
                 updateLeftChatPositions();
             }
-        }, 5000);
+        }, 3000);
     }
 
     // Initial scan after page load
