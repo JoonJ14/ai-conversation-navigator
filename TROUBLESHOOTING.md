@@ -95,6 +95,126 @@ Rule out system-level issues before debugging the script.
 
 ---
 
+## Ghost Notch Button (Left-Chat Platforms)
+
+These issues affect the left-chat platforms that use the ghost notch button design: Bolt.new, Lovable, Replit, V0, Base44, and Emergent.
+
+### Button appearing on home/dashboard pages (no chat active)
+
+**Versions affected:** v7.1
+**Fixed in:** v7.2 → v7.3
+**Platforms:** All left-chat platforms
+**Browser:** All browsers
+
+#### What It Looked Like
+The ghost notch button appeared on home/dashboard pages where there's no active chat conversation — for example, Bolt.new's homepage, Lovable's project list, or Emergent's home screen at `app.emergent.sh/home`. The button either showed at a fixed position (about 35% from the left edge) or briefly flashed visible in the middle of the screen before disappearing. On some pages, it would show up, fade in, and then suddenly vanish.
+
+#### Why It Was Happening
+The v7.1 `getChatBoundaryX()` function had a **35% viewport fallback** at the bottom:
+
+```javascript
+// Last resort: assume 35% viewport width
+return window.innerWidth * 0.35;
+```
+
+This meant the function NEVER returned `null` — it always returned a number. The "no chat detected → hide" branch in `updateLeftChatPositions()` was unreachable dead code. The button always positioned itself at the boundary or at 35%, regardless of whether a chat panel existed.
+
+The fallback was added during initial development as a safety net (better to show the button in a slightly wrong position than not show it at all), but it was exactly the wrong behavior for pages with no chat at all.
+
+#### Why This Was Tricky to Fix
+
+Simply removing the fallback wasn't enough. The deeper problem is that **home pages on these platforms have chat-like textareas**:
+- Bolt.new homepage: "Let's build a customer portal where users..."
+- Emergent home: "Build me a clone of netflix..."
+- Lovable dashboard may have similar input areas
+
+These textareas match the broad Strategy 1 selectors (`textarea[placeholder*="message" i]`, `[contenteditable="true"]`, etc.) in `getChatBoundaryX()`. Without the fallback, these could still cause the function to return a boundary value on home pages.
+
+The defense against this is the `_walkUpToChatContainer()` function, which walks up from the input element and requires the ancestor to satisfy ALL of:
+- `rect.left < 80` — starts near the left edge (home page inputs are centered, so `rect.left > 200`)
+- `rect.width > 200 && rect.width < 65% viewport` — narrow panel (home page cards are either too narrow or the full-page wrapper is too wide)
+- `rect.height > 40% viewport` — tall (home page input cards are short)
+
+On a real chat page, the chat panel starts at `rect.left ≈ 0`, is 30-50% of viewport width, and is full viewport height — matching all three criteria. On a home page, the centered input card fails the `rect.left < 80` check.
+
+#### What We Did to Fix It and Why (Three Iterations)
+
+**v7.2 — Removed the 35% fallback:** `getChatBoundaryX()` now returns `null` when no strategy finds a chat panel. This makes the "no chat detected → hide" branch reachable. Home pages with centered inputs fail the `_walkUpToChatContainer()` checks → null → hidden.
+
+**v7.3 first change — Start with `display: none`:** Even after removing the fallback, elements were created with `display: ''` (visible in DOM at `opacity: 0`). CSS hover rules (`opacity: 1`) meant users could accidentally discover the invisible button by mousing over it in the 500ms before the first poll ran. Fix: all left-chat elements now start with `display: none` and are only made visible after a stable boundary is confirmed.
+
+**v7.3 second change — Don't re-hide after confirmation:** After the button successfully appeared, it would go invisible again within 1-2 seconds. The boundary fluctuated by 4-8px between polls (due to layout reflows, scrollbar toggling, content streaming), and any shift > 3px triggered a full reset: `display: none`, remove `ai-nav-positioned`, set `_boundaryDetected = false`. Fix: restructured `updateLeftChatPositions()` so that once confirmed, boundary shifts just update `style.right` smoothly — only a `null` boundary (navigating to a non-chat page) can hide the button.
+
+**v7.3 third change — Faster opacity fade:** The original `ai-nav-positioned` class used a 3-second opacity transition (designed for v7.1 where position might drift). Combined with the display-none-first approach, this made the button take 3+ seconds to become noticeably visible — users couldn't tell it was there. Changed to 0.5s fade and removed the two-phase `ai-nav-ready` class.
+
+#### How It Resolved Things
+After all three fixes, the behavior is:
+- **Home pages:** Button never appears. `getChatBoundaryX()` returns null → `display: none` forever. No flash, no hover discovery.
+- **Chat pages:** Button appears after ~1 second (two 500ms stability polls), fades to 0.35 opacity over 0.5s. Stays visible permanently regardless of small boundary fluctuations.
+- **SPA navigation (chat → home):** Boundary becomes null → button hides immediately.
+- **SPA navigation (home → chat):** Boundary detected → stability confirmed → button appears.
+
+#### Diagnostic Tips
+
+If the ghost notch button is not appearing on a chat page where it should:
+
+1. Open DevTools Console and look for `AI Conversation Navigator v7.3 loaded for [platform] (left-chat mode)!` — confirms the script detected the platform
+2. Add a temporary `console.log` inside `getChatBoundaryX()` to see which strategy (if any) is finding the boundary:
+   ```javascript
+   console.log('Strategy 1 input:', input, 'boundary:', boundary);
+   ```
+3. Check what `_walkUpToChatContainer()` is returning by logging each ancestor's `getBoundingClientRect()`:
+   ```javascript
+   console.log(el.tagName, el.className, rect.left, rect.width, rect.height);
+   ```
+4. If the chat panel's `rect.left` is > 80 (e.g., there's a wide sidebar), the threshold may need adjusting for that platform
+
+If the button IS appearing on a home page where it shouldn't:
+1. One of the three strategies in `getChatBoundaryX()` is returning a non-null value
+2. Most likely: a chat-like input or element is matching Strategy 1 or 2, and its ancestor passes the `_walkUpToChatContainer()` checks
+3. Inspect the matching element and its ancestor chain to understand why the left/width/height criteria are being satisfied
+4. The fix may need to be a platform-specific exclusion or a tighter constraint in `_walkUpToChatContainer()`
+
+---
+
+### Button invisible until hover (appears on hover as full button)
+
+**Versions affected:** v7.2, early v7.3
+**Fixed in:** v7.3
+**Platforms:** All left-chat platforms
+**Browser:** All browsers
+
+#### What It Looked Like
+On a chat page (not home), the button didn't appear as the expected 0.35 opacity thin strip. The area where the button should be looked completely empty. But if you moved your mouse over that area, the full expanded button suddenly appeared at `opacity: 1`. Moving the mouse away made it disappear again. It felt like the button was in the DOM but completely invisible.
+
+#### Why It Was Happening
+This was caused by the **boundary fluctuation re-hide loop** (Bug 3 in the v7.3 changelog).
+
+The `updateLeftChatPositions()` function polled every 500ms and compared the current boundary to the last one with a 3px tolerance. The chat panel boundary fluctuates naturally by 4-8px between polls due to layout reflows (new content streaming, scrollbar appearing/disappearing, CSS transitions completing). Each fluctuation triggered:
+
+1. `_boundaryDetected = false` (reset confirmation)
+2. `display: none` (hide the button)
+3. Remove `ai-nav-positioned` class (reset opacity to 0)
+
+On the next poll, if the boundary stabilized:
+4. `_boundaryDetected = true` (re-confirm)
+5. `display: ''` (show the button — but at `opacity: 0` because `ai-nav-positioned` was removed)
+6. Start 300ms timer to re-add `ai-nav-positioned`
+
+But before the timer fired, the boundary would fluctuate again → steps 1-3 → timer cleared → `ai-nav-positioned` never sticks.
+
+The result: the button alternated between `display: none` and `display: ''` with `opacity: 0` (no `ai-nav-positioned` class). The only way to see it was via the CSS `:hover` rule which sets `opacity: 1` regardless of classes.
+
+#### What We Did to Fix It and Why
+Restructured `updateLeftChatPositions()` into three phases where **Phase 2 (already confirmed) never hides the button**. Once `_boundaryDetected` is true, boundary shifts just update `style.right` for smooth repositioning. Only a `null` return from `getChatBoundaryX()` (meaning no chat panel exists at all) can hide the button.
+
+See the v7.3 changelog entry for the complete three-phase architecture.
+
+#### How It Resolved Things
+The button now appears once, stays visible at 0.35 opacity, and smoothly tracks boundary shifts. The destructive hide/show/hide cycle is impossible because Phase 2 has no path to `display: none`.
+
+---
+
 ## Claude Code
 
 ### 0 questions detected on Claude Code (`claude.ai/code`)
