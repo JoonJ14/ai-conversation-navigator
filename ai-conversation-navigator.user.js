@@ -171,6 +171,10 @@
         }
         #ai-nav-toggle.ai-nav-positioned {
             opacity: 0.35 !important;
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 3s ease, border-radius 0.3s ease, right 0.3s ease !important;
+        }
+        #ai-nav-toggle.ai-nav-ready {
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease, border-radius 0.3s ease, right 0.3s ease !important;
         }
         #ai-nav-toggle:hover {
             width: 32px !important;
@@ -504,12 +508,16 @@
         var toggle = document.getElementById('ai-nav-toggle');
         if (toggle && !isOpen) {
             toggle.style.right = rightVal;
-            // First successful detection: fade in the button (it starts at opacity 0)
+            // First successful detection: let position settle, then slow 3s fade-in
             if (!_boundaryDetected) {
                 _boundaryDetected = true;
-                requestAnimationFrame(function() {
+                setTimeout(function() {
                     toggle.classList.add('ai-nav-positioned');
-                });
+                    // After fade completes, restore fast transitions for hover/click
+                    setTimeout(function() {
+                        toggle.classList.add('ai-nav-ready');
+                    }, 3200);
+                }, 300);
             }
         }
     }
