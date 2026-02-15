@@ -238,11 +238,11 @@
     `;
 
     const panelStyles = isLeftChat ? `
-        /* === NAVIGATION PANEL (left-chat: reveals from right edge, covers chat) === */
+        /* === NAVIGATION PANEL (left-chat: anchored at boundary, reveals leftward) === */
         #ai-nav-panel {
             position: fixed !important;
-            left: 0 !important;
-            right: auto !important;
+            left: auto !important;
+            right: 65%;
             top: 0 !important;
             width: 320px !important;
             height: 100vh !important;
@@ -450,7 +450,7 @@
         return window.innerWidth * 0.35;
     }
 
-    // --- Position the toggle button at the chat boundary ---
+    // --- Position toggle button AND panel at the chat boundary ---
     var _lastBoundaryX = null;
     function updateLeftChatPositions() {
         if (!isLeftChat) return;
@@ -462,10 +462,18 @@
         if (_lastBoundaryX && Math.abs(boundaryX - _lastBoundaryX) < 3) return;
         _lastBoundaryX = boundaryX;
 
+        var rightVal = (window.innerWidth - boundaryX) + 'px';
+
+        // Panel: right edge anchored at boundary (always, open or closed)
+        var panel = document.getElementById('ai-nav-panel');
+        if (panel) {
+            panel.style.right = rightVal;
+        }
+
+        // Button: right edge at boundary when closed, pushed left by 320 when open
         var toggle = document.getElementById('ai-nav-toggle');
         if (toggle && !isOpen) {
-            // Position button: right edge anchored at boundary, expands leftward into chat
-            toggle.style.right = (window.innerWidth - boundaryX) + 'px';
+            toggle.style.right = rightVal;
         }
     }
 
@@ -576,11 +584,12 @@
         panel.classList.toggle('open', isOpen);
         toggle.classList.toggle('open', isOpen);
 
-        // For left-chat: reposition button when panel opens/closes
+        // For left-chat: push button left by panel width (mirrors standard right: 0 → 320)
         if (isLeftChat && toggle) {
+            var bx = _lastBoundaryX || getChatBoundaryX() || (window.innerWidth * 0.35);
             if (isOpen) {
-                // Move button to left edge of panel (button is 32px wide, so right edge at x=32)
-                toggle.style.right = (window.innerWidth - 32) + 'px';
+                // Button pushed left by 320px from boundary — sits at panel's left edge
+                toggle.style.right = (window.innerWidth - bx + 320) + 'px';
             } else {
                 // Restore to boundary position
                 _lastBoundaryX = null; // force recalculation
@@ -1046,13 +1055,15 @@
         setTimeout(updateLeftChatPositions, 1500);
         setTimeout(updateLeftChatPositions, 3000);
 
-        // Reposition on window resize
+        // Reposition on window resize (right is viewport-relative)
         window.addEventListener('resize', function() {
             _lastBoundaryX = null; // force recalculation
             if (isOpen) {
-                // right is viewport-relative, so update when window resizes while open
+                var bx = getChatBoundaryX() || (window.innerWidth * 0.35);
+                var panel = document.getElementById('ai-nav-panel');
                 var toggle = document.getElementById('ai-nav-toggle');
-                if (toggle) toggle.style.right = (window.innerWidth - 32) + 'px';
+                if (panel) panel.style.right = (window.innerWidth - bx) + 'px';
+                if (toggle) toggle.style.right = (window.innerWidth - bx + 320) + 'px';
             } else {
                 updateLeftChatPositions();
             }
