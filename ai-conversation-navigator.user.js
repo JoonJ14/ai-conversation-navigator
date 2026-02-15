@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v7.0
+// @name         AI Conversation Navigator v7.1
 // @namespace    http://tampermonkey.net/
-// @version      7.0
-// @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Codex, Grok, Gemini, Bolt, Lovable, and Replit
+// @version      7.1
+// @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Codex, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -11,6 +11,12 @@
 // @match        https://bolt.new/*
 // @match        https://lovable.dev/*
 // @match        https://replit.com/*
+// @match        https://v0.app/*
+// @match        https://app.base44.com/*
+// @match        https://app.emergent.sh/*
+// @match        https://www.perplexity.ai/*
+// @match        https://perplexity.ai/*
+// @match        https://studio.firebase.google.com/*
 // @grant        GM_addStyle
 // ==/UserScript==
 
@@ -34,7 +40,12 @@
         GEMINI: 'gemini',
         BOLT: 'bolt',
         LOVABLE: 'lovable',
-        REPLIT: 'replit'
+        REPLIT: 'replit',
+        V0: 'v0',
+        BASE44: 'base44',
+        EMERGENT: 'emergent',
+        PERPLEXITY: 'perplexity',
+        FIREBASE_STUDIO: 'firebase_studio'
     };
 
     function detectSite() {
@@ -46,6 +57,11 @@
         if (hostname === 'bolt.new') return SITE.BOLT;
         if (hostname.includes('lovable.dev')) return SITE.LOVABLE;
         if (hostname.includes('replit.com')) return SITE.REPLIT;
+        if (hostname.includes('v0.app')) return SITE.V0;
+        if (hostname.includes('base44.com')) return SITE.BASE44;
+        if (hostname.includes('emergent.sh')) return SITE.EMERGENT;
+        if (hostname.includes('perplexity.ai')) return SITE.PERPLEXITY;
+        if (hostname.includes('studio.firebase.google.com')) return SITE.FIREBASE_STUDIO;
         return null;
     }
 
@@ -63,7 +79,12 @@
         [SITE.GEMINI]: { accent: '#4285f4', accentHover: '#3367d6', accentLight: 'rgba(66, 133, 244, 0.2)', textColor: 'white' },
         [SITE.BOLT]: { accent: '#38BDF8', accentHover: '#0EA5E9', accentLight: 'rgba(56, 189, 248, 0.2)', textColor: 'white' },
         [SITE.LOVABLE]: { accent: '#9b87f5', accentHover: '#7c3aed', accentLight: 'rgba(155, 135, 245, 0.2)', textColor: 'white' },
-        [SITE.REPLIT]: { accent: '#F26522', accentHover: '#D4541A', accentLight: 'rgba(242, 101, 34, 0.2)', textColor: 'white' }
+        [SITE.REPLIT]: { accent: '#F26522', accentHover: '#D4541A', accentLight: 'rgba(242, 101, 34, 0.2)', textColor: 'white' },
+        [SITE.V0]: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)', textColor: '#1a1a1a' },
+        [SITE.BASE44]: { accent: '#6366f1', accentHover: '#4f46e5', accentLight: 'rgba(99, 102, 241, 0.2)', textColor: 'white' },
+        [SITE.EMERGENT]: { accent: '#10b981', accentHover: '#059669', accentLight: 'rgba(16, 185, 129, 0.2)', textColor: 'white' },
+        [SITE.PERPLEXITY]: { accent: '#20b8cd', accentHover: '#1a9aab', accentLight: 'rgba(32, 184, 205, 0.2)', textColor: 'white' },
+        [SITE.FIREBASE_STUDIO]: { accent: '#f59e0b', accentHover: '#d97706', accentLight: 'rgba(245, 158, 11, 0.2)', textColor: 'white' }
     };
 
     const theme = THEME[currentSite];
@@ -76,7 +97,12 @@
         [SITE.GEMINI]: '\u2726',   // ✦
         [SITE.BOLT]: '\u26A1\uFE0E',  // ⚡ (lightning bolt, text presentation)
         [SITE.LOVABLE]: '\u2665',  // ♥ (heart suit)
-        [SITE.REPLIT]: '\u2815'    // ⠕ (Braille dots-135, Replit prompt logo)
+        [SITE.REPLIT]: '\u2815',   // ⠕ (Braille dots-135, Replit prompt logo)
+        [SITE.V0]: '\u25B3',      // △ (triangle, Vercel logo shape)
+        [SITE.BASE44]: '\u2B22',  // ⬢ (hexagon)
+        [SITE.EMERGENT]: '\u2736', // ✶ (six-pointed star)
+        [SITE.PERPLEXITY]: '\u29BE', // ⦾ (circled white bullet)
+        [SITE.FIREBASE_STUDIO]: '\u2B50\uFE0E' // ★ (star, text presentation)
     };
 
     const siteIcon = ICONS[currentSite];
@@ -89,13 +115,81 @@
         [SITE.GEMINI]: 'Gemini',
         [SITE.BOLT]: 'Bolt',
         [SITE.LOVABLE]: 'Lovable',
-        [SITE.REPLIT]: 'Replit'
+        [SITE.REPLIT]: 'Replit',
+        [SITE.V0]: 'V0',
+        [SITE.BASE44]: 'Base44',
+        [SITE.EMERGENT]: 'Emergent',
+        [SITE.PERPLEXITY]: 'Perplexity',
+        [SITE.FIREBASE_STUDIO]: 'Firebase Studio'
     };
     const siteTitle = siteTitles[currentSite];
 
-    // Inject styles
-    const styles = `
-        /* === HOVER-EXPAND TOGGLE BUTTON === */
+    // Left-chat platforms: chat panel on the left, workspace on the right.
+    // These get the ghost notch button (inside chat, flush against right boundary).
+    const LEFT_CHAT_SITES = [SITE.BOLT, SITE.LOVABLE, SITE.REPLIT, SITE.V0, SITE.BASE44, SITE.EMERGENT];
+    const isLeftChat = LEFT_CHAT_SITES.includes(currentSite);
+
+    // Inject styles — toggle button and panel differ for left-chat vs standard platforms
+    const toggleStyles = isLeftChat ? `
+        /* === GHOST NOTCH V1 TOGGLE (left-chat platforms) === */
+        #ai-nav-toggle {
+            position: fixed !important;
+            right: auto !important;
+            left: 0 !important;
+            top: 50% !important;
+            transform: translateY(-50%) !important;
+            z-index: 2147483647 !important;
+            background: ${theme.accent} !important;
+            color: ${theme.textColor} !important;
+            border: none !important;
+            cursor: pointer !important;
+            border-radius: 6px 0 0 6px !important;
+            box-shadow: -2px 0 8px rgba(0,0,0,0.3) !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            width: 8px !important;
+            height: 52px !important;
+            padding: 0 !important;
+            font-weight: 800 !important;
+            font-size: 20px !important;
+            overflow: hidden !important;
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease, border-radius 0.3s ease, left 0.3s ease !important;
+            white-space: nowrap !important;
+            visibility: visible !important;
+            opacity: 0.35 !important;
+            pointer-events: auto !important;
+        }
+        #ai-nav-toggle .ai-nav-icon {
+            font-size: 14px !important;
+            opacity: 0 !important;
+            transform: scale(0.6) !important;
+            transition: opacity 0.25s ease 0.05s, transform 0.25s ease 0.05s !important;
+        }
+        #ai-nav-toggle .ai-nav-expand-text {
+            display: none !important;
+        }
+        #ai-nav-toggle:hover {
+            width: 32px !important;
+            height: 40px !important;
+            opacity: 1 !important;
+            border-radius: 6px 0 0 6px !important;
+        }
+        #ai-nav-toggle:hover .ai-nav-icon {
+            opacity: 1 !important;
+            transform: scale(1) !important;
+        }
+        #ai-nav-toggle.open {
+            opacity: 1 !important;
+            width: 32px !important;
+            height: 40px !important;
+        }
+        #ai-nav-toggle.open .ai-nav-icon {
+            opacity: 1 !important;
+            transform: scale(1) !important;
+        }
+    ` : `
+        /* === STANDARD HOVER-EXPAND TOGGLE (right-edge platforms) === */
         #ai-nav-toggle {
             position: fixed !important;
             right: 0 !important;
@@ -141,8 +235,34 @@
         #ai-nav-toggle.open {
             right: 320px !important;
         }
+    `;
 
-        /* === NAVIGATION PANEL === */
+    const panelStyles = isLeftChat ? `
+        /* === NAVIGATION PANEL (left-chat: slides from left, covers chat) === */
+        #ai-nav-panel {
+            position: fixed !important;
+            left: -320px !important;
+            right: auto !important;
+            top: 0 !important;
+            width: 320px !important;
+            height: 100vh !important;
+            background: #1a1a1a !important;
+            border-right: 1px solid #333 !important;
+            border-left: none !important;
+            z-index: 2147483646 !important;
+            transition: left 0.3s ease !important;
+            display: flex !important;
+            flex-direction: column !important;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            pointer-events: auto !important;
+        }
+        #ai-nav-panel.open {
+            left: 0 !important;
+        }
+    ` : `
+        /* === NAVIGATION PANEL (standard: slides from right) === */
         #ai-nav-panel {
             position: fixed !important;
             right: -320px !important;
@@ -163,7 +283,9 @@
         #ai-nav-panel.open {
             right: 0 !important;
         }
+    `;
 
+    const styles = toggleStyles + panelStyles + `
         #ai-nav-header {
             padding: 16px;
             background: #252525;
@@ -298,12 +420,68 @@
         return el;
     }
 
-    // --- Create toggle button (hover-expand: icon only, text appears on hover) ---
+    // --- Detect chat panel right edge for left-chat platforms ---
+    function getChatBoundaryX() {
+        if (!isLeftChat) return null;
+
+        // Generic: find chat input textarea and walk up to find the chat container
+        var input = document.querySelector(
+            'textarea[placeholder*="message" i], textarea[placeholder*="Message"], ' +
+            'textarea[placeholder*="Send" i], textarea[placeholder*="Type" i], ' +
+            '[contenteditable="true"][role="textbox"], ' +
+            'textarea[class*="chat"], textarea[class*="prompt"]'
+        );
+        if (input) {
+            var el = input.parentElement;
+            while (el && el !== document.body) {
+                var rect = el.getBoundingClientRect();
+                // Chat panel is typically 200-600px wide and at least half the viewport height
+                if (rect.left < 10 && rect.width > 200 && rect.width < window.innerWidth * 0.55 &&
+                    rect.height > window.innerHeight * 0.4) {
+                    return rect.right;
+                }
+                el = el.parentElement;
+            }
+        }
+
+        // Last resort: assume chat is roughly 35% of viewport
+        return window.innerWidth * 0.35;
+    }
+
+    // --- Position the toggle button at the chat boundary ---
+    var _lastBoundaryX = null;
+    function updateLeftChatPositions() {
+        if (!isLeftChat) return;
+
+        var boundaryX = getChatBoundaryX();
+        if (!boundaryX) return;
+
+        // Only update if boundary changed significantly (avoid jitter)
+        if (_lastBoundaryX && Math.abs(boundaryX - _lastBoundaryX) < 3) return;
+        _lastBoundaryX = boundaryX;
+
+        var toggle = document.getElementById('ai-nav-toggle');
+        if (toggle && !isOpen) {
+            // Position button: right edge at the boundary, button extends leftward
+            toggle.style.left = (boundaryX - 8) + 'px'; // 8px = button width at rest
+        }
+    }
+
+    // --- Create toggle button ---
     function createToggle() {
-        const btn = createElement('button', { id: 'ai-nav-toggle', onClick: handleToggleClick }, [
-            document.createTextNode(siteIcon),
-            createElement('span', { className: 'ai-nav-expand-text', textContent: 'Navigate' })
-        ]);
+        var btn;
+        if (isLeftChat) {
+            // Ghost notch V1: icon wrapped in span for scale animation
+            btn = createElement('button', { id: 'ai-nav-toggle', onClick: handleToggleClick }, [
+                createElement('span', { className: 'ai-nav-icon', textContent: siteIcon })
+            ]);
+        } else {
+            // Standard: icon + expandable text
+            btn = createElement('button', { id: 'ai-nav-toggle', onClick: handleToggleClick }, [
+                document.createTextNode(siteIcon),
+                createElement('span', { className: 'ai-nav-expand-text', textContent: 'Navigate' })
+            ]);
+        }
         return btn;
     }
 
@@ -353,13 +531,28 @@
         ]);
 
         item.addEventListener('click', function() {
-            msg.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            var originalBg = msg.style.backgroundColor;
-            msg.style.backgroundColor = theme.accentLight;
-            msg.style.transition = 'background-color 0.3s';
-            setTimeout(function() {
-                msg.style.backgroundColor = originalBg;
-            }, 1500);
+            // For left-chat platforms, close panel first since it overlays the chat
+            if (isLeftChat && isOpen) {
+                handleToggleClick(); // close panel
+                // Scroll after panel close animation completes
+                setTimeout(function() {
+                    msg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    var originalBg = msg.style.backgroundColor;
+                    msg.style.backgroundColor = theme.accentLight;
+                    msg.style.transition = 'background-color 0.3s';
+                    setTimeout(function() {
+                        msg.style.backgroundColor = originalBg;
+                    }, 1500);
+                }, 350);
+            } else {
+                msg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                var originalBg = msg.style.backgroundColor;
+                msg.style.backgroundColor = theme.accentLight;
+                msg.style.transition = 'background-color 0.3s';
+                setTimeout(function() {
+                    msg.style.backgroundColor = originalBg;
+                }, 1500);
+            }
         });
 
         return item;
@@ -380,6 +573,18 @@
         isOpen = !isOpen;
         panel.classList.toggle('open', isOpen);
         toggle.classList.toggle('open', isOpen);
+
+        // For left-chat: reposition button when panel opens/closes
+        if (isLeftChat && toggle) {
+            if (isOpen) {
+                // Move button to right edge of open panel (320px from left)
+                toggle.style.left = '320px';
+            } else {
+                // Restore to boundary position
+                _lastBoundaryX = null; // force recalculation
+                updateLeftChatPositions();
+            }
+        }
 
         if (isOpen) {
             scanConversation();
@@ -687,6 +892,77 @@
                 }
             }
         }
+        else if (currentSite === SITE.V0) {
+            // V0 (Vercel): chat on left side of app builder.
+            // User messages are right-aligned within the chat panel.
+            // Try data attributes first, then structural patterns.
+            messages = document.querySelectorAll('[data-role="user"]');
+            if (messages.length === 0) messages = document.querySelectorAll('[data-message-role="user"]');
+
+            // Fallback: right-aligned message bubbles
+            if (messages.length === 0) {
+                var v0Bubbles = document.querySelectorAll('.justify-end, .self-end, .ml-auto');
+                messages = Array.from(v0Bubbles).filter(function(el) {
+                    var hasText = el.textContent.trim().length > 3;
+                    var isInChat = !el.closest('nav') && !el.closest('header');
+                    var isLeaf = el.querySelectorAll('.justify-end, .self-end').length === 0;
+                    return hasText && isInChat && isLeaf;
+                });
+            }
+        }
+        else if (currentSite === SITE.BASE44) {
+            // Base44: messages have id="message-{uuid}".
+            // User messages contain a parent div with justify-end (right-aligned).
+            // AI messages do not have justify-end.
+            var base44Messages = document.querySelectorAll('[id^="message-"]');
+            messages = Array.from(base44Messages).filter(function(el) {
+                return el.querySelector('.justify-end') && el.textContent.trim().length > 0;
+            });
+
+            // Fallback: look for bg-slate-200 bubbles (user message style)
+            if (messages.length === 0) {
+                messages = document.querySelectorAll('.bg-slate-200.rounded-xl');
+            }
+        }
+        else if (currentSite === SITE.EMERGENT) {
+            // Emergent: user messages have data-testid="user-message-{id}".
+            // Very reliable selector.
+            messages = document.querySelectorAll('[data-testid^="user-message"]');
+
+            // Fallback: id starts with "user-"
+            if (messages.length === 0) {
+                messages = document.querySelectorAll('[id^="user-"]');
+            }
+        }
+        else if (currentSite === SITE.PERPLEXITY) {
+            // Perplexity: user queries use the class group/query.
+            // This is a Tailwind group variant class — very reliable identifier.
+            var perplexityQueries = document.querySelectorAll('.group\\/query');
+            messages = Array.from(perplexityQueries).filter(function(el) {
+                return el.textContent.trim().length > 0;
+            });
+
+            // Fallback: look for query text spans
+            if (messages.length === 0) {
+                messages = document.querySelectorAll('.group\\/title .select-text');
+            }
+        }
+        else if (currentSite === SITE.FIREBASE_STUDIO) {
+            // Firebase Studio (Gemini): CSS module classes with _isUser_ prefix.
+            // The hash suffix changes per build, but _isUser_ stays consistent.
+            var firebaseMessages = document.querySelectorAll('[class*="_isUser_"]');
+            messages = Array.from(firebaseMessages).filter(function(el) {
+                return el.textContent.trim().length > 0;
+            });
+
+            // Fallback: _chatMessage_ class (all messages), then filter by _isUser_
+            if (messages.length === 0) {
+                var allFirebaseMessages = document.querySelectorAll('[class*="_chatMessage_"]');
+                messages = Array.from(allFirebaseMessages).filter(function(el) {
+                    return (el.className || '').includes('_isUser_');
+                });
+            }
+        }
 
         return messages;
     }
@@ -736,31 +1012,55 @@
     startDOMGuardian();
 
     // SPA navigation hooks for platforms with aggressive DOM re-rendering
-    // Gemini (Angular), Bolt (Remix), Lovable (React Router), Replit (Next.js)
-    if (currentSite === SITE.GEMINI || currentSite === SITE.BOLT ||
-        currentSite === SITE.LOVABLE || currentSite === SITE.REPLIT) {
+    var SPA_SITES = [SITE.GEMINI, SITE.BOLT, SITE.LOVABLE, SITE.REPLIT,
+                     SITE.V0, SITE.BASE44, SITE.EMERGENT, SITE.FIREBASE_STUDIO, SITE.PERPLEXITY];
+    if (SPA_SITES.indexOf(currentSite) !== -1) {
         const originalPushState = history.pushState;
         const originalReplaceState = history.replaceState;
 
         history.pushState = function() {
             originalPushState.apply(this, arguments);
             setTimeout(ensureElementsExist, 500);
+            if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         };
         history.replaceState = function() {
             originalReplaceState.apply(this, arguments);
             setTimeout(ensureElementsExist, 500);
+            if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         };
 
         window.addEventListener('popstate', function() {
             setTimeout(ensureElementsExist, 500);
+            if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         });
 
         // Periodic health check (every 3 seconds) — these SPAs can silently remove injected elements
         setInterval(ensureElementsExist, 3000);
     }
 
+    // Left-chat: position button at chat boundary on init, resize, and periodically
+    if (isLeftChat) {
+        // Initial positioning (delayed to let the page layout settle)
+        setTimeout(updateLeftChatPositions, 1500);
+        setTimeout(updateLeftChatPositions, 3000);
+
+        // Reposition on window resize
+        window.addEventListener('resize', function() {
+            _lastBoundaryX = null; // force recalculation
+            if (!isOpen) updateLeftChatPositions();
+        });
+
+        // Periodic boundary check (chat panels can resize dynamically)
+        setInterval(function() {
+            if (!isOpen) {
+                _lastBoundaryX = null;
+                updateLeftChatPositions();
+            }
+        }, 5000);
+    }
+
     // Initial scan after page load
     setTimeout(scanConversation, 2000);
 
-    console.log('AI Conversation Navigator v7.0 loaded for ' + siteTitle + '!');
+    console.log('AI Conversation Navigator v7.1 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
 })();
