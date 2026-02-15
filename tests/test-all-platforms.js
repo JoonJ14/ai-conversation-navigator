@@ -170,6 +170,51 @@ const PLATFORMS = [
         expectedAccent: 'rgb(242, 101, 34)',    // #F26522
         expectedIcon: '\u2815',                 // ⠕
     },
+    {
+        name: 'V0',
+        mockFile: 'v0.html',
+        hostname: 'v0.app',
+        pathname: '/chat/test-project',
+        expectedMessages: 3,
+        expectedAccent: 'rgb(255, 255, 255)',   // #ffffff
+        expectedIcon: '\u25BD',                 // ▽
+    },
+    {
+        name: 'Base44',
+        mockFile: 'base44.html',
+        hostname: 'app.base44.com',
+        pathname: '/projects/test',
+        expectedMessages: 3,
+        expectedAccent: 'rgb(99, 102, 241)',    // #6366f1
+        expectedIcon: '\u2B22',                 // ⬢
+    },
+    {
+        name: 'Emergent',
+        mockFile: 'emergent.html',
+        hostname: 'app.emergent.sh',
+        pathname: '/project/test',
+        expectedMessages: 3,
+        expectedAccent: 'rgb(16, 185, 129)',    // #10b981
+        expectedIcon: 'e',
+    },
+    {
+        name: 'Perplexity',
+        mockFile: 'perplexity.html',
+        hostname: 'www.perplexity.ai',
+        pathname: '/search/test',
+        expectedMessages: 3,
+        expectedAccent: 'rgb(32, 184, 205)',    // #20b8cd
+        expectedIcon: '\u29BE',                 // ⦾
+    },
+    {
+        name: 'Firebase Studio',
+        mockFile: 'firebase.html',
+        hostname: 'studio.firebase.google.com',
+        pathname: '/project/test',
+        expectedMessages: 3,
+        expectedAccent: 'rgb(255, 166, 17)',    // #FFA611
+        expectedIcon: '\u2726',                 // ✦
+    },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -357,14 +402,28 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                 await page.evaluate(() => {
                     document.querySelector('.ai-nav-item').click();
                 });
-                await page.waitForTimeout(300);
+                await page.waitForTimeout(500);
             }
         } catch (e) {
             clickable = false;
         }
         assert('Nav items clickable', clickable, clickable ? 'Click succeeded' : 'Click threw error');
 
-        // ── TEST 10: Click toggle again to close ──
+        // ── TEST 10: Click toggle to close panel ──
+        // On left-chat platforms, clicking a nav item (Test 9) closes the panel first,
+        // then scrolls to the message. So the panel may already be closed.
+        // Ensure the panel is open before testing the close toggle.
+        const alreadyClosed = await page.evaluate(() => {
+            return !document.getElementById('ai-nav-panel').classList.contains('open');
+        });
+        if (alreadyClosed) {
+            // Re-open the panel so we can test closing it
+            await page.evaluate(() => {
+                document.getElementById('ai-nav-toggle').click();
+            });
+            await page.waitForTimeout(500);
+        }
+        // Now click toggle to close
         await page.evaluate(() => {
             document.getElementById('ai-nav-toggle').click();
         });

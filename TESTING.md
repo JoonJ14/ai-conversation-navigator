@@ -48,6 +48,7 @@ Everything runs on **localhost**. No external network, no cloud, no remote serve
 tests/
 ├── run-tests.sh              # Shell convenience script — one command to run everything
 ├── test-all-platforms.js      # Playwright test runner — the main test engine
+├── screenshots/               # Generated screenshots (with --screenshots flag)
 └── mock-pages/                # One HTML file per platform variant
     ├── claude.html            # Claude Chat (claude.ai)
     ├── claude-code.html       # Claude Code (claude.ai/code) — different DOM, same hostname
@@ -57,7 +58,12 @@ tests/
     ├── gemini.html            # Gemini (gemini.google.com)
     ├── bolt.html              # Bolt.new (bolt.new)
     ├── lovable.html           # Lovable (lovable.dev)
-    └── replit.html            # Replit (replit.com)
+    ├── replit.html            # Replit (replit.com)
+    ├── v0.html                # V0 (v0.app)
+    ├── base44.html            # Base44 (app.base44.com)
+    ├── emergent.html          # Emergent (app.emergent.sh)
+    ├── perplexity.html        # Perplexity (perplexity.ai)
+    └── firebase.html          # Firebase Studio (studio.firebase.google.com)
 ```
 
 **Note:** Claude Chat and Claude Code share the hostname `claude.ai` but have completely different DOM structures. Same for ChatGPT and Codex (both on `chatgpt.com`). The userscript uses a fallback chain — it tries the primary selectors first, and if those find 0 results, it tries the fallback selectors. The mock pages are designed so that each variant only matches its own fallback path.
@@ -112,6 +118,11 @@ function detectSite() {
     if (hostname === 'bolt.new') return SITE.BOLT;
     if (hostname.includes('lovable.dev')) return SITE.LOVABLE;
     if (hostname.includes('replit.com')) return SITE.REPLIT;
+    if (hostname.includes('v0.app')) return SITE.V0;
+    if (hostname.includes('base44.com')) return SITE.BASE44;
+    if (hostname.includes('emergent.sh')) return SITE.EMERGENT;
+    if (hostname.includes('perplexity.ai')) return SITE.PERPLEXITY;
+    if (hostname.includes('studio.firebase.google.com')) return SITE.FIREBASE_STUDIO;
     return null;
 }
 ```
@@ -317,9 +328,14 @@ The `PLATFORMS` array in `test-all-platforms.js` is the **central configuration*
 | Codex Web | chatgpt.com | codex.html | 2 | rgb(255, 255, 255) | ⏣ `\u23E3` |
 | Grok | grok.com | grok.html | 3 | rgb(220, 38, 38) | X |
 | Gemini | gemini.google.com | gemini.html | 3 | rgb(66, 133, 244) | ✦ `\u2726` |
-| Bolt.new | bolt.new | bolt.html | 3 | rgb(156, 125, 255) | ⚡ `\u26A1\uFE0E` |
+| Bolt.new | bolt.new | bolt.html | 3 | rgb(56, 189, 248) | ⚡ `\u26A1\uFE0E` |
 | Lovable | lovable.dev | lovable.html | 4 | rgb(155, 135, 245) | ♥ `\u2665` |
 | Replit | replit.com | replit.html | 3 | rgb(242, 101, 34) | ⠕ `\u2815` |
+| V0 | v0.app | v0.html | 3 | rgb(255, 255, 255) | ▽ `\u25BD` |
+| Base44 | app.base44.com | base44.html | 3 | rgb(99, 102, 241) | ⬢ `\u2B22` |
+| Emergent | app.emergent.sh | emergent.html | 3 | rgb(16, 185, 129) | e |
+| Perplexity | www.perplexity.ai | perplexity.html | 3 | rgb(32, 184, 205) | ⦾ `\u29BE` |
+| Firebase Studio | studio.firebase.google.com | firebase.html | 3 | rgb(255, 166, 17) | ✦ `\u2726` |
 
 **Note on sub-platforms:** Claude and Claude Code both use `hostname: 'claude.ai'` but different mock files and different `pathname` values. The userscript treats both as `SITE.CLAUDE` and uses a fallback chain — primary selectors (`data-testid="user-human-turn"`) work for Claude Chat, and the fallback (`div.bg-bg-200.rounded-lg` inside `.items-end`) catches Claude Code. The mock pages are designed so that Claude Chat's mock has `data-testid` attributes (primary selectors match) and Claude Code's mock does NOT have `data-testid` attributes (primary selectors find 0, fallback activates).
 
@@ -475,28 +491,37 @@ Below is the exact mapping between what the userscript looks for and what each m
 
 #### Bolt.new (`bolt.html`)
 
-**Userscript selectors:**
-1. `[class*="backdrop-blur"][class*="rounded"]` → filtered to exclude `w-full` ← PRIMARY
-2. `.ml-auto.rounded-lg, .ml-auto.rounded-xl`
-3. `.grid.w-full > div` → filtered to exclude `overflow-hidden` + `w-full`
-4. `[class*="max-w-chat"] .grid > div` → filtered by computed `backgroundColor`
+**Userscript selectors (in order):**
+1. `[data-message-id]` → filtered by `self-end` class or `bg-bolt-elements-messages` ← PRIMARY
+2. `.self-end[class*="bg-bolt-elements"]` — alternate attribute match
+3. `[class*="_MarkdownContent_"]` inside `.self-end` parents
+4. `[class*="backdrop-blur"][class*="rounded"]` → filtered to exclude `w-full` (bolt.diy fork compat)
+5. `.ml-auto.rounded-lg, .ml-auto.rounded-xl`
+6. `.grid.w-full > div` → filtered to exclude `overflow-hidden` + `w-full`
+
+**All selectors exclude** `subscribeButton` and `prompt-subscribe` areas (token/subscription warnings).
 
 **Mock page provides:**
 ```html
-<!-- Wrapped in grid.w-full (matches the Bolt chat container) -->
 <div class="grid w-full" style="display:grid;gap:16px;">
-  <!-- User: has backdrop-blur + rounded, does NOT have w-full -->
-  <div class="backdrop-blur-sm rounded-lg bg-accent-500/10 ml-auto" style="backdrop-filter:blur(4px);...">
-    <p>User question text here</p>
+  <!-- User: data-message-id + self-end + bolt-specific background -->
+  <div data-message-id="msg-1" class="self-end bg-bolt-elements-messages-background rounded-lg">
+    <div class="_MarkdownContent_1fihl_1">
+      <p>User question text here</p>
+    </div>
   </div>
-  <!-- Assistant: has overflow-hidden + w-full (excluded by filters) -->
-  <div class="overflow-hidden w-full">
+  <!-- Assistant: has data-message-id but NO self-end -->
+  <div data-message-id="msg-2" class="overflow-hidden w-full">
     <p>Assistant response here</p>
   </div>
 </div>
+<!-- Token warning (should NOT be detected) -->
+<div class="bg-bolt-elements-prompt-subscribeButton-background">
+  <span>You've used all your tokens.</span>
+</div>
 ```
 
-**Why it works:** User messages have `backdrop-blur-sm` and `rounded-lg` (matching the `[class*="backdrop-blur"][class*="rounded"]` selector) but do NOT have `w-full` (so the `!cls.includes('w-full')` filter passes). Assistant messages have `overflow-hidden w-full` (excluded by the filter).
+**Why it works:** The primary selector queries all `[data-message-id]` elements but only keeps those with `self-end` class (user messages). Assistant messages have `data-message-id` but no `self-end`, so they're filtered out. The token warning is outside any `[data-message-id]` container and is also excluded by the `subscribeButton` filter as a safety net.
 
 ---
 
@@ -565,6 +590,124 @@ Below is the exact mapping between what the userscript looks for and what each m
 ```
 
 **Important:** Replit uses Emotion CSS-in-JS, so real class names are hashed (e.g., `css-1p94a1z`) and change every deployment. The mock uses fake hash classes (`css-abc123`) to simulate this. The selectors deliberately avoid relying on class names — they use `data-testid`, ARIA roles, and computed styles instead.
+
+---
+
+#### V0 (`v0.html`)
+
+**Userscript selectors:**
+1. `[data-role="user"]` ← PRIMARY
+2. `[data-message-role="user"]`, `[data-message-author-role="user"]`, `[data-message-author="user"]`, `[data-testid*="user-message"]`, `[data-sender="user"]`
+3. `[data-message-id]` → filtered by alignment classes
+4. `[class*="bg-muted"][class*="rounded"]` with `ml-auto` → excluding buttons
+5. Chat container scan (`.justify-end`, `.self-end`, `.ml-auto`) → excluding buttons, icons, copy widgets
+
+**Mock page provides:**
+```html
+<div class="messages" role="log">
+  <div data-role="user" class="flex justify-end">
+    <div class="bg-muted rounded-xl ml-auto">
+      <p>User question text here</p>
+    </div>
+  </div>
+  <div data-role="assistant" class="flex justify-start">
+    <div class="prose"><p>Assistant response here</p></div>
+  </div>
+</div>
+```
+
+**Why it works:** The mock uses `data-role="user"` which matches the primary selector. The copy buttons use `self-end copy-icon` classes and are `<button>` elements, so they're excluded by the `isNotButton` filter in fallbacks. **Note:** The live V0 site may not use `data-role` — see TROUBLESHOOTING.md for the ongoing investigation.
+
+---
+
+#### Base44 (`base44.html`)
+
+**Userscript selectors:**
+1. `[id^="message-"]` → filtered by presence of `.justify-end` child ← PRIMARY
+2. `.bg-slate-200.rounded-xl`
+
+**Mock page provides:**
+```html
+<div id="message-uuid-1" class="mb-4">
+  <div class="flex justify-end">
+    <div class="bg-slate-200 rounded-xl"><p>User question here</p></div>
+  </div>
+</div>
+<div id="message-uuid-2" class="mb-4">
+  <div class="flex justify-start">
+    <div class="prose"><p>Assistant response here</p></div>
+  </div>
+</div>
+```
+
+**Why it works:** Both user and assistant messages have `id="message-{uuid}"`, but only user messages have a `.justify-end` child. The filter `el.querySelector('.justify-end')` passes for user messages and fails for assistant messages.
+
+---
+
+#### Emergent (`emergent.html`)
+
+**Userscript selectors:**
+1. `[data-testid^="user-message"]` + nesting dedup ← PRIMARY
+2. `[id^="user-"]`
+3. `[id^="user-task"]`, `[data-testid*="user-task"]`
+4. `[class*="rounded-br-none"]` (user bubble style)
+5. `[class*="items-end"]` with background color
+
+**Mock page provides:**
+```html
+<div data-testid="user-message-task-1" id="user-task-1" class="mb-4">
+  <div class="prose prose-invert max-w-none">
+    <p>User question text here</p>
+  </div>
+</div>
+<div data-testid="assistant-message-1" class="mb-4">
+  <div class="prose prose-invert max-w-none">
+    <p>Assistant response here</p>
+  </div>
+</div>
+```
+
+**Why it works:** The `^=` (starts-with) selector matches `data-testid="user-message-task-1"` but not `data-testid="assistant-message-1"`. The `id="user-task-1"` also matches fallback `[id^="user-"]` as a backup.
+
+---
+
+#### Perplexity (`perplexity.html`)
+
+**Userscript selectors:**
+1. `.group\/query` (Tailwind group variant class) ← PRIMARY
+2. `.group\/title .select-text`
+
+**Mock page provides:**
+```html
+<div class="group/query">
+  <span class="select-text">User question text here</span>
+</div>
+<div class="response-container">
+  <p>AI response here with citations...</p>
+</div>
+```
+
+**Why it works:** Perplexity uses Tailwind's group variant feature, assigning `.group/query` to each user query block. The `/` in the class name is escaped as `\/` in CSS selectors. This is a semantic class name rather than a styling utility, making it very stable.
+
+---
+
+#### Firebase Studio (`firebase.html`)
+
+**Userscript selectors:**
+1. `[class*="_isUser_"]` (CSS Modules partial match) ← PRIMARY
+2. `[class*="_chatMessage_"]` → filtered by `_isUser_` in className string
+
+**Mock page provides:**
+```html
+<div class="_chatMessage_abc123 _isUser_def456">
+  <p>User question text here</p>
+</div>
+<div class="_chatMessage_abc123 _isAssistant_ghi789">
+  <p>Assistant response here</p>
+</div>
+```
+
+**Why it works:** Firebase Studio uses CSS Modules which generate class names like `_isUser_abc123` with a hash suffix that changes per build. The `*=` (contains) attribute selector matches any class containing the `_isUser_` substring, which remains stable across deployments. Assistant messages use `_isAssistant_` which doesn't contain `_isUser_`.
 
 ---
 

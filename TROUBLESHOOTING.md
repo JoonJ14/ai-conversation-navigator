@@ -6,6 +6,97 @@ If you run into a problem, check here first — you might find we've already sol
 
 ---
 
+## Known Issues Under Investigation
+
+The following platform-specific issues have been identified through live site testing and are **not yet fully resolved**. Initial fixes have been applied (v7.4/v7.5), but these need further iteration with live DOM inspection. A dedicated feature branch will be opened to address each one.
+
+### Replit — Questions repeating 3 times per single question
+
+**Versions affected:** v7.1 – v7.5
+**Status:** Partially mitigated, not fully resolved
+**Platforms:** Replit (`replit.com`)
+
+#### What It Looks Like
+When you ask a single question on Replit, the navigation panel shows that question listed 3 times instead of once. Every question appears as 3 identical entries.
+
+#### What We've Tried So Far
+- **v7.4:** Added nesting deduplication — keeps only innermost elements when `data-testid*="user-message"` matches at multiple nesting levels (outer wrapper, middle container, inner text div). This filters out cases where a parent contains a child that also matches.
+- **v7.5:** Added text-content deduplication — after nesting dedup, a second pass removes elements with identical `textContent.trim()`, keeping only the first element for each unique text string. This handles cases where sibling/cousin elements at the same nesting level match the selector with the same content.
+
+#### Why It's Not Fully Fixed
+The text-content dedup is a mitigation, not a root-cause fix. The actual issue is that we don't know the exact DOM structure Replit uses for user messages. The selectors were built from research (Replit engineering blog, Emotion CSS-in-JS analysis) rather than live DOM inspection. Possible root causes:
+- Replit may have 3 separate elements per message that all match `[data-testid*="user-message"]` but are siblings (not nested), so nesting dedup doesn't help
+- The primary selector may be matching 0 elements, and a fallback (ARIA roles, computed styles) is returning 3x results per message
+- Replit's Emotion CSS-in-JS hash classes may have changed, causing unexpected selector matches
+
+#### What's Needed
+Live DOM inspection on Replit to:
+1. Check if `data-testid*="user-message"` attributes exist at all
+2. If they do, examine the nesting structure (are 3 elements matching per message? nested or sibling?)
+3. If they don't, determine which fallback is activating and why it returns 3x
+4. Build a more accurate mock page based on real DOM structure
+
+---
+
+### V0 — No questions detected
+
+**Versions affected:** v7.1 – v7.5
+**Status:** Selectors expanded but not confirmed working
+**Platforms:** V0 (`v0.app`)
+
+#### What It Looks Like
+The navigation panel shows "0 questions found" on V0, even when multiple questions have been asked in the chat.
+
+#### What We've Tried So Far
+- **v7.1:** Added `[data-role="user"]`, `[data-message-role="user"]`, `[data-message-author-role="user"]` as primary selectors
+- **v7.5:** Added `[data-message-author="user"]`, `[data-testid*="user-message"]`, `[data-sender="user"]`, and a new `[data-message-id]` + alignment fallback
+- **v7.1–v7.5:** 5 structural fallbacks (bg-muted bubbles, chat containers, text-wrap divs, Tailwind alignment classes, scrollable container scanning)
+
+#### Why It's Not Fully Fixed
+All primary selectors and all 5 fallbacks are returning 0 results on the live V0 site. This strongly suggests V0's actual DOM structure is significantly different from what we assumed. V0 is built by Vercel using their Geist design system, and may use:
+- Completely different data attributes than the standard `data-role`/`data-message-*` patterns
+- Server-rendered components that don't use Tailwind alignment classes in the expected way
+- A custom chat component structure that doesn't match any of our heuristic patterns
+
+#### What's Needed
+Live DOM inspection on V0 to:
+1. Right-click a user message → Inspect to see the actual element structure
+2. Walk up the DOM tree to identify distinguishing attributes (data-*, class, ARIA roles)
+3. Identify how user messages differ from assistant messages in the DOM
+4. Update selectors and mock page to match the real structure
+
+---
+
+### Emergent — Button invisible until hover + panel spacing issue
+
+**Versions affected:** v7.1 – v7.5
+**Status:** Opacity increased but visibility still insufficient; panel spacing issue unresolved
+**Platforms:** Emergent (`app.emergent.sh`)
+
+#### What It Looks Like
+Two issues on Emergent:
+
+1. **Button visibility:** The ghost notch button at the chat/workspace boundary is invisible until the user hovers their mouse over the area. They can find it by sweeping their mouse along the boundary, but there's no visual indication that the button exists.
+
+2. **Panel expanding with space:** When the navigation panel opens, there appears to be a spacing/gap issue with how it expands relative to the chat boundary.
+
+#### What We've Tried So Far
+- **v7.1:** Set resting opacity to 0.35 (same as all left-chat platforms)
+- **v7.3:** Moved button 14px left to avoid Emergent's thick scrollbar overlap
+- **v7.5:** Increased Emergent-specific resting opacity from 0.35 to 0.75 and resting width from 8px to 14px
+
+#### Why It's Not Fully Fixed
+The opacity increase may still not be sufficient against Emergent's specific dark background color. The ghost notch design (thin vertical strip) may be fundamentally hard to see on Emergent's interface regardless of opacity. The panel spacing issue hasn't been diagnosed yet — it may be related to the scrollbar offset, the boundary detection coordinates, or the panel's clip-path animation.
+
+#### What's Needed
+Live testing on Emergent to:
+1. Verify the new 0.75 opacity / 14px width is visible (or determine what opacity/width is needed)
+2. Consider whether Emergent needs a different button design entirely (e.g., always-visible icon instead of ghost notch)
+3. Diagnose the panel spacing issue — inspect the panel position vs chat boundary, check if the 14px scrollbar offset is correct
+4. Test panel open/close animation for visual artifacts
+
+---
+
 ## Cross-Platform Issues
 
 ### Duplicate Navigate button (Linux Firefox)
@@ -92,6 +183,126 @@ All three issues turned out to be caused by **system resource exhaustion** on th
 - `htop` in terminal — shows per-process CPU and memory usage (interactive, like Task Manager)
 
 Rule out system-level issues before debugging the script.
+
+---
+
+## Ghost Notch Button (Left-Chat Platforms)
+
+These issues affect the left-chat platforms that use the ghost notch button design: Bolt.new, Lovable, Replit, V0, Base44, and Emergent.
+
+### Button appearing on home/dashboard pages (no chat active)
+
+**Versions affected:** v7.1
+**Fixed in:** v7.2 → v7.3
+**Platforms:** All left-chat platforms
+**Browser:** All browsers
+
+#### What It Looked Like
+The ghost notch button appeared on home/dashboard pages where there's no active chat conversation — for example, Bolt.new's homepage, Lovable's project list, or Emergent's home screen at `app.emergent.sh/home`. The button either showed at a fixed position (about 35% from the left edge) or briefly flashed visible in the middle of the screen before disappearing. On some pages, it would show up, fade in, and then suddenly vanish.
+
+#### Why It Was Happening
+The v7.1 `getChatBoundaryX()` function had a **35% viewport fallback** at the bottom:
+
+```javascript
+// Last resort: assume 35% viewport width
+return window.innerWidth * 0.35;
+```
+
+This meant the function NEVER returned `null` — it always returned a number. The "no chat detected → hide" branch in `updateLeftChatPositions()` was unreachable dead code. The button always positioned itself at the boundary or at 35%, regardless of whether a chat panel existed.
+
+The fallback was added during initial development as a safety net (better to show the button in a slightly wrong position than not show it at all), but it was exactly the wrong behavior for pages with no chat at all.
+
+#### Why This Was Tricky to Fix
+
+Simply removing the fallback wasn't enough. The deeper problem is that **home pages on these platforms have chat-like textareas**:
+- Bolt.new homepage: "Let's build a customer portal where users..."
+- Emergent home: "Build me a clone of netflix..."
+- Lovable dashboard may have similar input areas
+
+These textareas match the broad Strategy 1 selectors (`textarea[placeholder*="message" i]`, `[contenteditable="true"]`, etc.) in `getChatBoundaryX()`. Without the fallback, these could still cause the function to return a boundary value on home pages.
+
+The defense against this is the `_walkUpToChatContainer()` function, which walks up from the input element and requires the ancestor to satisfy ALL of:
+- `rect.left < 80` — starts near the left edge (home page inputs are centered, so `rect.left > 200`)
+- `rect.width > 200 && rect.width < 65% viewport` — narrow panel (home page cards are either too narrow or the full-page wrapper is too wide)
+- `rect.height > 40% viewport` — tall (home page input cards are short)
+
+On a real chat page, the chat panel starts at `rect.left ≈ 0`, is 30-50% of viewport width, and is full viewport height — matching all three criteria. On a home page, the centered input card fails the `rect.left < 80` check.
+
+#### What We Did to Fix It and Why (Three Iterations)
+
+**v7.2 — Removed the 35% fallback:** `getChatBoundaryX()` now returns `null` when no strategy finds a chat panel. This makes the "no chat detected → hide" branch reachable. Home pages with centered inputs fail the `_walkUpToChatContainer()` checks → null → hidden.
+
+**v7.3 first change — Start with `display: none`:** Even after removing the fallback, elements were created with `display: ''` (visible in DOM at `opacity: 0`). CSS hover rules (`opacity: 1`) meant users could accidentally discover the invisible button by mousing over it in the 500ms before the first poll ran. Fix: all left-chat elements now start with `display: none` and are only made visible after a stable boundary is confirmed.
+
+**v7.3 second change — Don't re-hide after confirmation:** After the button successfully appeared, it would go invisible again within 1-2 seconds. The boundary fluctuated by 4-8px between polls (due to layout reflows, scrollbar toggling, content streaming), and any shift > 3px triggered a full reset: `display: none`, remove `ai-nav-positioned`, set `_boundaryDetected = false`. Fix: restructured `updateLeftChatPositions()` so that once confirmed, boundary shifts just update `style.right` smoothly — only a `null` boundary (navigating to a non-chat page) can hide the button.
+
+**v7.3 third change — Faster opacity fade:** The original `ai-nav-positioned` class used a 3-second opacity transition (designed for v7.1 where position might drift). Combined with the display-none-first approach, this made the button take 3+ seconds to become noticeably visible — users couldn't tell it was there. Changed to 0.5s fade and removed the two-phase `ai-nav-ready` class.
+
+#### How It Resolved Things
+After all three fixes, the behavior is:
+- **Home pages:** Button never appears. `getChatBoundaryX()` returns null → `display: none` forever. No flash, no hover discovery.
+- **Chat pages:** Button appears after ~1 second (two 500ms stability polls), fades to 0.35 opacity over 0.5s. Stays visible permanently regardless of small boundary fluctuations.
+- **SPA navigation (chat → home):** Boundary becomes null → button hides immediately.
+- **SPA navigation (home → chat):** Boundary detected → stability confirmed → button appears.
+
+#### Diagnostic Tips
+
+If the ghost notch button is not appearing on a chat page where it should:
+
+1. Open DevTools Console and look for `AI Conversation Navigator v7.3 loaded for [platform] (left-chat mode)!` — confirms the script detected the platform
+2. Add a temporary `console.log` inside `getChatBoundaryX()` to see which strategy (if any) is finding the boundary:
+   ```javascript
+   console.log('Strategy 1 input:', input, 'boundary:', boundary);
+   ```
+3. Check what `_walkUpToChatContainer()` is returning by logging each ancestor's `getBoundingClientRect()`:
+   ```javascript
+   console.log(el.tagName, el.className, rect.left, rect.width, rect.height);
+   ```
+4. If the chat panel's `rect.left` is > 80 (e.g., there's a wide sidebar), the threshold may need adjusting for that platform
+
+If the button IS appearing on a home page where it shouldn't:
+1. One of the three strategies in `getChatBoundaryX()` is returning a non-null value
+2. Most likely: a chat-like input or element is matching Strategy 1 or 2, and its ancestor passes the `_walkUpToChatContainer()` checks
+3. Inspect the matching element and its ancestor chain to understand why the left/width/height criteria are being satisfied
+4. The fix may need to be a platform-specific exclusion or a tighter constraint in `_walkUpToChatContainer()`
+
+---
+
+### Button invisible until hover (appears on hover as full button)
+
+**Versions affected:** v7.2, early v7.3
+**Fixed in:** v7.3
+**Platforms:** All left-chat platforms
+**Browser:** All browsers
+
+#### What It Looked Like
+On a chat page (not home), the button didn't appear as the expected 0.35 opacity thin strip. The area where the button should be looked completely empty. But if you moved your mouse over that area, the full expanded button suddenly appeared at `opacity: 1`. Moving the mouse away made it disappear again. It felt like the button was in the DOM but completely invisible.
+
+#### Why It Was Happening
+This was caused by the **boundary fluctuation re-hide loop** (Bug 3 in the v7.3 changelog).
+
+The `updateLeftChatPositions()` function polled every 500ms and compared the current boundary to the last one with a 3px tolerance. The chat panel boundary fluctuates naturally by 4-8px between polls due to layout reflows (new content streaming, scrollbar appearing/disappearing, CSS transitions completing). Each fluctuation triggered:
+
+1. `_boundaryDetected = false` (reset confirmation)
+2. `display: none` (hide the button)
+3. Remove `ai-nav-positioned` class (reset opacity to 0)
+
+On the next poll, if the boundary stabilized:
+4. `_boundaryDetected = true` (re-confirm)
+5. `display: ''` (show the button — but at `opacity: 0` because `ai-nav-positioned` was removed)
+6. Start 300ms timer to re-add `ai-nav-positioned`
+
+But before the timer fired, the boundary would fluctuate again → steps 1-3 → timer cleared → `ai-nav-positioned` never sticks.
+
+The result: the button alternated between `display: none` and `display: ''` with `opacity: 0` (no `ai-nav-positioned` class). The only way to see it was via the CSS `:hover` rule which sets `opacity: 1` regardless of classes.
+
+#### What We Did to Fix It and Why
+Restructured `updateLeftChatPositions()` into three phases where **Phase 2 (already confirmed) never hides the button**. Once `_boundaryDetected` is true, boundary shifts just update `style.right` for smooth repositioning. Only a `null` return from `getChatBoundaryX()` (meaning no chat panel exists at all) can hide the button.
+
+See the v7.3 changelog entry for the complete three-phase architecture.
+
+#### How It Resolved Things
+The button now appears once, stays visible at 0.35 opacity, and smoothly tracks boundary shifts. The destructive hide/show/hide cycle is impossible because Phase 2 has no path to `display: none`.
 
 ---
 
@@ -316,6 +527,14 @@ document.querySelectorAll('[data-testid]').forEach(el => console.log(el.getAttri
 | Codex Web | `div.self-end.bg-token-bg-tertiary` | (activates only when ChatGPT selector fails) |
 | Grok | `div.message-bubble` filtered by user/human class | `[data-role="user"]`, `[class*="user-message"]` |
 | Gemini | `div.query-text` | `.query-text-line`, `p.query-text-line`, `[data-query-text]`, `.user-query` |
+| Bolt.new | `[data-message-id]` filtered by `self-end` | `_MarkdownContent_` inside `self-end`, `backdrop-blur` + `rounded` (bolt.diy), `ml-auto` rounded bubbles |
+| Lovable | `div[role="log"] .justify-end` | `bg-neutral-200.rounded-xl`, `ChatMessageContainer .justify-end`, `self-end[class*="bg-neutral"]` |
+| Replit | `[data-testid*="user-message"]` + dedup | `[data-message-role="user"]`, `[data-role="user"]`, ARIA roles, computed styles |
+| V0 | `[data-role="user"]` | `[data-message-author="user"]`, `[data-testid*="user-message"]`, `[data-message-id]` + alignment, Tailwind alignment fallbacks |
+| Base44 | `[id^="message-"]` filtered by `.justify-end` | `.bg-slate-200.rounded-xl` |
+| Emergent | `[data-testid^="user-message"]` + dedup | `[id^="user-"]`, `rounded-br-none` (user bubble), `items-end` with background |
+| Perplexity | `.group\/query` | `.group\/title .select-text` |
+| Firebase Studio | `[class*="_isUser_"]` | `[class*="_chatMessage_"]` filtered by `_isUser_` |
 
 ---
 

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html><head><title>Base44 Mock</title></head>
+<body>
+<!-- Base44: Messages have id="message-{uuid}".
+     User messages contain a child div with justify-end (right-aligned).
+     AI messages do not have justify-end. -->
+<div class="flex h-screen">
+  <div class="chat-panel" style="width:45%;">
+    <div class="messages-container">
+      <!-- User message: id starts with "message-", has justify-end child -->
+      <div id="message-a1b2c3d4" class="mb-4">
+        <div class="flex justify-end">
+          <div class="bg-slate-200 rounded-xl" style="padding:12px;border-radius:12px;background:#e2e8f0;">
+            <p>Create an inventory management system with barcode scanning</p>
+          </div>
+        </div>
+      </div>
+      <!-- AI message: id starts with "message-", no justify-end child -->
+      <div id="message-e5f6g7h8" class="mb-4">
+        <div class="flex justify-start">
+          <div class="prose">
+            <p>I'll build the inventory system with barcode integration...</p>
+          </div>
+        </div>
+      </div>
+      <!-- User message -->
+      <div id="message-i9j0k1l2" class="mb-4">
+        <div class="flex justify-end">
+          <div class="bg-slate-200 rounded-xl" style="padding:12px;border-radius:12px;background:#e2e8f0;">
+            <p>Add export to CSV and real-time stock alerts</p>
+          </div>
+        </div>
+      </div>
+      <!-- AI message -->
+      <div id="message-m3n4o5p6" class="mb-4">
+        <div class="flex justify-start">
+          <div class="prose">
+            <p>I've added CSV export and stock alert features...</p>
+          </div>
+        </div>
+      </div>
+      <!-- User message -->
+      <div id="message-q7r8s9t0" class="mb-4">
+        <div class="flex justify-end">
+          <div class="bg-slate-200 rounded-xl" style="padding:12px;border-radius:12px;background:#e2e8f0;">
+            <p>Now add multi-warehouse support with transfer tracking</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <textarea placeholder="Type a message..."></textarea>
+  </div>
+  <div class="preview-panel" style="width:55%;">
+    <iframe style="width:100%;height:100%;"></iframe>
+  </div>
+</div>
+</body>
+</html>

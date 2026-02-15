@@ -9,7 +9,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-7.0-blue)
+![Version](https://img.shields.io/badge/version-7.5-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -22,6 +22,7 @@ But until then, I'll just keep making, building, and improving this project. Sta
 | [ChatGPT](https://chatgpt.com) | ⏣ | ⚪ White | ✅ Supported |
 | [Grok](https://grok.com) | X | 🔴 Red | ✅ Supported |
 | [Gemini](https://gemini.google.com) | ✦ | 🔵 Blue | ✅ Supported |
+| [Perplexity](https://perplexity.ai) | ⦾ | 🩵 Teal | ✅ Supported |
 
 ### Coding Agents (Web)
 
@@ -34,13 +35,17 @@ I use those coding agents mostly in terminal CLI, and I find them incredibly eff
 
 ### AI App-Builder Platforms
 
-| Platform | Icon | Color | Status |
-|----------|------|-------|--------|
-| [Bolt.new](https://bolt.new) | ⚡ | 🔵 Light Blue | ✅ Beta |
-| [Lovable](https://lovable.dev) | ♥ | 🟣 Violet | ✅ Beta |
-| [Replit](https://replit.com) | ⠕ | 🟠 Red-Orange | ✅ Beta |
+| Platform | Icon | Color | Button Style | Status |
+|----------|------|-------|-------------|--------|
+| [Bolt.new](https://bolt.new) | ⚡ | 🩵 Sky Blue | Ghost Notch (left-chat) | ✅ Beta |
+| [Lovable](https://lovable.dev) | ♥ | 🟣 Violet | Ghost Notch (left-chat) | ✅ Beta |
+| [Replit](https://replit.com) | ⠕ | 🟠 Red-Orange | Ghost Notch (left-chat) | ✅ Beta |
+| [V0](https://v0.app) | ▽ | ⚪ White | Ghost Notch (left-chat) | ✅ Beta |
+| [Base44](https://app.base44.com) | ⬢ | 🟣 Indigo | Ghost Notch (left-chat) | ✅ Beta |
+| [Emergent](https://app.emergent.sh) | e | 🟢 Emerald | Ghost Notch (left-chat) | ✅ Beta |
+| [Firebase Studio](https://studio.firebase.google.com) | ✦ | 🟠 Dark Tangerine | Standard (right-edge) | ✅ Beta |
 
-> **Beta Notice:** We don't have accounts on these app-builder platforms, so support was developed using **mock DOM testing** — we built replica HTML pages based on open-source forks and research, then validated our selectors against those replicas with automated Playwright tests (see [TESTING.md](TESTING.md)). This means the script may be buggy or encounter issues on the real sites. **If you try it and run into problems, please [open an issue](https://github.com/JoonJ14/ai-conversation-navigator/issues) describing what you see.** Your real-world feedback is exactly what will help us fix selectors and make this work well. We genuinely welcome it.
+> **Beta Notice:** The initial support for these app-builder platforms was developed using **mock DOM testing** — we built replica HTML pages based on open-source forks and research, then validated our selectors against those replicas with automated Playwright tests (see [TESTING.md](TESTING.md)). Later, we created free accounts on each platform to test against the live sites and refine the selectors they use for the questions we ask. This means the selectors are informed by real DOM inspection, but these platforms update frequently and may change their HTML structure at any time. **If you try it and run into problems, please [open an issue](https://github.com/JoonJ14/ai-conversation-navigator/issues) describing what you see.** Your real-world feedback is exactly what will help us fix selectors and make this work well. We genuinely welcome it.
 
 > **Note on icons:** Each platform's button uses a common Unicode symbol that *evokes* the platform's branding rather than the actual company logo. This avoids any trademark or copyright concerns. See [Icon Choices](#icon-choices) for details.
 
@@ -56,7 +61,8 @@ Chrome, Firefox, Safari, Edge
 - **🔄 Auto-Refresh** — Updates every 10 seconds while the panel is open
 - **🎨 Platform-Specific Themes** — Colors and icons match each platform's branding
 - **✨ Visual Feedback** — Briefly highlights the message when you navigate to it
-- **🛡️ SPA-Resilient** — DOM Guardian, SPA navigation hooks, and periodic health checks keep the button alive through aggressive re-rendering (Gemini, Bolt, Lovable, Replit)
+- **👻 Ghost Notch Button** — For left-chat app builders, a nearly-invisible 8px notch at the chat boundary that expands to reveal the icon on hover
+- **🛡️ SPA-Resilient** — DOM Guardian, SPA navigation hooks, and periodic health checks keep the button alive through aggressive re-rendering (Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Firebase Studio, Perplexity)
 
 ## Installation
 
@@ -148,10 +154,11 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 ## Usage
 
 1. Go to any supported AI chat platform
-2. Look for the platform icon (✳, ⏣, X, ✦, ⚡, ♥, or ⠕) on the right edge of the screen
-3. Hover over it to see the "Navigate" label
-4. Click to open the navigation panel
-5. Click any question to jump to that part of the conversation
+2. Look for the platform icon on the screen edge:
+   - **AI chatbots & Firebase Studio:** Icon appears on the **right edge** — hover to see the "Navigate" label
+   - **App builders (Bolt, Lovable, Replit, V0, Base44, Emergent):** A thin notch appears at the **chat/workspace boundary** — hover to reveal the icon
+3. Click to open the navigation panel
+4. Click any question to jump to that part of the conversation
 
 ## How It Works
 
@@ -165,9 +172,14 @@ The script injects a hover-expand button and sidebar panel into AI chat pages. I
 | Codex Web | `div.self-end.bg-token-bg-tertiary` |
 | Grok | `div.message-bubble` |
 | Gemini | `div.query-text` |
-| Bolt.new | `[class*="backdrop-blur"][class*="rounded"]` + fallback chain |
+| Perplexity | `.group\/query` (Tailwind group variant) |
+| Bolt.new | `[data-message-id]` + `self-end` filter + fallback chain |
 | Lovable | `div[role="log"] .justify-end` + fallback chain |
-| Replit | `data-*` attributes, ARIA roles, computed styles (multi-strategy) |
+| Replit | `data-*` attributes + dedup, ARIA roles, computed styles (multi-strategy) |
+| V0 | `[data-role="user"]` + multi-attribute + structural fallback |
+| Base44 | `[id^="message-"]` + `.justify-end` filter |
+| Emergent | `[data-testid^="user-message"]` |
+| Firebase Studio | `[class*="_isUser_"]` (CSS Modules partial match) |
 
 ## Icon Choices
 
@@ -179,9 +191,14 @@ Each platform's toggle button uses a Unicode symbol chosen to suggest the platfo
 | ChatGPT | ⏣ (benzene ring) | Evokes OpenAI's hexagonal knot logo |
 | Grok | X | Represents xAI / X branding |
 | Gemini | ✦ (four-pointed star) | Evokes Gemini's sparkle motif |
+| Perplexity | ⦾ (circled white bullet) | Evokes Perplexity's circular logo/search motif |
 | Bolt.new | ⚡ (high voltage) | Evokes "Bolt" lightning branding |
 | Lovable | ♥ (heart suit) | Evokes Lovable's heart logo |
 | Replit | ⠕ (Braille dots-135) | Community-adopted symbol for Replit's three-dot prompt logo |
+| V0 | ▽ (inverted triangle) | Evokes Vercel's triangle/delta logo |
+| Base44 | ⬢ (black hexagon) | Evokes a modular building block |
+| Emergent | e (lowercase letter) | Emergent brand initial |
+| Firebase Studio | ✦ (four-pointed star) | Same as Gemini — Firebase Studio runs Gemini under the hood, with dark tangerine color theme |
 
 These are standard Unicode characters, not proprietary artwork, so there are no trademark, copyright, or licensing concerns.
 
@@ -223,7 +240,8 @@ To add a new AI platform:
 
 ## Future Ideas
 
-- [x] ~~**Support AI app-builder platforms** — Lovable, Bolt.new, and Replit~~ (added in v7.0)
+- [x] ~~**Support AI app-builder platforms** — Lovable, Bolt.new, and Replit~~ (added in v7.0, expanded with V0, Base44, Emergent, Firebase Studio in v7.1)
+- [x] ~~**Support Perplexity**~~ (added in v7.1)
 - [ ] Search/filter questions
 - [ ] Keyboard shortcuts
 - [ ] Export conversation outline

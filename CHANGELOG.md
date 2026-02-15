@@ -4,6 +4,383 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [7.5] - 2026-02-15
+
+### Problem — Platform Selectors Not Matching Live DOM
+
+After deploying v7.4 (which added mock test pages for 5 new platforms), live site testing on Bolt.new, Replit, V0, and Emergent revealed four distinct issues:
+
+1. **Bolt.new** showed "You've used all your tokens" (a subscription warning) instead of actual user questions
+2. **Replit** showed every question 3 times instead of once
+3. **V0** showed 0 questions found
+4. **Emergent** button was invisible until mouse hover, and the panel had spacing issues
+
+### Technical Root Causes and Fixes
+
+#### Bolt.new — Token Warning Picked Up as a Question
+
+**Root cause:** The v7.4 primary selector `[class*="backdrop-blur"][class*="rounded"]` was based on the bolt.diy open-source fork, but bolt.new's actual production DOM uses a different structure:
+- User messages: `<div data-message-id="..." class="self-end bg-bolt-elements-messages-background ...">` with text inside `<div class="_MarkdownContent_...">` children
+- The "You've used all your tokens" warning: a `<span>` inside a `<div class="bg-bolt-elements-prompt-subscribeButton-background">` at the bottom of the page
+
+The bolt.diy selectors found 0 user messages (no `backdrop-blur` in production), so fallbacks fired and matched the token warning text (which sat inside elements with `ml-auto` or `rounded-*` classes).
+
+**Fix:** Reworked the entire Bolt selector chain:
+1. **New primary:** `[data-message-id]` filtered by `self-end` class or `bg-bolt-elements-messages` — directly targets the production DOM structure
+2. **Fallback 1:** `.self-end[class*="bg-bolt-elements"]` — alternate attribute-based match
+3. **Fallback 2:** `[class*="_MarkdownContent_"]` inside `.self-end` parents — targets the text content divs
+4. **Fallback 3:** Original `backdrop-blur` + `rounded` pattern (kept for bolt.diy fork compatibility)
+5. **Fallback 4-5:** `ml-auto` rounded bubbles and grid children (kept from v7.4)
+6. **All selectors:** Added `subscribeButton` and `prompt-subscribe` exclusion filters to prevent token/subscription warnings from ever being matched
+
+Updated `tests/mock-pages/bolt.html` to use the production DOM structure (`data-message-id`, `self-end`, `bg-bolt-elements-messages-background`, `_MarkdownContent_`) and include a token warning element that should NOT be detected.
+
+#### Replit — 3x Question Duplication
+
+**Root cause:** The existing nesting deduplication (keep only innermost elements) handles the case where `data-testid*="user-message"` matches at multiple nesting levels (parent contains child). But on live Replit, 3 elements per message are matching the selector and they are NOT nested — they're siblings or cousins at the same DOM level. Each has identical `textContent`, but `el.contains(other)` returns `false` for all pairs, so nesting dedup keeps all 3.
+
+**Fix:** Added a second deduplication step after the existing nesting dedup:
+```javascript
+// Text-content dedup: keep only the first element for each unique text
+var replitSeen = {};
+var replitTextDeduped = [];
+for (var ri = 0; ri < replitMsgArr.length; ri++) {
+    var replitTxt = replitMsgArr[ri].textContent.trim();
+    if (replitTxt && !replitSeen[replitTxt]) {
+        replitSeen[replitTxt] = true;
+        replitTextDeduped.push(replitMsgArr[ri]);
+    }
+}
+```
+
+**Limitation:** This is a mitigation, not a root-cause fix. If a user genuinely asks the exact same question twice, the second instance would be filtered out. The proper fix requires live DOM inspection to understand why 3 elements match per question and to target only the correct one. See TROUBLESHOOTING.md for full diagnosis notes.
+
+#### V0 — No Questions Detected
+
+**Root cause:** All primary selectors (`[data-role="user"]`, `[data-message-role="user"]`, `[data-message-author-role="user"]`) and all 5 structural fallbacks return 0 results on the live V0 site. V0's Geist design system likely uses completely different data attributes and DOM patterns than what we assumed from research.
+
+**Fix:** Added more selector variants to increase coverage:
+- `[data-message-author="user"]`
+- `[data-testid*="user-message"]`
+- `[data-sender="user"]`
+- New fallback: `[data-message-id]` containers filtered by alignment classes (`justify-end`, `self-end`, `ml-auto`, or containing `bg-muted` children)
+
+**Limitation:** These additional selectors are educated guesses. Without live DOM inspection, we can't know V0's actual attribute patterns. See TROUBLESHOOTING.md for what's needed.
+
+#### Emergent — Button Invisible Until Hover
+
+**Root cause:** The ghost notch button at rest has `opacity: 0.35` and `width: 8px`. Against Emergent's dark interface, this combination makes the button virtually invisible — a 8px-wide strip at 35% opacity on a dark background doesn't register visually.
+
+**Fix:** Added Emergent-specific CSS overrides:
+```css
+#ai-nav-toggle.ai-nav-positioned {
+    opacity: 0.75 !important;  /* Was 0.35 for all platforms */
+    width: 14px !important;    /* Was 8px */
+}
+```
+
+This uses a conditional template literal in the CSS generation:
+```javascript
+opacity: ${currentSite === SITE.EMERGENT ? '0.75' : '0.35'} !important;
+${currentSite === SITE.EMERGENT ? 'width: 14px !important;' : ''}
+```
+
+**Limitation:** Still under investigation — the 0.75 opacity + 14px width may still be insufficient on some Emergent page backgrounds. The panel spacing issue (gap when panel expands) is also unresolved. See TROUBLESHOOTING.md.
+
+### Known Issues Remaining
+
+All four fixes improve the situation but three platforms (Replit, V0, Emergent) need further live DOM inspection for complete resolution. See TROUBLESHOOTING.md → "Known Issues Under Investigation" and ROADMAP.md → "Next Priority: Platform Selector Deep-Dive" for the full plan.
+
+---
+
+## [7.4] - 2026-02-15
+
+### Added — Mock Test Pages for 5 New Platforms + Selector Improvements
+
+Extended the automated test suite from 9 platform variants to 14 by adding mock HTML pages for V0, Base44, Emergent, Perplexity, and Firebase Studio. Also refined selectors and visibility for 6 platforms based on initial testing.
+
+#### New Mock Test Pages
+- `tests/mock-pages/v0.html` — V0 with `data-role="user"` + copy button filtering
+- `tests/mock-pages/base44.html` — Base44 with `id="message-{uuid}"` + justify-end filter
+- `tests/mock-pages/emergent.html` — Emergent with `data-testid="user-message-*"` + prose containers
+- `tests/mock-pages/perplexity.html` — Perplexity with `.group/query` Tailwind variant
+- `tests/mock-pages/firebase.html` — Firebase Studio with CSS Modules `_isUser_` pattern
+
+#### Selector Refinements
+- **Replit:** Added nesting deduplication — keeps only innermost elements when `data-testid*="user-message"` matches at multiple DOM levels
+- **Emergent:** Added deduplication (same pattern as Replit) + scrollbar offset (14px left shift to avoid thick scrollbar overlap)
+- **V0:** Added copy button/icon exclusion across all fallbacks
+
+#### Icon Change
+- **Firebase Studio:** Changed icon from ☄ (comet) to ✦ (four-pointed star) — same as Gemini since Firebase Studio runs Gemini under the hood, differentiated by the dark tangerine color theme
+
+### Test Suite Results
+All 140 tests pass (10 tests × 14 platform variants) on Chromium. The test infrastructure now covers every supported platform.
+
+---
+
+## [7.3] - 2026-02-15
+
+### Problem — Ghost Notch Button Appearing on Home/Dashboard Pages
+
+After deploying v7.1, the ghost notch button was appearing on pages where it shouldn't — specifically on **home/dashboard pages** of left-chat platforms (Bolt.new homepage, Lovable's project list, Emergent's home screen). These pages have no active chat session, so there's nothing to navigate. The button either showed at a fixed 35% position (wrong) or briefly flashed visible before disappearing (confusing).
+
+### Technical Root Cause (Three Bugs, Fixed Across v7.2 → v7.3)
+
+The v7.1 ghost notch had a fundamental design flaw: it used a **35% viewport fallback** when boundary detection couldn't find the chat panel edge. This meant the button ALWAYS appeared somewhere — even on pages with no chat panel at all. The fallback was added as a safety net during initial development, but it turned out to be exactly the wrong behavior for home pages.
+
+Removing the fallback revealed two deeper bugs in the boundary detection and visibility lifecycle:
+
+#### Bug 1: The 35% Viewport Fallback (v7.1 → fixed in v7.2)
+
+**Root cause:** `getChatBoundaryX()` had a last-resort fallback at the bottom:
+```javascript
+// Last resort: assume 35% viewport
+return window.innerWidth * 0.35;
+```
+
+This meant `getChatBoundaryX()` NEVER returned `null` — it always returned a number. So the "no chat detected → hide" branch in `updateLeftChatPositions` was unreachable dead code. The button always positioned itself somewhere.
+
+**Why the fallback existed:** During v7.1 development, the boundary detection strategies (input walkup, message walkup, iframe detection) hadn't been validated on live sites yet. The 35% fallback was a conservative safety net — "if we can't figure out where the chat panel ends, at least put the button somewhere reasonable." In hindsight, "somewhere reasonable" on a home page is "nowhere."
+
+**Fix (v7.2):** Removed the 35% fallback entirely. `getChatBoundaryX()` now returns `null` when no chat panel is detected, which causes `updateLeftChatPositions()` to hide the button with `display: none`.
+
+**New concern this raised:** Without the fallback, the button's visibility now depends entirely on `getChatBoundaryX()` correctly distinguishing chat pages from home pages. This is harder than it sounds because **home pages on these platforms often have chat-like textareas** (Bolt: "Let's build a customer portal...", Emergent: "Build me a clone of netflix..."). These textareas could match Strategy 1's broad input selectors and trick the boundary detection into returning a value.
+
+**Why it still works on home pages:** The `_walkUpToChatContainer()` function requires the input's ancestor to satisfy ALL of: `rect.left < 80` (starts near left edge), `width > 200 && width < 65% viewport` (narrow panel, not full-width), `height > 40% viewport` (tall). On home pages, these centered input cards have `rect.left > 80` (they're centered, not left-aligned), so walkup fails → returns null → button stays hidden. On real chat pages, the chat panel starts at the left edge (`rect.left ≈ 0`), is 30-50% of viewport width, and is full height — matching all criteria.
+
+#### Bug 2: Elements Starting Visible at Opacity 0 (v7.2 → fixed in v7.3)
+
+**Root cause:** Even after fixing Bug 1, on some pages the button would **briefly flash visible** before being hidden. This happened because elements were created with `display: ''` (visible) and `opacity: 0` (transparent). The CSS had hover rules that set `opacity: 1`, so if the user's mouse happened to be in the right area, they could discover the invisible button before `updateLeftChatPositions()` had a chance to set `display: none`.
+
+The timeline was:
+1. Script loads → toggle created with `display: ''`, `opacity: 0` (in DOM, hoverable)
+2. 500ms later → first `updateLeftChatPositions()` poll runs → `getChatBoundaryX()` returns null → sets `display: none`
+3. In that 500ms window, the element existed and was hoverable
+
+**Fix:** Changed the initialization to create elements with `display: none` from the start on left-chat sites. Elements are ONLY made visible (`display: ''`) after `getChatBoundaryX()` returns a stable boundary. The `ensureElementsExist()` re-injection function also starts re-created elements as `display: none` when boundary hasn't been confirmed yet.
+
+#### Bug 3: Boundary Fluctuation Causing Re-Hide Loop (v7.3)
+
+**Root cause:** This was the most subtle bug. After the button successfully appeared at `0.35` opacity on a chat page, it would **go invisible again** and only be discoverable by hovering. The user described: "the buttons are not visible at all until I toggle a mouse over."
+
+The problem was in `updateLeftChatPositions()`. The function polled every 500ms and compared the current boundary to `_lastBoundaryX` with a 3px tolerance. If the boundary shifted by more than 3px between polls, the code treated this as "boundary changed" and executed a full reset: `display: none`, remove `ai-nav-positioned` class, set `_boundaryDetected = false`.
+
+On real sites, the chat panel boundary **fluctuates by small amounts** (4-8px) between polls due to:
+- Layout reflows when new content streams in
+- Scrollbar appearing/disappearing as message content changes height
+- CSS transitions completing between polls
+- The preview iframe adjusting its dimensions
+
+This created a destructive cycle:
+```
+Poll 1: boundary = 500px → _lastBoundaryX = 500, position invisibly
+Poll 2: boundary = 500px → stable! → show button, start fade-in
+Poll 3: boundary = 504px → shift > 3px! → HIDE button, reset everything
+Poll 4: boundary = 500px → shift from 504! → update _lastBoundaryX, stay hidden
+Poll 5: boundary = 504px → shift from 500! → stays hidden
+... cycles forever, or eventually stabilizes and re-shows, only to be hidden again on the next fluctuation
+```
+
+The button would appear for about 1 second (polls 2-3), then vanish and enter this hide/show/hide cycle. Because the cycle often settled back to hidden, the user only saw the button when explicitly hovering over its position.
+
+**Additional sub-bug:** The original fade-in used a **3-second opacity transition** (`transition: opacity 3s ease` in the `ai-nav-positioned` class). This was designed for v7.1 where the position might shift, giving the button time to "settle." But combined with the display-none-first approach, it meant the button took 3+ seconds to reach even 0.2 opacity — making it appear invisible even when it WAS technically fading in. Users couldn't distinguish a button at 0.1 opacity from no button at all.
+
+**Fix (v7.3 final):** Restructured `updateLeftChatPositions()` into three clearly separated phases:
+
+```javascript
+// Phase 1: No boundary → hide + full reset
+if (!boundaryX) { hide; reset; return; }
+
+// Phase 2: Already confirmed → just reposition smoothly, NEVER hide
+if (_boundaryDetected) { update position; return; }
+
+// Phase 3: Not yet confirmed → require 2 stable polls before showing
+if (stable) { show; fade in; return; }
+else { position invisibly; wait; }
+```
+
+The critical change: **once `_boundaryDetected` is true, the button is NEVER hidden again for position shifts** — only a `null` boundary (navigating away from the chat page entirely) will hide it. Position shifts during Phase 2 are handled by smoothly updating `style.right`, not by hiding and re-showing.
+
+Also changed the opacity transition from 3s to 0.5s and removed the two-phase `ai-nav-ready` system (which existed solely to switch from 3s fade to fast hover transitions after the fade completed — unnecessary now that the fade itself is fast).
+
+### Architecture: Final `updateLeftChatPositions()` Design
+
+The function now has a clean three-phase structure with clear invariants:
+
+| Phase | Condition | What happens | Can hide the button? |
+|-------|-----------|-------------|---------------------|
+| **1. No chat** | `boundaryX` is `null` | Full reset: `display: none`, clear timers, remove classes, reset `_boundaryDetected` | Yes — this is the ONLY path that hides |
+| **2. Confirmed** | `_boundaryDetected === true` | Update `style.right` if boundary shifted ≥3px. No visibility changes. | No — never |
+| **3. Detecting** | `_boundaryDetected === false` | If boundary matches `_lastBoundaryX` within 3px on two consecutive polls → confirm. Otherwise, store boundary and position invisibly. | No — stays hidden until confirmed |
+
+**State transitions:**
+```
+[Page load] → Phase 3 (detecting)
+Phase 3 + stable boundary → Phase 2 (confirmed, visible)
+Phase 2 + null boundary → Phase 1 (hidden, reset) → Phase 3 on next non-null
+Phase 2 + shifted boundary → Phase 2 (reposition, stay visible)
+Phase 3 + shifting boundary → Phase 3 (keep waiting)
+Phase 3 + null boundary → Phase 1 (hidden, reset)
+```
+
+### CSS Changes
+
+```css
+/* Before (v7.1): Two-phase fade system */
+#ai-nav-toggle.ai-nav-positioned {
+    opacity: 0.35 !important;
+    transition: ... opacity 3s ease ... !important;  /* Slow 3-second fade */
+}
+#ai-nav-toggle.ai-nav-ready {
+    transition: ... opacity 0.3s ease ... !important;  /* Fast for hover */
+}
+
+/* After (v7.3): Single-phase, fast fade */
+#ai-nav-toggle.ai-nav-positioned {
+    opacity: 0.35 !important;
+    transition: ... opacity 0.5s ease ... !important;  /* Quick 0.5s appearance */
+}
+/* ai-nav-ready class removed entirely */
+```
+
+### Changes to Element Initialization
+
+```javascript
+// Before (v7.1): Elements created visible
+document.body.appendChild(createToggle());  // display: '' by default
+
+// After (v7.3): Left-chat elements start hidden
+var initToggle = createToggle();
+if (isLeftChat) initToggle.style.display = 'none';  // Hidden until confirmed
+document.body.appendChild(initToggle);
+
+// Same in ensureElementsExist() re-injection:
+if (isLeftChat && !_boundaryDetected) toggle.style.display = 'none';
+```
+
+### What's Working Now
+
+- **Home pages** (Bolt.new `/`, Lovable dashboard, Emergent `/home`): Button never appears — `getChatBoundaryX()` returns null because centered input cards fail the `rect.left < 80` check
+- **Chat pages**: Button appears after ~1 second (2 polls × 500ms), fades to 0.35 opacity over 0.5s, stays visible permanently regardless of boundary micro-fluctuations
+- **Chat → Home navigation** (SPA): Boundary becomes null → button hides → full state reset → ready for next chat
+- **Home → Chat navigation** (SPA): Boundary detected → 2 stable polls → button appears
+
+### Known Limitations / Things to Watch
+
+1. **The `rect.left < 80` heuristic** in `_walkUpToChatContainer` is what prevents false positives on home pages. If any platform redesigns its home page to have a left-aligned input panel (not centered), this could trigger a false positive. The 80px threshold accounts for icon sidebars (common on app builders) but assumes home page inputs are centered.
+
+2. **The 3px jitter tolerance** means the boundary must stabilize within 3px across two consecutive 500ms polls before the button appears. If a platform has a chat panel that animates for more than 1 second on page load, the button appearance will be delayed until the animation completes.
+
+3. **Home pages with left-aligned chat-like panels** could theoretically trick the detection. The current defense is the `_walkUpToChatContainer` height/width/position requirements. A panel that starts at the left edge, is 200-65% of viewport width, and is 40%+ of viewport height would be treated as a chat panel regardless of whether it actually is one.
+
+4. **`getChatBoundaryX()` Strategy 3 (iframe detection)** looks for preview iframes in the right portion of the viewport. If a home page has a large promotional iframe or embedded demo, it could return a false boundary. This hasn't been observed in practice.
+
+---
+
+## [7.1] - 2026-02-15
+
+### Added — 5 New Platforms + Ghost Notch Button for Left-Chat Sites
+
+Expanded from 7 platforms to 12, adding V0, Base44, Emergent, Perplexity, and Firebase Studio. Also introduced a new "ghost notch" toggle button design for left-chat platforms where the chat panel sits on the left and a workspace/preview occupies the right.
+
+#### V0 (`v0.app`)
+- **Theme:** White (`#ffffff`) with dark text — matches Vercel's monochrome design language
+- **Icon:** ▽ (U+25BD, white down-pointing triangle — evokes Vercel's triangle/delta logo)
+- **Selectors:** Multi-strategy chain:
+  1. `[data-role="user"]` — data attribute selector (most reliable if present)
+  2. `[data-message-role="user"]` — alternate data attribute pattern
+  3. Structural fallback: `.justify-end`, `.self-end`, `.ml-auto` elements filtered by text content, excluding nav/header elements, and checking for leaf nodes (no nested right-aligned children)
+- **Layout:** Left-chat (chat on left, generated app preview on right) → uses ghost notch button
+- **SPA hooks:** Yes — Next.js-based routing requires pushState/replaceState interception
+
+#### Base44 (`app.base44.com`)
+- **Theme:** Indigo (`#6366f1`) — matches Base44's purple-indigo UI accents
+- **Icon:** ⬢ (U+2B22, black hexagon — evokes a modular building block, fitting Base44's "build anything" premise)
+- **Selectors:** Multi-strategy chain:
+  1. `[id^="message-"]` elements filtered by presence of `.justify-end` child (user messages are right-aligned within their message container, each message has `id="message-{uuid}"`)
+  2. Fallback: `.bg-slate-200.rounded-xl` elements (user message bubble styling)
+- **Layout:** Left-chat → uses ghost notch button
+- **SPA hooks:** Yes — React SPA with dynamic routing
+
+#### Emergent (`app.emergent.sh`)
+- **Theme:** Emerald green (`#10b981`) — matches Emergent's green accent color
+- **Icon:** e (lowercase letter — Emergent brand initial)
+- **Selectors:** Highly reliable data-testid approach:
+  1. `[data-testid^="user-message"]` — Emergent uses descriptive data-testid attributes, making this the most reliable selector of any platform
+  2. Fallback: `[id^="user-"]` — alternate ID-based pattern
+- **Layout:** Left-chat → uses ghost notch button
+- **SPA hooks:** Yes
+
+#### Perplexity (`perplexity.ai`)
+- **Theme:** Teal/cyan (`#20b8cd`) — matches Perplexity's signature teal brand color
+- **Icon:** ⦾ (U+29BE, circled white bullet — evokes Perplexity's circular logo/search motif)
+- **Selectors:** Tailwind group variant approach:
+  1. `.group\/query` — Perplexity uses Tailwind's group variant `.group/query` on each user query block. The `\/` is the CSS escape for the `/` character. This is a very stable selector since it's a semantic class name rather than a styling utility.
+  2. Fallback: `.group\/title .select-text` — alternate query text extraction pattern
+- **Layout:** Standard center-chat → uses right-edge hover-expand button
+- **SPA hooks:** Yes — Next.js SPA with aggressive client-side routing
+- **@match note:** Both `www.perplexity.ai` and `perplexity.ai` are matched since Perplexity serves from both hostnames
+
+#### Firebase Studio (`studio.firebase.google.com`)
+- **Theme:** Dark Tangerine (`#FFA611`) — matches Firebase's primary brand color
+- **Icon:** ☄ (U+2604, comet — evokes Firebase's fiery branding)
+- **Selectors:** CSS module class pattern:
+  1. `[class*="_isUser_"]` — Firebase Studio uses CSS Modules which generate class names like `_isUser_abc123`. The hash suffix changes per build, but the `_isUser_` semantic prefix remains stable across deployments. This `*=` attribute selector matches any class containing that substring.
+  2. Fallback: `[class*="_chatMessage_"]` elements filtered by checking if className string includes `_isUser_` — broader net catching all chat messages first, then filtering to user messages only
+- **Layout:** Standard center-chat (Gemini-based interface) → uses right-edge hover-expand button
+- **SPA hooks:** Yes — Angular-based (inherits Gemini's SPA behavior)
+- **Key technical note:** Firebase Studio is essentially Google's Gemini integrated into the Firebase console with a code workspace. It shares Gemini's Angular foundation and Trusted Types CSP enforcement, so the same programmatic DOM creation approach (no innerHTML) from v5.0 applies here.
+
+### Added — Ghost Notch V1 Toggle Button (Left-Chat Platforms)
+
+Introduced a new toggle button design for platforms where the chat panel occupies the left side of the screen (Bolt, Lovable, Replit, V0, Base44, Emergent). The standard right-edge button doesn't work well on these platforms because the right side is occupied by the app preview/workspace — clicking a button at the screen's right edge feels disconnected from the chat content.
+
+#### Design: Ghost Notch V1
+- **At rest:** An 8px-wide vertical bar at 35% opacity, positioned flush against the right edge of the chat panel. Nearly invisible — a subtle "notch" in the boundary between chat and workspace.
+- **On hover:** Expands to 32px wide, revealing the platform icon which scales in from 60% to 100%. Height shrinks from 52px to 40px for a more compact feel. Opacity rises to 100%. Uses `cubic-bezier(0.4, 0, 0.2, 1)` easing for a natural material-design feel.
+- **When open:** Button stays at 32px/full opacity. Panel slides from the left edge, covering the chat area. Button repositions to the right edge of the open panel (320px from left).
+- **Auto-close on navigate:** When user clicks a question in the nav panel, the panel closes first (350ms animation), then scrolls to and highlights the message. This is necessary because the panel overlays the chat — the user needs to see the destination.
+
+#### Boundary Detection (`getChatBoundaryX()`)
+The ghost notch button needs to know where the chat panel ends and the workspace begins. This boundary varies across platforms and can change when the user resizes panes.
+
+**Detection strategy (3 strategies, no fallback — returns `null` if none match):**
+
+1. **Strategy 1 — Chat input walkup:** Find the chat input element via a broad selector (`textarea[placeholder*="message" i]`, `textarea[placeholder*="Send" i]`, `textarea[placeholder*="Type" i]`, `[contenteditable="true"][role="textbox"]`, `textarea[class*="chat"]`, `textarea[class*="prompt"]`). Walk up the DOM tree from the input, measuring each ancestor's bounding rect. The chat panel is identified as the first ancestor that: starts near the left edge (`rect.left < 80` to allow for icon sidebars), is between 200px and 65% of viewport width, and is at least 40% of viewport height. Return `rect.right`.
+
+2. **Strategy 2 — Platform-specific message walkup:** Use platform-specific selectors (e.g., `[data-testid^="user-message"]` for Emergent, `[id^="message-"]` for Base44) to find a known message element, then walk up to the chat container using the same `_walkUpToChatContainer()` function.
+
+3. **Strategy 3 — Preview iframe detection:** Find `<iframe>` elements positioned in the right portion of the viewport (left edge between 25-75% of viewport, tall, reasonably wide). The iframe's `rect.left` is the boundary.
+
+4. **No fallback:** If all three strategies fail, return `null`. This is critical — it tells `updateLeftChatPositions()` to hide the button entirely. This prevents the button from appearing on home/dashboard pages. See v7.3 changelog for the full story of why the original 35% fallback was removed.
+
+**Positioning updates:**
+- `updateLeftChatPositions()` polls every 500ms via `setInterval`
+- Button starts with `display: none` and only becomes visible after two consecutive polls return a stable boundary (within 3px)
+- Once visible, position shifts are handled smoothly without hiding
+- Only a `null` boundary (leaving the chat page) will hide the button again
+- Window resize listener also triggers repositioning
+- SPA navigation hooks trigger repositioning after route changes
+
+#### Panel Behavior (Left-Chat Mode)
+- Panel slides from the **left** edge (`left: -320px` → `left: 0`) instead of the right
+- Uses `border-right` instead of `border-left` for the panel edge
+- Toggle button animates its `left` position smoothly when panel opens/closes (via CSS `transition: left 0.3s ease`)
+
+### Changed — SPA Hooks Expanded
+The `history.pushState`/`replaceState` interception and periodic health check now applies to all SPA platforms: Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Firebase Studio, and Perplexity. Left-chat platforms also trigger `updateLeftChatPositions()` on navigation events.
+
+### Architecture Notes
+
+- **`isLeftChat` flag:** A single boolean computed at initialization that drives all left-chat vs standard behavioral differences. Controlled by the `LEFT_CHAT_SITES` array: `[SITE.BOLT, SITE.LOVABLE, SITE.REPLIT, SITE.V0, SITE.BASE44, SITE.EMERGENT]`.
+- **CSS is conditionally assembled:** `toggleStyles` and `panelStyles` are computed separately based on `isLeftChat`, then concatenated with the shared styles (header, stats, list items, scrollbar) into the final `styles` string. This avoids CSS specificity conflicts between the two button designs.
+- **No breaking changes:** All existing platforms (Claude, ChatGPT, Grok, Gemini, Claude Code, Codex, Bolt, Lovable, Replit) retain their exact previous behavior. The ghost notch is additive for left-chat sites; standard sites are untouched.
+- **`_lastBoundaryX` jitter guard:** Button position only updates when the boundary moves more than 3px, preventing visual jitter from sub-pixel layout recalculations.
+- **Three-phase `updateLeftChatPositions()`:** See v7.3 changelog for the full architecture. Phase 1 (no boundary → hide), Phase 2 (confirmed → reposition smoothly), Phase 3 (detecting → wait for stability). Once confirmed, the button is NEVER hidden for position shifts — only for null boundaries.
+
+---
+
 ## [7.0] - 2026-02-14
 
 ### Added — AI App-Builder Platform Support
@@ -11,7 +388,7 @@ All notable changes to this project will be documented in this file. Each entry 
 Added support for three AI app-builder platforms, expanding the navigator from 4 platforms to 7 (plus their sub-platform variants). These are the first non-chatbot platforms supported — all three are code-generation IDEs where users build apps through iterative conversation, and all three suffer from the same long-conversation navigation problem.
 
 #### Bolt.new (`bolt.new`)
-- **Theme:** Purple (`#9C7DFF`) — matches Bolt's accent-500 brand color
+- **Theme:** Sky Blue (`#38BDF8`) — matches Bolt's sky-400 brand color
 - **Icon:** ⚡ (U+26A1, lightning bolt with text presentation selector to prevent emoji rendering)
 - **Selectors:** Multi-strategy fallback chain based on bolt.diy open-source fork analysis:
   1. `backdrop-blur` + `rounded` elements that are not `w-full` (user messages have accent-tinted blur background)

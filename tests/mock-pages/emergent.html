@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html><head><title>Emergent Mock</title></head>
+<body>
+<!-- Emergent: User messages have data-testid="user-message-{id}".
+     Text content is inside nested div.prose elements.
+     Chat panel is on the left with workspace on the right. -->
+<div class="flex h-screen">
+  <div class="chat-panel" style="width:40%;">
+    <div class="messages-container" role="log">
+      <!-- User message with data-testid -->
+      <div data-testid="user-message-task-1" id="user-task-1" class="mb-4">
+        <div class="prose prose-invert max-w-none" style="padding:12px;">
+          <p>Build a real-time dashboard with WebSocket connections</p>
+        </div>
+      </div>
+      <!-- Assistant message -->
+      <div data-testid="assistant-message-1" class="mb-4">
+        <div class="prose prose-invert max-w-none">
+          <p>I'll set up the WebSocket dashboard with real-time data...</p>
+        </div>
+      </div>
+      <!-- User message -->
+      <div data-testid="user-message-task-2" id="user-task-2" class="mb-4">
+        <div class="prose prose-invert max-w-none" style="padding:12px;">
+          <p>Add authentication and role-based access control</p>
+        </div>
+      </div>
+      <!-- Assistant message -->
+      <div data-testid="assistant-message-2" class="mb-4">
+        <div class="prose prose-invert max-w-none">
+          <p>I've implemented JWT authentication with role-based access...</p>
+        </div>
+      </div>
+      <!-- User message -->
+      <div data-testid="user-message-task-3" id="user-task-3" class="mb-4">
+        <div class="prose prose-invert max-w-none" style="padding:12px;">
+          <p>Deploy to production with Docker and add monitoring</p>
+        </div>
+      </div>
+    </div>
+    <textarea placeholder="Send a message..."></textarea>
+  </div>
+  <div class="workspace-panel" style="width:60%;">
+    <iframe style="width:100%;height:100%;"></iframe>
+  </div>
+</div>
+</body>
+</html>
