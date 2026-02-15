@@ -507,21 +507,27 @@
         var toggle = document.getElementById('ai-nav-toggle');
         var panel = document.getElementById('ai-nav-panel');
 
-        // No chat panel detected → hide everything (home/dashboard page)
+        // No chat panel detected → hide and reset all state
         if (!boundaryX) {
             if (toggle) toggle.style.display = 'none';
             if (panel) panel.style.display = 'none';
+            _lastBoundaryX = null;
+            if (_boundaryDetected) {
+                _boundaryDetected = false;
+                if (_fadeTimer) { clearTimeout(_fadeTimer); _fadeTimer = null; }
+                if (_readyTimer) { clearTimeout(_readyTimer); _readyTimer = null; }
+                if (toggle) toggle.classList.remove('ai-nav-positioned', 'ai-nav-ready');
+            }
             return;
         }
-        // Chat detected → ensure visible
-        if (toggle) toggle.style.display = '';
-        if (panel) panel.style.display = '';
 
-        // Only update if boundary changed significantly (avoid jitter)
+        // Boundary found — check if stable across consecutive polls
         if (_lastBoundaryX && Math.abs(boundaryX - _lastBoundaryX) < 3) {
-            // Boundary is stable across consecutive checks — safe to fade in
+            // Stable! Only NOW make elements visible and start fade-in
             if (!_boundaryDetected) {
                 _boundaryDetected = true;
+                if (toggle) toggle.style.display = '';
+                if (panel) panel.style.display = '';
                 if (toggle) {
                     _fadeTimer = setTimeout(function() {
                         _fadeTimer = null;
@@ -536,22 +542,21 @@
             }
             return;
         }
-        _lastBoundaryX = boundaryX;
 
+        // Boundary changed or first detection — position invisibly, wait for stability
+        _lastBoundaryX = boundaryX;
         var rightVal = (window.innerWidth - boundaryX) + 'px';
 
-        // Panel: right edge anchored at boundary (always, open or closed)
-        if (panel) {
-            panel.style.right = rightVal;
-        }
+        // Panel: position but keep hidden
+        if (panel) panel.style.right = rightVal;
 
-        // Button: right edge at boundary when closed (invisible until stable)
+        // Button: position but keep hidden; cancel any in-progress fade
         if (toggle && !isOpen) {
             toggle.style.right = rightVal;
-            // Boundary shifted — if we already started fading in, cancel and restart
             if (_boundaryDetected) {
                 if (_fadeTimer) { clearTimeout(_fadeTimer); _fadeTimer = null; }
                 if (_readyTimer) { clearTimeout(_readyTimer); _readyTimer = null; }
+                toggle.style.display = 'none';
                 toggle.classList.remove('ai-nav-positioned', 'ai-nav-ready');
                 _boundaryDetected = false;
             }
@@ -720,6 +725,7 @@
 
         if (!document.getElementById('ai-nav-panel')) {
             const panel = createPanel();
+            if (isLeftChat && !_boundaryDetected) panel.style.display = 'none';
             document.body.appendChild(panel);
             if (isOpen) panel.classList.add('open');
             console.log('AI Nav: Re-injected panel.');
@@ -727,6 +733,7 @@
 
         if (!document.getElementById('ai-nav-toggle')) {
             const toggle = createToggle();
+            if (isLeftChat && !_boundaryDetected) toggle.style.display = 'none';
             document.body.appendChild(toggle);
             if (isOpen) toggle.classList.add('open');
             console.log('AI Nav: Re-injected toggle button.');
@@ -1094,10 +1101,14 @@
     // === INITIALIZATION (with duplicate guards) ===
 
     if (!document.getElementById('ai-nav-toggle')) {
-        document.body.appendChild(createToggle());
+        var initToggle = createToggle();
+        if (isLeftChat) initToggle.style.display = 'none';
+        document.body.appendChild(initToggle);
     }
     if (!document.getElementById('ai-nav-panel')) {
-        document.body.appendChild(createPanel());
+        var initPanel = createPanel();
+        if (isLeftChat) initPanel.style.display = 'none';
+        document.body.appendChild(initPanel);
     }
 
     // Start the DOM Guardian AFTER initial elements are in place
