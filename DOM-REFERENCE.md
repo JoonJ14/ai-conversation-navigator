@@ -2,7 +2,7 @@
 
 This document records the **real DOM structure** of user messages on each supported platform, the selectors we chose, and the debugging history that led to each choice. This prevents context loss across sessions.
 
-Last updated: Feb 16, 2026 (v7.7)
+Last updated: Feb 16, 2026 (v7.7 — all 14 platforms inspected from live sites)
 
 ---
 
@@ -26,93 +26,283 @@ Last updated: Feb 16, 2026 (v7.7)
 
 ## Claude
 
+**Inspected:** Feb 16, 2026 (live site)
 **Selector:** `[data-testid="user-human-turn"]`
 **Fallback:** `[data-testid="user-message"]`, `.font-user-message`
 
+### Real DOM Structure (A→K nesting)
+
+```
+A: div.overflow-y-scroll.overflow-x-hidden.pt-6.flex-1  (scroll container)
+  B: div.mx-auto.font-size-full.max-w-3xl.flex-col.md:px-2
+    C: div.flex-1.flex.px-4.max-w-3xl.mx-auto.w-full.pt-1
+      D: div[data-test-render-count]  (render wrapper)
+      E: div[data-testid="user-human-turn"].mb-1.mt-6.group  (message group — OUR PRIMARY TARGET)
+        F: div.flex.flex-col.items-end.gap-1  (alignment — items-end for user)
+          G: div.group.relative.inline-flex.gap-2.bg-bg-300.rounded-xl.pl-2.5.py-2.5.break-words.text-text-100.transition-all.max-w-[75ch].max-w-[85%]  (bubble)
+            H: div.flex.flex-row.gap-2.relative
+              I: div.flex-1
+                J: div.font-large.font-user-message.grid.grid-cols-1.gap-2.py-0.5[data-testid="user_message"]  (text container — fallback targets)
+                  K: <p class="whitespace-pre-wrap break-words">actual text</p>
+          L: div.absolute.bottom-0.left-0.right-0.h-12.bg-gradient-to-t  (gradient overlay for "Show more")
+```
+
+AI messages use `items-start` (left-aligned), no `bg-bg-300`, `data-testid="assistant-turn"`.
+
 ### Notes
-- Reliable data-testid attribute, rarely changes
 - Both Claude Chat and Claude Code Web share the same hostname (`claude.ai`), differentiated by path
+- `data-testid="user-human-turn"` is the primary target (element E)
+- `.font-user-message` class lives deeper at element J (fallback)
+- `data-testid="user_message"` (underscore) also exists at J as additional fallback
+
+### Debugging History
+- v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Real structure has 11-level nesting with render-count wrappers, bg-bg-300 bubble, font-user-message grid, and gradient overlays.
 
 ---
 
 ## ChatGPT
 
+**Inspected:** Feb 16, 2026 (live site)
 **Selector:** `[data-message-author-role]` filtered by value `=== 'user'`
 
+### Real DOM Structure (A→K nesting)
+
+```
+A: article[data-testid="conversation-turn-N"][data-turn="user"][data-turn-id="{uuid}"][data-scroll-anchor="false"]  (turn wrapper)
+  B: h5.sr-only  "You said:"
+  C: div.text-base.my-auto.mx-auto.pt-12
+    D: div[--thread-content-max-width:48rem].relative.flex.w-full.min-w-0.flex-col
+      E: div.flex.max-w-full.flex-col.group
+        F: div.min-h-8.text-message.relative.flex.w-full.flex-col.items-end[data-message-author-role="user"][data-message-id="{uuid}"]  (OUR TARGET)
+          G: div.flex.w-full.flex-col.gap-1.empty:hidden.items-end
+            H: div.user-message-bubble-color.corner-superellipse.relative.max-w-[var(--user-chat-width,70%)]  (bubble)
+              I: div.whitespace-pre-wrap
+                J: div  (text content)
+          K: div.z-0.flex.justify-end  (action buttons)
+  L: span.sr-only  (screen reader content)
+```
+
+AI messages use `article[data-turn="assistant"]`, `data-message-author-role="assistant"`, `items-start`, `h5.sr-only "ChatGPT said:"`.
+
 ### Notes
-- `data-message-author-role` has values like `"user"`, `"assistant"`, `"system"`
+- `data-message-author-role` has values `"user"`, `"assistant"`, `"system"`
 - Both ChatGPT Chat and Codex Web share the same hostname (`chatgpt.com`), differentiated by path
+- User bubble has `.user-message-bubble-color.corner-superellipse` (superellipse border shape)
+- `article` elements wrap each conversation turn with sequential `data-testid="conversation-turn-N"`
+
+### Debugging History
+- v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Real structure uses article turn wrappers, sr-only headings, thread-content-max-width CSS variables, superellipse bubble corners, and items-end alignment.
 
 ---
 
 ## Grok
 
-**Selector:** `div.message-bubble` filtered by class containing `user`/`human`, or parent class, or odd index
+**Inspected:** Feb 16, 2026 (live site)
+**Selector:** `div.message-bubble` filtered by class containing `user`/`human`, or parent class, or even index
+
+### Real DOM Structure (A→F nesting)
+
+```
+A: div.flex.flex-col.items-center  (scroll/content container)
+  B: div#response-{uuid}.relative.group.flex.flex-col.justify-center.w-full.max-w-[var(--content-max-width)].pb-0.5.items-end  (message wrapper — items-end for user)
+    C: div.message-bubble.relative.rounded-3xl.text-primary.min-h-7.max-w-[100%].px-4.rounded-br-lg  (bubble — OUR TARGET, has .user class for user messages)
+      D: div.relative
+        E: div.response-content-markdown  (text container)
+          F: <p class="break-words" dir="auto" style="white-space: pre-wrap;">actual text</p>
+    G: section.inline-media-container.flex.flex-col.gap-1.clear-both  (media)
+    H: section.auto-notification.flex.flex-col.gap-1  (notifications)
+  I: div.action-buttons.h-8.mt-0.5.mb-2.flex.flex-row.flex-wrap.w-full.justify-end.print:hidden  (action buttons)
+```
+
+AI messages use `items-start` on element B, no `user` class on the bubble, `rounded-bl-lg` instead of `rounded-br-lg`.
 
 ### Notes
-- Less reliable than other platforms — uses heuristic-based detection
-- Falls back to `[data-role="user"]` and `[class*="user-message"]`
-- May need re-inspection if Grok redesigns
+- `div.message-bubble` exists on ALL messages — filtered by `.user` class
+- `id="response-{uuid}"` on each message wrapper
+- Falls back to `[data-role="user"]` and `[class*="user-message"]`, then even-index heuristic
+- `.response-content-markdown` contains the prose text
+- Action buttons use `justify-end` for user, `justify-start` for AI
+
+### Debugging History
+- v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Real structure uses response-{uuid} IDs, rounded-3xl bubbles, response-content-markdown text containers, section elements for media/notifications, and action-buttons rows.
 
 ---
 
 ## Gemini
 
+**Inspected:** Feb 16, 2026 (live site)
 **Selector:** `div.query-text`
 
+### Real DOM Structure (A→L nesting)
+
+```
+A: user-query[_ngcontent-ng-c3204442485]  (Angular custom element)
+  B: span.user-query-container[_ngcontent-ng-c3204442485]
+    C: user-query-content.user-query-container[_ngcontent-ng-c1555545138][style="--max-lines-for-collapse-count: 5;"]
+      D: div.user-query-container[_ngcontent-ng-c1555545138]
+        E: div.file-preview-container.ng-star-inserted[_ngcontent-ng-c1555545138]
+        F: div#user-query-content-N.query-content.ng-star-inserted[_ngcontent-ng-c1555545138][data-turn="user"]
+          G: div.ng-star-inserted[_ngcontent-ng-c1555545138]
+          H: span.user-query-bubble-with-background.ng-star-inserted[_ngcontent-ng-c1555545138]  (bubble)
+            I: span.horizontal-container[_ngcontent-ng-c1555545138]
+              J: div.query-text.gds-body-l.query-text-animated[role="heading"][aria-level="5"]  (OUR TARGET)
+                K: text content
+              L: button.mdc-icon-button[aria-label="Expand text"]  (expand button)
+```
+
+AI messages use `<model-response>` custom element with `response-container` / `model-response-text` classes — no `div.query-text`.
+
 ### Notes
-- Very clean, reliable class-based selector
-- No filtering needed — all `query-text` elements are user queries
+- Angular app with `_ngcontent-ng-c*` hash attributes (change per build)
+- `<user-query>` custom element wraps each query
+- `.user-query-bubble-with-background` is the bubble span
+- `.query-text` lives deep inside (element J) — very reliable, only on user queries
 - Multiple fallbacks: `.query-text-line`, `p.query-text-line`, `[data-query-text]`, `.user-query`
+
+### Debugging History
+- v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Real structure uses Angular custom elements (user-query, user-query-content, model-response), deep nesting with ngcontent hash attributes, horizontal-container spans, and Material Design icon buttons.
 
 ---
 
 ## Claude Code Web
 
+**Inspected:** Feb 16, 2026 (live site)
 **Selector:** `div.bg-bg-200.rounded-lg` filtered by `.items-end` parent
+
+### Real DOM Structure (A→H nesting)
+
+```
+A: div.pb-4[content-visibility:auto][contain-intrinsic-size:auto 500px]  (lazy-rendered wrapper — one per message)
+  B: div.flex.flex-col.items-end.gap-2.max-w-[85%]  (alignment — items-end for user)
+    C: div.group\/message.flex.items-start.gap-1
+      D: div.relative.bg-bg-200.rounded-lg.px-3.py-2.font-base.break-words.min-w-0.overflow-hidden.text-text-000  (bubble — OUR TARGET)
+        E: div.relative[style="max-height: none; overflow: hidden;"]
+          F: div.space-y-2
+            G: <p>actual text</p>
+    H: div.shrink-0.mt-2.5.flex.items-start.justify-center  (action buttons)
+```
+
+AI messages have NO `items-end` parent and NO `bg-bg-200` class.
 
 ### Notes
 - Completely different DOM from Claude Chat — no `data-testid` attributes anywhere
-- User messages are right-aligned via `div.flex.flex-col.items-end.ml-auto`
-- The message bubble is `div.bg-bg-200.rounded-lg`, text inside nested `<p>` tags
+- Uses `content-visibility: auto` for lazy rendering (performance optimization)
+- `group/message` class on the flex wrapper (Tailwind group variant)
 - Only activates as a fallback when all Claude Chat selectors find nothing (same hostname `claude.ai`)
+- The selector chain: `[data-testid="user-human-turn"]` → `[data-testid="user-message"]` → `.font-user-message` → all miss → `bg-bg-200.rounded-lg` inside `.items-end` succeeds
+
+### Debugging History
+- v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Real structure uses content-visibility lazy wrappers, group/message class, bg-bg-200 rounded-lg bubbles, space-y-2 text containers, and shrink-0 action button rows.
 
 ---
 
 ## Codex Web
 
+**Inspected:** Feb 16, 2026 (live site)
 **Selector:** `div.self-end.bg-token-bg-tertiary`
+
+### Real DOM Structure (A→J nesting)
+
+```
+A: div.h-full.flex.w-full.scroll-pt-3.flex-col.items-center.overflow-y-auto.px-6  (scroll container)
+  B: div.@container.w-full.md:max-w-3xl
+    C: div.relative.h-full.w-full.flex-col
+      D: div.flex.h-fit.min-h-full.shrink-0.flex-col.gap-6.pt-6.text-sm
+        E: div.flex.flex-col.gap-4
+          F: div.flex.flex-col.gap-2
+            G: div.self-end.bg-token-bg-tertiary.text-token-text-primary.relative.group.py-2.scroll-mt-2.rounded-2xl  (user message — OUR TARGET)
+              H: div.group.max-w-full.line-clamp-5.overflow-hidden[role="button"]  (clickable text wrapper)
+                I: div.px-4.text-sm.break-words.whitespace-pre-wrap  (text)
+              J: div.absolute.inset-x-0.-bottom-4.flex.justify-end.gap-1.pointer-events-none  (hover-reveal action buttons)
+```
+
+AI messages have NO `self-end` or `bg-token-bg-tertiary`. They use `markdown prose dark-prose-invert` styling and `border-token-border-default` separators.
 
 ### Notes
 - Completely different DOM from ChatGPT Chat — no `data-message-author-role` attributes
 - Uses a task/thread/item model rather than a traditional chat layout
-- User messages are right-aligned (`self-end`) with tertiary token background
-- Only activates as a fallback when the ChatGPT Chat selector finds nothing (same hostname `chatgpt.com`, detected by `/codex` path)
+- `role="button"` + `line-clamp-5` on the text wrapper (expandable)
+- Only activates as a fallback when the ChatGPT Chat selector finds nothing (same hostname `chatgpt.com`)
+- The selector chain: `[data-message-author-role]` → returns empty → `div.self-end.bg-token-bg-tertiary` succeeds
+
+### Debugging History
+- v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Real structure uses @container wrapper, 10-level nesting depth, role="button" expandable text, line-clamp-5 overflow, and positioned hover-reveal action buttons.
 
 ---
 
 ## Perplexity
 
+**Inspected:** Feb 16, 2026 (live site)
 **Selector:** `.group\/query` (Tailwind group variant)
+**Fallback:** `.group\/title .select-text`
+
+### Real DOM Structure (A→L nesting)
+
+```
+A: div.relative.z-10
+  B: div.group.relative.flex.items-end.gap-0.5
+    C: div.-inset-md.pointer-events-none.absolute.select-none  (invisible overlay)
+    D: div
+      E: div.relative.min-v-0.flex-1.flex.justify-end
+        F: div.flex.shrink-0.items-center.gap-1.opacity-0  (action buttons — hidden by default)
+        G: div.group\/title.relative.inline-flex.flex-col  (fallback parent)
+          H: div[style="transition: none; overflow: hidden;"]
+            I: div
+              J: div.group\/query.relative.whitespace-pre-line.!text-wrap.break-words  (OUR PRIMARY TARGET)
+                K: div.min-w-[48px].select-none.p-3.bg-subtler.rounded-2xl.flex.items-center.justify-center  (bubble)
+                  L: span.font-sans.text-base.text-foreground.font-normal.select-text  (text — fallback target)
+```
 
 ### Notes
-- Clean Tailwind group class selector with escaped slash
-- Filter by text content length > 0
-- Fallback: `.group\/title .select-text`
-- Very reliable, minimal filtering needed
+- Search/answer interface, NOT a chat sidebar — user queries appear above AI answers
+- `group/query` class (literal forward slash) — must be escaped as `group\/query` in querySelectorAll
+- `.group/title` parent + `.select-text` span for the fallback selector path
+- `.bg-subtler.rounded-2xl` is the query bubble styling
+- Answer sections include source citations with numbered badges
+- Very reliable selector, minimal filtering needed
+
+### Debugging History
+- v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Real structure has 12-level nesting with relative z-10 wrapper, items-end group, hidden action buttons, group/title parent, height-constrained overflow wrapper, bg-subtler rounded-2xl bubble, and font-sans text span.
 
 ---
 
 ## Lovable
 
+**Inspected:** Feb 16, 2026 (live site)
 **Selector:** `div[role="log"]` → query `.justify-end` children
 **Path guard:** Only active on `/projects/` routes
 
-### Notes
-- Uses ARIA `role="log"` container to scope the search
-- User messages are right-aligned (`.justify-end`) within the log container
-- Must filter by text content and exclude buttons/icons
-- Split-panel layout (chat left, preview right)
+### Real DOM Structure (A→L nesting)
+
+```
+A: div[position:absolute, width:100%, top:..., visibility:visible]  (positioned container — virtual scroll layout)
+  B: div#umsg_{id}[data-message-id="umsg_{id}"].flex-col.pb-2.group  (message wrapper)
+    C: div  (empty wrapper)
+      D: div.mb-2.flex.w-full.flex-col.items-center.text-muted-foreground.@container
+        E: div.relative
+          F: div.group.flex.flex-col.gap-2.items-end.pr-4  (alignment — items-end for user)
+            G: div.flex.w-full.items-start.gap-2.justify-end  (justify-end for user — OUR TARGET)
+              H: div.overflow-wrap-anywhere.max-w-[75%].rounded-[18px].bg-muted.px-4.py-2.5  (bubble)
+                I: div
+                  J: div.flex.flex-col.gap-2
+                    K: div.prose.prose-zinc.prose-markdown-mobile.max-w-full.PromptBox_customProse
+                      L: <p>actual text</p>
+            M: div.mt-1.flex.w-full.gap-1.justify-end  (action buttons — SVG icons, no text)
+```
+
+AI messages use `items-start` + `justify-start` instead, and `data-message-id="msg_{id}"` (no `umsg_` prefix).
+
+### Selector Rationale
+- `role="log"` scopes the search to the chat container
+- `.justify-end` distinguishes user messages (right-aligned) from AI (left-aligned)
+- `data-message-id="umsg_..."` could be used but `role="log"` + `.justify-end` works reliably
+- Action button rows also have `.justify-end` but contain only SVG icons (no text content), so text-content filtering excludes them
+- Split-panel layout: chat on left, preview iframe on right
+- Uses positioned containers (`position: absolute`) suggesting virtual scroll layout
+
+### Debugging History
+- v7.4: Original mock worked but was not based on live DOM
+- v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Discovered real structure uses positioned containers, `data-message-id` with `umsg_`/`msg_` prefixes, `@container` class, and `prose-zinc prose-markdown-mobile` text containers. Fixed mock action buttons from emoji text to SVG to prevent false `.justify-end` matches.
 
 ---
 
@@ -249,13 +439,37 @@ ALL 6 fallbacks also failed because V0 doesn't use:
 
 ## Base44
 
+**Inspected:** Feb 16, 2026 (live site)
 **Selector:** `[id^="message-"]` filtered by containing `.justify-end` child
 
-### Notes
-- Simple ID prefix pattern (`message-{uuid}`)
-- User messages contain a `.justify-end` div (right-aligned indicator)
-- AI messages have the same ID pattern but no `.justify-end`
-- Fallback uses `bg-slate-200.rounded-xl` bubble color
+### Real DOM Structure (A→J nesting)
+
+```
+A: div.flex-grow.overflow-y-auto.px-4.space-y-2.pb-4.scrollbar-auto-hide.relative.z-10  (scroll container)
+  B: div.relative
+    C: div#message-{uuid}.transition-opacity.duration-300  (message wrapper — matched by [id^="message-"])
+      D: div.mb-6.relative.flex.justify-end.items-start.gap-2  (alignment — justify-end for user)
+        E: div.text-sm.rounded-xl.p-3.bg-slate-200.max-w-[85%].min-w-[250px].relative  (bubble)
+          F: div
+            G: div.prose.dark:prose-invert.max-w-none.base44-markdown.relative  (text container)
+              H: <p>actual text</p>
+          I: div.text-xs.text-gray-400.mt-2.flex.items-center.justify-between  (metadata/timestamp)
+        J: span.relative.flex.overflow-hidden.rounded-full.h-6.w-6.shrink-0  (avatar)
+```
+
+AI messages use `justify-start` instead of `justify-end` in element D, and `bg-white` instead of `bg-slate-200` for the bubble.
+
+### Selector Rationale
+- `id="message-{uuid}"` exists on ALL messages (user + AI) — needs filtering
+- User messages have a `.justify-end` child div (right-aligned)
+- AI messages have `justify-start` (left-aligned)
+- Fallback uses `bg-slate-200.rounded-xl` bubble color (user-specific)
+- Parent container has `id="chat-panel-container"` and `scrollbar-auto-hide` class
+- Avatar spans (`rounded-full h-6 w-6`) appear after user bubble, before AI bubble
+
+### Debugging History
+- v7.4: Original mock worked but was not based on live DOM
+- v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Discovered real structure uses `transition-opacity duration-300`, `chat-panel-container` parent, `base44-markdown` text class, avatar spans with `rounded-full h-6 w-6`, and timestamp metadata rows.
 
 ---
 
@@ -321,13 +535,58 @@ div.relative.flex-1.w-full.h-full.overflow-hidden  (chat panel — flex child)
 
 ## Firebase Studio
 
+**Inspected:** Feb 16, 2026 (live site)
 **Selector:** `[class*="_chatMessage_"][class*="_isUser_"]` (CSS module pattern)
 
+### Real DOM Structure (A→K nesting)
+
+```
+A: div._pane._rxexh_5[style="flex: 0.3 1 0; min-width: 300px;"]  (right pane in split layout)
+  B: div._chatbox._vnhv_1
+    C: div._chatMessages._vnhv_58
+      D: div._chatHistoryContainer._qlgvg_1
+        E: div._chatHistory._qlgvg_1._scrollEdges._tclap_1._standardFadeTop._tclap_5._standardFadeBottom._tclap_6  (scroll container)
+          F: div._chatHistoryContent._qlgvg_25
+            G: div._chatMessage._qlgvg_30._isUser._qlgvg_47  (user message — OUR TARGET, grid layout)
+              H: div._messageAvatar._qlgvg_59  (user avatar with initial)
+              I: div._messageBody._qlgvg_55  (message body)
+                J: <p>actual text</p>
+              K: div._messageAttachments._qlgvg_209  (attachments area)
+```
+
+AI messages have `_chatMessage._qlgvg_30` but NOT `_isUser_`. Last message may also have `_isLastInThread._qlgvg_55`.
+
+### Iframe Architecture (Critical — Unique to Firebase Studio)
+
+Firebase Studio is the only supported platform where the chat UI lives in a cross-origin iframe, not the top-level document. The script must inject into the correct iframe to find chat elements.
+
+```
+Top frame: studio.firebase.google.com (shell, ~157 elements, no chat)
+  ├── iframe #1: 6000-firebase-studio-{id}.cluster-{hash}.cloudworkstations.dev/capra/...
+  │     ← WORKSPACE: contains the chat UI above + app preview. THIS IS WHERE THE SCRIPT RUNS.
+  │     └── nested iframe: same 6000-firebase-studio-... domain, path "/"
+  │           ← APP PREVIEW: renders user's generated app (e.g., FridgeChef). Script must NOT run here.
+  ├── iframe #2: firebase-studio-{id}.cluster-{hash}.cloudworkstations.dev/env/msg/...
+  │     ← MESSAGING ENDPOINT: blank internal page. Script must NOT run here.
+  └── iframe #3: accounts.google.com/... (auth)
+```
+
+**Port-prefixed hostnames:** The workspace uses `6000-firebase-studio-...` where `6000-` is a port prefix. The messaging endpoint uses `firebase-studio-...` (no port prefix). The `@include` pattern must match both, and the script uses `/capra/` path check to select only the workspace.
+
+**Hostname format:** `{port}-firebase-studio-{numeric-id}.cluster-{alphanum-hash}.cloudworkstations.dev`
+
 ### Notes
-- CSS module classes with dynamic hash suffixes (e.g., `_chatMessage_qlgvg_30 _isUser_qlgvg_47`)
-- Requires BOTH module class substrings present in the class attribute
-- Hash values change between deployments — we match the stable prefix part
-- Multiple fallbacks test individual module names and camelCase variants (`chatMessage`, `isUser`)
+- CSS module classes with dynamic hash suffixes (e.g., `_qlgvg_30`) — change between deployments
+- We match the stable prefix part: `_chatMessage_` and `_isUser_`
+- Split layout: preview iframe on left, chat on right (within the workspace iframe)
+- Messages use CSS Grid layout (`grid-template-columns: 32px 1fr`) with avatar + body
+- Multiple fallbacks: `_isUser_` alone, then `_chatMessage_` filtered by `_isUser_`/`isUser`
+- `_scrollEdges._tclap_1` on the scroll container provides fade effects
+- Tampermonkey `@grant GM_addStyle` creates a sandbox — `window._aiNavAlreadyLoaded` is NOT visible from DevTools console. Use console log messages to verify script execution.
+
+### Debugging History
+- v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Real structure uses split pane layout with _rxexh hash classes, deep wrapper hierarchy (_chatbox → _chatMessages → _chatHistoryContainer → _chatHistory), grid-based message layout with avatar/body/attachments columns, and _scrollEdges fade effects.
+- v7.8 (Feb 16, 2026): Discovered multi-iframe architecture. Script was injecting into wrong iframes (messaging endpoint and app preview instead of workspace). Fixed with broader `@include` pattern, `hostname.includes()` instead of start-anchored regex in `detectSite()`, and `/capra/` path discrimination to select only the workspace iframe. Three bugs fixed: (1) `@include` pattern too narrow for port-prefixed hostnames, (2) `detectSite()` regex rejecting port-prefixed hostnames, (3) script running in app preview and messaging iframes creating duplicate buttons.
 
 ---
 

@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v7.6
+// @name         AI Conversation Navigator v7.8
 // @namespace    http://tampermonkey.net/
-// @version      7.6
+// @version      7.8
 // @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Codex, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -17,6 +17,8 @@
 // @match        https://www.perplexity.ai/*
 // @match        https://perplexity.ai/*
 // @match        https://studio.firebase.google.com/*
+// @match        https://*.cloudworkstations.dev/*
+// @include      https://*cloudworkstations.dev/*
 // @grant        GM_addStyle
 // ==/UserScript==
 
@@ -62,12 +64,37 @@
         if (hostname.includes('emergent.sh')) return SITE.EMERGENT;
         if (hostname.includes('perplexity.ai')) return SITE.PERPLEXITY;
         if (hostname.includes('studio.firebase.google.com')) return SITE.FIREBASE_STUDIO;
+        // Firebase Studio renders chat in a cross-origin iframe on cloudworkstations.dev.
+        // The actual workspace (with chat) uses a port-prefixed hostname like
+        // "6000-firebase-studio-...cloudworkstations.dev". Match any hostname containing
+        // both "firebase-studio-" and "cloudworkstations.dev".
+        if (hostname.includes('cloudworkstations.dev') && hostname.includes('firebase-studio-')) return SITE.FIREBASE_STUDIO;
         return null;
     }
 
     const currentSite = detectSite();
     if (!currentSite) {
         console.log('AI Conversation Navigator: Unknown site, exiting.');
+        return;
+    }
+
+    // Firebase Studio: the top frame (studio.firebase.google.com) is just a shell with ~157 elements.
+    // The actual chat lives in a cross-origin iframe (firebase-studio-*.cloudworkstations.dev).
+    // Skip the top frame — the script will also run inside the iframe via @include.
+    if (currentSite === SITE.FIREBASE_STUDIO &&
+        window === window.top &&
+        window.location.hostname.includes('studio.firebase.google.com')) {
+        console.log('AI Conversation Navigator: Firebase Studio top frame (shell), deferring to iframe instance.');
+        return;
+    }
+
+    // Firebase Studio: multiple iframes on cloudworkstations.dev match our @include rule
+    // (workspace, app preview, /env/msg endpoint). Only the workspace has the chat UI,
+    // and its path always starts with /capra/. Skip all other cloudworkstations.dev iframes.
+    if (currentSite === SITE.FIREBASE_STUDIO &&
+        window.location.hostname.includes('cloudworkstations.dev') &&
+        !window.location.pathname.startsWith('/capra/')) {
+        console.log('AI Conversation Navigator: Firebase Studio non-workspace iframe (' + window.location.pathname + '), skipping.');
         return;
     }
 
@@ -101,7 +128,7 @@
         [SITE.V0]: '\u25BD',      // ▽ (inverted triangle, Vercel logo shape)
         [SITE.BASE44]: '\u2B22',  // ⬢ (hexagon)
         [SITE.EMERGENT]: 'e',     // lowercase e (Emergent brand initial)
-        [SITE.PERPLEXITY]: '\u29BE', // ⦾ (circled white bullet)
+        [SITE.PERPLEXITY]: '\u2733', // ✳ (eight spoked asterisk — same as Claude, renders on Linux/Firefox)
         [SITE.FIREBASE_STUDIO]: '\u2726' // ✦ (same as Gemini — Firebase Studio runs Gemini)
     };
 
@@ -1243,7 +1270,10 @@
             // Firebase Studio (Gemini): CSS module classes with _isUser_ pattern.
             // Class names look like: _chatMessage_qlgvg_30 _isUser_qlgvg_47
             // The hash suffix changes per build, but _isUser_ and _chatMessage_ stay consistent.
-            // Message body text is inside _messageBody_ nested elements.
+            //
+            // Architecture: Firebase Studio top frame (studio.firebase.google.com) is a shell.
+            // Chat lives in a cross-origin iframe (firebase-studio-*.cloudworkstations.dev).
+            // The top frame is skipped at init; this code runs inside the iframe via @include.
 
             // Primary: elements with both _chatMessage_ and _isUser_ in class
             var firebaseMessages = document.querySelectorAll('[class*="_chatMessage_"][class*="_isUser_"]');
@@ -1265,22 +1295,6 @@
                 messages = Array.from(allFirebaseMessages).filter(function(el) {
                     return (el.className || '').includes('_isUser_') || (el.className || '').includes('isUser');
                 });
-            }
-
-            // Fallback 3: look for isUser (camelCase, no underscores) pattern
-            if (messages.length === 0) {
-                messages = document.querySelectorAll('[class*="isUser"]');
-            }
-
-            // Fallback 4: right-aligned messages in chat area
-            if (messages.length === 0) {
-                var fbChat = document.querySelector('[class*="_chatContainer_"], [class*="_chat_"], [role="log"]');
-                if (fbChat) {
-                    messages = Array.from(fbChat.querySelectorAll('[class*="_messageBody_"]')).filter(function(el) {
-                        var parent = el.closest('[class*="_isUser_"]') || el.closest('[class*="isUser"]');
-                        return parent && el.textContent.trim().length > 0;
-                    });
-                }
             }
         }
 
@@ -1315,7 +1329,9 @@
 
             var addedNew = false;
             messages.forEach(function(msg) {
-                let text = (msg.textContent || msg.innerText || '').trim();
+                // Emergent: extract text from prose container only (excludes timestamps/buttons)
+                var proseEl = msg.querySelector('.prose');
+                let text = proseEl ? (proseEl.textContent || '').trim() : (msg.textContent || msg.innerText || '').trim();
                 text = text.replace(/^You said\s*/i, '');
                 if (!text.trim()) return;
 
@@ -1329,13 +1345,25 @@
                     var itemCount = list.querySelectorAll('.ai-nav-item').length;
                     var navItem = createNavItem(msg, itemCount, text);
                     navItem.setAttribute('data-text-key', key);
+                    // Store virtuoso data-index for sorting (chronological order)
+                    var virtuosoItem = msg.closest('[data-index]');
+                    if (virtuosoItem) navItem.setAttribute('data-vs-index', virtuosoItem.getAttribute('data-index'));
                     list.appendChild(navItem);
                     addedNew = true;
                 }
             });
 
             if (addedNew || list.querySelector('.ai-nav-item')) {
-                var total = list.querySelectorAll('.ai-nav-item').length;
+                // Sort nav items by virtuoso data-index (chronological order)
+                // Without this, items appear in discovery order (newest first if user scrolls up)
+                var navItems = Array.from(list.querySelectorAll('.ai-nav-item'));
+                if (navItems.length > 1 && navItems[0].hasAttribute('data-vs-index')) {
+                    navItems.sort(function(a, b) {
+                        return parseInt(a.getAttribute('data-vs-index') || '0') - parseInt(b.getAttribute('data-vs-index') || '0');
+                    });
+                    navItems.forEach(function(item) { list.appendChild(item); });
+                }
+                var total = navItems.length || list.querySelectorAll('.ai-nav-item').length;
                 stats.textContent = total + ' question' + (total !== 1 ? 's' : '') + ' found';
                 // Re-number all items sequentially
                 list.querySelectorAll('.ai-nav-number').forEach(function(numEl, i) {
@@ -1360,7 +1388,9 @@
         stats.textContent = messages.length + ' question' + (messages.length !== 1 ? 's' : '') + ' found';
 
         messages.forEach(function(msg, index) {
-            let text = (msg.textContent || msg.innerText || '').trim();
+            // Emergent: extract text from prose container only (excludes timestamps/buttons)
+            var proseEl = (currentSite === SITE.EMERGENT) ? msg.querySelector('.prose') : null;
+            let text = proseEl ? (proseEl.textContent || '').trim() : (msg.textContent || msg.innerText || '').trim();
             // Strip accessibility prefixes (e.g. Gemini adds "You said" for screen readers)
             text = text.replace(/^You said\s*/i, '');
             if (!text.trim()) return;
@@ -1369,6 +1399,8 @@
                 var key = text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
                 _vsAccumulatedKeys.add(key);
                 navItem.setAttribute('data-text-key', key);
+                var virtuosoItem = msg.closest('[data-index]');
+                if (virtuosoItem) navItem.setAttribute('data-vs-index', virtuosoItem.getAttribute('data-index'));
             }
             list.appendChild(navItem);
         });
@@ -1465,5 +1497,19 @@
     // Initial scan after page load
     setTimeout(scanConversation, 2000);
 
-    console.log('AI Conversation Navigator v7.6 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
+    // Firebase Studio and other heavy SPAs: chat may not render within 2 seconds.
+    // Add aggressive retries for platforms that lazy-load their chat panels.
+    if (currentSite === SITE.FIREBASE_STUDIO) {
+        [5000, 10000, 20000].forEach(function(delay) {
+            setTimeout(function() {
+                var items = document.querySelectorAll('.ai-nav-item');
+                if (items.length === 0) {
+                    console.log('AI Nav: Firebase retry scan at ' + delay + 'ms...');
+                    scanConversation();
+                }
+            }, delay);
+        });
+    }
+
+    console.log('AI Conversation Navigator v7.8 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
 })();

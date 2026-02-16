@@ -157,7 +157,7 @@ const PLATFORMS = [
         mockFile: 'lovable.html',
         hostname: 'lovable.dev',
         pathname: '/projects/test-project',     // Must include /projects/ for the guard
-        expectedMessages: 4,
+        expectedMessages: 3,
         expectedAccent: 'rgb(155, 135, 245)',   // #9b87f5
         expectedIcon: '\u2665',                 // ♥
     },
@@ -204,13 +204,13 @@ const PLATFORMS = [
         pathname: '/search/test',
         expectedMessages: 3,
         expectedAccent: 'rgb(32, 184, 205)',    // #20b8cd
-        expectedIcon: '\u29BE',                 // ⦾
+        expectedIcon: '\u2733',                 // ✳ (same as Claude — renders on Linux/Firefox)
     },
     {
         name: 'Firebase Studio',
         mockFile: 'firebase.html',
-        hostname: 'studio.firebase.google.com',
-        pathname: '/project/test',
+        hostname: '6000-firebase-studio-12345.cluster-abc123.cloudworkstations.dev',
+        pathname: '/capra/',
         expectedMessages: 3,
         expectedAccent: 'rgb(255, 166, 17)',    // #FFA611
         expectedIcon: '\u2726',                 // ✦

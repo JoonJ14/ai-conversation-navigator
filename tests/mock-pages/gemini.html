@@ -1,23 +1,303 @@
 <!DOCTYPE html>
 <html><head><title>Gemini Mock</title></head>
 <body>
-<!-- Gemini: div.query-text for user messages -->
-<div class="conversation">
-  <div class="query-text">
-    <p>How do neural networks learn?</p>
+<!-- Gemini (gemini.google.com): Real DOM structure from live DevTools inspection, Feb 2026.
+     Gemini is an Angular application using custom elements and _ngcontent-ng-c* hash attributes.
+     The hash suffix (e.g. 3204442485, 1555545138) changes per build but structure is stable.
+
+     DOM nesting per user message (A→L):
+       A: user-query[_ngcontent-ng-c3204442485]  (Angular custom element)
+         B: span.user-query-container[_ngcontent-ng-c3204442485]
+           C: user-query-content.user-query-container[_ngcontent-ng-c1555545138][style="--max-lines-for-collapse-count: 5;"]
+             D: div.user-query-container[_ngcontent-ng-c1555545138]
+               E: div.file-preview-container.ng-star-inserted[_ngcontent-ng-c1555545138]
+               F: div#user-query-content-N.query-content.ng-star-inserted[_ngcontent-ng-c1555545138][data-turn="user"]
+                 G: div.ng-star-inserted[_ngcontent-ng-c1555545138]
+                 H: span.user-query-bubble-with-background.ng-star-inserted[_ngcontent-ng-c1555545138]  (bubble)
+                   I: span.horizontal-container[_ngcontent-ng-c1555545138]
+                     J: div.query-text.gds-body-l.query-text-animated[role="heading"][aria-level="5"][dir="ltr"]  (*** PRIMARY SELECTOR TARGET ***)
+                       K: text content
+                     L: button.mdc-icon-button[aria-label="Expand text"]  (expand button)
+
+     AI (model) messages use a completely different structure:
+       - model-response[_ngcontent-ng-c3204442485] custom element
+       - Contains response-container with message-content inside
+       - Does NOT have div.query-text (so our selector correctly skips these)
+
+     Script selectors (in priority order):
+       1. div.query-text              ← primary, matches element J above
+       2. .query-text-line            ← fallback (older Gemini builds)
+       3. p.query-text-line           ← fallback
+       4. [data-query-text]           ← fallback
+       5. .user-query                 ← fallback (matches element A, less precise)
+
+     The page also has a left sidebar for conversation history.
+     The main chat area scrolls vertically with the conversation-container.
+-->
+
+<style>
+  body {
+    margin: 0;
+    padding: 0;
+    background: #131314;
+    color: #e3e3e3;
+    font-family: 'Google Sans', 'Helvetica Neue', sans-serif;
+    display: flex;
+    height: 100vh;
+  }
+  /* Gemini left sidebar — conversation history */
+  .side-nav-container {
+    width: 260px;
+    min-width: 260px;
+    background: #1b1b1f;
+    border-right: 1px solid #3c4043;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 8px;
+    box-sizing: border-box;
+  }
+  .side-nav-container .logo-area {
+    padding: 8px 12px 16px;
+    font-size: 18px;
+    font-weight: 500;
+    color: #8ab4f8;
+  }
+  .side-nav-container .new-chat-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    margin: 0 4px 12px;
+    border-radius: 24px;
+    background: #303134;
+    color: #e3e3e3;
+    font-size: 14px;
+    cursor: pointer;
+    border: none;
+  }
+  .side-nav-container .chat-history-item {
+    padding: 8px 16px;
+    margin: 2px 4px;
+    border-radius: 20px;
+    font-size: 13px;
+    color: #bdc1c6;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .side-nav-container .chat-history-item.active {
+    background: #303134;
+    color: #e3e3e3;
+  }
+  /* Main chat area */
+  .main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .conversation-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .conversation-container .turn-wrapper {
+    width: 100%;
+    max-width: 768px;
+    padding: 0 24px;
+    box-sizing: border-box;
+  }
+  /* User query styling */
+  user-query {
+    display: block;
+    margin: 16px 0 8px;
+  }
+  .user-query-container {
+    display: flex;
+    flex-direction: column;
+  }
+  user-query-content {
+    display: block;
+  }
+  .file-preview-container {
+    display: none; /* hidden when no files attached */
+  }
+  .query-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .user-query-bubble-with-background {
+    display: inline-flex;
+    background: #1e1f20;
+    border-radius: 20px;
+    padding: 10px 16px;
+    max-width: 80%;
+    align-self: flex-end;
+  }
+  .horizontal-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .query-text {
+    font-size: 16px;
+    line-height: 24px;
+    color: #e3e3e3;
+    word-break: break-word;
+  }
+  .mdc-icon-button {
+    display: none; /* expand button hidden by default */
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #9aa0a6;
+    cursor: pointer;
+  }
+  /* Model response styling */
+  model-response {
+    display: block;
+    margin: 8px 0 16px;
+  }
+  .response-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .model-response-text {
+    font-size: 16px;
+    line-height: 24px;
+    color: #c4c7c5;
+  }
+  .model-response-text p {
+    margin: 8px 0;
+  }
+  /* Bottom input area */
+  .input-area-container {
+    padding: 16px 24px;
+    display: flex;
+    justify-content: center;
+  }
+  .input-area-container .prompt-input {
+    width: 100%;
+    max-width: 768px;
+    padding: 12px 16px;
+    border-radius: 24px;
+    border: 1px solid #3c4043;
+    background: #1b1b1f;
+    color: #e3e3e3;
+    font-size: 16px;
+    outline: none;
+    box-sizing: border-box;
+  }
+</style>
+
+<!-- Left sidebar: conversation history -->
+<div class="side-nav-container" _ngcontent-ng-c3204442485>
+  <div class="logo-area" _ngcontent-ng-c3204442485>Gemini</div>
+  <button class="new-chat-btn" _ngcontent-ng-c3204442485>+ New chat</button>
+  <div class="chat-history-item active" _ngcontent-ng-c3204442485>Neural networks discussion</div>
+  <div class="chat-history-item" _ngcontent-ng-c3204442485>Python async patterns</div>
+  <div class="chat-history-item" _ngcontent-ng-c3204442485>Travel planning Japan</div>
+</div>
+
+<!-- Main chat content -->
+<div class="main-content" _ngcontent-ng-c3204442485>
+  <div class="conversation-container" _ngcontent-ng-c3204442485>
+    <div class="turn-wrapper">
+
+      <!-- ===== User Message 1 ===== -->
+      <user-query _ngcontent-ng-c3204442485>
+        <span class="user-query-container" _ngcontent-ng-c3204442485>
+          <user-query-content class="user-query-container" _ngcontent-ng-c1555545138 style="--max-lines-for-collapse-count: 5;">
+            <div class="user-query-container" _ngcontent-ng-c1555545138>
+              <div class="file-preview-container ng-star-inserted" _ngcontent-ng-c1555545138></div>
+              <div id="user-query-content-0" class="query-content ng-star-inserted" _ngcontent-ng-c1555545138 data-turn="user">
+                <div class="ng-star-inserted" _ngcontent-ng-c1555545138></div>
+                <span class="user-query-bubble-with-background ng-star-inserted" _ngcontent-ng-c1555545138>
+                  <span class="horizontal-container" _ngcontent-ng-c1555545138>
+                    <div class="query-text gds-body-l query-text-animated" _ngcontent-ng-c1555545138 role="heading" aria-level="5" dir="ltr" style="transition: background-color 0.3s;">How do neural networks learn?</div>
+                    <button class="mdc-icon-button" _ngcontent-ng-c1555545138 aria-label="Expand text"></button>
+                  </span>
+                </span>
+              </div>
+            </div>
+          </user-query-content>
+        </span>
+      </user-query>
+
+      <!-- ===== AI Response 1 ===== -->
+      <model-response _ngcontent-ng-c3204442485>
+        <div class="response-container" _ngcontent-ng-c2871063490>
+          <div class="model-response-text" _ngcontent-ng-c2871063490>
+            <p>Neural networks learn through a process called backpropagation. During training, the network makes predictions, calculates the error (loss) between predictions and actual values, then propagates this error backward through the network to adjust weights and biases using gradient descent.</p>
+          </div>
+        </div>
+      </model-response>
+
+      <!-- ===== User Message 2 ===== -->
+      <user-query _ngcontent-ng-c3204442485>
+        <span class="user-query-container" _ngcontent-ng-c3204442485>
+          <user-query-content class="user-query-container" _ngcontent-ng-c1555545138 style="--max-lines-for-collapse-count: 5;">
+            <div class="user-query-container" _ngcontent-ng-c1555545138>
+              <div class="file-preview-container ng-star-inserted" _ngcontent-ng-c1555545138></div>
+              <div id="user-query-content-1" class="query-content ng-star-inserted" _ngcontent-ng-c1555545138 data-turn="user">
+                <div class="ng-star-inserted" _ngcontent-ng-c1555545138></div>
+                <span class="user-query-bubble-with-background ng-star-inserted" _ngcontent-ng-c1555545138>
+                  <span class="horizontal-container" _ngcontent-ng-c1555545138>
+                    <div class="query-text gds-body-l query-text-animated" _ngcontent-ng-c1555545138 role="heading" aria-level="5" dir="ltr" style="transition: background-color 0.3s;">What is the vanishing gradient problem?</div>
+                    <button class="mdc-icon-button" _ngcontent-ng-c1555545138 aria-label="Expand text"></button>
+                  </span>
+                </span>
+              </div>
+            </div>
+          </user-query-content>
+        </span>
+      </user-query>
+
+      <!-- ===== AI Response 2 ===== -->
+      <model-response _ngcontent-ng-c3204442485>
+        <div class="response-container" _ngcontent-ng-c2871063490>
+          <div class="model-response-text" _ngcontent-ng-c2871063490>
+            <p>The vanishing gradient problem occurs when gradients become extremely small as they are propagated back through many layers during training. This causes the earlier layers to learn very slowly or stop learning entirely, making it difficult to train deep networks effectively.</p>
+          </div>
+        </div>
+      </model-response>
+
+      <!-- ===== User Message 3 ===== -->
+      <user-query _ngcontent-ng-c3204442485>
+        <span class="user-query-container" _ngcontent-ng-c3204442485>
+          <user-query-content class="user-query-container" _ngcontent-ng-c1555545138 style="--max-lines-for-collapse-count: 5;">
+            <div class="user-query-container" _ngcontent-ng-c1555545138>
+              <div class="file-preview-container ng-star-inserted" _ngcontent-ng-c1555545138></div>
+              <div id="user-query-content-2" class="query-content ng-star-inserted" _ngcontent-ng-c1555545138 data-turn="user">
+                <div class="ng-star-inserted" _ngcontent-ng-c1555545138></div>
+                <span class="user-query-bubble-with-background ng-star-inserted" _ngcontent-ng-c1555545138>
+                  <span class="horizontal-container" _ngcontent-ng-c1555545138>
+                    <div class="query-text gds-body-l query-text-animated" _ngcontent-ng-c1555545138 role="heading" aria-level="5" dir="ltr" style="transition: background-color 0.3s;">How do transformers differ from RNNs?</div>
+                    <button class="mdc-icon-button" _ngcontent-ng-c1555545138 aria-label="Expand text"></button>
+                  </span>
+                </span>
+              </div>
+            </div>
+          </user-query-content>
+        </span>
+      </user-query>
+
+    </div>
   </div>
-  <div class="response-text">
-    <p>Neural networks learn through a process called backpropagation...</p>
-  </div>
-  <div class="query-text">
-    <p>What is the vanishing gradient problem?</p>
-  </div>
-  <div class="response-text">
-    <p>The vanishing gradient problem occurs when...</p>
-  </div>
-  <div class="query-text">
-    <p>How do transformers differ from RNNs?</p>
+
+  <!-- Bottom input area -->
+  <div class="input-area-container" _ngcontent-ng-c3204442485>
+    <input class="prompt-input" _ngcontent-ng-c3204442485 placeholder="Ask Gemini" type="text">
   </div>
 </div>
+
 </body>
 </html>

@@ -1,21 +1,283 @@
 <!DOCTYPE html>
-<html><head><title>Codex Mock</title></head>
+<html><head><title>Codex Mock</title>
+<style>
+  /* Reset and base styles matching Codex Web dark theme */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #212121; color: #ececec; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 16px; line-height: 1.5; }
+
+  /* Codex layout: full-height flex column */
+  .h-full { height: 100%; }
+  .w-full { width: 100%; }
+  .flex { display: flex; }
+  .flex-col { flex-direction: column; }
+  .items-center { align-items: center; }
+
+  /* Scroll container */
+  .overflow-y-auto { overflow-y: auto; }
+  .scroll-pt-3 { scroll-padding-top: 0.75rem; }
+  .px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
+
+  /* Container query wrapper */
+  .\@container { container-type: inline-size; }
+  .md\:max-w-3xl { max-width: 48rem; }
+
+  /* Thread layout */
+  .relative { position: relative; }
+  .h-fit { height: fit-content; }
+  .min-h-full { min-height: 100%; }
+  .shrink-0 { flex-shrink: 0; }
+  .gap-6 { gap: 1.5rem; }
+  .gap-4 { gap: 1rem; }
+  .gap-2 { gap: 0.5rem; }
+  .gap-1 { gap: 0.25rem; }
+  .pt-6 { padding-top: 1.5rem; }
+  .text-sm { font-size: 0.875rem; line-height: 1.25rem; }
+
+  /* User message bubble */
+  .self-end { align-self: flex-end; }
+  .bg-token-bg-tertiary { background-color: #2f2f2f; }
+  .text-token-text-primary { color: #ececec; }
+  .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+  .scroll-mt-2 { scroll-margin-top: 0.5rem; }
+  .group { /* group hover context */ }
+  .max-w-full { max-width: 100%; }
+  .line-clamp-5 { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+  .px-4 { padding-left: 1rem; padding-right: 1rem; }
+  .break-words { overflow-wrap: break-word; }
+  .whitespace-pre-wrap { white-space: pre-wrap; }
+
+  /* Action buttons (hover reveal) */
+  .absolute { position: absolute; }
+  .inset-x-0 { left: 0; right: 0; }
+  .-bottom-4 { bottom: -1rem; }
+  .justify-end { justify-content: flex-end; }
+  .pointer-events-none { pointer-events: none; }
+  .opacity-0 { opacity: 0; }
+  .group:hover .opacity-0 { opacity: 1; }
+
+  /* AI message styles */
+  .markdown { line-height: 1.75; }
+  .prose { max-width: 65ch; }
+  .dark-prose-invert { color: #d1d5db; }
+  .border-token-border-default { border-color: #444654; }
+  .border-b { border-bottom-width: 1px; border-bottom-style: solid; }
+  .pb-4 { padding-bottom: 1rem; }
+  .pt-4 { padding-top: 1rem; }
+  .items-start { align-items: flex-start; }
+
+  /* Codex header */
+  .codex-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; border-bottom: 1px solid #444654; background: #171717; }
+  .codex-header-left { display: flex; align-items: center; gap: 12px; }
+  .codex-header-right { display: flex; align-items: center; gap: 8px; }
+  .codex-back-btn { background: none; border: none; color: #8e8ea0; cursor: pointer; font-size: 18px; padding: 4px 8px; }
+  .codex-task-title { font-size: 14px; font-weight: 600; color: #ececec; }
+  .codex-branch-info { font-size: 12px; color: #8e8ea0; display: flex; align-items: center; gap: 4px; }
+  .codex-branch-icon { font-size: 14px; }
+  .codex-header-btn { background: #2f2f2f; border: 1px solid #444654; border-radius: 6px; color: #ececec; font-size: 13px; padding: 6px 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+
+  /* Rounded corners for user bubbles */
+  .rounded-2xl { border-radius: 1rem; }
+</style>
+</head>
 <body>
-<!-- Codex web: no data-message-author-role attributes.
-     User messages are self-end + bg-token-bg-tertiary bubbles -->
-<div class="codex-thread">
-  <div class="self-end bg-token-bg-tertiary" style="align-self:flex-end;padding:12px;border-radius:8px;">
-    <p>Build a REST API for a todo app with Express</p>
+<!--
+  Codex Web Mock Page — Real DOM Structure Reference
+  ===================================================
+  Source: Live inspection of chatgpt.com/codex/tasks/{task-id} (Feb 2026)
+
+  Codex Web lives at chatgpt.com/codex/ — same domain as ChatGPT but a
+  completely different path and DOM structure. CRITICALLY: no
+  data-message-author-role attributes exist anywhere in the Codex DOM.
+  The userscript's ChatGPT primary selector returns empty, triggering the
+  Codex fallback: document.querySelectorAll('div.self-end.bg-token-bg-tertiary')
+
+  OVERALL LAYOUT:
+    - Codex header bar with task title, branch info, Archive/Share buttons
+    - Single scroll container for the task conversation
+    - No sidebar (Codex uses a separate task list view)
+
+  USER MESSAGE DOM (nesting A through J):
+    A: div.h-full.flex.w-full.scroll-pt-3.flex-col.items-center.overflow-y-auto.px-6
+                                                            (scroll container)
+      B: div.@container.w-full.md:max-w-3xl                (container query wrapper)
+        C: div.relative.h-full.w-full.flex-col              (full-height column)
+          D: div.flex.h-fit.min-h-full.shrink-0.flex-col.gap-6.pt-6.text-sm
+                                                            (thread content)
+            E: div.flex.flex-col.gap-4                      (message group)
+              F: div.flex.flex-col.gap-2                    (message pair wrapper)
+                G: div.self-end.bg-token-bg-tertiary.text-token-text-primary
+                     .relative.max-w-[var(--user-chat-width,70%)]
+                     .group.py-2.scroll-mt-2.rounded-2xl    (USER MESSAGE — TARGET)
+                  H: div.group.max-w-full.line-clamp-5.overflow-hidden
+                       [role="button"]
+                       [style="-webkit-line-clamp: 5;"]     (clickable text wrapper)
+                    I: div.px-4.text-sm.break-words.whitespace-pre-wrap
+                                                            (text container)
+                  J: div.absolute.inset-x-0.-bottom-4
+                       .flex.justify-end.gap-1.pointer-events-none
+                                                            (action buttons — hover reveal)
+
+  AI MESSAGE DOM:
+    - No self-end or bg-token-bg-tertiary classes
+    - Uses: div.markdown.prose.dark-prose-invert for rendered content
+    - Has border-token-border-default separator between messages
+    - Different structure from user messages (no role="button", no line-clamp)
+
+  SCRIPT SELECTORS (what the userscript matches):
+    // ChatGPT primary — returns EMPTY on Codex (no data-message-author-role):
+    const allMessages = document.querySelectorAll('[data-message-author-role]');
+    messages = Array.from(allMessages).filter(msg =>
+        msg.getAttribute('data-message-author-role') === 'user'
+    );
+
+    // Codex fallback — triggered when messages.length === 0:
+    if (messages.length === 0) {
+        messages = document.querySelectorAll('div.self-end.bg-token-bg-tertiary');
+    }
+
+  CRITICAL NOTES:
+    1. NO data-message-author-role attributes anywhere — these would trigger
+       ChatGPT's primary selector and bypass the Codex fallback
+    2. User messages are identified solely by: div.self-end.bg-token-bg-tertiary
+    3. Expected match count: 2 user messages
+-->
+
+<!-- Codex header bar -->
+<div class="codex-header">
+  <div class="codex-header-left">
+    <button class="codex-back-btn" title="Back to tasks">&larr;</button>
+    <div>
+      <div class="codex-task-title">Build a REST API for a todo app with Express</div>
+      <div class="codex-branch-info">
+        <span class="codex-branch-icon">&#9741;</span>
+        <span>codex/build-rest-api-todo-app</span>
+        <span style="color:#6b7280;">&#183; 2 commits</span>
+      </div>
+    </div>
   </div>
-  <div class="assistant-response" style="width:100%;">
-    <p>I'll create the Express API with CRUD endpoints...</p>
-  </div>
-  <div class="self-end bg-token-bg-tertiary" style="align-self:flex-end;padding:12px;border-radius:8px;">
-    <p>Add input validation with Joi</p>
-  </div>
-  <div class="assistant-response" style="width:100%;">
-    <p>Here's the validation middleware...</p>
+  <div class="codex-header-right">
+    <button class="codex-header-btn">
+      <span>&#128451;</span> Archive
+    </button>
+    <button class="codex-header-btn">
+      <span>&#128279;</span> Share
+    </button>
   </div>
 </div>
+
+<!-- A: Scroll container -->
+<div class="h-full flex w-full scroll-pt-3 flex-col items-center overflow-y-auto px-6" style="height:calc(100vh - 56px);display:flex;width:100%;flex-direction:column;align-items:center;overflow-y:auto;padding-left:1.5rem;padding-right:1.5rem;scroll-padding-top:0.75rem;">
+
+  <!-- B: Container query wrapper -->
+  <div class="@container w-full md:max-w-3xl" style="width:100%;max-width:48rem;container-type:inline-size;">
+
+    <!-- C: Full-height relative column -->
+    <div class="relative h-full w-full flex-col" style="position:relative;height:100%;width:100%;display:flex;flex-direction:column;">
+
+      <!-- D: Thread content with vertical gap -->
+      <div class="flex h-fit min-h-full shrink-0 flex-col gap-6 pt-6 text-sm" style="display:flex;height:fit-content;min-height:100%;flex-shrink:0;flex-direction:column;gap:1.5rem;padding-top:1.5rem;font-size:0.875rem;line-height:1.25rem;">
+
+        <!-- E: Message group -->
+        <div class="flex flex-col gap-4" style="display:flex;flex-direction:column;gap:1rem;">
+
+          <!-- === MESSAGE PAIR 1 === -->
+          <!-- F: Message pair wrapper -->
+          <div class="flex flex-col gap-2" style="display:flex;flex-direction:column;gap:0.5rem;">
+
+            <!-- G: User message 1 — TARGET for selector div.self-end.bg-token-bg-tertiary -->
+            <div class="self-end bg-token-bg-tertiary text-token-text-primary relative group py-2 scroll-mt-2 rounded-2xl" style="align-self:flex-end;background-color:#2f2f2f;color:#ececec;position:relative;padding-top:0.5rem;padding-bottom:0.5rem;scroll-margin-top:0.5rem;border-radius:1rem;max-width:var(--user-chat-width,70%);">
+
+              <!-- H: Clickable text wrapper with line-clamp -->
+              <div class="group max-w-full line-clamp-5 overflow-hidden" role="button" style="-webkit-line-clamp:5;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;max-width:100%;">
+
+                <!-- I: Text container -->
+                <div class="px-4 text-sm break-words whitespace-pre-wrap" style="padding-left:1rem;padding-right:1rem;font-size:0.875rem;line-height:1.25rem;overflow-wrap:break-word;white-space:pre-wrap;">Build a REST API for a todo app with Express</div>
+
+              </div>
+
+              <!-- J: Hover-reveal action buttons -->
+              <div class="absolute inset-x-0 -bottom-4 flex justify-end gap-1 pointer-events-none" style="position:absolute;left:0;right:0;bottom:-1rem;display:flex;justify-content:flex-end;gap:0.25rem;pointer-events:none;opacity:0;">
+                <button style="pointer-events:auto;background:#2f2f2f;border:1px solid #444654;border-radius:6px;color:#8e8ea0;font-size:12px;padding:2px 6px;cursor:pointer;" title="Copy">&#128203;</button>
+                <button style="pointer-events:auto;background:#2f2f2f;border:1px solid #444654;border-radius:6px;color:#8e8ea0;font-size:12px;padding:2px 6px;cursor:pointer;" title="Edit">&#9998;</button>
+              </div>
+
+            </div>
+
+            <!-- AI response 1 -->
+            <div class="flex flex-col gap-2 items-start border-b border-token-border-default pb-4" style="display:flex;flex-direction:column;gap:0.5rem;align-items:flex-start;border-bottom:1px solid #444654;padding-bottom:1rem;">
+              <div class="markdown prose dark-prose-invert w-full" style="line-height:1.75;max-width:65ch;color:#d1d5db;width:100%;">
+                <p style="margin-bottom:0.75em;">I'll create the Express API with CRUD endpoints for managing todos. Here's the project structure:</p>
+                <pre style="background:#1a1a2e;border-radius:8px;padding:12px;overflow-x:auto;font-size:13px;margin-bottom:0.75em;"><code>todo-api/
+  ├── server.js
+  ├── routes/
+  │   └── todos.js
+  ├── middleware/
+  │   └── errorHandler.js
+  └── package.json</code></pre>
+                <p style="margin-bottom:0.75em;">The API includes <strong>GET</strong>, <strong>POST</strong>, <strong>PUT</strong>, and <strong>DELETE</strong> endpoints with proper error handling and status codes.</p>
+              </div>
+              <div class="flex gap-2" style="display:flex;gap:0.5rem;opacity:0;">
+                <button style="background:none;border:none;color:#8e8ea0;font-size:12px;cursor:pointer;" title="Copy">&#128203;</button>
+                <button style="background:none;border:none;color:#8e8ea0;font-size:12px;cursor:pointer;" title="Good response">&#128077;</button>
+                <button style="background:none;border:none;color:#8e8ea0;font-size:12px;cursor:pointer;" title="Bad response">&#128078;</button>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- === MESSAGE PAIR 2 === -->
+          <!-- F: Message pair wrapper -->
+          <div class="flex flex-col gap-2" style="display:flex;flex-direction:column;gap:0.5rem;">
+
+            <!-- G: User message 2 — TARGET for selector div.self-end.bg-token-bg-tertiary -->
+            <div class="self-end bg-token-bg-tertiary text-token-text-primary relative group py-2 scroll-mt-2 rounded-2xl" style="align-self:flex-end;background-color:#2f2f2f;color:#ececec;position:relative;padding-top:0.5rem;padding-bottom:0.5rem;scroll-margin-top:0.5rem;border-radius:1rem;max-width:var(--user-chat-width,70%);">
+
+              <!-- H: Clickable text wrapper with line-clamp -->
+              <div class="group max-w-full line-clamp-5 overflow-hidden" role="button" style="-webkit-line-clamp:5;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;max-width:100%;">
+
+                <!-- I: Text container -->
+                <div class="px-4 text-sm break-words whitespace-pre-wrap" style="padding-left:1rem;padding-right:1rem;font-size:0.875rem;line-height:1.25rem;overflow-wrap:break-word;white-space:pre-wrap;">Add input validation with Joi</div>
+
+              </div>
+
+              <!-- J: Hover-reveal action buttons -->
+              <div class="absolute inset-x-0 -bottom-4 flex justify-end gap-1 pointer-events-none" style="position:absolute;left:0;right:0;bottom:-1rem;display:flex;justify-content:flex-end;gap:0.25rem;pointer-events:none;opacity:0;">
+                <button style="pointer-events:auto;background:#2f2f2f;border:1px solid #444654;border-radius:6px;color:#8e8ea0;font-size:12px;padding:2px 6px;cursor:pointer;" title="Copy">&#128203;</button>
+                <button style="pointer-events:auto;background:#2f2f2f;border:1px solid #444654;border-radius:6px;color:#8e8ea0;font-size:12px;padding:2px 6px;cursor:pointer;" title="Edit">&#9998;</button>
+              </div>
+
+            </div>
+
+            <!-- AI response 2 -->
+            <div class="flex flex-col gap-2 items-start pt-4" style="display:flex;flex-direction:column;gap:0.5rem;align-items:flex-start;padding-top:1rem;">
+              <div class="markdown prose dark-prose-invert w-full" style="line-height:1.75;max-width:65ch;color:#d1d5db;width:100%;">
+                <p style="margin-bottom:0.75em;">Here's the validation middleware using Joi schemas:</p>
+                <pre style="background:#1a1a2e;border-radius:8px;padding:12px;overflow-x:auto;font-size:13px;margin-bottom:0.75em;"><code>const Joi = require('joi');
+
+const todoSchema = Joi.object({
+  title: Joi.string().min(1).max(200).required(),
+  completed: Joi.boolean().default(false)
+});</code></pre>
+                <p style="margin-bottom:0.75em;">Each route now validates the request body before processing. Invalid requests return a <strong>400</strong> status with descriptive error messages.</p>
+              </div>
+              <div class="flex gap-2" style="display:flex;gap:0.5rem;opacity:0;">
+                <button style="background:none;border:none;color:#8e8ea0;font-size:12px;cursor:pointer;" title="Copy">&#128203;</button>
+                <button style="background:none;border:none;color:#8e8ea0;font-size:12px;cursor:pointer;" title="Good response">&#128077;</button>
+                <button style="background:none;border:none;color:#8e8ea0;font-size:12px;cursor:pointer;" title="Bad response">&#128078;</button>
+              </div>
+            </div>
+
+          </div>
+
+        </div><!-- /E: Message group -->
+
+      </div><!-- /D: Thread content -->
+
+    </div><!-- /C: Full-height column -->
+
+  </div><!-- /B: Container query wrapper -->
+
+</div><!-- /A: Scroll container -->
+
 </body>
 </html>

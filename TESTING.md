@@ -63,7 +63,7 @@ tests/
     ├── base44.html            # Base44 (app.base44.com)
     ├── emergent.html          # Emergent (app.emergent.sh)
     ├── perplexity.html        # Perplexity (perplexity.ai)
-    └── firebase.html          # Firebase Studio (studio.firebase.google.com)
+    └── firebase.html          # Firebase Studio (cloudworkstations.dev workspace iframe)
 ```
 
 **Note:** Claude Chat and Claude Code share the hostname `claude.ai` but have completely different DOM structures. Same for ChatGPT and Codex (both on `chatgpt.com`). The userscript uses a fallback chain — it tries the primary selectors first, and if those find 0 results, it tries the fallback selectors. The mock pages are designed so that each variant only matches its own fallback path.
@@ -123,6 +123,7 @@ function detectSite() {
     if (hostname.includes('emergent.sh')) return SITE.EMERGENT;
     if (hostname.includes('perplexity.ai')) return SITE.PERPLEXITY;
     if (hostname.includes('studio.firebase.google.com')) return SITE.FIREBASE_STUDIO;
+    if (hostname.includes('cloudworkstations.dev') && hostname.includes('firebase-studio-')) return SITE.FIREBASE_STUDIO;
     return null;
 }
 ```
@@ -257,7 +258,7 @@ const browser = await chromium.launch({
 
 ### Page Reuse Strategy
 
-The test runner creates **one browser context and one page**, then reuses that page for all 9 platform tests. Between tests:
+The test runner creates **one browser context and one page**, then reuses that page for all 14 platform tests. Between tests:
 
 1. `page.unrouteAll()` — clears the previous platform's route interceptor
 2. `setupRouteForPlatform()` — registers a new route for the next platform
@@ -334,8 +335,8 @@ The `PLATFORMS` array in `test-all-platforms.js` is the **central configuration*
 | V0 | v0.app | v0.html | 3 | rgb(255, 255, 255) | ▽ `\u25BD` |
 | Base44 | app.base44.com | base44.html | 3 | rgb(99, 102, 241) | ⬢ `\u2B22` |
 | Emergent | app.emergent.sh | emergent.html | 3 | rgb(16, 185, 129) | e |
-| Perplexity | www.perplexity.ai | perplexity.html | 3 | rgb(32, 184, 205) | ⦾ `\u29BE` |
-| Firebase Studio | studio.firebase.google.com | firebase.html | 3 | rgb(255, 166, 17) | ✦ `\u2726` |
+| Perplexity | www.perplexity.ai | perplexity.html | 3 | rgb(32, 184, 205) | ✳ `\u2733` |
+| Firebase Studio | 6000-firebase-studio-12345.cluster-abc123.cloudworkstations.dev | firebase.html | 3 | rgb(255, 166, 17) | ✦ `\u2726` |
 
 **Note on sub-platforms:** Claude and Claude Code both use `hostname: 'claude.ai'` but different mock files and different `pathname` values. The userscript treats both as `SITE.CLAUDE` and uses a fallback chain — primary selectors (`data-testid="user-human-turn"`) work for Claude Chat, and the fallback (`div.bg-bg-200.rounded-lg` inside `.items-end`) catches Claude Code. The mock pages are designed so that Claude Chat's mock has `data-testid` attributes (primary selectors match) and Claude Code's mock does NOT have `data-testid` attributes (primary selectors find 0, fallback activates).
 
@@ -563,60 +564,55 @@ Below is the exact mapping between what the userscript looks for and what each m
 
 #### Replit (`replit.html`)
 
-**Userscript selectors:**
-1. `[data-testid*="user-message"]` ← PRIMARY
-2. `[data-message-role="user"]`
-3. `[data-role="user"]`
-4. `[role="log"]` → child divs → filtered by computed style (margin-left: auto, non-transparent bg)
+**Userscript selectors (confirmed via live DOM inspection, Feb 2026):**
+1. `[data-cy="user-message"]` (Cypress test attribute) ← PRIMARY
+2. `[data-event-type="user-message"]` (alternate attribute on same element)
+3. `[class*="EventRenderer"][class*="userMessage"]` with text-content dedup
+4. `[role="log"]` → child divs → filtered by computed style
 5. `textarea[placeholder*="message"]` → parent chain → filtered by alignment heuristics
 
 **Mock page provides:**
 ```html
-<div class="workspace css-abc123">
-  <div class="chat-pane css-ghi789">
-    <div role="log" aria-label="Chat history">
-      <!-- User: data-testid contains "user-message" (matches selector 1) -->
-      <div data-testid="user-message-0" class="css-jkl012" style="margin-left:auto;...">
-        <p>User question text here</p>
-      </div>
-      <!-- Assistant: data-testid contains "assistant-message" (NOT matched) -->
-      <div data-testid="assistant-message-0" class="css-mno345" style="...">
-        <p>Assistant response here</p>
-      </div>
+<div class="EventRenderer-module_RTGgnG_userMessage">
+  <div data-cy="user-message" data-event-type="user-message">
+    <div class="UserMessage-module_wrN9Aa_userMessageSurfaceShades">
+      <span><div class="UserMessage-module_wrN9Aa_userMessageSurfaceShades">
+        <div class="rendered-markdown"><p>User question text here</p></div>
+      </div></span>
     </div>
-    <textarea placeholder="Message Replit AI..."></textarea>
   </div>
 </div>
 ```
 
-**Important:** Replit uses Emotion CSS-in-JS, so real class names are hashed (e.g., `css-1p94a1z`) and change every deployment. The mock uses fake hash classes (`css-abc123`) to simulate this. The selectors deliberately avoid relying on class names — they use `data-testid`, ARIA roles, and computed styles instead.
+**Why it works:** The primary selector `[data-cy="user-message"]` targets exactly one element per user message (element B in the A→H hierarchy). Replit uses `data-cy` (Cypress), NOT `data-testid`. The mock replicates the real nested structure with CSS module classes that caused the v7.5 3x duplication bug — see TROUBLESHOOTING.md for the full diagnosis.
+
+**Important:** Replit uses Emotion CSS-in-JS with hashed class names that change every deployment. The selectors use `data-cy` attributes (stable) rather than class names (unstable).
 
 ---
 
 #### V0 (`v0.html`)
 
-**Userscript selectors:**
-1. `[data-role="user"]` ← PRIMARY
-2. `[data-message-role="user"]`, `[data-message-author-role="user"]`, `[data-message-author="user"]`, `[data-testid*="user-message"]`, `[data-sender="user"]`
-3. `[data-message-id]` → filtered by alignment classes
-4. `[class*="bg-muted"][class*="rounded"]` with `ml-auto` → excluding buttons
-5. Chat container scan (`.justify-end`, `.self-end`, `.ml-auto`) → excluding buttons, icons, copy widgets
+**Userscript selectors (confirmed via live DOM inspection, Feb 2026):**
+1. `[data-testid="message"]` → filtered by `origin-right` + `items-end` classes ← PRIMARY
+2. `[data-testid="message"]` → filtered by `items-end` only (fallback if `origin-right` changes)
+3. `bg-v0-gray-200` / `group/message-bubble` bubble class
+4. `role="listitem"` with alignment check
 
 **Mock page provides:**
 ```html
-<div class="messages" role="log">
-  <div data-role="user" class="flex justify-end">
-    <div class="bg-muted rounded-xl ml-auto">
-      <p>User question text here</p>
-    </div>
+<div data-testid="message" class="origin-right items-end" role="listitem">
+  <div class="group/message-bubble bg-v0-gray-200">
+    <p>User question text here</p>
   </div>
-  <div data-role="assistant" class="flex justify-start">
-    <div class="prose"><p>Assistant response here</p></div>
+</div>
+<div data-testid="message" class="origin-left items-start" role="listitem">
+  <div class="group/message-bubble">
+    <p>Assistant response here</p>
   </div>
 </div>
 ```
 
-**Why it works:** The mock uses `data-role="user"` which matches the primary selector. The copy buttons use `self-end copy-icon` classes and are `<button>` elements, so they're excluded by the `isNotButton` filter in fallbacks. **Note:** The live V0 site may not use `data-role` — see TROUBLESHOOTING.md for the ongoing investigation.
+**Why it works:** V0 uses `data-testid="message"` on ALL messages (user + AI). User messages have `origin-right items-end` classes; AI messages have `origin-left items-start`. The primary selector queries all `[data-testid="message"]` elements then filters by both class names to select only user messages.
 
 ---
 
@@ -646,28 +642,29 @@ Below is the exact mapping between what the userscript looks for and what each m
 
 #### Emergent (`emergent.html`)
 
-**Userscript selectors:**
-1. `[data-testid^="user-message"]` + nesting dedup ← PRIMARY
-2. `[id^="user-"]`
-3. `[id^="user-task"]`, `[data-testid*="user-task"]`
-4. `[class*="rounded-br-none"]` (user bubble style)
-5. `[class*="items-end"]` with background color
+**Userscript selectors (confirmed via live DOM inspection, Feb 2026):**
+1. `[data-testid^="user-message"]` + innermost nesting dedup ← PRIMARY
+2. `[id^="user-task"]` — ID-based fallback
+
+**Note:** Broad fallbacks 3-7 (`rounded-br-none`, `items-end`, `text-wrap`, `select-text`, chat container scan) were removed in v7.7 because they matched AI agent status messages during virtual scroll recycling. Only the primary selector and ID fallback remain.
 
 **Mock page provides:**
 ```html
-<div data-testid="user-message-task-1" id="user-task-1" class="mb-4">
-  <div class="prose prose-invert max-w-none">
-    <p>User question text here</p>
+<div data-testid="virtuoso-scroller" style="...">
+  <div data-testid="user-message-user-task-1" id="user-task-1" class="mb-4">
+    <div class="prose prose-invert max-w-none">
+      <p>User question text here</p>
+    </div>
   </div>
-</div>
-<div data-testid="assistant-message-1" class="mb-4">
-  <div class="prose prose-invert max-w-none">
-    <p>Assistant response here</p>
+  <div data-testid="assistant-message-1" class="mb-4">
+    <div class="prose prose-invert max-w-none">
+      <p>Assistant response here</p>
+    </div>
   </div>
 </div>
 ```
 
-**Why it works:** The `^=` (starts-with) selector matches `data-testid="user-message-task-1"` but not `data-testid="assistant-message-1"`. The `id="user-task-1"` also matches fallback `[id^="user-"]` as a backup.
+**Why it works:** The `^=` (starts-with) selector matches `data-testid="user-message-user-task-1"` but not `data-testid="assistant-message-1"`. Emergent uses virtuoso virtual scrolling — only visible DOM elements exist — so the script uses accumulative scanning and scroll-through collection (see CHANGELOG v7.7).
 
 ---
 
@@ -822,7 +819,7 @@ You can temporarily add logging to the userscript and it will be captured by Pla
 page.on('console', msg => console.log(`  [browser] ${msg.text()}`));
 ```
 
-This will print all `console.log()` output from the userscript to your terminal, including the "AI Conversation Navigator v7.0 loaded for Claude!" message and any debug logging you add.
+This will print all `console.log()` output from the userscript to your terminal, including the "AI Conversation Navigator v7.8 loaded for Claude!" message and any debug logging you add.
 
 ### Taking screenshots
 
