@@ -17,6 +17,7 @@
 // @match        https://www.perplexity.ai/*
 // @match        https://perplexity.ai/*
 // @match        https://studio.firebase.google.com/*
+// @include      https://firebase-studio-*.cloudworkstations.dev/*
 // @grant        GM_addStyle
 // ==/UserScript==
 
@@ -62,12 +63,24 @@
         if (hostname.includes('emergent.sh')) return SITE.EMERGENT;
         if (hostname.includes('perplexity.ai')) return SITE.PERPLEXITY;
         if (hostname.includes('studio.firebase.google.com')) return SITE.FIREBASE_STUDIO;
+        // Firebase Studio renders chat in a cross-origin iframe on cloudworkstations.dev
+        if (hostname.includes('cloudworkstations.dev') && hostname.includes('firebase-studio')) return SITE.FIREBASE_STUDIO;
         return null;
     }
 
     const currentSite = detectSite();
     if (!currentSite) {
         console.log('AI Conversation Navigator: Unknown site, exiting.');
+        return;
+    }
+
+    // Firebase Studio: the top frame (studio.firebase.google.com) is just a shell with ~157 elements.
+    // The actual chat lives in a cross-origin iframe (firebase-studio-*.cloudworkstations.dev).
+    // Skip the top frame — the script will also run inside the iframe via @include.
+    if (currentSite === SITE.FIREBASE_STUDIO &&
+        window === window.top &&
+        window.location.hostname.includes('studio.firebase.google.com')) {
+        console.log('AI Conversation Navigator: Firebase Studio top frame (shell), deferring to iframe instance.');
         return;
     }
 
@@ -1244,47 +1257,30 @@
             // Class names look like: _chatMessage_qlgvg_30 _isUser_qlgvg_47
             // The hash suffix changes per build, but _isUser_ and _chatMessage_ stay consistent.
             //
-            // IMPORTANT: Firebase Studio renders its chat UI inside an iframe.
-            // The top frame has only ~157 DOM elements (the shell). The actual chat
-            // messages live inside a same-origin iframe. We must search all accessible
-            // iframes to find the chat content.
+            // Architecture: Firebase Studio top frame (studio.firebase.google.com) is a shell.
+            // Chat lives in a cross-origin iframe (firebase-studio-*.cloudworkstations.dev).
+            // The top frame is skipped at init; this code runs inside the iframe via @include.
 
-            // Collect all documents to search: main document + same-origin iframes
-            var fbDocs = [document];
-            try {
-                var iframes = document.querySelectorAll('iframe');
-                for (var fi = 0; fi < iframes.length; fi++) {
-                    try {
-                        var iframeDoc = iframes[fi].contentDocument;
-                        if (iframeDoc) fbDocs.push(iframeDoc);
-                    } catch (e) { /* cross-origin iframe, skip */ }
-                }
-            } catch (e) { /* iframe access error, skip */ }
+            // Primary: elements with both _chatMessage_ and _isUser_ in class
+            var firebaseMessages = document.querySelectorAll('[class*="_chatMessage_"][class*="_isUser_"]');
+            messages = Array.from(firebaseMessages).filter(function(el) {
+                return el.textContent.trim().length > 0;
+            });
 
-            // Search each document for user messages
-            for (var di = 0; di < fbDocs.length; di++) {
-                var fbDoc = fbDocs[di];
-
-                // Primary: elements with both _chatMessage_ and _isUser_ in class
-                var firebaseMessages = fbDoc.querySelectorAll('[class*="_chatMessage_"][class*="_isUser_"]');
+            // Fallback 1: _isUser_ alone
+            if (messages.length === 0) {
+                firebaseMessages = document.querySelectorAll('[class*="_isUser_"]');
                 messages = Array.from(firebaseMessages).filter(function(el) {
                     return el.textContent.trim().length > 0;
                 });
-                if (messages.length > 0) break;
+            }
 
-                // Fallback 1: _isUser_ alone
-                firebaseMessages = fbDoc.querySelectorAll('[class*="_isUser_"]');
-                messages = Array.from(firebaseMessages).filter(function(el) {
-                    return el.textContent.trim().length > 0;
-                });
-                if (messages.length > 0) break;
-
-                // Fallback 2: _chatMessage_ class (all messages), then filter by _isUser_
-                var allFirebaseMessages = fbDoc.querySelectorAll('[class*="_chatMessage_"]');
+            // Fallback 2: _chatMessage_ class (all messages), then filter by _isUser_
+            if (messages.length === 0) {
+                var allFirebaseMessages = document.querySelectorAll('[class*="_chatMessage_"]');
                 messages = Array.from(allFirebaseMessages).filter(function(el) {
                     return (el.className || '').includes('_isUser_') || (el.className || '').includes('isUser');
                 });
-                if (messages.length > 0) break;
             }
         }
 

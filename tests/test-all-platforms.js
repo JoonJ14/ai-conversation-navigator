@@ -209,8 +209,8 @@ const PLATFORMS = [
     {
         name: 'Firebase Studio',
         mockFile: 'firebase.html',
-        hostname: 'studio.firebase.google.com',
-        pathname: '/project/test',
+        hostname: 'firebase-studio-12345.cluster-abc123.cloudworkstations.dev',
+        pathname: '/',
         expectedMessages: 3,
         expectedAccent: 'rgb(255, 166, 17)',    // #FFA611
         expectedIcon: '\u2726',                 // ✦
