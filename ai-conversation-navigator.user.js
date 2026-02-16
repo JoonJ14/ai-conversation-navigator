@@ -1246,6 +1246,8 @@
             // Message body text is inside _messageBody_ nested elements.
 
             // Primary: elements with both _chatMessage_ and _isUser_ in class
+            console.log('AI Nav DEBUG: window===window.top: ' + (window === window.top) + ', href: ' + window.location.href);
+            console.log('AI Nav DEBUG: total DOM elements: ' + document.querySelectorAll('*').length);
             var firebaseMessages = document.querySelectorAll('[class*="_chatMessage_"][class*="_isUser_"]');
             console.log('AI Nav DEBUG: Firebase primary selector found ' + firebaseMessages.length + ' elements');
             firebaseMessages.forEach(function(el, i) {
