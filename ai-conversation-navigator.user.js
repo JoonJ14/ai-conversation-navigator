@@ -1243,53 +1243,48 @@
             // Firebase Studio (Gemini): CSS module classes with _isUser_ pattern.
             // Class names look like: _chatMessage_qlgvg_30 _isUser_qlgvg_47
             // The hash suffix changes per build, but _isUser_ and _chatMessage_ stay consistent.
-            // Message body text is inside _messageBody_ nested elements.
+            //
+            // IMPORTANT: Firebase Studio renders its chat UI inside an iframe.
+            // The top frame has only ~157 DOM elements (the shell). The actual chat
+            // messages live inside a same-origin iframe. We must search all accessible
+            // iframes to find the chat content.
 
-            // Primary: elements with both _chatMessage_ and _isUser_ in class
-            console.log('AI Nav DEBUG: window===window.top: ' + (window === window.top) + ', href: ' + window.location.href);
-            console.log('AI Nav DEBUG: total DOM elements: ' + document.querySelectorAll('*').length);
-            var firebaseMessages = document.querySelectorAll('[class*="_chatMessage_"][class*="_isUser_"]');
-            console.log('AI Nav DEBUG: Firebase primary selector found ' + firebaseMessages.length + ' elements');
-            firebaseMessages.forEach(function(el, i) {
-                console.log('AI Nav DEBUG:   [' + i + '] className=' + el.className);
-                console.log('AI Nav DEBUG:   [' + i + '] textContent length=' + (el.textContent || '').trim().length);
-                console.log('AI Nav DEBUG:   [' + i + '] text preview="' + (el.textContent || '').trim().substring(0, 80) + '"');
-            });
-            messages = Array.from(firebaseMessages).filter(function(el) {
-                return el.textContent.trim().length > 0;
-            });
-            console.log('AI Nav DEBUG: After text filter: ' + messages.length + ' messages');
+            // Collect all documents to search: main document + same-origin iframes
+            var fbDocs = [document];
+            try {
+                var iframes = document.querySelectorAll('iframe');
+                for (var fi = 0; fi < iframes.length; fi++) {
+                    try {
+                        var iframeDoc = iframes[fi].contentDocument;
+                        if (iframeDoc) fbDocs.push(iframeDoc);
+                    } catch (e) { /* cross-origin iframe, skip */ }
+                }
+            } catch (e) { /* iframe access error, skip */ }
 
-            // Fallback 1: _isUser_ alone
-            if (messages.length === 0) {
-                firebaseMessages = document.querySelectorAll('[class*="_isUser_"]');
+            // Search each document for user messages
+            for (var di = 0; di < fbDocs.length; di++) {
+                var fbDoc = fbDocs[di];
+
+                // Primary: elements with both _chatMessage_ and _isUser_ in class
+                var firebaseMessages = fbDoc.querySelectorAll('[class*="_chatMessage_"][class*="_isUser_"]');
                 messages = Array.from(firebaseMessages).filter(function(el) {
                     return el.textContent.trim().length > 0;
                 });
-            }
+                if (messages.length > 0) break;
 
-            // Fallback 2: _chatMessage_ class (all messages), then filter by _isUser_
-            if (messages.length === 0) {
-                var allFirebaseMessages = document.querySelectorAll('[class*="_chatMessage_"]');
+                // Fallback 1: _isUser_ alone
+                firebaseMessages = fbDoc.querySelectorAll('[class*="_isUser_"]');
+                messages = Array.from(firebaseMessages).filter(function(el) {
+                    return el.textContent.trim().length > 0;
+                });
+                if (messages.length > 0) break;
+
+                // Fallback 2: _chatMessage_ class (all messages), then filter by _isUser_
+                var allFirebaseMessages = fbDoc.querySelectorAll('[class*="_chatMessage_"]');
                 messages = Array.from(allFirebaseMessages).filter(function(el) {
                     return (el.className || '').includes('_isUser_') || (el.className || '').includes('isUser');
                 });
-            }
-
-            // Fallback 3: look for isUser (camelCase, no underscores) pattern
-            if (messages.length === 0) {
-                messages = document.querySelectorAll('[class*="isUser"]');
-            }
-
-            // Fallback 4: right-aligned messages in chat area
-            if (messages.length === 0) {
-                var fbChat = document.querySelector('[class*="_chatContainer_"], [class*="_chat_"], [role="log"]');
-                if (fbChat) {
-                    messages = Array.from(fbChat.querySelectorAll('[class*="_messageBody_"]')).filter(function(el) {
-                        var parent = el.closest('[class*="_isUser_"]') || el.closest('[class*="isUser"]');
-                        return parent && el.textContent.trim().length > 0;
-                    });
-                }
+                if (messages.length > 0) break;
             }
         }
 
@@ -1305,13 +1300,9 @@
 
         const list = document.getElementById('ai-nav-list');
         const stats = document.getElementById('ai-nav-stats');
-        if (!list || !stats) {
-            console.log('AI Nav DEBUG: scanConversation - list or stats missing! list=' + !!list + ' stats=' + !!stats);
-            return;
-        }
+        if (!list || !stats) return;
 
         const messages = getUserMessages();
-        console.log('AI Nav DEBUG: scanConversation got ' + messages.length + ' messages, isVirtualScroll=' + isVirtualScroll + ', list.isConnected=' + list.isConnected);
 
         // Virtual scroll platforms: accumulate messages across scans.
         // Only visible messages exist in the DOM at any time (virtuoso recycles the rest).
