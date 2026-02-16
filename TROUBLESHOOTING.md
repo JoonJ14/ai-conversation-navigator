@@ -10,6 +10,103 @@ If you run into a problem, check here first — you might find we've already sol
 
 The following platform-specific issues have been identified through live site testing, diagnosed via live DOM inspection, and fully resolved.
 
+### Firebase Studio — 0 Questions Detected (Cross-Origin Iframe Injection)
+
+**Versions affected:** v7.1 – v7.7
+**Fixed in:** v7.8
+**Platforms:** Firebase Studio (`studio.firebase.google.com`)
+
+This is the only platform where the bug was NOT a selector/DOM issue — the selectors were correct the entire time. The problem was that the script was injecting into the wrong iframe.
+
+#### What It Looked Like
+
+The navigator showed 0 questions on Firebase Studio. Retry scans at 5s, 10s, 20s all found nothing. But `document.querySelectorAll('[class*="_chatMessage_"]')` manually run in the correct iframe context returned 4 elements. After Bug 1 and Bug 2 were fixed, the script loaded but showed two duplicate buttons (one on the app preview, one on the chat panel).
+
+#### Firebase Studio's Iframe Architecture
+
+Unlike every other supported platform (which renders chat in the top-level document), Firebase Studio uses a multi-layer iframe architecture:
+
+```
+Top frame: studio.firebase.google.com (shell — no chat UI)
+  ├── iframe: 6000-firebase-studio-{id}.cluster-{hash}.cloudworkstations.dev/capra/...
+  │     └── THE WORKSPACE: app preview (left) + chat panel (right) + all _chatMessage_ elements
+  │     └── nested iframe: same cloudworkstations.dev domain, path "/"
+  │           └── APP PREVIEW: renders the user's generated app
+  ├── iframe: firebase-studio-{id}.cluster-{hash}.cloudworkstations.dev/env/msg/...
+  │     └── MESSAGING ENDPOINT: blank page for internal communication, no chat
+  └── iframe: accounts.google.com/... (Google auth)
+```
+
+Key distinctions between iframes:
+- **Workspace** (port-prefixed, `/capra/` path): Has the chat UI and all `_chatMessage_` elements
+- **App preview** (same domain, `/` path): Renders the user's app, no chat
+- **Messaging endpoint** (non-port-prefixed, `/env/msg` path): Internal plumbing, blank page
+- **Port-prefixed** means `6000-firebase-studio-...` — the `6000-` maps to the workspace port
+
+#### Root Cause — Three Bugs
+
+**Bug 1: Tampermonkey `@include` pattern too narrow.** The v7.7 rule `@include https://firebase-studio-*.cloudworkstations.dev/*` required the hostname to START with `firebase-studio-`. The workspace hostname starts with `6000-firebase-studio-` — the port prefix `6000-` caused a mismatch. Tampermonkey confirmed: "no script running" on the workspace URL.
+
+**Bug 2: `detectSite()` regex too strict.** Even after fixing injection, `/^firebase-studio-/.test(hostname)` anchored at string start rejected `6000-firebase-studio-...` because it starts with `6000-`.
+
+**Bug 3: Broader `@include` injected into ALL cloudworkstations.dev iframes.** After fixing Bugs 1 and 2 with `@include https://*cloudworkstations.dev/*`, the script ran in the workspace (correct) but ALSO in the app preview iframe and the /env/msg iframe (wrong), creating duplicate buttons.
+
+#### How Each Bug Was Fixed
+
+**Bug 1 fix — Broad `@include` + `@match`:**
+```
+// @match        https://*.cloudworkstations.dev/*
+// @include      https://*cloudworkstations.dev/*
+```
+Both are needed: `@match` alone wasn't matching in Tampermonkey testing (possibly due to very long subdomain strings), while `@include` glob matching works reliably.
+
+**Bug 2 fix — `includes()` instead of start-anchored regex:**
+```javascript
+// Before: /^firebase-studio-/.test(hostname)
+// After:  hostname.includes('firebase-studio-')
+```
+
+**Bug 3 fix — `/capra/` path check to select only the workspace iframe:**
+```javascript
+if (currentSite === SITE.FIREBASE_STUDIO &&
+    window.location.hostname.includes('cloudworkstations.dev') &&
+    !window.location.pathname.startsWith('/capra/')) {
+    return; // Skip non-workspace iframes
+}
+```
+The workspace always uses `/capra/` in its path. The app preview uses `/`, and the messaging endpoint uses `/env/msg`. This single check handles all unwanted iframes.
+
+#### What Was Tried and Didn't Fully Work
+
+1. **Skipping `/env/` paths only** — Fixed the messaging endpoint duplicate but not the app preview duplicate (app preview is at `/`, not `/env/`).
+
+2. **Checking `window.parent !== window.top`** — Works when accessing via `studio.firebase.google.com` (app preview is a sub-sub-iframe, so `parent !== top`). Fails when navigating directly to the `6000-` URL (workspace becomes top frame, app preview is a direct child, so `parent === top`).
+
+3. **Checking `window._aiNavAlreadyLoaded` in DevTools** — Always returned `undefined` even when the script was running. This is because Tampermonkey's `@grant GM_addStyle` creates a sandbox where the script's `window` is a proxy, not the page's real `window`. Console log messages are the reliable indicator, not `window` property checks.
+
+#### Diagnostic Tips
+
+If Firebase Studio stops working in a future version:
+
+1. **Check iframe structure:** Run from the top frame console:
+   ```javascript
+   document.querySelectorAll('iframe').forEach((f, i) => console.log(i, f.src || 'no-src'))
+   ```
+   Identify which iframe has the chat (look for `_chatMessage_` elements in each context).
+
+2. **Check script injection:** Navigate directly to the workspace iframe URL. Check Tampermonkey icon — does it show 1 script running? Check console for "AI Conversation Navigator v7.8 loaded" message.
+
+3. **Check path discrimination:** If the workspace path changes from `/capra/` to something else, the non-workspace skip logic will incorrectly filter out the workspace. Update the `startsWith('/capra/')` check.
+
+4. **Check hostname pattern:** If Firebase Studio changes their subdomain format (e.g., removes port prefix or changes `firebase-studio-` to something else), `detectSite()` won't match. Update the `hostname.includes('firebase-studio-')` check.
+
+5. **Console logs to look for:**
+   - `"Firebase Studio top frame (shell), deferring to iframe instance."` — top frame correctly skipped
+   - `"Firebase Studio non-workspace iframe (/env/msg), skipping."` — non-workspace iframe correctly skipped
+   - `"AI Conversation Navigator v7.8 loaded for Firebase Studio!"` — script running in workspace
+
+---
+
 ### Replit — Questions repeating 3 times per single question
 
 **Versions affected:** v7.1 – v7.5
@@ -541,7 +638,7 @@ document.querySelectorAll('[data-testid]').forEach(el => console.log(el.getAttri
 | Base44 | `[id^="message-"]` filtered by `.justify-end` | `.bg-slate-200.rounded-xl` |
 | Emergent | `[data-testid^="user-message"]` + innermost dedup | `[id^="user-task"]` (broad fallbacks 3-7 removed — see v7.7 changelog) |
 | Perplexity | `.group\/query` | `.group\/title .select-text` |
-| Firebase Studio | `[class*="_isUser_"]` | `[class*="_chatMessage_"]` filtered by `_isUser_` |
+| Firebase Studio | `[class*="_isUser_"]` (in workspace iframe only — see Firebase section) | `[class*="_chatMessage_"]` filtered by `_isUser_` |
 
 ---
 

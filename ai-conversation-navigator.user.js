@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v7.7
+// @name         AI Conversation Navigator v7.8
 // @namespace    http://tampermonkey.net/
-// @version      7.7
+// @version      7.8
 // @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Codex, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -17,7 +17,8 @@
 // @match        https://www.perplexity.ai/*
 // @match        https://perplexity.ai/*
 // @match        https://studio.firebase.google.com/*
-// @include      https://firebase-studio-*.cloudworkstations.dev/*
+// @match        https://*.cloudworkstations.dev/*
+// @include      https://*cloudworkstations.dev/*
 // @grant        GM_addStyle
 // ==/UserScript==
 
@@ -63,8 +64,11 @@
         if (hostname.includes('emergent.sh')) return SITE.EMERGENT;
         if (hostname.includes('perplexity.ai')) return SITE.PERPLEXITY;
         if (hostname.includes('studio.firebase.google.com')) return SITE.FIREBASE_STUDIO;
-        // Firebase Studio renders chat in a cross-origin iframe on cloudworkstations.dev
-        if (hostname.includes('cloudworkstations.dev') && hostname.includes('firebase-studio')) return SITE.FIREBASE_STUDIO;
+        // Firebase Studio renders chat in a cross-origin iframe on cloudworkstations.dev.
+        // The actual workspace (with chat) uses a port-prefixed hostname like
+        // "6000-firebase-studio-...cloudworkstations.dev". Match any hostname containing
+        // both "firebase-studio-" and "cloudworkstations.dev".
+        if (hostname.includes('cloudworkstations.dev') && hostname.includes('firebase-studio-')) return SITE.FIREBASE_STUDIO;
         return null;
     }
 
@@ -81,6 +85,16 @@
         window === window.top &&
         window.location.hostname.includes('studio.firebase.google.com')) {
         console.log('AI Conversation Navigator: Firebase Studio top frame (shell), deferring to iframe instance.');
+        return;
+    }
+
+    // Firebase Studio: multiple iframes on cloudworkstations.dev match our @include rule
+    // (workspace, app preview, /env/msg endpoint). Only the workspace has the chat UI,
+    // and its path always starts with /capra/. Skip all other cloudworkstations.dev iframes.
+    if (currentSite === SITE.FIREBASE_STUDIO &&
+        window.location.hostname.includes('cloudworkstations.dev') &&
+        !window.location.pathname.startsWith('/capra/')) {
+        console.log('AI Conversation Navigator: Firebase Studio non-workspace iframe (' + window.location.pathname + '), skipping.');
         return;
     }
 
@@ -1497,5 +1511,5 @@
         });
     }
 
-    console.log('AI Conversation Navigator v7.7 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
+    console.log('AI Conversation Navigator v7.8 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
 })();

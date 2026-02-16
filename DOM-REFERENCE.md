@@ -556,16 +556,37 @@ A: div._pane._rxexh_5[style="flex: 0.3 1 0; min-width: 300px;"]  (right pane in 
 
 AI messages have `_chatMessage._qlgvg_30` but NOT `_isUser_`. Last message may also have `_isLastInThread._qlgvg_55`.
 
+### Iframe Architecture (Critical — Unique to Firebase Studio)
+
+Firebase Studio is the only supported platform where the chat UI lives in a cross-origin iframe, not the top-level document. The script must inject into the correct iframe to find chat elements.
+
+```
+Top frame: studio.firebase.google.com (shell, ~157 elements, no chat)
+  ├── iframe #1: 6000-firebase-studio-{id}.cluster-{hash}.cloudworkstations.dev/capra/...
+  │     ← WORKSPACE: contains the chat UI above + app preview. THIS IS WHERE THE SCRIPT RUNS.
+  │     └── nested iframe: same 6000-firebase-studio-... domain, path "/"
+  │           ← APP PREVIEW: renders user's generated app (e.g., FridgeChef). Script must NOT run here.
+  ├── iframe #2: firebase-studio-{id}.cluster-{hash}.cloudworkstations.dev/env/msg/...
+  │     ← MESSAGING ENDPOINT: blank internal page. Script must NOT run here.
+  └── iframe #3: accounts.google.com/... (auth)
+```
+
+**Port-prefixed hostnames:** The workspace uses `6000-firebase-studio-...` where `6000-` is a port prefix. The messaging endpoint uses `firebase-studio-...` (no port prefix). The `@include` pattern must match both, and the script uses `/capra/` path check to select only the workspace.
+
+**Hostname format:** `{port}-firebase-studio-{numeric-id}.cluster-{alphanum-hash}.cloudworkstations.dev`
+
 ### Notes
 - CSS module classes with dynamic hash suffixes (e.g., `_qlgvg_30`) — change between deployments
 - We match the stable prefix part: `_chatMessage_` and `_isUser_`
-- Split layout: preview iframe on left, chat on right
+- Split layout: preview iframe on left, chat on right (within the workspace iframe)
 - Messages use CSS Grid layout (`grid-template-columns: 32px 1fr`) with avatar + body
 - Multiple fallbacks: `_isUser_` alone, then `_chatMessage_` filtered by `_isUser_`/`isUser`
 - `_scrollEdges._tclap_1` on the scroll container provides fade effects
+- Tampermonkey `@grant GM_addStyle` creates a sandbox — `window._aiNavAlreadyLoaded` is NOT visible from DevTools console. Use console log messages to verify script execution.
 
 ### Debugging History
 - v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Real structure uses split pane layout with _rxexh hash classes, deep wrapper hierarchy (_chatbox → _chatMessages → _chatHistoryContainer → _chatHistory), grid-based message layout with avatar/body/attachments columns, and _scrollEdges fade effects.
+- v7.8 (Feb 16, 2026): Discovered multi-iframe architecture. Script was injecting into wrong iframes (messaging endpoint and app preview instead of workspace). Fixed with broader `@include` pattern, `hostname.includes()` instead of start-anchored regex in `detectSite()`, and `/capra/` path discrimination to select only the workspace iframe. Three bugs fixed: (1) `@include` pattern too narrow for port-prefixed hostnames, (2) `detectSite()` regex rejecting port-prefixed hostnames, (3) script running in app preview and messaging iframes creating duplicate buttons.
 
 ---
 
