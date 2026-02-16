@@ -1,55 +1,122 @@
 <!DOCTYPE html>
 <html><head><title>V0 Mock</title></head>
 <body>
-<!-- V0 (Vercel): Chat on left side, preview on right.
-     User messages use data-role="user" attribute.
-     Copy buttons and icons should NOT be detected as messages. -->
-<div class="flex h-screen">
-  <div class="chat-panel" style="width:40%;">
-    <div class="messages" role="log">
-      <!-- User message with data-role -->
-      <div data-role="user" class="flex justify-end" style="display:flex;justify-content:flex-end;">
-        <div class="bg-muted rounded-xl ml-auto" style="padding:12px;border-radius:12px;background:#2a2a2a;">
-          <p>Build me a modern portfolio website with dark mode</p>
+<!-- V0 (Vercel): Real DOM structure (from live site inspection, Feb 2026).
+     All messages use data-testid="message" with role="listitem".
+     User messages: origin-right items-end (right-aligned).
+     AI messages: origin-left items-start (left-aligned).
+     Each message has a unique id (hash string).
+
+     DOM nesting per user message:
+       A: div.flex.items-end.sm:max-w-[...].max-w-[90%].origin-top-right (outer alignment wrapper)
+         B: div[data-testid="message"][role="listitem"].origin-right.items-end (message container — correct target)
+           C: div.flex.items-center.gap-1.5.pr-1 (avatar/link row)
+             D: a[data-state="closed"] href="/chat/api/profile/redirect?..." (user profile link)
+           E: div.flex.items-end (bubble wrapper, transform: none; opacity: 1)
+             F: div.border.border-v0-gray-200.bg-v0-gray-200.group/message-bubble.rounded-[16px] (the bubble)
+               G: svg (small decoration icon)
+               H: div.prose.prose-sm.prose-gray.min-w-0.break-words.w-full (text container)
+                 I: <p> actual question text </p>
+
+     Why we chose [data-testid="message"] filtered by origin-right + items-end:
+     - data-testid="message" exists on ALL messages (user + AI)
+     - origin-right + items-end distinguishes user messages (right-aligned)
+     - Previous selectors (data-role="user", data-message-role="user", etc.) don't exist in V0's DOM
+     - V0 doesn't use justify-end/self-end/ml-auto that our fallbacks relied on
+     - The message bubble uses bg-v0-gray-200, not bg-muted/bg-secondary
+
+     Copy buttons and SVG icons should NOT be detected as messages. -->
+<div class="flex h-screen" style="display:flex;height:100vh;">
+  <div style="width:40%;height:100vh;display:flex;flex-direction:column;background:#0a0a0a;">
+    <div style="overflow-y:auto;flex:1;padding:16px;">
+
+      <!-- User message 1 -->
+      <div class="flex items-end sm:max-w-[min(fit-content,80%)] max-w-[90%] origin-top-right" style="display:flex;align-items:flex-end;max-width:90%;transform-origin:top right;margin-left:auto;">
+        <div id="B5MFcT4HjyB5mw53ouX4mT897ZCGZdsm" class="@container/message group w-full break-words flex flex-col gap-2 origin-right items-end" data-testid="message" role="listitem" data-touch-active="false" style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;width:100%;">
+          <div class="flex items-center gap-1.5 pr-1" style="display:flex;align-items:center;gap:6px;padding-right:4px;">
+            <a data-state="closed" href="/chat/api/profile/redirect?" style="color:#888;font-size:12px;">User</a>
+          </div>
+          <div class="flex items-end sm:max-w-[min(fit-content,80%)] max-w-[90%] origin-top-right" style="display:flex;align-items:flex-end;transform:none;opacity:1;">
+            <div class="border border-v0-gray-200 text-left relative rounded-[16px] -1.5 min-w-0 break-words group/message-bubble bg-v0-gray-200" style="border:1px solid #333;border-radius:16px;padding:12px;background:#2a2a2a;">
+              <svg class="absolute -top-[6px] right-0" width="16" height="16" style="position:absolute;top:-6px;right:0;width:16px;height:16px;fill:#333;">
+                <path d="M2 6L8 2L14 6"></path>
+              </svg>
+              <div class="prose prose-sm prose-gray min-w-0 break-words w-full" style="color:#e0e0e0;">
+                <p>Build me a modern portfolio website with dark mode</p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
+
+      <!-- AI message 1 (should NOT be detected) -->
+      <div class="flex items-start max-w-full origin-top-left" style="display:flex;align-items:flex-start;max-width:100%;transform-origin:top left;">
+        <div class="@container/message group w-full break-words flex flex-col gap-2 origin-left items-start" data-testid="message" role="listitem" style="display:flex;flex-direction:column;align-items:flex-start;gap:8px;width:100%;">
+          <div class="prose prose-sm" style="color:#e0e0e0;padding:12px;">
+            <p>I'll create a sleek portfolio with dark mode support using Next.js and Tailwind CSS...</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- User message 2 -->
+      <div class="flex items-end sm:max-w-[min(fit-content,80%)] max-w-[90%] origin-top-right" style="display:flex;align-items:flex-end;max-width:90%;transform-origin:top right;margin-left:auto;">
+        <div id="K9xPmR2wT5nQjL8vY3cF" class="@container/message group w-full break-words flex flex-col gap-2 origin-right items-end" data-testid="message" role="listitem" data-touch-active="false" style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;width:100%;">
+          <div class="flex items-center gap-1.5 pr-1" style="display:flex;align-items:center;gap:6px;padding-right:4px;">
+            <a data-state="closed" href="/chat/api/profile/redirect?" style="color:#888;font-size:12px;">User</a>
+          </div>
+          <div class="flex items-end sm:max-w-[min(fit-content,80%)] max-w-[90%] origin-top-right" style="display:flex;align-items:flex-end;transform:none;opacity:1;">
+            <div class="border border-v0-gray-200 text-left relative rounded-[16px] -1.5 min-w-0 break-words group/message-bubble bg-v0-gray-200" style="border:1px solid #333;border-radius:16px;padding:12px;background:#2a2a2a;">
+              <svg class="absolute -top-[6px] right-0" width="16" height="16" style="position:absolute;top:-6px;right:0;width:16px;height:16px;fill:#333;">
+                <path d="M2 6L8 2L14 6"></path>
+              </svg>
+              <div class="prose prose-sm prose-gray min-w-0 break-words w-full" style="color:#e0e0e0;">
+                <p>Add an animated hero section with a typing effect</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI message 2 (should NOT be detected) -->
+      <div class="flex items-start max-w-full origin-top-left" style="display:flex;align-items:flex-start;max-width:100%;transform-origin:top left;">
+        <div class="@container/message group w-full break-words flex flex-col gap-2 origin-left items-start" data-testid="message" role="listitem" style="display:flex;flex-direction:column;align-items:flex-start;gap:8px;width:100%;">
+          <div class="prose prose-sm" style="color:#e0e0e0;padding:12px;">
+            <p>I've added a typewriter animation to the hero section with smooth transitions...</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- User message 3 -->
+      <div class="flex items-end sm:max-w-[min(fit-content,80%)] max-w-[90%] origin-top-right" style="display:flex;align-items:flex-end;max-width:90%;transform-origin:top right;margin-left:auto;">
+        <div id="W7hNbG4rX2mKpJ9sA1dE" class="@container/message group w-full break-words flex flex-col gap-2 origin-right items-end" data-testid="message" role="listitem" data-touch-active="false" style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;width:100%;">
+          <div class="flex items-center gap-1.5 pr-1" style="display:flex;align-items:center;gap:6px;padding-right:4px;">
+            <a data-state="closed" href="/chat/api/profile/redirect?" style="color:#888;font-size:12px;">User</a>
+          </div>
+          <div class="flex items-end sm:max-w-[min(fit-content,80%)] max-w-[90%] origin-top-right" style="display:flex;align-items:flex-end;transform:none;opacity:1;">
+            <div class="border border-v0-gray-200 text-left relative rounded-[16px] -1.5 min-w-0 break-words group/message-bubble bg-v0-gray-200" style="border:1px solid #333;border-radius:16px;padding:12px;background:#2a2a2a;">
+              <svg class="absolute -top-[6px] right-0" width="16" height="16" style="position:absolute;top:-6px;right:0;width:16px;height:16px;fill:#333;">
+                <path d="M2 6L8 2L14 6"></path>
+              </svg>
+              <div class="prose prose-sm prose-gray min-w-0 break-words w-full" style="color:#e0e0e0;">
+                <p>Make it responsive and add a contact form with validation</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Copy button (should NOT be detected) -->
-      <button class="self-end copy-icon" style="width:24px;height:24px;">
-        <svg><rect/></svg>
-      </button>
-      <!-- Assistant message -->
-      <div data-role="assistant" class="flex justify-start">
-        <div class="prose">
-          <p>I'll create a sleek portfolio with dark mode support...</p>
-        </div>
+      <div class="flex items-center gap-1 justify-end flex-row-reverse mr-[-2px]" style="display:flex;justify-content:flex-end;">
+        <button style="width:24px;height:24px;background:none;border:none;">
+          <svg><rect/></svg>
+        </button>
       </div>
-      <!-- User message -->
-      <div data-role="user" class="flex justify-end" style="display:flex;justify-content:flex-end;">
-        <div class="bg-muted rounded-xl ml-auto" style="padding:12px;border-radius:12px;background:#2a2a2a;">
-          <p>Add an animated hero section with a typing effect</p>
-        </div>
-      </div>
-      <!-- Copy button (should NOT be detected) -->
-      <button class="self-end copy-icon" style="width:24px;height:24px;">
-        <svg><rect/></svg>
-      </button>
-      <!-- Assistant message -->
-      <div data-role="assistant" class="flex justify-start">
-        <div class="prose">
-          <p>I've added a typewriter animation to the hero section...</p>
-        </div>
-      </div>
-      <!-- User message -->
-      <div data-role="user" class="flex justify-end" style="display:flex;justify-content:flex-end;">
-        <div class="bg-muted rounded-xl ml-auto" style="padding:12px;border-radius:12px;background:#2a2a2a;">
-          <p>Make it responsive and add a contact form with validation</p>
-        </div>
-      </div>
+
     </div>
-    <textarea placeholder="Message v0..."></textarea>
+    <textarea placeholder="Ask v0 a question..." style="width:100%;padding:12px;background:#1a1a1a;color:#fff;border:1px solid #333;"></textarea>
   </div>
-  <div class="preview-panel" style="width:60%;">
-    <iframe style="width:100%;height:100%;"></iframe>
+  <div class="preview-panel" style="width:60%;background:#111;">
+    <iframe style="width:100%;height:100%;border:none;"></iframe>
   </div>
 </div>
 </body>

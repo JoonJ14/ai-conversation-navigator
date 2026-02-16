@@ -6,94 +6,101 @@ If you run into a problem, check here first — you might find we've already sol
 
 ---
 
-## Known Issues Under Investigation
+## Recently Fixed Issues
 
-The following platform-specific issues have been identified through live site testing and are **not yet fully resolved**. Initial fixes have been applied (v7.4/v7.5), but these need further iteration with live DOM inspection. A dedicated feature branch will be opened to address each one.
+The following platform-specific issues have been identified through live site testing, diagnosed via live DOM inspection, and fully resolved.
 
 ### Replit — Questions repeating 3 times per single question
 
 **Versions affected:** v7.1 – v7.5
-**Status:** Partially mitigated, not fully resolved
+**Fixed in:** v7.6
 **Platforms:** Replit (`replit.com`)
 
-#### What It Looks Like
-When you ask a single question on Replit, the navigation panel shows that question listed 3 times instead of once. Every question appears as 3 identical entries.
+#### What It Looked Like
+When you ask a single question on Replit, the navigation panel showed that question listed 3 times instead of once. Every question appeared as 3 identical entries. Clicking each duplicate highlighted a different nesting level: the outer event area, the middle surface wrapper, and the inner bubble.
 
-#### What We've Tried So Far
-- **v7.4:** Added nesting deduplication — keeps only innermost elements when `data-testid*="user-message"` matches at multiple nesting levels (outer wrapper, middle container, inner text div). This filters out cases where a parent contains a child that also matches.
-- **v7.5:** Added text-content deduplication — after nesting dedup, a second pass removes elements with identical `textContent.trim()`, keeping only the first element for each unique text string. This handles cases where sibling/cousin elements at the same nesting level match the selector with the same content.
+#### Root Cause (Confirmed via Live DOM Inspection)
+Replit uses `data-cy` (Cypress test attribute), **NOT `data-testid`**. All four primary selectors (`data-testid`, `data-message-role`, `data-role`, `data-author`) returned 0 results. The dedup logic only ran when primaries returned results, so it was skipped entirely. Then Fallback 1 (`[class*="userMessage"]`) matched 3 nested elements per message:
 
-#### Why It's Not Fully Fixed
-The text-content dedup is a mitigation, not a root-cause fix. The actual issue is that we don't know the exact DOM structure Replit uses for user messages. The selectors were built from research (Replit engineering blog, Emotion CSS-in-JS analysis) rather than live DOM inspection. Possible root causes:
-- Replit may have 3 separate elements per message that all match `[data-testid*="user-message"]` but are siblings (not nested), so nesting dedup doesn't help
-- The primary selector may be matching 0 elements, and a fallback (ARIA roles, computed styles) is returning 3x results per message
-- Replit's Emotion CSS-in-JS hash classes may have changed, causing unexpected selector matches
+```
+A: div.EventRenderer-module_RTGgnG_userMessage       ← match 1 (outer)
+  B: div[data-cy="user-message"]                     ← correct target (no match)
+    C: div.UserMessage-module_wrN9Aa_userMessageSurfaceShades  ← match 2 (middle)
+      D: span
+        E: div.UserMessage-module_wrN9Aa_userMessageSurfaceShades  ← match 3 (inner)
+```
 
-#### What's Needed
-Live DOM inspection on Replit to:
-1. Check if `data-testid*="user-message"` attributes exist at all
-2. If they do, examine the nesting structure (are 3 elements matching per message? nested or sibling?)
-3. If they don't, determine which fallback is activating and why it returns 3x
-4. Build a more accurate mock page based on real DOM structure
+#### How It Was Fixed
+Changed primary selector to `[data-cy="user-message"]` which targets element B — exactly one per user message. Updated mock test page to match real DOM structure. See CHANGELOG v7.6 for full details.
+
+Also fixed: Ghost notch button not appearing on first page load (boundary detection Strategy 2 had the same wrong `data-testid` selector).
 
 ---
 
 ### V0 — No questions detected
 
 **Versions affected:** v7.1 – v7.5
-**Status:** Selectors expanded but not confirmed working
+**Fixed in:** v7.7
 **Platforms:** V0 (`v0.app`)
 
-#### What It Looks Like
-The navigation panel shows "0 questions found" on V0, even when multiple questions have been asked in the chat.
+#### What It Looked Like
+The navigation panel showed "0 questions found" on V0, even when multiple questions had been asked. The ghost notch button was also invisible until a page refresh.
 
-#### What We've Tried So Far
-- **v7.1:** Added `[data-role="user"]`, `[data-message-role="user"]`, `[data-message-author-role="user"]` as primary selectors
-- **v7.5:** Added `[data-message-author="user"]`, `[data-testid*="user-message"]`, `[data-sender="user"]`, and a new `[data-message-id]` + alignment fallback
-- **v7.1–v7.5:** 5 structural fallbacks (bg-muted bubbles, chat containers, text-wrap divs, Tailwind alignment classes, scrollable container scanning)
+#### Root Cause (Confirmed via Live DOM Inspection)
+ALL 6 primary selectors were guesses that don't exist in V0's DOM:
+- `[data-role="user"]`, `[data-message-role="user"]`, `[data-message-author-role="user"]`, `[data-message-author="user"]`, `[data-sender="user"]` — none of these attributes exist
+- `[data-testid*="user-message"]` — actual value is `"message"` (no "user" in it)
 
-#### Why It's Not Fully Fixed
-All primary selectors and all 5 fallbacks are returning 0 results on the live V0 site. This strongly suggests V0's actual DOM structure is significantly different from what we assumed. V0 is built by Vercel using their Geist design system, and may use:
-- Completely different data attributes than the standard `data-role`/`data-message-*` patterns
-- Server-rendered components that don't use Tailwind alignment classes in the expected way
-- A custom chat component structure that doesn't match any of our heuristic patterns
+ALL 6 fallbacks also failed because V0 uses different alignment classes than expected:
+- V0 uses `items-end`, `origin-right` — NOT `justify-end`, `self-end`, `ml-auto`
+- V0 uses `bg-v0-gray-200` — NOT `bg-muted`, `bg-secondary`
+- V0 uses regular `id` attribute with hash — NOT `[data-message-id]`
 
-#### What's Needed
-Live DOM inspection on V0 to:
-1. Right-click a user message → Inspect to see the actual element structure
-2. Walk up the DOM tree to identify distinguishing attributes (data-*, class, ARIA roles)
-3. Identify how user messages differ from assistant messages in the DOM
-4. Update selectors and mock page to match the real structure
+The button was invisible because boundary detection Strategy 2 used `[data-role="user"]` (which doesn't exist) → no boundary found → `getChatBoundaryX()` returns null → button stays hidden.
+
+#### How It Was Fixed
+Replaced entire V0 selector chain with `[data-testid="message"]` filtered by `origin-right` + `items-end` classes. V0 uses `data-testid="message"` on ALL messages (user + AI), with user messages having `origin-right items-end` and AI messages having `origin-left items-start`. Updated boundary detection selector to `[data-testid="message"]`. Rewrote mock test page. See CHANGELOG v7.7 and DOM-REFERENCE.md for full details.
 
 ---
 
-### Emergent — Button invisible until hover + panel spacing issue
+### Emergent — Button invisible + questions changing on scroll + no questions on initial load
 
 **Versions affected:** v7.1 – v7.5
-**Status:** Opacity increased but visibility still insufficient; panel spacing issue unresolved
+**Fixed in:** v7.7
 **Platforms:** Emergent (`app.emergent.sh`)
 
-#### What It Looks Like
-Two issues on Emergent:
+#### What It Looked Like
+Four related issues on Emergent:
 
-1. **Button visibility:** The ghost notch button at the chat/workspace boundary is invisible until the user hovers their mouse over the area. They can find it by sweeping their mouse along the boundary, but there's no visual indication that the button exists.
+1. **Button invisible:** The ghost notch button never appeared (stayed at `opacity: 0` indefinitely)
+2. **Questions changing on scroll:** As the user scrolled through the chat, different items appeared in the navigation panel — many were AI agent status messages, not user questions
+3. **No questions on initial load:** 0 questions detected until the user manually scrolled all the way up
+4. **"No messages found" persisting:** The placeholder text stayed visible above actual questions
 
-2. **Panel expanding with space:** When the navigation panel opens, there appears to be a spacing/gap issue with how it expands relative to the chat boundary.
+#### Root Causes (Confirmed via Live DOM Inspection)
 
-#### What We've Tried So Far
-- **v7.1:** Set resting opacity to 0.35 (same as all left-chat platforms)
-- **v7.3:** Moved button 14px left to avoid Emergent's thick scrollbar overlap
-- **v7.5:** Increased Emergent-specific resting opacity from 0.35 to 0.75 and resting width from 8px to 14px
+**Button invisible (two root causes):**
+1. Boundary detection failure: `_walkUpToChatContainer()` walks up from a message element checking `width < 65% viewport`. Emergent's `div.absolute.inset-0` inherits full viewport width from its flex parent → fails the width check → `getChatBoundaryX()` returns null → `.ai-nav-positioned` never added → opacity stays at 0.
+2. Periodic interval reset: The 3-second boundary check was resetting `_lastBoundaryX = null` before each poll, preventing the two-consecutive-stable-polls requirement from ever being met.
 
-#### Why It's Not Fully Fixed
-The opacity increase may still not be sufficient against Emergent's specific dark background color. The ghost notch design (thin vertical strip) may be fundamentally hard to see on Emergent's interface regardless of opacity. The panel spacing issue hasn't been diagnosed yet — it may be related to the scrollbar offset, the boundary detection coordinates, or the panel's clip-path animation.
+**Questions changing on scroll:** Emergent uses **virtuoso virtual scrolling** — only DOM elements currently visible in the viewport exist in the DOM. The periodic re-scan cleared and rebuilt the question list each time. When user messages scrolled out of view, the primary selector returned 0, and broad fallback selectors matched AI agent content instead.
 
-#### What's Needed
-Live testing on Emergent to:
-1. Verify the new 0.75 opacity / 14px width is visible (or determine what opacity/width is needed)
-2. Consider whether Emergent needs a different button design entirely (e.g., always-visible icon instead of ghost notch)
-3. Diagnose the panel spacing issue — inspect the panel position vs chat boundary, check if the 14px scrollbar offset is correct
-4. Test panel open/close animation for visual artifacts
+**No questions on initial load:** Emergent loads scrolled to the bottom. Messages at the top of the conversation don't exist in the DOM until the user scrolls up to them.
+
+**"No messages found" persisting:** Empty message element had `id="ai-nav-empty"` but removal code used class selector `.ai-nav-empty`.
+
+#### How It Was Fixed
+
+1. **Emergent-specific boundary detection:** Find `[data-testid="virtuoso-scroller"]` directly and use its `rect.right` as the chat boundary (bypasses `_walkUpToChatContainer` entirely)
+2. **Removed periodic `_lastBoundaryX = null` reset** to allow late-rendering platforms to achieve stable polls
+3. **Reverted opacity band-aid** (previous session had bumped to 0.75 / 14px width) back to standard 0.35 / 8px since actual root cause is now fixed
+4. **Removed broad fallback selectors 3-7** (rounded-br-none, items-end, text-wrap, etc.) that were matching AI agent content
+5. **Added accumulative scanning** for virtual scroll platforms — messages collected across scans without clearing, deduplication by text key
+6. **Added scroll-through collection on panel open** — programmatically scrolls the virtuoso container from top to bottom in 250ms steps, scanning at each position, then restores original scroll position
+7. **Stale DOM reference handling** — checks `msg.isConnected` before scrolling; re-searches DOM for matching text if the element was recycled by virtuoso
+8. **Fixed ID vs class selector** — changed `.ai-nav-empty` to `getElementById('ai-nav-empty')`
+
+Rewrote mock test page and created detailed DOM-REFERENCE.md entry. See CHANGELOG v7.7 for full technical details.
 
 ---
 
@@ -529,10 +536,10 @@ document.querySelectorAll('[data-testid]').forEach(el => console.log(el.getAttri
 | Gemini | `div.query-text` | `.query-text-line`, `p.query-text-line`, `[data-query-text]`, `.user-query` |
 | Bolt.new | `[data-message-id]` filtered by `self-end` | `_MarkdownContent_` inside `self-end`, `backdrop-blur` + `rounded` (bolt.diy), `ml-auto` rounded bubbles |
 | Lovable | `div[role="log"] .justify-end` | `bg-neutral-200.rounded-xl`, `ChatMessageContainer .justify-end`, `self-end[class*="bg-neutral"]` |
-| Replit | `[data-testid*="user-message"]` + dedup | `[data-message-role="user"]`, `[data-role="user"]`, ARIA roles, computed styles |
-| V0 | `[data-role="user"]` | `[data-message-author="user"]`, `[data-testid*="user-message"]`, `[data-message-id]` + alignment, Tailwind alignment fallbacks |
+| Replit | `[data-cy="user-message"]` | `[data-event-type="user-message"]`, `[class*="EventRenderer"][class*="userMessage"]`, class-based with dedup, ARIA roles |
+| V0 | `[data-testid="message"]` filtered by `origin-right` + `items-end` | `items-end` only, `bg-v0-gray-200` / `group/message-bubble`, `role="listitem"` + alignment |
 | Base44 | `[id^="message-"]` filtered by `.justify-end` | `.bg-slate-200.rounded-xl` |
-| Emergent | `[data-testid^="user-message"]` + dedup | `[id^="user-"]`, `rounded-br-none` (user bubble), `items-end` with background |
+| Emergent | `[data-testid^="user-message"]` + innermost dedup | `[id^="user-task"]` (broad fallbacks 3-7 removed — see v7.7 changelog) |
 | Perplexity | `.group\/query` | `.group\/title .select-text` |
 | Firebase Studio | `[class*="_isUser_"]` | `[class*="_chatMessage_"]` filtered by `_isUser_` |
 

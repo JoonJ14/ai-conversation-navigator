@@ -1,47 +1,175 @@
 <!DOCTYPE html>
 <html><head><title>Emergent Mock</title></head>
 <body>
-<!-- Emergent: User messages have data-testid="user-message-{id}".
-     Text content is inside nested div.prose elements.
-     Chat panel is on the left with workspace on the right. -->
-<div class="flex h-screen">
-  <div class="chat-panel" style="width:40%;">
-    <div class="messages-container" role="log">
-      <!-- User message with data-testid -->
-      <div data-testid="user-message-task-1" id="user-task-1" class="mb-4">
-        <div class="prose prose-invert max-w-none" style="padding:12px;">
-          <p>Build a real-time dashboard with WebSocket connections</p>
-        </div>
-      </div>
-      <!-- Assistant message -->
-      <div data-testid="assistant-message-1" class="mb-4">
-        <div class="prose prose-invert max-w-none">
-          <p>I'll set up the WebSocket dashboard with real-time data...</p>
-        </div>
-      </div>
-      <!-- User message -->
-      <div data-testid="user-message-task-2" id="user-task-2" class="mb-4">
-        <div class="prose prose-invert max-w-none" style="padding:12px;">
-          <p>Add authentication and role-based access control</p>
-        </div>
-      </div>
-      <!-- Assistant message -->
-      <div data-testid="assistant-message-2" class="mb-4">
-        <div class="prose prose-invert max-w-none">
-          <p>I've implemented JWT authentication with role-based access...</p>
-        </div>
-      </div>
-      <!-- User message -->
-      <div data-testid="user-message-task-3" id="user-task-3" class="mb-4">
-        <div class="prose prose-invert max-w-none" style="padding:12px;">
-          <p>Deploy to production with Docker and add monitoring</p>
+<!-- Emergent: Real DOM structure (from live site inspection, Feb 2026).
+     Uses virtuoso virtual scroller for the chat message list.
+     User messages: data-testid="user-message-user-task", id="user-task"
+     Chat is on the left, preview/workspace on the right.
+
+     DOM nesting per user message:
+       A: div[data-index="N"][data-item-index="N"][data-known-size="..."] (virtuoso item wrapper)
+         B: div.flex.justify-center.w-full.min-h-[1px] (centering)
+           C: div.w-full.hover:bg-rgba(...) (hover background)
+             D: div.mx-auto.px-4 (auto margin)
+               E: div#user-task[data-testid="user-message-user-task"].relative.group.flex.justify-center (OUR TARGET)
+                 F: div.my-4.group.flex.flex-col.space-y-[10px]...justify-end.items-end (alignment wrapper)
+                   G: div.px-4.py-1.rounded-xl.rounded-br-none.bg-[#273638] (the bubble)
+                     H: div.flex.items-start.gap-3 (content row)
+                       I: div.flex-1.min-w-0 (text wrapper)
+                         J: div.prose.prose-invert.max-w-none (prose container)
+                           K: div.my-1.overflow-hidden (font styling)
+                             L: div.text-wrap.break-words (text wrap)
+                               M: <p>actual text</p>
+
+     Why we chose [data-testid^="user-message"]:
+     - data-testid="user-message-user-task" is a clear, specific attribute
+     - Only exists on user messages (AI messages use different testid patterns)
+     - Deduplication filter (innermost only) prevents nested matches
+
+     Ghost notch boundary detection:
+     - Standard _walkUpToChatContainer FAILS because Emergent uses div.absolute.inset-0
+       which spans full viewport width, failing the width < 65% check
+     - Fix: Detect virtuoso scroller (data-testid="virtuoso-scroller") directly
+       and use its right edge as the chat boundary
+     - Emergent has a thick scrollbar at boundary — toggle offset by 14px -->
+<div class="flex h-screen" style="display:flex;height:100vh;">
+  <!-- Icon sidebar -->
+  <div style="width:40px;height:100vh;background:#111;display:flex;flex-direction:column;align-items:center;padding-top:16px;gap:16px;">
+    <div style="width:20px;height:20px;background:#333;border-radius:4px;"></div>
+    <div style="width:20px;height:20px;background:#333;border-radius:4px;"></div>
+    <div style="width:20px;height:20px;background:#333;border-radius:4px;"></div>
+  </div>
+
+  <!-- Chat panel (constrained by flex) -->
+  <div class="relative flex-1 w-full h-full overflow-hidden" style="position:relative;flex:1;width:100%;height:100vh;overflow:hidden;max-width:40%;">
+    <div class="absolute inset-0" style="position:absolute;inset:0;">
+      <div class="h-full overflow-x-hidden" data-testid="virtuoso-scroller" data-virtuoso-scroller="true" style="height:100%;outline:none;overflow-y:auto;position:relative;padding-top:0px;">
+        <div data-testid="virtuoso-item-list" style="box-sizing:border-box;padding-bottom:200px;padding-top:8px;">
+
+          <!-- User message 1 -->
+          <div data-index="0" data-item-index="0" data-known-size="266" style="overflow-anchor:none;">
+            <div class="flex justify-center w-full min-h-[1px]" style="display:flex;justify-content:center;width:100%;min-height:1px;">
+              <div class="w-full hover:bg-rgba(255,255,255,0.02)" style="width:100%;">
+                <div class="mx-auto px-4" style="margin:0 auto;padding:0 16px;">
+                  <div id="user-task" class="relative group flex justify-center mb-0" data-testid="user-message-user-task" style="position:relative;display:flex;justify-content:center;margin-bottom:0;">
+                    <div class="my-4 group flex flex-col space-y-[10px] w-full md:max-w-4xl justify-end items-end gap-1" style="display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-end;gap:4px;margin:16px 0;width:100%;">
+                      <div class="px-4 py-1 rounded-xl rounded-br-none overflow-hidden space-y-[10px] flex items-end bg-[#273638]" style="padding:4px 16px;border-radius:12px;border-bottom-right-radius:0;overflow:hidden;display:flex;align-items:flex-end;background:#273638;">
+                        <div class="flex items-start gap-3" style="display:flex;align-items:flex-start;gap:12px;">
+                          <div class="flex-1 min-w-0" style="flex:1;min-width:0;">
+                            <div class="prose prose-invert max-w-none" style="color:#e0e0e0;">
+                              <div class="my-1 overflow-hidden text-[#acfe3e6] font-['Inter'] text-[16px] leading-[28px] font-normal">
+                                <div class="text-wrap break-words font-normal text-[16px]">
+                                  <p class="my-4 font-['Inter']">Build a real-time dashboard with WebSocket connections</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI message (should NOT be detected) -->
+          <div data-index="1" data-item-index="1" data-known-size="400" style="overflow-anchor:none;">
+            <div class="flex justify-center w-full min-h-[1px]" style="display:flex;justify-content:center;width:100%;">
+              <div class="w-full" style="width:100%;">
+                <div class="mx-auto px-4" style="margin:0 auto;padding:0 16px;">
+                  <div data-testid="assistant-message-1" class="relative group flex justify-center mb-0" style="position:relative;display:flex;justify-content:center;">
+                    <div class="prose prose-invert max-w-none" style="color:#e0e0e0;padding:12px;">
+                      <p>I'll set up the WebSocket dashboard with real-time data streams...</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- User message 2 -->
+          <div data-index="2" data-item-index="2" data-known-size="250" style="overflow-anchor:none;">
+            <div class="flex justify-center w-full min-h-[1px]" style="display:flex;justify-content:center;width:100%;min-height:1px;">
+              <div class="w-full hover:bg-rgba(255,255,255,0.02)" style="width:100%;">
+                <div class="mx-auto px-4" style="margin:0 auto;padding:0 16px;">
+                  <div id="user-task-2" class="relative group flex justify-center mb-0" data-testid="user-message-task-2" style="position:relative;display:flex;justify-content:center;margin-bottom:0;">
+                    <div class="my-4 group flex flex-col space-y-[10px] w-full md:max-w-4xl justify-end items-end gap-1" style="display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-end;gap:4px;margin:16px 0;width:100%;">
+                      <div class="px-4 py-1 rounded-xl rounded-br-none overflow-hidden space-y-[10px] flex items-end bg-[#273638]" style="padding:4px 16px;border-radius:12px;border-bottom-right-radius:0;overflow:hidden;display:flex;align-items:flex-end;background:#273638;">
+                        <div class="flex items-start gap-3" style="display:flex;align-items:flex-start;gap:12px;">
+                          <div class="flex-1 min-w-0" style="flex:1;min-width:0;">
+                            <div class="prose prose-invert max-w-none" style="color:#e0e0e0;">
+                              <div class="my-1 overflow-hidden text-[#acfe3e6] font-['Inter'] text-[16px] leading-[28px] font-normal">
+                                <div class="text-wrap break-words font-normal text-[16px]">
+                                  <p class="my-4 font-['Inter']">Add authentication and role-based access control</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI message (should NOT be detected) -->
+          <div data-index="3" data-item-index="3" data-known-size="380" style="overflow-anchor:none;">
+            <div class="flex justify-center w-full min-h-[1px]" style="display:flex;justify-content:center;width:100%;">
+              <div class="w-full" style="width:100%;">
+                <div class="mx-auto px-4" style="margin:0 auto;padding:0 16px;">
+                  <div data-testid="assistant-message-2" class="relative group flex justify-center mb-0" style="position:relative;display:flex;justify-content:center;">
+                    <div class="prose prose-invert max-w-none" style="color:#e0e0e0;padding:12px;">
+                      <p>I've implemented JWT authentication with role-based access control...</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- User message 3 -->
+          <div data-index="4" data-item-index="4" data-known-size="230" style="overflow-anchor:none;">
+            <div class="flex justify-center w-full min-h-[1px]" style="display:flex;justify-content:center;width:100%;min-height:1px;">
+              <div class="w-full hover:bg-rgba(255,255,255,0.02)" style="width:100%;">
+                <div class="mx-auto px-4" style="margin:0 auto;padding:0 16px;">
+                  <div id="user-task-3" class="relative group flex justify-center mb-0" data-testid="user-message-task-3" style="position:relative;display:flex;justify-content:center;margin-bottom:0;">
+                    <div class="my-4 group flex flex-col space-y-[10px] w-full md:max-w-4xl justify-end items-end gap-1" style="display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-end;gap:4px;margin:16px 0;width:100%;">
+                      <div class="px-4 py-1 rounded-xl rounded-br-none overflow-hidden space-y-[10px] flex items-end bg-[#273638]" style="padding:4px 16px;border-radius:12px;border-bottom-right-radius:0;overflow:hidden;display:flex;align-items:flex-end;background:#273638;">
+                        <div class="flex items-start gap-3" style="display:flex;align-items:flex-start;gap:12px;">
+                          <div class="flex-1 min-w-0" style="flex:1;min-width:0;">
+                            <div class="prose prose-invert max-w-none" style="color:#e0e0e0;">
+                              <div class="my-1 overflow-hidden text-[#acfe3e6] font-['Inter'] text-[16px] leading-[28px] font-normal">
+                                <div class="text-wrap break-words font-normal text-[16px]">
+                                  <p class="my-4 font-['Inter']">Deploy to production with Docker and add monitoring</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
-    <textarea placeholder="Send a message..."></textarea>
+    <textarea placeholder="Send a message..." style="width:100%;padding:12px;background:#1a1a1a;color:#fff;border:1px solid #333;"></textarea>
   </div>
-  <div class="workspace-panel" style="width:60%;">
-    <iframe style="width:100%;height:100%;"></iframe>
+
+  <!-- Preview panel -->
+  <div class="workspace-panel" style="flex:1.5;background:#111;">
+    <div style="padding:12px;border-bottom:1px solid #333;display:flex;align-items:center;gap:8px;">
+      <span style="color:#fff;">App Preview</span>
+      <button style="background:#333;color:#fff;border:none;padding:4px 8px;border-radius:4px;">Share</button>
+    </div>
+    <iframe style="width:100%;height:calc(100% - 45px);border:none;"></iframe>
   </div>
 </div>
 </body>
