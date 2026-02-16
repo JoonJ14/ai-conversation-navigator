@@ -1247,9 +1247,16 @@
 
             // Primary: elements with both _chatMessage_ and _isUser_ in class
             var firebaseMessages = document.querySelectorAll('[class*="_chatMessage_"][class*="_isUser_"]');
+            console.log('AI Nav DEBUG: Firebase primary selector found ' + firebaseMessages.length + ' elements');
+            firebaseMessages.forEach(function(el, i) {
+                console.log('AI Nav DEBUG:   [' + i + '] className=' + el.className);
+                console.log('AI Nav DEBUG:   [' + i + '] textContent length=' + (el.textContent || '').trim().length);
+                console.log('AI Nav DEBUG:   [' + i + '] text preview="' + (el.textContent || '').trim().substring(0, 80) + '"');
+            });
             messages = Array.from(firebaseMessages).filter(function(el) {
                 return el.textContent.trim().length > 0;
             });
+            console.log('AI Nav DEBUG: After text filter: ' + messages.length + ' messages');
 
             // Fallback 1: _isUser_ alone
             if (messages.length === 0) {
@@ -1296,9 +1303,13 @@
 
         const list = document.getElementById('ai-nav-list');
         const stats = document.getElementById('ai-nav-stats');
-        if (!list || !stats) return;
+        if (!list || !stats) {
+            console.log('AI Nav DEBUG: scanConversation - list or stats missing! list=' + !!list + ' stats=' + !!stats);
+            return;
+        }
 
         const messages = getUserMessages();
+        console.log('AI Nav DEBUG: scanConversation got ' + messages.length + ' messages, isVirtualScroll=' + isVirtualScroll + ', list.isConnected=' + list.isConnected);
 
         // Virtual scroll platforms: accumulate messages across scans.
         // Only visible messages exist in the DOM at any time (virtuoso recycles the rest).
