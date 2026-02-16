@@ -105,14 +105,41 @@ Last updated: Feb 16, 2026 (v7.7)
 
 ## Lovable
 
+**Inspected:** Feb 16, 2026 (live site)
 **Selector:** `div[role="log"]` → query `.justify-end` children
 **Path guard:** Only active on `/projects/` routes
 
-### Notes
-- Uses ARIA `role="log"` container to scope the search
-- User messages are right-aligned (`.justify-end`) within the log container
-- Must filter by text content and exclude buttons/icons
-- Split-panel layout (chat left, preview right)
+### Real DOM Structure (A→L nesting)
+
+```
+A: div[position:absolute, width:100%, top:..., visibility:visible]  (positioned container — virtual scroll layout)
+  B: div#umsg_{id}[data-message-id="umsg_{id}"].flex-col.pb-2.group  (message wrapper)
+    C: div  (empty wrapper)
+      D: div.mb-2.flex.w-full.flex-col.items-center.text-muted-foreground.@container
+        E: div.relative
+          F: div.group.flex.flex-col.gap-2.items-end.pr-4  (alignment — items-end for user)
+            G: div.flex.w-full.items-start.gap-2.justify-end  (justify-end for user — OUR TARGET)
+              H: div.overflow-wrap-anywhere.max-w-[75%].rounded-[18px].bg-muted.px-4.py-2.5  (bubble)
+                I: div
+                  J: div.flex.flex-col.gap-2
+                    K: div.prose.prose-zinc.prose-markdown-mobile.max-w-full.PromptBox_customProse
+                      L: <p>actual text</p>
+            M: div.mt-1.flex.w-full.gap-1.justify-end  (action buttons — SVG icons, no text)
+```
+
+AI messages use `items-start` + `justify-start` instead, and `data-message-id="msg_{id}"` (no `umsg_` prefix).
+
+### Selector Rationale
+- `role="log"` scopes the search to the chat container
+- `.justify-end` distinguishes user messages (right-aligned) from AI (left-aligned)
+- `data-message-id="umsg_..."` could be used but `role="log"` + `.justify-end` works reliably
+- Action button rows also have `.justify-end` but contain only SVG icons (no text content), so text-content filtering excludes them
+- Split-panel layout: chat on left, preview iframe on right
+- Uses positioned containers (`position: absolute`) suggesting virtual scroll layout
+
+### Debugging History
+- v7.4: Original mock worked but was not based on live DOM
+- v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Discovered real structure uses positioned containers, `data-message-id` with `umsg_`/`msg_` prefixes, `@container` class, and `prose-zinc prose-markdown-mobile` text containers. Fixed mock action buttons from emoji text to SVG to prevent false `.justify-end` matches.
 
 ---
 
@@ -249,13 +276,37 @@ ALL 6 fallbacks also failed because V0 doesn't use:
 
 ## Base44
 
+**Inspected:** Feb 16, 2026 (live site)
 **Selector:** `[id^="message-"]` filtered by containing `.justify-end` child
 
-### Notes
-- Simple ID prefix pattern (`message-{uuid}`)
-- User messages contain a `.justify-end` div (right-aligned indicator)
-- AI messages have the same ID pattern but no `.justify-end`
-- Fallback uses `bg-slate-200.rounded-xl` bubble color
+### Real DOM Structure (A→J nesting)
+
+```
+A: div.flex-grow.overflow-y-auto.px-4.space-y-2.pb-4.scrollbar-auto-hide.relative.z-10  (scroll container)
+  B: div.relative
+    C: div#message-{uuid}.transition-opacity.duration-300  (message wrapper — matched by [id^="message-"])
+      D: div.mb-6.relative.flex.justify-end.items-start.gap-2  (alignment — justify-end for user)
+        E: div.text-sm.rounded-xl.p-3.bg-slate-200.max-w-[85%].min-w-[250px].relative  (bubble)
+          F: div
+            G: div.prose.dark:prose-invert.max-w-none.base44-markdown.relative  (text container)
+              H: <p>actual text</p>
+          I: div.text-xs.text-gray-400.mt-2.flex.items-center.justify-between  (metadata/timestamp)
+        J: span.relative.flex.overflow-hidden.rounded-full.h-6.w-6.shrink-0  (avatar)
+```
+
+AI messages use `justify-start` instead of `justify-end` in element D, and `bg-white` instead of `bg-slate-200` for the bubble.
+
+### Selector Rationale
+- `id="message-{uuid}"` exists on ALL messages (user + AI) — needs filtering
+- User messages have a `.justify-end` child div (right-aligned)
+- AI messages have `justify-start` (left-aligned)
+- Fallback uses `bg-slate-200.rounded-xl` bubble color (user-specific)
+- Parent container has `id="chat-panel-container"` and `scrollbar-auto-hide` class
+- Avatar spans (`rounded-full h-6 w-6`) appear after user bubble, before AI bubble
+
+### Debugging History
+- v7.4: Original mock worked but was not based on live DOM
+- v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Discovered real structure uses `transition-opacity duration-300`, `chat-panel-container` parent, `base44-markdown` text class, avatar spans with `rounded-full h-6 w-6`, and timestamp metadata rows.
 
 ---
 

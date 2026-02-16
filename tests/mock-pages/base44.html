@@ -1,57 +1,152 @@
 <!DOCTYPE html>
 <html><head><title>Base44 Mock</title></head>
 <body>
-<!-- Base44: Messages have id="message-{uuid}".
-     User messages contain a child div with justify-end (right-aligned).
-     AI messages do not have justify-end. -->
-<div class="flex h-screen">
-  <div class="chat-panel" style="width:45%;">
-    <div class="messages-container">
-      <!-- User message: id starts with "message-", has justify-end child -->
-      <div id="message-a1b2c3d4" class="mb-4">
-        <div class="flex justify-end">
-          <div class="bg-slate-200 rounded-xl" style="padding:12px;border-radius:12px;background:#e2e8f0;">
-            <p>Create an inventory management system with barcode scanning</p>
-          </div>
-        </div>
-      </div>
-      <!-- AI message: id starts with "message-", no justify-end child -->
-      <div id="message-e5f6g7h8" class="mb-4">
-        <div class="flex justify-start">
-          <div class="prose">
-            <p>I'll build the inventory system with barcode integration...</p>
-          </div>
-        </div>
-      </div>
-      <!-- User message -->
-      <div id="message-i9j0k1l2" class="mb-4">
-        <div class="flex justify-end">
-          <div class="bg-slate-200 rounded-xl" style="padding:12px;border-radius:12px;background:#e2e8f0;">
-            <p>Add export to CSV and real-time stock alerts</p>
-          </div>
-        </div>
-      </div>
-      <!-- AI message -->
-      <div id="message-m3n4o5p6" class="mb-4">
-        <div class="flex justify-start">
-          <div class="prose">
-            <p>I've added CSV export and stock alert features...</p>
-          </div>
-        </div>
-      </div>
-      <!-- User message -->
-      <div id="message-q7r8s9t0" class="mb-4">
-        <div class="flex justify-end">
-          <div class="bg-slate-200 rounded-xl" style="padding:12px;border-radius:12px;background:#e2e8f0;">
-            <p>Now add multi-warehouse support with transfer tracking</p>
-          </div>
-        </div>
-      </div>
-    </div>
-    <textarea placeholder="Type a message..."></textarea>
+<!-- Base44: Real DOM structure (from live site inspection, Feb 2026).
+     URL: app.base44.com/apps/{id}/editor/preview
+     Chat panel on the left, preview on the right.
+
+     Messages have id="message-{uuid}" with transition-opacity duration-300.
+     User messages have a child div with justify-end items-start gap-2.
+     AI messages do NOT have justify-end.
+     Bubble uses text-sm rounded-xl p-3 bg-slate-200 max-w-[85%] min-w-[250px].
+     Text inside prose dark:prose-invert max-w-none base44-markdown container.
+     Avatar span after bubble with rounded-full h-6 w-6.
+
+     DOM nesting per user message:
+       A: div.flex-grow.overflow-y-auto.px-4.space-y-2.pb-4.scrollbar-auto-hide.relative.z-10 (scroll container)
+         B: div.relative
+           C: div#message-{uuid}.transition-opacity.duration-300 (message wrapper — matched by [id^="message-"])
+             D: div.mb-6.relative.flex.justify-end.items-start.gap-2 (alignment — justify-end for user)
+               E: div.text-sm.rounded-xl.p-3.bg-slate-200.max-w-[85%].min-w-[250px].relative (bubble)
+                 F: div
+                   G: div.prose.dark:prose-invert.max-w-none.base44-markdown.relative (text container)
+                     H: <p>actual text</p>
+                 I: div.text-xs.text-gray-400.mt-2.flex.items-center.justify-between (metadata/timestamp)
+               J: span.relative.flex.overflow-hidden.rounded-full.h-6.w-6.shrink-0 (avatar)
+
+     AI messages use justify-start instead of justify-end in element D.
+
+     Why we use [id^="message-"] filtered by .justify-end child:
+     - id="message-{uuid}" exists on ALL messages (user + AI)
+     - User messages have a .justify-end child div (right-aligned)
+     - AI messages have justify-start (left-aligned)
+     - Fallback uses bg-slate-200.rounded-xl bubble color -->
+<div class="flex h-screen" style="display:flex;height:100vh;">
+  <!-- Icon sidebar -->
+  <div style="width:48px;height:100vh;background:#1a1a2e;display:flex;flex-direction:column;align-items:center;padding-top:16px;gap:12px;">
+    <div style="width:24px;height:24px;background:#6366f1;border-radius:6px;"></div>
+    <div style="width:24px;height:24px;background:#444;border-radius:6px;"></div>
+    <div style="width:24px;height:24px;background:#444;border-radius:6px;"></div>
   </div>
-  <div class="preview-panel" style="width:55%;">
-    <iframe style="width:100%;height:100%;"></iframe>
+
+  <!-- Chat panel -->
+  <div id="chat-panel-container" class="h-full flex-1 flex-col relative" style="width:40%;height:100vh;display:flex;flex-direction:column;position:relative;">
+    <div class="flex flex-col h-full w-full sm:bg-[#F8F8AFC] relative p-0" style="display:flex;flex-direction:column;height:100%;width:100%;position:relative;">
+      <div class="flex-grow overflow-y-auto px-4 sm:px-0 sm:py-2 space-y-2 pb-4 scrollbar-auto-hide relative z-10" style="flex-grow:1;overflow-y:auto;padding:0 16px;padding-bottom:16px;position:relative;z-index:10;">
+        <div class="relative" style="position:relative;">
+
+          <!-- User message 1 -->
+          <div id="message-8dbbd12b-b210-49de-8ad2-286f89ed106f" class="transition-opacity duration-300" style="transition:opacity 300ms;">
+            <div class="mb-6 relative flex justify-end items-start gap-2" style="margin-bottom:24px;position:relative;display:flex;justify-content:flex-end;align-items:flex-start;gap:8px;">
+              <div class="text-sm rounded-xl p-3 bg-slate-200 max-w-[85%] min-w-[250px] relative" style="font-size:14px;border-radius:12px;padding:12px;background:#e2e8f0;max-width:85%;min-width:250px;position:relative;">
+                <div>
+                  <div class="prose dark:prose-invert max-w-none base44-markdown relative" dir="auto">
+                    <p>Create a dashboard for small business owners with KPI cards and revenue charts</p>
+                  </div>
+                </div>
+                <div class="text-xs text-gray-400 mt-2 flex items-center justify-between" style="font-size:12px;color:#9ca3af;margin-top:8px;display:flex;align-items:center;justify-content:space-between;">
+                  <span>2:30 PM</span>
+                </div>
+              </div>
+              <span class="relative flex overflow-hidden rounded-full h-6 w-6 shrink-0 cursor-default" data-state="closed" style="position:relative;display:flex;overflow:hidden;border-radius:9999px;height:24px;width:24px;">
+                <img src="" alt="User" style="width:100%;height:100%;background:#6366f1;border-radius:9999px;">
+              </span>
+            </div>
+          </div>
+
+          <!-- AI message (should NOT be detected) -->
+          <div id="message-8d7f1abf-f19d-43f0-93c4-69b69e8cc00f" class="transition-opacity duration-300" style="transition:opacity 300ms;">
+            <div class="mb-6 relative flex justify-start items-start gap-2" style="margin-bottom:24px;position:relative;display:flex;justify-content:flex-start;align-items:flex-start;gap:8px;">
+              <span class="relative flex overflow-hidden rounded-full h-6 w-6 shrink-0" style="position:relative;display:flex;overflow:hidden;border-radius:9999px;height:24px;width:24px;">
+                <img src="" alt="Base44" style="width:100%;height:100%;background:#e74c3c;border-radius:9999px;">
+              </span>
+              <div class="text-sm rounded-xl p-3 bg-white max-w-[85%] min-w-[250px] relative" style="font-size:14px;border-radius:12px;padding:12px;background:#fff;max-width:85%;min-width:250px;position:relative;">
+                <div>
+                  <div class="prose dark:prose-invert max-w-none base44-markdown relative" dir="auto">
+                    <p>I'll build a comprehensive small business dashboard with a premium, elegant design...</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- User message 2 -->
+          <div id="message-7842735c-2e7b-455c-a459-5510fe7c1fd4" class="transition-opacity duration-300" style="transition:opacity 300ms;">
+            <div class="mb-6 relative flex justify-end items-start gap-2" style="margin-bottom:24px;position:relative;display:flex;justify-content:flex-end;align-items:flex-start;gap:8px;">
+              <div class="text-sm rounded-xl p-3 bg-slate-200 max-w-[85%] min-w-[250px] relative" style="font-size:14px;border-radius:12px;padding:12px;background:#e2e8f0;max-width:85%;min-width:250px;position:relative;">
+                <div>
+                  <div class="prose dark:prose-invert max-w-none base44-markdown relative" dir="auto">
+                    <p>Add export to CSV and real-time stock alerts</p>
+                  </div>
+                </div>
+                <div class="text-xs text-gray-400 mt-2 flex items-center justify-between" style="font-size:12px;color:#9ca3af;margin-top:8px;display:flex;align-items:center;justify-content:space-between;">
+                  <span>2:35 PM</span>
+                </div>
+              </div>
+              <span class="relative flex overflow-hidden rounded-full h-6 w-6 shrink-0 cursor-default" data-state="closed" style="position:relative;display:flex;overflow:hidden;border-radius:9999px;height:24px;width:24px;">
+                <img src="" alt="User" style="width:100%;height:100%;background:#6366f1;border-radius:9999px;">
+              </span>
+            </div>
+          </div>
+
+          <!-- AI message (should NOT be detected) -->
+          <div id="message-a6e5ea5e-9591-47b3-b1b8-eeb0fddf9a03" class="transition-opacity duration-300" style="transition:opacity 300ms;">
+            <div class="mb-6 relative flex justify-start items-start gap-2" style="margin-bottom:24px;position:relative;display:flex;justify-content:flex-start;align-items:flex-start;gap:8px;">
+              <span class="relative flex overflow-hidden rounded-full h-6 w-6 shrink-0" style="position:relative;display:flex;overflow:hidden;border-radius:9999px;height:24px;width:24px;">
+                <img src="" alt="Base44" style="width:100%;height:100%;background:#e74c3c;border-radius:9999px;">
+              </span>
+              <div class="text-sm rounded-xl p-3 bg-white max-w-[85%] min-w-[250px] relative" style="font-size:14px;border-radius:12px;padding:12px;background:#fff;max-width:85%;min-width:250px;position:relative;">
+                <div>
+                  <div class="prose dark:prose-invert max-w-none base44-markdown relative" dir="auto">
+                    <p>I've added CSV export and stock alert features...</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- User message 3 -->
+          <div id="message-54b5921e-c650-40a9-b620-b9d17727e33e" class="transition-opacity duration-300" style="transition:opacity 300ms;">
+            <div class="mb-6 relative flex justify-end items-start gap-2" style="margin-bottom:24px;position:relative;display:flex;justify-content:flex-end;align-items:flex-start;gap:8px;">
+              <div class="text-sm rounded-xl p-3 bg-slate-200 max-w-[85%] min-w-[250px] relative" style="font-size:14px;border-radius:12px;padding:12px;background:#e2e8f0;max-width:85%;min-width:250px;position:relative;">
+                <div>
+                  <div class="prose dark:prose-invert max-w-none base44-markdown relative" dir="auto">
+                    <p>Now add multi-warehouse support with transfer tracking</p>
+                  </div>
+                </div>
+                <div class="text-xs text-gray-400 mt-2 flex items-center justify-between" style="font-size:12px;color:#9ca3af;margin-top:8px;display:flex;align-items:center;justify-content:space-between;">
+                  <span>2:42 PM</span>
+                </div>
+              </div>
+              <span class="relative flex overflow-hidden rounded-full h-6 w-6 shrink-0 cursor-default" data-state="closed" style="position:relative;display:flex;overflow:hidden;border-radius:9999px;height:24px;width:24px;">
+                <img src="" alt="User" style="width:100%;height:100%;background:#6366f1;border-radius:9999px;">
+              </span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+      <textarea placeholder="What would you like to change?" style="width:100%;padding:12px;background:#fff;color:#333;border:1px solid #ddd;"></textarea>
+    </div>
+  </div>
+
+  <!-- Preview panel -->
+  <div class="preview-panel" style="flex:1;background:#fff;">
+    <div style="padding:12px;border-bottom:1px solid #eee;display:flex;align-items:center;gap:8px;">
+      <span>Preview</span>
+      <button style="background:#6366f1;color:#fff;border:none;padding:4px 12px;border-radius:4px;">Publish</button>
+    </div>
+    <iframe style="width:100%;height:calc(100% - 45px);border:none;"></iframe>
   </div>
 </div>
 </body>

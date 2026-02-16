@@ -157,7 +157,7 @@ const PLATFORMS = [
         mockFile: 'lovable.html',
         hostname: 'lovable.dev',
         pathname: '/projects/test-project',     // Must include /projects/ for the guard
-        expectedMessages: 4,
+        expectedMessages: 3,
         expectedAccent: 'rgb(155, 135, 245)',   // #9b87f5
         expectedIcon: '\u2665',                 // ♥
     },

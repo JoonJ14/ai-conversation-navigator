@@ -1,53 +1,187 @@
 <!DOCTYPE html>
 <html><head><title>Lovable Mock</title></head>
 <body>
-<!-- Lovable: Split-panel layout. Chat has role="log" container.
-     User messages are justify-end wrappers with bg-neutral-200 rounded-xl bubbles.
-     Assistant messages are left-aligned with prose class. -->
-<main>
-  <div class="chat-panel" style="width:50%;">
-    <div role="log" aria-label="Chat messages">
-      <!-- User message: justify-end wrapper -->
-      <div class="flex justify-end" style="display:flex;justify-content:flex-end;">
-        <div class="bg-neutral-200 rounded-xl ml-auto" style="padding:12px;border-radius:12px;background:#e5e5e5;">
-          <p>Build me a task management app with drag-and-drop kanban boards</p>
+<!-- Lovable: Real DOM structure (from live site inspection, Feb 2026).
+     URL pattern: lovable.dev/projects/{id}
+     Chat panel on the left, preview on the right.
+
+     User messages have data-message-id="umsg_{id}" with id matching.
+     Uses items-end + justify-end for user messages (right-aligned).
+     Bubble uses bg-muted + rounded-[18px].
+     Text inside prose prose-zinc prose-markdown-mobile container.
+     Positioned containers suggest virtual scroll layout.
+
+     DOM nesting per user message:
+       A: div[position:absolute, width:100%, top:..., visibility:visible] (positioned container)
+         B: div#umsg_{id}[data-message-id="umsg_{id}"].flex-col.pb-2.group (message wrapper)
+           C: div (empty wrapper)
+             D: div.mb-2.flex.w-full.flex-col.items-center.text-muted-foreground.@container
+               E: div.relative
+                 F: div.group.flex.flex-col.gap-2.items-end.pr-4 (alignment — items-end for user)
+                   G: div.flex.w-full.items-start.gap-2.justify-end (justify-end for user — OUR TARGET)
+                     H: div.overflow-wrap-anywhere.max-w-[75%].rounded-[18px].bg-muted.px-4.py-2.5 (bubble)
+                       I: div
+                         J: div.flex.flex-col.gap-2
+                           K: div.prose.prose-zinc.prose-markdown-mobile.max-w-full.PromptBox_customProse
+                             L: <p>actual text</p>
+                   M: div.mt-1.flex.w-full.gap-1.justify-end (action buttons)
+
+     AI messages use items-start + justify-start instead.
+
+     Why we use div[role="log"] → .justify-end:
+     - role="log" scopes the search to the chat container
+     - .justify-end distinguishes user messages (right-aligned) from AI (left-aligned)
+     - data-message-id="umsg_..." could be a better selector but role="log" works reliably -->
+<div class="flex h-screen" style="display:flex;height:100vh;">
+  <!-- Icon sidebar -->
+  <div style="width:48px;height:100vh;background:#1a1a2e;display:flex;flex-direction:column;align-items:center;padding-top:16px;gap:12px;">
+    <div style="width:24px;height:24px;background:#444;border-radius:6px;"></div>
+    <div style="width:24px;height:24px;background:#444;border-radius:6px;"></div>
+    <div style="width:24px;height:24px;background:#444;border-radius:6px;"></div>
+  </div>
+
+  <!-- Chat panel -->
+  <div class="chat-panel" style="width:40%;height:100vh;display:flex;flex-direction:column;background:#fafafa;">
+    <div role="log" aria-label="Chat messages" style="flex:1;overflow-y:auto;position:relative;">
+
+      <!-- User message 1 -->
+      <div style="position:absolute;width:100%;left:0px;top:0px;visibility:visible;">
+        <div id="umsg_01abc123def456" class="flex-col pb-2 group" data-message-id="umsg_01abc123def456" style="display:flex;flex-direction:column;padding-bottom:8px;min-height:auto;">
+          <div>
+            <div class="mb-2 flex w-full flex-col items-center text-muted-foreground @container" style="display:flex;flex-direction:column;align-items:center;width:100%;margin-bottom:8px;">
+              <div class="relative" style="position:relative;width:100%;">
+                <div class="group flex flex-col gap-2 items-end pr-4" style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;padding-right:16px;">
+                  <div class="flex w-full items-start gap-2 justify-end" style="display:flex;width:100%;align-items:flex-start;gap:8px;justify-content:flex-end;">
+                    <div class="overflow-wrap-anywhere max-w-[75%] overflow-auto whitespace-pre-wrap rounded-[18px] bg-muted px-4 py-2.5 text-lg leading-[22px]" style="max-width:75%;overflow:auto;white-space:pre-wrap;border-radius:18px;padding:10px 16px;background:#e5e5e5;">
+                      <div>
+                        <div class="flex flex-col gap-2" style="display:flex;flex-direction:column;gap:8px;">
+                          <div class="prose prose-zinc prose-markdown-mobile max-w-full PromptBox_customProse_le_d3">
+                            <p>Build me a task management app with drag-and-drop kanban boards</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="mt-1 flex w-full gap-1 justify-end" style="display:flex;width:100%;gap:4px;justify-content:flex-end;margin-top:4px;">
+                    <button style="width:20px;height:20px;background:none;border:none;"><svg width="14" height="14"><path d="M0 0"/></svg></button>
+                    <button style="width:20px;height:20px;background:none;border:none;"><svg width="14" height="14"><path d="M0 0"/></svg></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <!-- Assistant message: left-aligned prose -->
-      <div class="flex justify-start">
-        <div class="prose">
-          <p>I'll create a kanban board with drag-and-drop functionality...</p>
+
+      <!-- AI message (should NOT be detected) -->
+      <div style="position:absolute;width:100%;left:0px;top:200px;visibility:visible;">
+        <div id="msg_01xyz789ghi012" class="flex-col pb-2 group" data-message-id="msg_01xyz789ghi012" style="display:flex;flex-direction:column;padding-bottom:8px;">
+          <div>
+            <div class="mb-2 flex w-full flex-col items-center text-muted-foreground @container" style="display:flex;flex-direction:column;align-items:center;width:100%;margin-bottom:8px;">
+              <div class="relative" style="position:relative;width:100%;">
+                <div class="group flex flex-col gap-2 items-start pl-4" style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;padding-left:16px;">
+                  <div class="flex w-full items-start gap-2 justify-start" style="display:flex;width:100%;align-items:flex-start;gap:8px;justify-content:flex-start;">
+                    <div class="prose prose-zinc max-w-full" style="padding:12px;">
+                      <p>I'll create a kanban board with drag-and-drop functionality using React DnD...</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <!-- User message -->
-      <div class="flex justify-end" style="display:flex;justify-content:flex-end;">
-        <div class="bg-neutral-200 rounded-xl ml-auto" style="padding:12px;border-radius:12px;background:#e5e5e5;">
-          <p>Add user authentication with Google OAuth</p>
+
+      <!-- User message 2 -->
+      <div style="position:absolute;width:100%;left:0px;top:600px;visibility:visible;">
+        <div id="umsg_02jkl345mno678" class="flex-col pb-2 group" data-message-id="umsg_02jkl345mno678" style="display:flex;flex-direction:column;padding-bottom:8px;min-height:auto;">
+          <div>
+            <div class="mb-2 flex w-full flex-col items-center text-muted-foreground @container" style="display:flex;flex-direction:column;align-items:center;width:100%;margin-bottom:8px;">
+              <div class="relative" style="position:relative;width:100%;">
+                <div class="group flex flex-col gap-2 items-end pr-4" style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;padding-right:16px;">
+                  <div class="flex w-full items-start gap-2 justify-end" style="display:flex;width:100%;align-items:flex-start;gap:8px;justify-content:flex-end;">
+                    <div class="overflow-wrap-anywhere max-w-[75%] overflow-auto whitespace-pre-wrap rounded-[18px] bg-muted px-4 py-2.5 text-lg leading-[22px]" style="max-width:75%;overflow:auto;white-space:pre-wrap;border-radius:18px;padding:10px 16px;background:#e5e5e5;">
+                      <div>
+                        <div class="flex flex-col gap-2" style="display:flex;flex-direction:column;gap:8px;">
+                          <div class="prose prose-zinc prose-markdown-mobile max-w-full PromptBox_customProse_le_d3">
+                            <p>Add user authentication with Google OAuth</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="mt-1 flex w-full gap-1 justify-end" style="display:flex;width:100%;gap:4px;justify-content:flex-end;margin-top:4px;">
+                    <button style="width:20px;height:20px;background:none;border:none;"><svg width="14" height="14"><path d="M0 0"/></svg></button>
+                    <button style="width:20px;height:20px;background:none;border:none;"><svg width="14" height="14"><path d="M0 0"/></svg></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <!-- Assistant message -->
-      <div class="flex justify-start">
-        <div class="prose">
-          <p>I've integrated Google OAuth for user authentication...</p>
+
+      <!-- AI message (should NOT be detected) -->
+      <div style="position:absolute;width:100%;left:0px;top:800px;visibility:visible;">
+        <div id="msg_02pqr901stu234" class="flex-col pb-2 group" data-message-id="msg_02pqr901stu234" style="display:flex;flex-direction:column;padding-bottom:8px;">
+          <div>
+            <div class="mb-2 flex w-full flex-col items-center text-muted-foreground @container" style="display:flex;flex-direction:column;align-items:center;width:100%;margin-bottom:8px;">
+              <div class="relative" style="position:relative;width:100%;">
+                <div class="group flex flex-col gap-2 items-start pl-4" style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;padding-left:16px;">
+                  <div class="flex w-full items-start gap-2 justify-start" style="display:flex;width:100%;align-items:flex-start;gap:8px;justify-content:flex-start;">
+                    <div class="prose prose-zinc max-w-full" style="padding:12px;">
+                      <p>I've integrated Google OAuth for user authentication...</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <!-- User message -->
-      <div class="flex justify-end" style="display:flex;justify-content:flex-end;">
-        <div class="bg-neutral-200 rounded-xl ml-auto" style="padding:12px;border-radius:12px;background:#e5e5e5;">
-          <p>Now add real-time collaboration so multiple users can edit the same board</p>
+
+      <!-- User message 3 -->
+      <div style="position:absolute;width:100%;left:0px;top:1200px;visibility:visible;">
+        <div id="umsg_03vwx567yza890" class="flex-col pb-2 group" data-message-id="umsg_03vwx567yza890" style="display:flex;flex-direction:column;padding-bottom:8px;min-height:auto;">
+          <div>
+            <div class="mb-2 flex w-full flex-col items-center text-muted-foreground @container" style="display:flex;flex-direction:column;align-items:center;width:100%;margin-bottom:8px;">
+              <div class="relative" style="position:relative;width:100%;">
+                <div class="group flex flex-col gap-2 items-end pr-4" style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;padding-right:16px;">
+                  <div class="flex w-full items-start gap-2 justify-end" style="display:flex;width:100%;align-items:flex-start;gap:8px;justify-content:flex-end;">
+                    <div class="overflow-wrap-anywhere max-w-[75%] overflow-auto whitespace-pre-wrap rounded-[18px] bg-muted px-4 py-2.5 text-lg leading-[22px]" style="max-width:75%;overflow:auto;white-space:pre-wrap;border-radius:18px;padding:10px 16px;background:#e5e5e5;">
+                      <div>
+                        <div class="flex flex-col gap-2" style="display:flex;flex-direction:column;gap:8px;">
+                          <div class="prose prose-zinc prose-markdown-mobile max-w-full PromptBox_customProse_le_d3">
+                            <p>Now add real-time collaboration so multiple users can edit the same board</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="mt-1 flex w-full gap-1 justify-end" style="display:flex;width:100%;gap:4px;justify-content:flex-end;margin-top:4px;">
+                    <button style="width:20px;height:20px;background:none;border:none;"><svg width="14" height="14"><path d="M0 0"/></svg></button>
+                    <button style="width:20px;height:20px;background:none;border:none;"><svg width="14" height="14"><path d="M0 0"/></svg></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <!-- User message -->
-      <div class="flex justify-end" style="display:flex;justify-content:flex-end;">
-        <div class="bg-neutral-200 rounded-xl ml-auto" style="padding:12px;border-radius:12px;background:#e5e5e5;">
-          <p>Also add a dark mode please</p>
-        </div>
-      </div>
+
     </div>
+    <textarea placeholder="Ask Lovable..." style="width:100%;padding:12px;background:#fff;color:#333;border:1px solid #ddd;"></textarea>
   </div>
-  <div class="preview-panel" style="width:50%;">
-    <!-- Live preview iframe would go here -->
+
+  <!-- Preview panel -->
+  <div class="preview-panel" style="flex:1;background:#fff;">
+    <div style="padding:12px;border-bottom:1px solid #eee;display:flex;align-items:center;gap:8px;">
+      <span>Preview</span>
+      <button style="background:#9b87f5;color:#fff;border:none;padding:4px 12px;border-radius:4px;">Share</button>
+      <button style="background:#9b87f5;color:#fff;border:none;padding:4px 12px;border-radius:4px;">Publish</button>
+    </div>
+    <iframe style="width:100%;height:calc(100% - 45px);border:none;"></iframe>
   </div>
-</main>
+</div>
 </body>
 </html>
