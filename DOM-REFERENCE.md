@@ -2,23 +2,117 @@
 
 This document records the **real DOM structure** of user messages on each supported platform, the selectors we chose, and the debugging history that led to each choice. This prevents context loss across sessions.
 
-Last updated: Feb 15, 2026 (v7.6+)
+Last updated: Feb 16, 2026 (v7.7)
 
 ---
 
 ## Table of Contents
-1. [Replit](#replit)
-2. [V0](#v0)
-3. [Bolt.new](#boltnew)
-4. [Claude](#claude)
-5. [ChatGPT / Codex](#chatgpt--codex)
-6. [Grok](#grok)
-7. [Gemini](#gemini)
+1. [Claude](#claude)
+2. [ChatGPT](#chatgpt)
+3. [Grok](#grok)
+4. [Gemini](#gemini)
+5. [Claude Code Web](#claude-code-web)
+6. [Codex Web](#codex-web)
+7. [Perplexity](#perplexity)
 8. [Lovable](#lovable)
-9. [Base44](#base44)
-10. [Emergent](#emergent)
-11. [Perplexity](#perplexity)
-12. [Firebase Studio](#firebase-studio)
+9. [Replit](#replit)
+10. [Bolt.new](#boltnew)
+11. [V0](#v0)
+12. [Base44](#base44)
+13. [Emergent](#emergent)
+14. [Firebase Studio](#firebase-studio)
+
+---
+
+## Claude
+
+**Selector:** `[data-testid="user-human-turn"]`
+**Fallback:** `[data-testid="user-message"]`, `.font-user-message`
+
+### Notes
+- Reliable data-testid attribute, rarely changes
+- Both Claude Chat and Claude Code Web share the same hostname (`claude.ai`), differentiated by path
+
+---
+
+## ChatGPT
+
+**Selector:** `[data-message-author-role]` filtered by value `=== 'user'`
+
+### Notes
+- `data-message-author-role` has values like `"user"`, `"assistant"`, `"system"`
+- Both ChatGPT Chat and Codex Web share the same hostname (`chatgpt.com`), differentiated by path
+
+---
+
+## Grok
+
+**Selector:** `div.message-bubble` filtered by class containing `user`/`human`, or parent class, or odd index
+
+### Notes
+- Less reliable than other platforms — uses heuristic-based detection
+- Falls back to `[data-role="user"]` and `[class*="user-message"]`
+- May need re-inspection if Grok redesigns
+
+---
+
+## Gemini
+
+**Selector:** `div.query-text`
+
+### Notes
+- Very clean, reliable class-based selector
+- No filtering needed — all `query-text` elements are user queries
+- Multiple fallbacks: `.query-text-line`, `p.query-text-line`, `[data-query-text]`, `.user-query`
+
+---
+
+## Claude Code Web
+
+**Selector:** `div.bg-bg-200.rounded-lg` filtered by `.items-end` parent
+
+### Notes
+- Completely different DOM from Claude Chat — no `data-testid` attributes anywhere
+- User messages are right-aligned via `div.flex.flex-col.items-end.ml-auto`
+- The message bubble is `div.bg-bg-200.rounded-lg`, text inside nested `<p>` tags
+- Only activates as a fallback when all Claude Chat selectors find nothing (same hostname `claude.ai`)
+
+---
+
+## Codex Web
+
+**Selector:** `div.self-end.bg-token-bg-tertiary`
+
+### Notes
+- Completely different DOM from ChatGPT Chat — no `data-message-author-role` attributes
+- Uses a task/thread/item model rather than a traditional chat layout
+- User messages are right-aligned (`self-end`) with tertiary token background
+- Only activates as a fallback when the ChatGPT Chat selector finds nothing (same hostname `chatgpt.com`, detected by `/codex` path)
+
+---
+
+## Perplexity
+
+**Selector:** `.group\/query` (Tailwind group variant)
+
+### Notes
+- Clean Tailwind group class selector with escaped slash
+- Filter by text content length > 0
+- Fallback: `.group\/title .select-text`
+- Very reliable, minimal filtering needed
+
+---
+
+## Lovable
+
+**Selector:** `div[role="log"]` → query `.justify-end` children
+**Path guard:** Only active on `/projects/` routes
+
+### Notes
+- Uses ARIA `role="log"` container to scope the search
+- User messages are right-aligned (`.justify-end`) within the log container
+- Must filter by text content and exclude buttons/icons
+- Split-panel layout (chat left, preview right)
 
 ---
 
@@ -62,63 +156,6 @@ A: div.EventRenderer-module_{hash}_userMessage  (outer event wrapper)
 
 ---
 
-## V0
-
-**Inspected:** Feb 15, 2026 (live site)
-**Selector:** `[data-testid="message"]` filtered by `origin-right` + `items-end` classes
-**Boundary detection:** `[data-testid="message"]`
-
-### Real DOM Structure
-
-```
-A: div.flex.items-end.sm:max-w-[min(fit-content,80%)].max-w-[90%].origin-top-right  (outer alignment wrapper)
-  B: div[data-testid="message"][role="listitem"].origin-right.items-end  (message container — OUR TARGET)
-     id="B5MFcT4HjyB5mw53ouX4mT897ZCGZdsm" (unique hash)
-     class="@container/message group w-full break-words flex flex-col gap-2 origin-right items-end"
-     data-touch-active="false"
-    C: div.flex.items-center.gap-1.5.pr-1  (avatar/link row)
-      D: a[data-state="closed"] href="/chat/api/profile/redirect?..."  (user profile link)
-    E: div.flex.items-end  (bubble wrapper, style="transform: none; opacity: 1")
-      F: div.border.border-v0-gray-200.bg-v0-gray-200.group/message-bubble.rounded-[16px]  (the bubble)
-        G: svg  (small decoration icon, absolute positioned)
-        H: div.prose.prose-sm.prose-gray.min-w-0.break-words.w-full  (text container)
-          I: <p>actual question text</p>
-```
-
-AI messages use the same `data-testid="message"` but with `origin-left items-start` instead.
-
-### Debugging History & Selector Choice
-
-**Problem (pre-v7.6+):** 0 questions detected. Button invisible until page refresh.
-
-**Root cause:** ALL 6 primary selectors were guesses that don't exist in V0's DOM:
-- `[data-role="user"]` — doesn't exist
-- `[data-message-role="user"]` — doesn't exist
-- `[data-message-author-role="user"]` — doesn't exist
-- `[data-message-author="user"]` — doesn't exist
-- `[data-testid*="user-message"]` — actual value is `"message"` (no "user" in it)
-- `[data-sender="user"]` — doesn't exist
-
-ALL 6 fallbacks also failed because V0 doesn't use:
-- `justify-end`, `self-end`, `ml-auto` (V0 uses `items-end`, `origin-right` instead)
-- `bg-muted`, `bg-secondary` (V0 uses `bg-v0-gray-200`)
-- `[data-message-id]` (V0 uses regular `id` attribute with hash)
-
-**Why button was invisible:** Boundary detection Strategy 2 used `[data-role="user"]` which also doesn't exist. No boundary found → button stays hidden. Fixing to `[data-testid="message"]` fixes both problems.
-
-**Why `[data-testid="message"]` + class filter was chosen:**
-- `data-testid="message"` is on ALL messages (user + AI)
-- User messages have `origin-right` and `items-end` classes
-- AI messages have `origin-left` and `items-start` classes
-- Filtering by `origin-right && items-end` reliably distinguishes user messages
-
-**Other rejected approaches:**
-- Using bubble class `bg-v0-gray-200` — less reliable, could change with themes
-- Using `role="listitem"` — matches both user and AI, same filtering needed
-- Using the unique `id` attribute — IDs are random hashes, not predictable
-
----
-
 ## Bolt.new
 
 **Inspected:** Earlier sessions (live site)
@@ -153,62 +190,60 @@ AI messages have `data-message-id` but do NOT have `.self-end`.
 
 ---
 
-## Claude
+## V0
 
-**Selector:** `[data-testid="user-human-turn"]`
-**Fallback:** `[data-testid="user-message"]`
+**Inspected:** Feb 15, 2026 (live site)
+**Selector:** `[data-testid="message"]` filtered by `origin-right` + `items-end` classes
+**Boundary detection:** `[data-testid="message"]`
 
-### Notes
-- Reliable data-testid attribute, rarely changes
-- Claude Code interface (different from Claude Chat) has no data-testid; uses `.bg-bg-200.rounded-lg` filtered by `.items-end`
-- Both Claude and Claude Code share the same hostname (`claude.ai`), differentiated by path
+### Real DOM Structure
 
----
+```
+A: div.flex.items-end.sm:max-w-[min(fit-content,80%)].max-w-[90%].origin-top-right  (outer alignment wrapper)
+  B: div[data-testid="message"][role="listitem"].origin-right.items-end  (message container — OUR TARGET)
+     id="B5MFcT4HjyB5mw53ouX4mT897ZCGZdsm" (unique hash)
+     class="@container/message group w-full break-words flex flex-col gap-2 origin-right items-end"
+     data-touch-active="false"
+    C: div.flex.items-center.gap-1.5.pr-1  (avatar/link row)
+      D: a[data-state="closed"] href="/chat/api/profile/redirect?..."  (user profile link)
+    E: div.flex.items-end  (bubble wrapper, style="transform: none; opacity: 1")
+      F: div.border.border-v0-gray-200.bg-v0-gray-200.group/message-bubble.rounded-[16px]  (the bubble)
+        G: svg  (small decoration icon, absolute positioned)
+        H: div.prose.prose-sm.prose-gray.min-w-0.break-words.w-full  (text container)
+          I: <p>actual question text</p>
+```
 
-## ChatGPT / Codex
+AI messages use the same `data-testid="message"` but with `origin-left items-start` instead.
 
-**Selector:** `[data-message-author-role]` filtered by value `=== 'user'`
-**Codex variant:** `div.self-end.bg-token-bg-tertiary` (on `/codex` routes)
+### Debugging History & Selector Choice
 
-### Notes
-- `data-message-author-role` has values like `"user"`, `"assistant"`, `"system"`
-- Codex is a separate UI on the same domain, detected by URL path
-- Codex uses alignment-based detection (right-aligned = user)
+**Problem (pre-v7.7):** 0 questions detected. Button invisible until page refresh.
 
----
+**Root cause:** ALL 6 primary selectors were guesses that don't exist in V0's DOM:
+- `[data-role="user"]` — doesn't exist
+- `[data-message-role="user"]` — doesn't exist
+- `[data-message-author-role="user"]` — doesn't exist
+- `[data-message-author="user"]` — doesn't exist
+- `[data-testid*="user-message"]` — actual value is `"message"` (no "user" in it)
+- `[data-sender="user"]` — doesn't exist
 
-## Grok
+ALL 6 fallbacks also failed because V0 doesn't use:
+- `justify-end`, `self-end`, `ml-auto` (V0 uses `items-end`, `origin-right` instead)
+- `bg-muted`, `bg-secondary` (V0 uses `bg-v0-gray-200`)
+- `[data-message-id]` (V0 uses regular `id` attribute with hash)
 
-**Selector:** `div.message-bubble` filtered by class containing `user`/`human`, or parent class, or odd index
+**Why button was invisible:** Boundary detection Strategy 2 used `[data-role="user"]` which also doesn't exist. No boundary found → button stays hidden. Fixing to `[data-testid="message"]` fixes both problems.
 
-### Notes
-- Less reliable than other platforms — uses heuristic-based detection
-- Falls back to `[data-role="user"]` and `[class*="user-message"]`
-- May need re-inspection if Grok redesigns
+**Why `[data-testid="message"]` + class filter was chosen:**
+- `data-testid="message"` is on ALL messages (user + AI)
+- User messages have `origin-right` and `items-end` classes
+- AI messages have `origin-left` and `items-start` classes
+- Filtering by `origin-right && items-end` reliably distinguishes user messages
 
----
-
-## Gemini
-
-**Selector:** `div.query-text`
-
-### Notes
-- Very clean, reliable class-based selector
-- No filtering needed — all `query-text` elements are user queries
-- Multiple fallbacks: `.query-text-line`, `p.query-text-line`, `[data-query-text]`, `.user-query`
-
----
-
-## Lovable
-
-**Selector:** `div[role="log"]` → query `.justify-end` children
-**Path guard:** Only active on `/projects/` routes
-
-### Notes
-- Uses ARIA `role="log"` container to scope the search
-- User messages are right-aligned (`.justify-end`) within the log container
-- Must filter by text content and exclude buttons/icons
-- Split-panel layout (chat left, preview right)
+**Other rejected approaches:**
+- Using bubble class `bg-v0-gray-200` — less reliable, could change with themes
+- Using `role="listitem"` — matches both user and AI, same filtering needed
+- Using the unique `id` attribute — IDs are random hashes, not predictable
 
 ---
 
@@ -276,24 +311,11 @@ div.relative.flex-1.w-full.h-full.overflow-hidden  (chat panel — flex child)
 
 **Other notes:**
 - User message bubbles have `rounded-br-none` (bottom-right corner sharp), AI bubbles have `rounded-bl-none`
-- Emergent has a thick scrollbar at the chat boundary — toggle is offset 14px left
-- Emergent gets higher ghost notch opacity (0.75) vs default (0.35) due to dark UI
 - Virtual scrolling means DOM elements are recycled — messages scrolled far out of view may not be in the DOM
 - **Accumulative scanning**: Because of virtuoso, `scanConversation` uses accumulation mode for Emergent — it adds new messages to the list without clearing existing ones. This prevents the list from changing as the user scrolls. The Refresh button does a full reset.
+- **Scroll-through collection**: On panel open, script programmatically scrolls through the entire virtuoso container (250ms per viewport step) to force-render and collect all user messages, then restores scroll position.
 - **Stale DOM references**: When clicking a nav item, the original DOM element may have been recycled. The click handler re-searches the DOM for a matching element at click time using `isConnected` check.
 - **Broad fallbacks removed**: Fallbacks 3-7 (rounded-br-none, items-end, text-wrap, etc.) were matching AI agent status messages when user messages scrolled out of view. Only the primary selector and user-task ID fallback remain.
-
----
-
-## Perplexity
-
-**Selector:** `.group\/query` (Tailwind group variant)
-
-### Notes
-- Clean Tailwind group class selector with escaped slash
-- Filter by text content length > 0
-- Fallback: `.group\/title .select-text`
-- Very reliable, minimal filtering needed
 
 ---
 
@@ -308,10 +330,6 @@ div.relative.flex-1.w-full.h-full.overflow-hidden  (chat panel — flex child)
 - Multiple fallbacks test individual module names and camelCase variants (`chatMessage`, `isUser`)
 
 ---
-
-## Platforms Still Needing Live Inspection
-
-All platforms have been inspected as of Feb 15, 2026.
 
 ## General Patterns
 
