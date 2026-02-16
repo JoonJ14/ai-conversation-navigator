@@ -353,7 +353,7 @@ After all three fixes, the behavior is:
 
 If the ghost notch button is not appearing on a chat page where it should:
 
-1. Open DevTools Console and look for `AI Conversation Navigator v7.3 loaded for [platform] (left-chat mode)!` — confirms the script detected the platform
+1. Open DevTools Console and look for `AI Conversation Navigator v7.8 loaded for [platform] (left-chat mode)!` — confirms the script detected the platform
 2. Add a temporary `console.log` inside `getChatBoundaryX()` to see which strategy (if any) is finding the boundary:
    ```javascript
    console.log('Strategy 1 input:', input, 'boundary:', boundary);

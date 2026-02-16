@@ -9,7 +9,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-7.6-blue)
+![Version](https://img.shields.io/badge/version-7.8-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -22,7 +22,7 @@ But until then, I'll just keep making, building, and improving this project. Sta
 | [ChatGPT](https://chatgpt.com) | ⏣ | ⚪ White | ✅ Supported |
 | [Grok](https://grok.com) | X | 🔴 Red | ✅ Supported |
 | [Gemini](https://gemini.google.com) | ✦ | 🔵 Blue | ✅ Supported |
-| [Perplexity](https://perplexity.ai) | ⦾ | 🩵 Teal | ✅ Supported |
+| [Perplexity](https://perplexity.ai) | ✳ | 🩵 Teal | ✅ Supported |
 
 ### Coding Agents (Web)
 
@@ -176,7 +176,7 @@ The script injects a hover-expand button and sidebar panel into AI chat pages. I
 | Bolt.new | `[data-message-id]` + `self-end` filter + fallback chain |
 | Lovable | `div[role="log"] .justify-end` + fallback chain |
 | Replit | `[data-cy="user-message"]` (Cypress attribute, one per message) |
-| V0 | `[data-role="user"]` + multi-attribute + structural fallback |
+| V0 | `[data-testid="message"]` + `origin-right`/`items-end` filter |
 | Base44 | `[id^="message-"]` + `.justify-end` filter |
 | Emergent | `[data-testid^="user-message"]` |
 | Firebase Studio | `[class*="_isUser_"]` (CSS Modules partial match) |
@@ -191,7 +191,7 @@ Each platform's toggle button uses a Unicode symbol chosen to suggest the platfo
 | ChatGPT | ⏣ (benzene ring) | Evokes OpenAI's hexagonal knot logo |
 | Grok | X | Represents xAI / X branding |
 | Gemini | ✦ (four-pointed star) | Evokes Gemini's sparkle motif |
-| Perplexity | ⦾ (circled white bullet) | Evokes Perplexity's circular logo/search motif |
+| Perplexity | ✳ (eight-spoked asterisk) | Same as Claude — renders reliably on Linux/Firefox, differentiated by teal color |
 | Bolt.new | ⚡ (high voltage) | Evokes "Bolt" lightning branding |
 | Lovable | ♥ (heart suit) | Evokes Lovable's heart logo |
 | Replit | ⠕ (Braille dots-135) | Community-adopted symbol for Replit's three-dot prompt logo |

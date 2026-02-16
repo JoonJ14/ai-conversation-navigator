@@ -416,7 +416,7 @@ All four fixes improve the situation but three platforms (Replit, V0, Emergent) 
 Extended the automated test suite from 9 platform variants to 14 by adding mock HTML pages for V0, Base44, Emergent, Perplexity, and Firebase Studio. Also refined selectors and visibility for 6 platforms based on initial testing.
 
 #### New Mock Test Pages
-- `tests/mock-pages/v0.html` — V0 with `data-role="user"` + copy button filtering
+- `tests/mock-pages/v0.html` — V0 with `data-role="user"` + copy button filtering (later rewritten in v7.7 to use `data-testid="message"` + `origin-right`/`items-end`)
 - `tests/mock-pages/base44.html` — Base44 with `id="message-{uuid}"` + justify-end filter
 - `tests/mock-pages/emergent.html` — Emergent with `data-testid="user-message-*"` + prose containers
 - `tests/mock-pages/perplexity.html` — Perplexity with `.group/query` Tailwind variant
@@ -630,7 +630,7 @@ Expanded from 7 platforms to 12, adding V0, Base44, Emergent, Perplexity, and Fi
 
 #### Perplexity (`perplexity.ai`)
 - **Theme:** Teal/cyan (`#20b8cd`) — matches Perplexity's signature teal brand color
-- **Icon:** ⦾ (U+29BE, circled white bullet — evokes Perplexity's circular logo/search motif)
+- **Icon:** ✳ (U+2733, eight-spoked asterisk — same as Claude, differentiated by teal color. Originally was ⦾ U+29BE but changed to ✳ for reliable rendering on Linux/Firefox)
 - **Selectors:** Tailwind group variant approach:
   1. `.group\/query` — Perplexity uses Tailwind's group variant `.group/query` on each user query block. The `\/` is the CSS escape for the `/` character. This is a very stable selector since it's a semantic class name rather than a styling utility.
   2. Fallback: `.group\/title .select-text` — alternate query text extraction pattern

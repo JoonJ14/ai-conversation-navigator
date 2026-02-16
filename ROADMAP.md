@@ -30,22 +30,23 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v7.7
+## Current Status: v7.8
 
 The extension supports 14 platform variants across 12 websites. All platforms have been debugged on live sites (Firefox/Linux). All 140 automated tests pass (10 tests × 14 platforms).
 
 **All platforms working:**
-- Claude, ChatGPT, Codex, Grok, Gemini, Perplexity, Firebase Studio — selectors validated on live sites
+- Claude, ChatGPT, Codex, Grok, Gemini, Perplexity — selectors validated on live sites
 - Lovable, Base44 — selectors working correctly on live sites
 - Bolt.new — `data-message-id` + `self-end` pattern, excluding subscription warnings
 - Replit (v7.6) — `data-cy="user-message"` from live DOM inspection
 - V0 (v7.7) — `data-testid="message"` filtered by `origin-right` + `items-end` from live DOM inspection
 - Emergent (v7.7) — `data-testid^="user-message"` with virtuoso-specific boundary detection, accumulative scanning, and scroll-through collection
+- Firebase Studio (v7.8) — cross-origin iframe injection into correct workspace iframe (`/capra/` path discrimination), `[class*="_isUser_"]` CSS module selectors
 
 **Documentation:**
-- `DOM-REFERENCE.md` — real DOM structures of all 14 platforms with selector rationale and debugging history
+- `DOM-REFERENCE.md` — real DOM structures of all 14 platforms with selector rationale, debugging history, and Firebase iframe architecture
 - `CHANGELOG.md` — detailed technical changelog with root cause analysis for every fix
-- `TROUBLESHOOTING.md` — platform-specific diagnostic guides
+- `TROUBLESHOOTING.md` — platform-specific diagnostic guides including Firebase iframe injection
 
 **Not yet tested:**
 - Chrome/macOS — all debugging so far has been on Firefox/Linux (DGX Spark). May need follow-up if cross-browser issues arise.
