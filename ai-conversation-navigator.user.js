@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v7.5
+// @name         AI Conversation Navigator v7.6
 // @namespace    http://tampermonkey.net/
-// @version      7.5
+// @version      7.6
 // @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Codex, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -129,6 +129,11 @@
     const LEFT_CHAT_SITES = [SITE.BOLT, SITE.LOVABLE, SITE.REPLIT, SITE.V0, SITE.BASE44, SITE.EMERGENT];
     const isLeftChat = LEFT_CHAT_SITES.includes(currentSite);
 
+    // Virtual scroll platforms: only render visible messages in the DOM (e.g. virtuoso).
+    // These need accumulative scanning since messages scroll in/out of existence.
+    const VIRTUAL_SCROLL_SITES = [SITE.EMERGENT];
+    const isVirtualScroll = VIRTUAL_SCROLL_SITES.includes(currentSite);
+
     // Inject styles — toggle button and panel differ for left-chat vs standard platforms
     const toggleStyles = isLeftChat ? `
         /* === GHOST NOTCH V1 TOGGLE (left-chat platforms) === */
@@ -170,8 +175,7 @@
             display: none !important;
         }
         #ai-nav-toggle.ai-nav-positioned {
-            opacity: ${currentSite === SITE.EMERGENT ? '0.75' : '0.35'} !important;
-            ${currentSite === SITE.EMERGENT ? 'width: 14px !important;' : ''}
+            opacity: 0.35 !important;
             transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s ease, border-radius 0.3s ease, right 0.3s ease !important;
         }
         #ai-nav-toggle:hover {
@@ -452,6 +456,19 @@
             return null;
         }
 
+        // Emergent-specific: Uses virtuoso virtual scroller. The walk-up approach fails because
+        // parent containers use absolute inset-0 which spans full viewport width.
+        // Instead, find the virtuoso scroller directly — its right edge IS the chat boundary.
+        if (currentSite === SITE.EMERGENT) {
+            var virtuosoScroller = document.querySelector('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller="true"]');
+            if (virtuosoScroller) {
+                var vsRect = virtuosoScroller.getBoundingClientRect();
+                if (vsRect.width > 200 && vsRect.width < window.innerWidth * 0.75 && vsRect.height > window.innerHeight * 0.3) {
+                    return vsRect.right;
+                }
+            }
+        }
+
         // Strategy 1: Find chat input and walk up to chat container
         var input = document.querySelector(
             'textarea[placeholder*="message" i], textarea[placeholder*="Message"], ' +
@@ -468,8 +485,8 @@
         var msgSelectors = {
             bolt: '[class*="backdrop-blur"][class*="rounded"], [class*="max-w-chat"]',
             lovable: 'div[role="log"], div.ChatMessageContainer, .justify-end',
-            replit: '[data-testid*="user-message"], [data-message-role="user"], [role="log"]',
-            v0: '[data-role="user"], [data-message-role="user"]',
+            replit: '[data-cy="user-message"], [data-event-type="user-message"], [role="log"]',
+            v0: '[data-testid="message"]',
             base44: '[id^="message-"]',
             emergent: '[data-testid^="user-message"], [id^="user-"]'
         };
@@ -592,7 +609,7 @@
             createElement('button', {
                 id: 'ai-nav-refresh',
                 textContent: '\u21BB Refresh',
-                onClick: scanConversation
+                onClick: function() { scanConversation(true); }
             })
         ]);
 
@@ -631,26 +648,43 @@
         ]);
 
         item.addEventListener('click', function() {
+            // For virtual scroll platforms, the original msg DOM element may have been
+            // recycled by the virtual scroller. Re-find it by matching text content.
+            var targetMsg = msg;
+            if (isVirtualScroll && !msg.isConnected) {
+                var currentMessages = getUserMessages();
+                var searchText = text.substring(0, 200);
+                var found = Array.from(currentMessages).find(function(m) {
+                    return (m.textContent || '').trim().substring(0, 200) === searchText;
+                });
+                if (found) {
+                    targetMsg = found;
+                } else {
+                    // Message not currently in DOM — can't scroll to it
+                    return;
+                }
+            }
+
             // For left-chat platforms, close panel first since it overlays the chat
             if (isLeftChat && isOpen) {
                 handleToggleClick(); // close panel
                 // Scroll after panel close animation completes
                 setTimeout(function() {
-                    msg.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    var originalBg = msg.style.backgroundColor;
-                    msg.style.backgroundColor = theme.accentLight;
-                    msg.style.transition = 'background-color 0.3s';
+                    targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    var originalBg = targetMsg.style.backgroundColor;
+                    targetMsg.style.backgroundColor = theme.accentLight;
+                    targetMsg.style.transition = 'background-color 0.3s';
                     setTimeout(function() {
-                        msg.style.backgroundColor = originalBg;
+                        targetMsg.style.backgroundColor = originalBg;
                     }, 1500);
                 }, 350);
             } else {
-                msg.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                var originalBg = msg.style.backgroundColor;
-                msg.style.backgroundColor = theme.accentLight;
-                msg.style.transition = 'background-color 0.3s';
+                targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                var originalBg = targetMsg.style.backgroundColor;
+                targetMsg.style.backgroundColor = theme.accentLight;
+                targetMsg.style.transition = 'background-color 0.3s';
                 setTimeout(function() {
-                    msg.style.backgroundColor = originalBg;
+                    targetMsg.style.backgroundColor = originalBg;
                 }, 1500);
             }
         });
@@ -691,12 +725,47 @@
         }
 
         if (isOpen) {
-            scanConversation();
-            // Retry scan after delay if 0 questions found (virtual scroll / lazy rendering)
-            setTimeout(function() {
-                var items = document.querySelectorAll('.ai-nav-item');
-                if (items.length === 0) scanConversation();
-            }, 2000);
+            if (isVirtualScroll) {
+                // Virtual scroll platforms: scroll through the chat to collect all messages.
+                // Virtuoso only renders visible items, so we must scroll to each section,
+                // wait for rendering, scan (accumulate), then move to the next section.
+                scanConversation(true); // force reset, start fresh
+                var scroller = document.querySelector('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller="true"]');
+                if (scroller && scroller.scrollHeight > scroller.clientHeight) {
+                    var savedScrollTop = scroller.scrollTop;
+                    var totalHeight = scroller.scrollHeight;
+                    var viewHeight = scroller.clientHeight;
+                    // Build scroll positions: top, then increments of 80% viewport, then original
+                    var positions = [0];
+                    for (var pos = viewHeight * 0.8; pos < totalHeight; pos += viewHeight * 0.8) {
+                        positions.push(Math.floor(pos));
+                    }
+                    positions.push(savedScrollTop); // restore original position at end
+
+                    var step = 0;
+                    function _vsScrollStep() {
+                        if (step >= positions.length) return;
+                        scroller.scrollTop = positions[step];
+                        setTimeout(function() {
+                            if (step < positions.length - 1) {
+                                scanConversation(); // accumulate mode
+                            }
+                            step++;
+                            if (step < positions.length) {
+                                _vsScrollStep();
+                            }
+                        }, 250);
+                    }
+                    _vsScrollStep();
+                }
+            } else {
+                scanConversation();
+                // Retry scan after delay if 0 questions found (lazy rendering)
+                setTimeout(function() {
+                    var items = document.querySelectorAll('.ai-nav-item');
+                    if (items.length === 0) scanConversation();
+                }, 2000);
+            }
             if (scanInterval) clearInterval(scanInterval);
             scanInterval = setInterval(scanConversation, 10000);
         } else {
@@ -998,55 +1067,65 @@
         }
         else if (currentSite === SITE.REPLIT) {
             // Replit user messages: React + Emotion CSS-in-JS (hash classes change per deployment).
-            // The AI Agent chat is a pane inside the IDE workspace. Cannot rely on class names.
-            // Must use data-* attributes, ARIA roles, structural patterns, and computed styles.
-            // Source: Replit engineering blog (RUI, Emotion, Jotai architecture)
+            // The AI Agent chat is a pane inside the IDE workspace.
+            //
+            // Real DOM structure (from live site inspection, Feb 2026):
+            //   A: div.EventRenderer-module_RTGgnG_userMessage (outer event wrapper)
+            //     B: div[data-cy="user-message"][data-event-type="user-message"] (message wrapper — TARGET)
+            //       C: div.UserMessage-module_wrN9Aa_userMessageSurfaceShades (outer surface)
+            //         D: span (layout wrapper)
+            //           E: div.UserMessage-module_wrN9Aa_userMessageSurfaceShades[data-acknowledged="true"] (bubble)
+            //             F: div.rendered-markdown
+            //               G: div.Markdown-module_KWqogW_markdownTheme
+            //                 H: <p>actual question text</p>
+            //
+            // Key: Replit uses data-cy (Cypress), NOT data-testid. Element B is the correct
+            // target — exactly one per user message. Elements A, C, E all contain "userMessage"
+            // in CSS module class names, which caused 3x duplication when using class-based fallbacks.
 
-            // Primary: data-* attribute selectors
-            messages = document.querySelectorAll('[data-testid*="user-message"]');
-            if (messages.length === 0) messages = document.querySelectorAll('[data-message-role="user"]');
-            if (messages.length === 0) messages = document.querySelectorAll('[data-role="user"]');
-            if (messages.length === 0) messages = document.querySelectorAll('[data-author="user"]');
+            // Primary: data-cy="user-message" — Replit's Cypress test attribute (one per message)
+            messages = document.querySelectorAll('[data-cy="user-message"]');
 
-            // Deduplicate step 1: nesting — data-testid*="user-message" can match at multiple
-            // nesting levels (outer wrapper, middle container, inner text div).
-            // Keep only innermost matches so each question appears once.
-            if (messages.length > 0) {
-                var replitArr = Array.from(messages);
-                var deduped = replitArr.filter(function(el) {
-                    return !replitArr.some(function(other) {
+            // Secondary: data-event-type (same element as data-cy, alternate attribute)
+            if (messages.length === 0) messages = document.querySelectorAll('[data-event-type="user-message"]');
+
+            // Fallback 1: EventRenderer class with userMessage — the outer event wrapper.
+            // Since this is ONE level per message (not nested), it gives 1 match per message.
+            if (messages.length === 0) {
+                var replitEventRenderers = document.querySelectorAll('[class*="EventRenderer"][class*="userMessage"]');
+                messages = Array.from(replitEventRenderers).filter(function(el) {
+                    return el.textContent.trim().length > 0;
+                });
+            }
+
+            // Fallback 2: CSS module pattern — class contains "userMessage" or "UserMessage".
+            // This matches 3 elements per message (A, C, E in the nesting above), so we must
+            // deduplicate: keep only innermost, then by text content.
+            if (messages.length === 0) {
+                var replitUserEls = document.querySelectorAll('[class*="userMessage"], [class*="UserMessage"]');
+                var replitFiltered = Array.from(replitUserEls).filter(function(el) {
+                    return el.textContent.trim().length > 0;
+                });
+                // Nesting dedup: keep only innermost matches
+                var replitDeduped = replitFiltered.filter(function(el) {
+                    return !replitFiltered.some(function(other) {
                         return other !== el && el.contains(other);
                     });
                 });
-                if (deduped.length > 0) messages = deduped;
-            }
-
-            // Deduplicate step 2: text content — siblings/cousins at the same nesting
-            // level can match the same selector with identical text. Keep only the first
-            // element for each unique text to avoid showing the same question N times.
-            if (messages.length > 0) {
+                // Text dedup: keep first element per unique text
                 var replitSeen = {};
                 var replitTextDeduped = [];
-                var replitMsgArr = Array.isArray(messages) ? messages : Array.from(messages);
-                for (var ri = 0; ri < replitMsgArr.length; ri++) {
-                    var replitTxt = replitMsgArr[ri].textContent.trim();
+                for (var ri = 0; ri < replitDeduped.length; ri++) {
+                    var replitTxt = replitDeduped[ri].textContent.trim();
                     if (replitTxt && !replitSeen[replitTxt]) {
                         replitSeen[replitTxt] = true;
-                        replitTextDeduped.push(replitMsgArr[ri]);
+                        replitTextDeduped.push(replitDeduped[ri]);
                     }
                 }
                 if (replitTextDeduped.length > 0) messages = replitTextDeduped;
             }
 
-            // Fallback 1: CSS module pattern — class contains "user" or "User"
-            if (messages.length === 0) {
-                var replitUserEls = document.querySelectorAll('[class*="userMessage"], [class*="user-message"], [class*="UserMessage"]');
-                messages = Array.from(replitUserEls).filter(function(el) {
-                    return el.textContent.trim().length > 0;
-                });
-            }
-
-            // Fallback 2: ARIA role="log" container + structural analysis
+            // Fallback 3: ARIA role="log" container + structural analysis
             if (messages.length === 0) {
                 var replitLog = document.querySelector('[role="log"]');
                 if (!replitLog) replitLog = document.querySelector('[role="list"][aria-label*="chat" i]');
@@ -1064,133 +1143,49 @@
                     });
                 }
             }
-
-            // Fallback 3: find chat panel via textarea, then scan siblings
-            if (messages.length === 0) {
-                var replitInput = document.querySelector('textarea[placeholder*="message" i]') ||
-                    document.querySelector('textarea[placeholder*="Message"]') ||
-                    document.querySelector('[contenteditable="true"][role="textbox"]');
-                if (replitInput) {
-                    var replitChat = replitInput.closest('[class*="css-"]');
-                    if (replitChat && replitChat.parentElement) {
-                        var scrollContainer = replitChat.parentElement.querySelector('[style*="overflow"]') ||
-                            replitChat.parentElement;
-                        var allBlocks = scrollContainer.querySelectorAll('div');
-                        messages = Array.from(allBlocks).filter(function(el) {
-                            var style = window.getComputedStyle(el);
-                            var isAlignedRight = style.marginLeft === 'auto' || style.alignSelf === 'flex-end' ||
-                                style.textAlign === 'right';
-                            var hasContent = el.textContent.trim().length > 5;
-                            var isLeaf = el.querySelectorAll('div').length < 3;
-                            return isAlignedRight && hasContent && isLeaf;
-                        });
-                    }
-                }
-            }
         }
         else if (currentSite === SITE.V0) {
             // V0 (Vercel): chat on left side of app builder.
-            // User messages are right-aligned within the chat panel.
-            // V0 uses Vercel's design system (Geist) with various data attributes and Tailwind.
-            // Try multiple data attribute patterns, then structural patterns.
-            // Note: copy buttons and SVG icons also use justify-end/self-end — must filter them out.
-            messages = document.querySelectorAll('[data-role="user"]');
-            if (messages.length === 0) messages = document.querySelectorAll('[data-message-role="user"]');
-            if (messages.length === 0) messages = document.querySelectorAll('[data-message-author-role="user"]');
-            if (messages.length === 0) messages = document.querySelectorAll('[data-message-author="user"]');
-            if (messages.length === 0) messages = document.querySelectorAll('[data-testid*="user-message"]');
-            if (messages.length === 0) messages = document.querySelectorAll('[data-sender="user"]');
+            // Real DOM (Feb 2026): All messages use data-testid="message" with role="listitem".
+            // User messages are distinguished by origin-right + items-end classes (right-aligned).
+            // AI messages have origin-left + items-start (left-aligned).
+            // Each message container has a unique id attribute (hash string).
+            // Text lives inside: div.group/message-bubble > div.prose.prose-sm > p
 
-            // Fallback 0.5: data-message-id containers filtered to user messages (right-aligned)
-            if (messages.length === 0) {
-                var v0MsgAll = document.querySelectorAll('[data-message-id]');
-                if (v0MsgAll.length > 0) {
-                    messages = Array.from(v0MsgAll).filter(function(el) {
-                        var cls = el.className || '';
-                        var isUser = cls.includes('justify-end') || cls.includes('self-end') ||
-                            cls.includes('ml-auto') ||
-                            el.querySelector('.justify-end, .self-end, .ml-auto, [class*="bg-muted"]');
-                        var isNotButton = el.tagName !== 'BUTTON' && !el.closest('button');
-                        return isUser && isNotButton && el.textContent.trim().length > 0;
-                    });
-                }
-            }
-
-            // Fallback 1: V0 user message bubbles — bg-muted rounded with ml-auto
-            if (messages.length === 0) {
-                var v0MutedBubbles = document.querySelectorAll('[class*="bg-muted"][class*="rounded"], [class*="bg-secondary"][class*="rounded"]');
-                messages = Array.from(v0MutedBubbles).filter(function(el) {
+            // Primary: data-testid="message" filtered by origin-right (user = right-aligned)
+            var v0MsgAll = document.querySelectorAll('[data-testid="message"]');
+            if (v0MsgAll.length > 0) {
+                messages = Array.from(v0MsgAll).filter(function(el) {
                     var cls = el.className || '';
-                    var hasText = el.textContent.trim().length > 5;
-                    var isRightAligned = cls.includes('ml-auto') || (el.parentElement && (el.parentElement.className || '').includes('justify-end'));
-                    var isNotButton = !el.closest('button') && el.tagName !== 'BUTTON';
-                    return hasText && isRightAligned && isNotButton;
+                    return cls.includes('origin-right') && cls.includes('items-end');
                 });
             }
 
-            // Fallback 2: look inside a chat/message container specifically
-            if (messages.length === 0) {
-                var v0Container = document.querySelector('[class*="chat"], [class*="messages"], [role="log"], [class*="thread"]');
-                if (v0Container) {
-                    var v0Candidates = v0Container.querySelectorAll('.justify-end, .self-end, .ml-auto');
-                    messages = Array.from(v0Candidates).filter(function(el) {
-                        var hasText = el.textContent.trim().length > 10;
-                        var isNotButton = !el.closest('button') && el.tagName !== 'BUTTON';
-                        var isNotIcon = el.tagName !== 'SVG' && !el.querySelector('svg:only-child');
-                        var isLeaf = el.querySelectorAll('.justify-end, .self-end').length === 0;
-                        var isNotCopyWidget = !(el.className || '').includes('copy');
-                        return hasText && isNotButton && isNotIcon && isLeaf && isNotCopyWidget;
-                    });
-                }
-            }
-
-            // Fallback 3: scan for text-wrap/break-words divs that look like message content
-            if (messages.length === 0) {
-                var v0TextDivs = document.querySelectorAll('[class*="text-wrap"][class*="break-words"], [class*="whitespace-pre-wrap"]');
-                messages = Array.from(v0TextDivs).filter(function(el) {
-                    var hasText = el.textContent.trim().length > 5;
-                    var isNotInput = !el.closest('[contenteditable]') && !el.closest('textarea');
-                    var isNotNav = !el.closest('nav') && !el.closest('header');
-                    // Check if this is a user message by looking for right-alignment in ancestors
-                    var parent = el.closest('.justify-end, .self-end, [class*="ml-auto"]');
-                    return hasText && isNotInput && isNotNav && parent;
+            // Fallback 1: data-testid="message" with only items-end (in case origin-right changes)
+            if (messages.length === 0 && v0MsgAll.length > 0) {
+                messages = Array.from(v0MsgAll).filter(function(el) {
+                    var cls = el.className || '';
+                    return cls.includes('items-end') && !cls.includes('items-start');
                 });
             }
 
-            // Fallback 4: broader scan with strict text length and element type filters
+            // Fallback 2: message bubble with bg-v0-gray-200 (user bubble color)
             if (messages.length === 0) {
-                var v0Bubbles = document.querySelectorAll('.justify-end, .self-end, .ml-auto');
+                var v0Bubbles = document.querySelectorAll('[class*="bg-v0-gray-200"][class*="message-bubble"], [class*="group/message-bubble"]');
                 messages = Array.from(v0Bubbles).filter(function(el) {
-                    var text = el.textContent.trim();
-                    var hasText = text.length > 10;
-                    var isInChat = !el.closest('nav') && !el.closest('header') && !el.closest('[class*="toolbar"]');
-                    var isNotButton = !el.closest('button') && el.tagName !== 'BUTTON';
-                    var isNotIcon = el.tagName !== 'SVG' && !el.querySelector('svg:only-child');
-                    var isLeaf = el.querySelectorAll('.justify-end, .self-end').length === 0;
-                    var isNotCopyWidget = !(el.className || '').includes('copy') && !(el.className || '').includes('transition');
-                    return hasText && isInChat && isLeaf && isNotButton && isNotIcon && isNotCopyWidget;
+                    return el.textContent.trim().length > 0;
                 });
             }
 
-            // Fallback 5: find user messages by scanning scrollable chat container children
+            // Fallback 3: role="listitem" containers filtered by right-alignment
             if (messages.length === 0) {
-                var v0ScrollContainers = document.querySelectorAll('[class*="overflow-y"], [class*="overflow-auto"]');
-                for (var vi = 0; vi < v0ScrollContainers.length; vi++) {
-                    var v0Scroll = v0ScrollContainers[vi];
-                    var v0Rect = v0Scroll.getBoundingClientRect();
-                    // Chat panel: left portion, tall, reasonable width
-                    if (v0Rect.width > 200 && v0Rect.width < window.innerWidth * 0.6 && v0Rect.height > window.innerHeight * 0.3) {
-                        var v0Divs = v0Scroll.querySelectorAll('div');
-                        messages = Array.from(v0Divs).filter(function(el) {
-                            var style = window.getComputedStyle(el);
-                            var isRightAligned = style.marginLeft === 'auto' || style.alignSelf === 'flex-end';
-                            var hasText = el.textContent.trim().length > 5;
-                            var isLeaf = el.querySelectorAll('div').length < 3;
-                            var isNotButton = el.tagName !== 'BUTTON' && !el.closest('button');
-                            return isRightAligned && hasText && isLeaf && isNotButton;
-                        });
-                        if (messages.length > 0) break;
-                    }
+                var v0ListItems = document.querySelectorAll('[role="listitem"]');
+                if (v0ListItems.length > 0) {
+                    messages = Array.from(v0ListItems).filter(function(el) {
+                        var cls = el.className || '';
+                        return (cls.includes('origin-right') || cls.includes('items-end')) &&
+                            el.textContent.trim().length > 0;
+                    });
                 }
             }
         }
@@ -1209,12 +1204,13 @@
             }
         }
         else if (currentSite === SITE.EMERGENT) {
-            // Emergent: user messages have data-testid="user-message-{id}".
-            // The actual text content is often inside a nested div with text-wrap/break-words.
-            // The bubble wrapper has bg-[#273638] + rounded-br-none (user side, no bottom-right radius).
+            // Emergent: user messages have data-testid="user-message-{id}" (e.g. "user-message-user-task").
+            // IMPORTANT: Emergent uses virtuoso virtual scrolling — only visible messages exist in DOM.
+            // Do NOT add broad fallback selectors; they will match AI agent status messages
+            // when user messages are scrolled out of view and the primary returns 0.
             messages = document.querySelectorAll('[data-testid^="user-message"]');
 
-            // Deduplicate: keep only innermost matches (same issue as Replit — nested testids)
+            // Deduplicate: keep only innermost matches (nested testids possible)
             if (messages.length > 0) {
                 var emergentArr = Array.from(messages);
                 var emergentDeduped = emergentArr.filter(function(el) {
@@ -1225,70 +1221,9 @@
                 if (emergentDeduped.length > 0) messages = emergentDeduped;
             }
 
-            // Fallback 1: id starts with "user-"
+            // Fallback: id starts with "user-task" (specific to user task elements only)
             if (messages.length === 0) {
-                messages = document.querySelectorAll('[id^="user-"]');
-            }
-
-            // Fallback 2: look for user task elements
-            if (messages.length === 0) {
-                messages = document.querySelectorAll('[id^="user-task"], [data-testid*="user-task"]');
-            }
-
-            // Fallback 3: user message bubbles — rounded-br-none indicates user side
-            // (assistant bubbles use rounded-bl-none). Target the text content div inside.
-            if (messages.length === 0) {
-                var emergentBubbles = document.querySelectorAll('[class*="rounded-br-none"]');
-                if (emergentBubbles.length > 0) {
-                    messages = Array.from(emergentBubbles).filter(function(el) {
-                        return el.textContent.trim().length > 0;
-                    });
-                }
-            }
-
-            // Fallback 4: items-end containers with teal-ish background in chat area
-            if (messages.length === 0) {
-                var emergentCandidates = document.querySelectorAll('[class*="items-end"]');
-                messages = Array.from(emergentCandidates).filter(function(el) {
-                    var cls = el.className || '';
-                    var hasBg = cls.includes('bg-') && !cls.includes('bg-transparent');
-                    var hasText = el.textContent.trim().length > 0;
-                    var isNotNav = !el.closest('nav') && !el.closest('header');
-                    return hasBg && hasText && isNotNav;
-                });
-            }
-
-            // Fallback 5: text-wrap break-words divs that are user content
-            if (messages.length === 0) {
-                var emergentTextDivs = document.querySelectorAll('[class*="text-wrap"][class*="break-words"]');
-                messages = Array.from(emergentTextDivs).filter(function(el) {
-                    var hasText = el.textContent.trim().length > 5;
-                    var isNotNav = !el.closest('nav') && !el.closest('header') && !el.closest('[contenteditable]');
-                    return hasText && isNotNav;
-                });
-            }
-
-            // Fallback 6: right-aligned message bubbles in chat area
-            if (messages.length === 0) {
-                var emergentChat = document.querySelector('[role="log"], [class*="chat"], [class*="messages"]');
-                if (emergentChat) {
-                    messages = Array.from(emergentChat.querySelectorAll('.justify-end, .self-end, .ml-auto')).filter(function(el) {
-                        return el.textContent.trim().length > 5;
-                    });
-                }
-            }
-
-            // Fallback 7: broad scan — find divs with select-text class (user-selectable content)
-            if (messages.length === 0) {
-                var selectableTexts = document.querySelectorAll('[class*="select-text"]');
-                messages = Array.from(selectableTexts).filter(function(el) {
-                    var hasText = el.textContent.trim().length > 5;
-                    var isNotInput = !el.closest('[contenteditable]') && !el.closest('textarea');
-                    var isNotNav = !el.closest('nav') && !el.closest('header');
-                    // Check if inside a user-message-like container (has teal/dark bg)
-                    var parent = el.closest('[class*="bg-"]');
-                    return hasText && isNotInput && isNotNav && parent;
-                });
+                messages = document.querySelectorAll('[id^="user-task"]');
             }
         }
         else if (currentSite === SITE.PERPLEXITY) {
@@ -1353,7 +1288,10 @@
     }
 
     // --- Scan conversation for user messages ---
-    function scanConversation() {
+    // Track accumulated text keys for virtual scroll platforms (deduplication across scans)
+    var _vsAccumulatedKeys = new Set();
+
+    function scanConversation(forceReset) {
         ensureElementsExist();
 
         const list = document.getElementById('ai-nav-list');
@@ -1362,7 +1300,53 @@
 
         const messages = getUserMessages();
 
-        // Clear list safely (no innerHTML)
+        // Virtual scroll platforms: accumulate messages across scans.
+        // Only visible messages exist in the DOM at any time (virtuoso recycles the rest).
+        // Without accumulation, the list would change every time the user scrolls.
+        if (isVirtualScroll && !forceReset) {
+            // If no new messages found AND we already have items, keep existing list
+            if (messages.length === 0) {
+                if (!list.querySelector('.ai-nav-item')) {
+                    if (!list.firstChild) list.appendChild(createEmptyMessage());
+                    stats.textContent = '0 questions found';
+                }
+                return;
+            }
+
+            var addedNew = false;
+            messages.forEach(function(msg) {
+                let text = (msg.textContent || msg.innerText || '').trim();
+                text = text.replace(/^You said\s*/i, '');
+                if (!text.trim()) return;
+
+                // Deduplicate by first 200 chars (normalized)
+                var key = text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
+                if (!_vsAccumulatedKeys.has(key)) {
+                    _vsAccumulatedKeys.add(key);
+                    // Remove "no questions" empty message if present
+                    var emptyMsg = document.getElementById('ai-nav-empty');
+                    if (emptyMsg) list.removeChild(emptyMsg);
+                    var itemCount = list.querySelectorAll('.ai-nav-item').length;
+                    var navItem = createNavItem(msg, itemCount, text);
+                    navItem.setAttribute('data-text-key', key);
+                    list.appendChild(navItem);
+                    addedNew = true;
+                }
+            });
+
+            if (addedNew || list.querySelector('.ai-nav-item')) {
+                var total = list.querySelectorAll('.ai-nav-item').length;
+                stats.textContent = total + ' question' + (total !== 1 ? 's' : '') + ' found';
+                // Re-number all items sequentially
+                list.querySelectorAll('.ai-nav-number').forEach(function(numEl, i) {
+                    numEl.textContent = 'Question #' + (i + 1);
+                });
+            }
+            return;
+        }
+
+        // Standard mode (non-virtual-scroll, or forceReset): clear and rebuild
+        if (isVirtualScroll) _vsAccumulatedKeys.clear();
         while (list.firstChild) {
             list.removeChild(list.firstChild);
         }
@@ -1380,7 +1364,13 @@
             // Strip accessibility prefixes (e.g. Gemini adds "You said" for screen readers)
             text = text.replace(/^You said\s*/i, '');
             if (!text.trim()) return;
-            list.appendChild(createNavItem(msg, index, text));
+            var navItem = createNavItem(msg, index, text);
+            if (isVirtualScroll) {
+                var key = text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
+                _vsAccumulatedKeys.add(key);
+                navItem.setAttribute('data-text-key', key);
+            }
+            list.appendChild(navItem);
         });
     }
 
@@ -1409,6 +1399,7 @@
 
         history.pushState = function() {
             originalPushState.apply(this, arguments);
+            if (isVirtualScroll) _vsAccumulatedKeys.clear(); // reset on navigation
             setTimeout(ensureElementsExist, 500);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         };
@@ -1419,6 +1410,7 @@
         };
 
         window.addEventListener('popstate', function() {
+            if (isVirtualScroll) _vsAccumulatedKeys.clear(); // reset on navigation
             setTimeout(ensureElementsExist, 500);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         });
@@ -1459,9 +1451,12 @@
         }, { passive: true });
 
         // Periodic boundary check (chat panels can resize dynamically)
+        // Note: Do NOT reset _lastBoundaryX here. Resetting prevented the two-consecutive-
+        // stable-polls requirement from ever being met via the interval, blocking late-rendering
+        // platforms (like Emergent's virtuoso scroller) from ever showing the ghost notch.
+        // The stability check in updateLeftChatPositions already handles boundary position changes.
         setInterval(function() {
             if (!isOpen) {
-                _lastBoundaryX = null;
                 updateLeftChatPositions();
             }
         }, 3000);
@@ -1470,5 +1465,5 @@
     // Initial scan after page load
     setTimeout(scanConversation, 2000);
 
-    console.log('AI Conversation Navigator v7.5 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
+    console.log('AI Conversation Navigator v7.6 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
 })();

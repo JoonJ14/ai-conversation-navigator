@@ -32,14 +32,15 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v7.5
+## Current Status: v7.6
 
-The extension now supports 14 platform variants across 12 websites. The ghost notch button system (v7.1 → v7.3) is stable, and v7.4/v7.5 focused on improving selector accuracy through live site testing. All 140 automated tests pass (10 tests × 14 platforms).
+The extension now supports 14 platform variants across 12 websites. The ghost notch button system (v7.1 → v7.3) is stable. v7.6 fixed Replit using live DOM inspection. All 140 automated tests pass (10 tests × 14 platforms).
 
 **What's working well:**
 - Claude, ChatGPT, Codex, Grok, Gemini, Perplexity, Firebase Studio — all selectors validated on live sites
 - Lovable, Base44 — selectors working correctly on live sites
 - Bolt.new — v7.5 reworked selectors to use `data-message-id` + `self-end` pattern, excluding the "You've used all your tokens" subscription warning
+- Replit — v7.6 fixed using `data-cy="user-message"` from live DOM inspection. Both the 3x duplicate bug and ghost notch first-load bug are resolved.
 - Ghost notch button positioning and boundary detection stable across all left-chat platforms
 
 **What needs live testing and follow-up work:**
@@ -47,16 +48,9 @@ The extension now supports 14 platform variants across 12 websites. The ghost no
 
 ---
 
-## Next Priority: Platform Selector Deep-Dive
+## Next Priority: V0 and Emergent Selector Deep-Dive
 
-These three platforms have confirmed issues from live site testing that need dedicated attention. A separate feature branch should be created for each to do focused live DOM inspection and selector iteration.
-
-### Replit — Question Deduplication (3x repeats)
-- **Issue:** Each question appears 3 times in the navigation panel
-- **Current state:** Nesting dedup + text-content dedup applied as mitigation, but root cause unknown
-- **What's needed:** Live DOM inspection to understand why 3 elements match per question
-- **Possible causes:** `data-testid*="user-message"` matching siblings, primary selector miss causing fallback 3x match, or Emotion CSS-in-JS class changes
-- **See:** TROUBLESHOOTING.md → "Replit — Questions repeating 3 times"
+Two platforms still have confirmed issues from live site testing. Each needs the same treatment Replit got: live DOM inspection → correct selectors → update mock test page.
 
 ### V0 — No Questions Detected
 - **Issue:** "0 questions found" despite multiple questions asked
@@ -71,6 +65,17 @@ These three platforms have confirmed issues from live site testing that need ded
 - **Current state:** Opacity and width increased, scrollbar offset applied, but may need design rethink
 - **What's needed:** Live testing to validate opacity, diagnose panel spacing, consider alternative button design
 - **See:** TROUBLESHOOTING.md → "Emergent — Button invisible until hover"
+
+---
+
+## Upcoming: DOM-REFERENCE.md
+
+After V0 and Emergent are fixed, create a `DOM-REFERENCE.md` file documenting the real DOM structure of ALL supported platforms. This prevents context loss across Claude Code sessions — no more re-inspecting the same DOMs. Include:
+- Copy-pasted outerHTML for each platform's user message element + parent chain
+- Screenshots in a `screenshots/` folder
+- Which selector is used and why
+- Edge cases to exclude (like Bolt's subscription warning)
+- Date of last inspection
 
 ---
 

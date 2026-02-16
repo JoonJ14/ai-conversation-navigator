@@ -4,6 +4,186 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [7.6] - 2026-02-15
+
+### Fixed — Replit: 3x Duplicate Questions + Ghost Notch Button Not Appearing on First Load
+
+Two bugs fixed by replacing incorrect selectors with ones derived from live DOM inspection.
+
+#### Bug 1: Each Question Appeared 3 Times in the Navigation Panel
+
+**Root cause:** All four primary selectors failed because Replit uses `data-cy` (Cypress test attribute), NOT `data-testid`:
+- `[data-testid*="user-message"]` → 0 matches (wrong attribute name)
+- `[data-message-role="user"]` → 0 matches (doesn't exist)
+- `[data-role="user"]` → 0 matches (doesn't exist)
+- `[data-author="user"]` → 0 matches (doesn't exist)
+
+Since all primaries returned 0, the dedup logic was skipped entirely (it only runs when `messages.length > 0`). Then Fallback 1 fired: `[class*="userMessage"], [class*="UserMessage"]`, which matched **3 nested elements per user message**:
+
+```
+A: div.EventRenderer-module_RTGgnG_userMessage       ← matches [class*="userMessage"] (outermost)
+  B: div[data-cy="user-message"]                     ← THE CORRECT TARGET (no userMessage in class)
+    C: div.UserMessage-module_wrN9Aa_userMessageSurfaceShades  ← matches (middle)
+      D: span
+        E: div.UserMessage-module_wrN9Aa_userMessageSurfaceShades  ← matches (innermost)
+          F: div.rendered-markdown
+            G: div.Markdown-module_KWqogW_markdownTheme
+              H: <p>actual text</p>
+```
+
+Elements A, C, and E all contain "userMessage" in their CSS module class names. No dedup ran on these fallback results, so all 3 were shown per question.
+
+**Fix:** Changed primary selector to `[data-cy="user-message"]`, which targets element B — exactly one per user message. Added `[data-event-type="user-message"]` as secondary (same element, alternate attribute). Restructured fallback chain with proper dedup as safety net.
+
+#### Bug 2: Ghost Notch Button Not Appearing on First Page Load
+
+**Root cause:** In `getChatBoundaryX()` Strategy 2, the Replit message selector was `[data-testid*="user-message"]` — same wrong attribute. Strategy 2 found no messages → couldn't walk up to the chat container → returned null → button stayed hidden. After a page refresh, the SPA rendered faster from cache and Strategy 1 (textarea walkup) or Strategy 3 (iframe detection) succeeded.
+
+**Fix:** Updated Strategy 2's Replit selector to `[data-cy="user-message"], [data-event-type="user-message"]`.
+
+#### Mock Test Page Updated
+
+Rewrote `tests/mock-pages/replit.html` to match the real Replit DOM structure:
+- Full A→H nesting hierarchy with CSS module classes
+- `data-cy="user-message"` and `data-event-type="user-message"` attributes
+- Double `UserMessage-module` elements (C and E) that caused the 3x bug
+- `EventRenderer-module` with `userMessage` in class name
+- `AutoScroller-module` container wrapper
+- All 140 tests pass (14 platforms × 10 tests)
+
+V0 and Emergent were fixed in v7.7 (see below). `DOM-REFERENCE.md` created with real DOM structures of all platforms.
+
+---
+
+## [7.7] - 2026-02-15
+
+### Fixed — V0: 0 Questions Detected + Button Invisible Until Refresh
+
+**Root cause (message detection):** ALL 6 primary selectors were guesses that don't exist in V0's DOM:
+- `[data-role="user"]` — doesn't exist
+- `[data-message-role="user"]` — doesn't exist
+- `[data-message-author-role="user"]` — doesn't exist
+- `[data-message-author="user"]` — doesn't exist
+- `[data-testid*="user-message"]` — actual value is `"message"` (no "user" in it)
+- `[data-sender="user"]` — doesn't exist
+
+ALL 6 fallbacks also failed because V0 doesn't use the alignment classes our fallbacks relied on:
+- No `justify-end`, `self-end`, `ml-auto` — V0 uses `items-end`, `origin-right` instead
+- No `bg-muted`, `bg-secondary` — V0 uses `bg-v0-gray-200`
+- No `[data-message-id]` — V0 uses regular `id` attribute with hash
+
+**Root cause (button invisible):** Boundary detection Strategy 2 used `[data-role="user"]` which also doesn't exist. No boundary found → `getChatBoundaryX()` returns null → `.ai-nav-positioned` class never added → opacity stays at 0. Button only appeared after page refresh when Strategy 1 (textarea walkup) succeeded on faster SPA re-render.
+
+**Fix (message detection):** Replaced entire V0 selector chain with approach based on live DOM inspection:
+```javascript
+// Primary: data-testid="message" filtered by origin-right (user = right-aligned)
+var v0MsgAll = document.querySelectorAll('[data-testid="message"]');
+messages = Array.from(v0MsgAll).filter(function(el) {
+    var cls = el.className || '';
+    return cls.includes('origin-right') && cls.includes('items-end');
+});
+```
+V0 uses `data-testid="message"` on ALL messages (user + AI). User messages have `origin-right items-end` classes; AI messages have `origin-left items-start`. Filtering by both classes reliably distinguishes user messages.
+
+Fallback chain:
+1. `items-end` only (in case `origin-right` changes)
+2. Bubble class `bg-v0-gray-200` / `group/message-bubble`
+3. `role="listitem"` with alignment check
+
+**Fix (button invisible):** Updated boundary detection selector to `[data-testid="message"]`.
+
+**Mock page rewritten:** `tests/mock-pages/v0.html` now matches real V0 DOM — includes `data-testid="message"` with `origin-right items-end` for user messages and `origin-left items-start` for AI messages, full A→I nesting with `@container/message`, `group/message-bubble`, `bg-v0-gray-200`, and copy buttons that should NOT be detected.
+
+### Fixed — Emergent: Ghost Notch Button Invisible (Two Root Causes)
+
+The Emergent ghost notch button stayed at `opacity: 0` indefinitely, never transitioning to the resting `opacity: 0.35`. This had two independent root causes that both needed fixing.
+
+**Root cause 1 — Boundary detection failure:** The standard `_walkUpToChatContainer()` walks up from a message element looking for a container with `width < 65% viewport`. Emergent uses `div.absolute.inset-0` as a layout container, which inherits full viewport width from its flex parent. Walking up past this element hits full-width ancestors that fail the width check → `getChatBoundaryX()` returns null → `.ai-nav-positioned` never added → opacity stays at 0.
+
+**Root cause 2 — Periodic interval killing stability:** The 3-second periodic boundary check was resetting `_lastBoundaryX = null` before each call to `updateLeftChatPositions()`. The two-consecutive-stable-polls requirement could never be met via the interval because the first poll always compared against null (treated as unstable). Even if boundary detection eventually succeeded after the page fully rendered, the reset killed it.
+
+**Fix 1 — Emergent-specific boundary detection:** Added a new branch at the top of `getChatBoundaryX()` that bypasses `_walkUpToChatContainer` entirely for Emergent:
+```javascript
+if (currentSite === SITE.EMERGENT) {
+    var virtuosoScroller = document.querySelector(
+        '[data-testid="virtuoso-scroller"], [data-virtuoso-scroller="true"]'
+    );
+    if (virtuosoScroller) {
+        var vsRect = virtuosoScroller.getBoundingClientRect();
+        if (vsRect.width > 200 && vsRect.width < window.innerWidth * 0.75
+            && vsRect.height > window.innerHeight * 0.3) {
+            return vsRect.right;
+        }
+    }
+}
+```
+The virtuoso scroller `div` has a reliable `data-testid` attribute and its bounding rect directly represents the chat panel's dimensions.
+
+**Fix 2 — Removed periodic `_lastBoundaryX` reset:** The `_lastBoundaryX = null` line was removed from the periodic interval. This allows late-rendering platforms to eventually achieve two consecutive stable polls, even if the boundary detection only starts working after initial page load completes.
+
+### Fixed — Emergent: Reverted Opacity Band-Aid
+
+A previous agent session increased Emergent's resting opacity from 0.35 to 0.75 and width from 8px to 14px as a workaround for the invisible button. Now that the actual root cause is fixed (boundary detection), the band-aid was reverted:
+- Removed conditional `opacity: ${currentSite === SITE.EMERGENT ? '0.75' : '0.35'}` → now uses `0.35` for all platforms
+- Removed conditional `width: 14px !important` override → now uses default `8px` for all platforms
+
+### Fixed — Emergent: Question List Changing on Scroll (Virtual Scroll Architecture)
+
+**What it looked like:** As the user scrolled through the chat, the navigation panel showed different questions appearing and disappearing. Many of the shown items were NOT user questions at all — they were AI agent status messages like "Backend is running", "Good progress!".
+
+**Root cause:** Emergent uses **virtuoso virtual scrolling** — only DOM elements currently visible in the viewport exist in the DOM. Elements are recycled as the user scrolls. This caused two problems:
+
+1. The 10-second periodic re-scan cleared and rebuilt the question list each time. When user messages scrolled out of view, the primary selector (`[data-testid^="user-message"]`) returned 0 results.
+2. With 0 primary results, broad fallback selectors (3-7: `rounded-br-none`, `items-end`, `text-wrap`, `select-text`, chat container scan) fired and matched AI agent content that was currently visible.
+
+**Why this only affects Emergent:** All other supported platforms keep all messages in the DOM regardless of scroll position. Emergent is the only platform using virtuoso virtual scrolling.
+
+**Fix — Three-part approach:**
+
+1. **Removed broad Emergent fallbacks 3-7:** Only the primary selector (`[data-testid^="user-message"]`) and ID-based fallback (`[id^="user-task"]`) remain. This prevents AI content from ever being matched.
+
+2. **Added accumulative scanning for virtual scroll platforms:**
+   ```javascript
+   const VIRTUAL_SCROLL_SITES = [SITE.EMERGENT];
+   const isVirtualScroll = VIRTUAL_SCROLL_SITES.includes(currentSite);
+   var _vsAccumulatedKeys = new Set();
+   ```
+   In accumulation mode, `scanConversation()` adds newly discovered messages to the existing list without clearing it. Deduplication uses a text key (first 200 chars, normalized). The Refresh button does a full reset via `scanConversation(true)`. SPA navigation also clears the accumulated set.
+
+3. **Stale DOM reference handling:** When the user clicks a nav item, the originally captured DOM element may have been recycled by virtuoso. The click handler checks `msg.isConnected` and, if stale, re-searches the current DOM for a matching element by text content. If the target message isn't currently in the DOM (scrolled far away), the click is silently ignored.
+
+### Fixed — Emergent: No Questions on Initial Load
+
+**What it looked like:** When Emergent first loaded, the navigation panel showed 0 questions. The user had to manually scroll all the way up through the chat for questions to appear in the panel.
+
+**Root cause:** Emergent loads with the chat scrolled to the bottom. Virtuoso only renders messages currently in the viewport. Messages at the top of the conversation don't exist in the DOM until the user scrolls up to them. Since our scanner runs on page load (when only the bottom is rendered), it finds 0 user messages.
+
+**Fix — Scroll-through collection on panel open:** When the panel opens on a virtual scroll platform, the script programmatically scrolls through the entire virtuoso container to force-render every message:
+1. Saves the current `scrollTop` position
+2. Forces a full reset (`scanConversation(true)`)
+3. Builds an array of scroll positions: `[0, 80%_viewport, 160%_viewport, ...]` up to `scrollHeight`
+4. Steps through each position with 250ms delays (for virtuoso to render)
+5. At each position, runs `scanConversation()` in accumulation mode
+6. After reaching the end, restores the original scroll position
+
+This collects all user messages across the entire conversation regardless of initial scroll position.
+
+### Fixed — Emergent: "No Messages Found" Text Persisting Above Questions
+
+**What it looked like:** After questions loaded via accumulation, the "No messages found yet" placeholder text remained visible above the actual question list.
+
+**Root cause:** The empty message element was created with `id="ai-nav-empty"` but the accumulation code used `.ai-nav-empty` (class selector) to find and remove it. The selector never matched.
+
+**Fix:** Changed `list.querySelector('.ai-nav-empty')` to `document.getElementById('ai-nav-empty')`.
+
+### Mock Page and Documentation Updates
+
+- **`tests/mock-pages/emergent.html`:** Rewritten to match real Emergent DOM — includes virtuoso scroller (`data-testid="virtuoso-scroller"`), full A→M nesting hierarchy with `data-testid="user-message-user-task"`, icon sidebar, chat panel constrained by flex (`max-width:40%`), and preview panel.
+- **`DOM-REFERENCE.md`:** Created comprehensive reference covering all 14 platform variants. Detailed DOM structures and debugging history for Replit, V0, Bolt.new, and Emergent (from live site inspection). Selector info and notes for all other platforms. Includes general patterns and common pitfalls section.
+- All 140 tests pass (14 platforms × 10 tests).
+
+---
+
 ## [7.5] - 2026-02-15
 
 ### Problem — Platform Selectors Not Matching Live DOM
