@@ -101,7 +101,7 @@
         [SITE.V0]: '\u25BD',      // ▽ (inverted triangle, Vercel logo shape)
         [SITE.BASE44]: '\u2B22',  // ⬢ (hexagon)
         [SITE.EMERGENT]: 'e',     // lowercase e (Emergent brand initial)
-        [SITE.PERPLEXITY]: '\u29BE', // ⦾ (circled white bullet)
+        [SITE.PERPLEXITY]: '\u2733', // ✳ (eight spoked asterisk — same as Claude, renders on Linux/Firefox)
         [SITE.FIREBASE_STUDIO]: '\u2726' // ✦ (same as Gemini — Firebase Studio runs Gemini)
     };
 
@@ -1315,7 +1315,9 @@
 
             var addedNew = false;
             messages.forEach(function(msg) {
-                let text = (msg.textContent || msg.innerText || '').trim();
+                // Emergent: extract text from prose container only (excludes timestamps/buttons)
+                var proseEl = msg.querySelector('.prose');
+                let text = proseEl ? (proseEl.textContent || '').trim() : (msg.textContent || msg.innerText || '').trim();
                 text = text.replace(/^You said\s*/i, '');
                 if (!text.trim()) return;
 
@@ -1329,13 +1331,25 @@
                     var itemCount = list.querySelectorAll('.ai-nav-item').length;
                     var navItem = createNavItem(msg, itemCount, text);
                     navItem.setAttribute('data-text-key', key);
+                    // Store virtuoso data-index for sorting (chronological order)
+                    var virtuosoItem = msg.closest('[data-index]');
+                    if (virtuosoItem) navItem.setAttribute('data-vs-index', virtuosoItem.getAttribute('data-index'));
                     list.appendChild(navItem);
                     addedNew = true;
                 }
             });
 
             if (addedNew || list.querySelector('.ai-nav-item')) {
-                var total = list.querySelectorAll('.ai-nav-item').length;
+                // Sort nav items by virtuoso data-index (chronological order)
+                // Without this, items appear in discovery order (newest first if user scrolls up)
+                var navItems = Array.from(list.querySelectorAll('.ai-nav-item'));
+                if (navItems.length > 1 && navItems[0].hasAttribute('data-vs-index')) {
+                    navItems.sort(function(a, b) {
+                        return parseInt(a.getAttribute('data-vs-index') || '0') - parseInt(b.getAttribute('data-vs-index') || '0');
+                    });
+                    navItems.forEach(function(item) { list.appendChild(item); });
+                }
+                var total = navItems.length || list.querySelectorAll('.ai-nav-item').length;
                 stats.textContent = total + ' question' + (total !== 1 ? 's' : '') + ' found';
                 // Re-number all items sequentially
                 list.querySelectorAll('.ai-nav-number').forEach(function(numEl, i) {
@@ -1360,7 +1374,9 @@
         stats.textContent = messages.length + ' question' + (messages.length !== 1 ? 's' : '') + ' found';
 
         messages.forEach(function(msg, index) {
-            let text = (msg.textContent || msg.innerText || '').trim();
+            // Emergent: extract text from prose container only (excludes timestamps/buttons)
+            var proseEl = (currentSite === SITE.EMERGENT) ? msg.querySelector('.prose') : null;
+            let text = proseEl ? (proseEl.textContent || '').trim() : (msg.textContent || msg.innerText || '').trim();
             // Strip accessibility prefixes (e.g. Gemini adds "You said" for screen readers)
             text = text.replace(/^You said\s*/i, '');
             if (!text.trim()) return;
@@ -1369,6 +1385,8 @@
                 var key = text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
                 _vsAccumulatedKeys.add(key);
                 navItem.setAttribute('data-text-key', key);
+                var virtuosoItem = msg.closest('[data-index]');
+                if (virtuosoItem) navItem.setAttribute('data-vs-index', virtuosoItem.getAttribute('data-index'));
             }
             list.appendChild(navItem);
         });
@@ -1465,5 +1483,19 @@
     // Initial scan after page load
     setTimeout(scanConversation, 2000);
 
-    console.log('AI Conversation Navigator v7.6 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
+    // Firebase Studio and other heavy SPAs: chat may not render within 2 seconds.
+    // Add aggressive retries for platforms that lazy-load their chat panels.
+    if (currentSite === SITE.FIREBASE_STUDIO) {
+        [5000, 10000, 20000].forEach(function(delay) {
+            setTimeout(function() {
+                var items = document.querySelectorAll('.ai-nav-item');
+                if (items.length === 0) {
+                    console.log('AI Nav: Firebase retry scan at ' + delay + 'ms...');
+                    scanConversation();
+                }
+            }, delay);
+        });
+    }
+
+    console.log('AI Conversation Navigator v7.7 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
 })();
