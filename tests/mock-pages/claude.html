@@ -1,23 +1,242 @@
 <!DOCTYPE html>
 <html><head><title>Claude Mock</title></head>
-<body>
-<!-- Claude uses data-testid="user-human-turn" for user messages -->
-<div class="conversation">
-  <div data-testid="user-human-turn">
-    <p>What is recursion in programming?</p>
-  </div>
-  <div data-testid="assistant-turn">
-    <p>Recursion is when a function calls itself...</p>
-  </div>
-  <div data-testid="user-human-turn">
-    <p>Can you show me an example in Python?</p>
-  </div>
-  <div data-testid="assistant-turn">
-    <p>Sure, here is a factorial function...</p>
-  </div>
-  <div data-testid="user-human-turn">
-    <p>How does the call stack work with recursive functions?</p>
-  </div>
-</div>
+<body style="margin:0;padding:0;background:#2b2a27;color:#e8e4db;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<!-- Claude (claude.ai/chat): Real DOM structure from live site inspection, Feb 2026.
+
+     Claude uses Tailwind CSS with semantic data-testid attributes. The chat area
+     is a full-height scrollable column. User messages are right-aligned bubbles with
+     bg-bg-300 background, while assistant messages are left-aligned.
+
+     Primary selector: [data-testid="user-human-turn"] — outer wrapper per user turn.
+     Fallback 1: [data-testid="user-message"] — not present in current DOM but kept for compat.
+     Fallback 2: .font-user-message — on the inner text container (J level below).
+
+     Scroll container: div.overflow-y-scroll.overflow-x-hidden.pt-6.flex-1
+
+     DOM nesting per user message (letters match the user's reference):
+       A: div.overflow-y-scroll.overflow-x-hidden.pt-6.flex-1 (scroll container)
+         B: div.mx-auto.font-size-full.max-w-3xl.flex-col.md:px-2 (content-max-width)
+           C: div.flex-1.flex.px-4.max-w-3xl.mx-auto.w-full.pt-1 (row layout)
+             D: div[data-test-render-count] (render wrapper)
+             E: div[data-testid="user-human-turn"].mb-1.mt-6.group (message group — PRIMARY TARGET)
+               F: div.flex.flex-col.items-end.gap-1 (alignment — items-end for user)
+                 G: div.group.relative.inline-flex.gap-2.bg-bg-300.rounded-xl.pl-2.5.py-2.5
+                      .break-words.text-text-100.transition-all.max-w-[75ch].flex-col.!px-4
+                      .max-w-[85%] (bubble)
+                   H: div.flex.flex-row.gap-2.relative
+                     I: div.flex-1
+                       J: div.font-large.font-user-message.grid.grid-cols-1.gap-2.py-0.5
+                            [data-testid="user_message"] (text container — FALLBACK targets)
+                         K: p.whitespace-pre-wrap.break-words (actual text)
+                 L: div.absolute.bottom-0.left-0.right-0.h-12.bg-gradient-to-t
+                      .from-bg-300.to-transparent.pointer-events-none (gradient overlay)
+
+     Assistant messages:
+       - Wrapped in div[data-testid="assistant-turn"] or similar
+       - Left-aligned (no items-end), different background
+       - Contain rendered markdown
+
+     Page chrome:
+       - Header bar with data-testid="page-header"
+       - Left sidebar with conversation list
+       - Bottom input area with contenteditable ProseMirror editor
+
+     Important: The test script detects Claude via hostname "claude.ai". The primary
+     selector [data-testid="user-human-turn"] matches E-level divs and should return
+     exactly 1 element per user message (3 total in this mock). -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- Page layout: sidebar + main content area                                  -->
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<div style="display:flex;height:100vh;width:100%;">
+
+  <!-- ── Left sidebar (conversation list) ─────────────────────────────────── -->
+  <nav style="width:260px;min-width:260px;background:#1a1917;display:flex;flex-direction:column;border-right:1px solid #3a3835;overflow-y:auto;">
+    <!-- Sidebar header / logo -->
+    <div style="padding:16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #3a3835;">
+      <svg width="20" height="20" viewBox="0 0 20 20" style="fill:#d97706;"><circle cx="10" cy="10" r="8"/></svg>
+      <span style="font-size:15px;font-weight:600;color:#e8e4db;">Claude</span>
+    </div>
+    <!-- New chat button -->
+    <div style="padding:12px 16px;">
+      <button style="width:100%;padding:8px 12px;background:#3a3835;border:none;border-radius:8px;color:#e8e4db;cursor:pointer;font-size:13px;">+ New chat</button>
+    </div>
+    <!-- Conversation list items -->
+    <div style="flex:1;padding:4px 8px;">
+      <div style="padding:8px 12px;border-radius:8px;background:#2b2a27;color:#b4b0a7;font-size:13px;margin-bottom:2px;cursor:pointer;">Recursion discussion</div>
+      <div style="padding:8px 12px;border-radius:8px;color:#7a776f;font-size:13px;margin-bottom:2px;cursor:pointer;">Python generators help</div>
+      <div style="padding:8px 12px;border-radius:8px;color:#7a776f;font-size:13px;margin-bottom:2px;cursor:pointer;">API design review</div>
+    </div>
+  </nav>
+
+  <!-- ── Main content area ────────────────────────────────────────────────── -->
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+
+    <!-- ── Header bar ───────────────────────────────────────────────────── -->
+    <header data-testid="page-header" style="height:48px;display:flex;align-items:center;padding:0 16px;border-bottom:1px solid #3a3835;background:#2b2a27;flex-shrink:0;">
+      <span style="font-size:14px;color:#b4b0a7;">Claude 3.5 Sonnet</span>
+      <div style="flex:1;"></div>
+      <div style="display:flex;gap:8px;">
+        <button style="background:none;border:1px solid #3a3835;border-radius:6px;padding:4px 10px;color:#b4b0a7;font-size:12px;cursor:pointer;">Share</button>
+      </div>
+    </header>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- A: Scroll container                                                -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div class="overflow-y-scroll overflow-x-hidden pt-6 flex-1" style="flex:1;overflow-y:auto;overflow-x:hidden;padding-top:24px;">
+
+      <!-- B: Content max-width wrapper -->
+      <div class="mx-auto font-size-full max-w-3xl flex-col md:px-2" style="max-width:768px;margin:0 auto;display:flex;flex-direction:column;padding:0 8px;">
+
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <!-- User Message 1                                                  -->
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <!-- C: Row layout -->
+        <div class="flex-1 flex px-4 max-w-3xl mx-auto w-full pt-1" style="display:flex;max-width:768px;margin:0 auto;width:100%;padding:4px 16px 0 16px;">
+          <!-- D: Render wrapper -->
+          <div data-test-render-count="1" style="width:100%;">
+          <!-- E: Message group — PRIMARY SELECTOR TARGET -->
+          <div data-testid="user-human-turn" class="mb-1 mt-6 group" style="margin-bottom:4px;margin-top:24px;width:100%;">
+            <!-- F: Alignment wrapper (items-end = right-aligned for user) -->
+            <div class="flex flex-col items-end gap-1" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+              <!-- G: Bubble -->
+              <div class="group relative inline-flex gap-2 bg-bg-300 rounded-xl pl-2.5 py-2.5 break-words text-text-100 transition-all max-w-[75ch] flex-col !px-4 max-w-[85%]" style="position:relative;display:inline-flex;gap:8px;background:#3a3835;border-radius:12px;padding:10px 16px;word-break:break-word;color:#e8e4db;max-width:85%;flex-direction:column;">
+                <!-- H: Row inside bubble -->
+                <div class="flex flex-row gap-2 relative" style="display:flex;flex-direction:row;gap:8px;position:relative;">
+                  <!-- I: Flex container -->
+                  <div class="flex-1" style="flex:1;">
+                    <!-- J: Text container — FALLBACK SELECTOR TARGETS -->
+                    <div class="font-large font-user-message grid grid-cols-1 gap-2 py-0.5" data-testid="user_message" style="display:grid;grid-template-columns:1fr;gap:8px;padding:2px 0;">
+                      <!-- K: Actual text paragraph -->
+                      <p class="whitespace-pre-wrap break-words" style="margin:0;white-space:pre-wrap;word-break:break-word;">What is recursion in programming?</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <!-- L: Gradient overlay (visual only) -->
+              <div class="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-bg-300 to-transparent pointer-events-none" style="display:none;"></div>
+            </div>
+          </div>
+          </div>
+        </div>
+
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <!-- Assistant Message 1                                             -->
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <div class="flex-1 flex px-4 max-w-3xl mx-auto w-full pt-1" style="display:flex;max-width:768px;margin:0 auto;width:100%;padding:4px 16px 0 16px;">
+          <div data-test-render-count="2" style="width:100%;">
+          <div data-testid="assistant-turn" class="mb-1 mt-6 group" style="margin-bottom:4px;margin-top:24px;width:100%;">
+            <!-- F: Alignment wrapper (items-start = left-aligned for assistant) -->
+            <div class="flex flex-col items-start gap-1" style="display:flex;flex-direction:column;align-items:flex-start;gap:4px;">
+              <!-- Assistant bubble (no bg-bg-300, different styling) -->
+              <div class="group relative inline-flex gap-2 rounded-xl break-words text-text-100 transition-all max-w-[75ch] flex-col" style="position:relative;display:inline-flex;gap:8px;border-radius:12px;padding:10px 0;word-break:break-word;color:#e8e4db;max-width:75ch;flex-direction:column;">
+                <div class="flex flex-row gap-2 relative" style="display:flex;flex-direction:row;gap:8px;position:relative;">
+                  <div class="flex-1" style="flex:1;">
+                    <div class="grid grid-cols-1 gap-2 py-0.5" style="display:grid;grid-template-columns:1fr;gap:8px;padding:2px 0;">
+                      <p style="margin:0;line-height:1.6;">Recursion is a programming concept where a function calls itself to solve a problem. It breaks down a complex problem into smaller, more manageable sub-problems that are essentially the same type of problem.</p>
+                      <p style="margin:0;line-height:1.6;">A recursive function typically has two parts:</p>
+                      <ul style="margin:4px 0;padding-left:24px;">
+                        <li><strong>Base case:</strong> The condition that stops the recursion</li>
+                        <li><strong>Recursive case:</strong> Where the function calls itself with a modified argument</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
+
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <!-- User Message 2                                                  -->
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <div class="flex-1 flex px-4 max-w-3xl mx-auto w-full pt-1" style="display:flex;max-width:768px;margin:0 auto;width:100%;padding:4px 16px 0 16px;">
+          <div data-test-render-count="3" style="width:100%;">
+          <div data-testid="user-human-turn" class="mb-1 mt-6 group" style="margin-bottom:4px;margin-top:24px;width:100%;">
+            <div class="flex flex-col items-end gap-1" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+              <div class="group relative inline-flex gap-2 bg-bg-300 rounded-xl pl-2.5 py-2.5 break-words text-text-100 transition-all max-w-[75ch] flex-col !px-4 max-w-[85%]" style="position:relative;display:inline-flex;gap:8px;background:#3a3835;border-radius:12px;padding:10px 16px;word-break:break-word;color:#e8e4db;max-width:85%;flex-direction:column;">
+                <div class="flex flex-row gap-2 relative" style="display:flex;flex-direction:row;gap:8px;position:relative;">
+                  <div class="flex-1" style="flex:1;">
+                    <div class="font-large font-user-message grid grid-cols-1 gap-2 py-0.5" data-testid="user_message" style="display:grid;grid-template-columns:1fr;gap:8px;padding:2px 0;">
+                      <p class="whitespace-pre-wrap break-words" style="margin:0;white-space:pre-wrap;word-break:break-word;">Can you show me an example in Python?</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-bg-300 to-transparent pointer-events-none" style="display:none;"></div>
+            </div>
+          </div>
+          </div>
+        </div>
+
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <!-- Assistant Message 2                                             -->
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <div class="flex-1 flex px-4 max-w-3xl mx-auto w-full pt-1" style="display:flex;max-width:768px;margin:0 auto;width:100%;padding:4px 16px 0 16px;">
+          <div data-test-render-count="4" style="width:100%;">
+          <div data-testid="assistant-turn" class="mb-1 mt-6 group" style="margin-bottom:4px;margin-top:24px;width:100%;">
+            <div class="flex flex-col items-start gap-1" style="display:flex;flex-direction:column;align-items:flex-start;gap:4px;">
+              <div class="group relative inline-flex gap-2 rounded-xl break-words text-text-100 transition-all max-w-[75ch] flex-col" style="position:relative;display:inline-flex;gap:8px;border-radius:12px;padding:10px 0;word-break:break-word;color:#e8e4db;max-width:75ch;flex-direction:column;">
+                <div class="flex flex-row gap-2 relative" style="display:flex;flex-direction:row;gap:8px;position:relative;">
+                  <div class="flex-1" style="flex:1;">
+                    <div class="grid grid-cols-1 gap-2 py-0.5" style="display:grid;grid-template-columns:1fr;gap:8px;padding:2px 0;">
+                      <p style="margin:0;line-height:1.6;">Sure! Here is a classic factorial function using recursion:</p>
+                      <pre style="background:#1a1917;border-radius:8px;padding:12px 16px;overflow-x:auto;font-size:13px;line-height:1.5;"><code>def factorial(n):
+    # Base case
+    if n == 0 or n == 1:
+        return 1
+    # Recursive case
+    return n * factorial(n - 1)
+
+print(factorial(5))  # Output: 120</code></pre>
+                      <p style="margin:0;line-height:1.6;">When you call <code style="background:#1a1917;padding:2px 6px;border-radius:4px;font-size:13px;">factorial(5)</code>, it expands like this: 5 * 4 * 3 * 2 * 1 = 120.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
+
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <!-- User Message 3                                                  -->
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <div class="flex-1 flex px-4 max-w-3xl mx-auto w-full pt-1" style="display:flex;max-width:768px;margin:0 auto;width:100%;padding:4px 16px 0 16px;">
+          <div data-test-render-count="5" style="width:100%;">
+          <div data-testid="user-human-turn" class="mb-1 mt-6 group" style="margin-bottom:4px;margin-top:24px;width:100%;">
+            <div class="flex flex-col items-end gap-1" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+              <div class="group relative inline-flex gap-2 bg-bg-300 rounded-xl pl-2.5 py-2.5 break-words text-text-100 transition-all max-w-[75ch] flex-col !px-4 max-w-[85%]" style="position:relative;display:inline-flex;gap:8px;background:#3a3835;border-radius:12px;padding:10px 16px;word-break:break-word;color:#e8e4db;max-width:85%;flex-direction:column;">
+                <div class="flex flex-row gap-2 relative" style="display:flex;flex-direction:row;gap:8px;position:relative;">
+                  <div class="flex-1" style="flex:1;">
+                    <div class="font-large font-user-message grid grid-cols-1 gap-2 py-0.5" data-testid="user_message" style="display:grid;grid-template-columns:1fr;gap:8px;padding:2px 0;">
+                      <p class="whitespace-pre-wrap break-words" style="margin:0;white-space:pre-wrap;word-break:break-word;">How does the call stack work with recursive functions?</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-bg-300 to-transparent pointer-events-none" style="display:none;"></div>
+            </div>
+          </div>
+          </div>
+        </div>
+
+        <!-- Bottom spacer (like real Claude has for scroll padding) -->
+        <div style="height:80px;flex-shrink:0;"></div>
+
+      </div><!-- end B: content max-width -->
+    </div><!-- end A: scroll container -->
+
+    <!-- ── Input area ───────────────────────────────────────────────────── -->
+    <div style="border-top:1px solid #3a3835;padding:12px 16px;background:#2b2a27;flex-shrink:0;">
+      <div style="max-width:768px;margin:0 auto;">
+        <div contenteditable="true" role="textbox" style="min-height:40px;padding:10px 14px;background:#1a1917;border:1px solid #3a3835;border-radius:12px;color:#e8e4db;font-size:14px;outline:none;" data-placeholder="Reply to Claude..."></div>
+      </div>
+    </div>
+
+  </div><!-- end main content area -->
+</div><!-- end page layout -->
 </body>
 </html>

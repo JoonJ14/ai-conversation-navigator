@@ -1,29 +1,325 @@
 <!DOCTYPE html>
-<html><head><title>ChatGPT Mock</title></head>
+<html><head><title>ChatGPT Mock</title>
+<style>
+  /* Reset and base styles matching ChatGPT dark theme */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #212121; color: #ececec; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 16px; line-height: 1.5; }
+
+  /* Sidebar */
+  .sidebar { position: fixed; left: 0; top: 0; width: 260px; height: 100vh; background: #171717; border-right: 1px solid #2f2f2f; display: flex; flex-direction: column; padding: 8px; z-index: 100; }
+  .sidebar-header { display: flex; align-items: center; gap: 8px; padding: 8px 4px; margin-bottom: 8px; }
+  .sidebar-logo { width: 24px; height: 24px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: #000; }
+  .sidebar-title { font-size: 14px; font-weight: 600; color: #ececec; }
+  .sidebar-new-chat { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 8px; cursor: pointer; color: #ececec; font-size: 14px; border: 1px solid #2f2f2f; margin-bottom: 12px; }
+  .sidebar-section-label { font-size: 12px; font-weight: 600; color: #8e8ea0; padding: 8px 12px 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .sidebar-item { padding: 8px 12px; border-radius: 8px; font-size: 14px; color: #b4b4b4; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sidebar-item.active { background: #2f2f2f; color: #ececec; }
+
+  /* Main content area */
+  .main-content { margin-left: 260px; min-height: 100vh; display: flex; flex-direction: column; }
+
+  /* Conversation container */
+  .conversation-container { flex: 1; overflow-y: auto; }
+
+  /* Article turn wrappers */
+  article[data-testid^="conversation-turn-"] { padding: 4px 0; }
+  article[data-testid^="conversation-turn-"]:first-child { padding-top: 0; }
+
+  /* Screen reader only */
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+  /* Content centering (ChatGPT centers at 48rem max) */
+  .text-base { max-width: 48rem; margin: 0 auto; padding: 12px 16px; }
+
+  /* User message styling */
+  .user-message-bubble-color {
+    background: #2f2f2f;
+    border-radius: 20px;
+    padding: 10px 18px;
+    max-width: 70%;
+    word-wrap: break-word;
+  }
+  .corner-superellipse { border-radius: 20px; }
+
+  /* Assistant message styling */
+  .markdown.prose { line-height: 1.75; }
+  .markdown.prose p { margin-bottom: 0.75em; }
+  .markdown.prose p:last-child { margin-bottom: 0; }
+
+  /* Action buttons area (edit, copy, etc.) */
+  .action-buttons { display: flex; gap: 4px; padding: 4px 0; opacity: 0; transition: opacity 0.2s; }
+  article:hover .action-buttons { opacity: 1; }
+  .action-btn { width: 28px; height: 28px; border-radius: 6px; border: none; background: transparent; color: #8e8ea0; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+
+  /* Input area */
+  .input-area { position: sticky; bottom: 0; padding: 16px; background: #212121; }
+  .input-wrapper { max-width: 48rem; margin: 0 auto; position: relative; }
+  .input-textarea { width: 100%; min-height: 52px; background: #2f2f2f; border: 1px solid #2f2f2f; border-radius: 16px; padding: 12px 48px 12px 16px; color: #ececec; font-size: 16px; resize: none; outline: none; font-family: inherit; }
+  .input-send-btn { position: absolute; right: 12px; bottom: 10px; width: 32px; height: 32px; border-radius: 50%; background: #676767; border: none; color: #212121; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+  .input-footer { max-width: 48rem; margin: 4px auto 0; text-align: center; font-size: 12px; color: #8e8ea0; }
+</style>
+</head>
 <body>
-<!-- ChatGPT uses data-message-author-role="user" / "assistant" -->
-<div class="conversation">
-  <div data-message-author-role="user">
-    <p>Explain the difference between TCP and UDP</p>
+<!--
+  ChatGPT Mock Page — Real DOM Structure Reference
+  =================================================
+  Source: Live inspection of chatgpt.com/c/{conversation-id} (Feb 2026)
+
+  OVERALL LAYOUT:
+    - Left sidebar (260px) with chat history
+    - Main content area (centered, max 48rem)
+    - Sticky input area at bottom
+
+  USER MESSAGE DOM (nesting A through L):
+    A: article[data-testid="conversation-turn-N"][data-turn="user"][data-scroll-anchor="false"][data-turn-id="{uuid}"]
+       B: h5.sr-only  "You said:"
+       C: div.text-base.my-auto.mx-auto.pt-12
+          D: div[style="--thread-content-max-width:48rem"].relative.flex.w-full.min-w-0.flex-col[tabindex="-1"]
+             E: div.flex.max-w-full.flex-col.group
+                F: div.min-h-8.text-message.relative.flex.w-full.flex-col.items-end
+                   [data-message-author-role="user"][data-message-id="{uuid}"][role="user"]
+                   [style="transition: background-color 0.3s;"]
+                   G: div.flex.w-full.flex-col.gap-1.empty:hidden.items-end.rt:items-start
+                      H: div.user-message-bubble-color.corner-superellipse(1.1).relative.r...
+                         max-w-[var(--user-chat-width,70%)]   (the colored bubble)
+                         I: div.whitespace-pre-wrap
+                            J: div  (actual text content)
+                      K: div.z-0.flex.justify-end  (action buttons: edit, copy, etc.)
+       L: span.sr-only  (screen-reader metadata)
+
+  ASSISTANT MESSAGE DOM:
+    A: article[data-testid="conversation-turn-N"][data-turn="assistant"][data-scroll-anchor="false"]
+       B: h5.sr-only  "ChatGPT said:"
+       C: div.text-base.my-auto.mx-auto
+          D: div[style="--thread-content-max-width:48rem"].relative.flex.w-full.min-w-0.flex-col
+             E: div.flex.max-w-full.flex-col.group
+                F: div.min-h-8.text-message.relative.flex.w-full.flex-col.items-start
+                   [data-message-author-role="assistant"][data-message-id="{uuid}"]
+                   G: div.flex.w-full.flex-col.gap-1.empty:hidden.first:pt-[3px]
+                      H: div.markdown.prose.w-full.break-words (rendered markdown)
+                         I: <p>, <pre>, <ul>, etc.  (formatted content)
+                      K: div.mt-1.flex.gap-3.empty:hidden  (action buttons: copy, thumbs up/down, etc.)
+
+  SCRIPT SELECTORS (what the userscript matches):
+    const allMessages = document.querySelectorAll('[data-message-author-role]');
+    messages = Array.from(allMessages).filter(msg =>
+        msg.getAttribute('data-message-author-role') === 'user'
+    );
+
+  CRITICAL: data-message-author-role="user" is on element F (the .text-message div),
+  NOT on the article wrapper. The script queries this attribute to find user messages.
+-->
+
+<!-- Sidebar -->
+<div class="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-logo">G</div>
+    <span class="sidebar-title">ChatGPT</span>
   </div>
-  <div data-message-author-role="assistant">
-    <p>TCP is a connection-oriented protocol...</p>
+  <div class="sidebar-new-chat">+ New chat</div>
+  <div class="sidebar-section-label">Today</div>
+  <div class="sidebar-item active">TCP vs UDP Explained</div>
+  <div class="sidebar-item">Python async patterns</div>
+  <div class="sidebar-item">Docker compose setup</div>
+  <div class="sidebar-section-label">Yesterday</div>
+  <div class="sidebar-item">React state management</div>
+  <div class="sidebar-item">SQL query optimization</div>
+</div>
+
+<!-- Main content -->
+<div class="main-content">
+  <div class="conversation-container">
+
+    <!-- Turn 1: User message -->
+    <article data-testid="conversation-turn-1" data-turn="user" data-scroll-anchor="false" data-turn-id="aaa1-bb11-cc11-dd11">
+      <h5 class="sr-only">You said:</h5>
+      <div class="text-base my-auto mx-auto pt-12" style="padding-top:48px;">
+        <div class="relative flex w-full min-w-0 flex-col" style="--thread-content-max-width:48rem;display:flex;flex-direction:column;width:100%;position:relative;" tabindex="-1">
+          <div class="flex max-w-full flex-col group" style="display:flex;flex-direction:column;max-width:100%;">
+            <div class="min-h-8 text-message relative flex w-full flex-col items-end" data-message-author-role="user" data-message-id="msg-user-001" role="user" style="display:flex;flex-direction:column;align-items:flex-end;width:100%;position:relative;min-height:32px;transition:background-color 0.3s;">
+              <div class="flex w-full flex-col gap-1 empty:hidden items-end rt:items-start" style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;width:100%;">
+                <div class="user-message-bubble-color corner-superellipse relative" style="max-width:70%;">
+                  <div class="whitespace-pre-wrap" style="white-space:pre-wrap;">
+                    <div>Explain the difference between TCP and UDP</div>
+                  </div>
+                </div>
+                <div class="z-0 flex justify-end action-buttons" style="display:flex;justify-content:flex-end;">
+                  <button class="action-btn" title="Edit">&#9998;</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="sr-only"></span>
+    </article>
+
+    <!-- Turn 2: Assistant message -->
+    <article data-testid="conversation-turn-2" data-turn="assistant" data-scroll-anchor="false" data-turn-id="aaa2-bb22-cc22-dd22">
+      <h5 class="sr-only">ChatGPT said:</h5>
+      <div class="text-base my-auto mx-auto">
+        <div class="relative flex w-full min-w-0 flex-col" style="--thread-content-max-width:48rem;display:flex;flex-direction:column;width:100%;position:relative;" tabindex="-1">
+          <div class="flex max-w-full flex-col group" style="display:flex;flex-direction:column;max-width:100%;">
+            <div class="min-h-8 text-message relative flex w-full flex-col items-start" data-message-author-role="assistant" data-message-id="msg-asst-001" style="display:flex;flex-direction:column;align-items:flex-start;width:100%;position:relative;min-height:32px;">
+              <div class="flex w-full flex-col gap-1 empty:hidden first:pt-[3px]" style="display:flex;flex-direction:column;gap:4px;width:100%;">
+                <div class="markdown prose w-full break-words" style="line-height:1.75;word-wrap:break-word;width:100%;">
+                  <p>TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) are both transport layer protocols, but they differ in several key ways:</p>
+                  <p><strong>TCP</strong> is connection-oriented. It establishes a reliable connection through a three-way handshake before data transfer begins. It guarantees delivery, ordering, and error-checking of packets.</p>
+                  <p><strong>UDP</strong> is connectionless. It sends data without establishing a connection first. There is no guarantee of delivery, ordering, or duplicate protection, making it faster but less reliable.</p>
+                </div>
+                <div class="mt-1 flex gap-3 empty:hidden action-buttons" style="display:flex;gap:12px;margin-top:4px;">
+                  <button class="action-btn" title="Copy">&#128203;</button>
+                  <button class="action-btn" title="Good response">&#128077;</button>
+                  <button class="action-btn" title="Bad response">&#128078;</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="sr-only"></span>
+    </article>
+
+    <!-- Turn 3: User message -->
+    <article data-testid="conversation-turn-3" data-turn="user" data-scroll-anchor="false" data-turn-id="aaa3-bb33-cc33-dd33">
+      <h5 class="sr-only">You said:</h5>
+      <div class="text-base my-auto mx-auto">
+        <div class="relative flex w-full min-w-0 flex-col" style="--thread-content-max-width:48rem;display:flex;flex-direction:column;width:100%;position:relative;" tabindex="-1">
+          <div class="flex max-w-full flex-col group" style="display:flex;flex-direction:column;max-width:100%;">
+            <div class="min-h-8 text-message relative flex w-full flex-col items-end" data-message-author-role="user" data-message-id="msg-user-002" role="user" style="display:flex;flex-direction:column;align-items:flex-end;width:100%;position:relative;min-height:32px;transition:background-color 0.3s;">
+              <div class="flex w-full flex-col gap-1 empty:hidden items-end rt:items-start" style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;width:100%;">
+                <div class="user-message-bubble-color corner-superellipse relative" style="max-width:70%;">
+                  <div class="whitespace-pre-wrap" style="white-space:pre-wrap;">
+                    <div>When would I choose UDP over TCP?</div>
+                  </div>
+                </div>
+                <div class="z-0 flex justify-end action-buttons" style="display:flex;justify-content:flex-end;">
+                  <button class="action-btn" title="Edit">&#9998;</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="sr-only"></span>
+    </article>
+
+    <!-- Turn 4: Assistant message -->
+    <article data-testid="conversation-turn-4" data-turn="assistant" data-scroll-anchor="false" data-turn-id="aaa4-bb44-cc44-dd44">
+      <h5 class="sr-only">ChatGPT said:</h5>
+      <div class="text-base my-auto mx-auto">
+        <div class="relative flex w-full min-w-0 flex-col" style="--thread-content-max-width:48rem;display:flex;flex-direction:column;width:100%;position:relative;" tabindex="-1">
+          <div class="flex max-w-full flex-col group" style="display:flex;flex-direction:column;max-width:100%;">
+            <div class="min-h-8 text-message relative flex w-full flex-col items-start" data-message-author-role="assistant" data-message-id="msg-asst-002" style="display:flex;flex-direction:column;align-items:flex-start;width:100%;position:relative;min-height:32px;">
+              <div class="flex w-full flex-col gap-1 empty:hidden first:pt-[3px]" style="display:flex;flex-direction:column;gap:4px;width:100%;">
+                <div class="markdown prose w-full break-words" style="line-height:1.75;word-wrap:break-word;width:100%;">
+                  <p>UDP is preferred when speed matters more than reliability:</p>
+                  <ul>
+                    <li><strong>Real-time gaming</strong> — low latency is critical; a dropped packet is better than a delayed one</li>
+                    <li><strong>Video/audio streaming</strong> — minor data loss is acceptable over buffering</li>
+                    <li><strong>DNS lookups</strong> — small, single request-response exchanges</li>
+                    <li><strong>IoT sensors</strong> — frequent small updates where occasional loss is fine</li>
+                  </ul>
+                </div>
+                <div class="mt-1 flex gap-3 empty:hidden action-buttons" style="display:flex;gap:12px;margin-top:4px;">
+                  <button class="action-btn" title="Copy">&#128203;</button>
+                  <button class="action-btn" title="Good response">&#128077;</button>
+                  <button class="action-btn" title="Bad response">&#128078;</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="sr-only"></span>
+    </article>
+
+    <!-- Turn 5: User message -->
+    <article data-testid="conversation-turn-5" data-turn="user" data-scroll-anchor="false" data-turn-id="aaa5-bb55-cc55-dd55">
+      <h5 class="sr-only">You said:</h5>
+      <div class="text-base my-auto mx-auto">
+        <div class="relative flex w-full min-w-0 flex-col" style="--thread-content-max-width:48rem;display:flex;flex-direction:column;width:100%;position:relative;" tabindex="-1">
+          <div class="flex max-w-full flex-col group" style="display:flex;flex-direction:column;max-width:100%;">
+            <div class="min-h-8 text-message relative flex w-full flex-col items-end" data-message-author-role="user" data-message-id="msg-user-003" role="user" style="display:flex;flex-direction:column;align-items:flex-end;width:100%;position:relative;min-height:32px;transition:background-color 0.3s;">
+              <div class="flex w-full flex-col gap-1 empty:hidden items-end rt:items-start" style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;width:100%;">
+                <div class="user-message-bubble-color corner-superellipse relative" style="max-width:70%;">
+                  <div class="whitespace-pre-wrap" style="white-space:pre-wrap;">
+                    <div>How does TCP handle packet loss?</div>
+                  </div>
+                </div>
+                <div class="z-0 flex justify-end action-buttons" style="display:flex;justify-content:flex-end;">
+                  <button class="action-btn" title="Edit">&#9998;</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="sr-only"></span>
+    </article>
+
+    <!-- Turn 6: Assistant message -->
+    <article data-testid="conversation-turn-6" data-turn="assistant" data-scroll-anchor="false" data-turn-id="aaa6-bb66-cc66-dd66">
+      <h5 class="sr-only">ChatGPT said:</h5>
+      <div class="text-base my-auto mx-auto">
+        <div class="relative flex w-full min-w-0 flex-col" style="--thread-content-max-width:48rem;display:flex;flex-direction:column;width:100%;position:relative;" tabindex="-1">
+          <div class="flex max-w-full flex-col group" style="display:flex;flex-direction:column;max-width:100%;">
+            <div class="min-h-8 text-message relative flex w-full flex-col items-start" data-message-author-role="assistant" data-message-id="msg-asst-003" style="display:flex;flex-direction:column;align-items:flex-start;width:100%;position:relative;min-height:32px;">
+              <div class="flex w-full flex-col gap-1 empty:hidden first:pt-[3px]" style="display:flex;flex-direction:column;gap:4px;width:100%;">
+                <div class="markdown prose w-full break-words" style="line-height:1.75;word-wrap:break-word;width:100%;">
+                  <p>TCP uses several mechanisms to handle packet loss:</p>
+                  <p><strong>1. Acknowledgments (ACKs):</strong> The receiver sends an ACK for each segment received. If the sender doesn't receive an ACK within a timeout period, it assumes the packet was lost.</p>
+                  <p><strong>2. Retransmission:</strong> Lost packets are retransmitted. TCP uses both timeout-based retransmission and fast retransmit (triggered by three duplicate ACKs).</p>
+                  <p><strong>3. Sliding window:</strong> TCP dynamically adjusts the window size to control flow and avoid congestion that leads to packet loss.</p>
+                </div>
+                <div class="mt-1 flex gap-3 empty:hidden action-buttons" style="display:flex;gap:12px;margin-top:4px;">
+                  <button class="action-btn" title="Copy">&#128203;</button>
+                  <button class="action-btn" title="Good response">&#128077;</button>
+                  <button class="action-btn" title="Bad response">&#128078;</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="sr-only"></span>
+    </article>
+
+    <!-- Turn 7: User message (final, no assistant response yet) -->
+    <article data-testid="conversation-turn-7" data-turn="user" data-scroll-anchor="false" data-turn-id="aaa7-bb77-cc77-dd77">
+      <h5 class="sr-only">You said:</h5>
+      <div class="text-base my-auto mx-auto">
+        <div class="relative flex w-full min-w-0 flex-col" style="--thread-content-max-width:48rem;display:flex;flex-direction:column;width:100%;position:relative;" tabindex="-1">
+          <div class="flex max-w-full flex-col group" style="display:flex;flex-direction:column;max-width:100%;">
+            <div class="min-h-8 text-message relative flex w-full flex-col items-end" data-message-author-role="user" data-message-id="msg-user-004" role="user" style="display:flex;flex-direction:column;align-items:flex-end;width:100%;position:relative;min-height:32px;transition:background-color 0.3s;">
+              <div class="flex w-full flex-col gap-1 empty:hidden items-end rt:items-start" style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;width:100%;">
+                <div class="user-message-bubble-color corner-superellipse relative" style="max-width:70%;">
+                  <div class="whitespace-pre-wrap" style="white-space:pre-wrap;">
+                    <div>What about QUIC protocol?</div>
+                  </div>
+                </div>
+                <div class="z-0 flex justify-end action-buttons" style="display:flex;justify-content:flex-end;">
+                  <button class="action-btn" title="Edit">&#9998;</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="sr-only"></span>
+    </article>
+
   </div>
-  <div data-message-author-role="user">
-    <p>When would I choose UDP over TCP?</p>
-  </div>
-  <div data-message-author-role="assistant">
-    <p>UDP is preferred for real-time applications...</p>
-  </div>
-  <div data-message-author-role="user">
-    <p>How does TCP handle packet loss?</p>
-  </div>
-  <div data-message-author-role="assistant">
-    <p>TCP uses acknowledgments and retransmission...</p>
-  </div>
-  <div data-message-author-role="user">
-    <p>What about QUIC protocol?</p>
+
+  <!-- Input area -->
+  <div class="input-area">
+    <div class="input-wrapper">
+      <textarea class="input-textarea" placeholder="Message ChatGPT" rows="1"></textarea>
+      <button class="input-send-btn" title="Send">&#8593;</button>
+    </div>
+    <div class="input-footer">ChatGPT can make mistakes. Check important info.</div>
   </div>
 </div>
+
 </body>
 </html>

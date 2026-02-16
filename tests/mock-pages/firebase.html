@@ -1,42 +1,153 @@
 <!DOCTYPE html>
 <html><head><title>Firebase Studio Mock</title></head>
 <body>
-<!-- Firebase Studio: CSS module classes with _chatMessage_ and _isUser_ patterns.
-     The hash suffix changes per build but the semantic prefixes stay.
-     Message body text is inside _messageBody_ nested elements. -->
-<div class="app-container">
-  <div class="_chatContainer_x1y2z_10" style="max-width:48rem;margin:0 auto;">
-    <!-- User message: has both _chatMessage_ and _isUser_ classes -->
-    <div class="_chatMessage_qlgvg_30 _isUser_qlgvg_47" style="padding:12px;margin-bottom:8px;margin-left:auto;background:#2a2a2a;border-radius:12px;">
-      <div class="_messageBody_qlgvg_55">
-        <p>Create a Firebase Cloud Functions API for user management</p>
-      </div>
-    </div>
-    <!-- Assistant message: _chatMessage_ but NOT _isUser_ -->
-    <div class="_chatMessage_qlgvg_30" style="padding:12px;margin-bottom:8px;">
-      <div class="_messageBody_qlgvg_55">
-        <p>I'll create the Cloud Functions for user management...</p>
-      </div>
-    </div>
-    <!-- User message -->
-    <div class="_chatMessage_qlgvg_30 _isUser_qlgvg_47" style="padding:12px;margin-bottom:8px;margin-left:auto;background:#2a2a2a;border-radius:12px;">
-      <div class="_messageBody_qlgvg_55">
-        <p>Add Firestore security rules and real-time listeners</p>
-      </div>
-    </div>
-    <!-- Assistant message -->
-    <div class="_chatMessage_qlgvg_30" style="padding:12px;margin-bottom:8px;">
-      <div class="_messageBody_qlgvg_55">
-        <p>I've set up Firestore security rules with real-time sync...</p>
-      </div>
-    </div>
-    <!-- User message -->
-    <div class="_chatMessage_qlgvg_30 _isUser_qlgvg_47" style="padding:12px;margin-bottom:8px;margin-left:auto;background:#2a2a2a;border-radius:12px;">
-      <div class="_messageBody_qlgvg_55">
-        <p>Now integrate Firebase Auth with Google and GitHub sign-in</p>
-      </div>
-    </div>
+<!-- Firebase Studio (studio.firebase.google.com): Real DOM structure from live site inspection, Feb 2026.
+     Uses CSS module classes with hash suffixes (e.g., _qlgvg_30). Hash changes per build
+     but semantic prefixes (_chatMessage_, _isUser_, _messageBody_) stay stable.
+
+     Overall layout: split pane — preview iframe on left, chat on right.
+     Right pane uses flex: 0.3 with min-width: 300px.
+
+     DOM nesting per user message (A through K):
+       A: div._pane._rxexh_5[style="flex: 0.3 1 0; min-width: 300px;"]  (right pane)
+         B: div._chatbox._vnhv_1
+           C: div._chatMessages._vnhv_58
+             D: div._chatHistoryContainer._qlgvg_1
+               E: div._chatHistory._qlgvg_1._scrollEdges._tclap_1._standardFadeTop._tclap_5._standardFadeBottom._tclap_6  (scroll container)
+                 F: div._chatHistoryContent._qlgvg_25
+                   G: div._chatMessage._qlgvg_30._isUser._qlgvg_47  (user message)
+                     H: div._messageAvatar._qlgvg_59  (avatar)
+                     I: div._messageBody._qlgvg_55  (message body — TEXT SOURCE)
+                       J: <p>actual text</p>
+                     K: div._messageAttachments._qlgvg_209  (attachments area)
+
+                   G2: div._chatMessage._qlgvg_30  (AI message — no _isUser_)
+                     H2: div._messageAvatar._qlgvg_59
+                     I2: div._messageBody._qlgvg_55
+                       J2: <p>AI response text</p>
+
+                   G3: div._chatMessage._qlgvg_30._isUser._qlgvg_47._isLastInThread._qlgvg_55  (last user msg)
+
+     Script selectors:
+       Primary:   [class*="_chatMessage_"][class*="_isUser_"]  → matches G elements (user msgs)
+       Fallback1: [class*="_isUser_"]
+       Fallback2: [class*="_chatMessage_"] filtered by className.includes('_isUser_')
+
+     Important: AI messages have _chatMessage_ but NOT _isUser_, so primary selector
+     correctly excludes them. The _messageBody_ div contains the actual text. -->
+
+<!-- Firebase Studio header bar -->
+<div class="_headerBar._rxexh_1" style="display:flex;align-items:center;justify-content:space-between;height:48px;padding:0 16px;background:#1f1f1f;border-bottom:1px solid #333;color:#e3e3e3;font-family:'Google Sans',Roboto,sans-serif;font-size:14px;">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <svg width="24" height="24" viewBox="0 0 24 24" style="fill:#FFA000;"><path d="M3.89 15.67L6.07 2.35A.5.5 0 017 2.19l2.27 4.24-1.46 2.73zm16.76 2.06l-2.27-14.1a.5.5 0 00-.85-.23L3.35 18.24l7.79 4.42a1.5 1.5 0 001.48 0z"/></svg>
+    <span style="font-weight:500;">Firebase Studio</span>
+    <span style="color:#999;margin-left:8px;">my-firebase-project</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <button style="background:#8ab4f8;color:#1f1f1f;border:none;border-radius:20px;padding:6px 20px;font-size:13px;font-weight:500;cursor:pointer;">Publish</button>
+    <div style="width:32px;height:32px;border-radius:50%;background:#5f6368;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;">J</div>
   </div>
 </div>
+
+<!-- Split layout: preview on left, chat on right -->
+<div style="display:flex;width:100%;height:calc(100vh - 48px);background:#1f1f1f;">
+
+  <!-- Left pane: preview iframe -->
+  <div class="_pane _rxexh_5" style="flex:0.7 1 0;min-width:300px;border-right:1px solid #333;display:flex;flex-direction:column;">
+    <div style="display:flex;align-items:center;height:36px;padding:0 12px;background:#292929;border-bottom:1px solid #333;gap:8px;">
+      <span style="color:#999;font-size:12px;font-family:monospace;">Preview</span>
+      <span style="color:#666;font-size:12px;font-family:monospace;">localhost:3000</span>
+    </div>
+    <iframe style="width:100%;flex:1;border:none;background:#fff;"></iframe>
+  </div>
+
+  <!-- Right pane: chat (A) -->
+  <div class="_pane _rxexh_5" style="flex:0.3 1 0;min-width:300px;display:flex;flex-direction:column;background:#1f1f1f;">
+
+    <!-- Chatbox wrapper (B) -->
+    <div class="_chatbox _vnhv_1" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+
+      <!-- Chat messages area (C) -->
+      <div class="_chatMessages _vnhv_58" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+
+        <!-- Chat history container (D) -->
+        <div class="_chatHistoryContainer _qlgvg_1" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+
+          <!-- Scroll container (E) -->
+          <div class="_chatHistory _qlgvg_1 _scrollEdges _tclap_1 _standardFadeTop _tclap_5 _standardFadeBottom _tclap_6" style="flex:1;overflow-y:auto;padding:16px 0;">
+
+            <!-- Content wrapper (F) -->
+            <div class="_chatHistoryContent _qlgvg_25" style="max-width:48rem;margin:0 auto;padding:0 16px;">
+
+              <!-- User message 1 (G) -->
+              <div class="_chatMessage _qlgvg_30 _isUser _qlgvg_47" style="display:grid;grid-template-columns:32px 1fr;gap:12px;padding:12px 0;overflow:hidden;">
+                <!-- Avatar (H) -->
+                <div class="_messageAvatar _qlgvg_59" style="width:32px;height:32px;border-radius:50%;background:#5f6368;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;">J</div>
+                <!-- Message body (I) — TEXT SOURCE -->
+                <div class="_messageBody _qlgvg_55" style="color:#e3e3e3;font-size:14px;line-height:1.5;font-family:'Google Sans',Roboto,sans-serif;">
+                  <p>Create a Firebase Cloud Functions API for user management</p>
+                </div>
+                <!-- Attachments (K) -->
+                <div class="_messageAttachments _qlgvg_209" style="grid-column:2;"></div>
+              </div>
+
+              <!-- AI message 1 (G2 — no _isUser_) -->
+              <div class="_chatMessage _qlgvg_30" style="display:grid;grid-template-columns:32px 1fr;gap:12px;padding:12px 0;overflow:hidden;">
+                <div class="_messageAvatar _qlgvg_59" style="width:32px;height:32px;border-radius:50%;background:#8ab4f8;display:flex;align-items:center;justify-content:center;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" style="fill:#1f1f1f;"><path d="M12 2L2 19h20L12 2z"/></svg>
+                </div>
+                <div class="_messageBody _qlgvg_55" style="color:#e3e3e3;font-size:14px;line-height:1.5;font-family:'Google Sans',Roboto,sans-serif;">
+                  <p>I'll create the Cloud Functions for user management. Here's the setup with Express.js routing, Firebase Admin SDK initialization, and CRUD operations for user profiles stored in Firestore...</p>
+                </div>
+              </div>
+
+              <!-- User message 2 (G) -->
+              <div class="_chatMessage _qlgvg_30 _isUser _qlgvg_47" style="display:grid;grid-template-columns:32px 1fr;gap:12px;padding:12px 0;overflow:hidden;">
+                <div class="_messageAvatar _qlgvg_59" style="width:32px;height:32px;border-radius:50%;background:#5f6368;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;">J</div>
+                <div class="_messageBody _qlgvg_55" style="color:#e3e3e3;font-size:14px;line-height:1.5;font-family:'Google Sans',Roboto,sans-serif;">
+                  <p>Add Firestore security rules and real-time listeners</p>
+                </div>
+                <div class="_messageAttachments _qlgvg_209" style="grid-column:2;"></div>
+              </div>
+
+              <!-- AI message 2 (G2) -->
+              <div class="_chatMessage _qlgvg_30" style="display:grid;grid-template-columns:32px 1fr;gap:12px;padding:12px 0;overflow:hidden;">
+                <div class="_messageAvatar _qlgvg_59" style="width:32px;height:32px;border-radius:50%;background:#8ab4f8;display:flex;align-items:center;justify-content:center;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" style="fill:#1f1f1f;"><path d="M12 2L2 19h20L12 2z"/></svg>
+                </div>
+                <div class="_messageBody _qlgvg_55" style="color:#e3e3e3;font-size:14px;line-height:1.5;font-family:'Google Sans',Roboto,sans-serif;">
+                  <p>I've set up Firestore security rules with role-based access control and added real-time listeners using onSnapshot for live data synchronization across clients...</p>
+                </div>
+              </div>
+
+              <!-- User message 3 — last in thread (G3) -->
+              <div class="_chatMessage _qlgvg_30 _isUser _qlgvg_47 _isLastInThread _qlgvg_55" style="display:grid;grid-template-columns:32px 1fr;gap:12px;padding:12px 0;overflow:hidden;">
+                <div class="_messageAvatar _qlgvg_59" style="width:32px;height:32px;border-radius:50%;background:#5f6368;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;">J</div>
+                <div class="_messageBody _qlgvg_55" style="color:#e3e3e3;font-size:14px;line-height:1.5;font-family:'Google Sans',Roboto,sans-serif;">
+                  <p>Now integrate Firebase Auth with Google and GitHub sign-in</p>
+                </div>
+                <div class="_messageAttachments _qlgvg_209" style="grid-column:2;"></div>
+              </div>
+
+            </div><!-- end _chatHistoryContent (F) -->
+          </div><!-- end _chatHistory scroll container (E) -->
+        </div><!-- end _chatHistoryContainer (D) -->
+      </div><!-- end _chatMessages (C) -->
+
+      <!-- Input area at bottom -->
+      <div class="_chatInput _vnhv_80" style="padding:12px 16px;border-top:1px solid #333;">
+        <div style="max-width:48rem;margin:0 auto;">
+          <div style="display:flex;align-items:center;background:#292929;border:1px solid #444;border-radius:24px;padding:8px 16px;">
+            <input type="text" placeholder="Describe the changes you want to make" style="flex:1;background:transparent;border:none;outline:none;color:#e3e3e3;font-size:14px;font-family:'Google Sans',Roboto,sans-serif;">
+            <button style="background:none;border:none;cursor:pointer;padding:4px;">
+              <svg width="20" height="20" viewBox="0 0 24 24" style="fill:#8ab4f8;"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- end _chatbox (B) -->
+  </div><!-- end right _pane (A) -->
+</div><!-- end split layout -->
 </body>
 </html>

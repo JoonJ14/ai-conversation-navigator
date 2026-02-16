@@ -1,23 +1,203 @@
 <!DOCTYPE html>
 <html><head><title>Grok Mock</title></head>
-<body>
-<!-- Grok: div.message-bubble with user/human class or even-indexed (0-based) -->
-<div class="conversation">
-  <div class="message-bubble user">
-    <p>What are the latest developments in quantum computing?</p>
-  </div>
-  <div class="message-bubble assistant">
-    <p>Recent breakthroughs include...</p>
-  </div>
-  <div class="message-bubble user">
-    <p>How close are we to quantum supremacy in practical applications?</p>
-  </div>
-  <div class="message-bubble assistant">
-    <p>While Google claimed quantum supremacy in 2019...</p>
-  </div>
-  <div class="message-bubble user">
-    <p>What programming languages are used for quantum computing?</p>
-  </div>
+<body style="margin:0;padding:0;background:#000;color:#e7e9ea;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<!-- Grok (grok.com): Real DOM structure from live DevTools inspection (Feb 2026).
+
+     Grok uses Tailwind CSS utility classes throughout. Messages live inside a flex-col
+     scroll container. User messages are right-aligned (items-end on wrapper), AI messages
+     are left-aligned (items-start on wrapper). There is no explicit "user" or "human" class
+     on user message bubbles -- the script detects user messages via the `.message-bubble`
+     class combined with parent class checks for "user"/"human" or even-index fallback.
+
+     DOM nesting per message:
+       A: div.flex.flex-col.items-center (scroll/content container — shared by all messages)
+         B: div#response-{uuid}.relative.group.flex.flex-col.justify-center.w-full
+              .max-w-[var(--content-max-width)].pb-0.5
+              .items-end (USER) / .items-start (AI)
+              (message wrapper — one per message turn)
+           C: div.message-bubble.relative.rounded-3xl.text-primary.min-h-7.pro-11
+                .max-w-[100%].@sm/miniview:max-w-[90%].px-4
+                .rounded-br-lg (USER — bottom-right corner less rounded)
+                .rounded-bl-lg (AI — bottom-left corner less rounded)
+                (bubble — THIS is what querySelectorAll('div.message-bubble') selects)
+             D: div.relative (inner layout wrapper)
+               E: div.response-content-markdown (text container)
+                 F: <p class="break-words" dir="auto" style="white-space:pre-wrap;">actual text</p>
+           G: section.inline-media-container.flex.flex-col.gap-1.clear-both (media — optional)
+           H: section.auto-notification.flex.flex-col.gap-1 (notification — optional)
+         I: div.order-first.sticky.hidden.@md/mainview:block.top-11.h-0.opacity-100 (sticky element)
+         J: div.action-buttons.h-8.mt-0.5.mb-2.flex.flex-row.flex-wrap.w-full
+              .justify-end (USER) / .justify-start (AI)
+              .print:hidden (action buttons row — copy, share, etc.)
+
+     Script selector logic (from ai-conversation-navigator.user.js):
+       1. Primary: document.querySelectorAll('div.message-bubble')
+          Then filter: className includes 'user' or 'human',
+                       OR parent has class containing 'user'/'human' or data-role="user",
+                       OR even index (0-based) as fallback.
+       2. Fallback: [data-role="user"]
+       3. Fallback: [class*="user-message"]
+
+     For this mock, user message bubbles include the "user" class so the primary
+     filter (classList.includes('user')) succeeds. This matches observed behavior
+     on the live site where the even-index heuristic also works (user=0,2,4; AI=1,3).
+
+     Sidebar: Grok has a left navigation rail with icons (home, search, history, etc.)
+     rendered as a narrow vertical strip. -->
+
+<!-- Minimal left sidebar (Grok nav rail) -->
+<div style="position:fixed;top:0;left:0;width:56px;height:100vh;background:#16181c;border-right:1px solid #2f3336;display:flex;flex-direction:column;align-items:center;padding-top:12px;gap:20px;z-index:10;">
+  <!-- Grok logo placeholder -->
+  <div style="width:32px;height:32px;border-radius:50%;background:#1d9bf0;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:16px;color:#fff;">X</div>
+  <!-- Nav icons -->
+  <div style="width:28px;height:28px;border-radius:8px;background:#2f3336;"></div>
+  <div style="width:28px;height:28px;border-radius:8px;background:#2f3336;"></div>
+  <div style="width:28px;height:28px;border-radius:8px;background:#2f3336;"></div>
+  <div style="width:28px;height:28px;border-radius:8px;background:#2f3336;"></div>
 </div>
+
+<!-- Main content area (right of sidebar) -->
+<div style="margin-left:56px;height:100vh;overflow-y:auto;display:flex;flex-direction:column;align-items:center;">
+
+  <!-- Top bar -->
+  <div style="position:sticky;top:0;width:100%;height:48px;background:#000;border-bottom:1px solid #2f3336;display:flex;align-items:center;padding:0 16px;z-index:5;">
+    <span style="font-size:18px;font-weight:700;color:#e7e9ea;">Grok</span>
+  </div>
+
+  <!-- A: Scroll/content container — all messages live here -->
+  <div class="flex flex-col items-center" style="width:100%;max-width:768px;padding:16px 16px 120px 16px;display:flex;flex-direction:column;align-items:center;gap:8px;">
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         MESSAGE 1: USER — "What are the latest developments in quantum computing?"
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <!-- B: Message wrapper (user — items-end) -->
+    <div id="response-a1b2c3d4-e5f6-7890-abcd-111111111111" class="relative group flex flex-col justify-center w-full max-w-[var(--content-max-width)] pb-0.5 items-end" style="display:flex;flex-direction:column;align-items:flex-end;width:100%;padding-bottom:2px;position:relative;">
+      <!-- C: Message bubble (user) -->
+      <div class="message-bubble user relative rounded-3xl text-primary min-h-7 pro-11 max-w-[100%] @sm/miniview:max-w-[90%] px-4 rounded-br-lg" style="position:relative;border-radius:24px;border-bottom-right-radius:8px;min-height:28px;max-width:90%;padding:10px 16px;background:#1a2634;color:#e7e9ea;">
+        <!-- D: Inner layout wrapper -->
+        <div class="relative" style="position:relative;">
+          <!-- E: Text container -->
+          <div class="response-content-markdown">
+            <!-- F: Paragraph -->
+            <p class="break-words" dir="auto" style="white-space:pre-wrap;margin:0;line-height:1.5;">What are the latest developments in quantum computing?</p>
+          </div>
+        </div>
+      </div>
+      <!-- I: Sticky element (hidden on small views) -->
+      <div class="order-first sticky hidden @md/mainview:block top-11 h-0 opacity-100" style="order:-1;height:0;"></div>
+      <!-- J: Action buttons (user — justify-end) -->
+      <div class="action-buttons h-8 mt-0.5 mb-2 flex flex-row flex-wrap w-full justify-end print:hidden" style="height:32px;margin-top:2px;margin-bottom:8px;display:flex;flex-direction:row;justify-content:flex-end;gap:4px;">
+        <button style="background:none;border:none;color:#71767b;cursor:pointer;padding:4px 8px;font-size:12px;" title="Edit">&#9998;</button>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         MESSAGE 2: AI — response about quantum computing developments
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <!-- B: Message wrapper (AI — items-start) -->
+    <div id="response-a1b2c3d4-e5f6-7890-abcd-222222222222" class="relative group flex flex-col justify-center w-full max-w-[var(--content-max-width)] pb-0.5 items-start" style="display:flex;flex-direction:column;align-items:flex-start;width:100%;padding-bottom:2px;position:relative;">
+      <!-- C: Message bubble (AI — no user class) -->
+      <div class="message-bubble relative rounded-3xl text-primary min-h-7 pro-11 max-w-[100%] @sm/miniview:max-w-[90%] px-4 rounded-bl-lg" style="position:relative;border-radius:24px;border-bottom-left-radius:8px;min-height:28px;max-width:90%;padding:10px 16px;background:transparent;color:#e7e9ea;">
+        <!-- D: Inner layout wrapper -->
+        <div class="relative" style="position:relative;">
+          <!-- E: Text container -->
+          <div class="response-content-markdown">
+            <!-- F: Paragraphs -->
+            <p class="break-words" dir="auto" style="white-space:pre-wrap;margin:0 0 8px 0;line-height:1.5;">Recent breakthroughs in quantum computing include several notable developments:</p>
+            <p class="break-words" dir="auto" style="white-space:pre-wrap;margin:0 0 8px 0;line-height:1.5;">1. IBM unveiled its 1,121-qubit Condor processor and introduced a modular architecture for scaling beyond single-chip limitations.</p>
+            <p class="break-words" dir="auto" style="white-space:pre-wrap;margin:0;line-height:1.5;">2. Google's Willow chip demonstrated error correction below the threshold needed for practical fault-tolerant quantum computing.</p>
+          </div>
+        </div>
+      </div>
+      <!-- G: Media section (optional, shown for realism) -->
+      <section class="inline-media-container flex flex-col gap-1 clear-both" style="display:none;"></section>
+      <!-- H: Notification section -->
+      <section class="auto-notification flex flex-col gap-1" style="display:none;"></section>
+      <!-- I: Sticky element -->
+      <div class="order-first sticky hidden @md/mainview:block top-11 h-0 opacity-100" style="order:-1;height:0;"></div>
+      <!-- J: Action buttons (AI — justify-start) -->
+      <div class="action-buttons h-8 mt-0.5 mb-2 flex flex-row flex-wrap w-full justify-start print:hidden" style="height:32px;margin-top:2px;margin-bottom:8px;display:flex;flex-direction:row;justify-content:flex-start;gap:4px;">
+        <button style="background:none;border:none;color:#71767b;cursor:pointer;padding:4px 8px;font-size:12px;" title="Copy">&#128203;</button>
+        <button style="background:none;border:none;color:#71767b;cursor:pointer;padding:4px 8px;font-size:12px;" title="Share">&#8599;</button>
+        <button style="background:none;border:none;color:#71767b;cursor:pointer;padding:4px 8px;font-size:12px;" title="Like">&#9825;</button>
+        <button style="background:none;border:none;color:#71767b;cursor:pointer;padding:4px 8px;font-size:12px;" title="Dislike">&#128078;</button>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         MESSAGE 3: USER — "How close are we to quantum supremacy..."
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <!-- B: Message wrapper (user — items-end) -->
+    <div id="response-a1b2c3d4-e5f6-7890-abcd-333333333333" class="relative group flex flex-col justify-center w-full max-w-[var(--content-max-width)] pb-0.5 items-end" style="display:flex;flex-direction:column;align-items:flex-end;width:100%;padding-bottom:2px;position:relative;">
+      <!-- C: Message bubble (user) -->
+      <div class="message-bubble user relative rounded-3xl text-primary min-h-7 pro-11 max-w-[100%] @sm/miniview:max-w-[90%] px-4 rounded-br-lg" style="position:relative;border-radius:24px;border-bottom-right-radius:8px;min-height:28px;max-width:90%;padding:10px 16px;background:#1a2634;color:#e7e9ea;">
+        <div class="relative" style="position:relative;">
+          <div class="response-content-markdown">
+            <p class="break-words" dir="auto" style="white-space:pre-wrap;margin:0;line-height:1.5;">How close are we to quantum supremacy in practical applications?</p>
+          </div>
+        </div>
+      </div>
+      <div class="order-first sticky hidden @md/mainview:block top-11 h-0 opacity-100" style="order:-1;height:0;"></div>
+      <div class="action-buttons h-8 mt-0.5 mb-2 flex flex-row flex-wrap w-full justify-end print:hidden" style="height:32px;margin-top:2px;margin-bottom:8px;display:flex;flex-direction:row;justify-content:flex-end;gap:4px;">
+        <button style="background:none;border:none;color:#71767b;cursor:pointer;padding:4px 8px;font-size:12px;" title="Edit">&#9998;</button>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         MESSAGE 4: AI — response about quantum supremacy
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <!-- B: Message wrapper (AI — items-start) -->
+    <div id="response-a1b2c3d4-e5f6-7890-abcd-444444444444" class="relative group flex flex-col justify-center w-full max-w-[var(--content-max-width)] pb-0.5 items-start" style="display:flex;flex-direction:column;align-items:flex-start;width:100%;padding-bottom:2px;position:relative;">
+      <!-- C: Message bubble (AI) -->
+      <div class="message-bubble relative rounded-3xl text-primary min-h-7 pro-11 max-w-[100%] @sm/miniview:max-w-[90%] px-4 rounded-bl-lg" style="position:relative;border-radius:24px;border-bottom-left-radius:8px;min-height:28px;max-width:90%;padding:10px 16px;background:transparent;color:#e7e9ea;">
+        <div class="relative" style="position:relative;">
+          <div class="response-content-markdown">
+            <p class="break-words" dir="auto" style="white-space:pre-wrap;margin:0 0 8px 0;line-height:1.5;">While Google claimed quantum supremacy in 2019 with its Sycamore processor, practical quantum advantage for real-world applications remains an active area of research.</p>
+            <p class="break-words" dir="auto" style="white-space:pre-wrap;margin:0 0 8px 0;line-height:1.5;">Key areas nearing practical breakthroughs include drug discovery simulations, financial portfolio optimization, and cryptographic applications.</p>
+            <p class="break-words" dir="auto" style="white-space:pre-wrap;margin:0;line-height:1.5;">Most experts estimate we are 5-10 years away from quantum computers solving commercially valuable problems faster than classical supercomputers.</p>
+          </div>
+        </div>
+      </div>
+      <section class="inline-media-container flex flex-col gap-1 clear-both" style="display:none;"></section>
+      <section class="auto-notification flex flex-col gap-1" style="display:none;"></section>
+      <div class="order-first sticky hidden @md/mainview:block top-11 h-0 opacity-100" style="order:-1;height:0;"></div>
+      <div class="action-buttons h-8 mt-0.5 mb-2 flex flex-row flex-wrap w-full justify-start print:hidden" style="height:32px;margin-top:2px;margin-bottom:8px;display:flex;flex-direction:row;justify-content:flex-start;gap:4px;">
+        <button style="background:none;border:none;color:#71767b;cursor:pointer;padding:4px 8px;font-size:12px;" title="Copy">&#128203;</button>
+        <button style="background:none;border:none;color:#71767b;cursor:pointer;padding:4px 8px;font-size:12px;" title="Share">&#8599;</button>
+        <button style="background:none;border:none;color:#71767b;cursor:pointer;padding:4px 8px;font-size:12px;" title="Like">&#9825;</button>
+        <button style="background:none;border:none;color:#71767b;cursor:pointer;padding:4px 8px;font-size:12px;" title="Dislike">&#128078;</button>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         MESSAGE 5: USER — "What programming languages are used..."
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <!-- B: Message wrapper (user — items-end) -->
+    <div id="response-a1b2c3d4-e5f6-7890-abcd-555555555555" class="relative group flex flex-col justify-center w-full max-w-[var(--content-max-width)] pb-0.5 items-end" style="display:flex;flex-direction:column;align-items:flex-end;width:100%;padding-bottom:2px;position:relative;">
+      <!-- C: Message bubble (user) -->
+      <div class="message-bubble user relative rounded-3xl text-primary min-h-7 pro-11 max-w-[100%] @sm/miniview:max-w-[90%] px-4 rounded-br-lg" style="position:relative;border-radius:24px;border-bottom-right-radius:8px;min-height:28px;max-width:90%;padding:10px 16px;background:#1a2634;color:#e7e9ea;">
+        <div class="relative" style="position:relative;">
+          <div class="response-content-markdown">
+            <p class="break-words" dir="auto" style="white-space:pre-wrap;margin:0;line-height:1.5;">What programming languages are used for quantum computing?</p>
+          </div>
+        </div>
+      </div>
+      <div class="order-first sticky hidden @md/mainview:block top-11 h-0 opacity-100" style="order:-1;height:0;"></div>
+      <div class="action-buttons h-8 mt-0.5 mb-2 flex flex-row flex-wrap w-full justify-end print:hidden" style="height:32px;margin-top:2px;margin-bottom:8px;display:flex;flex-direction:row;justify-content:flex-end;gap:4px;">
+        <button style="background:none;border:none;color:#71767b;cursor:pointer;padding:4px 8px;font-size:12px;" title="Edit">&#9998;</button>
+      </div>
+    </div>
+
+  </div><!-- end scroll container -->
+
+  <!-- Input area at bottom -->
+  <div style="position:fixed;bottom:0;left:56px;right:0;background:#000;border-top:1px solid #2f3336;padding:12px 16px;display:flex;justify-content:center;">
+    <div style="width:100%;max-width:768px;display:flex;align-items:center;gap:8px;">
+      <div style="flex:1;background:#16181c;border:1px solid #2f3336;border-radius:24px;padding:10px 16px;color:#71767b;font-size:14px;">Ask anything</div>
+      <button style="background:#1d9bf0;border:none;border-radius:50%;width:36px;height:36px;color:#fff;cursor:pointer;font-size:16px;">&#8593;</button>
+    </div>
+  </div>
+
+</div><!-- end main content area -->
 </body>
 </html>

@@ -1,30 +1,315 @@
 <!DOCTYPE html>
-<html><head><title>Perplexity Mock</title></head>
+<html><head><title>Perplexity Mock</title>
+<style>
+  /* Reset and base styles matching Perplexity light theme */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #ffffff; color: #1a1a2e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans', sans-serif; font-size: 16px; line-height: 1.6; }
+
+  /* Sidebar */
+  .sidebar { position: fixed; left: 0; top: 0; width: 260px; height: 100vh; background: #f7f7f8; border-right: 1px solid #e5e5e5; display: flex; flex-direction: column; padding: 12px; z-index: 100; }
+  .sidebar-header { display: flex; align-items: center; gap: 10px; padding: 8px 4px 16px; }
+  .sidebar-logo { width: 28px; height: 28px; border-radius: 50%; background: #20b8cd; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: bold; color: #fff; }
+  .sidebar-title { font-size: 16px; font-weight: 700; color: #1a1a2e; }
+  .sidebar-new-thread { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 10px; cursor: pointer; color: #1a1a2e; font-size: 14px; font-weight: 500; border: 1px solid #e0e0e0; margin-bottom: 16px; background: #fff; }
+  .sidebar-nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px; font-size: 14px; color: #555; cursor: pointer; }
+  .sidebar-nav-item:hover { background: #ededef; }
+  .sidebar-nav-icon { font-size: 18px; width: 22px; text-align: center; }
+  .sidebar-section-label { font-size: 12px; font-weight: 600; color: #888; padding: 16px 14px 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .sidebar-thread { padding: 8px 14px; border-radius: 8px; font-size: 13px; color: #666; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sidebar-thread.active { background: #e8e8ea; color: #1a1a2e; font-weight: 500; }
+
+  /* Main content area */
+  .main-content { margin-left: 260px; min-height: 100vh; display: flex; flex-direction: column; }
+
+  /* Conversation container (scrollable) */
+  .conversation-container { flex: 1; overflow-y: auto; padding-bottom: 32px; }
+  .content-max-width { max-width: 48rem; margin: 0 auto; padding: 0 24px; }
+
+  /* Query block outer wrapper */
+  .query-block { padding: 24px 0 8px; }
+
+  /* User query bubble */
+  .query-bubble { background: #f0f0f0; border-radius: 16px; padding: 12px 16px; display: inline-flex; align-items: center; justify-content: center; max-width: 600px; }
+  .query-bubble span { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 16px; color: #1a1a2e; font-weight: 400; }
+
+  /* Answer section */
+  .answer-block { padding: 12px 0 24px; }
+  .answer-content { line-height: 1.75; color: #2d2d3a; }
+  .answer-content p { margin-bottom: 12px; }
+  .answer-content p:last-child { margin-bottom: 0; }
+  .answer-content strong { font-weight: 600; }
+  .answer-content ul { margin: 8px 0 12px 20px; }
+  .answer-content li { margin-bottom: 4px; }
+
+  /* Source citations */
+  .sources-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .source-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 13px; color: #555; cursor: pointer; text-decoration: none; }
+  .source-chip:hover { background: #eaeaea; }
+  .source-chip-number { background: #20b8cd; color: #fff; width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; }
+  .source-chip-domain { color: #888; font-size: 12px; }
+
+  /* Answer action buttons */
+  .answer-actions { display: flex; gap: 6px; padding: 4px 0 0; }
+  .answer-action-btn { width: 32px; height: 32px; border-radius: 8px; border: none; background: transparent; color: #999; cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; }
+  .answer-action-btn:hover { background: #f0f0f0; color: #555; }
+
+  /* Query action buttons (hidden by default, show on hover) */
+  .query-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s; align-items: center; }
+  .query-block:hover .query-actions { opacity: 1; }
+
+  /* Follow-up input area */
+  .followup-area { position: sticky; bottom: 0; padding: 16px 24px; background: #fff; border-top: 1px solid #eee; }
+  .followup-wrapper { max-width: 48rem; margin: 0 auto; position: relative; }
+  .followup-input { width: 100%; min-height: 48px; background: #f7f7f8; border: 1px solid #e0e0e0; border-radius: 24px; padding: 12px 48px 12px 20px; color: #1a1a2e; font-size: 15px; resize: none; outline: none; font-family: inherit; }
+  .followup-input:focus { border-color: #20b8cd; box-shadow: 0 0 0 2px rgba(32,184,205,0.15); }
+  .followup-send-btn { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; border-radius: 50%; background: #20b8cd; border: none; color: #fff; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+  .followup-footer { max-width: 48rem; margin: 6px auto 0; text-align: center; font-size: 12px; color: #aaa; }
+
+  /* Divider between Q&A blocks */
+  .qa-divider { border: none; border-top: 1px solid #eee; margin: 0; }
+</style>
+</head>
 <body>
-<!-- Perplexity: User queries use Tailwind group/query variant class.
-     Standard right-edge button (not left-chat).
-     No chat sidebar — search/answer interface. -->
-<div class="max-w-3xl mx-auto" style="max-width:48rem;margin:0 auto;">
-  <!-- User query 1 -->
-  <div class="group/query" style="padding:16px;margin-bottom:12px;">
-    <span class="select-text">What are the best practices for React server components?</span>
+<!--
+  Perplexity Mock Page — Real DOM Structure Reference
+  ====================================================
+  Source: Live DevTools inspection of perplexity.ai/search/{thread-id} (Feb 2026)
+
+  OVERALL LAYOUT:
+    - Perplexity is a search/answer interface, NOT a chat sidebar.
+    - Left sidebar with navigation (Home, Discover, Library, etc.)
+    - Main content area: user queries appear above AI answers (interleaved)
+    - "Ask a follow-up" input at the bottom
+
+  USER QUERY DOM (nesting A through L):
+    A: div.relative.z-10
+      B: div.group.relative.flex.items-end.gap-0.5
+        C: div.-inset-md.pointer-events-none.absolute.select-none
+        D: div
+          E: div.relative.min-v-0.flex-1.flex.justify-end
+            F: div.flex.shrink-0.items-center.gap-1.opacity-0         (action buttons — hidden by default)
+            G: div.group/title.relative.inline-flex.flex-col            (FALLBACK parent — .group/title)
+              H: div[style="transition: none; overflow: hidden; height: 96px;"]
+                I: div
+                  J: div.group/query.relative.whitespace-pre-line.!text-wrap.break-words
+                     .selection:bg-super/10.dark:selection:text-super.bg-transparent
+                                                                        ** PRIMARY TARGET — .group/query **
+                    K: div.min-w-[48px].select-none.p-3.bg-subtler.rounded-2xl
+                       .flex.items-center.justify-center[style="max-width: 600px;"]
+                                                                        (bubble — .bg-subtler.rounded-2xl)
+                      L: span.font-sans.text-base.text-foreground.font-normal.select-text
+                                                                        (text — .select-text is FALLBACK target)
+
+  ANSWER DOM (below each query):
+    - div with prose content, source citations, related questions
+    - Sources shown as numbered chips linking to external URLs
+
+  SCRIPT SELECTORS (what the userscript matches):
+    PRIMARY:
+      var perplexityQueries = document.querySelectorAll('.group\\/query');
+      messages = Array.from(perplexityQueries).filter(el => el.textContent.trim().length > 0);
+
+    FALLBACK (if primary returns 0):
+      messages = document.querySelectorAll('.group\\/title .select-text');
+
+  CRITICAL NOTES:
+    - In HTML class attributes, the literal class is "group/query" (with a real forward slash).
+    - In CSS selectors / querySelectorAll, the slash must be escaped: '.group\\/query'
+    - The .group/query class is on element J (the query text wrapper), NOT on the bubble (K) or span (L).
+    - The .group/title class is on element G (parent of the height-constrained wrapper).
+    - The .select-text class is on element L (the innermost text span).
+-->
+
+<!-- Sidebar -->
+<div class="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-logo">P</div>
+    <span class="sidebar-title">Perplexity</span>
   </div>
-  <!-- Answer section -->
-  <div class="answer-section" style="padding:16px;margin-bottom:24px;">
-    <p>React Server Components (RSC) allow you to render components on the server...</p>
+  <div class="sidebar-new-thread">+ New Thread</div>
+  <div class="sidebar-nav-item"><span class="sidebar-nav-icon">&#127968;</span> Home</div>
+  <div class="sidebar-nav-item"><span class="sidebar-nav-icon">&#128269;</span> Discover</div>
+  <div class="sidebar-nav-item"><span class="sidebar-nav-icon">&#128218;</span> Library</div>
+  <div class="sidebar-nav-item"><span class="sidebar-nav-icon">&#9881;&#65038;</span> Settings</div>
+  <div class="sidebar-section-label">Recent</div>
+  <div class="sidebar-thread active">React Server Components best practices</div>
+  <div class="sidebar-thread">TypeScript generics explained</div>
+  <div class="sidebar-thread">Comparing edge runtimes</div>
+  <div class="sidebar-thread">PostgreSQL vs MySQL 2025</div>
+</div>
+
+<!-- Main content -->
+<div class="main-content">
+  <div class="conversation-container">
+    <div class="content-max-width">
+
+      <!-- ===== Query 1 + Answer 1 ===== -->
+
+      <!-- User query 1 (full A-L nesting) -->
+      <div class="query-block">
+        <!-- A: outer relative wrapper -->
+        <div class="relative z-10" style="position:relative;z-index:10;">
+          <!-- B: group flex wrapper -->
+          <div class="group relative flex items-end gap-0.5" style="position:relative;display:flex;align-items:flex-end;gap:2px;">
+            <!-- C: invisible inset overlay -->
+            <div class="-inset-md pointer-events-none absolute select-none" style="position:absolute;pointer-events:none;user-select:none;"></div>
+            <!-- D: content column -->
+            <div>
+              <!-- E: flex-1 justify-end wrapper -->
+              <div class="relative min-v-0 flex-1 flex justify-end" style="position:relative;display:flex;flex:1;justify-content:flex-end;">
+                <!-- F: action buttons (hidden by default) -->
+                <div class="flex shrink-0 items-center gap-1 opacity-0 query-actions" style="display:flex;flex-shrink:0;align-items:center;gap:4px;">
+                  <button class="answer-action-btn" title="Copy">&#128203;</button>
+                  <button class="answer-action-btn" title="Edit">&#9998;</button>
+                </div>
+                <!-- G: group/title — FALLBACK parent selector target -->
+                <div class="group/title relative inline-flex flex-col" style="position:relative;display:inline-flex;flex-direction:column;">
+                  <!-- H: height-constrained transition wrapper -->
+                  <div style="transition:none;overflow:hidden;height:auto;">
+                    <!-- I: inner wrapper -->
+                    <div>
+                      <!-- J: group/query — PRIMARY selector target -->
+                      <div class="group/query relative whitespace-pre-line !text-wrap break-words selection:bg-super/10 dark:selection:text-super bg-transparent" style="position:relative;white-space:pre-line;word-wrap:break-word;background:transparent;">
+                        <!-- K: bubble (.bg-subtler.rounded-2xl) -->
+                        <div class="min-w-[48px] select-none p-3 bg-subtler rounded-2xl flex items-center justify-center query-bubble" style="max-width:600px;min-width:48px;user-select:none;padding:12px 16px;">
+                          <!-- L: text span (.select-text) -->
+                          <span class="font-sans text-base text-foreground font-normal select-text">What are the best practices for React server components?</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Answer 1 -->
+      <div class="answer-block">
+        <!-- Sources row -->
+        <div class="sources-row">
+          <a class="source-chip" href="#"><span class="source-chip-number">1</span> React.dev <span class="source-chip-domain">react.dev</span></a>
+          <a class="source-chip" href="#"><span class="source-chip-number">2</span> Vercel Blog <span class="source-chip-domain">vercel.com</span></a>
+          <a class="source-chip" href="#"><span class="source-chip-number">3</span> Next.js Docs <span class="source-chip-domain">nextjs.org</span></a>
+          <a class="source-chip" href="#"><span class="source-chip-number">4</span> Dan Abramov RFC <span class="source-chip-domain">github.com</span></a>
+        </div>
+        <div class="answer-content">
+          <p>React Server Components (RSC) represent a paradigm shift in how React applications handle rendering. Here are the established best practices:</p>
+          <p><strong>1. Default to Server Components.</strong> In the App Router, all components are Server Components by default. Only add the <code>"use client"</code> directive when you need interactivity, browser APIs, or React hooks like <code>useState</code> and <code>useEffect</code>.</p>
+          <p><strong>2. Push client boundaries down.</strong> Keep the <code>"use client"</code> boundary as low in the component tree as possible. This maximizes the amount of your UI that can be server-rendered and minimizes the JavaScript bundle sent to the client.</p>
+          <p><strong>3. Use async/await for data fetching.</strong> Server Components can be <code>async</code> functions, allowing you to <code>await</code> database queries and API calls directly in the component body without <code>useEffect</code> or client-side state management.</p>
+          <p><strong>4. Leverage streaming with Suspense.</strong> Wrap slow data-fetching components in <code>&lt;Suspense&gt;</code> boundaries to stream HTML progressively and show loading states for individual sections.</p>
+        </div>
+        <div class="answer-actions">
+          <button class="answer-action-btn" title="Copy">&#128203;</button>
+          <button class="answer-action-btn" title="Share">&#128279;</button>
+          <button class="answer-action-btn" title="Rewrite">&#8634;</button>
+        </div>
+      </div>
+
+      <hr class="qa-divider">
+
+      <!-- ===== Query 2 + Answer 2 ===== -->
+
+      <!-- User query 2 (full A-L nesting) -->
+      <div class="query-block">
+        <div class="relative z-10" style="position:relative;z-index:10;">
+          <div class="group relative flex items-end gap-0.5" style="position:relative;display:flex;align-items:flex-end;gap:2px;">
+            <div class="-inset-md pointer-events-none absolute select-none" style="position:absolute;pointer-events:none;user-select:none;"></div>
+            <div>
+              <div class="relative min-v-0 flex-1 flex justify-end" style="position:relative;display:flex;flex:1;justify-content:flex-end;">
+                <div class="flex shrink-0 items-center gap-1 opacity-0 query-actions" style="display:flex;flex-shrink:0;align-items:center;gap:4px;">
+                  <button class="answer-action-btn" title="Copy">&#128203;</button>
+                  <button class="answer-action-btn" title="Edit">&#9998;</button>
+                </div>
+                <div class="group/title relative inline-flex flex-col" style="position:relative;display:inline-flex;flex-direction:column;">
+                  <div style="transition:none;overflow:hidden;height:auto;">
+                    <div>
+                      <div class="group/query relative whitespace-pre-line !text-wrap break-words selection:bg-super/10 dark:selection:text-super bg-transparent" style="position:relative;white-space:pre-line;word-wrap:break-word;background:transparent;">
+                        <div class="min-w-[48px] select-none p-3 bg-subtler rounded-2xl flex items-center justify-center query-bubble" style="max-width:600px;min-width:48px;user-select:none;padding:12px 16px;">
+                          <span class="font-sans text-base text-foreground font-normal select-text">How do they compare to traditional SSR with Next.js?</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Answer 2 -->
+      <div class="answer-block">
+        <div class="sources-row">
+          <a class="source-chip" href="#"><span class="source-chip-number">1</span> Next.js Docs <span class="source-chip-domain">nextjs.org</span></a>
+          <a class="source-chip" href="#"><span class="source-chip-number">2</span> Vercel Blog <span class="source-chip-domain">vercel.com</span></a>
+          <a class="source-chip" href="#"><span class="source-chip-number">3</span> Smashing Magazine <span class="source-chip-domain">smashingmagazine.com</span></a>
+        </div>
+        <div class="answer-content">
+          <p>Traditional Server-Side Rendering (SSR) and React Server Components (RSC) both execute on the server, but they differ fundamentally in how they work:</p>
+          <p><strong>Traditional SSR (Pages Router):</strong> The entire page is rendered to HTML on the server for each request. The full React tree is then "hydrated" on the client, meaning all component JavaScript is downloaded and executed to attach event listeners and make the page interactive. Every component pays the hydration cost.</p>
+          <p><strong>React Server Components (App Router):</strong> Server Components never hydrate on the client. Their rendered output is streamed as a special format (RSC payload), not as JavaScript bundles. Only components explicitly marked with <code>"use client"</code> are hydrated. This means zero JavaScript overhead for server-only components like layouts, data displays, and static content.</p>
+          <p><strong>Key differences:</strong></p>
+          <ul>
+            <li><strong>Bundle size:</strong> RSC dramatically reduces client JavaScript because server-only components are excluded entirely from the bundle</li>
+            <li><strong>Data fetching:</strong> SSR uses <code>getServerSideProps</code> at the page level; RSC allows data fetching in any component</li>
+            <li><strong>Streaming:</strong> RSC supports granular streaming with Suspense; traditional SSR sends the full HTML at once</li>
+            <li><strong>Composability:</strong> RSC can be nested freely with Client Components; SSR is page-level only</li>
+          </ul>
+        </div>
+        <div class="answer-actions">
+          <button class="answer-action-btn" title="Copy">&#128203;</button>
+          <button class="answer-action-btn" title="Share">&#128279;</button>
+          <button class="answer-action-btn" title="Rewrite">&#8634;</button>
+        </div>
+      </div>
+
+      <hr class="qa-divider">
+
+      <!-- ===== Query 3 (no answer yet — most recent query) ===== -->
+
+      <!-- User query 3 (full A-L nesting) -->
+      <div class="query-block">
+        <div class="relative z-10" style="position:relative;z-index:10;">
+          <div class="group relative flex items-end gap-0.5" style="position:relative;display:flex;align-items:flex-end;gap:2px;">
+            <div class="-inset-md pointer-events-none absolute select-none" style="position:absolute;pointer-events:none;user-select:none;"></div>
+            <div>
+              <div class="relative min-v-0 flex-1 flex justify-end" style="position:relative;display:flex;flex:1;justify-content:flex-end;">
+                <div class="flex shrink-0 items-center gap-1 opacity-0 query-actions" style="display:flex;flex-shrink:0;align-items:center;gap:4px;">
+                  <button class="answer-action-btn" title="Copy">&#128203;</button>
+                  <button class="answer-action-btn" title="Edit">&#9998;</button>
+                </div>
+                <div class="group/title relative inline-flex flex-col" style="position:relative;display:inline-flex;flex-direction:column;">
+                  <div style="transition:none;overflow:hidden;height:auto;">
+                    <div>
+                      <div class="group/query relative whitespace-pre-line !text-wrap break-words selection:bg-super/10 dark:selection:text-super bg-transparent" style="position:relative;white-space:pre-line;word-wrap:break-word;background:transparent;">
+                        <div class="min-w-[48px] select-none p-3 bg-subtler rounded-2xl flex items-center justify-center query-bubble" style="max-width:600px;min-width:48px;user-select:none;padding:12px 16px;">
+                          <span class="font-sans text-base text-foreground font-normal select-text">Can you show me a migration example from pages router to app router?</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
   </div>
-  <!-- User query 2 -->
-  <div class="group/query" style="padding:16px;margin-bottom:12px;">
-    <span class="select-text">How do they compare to traditional SSR with Next.js?</span>
-  </div>
-  <!-- Answer section -->
-  <div class="answer-section" style="padding:16px;margin-bottom:24px;">
-    <p>Traditional SSR renders the entire page on the server, while RSC...</p>
-  </div>
-  <!-- User query 3 -->
-  <div class="group/query" style="padding:16px;margin-bottom:12px;">
-    <span class="select-text">Can you show me a migration example from pages router to app router?</span>
+
+  <!-- Follow-up input area -->
+  <div class="followup-area">
+    <div class="followup-wrapper">
+      <textarea class="followup-input" placeholder="Ask a follow-up..." rows="1"></textarea>
+      <button class="followup-send-btn" title="Submit">&#8593;</button>
+    </div>
+    <div class="followup-footer">Perplexity may display inaccurate info. Always verify important facts.</div>
   </div>
 </div>
+
 </body>
 </html>

@@ -1,30 +1,252 @@
 <!DOCTYPE html>
 <html><head><title>Claude Code Mock</title></head>
-<body>
-<!-- Claude Code: no data-testid attributes. User messages are right-aligned
-     bg-bg-200 rounded-lg bubbles inside items-end containers -->
-<div class="conversation">
-  <div class="items-end" style="display:flex;flex-direction:column;align-items:flex-end;">
-    <div class="bg-bg-200 rounded-lg" style="padding:12px;">
-      <p>Help me refactor this authentication module</p>
+<body style="margin:0;padding:0;background:#1a1a1e;color:#e8e4db;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<!-- Claude Code Web (claude.ai/code/session_...): Real DOM structure from live site inspection, Feb 2026.
+
+     Claude Code Web lives at claude.ai/code/ — same hostname as Claude Chat but a completely
+     different path and DOM structure. The userscript detects both as SITE.CLAUDE. The selector
+     chain tries Claude Chat selectors first (data-testid="user-human-turn", data-testid="user-message",
+     .font-user-message), all of which return 0 results on Claude Code. Then the fallback fires:
+
+         const bubbles = document.querySelectorAll('div.bg-bg-200.rounded-lg');
+         messages = Array.from(bubbles).filter(bubble => bubble.closest('.items-end'));
+
+     This means for the mock to work correctly:
+       - There must be NO data-testid="user-human-turn" anywhere
+       - There must be NO data-testid="user-message" anywhere
+       - There must be NO .font-user-message anywhere
+       - User bubbles must have classes: bg-bg-200 AND rounded-lg
+       - Each user bubble must have an ancestor with class: items-end
+
+     DOM nesting per user message (letters A-H from live DevTools):
+       A: div.pb-4[style="content-visibility: auto; contain-intrinsic-size: auto 500px;"]
+            (lazy-rendered wrapper — one per message, enables virtual scrolling)
+         B: div.flex.flex-col.items-end.gap-2.max-w-[85%]
+              (alignment container — items-end makes it right-aligned for user messages)
+           C: div.group/message.flex.items-start.gap-1
+                (message row with group modifier for hover states)
+             D: div.relative.bg-bg-200.rounded-lg.px-3.py-2.font-base.break-words.min-w-0.overflow-hidden.text-text-000
+                  (the user bubble — bg-bg-200 + rounded-lg are the key selector classes)
+               E: div.relative[style="max-height: none; overflow: hidden;"]
+                    (overflow wrapper for long messages)
+                 F: div.space-y-2
+                      (spacing container for multi-paragraph messages)
+                   G: <p>actual text</p>
+           H: div.shrink-0.mt-2.5.flex.items-start.justify-center
+                (action buttons row — copy, retry, etc.)
+
+     DOM nesting per AI message:
+       A: div.pb-4[style="content-visibility: auto; contain-intrinsic-size: auto 500px;"]
+            (same lazy wrapper)
+         - NO items-end parent (full-width, left-aligned)
+         - NO bg-bg-200 class (different/no background)
+         - Contains rendered markdown with code blocks, lists, etc.
+         - Typically wrapped in a max-width container but not right-aligned
+
+     Page chrome:
+       - Left sidebar with session list, "New session" button, and session history
+       - Top header with session title and settings
+       - Bottom input area with "Ask Claude to write code..." placeholder
+       - Claude Code uses a dark theme distinct from Claude Chat
+
+     Important: This mock must NOT contain any of these Claude Chat selectors:
+       - data-testid="user-human-turn" (Claude Chat primary)
+       - data-testid="user-message" (Claude Chat fallback 1)
+       - .font-user-message (Claude Chat fallback 2)
+     Their absence forces the script to fall through to the bg-bg-200 fallback. -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- Page layout: sidebar + main content area                                  -->
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<div style="display:flex;height:100vh;width:100%;">
+
+  <!-- ── Left sidebar (session list) ──────────────────────────────────────── -->
+  <nav style="width:260px;min-width:260px;background:#111114;display:flex;flex-direction:column;border-right:1px solid #2a2a2e;overflow-y:auto;">
+    <!-- Sidebar header -->
+    <div style="padding:16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #2a2a2e;">
+      <svg width="20" height="20" viewBox="0 0 20 20" style="fill:#d97706;"><circle cx="10" cy="10" r="8"/></svg>
+      <span style="font-size:15px;font-weight:600;color:#e8e4db;">Claude Code</span>
     </div>
-  </div>
-  <div class="assistant-message" style="width:100%;">
-    <p>I'll help you refactor the authentication module...</p>
-  </div>
-  <div class="items-end" style="display:flex;flex-direction:column;align-items:flex-end;">
-    <div class="bg-bg-200 rounded-lg" style="padding:12px;">
-      <p>Now add error handling for expired tokens</p>
+    <!-- New session button -->
+    <div style="padding:12px 16px;">
+      <button style="width:100%;padding:8px 12px;background:#2a2a2e;border:none;border-radius:8px;color:#e8e4db;cursor:pointer;font-size:13px;">+ New session</button>
     </div>
-  </div>
-  <div class="assistant-message" style="width:100%;">
-    <p>Here's the updated code with token expiry handling...</p>
-  </div>
-  <div class="items-end" style="display:flex;flex-direction:column;align-items:flex-end;">
-    <div class="bg-bg-200 rounded-lg" style="padding:12px;">
-      <p>Can you also write tests for the refresh token flow?</p>
+    <!-- Session list items -->
+    <div style="flex:1;padding:4px 8px;">
+      <div style="padding:8px 12px;border-radius:8px;background:#1a1a1e;color:#b4b0a7;font-size:13px;margin-bottom:2px;cursor:pointer;">Auth module refactor</div>
+      <div style="padding:8px 12px;border-radius:8px;color:#7a776f;font-size:13px;margin-bottom:2px;cursor:pointer;">Database migration script</div>
+      <div style="padding:8px 12px;border-radius:8px;color:#7a776f;font-size:13px;margin-bottom:2px;cursor:pointer;">CI/CD pipeline setup</div>
     </div>
-  </div>
-</div>
+    <!-- Sidebar footer -->
+    <div style="padding:12px 16px;border-top:1px solid #2a2a2e;font-size:12px;color:#7a776f;">
+      Ask Claude to write code...
+    </div>
+  </nav>
+
+  <!-- ── Main content area ────────────────────────────────────────────────── -->
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+
+    <!-- ── Top header with session title ──────────────────────────────────── -->
+    <header style="height:48px;display:flex;align-items:center;padding:0 16px;border-bottom:1px solid #2a2a2e;background:#1a1a1e;flex-shrink:0;">
+      <span style="font-size:14px;font-weight:500;color:#e8e4db;">Auth module refactor</span>
+      <div style="flex:1;"></div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span style="font-size:12px;color:#7a776f;">Claude Opus 4</span>
+        <button style="background:none;border:1px solid #2a2a2e;border-radius:6px;padding:4px 10px;color:#b4b0a7;font-size:12px;cursor:pointer;">Settings</button>
+      </div>
+    </header>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Conversation scroll area                                           -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:24px 16px;">
+      <div style="max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:0;">
+
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <!-- User Message 1                                                  -->
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <!-- A: Lazy-rendered wrapper (one per message) -->
+        <div class="pb-4" style="content-visibility:auto;contain-intrinsic-size:auto 500px;padding-bottom:16px;">
+          <!-- B: Alignment container — items-end = right-aligned for user -->
+          <div class="flex flex-col items-end gap-2 max-w-[85%]" style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;max-width:85%;margin-left:auto;">
+            <!-- C: Message row with group modifier -->
+            <div class="group/message flex items-start gap-1" style="display:flex;align-items:flex-start;gap:4px;">
+              <!-- D: User bubble — bg-bg-200 + rounded-lg are the KEY SELECTOR CLASSES -->
+              <div class="relative bg-bg-200 rounded-lg px-3 py-2 font-base break-words min-w-0 overflow-hidden text-text-000" style="position:relative;background:#2a2a2e;border-radius:8px;padding:8px 12px;word-break:break-word;min-width:0;overflow:hidden;color:#e8e4db;font-size:14px;">
+                <!-- E: Overflow wrapper -->
+                <div class="relative" style="position:relative;max-height:none;overflow:hidden;">
+                  <!-- F: Spacing container -->
+                  <div class="space-y-2" style="display:flex;flex-direction:column;gap:8px;">
+                    <!-- G: Actual text -->
+                    <p style="margin:0;">Help me refactor this authentication module</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- H: Action buttons row -->
+            <div class="shrink-0 mt-2.5 flex items-start justify-center" style="flex-shrink:0;margin-top:10px;display:flex;align-items:flex-start;justify-content:center;gap:4px;">
+              <button style="background:none;border:none;color:#7a776f;font-size:11px;cursor:pointer;padding:2px 4px;">Copy</button>
+              <button style="background:none;border:none;color:#7a776f;font-size:11px;cursor:pointer;padding:2px 4px;">Retry</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <!-- AI Message 1                                                    -->
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <!-- A: Same lazy wrapper for AI messages -->
+        <div class="pb-4" style="content-visibility:auto;contain-intrinsic-size:auto 500px;padding-bottom:16px;">
+          <!-- No items-end, no bg-bg-200 — full-width left-aligned -->
+          <div class="flex flex-col gap-2" style="display:flex;flex-direction:column;gap:8px;">
+            <div class="flex items-start gap-1" style="display:flex;align-items:flex-start;gap:4px;">
+              <div class="relative rounded-lg px-3 py-2 font-base break-words min-w-0 overflow-hidden text-text-000" style="position:relative;border-radius:8px;padding:8px 12px;word-break:break-word;min-width:0;overflow:hidden;color:#e8e4db;font-size:14px;max-width:100%;">
+                <div class="relative" style="position:relative;max-height:none;overflow:hidden;">
+                  <div class="space-y-2" style="display:flex;flex-direction:column;gap:8px;">
+                    <p style="margin:0;line-height:1.6;">I'll help you refactor the authentication module. Let me start by analyzing the current structure and identifying areas for improvement.</p>
+                    <p style="margin:0;line-height:1.6;">Here's the refactored version with better separation of concerns:</p>
+                    <pre style="background:#111114;border-radius:6px;padding:12px;overflow-x:auto;font-size:13px;line-height:1.5;margin:0;"><code>class AuthManager:
+    def __init__(self, config):
+        self.config = config
+        self.token_store = TokenStore()
+
+    def authenticate(self, credentials):
+        validated = self._validate(credentials)
+        token = self._generate_token(validated)
+        return token</code></pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <!-- User Message 2                                                  -->
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <div class="pb-4" style="content-visibility:auto;contain-intrinsic-size:auto 500px;padding-bottom:16px;">
+          <div class="flex flex-col items-end gap-2 max-w-[85%]" style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;max-width:85%;margin-left:auto;">
+            <div class="group/message flex items-start gap-1" style="display:flex;align-items:flex-start;gap:4px;">
+              <div class="relative bg-bg-200 rounded-lg px-3 py-2 font-base break-words min-w-0 overflow-hidden text-text-000" style="position:relative;background:#2a2a2e;border-radius:8px;padding:8px 12px;word-break:break-word;min-width:0;overflow:hidden;color:#e8e4db;font-size:14px;">
+                <div class="relative" style="position:relative;max-height:none;overflow:hidden;">
+                  <div class="space-y-2" style="display:flex;flex-direction:column;gap:8px;">
+                    <p style="margin:0;">Now add error handling for expired tokens</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="shrink-0 mt-2.5 flex items-start justify-center" style="flex-shrink:0;margin-top:10px;display:flex;align-items:flex-start;justify-content:center;gap:4px;">
+              <button style="background:none;border:none;color:#7a776f;font-size:11px;cursor:pointer;padding:2px 4px;">Copy</button>
+              <button style="background:none;border:none;color:#7a776f;font-size:11px;cursor:pointer;padding:2px 4px;">Retry</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <!-- AI Message 2                                                    -->
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <div class="pb-4" style="content-visibility:auto;contain-intrinsic-size:auto 500px;padding-bottom:16px;">
+          <div class="flex flex-col gap-2" style="display:flex;flex-direction:column;gap:8px;">
+            <div class="flex items-start gap-1" style="display:flex;align-items:flex-start;gap:4px;">
+              <div class="relative rounded-lg px-3 py-2 font-base break-words min-w-0 overflow-hidden text-text-000" style="position:relative;border-radius:8px;padding:8px 12px;word-break:break-word;min-width:0;overflow:hidden;color:#e8e4db;font-size:14px;max-width:100%;">
+                <div class="relative" style="position:relative;max-height:none;overflow:hidden;">
+                  <div class="space-y-2" style="display:flex;flex-direction:column;gap:8px;">
+                    <p style="margin:0;line-height:1.6;">Here's the updated code with token expiry handling. I've added a custom exception and automatic refresh logic:</p>
+                    <pre style="background:#111114;border-radius:6px;padding:12px;overflow-x:auto;font-size:13px;line-height:1.5;margin:0;"><code>class TokenExpiredError(Exception):
+    pass
+
+class AuthManager:
+    def validate_token(self, token):
+        if token.is_expired():
+            raise TokenExpiredError()
+        return token.claims
+
+    def refresh_if_needed(self, token):
+        try:
+            return self.validate_token(token)
+        except TokenExpiredError:
+            return self._refresh_token(token)</code></pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <!-- User Message 3                                                  -->
+        <!-- ─────────────────────────────────────────────────────────────── -->
+        <div class="pb-4" style="content-visibility:auto;contain-intrinsic-size:auto 500px;padding-bottom:16px;">
+          <div class="flex flex-col items-end gap-2 max-w-[85%]" style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;max-width:85%;margin-left:auto;">
+            <div class="group/message flex items-start gap-1" style="display:flex;align-items:flex-start;gap:4px;">
+              <div class="relative bg-bg-200 rounded-lg px-3 py-2 font-base break-words min-w-0 overflow-hidden text-text-000" style="position:relative;background:#2a2a2e;border-radius:8px;padding:8px 12px;word-break:break-word;min-width:0;overflow:hidden;color:#e8e4db;font-size:14px;">
+                <div class="relative" style="position:relative;max-height:none;overflow:hidden;">
+                  <div class="space-y-2" style="display:flex;flex-direction:column;gap:8px;">
+                    <p style="margin:0;">Can you also write tests for the refresh token flow?</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="shrink-0 mt-2.5 flex items-start justify-center" style="flex-shrink:0;margin-top:10px;display:flex;align-items:flex-start;justify-content:center;gap:4px;">
+              <button style="background:none;border:none;color:#7a776f;font-size:11px;cursor:pointer;padding:2px 4px;">Copy</button>
+              <button style="background:none;border:none;color:#7a776f;font-size:11px;cursor:pointer;padding:2px 4px;">Retry</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom spacer for scroll padding -->
+        <div style="height:80px;flex-shrink:0;"></div>
+
+      </div><!-- end content max-width wrapper -->
+    </div><!-- end conversation scroll area -->
+
+    <!-- ── Input area ─────────────────────────────────────────────────────── -->
+    <div style="border-top:1px solid #2a2a2e;padding:12px 16px;background:#1a1a1e;flex-shrink:0;">
+      <div style="max-width:900px;margin:0 auto;">
+        <div contenteditable="true" role="textbox" style="min-height:40px;padding:10px 14px;background:#111114;border:1px solid #2a2a2e;border-radius:12px;color:#e8e4db;font-size:14px;outline:none;" data-placeholder="Ask Claude to write code..."></div>
+      </div>
+    </div>
+
+  </div><!-- end main content area -->
+</div><!-- end page layout -->
 </body>
 </html>
