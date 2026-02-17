@@ -204,7 +204,7 @@ const PLATFORMS = [
         pathname: '/search/test',
         expectedMessages: 3,
         expectedAccent: 'rgb(32, 184, 205)',    // #20b8cd
-        expectedIcon: '\u2733',                 // ✳ (same as Claude — renders on Linux/Firefox)
+        expectedIcon: '\u2733\uFE0E',             // ✳︎ (text presentation — same as Claude)
     },
     {
         name: 'Firebase Studio',
