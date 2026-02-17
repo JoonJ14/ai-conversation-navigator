@@ -252,6 +252,24 @@ To add a new AI platform:
 
 See [TESTING.md](TESTING.md) § "Step-by-Step: Adding a New Platform" for detailed instructions on mock pages and test configuration.
 
+## Privacy & Safety
+
+**Does this script collect any of my data or send it to external servers?**
+
+No. The script makes zero network requests. It doesn't phone home, track usage, or send anything anywhere. Everything runs 100% locally in your browser. You can verify this yourself — the script's only `@grant` is `GM_addStyle` (for injecting CSS). There are no calls to `fetch`, `XMLHttpRequest`, `GM_xmlhttpRequest`, or any other networking API in the entire codebase.
+
+**Can this script see my other browser tabs or passwords?**
+
+No. The script only runs on the specific AI chat sites listed in [Supported Platforms](#supported-platforms) and has no access to your other browser tabs, browsing history, or saved passwords. On the matched pages where it does run, the script *could* technically access same-origin page state like cookies or local storage (as any userscript on that page can), but it never does — it only reads visible DOM text to build the navigation sidebar. You can verify this by searching the source code for `cookie`, `localStorage`, or `sessionStorage` — none appear.
+
+**Is my conversation data kept private when using this?**
+
+Yes. The script reads the visible text of your messages on the page (the same text you're already looking at) to build the navigation sidebar. That text is held in memory only while the tab is open, never written to disk, never stored, and never transmitted. When you close or refresh the tab, it's gone.
+
+**Why should I trust this script?**
+
+The entire source code is a single JavaScript file ([`ai-conversation-navigator.user.js`](ai-conversation-navigator.user.js)) — open source and fully readable. There's no build step, no minification, and no external dependencies at runtime. What you see in the repo is exactly what runs in your browser.
+
 ## Future Ideas
 
 - [x] ~~**Support AI app-builder platforms** — Lovable, Bolt.new, and Replit~~ (added in v7.0, expanded with V0, Base44, Emergent, Firebase Studio in v7.1)
