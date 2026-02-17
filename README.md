@@ -2,9 +2,9 @@
 
 A browser userscript that adds a navigation sidebar to long AI chat conversations. Quickly jump to any of your previous questions with a single click.
 
-If you are like me, I just go on and on with chat ai, learning one thing and it spurs another questions. Which is good in a sense I am constantly learning, but it turns out to be one very long conversation script. I know that the models have to compress and save it to memory and I should start another chat to save token consumage, but I just continually ask in chat and it kinda shows the flow of thought and learning. I just like it this way, what can I say. So it becomes troublesome trying to go back to chat ai's previous answers, I have to play the guessing game of "I think you said something about this here somewhere...". I thought soon OpenAI or Anthropic would add simple feature on the scroll bar to show my previous questions and I can "jump" to that part of conversation, but it hasn't came out yet, so I decided to make my own, for now. 
+If you are like me, I just go on and on with chat ai, learning one thing and it spurs another questions. Which is good in a sense I am constantly learning, but it turns out to be one very long conversation script. I know that the models have to compress and save it to memory and I should start another chat to save token consumption, but I just continually ask in chat and it kinda shows the flow of thought and learning. I just like it this way, what can I say. So it becomes troublesome trying to go back to chat ai's previous answers, I have to play the guessing game of "I think you said something about this here somewhere...". I thought soon OpenAI or Anthropic would add simple feature on the scroll bar to show my previous questions and I can "jump" to that part of conversation, but it hasn't came out yet, so I decided to make my own, for now. 
 
-I still think they should make a feature like this for each of their company, which will show their different design philosophies and many other features that could come with this concept. For example, while testing I just found out that Grok does have feature similar to this, with modern line design and summary of the question popping up. Exactly what I'm talking about, like I still wonder why other companies are not implementing it. I think its necessary design, espeically for people who have prolonged conversation with those ai models and interact with it daily. I'll still be building my product to be used all across different web browsers and ai models, but I do think in near future that each company shoudl and will come out with their own feature for this, and like I wouldn't be mad getting replaced. I'd be excited to see how each company has different philosophies and approach to thinking how us humans can maximize utility and efficiency with those ai models.
+I still think they should make a feature like this for each of their company, which will show their different design philosophies and many other features that could come with this concept. For example, while testing I just found out that Grok does have feature similar to this, with modern line design and summary of the question popping up. Exactly what I'm talking about, like I still wonder why other companies are not implementing it. I think its necessary design, especially for people who have prolonged conversation with those ai models and interact with it daily. I'll still be building my product to be used all across different web browsers and ai models, but I do think in near future that each company should and will come out with their own feature for this, and like I wouldn't be mad getting replaced. I'd be excited to see how each company has different philosophies and approach to thinking how us humans can maximize utility and efficiency with those ai models.
 
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
@@ -120,7 +120,7 @@ Grant access only to the AI chat sites you use:
 
 1. Open Safari → Settings → Extensions → Userscripts
 2. Under "Permissions", set to **"Ask for Each Website"** (this is the default)
-3. Visit each AI site you use ([claude.ai](https://claude.ai), [chatgpt.com](https://chatgpt.com), [grok.com](https://grok.com), [gemini.google.com](https://gemini.google.com))
+3. Visit each AI site you use ([claude.ai](https://claude.ai), [chatgpt.com](https://chatgpt.com), [grok.com](https://grok.com), [gemini.google.com](https://gemini.google.com), [perplexity.ai](https://perplexity.ai), [bolt.new](https://bolt.new), [lovable.dev](https://lovable.dev), [replit.com](https://replit.com), [v0.app](https://v0.app), and others from the [Supported Platforms](#supported-platforms) list)
 4. When Safari asks, click **"Allow for One Day"** or **"Always Allow on This Website"**
 
 This way the extension only has access to the specific sites you approve.
@@ -130,7 +130,7 @@ This way the extension only has access to the specific sites you approve.
 If you prefer not to approve each site individually, you can set the extension to **"Allow on All Websites"** — and it is still safe. Here's why:
 
 1. **`@match` rules are enforced by the extension** — The script's metadata declares exactly which URLs it should run on (`claude.ai`, `chatgpt.com`, `grok.com`, `gemini.google.com`). Userscripts.app reads these `@match` patterns and *only injects the script on those matching pages*, regardless of the Safari permission level.
-2. **The script itself only activates on recognized sites** — Even if somehow injected elsewhere, the code detects which platform it's on and does nothing if the site isn't one of the four supported platforms.
+2. **The script itself only activates on recognized sites** — Even if somehow injected elsewhere, the code detects which platform it's on and does nothing if the site isn't one of the supported platforms.
 3. **No data leaves your browser** — The script is purely local DOM manipulation. It doesn't make network requests, collect data, or communicate with any external server.
 4. **Fully open source** — You can read every line of the script to verify all of the above.
 
@@ -210,7 +210,7 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for platform-specific issues and so
 - Make sure the userscript manager is enabled
 - **Chrome users:** Enable **Developer Mode** in `chrome://extensions/`, then find Tampermonkey → Details → enable **"Allow User Scripts"**, then **relaunch Chrome**
 - **Edge users:** Same as Chrome, but go to `edge://extensions/` instead. Enable **Developer Mode**, then find Tampermonkey → Details → enable **"Allow User Scripts"**, then **relaunch Edge**
-- **Safari users:** Make sure you've granted Userscripts permission for the site (see [Safari Users: Permissions Setup](#safari-users-permissions-setup)). If you edited the script file externally, open the Userscripts extension popup once to reload changes.
+- **Safari users:** Make sure you've granted Userscripts permission for the site (see [Step 2: Browser-Specific Setup](#step-2-browser-specific-setup) → Safari). If you edited the script file externally, open the Userscripts extension popup once to reload changes.
 - Try hard-refreshing the page (Ctrl+Shift+R / Cmd+Shift+R)
 
 ### Quick Fixes
@@ -231,12 +231,26 @@ Found a bug or want to add a feature? Contributions are welcome!
 
 To add a new AI platform:
 
-1. Add the site to `@match` in the userscript header
-2. Add the site to the `SITE` object
+**In the userscript (`ai-conversation-navigator.user.js`):**
+
+1. Add the site URL to `@match` in the userscript header
+2. Add an entry to the `SITE` object
 3. Add a color theme to `THEME`
 4. Add an icon to `ICONS`
 5. Add the site title to `siteTitles`
 6. Add selector logic in `getUserMessages()`
+7. If it's a split-panel layout (chat on left, preview on right): add to `LEFT_CHAT_SITES` and add boundary detection selectors in `getChatBoundaryX()`
+8. If it uses virtual scrolling (e.g., virtuoso): add to `VIRTUAL_SCROLL_SITES`
+9. If it aggressively re-renders the DOM (most SPAs): add to `SPA_SITES`
+
+**In the test suite and docs:**
+
+10. Create a mock HTML test page in `tests/mock-pages/` matching the real DOM structure
+11. Add platform config to `PLATFORMS` array in `tests/test-all-platforms.js`
+12. Add the real DOM structure to `DOM-REFERENCE.md`
+13. Update the platform tables in `README.md` and `ROADMAP.md`
+
+See [TESTING.md](TESTING.md) § "Step-by-Step: Adding a New Platform" for detailed instructions on mock pages and test configuration.
 
 ## Future Ideas
 

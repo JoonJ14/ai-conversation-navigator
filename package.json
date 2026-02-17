@@ -1,0 +1,18 @@
+{
+  "name": "ai-conversation-navigator",
+  "version": "7.8.0",
+  "description": "Browser userscript that adds a navigation sidebar to AI chat platforms — jump to any previous question in one click.",
+  "private": true,
+  "scripts": {
+    "test": "node tests/test-all-platforms.js",
+    "test:screenshots": "node tests/test-all-platforms.js --screenshots"
+  },
+  "devDependencies": {
+    "playwright": "^1.40.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JoonJ14/ai-conversation-navigator.git"
+  },
+  "license": "MIT"
+}
