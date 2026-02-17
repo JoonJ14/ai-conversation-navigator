@@ -260,7 +260,7 @@ No. The script makes zero network requests. It doesn't phone home, track usage, 
 
 **Can this script see my other browser tabs or passwords?**
 
-No. Userscripts are sandboxed by your userscript manager (Tampermonkey, etc.) and can only run on pages that match their declared `@match` URLs. This script only activates on the specific AI chat sites listed in [Supported Platforms](#supported-platforms). It has no access to your other tabs, browsing history, saved passwords, cookies, or local storage.
+No. The script only runs on the specific AI chat sites listed in [Supported Platforms](#supported-platforms) and has no access to your other browser tabs, browsing history, or saved passwords. On the matched pages where it does run, the script *could* technically access same-origin page state like cookies or local storage (as any userscript on that page can), but it never does — it only reads visible DOM text to build the navigation sidebar. You can verify this by searching the source code for `cookie`, `localStorage`, or `sessionStorage` — none appear.
 
 **Is my conversation data kept private when using this?**
 
