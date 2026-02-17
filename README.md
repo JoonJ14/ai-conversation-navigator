@@ -191,7 +191,7 @@ Each platform's toggle button uses a Unicode symbol chosen to suggest the platfo
 | ChatGPT | ⏣ (benzene ring) | Evokes OpenAI's hexagonal knot logo |
 | Grok | X | Represents xAI / X branding |
 | Gemini | ✦ (four-pointed star) | Evokes Gemini's sparkle motif |
-| Perplexity | ✳ (eight-spoked asterisk) | Same as Claude — renders reliably on Linux/Firefox, differentiated by teal color |
+| Perplexity | ✳ (eight-spoked asterisk) | Same as Claude with text-presentation selector (`\uFE0E`) to prevent emoji rendering on Chrome/Mac |
 | Bolt.new | ⚡ (high voltage) | Evokes "Bolt" lightning branding |
 | Lovable | ♥ (heart suit) | Evokes Lovable's heart logo |
 | Replit | ⠕ (Braille dots-135) | Community-adopted symbol for Replit's three-dot prompt logo |

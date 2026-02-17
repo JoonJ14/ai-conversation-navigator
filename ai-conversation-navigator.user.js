@@ -128,7 +128,7 @@
         [SITE.V0]: '\u25BD',      // ▽ (inverted triangle, Vercel logo shape)
         [SITE.BASE44]: '\u2B22',  // ⬢ (hexagon)
         [SITE.EMERGENT]: 'e',     // lowercase e (Emergent brand initial)
-        [SITE.PERPLEXITY]: '\u2733', // ✳ (eight spoked asterisk — same as Claude, renders on Linux/Firefox)
+        [SITE.PERPLEXITY]: '\u2733\uFE0E', // ✳︎ (eight spoked asterisk, text presentation — same as Claude)
         [SITE.FIREBASE_STUDIO]: '\u2726' // ✦ (same as Gemini — Firebase Studio runs Gemini)
     };
 
