@@ -53,16 +53,6 @@ I use those coding agents mostly in terminal CLI, and I find them incredibly eff
 
 Chrome, Firefox, Safari, Edge
 
-## Features
-
-- **🔍 Hover-Expand Button** — Compact icon on the screen edge, smoothly reveals "Navigate" label on hover
-- **🎯 Quick Navigation** — Click any question to scroll directly to it
-- **📝 Smart Summaries** — Automatically extracts the key part of each question
-- **🔄 Auto-Refresh** — Updates every 10 seconds while the panel is open
-- **🎨 Platform-Specific Themes** — Colors and icons match each platform's branding
-- **✨ Visual Feedback** — Briefly highlights the message when you navigate to it
-- **👻 Ghost Notch Button** — For left-chat app builders, a nearly-invisible 8px notch at the chat boundary that expands to reveal the icon on hover
-- **🛡️ SPA-Resilient** — DOM Guardian, SPA navigation hooks, and periodic health checks keep the button alive through aggressive re-rendering (Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Firebase Studio, Perplexity)
 
 ## Installation
 
@@ -70,7 +60,7 @@ Chrome, Firefox, Safari, Edge
 
 Install one of these extensions for your browser:
 
-- **Chrome/Edge**: [Tampermonkey](https://www.tampermonkey.net/)
+- **Chrome/Edge**: [Tampermonkey](https://www.tampermonkey.net/) Download the first one you see for Chrome 120+
 - **Firefox**: [Tampermonkey](https://www.tampermonkey.net/) (recommended) or [Greasemonkey](https://www.greasespot.net/) (may work but untested)
 - **Safari**: [Userscripts](https://apps.apple.com/us/app/userscripts/id1463298887) (You can use tampermonkey with Safari too, but unlike Chrome and Firefox, you have to buy tampermonkey in app store for $2.99. Userscript is free and our code works with userscript, so you don't have to pay, unless you already bought it.)
 
@@ -85,7 +75,7 @@ Some browsers need extra configuration before userscripts will work. **Find your
 
 Chrome requires **Developer Mode** enabled for Tampermonkey to run userscripts:
 
-1. Go to `chrome://extensions/` or press the puzzle button right next to the URL bar
+1. Go to `chrome://extensions/` or press the puzzle button right next to the URL bar, and click "manage extensions"
 2. Toggle **"Developer mode"** ON (top-right corner)
 3. Find **Tampermonkey** → click **Details**
 4. Scroll down and toggle **"Allow User Scripts"** ON
@@ -150,6 +140,19 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 2. Create a new script
 3. Copy and paste the contents of `ai-conversation-navigator.user.js`
 4. Save the script
+
+
+## Features
+
+- **🔍 Hover-Expand Button** — Compact icon on the screen edge, smoothly reveals "Navigate" label on hover
+- **🎯 Quick Navigation** — Click any question to scroll directly to it
+- **📝 Smart Summaries** — Automatically extracts the key part of each question
+- **🔄 Auto-Refresh** — Updates every 10 seconds while the panel is open
+- **🎨 Platform-Specific Themes** — Colors and icons match each platform's branding
+- **✨ Visual Feedback** — Briefly highlights the message when you navigate to it
+- **👻 Ghost Notch Button** — For left-chat app builders, a nearly-invisible 8px notch at the chat boundary that expands to reveal the icon on hover
+- **🛡️ SPA-Resilient** — DOM Guardian, SPA navigation hooks, and periodic health checks keep the button alive through aggressive re-rendering (Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Firebase Studio, Perplexity)
+
 
 ## Usage
 
