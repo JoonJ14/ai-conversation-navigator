@@ -74,13 +74,13 @@ Some browsers need extra configuration before userscripts will work. **Find your
 <summary><strong>Chrome</strong></summary>
 
 Chrome requires **Developer Mode** enabled for Tampermonkey to run userscripts:
-
-1. Go to `chrome://extensions/` or press the puzzle button right next to the URL bar, and click "manage extensions"
-2. Toggle **"Developer mode"** ON (top-right corner)
-3. Find **Tampermonkey** → click **Details**
-4. Scroll down and toggle **"Allow User Scripts"** ON
-5. Click **"Relaunch"** when Chrome prompts you or refresh — changes won't take effect without this
-6. After relaunch, refresh any open AI chat pages
+1. Make sure you downloaded tampermonkey on Step 1
+2. Go to `chrome://extensions/` or press the puzzle button right next to the URL bar, and click "manage extensions"
+3. Toggle **"Developer mode"** ON (top-right corner)
+4. Find **Tampermonkey** → click **Details**
+5. Scroll down and toggle **"Allow User Scripts"** ON
+6. Click **"Relaunch"** if Chrome prompts you or refresh 
+7. Go to Step 3
 
 </details>
 
@@ -88,14 +88,13 @@ Chrome requires **Developer Mode** enabled for Tampermonkey to run userscripts:
 <summary><strong>Edge</strong></summary>
 
 Edge is built on the same engine as Chrome, so the setup is very similar — but the URLs are different.
-
-1. Install [Tampermonkey](https://www.tampermonkey.net/) from the Edge Add-ons store
-2. Go to `edge://extensions/` or press the puzzle button right next to the URL bar
+1. Make sure you downloaded tampermonkey on Step 1
+2. Go to `edge://extensions/` or press the puzzle button right next to the URL bar, and click "manage extensions"
 3. Toggle **"Developer mode"** ON (mid-left side of the screen)
 4. Find **Tampermonkey** → click **Details**
 5. Scroll down and toggle **"Allow User Scripts"** ON
-6. Click **"Relaunch"** when Edge prompts you or refresh — changes won't take effect without this
-7. After relaunch, refresh any open AI chat pages
+6. Click **"Relaunch"**  if Edge prompts you or refresh 
+7. Go to Step 3
 
 </details>
 
@@ -111,7 +110,8 @@ Grant access only to the AI chat sites you use:
 1. Open Safari → Settings → Extensions → Userscripts
 2. Under "Permissions", set to **"Ask for Each Website"** (this is the default)
 3. Visit each AI site you use ([claude.ai](https://claude.ai), [chatgpt.com](https://chatgpt.com), [grok.com](https://grok.com), [gemini.google.com](https://gemini.google.com), [perplexity.ai](https://perplexity.ai), [bolt.new](https://bolt.new), [lovable.dev](https://lovable.dev), [replit.com](https://replit.com), [v0.app](https://v0.app), and others from the [Supported Platforms](#supported-platforms) list)
-4. When Safari asks, click **"Allow for One Day"** or **"Always Allow on This Website"**
+4. When Safari asks, click **"Always Allow on This Website"**
+5. You can set **"Deny"** for all the other sites after you have added all the AI sites you use in 3. If not, userscript will keep asking for any other new website you visit, which can be annoying
 
 This way the extension only has access to the specific sites you approve.
 
