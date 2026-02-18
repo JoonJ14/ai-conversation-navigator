@@ -106,29 +106,24 @@ NODE_PATH=/opt/node22/lib/node_modules node tests/test-all-platforms.js
 
 ### The Core Problem: Hostname Faking
 
-The userscript's `detectSite()` function reads `window.location.hostname` to determine which platform it's running on:
+The userscript's `detectPlatform()` function iterates the `PLATFORMS` registry and calls each platform's `match()` function to determine which platform it's running on:
 
 ```javascript
-function detectSite() {
-    const hostname = window.location.hostname;
-    if (hostname.includes('claude.ai')) return SITE.CLAUDE;
-    if (hostname.includes('chatgpt.com') || hostname.includes('chat.openai.com')) return SITE.CHATGPT;
-    if (hostname.includes('grok.com')) return SITE.GROK;
-    if (hostname.includes('gemini.google.com')) return SITE.GEMINI;
-    if (hostname === 'bolt.new') return SITE.BOLT;
-    if (hostname.includes('lovable.dev')) return SITE.LOVABLE;
-    if (hostname.includes('replit.com')) return SITE.REPLIT;
-    if (hostname.includes('v0.app')) return SITE.V0;
-    if (hostname.includes('base44.com')) return SITE.BASE44;
-    if (hostname.includes('emergent.sh')) return SITE.EMERGENT;
-    if (hostname.includes('perplexity.ai')) return SITE.PERPLEXITY;
-    if (hostname.includes('studio.firebase.google.com')) return SITE.FIREBASE_STUDIO;
-    if (hostname.includes('cloudworkstations.dev') && hostname.includes('firebase-studio-')) return SITE.FIREBASE_STUDIO;
+function detectPlatform() {
+    var host = window.location.hostname;
+    for (var key in PLATFORMS) {
+        if (PLATFORMS[key].match(host)) return PLATFORMS[key];
+    }
     return null;
 }
 ```
 
-If it returns `null`, the script immediately exits. So if you load a mock page on `localhost:8080` or via a `data:` URI, the hostname is `localhost` or empty — the script does nothing.
+Each platform's `match` function defines its own hostname check. For example:
+- Claude: `host.includes('claude.ai')`
+- Bolt: `host === 'bolt.new'`
+- Firebase Studio: `host.includes('studio.firebase.google.com')` or `host.includes('cloudworkstations.dev') && host.includes('firebase-studio-')`
+
+If `detectPlatform()` returns `null`, the script immediately exits. So if you load a mock page on `localhost:8080` or via a `data:` URI, the hostname is `localhost` or empty — the script does nothing.
 
 **Approaches that DON'T work:**
 
@@ -202,7 +197,7 @@ Here's exactly what happens when you run the tests, in order:
    │   ├── Browser renders the mock DOM
    │   ├── First <script> clears _aiNavAlreadyLoaded
    │   ├── Second <script> runs the userscript
-   │   │   ├── detectSite() returns 'claude' (hostname IS claude.ai)
+   │   │   ├── detectPlatform() returns the claude platform object (hostname IS claude.ai)
    │   │   ├── Creates toggle button + panel
    │   │   ├── Starts DOM Guardian (MutationObserver)
    │   │   ├── setTimeout(scanConversation, 2000) queued
@@ -313,11 +308,11 @@ The `PLATFORMS` array in `test-all-platforms.js` is the **central configuration*
 |-------|------|---------|-----------------|
 | `name` | string | Human-readable label printed in test output | Console output only |
 | `mockFile` | string | Filename within `tests/mock-pages/` | `buildTestPage()` reads this file |
-| `hostname` | string | Must match a hostname in the userscript's `detectSite()` function | Used to construct the URL for `page.goto()` and `page.route()` |
+| `hostname` | string | Must match a hostname that one of the `PLATFORMS` registry's `match()` functions accepts | Used to construct the URL for `page.goto()` and `page.route()` |
 | `pathname` | string | URL path — matters for platforms with path guards (e.g., Lovable requires `/projects/`) | Appended to hostname for the target URL |
 | `expectedMessages` | number | Exact count of user messages in the mock HTML | Test 6 compares this to the number of `.ai-nav-item` elements |
-| `expectedAccent` | string | RGB value of the platform's accent color (from the `THEME` object in the userscript) | Test 4 compares this to `getComputedStyle().backgroundColor` |
-| `expectedIcon` | string | Unicode character(s) for the platform icon (from the `ICONS` object in the userscript) | Test 3 compares this to the toggle button's first text node |
+| `expectedAccent` | string | RGB value of the platform's accent color (from the `theme.accent` field in the `PLATFORMS` registry) | Test 4 compares this to `getComputedStyle().backgroundColor` |
+| `expectedIcon` | string | Unicode character(s) for the platform icon (from the `icon` field in the `PLATFORMS` registry) | Test 3 compares this to the toggle button's first text node |
 
 ### Current Platforms
 
@@ -338,7 +333,7 @@ The `PLATFORMS` array in `test-all-platforms.js` is the **central configuration*
 | Perplexity | www.perplexity.ai | perplexity.html | 3 | rgb(32, 184, 205) | ✳ `\u2733` |
 | Firebase Studio | 6000-firebase-studio-12345.cluster-abc123.cloudworkstations.dev | firebase.html | 3 | rgb(255, 166, 17) | ✦ `\u2726` |
 
-**Note on sub-platforms:** Claude and Claude Code both use `hostname: 'claude.ai'` but different mock files and different `pathname` values. The userscript treats both as `SITE.CLAUDE` and uses a fallback chain — primary selectors (`data-testid="user-human-turn"`) work for Claude Chat, and the fallback (`div.bg-bg-200.rounded-lg` inside `.items-end`) catches Claude Code. The mock pages are designed so that Claude Chat's mock has `data-testid` attributes (primary selectors match) and Claude Code's mock does NOT have `data-testid` attributes (primary selectors find 0, fallback activates).
+**Note on sub-platforms:** Claude and Claude Code both use `hostname: 'claude.ai'` but different mock files and different `pathname` values. The userscript detects both as the `claude` platform and uses a fallback chain — primary selectors (`data-testid="user-human-turn"`) work for Claude Chat, and the fallback (`div.bg-bg-200.rounded-lg` inside `.items-end`) catches Claude Code. The mock pages are designed so that Claude Chat's mock has `data-testid` attributes (primary selectors match) and Claude Code's mock does NOT have `data-testid` attributes (primary selectors find 0, fallback activates).
 
 Same pattern for ChatGPT vs Codex: ChatGPT mock has `data-message-author-role="user"` attributes, Codex mock does not.
 
@@ -360,7 +355,7 @@ The test runner extracts everything between `<body>` and `</body>` and drops it 
 
 ### How Mock Pages Map to Userscript Selectors
 
-The userscript's `getUserMessages()` function has an `if/else if` chain for each `SITE.*` constant. Each branch tries a series of CSS selectors in order (primary → fallback 1 → fallback 2 → etc.). The mock page must contain elements that match **at least one** of these selectors.
+Each platform in the `PLATFORMS` registry defines a `getUserMessages()` method that returns the DOM elements for user messages. Each method tries a series of CSS selectors in order (primary → fallback 1 → fallback 2 → etc.). The mock page must contain elements that match **at least one** of these selectors.
 
 **Rule of thumb:** Design the mock to match the **primary selector** for its platform. If you're testing a fallback path (like Claude Code or Codex), design the mock so the primary selector finds 0 results and the fallback kicks in.
 
@@ -716,12 +711,13 @@ When you add support for a new website to the userscript, follow these steps to 
 
 Before building the mock, you need to know exactly what selectors the userscript uses for the new platform. Look at:
 
-1. **`detectSite()`** — what hostname condition was added?
-2. **`SITE` object** — what's the constant name?
-3. **`THEME` object** — what's the accent color hex value?
-4. **`ICONS` object** — what Unicode character?
-5. **`siteTitles` object** — what display name?
-6. **`getUserMessages()`** — what selectors, in what order? Any path guards? Any filters?
+1. **`PLATFORMS` registry** — what `match()` function was added? What hostname does it check?
+2. **`theme`** — what's the accent color hex value?
+3. **`icon`** — what Unicode character?
+4. **`title`** — what display name?
+5. **`getUserMessages()`** — what selectors, in what order? Any path guards? Any filters?
+6. **`layout`** — `'standard'` or `'left-chat'`? If left-chat, what `boundarySelectors`?
+7. **`spa`**, **`virtualScroll`**, **`pathGuard`** — any special behaviors?
 
 ### Step 2: Create the mock HTML file
 
@@ -780,15 +776,15 @@ Add an entry to the `PLATFORMS` array in `tests/test-all-platforms.js`:
 },
 ```
 
-**How to get the RGB value:** Convert the hex color from the `THEME` object.
+**How to get the RGB value:** Convert the hex color from the platform's `theme.accent` field.
 - `#d97706` → `rgb(217, 119, 6)` — use any hex-to-rgb converter
 - Or: `parseInt('d9', 16)` = 217, `parseInt('77', 16)` = 119, `parseInt('06', 16)` = 6
 
-**How to get the Unicode escape:** Look at the `ICONS` object in the userscript. Copy the exact value, including any variation selectors (e.g., `\uFE0E` for text presentation).
+**How to get the Unicode escape:** Look at the platform's `icon` field in the `PLATFORMS` registry. Copy the exact value, including any variation selectors (e.g., `\uFE0E` for text presentation).
 
 ### Step 4: Update the userscript
 
-If you haven't already, add the new platform to the userscript itself — see the "Adding Support for New Platforms" section in README.md for the checklist (SITE, THEME, ICONS, siteTitles, detectSite, getUserMessages, @match header).
+If you haven't already, add the new platform to the userscript itself — see the "Adding Support for New Platforms" section in README.md. In v8.0+, this is just adding ONE entry to the `PLATFORMS` registry plus the `@match` URL in the userscript header.
 
 ### Step 5: Run the tests
 
@@ -801,7 +797,7 @@ The new platform should appear in the output. If any tests fail, the detailed re
 ### Step 6: Iterate
 
 Common first-run failures:
-- **"Toggle button exists: Missing"** — The `hostname` in PLATFORMS doesn't match `detectSite()`. Check for typos or `.includes()` vs `===` differences.
+- **"Toggle button exists: Missing"** — The `hostname` in the test PLATFORMS config doesn't match any `match()` function in the userscript's `PLATFORMS` registry. Check for typos or `.includes()` vs `===` differences.
 - **"Message count: Expected 3, got 0"** — The mock DOM doesn't match any selector in `getUserMessages()`. Check class names, attribute names, nesting.
 - **"Message count: Expected 3, got 5"** — The selectors are matching assistant messages too. Check that your assistant message elements use different classes/attributes.
 - **"Theme accent color: Expected ..., got ..."** — The RGB conversion is wrong. Double-check hex-to-rgb.
@@ -819,7 +815,7 @@ You can temporarily add logging to the userscript and it will be captured by Pla
 page.on('console', msg => console.log(`  [browser] ${msg.text()}`));
 ```
 
-This will print all `console.log()` output from the userscript to your terminal, including the "AI Conversation Navigator v7.8 loaded for Claude!" message and any debug logging you add.
+This will print all `console.log()` output from the userscript to your terminal, including the "AI Conversation Navigator v8.0 loaded for Claude!" message and any debug logging you add.
 
 ### Taking screenshots
 

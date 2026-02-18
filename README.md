@@ -9,7 +9,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-7.8-blue)
+![Version](https://img.shields.io/badge/version-8.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -91,7 +91,7 @@ Chrome requires **Developer Mode** enabled for Tampermonkey to run userscripts:
 <details>
 <summary><strong>Edge</strong></summary>
 
-Edge is built on the same engine as Chrome, so the setup is very similar — but the URLs are different.
+Edge is built on the same engine as Chrome, so the setup is very similar.
 1. Make sure you downloaded tampermonkey on Step 1
 2. Go to `edge://extensions/` or press the puzzle button right next to the URL bar, and click "manage extensions"
 3. Toggle **"Developer mode"** ON (mid-left side of the screen)
@@ -169,7 +169,7 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 
 ## How It Works
 
-The script injects a hover-expand button and sidebar panel into AI chat pages. It scans the page for your messages using platform-specific CSS selectors:
+The script injects a hover-expand button and sidebar panel into AI chat pages. It scans the page for your messages using platform-specific CSS selectors defined in the `PLATFORMS` registry:
 
 | Platform | Selector |
 |----------|----------|
@@ -241,21 +241,41 @@ To add a new AI platform:
 **In the userscript (`ai-conversation-navigator.user.js`):**
 
 1. Add the site URL to `@match` in the userscript header
-2. Add an entry to the `SITE` object
-3. Add a color theme to `THEME`
-4. Add an icon to `ICONS`
-5. Add the site title to `siteTitles`
-6. Add selector logic in `getUserMessages()`
-7. If it's a split-panel layout (chat on left, preview on right): add to `LEFT_CHAT_SITES` and add boundary detection selectors in `getChatBoundaryX()`
-8. If it uses virtual scrolling (e.g., virtuoso): add to `VIRTUAL_SCROLL_SITES`
-9. If it aggressively re-renders the DOM (most SPAs): add to `SPA_SITES`
+2. Add ONE entry to the `PLATFORMS` registry at the top of the file — this single object defines detection, theme, icon, layout, selectors, and `getUserMessages()` logic all in one place
+
+```javascript
+newsite: {
+    id: 'newsite',
+    title: 'NewSite',
+    match: function (host) { return host.includes('newsite.com'); },
+    theme: { accent: '#color', accentHover: '#darker', accentLight: 'rgba(...)', textColor: 'white', toggleBorder: 'none', numberColor: null },
+    icon: '★',
+    layout: 'standard',        // or 'left-chat' for split-panel sites
+    virtualScroll: false,
+    spa: true,                 // if it aggressively re-renders the DOM
+    scrollbarOffset: 0,
+    boundarySelectors: null,   // for left-chat: CSS selectors for chat boundary detection
+    boundaryStrategy: null,    // 'walk-up' or 'virtuoso'
+    pathGuard: null,           // optional function(path) to restrict to certain URLs
+    initGuards: [],
+    retryDelays: [],
+    textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
+    textExtractor: null,
+    getUserMessages: function () {
+        // Return NodeList or Array of user message DOM elements
+        return document.querySelectorAll('[data-role="user"]');
+    },
+},
+```
+
+That's it — nothing else to touch in the userscript.
 
 **In the test suite and docs:**
 
-10. Create a mock HTML test page in `tests/mock-pages/` matching the real DOM structure
-11. Add platform config to `PLATFORMS` array in `tests/test-all-platforms.js`
-12. Add the real DOM structure to `DOM-REFERENCE.md`
-13. Update the platform tables in `README.md` and `ROADMAP.md`
+3. Create a mock HTML test page in `tests/mock-pages/` matching the real DOM structure
+4. Add platform config to `PLATFORMS` array in `tests/test-all-platforms.js`
+5. Add the real DOM structure to `DOM-REFERENCE.md`
+6. Update the platform tables in `README.md` and `ROADMAP.md`
 
 See [TESTING.md](TESTING.md) § "Step-by-Step: Adding a New Platform" for detailed instructions on mock pages and test configuration.
 
