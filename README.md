@@ -16,6 +16,8 @@ But until then, I'll just keep making, building, and improving this project. Sta
 
 ### AI Chatbots
 
+<img src="assets/chatgpt-demo.gif" alt="AI Conversation Navigator demo on ChatGPT" width="600">
+
 | Platform | Icon | Color | Status |
 |----------|------|-------|--------|
 | [Claude](https://claude.ai) | ✳ | 🟠 Orange | ✅ Supported |
@@ -34,6 +36,8 @@ But until then, I'll just keep making, building, and improving this project. Sta
 I use those coding agents mostly in terminal CLI, and I find them incredibly effective there too. Or inside the terminal of VS fork IDEs, like Cursor or Antigravity. Claude code on web is only a research preview, and codex even has a separate app for mac OS. However, I do think web version also has its merits and I do use them too, so I thought I'd add support on anyway.
 
 ### AI App-Builder Platforms
+
+<img src="assets/replit-demo.gif" alt="AI Conversation Navigator demo on Replit" width="600">
 
 | Platform | Icon | Color | Button Style | Status |
 |----------|------|-------|-------------|--------|
