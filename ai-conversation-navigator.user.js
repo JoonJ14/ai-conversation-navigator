@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v7.8
+// @name         AI Conversation Navigator v8.0
 // @namespace    http://tampermonkey.net/
-// @version      7.8
+// @version      8.0
 // @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Codex, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -22,7 +22,7 @@
 // @grant        GM_addStyle
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
     // === DUPLICATE EXECUTION GUARD ===
@@ -34,132 +34,607 @@
     }
     window._aiNavAlreadyLoaded = true;
 
-    // Detect which site we're on
-    const SITE = {
-        CLAUDE: 'claude',
-        CHATGPT: 'chatgpt',
-        GROK: 'grok',
-        GEMINI: 'gemini',
-        BOLT: 'bolt',
-        LOVABLE: 'lovable',
-        REPLIT: 'replit',
-        V0: 'v0',
-        BASE44: 'base44',
-        EMERGENT: 'emergent',
-        PERPLEXITY: 'perplexity',
-        FIREBASE_STUDIO: 'firebase_studio'
+    // ================================================================
+    // PLATFORMS REGISTRY — Single source of truth for all platform data
+    // ================================================================
+    // Each entry defines everything about one platform: detection, theme,
+    // icon, layout mode, virtual-scroll flag, and other metadata.
+    // To add a new platform, add ONE entry here — nothing else to touch.
+    const PLATFORMS = {
+        claude: {
+            id: 'claude',
+            title: 'Claude',
+            match: function (host) { return host.includes('claude.ai'); },
+            theme: { accent: '#d97706', accentHover: '#b45309', accentLight: 'rgba(217, 119, 6, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
+            icon: '\u2733',   // ✳
+            layout: 'standard',
+            virtualScroll: false,
+            spa: false,
+            scrollbarOffset: 0,
+            boundarySelectors: null,
+            boundaryStrategy: null,
+            pathGuard: null,
+            initGuards: [],
+            retryDelays: [],
+            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
+            textExtractor: null,
+            getUserMessages: function () {
+                // Claude Chat selectors
+                var messages = document.querySelectorAll('[data-testid="user-human-turn"]');
+                if (messages.length === 0) messages = document.querySelectorAll('[data-testid="user-message"]');
+                if (messages.length === 0) messages = document.querySelectorAll('.font-user-message');
+                // Claude Code fallback: no data-testid attributes exist; user messages
+                // are right-aligned (items-end + ml-auto) with bg-bg-200 bubbles.
+                if (messages.length === 0) {
+                    var bubbles = document.querySelectorAll('div.bg-bg-200.rounded-lg');
+                    messages = Array.from(bubbles).filter(function (bubble) {
+                        return bubble.closest('.items-end');
+                    });
+                }
+                return messages;
+            },
+        },
+        chatgpt: {
+            id: 'chatgpt',
+            title: 'ChatGPT',
+            match: function (host) { return host.includes('chatgpt.com') || host.includes('chat.openai.com'); },
+            theme: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)', textColor: '#1a1a1a', toggleBorder: '1px solid #333', numberColor: '#aaa' },
+            icon: '\u23E3',   // ⏣
+            layout: 'standard',
+            virtualScroll: false,
+            spa: false,
+            scrollbarOffset: 0,
+            boundarySelectors: null,
+            boundaryStrategy: null,
+            pathGuard: null,
+            initGuards: [],
+            retryDelays: [],
+            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
+            textExtractor: null,
+            getUserMessages: function () {
+                var allMessages = document.querySelectorAll('[data-message-author-role]');
+                var messages = Array.from(allMessages).filter(function (msg) {
+                    return msg.getAttribute('data-message-author-role') === 'user';
+                });
+                // Codex web fallback: chatgpt.com/codex uses a task/thread-based interface
+                if (messages.length === 0) {
+                    messages = document.querySelectorAll('div.self-end.bg-token-bg-tertiary');
+                }
+                return messages;
+            },
+        },
+        grok: {
+            id: 'grok',
+            title: 'Grok',
+            match: function (host) { return host.includes('grok.com'); },
+            theme: { accent: '#dc2626', accentHover: '#b91c1c', accentLight: 'rgba(220, 38, 38, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
+            icon: 'X',
+            layout: 'standard',
+            virtualScroll: false,
+            spa: false,
+            scrollbarOffset: 0,
+            boundarySelectors: null,
+            boundaryStrategy: null,
+            pathGuard: null,
+            initGuards: [],
+            retryDelays: [],
+            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
+            textExtractor: null,
+            getUserMessages: function () {
+                var allBubbles = document.querySelectorAll('div.message-bubble');
+                var messages = [];
+                if (allBubbles.length > 0) {
+                    messages = Array.from(allBubbles).filter(function (bubble, index) {
+                        var classList = bubble.className.toLowerCase();
+                        if (classList.includes('user') || classList.includes('human')) return true;
+                        var parent = bubble.closest('[class*="user"], [class*="human"], [data-role="user"]');
+                        if (parent) return true;
+                        return index % 2 === 0;
+                    });
+                }
+                if (messages.length === 0) messages = document.querySelectorAll('[data-role="user"]');
+                if (messages.length === 0) messages = document.querySelectorAll('[class*="user-message"]');
+                return messages;
+            },
+        },
+        gemini: {
+            id: 'gemini',
+            title: 'Gemini',
+            match: function (host) { return host.includes('gemini.google.com'); },
+            theme: { accent: '#4285f4', accentHover: '#3367d6', accentLight: 'rgba(66, 133, 244, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
+            icon: '\u2726',   // ✦
+            layout: 'standard',
+            virtualScroll: false,
+            spa: true,
+            scrollbarOffset: 0,
+            boundarySelectors: null,
+            boundaryStrategy: null,
+            pathGuard: null,
+            initGuards: [],
+            retryDelays: [],
+            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
+            textExtractor: null,
+            getUserMessages: function () {
+                var messages = document.querySelectorAll('div.query-text');
+                if (messages.length === 0) messages = document.querySelectorAll('.query-text-line');
+                if (messages.length === 0) messages = document.querySelectorAll('p.query-text-line');
+                if (messages.length === 0) messages = document.querySelectorAll('[data-query-text]');
+                if (messages.length === 0) messages = document.querySelectorAll('.user-query');
+                return messages;
+            },
+        },
+        bolt: {
+            id: 'bolt',
+            title: 'Bolt',
+            match: function (host) { return host === 'bolt.new'; },
+            theme: { accent: '#38BDF8', accentHover: '#0EA5E9', accentLight: 'rgba(56, 189, 248, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
+            icon: '\u26A1\uFE0E',  // ⚡ (lightning bolt, text presentation)
+            layout: 'left-chat',
+            virtualScroll: false,
+            spa: true,
+            scrollbarOffset: 0,
+            boundarySelectors: '[class*="backdrop-blur"][class*="rounded"], [class*="max-w-chat"]',
+            boundaryStrategy: 'walk-up',
+            pathGuard: null,
+            initGuards: [],
+            retryDelays: [],
+            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
+            textExtractor: null,
+            getUserMessages: function () {
+                var messages = [];
+                // Primary: data-message-id containers filtered to user messages (self-end)
+                var boltMsgAll = document.querySelectorAll('[data-message-id]');
+                if (boltMsgAll.length > 0) {
+                    messages = Array.from(boltMsgAll).filter(function (el) {
+                        var cls = el.className || '';
+                        var isSelfEnd = cls.includes('self-end') || el.querySelector('.self-end');
+                        var isBoltUserBg = cls.includes('bg-bolt-elements-messages');
+                        var isPromptArea = el.closest('[class*="subscribeButton"]') || el.closest('[class*="prompt-subscribe"]');
+                        return (isSelfEnd || isBoltUserBg) && !isPromptArea && el.textContent.trim().length > 0;
+                    });
+                }
+                // Fallback 1: self-end elements with bolt message background
+                if (messages.length === 0) {
+                    var boltSelfEnd = document.querySelectorAll('.self-end[class*="bg-bolt-elements"], [class*="bg-bolt-elements-messages-background"]');
+                    messages = Array.from(boltSelfEnd).filter(function (el) {
+                        var isPromptArea = el.closest('[class*="subscribeButton"]') || el.closest('[class*="prompt-subscribe"]');
+                        return !isPromptArea && el.textContent.trim().length > 0;
+                    });
+                }
+                // Fallback 2: MarkdownContent inside self-end containers
+                if (messages.length === 0) {
+                    var boltMarkdown = document.querySelectorAll('[class*="_MarkdownContent_"]');
+                    messages = Array.from(boltMarkdown).filter(function (el) {
+                        var userParent = el.closest('.self-end, [class*="bg-bolt-elements-messages"]');
+                        var isPromptArea = el.closest('[class*="subscribeButton"]') || el.closest('[class*="prompt-subscribe"]');
+                        return userParent && !isPromptArea && el.textContent.trim().length > 0;
+                    });
+                }
+                // Fallback 3: bolt.diy fork — backdrop-blur + rounded bubbles
+                if (messages.length === 0) {
+                    var boltCandidates = document.querySelectorAll('[class*="backdrop-blur"][class*="rounded"]');
+                    if (boltCandidates.length > 0) {
+                        messages = Array.from(boltCandidates).filter(function (el) {
+                            var cls = el.className || '';
+                            if (cls.includes('w-full')) return false;
+                            if (cls.includes('items-start') && cls.includes('gap-')) return false;
+                            var parent = el.closest('[class*="items-start"][class*="gap-"]');
+                            if (parent && parent !== el) return false;
+                            var isPromptArea = el.closest('[class*="subscribeButton"]') || el.closest('[class*="prompt-subscribe"]');
+                            return !isPromptArea && el.textContent.trim().length > 0;
+                        });
+                    }
+                }
+                // Fallback 4: right-aligned rounded bubbles inside chat area
+                if (messages.length === 0) {
+                    var mlAutoBubbles = document.querySelectorAll('.ml-auto.rounded-lg, .ml-auto.rounded-xl');
+                    messages = Array.from(mlAutoBubbles).filter(function (el) {
+                        var cls = el.className || '';
+                        if (cls.includes('items-start') && cls.includes('gap-')) return false;
+                        var isPromptArea = el.closest('[class*="subscribeButton"]') || el.closest('[class*="prompt-subscribe"]');
+                        return !isPromptArea && el.textContent.trim().length > 0;
+                    });
+                }
+                // Fallback 5: grid children — assistant is overflow-hidden w-full, user is NOT
+                if (messages.length === 0) {
+                    var gridChildren = document.querySelectorAll('.grid.w-full > div');
+                    messages = Array.from(gridChildren).filter(function (el) {
+                        var cls = el.className || '';
+                        var isAssistant = cls.includes('overflow-hidden') && cls.includes('w-full');
+                        var isAlert = cls.includes('items-start') && cls.includes('gap-');
+                        var isPromptArea = el.closest('[class*="subscribeButton"]') || el.closest('[class*="prompt-subscribe"]');
+                        return !isAssistant && !isAlert && !isPromptArea && el.textContent.trim().length > 0;
+                    });
+                }
+                return messages;
+            },
+        },
+        lovable: {
+            id: 'lovable',
+            title: 'Lovable',
+            match: function (host) { return host.includes('lovable.dev'); },
+            theme: { accent: '#9b87f5', accentHover: '#7c3aed', accentLight: 'rgba(155, 135, 245, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
+            icon: '\u2665',  // ♥ (heart suit)
+            layout: 'left-chat',
+            virtualScroll: false,
+            spa: true,
+            scrollbarOffset: 0,
+            boundarySelectors: 'div[role="log"], div.ChatMessageContainer, .justify-end',
+            boundaryStrategy: 'walk-up',
+            pathGuard: function (path) { return path.includes('/projects/'); },
+            initGuards: [],
+            retryDelays: [],
+            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
+            textExtractor: null,
+            getUserMessages: function () {
+                var messages = [];
+                // Guard: only scan on project pages where the chat exists
+                if (window.location.pathname.includes('/projects/')) {
+                    // Primary: ARIA role="log" container + right-aligned message wrappers
+                    var chatLog = document.querySelector('div[role="log"]');
+                    if (chatLog) {
+                        messages = Array.from(chatLog.querySelectorAll('.justify-end')).filter(function (el) {
+                            return el.textContent.trim().length > 0;
+                        });
+                    }
+                    // Fallback 1: neutral-background bubbles inside right-aligned containers
+                    if (messages.length === 0) {
+                        var lovableBubbles = document.querySelectorAll('div.bg-neutral-200.rounded-xl, div.bg-neutral-700.rounded-xl');
+                        messages = Array.from(lovableBubbles).filter(function (el) {
+                            return el.closest('.justify-end') || el.classList.contains('ml-auto');
+                        });
+                    }
+                    // Fallback 2: ChatMessageContainer class
+                    if (messages.length === 0) {
+                        var lovableContainer = document.querySelector('div.ChatMessageContainer');
+                        if (lovableContainer) {
+                            messages = Array.from(lovableContainer.querySelectorAll('.justify-end')).filter(function (el) {
+                                return el.textContent.trim().length > 0;
+                            });
+                        }
+                    }
+                    // Fallback 3: self-end with neutral background
+                    if (messages.length === 0) {
+                        messages = document.querySelectorAll('div.self-end[class*="bg-neutral"]');
+                    }
+                    // Fallback 4: broad scan — right-aligned divs within main
+                    if (messages.length === 0) {
+                        var lovableMain = document.querySelector('main');
+                        if (lovableMain) {
+                            messages = Array.from(lovableMain.querySelectorAll('div')).filter(function (el) {
+                                var cls = el.className || '';
+                                var isRightAligned = cls.includes('justify-end') || cls.includes('self-end') || cls.includes('ml-auto');
+                                var hasText = el.textContent.trim().length > 5;
+                                var isNotNav = !el.closest('nav') && !el.closest('header');
+                                return isRightAligned && hasText && isNotNav;
+                            });
+                        }
+                    }
+                }
+                return messages;
+            },
+        },
+        replit: {
+            id: 'replit',
+            title: 'Replit',
+            match: function (host) { return host.includes('replit.com'); },
+            theme: { accent: '#F26522', accentHover: '#D4541A', accentLight: 'rgba(242, 101, 34, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
+            icon: '\u2815',   // ⠕ (Braille dots-135, Replit prompt logo)
+            layout: 'left-chat',
+            virtualScroll: false,
+            spa: true,
+            scrollbarOffset: 0,
+            boundarySelectors: '[data-cy="user-message"], [data-event-type="user-message"], [role="log"]',
+            boundaryStrategy: 'walk-up',
+            pathGuard: null,
+            initGuards: [],
+            retryDelays: [],
+            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
+            textExtractor: null,
+            getUserMessages: function () {
+                // Primary: data-cy="user-message" — Replit's Cypress test attribute (one per message)
+                var messages = document.querySelectorAll('[data-cy="user-message"]');
+                // Secondary: data-event-type
+                if (messages.length === 0) messages = document.querySelectorAll('[data-event-type="user-message"]');
+                // Fallback 1: EventRenderer class with userMessage
+                if (messages.length === 0) {
+                    var replitEventRenderers = document.querySelectorAll('[class*="EventRenderer"][class*="userMessage"]');
+                    messages = Array.from(replitEventRenderers).filter(function (el) {
+                        return el.textContent.trim().length > 0;
+                    });
+                }
+                // Fallback 2: CSS module pattern — deduplicate nested matches
+                if (messages.length === 0) {
+                    var replitUserEls = document.querySelectorAll('[class*="userMessage"], [class*="UserMessage"]');
+                    var replitFiltered = Array.from(replitUserEls).filter(function (el) {
+                        return el.textContent.trim().length > 0;
+                    });
+                    var replitDeduped = replitFiltered.filter(function (el) {
+                        return !replitFiltered.some(function (other) {
+                            return other !== el && el.contains(other);
+                        });
+                    });
+                    var replitSeen = {};
+                    var replitTextDeduped = [];
+                    for (var ri = 0; ri < replitDeduped.length; ri++) {
+                        var replitTxt = replitDeduped[ri].textContent.trim();
+                        if (replitTxt && !replitSeen[replitTxt]) {
+                            replitSeen[replitTxt] = true;
+                            replitTextDeduped.push(replitDeduped[ri]);
+                        }
+                    }
+                    if (replitTextDeduped.length > 0) messages = replitTextDeduped;
+                }
+                // Fallback 3: ARIA role="log" container + structural analysis
+                if (messages.length === 0) {
+                    var replitLog = document.querySelector('[role="log"]');
+                    if (!replitLog) replitLog = document.querySelector('[role="list"][aria-label*="chat" i]');
+                    if (!replitLog) replitLog = document.querySelector('[aria-label*="Chat" i]');
+                    if (replitLog) {
+                        var replitBlocks = replitLog.querySelectorAll(':scope > div > div, :scope > div');
+                        messages = Array.from(replitBlocks).filter(function (el) {
+                            var cls = el.className || '';
+                            var style = window.getComputedStyle(el);
+                            var isRightAligned = cls.includes('end') || cls.includes('right') ||
+                                style.marginLeft === 'auto' || style.alignSelf === 'flex-end';
+                            var hasDistinctBg = style.backgroundColor && style.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
+                                style.backgroundColor !== 'transparent';
+                            return (isRightAligned || hasDistinctBg) && el.textContent.trim().length > 0;
+                        });
+                    }
+                }
+                return messages;
+            },
+        },
+        v0: {
+            id: 'v0',
+            title: 'V0',
+            match: function (host) { return host.includes('v0.app'); },
+            theme: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)', textColor: '#1a1a1a', toggleBorder: 'none', numberColor: null },
+            icon: '\u25BD',      // ▽ (inverted triangle, Vercel logo shape)
+            layout: 'left-chat',
+            virtualScroll: false,
+            spa: true,
+            scrollbarOffset: 0,
+            boundarySelectors: '[data-testid="message"]',
+            boundaryStrategy: 'walk-up',
+            pathGuard: null,
+            initGuards: [],
+            retryDelays: [],
+            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
+            textExtractor: null,
+            getUserMessages: function () {
+                var messages = [];
+                // Primary: data-testid="message" filtered by origin-right (user = right-aligned)
+                var v0MsgAll = document.querySelectorAll('[data-testid="message"]');
+                if (v0MsgAll.length > 0) {
+                    messages = Array.from(v0MsgAll).filter(function (el) {
+                        var cls = el.className || '';
+                        return cls.includes('origin-right') && cls.includes('items-end');
+                    });
+                }
+                // Fallback 1: data-testid="message" with only items-end
+                if (messages.length === 0 && v0MsgAll.length > 0) {
+                    messages = Array.from(v0MsgAll).filter(function (el) {
+                        var cls = el.className || '';
+                        return cls.includes('items-end') && !cls.includes('items-start');
+                    });
+                }
+                // Fallback 2: message bubble with bg-v0-gray-200
+                if (messages.length === 0) {
+                    var v0Bubbles = document.querySelectorAll('[class*="bg-v0-gray-200"][class*="message-bubble"], [class*="group/message-bubble"]');
+                    messages = Array.from(v0Bubbles).filter(function (el) {
+                        return el.textContent.trim().length > 0;
+                    });
+                }
+                // Fallback 3: role="listitem" containers filtered by right-alignment
+                if (messages.length === 0) {
+                    var v0ListItems = document.querySelectorAll('[role="listitem"]');
+                    if (v0ListItems.length > 0) {
+                        messages = Array.from(v0ListItems).filter(function (el) {
+                            var cls = el.className || '';
+                            return (cls.includes('origin-right') || cls.includes('items-end')) &&
+                                el.textContent.trim().length > 0;
+                        });
+                    }
+                }
+                return messages;
+            },
+        },
+        base44: {
+            id: 'base44',
+            title: 'Base44',
+            match: function (host) { return host.includes('base44.com'); },
+            theme: { accent: '#6366f1', accentHover: '#4f46e5', accentLight: 'rgba(99, 102, 241, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
+            icon: '\u2B22',  // ⬢ (hexagon)
+            layout: 'left-chat',
+            virtualScroll: false,
+            spa: true,
+            scrollbarOffset: 0,
+            boundarySelectors: '[id^="message-"]',
+            boundaryStrategy: 'walk-up',
+            pathGuard: null,
+            initGuards: [],
+            retryDelays: [],
+            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
+            textExtractor: null,
+            getUserMessages: function () {
+                var base44Messages = document.querySelectorAll('[id^="message-"]');
+                var messages = Array.from(base44Messages).filter(function (el) {
+                    return el.querySelector('.justify-end') && el.textContent.trim().length > 0;
+                });
+                if (messages.length === 0) {
+                    messages = document.querySelectorAll('.bg-slate-200.rounded-xl');
+                }
+                return messages;
+            },
+        },
+        emergent: {
+            id: 'emergent',
+            title: 'Emergent',
+            match: function (host) { return host.includes('emergent.sh'); },
+            theme: { accent: '#10b981', accentHover: '#059669', accentLight: 'rgba(16, 185, 129, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
+            icon: 'e',     // lowercase e (Emergent brand initial)
+            layout: 'left-chat',
+            virtualScroll: true,
+            spa: true,
+            scrollbarOffset: 14,
+            boundarySelectors: '[data-testid^="user-message"], [id^="user-"]',
+            boundaryStrategy: 'virtuoso',
+            pathGuard: null,
+            initGuards: [],
+            retryDelays: [],
+            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
+            textExtractor: function (msg) { return msg.querySelector('.prose'); },
+            getUserMessages: function () {
+                var messages = document.querySelectorAll('[data-testid^="user-message"]');
+                // Deduplicate: keep only innermost matches
+                if (messages.length > 0) {
+                    var emergentArr = Array.from(messages);
+                    var emergentDeduped = emergentArr.filter(function (el) {
+                        return !emergentArr.some(function (other) {
+                            return other !== el && el.contains(other);
+                        });
+                    });
+                    if (emergentDeduped.length > 0) messages = emergentDeduped;
+                }
+                // Fallback: id starts with "user-task"
+                if (messages.length === 0) {
+                    messages = document.querySelectorAll('[id^="user-task"]');
+                }
+                return messages;
+            },
+        },
+        perplexity: {
+            id: 'perplexity',
+            title: 'Perplexity',
+            match: function (host) { return host.includes('perplexity.ai'); },
+            theme: { accent: '#20b8cd', accentHover: '#1a9aab', accentLight: 'rgba(32, 184, 205, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
+            icon: '\u2733\uFE0E', // ✳︎ (eight spoked asterisk, text presentation — same as Claude)
+            layout: 'standard',
+            virtualScroll: false,
+            spa: true,
+            scrollbarOffset: 0,
+            boundarySelectors: null,
+            boundaryStrategy: null,
+            pathGuard: null,
+            initGuards: [],
+            retryDelays: [],
+            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
+            textExtractor: null,
+            getUserMessages: function () {
+                var perplexityQueries = document.querySelectorAll('.group\\/query');
+                var messages = Array.from(perplexityQueries).filter(function (el) {
+                    return el.textContent.trim().length > 0;
+                });
+                if (messages.length === 0) {
+                    messages = document.querySelectorAll('.group\\/title .select-text');
+                }
+                return messages;
+            },
+        },
+        firebase_studio: {
+            id: 'firebase_studio',
+            title: 'Firebase Studio',
+            match: function (host) {
+                if (host.includes('studio.firebase.google.com')) return true;
+                // Firebase Studio renders chat in a cross-origin iframe on cloudworkstations.dev.
+                // The actual workspace (with chat) uses a port-prefixed hostname like
+                // "6000-firebase-studio-...cloudworkstations.dev". Match any hostname containing
+                // both "firebase-studio-" and "cloudworkstations.dev".
+                if (host.includes('cloudworkstations.dev') && host.includes('firebase-studio-')) return true;
+                return false;
+            },
+            theme: { accent: '#FFA611', accentHover: '#F5820D', accentLight: 'rgba(255, 166, 17, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
+            icon: '\u2726', // ✦ (same as Gemini — Firebase Studio runs Gemini)
+            layout: 'standard',
+            virtualScroll: false,
+            spa: true,
+            scrollbarOffset: 0,
+            boundarySelectors: null,
+            boundaryStrategy: null,
+            pathGuard: null,
+            initGuards: [
+                // Firebase Studio: the top frame (studio.firebase.google.com) is just a shell with ~157 elements.
+                // The actual chat lives in a cross-origin iframe (firebase-studio-*.cloudworkstations.dev).
+                // Skip the top frame — the script will also run inside the iframe via @include.
+                {
+                    check: function () {
+                        return window === window.top &&
+                            window.location.hostname.includes('studio.firebase.google.com');
+                    },
+                    msg: 'Firebase Studio top frame (shell), deferring to iframe instance.'
+                },
+                // Firebase Studio: multiple iframes on cloudworkstations.dev match our @include rule
+                // (workspace, app preview, /env/msg endpoint). Only the workspace has the chat UI,
+                // and its path always starts with /capra/. Skip all other cloudworkstations.dev iframes.
+                {
+                    check: function () {
+                        return window.location.hostname.includes('cloudworkstations.dev') &&
+                            !window.location.pathname.startsWith('/capra/');
+                    },
+                    msg: 'Firebase Studio non-workspace iframe (' + window.location.pathname + '), skipping.'
+                }
+            ],
+            retryDelays: [5000, 10000, 20000],
+            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
+            textExtractor: null,
+            getUserMessages: function () {
+                // Primary: elements with both _chatMessage_ and _isUser_ in class
+                var firebaseMessages = document.querySelectorAll('[class*="_chatMessage_"][class*="_isUser_"]');
+                var messages = Array.from(firebaseMessages).filter(function (el) {
+                    return el.textContent.trim().length > 0;
+                });
+                // Fallback 1: _isUser_ alone
+                if (messages.length === 0) {
+                    firebaseMessages = document.querySelectorAll('[class*="_isUser_"]');
+                    messages = Array.from(firebaseMessages).filter(function (el) {
+                        return el.textContent.trim().length > 0;
+                    });
+                }
+                // Fallback 2: _chatMessage_ class (all messages), then filter by _isUser_
+                if (messages.length === 0) {
+                    var allFirebaseMessages = document.querySelectorAll('[class*="_chatMessage_"]');
+                    messages = Array.from(allFirebaseMessages).filter(function (el) {
+                        return (el.className || '').includes('_isUser_') || (el.className || '').includes('isUser');
+                    });
+                }
+                return messages;
+            },
+        }
     };
 
-    function detectSite() {
-        const hostname = window.location.hostname;
-        if (hostname.includes('claude.ai')) return SITE.CLAUDE;
-        if (hostname.includes('chatgpt.com') || hostname.includes('chat.openai.com')) return SITE.CHATGPT;
-        if (hostname.includes('grok.com')) return SITE.GROK;
-        if (hostname.includes('gemini.google.com')) return SITE.GEMINI;
-        if (hostname === 'bolt.new') return SITE.BOLT;
-        if (hostname.includes('lovable.dev')) return SITE.LOVABLE;
-        if (hostname.includes('replit.com')) return SITE.REPLIT;
-        if (hostname.includes('v0.app')) return SITE.V0;
-        if (hostname.includes('base44.com')) return SITE.BASE44;
-        if (hostname.includes('emergent.sh')) return SITE.EMERGENT;
-        if (hostname.includes('perplexity.ai')) return SITE.PERPLEXITY;
-        if (hostname.includes('studio.firebase.google.com')) return SITE.FIREBASE_STUDIO;
-        // Firebase Studio renders chat in a cross-origin iframe on cloudworkstations.dev.
-        // The actual workspace (with chat) uses a port-prefixed hostname like
-        // "6000-firebase-studio-...cloudworkstations.dev". Match any hostname containing
-        // both "firebase-studio-" and "cloudworkstations.dev".
-        if (hostname.includes('cloudworkstations.dev') && hostname.includes('firebase-studio-')) return SITE.FIREBASE_STUDIO;
+    // --- Platform detection ---
+    function detectPlatform() {
+        var hostname = window.location.hostname;
+        var keys = Object.keys(PLATFORMS);
+        for (var i = 0; i < keys.length; i++) {
+            if (PLATFORMS[keys[i]].match(hostname)) return PLATFORMS[keys[i]];
+        }
         return null;
     }
 
-    const currentSite = detectSite();
-    if (!currentSite) {
+    var platform = detectPlatform();
+    if (!platform) {
         console.log('AI Conversation Navigator: Unknown site, exiting.');
         return;
     }
 
-    // Firebase Studio: the top frame (studio.firebase.google.com) is just a shell with ~157 elements.
-    // The actual chat lives in a cross-origin iframe (firebase-studio-*.cloudworkstations.dev).
-    // Skip the top frame — the script will also run inside the iframe via @include.
-    if (currentSite === SITE.FIREBASE_STUDIO &&
-        window === window.top &&
-        window.location.hostname.includes('studio.firebase.google.com')) {
-        console.log('AI Conversation Navigator: Firebase Studio top frame (shell), deferring to iframe instance.');
-        return;
+    // --- Init guards (e.g. Firebase top-frame skip, non-workspace iframe skip) ---
+    for (var gi = 0; gi < platform.initGuards.length; gi++) {
+        if (platform.initGuards[gi].check()) {
+            console.log('AI Conversation Navigator: ' + platform.initGuards[gi].msg);
+            return;
+        }
     }
 
-    // Firebase Studio: multiple iframes on cloudworkstations.dev match our @include rule
-    // (workspace, app preview, /env/msg endpoint). Only the workspace has the chat UI,
-    // and its path always starts with /capra/. Skip all other cloudworkstations.dev iframes.
-    if (currentSite === SITE.FIREBASE_STUDIO &&
-        window.location.hostname.includes('cloudworkstations.dev') &&
-        !window.location.pathname.startsWith('/capra/')) {
-        console.log('AI Conversation Navigator: Firebase Studio non-workspace iframe (' + window.location.pathname + '), skipping.');
-        return;
-    }
-
-    // Site-specific colors
-    const THEME = {
-        [SITE.CLAUDE]: { accent: '#d97706', accentHover: '#b45309', accentLight: 'rgba(217, 119, 6, 0.2)', textColor: 'white' },
-        [SITE.CHATGPT]: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)', textColor: '#1a1a1a' },
-        [SITE.GROK]: { accent: '#dc2626', accentHover: '#b91c1c', accentLight: 'rgba(220, 38, 38, 0.2)', textColor: 'white' },
-        [SITE.GEMINI]: { accent: '#4285f4', accentHover: '#3367d6', accentLight: 'rgba(66, 133, 244, 0.2)', textColor: 'white' },
-        [SITE.BOLT]: { accent: '#38BDF8', accentHover: '#0EA5E9', accentLight: 'rgba(56, 189, 248, 0.2)', textColor: 'white' },
-        [SITE.LOVABLE]: { accent: '#9b87f5', accentHover: '#7c3aed', accentLight: 'rgba(155, 135, 245, 0.2)', textColor: 'white' },
-        [SITE.REPLIT]: { accent: '#F26522', accentHover: '#D4541A', accentLight: 'rgba(242, 101, 34, 0.2)', textColor: 'white' },
-        [SITE.V0]: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)', textColor: '#1a1a1a' },
-        [SITE.BASE44]: { accent: '#6366f1', accentHover: '#4f46e5', accentLight: 'rgba(99, 102, 241, 0.2)', textColor: 'white' },
-        [SITE.EMERGENT]: { accent: '#10b981', accentHover: '#059669', accentLight: 'rgba(16, 185, 129, 0.2)', textColor: 'white' },
-        [SITE.PERPLEXITY]: { accent: '#20b8cd', accentHover: '#1a9aab', accentLight: 'rgba(32, 184, 205, 0.2)', textColor: 'white' },
-        [SITE.FIREBASE_STUDIO]: { accent: '#FFA611', accentHover: '#F5820D', accentLight: 'rgba(255, 166, 17, 0.2)', textColor: 'white' }
-    };
-
-    const theme = THEME[currentSite];
-
-    // Site-specific icons (common symbols to avoid trademark/copyright issues)
-    const ICONS = {
-        [SITE.CLAUDE]: '\u2733',   // ✳
-        [SITE.CHATGPT]: '\u23E3',  // ⏣
-        [SITE.GROK]: 'X',
-        [SITE.GEMINI]: '\u2726',   // ✦
-        [SITE.BOLT]: '\u26A1\uFE0E',  // ⚡ (lightning bolt, text presentation)
-        [SITE.LOVABLE]: '\u2665',  // ♥ (heart suit)
-        [SITE.REPLIT]: '\u2815',   // ⠕ (Braille dots-135, Replit prompt logo)
-        [SITE.V0]: '\u25BD',      // ▽ (inverted triangle, Vercel logo shape)
-        [SITE.BASE44]: '\u2B22',  // ⬢ (hexagon)
-        [SITE.EMERGENT]: 'e',     // lowercase e (Emergent brand initial)
-        [SITE.PERPLEXITY]: '\u2733\uFE0E', // ✳︎ (eight spoked asterisk, text presentation — same as Claude)
-        [SITE.FIREBASE_STUDIO]: '\u2726' // ✦ (same as Gemini — Firebase Studio runs Gemini)
-    };
-
-    const siteIcon = ICONS[currentSite];
-
-    // Site-specific title
-    const siteTitles = {
-        [SITE.CLAUDE]: 'Claude',
-        [SITE.CHATGPT]: 'ChatGPT',
-        [SITE.GROK]: 'Grok',
-        [SITE.GEMINI]: 'Gemini',
-        [SITE.BOLT]: 'Bolt',
-        [SITE.LOVABLE]: 'Lovable',
-        [SITE.REPLIT]: 'Replit',
-        [SITE.V0]: 'V0',
-        [SITE.BASE44]: 'Base44',
-        [SITE.EMERGENT]: 'Emergent',
-        [SITE.PERPLEXITY]: 'Perplexity',
-        [SITE.FIREBASE_STUDIO]: 'Firebase Studio'
-    };
-    const siteTitle = siteTitles[currentSite];
-
-    // Left-chat platforms: chat panel on the left, workspace on the right.
-    // These get the ghost notch button (inside chat, flush against right boundary).
-    const LEFT_CHAT_SITES = [SITE.BOLT, SITE.LOVABLE, SITE.REPLIT, SITE.V0, SITE.BASE44, SITE.EMERGENT];
-    const isLeftChat = LEFT_CHAT_SITES.includes(currentSite);
-
-    // Virtual scroll platforms: only render visible messages in the DOM (e.g. virtuoso).
-    // These need accumulative scanning since messages scroll in/out of existence.
-    const VIRTUAL_SCROLL_SITES = [SITE.EMERGENT];
-    const isVirtualScroll = VIRTUAL_SCROLL_SITES.includes(currentSite);
+    // === BRIDGE VARIABLES ===
+    // Map new registry fields → old variable names so all downstream code works unchanged.
+    const theme = platform.theme;
+    const siteIcon = platform.icon;
+    const siteTitle = platform.title;
+    const isLeftChat = platform.layout === 'left-chat';
+    const isVirtualScroll = platform.virtualScroll;
 
     // Inject styles — toggle button and panel differ for left-chat vs standard platforms
     const toggleStyles = isLeftChat ? `
@@ -234,7 +709,7 @@
             z-index: 2147483647 !important;
             background: ${theme.accent} !important;
             color: ${theme.textColor} !important;
-            border: ${currentSite === SITE.CHATGPT ? '1px solid #333' : 'none'} !important;
+            border: ${theme.toggleBorder} !important;
             cursor: pointer !important;
             border-radius: 8px 0 0 8px !important;
             box-shadow: -2px 0 10px rgba(0,0,0,0.3) !important;
@@ -381,7 +856,7 @@
         }
 
         .ai-nav-number {
-            color: ${currentSite === SITE.CHATGPT ? '#aaa' : theme.accent};
+            color: ${theme.numberColor || theme.accent};
             font-size: 11px;
             font-weight: 600;
             margin-bottom: 4px;
@@ -478,15 +953,15 @@
     function getChatBoundaryX() {
         if (!isLeftChat) return null;
 
-        // Lovable: only show on project pages (chat exists only inside /projects/)
-        if (currentSite === SITE.LOVABLE && !window.location.pathname.includes('/projects/')) {
+        // Path guard: some platforms only show chat on specific pages (e.g. Lovable → /projects/)
+        if (platform.pathGuard && !platform.pathGuard(window.location.pathname)) {
             return null;
         }
 
-        // Emergent-specific: Uses virtuoso virtual scroller. The walk-up approach fails because
-        // parent containers use absolute inset-0 which spans full viewport width.
-        // Instead, find the virtuoso scroller directly — its right edge IS the chat boundary.
-        if (currentSite === SITE.EMERGENT) {
+        // Virtuoso virtual scroller: The walk-up approach fails because parent containers use
+        // absolute inset-0 which spans full viewport width. Find the virtuoso scroller directly —
+        // its right edge IS the chat boundary.
+        if (platform.boundaryStrategy === 'virtuoso') {
             var virtuosoScroller = document.querySelector('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller="true"]');
             if (virtuosoScroller) {
                 var vsRect = virtuosoScroller.getBoundingClientRect();
@@ -509,15 +984,7 @@
         }
 
         // Strategy 2: Find a known message element (platform-specific) and walk up
-        var msgSelectors = {
-            bolt: '[class*="backdrop-blur"][class*="rounded"], [class*="max-w-chat"]',
-            lovable: 'div[role="log"], div.ChatMessageContainer, .justify-end',
-            replit: '[data-cy="user-message"], [data-event-type="user-message"], [role="log"]',
-            v0: '[data-testid="message"]',
-            base44: '[id^="message-"]',
-            emergent: '[data-testid^="user-message"], [id^="user-"]'
-        };
-        var sel = msgSelectors[currentSite];
+        var sel = platform.boundarySelectors;
         if (sel) {
             var msgEl = document.querySelector(sel);
             if (msgEl) {
@@ -570,7 +1037,7 @@
 
         // Emergent has a thick scrollbar at the chat boundary — offset toggle left
         // so it doesn't overlap. Panel stays flush with the boundary.
-        var toggleScrollbarOffset = (currentSite === SITE.EMERGENT) ? 14 : 0;
+        var toggleScrollbarOffset = platform.scrollbarOffset || 0;
 
         // Already confirmed — just update position smoothly, never hide
         if (_boundaryDetected) {
@@ -595,7 +1062,7 @@
             if (toggle) toggle.style.display = '';
             if (panel) panel.style.display = '';
             if (toggle) {
-                _fadeTimer = setTimeout(function() {
+                _fadeTimer = setTimeout(function () {
                     _fadeTimer = null;
                     toggle.classList.add('ai-nav-positioned');
                 }, 300);
@@ -636,7 +1103,7 @@
             createElement('button', {
                 id: 'ai-nav-refresh',
                 textContent: '\u21BB Refresh',
-                onClick: function() { scanConversation(true); }
+                onClick: function () { scanConversation(true); }
             })
         ]);
 
@@ -674,14 +1141,14 @@
             createElement('div', { className: 'ai-nav-meta', textContent: wordCount + ' words' })
         ]);
 
-        item.addEventListener('click', function() {
+        item.addEventListener('click', function () {
             // For virtual scroll platforms, the original msg DOM element may have been
             // recycled by the virtual scroller. Re-find it by matching text content.
             var targetMsg = msg;
             if (isVirtualScroll && !msg.isConnected) {
                 var currentMessages = getUserMessages();
                 var searchText = text.substring(0, 200);
-                var found = Array.from(currentMessages).find(function(m) {
+                var found = Array.from(currentMessages).find(function (m) {
                     return (m.textContent || '').trim().substring(0, 200) === searchText;
                 });
                 if (found) {
@@ -696,12 +1163,12 @@
             if (isLeftChat && isOpen) {
                 handleToggleClick(); // close panel
                 // Scroll after panel close animation completes
-                setTimeout(function() {
+                setTimeout(function () {
                     targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     var originalBg = targetMsg.style.backgroundColor;
                     targetMsg.style.backgroundColor = theme.accentLight;
                     targetMsg.style.transition = 'background-color 0.3s';
-                    setTimeout(function() {
+                    setTimeout(function () {
                         targetMsg.style.backgroundColor = originalBg;
                     }, 1500);
                 }, 350);
@@ -710,7 +1177,7 @@
                 var originalBg = targetMsg.style.backgroundColor;
                 targetMsg.style.backgroundColor = theme.accentLight;
                 targetMsg.style.transition = 'background-color 0.3s';
-                setTimeout(function() {
+                setTimeout(function () {
                     targetMsg.style.backgroundColor = originalBg;
                 }, 1500);
             }
@@ -773,7 +1240,7 @@
                     function _vsScrollStep() {
                         if (step >= positions.length) return;
                         scroller.scrollTop = positions[step];
-                        setTimeout(function() {
+                        setTimeout(function () {
                             if (step < positions.length - 1) {
                                 scanConversation(); // accumulate mode
                             }
@@ -788,7 +1255,7 @@
             } else {
                 scanConversation();
                 // Retry scan after delay if 0 questions found (lazy rendering)
-                setTimeout(function() {
+                setTimeout(function () {
                     var items = document.querySelectorAll('.ai-nav-item');
                     if (items.length === 0) scanConversation();
                 }, 2000);
@@ -860,9 +1327,9 @@
     function startDOMGuardian() {
         let guardianTimeout = null;
 
-        const observer = new MutationObserver(function() {
+        const observer = new MutationObserver(function () {
             if (guardianTimeout) clearTimeout(guardianTimeout);
-            guardianTimeout = setTimeout(function() {
+            guardianTimeout = setTimeout(function () {
                 if (!document.getElementById('ai-nav-toggle') || !document.getElementById('ai-nav-panel')) {
                     console.log('AI Nav: DOM Guardian detected missing elements, re-injecting...');
                     ensureElementsExist();
@@ -897,408 +1364,7 @@
 
     // --- Get user messages based on current site ---
     function getUserMessages() {
-        let messages = [];
-
-        if (currentSite === SITE.CLAUDE) {
-            // Claude Chat selectors
-            messages = document.querySelectorAll('[data-testid="user-human-turn"]');
-            if (messages.length === 0) messages = document.querySelectorAll('[data-testid="user-message"]');
-            if (messages.length === 0) messages = document.querySelectorAll('.font-user-message');
-
-            // Claude Code fallback: no data-testid attributes exist; user messages
-            // are right-aligned (items-end + ml-auto) with bg-bg-200 bubbles.
-            if (messages.length === 0) {
-                const bubbles = document.querySelectorAll('div.bg-bg-200.rounded-lg');
-                messages = Array.from(bubbles).filter(function(bubble) {
-                    return bubble.closest('.items-end');
-                });
-            }
-        }
-        else if (currentSite === SITE.CHATGPT) {
-            const allMessages = document.querySelectorAll('[data-message-author-role]');
-            messages = Array.from(allMessages).filter(function(msg) {
-                return msg.getAttribute('data-message-author-role') === 'user';
-            });
-
-            // Codex web fallback: chatgpt.com/codex uses a task/thread-based interface
-            // with different DOM structure from ChatGPT chat. No data-message-author-role
-            // attributes exist; user messages are right-aligned (self-end) bubbles with
-            // bg-token-bg-tertiary background.
-            if (messages.length === 0) {
-                messages = document.querySelectorAll('div.self-end.bg-token-bg-tertiary');
-            }
-        }
-        else if (currentSite === SITE.GROK) {
-            const allBubbles = document.querySelectorAll('div.message-bubble');
-            if (allBubbles.length > 0) {
-                messages = Array.from(allBubbles).filter(function(bubble, index) {
-                    const classList = bubble.className.toLowerCase();
-                    if (classList.includes('user') || classList.includes('human')) return true;
-                    const parent = bubble.closest('[class*="user"], [class*="human"], [data-role="user"]');
-                    if (parent) return true;
-                    return index % 2 === 0;
-                });
-            }
-            if (messages.length === 0) messages = document.querySelectorAll('[data-role="user"]');
-            if (messages.length === 0) messages = document.querySelectorAll('[class*="user-message"]');
-        }
-        else if (currentSite === SITE.GEMINI) {
-            messages = document.querySelectorAll('div.query-text');
-            if (messages.length === 0) messages = document.querySelectorAll('.query-text-line');
-            if (messages.length === 0) messages = document.querySelectorAll('p.query-text-line');
-            if (messages.length === 0) messages = document.querySelectorAll('[data-query-text]');
-            if (messages.length === 0) messages = document.querySelectorAll('.user-query');
-        }
-        else if (currentSite === SITE.BOLT) {
-            // Bolt.new user messages: containers with data-message-id and self-end alignment.
-            // User messages have bg-bolt-elements-messages-background + self-end class.
-            // Assistant messages do NOT have self-end. Token/subscription warnings live in
-            // a separate prompt area (bg-bolt-elements-prompt-subscribeButton) — must exclude.
-            // Also supports bolt.diy fork which uses backdrop-blur + ml-auto pattern.
-
-            // Primary: data-message-id containers filtered to user messages (self-end)
-            var boltMsgAll = document.querySelectorAll('[data-message-id]');
-            if (boltMsgAll.length > 0) {
-                messages = Array.from(boltMsgAll).filter(function(el) {
-                    var cls = el.className || '';
-                    // User messages have self-end or contain a self-end child
-                    var isSelfEnd = cls.includes('self-end') || el.querySelector('.self-end');
-                    // Or have bolt-specific user message background
-                    var isBoltUserBg = cls.includes('bg-bolt-elements-messages');
-                    // Exclude subscription/token warning areas
-                    var isPromptArea = el.closest('[class*="subscribeButton"]') ||
-                        el.closest('[class*="prompt-subscribe"]');
-                    return (isSelfEnd || isBoltUserBg) && !isPromptArea && el.textContent.trim().length > 0;
-                });
-            }
-
-            // Fallback 1: self-end elements with bolt message background
-            if (messages.length === 0) {
-                var boltSelfEnd = document.querySelectorAll('.self-end[class*="bg-bolt-elements"], [class*="bg-bolt-elements-messages-background"]');
-                messages = Array.from(boltSelfEnd).filter(function(el) {
-                    var isPromptArea = el.closest('[class*="subscribeButton"]') ||
-                        el.closest('[class*="prompt-subscribe"]');
-                    return !isPromptArea && el.textContent.trim().length > 0;
-                });
-            }
-
-            // Fallback 2: MarkdownContent inside self-end containers (bolt.new specific)
-            if (messages.length === 0) {
-                var boltMarkdown = document.querySelectorAll('[class*="_MarkdownContent_"]');
-                messages = Array.from(boltMarkdown).filter(function(el) {
-                    var userParent = el.closest('.self-end, [class*="bg-bolt-elements-messages"]');
-                    var isPromptArea = el.closest('[class*="subscribeButton"]') ||
-                        el.closest('[class*="prompt-subscribe"]');
-                    return userParent && !isPromptArea && el.textContent.trim().length > 0;
-                });
-            }
-
-            // Fallback 3: bolt.diy fork — backdrop-blur + rounded bubbles (original pattern)
-            if (messages.length === 0) {
-                var boltCandidates = document.querySelectorAll('[class*="backdrop-blur"][class*="rounded"]');
-                if (boltCandidates.length > 0) {
-                    messages = Array.from(boltCandidates).filter(function(el) {
-                        var cls = el.className || '';
-                        if (cls.includes('w-full')) return false;
-                        if (cls.includes('items-start') && cls.includes('gap-')) return false;
-                        var parent = el.closest('[class*="items-start"][class*="gap-"]');
-                        if (parent && parent !== el) return false;
-                        var isPromptArea = el.closest('[class*="subscribeButton"]') ||
-                            el.closest('[class*="prompt-subscribe"]');
-                        return !isPromptArea && el.textContent.trim().length > 0;
-                    });
-                }
-            }
-
-            // Fallback 4: right-aligned rounded bubbles inside chat area
-            if (messages.length === 0) {
-                var mlAutoBubbles = document.querySelectorAll('.ml-auto.rounded-lg, .ml-auto.rounded-xl');
-                messages = Array.from(mlAutoBubbles).filter(function(el) {
-                    var cls = el.className || '';
-                    if (cls.includes('items-start') && cls.includes('gap-')) return false;
-                    var isPromptArea = el.closest('[class*="subscribeButton"]') ||
-                        el.closest('[class*="prompt-subscribe"]');
-                    return !isPromptArea && el.textContent.trim().length > 0;
-                });
-            }
-
-            // Fallback 5: grid children — assistant is overflow-hidden w-full, user is NOT
-            if (messages.length === 0) {
-                var gridChildren = document.querySelectorAll('.grid.w-full > div');
-                messages = Array.from(gridChildren).filter(function(el) {
-                    var cls = el.className || '';
-                    var isAssistant = cls.includes('overflow-hidden') && cls.includes('w-full');
-                    var isAlert = cls.includes('items-start') && cls.includes('gap-');
-                    var isPromptArea = el.closest('[class*="subscribeButton"]') ||
-                        el.closest('[class*="prompt-subscribe"]');
-                    return !isAssistant && !isAlert && !isPromptArea && el.textContent.trim().length > 0;
-                });
-            }
-        }
-        else if (currentSite === SITE.LOVABLE) {
-            // Lovable user messages: right-aligned bubbles (justify-end) with neutral background.
-            // Built with React + Tailwind + shadcn/ui. Split-panel layout (chat left, preview right).
-            // User messages have justify-end wrapper + bg-neutral-200/700 rounded-xl bubble + ml-auto.
-            // Assistant messages are left-aligned with no background and prose class for markdown.
-            // Source: Adorable open-source clone, Lovable.dev Add-ons extension
-
-            // Guard: only scan on project pages where the chat exists
-            if (window.location.pathname.includes('/projects/')) {
-                // Primary: ARIA role="log" container + right-aligned message wrappers
-                var chatLog = document.querySelector('div[role="log"]');
-                if (chatLog) {
-                    messages = Array.from(chatLog.querySelectorAll('.justify-end')).filter(function(el) {
-                        return el.textContent.trim().length > 0;
-                    });
-                }
-
-                // Fallback 1: neutral-background bubbles inside right-aligned containers
-                if (messages.length === 0) {
-                    var lovableBubbles = document.querySelectorAll(
-                        'div.bg-neutral-200.rounded-xl, div.bg-neutral-700.rounded-xl'
-                    );
-                    messages = Array.from(lovableBubbles).filter(function(el) {
-                        return el.closest('.justify-end') || el.classList.contains('ml-auto');
-                    });
-                }
-
-                // Fallback 2: ChatMessageContainer class (from extension DOM utils)
-                if (messages.length === 0) {
-                    var lovableContainer = document.querySelector('div.ChatMessageContainer');
-                    if (lovableContainer) {
-                        messages = Array.from(lovableContainer.querySelectorAll('.justify-end')).filter(function(el) {
-                            return el.textContent.trim().length > 0;
-                        });
-                    }
-                }
-
-                // Fallback 3: self-end with neutral background
-                if (messages.length === 0) {
-                    messages = document.querySelectorAll('div.self-end[class*="bg-neutral"]');
-                }
-
-                // Fallback 4: broad scan — right-aligned divs within main
-                if (messages.length === 0) {
-                    var lovableMain = document.querySelector('main');
-                    if (lovableMain) {
-                        messages = Array.from(lovableMain.querySelectorAll('div')).filter(function(el) {
-                            var cls = el.className || '';
-                            var isRightAligned = cls.includes('justify-end') || cls.includes('self-end') || cls.includes('ml-auto');
-                            var hasText = el.textContent.trim().length > 5;
-                            var isNotNav = !el.closest('nav') && !el.closest('header');
-                            return isRightAligned && hasText && isNotNav;
-                        });
-                    }
-                }
-            }
-        }
-        else if (currentSite === SITE.REPLIT) {
-            // Replit user messages: React + Emotion CSS-in-JS (hash classes change per deployment).
-            // The AI Agent chat is a pane inside the IDE workspace.
-            //
-            // Real DOM structure (from live site inspection, Feb 2026):
-            //   A: div.EventRenderer-module_RTGgnG_userMessage (outer event wrapper)
-            //     B: div[data-cy="user-message"][data-event-type="user-message"] (message wrapper — TARGET)
-            //       C: div.UserMessage-module_wrN9Aa_userMessageSurfaceShades (outer surface)
-            //         D: span (layout wrapper)
-            //           E: div.UserMessage-module_wrN9Aa_userMessageSurfaceShades[data-acknowledged="true"] (bubble)
-            //             F: div.rendered-markdown
-            //               G: div.Markdown-module_KWqogW_markdownTheme
-            //                 H: <p>actual question text</p>
-            //
-            // Key: Replit uses data-cy (Cypress), NOT data-testid. Element B is the correct
-            // target — exactly one per user message. Elements A, C, E all contain "userMessage"
-            // in CSS module class names, which caused 3x duplication when using class-based fallbacks.
-
-            // Primary: data-cy="user-message" — Replit's Cypress test attribute (one per message)
-            messages = document.querySelectorAll('[data-cy="user-message"]');
-
-            // Secondary: data-event-type (same element as data-cy, alternate attribute)
-            if (messages.length === 0) messages = document.querySelectorAll('[data-event-type="user-message"]');
-
-            // Fallback 1: EventRenderer class with userMessage — the outer event wrapper.
-            // Since this is ONE level per message (not nested), it gives 1 match per message.
-            if (messages.length === 0) {
-                var replitEventRenderers = document.querySelectorAll('[class*="EventRenderer"][class*="userMessage"]');
-                messages = Array.from(replitEventRenderers).filter(function(el) {
-                    return el.textContent.trim().length > 0;
-                });
-            }
-
-            // Fallback 2: CSS module pattern — class contains "userMessage" or "UserMessage".
-            // This matches 3 elements per message (A, C, E in the nesting above), so we must
-            // deduplicate: keep only innermost, then by text content.
-            if (messages.length === 0) {
-                var replitUserEls = document.querySelectorAll('[class*="userMessage"], [class*="UserMessage"]');
-                var replitFiltered = Array.from(replitUserEls).filter(function(el) {
-                    return el.textContent.trim().length > 0;
-                });
-                // Nesting dedup: keep only innermost matches
-                var replitDeduped = replitFiltered.filter(function(el) {
-                    return !replitFiltered.some(function(other) {
-                        return other !== el && el.contains(other);
-                    });
-                });
-                // Text dedup: keep first element per unique text
-                var replitSeen = {};
-                var replitTextDeduped = [];
-                for (var ri = 0; ri < replitDeduped.length; ri++) {
-                    var replitTxt = replitDeduped[ri].textContent.trim();
-                    if (replitTxt && !replitSeen[replitTxt]) {
-                        replitSeen[replitTxt] = true;
-                        replitTextDeduped.push(replitDeduped[ri]);
-                    }
-                }
-                if (replitTextDeduped.length > 0) messages = replitTextDeduped;
-            }
-
-            // Fallback 3: ARIA role="log" container + structural analysis
-            if (messages.length === 0) {
-                var replitLog = document.querySelector('[role="log"]');
-                if (!replitLog) replitLog = document.querySelector('[role="list"][aria-label*="chat" i]');
-                if (!replitLog) replitLog = document.querySelector('[aria-label*="Chat" i]');
-                if (replitLog) {
-                    var replitBlocks = replitLog.querySelectorAll(':scope > div > div, :scope > div');
-                    messages = Array.from(replitBlocks).filter(function(el) {
-                        var cls = el.className || '';
-                        var style = window.getComputedStyle(el);
-                        var isRightAligned = cls.includes('end') || cls.includes('right') ||
-                            style.marginLeft === 'auto' || style.alignSelf === 'flex-end';
-                        var hasDistinctBg = style.backgroundColor && style.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
-                            style.backgroundColor !== 'transparent';
-                        return (isRightAligned || hasDistinctBg) && el.textContent.trim().length > 0;
-                    });
-                }
-            }
-        }
-        else if (currentSite === SITE.V0) {
-            // V0 (Vercel): chat on left side of app builder.
-            // Real DOM (Feb 2026): All messages use data-testid="message" with role="listitem".
-            // User messages are distinguished by origin-right + items-end classes (right-aligned).
-            // AI messages have origin-left + items-start (left-aligned).
-            // Each message container has a unique id attribute (hash string).
-            // Text lives inside: div.group/message-bubble > div.prose.prose-sm > p
-
-            // Primary: data-testid="message" filtered by origin-right (user = right-aligned)
-            var v0MsgAll = document.querySelectorAll('[data-testid="message"]');
-            if (v0MsgAll.length > 0) {
-                messages = Array.from(v0MsgAll).filter(function(el) {
-                    var cls = el.className || '';
-                    return cls.includes('origin-right') && cls.includes('items-end');
-                });
-            }
-
-            // Fallback 1: data-testid="message" with only items-end (in case origin-right changes)
-            if (messages.length === 0 && v0MsgAll.length > 0) {
-                messages = Array.from(v0MsgAll).filter(function(el) {
-                    var cls = el.className || '';
-                    return cls.includes('items-end') && !cls.includes('items-start');
-                });
-            }
-
-            // Fallback 2: message bubble with bg-v0-gray-200 (user bubble color)
-            if (messages.length === 0) {
-                var v0Bubbles = document.querySelectorAll('[class*="bg-v0-gray-200"][class*="message-bubble"], [class*="group/message-bubble"]');
-                messages = Array.from(v0Bubbles).filter(function(el) {
-                    return el.textContent.trim().length > 0;
-                });
-            }
-
-            // Fallback 3: role="listitem" containers filtered by right-alignment
-            if (messages.length === 0) {
-                var v0ListItems = document.querySelectorAll('[role="listitem"]');
-                if (v0ListItems.length > 0) {
-                    messages = Array.from(v0ListItems).filter(function(el) {
-                        var cls = el.className || '';
-                        return (cls.includes('origin-right') || cls.includes('items-end')) &&
-                            el.textContent.trim().length > 0;
-                    });
-                }
-            }
-        }
-        else if (currentSite === SITE.BASE44) {
-            // Base44: messages have id="message-{uuid}".
-            // User messages contain a parent div with justify-end (right-aligned).
-            // AI messages do not have justify-end.
-            var base44Messages = document.querySelectorAll('[id^="message-"]');
-            messages = Array.from(base44Messages).filter(function(el) {
-                return el.querySelector('.justify-end') && el.textContent.trim().length > 0;
-            });
-
-            // Fallback: look for bg-slate-200 bubbles (user message style)
-            if (messages.length === 0) {
-                messages = document.querySelectorAll('.bg-slate-200.rounded-xl');
-            }
-        }
-        else if (currentSite === SITE.EMERGENT) {
-            // Emergent: user messages have data-testid="user-message-{id}" (e.g. "user-message-user-task").
-            // IMPORTANT: Emergent uses virtuoso virtual scrolling — only visible messages exist in DOM.
-            // Do NOT add broad fallback selectors; they will match AI agent status messages
-            // when user messages are scrolled out of view and the primary returns 0.
-            messages = document.querySelectorAll('[data-testid^="user-message"]');
-
-            // Deduplicate: keep only innermost matches (nested testids possible)
-            if (messages.length > 0) {
-                var emergentArr = Array.from(messages);
-                var emergentDeduped = emergentArr.filter(function(el) {
-                    return !emergentArr.some(function(other) {
-                        return other !== el && el.contains(other);
-                    });
-                });
-                if (emergentDeduped.length > 0) messages = emergentDeduped;
-            }
-
-            // Fallback: id starts with "user-task" (specific to user task elements only)
-            if (messages.length === 0) {
-                messages = document.querySelectorAll('[id^="user-task"]');
-            }
-        }
-        else if (currentSite === SITE.PERPLEXITY) {
-            // Perplexity: user queries use the class group/query.
-            // This is a Tailwind group variant class — very reliable identifier.
-            var perplexityQueries = document.querySelectorAll('.group\\/query');
-            messages = Array.from(perplexityQueries).filter(function(el) {
-                return el.textContent.trim().length > 0;
-            });
-
-            // Fallback: look for query text spans
-            if (messages.length === 0) {
-                messages = document.querySelectorAll('.group\\/title .select-text');
-            }
-        }
-        else if (currentSite === SITE.FIREBASE_STUDIO) {
-            // Firebase Studio (Gemini): CSS module classes with _isUser_ pattern.
-            // Class names look like: _chatMessage_qlgvg_30 _isUser_qlgvg_47
-            // The hash suffix changes per build, but _isUser_ and _chatMessage_ stay consistent.
-            //
-            // Architecture: Firebase Studio top frame (studio.firebase.google.com) is a shell.
-            // Chat lives in a cross-origin iframe (firebase-studio-*.cloudworkstations.dev).
-            // The top frame is skipped at init; this code runs inside the iframe via @include.
-
-            // Primary: elements with both _chatMessage_ and _isUser_ in class
-            var firebaseMessages = document.querySelectorAll('[class*="_chatMessage_"][class*="_isUser_"]');
-            messages = Array.from(firebaseMessages).filter(function(el) {
-                return el.textContent.trim().length > 0;
-            });
-
-            // Fallback 1: _isUser_ alone
-            if (messages.length === 0) {
-                firebaseMessages = document.querySelectorAll('[class*="_isUser_"]');
-                messages = Array.from(firebaseMessages).filter(function(el) {
-                    return el.textContent.trim().length > 0;
-                });
-            }
-
-            // Fallback 2: _chatMessage_ class (all messages), then filter by _isUser_
-            if (messages.length === 0) {
-                var allFirebaseMessages = document.querySelectorAll('[class*="_chatMessage_"]');
-                messages = Array.from(allFirebaseMessages).filter(function(el) {
-                    return (el.className || '').includes('_isUser_') || (el.className || '').includes('isUser');
-                });
-            }
-        }
-
-        return messages;
+        return platform.getUserMessages();
     }
 
     // --- Scan conversation for user messages ---
@@ -1328,9 +1394,9 @@
             }
 
             var addedNew = false;
-            messages.forEach(function(msg) {
-                // Emergent: extract text from prose container only (excludes timestamps/buttons)
-                var proseEl = msg.querySelector('.prose');
+            messages.forEach(function (msg) {
+                // Extract text from platform-specific container (excludes timestamps/buttons)
+                var proseEl = platform.textExtractor ? platform.textExtractor(msg) : null;
                 let text = proseEl ? (proseEl.textContent || '').trim() : (msg.textContent || msg.innerText || '').trim();
                 text = text.replace(/^You said\s*/i, '');
                 if (!text.trim()) return;
@@ -1358,15 +1424,15 @@
                 // Without this, items appear in discovery order (newest first if user scrolls up)
                 var navItems = Array.from(list.querySelectorAll('.ai-nav-item'));
                 if (navItems.length > 1 && navItems[0].hasAttribute('data-vs-index')) {
-                    navItems.sort(function(a, b) {
+                    navItems.sort(function (a, b) {
                         return parseInt(a.getAttribute('data-vs-index') || '0') - parseInt(b.getAttribute('data-vs-index') || '0');
                     });
-                    navItems.forEach(function(item) { list.appendChild(item); });
+                    navItems.forEach(function (item) { list.appendChild(item); });
                 }
                 var total = navItems.length || list.querySelectorAll('.ai-nav-item').length;
                 stats.textContent = total + ' question' + (total !== 1 ? 's' : '') + ' found';
                 // Re-number all items sequentially
-                list.querySelectorAll('.ai-nav-number').forEach(function(numEl, i) {
+                list.querySelectorAll('.ai-nav-number').forEach(function (numEl, i) {
                     numEl.textContent = 'Question #' + (i + 1);
                 });
             }
@@ -1387,9 +1453,9 @@
 
         stats.textContent = messages.length + ' question' + (messages.length !== 1 ? 's' : '') + ' found';
 
-        messages.forEach(function(msg, index) {
-            // Emergent: extract text from prose container only (excludes timestamps/buttons)
-            var proseEl = (currentSite === SITE.EMERGENT) ? msg.querySelector('.prose') : null;
+        messages.forEach(function (msg, index) {
+            // Extract text from platform-specific container (excludes timestamps/buttons)
+            var proseEl = platform.textExtractor ? platform.textExtractor(msg) : null;
             let text = proseEl ? (proseEl.textContent || '').trim() : (msg.textContent || msg.innerText || '').trim();
             // Strip accessibility prefixes (e.g. Gemini adds "You said" for screen readers)
             text = text.replace(/^You said\s*/i, '');
@@ -1423,25 +1489,23 @@
     startDOMGuardian();
 
     // SPA navigation hooks for platforms with aggressive DOM re-rendering
-    var SPA_SITES = [SITE.GEMINI, SITE.BOLT, SITE.LOVABLE, SITE.REPLIT,
-                     SITE.V0, SITE.BASE44, SITE.EMERGENT, SITE.FIREBASE_STUDIO, SITE.PERPLEXITY];
-    if (SPA_SITES.indexOf(currentSite) !== -1) {
+    if (platform.spa) {
         const originalPushState = history.pushState;
         const originalReplaceState = history.replaceState;
 
-        history.pushState = function() {
+        history.pushState = function () {
             originalPushState.apply(this, arguments);
             if (isVirtualScroll) _vsAccumulatedKeys.clear(); // reset on navigation
             setTimeout(ensureElementsExist, 500);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         };
-        history.replaceState = function() {
+        history.replaceState = function () {
             originalReplaceState.apply(this, arguments);
             setTimeout(ensureElementsExist, 500);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         };
 
-        window.addEventListener('popstate', function() {
+        window.addEventListener('popstate', function () {
             if (isVirtualScroll) _vsAccumulatedKeys.clear(); // reset on navigation
             setTimeout(ensureElementsExist, 500);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
@@ -1462,7 +1526,7 @@
         setTimeout(updateLeftChatPositions, 6000);
 
         // Reposition on window resize (right is viewport-relative)
-        window.addEventListener('resize', function() {
+        window.addEventListener('resize', function () {
             _lastBoundaryX = null; // force recalculation
             if (isOpen) {
                 var bx = getChatBoundaryX() || (window.innerWidth * 0.35);
@@ -1476,7 +1540,7 @@
         });
 
         // Scroll listener — repositions button when page/chat scrolls (boundary can shift)
-        window.addEventListener('scroll', function() {
+        window.addEventListener('scroll', function () {
             if (!isOpen) {
                 updateLeftChatPositions();
             }
@@ -1487,7 +1551,7 @@
         // stable-polls requirement from ever being met via the interval, blocking late-rendering
         // platforms (like Emergent's virtuoso scroller) from ever showing the ghost notch.
         // The stability check in updateLeftChatPositions already handles boundary position changes.
-        setInterval(function() {
+        setInterval(function () {
             if (!isOpen) {
                 updateLeftChatPositions();
             }
@@ -1499,9 +1563,9 @@
 
     // Firebase Studio and other heavy SPAs: chat may not render within 2 seconds.
     // Add aggressive retries for platforms that lazy-load their chat panels.
-    if (currentSite === SITE.FIREBASE_STUDIO) {
-        [5000, 10000, 20000].forEach(function(delay) {
-            setTimeout(function() {
+    if (platform.retryDelays.length > 0) {
+        platform.retryDelays.forEach(function (delay) {
+            setTimeout(function () {
                 var items = document.querySelectorAll('.ai-nav-item');
                 if (items.length === 0) {
                     console.log('AI Nav: Firebase retry scan at ' + delay + 'ms...');
@@ -1511,5 +1575,5 @@
         });
     }
 
-    console.log('AI Conversation Navigator v7.8 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
+    console.log('AI Conversation Navigator v8.0 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
 })();

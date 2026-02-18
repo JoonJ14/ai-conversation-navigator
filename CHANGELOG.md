@@ -4,6 +4,106 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [8.0] - 2026-02-18
+
+### Refactored — Platform Registry Architecture
+
+Major internal refactor: consolidated all scattered platform-specific logic into a single `PLATFORMS` registry object. **No user-facing behavior changes.** All 140 tests pass (14 platforms × 10 tests) — zero regressions.
+
+#### What Changed
+
+**Before (v7.8):** Platform data was scattered across 10+ separate locations:
+- `SITE` enum object
+- `detectSite()` function (hostname → constant mapping)
+- `THEME` object (colors per platform)
+- `ICONS` object (Unicode symbols per platform)
+- `siteTitles` object (display names per platform)
+- `LEFT_CHAT_SITES` array
+- `VIRTUAL_SCROLL_SITES` array
+- `SPA_SITES` array
+- `getUserMessages()` — a 400-line `if/else if` chain with 13 branches
+- Inline conditionals for scrollbar offsets, path guards, retry delays, boundary selectors, text extractors, and boundary strategies
+
+Adding a new platform required touching 10+ locations and keeping them all in sync.
+
+**After (v8.0):** One `PLATFORMS` registry at the top of the file holds everything per-platform:
+
+```javascript
+const PLATFORMS = {
+    claude: {
+        id: 'claude',
+        title: 'Claude',
+        match: function (host) { return host.includes('claude.ai'); },
+        theme: { accent: '#d97706', accentHover: '#b45309', ... },
+        icon: '\u2733',
+        layout: 'standard',
+        virtualScroll: false,
+        spa: false,
+        scrollbarOffset: 0,
+        boundarySelectors: null,
+        boundaryStrategy: null,
+        pathGuard: null,
+        initGuards: [],
+        retryDelays: [],
+        textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
+        textExtractor: null,
+        getUserMessages: function () { ... },
+    },
+    // ... 12 more platforms
+};
+```
+
+**Adding a new platform now requires adding ONE entry** to the `PLATFORMS` object — nothing else to touch (plus the `@match` URL in the userscript header).
+
+#### Migration Details
+
+| Old Location | New Location | Notes |
+|---|---|---|
+| `SITE` enum | Removed — `platform.id` replaces `SITE.X` constants | Dead code, no remaining references |
+| `detectSite()` | `detectPlatform()` | Iterates `PLATFORMS` and calls each platform's `match()` function |
+| `THEME[site]` | `platform.theme` | Bridge variable `theme = platform.theme` kept for readability |
+| `ICONS[site]` | `platform.icon` | Bridge variable `siteIcon = platform.icon` kept |
+| `siteTitles[site]` | `platform.title` | Bridge variable `siteTitle = platform.title` kept |
+| `LEFT_CHAT_SITES.includes(site)` | `platform.layout === 'left-chat'` | Bridge variable `isLeftChat` kept |
+| `VIRTUAL_SCROLL_SITES.includes(site)` | `platform.virtualScroll` | Bridge variable `isVirtualScroll` kept |
+| `SPA_SITES.includes(site)` | `platform.spa` | Used directly |
+| `getUserMessages()` if/else chain | `platform.getUserMessages()` | 400 lines → 1-line dispatcher |
+| Inline scrollbar offset | `platform.scrollbarOffset` | |
+| Inline path guard | `platform.pathGuard` | |
+| Inline retry delays | `platform.retryDelays` | |
+| Inline boundary selectors | `platform.boundarySelectors` | |
+| Inline boundary strategy | `platform.boundaryStrategy` | |
+| Inline text extractor | `platform.textExtractor` | |
+| CSS ternaries for toggleBorder/numberColor | `theme.toggleBorder`, `theme.numberColor` | |
+
+#### Bridge Variables Retained
+
+Five bridge variables remain as readable aliases — they are used 50+ times downstream and removing them would hurt readability without functional benefit:
+
+```javascript
+const theme = platform.theme;
+const siteIcon = platform.icon;
+const siteTitle = platform.title;
+const isLeftChat = platform.layout === 'left-chat';
+const isVirtualScroll = platform.virtualScroll;
+```
+
+#### Dead Code Removed
+
+- `SITE` enum object (12 string constants)
+- `currentSite` variable
+- The entire 400-line `getUserMessages()` if/else if chain (replaced by per-platform methods)
+
+#### Testing
+
+All 140 tests pass on Chromium (14 platforms × 10 tests per platform). No selector changes — all DOM selectors are identical to v7.8.
+
+#### Net Line Count
+
+The file grew slightly due to the registry structure overhead, but the `getUserMessages()` function shrank from ~400 lines to 3 lines. The net effect is better locality — all platform data is in one place rather than scattered across 10+ locations.
+
+---
+
 ## [7.8] - 2026-02-16
 
 ### Fixed — Firebase Studio: Script Injecting into Wrong Iframe (0 Questions Detected)

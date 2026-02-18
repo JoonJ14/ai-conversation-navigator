@@ -30,9 +30,13 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v7.8
+## Current Status: v8.0
 
 The extension supports 14 platform variants across 12 websites. All platforms have been debugged on live sites (Firefox/Linux). All 140 automated tests pass (10 tests × 14 platforms).
+
+**v8.0 Architecture: Platform Registry**
+
+All platform-specific data is consolidated into a single `PLATFORMS` registry object. Adding a new platform requires only ONE entry in this registry (plus a `@match` URL). The old `SITE` enum, `detectSite()`, `THEME`, `ICONS`, `siteTitles`, `LEFT_CHAT_SITES`, `VIRTUAL_SCROLL_SITES`, `SPA_SITES`, and the 400-line `getUserMessages()` if/else chain have all been replaced.
 
 **All platforms working:**
 - Claude, ChatGPT, Codex, Grok, Gemini, Perplexity — selectors validated on live sites
@@ -63,4 +67,4 @@ The extension supports 14 platform variants across 12 websites. All platforms ha
 
 ---
 
-*Last updated: 2026-02-16*
+*Last updated: 2026-02-18*

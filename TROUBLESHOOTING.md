@@ -94,7 +94,7 @@ If Firebase Studio stops working in a future version:
    ```
    Identify which iframe has the chat (look for `_chatMessage_` elements in each context).
 
-2. **Check script injection:** Navigate directly to the workspace iframe URL. Check Tampermonkey icon — does it show 1 script running? Check console for "AI Conversation Navigator v7.8 loaded" message.
+2. **Check script injection:** Navigate directly to the workspace iframe URL. Check Tampermonkey icon — does it show 1 script running? Check console for "AI Conversation Navigator v8.0 loaded" message.
 
 3. **Check path discrimination:** If the workspace path changes from `/capra/` to something else, the non-workspace skip logic will incorrectly filter out the workspace. Update the `startsWith('/capra/')` check.
 
@@ -103,7 +103,7 @@ If Firebase Studio stops working in a future version:
 5. **Console logs to look for:**
    - `"Firebase Studio top frame (shell), deferring to iframe instance."` — top frame correctly skipped
    - `"Firebase Studio non-workspace iframe (/env/msg), skipping."` — non-workspace iframe correctly skipped
-   - `"AI Conversation Navigator v7.8 loaded for Firebase Studio!"` — script running in workspace
+   - `"AI Conversation Navigator v8.0 loaded for Firebase Studio!"` — script running in workspace
 
 ---
 
@@ -353,7 +353,7 @@ After all three fixes, the behavior is:
 
 If the ghost notch button is not appearing on a chat page where it should:
 
-1. Open DevTools Console and look for `AI Conversation Navigator v7.8 loaded for [platform] (left-chat mode)!` — confirms the script detected the platform
+1. Open DevTools Console and look for `AI Conversation Navigator v8.0 loaded for [platform] (left-chat mode)!` — confirms the script detected the platform
 2. Add a temporary `console.log` inside `getChatBoundaryX()` to see which strategy (if any) is finding the boundary:
    ```javascript
    console.log('Strategy 1 input:', input, 'boundary:', boundary);
