@@ -58,7 +58,7 @@ I use those coding agents mostly in terminal CLI, and I find them incredibly eff
 Chrome, Firefox, Safari, Edge
 
 
-## Installation
+## Installation : Trust me, it's really not much.
 
 ### Step 1: Install a Userscript Manager
 
