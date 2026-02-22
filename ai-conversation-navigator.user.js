@@ -990,8 +990,18 @@
             '.acn-lbl{position:absolute;right:calc(100% + 10px);font-size:10px;font-weight:600;',
             'color:var(--acn-accent);white-space:nowrap;opacity:0;',
             'transition:opacity .15s,transform .15s;transform:translateX(4px);',
-            'pointer-events:none;text-shadow:0 1px 4px rgba(0,0,0,.5)}',
+            'pointer-events:none}',
             '.acn-dot:hover .acn-lbl,.acn-dot.acn-act .acn-lbl{opacity:1;transform:translateX(0)}',
+            // ChatGPT: button is light, icon must stay black in both modes; label is black light / white dark
+            '#acn-zone[data-acn-platform="chatgpt"] .acn-dot{color:#000}',
+            '#acn-zone[data-acn-platform="chatgpt"] .acn-lbl{color:#000}',
+            // Dark mode: all platform icons go white; labels keep platform color (var(--acn-accent))
+            '@media(prefers-color-scheme:dark){',
+            '.acn-dot{color:#fff}',
+            // ChatGPT exception: icon stays black on its light button; label turns white
+            '#acn-zone[data-acn-platform="chatgpt"] .acn-dot{color:#000}',
+            '#acn-zone[data-acn-platform="chatgpt"] .acn-lbl{color:#fff}',
+            '}',
 
             // Connectors (Show All mode)
             '.acn-conn{position:absolute;width:1px;z-index:2;pointer-events:none;',
@@ -1847,9 +1857,10 @@
     function orbBuildZone() {
         var zone = createElement('div', { id: 'acn-zone', className: 'acn-zone' });
         // Stable test-contract attributes — tests use these roles, not internal IDs/classes
-        zone.setAttribute('data-acn-role',    'zone');
-        zone.setAttribute('data-acn-accent',  orbTheme.bg);   // platform hex color
-        zone.setAttribute('data-acn-version', '10.0');
+        zone.setAttribute('data-acn-role',     'zone');
+        zone.setAttribute('data-acn-accent',   orbTheme.bg);   // platform hex color
+        zone.setAttribute('data-acn-version',  '10.0');
+        zone.setAttribute('data-acn-platform', platform.id);   // for platform-specific CSS rules
 
         // Set CSS variables for platform theming
         zone.style.setProperty('--acn-accent', orbTheme.bg);
