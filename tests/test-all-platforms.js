@@ -304,11 +304,12 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
         // Wait for initialization (script has a 2-second setTimeout for initial scan)
         await page.waitForTimeout(3500);
 
-        // ── TEST 1: Toggle button exists ──
-        const toggleExists = await page.evaluate(() => {
-            return !!document.getElementById('ai-nav-toggle');
+        // ── TEST 1: Button Container exists AND is visible ──
+        const containerExists = await page.evaluate(() => {
+            const el = document.getElementById('ai-nav-button-container');
+            return el && window.getComputedStyle(el).display !== 'none';
         });
-        assert('Toggle button exists', toggleExists, toggleExists ? 'Found #ai-nav-toggle' : 'Missing');
+        assert('Button container visible', containerExists, containerExists ? 'Found and visible' : 'Missing or hidden');
 
         // ── TEST 2: Panel exists ──
         const panelExists = await page.evaluate(() => {
@@ -316,7 +317,7 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
         });
         assert('Panel exists', panelExists, panelExists ? 'Found #ai-nav-panel' : 'Missing');
 
-        if (!toggleExists || !panelExists) {
+        if (!containerExists || !panelExists) {
             return results;
         }
 
