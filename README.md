@@ -9,7 +9,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-9.6-blue)
+![Version](https://img.shields.io/badge/version-10.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -148,27 +148,30 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 
 ## Features
 
-- **🔍 Hover-Expand Button** — Compact icon on the screen edge, smoothly reveals "Navigate" label on hover
-- **🎯 Quick Navigation** — Click any question to scroll directly to it
-- **📝 Smart Summaries** — Automatically extracts the key part of each question
-- **🔄 Auto-Refresh** — Updates every 10 seconds while the panel is open
-- **🎨 Platform-Specific Themes** — Colors and icons match each platform's branding
-- **📊 Context Tracker** — Estimates text compaction limits on Claude, Grok, ChatGPT, and Gemini (Open via Context button)
-- **🔍 Universal Search** — Search keywords across the entire chat, automatically color-coded into 'Questions' and 'Answers'
+- **🪐 Orbital Button Cluster** — Six feature dots arranged in a compact orbital cluster at the edge of the screen. Hover to reveal; each dot opens its own panel. For app-builder platforms, the cluster anchors to the chat/workspace divider.
+- **3 Display Modes** — Switch between **Show All** (all six dots at equal brightness), **Arc** (polygon arc with scroll-driven focus), and **Wheel** (conveyor belt with Navigate always highlighted). Mode preference is saved across sessions.
+- **🎯 Navigate Panel** — Lists all your questions in the conversation with smart summaries. Click any entry to scroll directly to it and briefly highlight it.
+- **🔍 Search Panel** — Type a keyword to filter your questions instantly. Narrows the question list in real time.
+- **🔖 Bookmarks Panel** — Bookmark specific messages for quick return. *(UI ready, persistence coming soon)*
+- **Σ Summary Panel** — Generate a summary of the conversation. *(Coming soon)*
+- **↗ Export Panel** — Export the conversation in your choice of format. *(Coming soon)*
+- **⚙ Settings Panel** — Choose your display mode (Show All / Arc / Wheel) and scroll direction. Settings persist via localStorage.
+- **📝 Smart Summaries** — Automatically extracts the key part of each question for the navigation list
+- **🎨 Platform-Specific Themes** — Accent colors match each platform's branding (Claude orange, ChatGPT white, Grok red, Gemini blue, Perplexity teal)
 - **✨ Visual Feedback** — Briefly highlights the message when you navigate to it
-- **✨ Visual Feedback** — Briefly highlights the message when you navigate to it
-- **👻 Ghost Notch Button** — For left-chat app builders, a nearly-invisible 8px notch at the chat boundary that expands to reveal the icon on hover
-- **🛡️ SPA-Resilient** — DOM Guardian, SPA navigation hooks, and periodic health checks keep the button alive through aggressive re-rendering (Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Firebase Studio, Perplexity)
+- **🛡️ SPA-Resilient** — DOM Guardian, SPA navigation hooks, and periodic health checks keep the UI alive through aggressive re-rendering (Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Firebase Studio, Perplexity)
 
 
 ## Usage
 
 1. Go to any supported AI chat platform
-2. Look for the platform icon on the screen edge:
-   - **AI chatbots & Firebase Studio:** Icon appears on the **right edge** — hover to see the "Navigate" label
-   - **App builders (Bolt, Lovable, Replit, V0, Base44, Emergent):** A thin notch appears at the **chat/workspace boundary** — hover to reveal the icon
-3. Click to open the navigation panel
-4. Click any question to jump to that part of the conversation
+2. Look for the orbital cluster of dots:
+   - **AI chatbots & Firebase Studio:** Cluster appears at the **bottom-right** of the screen
+   - **App builders (Bolt, Lovable, Replit, V0, Base44, Emergent):** Cluster anchors to the **chat/workspace boundary**
+3. Hover over the cluster to reveal the six feature dots
+4. Click any dot to open its panel — the **Navigate** dot (✳) opens the question list
+5. Click any question to jump to that part of the conversation
+6. Use the **Settings** dot (⚙) to switch between display modes (Show All / Arc / Wheel)
 
 ## How It Works
 
@@ -305,9 +308,12 @@ The entire source code is a single JavaScript file ([`ai-conversation-navigator.
 - [x] ~~**Support AI app-builder platforms** — Lovable, Bolt.new, and Replit~~ (added in v7.0, expanded with V0, Base44, Emergent, Firebase Studio in v7.1)
 - [x] ~~**Support Perplexity**~~ (added in v7.1)
 - [x] ~~**Search/filter questions**~~ (added in v9.4)
+- [x] ~~**Settings panel**~~ (added in v10.0 — mode selector, scroll direction)
+- [x] ~~**Export conversation outline**~~ (panel added in v10.0 — full export formats coming)
 - [ ] Keyboard shortcuts
-- [ ] Export conversation outline
-- [ ] Settings panel
+- [ ] Bookmarks — persist bookmarks to localStorage
+- [ ] Summary — generate a conversation summary via AI
+- [ ] Export — full Markdown / JSON / PDF export
 - [ ] Convert to standalone browser extension
 
 ## License

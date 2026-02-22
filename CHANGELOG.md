@@ -4,6 +4,156 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [10.0] - 2026-02-22
+
+### Complete Architecture Rewrite — Orbital Button System
+
+**Files modified:** `ai-conversation-navigator.user.js` (2,369 → 1,968 lines), `tests/test-all-platforms.js` (complete rewrite)
+
+This release is a three-phase complete architectural rewrite. The v9.x codebase had accumulated compounding complexity across multiple AI assistant development sessions — the context/token tracking additions in v9.0–9.3 had entangled button injection with message detection, introduced inconsistent rendering patterns, and left behind debugging artifacts throughout the file. Rather than patching on top, the decision was to strip the codebase to its healthy core engine and rebuild the UI layer cleanly.
+
+---
+
+#### Phase 0 — Audit Findings
+
+Read the full 2,369-line v9.x codebase before touching any code. Key findings:
+
+**Entangled button/detection code:** MutationObserver callbacks were wired to trigger both message scanning and button rendering in the same callback path. There was no clean separation between the detection engine (which should run silently) and the UI layer (which should render independently).
+
+**Dead code in Lovable selector chain:** The Lovable `getUserMessages()` function had `div[role="log"] .justify-end` as its primary selector — a pattern that never exists in Lovable's actual DOM. All three real user messages were being found three levels deep in the fallback chain on every call. The dead primary was silently skipped without error, so the detection appeared to work but was always running on backup selectors.
+
+**Version string inconsistency:** The `@version` header read `9.6` but internal version constants in the codebase read `9.3`, `9.4`, or `9.6` depending on which component you were looking at — an artifact of the compressed multi-session sprint development.
+
+**Context tracking architecture:** The v9.0–9.3 context/token tracking button had its own injection path, its own `#ai-context-panel`, and a passive `window.fetch` interceptor that ran on every network request. Removing it cleanly required identifying all three injection paths and their interdependencies.
+
+**Debugging artifacts:** Commented-out selector experiments, temporary `console.log` calls, and redundant guards added during prior debugging sessions.
+
+---
+
+#### Phase 1 — Clean Foundation
+
+**Removed (~1,410 lines):**
+- All existing button/sidebar UI: `createToggle()`, `createPanel()`, `buildPanel()`, `buildContextPanel()`, `updateButtonPositions()`, and ~30 related helpers
+- The context/token tracking system: fetch interception, DOM-based token estimation, rendering, the `#ai-context-panel` element
+- All CSS string constants (`AI_NAV_STYLES`, `CONTEXT_STYLES`, etc.)
+- Search panel UI and injection logic (the search algorithm was preserved internally)
+- Per-platform button injection quirks added during v9.x debugging
+- Dead code, commented experiments, debugging console.log calls
+
+**Kept (the core engine):**
+- `PLATFORMS` registry with 14 platform definitions and all `getUserMessages()` selector chains
+- `generateSummary()` — text truncation for question display
+- `detectPlatform()` — URL-based platform matching
+- `scanConversation()` — question detection loop; populates `_questions[]` array as `[{ element, text, summary, vsIndex? }]`
+- `MutationObserver` setup for SPA-aware re-scanning
+- `history.pushState` / `history.replaceState` SPA hooks
+- `window._aiNavAlreadyLoaded` duplicate execution guard
+- Virtual scroll accumulation logic for Emergent's virtuoso layout
+
+**Bugs fixed during Phase 1:**
+- **Lovable dead selector:** promoted `bg-neutral-200 rounded-xl` to primary position (it was the first selector that actually matched real Lovable DOM). Removed the never-matching `div[role="log"] .justify-end` primary entirely.
+- **Version string:** unified to `10.0` throughout header and internals.
+
+**Result:** 2,369 → 959 lines. The script detected platforms and found questions but rendered no UI at all.
+
+---
+
+#### Phase 2 — Orbital Button System
+
+Built the new UI as a clean fixed-position overlay on top of the Phase 1 engine. The orbital zone (`div#acn-zone`) is injected into `document.body` and is architecturally independent of each platform's DOM structure.
+
+**Color system (`ORB_COLORS`):** Five verified platform accent colors. App-builder platforms (bolt, lovable, replit, v0, base44, emergent, firebase) fall back to Claude orange since their brand colors were not verified at time of writing.
+```javascript
+var ORB_COLORS = {
+    claude:     { bg: '#d97706', rgb: '217,119,6',   shadow: 'rgba(217,119,6,.25)'   },
+    chatgpt:    { bg: '#ffffff', rgb: '255,255,255', shadow: 'rgba(255,255,255,.25)' },
+    grok:       { bg: '#e53e3e', rgb: '229,62,62',   shadow: 'rgba(229,62,62,.25)'   },
+    gemini:     { bg: '#4285f4', rgb: '66,133,244',  shadow: 'rgba(66,133,244,.25)'  },
+    perplexity: { bg: '#20b2aa', rgb: '32,178,170',  shadow: 'rgba(32,178,170,.25)'  },
+};
+var orbTheme = ORB_COLORS[platform.id] || ORB_COLORS.claude;
+```
+
+**Feature registry (`ORB_FEATURES`):** Single source-of-truth array drives slot positions, panel IDs, icons, and labels. Adding a 7th feature requires one array entry and one panel builder function — no other code changes.
+```javascript
+var ORB_FEATURES = [
+    { id: 'nav',       icon: '✳', label: 'Navigate',  panelId: 'acn-panel-nav'       },
+    { id: 'search',    icon: '⌕', label: 'Search',    panelId: 'acn-panel-search'    },
+    { id: 'bookmarks', icon: '⚑', label: 'Bookmarks', panelId: 'acn-panel-bookmarks' },
+    { id: 'summary',   icon: 'Σ', label: 'Summary',   panelId: 'acn-panel-summary'   },
+    { id: 'export',    icon: '↗', label: 'Export',    panelId: 'acn-panel-export'    },
+    { id: 'settings',  icon: '⚙', label: 'Settings',  panelId: 'acn-panel-settings'  },
+];
+```
+
+**Three display modes (`orbMode`):**
+- `show-all` — all 6 dots at equal opacity on hover; vertical stack; default mode
+- `arc` — slot-rule lookup table drives position along a polygon arc; scroll wheel rotates focus; brightness follows slot position
+- `wheel` — conveyor belt wrapping; Navigate dot (index 0) gets a persistent brightness boost; symmetric boundary behavior on wrap
+
+**CSS transition split — critical for feel:** Two separate CSS transitions per dot:
+- `opacity 80ms ease` — snaps immediately, so brightness feels locked to the dot's current position
+- `transform/position 300ms cubic-bezier(0.34, 1.56, 0.64, 1)` — springy motion for position changes
+
+Without this split, opacity would animate across the full 300ms of the position animation, making brightness "chase" the moving dot rather than snap to it. The 80ms opacity transition was the single most important tuning decision for making the system feel responsive rather than floaty.
+
+**Left-chat platform positioning:** For the 6 app-builder platforms with a split chat/preview layout (bolt, lovable, replit, v0, base44, emergent), `getChatBoundaryX()` locates the right edge of the chat panel. `orbPositionForLeftChat()` computes `zone.style.right = viewport.width - boundary.right + 'px'`, placing the orbital cluster exactly at the chat/preview divider rather than at the viewport edge.
+
+**Settings persistence:** `localStorage._acnv10` stores `{ mode, natural }`. Survives page refreshes and SPA navigation.
+
+**Defensive injection guards:**
+- `orbInjectCSS()` checks `document.getElementById('acn-style')` and returns early if already present — prevents CSS duplication on SPA re-inject cycles where `injectOrbital()` is called again on route change
+- `injectOrbital()` runs `document.querySelectorAll('.acn-panel').forEach(p => p.remove())` before building new panels — cleans up orphaned panels from a previous injection cycle that may have been disconnected from the zone but not garbage collected
+
+**Panel implementation status at v10.0:**
+- Navigate: Fully functional — lists detected questions, click scrolls to message
+- Search: Functional — text input filters `_questions[]` by content
+- Settings: Functional — mode selector (show-all / arc / wheel), scroll direction toggle
+- Bookmarks, Summary, Export: Placeholder UI only (non-functional, for future sprints)
+
+---
+
+#### Phase 3 — Contract-Based Test Suite
+
+**Problem with old tests:** The existing `tests/test-all-platforms.js` was written against v9.x internal element IDs (`#ai-nav-button-container`, `#ai-nav-panel`, `.ai-nav-item`). These selectors broke immediately on the v10.0 rewrite. The first v10.0 rewrite of the tests still used internal IDs (`#acn-zone`, `#acn-dot-nav`, `.acn-qi`) — these would break again on v11.0. The root problem was tests coupling to implementation details rather than a stable interface.
+
+**Solution — DOM contract via `data-acn-*` attributes:** The script publishes 9 stable role attributes on key elements. Tests query ONLY these attributes. The UI can be completely rebuilt in any future version — as long as the script assigns the 9 role attributes to the corresponding elements, the test suite passes without modification.
+
+| Attribute | Set on | Behavior |
+|-----------|--------|----------|
+| `data-acn-role="zone"` | `#acn-zone` container | Presence confirms injection |
+| `data-acn-role="styles"` | `<style>` element | CSS injection confirmed |
+| `data-acn-role="nav-trigger"` | Navigate dot | Click target for tests |
+| `data-acn-role="nav-panel"` | Navigate panel | Panel presence confirmed |
+| `data-acn-role="nav-stat"` | Stats element | Also carries `data-acn-count="N"` |
+| `data-acn-role="nav-list"` | Question list container | List structure confirmed |
+| `data-acn-role="nav-item"` | Each question row | Count compared to mock page messages |
+| `data-acn-role="nav-item-text"` | Question display text | Non-empty confirmed |
+| `data-acn-role="panel-close"` | All close buttons | Close behavior tested |
+| `data-acn-version="10.0"` | Zone | Version identification |
+| `data-acn-accent="#hexcolor"` | Zone | Platform theme color confirmed |
+| `data-acn-open="true"` | Open panels | State attribute, removed on close |
+
+**Test structure:** 14 platforms × 12 tests = 168 total. Platform config contains only contract-facing fields: `{ name, mockFile, hostname, pathname, expectedMessages, expectedAccent }`. No internal CSS class names, no `isLeftChat` flag, no implementation-specific fields.
+
+**12 tests per platform:**
+1. Zone exists
+2. Styles element exists
+3. Navigate trigger exists
+4. Navigate panel exists
+5. Accent color matches platform spec
+6. No duplicate zone (count === 1)
+7. Clicking trigger sets `data-acn-open="true"` on panel
+8. `data-acn-count` equals mock page's expected message count
+9. `[data-acn-role="nav-item"]` count equals expected messages
+10. All item texts are non-empty
+11. Clicking an item doesn't throw
+12. Close button removes `data-acn-open`
+
+**Result:** 168/168 tests passing (Chromium).
+
+---
+
 ## [9.6] - 2026-02-22
 
 ### Security — Trusted Types Compliance Refactor

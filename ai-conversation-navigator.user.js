@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v9.6
+// @name         AI Conversation Navigator v10.0
 // @namespace    http://tampermonkey.net/
-// @version      9.6
-// @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Codex, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
+// @version      10.0
+// @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -26,8 +26,6 @@
     'use strict';
 
     // === DUPLICATE EXECUTION GUARD ===
-    // On Linux Firefox, Tampermonkey can fire the script twice or the
-    // MutationObserver can race with initialization. This prevents duplicates.
     if (window._aiNavAlreadyLoaded) {
         console.log('AI Nav: Script already loaded, skipping duplicate execution.');
         return;
@@ -35,18 +33,15 @@
     window._aiNavAlreadyLoaded = true;
 
     // ================================================================
-    // PLATFORMS REGISTRY — Single source of truth for all platform data
+    // PLATFORMS REGISTRY
     // ================================================================
-    // Each entry defines everything about one platform: detection, theme,
-    // icon, layout mode, virtual-scroll flag, and other metadata.
-    // To add a new platform, add ONE entry here — nothing else to touch.
     const PLATFORMS = {
         claude: {
             id: 'claude',
             title: 'Claude',
             match: function (host) { return host.includes('claude.ai'); },
-            theme: { accent: '#d97706', accentHover: '#b45309', accentLight: 'rgba(217, 119, 6, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
-            icon: '\u2733',   // ✳
+            theme: { accent: '#d97706', accentHover: '#b45309', accentLight: 'rgba(217, 119, 6, 0.2)' },
+            icon: '\u2733',
             layout: 'standard',
             virtualScroll: false,
             spa: false,
@@ -56,19 +51,11 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
-            contextWindow: 200000,
-            tokensPerChar: 0.25,
-            contextTracking: true,
-            fetchInterceptEndpoint: '/chat_conversations',
-            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
-                // Claude Chat selectors
                 var messages = document.querySelectorAll('[data-testid="user-human-turn"]');
                 if (messages.length === 0) messages = document.querySelectorAll('[data-testid="user-message"]');
                 if (messages.length === 0) messages = document.querySelectorAll('.font-user-message');
-                // Claude Code fallback: no data-testid attributes exist; user messages
-                // are right-aligned (items-end + ml-auto) with bg-bg-200 bubbles.
                 if (messages.length === 0) {
                     var bubbles = document.querySelectorAll('div.bg-bg-200.rounded-lg');
                     messages = Array.from(bubbles).filter(function (bubble) {
@@ -78,12 +65,13 @@
                 return messages;
             },
         },
+
         chatgpt: {
             id: 'chatgpt',
             title: 'ChatGPT',
             match: function (host) { return host.includes('chatgpt.com') || host.includes('chat.openai.com'); },
-            theme: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)', textColor: '#1a1a1a', toggleBorder: '1px solid #333', numberColor: '#aaa' },
-            icon: '\u23E3',   // ⏣
+            theme: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)' },
+            icon: '\u23E3',
             layout: 'standard',
             virtualScroll: false,
             spa: false,
@@ -93,29 +81,24 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
-            contextWindow: 128000,
-            tokensPerChar: 0.25,
-            contextTracking: true,
-            fetchInterceptEndpoint: null,
-            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
                 var allMessages = document.querySelectorAll('[data-message-author-role]');
                 var messages = Array.from(allMessages).filter(function (msg) {
                     return msg.getAttribute('data-message-author-role') === 'user';
                 });
-                // Codex web fallback: chatgpt.com/codex uses a task/thread-based interface
                 if (messages.length === 0) {
                     messages = document.querySelectorAll('div.self-end.bg-token-bg-tertiary');
                 }
                 return messages;
             },
         },
+
         grok: {
             id: 'grok',
             title: 'Grok',
             match: function (host) { return host.includes('grok.com'); },
-            theme: { accent: '#dc2626', accentHover: '#b91c1c', accentLight: 'rgba(220, 38, 38, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
+            theme: { accent: '#dc2626', accentHover: '#b91c1c', accentLight: 'rgba(220, 38, 38, 0.2)' },
             icon: 'X',
             layout: 'standard',
             virtualScroll: false,
@@ -126,11 +109,6 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
-            contextWindow: 128000,
-            tokensPerChar: 0.25,
-            contextTracking: true,
-            fetchInterceptEndpoint: null,
-            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
                 var allBubbles = document.querySelectorAll('div.message-bubble');
@@ -149,12 +127,13 @@
                 return messages;
             },
         },
+
         gemini: {
             id: 'gemini',
             title: 'Gemini',
             match: function (host) { return host.includes('gemini.google.com'); },
-            theme: { accent: '#4285f4', accentHover: '#3367d6', accentLight: 'rgba(66, 133, 244, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
-            icon: '\u2726',   // ✦
+            theme: { accent: '#4285f4', accentHover: '#3367d6', accentLight: 'rgba(66, 133, 244, 0.2)' },
+            icon: '\u2726',
             layout: 'standard',
             virtualScroll: false,
             spa: true,
@@ -164,11 +143,6 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
-            contextWindow: 1000000,
-            tokensPerChar: 0.25,
-            contextTracking: true,
-            fetchInterceptEndpoint: null,
-            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
                 var messages = document.querySelectorAll('div.query-text');
@@ -179,12 +153,13 @@
                 return messages;
             },
         },
+
         bolt: {
             id: 'bolt',
             title: 'Bolt',
             match: function (host) { return host === 'bolt.new'; },
-            theme: { accent: '#38BDF8', accentHover: '#0EA5E9', accentLight: 'rgba(56, 189, 248, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
-            icon: '\u26A1\uFE0E',  // ⚡ (lightning bolt, text presentation)
+            theme: { accent: '#38BDF8', accentHover: '#0EA5E9', accentLight: 'rgba(56, 189, 248, 0.2)' },
+            icon: '\u26A1\uFE0E',
             layout: 'left-chat',
             virtualScroll: false,
             spa: true,
@@ -194,15 +169,9 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
-            contextWindow: null,
-            tokensPerChar: null,
-            contextTracking: false,
-            fetchInterceptEndpoint: null,
-            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
                 var messages = [];
-                // Primary: data-message-id containers filtered to user messages (self-end)
                 var boltMsgAll = document.querySelectorAll('[data-message-id]');
                 if (boltMsgAll.length > 0) {
                     messages = Array.from(boltMsgAll).filter(function (el) {
@@ -213,7 +182,6 @@
                         return (isSelfEnd || isBoltUserBg) && !isPromptArea && el.textContent.trim().length > 0;
                     });
                 }
-                // Fallback 1: self-end elements with bolt message background
                 if (messages.length === 0) {
                     var boltSelfEnd = document.querySelectorAll('.self-end[class*="bg-bolt-elements"], [class*="bg-bolt-elements-messages-background"]');
                     messages = Array.from(boltSelfEnd).filter(function (el) {
@@ -221,7 +189,6 @@
                         return !isPromptArea && el.textContent.trim().length > 0;
                     });
                 }
-                // Fallback 2: MarkdownContent inside self-end containers
                 if (messages.length === 0) {
                     var boltMarkdown = document.querySelectorAll('[class*="_MarkdownContent_"]');
                     messages = Array.from(boltMarkdown).filter(function (el) {
@@ -230,7 +197,6 @@
                         return userParent && !isPromptArea && el.textContent.trim().length > 0;
                     });
                 }
-                // Fallback 3: bolt.diy fork — right-aligned background bubbles
                 if (messages.length === 0) {
                     var boltCandidates = document.querySelectorAll('[class*="bg-bolt-elements-messages-background"]');
                     if (boltCandidates.length > 0) {
@@ -245,7 +211,6 @@
                         });
                     }
                 }
-                // Fallback 4: right-aligned rounded bubbles inside chat area
                 if (messages.length === 0) {
                     var mlAutoBubbles = document.querySelectorAll('.ml-auto.rounded-lg, .ml-auto.rounded-xl');
                     messages = Array.from(mlAutoBubbles).filter(function (el) {
@@ -255,7 +220,6 @@
                         return !isPromptArea && el.textContent.trim().length > 0;
                     });
                 }
-                // Fallback 5: grid children — assistant is overflow-hidden w-full, user is NOT
                 if (messages.length === 0) {
                     var gridChildren = document.querySelectorAll('.grid.w-full > div');
                     messages = Array.from(gridChildren).filter(function (el) {
@@ -269,12 +233,13 @@
                 return messages;
             },
         },
+
         lovable: {
             id: 'lovable',
             title: 'Lovable',
             match: function (host) { return host.includes('lovable.dev'); },
-            theme: { accent: '#9b87f5', accentHover: '#7c3aed', accentLight: 'rgba(155, 135, 245, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
-            icon: '\u2665',  // ♥ (heart suit)
+            theme: { accent: '#9b87f5', accentHover: '#7c3aed', accentLight: 'rgba(155, 135, 245, 0.2)' },
+            icon: '\u2665',
             layout: 'left-chat',
             virtualScroll: false,
             spa: true,
@@ -284,66 +249,55 @@
             pathGuard: function (path) { return path.includes('/projects/'); },
             initGuards: [],
             retryDelays: [],
-            contextWindow: null,
-            tokensPerChar: null,
-            contextTracking: false,
-            fetchInterceptEndpoint: null,
-            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
                 var messages = [];
-                // Guard: only scan on project pages where the chat exists
-                if (window.location.pathname.includes('/projects/')) {
-                    // Primary: ARIA role="log" container + right-aligned message wrappers
-                    var chatLog = document.querySelector('div[role="log"]');
-                    if (chatLog) {
-                        messages = Array.from(chatLog.querySelectorAll('.justify-end')).filter(function (el) {
+                if (!window.location.pathname.includes('/projects/')) return messages;
+                var chatLog = document.querySelector('div[role="log"]');
+                if (chatLog) {
+                    messages = Array.from(chatLog.querySelectorAll('.justify-end')).filter(function (el) {
+                        return el.textContent.trim().length > 0;
+                    });
+                }
+                if (messages.length === 0) {
+                    var lovableBubbles = document.querySelectorAll('div.bg-neutral-200.rounded-xl, div.bg-neutral-700.rounded-xl');
+                    messages = Array.from(lovableBubbles).filter(function (el) {
+                        return el.closest('.justify-end') || el.classList.contains('ml-auto');
+                    });
+                }
+                if (messages.length === 0) {
+                    var lovableContainer = document.querySelector('div.ChatMessageContainer');
+                    if (lovableContainer) {
+                        messages = Array.from(lovableContainer.querySelectorAll('.justify-end')).filter(function (el) {
                             return el.textContent.trim().length > 0;
                         });
                     }
-                    // Fallback 1: neutral-background bubbles inside right-aligned containers
-                    if (messages.length === 0) {
-                        var lovableBubbles = document.querySelectorAll('div.bg-neutral-200.rounded-xl, div.bg-neutral-700.rounded-xl');
-                        messages = Array.from(lovableBubbles).filter(function (el) {
-                            return el.closest('.justify-end') || el.classList.contains('ml-auto');
+                }
+                if (messages.length === 0) {
+                    messages = document.querySelectorAll('div.self-end[class*="bg-neutral"]');
+                }
+                if (messages.length === 0) {
+                    var lovableMain = document.querySelector('main');
+                    if (lovableMain) {
+                        messages = Array.from(lovableMain.querySelectorAll('div')).filter(function (el) {
+                            var cls = el.className || '';
+                            var isRightAligned = cls.includes('justify-end') || cls.includes('self-end') || cls.includes('ml-auto');
+                            var hasText = el.textContent.trim().length > 5;
+                            var isNotNav = !el.closest('nav') && !el.closest('header');
+                            return isRightAligned && hasText && isNotNav;
                         });
-                    }
-                    // Fallback 2: ChatMessageContainer class
-                    if (messages.length === 0) {
-                        var lovableContainer = document.querySelector('div.ChatMessageContainer');
-                        if (lovableContainer) {
-                            messages = Array.from(lovableContainer.querySelectorAll('.justify-end')).filter(function (el) {
-                                return el.textContent.trim().length > 0;
-                            });
-                        }
-                    }
-                    // Fallback 3: self-end with neutral background
-                    if (messages.length === 0) {
-                        messages = document.querySelectorAll('div.self-end[class*="bg-neutral"]');
-                    }
-                    // Fallback 4: broad scan — right-aligned divs within main
-                    if (messages.length === 0) {
-                        var lovableMain = document.querySelector('main');
-                        if (lovableMain) {
-                            messages = Array.from(lovableMain.querySelectorAll('div')).filter(function (el) {
-                                var cls = el.className || '';
-                                var isRightAligned = cls.includes('justify-end') || cls.includes('self-end') || cls.includes('ml-auto');
-                                var hasText = el.textContent.trim().length > 5;
-                                var isNotNav = !el.closest('nav') && !el.closest('header');
-                                return isRightAligned && hasText && isNotNav;
-                            });
-                        }
                     }
                 }
                 return messages;
             },
         },
+
         replit: {
             id: 'replit',
             title: 'Replit',
             match: function (host) { return host.includes('replit.com'); },
-            theme: { accent: '#F26522', accentHover: '#D4541A', accentLight: 'rgba(242, 101, 34, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
-            icon: '\u2815',   // ⠕ (Braille dots-135, Replit prompt logo)
+            theme: { accent: '#F26522', accentHover: '#D4541A', accentLight: 'rgba(242, 101, 34, 0.2)' },
+            icon: '\u2815',
             layout: 'left-chat',
             virtualScroll: false,
             spa: true,
@@ -353,25 +307,16 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
-            contextWindow: null,
-            tokensPerChar: null,
-            contextTracking: false,
-            fetchInterceptEndpoint: null,
-            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
-                // Primary: data-cy="user-message" — Replit's Cypress test attribute (one per message)
                 var messages = document.querySelectorAll('[data-cy="user-message"]');
-                // Secondary: data-event-type
                 if (messages.length === 0) messages = document.querySelectorAll('[data-event-type="user-message"]');
-                // Fallback 1: EventRenderer class with userMessage
                 if (messages.length === 0) {
                     var replitEventRenderers = document.querySelectorAll('[class*="EventRenderer"][class*="userMessage"]');
                     messages = Array.from(replitEventRenderers).filter(function (el) {
                         return el.textContent.trim().length > 0;
                     });
                 }
-                // Fallback 2: CSS module pattern — deduplicate nested matches
                 if (messages.length === 0) {
                     var replitUserEls = document.querySelectorAll('[class*="userMessage"], [class*="UserMessage"]');
                     var replitFiltered = Array.from(replitUserEls).filter(function (el) {
@@ -393,7 +338,6 @@
                     }
                     if (replitTextDeduped.length > 0) messages = replitTextDeduped;
                 }
-                // Fallback 3: ARIA role="log" container + structural analysis
                 if (messages.length === 0) {
                     var replitLog = document.querySelector('[role="log"]');
                     if (!replitLog) replitLog = document.querySelector('[role="list"][aria-label*="chat" i]');
@@ -405,7 +349,8 @@
                             var style = window.getComputedStyle(el);
                             var isRightAligned = cls.includes('end') || cls.includes('right') ||
                                 style.marginLeft === 'auto' || style.alignSelf === 'flex-end';
-                            var hasDistinctBg = style.backgroundColor && style.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
+                            var hasDistinctBg = style.backgroundColor &&
+                                style.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
                                 style.backgroundColor !== 'transparent';
                             return (isRightAligned || hasDistinctBg) && el.textContent.trim().length > 0;
                         });
@@ -414,12 +359,13 @@
                 return messages;
             },
         },
+
         v0: {
             id: 'v0',
             title: 'V0',
             match: function (host) { return host.includes('v0.app'); },
-            theme: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)', textColor: '#1a1a1a', toggleBorder: 'none', numberColor: null },
-            icon: '\u25BD',      // ▽ (inverted triangle, Vercel logo shape)
+            theme: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)' },
+            icon: '\u25BD',
             layout: 'left-chat',
             virtualScroll: false,
             spa: true,
@@ -429,15 +375,9 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
-            contextWindow: null,
-            tokensPerChar: null,
-            contextTracking: false,
-            fetchInterceptEndpoint: null,
-            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
                 var messages = [];
-                // Primary: data-testid="message" filtered by origin-right (user = right-aligned)
                 var v0MsgAll = document.querySelectorAll('[data-testid="message"]');
                 if (v0MsgAll.length > 0) {
                     messages = Array.from(v0MsgAll).filter(function (el) {
@@ -445,21 +385,18 @@
                         return cls.includes('origin-right') && cls.includes('items-end');
                     });
                 }
-                // Fallback 1: data-testid="message" with only items-end
                 if (messages.length === 0 && v0MsgAll.length > 0) {
                     messages = Array.from(v0MsgAll).filter(function (el) {
                         var cls = el.className || '';
                         return cls.includes('items-end') && !cls.includes('items-start');
                     });
                 }
-                // Fallback 2: message bubble with bg-v0-gray-200
                 if (messages.length === 0) {
                     var v0Bubbles = document.querySelectorAll('[class*="bg-v0-gray-200"][class*="message-bubble"], [class*="group/message-bubble"]');
                     messages = Array.from(v0Bubbles).filter(function (el) {
                         return el.textContent.trim().length > 0;
                     });
                 }
-                // Fallback 3: role="listitem" containers filtered by right-alignment
                 if (messages.length === 0) {
                     var v0ListItems = document.querySelectorAll('[role="listitem"]');
                     if (v0ListItems.length > 0) {
@@ -473,12 +410,13 @@
                 return messages;
             },
         },
+
         base44: {
             id: 'base44',
             title: 'Base44',
             match: function (host) { return host.includes('base44.com'); },
-            theme: { accent: '#6366f1', accentHover: '#4f46e5', accentLight: 'rgba(99, 102, 241, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
-            icon: '\u2B22',  // ⬢ (hexagon)
+            theme: { accent: '#6366f1', accentHover: '#4f46e5', accentLight: 'rgba(99, 102, 241, 0.2)' },
+            icon: '\u2B22',
             layout: 'left-chat',
             virtualScroll: false,
             spa: true,
@@ -488,11 +426,6 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
-            contextWindow: null,
-            tokensPerChar: null,
-            contextTracking: false,
-            fetchInterceptEndpoint: null,
-            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
                 var base44Messages = document.querySelectorAll('[id^="message-"]');
@@ -505,12 +438,13 @@
                 return messages;
             },
         },
+
         emergent: {
             id: 'emergent',
             title: 'Emergent',
             match: function (host) { return host.includes('emergent.sh'); },
-            theme: { accent: '#10b981', accentHover: '#059669', accentLight: 'rgba(16, 185, 129, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
-            icon: 'e',     // lowercase e (Emergent brand initial)
+            theme: { accent: '#10b981', accentHover: '#059669', accentLight: 'rgba(16, 185, 129, 0.2)' },
+            icon: 'e',
             layout: 'left-chat',
             virtualScroll: true,
             spa: true,
@@ -520,15 +454,9 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
-            contextWindow: null,
-            tokensPerChar: null,
-            contextTracking: false,
-            fetchInterceptEndpoint: null,
-            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: function (msg) { return msg.querySelector('.prose'); },
             getUserMessages: function () {
                 var messages = document.querySelectorAll('[data-testid^="user-message"]');
-                // Deduplicate: keep only innermost matches
                 if (messages.length > 0) {
                     var emergentArr = Array.from(messages);
                     var emergentDeduped = emergentArr.filter(function (el) {
@@ -538,19 +466,19 @@
                     });
                     if (emergentDeduped.length > 0) messages = emergentDeduped;
                 }
-                // Fallback: id starts with "user-task"
                 if (messages.length === 0) {
                     messages = document.querySelectorAll('[id^="user-task"]');
                 }
                 return messages;
             },
         },
+
         perplexity: {
             id: 'perplexity',
             title: 'Perplexity',
             match: function (host) { return host.includes('perplexity.ai'); },
-            theme: { accent: '#20b8cd', accentHover: '#1a9aab', accentLight: 'rgba(32, 184, 205, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
-            icon: '\u2733\uFE0E', // ✳︎ (eight spoked asterisk, text presentation — same as Claude)
+            theme: { accent: '#20b8cd', accentHover: '#1a9aab', accentLight: 'rgba(32, 184, 205, 0.2)' },
+            icon: '\u2733\uFE0E',
             layout: 'standard',
             virtualScroll: false,
             spa: true,
@@ -560,11 +488,6 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
-            contextWindow: null,
-            tokensPerChar: null,
-            contextTracking: false,
-            fetchInterceptEndpoint: null,
-            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
                 var perplexityQueries = document.querySelectorAll('.group\\/query');
@@ -577,20 +500,17 @@
                 return messages;
             },
         },
+
         firebase_studio: {
             id: 'firebase_studio',
             title: 'Firebase Studio',
             match: function (host) {
                 if (host.includes('studio.firebase.google.com')) return true;
-                // Firebase Studio renders chat in a cross-origin iframe on cloudworkstations.dev.
-                // The actual workspace (with chat) uses a port-prefixed hostname like
-                // "6000-firebase-studio-...cloudworkstations.dev". Match any hostname containing
-                // both "firebase-studio-" and "cloudworkstations.dev".
                 if (host.includes('cloudworkstations.dev') && host.includes('firebase-studio-')) return true;
                 return false;
             },
-            theme: { accent: '#FFA611', accentHover: '#F5820D', accentLight: 'rgba(255, 166, 17, 0.2)', textColor: 'white', toggleBorder: 'none', numberColor: null },
-            icon: '\u2726', // ✦ (same as Gemini — Firebase Studio runs Gemini)
+            theme: { accent: '#FFA611', accentHover: '#F5820D', accentLight: 'rgba(255, 166, 17, 0.2)' },
+            icon: '\u2726',
             layout: 'standard',
             virtualScroll: false,
             spa: true,
@@ -599,9 +519,6 @@
             boundaryStrategy: null,
             pathGuard: null,
             initGuards: [
-                // Firebase Studio: the top frame (studio.firebase.google.com) is just a shell with ~157 elements.
-                // The actual chat lives in a cross-origin iframe (firebase-studio-*.cloudworkstations.dev).
-                // Skip the top frame — the script will also run inside the iframe via @include.
                 {
                     check: function () {
                         return window === window.top &&
@@ -609,9 +526,6 @@
                     },
                     msg: 'Firebase Studio top frame (shell), deferring to iframe instance.'
                 },
-                // Firebase Studio: multiple iframes on cloudworkstations.dev match our @include rule
-                // (workspace, app preview, /env/msg endpoint). Only the workspace has the chat UI,
-                // and its path always starts with /capra/. Skip all other cloudworkstations.dev iframes.
                 {
                     check: function () {
                         return window.location.hostname.includes('cloudworkstations.dev') &&
@@ -621,26 +535,18 @@
                 }
             ],
             retryDelays: [5000, 10000, 20000],
-            contextWindow: null,
-            tokensPerChar: null,
-            contextTracking: false,
-            fetchInterceptEndpoint: null,
-            textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
-                // Primary: elements with both _chatMessage_ and _isUser_ in class
                 var firebaseMessages = document.querySelectorAll('[class*="_chatMessage_"][class*="_isUser_"]');
                 var messages = Array.from(firebaseMessages).filter(function (el) {
                     return el.textContent.trim().length > 0;
                 });
-                // Fallback 1: _isUser_ alone
                 if (messages.length === 0) {
                     firebaseMessages = document.querySelectorAll('[class*="_isUser_"]');
                     messages = Array.from(firebaseMessages).filter(function (el) {
                         return el.textContent.trim().length > 0;
                     });
                 }
-                // Fallback 2: _chatMessage_ class (all messages), then filter by _isUser_
                 if (messages.length === 0) {
                     var allFirebaseMessages = document.querySelectorAll('[class*="_chatMessage_"]');
                     messages = Array.from(allFirebaseMessages).filter(function (el) {
@@ -649,10 +555,12 @@
                 }
                 return messages;
             },
-        }
+        },
     };
 
-    // --- Platform detection ---
+    // ================================================================
+    // PLATFORM DETECTION
+    // ================================================================
     function detectPlatform() {
         var hostname = window.location.hostname;
         var keys = Object.keys(PLATFORMS);
@@ -668,7 +576,6 @@
         return;
     }
 
-    // --- Init guards (e.g. Firebase top-frame skip, non-workspace iframe skip) ---
     for (var gi = 0; gi < platform.initGuards.length; gi++) {
         if (platform.initGuards[gi].check()) {
             console.log('AI Conversation Navigator: ' + platform.initGuards[gi].msg);
@@ -676,440 +583,18 @@
         }
     }
 
-    // === BRIDGE VARIABLES ===
-    // Map new registry fields → old variable names so all downstream code works unchanged.
-    const theme = platform.theme;
-    const siteIcon = platform.icon;
-    const siteTitle = platform.title;
-    const isLeftChat = platform.layout === 'left-chat';
-    const isVirtualScroll = platform.virtualScroll;
-
-    // Inject styles — button container and panel differ for left-chat vs standard platforms
-    const toggleStyles = isLeftChat ? `
-        /* === GHOST NOTCH V1 BUTTON CONTAINER (left-chat platforms) === */
-        #ai-nav-button-container {
-            position: fixed !important;
-            left: auto !important;
-            right: 65%;
-            top: 50% !important;
-            transform: translateY(-50%) !important;
-            z-index: 2147483647 !important;
-            display: flex !important;
-            flex-direction: column !important;
-            gap: 2px !important;
-            pointer-events: none !important;
-            transition: right 0.3s ease !important;
-        }
-        #ai-nav-button-container.open {
-            pointer-events: auto !important;
-        }
-        .ai-nav-floating-btn {
-            background: ${theme.accent} !important;
-            color: ${theme.textColor} !important;
-            border: none !important;
-            cursor: pointer !important;
-            border-radius: 6px 0 0 6px !important;
-            box-shadow: -2px 0 8px rgba(0,0,0,0.3) !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            width: 14px !important;
-            height: 52px !important;
-            padding: 0 !important;
-            font-weight: 800 !important;
-            font-size: 20px !important;
-            overflow: hidden !important;
-            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease, border-radius 0.3s ease, right 0.3s ease !important;
-            white-space: nowrap !important;
-            visibility: visible !important;
-            opacity: 0 !important;
-            pointer-events: auto !important;
-            position: relative !important;
-        }
-        .ai-nav-floating-btn::after {
-            content: '' !important;
-            position: absolute !important;
-            left: 0 !important;
-            right: 0 !important;
-            bottom: -2px !important;
-            height: 2px !important;
-            background: transparent !important;
-            pointer-events: auto !important;
-        }
-        .ai-nav-floating-btn .ai-nav-icon {
-            font-size: 14px !important;
-            opacity: 0 !important;
-            transform: scale(0.6) !important;
-            transition: opacity 0.25s ease 0.05s, transform 0.25s ease 0.05s !important;
-        }
-        .ai-nav-floating-btn .ai-nav-expand-text {
-            display: none !important;
-        }
-        #ai-nav-button-container.ai-nav-positioned .ai-nav-floating-btn {
-            opacity: 0.65 !important;
-            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s ease, border-radius 0.3s ease, right 0.3s ease !important;
-        }
-        #ai-nav-button-container.ai-nav-positioned .ai-nav-floating-btn:hover,
-        .ai-nav-floating-btn:hover,
-        #ai-nav-button-container.open:hover .ai-nav-floating-btn {
-            width: 32px !important;
-            height: 40px !important;
-            opacity: 1 !important;
-            border-radius: 6px 0 0 6px !important;
-        }
-        #ai-nav-button-container.ai-nav-positioned .ai-nav-floating-btn:hover .ai-nav-icon,
-        .ai-nav-floating-btn:hover .ai-nav-icon,
-        #ai-nav-button-container.open:hover .ai-nav-floating-btn .ai-nav-icon {
-            opacity: 1 !important;
-            transform: scale(1) !important;
-        }
-        .ai-nav-floating-btn.open {
-            opacity: 1 !important;
-            background: ${theme.accentHover} !important;
-        }
-    ` : `
-        /* === STANDARD HOVER-EXPAND BUTTON CONTAINER (right-edge platforms) === */
-        #ai-nav-button-container {
-            position: fixed !important;
-            right: 0 !important;
-            top: 50% !important;
-            transform: translateY(-50%) !important;
-            z-index: 2147483647 !important;
-            display: flex !important;
-            flex-direction: column !important;
-            gap: 2px !important;
-            pointer-events: none !important;
-            transition: right 0.3s ease !important;
-        }
-        #ai-nav-button-container.open {
-            right: 320px !important;
-            pointer-events: auto !important;
-        }
-        .ai-nav-floating-btn {
-            background: ${theme.accent} !important;
-            color: ${theme.textColor} !important;
-            border: ${theme.toggleBorder} !important;
-            cursor: pointer !important;
-            border-radius: 8px 0 0 8px !important;
-            box-shadow: -2px 0 10px rgba(0,0,0,0.3) !important;
-            display: flex !important;
-            align-items: center !important;
-            gap: 0px !important;
-            padding: 12px 12px !important;
-            font-weight: 800 !important;
-            font-size: 20px !important;
-            overflow: hidden !important;
-            transition: all 0.25s ease !important;
-            white-space: nowrap !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-            pointer-events: auto !important;
-            align-self: flex-end !important;
-            box-sizing: border-box !important;
-            width: 48px !important;
-            position: relative !important;
-        }
-        .ai-nav-floating-btn::after {
-            content: '' !important;
-            position: absolute !important;
-            left: 0 !important;
-            right: 0 !important;
-            bottom: -2px !important;
-            height: 2px !important;
-            background: transparent !important;
-            pointer-events: auto !important;
-        }
-        .ai-nav-floating-btn .ai-nav-icon {
-            display: inline-flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            width: 24px !important;
-            height: 24px !important;
-            flex-shrink: 0 !important;
-        }
-        .ai-nav-floating-btn:hover,
-        #ai-nav-button-container.open:hover .ai-nav-floating-btn {
-            padding-right: 16px !important;
-            width: 127px !important;
-        }
-        .ai-nav-floating-btn .ai-nav-expand-text {
-            width: 0 !important;
-            opacity: 0 !important;
-            overflow: hidden !important;
-            transition: width 0.25s ease, opacity 0.2s ease, margin-left 0.25s ease !important;
-            font-size: 13px !important;
-            font-weight: 500 !important;
-            margin-left: 0 !important;
-            display: inline-block !important;
-            text-align: left !important;
-            white-space: nowrap !important;
-        }
-        .ai-nav-floating-btn:hover .ai-nav-expand-text,
-        #ai-nav-button-container.open:hover .ai-nav-floating-btn .ai-nav-expand-text {
-            width: 65px !important;
-            opacity: 1 !important;
-            margin-left: 10px !important;
-        }
-        .ai-nav-floating-btn.open {
-            background: ${theme.accentHover} !important;
-        }
-    `;
-
-    const panelStyles = isLeftChat ? `
-        /* === NAVIGATION PANEL (left-chat: anchored at boundary, reveals leftward) === */
-        #ai-nav-panel, #ai-context-panel, #ai-search-panel {
-            position: fixed !important;
-            left: auto !important;
-            right: 65%;
-            top: 0 !important;
-            width: 320px !important;
-            height: 100vh !important;
-            background: #1a1a1a !important;
-            border-right: 1px solid #333 !important;
-            border-left: none !important;
-            z-index: 2147483646 !important;
-            clip-path: inset(0 0 0 100%) !important;
-            transition: clip-path 0.3s ease !important;
-            display: flex !important;
-            flex-direction: column !important;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-            pointer-events: none !important;
-        }
-        #ai-nav-panel.open, #ai-context-panel.open, #ai-search-panel.open {
-            clip-path: inset(0 0 0 0) !important;
-            pointer-events: auto !important;
-        }
-    ` : `
-        /* === NAVIGATION PANEL (standard: slides from right) === */
-        #ai-nav-panel, #ai-context-panel, #ai-search-panel {
-            position: fixed !important;
-            right: -320px !important;
-            top: 0 !important;
-            width: 320px !important;
-            height: 100vh !important;
-            background: #1a1a1a !important;
-            border-left: 1px solid #333 !important;
-            z-index: 2147483646 !important;
-            transition: right 0.3s ease !important;
-            display: flex !important;
-            flex-direction: column !important;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-            pointer-events: auto !important;
-        }
-        #ai-nav-panel.open, #ai-context-panel.open, #ai-search-panel.open {
-            right: 0 !important;
-        }
-    `;
-
-    const styles = toggleStyles + panelStyles + `
-        #ai-nav-header {
-            padding: 16px;
-            background: #252525;
-            border-bottom: 1px solid #333;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        #ai-nav-header h3 {
-            margin: 0;
-            color: #fff;
-            font-size: 14px;
-            font-weight: 600;
-        }
-        #ai-nav-refresh {
-            background: #333;
-            border: none;
-            color: #aaa;
-            padding: 6px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-        }
-        #ai-nav-refresh:hover {
-            background: #444;
-            color: #fff;
-        }
-
-        #ai-nav-stats {
-            padding: 12px 16px;
-            background: #202020;
-            border-bottom: 1px solid #333;
-            color: #888;
-            font-size: 12px;
-        }
-
-        #ai-nav-context {
-            padding: 16px;
-            font-size: 13px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            line-height: 1.5;
-            min-height: 0;
-            transition: opacity 0.3s;
-        }
-        #ai-nav-context:empty {
-            display: none;
-            padding: 0;
-            border: none;
-        }
-        
-        #ai-search-input {
-            width: 100%;
-            padding: 8px 12px;
-            background: #333;
-            border: 1px solid #444;
-            color: #fff;
-            border-radius: 6px;
-            font-size: 14px;
-            box-sizing: border-box;
-            outline: none;
-            transition: border-color 0.2s;
-        }
-        #ai-search-input:focus {
-            border-color: ${theme.accent};
-        }
-        .ai-nav-search-highlight {
-            background-color: rgba(255, 255, 0, 0.3);
-            color: #fff;
-            font-weight: bold;
-            padding: 0 2px;
-            border-radius: 2px;
-        }
-        .ai-search-item {
-            padding: 12px 16px;
-            border-bottom: 1px solid #333;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .ai-search-item:hover {
-            background: #2a2a2a;
-        }
-        .ai-search-item.user {
-            border-left: 3px solid ${theme.accent};
-        }
-        .ai-search-item.agent {
-            border-left: 3px solid #555;
-        }
-        .ai-search-item-role {
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 6px;
-            color: #888;
-        }
-        .ai-search-item.user .ai-search-item-role {
-            color: ${theme.accent};
-        }
-        .ai-search-item-text {
-            font-size: 13px;
-            color: #ccc;
-            line-height: 1.5;
-            word-wrap: break-word;
-        }
-        #ai-search-empty {
-            padding: 24px;
-            text-align: center;
-            color: #777;
-            font-size: 13px;
-            font-style: italic;
-        }
-        .ai-nav-context-warning {
-            margin-top: 16px;
-            padding: 12px;
-            background: rgba(234, 179, 8, 0.1);
-            border: 1px solid rgba(234, 179, 8, 0.3);
-            border-radius: 6px;
-            color: #eab308;
-            font-size: 12px;
-            line-height: 1.5;
-        }
-
-        #ai-nav-list {
-            flex: 1;
-            overflow-y: auto;
-            padding: 8px;
-        }
-
-        .ai-nav-item {
-            padding: 12px;
-            margin-bottom: 6px;
-            background: #252525;
-            border-radius: 8px;
-            cursor: pointer;
-            border-left: 3px solid ${theme.accent};
-            transition: all 0.15s ease;
-        }
-        .ai-nav-item:hover {
-            background: #303030;
-            border-left-color: ${theme.accentHover};
-        }
-
-        .ai-nav-number {
-            color: ${theme.numberColor || theme.accent};
-            font-size: 11px;
-            font-weight: 600;
-            margin-bottom: 4px;
-        }
-
-        .ai-nav-summary {
-            color: #e5e5e5;
-            font-size: 13px;
-            line-height: 1.4;
-            display: -webkit-box;
-            -webkit-line-clamp: 3;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-        }
-
-        .ai-nav-meta {
-            color: #666;
-            font-size: 11px;
-            margin-top: 6px;
-        }
-
-        #ai-nav-empty {
-            color: #666;
-            text-align: center;
-            padding: 40px 20px;
-            font-size: 13px;
-        }
-
-        /* Scrollbar styling */
-        #ai-nav-list::-webkit-scrollbar { width: 6px; }
-        #ai-nav-list::-webkit-scrollbar-track { background: #1a1a1a; }
-        #ai-nav-list::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
-    `;
-
-    // Add styles to page
-    const styleEl = document.createElement('style');
-    styleEl.id = 'ai-nav-style';
-    styleEl.textContent = styles;
-    document.head.appendChild(styleEl);
-
-    // --- State ---
-    let isNavOpen = false;
-    let isContextOpen = false;
-    let isSearchOpen = false;
-    let scanInterval = null;
-    var _interceptedTokens = {
-        inputTokens: 0,
-        outputTokens: 0,
-        lastUpdated: 0,
-        available: false
-    };
-    var _fetchInterceptorInstalled = false;
+    var isLeftChat = platform.layout === 'left-chat';
+    var isVirtualScroll = platform.virtualScroll;
 
     // ============================================================
-    // DOM CREATION HELPERS — No innerHTML anywhere (Trusted Types)
+    // DOM CREATION HELPER — no innerHTML (Trusted Types safe)
     // ============================================================
-
     function createElement(tag, attrs, children) {
-        const el = document.createElement(tag);
+        var el = document.createElement(tag);
         if (attrs) {
-            for (const [key, value] of Object.entries(attrs)) {
+            var keys = Object.keys(attrs);
+            for (var i = 0; i < keys.length; i++) {
+                var key = keys[i], value = attrs[key];
                 if (key === 'className') {
                     el.className = value;
                 } else if (key === 'textContent') {
@@ -1123,7 +608,8 @@
         }
         if (children) {
             if (!Array.isArray(children)) children = [children];
-            for (const child of children) {
+            for (var j = 0; j < children.length; j++) {
+                var child = children[j];
                 if (typeof child === 'string') {
                     el.appendChild(document.createTextNode(child));
                 } else if (child) {
@@ -1134,21 +620,16 @@
         return el;
     }
 
+    // ============================================================
+    // CHAT BOUNDARY DETECTION — left-chat platforms only
+    // ============================================================
     function _walkUpToChatContainer(startEl) {
         var el = startEl;
         while (el && el !== document.body) {
             var rect = el.getBoundingClientRect();
-            // Chat panel: reasonable width (200px - 65% of viewport), and tall (≥40% viewport).
-            // It can be either on the left (ChatGPT) or on the right (Bolt/Lovable).
             if (rect.width > 200 && rect.width < window.innerWidth * 0.65 &&
                 rect.height > window.innerHeight * 0.4) {
-                // If the panel is on the right side (app builders), the boundary is its LEFT edge
-                // If the panel is on the left side (standard chats), the boundary is its RIGHT edge
-                if (rect.left > window.innerWidth * 0.4) {
-                    return rect.left; // App builder: boundary is the left border of the right-sidebar chat
-                } else {
-                    return rect.right; // Standard: boundary is the right border of the left-sidebar chat
-                }
+                return rect.left > window.innerWidth * 0.4 ? rect.left : rect.right;
             }
             el = el.parentElement;
         }
@@ -1157,26 +638,19 @@
 
     function getChatBoundaryX() {
         if (!isLeftChat) return null;
+        if (platform.pathGuard && !platform.pathGuard(window.location.pathname)) return null;
 
-        // Path guard: some platforms only show chat on specific pages (e.g. Lovable → /projects/)
-        if (platform.pathGuard && !platform.pathGuard(window.location.pathname)) {
-            return null;
-        }
-
-        // Virtuoso virtual scroller: The walk-up approach fails because parent containers use
-        // absolute inset-0 which spans full viewport width. Find the virtuoso scroller directly —
-        // its right edge IS the chat boundary.
         if (platform.boundaryStrategy === 'virtuoso') {
-            var virtuosoScroller = document.querySelector('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller="true"]');
-            if (virtuosoScroller) {
-                var vsRect = virtuosoScroller.getBoundingClientRect();
-                if (vsRect.width > 200 && vsRect.width < window.innerWidth * 0.75 && vsRect.height > window.innerHeight * 0.3) {
+            var vs = document.querySelector('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller="true"]');
+            if (vs) {
+                var vsRect = vs.getBoundingClientRect();
+                if (vsRect.width > 200 && vsRect.width < window.innerWidth * 0.75 &&
+                    vsRect.height > window.innerHeight * 0.3) {
                     return vsRect.right;
                 }
             }
         }
 
-        // Strategy 1: Find chat input and walk up to chat container
         var inputs = document.querySelectorAll(
             'textarea[placeholder*="message" i], textarea[placeholder*="Message"], ' +
             'textarea[placeholder*="Send" i], textarea[placeholder*="Type" i], ' +
@@ -1185,1185 +659,1329 @@
         );
         for (var i = 0; i < inputs.length; i++) {
             var rect = inputs[i].getBoundingClientRect();
-            // Ignore hidden elements or background editors (e.g. Bolt's CodeMirror at x=1590)
             if (rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.left < window.innerWidth) {
-                var boundary = _walkUpToChatContainer(inputs[i]);
-                if (boundary) return boundary;
+                var b = _walkUpToChatContainer(inputs[i]);
+                if (b) return b;
             }
         }
 
-        // Strategy 2: Find a known message element (platform-specific) and walk up
-        var sel = platform.boundarySelectors;
-        if (sel) {
-            var msgEls = document.querySelectorAll(sel);
+        if (platform.boundarySelectors) {
+            var msgEls = document.querySelectorAll(platform.boundarySelectors);
             for (var j = 0; j < msgEls.length; j++) {
-                var msgRect = msgEls[j].getBoundingClientRect();
-                if (msgRect.width > 0 && msgRect.height > 0 && msgRect.right > 0 && msgRect.left < window.innerWidth) {
-                    var boundary2 = _walkUpToChatContainer(msgEls[j]);
-                    if (boundary2) return boundary2;
+                var mRect = msgEls[j].getBoundingClientRect();
+                if (mRect.width > 0 && mRect.height > 0 && mRect.right > 0 && mRect.left < window.innerWidth) {
+                    var b2 = _walkUpToChatContainer(msgEls[j]);
+                    if (b2) return b2;
                 }
             }
         }
 
-        // Strategy 3: Find the right-side preview panel (iframe) — its left edge is the boundary
         var iframes = document.querySelectorAll('iframe');
-        for (var i = 0; i < iframes.length; i++) {
-            var rect = iframes[i].getBoundingClientRect();
-            // Right-side preview panel: left edge in middle portion, tall, reasonably wide
-            if (rect.left > window.innerWidth * 0.25 && rect.left < window.innerWidth * 0.75 &&
-                rect.height > window.innerHeight * 0.3 && rect.width > window.innerWidth * 0.2) {
-                return rect.left;
+        for (var k = 0; k < iframes.length; k++) {
+            var iRect = iframes[k].getBoundingClientRect();
+            if (iRect.left > window.innerWidth * 0.25 && iRect.left < window.innerWidth * 0.75 &&
+                iRect.height > window.innerHeight * 0.3 && iRect.width > window.innerWidth * 0.2) {
+                return iRect.left;
             }
         }
 
-        // No chat panel detected — return null to hide the button
-        // (prevents button from appearing on home/dashboard pages)
         return null;
     }
 
-    // --- Position toggle button AND panel at the chat boundary ---
     var _lastBoundaryX = null;
     var _boundaryDetected = false;
-    var _fadeTimer = null;
+
     function updateLeftChatPositions() {
         if (!isLeftChat) return;
 
         var boundaryX = getChatBoundaryX();
-        var container = document.getElementById('ai-nav-button-container');
-        var panel = document.getElementById('ai-nav-panel');
-        var contextPanel = document.getElementById('ai-context-panel');
-        var searchPanel = document.getElementById('ai-search-panel');
-        var anyOpen = isNavOpen;
-        if (typeof isContextOpen !== 'undefined') anyOpen = anyOpen || isContextOpen;
-        if (typeof isSearchOpen !== 'undefined') anyOpen = anyOpen || isSearchOpen;
 
-        // No chat panel detected → hide and reset all state
-        // But never hide while panel is actively open (user is interacting)
         if (!boundaryX) {
-            if (anyOpen) return;
-            if (container) container.style.display = 'none';
-            if (panel) panel.style.display = 'none';
-            if (contextPanel) contextPanel.style.display = 'none';
-            if (searchPanel) searchPanel.style.display = 'none';
             _lastBoundaryX = null;
-            if (_boundaryDetected) {
-                _boundaryDetected = false;
-                if (_fadeTimer) { clearTimeout(_fadeTimer); _fadeTimer = null; }
-                if (container) container.classList.remove('ai-nav-positioned');
-            }
+            _boundaryDetected = false;
+            orbApplyZonePosition();
             return;
         }
 
-        // Emergent has a thick scrollbar at the chat boundary — offset toggle left
-        // so it doesn't overlap. Panel stays flush with the boundary.
-        var toggleScrollbarOffset = platform.scrollbarOffset || 0;
-
-        // Already confirmed — just update position smoothly, never hide
         if (_boundaryDetected) {
-            // Safety: ensure container always has positioned class (DOM guardian may recreate it)
-            if (container && !container.classList.contains('ai-nav-positioned') && !anyOpen) {
-                container.classList.add('ai-nav-positioned');
-            }
             if (!_lastBoundaryX || Math.abs(boundaryX - _lastBoundaryX) >= 3) {
                 _lastBoundaryX = boundaryX;
-                var panelRight = (window.innerWidth - boundaryX) + 'px';
-                var toggleRight = (window.innerWidth - boundaryX + toggleScrollbarOffset) + 'px';
-                if (anyOpen) toggleRight = (window.innerWidth - boundaryX + toggleScrollbarOffset + 320) + 'px';
-
-                if (panel) panel.style.right = panelRight;
-                if (contextPanel) contextPanel.style.right = panelRight;
-                if (searchPanel) searchPanel.style.right = panelRight;
-                if (container) container.style.right = toggleRight;
+                orbApplyZonePosition();
             }
             return;
         }
 
-        // Not yet confirmed — require two consecutive stable polls before showing
         if (_lastBoundaryX && Math.abs(boundaryX - _lastBoundaryX) < 3) {
-            // Stable! Show and fade in
             _boundaryDetected = true;
-            if (container) container.style.display = '';
-            if (panel) panel.style.display = '';
-            if (contextPanel) contextPanel.style.display = '';
-            if (searchPanel) searchPanel.style.display = '';
-            if (container) {
-                _fadeTimer = setTimeout(function () {
-                    _fadeTimer = null;
-                    container.classList.add('ai-nav-positioned');
-                }, 300);
-            }
+            _lastBoundaryX = boundaryX;
+            orbApplyZonePosition();
             return;
         }
 
-        // First detection or position still settling — store and position invisibly
         _lastBoundaryX = boundaryX;
-        var panelRight = (window.innerWidth - boundaryX) + 'px';
-        var toggleRight = (window.innerWidth - boundaryX + toggleScrollbarOffset) + 'px';
-        if (anyOpen) toggleRight = (window.innerWidth - boundaryX + toggleScrollbarOffset + 320) + 'px';
-
-        if (panel) panel.style.right = panelRight;
-        if (contextPanel) contextPanel.style.right = panelRight;
-        if (searchPanel) searchPanel.style.right = panelRight;
-        if (container) container.style.right = toggleRight;
     }
 
-    // --- Create button container (holds multiple floating buttons) ---
-    function createButtonContainer() {
-        var container = createElement('div', { id: 'ai-nav-button-container' });
+    // ============================================================
+    // QUESTION DETECTION ENGINE
+    // ============================================================
+    function getUserMessages() {
+        return platform.getUserMessages();
+    }
 
-        var navBtn, ctxBtn, searchBtn;
-        if (isLeftChat) {
-            navBtn = createElement('button', { id: 'ai-nav-toggle', className: 'ai-nav-floating-btn', onClick: handleNavToggleClick }, [
-                createElement('span', { className: 'ai-nav-icon', textContent: siteIcon })
-            ]);
-            ctxBtn = createElement('button', { id: 'ai-context-toggle', className: 'ai-nav-floating-btn', onClick: handleContextToggleClick }, [
-                createElement('span', { className: 'ai-nav-icon', textContent: '\uD83D\uDCCA' })
-            ]);
-            searchBtn = createElement('button', { id: 'ai-search-toggle', className: 'ai-nav-floating-btn', onClick: handleSearchToggleClick }, [
-                createElement('span', { className: 'ai-nav-icon', textContent: '\uD83D\uDD0D' })
-            ]);
+    function generateSummary(text) {
+        var summary = text.trim();
+        summary = summary.replace(/```[\s\S]*?```/g, '[code]');
+        var questionMatch = summary.match(/^[^.!?]*\?/);
+        if (questionMatch && questionMatch[0].length > 10) {
+            return questionMatch[0].trim();
+        }
+        var firstSentence = summary.match(/^[^.!?\n]+[.!?]?/);
+        if (firstSentence) summary = firstSentence[0];
+        if (summary.length > 120) summary = summary.substring(0, 117) + '...';
+        return summary || text.substring(0, 100) + '...';
+    }
+
+    // Detected questions — consumed by Navigate and Search panels
+    var _questions = []; // [{ element, text, summary, vsIndex? }]
+    var _vsAccumulatedKeys = new Set();
+
+    function scanConversation(forceReset) {
+        var messages = getUserMessages();
+
+        if (isVirtualScroll && !forceReset) {
+            if (messages.length === 0) return;
+            var addedNew = false;
+            messages.forEach(function (msg) {
+                var proseEl = platform.textExtractor ? platform.textExtractor(msg) : null;
+                var text = proseEl
+                    ? (proseEl.textContent || '').trim()
+                    : (msg.textContent || msg.innerText || '').trim();
+                text = text.replace(/^You said\s*/i, '');
+                if (!text.trim()) return;
+                var key = text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
+                if (!_vsAccumulatedKeys.has(key)) {
+                    _vsAccumulatedKeys.add(key);
+                    var virtuosoItem = msg.closest('[data-index]');
+                    var vsIndex = virtuosoItem
+                        ? parseInt(virtuosoItem.getAttribute('data-index'), 10)
+                        : _questions.length;
+                    _questions.push({ element: msg, text: text, summary: generateSummary(text), vsIndex: vsIndex });
+                    addedNew = true;
+                }
+            });
+            if (addedNew) {
+                _questions.sort(function (a, b) { return (a.vsIndex || 0) - (b.vsIndex || 0); });
+            }
         } else {
-            navBtn = createElement('button', { id: 'ai-nav-toggle', className: 'ai-nav-floating-btn', onClick: handleNavToggleClick }, [
-                document.createTextNode(siteIcon),
-                createElement('span', { className: 'ai-nav-expand-text', textContent: 'Navigate' })
-            ]);
-            ctxBtn = createElement('button', { id: 'ai-context-toggle', className: 'ai-nav-floating-btn', onClick: handleContextToggleClick }, [
-                document.createTextNode('\uD83D\uDCCA'),
-                createElement('span', { className: 'ai-nav-expand-text', textContent: 'Context' })
-            ]);
-            searchBtn = createElement('button', { id: 'ai-search-toggle', className: 'ai-nav-floating-btn', onClick: handleSearchToggleClick }, [
-                document.createTextNode('\uD83D\uDD0D'),
-                createElement('span', { className: 'ai-nav-expand-text', textContent: 'Search' })
-            ]);
-        }
-
-        container.appendChild(navBtn);
-        if (platform.contextTracking) container.appendChild(ctxBtn);
-        const isCoreChat = ['claude', 'chatgpt', 'grok', 'gemini'].includes(platform.id);
-        if (isCoreChat && searchBtn) container.appendChild(searchBtn);
-
-        return container;
-    }
-
-    // --- Create nav panel (fully programmatic, no innerHTML) ---
-    function createPanel() {
-        const header = createElement('div', { id: 'ai-nav-header' }, [
-            createElement('h3', null, [siteIcon + ' ' + siteTitle + ' - Questions']),
-            createElement('button', {
-                id: 'ai-nav-refresh',
-                textContent: '\u21BB Refresh',
-                onClick: function () {
-                    scanConversation(true);
-                }
-            })
-        ]);
-
-        const stats = createElement('div', { id: 'ai-nav-stats' });
-        const list = createElement('div', { id: 'ai-nav-list' });
-
-        return createElement('div', { id: 'ai-nav-panel' }, [header, stats, list]);
-    }
-
-    // --- Create context panel ---
-    function createContextPanel() {
-        const header = createElement('div', { id: 'ai-nav-header' }, [
-            createElement('h3', null, ['\uD83D\uDCCA Context Tracker']),
-            createElement('button', {
-                id: 'ai-context-refresh',
-                textContent: '\u21BB Refresh',
-                onClick: function () {
-                    updateContextIndicator();
-                }
-            })
-        ]);
-
-        const contextIndicator = createElement('div', { id: 'ai-nav-context' });
-
-        const warningText = createElement('div', { className: 'ai-nav-context-warning' }, [
-            document.createTextNode('Start thinking about starting a new chat when the context is nearing 70%. The ai will have to compact your conversation probably around 80% to continue talking to you. You can still continue talking after ai compacts context window after 80%, but it might lose some memory of the earlier chats')
-        ]);
-
-        const container = createElement('div', { style: 'padding: 16px; flex: 1; overflow-y: auto;' }, [
-            contextIndicator,
-            warningText
-        ]);
-
-        return createElement('div', { id: 'ai-context-panel' }, [header, container]);
-    }
-
-    // --- Create search panel ---
-    let _searchTimeout = null;
-    function createSearchPanel() {
-        const header = createElement('div', { id: 'ai-nav-header' }, [
-            createElement('h3', null, ['\uD83D\uDD0D Search Conversation']),
-        ]);
-
-        const searchBoxContainer = createElement('div', { style: 'padding: 16px; border-bottom: 1px solid #333;' }, [
-            createElement('input', {
-                id: 'ai-search-input',
-                type: 'text',
-                placeholder: 'Search keywords...',
-                onInput: function (e) {
-                    if (_searchTimeout) clearTimeout(_searchTimeout);
-                    _searchTimeout = setTimeout(function () {
-                        executeConversationSearch(e.target.value);
-                    }, 300);
-                }
-            })
-        ]);
-
-        const resultsContainer = createElement('div', { id: 'ai-search-results', style: 'flex: 1; overflow-y: auto;' });
-
-        return createElement('div', { id: 'ai-search-panel' }, [header, searchBoxContainer, resultsContainer]);
-    }
-
-    // --- Universal Conversation Search ---
-    function executeConversationSearch(query) {
-        var resultsContainer = document.getElementById('ai-search-results');
-        if (!resultsContainer) return;
-
-        resultsContainer.textContent = '';
-        query = (query || '').trim();
-        if (!query) {
-            resultsContainer.appendChild(createElement('div', {
-                id: 'ai-search-empty',
-                textContent: 'Type a keyword across the whole conversation...'
-            }));
-            return;
-        }
-
-        var queryLower = query.toLowerCase();
-
-        // Find user messages so we can categorize "user" vs "agent"
-        var userMessages = Array.from(getUserMessages());
-
-        var mainContent = document.querySelector('main') || document.body;
-
-        // Use TreeWalker to find all text nodes
-        var walker = document.createTreeWalker(mainContent, NodeFilter.SHOW_TEXT, {
-            acceptNode: function (node) {
-                var parent = node.parentElement;
-                if (!parent) return NodeFilter.FILTER_REJECT;
-                var tag = parent.tagName.toLowerCase();
-                if (tag === 'script' || tag === 'style' || tag === 'noscript') return NodeFilter.FILTER_REJECT;
-
-                if (parent.closest('#ai-nav-panel') || parent.closest('#ai-context-panel') || parent.closest('#ai-search-panel') || parent.closest('#ai-nav-button-container')) {
-                    return NodeFilter.FILTER_REJECT;
-                }
-
-                if (node.nodeValue.toLowerCase().includes(queryLower)) {
-                    return NodeFilter.FILTER_ACCEPT;
-                }
-                return NodeFilter.FILTER_SKIP;
-            }
-        });
-
-        var matches = [];
-        var currentNode;
-        while ((currentNode = walker.nextNode())) {
-            matches.push(currentNode);
-        }
-
-        if (matches.length === 0) {
-            resultsContainer.appendChild(createElement('div', {
-                id: 'ai-search-empty',
-                textContent: 'No results found for "' + query + '".'
-            }));
-            return;
-        }
-
-        var uniqueBlocks = [];
-        var seenParents = new Set();
-
-        for (var i = 0; i < matches.length; i++) {
-            var node = matches[i];
-            var hitParent = node.parentElement;
-            var blockAncestor = hitParent.closest('p, div, li, td, h1, h2, h3, h4, h5, h6, blockquote, pre, span');
-            if (!blockAncestor) blockAncestor = hitParent;
-
-            if (seenParents.has(blockAncestor)) continue;
-            seenParents.add(blockAncestor);
-
-            var fullText = (blockAncestor.textContent || '').trim();
-            if (!fullText) continue;
-
-            var role = 'agent';
-            for (var u = 0; u < userMessages.length; u++) {
-                if (userMessages[u].contains(blockAncestor)) {
-                    role = 'user';
-                    break;
-                }
-            }
-
-            uniqueBlocks.push({
-                element: blockAncestor,
-                text: fullText,
-                role: role
-            });
-            if (uniqueBlocks.length >= 50) break;
-        }
-
-        if (uniqueBlocks.length === 0) {
-            resultsContainer.appendChild(createElement('div', {
-                id: 'ai-search-empty',
-                textContent: 'No block results found for "' + query + '".'
-            }));
-            return;
-        }
-
-        uniqueBlocks.forEach(function (match) {
-            var item = createElement('div', { className: 'ai-search-item ' + match.role });
-
-            var roleDiv = createElement('div', { className: 'ai-search-item-role', textContent: match.role === 'user' ? 'Question' : 'Answer' });
-            item.appendChild(roleDiv);
-
-            var lowerText = match.text.toLowerCase();
-            var index = lowerText.indexOf(queryLower);
-
-            var start = Math.max(0, index - 40);
-            var end = Math.min(match.text.length, index + query.length + 40);
-            var prefix = (start > 0 ? '...' : '') + match.text.substring(start, index);
-            var highlightToken = match.text.substring(index, index + query.length);
-            var postfix = match.text.substring(index + query.length, end) + (end < match.text.length ? '...' : '');
-
-            var textDiv = createElement('div', { className: 'ai-search-item-text' }, [
-                document.createTextNode(prefix),
-                createElement('span', { className: 'ai-nav-search-highlight', textContent: highlightToken }),
-                document.createTextNode(postfix)
-            ]);
-            item.appendChild(textDiv);
-
-            item.addEventListener('click', function () {
-                if (isLeftChat && isSearchOpen) {
-                    handleSearchToggleClick();
-                    setTimeout(function () {
-                        match.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        var origBg = match.element.style.backgroundColor;
-                        match.element.style.backgroundColor = 'rgba(255, 255, 0, 0.4)';
-                        match.element.style.transition = 'background-color 0.3s';
-                        setTimeout(function () { match.element.style.backgroundColor = origBg; }, 1500);
-                    }, 350);
-                } else {
-                    match.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    var origBg2 = match.element.style.backgroundColor;
-                    match.element.style.backgroundColor = 'rgba(255, 255, 0, 0.4)';
-                    match.element.style.transition = 'background-color 0.3s';
-                    setTimeout(function () { match.element.style.backgroundColor = origBg2; }, 1500);
-                }
-            });
-
-            resultsContainer.appendChild(item);
-        });
-    }
-
-    // --- Create empty state message ---
-    function createEmptyMessage() {
-        const container = createElement('div', { id: 'ai-nav-empty' });
-        container.appendChild(document.createTextNode('No messages found yet.'));
-        container.appendChild(createElement('br'));
-        container.appendChild(createElement('br'));
-        container.appendChild(document.createTextNode('Start a conversation and click refresh!'));
-        container.appendChild(createElement('br'));
-        container.appendChild(createElement('br'));
-        container.appendChild(createElement('small', null, [
-            'If messages exist but aren\'t detected,',
-            createElement('br'),
-            'the site\'s structure may have changed.'
-        ]));
-        return container;
-    }
-
-    // --- Create a nav item for a question ---
-    function createNavItem(msg, index, text) {
-        const summary = generateSummary(text);
-        const wordCount = text.split(/\s+/).length;
-
-        const item = createElement('div', { className: 'ai-nav-item' }, [
-            createElement('div', { className: 'ai-nav-number', textContent: 'Question #' + (index + 1) }),
-            createElement('div', { className: 'ai-nav-summary', textContent: summary }),
-            createElement('div', { className: 'ai-nav-meta', textContent: wordCount + ' words' })
-        ]);
-
-        item.addEventListener('click', function () {
-            // For virtual scroll platforms, the original msg DOM element may have been
-            // recycled by the virtual scroller. Re-find it by matching text content.
-            var targetMsg = msg;
-            if (isVirtualScroll && !msg.isConnected) {
-                var currentMessages = getUserMessages();
-                var searchText = text.substring(0, 200);
-                var found = Array.from(currentMessages).find(function (m) {
-                    return (m.textContent || '').trim().substring(0, 200) === searchText;
+            if (isVirtualScroll) _vsAccumulatedKeys.clear();
+            _questions = [];
+            if (messages.length > 0) {
+                messages.forEach(function (msg) {
+                    var proseEl = platform.textExtractor ? platform.textExtractor(msg) : null;
+                    var text = proseEl
+                        ? (proseEl.textContent || '').trim()
+                        : (msg.textContent || msg.innerText || '').trim();
+                    text = text.replace(/^You said\s*/i, '');
+                    if (!text.trim()) return;
+                    if (isVirtualScroll) {
+                        var key = text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
+                        _vsAccumulatedKeys.add(key);
+                        var virtuosoItem = msg.closest('[data-index]');
+                        var vsIndex = virtuosoItem
+                            ? parseInt(virtuosoItem.getAttribute('data-index'), 10)
+                            : _questions.length;
+                        _questions.push({ element: msg, text: text, summary: generateSummary(text), vsIndex: vsIndex });
+                    } else {
+                        _questions.push({ element: msg, text: text, summary: generateSummary(text) });
+                    }
                 });
-                if (found) {
-                    targetMsg = found;
-                } else {
-                    // Message not currently in DOM — can't scroll to it
-                    return;
-                }
             }
+        }
 
-            // For left-chat platforms, close panel first since it overlays the chat
-            if (isLeftChat && isNavOpen) {
-                handleNavToggleClick(); // close panel
-                // Scroll after panel close animation completes
-                setTimeout(function () {
-                    targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    var originalBg = targetMsg.style.backgroundColor;
-                    targetMsg.style.backgroundColor = theme.accentLight;
-                    targetMsg.style.transition = 'background-color 0.3s';
-                    setTimeout(function () {
-                        targetMsg.style.backgroundColor = originalBg;
-                    }, 1500);
-                }, 350);
-            } else {
-                targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                var originalBg = targetMsg.style.backgroundColor;
-                targetMsg.style.backgroundColor = theme.accentLight;
-                targetMsg.style.transition = 'background-color 0.3s';
-                setTimeout(function () {
-                    targetMsg.style.backgroundColor = originalBg;
-                }, 1500);
-            }
-        });
-
-        return item;
+        // Notify orbital panels of updated question list
+        if (typeof orbOnScanComplete === 'function') orbOnScanComplete();
     }
 
-    // --- Independent toggle handlers ---
-    function handleNavToggleClick() {
-        if (isContextOpen) handleContextToggleClick(); // auto-close other
-        if (isSearchOpen) handleSearchToggleClick();
-
-        ensureElementsExist();
-        const panel = document.getElementById('ai-nav-panel');
-        const toggle = document.getElementById('ai-nav-toggle');
-        const container = document.getElementById('ai-nav-button-container');
-
-        if (!panel || !toggle || !container) return;
-
-        isNavOpen = !isNavOpen;
-        panel.classList.toggle('open', isNavOpen);
-        toggle.classList.toggle('open', isNavOpen);
-        container.classList.toggle('open', isNavOpen || isContextOpen || isSearchOpen);
-
-        // For left-chat: push container left by panel width (mirrors standard right: 0 → 320)
-        if (isLeftChat) {
-            var bx = _lastBoundaryX || getChatBoundaryX() || (window.innerWidth * 0.35);
-            var panelRight = (window.innerWidth - bx) + 'px';
-            if (isNavOpen) {
-                if (panel) panel.style.right = panelRight;
-                container.style.right = (window.innerWidth - bx + 320) + 'px';
-            } else {
-                _lastBoundaryX = null;
-                updateLeftChatPositions();
+    // ============================================================
+    // MESSAGE OBSERVER
+    // ============================================================
+    function startMessageObserver() {
+        var scanTimeout = null;
+        var observer = new MutationObserver(function () {
+            // Guard orbital zone — SPAs can rip it out
+            if (orbInjected && !document.getElementById('acn-zone')) {
+                orbInjected = false;
+                setTimeout(injectOrbital, 0);
             }
-        }
-
-        if (isNavOpen) {
-            if (isVirtualScroll) {
-                scanConversation(true);
-                var scroller = document.querySelector('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller="true"]');
-                if (scroller && scroller.scrollHeight > scroller.clientHeight) {
-                    var savedScrollTop = scroller.scrollTop;
-                    var totalHeight = scroller.scrollHeight;
-                    var viewHeight = scroller.clientHeight;
-                    var positions = [0];
-                    for (var pos = viewHeight * 0.8; pos < totalHeight; pos += viewHeight * 0.8) {
-                        positions.push(Math.floor(pos));
-                    }
-                    positions.push(savedScrollTop);
-
-                    var step = 0;
-                    function _vsScrollStep() {
-                        if (step >= positions.length) return;
-                        scroller.scrollTop = positions[step];
-                        setTimeout(function () {
-                            if (step < positions.length - 1) {
-                                scanConversation();
-                            }
-                            step++;
-                            if (step < positions.length) {
-                                _vsScrollStep();
-                            }
-                        }, 250);
-                    }
-                    _vsScrollStep();
-                }
-            } else {
-                scanConversation();
-                setTimeout(function () {
-                    var items = document.querySelectorAll('.ai-nav-item');
-                    if (items.length === 0) scanConversation();
-                }, 2000);
-            }
-            if (scanInterval) clearInterval(scanInterval);
-            scanInterval = setInterval(scanConversation, 10000);
-        } else {
-            if (scanInterval) {
-                clearInterval(scanInterval);
-                scanInterval = null;
-            }
-        }
-    }
-
-    function handleContextToggleClick() {
-        if (isNavOpen) handleNavToggleClick(); // auto-close other
-        if (isSearchOpen) handleSearchToggleClick();
-
-        ensureElementsExist();
-        const panel = document.getElementById('ai-context-panel');
-        const toggle = document.getElementById('ai-context-toggle');
-        const container = document.getElementById('ai-nav-button-container');
-
-        if (!panel || !toggle || !container) return;
-
-        isContextOpen = !isContextOpen;
-        panel.classList.toggle('open', isContextOpen);
-        toggle.classList.toggle('open', isContextOpen);
-        container.classList.toggle('open', isNavOpen || isContextOpen || isSearchOpen);
-
-        if (isLeftChat) {
-            var bx = _lastBoundaryX || getChatBoundaryX() || (window.innerWidth * 0.35);
-            var panelRight = (window.innerWidth - bx) + 'px';
-            if (isContextOpen) {
-                if (panel) panel.style.right = panelRight;
-                container.style.right = (window.innerWidth - bx + 320) + 'px';
-            } else {
-                _lastBoundaryX = null;
-                updateLeftChatPositions();
-            }
-        }
-
-        if (isContextOpen) {
-            updateContextIndicator();
-        }
-    }
-
-    function handleSearchToggleClick() {
-        if (isNavOpen) handleNavToggleClick(); // auto-close other
-        if (isContextOpen) handleContextToggleClick();
-
-        ensureElementsExist();
-        const panel = document.getElementById('ai-search-panel');
-        const toggle = document.getElementById('ai-search-toggle');
-        const container = document.getElementById('ai-nav-button-container');
-
-        if (!panel || !toggle || !container) return;
-
-        isSearchOpen = !isSearchOpen;
-        panel.classList.toggle('open', isSearchOpen);
-        toggle.classList.toggle('open', isSearchOpen);
-        container.classList.toggle('open', isNavOpen || isContextOpen || isSearchOpen);
-
-        if (isLeftChat) {
-            var bx = _lastBoundaryX || getChatBoundaryX() || (window.innerWidth * 0.35);
-            var panelRight = (window.innerWidth - bx) + 'px';
-            if (isSearchOpen) {
-                if (panel) panel.style.right = panelRight;
-                container.style.right = (window.innerWidth - bx + 320) + 'px';
-            } else {
-                _lastBoundaryX = null;
-                updateLeftChatPositions();
-            }
-        }
-
-        if (isSearchOpen) {
-            var searchInput = document.getElementById('ai-search-input');
-            if (searchInput) setTimeout(function () { searchInput.focus(); }, 300);
-        }
-    }
-
-    // --- Ensure our elements exist in the DOM (with duplicate cleanup) ---
-    function ensureElementsExist() {
-        // --- Remove any duplicates first ---
-        const containers = document.querySelectorAll('#ai-nav-button-container');
-        const navPanels = document.querySelectorAll('#ai-nav-panel');
-        const contextPanels = document.querySelectorAll('#ai-context-panel');
-        const searchPanels = document.querySelectorAll('#ai-search-panel');
-        const styleEls = document.querySelectorAll('#ai-nav-style');
-
-        if (containers.length > 1) {
-            for (let i = 1; i < containers.length; i++) containers[i].remove();
-            console.log('AI Nav: Removed ' + (containers.length - 1) + ' duplicate container(s).');
-        }
-        if (navPanels.length > 1) {
-            for (let i = 1; i < navPanels.length; i++) navPanels[i].remove();
-        }
-        if (contextPanels.length > 1) {
-            for (let i = 1; i < contextPanels.length; i++) contextPanels[i].remove();
-        }
-        if (searchPanels.length > 1) {
-            for (let i = 1; i < searchPanels.length; i++) searchPanels[i].remove();
-        }
-        if (styleEls.length > 1) {
-            for (let i = 1; i < styleEls.length; i++) styleEls[i].remove();
-        }
-
-        // --- Re-inject if missing ---
-        if (!document.getElementById('ai-nav-style')) {
-            const s = document.createElement('style');
-            s.id = 'ai-nav-style';
-            s.textContent = styles;
-            document.head.appendChild(s);
-            console.log('AI Nav: Re-injected styles.');
-        }
-
-        if (!document.getElementById('ai-nav-panel')) {
-            const panel = createPanel();
-            if (isLeftChat && !_boundaryDetected) panel.style.display = 'none';
-            document.body.appendChild(panel);
-            if (isNavOpen) panel.classList.add('open');
-            console.log('AI Nav: Re-injected nav panel.');
-        }
-
-        if (platform.contextTracking && !document.getElementById('ai-context-panel')) {
-            const ctxPanel = createContextPanel();
-            if (isLeftChat && !_boundaryDetected) ctxPanel.style.display = 'none';
-            document.body.appendChild(ctxPanel);
-            if (isContextOpen) ctxPanel.classList.add('open');
-            console.log('AI Nav: Re-injected context panel.');
-        }
-
-        const isCoreChat = ['claude', 'chatgpt', 'grok', 'gemini'].includes(platform.id);
-        if (isCoreChat && !document.getElementById('ai-search-panel')) {
-            const searchPanel = createSearchPanel();
-            if (isLeftChat && !_boundaryDetected) searchPanel.style.display = 'none';
-            document.body.appendChild(searchPanel);
-            if (isSearchOpen) searchPanel.classList.add('open');
-            console.log('AI Nav: Re-injected search panel.');
-        }
-
-        if (!document.getElementById('ai-nav-button-container')) {
-            const container = createButtonContainer();
-            if (isLeftChat && !_boundaryDetected) {
-                container.style.display = 'none';
-            } else if (isLeftChat && _boundaryDetected) {
-                container.classList.add('ai-nav-positioned');
-                if (_lastBoundaryX) {
-                    container.style.right = (window.innerWidth - _lastBoundaryX) + 'px';
-                }
-            }
-            document.body.appendChild(container);
-
-            // Re-apply open states to individual buttons if they were open
-            if (isNavOpen && document.getElementById('ai-nav-toggle')) {
-                document.getElementById('ai-nav-toggle').classList.add('open');
-            }
-            if (isContextOpen && document.getElementById('ai-context-toggle')) {
-                document.getElementById('ai-context-toggle').classList.add('open');
-            }
-            if (isSearchOpen && document.getElementById('ai-search-toggle')) {
-                document.getElementById('ai-search-toggle').classList.add('open');
-            }
-            console.log('AI Nav: Re-injected button container.');
-        }
-    }
-
-    // --- DOM Guardian (debounced to prevent race conditions on Linux Firefox) ---
-    function startDOMGuardian() {
-        let guardianTimeout = null;
-
-        const observer = new MutationObserver(function () {
-            if (guardianTimeout) clearTimeout(guardianTimeout);
-            guardianTimeout = setTimeout(function () {
-                const isCoreChat = ['claude', 'chatgpt', 'grok', 'gemini'].includes(platform.id);
-                if (!document.getElementById('ai-nav-button-container') || !document.getElementById('ai-nav-panel') || (isCoreChat && !document.getElementById('ai-search-panel')) || (platform.contextTracking && !document.getElementById('ai-context-panel'))) {
-                    ensureElementsExist();
-                }
-            }, 200);
+            // Debounced re-scan
+            if (scanTimeout) clearTimeout(scanTimeout);
+            scanTimeout = setTimeout(scanConversation, 500);
         });
         observer.observe(document.body, { childList: true, subtree: true });
         return observer;
     }
 
-    // --- Generate smart summary ---
-    function generateSummary(text) {
-        let summary = text.trim();
-        summary = summary.replace(/```[\s\S]*?```/g, '[code]');
-
-        const questionMatch = summary.match(/^[^.!?]*\?/);
-        if (questionMatch && questionMatch[0].length > 10) {
-            return questionMatch[0].trim();
-        }
-
-        const firstSentence = summary.match(/^[^.!?\n]+[.!?]?/);
-        if (firstSentence) {
-            summary = firstSentence[0];
-        }
-
-        if (summary.length > 120) {
-            summary = summary.substring(0, 117) + '...';
-        }
-
-        return summary || text.substring(0, 100) + '...';
-    }
-
-    // --- Get user messages based on current site ---
-    function getUserMessages() {
-        return platform.getUserMessages();
-    }
-
-    // --- Get all message elements (user + assistant) for context estimation ---
-    function getAllMessages() {
-        if (!platform.contextTracking) return [];
-
-        var allMessages = [];
-
-        switch (platform.id) {
-            case 'claude':
-                allMessages = document.querySelectorAll(
-                    '[data-testid="user-message"], [data-testid="user-human-turn"], [data-testid="assistant-turn"]'
-                );
-                if (allMessages.length === 0) {
-                    var containers = new Set();
-                    document.querySelectorAll('.font-user-message, [data-testid="action-bar-copy"]').forEach(function (el) {
-                        var parent = el.closest('.group');
-                        if (parent) containers.add(parent);
-                    });
-                    allMessages = Array.from(containers);
-                }
-                if (allMessages.length === 0) {
-                    allMessages = document.querySelectorAll('div.rounded-lg.px-4');
-                }
-                break;
-
-            case 'chatgpt':
-                allMessages = document.querySelectorAll('[data-message-author-role]');
-                break;
-
-            case 'grok':
-                allMessages = document.querySelectorAll('div.message-bubble');
-                if (allMessages.length === 0) {
-                    allMessages = document.querySelectorAll('[class*="message"]');
-                }
-                break;
-
-            case 'gemini':
-                allMessages = document.querySelectorAll('user-query, model-response');
-                if (allMessages.length === 0) {
-                    allMessages = document.querySelectorAll('.query-text, .response-text');
-                }
-                break;
-        }
-
-        return allMessages;
-    }
-
-    // --- Estimate conversation context usage ---
-    function estimateContextUsage() {
-        if (!platform.contextTracking) return null;
-
-        if (_interceptedTokens.available && (Date.now() - _interceptedTokens.lastUpdated < 300000)) {
-            var realTokens = _interceptedTokens.inputTokens + _interceptedTokens.outputTokens;
-            var realPercentage = Math.min(100, Math.round((realTokens / platform.contextWindow) * 100));
-            return {
-                estimatedTokens: realTokens,
-                adjustedTokens: realTokens,
-                contextWindow: platform.contextWindow,
-                percentage: realPercentage,
-                messageCount: getAllMessages().length,
-                totalChars: 0,
-                source: 'intercepted'
-            };
-        }
-
-        var messages = getAllMessages();
-        if (messages.length === 0) return null;
-
-        var totalChars = 0;
-        messages.forEach(function (msg) {
-            var text = (msg.textContent || msg.innerText || '').trim();
-            totalChars += text.length;
-        });
-
-        var estimatedTokens = Math.round(totalChars * platform.tokensPerChar);
-        var SYSTEM_PROMPT_BUFFER = 10000;
-        var adjustedTokens = estimatedTokens + SYSTEM_PROMPT_BUFFER;
-        var percentage = Math.min(100, Math.round((adjustedTokens / platform.contextWindow) * 100));
-
-        return {
-            estimatedTokens: estimatedTokens,
-            adjustedTokens: adjustedTokens,
-            contextWindow: platform.contextWindow,
-            percentage: percentage,
-            messageCount: messages.length,
-            totalChars: totalChars,
-            source: 'dom-estimate'
-        };
-    }
-
-    // --- Render context indicator in panel ---
-    function updateContextIndicator() {
-        var indicator = document.getElementById('ai-nav-context');
-        if (!indicator || !platform.contextTracking) return;
-
-        var usage = estimateContextUsage();
-
-        while (indicator.firstChild) {
-            indicator.removeChild(indicator.firstChild);
-        }
-
-        if (!usage) {
-            indicator.textContent = '';
-            indicator.title = '';
-            return;
-        }
-
-        var color;
-        if (usage.percentage < 60) color = '#22c55e';
-        else if (usage.percentage < 80) color = '#eab308';
-        else if (usage.percentage < 90) color = '#f97316';
-        else color = '#ef4444';
-
-        var filled = Math.round(usage.percentage / 10);
-        var bar = '';
-        for (var i = 0; i < 10; i++) {
-            bar += i < filled ? '█' : '░';
-        }
-
-        var formatK = function (n) {
-            return n >= 1000 ? Math.round(n / 1000) + 'K' : n.toString();
-        };
-
-        var sourceLabel = usage.source === 'intercepted' ? '' : '~';
-
-        var barSpan = createElement('span', {
-            textContent: bar,
-            style: 'color: ' + color + '; font-family: monospace; letter-spacing: 1px;'
-        });
-
-        var textSpan = createElement('span', {
-            textContent: ' ' + sourceLabel + formatK(usage.adjustedTokens) + ' / ' + formatK(usage.contextWindow) + ' (' + usage.percentage + '%)',
-            style: 'color: ' + color + '; margin-left: 4px;'
-        });
-
-        indicator.appendChild(barSpan);
-        indicator.appendChild(textSpan);
-
-        if (usage.percentage >= 80) {
-            var warningSpan = createElement('div', {
-                textContent: usage.percentage >= 90
-                    ? '⚠ Context nearly full — responses may degrade'
-                    : '⚡ Context getting high — consider starting a new chat',
-                style: 'color: ' + color + '; font-size: 10px; margin-top: 2px; opacity: 0.9;'
-            });
-            indicator.appendChild(warningSpan);
-        }
-
-        if (usage.source === 'dom-estimate') {
-            indicator.title = 'Estimated from visible text (~4 chars/token + 10K system prompt buffer). Actual usage may be higher due to images, files, and hidden formatting.';
-        } else {
-            indicator.title = '';
-        }
-    }
-
-    // --- Experimental: fetch interception for real token data (Claude only) ---
-    function installFetchInterceptor() {
-        if (!platform.contextTracking) return;
-        if (platform.id !== 'claude') return;
-        if (_fetchInterceptorInstalled) return;
-
-        var originalFetch = window.fetch;
-        window.fetch = async function () {
-            var args = arguments;
-            var firstArg = args[0];
-            var url = (firstArg && typeof firstArg === 'string') ? firstArg : ((firstArg && firstArg.url) || '');
-            var response = await originalFetch.apply(this, args);
-
-            var endpoint = platform.fetchInterceptEndpoint;
-            var isChatRequest = !!(endpoint && url.includes(endpoint));
-            if (!isChatRequest && url.includes('/completion')) {
-                isChatRequest = true;
-            }
-
-            if (isChatRequest) {
-                try {
-                    var cloned = response.clone();
-                    parseStreamForTokens(cloned);
-                } catch (e) {
-                    console.log('AI Nav: fetch intercept error (non-critical):', e.message);
-                }
-            }
-
-            return response;
-        };
-
-        _fetchInterceptorInstalled = true;
-    }
-
-    async function parseStreamForTokens(response) {
-        try {
-            if (!response || !response.body || !response.body.getReader) return;
-
-            var reader = response.body.getReader();
-            var decoder = new TextDecoder();
-            var buffer = '';
-
-            while (true) {
-                var result = await reader.read();
-                if (result.done) break;
-
-                buffer += decoder.decode(result.value, { stream: true });
-                var lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (var i = 0; i < lines.length; i++) {
-                    var line = lines[i].trim();
-                    if (!line.startsWith('data: ')) continue;
-
-                    try {
-                        var data = JSON.parse(line.substring(6));
-
-                        if (data.type === 'message_start' && data.message && data.message.usage) {
-                            _interceptedTokens.inputTokens = data.message.usage.input_tokens || 0;
-                            if (typeof data.message.usage.output_tokens === 'number') {
-                                _interceptedTokens.outputTokens = data.message.usage.output_tokens;
-                            }
-                            _interceptedTokens.lastUpdated = Date.now();
-                            _interceptedTokens.available = true;
-                        }
-                        if (data.type === 'message_delta' && data.usage) {
-                            _interceptedTokens.outputTokens = data.usage.output_tokens || 0;
-                            _interceptedTokens.lastUpdated = Date.now();
-                            _interceptedTokens.available = true;
-                        }
-                    } catch (parseErr) {
-                        // Not valid JSON or not a token event — ignore.
-                    }
-                }
-            }
-
-            if (_interceptedTokens.available) {
-                updateContextIndicator();
-            }
-        } catch (e) {
-            // Stream reading failed — non-critical fallback to DOM estimate.
-        }
-    }
-
-    // --- Scan conversation for user messages ---
-    // Track accumulated text keys for virtual scroll platforms (deduplication across scans)
-    var _vsAccumulatedKeys = new Set();
-
-    function scanConversation(forceReset) {
-        ensureElementsExist();
-
-        const list = document.getElementById('ai-nav-list');
-        const stats = document.getElementById('ai-nav-stats');
-        if (!list || !stats) return;
-
-        const messages = getUserMessages();
-
-        // Virtual scroll platforms: accumulate messages across scans.
-        // Only visible messages exist in the DOM at any time (virtuoso recycles the rest).
-        // Without accumulation, the list would change every time the user scrolls.
-        if (isVirtualScroll && !forceReset) {
-            // If no new messages found AND we already have items, keep existing list
-            if (messages.length === 0) {
-                if (!list.querySelector('.ai-nav-item')) {
-                    if (!list.firstChild) list.appendChild(createEmptyMessage());
-                    stats.textContent = '0 questions found';
-                }
-                return;
-            }
-
-            var addedNew = false;
-            messages.forEach(function (msg) {
-                // Extract text from platform-specific container (excludes timestamps/buttons)
-                var proseEl = platform.textExtractor ? platform.textExtractor(msg) : null;
-                let text = proseEl ? (proseEl.textContent || '').trim() : (msg.textContent || msg.innerText || '').trim();
-                text = text.replace(/^You said\s*/i, '');
-                if (!text.trim()) return;
-
-                // Deduplicate by first 200 chars (normalized)
-                var key = text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
-                if (!_vsAccumulatedKeys.has(key)) {
-                    _vsAccumulatedKeys.add(key);
-                    // Remove "no questions" empty message if present
-                    var emptyMsg = document.getElementById('ai-nav-empty');
-                    if (emptyMsg) list.removeChild(emptyMsg);
-                    var itemCount = list.querySelectorAll('.ai-nav-item').length;
-                    var navItem = createNavItem(msg, itemCount, text);
-                    navItem.setAttribute('data-text-key', key);
-                    // Store virtuoso data-index for sorting (chronological order)
-                    var virtuosoItem = msg.closest('[data-index]');
-                    if (virtuosoItem) navItem.setAttribute('data-vs-index', virtuosoItem.getAttribute('data-index'));
-                    list.appendChild(navItem);
-                    addedNew = true;
-                }
-            });
-
-            if (addedNew || list.querySelector('.ai-nav-item')) {
-                // Sort nav items by virtuoso data-index (chronological order)
-                // Without this, items appear in discovery order (newest first if user scrolls up)
-                var navItems = Array.from(list.querySelectorAll('.ai-nav-item'));
-                if (navItems.length > 1 && navItems[0].hasAttribute('data-vs-index')) {
-                    navItems.sort(function (a, b) {
-                        return parseInt(a.getAttribute('data-vs-index') || '0') - parseInt(b.getAttribute('data-vs-index') || '0');
-                    });
-                    navItems.forEach(function (item) { list.appendChild(item); });
-                }
-                var total = navItems.length || list.querySelectorAll('.ai-nav-item').length;
-                stats.textContent = total + ' question' + (total !== 1 ? 's' : '') + ' found';
-                // Re-number all items sequentially
-                list.querySelectorAll('.ai-nav-number').forEach(function (numEl, i) {
-                    numEl.textContent = 'Question #' + (i + 1);
-                });
-            }
-            return;
-        }
-
-        // Standard mode (non-virtual-scroll, or forceReset): clear and rebuild
-        if (isVirtualScroll) _vsAccumulatedKeys.clear();
-        while (list.firstChild) {
-            list.removeChild(list.firstChild);
-        }
-
-        if (messages.length === 0) {
-            list.appendChild(createEmptyMessage());
-            stats.textContent = '0 questions found';
-            return;
-        }
-
-        stats.textContent = messages.length + ' question' + (messages.length !== 1 ? 's' : '') + ' found';
-
-        messages.forEach(function (msg, index) {
-            // Extract text from platform-specific container (excludes timestamps/buttons)
-            var proseEl = platform.textExtractor ? platform.textExtractor(msg) : null;
-            let text = proseEl ? (proseEl.textContent || '').trim() : (msg.textContent || msg.innerText || '').trim();
-            // Strip accessibility prefixes (e.g. Gemini adds "You said" for screen readers)
-            text = text.replace(/^You said\s*/i, '');
-            if (!text.trim()) return;
-            var navItem = createNavItem(msg, index, text);
-            if (isVirtualScroll) {
-                var key = text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
-                _vsAccumulatedKeys.add(key);
-                navItem.setAttribute('data-text-key', key);
-                var virtuosoItem = msg.closest('[data-index]');
-                if (virtuosoItem) navItem.setAttribute('data-vs-index', virtuosoItem.getAttribute('data-index'));
-            }
-            list.appendChild(navItem);
-        });
-    }
-
-    // === INITIALIZATION (with duplicate guards) ===
-
-    if (!document.getElementById('ai-nav-button-container')) {
-        var initContainer = createButtonContainer();
-        if (isLeftChat) initContainer.style.display = 'none';
-        document.body.appendChild(initContainer);
-    }
-    if (!document.getElementById('ai-nav-panel')) {
-        var initNavPanel = createPanel();
-        if (isLeftChat) initNavPanel.style.display = 'none';
-        document.body.appendChild(initNavPanel);
-    }
-    if (platform.contextTracking && !document.getElementById('ai-context-panel')) {
-        var initCtxPanel = createContextPanel();
-        if (isLeftChat) initCtxPanel.style.display = 'none';
-        document.body.appendChild(initCtxPanel);
-    }
-
-    // Start the DOM Guardian AFTER initial elements are in place
-    startDOMGuardian();
-
-    // SPA navigation hooks for platforms with aggressive DOM re-rendering
+    // ============================================================
+    // INITIALIZATION (Phase 1 infrastructure)
+    // ============================================================
     if (platform.spa) {
-        const originalPushState = history.pushState;
-        const originalReplaceState = history.replaceState;
+        var _origPushState = history.pushState;
+        var _origReplaceState = history.replaceState;
 
         history.pushState = function () {
-            originalPushState.apply(this, arguments);
-            if (isVirtualScroll) _vsAccumulatedKeys.clear(); // reset on navigation
-            setTimeout(ensureElementsExist, 500);
+            _origPushState.apply(this, arguments);
+            if (isVirtualScroll) _vsAccumulatedKeys.clear();
+            _questions = [];
+            orbClosePanel();
+            setTimeout(scanConversation, 500);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         };
+
         history.replaceState = function () {
-            originalReplaceState.apply(this, arguments);
-            setTimeout(ensureElementsExist, 500);
+            _origReplaceState.apply(this, arguments);
+            _questions = [];
+            setTimeout(scanConversation, 500);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         };
 
         window.addEventListener('popstate', function () {
-            if (isVirtualScroll) _vsAccumulatedKeys.clear(); // reset on navigation
-            setTimeout(ensureElementsExist, 500);
+            if (isVirtualScroll) _vsAccumulatedKeys.clear();
+            _questions = [];
+            orbClosePanel();
+            setTimeout(scanConversation, 500);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         });
-
-        // Periodic health check (every 3 seconds) — these SPAs can silently remove injected elements
-        setInterval(ensureElementsExist, 3000);
     }
 
-    // Left-chat: position button at chat boundary on init, resize, and periodically
     if (isLeftChat) {
-        // Initial positioning — rapid retries for fast-rendering platforms,
-        // then longer delays for slow-rendering ones (SPA frameworks)
         setTimeout(updateLeftChatPositions, 500);
         setTimeout(updateLeftChatPositions, 900);
         setTimeout(updateLeftChatPositions, 1500);
         setTimeout(updateLeftChatPositions, 3000);
         setTimeout(updateLeftChatPositions, 6000);
 
-        // Reposition on window resize (right is viewport-relative)
         window.addEventListener('resize', function () {
-            _lastBoundaryX = null; // force recalculation
-            if (isNavOpen || isContextOpen || isSearchOpen) {
-                var bx = getChatBoundaryX() || (window.innerWidth * 0.35);
-                var panelRight = (window.innerWidth - bx) + 'px';
-                var containerRight = (window.innerWidth - bx + 320) + 'px';
-
-                var navPanel = document.getElementById('ai-nav-panel');
-                var ctxPanel = document.getElementById('ai-context-panel');
-                var searchPanel = document.getElementById('ai-search-panel');
-                var container = document.getElementById('ai-nav-button-container');
-
-                if (isNavOpen && navPanel) navPanel.style.right = panelRight;
-                if (isContextOpen && ctxPanel) ctxPanel.style.right = panelRight;
-                if (isSearchOpen && searchPanel) searchPanel.style.right = panelRight;
-                if (container) container.style.right = containerRight;
-            } else {
-                updateLeftChatPositions();
-            }
+            _lastBoundaryX = null;
+            updateLeftChatPositions();
         });
 
-        // Scroll listener — repositions button when page/chat scrolls (boundary can shift)
-        window.addEventListener('scroll', function () {
-            if (!isNavOpen && !isContextOpen && !isSearchOpen) {
-                updateLeftChatPositions();
-            }
-        }, { passive: true });
-
-        // Periodic boundary check (chat panels can resize dynamically)
-        setInterval(function () {
-            if (!isNavOpen && !isContextOpen && !isSearchOpen) {
-                updateLeftChatPositions();
-            }
-        }, 3000);
+        window.addEventListener('scroll', updateLeftChatPositions, { passive: true });
+        setInterval(updateLeftChatPositions, 3000);
     }
 
-    // Install fetch interceptor for Tier 2 token tracking (experimental)
-    try {
-        installFetchInterceptor();
-    } catch (e) {
-        console.log('AI Nav: Fetch interceptor failed to install (non-critical):', e.message);
-    }
-
-    // Initial scan after page load
+    startMessageObserver();
     setTimeout(scanConversation, 2000);
 
-    // Firebase Studio and other heavy SPAs: chat may not render within 2 seconds.
-    // Add aggressive retries for platforms that lazy-load their chat panels.
     if (platform.retryDelays.length > 0) {
         platform.retryDelays.forEach(function (delay) {
             setTimeout(function () {
-                var items = document.querySelectorAll('.ai-nav-item');
-                if (items.length === 0) {
-                    console.log('AI Nav: Firebase retry scan at ' + delay + 'ms...');
+                if (_questions.length === 0) {
+                    console.log('AI Nav: retry scan at ' + delay + 'ms (' + platform.title + ')...');
                     scanConversation();
                 }
             }, delay);
         });
     }
 
-    console.log('AI Conversation Navigator v9.3 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
+
+    // ============================================================
+    // ============================================================
+    // PHASE 2: ORBITAL BUTTON SYSTEM
+    // ============================================================
+    // ============================================================
+
+    // ── Platform color palette ──────────────────────────────────
+    var ORB_COLORS = {
+        claude:         { bg: '#d97706', rgb: '217,119,6',   shadow: 'rgba(217,119,6,.25)' },
+        chatgpt:        { bg: '#ffffff', rgb: '255,255,255', shadow: 'rgba(255,255,255,.25)' },
+        grok:           { bg: '#e53e3e', rgb: '229,62,62',   shadow: 'rgba(229,62,62,.25)' },
+        gemini:         { bg: '#4285f4', rgb: '66,133,244',  shadow: 'rgba(66,133,244,.25)' },
+        perplexity:     { bg: '#20b2aa', rgb: '32,178,170',  shadow: 'rgba(32,178,170,.25)' },
+    };
+    // App builders use Claude orange
+    var orbTheme = ORB_COLORS[platform.id] || ORB_COLORS.claude;
+
+    // ── Feature registry ────────────────────────────────────────
+    var ORB_FEATURES = [
+        { id: 'nav',       icon: '\u2733', label: 'Navigate',  panelId: 'acn-panel-nav' },
+        { id: 'search',    icon: '\u2315', label: 'Search',    panelId: 'acn-panel-search' },
+        { id: 'bookmarks', icon: '\u2691', label: 'Bookmarks', panelId: 'acn-panel-bookmarks' },
+        { id: 'summary',   icon: '\u03A3', label: 'Summary',   panelId: 'acn-panel-summary' },
+        { id: 'export',    icon: '\u2197', label: 'Export',    panelId: 'acn-panel-export' },
+        { id: 'settings',  icon: '\u2699', label: 'Settings',  panelId: 'acn-panel-settings' },
+    ];
+    var ORB_N    = ORB_FEATURES.length;  // 6
+    var ORB_MAIN = 0;                     // Navigate is always index 0
+    var ORB_CX   = 42;                    // center axis from right edge (px)
+
+    // ── Orbital state ───────────────────────────────────────────
+    var orbMode      = 'show-all'; // 'show-all' | 'arc' | 'wheel'
+    var orbPanel     = null;       // open panel feature id, or null
+    var orbHovering  = false;
+    var orbRotIdx    = 0;
+    var orbPrevRotIdx = 0;
+    var orbAnimLock  = false;
+    var orbInjected  = false;
+    var orbDots      = [];
+    var orbConns     = [];
+    var orbScrollInverted = false; // true = natural scroll
+    var orbSearchQuery = '';
+
+    // ── Settings persistence ────────────────────────────────────
+    function orbLoadSettings() {
+        try {
+            var saved = JSON.parse(localStorage.getItem('_acnv10') || '{}');
+            orbMode           = saved.mode    || 'show-all';
+            orbScrollInverted = saved.natural === true;
+        } catch (e) {}
+    }
+    function orbSaveSettings() {
+        try {
+            localStorage.setItem('_acnv10', JSON.stringify({
+                mode:    orbMode,
+                natural: orbScrollInverted,
+            }));
+        } catch (e) {}
+    }
+
+    // ── Orbital panel update hook (called by scanConversation) ──
+    function orbOnScanComplete() {
+        if (orbPanel === 'nav')    orbPopulateNavigate();
+        if (orbPanel === 'search') orbPopulateSearch(orbSearchQuery);
+    }
+
+    // ============================================================
+    // CSS INJECTION
+    // ============================================================
+    function orbInjectCSS() {
+        if (document.getElementById('acn-style')) return; // already injected (e.g. SPA re-inject)
+        var styleEl = document.createElement('style');
+        styleEl.id = 'acn-style';
+        styleEl.setAttribute('data-acn-role', 'styles');
+        // CSS uses var(--acn-accent) and rgba(var(--acn-rgb), alpha) set on the zone
+        styleEl.textContent = [
+            // Zone + hitzone
+            '.acn-zone{position:fixed;right:0;top:0;bottom:0;width:160px;z-index:2147483640;transition:right .3s cubic-bezier(.4,0,.2,1)}',
+            '.acn-zone.acn-hp{right:310px}',
+            '.acn-hitzone{position:absolute;right:0;top:0;bottom:0;width:160px;z-index:1}',
+
+            // Dots — critical: fast opacity, slow position
+            '.acn-dot{position:absolute;display:flex;align-items:center;justify-content:center;',
+            'border-radius:50%;cursor:pointer;z-index:5;color:#000;font-weight:600;',
+            'transition:top .3s cubic-bezier(.25,.8,.5,1),right .3s cubic-bezier(.25,.8,.5,1),',
+            'width .3s cubic-bezier(.25,.8,.5,1),height .3s cubic-bezier(.25,.8,.5,1),',
+            'font-size .3s cubic-bezier(.25,.8,.5,1),border-radius .3s cubic-bezier(.25,.8,.5,1),',
+            'box-shadow .3s cubic-bezier(.25,.8,.5,1),opacity .08s linear;',
+            'opacity:0;pointer-events:none;user-select:none}',
+            '.acn-dot.acn-vis{pointer-events:auto}',
+            '.acn-dot.acn-no-t{transition:none!important}',
+            '.acn-dot:hover{filter:brightness(1.3);z-index:20}',
+            '.acn-dot.acn-act{box-shadow:0 0 16px rgba(var(--acn-rgb),.5)!important}',
+
+            // Hover label
+            '.acn-lbl{position:absolute;right:calc(100% + 10px);font-size:10px;font-weight:600;',
+            'color:var(--acn-accent);white-space:nowrap;opacity:0;',
+            'transition:opacity .15s,transform .15s;transform:translateX(4px);',
+            'pointer-events:none;text-shadow:0 1px 4px rgba(0,0,0,.5)}',
+            '.acn-dot:hover .acn-lbl,.acn-dot.acn-act .acn-lbl{opacity:1;transform:translateX(0)}',
+
+            // Connectors (Show All mode)
+            '.acn-conn{position:absolute;width:1px;z-index:2;pointer-events:none;',
+            'transition:all .3s;opacity:0}',
+            '.acn-conn.acn-vis{opacity:1}',
+
+            // Wheel hint
+            '.acn-whint{position:absolute;right:18px;font-size:9px;color:#555;text-align:center;',
+            'width:36px;pointer-events:none;opacity:0;transition:opacity .3s}',
+            '.acn-whint.acn-vis{opacity:1}',
+            '@keyframes acn-bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(3px)}}',
+            '.acn-whint span{display:block;animation:acn-bounce 1.5s ease-in-out infinite}',
+
+            // Panel — slides from right
+            '.acn-panel{position:fixed;right:0;top:0;bottom:0;width:310px;',
+            'background:#1a1a1a;border-left:1px solid #2a2a2a;',
+            'transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);',
+            'display:flex;flex-direction:column;overflow:hidden;',
+            'z-index:2147483639;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;',
+            'color:#e5e5e5;user-select:none}',
+            '.acn-panel.acn-open{transform:translateX(0)}',
+
+            // Panel header
+            '.acn-ph{padding:12px 14px;display:flex;justify-content:space-between;',
+            'align-items:center;border-bottom:1px solid #2a2a2a;flex-shrink:0}',
+            '.acn-ph h3{font-size:13px;font-weight:600;margin:0;color:#fff}',
+            '.acn-xb{font-size:10px;background:rgba(255,255,255,.06);border:none;color:#888;',
+            'padding:4px 10px;border-radius:5px;cursor:pointer;font-family:inherit}',
+            '.acn-xb:hover{background:rgba(255,255,255,.12);color:#ccc}',
+
+            // Context bar (Navigate panel)
+            '.acn-ctx{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0}',
+            '.acn-ctx-r{display:flex;justify-content:space-between;margin-bottom:5px}',
+            '.acn-ctx-l{font-size:9px;color:#555;text-transform:uppercase;letter-spacing:.5px;font-weight:500}',
+            '.acn-ctx-pct{font-family:monospace;font-size:10px;font-weight:600}',
+            '.acn-ctx-bar{height:4px;background:#222;border-radius:2px;overflow:hidden}',
+            '.acn-ctx-fill{height:100%;border-radius:2px;transition:width .5s,background .5s}',
+            '.acn-ctx-meta{font-size:8px;color:#444;margin-top:3px}',
+
+            // Stats + question list
+            '.acn-pstat{padding:7px 14px;font-size:10px;color:#777;',
+            'border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0}',
+            '.acn-ql{flex:1;overflow-y:auto;padding:2px 0}',
+            '.acn-ql::-webkit-scrollbar{width:4px}',
+            '.acn-ql::-webkit-scrollbar-track{background:transparent}',
+            '.acn-ql::-webkit-scrollbar-thumb{background:#333;border-radius:2px}',
+            '.acn-qi{padding:9px 14px;border-left:2px solid transparent;cursor:pointer;transition:all .12s}',
+            '.acn-qi:hover{background:rgba(var(--acn-rgb),.06);border-left-color:var(--acn-accent)}',
+            '.acn-qn{font-size:9px;font-weight:600;color:var(--acn-accent);margin-bottom:2px}',
+            '.acn-qt{font-size:11px;color:#999;line-height:1.35;',
+            'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
+            '.acn-qw{font-size:9px;color:#444;margin-top:2px}',
+            '.acn-empty{padding:40px 14px;text-align:center;font-size:11px;color:#555;line-height:1.6}',
+
+            // Search input
+            '.acn-search-wrap{padding:14px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0}',
+            '.acn-si{width:100%;padding:9px 11px;background:#222;border:1px solid #333;',
+            'border-radius:7px;color:#ddd;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box}',
+            '.acn-si:focus{border-color:var(--acn-accent)}',
+            '.acn-si::placeholder{color:#555}',
+            '.acn-sh{margin-top:8px;font-size:10px;color:#444;text-align:center}',
+            '.acn-smatch{background:rgba(var(--acn-rgb),.2);color:var(--acn-accent);',
+            'border-radius:2px;padding:0 2px;font-weight:600}',
+
+            // Bookmarks
+            '.acn-bk{padding:10px 14px;border-left:2px solid var(--acn-accent);cursor:pointer;',
+            'transition:all .12s;margin:4px 10px;background:rgba(var(--acn-rgb),.04);',
+            'border-radius:0 6px 6px 0}',
+            '.acn-bk:hover{background:rgba(var(--acn-rgb),.1)}',
+            '.acn-bk-type{font-size:9px;font-weight:600;color:var(--acn-accent);margin-bottom:2px}',
+            '.acn-bk-text{font-size:11px;color:#999;line-height:1.35}',
+            '.acn-bk-meta{font-size:9px;color:#555;margin-top:3px}',
+
+            // Summary
+            '.acn-sum-sec{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.05)}',
+            '.acn-sum-title{font-size:10px;font-weight:600;color:var(--acn-accent);',
+            'text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}',
+            '.acn-sum-topic{display:inline-block;padding:3px 8px;',
+            'background:rgba(var(--acn-rgb),.08);border:1px solid rgba(var(--acn-rgb),.15);',
+            'border-radius:5px;font-size:10px;color:var(--acn-accent);margin:2px 3px 2px 0}',
+            '.acn-sum-action{padding:6px 0;font-size:11px;color:#aaa;display:flex;',
+            'align-items:flex-start;gap:6px}',
+            '.acn-sum-bullet{color:var(--acn-accent);font-weight:600;flex-shrink:0}',
+            '.acn-gen-btn{width:100%;padding:10px;background:rgba(var(--acn-rgb),.08);',
+            'border:1px solid rgba(var(--acn-rgb),.2);border-radius:7px;color:var(--acn-accent);',
+            'font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;margin-top:8px}',
+            '.acn-gen-btn:hover{background:rgba(var(--acn-rgb),.15)}',
+
+            // Export
+            '.acn-exp-opt{padding:14px;border-bottom:1px solid rgba(255,255,255,.05);',
+            'cursor:pointer;transition:background .12s}',
+            '.acn-exp-opt:hover{background:rgba(var(--acn-rgb),.06)}',
+            '.acn-exp-icon{font-size:18px;margin-bottom:4px}',
+            '.acn-exp-title{font-size:12px;font-weight:600;color:#ccc;margin-bottom:3px}',
+            '.acn-exp-desc{font-size:10px;color:#666;line-height:1.4}',
+
+            // Settings
+            '.acn-set-scroll{flex:1;overflow-y:auto;padding:4px 0}',
+            '.acn-set-group{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.05)}',
+            '.acn-set-gtitle{font-size:10px;font-weight:600;color:var(--acn-accent);',
+            'text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}',
+            '.acn-set-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0}',
+            '.acn-set-label{font-size:11px;color:#aaa}',
+            '.acn-set-desc{font-size:9px;color:#555;margin-top:1px}',
+            '.acn-toggle{width:36px;height:20px;background:#333;border-radius:10px;cursor:pointer;',
+            'position:relative;transition:background .2s;flex-shrink:0;margin-left:10px}',
+            '.acn-toggle.acn-on{background:var(--acn-accent)}',
+            '.acn-toggle::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;',
+            'background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}',
+            '.acn-toggle.acn-on::after{transform:translateX(16px)}',
+            '.acn-set-sel{background:#222;color:#ccc;border:1px solid #333;border-radius:5px;',
+            'padding:4px 8px;font-size:10px;font-family:inherit;outline:none;cursor:pointer;',
+            'flex-shrink:0;margin-left:10px}',
+            '.acn-plat-row{display:flex;align-items:center;gap:8px;padding:5px 0}',
+            '.acn-plat-icon{font-size:14px;width:22px;text-align:center}',
+            '.acn-plat-name{font-size:11px;color:#aaa;flex:1}',
+            '.acn-reset-btn{width:100%;padding:10px;background:rgba(239,68,68,.08);',
+            'border:1px solid rgba(239,68,68,.2);border-radius:7px;color:#ef4444;font-size:11px;',
+            'font-weight:600;font-family:inherit;cursor:pointer;margin-top:4px}',
+            '.acn-reset-btn:hover{background:rgba(239,68,68,.15)}',
+        ].join('');
+        document.head.appendChild(styleEl);
+    }
+
+    // ============================================================
+    // DOT POSITIONING HELPER — only function that touches dot styles
+    // ============================================================
+    function orbSd(dot, p) {
+        dot.style.width          = p.w + 'px';
+        dot.style.height         = p.h + 'px';
+        dot.style.fontSize       = p.fs + 'px';
+        dot.style.right          = p.right + 'px';
+        dot.style.top            = p.top + 'px';
+        dot.style.borderRadius   = p.rad || '50%';
+        dot.style.opacity        = p.op;
+        dot.style.pointerEvents  = p.click ? 'auto' : 'none';
+        dot.style.boxShadow      = p.shad ? '0 2px 14px ' + orbTheme.shadow : 'none';
+        dot.classList.toggle('acn-vis', p.op > 0.05);
+    }
+
+    // ============================================================
+    // RENDER ENGINE
+    // ============================================================
+    function orbRender() {
+        var zone = document.getElementById('acn-zone');
+        if (!zone) return;
+
+        var cy   = window.innerHeight / 2;
+        var show = orbHovering || orbPanel !== null;
+
+        // Wheel/arc hint
+        var hint = document.getElementById('acn-whint');
+        if (hint) {
+            hint.classList.toggle('acn-vis',
+                (orbMode === 'wheel' || orbMode === 'arc') && orbHovering && !orbPanel);
+            hint.style.top = (cy + 78) + 'px';
+        }
+
+        // Hide all connectors before re-drawing
+        orbConns.forEach(function (c) { c.classList.remove('acn-vis'); });
+
+        if (orbMode === 'show-all') orbRenderShowAll(cy, show);
+        else if (orbMode === 'arc')  orbRenderArc(cy, show);
+        else                         orbRenderWheel(cy, show);
+    }
+
+    // ── Show All ─────────────────────────────────────────────────
+    // Navigate at center, satellites above and below in a column.
+    // ALL buttons share the same platform color — equal brightness.
+    function orbRenderShowAll(cy, show) {
+        var sp = 42;
+        // Compute above/below split dynamically from ORB_N
+        var nSats  = ORB_N - 1;
+        var nAbove = Math.floor(nSats / 2);
+        var above  = [], below  = [];
+        for (var i = 1; i <= nAbove; i++) above.push(i);
+        for (var i = nAbove + 1; i < ORB_N; i++) below.push(i);
+
+        // Navigate — always visible, rounded square
+        orbDots[ORB_MAIN].style.background = orbTheme.bg;
+        orbSd(orbDots[ORB_MAIN], {
+            w: 42, h: 42, fs: 17,
+            right: ORB_CX - 21, top: cy - 21,
+            rad: '13px', op: 1, click: true, shad: true,
+        });
+
+        // Satellites — same platform color, circles, fade on hover
+        above.forEach(function (idx, i) {
+            orbDots[idx].style.background = orbTheme.bg;
+            var y = cy - (i + 1) * sp;
+            orbSd(orbDots[idx], {
+                w: 28, h: 28, fs: 12,
+                right: ORB_CX - 14, top: y - 14,
+                rad: '50%', op: show ? 1 : 0, click: show, shad: false,
+            });
+        });
+
+        below.forEach(function (idx, i) {
+            orbDots[idx].style.background = orbTheme.bg;
+            var y = cy + (i + 1) * sp;
+            orbSd(orbDots[idx], {
+                w: 28, h: 28, fs: 12,
+                right: ORB_CX - 14, top: y - 14,
+                rad: '50%', op: show ? 1 : 0, click: show, shad: false,
+            });
+        });
+
+        // Connectors: visual top→bottom order is above-reversed, main, below
+        if (show) {
+            var ordered = above.slice().reverse().concat([ORB_MAIN]).concat(below);
+            for (var c = 0; c < orbConns.length && c < ordered.length - 1; c++) {
+                var d1 = orbDots[ordered[c]], d2 = orbDots[ordered[c + 1]];
+                var y1 = parseFloat(d1.style.top) + parseFloat(d1.style.height);
+                var y2 = parseFloat(d2.style.top);
+                orbConns[c].style.right  = ORB_CX + 'px';
+                orbConns[c].style.top    = y1 + 'px';
+                orbConns[c].style.height = Math.max(0, y2 - y1) + 'px';
+                orbConns[c].style.background = 'rgba(' + orbTheme.rgb + ',.1)';
+                orbConns[c].classList.add('acn-vis');
+            }
+        }
+    }
+
+    // ── Arc ──────────────────────────────────────────────────────
+    // Navigate at center. Satellites form a regular polygon.
+    // Scrolling rotates which satellite is at focus (angle 0 = left of center).
+    var ARC_RULES = [
+        { op: 1.0,  size: 30, fs: 13 },  // slot 0: focus
+        { op: 0.65, size: 26, fs: 11 },  // slot ±1: adjacent
+        { op: 0.40, size: 22, fs: 10 },  // slot ±2: far
+        { op: 0.25, size: 20, fs: 9  },  // slot ±3+: distant
+    ];
+
+    function orbRenderArc(cy, show) {
+        // Navigate — always at center
+        orbDots[ORB_MAIN].style.background = orbTheme.bg;
+        orbSd(orbDots[ORB_MAIN], {
+            w: 42, h: 42, fs: 17,
+            right: ORB_CX - 21, top: cy - 21,
+            rad: '13px', op: 1, click: true, shad: true,
+        });
+
+        var sats   = [];
+        for (var i = 0; i < ORB_N; i++) { if (i !== ORB_MAIN) sats.push(i); }
+        var nS     = sats.length;
+        var radius = 76;
+
+        sats.forEach(function (featIdx, satI) {
+            orbDots[featIdx].style.background = orbTheme.bg;
+
+            // Vertex angle: evenly divide 2π by satellite count, shifted by rotation
+            var vertexAngle = (satI / nS) * Math.PI * 2;
+            var angle = vertexAngle - (orbRotIdx / nS) * Math.PI * 2;
+
+            // Normalize to [-π, π] — angle 0 = directly LEFT of center
+            var a = ((angle % (Math.PI * 2)) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
+
+            var px = ORB_CX + Math.cos(a) * radius;
+            var py = cy + Math.sin(a) * radius;
+
+            // Slot = vertex steps from focus
+            var slot = satI - orbRotIdx;
+            while (slot > nS / 2)  slot -= nS;
+            while (slot < -nS / 2) slot += nS;
+            var dist = Math.abs(slot);
+            var rule = ARC_RULES[Math.min(Math.floor(dist), ARC_RULES.length - 1)];
+
+            orbSd(orbDots[featIdx], {
+                w: rule.size, h: rule.size, fs: rule.fs,
+                right: px - rule.size / 2, top: py - rule.size / 2,
+                rad: '50%', op: show ? rule.op : 0,
+                click: show, shad: false,
+            });
+        });
+    }
+
+    // ── Wheel ────────────────────────────────────────────────────
+    // Vertical conveyor belt. ALL buttons share strict slot rules.
+    // Navigate gets a small brightness boost but obeys same rules.
+    var WHEEL_RULES = [
+        { size: 42, fs: 17, op: 1.0  },  // slot 0: center (active)
+        { size: 28, fs: 12, op: 0.50 },  // slot ±1: adjacent
+        { size: 20, fs: 9,  op: 0.18 },  // slot ±2: far
+        // slot ±3+: invisible
+    ];
+    var WHEEL_HIDDEN = { size: 14, fs: 7, op: 0 };
+    var NAV_BOOST    = 0.15;  // additive opacity for Navigate when off-center
+
+    function orbRenderWheel(cy, show) {
+        var sp = 48;
+
+        orbDots.forEach(function (dot, i) {
+            dot.style.background = orbTheme.bg;
+
+            var slot = i - orbRotIdx;
+            while (slot > ORB_N / 2)  slot -= ORB_N;
+            while (slot <= -ORB_N / 2) slot += ORB_N; // <= for symmetric tie-breaking
+
+            var prevSlot = i - orbPrevRotIdx;
+            while (prevSlot > ORB_N / 2)  prevSlot -= ORB_N;
+            while (prevSlot <= -ORB_N / 2) prevSlot += ORB_N;
+
+            // Conveyor belt wrap animation: teleport to staging (invisible) then slide in
+            var wrapped = Math.abs(slot - prevSlot) > ORB_N / 2;
+            if (wrapped && show) {
+                var staging = slot > 0 ? 3.5 : -3.5;
+                dot.classList.add('acn-no-t');
+                orbApplyWheelSlot(dot, i, staging, cy, sp, show);
+                void dot.offsetHeight; // force reflow before re-enabling transition
+                dot.classList.remove('acn-no-t');
+            }
+
+            orbApplyWheelSlot(dot, i, slot, cy, sp, show);
+        });
+
+        orbPrevRotIdx = orbRotIdx;
+    }
+
+    function orbApplyWheelSlot(dot, featureIdx, slot, cy, sp, show) {
+        var dist    = Math.abs(slot);
+        var ruleIdx = Math.floor(dist);
+        var rule    = ruleIdx < WHEEL_RULES.length ? WHEEL_RULES[ruleIdx] : WHEEL_HIDDEN;
+
+        var op = rule.op;
+        // Navigate brightness boost: additive, does NOT override slot visibility
+        if (featureIdx === ORB_MAIN && op > 0 && op < 1) {
+            op = Math.min(1, op + NAV_BOOST);
+        }
+
+        var y        = cy + slot * sp;
+        var isCenter = dist < 0.5;
+        // When not hovering: only Navigate is visible (at slot 0 = full, since rotIdx resets)
+        var finalOp  = show ? op : (featureIdx === ORB_MAIN ? Math.min(op, 1) : 0);
+
+        orbSd(dot, {
+            w: rule.size, h: rule.size, fs: rule.fs,
+            right: ORB_CX - rule.size / 2, top: y - rule.size / 2,
+            rad: isCenter ? '13px' : '50%',
+            op: finalOp,
+            click: show && op > 0.05,
+            shad: isCenter,
+        });
+    }
+
+    // ============================================================
+    // LEFT-CHAT ZONE POSITIONING
+    // ============================================================
+    // For left-chat platforms: zone and panels sit at the chat boundary.
+    // Standard platforms: CSS classes handle the 310px panel offset.
+    function orbApplyZonePosition() {
+        if (!isLeftChat) return;
+
+        var zone = document.getElementById('acn-zone');
+        if (!zone) return;
+
+        if (!_boundaryDetected || !_lastBoundaryX) {
+            zone.style.visibility = 'hidden';
+            return;
+        }
+        zone.style.visibility = '';
+
+        var base = window.innerWidth - _lastBoundaryX;
+        // Zone shifts left by panel width when panel is open (mirrors .acn-zone.acn-hp)
+        zone.style.right = (base + (orbPanel ? 310 : 0)) + 'px';
+
+        // Position all panels to open from the chat boundary
+        document.querySelectorAll('.acn-panel').forEach(function (p) {
+            p.style.right = base + 'px';
+        });
+    }
+
+    // ============================================================
+    // PANEL MANAGEMENT
+    // ============================================================
+    function orbOpenPanel(fid) {
+        if (orbPanel === fid) { orbClosePanel(); return; }
+
+        // Close existing panel first
+        document.querySelectorAll('.acn-panel').forEach(function (p) {
+            p.classList.remove('acn-open');
+        });
+        orbDots.forEach(function (d) { d.classList.remove('acn-act'); });
+
+        orbPanel   = fid;
+        orbHovering = true;
+
+        var f = null;
+        for (var i = 0; i < ORB_FEATURES.length; i++) {
+            if (ORB_FEATURES[i].id === fid) { f = ORB_FEATURES[i]; break; }
+        }
+        if (!f) return;
+
+        var panelEl = document.getElementById(f.panelId);
+        if (panelEl) {
+            panelEl.classList.add('acn-open');
+            panelEl.setAttribute('data-acn-open', 'true');
+        }
+
+        orbDots[ORB_FEATURES.indexOf(f)].classList.add('acn-act');
+
+        if (isLeftChat) {
+            orbApplyZonePosition();
+        } else {
+            var zone = document.getElementById('acn-zone');
+            if (zone) zone.classList.add('acn-hp');
+        }
+
+        // Populate functional panels
+        if (fid === 'nav')    orbPopulateNavigate();
+        if (fid === 'search') {
+            orbPopulateSearch('');
+            setTimeout(function () {
+                var si = document.getElementById('acn-search-input');
+                if (si) si.focus();
+            }, 350);
+        }
+
+        orbRender();
+    }
+
+    function orbClosePanel() {
+        if (!orbPanel) return;
+
+        document.querySelectorAll('.acn-panel').forEach(function (p) {
+            p.classList.remove('acn-open');
+            p.removeAttribute('data-acn-open');
+        });
+        orbDots.forEach(function (d) { d.classList.remove('acn-act'); });
+
+        orbPanel = null;
+
+        if (isLeftChat) {
+            orbApplyZonePosition();
+        } else {
+            var zone = document.getElementById('acn-zone');
+            if (zone) zone.classList.remove('acn-hp');
+        }
+
+        // Reset to Navigate on close
+        orbPrevRotIdx = orbRotIdx;
+        orbRotIdx     = 0;
+
+        orbRender();
+    }
+
+    // ============================================================
+    // NAVIGATE PANEL CONTENT
+    // ============================================================
+    function orbPopulateNavigate() {
+        var list  = document.getElementById('acn-nav-list');
+        var stat  = document.getElementById('acn-nav-stat');
+        if (!list) return;
+
+        // Clear
+        while (list.firstChild) list.removeChild(list.firstChild);
+
+        if (_questions.length === 0) {
+            var empty = createElement('div', { className: 'acn-empty' },
+                ['No questions detected yet.\n\nStart a conversation — questions and prompts will appear here.']);
+            list.appendChild(empty);
+            if (stat) { stat.textContent = '0 questions found'; stat.setAttribute('data-acn-count', '0'); }
+            return;
+        }
+
+        if (stat) {
+            stat.textContent = _questions.length + ' question' +
+                (_questions.length !== 1 ? 's' : '') + ' detected';
+            stat.setAttribute('data-acn-count', String(_questions.length));
+        }
+
+        _questions.forEach(function (q, idx) {
+            var words = q.text.split(/\s+/).length;
+
+            var numEl  = createElement('div', { className: 'acn-qn', textContent: 'Q#' + (idx + 1) });
+            var textEl = createElement('div', { className: 'acn-qt', textContent: q.summary });
+            textEl.setAttribute('data-acn-role', 'nav-item-text');
+            var metaEl = createElement('div', { className: 'acn-qw', textContent: words + ' words' });
+            var item   = createElement('div', { className: 'acn-qi' }, [numEl, textEl, metaEl]);
+            item.setAttribute('data-acn-role', 'nav-item');
+
+            item.addEventListener('click', function () {
+                orbScrollToQuestion(q);
+            });
+
+            list.appendChild(item);
+        });
+    }
+
+    function orbScrollToQuestion(q) {
+        var target = q.element;
+
+        // Virtual scroll: element may have been recycled — try to re-find it
+        if (isVirtualScroll && target && !target.isConnected) {
+            var searchText = q.text.substring(0, 200);
+            var current = getUserMessages();
+            var found = null;
+            for (var i = 0; i < current.length; i++) {
+                if ((current[i].textContent || '').trim().substring(0, 200) === searchText) {
+                    found = current[i];
+                    break;
+                }
+            }
+            if (!found) return; // not in DOM right now
+            target = found;
+        }
+
+        if (!target) return;
+
+        if (isLeftChat) {
+            // Close panel first so it doesn't obscure the chat
+            orbClosePanel();
+            setTimeout(function () {
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                orbFlashElement(target);
+            }, 350);
+        } else {
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            orbFlashElement(target);
+        }
+    }
+
+    function orbFlashElement(el) {
+        var orig = el.style.backgroundColor;
+        el.style.backgroundColor = 'rgba(' + orbTheme.rgb + ',.15)';
+        el.style.transition = 'background-color .3s';
+        setTimeout(function () { el.style.backgroundColor = orig; }, 1500);
+    }
+
+    // ============================================================
+    // SEARCH PANEL CONTENT
+    // ============================================================
+    function orbPopulateSearch(query) {
+        orbSearchQuery = query || '';
+        var list = document.getElementById('acn-search-list');
+        var hint = document.getElementById('acn-search-hint');
+        if (!list) return;
+
+        while (list.firstChild) list.removeChild(list.firstChild);
+
+        var q = orbSearchQuery.trim();
+
+        if (!q) {
+            if (hint) {
+                hint.style.display = '';
+                hint.textContent = 'Search through your conversation';
+            }
+            return;
+        }
+
+        if (hint) hint.style.display = 'none';
+
+        var qLower   = q.toLowerCase();
+        var matches  = _questions.filter(function (msg) {
+            return msg.text.toLowerCase().indexOf(qLower) !== -1;
+        });
+
+        if (matches.length === 0) {
+            var empty = createElement('div', { className: 'acn-empty',
+                textContent: 'No matches for "' + q + '"' });
+            list.appendChild(empty);
+            return;
+        }
+
+        matches.forEach(function (msg, idx) {
+            var text  = msg.text;
+            var lower = text.toLowerCase();
+            var pos   = lower.indexOf(qLower);
+            var start = Math.max(0, pos - 40);
+            var end   = Math.min(text.length, pos + q.length + 40);
+
+            var pre  = (start > 0 ? '...' : '') + text.substring(start, pos);
+            var hit  = text.substring(pos, pos + q.length);
+            var post = text.substring(pos + q.length, end) + (end < text.length ? '...' : '');
+
+            var numEl  = createElement('div', { className: 'acn-qn',
+                textContent: 'Q#' + (_questions.indexOf(msg) + 1) });
+            var mark   = createElement('span', { className: 'acn-smatch', textContent: hit });
+            var textEl = createElement('div', { className: 'acn-qt' }, [
+                document.createTextNode(pre),
+                mark,
+                document.createTextNode(post),
+            ]);
+            var item = createElement('div', { className: 'acn-qi' }, [numEl, textEl]);
+
+            item.addEventListener('click', function () { orbScrollToQuestion(msg); });
+            list.appendChild(item);
+        });
+    }
+
+    // ============================================================
+    // MODE SELECTOR
+    // ============================================================
+    function orbSetMode(mode) {
+        orbMode = mode;
+        orbPrevRotIdx = orbRotIdx;
+        orbRotIdx = 0;
+        orbSaveSettings();
+
+        // Sync settings panel selector if it exists
+        var sel = document.getElementById('acn-mode-sel');
+        if (sel) sel.value = mode;
+
+        orbDots.forEach(function (d) { d.classList.remove('acn-no-t'); });
+        orbRender();
+    }
+
+    // ============================================================
+    // DOM BUILDERS
+    // ============================================================
+    function orbBuildPanelHeader(title, closeBtn) {
+        var h3  = createElement('h3', null, [title]);
+        var btn = createElement('button', { className: 'acn-xb', textContent: '\u2715' });
+        btn.setAttribute('data-acn-role', 'panel-close');
+        btn.addEventListener('click', orbClosePanel);
+        var hdr = createElement('div', { className: 'acn-ph' }, [h3, btn]);
+        return hdr;
+    }
+
+    function orbBuildPanelNav() {
+        var panel = createElement('div', { id: 'acn-panel-nav', className: 'acn-panel' });
+        panel.setAttribute('data-acn-role', 'nav-panel');
+
+        panel.appendChild(orbBuildPanelHeader('\u2733 Navigate'));
+
+        // Context bar
+        var ctxLabel = createElement('span', { className: 'acn-ctx-l', textContent: 'Context window' });
+        var ctxPct   = createElement('span', { id: 'acn-ctx-pct', className: 'acn-ctx-pct',
+            textContent: '—' });
+        var ctxRow   = createElement('div', { className: 'acn-ctx-r' }, [ctxLabel, ctxPct]);
+        var ctxFill  = createElement('div', { id: 'acn-ctx-fill', className: 'acn-ctx-fill',
+            style: 'width:0%' });
+        var ctxBar   = createElement('div', { className: 'acn-ctx-bar' }, [ctxFill]);
+        var ctxMeta  = createElement('div', { id: 'acn-ctx-meta', className: 'acn-ctx-meta',
+            textContent: 'Estimated from visible text' });
+        var ctx      = createElement('div', { className: 'acn-ctx' }, [ctxRow, ctxBar, ctxMeta]);
+        panel.appendChild(ctx);
+
+        var stat = createElement('div', { id: 'acn-nav-stat', className: 'acn-pstat',
+            textContent: '0 questions found' });
+        stat.setAttribute('data-acn-role',  'nav-stat');
+        stat.setAttribute('data-acn-count', '0');
+        panel.appendChild(stat);
+
+        var list = createElement('div', { id: 'acn-nav-list', className: 'acn-ql' });
+        list.setAttribute('data-acn-role', 'nav-list');
+        panel.appendChild(list);
+
+        return panel;
+    }
+
+    function orbBuildPanelSearch() {
+        var panel = createElement('div', { id: 'acn-panel-search', className: 'acn-panel' });
+        panel.appendChild(orbBuildPanelHeader('\u2315 Search'));
+
+        var input = createElement('input', {
+            id: 'acn-search-input',
+            className: 'acn-si',
+            type: 'text',
+            placeholder: 'Search keywords...',
+        });
+        var searchTimeout = null;
+        input.addEventListener('input', function () {
+            if (searchTimeout) clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(function () {
+                orbPopulateSearch(input.value);
+            }, 200);
+        });
+
+        var hint = createElement('div', { id: 'acn-search-hint', className: 'acn-sh',
+            textContent: 'Search through your conversation' });
+
+        var wrap = createElement('div', { className: 'acn-search-wrap' }, [input, hint]);
+        panel.appendChild(wrap);
+
+        var list = createElement('div', { id: 'acn-search-list', className: 'acn-ql' });
+        panel.appendChild(list);
+
+        return panel;
+    }
+
+    function orbBuildPanelBookmarks() {
+        var panel = createElement('div', { id: 'acn-panel-bookmarks', className: 'acn-panel' });
+        panel.appendChild(orbBuildPanelHeader('\u2691 Bookmarks'));
+
+        var stat = createElement('div', { className: 'acn-pstat', textContent: '3 bookmarks' });
+        panel.appendChild(stat);
+
+        var list = createElement('div', { className: 'acn-ql' });
+
+        var items = [
+            { type: '\uD83D\uDCCC Response', text: 'The context window for Claude is 200K tokens...', meta: 'Msg #14' },
+            { type: '\uD83D\uDCCC Question', text: 'Difference between context tracking and rate limit tracking?', meta: 'Msg #8' },
+            { type: '\uD83D\uDCCC Code', text: 'function estimateContextUsage() { const messages = getAll()...', meta: 'Msg #22' },
+        ];
+
+        items.forEach(function (item) {
+            var typeEl = createElement('div', { className: 'acn-bk-type', textContent: item.type });
+            var textEl = createElement('div', { className: 'acn-bk-text', textContent: item.text });
+            var metaEl = createElement('div', { className: 'acn-bk-meta', textContent: item.meta });
+            list.appendChild(createElement('div', { className: 'acn-bk' }, [typeEl, textEl, metaEl]));
+        });
+
+        panel.appendChild(list);
+        return panel;
+    }
+
+    function orbBuildPanelSummary() {
+        var panel = createElement('div', { id: 'acn-panel-summary', className: 'acn-panel' });
+        panel.appendChild(orbBuildPanelHeader('\u03A3 Summary'));
+
+        var scroll = createElement('div', { style: 'flex:1;overflow-y:auto' });
+
+        // Topics
+        var topicsSec   = createElement('div', { className: 'acn-sum-sec' });
+        topicsSec.appendChild(createElement('div', { className: 'acn-sum-title', textContent: 'Topics' }));
+        ['Orbital UI', 'Navigation', 'Conversation'].forEach(function (t) {
+            topicsSec.appendChild(createElement('span', { className: 'acn-sum-topic', textContent: t }));
+        });
+        scroll.appendChild(topicsSec);
+
+        // Key points
+        var keysSec = createElement('div', { className: 'acn-sum-sec' });
+        keysSec.appendChild(createElement('div', { className: 'acn-sum-title', textContent: 'Key Points' }));
+        ['→', '→'].forEach(function (b, i) {
+            var bullet = createElement('span', { className: 'acn-sum-bullet', textContent: b });
+            var text   = createElement('span', null,
+                [i === 0 ? 'Navigate between user questions' : 'Search conversation content']);
+            keysSec.appendChild(createElement('div', { className: 'acn-sum-action' }, [bullet, text]));
+        });
+        scroll.appendChild(keysSec);
+
+        // Generate button
+        var genSec = createElement('div', { className: 'acn-sum-sec' });
+        var genBtn = createElement('button', { className: 'acn-gen-btn',
+            textContent: '\u21BB Generate Summary' });
+        genSec.appendChild(genBtn);
+        scroll.appendChild(genSec);
+
+        panel.appendChild(scroll);
+        return panel;
+    }
+
+    function orbBuildPanelExport() {
+        var panel = createElement('div', { id: 'acn-panel-export', className: 'acn-panel' });
+        panel.appendChild(orbBuildPanelHeader('\u2197 Export'));
+
+        var opts = [
+            { icon: '\uD83D\uDCC4', title: 'Full Conversation', desc: 'Markdown with all messages and code blocks.' },
+            { icon: '\uD83D\uDCCC', title: 'Bookmarks Only',    desc: 'Pinned messages as structured document.' },
+            { icon: '\uD83D\uDCCB', title: 'Summary',           desc: 'Topics, decisions, and action items.' },
+            { icon: '\uD83D\uDD17', title: 'Share Link',        desc: 'Copy shareable link (platform dependent).' },
+        ];
+
+        opts.forEach(function (opt) {
+            var iconEl  = createElement('div', { className: 'acn-exp-icon',  textContent: opt.icon });
+            var titleEl = createElement('div', { className: 'acn-exp-title', textContent: opt.title });
+            var descEl  = createElement('div', { className: 'acn-exp-desc',  textContent: opt.desc });
+            panel.appendChild(createElement('div', { className: 'acn-exp-opt' }, [iconEl, titleEl, descEl]));
+        });
+
+        return panel;
+    }
+
+    function orbBuildPanelSettings() {
+        var panel  = createElement('div', { id: 'acn-panel-settings', className: 'acn-panel' });
+        panel.appendChild(orbBuildPanelHeader('\u2699 Settings'));
+
+        var scroll = createElement('div', { className: 'acn-set-scroll' });
+
+        // ── Display group ──
+        var dispGroup = createElement('div', { className: 'acn-set-group' });
+        dispGroup.appendChild(createElement('div', { className: 'acn-set-gtitle', textContent: 'Display' }));
+
+        // Mode selector
+        var modeSel = createElement('select', { id: 'acn-mode-sel', className: 'acn-set-sel' });
+        [['show-all', 'Show all'], ['arc', 'Arc'], ['wheel', 'Wheel']].forEach(function (opt) {
+            var o = createElement('option', { value: opt[0] }, [opt[1]]);
+            if (opt[0] === orbMode) o.setAttribute('selected', '');
+            modeSel.appendChild(o);
+        });
+        modeSel.addEventListener('change', function () { orbSetMode(modeSel.value); });
+        dispGroup.appendChild(createElement('div', { className: 'acn-set-row' }, [
+            createElement('div', { className: 'acn-set-label', textContent: 'Orbital mode' }),
+            modeSel,
+        ]));
+
+        // Scroll direction
+        var dirSel = createElement('select', { id: 'acn-dir-sel', className: 'acn-set-sel' });
+        [['standard', 'Standard'], ['natural', 'Natural']].forEach(function (opt) {
+            var o = createElement('option', { value: opt[0] }, [opt[1]]);
+            if ((opt[0] === 'natural') === orbScrollInverted) o.setAttribute('selected', '');
+            dirSel.appendChild(o);
+        });
+        dirSel.addEventListener('change', function () {
+            orbScrollInverted = dirSel.value === 'natural';
+            orbSaveSettings();
+        });
+        dispGroup.appendChild(createElement('div', { className: 'acn-set-row' }, [
+            createElement('div', { className: 'acn-set-label', textContent: 'Scroll direction' }),
+            dirSel,
+        ]));
+
+        scroll.appendChild(dispGroup);
+
+        // ── Platforms group ──
+        var platGroup = createElement('div', { className: 'acn-set-group' });
+        platGroup.appendChild(createElement('div', { className: 'acn-set-gtitle', textContent: 'Platforms' }));
+
+        var platList = [
+            { icon: '\u2733', color: '#d97706', name: 'Claude' },
+            { icon: '\u23E3', color: '#aaa',    name: 'ChatGPT' },
+            { icon: 'X',      color: '#ef4444', name: 'Grok' },
+            { icon: '\u2726', color: '#4285f4', name: 'Gemini' },
+            { icon: '\u2733', color: '#20b8cd', name: 'Perplexity' },
+        ];
+        platList.forEach(function (p) {
+            var iconEl = createElement('span', { className: 'acn-plat-icon',
+                style: 'color:' + p.color, textContent: p.icon });
+            var nameEl = createElement('span', { className: 'acn-plat-name', textContent: p.name });
+            var tog    = createElement('div', { className: 'acn-toggle acn-on' });
+            tog.addEventListener('click', function () { tog.classList.toggle('acn-on'); });
+            platGroup.appendChild(createElement('div', { className: 'acn-plat-row' },
+                [iconEl, nameEl, tog]));
+        });
+        scroll.appendChild(platGroup);
+
+        // ── About group ──
+        var aboutGroup = createElement('div', { className: 'acn-set-group' });
+        aboutGroup.appendChild(createElement('div', { className: 'acn-set-gtitle', textContent: 'About' }));
+        aboutGroup.appendChild(createElement('div', { className: 'acn-set-row' }, [
+            createElement('div', { className: 'acn-set-label',
+                style: 'color:#777', textContent: 'AI Conversation Navigator v10.0' }),
+        ]));
+        var resetBtn = createElement('button', { className: 'acn-reset-btn',
+            textContent: 'Reset to Default' });
+        resetBtn.addEventListener('click', function () {
+            orbSetMode('show-all');
+            orbScrollInverted = false;
+            orbSaveSettings();
+            var dirSelEl = document.getElementById('acn-dir-sel');
+            if (dirSelEl) dirSelEl.value = 'standard';
+        });
+        aboutGroup.appendChild(resetBtn);
+        scroll.appendChild(aboutGroup);
+
+        panel.appendChild(scroll);
+        return panel;
+    }
+
+    // ============================================================
+    // ZONE + DOTS BUILDER
+    // ============================================================
+    function orbBuildZone() {
+        var zone = createElement('div', { id: 'acn-zone', className: 'acn-zone' });
+        // Stable test-contract attributes — tests use these roles, not internal IDs/classes
+        zone.setAttribute('data-acn-role',    'zone');
+        zone.setAttribute('data-acn-accent',  orbTheme.bg);   // platform hex color
+        zone.setAttribute('data-acn-version', '10.0');
+
+        // Set CSS variables for platform theming
+        zone.style.setProperty('--acn-accent', orbTheme.bg);
+        zone.style.setProperty('--acn-rgb',    orbTheme.rgb);
+        zone.style.setProperty('--acn-shadow', orbTheme.shadow);
+
+        // Hitzone — captures hover/scroll events
+        var hitzone = createElement('div', { id: 'acn-hitzone', className: 'acn-hitzone' });
+        zone.appendChild(hitzone);
+
+        // Wheel/arc hint
+        var hint = createElement('div', { id: 'acn-whint', className: 'acn-whint' });
+        hint.appendChild(createElement('span', null, ['\u2195 scroll']));
+        zone.appendChild(hint);
+
+        // Feature dots
+        orbDots = [];
+        ORB_FEATURES.forEach(function (f, i) {
+            var dot = createElement('div', {
+                id: 'acn-dot-' + f.id,
+                className: 'acn-dot',
+            });
+            dot.style.background = orbTheme.bg;
+            // Navigate dot is the entry point for the core navigation feature
+            if (f.id === 'nav') dot.setAttribute('data-acn-role', 'nav-trigger');
+            // Label
+            var lbl = createElement('span', { className: 'acn-lbl', textContent: f.label });
+            dot.appendChild(document.createTextNode(f.icon));
+            dot.appendChild(lbl);
+            dot.addEventListener('click', (function (id) {
+                return function (e) { e.stopPropagation(); orbOpenPanel(id); };
+            })(f.id));
+            zone.appendChild(dot);
+            orbDots.push(dot);
+        });
+
+        // Connectors (N-1 of them)
+        orbConns = [];
+        for (var i = 0; i < ORB_N - 1; i++) {
+            var conn = createElement('div', { className: 'acn-conn' });
+            zone.appendChild(conn);
+            orbConns.push(conn);
+        }
+
+        // ── Event handlers ──
+
+        // Hover enter
+        function handleEnter() { orbHovering = true; orbRender(); }
+        hitzone.addEventListener('mouseenter', handleEnter);
+        zone.addEventListener('mouseenter', handleEnter);
+
+        // Hover exit — resets rotIdx to Navigate when leaving and no panel open
+        function handleExit(e) {
+            var related = e.relatedTarget;
+            if (related && (
+                related.closest && (
+                    related.closest('.acn-dot') ||
+                    related.closest('.acn-zone') ||
+                    related.closest('.acn-panel')
+                )
+            )) return;
+            if (orbPanel) return;
+            orbHovering = false;
+            if (orbMode === 'wheel' || orbMode === 'arc') {
+                orbPrevRotIdx = orbRotIdx;
+                orbRotIdx     = 0;
+            }
+            orbRender();
+        }
+        hitzone.addEventListener('mouseleave', handleExit);
+        zone.addEventListener('mouseleave', handleExit);
+
+        // Scroll — rotates arc/wheel
+        zone.addEventListener('wheel', function (e) {
+            if (orbMode === 'show-all') return;
+            if (!orbHovering && !orbPanel) return;
+            e.preventDefault();
+            if (orbAnimLock) return;
+            orbAnimLock = true;
+
+            var delta = e.deltaY;
+            if (orbScrollInverted) delta = -delta;
+
+            orbPrevRotIdx = orbRotIdx;
+
+            if (orbMode === 'wheel') {
+                orbRotIdx = (delta > 0)
+                    ? (orbRotIdx + 1) % ORB_N
+                    : (orbRotIdx - 1 + ORB_N) % ORB_N;
+            } else if (orbMode === 'arc') {
+                var nS = ORB_N - 1;
+                orbRotIdx = (delta > 0)
+                    ? (orbRotIdx + 1) % nS
+                    : (orbRotIdx - 1 + nS) % nS;
+            }
+
+            orbRender();
+            setTimeout(function () { orbAnimLock = false; }, 250);
+        }, { passive: false });
+
+        return zone;
+    }
+
+    // ============================================================
+    // MAIN INJECTION
+    // ============================================================
+    function injectOrbital() {
+        if (orbInjected) return;
+        if (document.getElementById('acn-zone')) { orbInjected = true; return; }
+        orbInjected = true;
+
+        // Clean up any orphaned panels from a previous injection cycle
+        document.querySelectorAll('.acn-panel').forEach(function (p) { p.remove(); });
+
+        orbLoadSettings();
+        orbInjectCSS();
+
+        // Build and append zone
+        var zone = orbBuildZone();
+        document.body.appendChild(zone);
+
+        // Build and append panels
+        document.body.appendChild(orbBuildPanelNav());
+        document.body.appendChild(orbBuildPanelSearch());
+        document.body.appendChild(orbBuildPanelBookmarks());
+        document.body.appendChild(orbBuildPanelSummary());
+        document.body.appendChild(orbBuildPanelExport());
+        document.body.appendChild(orbBuildPanelSettings());
+
+        // For left-chat: initially hidden until boundary is detected
+        if (isLeftChat) {
+            zone.style.visibility = 'hidden';
+        }
+
+        orbRender();
+    }
+
+    // Inject now (body is available — Tampermonkey runs at document-end)
+    injectOrbital();
+
+    console.log('AI Conversation Navigator v10.0 loaded for ' + platform.title +
+        (isLeftChat ? ' (left-chat mode)' : '') + '.');
 })();

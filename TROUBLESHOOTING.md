@@ -248,6 +248,46 @@ Rewrote mock test page and created detailed DOM-REFERENCE.md entry. See CHANGELO
 
 ## Cross-Platform Issues
 
+### Orphaned panels on SPA re-inject cycles
+
+**Versions affected:** v10.0 (identified during Phase 2 development)
+**Fixed in:** v10.0 (defensive guard added during Phase 3)
+**Platforms:** All SPA platforms (Claude, ChatGPT, Gemini, and any platform where `injectOrbital()` can be called more than once per page session)
+
+#### What It Looked Like
+
+On single-page applications that trigger a full re-inject (e.g., Gemini's Angular route changes, or Claude's SPA navigation between conversations), if `injectOrbital()` ran a second time after the DOM had been partially cleaned, the orbital zone could appear normally but existing `.acn-panel` elements from the previous injection cycle would still exist in `document.body` — disconnected from the new zone, invisible, but present in the DOM. These orphaned panels could intercept pointer events or cause getElementById lookups to find the wrong element.
+
+A related issue: `orbInjectCSS()` injected a new `<style>` tag on each call. If the DOM Guardian triggered a re-inject while the style element was still present (common on Gemini), the same CSS rules would be injected twice, increasing stylesheet size and risking specificity collisions.
+
+#### Root Cause
+
+`injectOrbital()` was written assuming it would only ever be called once. The defensive mechanisms in the v9.x codebase that prevented duplicate button creation (`getElementById` checks, `_aiNavAlreadyLoaded` guard) were present at the global script level but not inside the orbital injection function itself.
+
+When Gemini's Angular framework triggers a `popstate` or route change, the MutationObserver or SPA hook can call `injectOrbital()` again. The zone is rebuilt fresh, but the old panels (`.acn-panel` elements) were appended directly to `document.body` — not inside the zone — so removing the zone didn't clean them up.
+
+Similarly, `orbInjectCSS()` unconditionally called `GM_addStyle()` and inserted a new `<style id="acn-style">` each time, without checking whether one already existed.
+
+#### What Was Fixed
+
+Two guards added to `injectOrbital()` in v10.0 Phase 3:
+
+```javascript
+// 1. Clean up orphaned panels from any previous injection cycle
+document.querySelectorAll('.acn-panel').forEach(function (p) { p.remove(); });
+
+// 2. In orbInjectCSS(): skip if style element already exists
+if (document.getElementById('acn-style')) return;
+```
+
+The panel cleanup runs unconditionally at the start of every `injectOrbital()` call. The CSS guard checks by element ID before inserting. Together, these ensure re-injection is idempotent — calling `injectOrbital()` multiple times leaves exactly one zone, one style block, and zero orphaned panels.
+
+#### Results
+
+No duplicate CSS injections observed in Chromium testing. Panel cleanup prevents stale `.acn-panel` elements from persisting across inject cycles.
+
+---
+
 ### Duplicate Navigate button (Linux Firefox)
 
 **Versions affected:** v6.0  
