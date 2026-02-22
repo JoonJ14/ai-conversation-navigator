@@ -30,13 +30,17 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v9.0
+## Current Status: v9.6
 
-The extension supports 14 platform variants across 12 websites. All platforms have been debugged on live sites (Firefox/Linux). All 140 automated tests pass (10 tests × 14 platforms).
+The extension supports 14 platform variants across 12 websites. v9.6 introduced major security hardening (Trusted Types compliance) and visibility architecture fixes for Bolt.new and other app-builder platforms.
+
+**v9.4 - v9.6 Accomplishments:**
+- **Universal Search (v9.4):** Implemented high-performance keyword search across 14 platforms using DOM `TreeWalker`.
+- **Trusted Types Security (v9.6):** Refactored the entire UI engine to be compatible with secure Content Security Policies.
+- **Left-Chat Synchronization (v9.6):** Solved the "sliding panel" animation desync for Bolt.new, Lovable, Replit, and V0.
 
 **v8.0 Architecture: Platform Registry**
-
-All platform-specific data is consolidated into a single `PLATFORMS` registry object. Adding a new platform requires only ONE entry in this registry (plus a `@match` URL). The old `SITE` enum, `detectSite()`, `THEME`, `ICONS`, `siteTitles`, `LEFT_CHAT_SITES`, `VIRTUAL_SCROLL_SITES`, `SPA_SITES`, and the 400-line `getUserMessages()` if/else chain have all been replaced.
+All platform-specific data is consolidated into a single `PLATFORMS` registry object. Adding a new platform requires only ONE entry in this registry (plus a `@match` URL).
 
 **All platforms working:**
 - Claude, ChatGPT, Codex, Grok, Gemini, Perplexity — selectors validated on live sites
@@ -46,13 +50,6 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry ob
 - V0 (v7.7) — `data-testid="message"` filtered by `origin-right` + `items-end` from live DOM inspection
 - Emergent (v7.7) — `data-testid^="user-message"` with virtuoso-specific boundary detection, accumulative scanning, and scroll-through collection
 - Firebase Studio (v7.8) — cross-origin iframe injection into correct workspace iframe (`/capra/` path discrimination), `[class*="_isUser_"]` CSS module selectors
-
-**v9.0 Context Tracking (new):**
-- Enabled on Claude (`200K`), ChatGPT (`128K`), Grok (`128K`), Gemini (`1M`)
-- Sidebar context bar shows estimated usage from full visible conversation text (user + assistant)
-- 10K system-prompt/formatting buffer applied to DOM estimates
-- Threshold colors + warnings at high utilization
-- Experimental Claude-only fetch interception for real token counts when SSE usage metadata is present
 
 **Documentation:**
 - `DOM-REFERENCE.md` — real DOM structures of all 14 platforms with selector rationale, debugging history, and Firebase iframe architecture
@@ -66,7 +63,6 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry ob
 
 ## Future: General Feature Ideas
 
-- [ ] Search/filter questions within the navigation panel
 - [ ] Keyboard shortcuts for navigation
 - [ ] Export conversation outline
 - [ ] Settings panel for customization
@@ -75,3 +71,4 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry ob
 ---
 
 *Last updated: 2026-02-22*
+

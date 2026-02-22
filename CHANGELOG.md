@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [9.6] - 2026-02-22
+
+### Security — Trusted Types Compliance Refactor
+**Problem:** The v9.4 search renderer used `innerHTML` to update results. In strict Content Security Policy (CSP) environments that enforce Trusted Types (like modern Claude or ChatGPT), this caused the script to crash immediately upon execution.
+
+**Resolution:** Refactored the `executeConversationSearch` function to use programmatic DOM APIs (`createElement`, `textContent`) for all rendering. The script now assembles result items as a safe DOM tree instead of injecting raw HTML strings, making it fully compatible with secure-by-default browser policies.
+
+### Fixed — Bolt.new Visibility Architecture & Left-Chat Sync
+**Problem:** 
+1. The AI Nav button was invisible on Bolt.new because it incorrectly detected a hidden CodeMirror editor as the chat boundary, placing the button off-screen.
+2. App-Builder buttons (Bolt, Lovable, Replit) "snapped" instantly instead of animating when the panel opened.
+3. Scrolling the chat window while the Search Panel was open would cause the buttons to violently snap shut.
+
+**Method:**
+- **Inward-Pointing Geometry:** Redesigned the `left-chat` button container to anchor to the boundary's `right` edge (viewport-relative) instead of `left`, ensuring it expands outward into the preview pane.
+- **CodeMirror Filtering:** Updated `getChatBoundaryX` to filter out non-visible or off-screen elements during boundary detection.
+- **Scrollbar Compensation:** Added a `scrollbarOffset: 16` to the Bolt platform profile to prevent native OS scrollbars from occluding the UI.
+- **Animation Sync:** Added `transition: right` to the button container CSS to match the panel's expansion timing.
+
+---
+
 ## [9.4] - 2026-02-22
 
 ### Added — Universal Conversation Search
