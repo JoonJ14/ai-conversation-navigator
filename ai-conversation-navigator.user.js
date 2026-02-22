@@ -1319,7 +1319,8 @@
 
         container.appendChild(navBtn);
         if (platform.contextTracking) container.appendChild(ctxBtn);
-        container.appendChild(searchBtn);
+        const isCoreChat = ['claude', 'chatgpt', 'grok', 'gemini'].includes(platform.id);
+        if (isCoreChat && searchBtn) container.appendChild(searchBtn);
 
         return container;
     }
@@ -1794,7 +1795,8 @@
             console.log('AI Nav: Re-injected context panel.');
         }
 
-        if (!document.getElementById('ai-search-panel')) {
+        const isCoreChat = ['claude', 'chatgpt', 'grok', 'gemini'].includes(platform.id);
+        if (isCoreChat && !document.getElementById('ai-search-panel')) {
             const searchPanel = createSearchPanel();
             if (isLeftChat && !_boundaryDetected) searchPanel.style.display = 'none';
             document.body.appendChild(searchPanel);
@@ -1835,7 +1837,8 @@
         const observer = new MutationObserver(function () {
             if (guardianTimeout) clearTimeout(guardianTimeout);
             guardianTimeout = setTimeout(function () {
-                if (!document.getElementById('ai-nav-button-container') || !document.getElementById('ai-nav-panel') || !document.getElementById('ai-search-panel') || (platform.contextTracking && !document.getElementById('ai-context-panel'))) {
+                const isCoreChat = ['claude', 'chatgpt', 'grok', 'gemini'].includes(platform.id);
+                if (!document.getElementById('ai-nav-button-container') || !document.getElementById('ai-nav-panel') || (isCoreChat && !document.getElementById('ai-search-panel')) || (platform.contextTracking && !document.getElementById('ai-context-panel'))) {
                     ensureElementsExist();
                 }
             }, 200);
