@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orbital v11 — Clean Slot Systems</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=DM+Sans:wght@400;500;600&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#2b2b2b;color:#e5e5e5;font-family:'DM Sans',sans-serif;height:100vh;overflow:hidden;user-select:none}
+  .cl-side{position:fixed;left:0;top:0;bottom:0;width:240px;background:#1a1a1a;border-right:1px solid #333;z-index:1;padding:18px 14px}
+  .cl-side .logo{font-size:17px;font-weight:600;margin-bottom:18px}
+  .cl-side .ci{padding:7px 10px;font-size:12px;color:#666;border-radius:5px;margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cl-side .ci.act{background:rgba(217,119,6,.08);color:#d97706}
+  .cl-top{position:fixed;top:0;left:240px;right:0;height:48px;background:#2b2b2b;border-bottom:1px solid #333;z-index:5;display:flex;align-items:center;padding:0 20px;font-size:12px;color:#777}
+  .cl-chat{position:fixed;left:240px;top:48px;right:0;bottom:0;padding:30px 60px;overflow-y:auto;z-index:0}
+  .bub{max-width:620px;margin:0 auto 18px;padding:14px 18px;border-radius:11px;font-size:13px;line-height:1.55}
+  .bub.u{background:#363636;color:#ddd}
+  .bub.a{background:transparent;color:#bbb;padding-left:2px}
+  .mode-bar{position:fixed;top:56px;left:254px;z-index:200;display:flex;gap:5px}
+  .mbtn{padding:5px 13px;font-size:10px;font-family:inherit;font-weight:600;background:#2a2a2a;color:#888;border:1px solid #3a3a3a;border-radius:7px;cursor:pointer;transition:all .2s}
+  .mbtn:hover{background:#3a3a3a;color:#bbb}
+  .mbtn.on{background:#d97706;color:#000;border-color:#d97706}
+  .mhint{position:fixed;top:90px;left:254px;z-index:200;font-size:11px;color:#555;font-style:italic;max-width:560px;line-height:1.4}
+
+  .panel{position:fixed;right:0;top:48px;bottom:0;width:310px;background:#1a1a1a;border-left:1px solid #333;transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;overflow:hidden;z-index:90}
+  .panel.open{transform:translateX(0)}
+  .ph{padding:12px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #2a2a2a;flex-shrink:0}
+  .ph h3{font-size:13px;font-weight:600}
+  .xb{font-size:10px;background:rgba(255,255,255,.06);border:none;color:#888;padding:4px 10px;border-radius:5px;cursor:pointer;font-family:inherit}
+  .xb:hover{background:rgba(255,255,255,.12)}
+  .ctx{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0}
+  .ctx-r{display:flex;justify-content:space-between;margin-bottom:5px}
+  .ctx-l{font-size:9px;color:#555;text-transform:uppercase;letter-spacing:.5px;font-weight:500}
+  .ctx-p{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#22c55e}
+  .ctx-bar{height:4px;background:#222;border-radius:2px;overflow:hidden}
+  .ctx-fill{height:100%;width:32%;background:linear-gradient(90deg,#22c55ecc,#22c55e);border-radius:2px}
+  .ctx-m{font-size:8px;color:#444;margin-top:3px}
+  .pstat{padding:7px 14px;font-size:10px;color:#777;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0}
+  .ql{flex:1;overflow-y:auto;padding:2px 0}
+  .qi{padding:9px 14px;border-left:2px solid transparent;cursor:pointer;transition:all .12s}
+  .qi:hover{background:rgba(217,119,6,.06);border-left-color:#d97706}
+  .qi .qn{font-size:9px;font-weight:600;color:#d97706;margin-bottom:2px}
+  .qi .qt{font-size:11px;color:#999;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .qi .qw{font-size:9px;color:#444;margin-top:2px}
+  .si{width:100%;padding:9px 11px;background:#222;border:1px solid #333;border-radius:7px;color:#ddd;font-size:12px;font-family:inherit;outline:none}
+  .si:focus{border-color:#d97706}
+  .si::placeholder{color:#555}
+  .sh{margin-top:10px;font-size:10px;color:#444;text-align:center}
+  .bk-item{padding:10px 14px;border-left:2px solid #d97706;cursor:pointer;transition:all .12s;margin:4px 10px;background:rgba(217,119,6,.04);border-radius:0 6px 6px 0}
+  .bk-item:hover{background:rgba(217,119,6,.1)}
+  .bk-item .bk-type{font-size:9px;font-weight:600;color:#d97706;margin-bottom:2px}
+  .bk-item .bk-text{font-size:11px;color:#999;line-height:1.35}
+  .bk-item .bk-meta{font-size:9px;color:#555;margin-top:3px}
+  .sum-section{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.05)}
+  .sum-title{font-size:10px;font-weight:600;color:#d97706;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+  .sum-topic{display:inline-block;padding:3px 8px;background:rgba(217,119,6,.08);border:1px solid rgba(217,119,6,.15);border-radius:5px;font-size:10px;color:#d97706;margin:2px 3px 2px 0}
+  .sum-action{padding:6px 0;font-size:11px;color:#aaa;display:flex;align-items:flex-start;gap:6px}
+  .sum-bullet{color:#d97706;font-weight:600;flex-shrink:0}
+  .sum-gen-btn{width:100%;padding:10px;background:rgba(217,119,6,.08);border:1px solid rgba(217,119,6,.2);border-radius:7px;color:#d97706;font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;margin-top:8px}
+  .exp-option{padding:14px;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer;transition:background .12s}
+  .exp-option:hover{background:rgba(217,119,6,.06)}
+  .exp-icon{font-size:18px;margin-bottom:4px}
+  .exp-title{font-size:12px;font-weight:600;color:#ccc;margin-bottom:3px}
+  .exp-desc{font-size:10px;color:#666;line-height:1.4}
+  .settings-scroll{flex:1;overflow-y:auto;padding:4px 0}
+  .set-group{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.05)}
+  .set-group-title{font-size:10px;font-weight:600;color:#d97706;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+  .set-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0}
+  .set-label{font-size:11px;color:#aaa}
+  .set-desc{font-size:9px;color:#555;margin-top:1px}
+  .toggle{width:36px;height:20px;background:#333;border-radius:10px;cursor:pointer;position:relative;transition:background .2s;flex-shrink:0;margin-left:10px}
+  .toggle.on{background:#d97706}
+  .toggle::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+  .toggle.on::after{transform:translateX(16px)}
+  .set-select{background:#222;color:#ccc;border:1px solid #333;border-radius:5px;padding:4px 8px;font-size:10px;font-family:inherit;outline:none;cursor:pointer;flex-shrink:0;margin-left:10px}
+  .set-slider{width:80px;height:4px;-webkit-appearance:none;appearance:none;background:#333;border-radius:2px;outline:none;cursor:pointer;flex-shrink:0;margin-left:10px}
+  .set-slider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:#d97706;border-radius:50%;cursor:grab}
+  .set-val{font-family:'JetBrains Mono',monospace;font-size:10px;color:#d97706;min-width:28px;text-align:right;margin-left:6px;flex-shrink:0}
+  .plat-row{display:flex;align-items:center;gap:8px;padding:5px 0}
+  .plat-icon{font-size:14px;width:22px;text-align:center}
+  .plat-name{font-size:11px;color:#aaa;flex:1}
+  .reset-btn{width:100%;padding:10px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:7px;color:#ef4444;font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;margin-top:4px}
+
+  .orb-zone{position:fixed;right:0;top:0;bottom:0;width:160px;z-index:100;transition:right .3s}
+  .orb-zone.hp{right:310px}
+  .orb-hitzone{position:absolute;right:0;top:0;bottom:0;width:160px;z-index:1}
+  .orb-dot{
+    position:absolute;display:flex;align-items:center;justify-content:center;
+    border-radius:50%;cursor:pointer;z-index:5;color:#000;font-weight:600;
+    transition:top .3s cubic-bezier(.25,.8,.5,1),
+               right .3s cubic-bezier(.25,.8,.5,1),
+               width .3s cubic-bezier(.25,.8,.5,1),
+               height .3s cubic-bezier(.25,.8,.5,1),
+               font-size .3s cubic-bezier(.25,.8,.5,1),
+               border-radius .3s cubic-bezier(.25,.8,.5,1),
+               box-shadow .3s cubic-bezier(.25,.8,.5,1),
+               opacity .08s linear;
+    opacity:0;pointer-events:none;
+  }
+  .orb-dot.vis{pointer-events:auto}
+  .orb-dot.no-t{transition:none!important}
+  .orb-dot:hover{filter:brightness(1.3);z-index:20}
+  .orb-dot.act{box-shadow:0 0 16px rgba(217,119,6,.5)}
+  .orb-dot .olbl{
+    position:absolute;right:calc(100% + 10px);
+    font-size:10px;font-weight:600;color:#d97706;white-space:nowrap;
+    opacity:0;transition:opacity .15s,transform .15s;transform:translateX(4px);
+    pointer-events:none;text-shadow:0 1px 4px rgba(0,0,0,.5);
+  }
+  .orb-dot:hover .olbl{opacity:1;transform:translateX(0)}
+  .orb-dot.act .olbl{opacity:1;transform:translateX(0)}
+  .orb-connector{position:absolute;width:1px;background:rgba(217,119,6,.1);z-index:2;pointer-events:none;transition:all .3s;opacity:0}
+  .orb-connector.vis{opacity:1}
+  .wheel-hint{position:absolute;right:18px;font-size:9px;color:#555;text-align:center;width:36px;pointer-events:none;opacity:0;transition:opacity .3s}
+  .wheel-hint.vis{opacity:1}
+  @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(3px)}}
+  .wheel-hint span{display:block;animation:bounce 1.5s ease-in-out infinite}
+</style>
+</head>
+<body>
+
+<div class="cl-side">
+  <div class="logo">Claude</div>
+  <div class="ci">New chat</div>
+  <div class="ci act">Adding and planning context...</div>
+  <div class="ci">Understanding MCP, Supabase...</div>
+  <div class="ci">Redesigning + Vision ideation...</div>
+  <div class="ci">Vision and brainstorming, Ph...</div>
+</div>
+<div class="cl-top">ai conversation navigator / orbital v11</div>
+<div class="cl-chat">
+  <div class="bub u">Fix arc to curve LEFT, wheel conveyor belt wrapping, and reset to ✳ on hover exit.</div>
+  <div class="bub a">All three fixed. Arc dots now appear to the left and rotate around the back. Wheel items teleport to staging positions off-screen then slide in naturally. Hover exit always snaps back to ✳ Navigate at center.</div>
+  <div class="bub u" style="margin-bottom:80px">Let's see how it feels!</div>
+</div>
+
+<div class="mode-bar">
+  <button class="mbtn on" onclick="setMode('show-all')">Show All</button>
+  <button class="mbtn" onclick="setMode('arc')">Arc</button>
+  <button class="mbtn" onclick="setMode('wheel')">Wheel</button>
+</div>
+<div class="mhint" id="mhint">✳ always visible. Hover to reveal orbital dots.</div>
+
+<div class="orb-zone" id="orbZone">
+  <div class="orb-hitzone" id="hitzone"></div>
+  <div class="wheel-hint" id="wheelHint"><span>↕</span>scroll</div>
+</div>
+
+<!-- Panels -->
+<div class="panel" id="panel-nav">
+  <div class="ph"><h3>✳ Navigate</h3><button class="xb" onclick="closePanel()">✕</button></div>
+  <div class="ctx"><div class="ctx-r"><span class="ctx-l">Context</span><span class="ctx-p">~32%</span></div><div class="ctx-bar"><div class="ctx-fill"></div></div><div class="ctx-m">~64K / 200K tokens</div></div>
+  <div class="pstat">4 questions found</div><div class="ql" id="nav-q"></div>
+</div>
+<div class="panel" id="panel-search">
+  <div class="ph"><h3>⌕ Search</h3><button class="xb" onclick="closePanel()">✕</button></div>
+  <div style="padding:14px"><input class="si" placeholder="Search keywords..." id="searchInput"><div class="sh">Search through your conversation</div></div>
+  <div class="ql" id="search-q"></div>
+</div>
+<div class="panel" id="panel-bookmarks">
+  <div class="ph"><h3>⚑ Bookmarks</h3><button class="xb" onclick="closePanel()">✕</button></div>
+  <div class="pstat">3 bookmarks</div>
+  <div class="ql">
+    <div class="bk-item"><div class="bk-type">📌 Response</div><div class="bk-text">The context window for Claude is 200K tokens...</div><div class="bk-meta">Msg #14 · 2m ago</div></div>
+    <div class="bk-item"><div class="bk-type">📌 Question</div><div class="bk-text">Difference between context tracking and rate limit tracking?</div><div class="bk-meta">Msg #8 · 5m ago</div></div>
+    <div class="bk-item"><div class="bk-type">📌 Code</div><div class="bk-text">function estimateContextUsage() { const messages = getAll()...</div><div class="bk-meta">Msg #22 · 1m ago</div></div>
+  </div>
+</div>
+<div class="panel" id="panel-summary">
+  <div class="ph"><h3>Σ Summary</h3><button class="xb" onclick="closePanel()">✕</button></div>
+  <div class="sum-section"><div class="sum-title">Topics</div><span class="sum-topic">Context tracking</span><span class="sum-topic">Orbital UI</span><span class="sum-topic">Wheel carousel</span><span class="sum-topic">Export</span></div>
+  <div class="sum-section"><div class="sum-title">Decisions</div><div class="sum-action"><span class="sum-bullet">→</span><span>Orbital dots — the "OH!" design</span></div><div class="sum-action"><span class="sum-bullet">→</span><span>6 features with smooth bar context</span></div></div>
+  <div class="sum-section"><div class="sum-title">Action Items</div><div class="sum-action"><span class="sum-bullet">☐</span><span>Implement orbital in userscript</span></div><div class="sum-action"><span class="sum-bullet">☐</span><span>Build Export (Markdown/PDF/JSON)</span></div></div>
+  <div class="sum-section"><button class="sum-gen-btn">↻ Regenerate</button></div>
+</div>
+<div class="panel" id="panel-export">
+  <div class="ph"><h3>↗ Export</h3><button class="xb" onclick="closePanel()">✕</button></div>
+  <div class="exp-option"><div class="exp-icon">📄</div><div class="exp-title">Full Conversation</div><div class="exp-desc">Markdown with all messages and code blocks.</div></div>
+  <div class="exp-option"><div class="exp-icon">📌</div><div class="exp-title">Bookmarks Only</div><div class="exp-desc">Pinned messages as structured document.</div></div>
+  <div class="exp-option"><div class="exp-icon">📋</div><div class="exp-title">Summary</div><div class="exp-desc">Topics, decisions, and action items.</div></div>
+  <div class="exp-option"><div class="exp-icon">🔗</div><div class="exp-title">Share Link</div><div class="exp-desc">Copy shareable link (platform dependent).</div></div>
+</div>
+<div class="panel" id="panel-settings">
+  <div class="ph"><h3>⚙ Settings</h3><button class="xb" onclick="closePanel()">✕</button></div>
+  <div class="settings-scroll">
+    <div class="set-group"><div class="set-group-title">Display</div>
+      <div class="set-row"><div><div class="set-label">Orbital mode</div></div><select class="set-select" id="set-orb-mode" onchange="setModeFromSetting(this.value)"><option value="show-all">Show all</option><option value="arc">Arc</option><option value="wheel">Wheel</option></select></div>
+      <div class="set-row"><div><div class="set-label">Scroll direction</div></div><select class="set-select" id="set-scroll-dir"><option value="system">Follow system</option><option value="natural">Natural</option><option value="traditional">Traditional</option></select></div>
+      <div class="set-row"><div><div class="set-label">Button position</div></div><select class="set-select"><option>Right</option><option>Left</option></select></div>
+      <div class="set-row"><div><div class="set-label">Auto-hide</div></div><div class="toggle" onclick="this.classList.toggle('on')"></div></div>
+    </div>
+    <div class="set-group"><div class="set-group-title">Context</div>
+      <div class="set-row"><div><div class="set-label">Show indicator</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+      <div class="set-row"><div><div class="set-label">Warning</div></div><input type="range" class="set-slider" min="50" max="90" value="70" oninput="this.nextElementSibling.textContent=this.value+'%'"><span class="set-val">70%</span></div>
+      <div class="set-row"><div><div class="set-label">Critical</div></div><input type="range" class="set-slider" min="70" max="100" value="85" oninput="this.nextElementSibling.textContent=this.value+'%'"><span class="set-val">85%</span></div>
+    </div>
+    <div class="set-group"><div class="set-group-title">Navigation</div>
+      <div class="set-row"><div><div class="set-label">Word count</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+      <div class="set-row"><div><div class="set-label">Detection</div></div><select class="set-select"><option>Relaxed</option><option>Strict</option></select></div>
+    </div>
+    <div class="set-group"><div class="set-group-title">Export</div>
+      <div class="set-row"><div><div class="set-label">Format</div></div><select class="set-select"><option>Markdown</option><option>Text</option><option>JSON</option></select></div>
+      <div class="set-row"><div><div class="set-label">Timestamps</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+    </div>
+    <div class="set-group"><div class="set-group-title">Platforms</div>
+      <div class="plat-row"><span class="plat-icon" style="color:#d97706">✳</span><span class="plat-name">Claude</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+      <div class="plat-row"><span class="plat-icon" style="color:#aaa">⏣</span><span class="plat-name">ChatGPT</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+      <div class="plat-row"><span class="plat-icon" style="color:#ef4444">✕</span><span class="plat-name">Grok</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+      <div class="plat-row"><span class="plat-icon" style="color:#3b82f6">✦</span><span class="plat-name">Gemini</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+    </div>
+    <div class="set-group"><div class="set-group-title">About</div>
+      <div class="set-row"><div><div class="set-label" style="color:#777">AI Conversation Navigator v10.0</div></div></div>
+      <button class="reset-btn">Reset All to Default</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const features = [
+  { id:'nav',       icon:'✳', label:'Navigate',  bg:'#d97706', panel:'panel-nav' },
+  { id:'search',    icon:'⌕', label:'Search',    bg:'#c2770a', panel:'panel-search' },
+  { id:'bookmarks', icon:'⚑', label:'Bookmarks', bg:'#a3630d', panel:'panel-bookmarks' },
+  { id:'summary',   icon:'Σ', label:'Summary',   bg:'#8b5410', panel:'panel-summary' },
+  { id:'export',    icon:'↗', label:'Export',    bg:'#734613', panel:'panel-export' },
+  { id:'settings',  icon:'⚙', label:'Settings',  bg:'#5c3916', panel:'panel-settings' },
+];
+const N = features.length;
+const MAIN = 0;
+const CX = 42;
+
+const qs=[
+  {n:1,t:'Can you look at the last chat about context tracking?',w:119},
+  {n:2,t:'I might try testing it on the antigravity IDE.',w:62},
+  {n:3,t:'The code went really well with gemini + codex cli.',w:211},
+  {n:4,t:"What's the current state of the context indicator?",w:59},
+];
+function pq(id){const c=document.getElementById(id);if(!c)return;qs.forEach(q=>{const d=document.createElement('div');d.className='qi';d.innerHTML=`<div class="qn">Q#${q.n}</div><div class="qt">${q.t}</div><div class="qw">${q.w} words</div>`;c.appendChild(d)})}
+pq('nav-q'); pq('search-q');
+
+const zone = document.getElementById('orbZone');
+const dots = [];
+const connectors = [];
+
+features.forEach((f, i) => {
+  const dot = document.createElement('div');
+  dot.className = 'orb-dot';
+  dot.id = 'dot-' + f.id;
+  dot.style.background = f.bg;
+  dot.innerHTML = `${f.icon}<span class="olbl">${f.label}</span>`;
+  dot.addEventListener('click', (e) => { e.stopPropagation(); orbClick(f.id); });
+  zone.appendChild(dot);
+  dots.push(dot);
+  if(i < N-1){
+    const c = document.createElement('div');
+    c.className = 'orb-connector';
+    zone.appendChild(c);
+    connectors.push(c);
+  }
+});
+
+let currentMode = 'show-all';
+let currentPanel = null;
+let isHovering = false;
+let rotIdx = 0;
+let prevRotIdx = 0;
+let animLock = false;
+
+const hints = {
+  'show-all': '✳ at center. All dots same color, same brightness. Equal.',
+  'arc': 'Auto-polygon — all satellites visible, focus slot brightest. Scroll to rotate focus.',
+  'wheel': 'Strict slot rules: center=full, ±1=half, ±2=faint, ±3+=gone. Navigate glows slightly.',
+};
+
+function setMode(m){
+  currentMode=m; rotIdx=0; prevRotIdx=0;
+  document.querySelectorAll('.mbtn').forEach(b=>b.classList.remove('on'));
+  event?.target?.classList.add('on');
+  document.getElementById('mhint').textContent=hints[m];
+  document.getElementById('set-orb-mode').value=m;
+  dots.forEach(d=>d.classList.remove('no-t'));
+  render();
+}
+function setModeFromSetting(v){
+  currentMode=v; rotIdx=0; prevRotIdx=0;
+  document.querySelectorAll('.mbtn').forEach(b=>b.classList.remove('on'));
+  document.querySelectorAll('.mbtn').forEach(b=>{
+    if((v==='show-all'&&b.textContent==='Show All')||(v==='arc'&&b.textContent==='Arc')||(v==='wheel'&&b.textContent==='Wheel'))b.classList.add('on');
+  });
+  document.getElementById('mhint').textContent=hints[v]; render();
+}
+
+// ══════════════════════════════════════════
+// DOT POSITIONING HELPER
+// ══════════════════════════════════════════
+function sd(dot, p){
+  dot.style.width=p.w+'px'; dot.style.height=p.h+'px';
+  dot.style.fontSize=p.fs+'px'; dot.style.right=p.right+'px';
+  dot.style.top=p.top+'px'; dot.style.borderRadius=p.rad||'50%';
+  dot.style.opacity=p.op;
+  dot.style.pointerEvents=p.click?'auto':'none';
+  dot.style.boxShadow=p.shad?'0 2px 14px rgba(217,119,6,.25)':'none';
+  dot.classList.toggle('vis', p.op > 0.05);
+}
+
+// ══════════════════════════════════════════
+// RENDER
+// ══════════════════════════════════════════
+function render(){
+  const cy = zone.getBoundingClientRect().height / 2;
+  const show = isHovering || currentPanel !== null;
+
+  document.getElementById('wheelHint').classList.toggle('vis',
+    (currentMode==='wheel'||currentMode==='arc') && isHovering && !currentPanel);
+  document.getElementById('wheelHint').style.top = (cy+78)+'px';
+  connectors.forEach(c=>c.classList.remove('vis'));
+
+  if(currentMode==='show-all') renderShowAll(cy, show);
+  else if(currentMode==='arc') renderArc(cy, show);
+  else if(currentMode==='wheel') renderWheel(cy, show);
+}
+
+// ── SHOW ALL: Navigate at center, others above + below, ALL EQUAL ──
+function renderShowAll(cy, show){
+  const sp = 42;
+  const above = [1, 2];
+  const below = [3, 4, 5];
+
+  // Main at center — always visible
+  dots[MAIN].style.background = features[MAIN].bg;
+  sd(dots[MAIN],{w:42,h:42,fs:17,right:CX-21,top:cy-21,
+    rad:'13px',op:1,click:true,shad:true});
+
+  // ALL satellites get Navigate's EXACT color in show-all — truly equal
+  const satColor = '#d97706';
+
+  above.forEach((idx, i) => {
+    dots[idx].style.background = satColor;
+    const y = cy - (i + 1) * sp;
+    sd(dots[idx],{w:28,h:28,fs:12,right:CX-14,top:y-14,
+      rad:'50%',op:show?1:0,click:show,shad:false});
+  });
+
+  below.forEach((idx, i) => {
+    dots[idx].style.background = satColor;
+    const y = cy + (i + 1) * sp;
+    sd(dots[idx],{w:28,h:28,fs:12,right:CX-14,top:y-14,
+      rad:'50%',op:show?1:0,click:show,shad:false});
+  });
+
+  if(show){
+    const ordered = [...[...above].reverse(), MAIN, ...below];
+    for(let c = 0; c < connectors.length && c < ordered.length - 1; c++){
+      const d1 = dots[ordered[c]], d2 = dots[ordered[c+1]];
+      const y1 = parseFloat(d1.style.top) + parseFloat(d1.style.height);
+      const y2 = parseFloat(d2.style.top);
+      connectors[c].style.right = CX + 'px';
+      connectors[c].style.top = y1 + 'px';
+      connectors[c].style.height = Math.max(0, y2 - y1) + 'px';
+      connectors[c].classList.add('vis');
+    }
+  }
+}
+
+// ══════════════════════════════════════════
+// ARC MODE — Auto-polygon, slot-based brightness
+// ══════════════════════════════════════════
+// Rule: Satellites form a regular polygon (pentagon for 5, hexagon for 6, etc.)
+// All vertices always visible. "Focus" = vertex closest to angle 0 (direct left).
+// Brightness follows distance from focus, same concept as wheel slots.
+//
+// Slot 0 (focus):  size 30, opacity 1.0
+// Slot ±1:         size 26, opacity 0.65
+// Slot ±2:         size 22, opacity 0.40
+// Slot ±3+:        size 20, opacity 0.25
+//
+// Scrolling rotates which satellite is at the focus position.
+// Adding more features auto-adjusts the polygon shape.
+
+function renderArc(cy, show){
+  // Main button — always at center
+  dots[MAIN].style.background = features[MAIN].bg;
+  sd(dots[MAIN],{w:42,h:42,fs:17,right:CX-21,top:cy-21,
+    rad:'13px',op:1,click:true,shad:true});
+
+  // Collect satellite indices
+  const sats = [];
+  for(let i=0;i<N;i++) if(i!==MAIN) sats.push(i);
+  const nS = sats.length;
+  const radius = 76;
+
+  // Arc slot brightness rules (distance from focus)
+  const ARC_RULES = [
+    { op: 1.0,  size: 30, fs: 13 },  // slot 0: focus
+    { op: 0.65, size: 26, fs: 11 },  // slot 1: adjacent
+    { op: 0.40, size: 22, fs: 10 },  // slot 2: far
+    { op: 0.25, size: 20, fs: 9  },  // slot 3+: distant
+  ];
+
+  sats.forEach((featIdx, satI) => {
+    // ALL satellites get same bright color — slot opacity is the ONLY visual variable
+    dots[featIdx].style.background = '#d97706';
+
+    // Position on regular polygon — auto-calculated from satellite count
+    // Evenly divide 2π by nS, shifted by rotation
+    const vertexAngle = (satI / nS) * Math.PI * 2;
+    const angle = vertexAngle - (rotIdx / nS) * Math.PI * 2;
+
+    // Normalize to [-π, π]
+    let a = ((angle % (Math.PI*2)) + Math.PI*3) % (Math.PI*2) - Math.PI;
+
+    // Pixel position: angle 0 = directly LEFT of center button
+    const px = CX + Math.cos(a) * radius;
+    const py = cy + Math.sin(a) * radius;
+
+    // Slot = angular distance from focus (angle 0), measured in vertex steps
+    // Nearest vertex to angle 0 = slot 0 (focus)
+    let slot = satI - rotIdx;
+    // Wrap to nearest: for nS=5, range is [-2, 2]
+    while(slot > nS/2) slot -= nS;
+    while(slot < -nS/2) slot += nS;
+    const dist = Math.abs(slot);
+
+    // Look up rule (clamp to last rule for any distance beyond array)
+    const rule = ARC_RULES[Math.min(Math.floor(dist), ARC_RULES.length - 1)];
+
+    sd(dots[featIdx],{
+      w: rule.size, h: rule.size, fs: rule.fs,
+      right: px - rule.size/2, top: py - rule.size/2,
+      rad: '50%', op: show ? rule.op : 0,
+      click: show, shad: false,
+    });
+  });
+}
+
+// ══════════════════════════════════════════
+// WHEEL MODE — Strict slot rules, no exceptions
+// ══════════════════════════════════════════
+// Every dot gets its appearance from ONE lookup table based on slot distance.
+// Navigate gets a small brightness boost but follows the SAME slot rules.
+//
+// SLOT RULES (applied to ALL dots equally):
+//   Slot 0:    42px, fontSize 17, opacity 1.0   (center, active)
+//   Slot ±1:   28px, fontSize 12, opacity 0.50  (adjacent)
+//   Slot ±2:   20px, fontSize 9,  opacity 0.18  (far)
+//   Slot ±3+:  14px, fontSize 7,  opacity 0     (INVISIBLE — no exceptions)
+//
+// Navigate bonus: +0.15 opacity when off-center (capped at 1)
+// This is purely additive — it doesn't change size, slot, or visibility threshold.
+//
+// Conveyor wrapping: items teleport (no-transition) to staging slot ±3.5
+// then animate in. Since ±3 is invisible, entry is seamless.
+
+const WHEEL_RULES = [
+  { size: 42, fs: 17, op: 1.0  },  // slot 0: center
+  { size: 28, fs: 12, op: 0.50 },  // slot 1: adjacent
+  { size: 20, fs: 9,  op: 0.18 },  // slot 2: far
+  // slot 3+: invisible
+];
+const WHEEL_HIDDEN = { size: 14, fs: 7, op: 0 };
+const NAV_BOOST = 0.15;
+
+function renderWheel(cy, show){
+  const sp = 48;
+
+  dots.forEach((dot, i) => {
+    // ALL buttons get same bright color — slot opacity is the ONLY visual variable
+    dots[i].style.background = '#d97706';
+
+    // Calculate slot: how far from center this dot is
+    let slot = i - rotIdx;
+    while(slot > N/2) slot -= N;
+    while(slot <= -N/2) slot += N;  // <= for symmetric tie-breaking
+
+    let prevSlot = i - prevRotIdx;
+    while(prevSlot > N/2) prevSlot -= N;
+    while(prevSlot <= -N/2) prevSlot += N;
+
+    // Detect wrap (slot jumped across the ring)
+    const wrapped = Math.abs(slot - prevSlot) > N/2;
+
+    if(wrapped && show){
+      // Teleport to staging position on entry side (invisible)
+      const staging = slot > 0 ? 3.5 : -3.5;
+      dot.classList.add('no-t');
+      applyWheelSlot(dot, i, staging, cy, sp, show);
+      void dot.offsetHeight; // force reflow before re-enabling transition
+      dot.classList.remove('no-t');
+    }
+
+    applyWheelSlot(dot, i, slot, cy, sp, show);
+  });
+
+  prevRotIdx = rotIdx;
+}
+
+function applyWheelSlot(dot, featureIdx, slot, cy, sp, show){
+  const dist = Math.abs(slot);
+  const ruleIdx = Math.floor(dist);
+
+  // Look up from rules table. Anything beyond table = hidden.
+  const rule = ruleIdx < WHEEL_RULES.length ? WHEEL_RULES[ruleIdx] : WHEEL_HIDDEN;
+
+  let op = rule.op;
+
+  // Navigate brightness boost (additive, does NOT override slot visibility)
+  if(featureIdx === MAIN && op > 0 && op < 1) {
+    op = Math.min(1, op + NAV_BOOST);
+  }
+
+  const y = cy + slot * sp;
+  const isCenter = dist < 0.5;
+
+  // When not hovering: only Navigate visible (at whatever its slot opacity is)
+  // Since rotIdx resets to 0 on hover exit, Navigate is always at slot 0 = full
+  const finalOp = show ? op : (featureIdx === MAIN ? Math.min(op, 1) : 0);
+
+  sd(dot, {
+    w: rule.size, h: rule.size, fs: rule.fs,
+    right: CX - rule.size/2, top: y - rule.size/2,
+    rad: isCenter ? '13px' : '50%',
+    op: finalOp,
+    click: show && op > 0.05,
+    shad: isCenter,
+  });
+}
+
+// ══ SCROLL ══
+zone.addEventListener('wheel',(e)=>{
+  if(currentMode==='show-all') return;
+  if(!isHovering && !currentPanel) return;
+  e.preventDefault();
+  if(animLock) return;
+  animLock=true;
+
+  const dir=document.getElementById('set-scroll-dir').value;
+  let d=e.deltaY;
+  if(dir==='natural') d=-d;
+
+  prevRotIdx = rotIdx;
+
+  if(currentMode==='wheel'){
+    if(d>0) rotIdx=(rotIdx+1)%N;
+    else rotIdx=(rotIdx-1+N)%N;
+  } else if(currentMode==='arc'){
+    const nS = N-1;
+    if(d>0) rotIdx=(rotIdx+1)%nS;
+    else rotIdx=(rotIdx-1+nS)%nS;
+  }
+
+  render();
+  setTimeout(()=>{animLock=false},250);
+},{passive:false});
+
+// ══ HOVER ══
+const hitzone=document.getElementById('hitzone');
+hitzone.addEventListener('mouseenter',()=>{isHovering=true;render()});
+
+function handleHoverExit(e){
+  if(e.relatedTarget?.closest?.('.orb-dot,.orb-zone,.panel'))return;
+  if(currentPanel)return;
+  isHovering=false;
+
+  // Reset wheel/arc to Navigate at center
+  if(currentMode === 'wheel' || currentMode === 'arc'){
+    prevRotIdx = rotIdx;
+    rotIdx = 0;
+  }
+  render();
+}
+
+hitzone.addEventListener('mouseleave', handleHoverExit);
+zone.addEventListener('mouseleave', handleHoverExit);
+zone.addEventListener('mouseenter',()=>{isHovering=true;render()});
+
+// ══ PANELS ══
+function orbClick(fid){
+  if(currentPanel===fid){closePanel();return}
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('open'));
+  dots.forEach(d=>d.classList.remove('act'));
+  currentPanel=fid;
+  const f=features.find(x=>x.id===fid);
+  document.getElementById(f.panel).classList.add('open');
+  zone.classList.add('hp'); isHovering=true;
+  document.getElementById('dot-'+fid).classList.add('act');
+  render();
+  if(fid==='search')setTimeout(()=>document.getElementById('searchInput')?.focus(),350);
+}
+function closePanel(){
+  currentPanel=null;
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('open'));
+  dots.forEach(d=>d.classList.remove('act'));
+  zone.classList.remove('hp');
+  // Reset to Navigate
+  prevRotIdx = rotIdx;
+  rotIdx = 0;
+  render();
+}
+
+render();
+</script>
+</body>
+</html>

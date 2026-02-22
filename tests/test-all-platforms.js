@@ -1,12 +1,37 @@
 /**
  * AI Conversation Navigator — Automated Platform Test Suite
  *
+ * DESIGN GOAL: These tests never need to be rewritten when the script gets a
+ * major UI overhaul (v10 → v11 → v50). They query the DOM using a stable
+ * data-attribute contract that the script publishes, not internal IDs or CSS
+ * class names that change between versions.
+ *
+ * ── Stable test contract (script must honour these) ──────────────────────────
+ *   data-acn-role="zone"         Main container injected into the page
+ *   data-acn-role="styles"       The injected <style> element
+ *   data-acn-role="nav-trigger"  Element that opens the navigation panel when clicked
+ *   data-acn-role="nav-panel"    The navigation panel element
+ *   data-acn-role="nav-stat"     Shows the detected question count
+ *   data-acn-role="nav-list"     Container holding the question items
+ *   data-acn-role="nav-item"     Each individual question entry
+ *   data-acn-role="nav-item-text" The display text inside each nav-item
+ *   data-acn-role="panel-close"  Closes the currently open panel when clicked
+ *
+ *   data-acn-accent="#hexcolor"  Platform accent colour (on the zone element)
+ *   data-acn-open="true"         Present on nav-panel when panel is open, absent when closed
+ *   data-acn-count="N"           Number of detected questions (on nav-stat element)
+ *
+ * Any future version of the script that sets these attributes will pass the
+ * test suite without any changes to this file.  When platform selectors or
+ * theme colours change, only the PLATFORMS array below needs updating.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
  * Tests every supported platform across multiple browser engines by:
  *  1. Loading mock HTML into headless browser pages via Playwright
- *  2. Faking window.location.hostname so the userscript detects the right platform
+ *  2. Serving mock HTML at the real platform hostname via route interception
+ *     (so window.location.hostname matches — no hostname spoofing needed)
  *  3. Injecting the userscript
- *  4. Verifying: toggle button renders, panel opens, correct message count detected,
- *     theme colors match, icon matches, and navigation items are clickable.
+ *  4. Querying the DOM using data-acn-role selectors from the contract above
  *
  * Supported browser engines: chromium, firefox, webkit
  *
@@ -84,7 +109,15 @@ function slugify(name) {
     return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
-// ── Platform definitions (must match the userscript) ──────────────────────────
+// ── Platform definitions ───────────────────────────────────────────────────────
+//
+// expectedAccent: the value set on data-acn-accent (hex string from the script's colour map).
+//   - AI chat platforms (claude, chatgpt, grok, gemini, perplexity) get their own colour.
+//   - App builder platforms and firebase_studio fall back to Claude orange '#d97706'.
+//
+// expectedMessages: number of user messages in the mock HTML for that platform.
+//   Determined by the platform's getUserMessages() selector against the mock page DOM.
+//   Update this when you update the corresponding mock-pages/*.html file.
 
 const PLATFORMS = [
     {
@@ -93,18 +126,15 @@ const PLATFORMS = [
         hostname: 'claude.ai',
         pathname: '/chat/test',
         expectedMessages: 3,
-        expectedAccent: 'rgb(217, 119, 6)',    // #d97706
-        expectedIcon: '\u2733',                 // ✳
+        expectedAccent: '#d97706',
     },
     {
         name: 'Claude Code',
         mockFile: 'claude-code.html',
         hostname: 'claude.ai',
         pathname: '/code/test',
-        // Claude Code fallback: data-testid selectors find 0, then bg-bg-200 fallback finds 3
         expectedMessages: 3,
-        expectedAccent: 'rgb(217, 119, 6)',
-        expectedIcon: '\u2733',
+        expectedAccent: '#d97706',
     },
     {
         name: 'ChatGPT',
@@ -112,18 +142,15 @@ const PLATFORMS = [
         hostname: 'chatgpt.com',
         pathname: '/c/test',
         expectedMessages: 4,
-        expectedAccent: 'rgb(255, 255, 255)',   // #ffffff
-        expectedIcon: '\u23E3',                 // ⏣
+        expectedAccent: '#ffffff',
     },
     {
         name: 'Codex Web',
         mockFile: 'codex.html',
         hostname: 'chatgpt.com',
         pathname: '/codex/test',
-        // Codex: no data-message-author-role, falls back to self-end + bg-token-bg-tertiary
         expectedMessages: 2,
-        expectedAccent: 'rgb(255, 255, 255)',
-        expectedIcon: '\u23E3',
+        expectedAccent: '#ffffff',
     },
     {
         name: 'Grok',
@@ -131,8 +158,7 @@ const PLATFORMS = [
         hostname: 'grok.com',
         pathname: '/chat/test',
         expectedMessages: 3,
-        expectedAccent: 'rgb(220, 38, 38)',     // #dc2626
-        expectedIcon: 'X',
+        expectedAccent: '#e53e3e',
     },
     {
         name: 'Gemini',
@@ -140,8 +166,7 @@ const PLATFORMS = [
         hostname: 'gemini.google.com',
         pathname: '/app/test',
         expectedMessages: 3,
-        expectedAccent: 'rgb(66, 133, 244)',    // #4285f4
-        expectedIcon: '\u2726',                 // ✦
+        expectedAccent: '#4285f4',
     },
     {
         name: 'Bolt.new',
@@ -149,17 +174,15 @@ const PLATFORMS = [
         hostname: 'bolt.new',
         pathname: '/test-project',
         expectedMessages: 3,
-        expectedAccent: 'rgb(56, 189, 248)',     // #38BDF8
-        expectedIcon: '\u26A1\uFE0E',           // ⚡ (text presentation)
+        expectedAccent: '#d97706',
     },
     {
         name: 'Lovable',
         mockFile: 'lovable.html',
         hostname: 'lovable.dev',
-        pathname: '/projects/test-project',     // Must include /projects/ for the guard
+        pathname: '/projects/test-project',   // Must include /projects/ for the guard
         expectedMessages: 3,
-        expectedAccent: 'rgb(155, 135, 245)',   // #9b87f5
-        expectedIcon: '\u2665',                 // ♥
+        expectedAccent: '#d97706',
     },
     {
         name: 'Replit',
@@ -167,8 +190,7 @@ const PLATFORMS = [
         hostname: 'replit.com',
         pathname: '/@user/project',
         expectedMessages: 3,
-        expectedAccent: 'rgb(242, 101, 34)',    // #F26522
-        expectedIcon: '\u2815',                 // ⠕
+        expectedAccent: '#d97706',
     },
     {
         name: 'V0',
@@ -176,8 +198,7 @@ const PLATFORMS = [
         hostname: 'v0.app',
         pathname: '/chat/test-project',
         expectedMessages: 3,
-        expectedAccent: 'rgb(255, 255, 255)',   // #ffffff
-        expectedIcon: '\u25BD',                 // ▽
+        expectedAccent: '#d97706',
     },
     {
         name: 'Base44',
@@ -185,8 +206,7 @@ const PLATFORMS = [
         hostname: 'app.base44.com',
         pathname: '/projects/test',
         expectedMessages: 3,
-        expectedAccent: 'rgb(99, 102, 241)',    // #6366f1
-        expectedIcon: '\u2B22',                 // ⬢
+        expectedAccent: '#d97706',
     },
     {
         name: 'Emergent',
@@ -194,8 +214,7 @@ const PLATFORMS = [
         hostname: 'app.emergent.sh',
         pathname: '/project/test',
         expectedMessages: 3,
-        expectedAccent: 'rgb(16, 185, 129)',    // #10b981
-        expectedIcon: 'e',
+        expectedAccent: '#d97706',
     },
     {
         name: 'Perplexity',
@@ -203,8 +222,7 @@ const PLATFORMS = [
         hostname: 'www.perplexity.ai',
         pathname: '/search/test',
         expectedMessages: 3,
-        expectedAccent: 'rgb(32, 184, 205)',    // #20b8cd
-        expectedIcon: '\u2733\uFE0E',             // ✳︎ (text presentation — same as Claude)
+        expectedAccent: '#20b2aa',
     },
     {
         name: 'Firebase Studio',
@@ -212,8 +230,7 @@ const PLATFORMS = [
         hostname: '6000-firebase-studio-12345.cluster-abc123.cloudworkstations.dev',
         pathname: '/capra/',
         expectedMessages: 3,
-        expectedAccent: 'rgb(255, 166, 17)',    // #FFA611
-        expectedIcon: '\u2726',                 // ✦
+        expectedAccent: '#d97706',   // firebase_studio not in ORB_COLORS → Claude orange
     },
 ];
 
@@ -243,7 +260,8 @@ function buildTestPage(platform, scriptContent) {
 <body>
 ${bodyContent}
 <script>
-// Clear duplicate guard from previous test
+// Clear duplicate guard from previous test run (fresh navigation means clean window,
+// but belt-and-suspenders for any edge cases)
 delete window._aiNavAlreadyLoaded;
 </script>
 <script>
@@ -278,6 +296,10 @@ async function setupRouteForPlatform(page, platform, scriptContent) {
 }
 
 // ── Test runner ───────────────────────────────────────────────────────────────
+//
+// ALL assertions use data-acn-role / data-acn-* selectors from the contract
+// defined in the file header.  No internal IDs, CSS class names, or version-
+// specific assumptions appear below this line.
 
 async function testPlatform(page, platform, scriptContent, screenshotOpts) {
     const results = { name: platform.name, tests: [], passed: true, screenshots: [] };
@@ -301,94 +323,114 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
             timeout: 10000,
         });
 
-        // Wait for initialization (script has a 2-second setTimeout for initial scan)
+        // Wait for initialization.  The main container is injected synchronously on
+        // script load; question detection runs on a 2 s setTimeout.  3.5 s covers both.
         await page.waitForTimeout(3500);
 
-        // ── TEST 1: Button Container exists AND is visible ──
-        const containerExists = await page.evaluate(() => {
-            const el = document.getElementById('ai-nav-button-container');
-            return el && window.getComputedStyle(el).display !== 'none';
+        // ── TEST 1: Main container injected ───────────────────────────────
+        const zoneExists = await page.evaluate(() => {
+            return !!document.querySelector('[data-acn-role="zone"]');
         });
-        assert('Button container visible', containerExists, containerExists ? 'Found and visible' : 'Missing or hidden');
+        assert('Main container injected', zoneExists,
+            zoneExists ? 'Found [data-acn-role="zone"]' : 'Missing [data-acn-role="zone"]');
 
-        // ── TEST 2: Panel exists ──
+        // ── TEST 2: Styles injected ────────────────────────────────────────
+        const cssExists = await page.evaluate(() => {
+            return !!document.querySelector('[data-acn-role="styles"]');
+        });
+        assert('Styles injected', cssExists,
+            cssExists ? 'Found [data-acn-role="styles"]' : 'Missing [data-acn-role="styles"]');
+
+        // ── TEST 3: Navigation trigger exists ─────────────────────────────
+        const triggerExists = await page.evaluate(() => {
+            return !!document.querySelector('[data-acn-role="nav-trigger"]');
+        });
+        assert('Navigation trigger exists', triggerExists,
+            triggerExists ? 'Found [data-acn-role="nav-trigger"]' : 'Missing [data-acn-role="nav-trigger"]');
+
+        // ── TEST 4: Navigation panel exists ───────────────────────────────
         const panelExists = await page.evaluate(() => {
-            return !!document.getElementById('ai-nav-panel');
+            return !!document.querySelector('[data-acn-role="nav-panel"]');
         });
-        assert('Panel exists', panelExists, panelExists ? 'Found #ai-nav-panel' : 'Missing');
+        assert('Navigation panel exists', panelExists,
+            panelExists ? 'Found [data-acn-role="nav-panel"]' : 'Missing [data-acn-role="nav-panel"]');
 
-        if (!containerExists || !panelExists) {
+        if (!zoneExists || !triggerExists || !panelExists) {
+            // Can't run remaining tests without the core elements
             return results;
         }
 
-        // ── TEST 3: Icon matches ──
-        const actualIcon = await page.evaluate(() => {
-            const toggle = document.getElementById('ai-nav-toggle');
-            const firstChild = toggle.childNodes[0];
-            return firstChild ? firstChild.textContent.trim() : '';
+        // ── TEST 5: Platform accent colour ─────────────────────────────────
+        // The zone publishes its accent colour as data-acn-accent="#hexvalue".
+        // Tests compare against the expected per-platform colour from PLATFORMS.
+        const actualAccent = await page.evaluate(() => {
+            return (document.querySelector('[data-acn-role="zone"]')
+                .getAttribute('data-acn-accent') || '').trim();
         });
-        assert('Icon matches', actualIcon === platform.expectedIcon,
-            `Expected "${platform.expectedIcon}", got "${actualIcon}"`);
+        assert('Platform accent colour', actualAccent === platform.expectedAccent,
+            `Expected "${platform.expectedAccent}", got "${actualAccent}"`);
 
-        // ── TEST 4: Theme accent color ──
-        const actualBg = await page.evaluate(() => {
-            const toggle = document.getElementById('ai-nav-toggle');
-            return window.getComputedStyle(toggle).backgroundColor;
+        // ── TEST 6: No duplicate container ────────────────────────────────
+        const zoneCount = await page.evaluate(() => {
+            return document.querySelectorAll('[data-acn-role="zone"]').length;
         });
-        assert('Theme accent color', actualBg === platform.expectedAccent,
-            `Expected "${platform.expectedAccent}", got "${actualBg}"`);
+        assert('No duplicate container', zoneCount === 1,
+            `Expected 1 zone, found ${zoneCount}`);
 
-        // ── SCREENSHOT: Toggle button visible ──
+        // ── SCREENSHOT: Container visible ─────────────────────────────────
         if (screenshotOpts) {
             const slug = slugify(platform.name);
-            const filePath = path.join(screenshotOpts.dir, `${slug}-toggle.png`);
+            const filePath = path.join(screenshotOpts.dir, `${slug}-zone.png`);
             await page.screenshot({ path: filePath, fullPage: true });
-            results.screenshots.push({ label: 'Toggle button', path: filePath });
+            results.screenshots.push({ label: 'Zone injected', path: filePath });
         }
 
-        // ── TEST 5: Click toggle to open panel ──
+        // ── TEST 7: Clicking trigger opens navigation panel ────────────────
+        // JS .click() bypasses CSS pointer-events so this works even when the
+        // container is visibility:hidden (e.g. left-chat boundary not yet detected).
         await page.evaluate(() => {
-            document.getElementById('ai-nav-toggle').click();
+            document.querySelector('[data-acn-role="nav-trigger"]').click();
         });
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(500);  // Allow panel open transition to settle
 
         const panelOpen = await page.evaluate(() => {
-            return document.getElementById('ai-nav-panel').classList.contains('open');
+            return document.querySelector('[data-acn-role="nav-panel"]')
+                .getAttribute('data-acn-open') === 'true';
         });
-        assert('Panel opens on click', panelOpen, panelOpen ? 'Panel has .open class' : 'Panel NOT open');
+        assert('Trigger opens navigation panel', panelOpen,
+            panelOpen ? 'data-acn-open="true"' : 'Panel not open after clicking trigger');
 
-        // Wait extra for the scan to complete after opening
-        await page.waitForTimeout(1500);
+        await page.waitForTimeout(300);
 
-        // ── TEST 6: Correct number of messages detected ──
-        const messageCount = await page.evaluate(() => {
-            const items = document.querySelectorAll('.ai-nav-item');
-            return items.length;
+        // ── TEST 8: Correct number of questions detected ───────────────────
+        // data-acn-count on the nav-stat element carries the numeric count, so
+        // tests are independent of the wording used in the displayed text.
+        const detectedCount = await page.evaluate(() => {
+            const stat = document.querySelector('[data-acn-role="nav-stat"]');
+            return stat ? parseInt(stat.getAttribute('data-acn-count') || '-1', 10) : -1;
         });
-        assert('Message count', messageCount === platform.expectedMessages,
-            `Expected ${platform.expectedMessages}, got ${messageCount}`);
+        assert('Questions detected', detectedCount === platform.expectedMessages,
+            `Expected ${platform.expectedMessages}, got ${detectedCount}`);
 
-        // ── TEST 7: Stats text is correct ──
-        const statsText = await page.evaluate(() => {
-            return document.getElementById('ai-nav-stats').textContent;
+        // ── TEST 9: Correct number of question items rendered ─────────────
+        const itemCount = await page.evaluate(() => {
+            return document.querySelectorAll('[data-acn-role="nav-item"]').length;
         });
-        const expectedStats = platform.expectedMessages + ' question' +
-            (platform.expectedMessages !== 1 ? 's' : '') + ' found';
-        assert('Stats text', statsText === expectedStats,
-            `Expected "${expectedStats}", got "${statsText}"`);
+        assert('Question items rendered', itemCount === platform.expectedMessages,
+            `Expected ${platform.expectedMessages} items, got ${itemCount}`);
 
-        // ── TEST 8: Each nav item has a summary ──
-        const allHaveSummaries = await page.evaluate(() => {
-            const items = document.querySelectorAll('.ai-nav-item');
+        // ── TEST 10: Every question item has non-empty display text ────────
+        const allHaveText = await page.evaluate(() => {
+            const items = document.querySelectorAll('[data-acn-role="nav-item"]');
             return Array.from(items).every(item => {
-                const summary = item.querySelector('.ai-nav-summary');
-                return summary && summary.textContent.trim().length > 0;
+                const textEl = item.querySelector('[data-acn-role="nav-item-text"]');
+                return textEl && textEl.textContent.trim().length > 0;
             });
         });
-        assert('All items have summaries', allHaveSummaries,
-            allHaveSummaries ? 'All summaries non-empty' : 'Some summaries missing');
+        assert('All items have display text', allHaveText,
+            allHaveText ? 'All nav-item-text non-empty' : 'Some item texts are empty');
 
-        // ── SCREENSHOT: Panel open with nav items ──
+        // ── SCREENSHOT: Panel open with question list ──────────────────────
         if (screenshotOpts) {
             const slug = slugify(platform.name);
             const filePath = path.join(screenshotOpts.dir, `${slug}-panel-open.png`);
@@ -396,44 +438,46 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
             results.screenshots.push({ label: 'Panel open', path: filePath });
         }
 
-        // ── TEST 9: Nav items are clickable (don't throw) ──
+        // ── TEST 11: Question items are clickable ──────────────────────────
         let clickable = true;
         try {
-            if (messageCount > 0) {
+            if (itemCount > 0) {
                 await page.evaluate(() => {
-                    document.querySelector('.ai-nav-item').click();
+                    document.querySelector('[data-acn-role="nav-item"]').click();
                 });
                 await page.waitForTimeout(500);
             }
         } catch (e) {
             clickable = false;
         }
-        assert('Nav items clickable', clickable, clickable ? 'Click succeeded' : 'Click threw error');
+        assert('Question items clickable', clickable,
+            clickable ? 'Click succeeded' : 'Click threw error');
 
-        // ── TEST 10: Click toggle to close panel ──
-        // On left-chat platforms, clicking a nav item (Test 9) closes the panel first,
-        // then scrolls to the message. So the panel may already be closed.
-        // Ensure the panel is open before testing the close toggle.
-        const alreadyClosed = await page.evaluate(() => {
-            return !document.getElementById('ai-nav-panel').classList.contains('open');
+        // ── TEST 12: Close button dismisses panel ──────────────────────────
+        // On left-chat platforms the panel may auto-close on item click to reveal
+        // the message; re-open so we can test the close button.
+        const panelStillOpen = await page.evaluate(() => {
+            return document.querySelector('[data-acn-role="nav-panel"]')
+                .getAttribute('data-acn-open') === 'true';
         });
-        if (alreadyClosed) {
-            // Re-open the panel so we can test closing it
+        if (!panelStillOpen) {
             await page.evaluate(() => {
-                document.getElementById('ai-nav-toggle').click();
+                document.querySelector('[data-acn-role="nav-trigger"]').click();
             });
-            await page.waitForTimeout(500);
+            await page.waitForTimeout(400);
         }
-        // Now click toggle to close
         await page.evaluate(() => {
-            document.getElementById('ai-nav-toggle').click();
+            const closeBtn = document.querySelector(
+                '[data-acn-role="nav-panel"] [data-acn-role="panel-close"]');
+            if (closeBtn) closeBtn.click();
         });
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(400);
         const panelClosed = await page.evaluate(() => {
-            return !document.getElementById('ai-nav-panel').classList.contains('open');
+            return document.querySelector('[data-acn-role="nav-panel"]')
+                .getAttribute('data-acn-open') !== 'true';
         });
-        assert('Panel closes on second click', panelClosed,
-            panelClosed ? 'Panel closed' : 'Panel still open');
+        assert('Close button dismisses panel', panelClosed,
+            panelClosed ? 'Panel closed' : 'Panel still open after clicking close');
 
     } catch (err) {
         assert('No runtime errors', false, err.message);
@@ -531,6 +575,7 @@ async function main() {
     console.log('');
     console.log('========================================');
     console.log(' AI Conversation Navigator — Test Suite');
+    console.log('        v10.0 Orbital Button System     ');
     console.log('========================================');
     console.log(`  Browsers: ${browsers.map(b => BROWSER_ENGINES[b].name).join(', ')}`);
     console.log(`  Platform: ${process.platform} (${process.arch})`);
@@ -549,7 +594,7 @@ async function main() {
         console.log('');
     }
 
-    // ── Print detailed report ─────────────────────────────────────────────
+    // ── Print detailed report ──────────────────────────────────────────────
     console.log('========================================');
     console.log(' DETAILED RESULTS');
     console.log('========================================');
@@ -586,7 +631,7 @@ async function main() {
         }
     }
 
-    // ── Summary ───────────────────────────────────────────────────────────
+    // ── Summary ────────────────────────────────────────────────────────────
     const enginesRun = engineResults.filter(e => !e.skipped);
     const allPlatformResults = enginesRun.flatMap(e => e.results);
     const platformsPassed = allPlatformResults.filter(r => r.passed).length;
@@ -602,7 +647,7 @@ async function main() {
     console.log('========================================');
     console.log('');
 
-    // ── Generate SCREENSHOTS.md if screenshots were captured ──────────
+    // ── Generate SCREENSHOTS.md if screenshots were captured ──────────────
     if (captureScreenshots) {
         const screenshotBaseDir = path.join(__dirname, 'screenshots');
         const mdPath = path.join(screenshotBaseDir, 'SCREENSHOTS.md');
@@ -621,18 +666,18 @@ async function main() {
                 const status = result.passed ? 'PASS' : 'FAIL';
                 md += `### ${result.name} — ${status}\n\n`;
 
-                // Show toggle and panel-open side by side
-                md += '| Toggle Button | Panel Open |\n';
+                // Show zone and panel-open side by side
+                md += '| Zone Injected | Panel Open |\n';
                 md += '|:---:|:---:|\n';
 
-                const toggleShot = result.screenshots.find(s => s.label === 'Toggle button');
+                const zoneShot  = result.screenshots.find(s => s.label === 'Zone injected');
                 const panelShot = result.screenshots.find(s => s.label === 'Panel open');
-                const toggleRel = toggleShot ? path.relative(screenshotBaseDir, toggleShot.path) : '';
-                const panelRel = panelShot ? path.relative(screenshotBaseDir, panelShot.path) : '';
+                const zoneRel   = zoneShot  ? path.relative(screenshotBaseDir, zoneShot.path)  : '';
+                const panelRel  = panelShot ? path.relative(screenshotBaseDir, panelShot.path) : '';
 
-                const toggleCell = toggleRel ? `![${result.name} toggle](${toggleRel})` : 'N/A';
+                const zoneCell  = zoneRel  ? `![${result.name} zone](${zoneRel})`  : 'N/A';
                 const panelCell = panelRel ? `![${result.name} panel](${panelRel})` : 'N/A';
-                md += `| ${toggleCell} | ${panelCell} |\n\n`;
+                md += `| ${zoneCell} | ${panelCell} |\n\n`;
             }
         }
 
