@@ -10,6 +10,51 @@ If you run into a problem, check here first — you might find we've already sol
 
 The following platform-specific issues have been identified through live site testing, diagnosed via live DOM inspection, and fully resolved.
 
+### Bolt.new — Button Invisible (CodeMirror Geometry Exploit)
+
+**Versions affected:** v9.4 – v9.5
+**Fixed in:** v9.6
+**Platforms:** Bolt.new (`bolt.new`)
+
+#### What It Looked Like
+The AI Nav button was completely invisible on Bolt.new, even though the platform was correctly detected. The script was running, but the button container was positioned far to the right, outside the visible viewport.
+
+#### Root Cause — Off-Screen CodeMirror Editor
+Bolt.new uses a "preview" pane on the right side of the screen. When the user opens the editor, CodeMirror instances are created. Some of these instances are rendered **off-screen** or in hidden layout containers with `x` coordinates > 1500px.
+The `getChatBoundaryX` function was using a broad query selector that picked up these hidden editors. Because they were technically "right" of the visible chat panel, the script chose the rightmost editor as the boundary.
+
+#### How It Was Fixed
+**Visible Boundary Filtering:**
+Modified `getChatBoundaryX` to filter out any elements that are hidden (`display: none`) or currently off-screen. It now prioritizes elements within the visible viewport width. 
+
+**CodeMirror Exclusion:**
+Added an explicit check to prioritize actual chat containers (matching `_Chat_` selectors) over generic editor wrappers.
+
+---
+
+### Search Panel — Crash on Render (Trusted Types CSP Violation)
+
+**Versions affected:** v9.4 – v9.5
+**Fixed in:** v9.6
+**Platforms:** Claude, ChatGPT (Strict CSP)
+
+#### What It Looked Like
+In v9.4, clicking the Search button and typing a query would do nothing. Opening the DevTools console revealed a fatal JavaScript error: `This document requires 'TrustedHTML' assignment`. The search feature was completely unusable on platforms enforcing strict Content Security Policies.
+
+#### Root Cause — `innerHTML` Usage
+The v9.4 search renderer used `resultsContainer.innerHTML = '...'` to clear and populate search snippets. Because browsers like Chrome and Firefox enforce **Trusted Types** on high-security domains like `claude.ai`, the browser blocks any direct string-to-HTML injection to prevent potential XSS vulnerabilities.
+
+#### How It Was Fixed
+**Programmatic DOM Construction:**
+The entire `executeConversationSearch` function was refactored to use safe DOM APIs:
+1. `textContent = ''` for clearing.
+2. `createElement('div', { textContent: '...' })` for building the result list.
+3. `appendChild()` for mounting the nodes.
+
+By constructing the DOM tree node-by-node instead of passing a string to the HTML parser, the script bypasses the Trusted Types sink entirely.
+
+---
+
 ### Firebase Studio — 0 Questions Detected (Cross-Origin Iframe Injection)
 
 **Versions affected:** v7.1 – v7.7
