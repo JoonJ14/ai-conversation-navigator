@@ -901,7 +901,7 @@
     // ── Platform color palette ──────────────────────────────────
     var ORB_COLORS = {
         claude:         { bg: '#d97706', rgb: '217,119,6',   shadow: 'rgba(217,119,6,.25)' },
-        chatgpt:        { bg: '#10a37f', rgb: '16,163,127',  shadow: 'rgba(16,163,127,.25)' },
+        chatgpt:        { bg: '#ffffff', rgb: '255,255,255', shadow: 'rgba(255,255,255,.25)' },
         grok:           { bg: '#e53e3e', rgb: '229,62,62',   shadow: 'rgba(229,62,62,.25)' },
         gemini:         { bg: '#4285f4', rgb: '66,133,244',  shadow: 'rgba(66,133,244,.25)' },
         perplexity:     { bg: '#20b2aa', rgb: '32,178,170',  shadow: 'rgba(32,178,170,.25)' },
@@ -1812,7 +1812,7 @@
 
         var platList = [
             { icon: '\u2733', color: '#d97706', name: 'Claude' },
-            { icon: '\u23E3', color: '#10a37f', name: 'ChatGPT' },
+            { icon: '\u23E3', color: '#ffffff', name: 'ChatGPT' },
             { icon: 'X',      color: '#ef4444', name: 'Grok' },
             { icon: '\u2726', color: '#4285f4', name: 'Gemini' },
             { icon: '\u2733', color: '#20b8cd', name: 'Perplexity' },

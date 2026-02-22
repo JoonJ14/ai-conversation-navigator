@@ -142,7 +142,7 @@ const PLATFORMS = [
         hostname: 'chatgpt.com',
         pathname: '/c/test',
         expectedMessages: 4,
-        expectedAccent: '#10a37f',
+        expectedAccent: '#ffffff',
     },
     {
         name: 'Codex Web',
@@ -150,7 +150,7 @@ const PLATFORMS = [
         hostname: 'chatgpt.com',
         pathname: '/codex/test',
         expectedMessages: 2,
-        expectedAccent: '#10a37f',
+        expectedAccent: '#ffffff',
     },
     {
         name: 'Grok',
