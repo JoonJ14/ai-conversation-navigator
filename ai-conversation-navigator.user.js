@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v9.4
+// @name         AI Conversation Navigator v9.6
 // @namespace    http://tampermonkey.net/
-// @version      9.4
+// @version      9.6
 // @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Codex, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -188,8 +188,8 @@
             layout: 'left-chat',
             virtualScroll: false,
             spa: true,
-            scrollbarOffset: 0,
-            boundarySelectors: '[class*="backdrop-blur"][class*="rounded"], [class*="max-w-chat"]',
+            scrollbarOffset: 16,
+            boundarySelectors: '[class*="bg-bolt-elements-messages-background"], [class*="max-w-chat"], [class*="_Chat_"]',
             boundaryStrategy: 'walk-up',
             pathGuard: null,
             initGuards: [],
@@ -230,9 +230,9 @@
                         return userParent && !isPromptArea && el.textContent.trim().length > 0;
                     });
                 }
-                // Fallback 3: bolt.diy fork — backdrop-blur + rounded bubbles
+                // Fallback 3: bolt.diy fork — right-aligned background bubbles
                 if (messages.length === 0) {
-                    var boltCandidates = document.querySelectorAll('[class*="backdrop-blur"][class*="rounded"]');
+                    var boltCandidates = document.querySelectorAll('[class*="bg-bolt-elements-messages-background"]');
                     if (boltCandidates.length > 0) {
                         messages = Array.from(boltCandidates).filter(function (el) {
                             var cls = el.className || '';
@@ -698,6 +698,7 @@
             flex-direction: column !important;
             gap: 2px !important;
             pointer-events: none !important;
+            transition: right 0.3s ease !important;
         }
         #ai-nav-button-container.open {
             pointer-events: auto !important;
@@ -712,7 +713,7 @@
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
-            width: 8px !important;
+            width: 14px !important;
             height: 52px !important;
             padding: 0 !important;
             font-weight: 800 !important;
@@ -745,9 +746,10 @@
             display: none !important;
         }
         #ai-nav-button-container.ai-nav-positioned .ai-nav-floating-btn {
-            opacity: 0.35 !important;
+            opacity: 0.65 !important;
             transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s ease, border-radius 0.3s ease, right 0.3s ease !important;
         }
+        #ai-nav-button-container.ai-nav-positioned .ai-nav-floating-btn:hover,
         .ai-nav-floating-btn:hover,
         #ai-nav-button-container.open:hover .ai-nav-floating-btn {
             width: 32px !important;
@@ -755,6 +757,7 @@
             opacity: 1 !important;
             border-radius: 6px 0 0 6px !important;
         }
+        #ai-nav-button-container.ai-nav-positioned .ai-nav-floating-btn:hover .ai-nav-icon,
         .ai-nav-floating-btn:hover .ai-nav-icon,
         #ai-nav-button-container.open:hover .ai-nav-floating-btn .ai-nav-icon {
             opacity: 1 !important;
@@ -1131,17 +1134,21 @@
         return el;
     }
 
-    // --- Detect chat panel right edge for left-chat platforms ---
-    // Walk up from an element to find the chat panel container, return its right edge
     function _walkUpToChatContainer(startEl) {
         var el = startEl;
         while (el && el !== document.body) {
             var rect = el.getBoundingClientRect();
-            // Chat panel: starts in the left portion of the viewport (allowing for icon sidebars
-            // up to ~80px), reasonable width (200-65% of viewport), and tall (≥40% viewport).
-            if (rect.left < 80 && rect.width > 200 && rect.width < window.innerWidth * 0.65 &&
+            // Chat panel: reasonable width (200px - 65% of viewport), and tall (≥40% viewport).
+            // It can be either on the left (ChatGPT) or on the right (Bolt/Lovable).
+            if (rect.width > 200 && rect.width < window.innerWidth * 0.65 &&
                 rect.height > window.innerHeight * 0.4) {
-                return rect.right;
+                // If the panel is on the right side (app builders), the boundary is its LEFT edge
+                // If the panel is on the left side (standard chats), the boundary is its RIGHT edge
+                if (rect.left > window.innerWidth * 0.4) {
+                    return rect.left; // App builder: boundary is the left border of the right-sidebar chat
+                } else {
+                    return rect.right; // Standard: boundary is the right border of the left-sidebar chat
+                }
             }
             el = el.parentElement;
         }
@@ -1170,24 +1177,31 @@
         }
 
         // Strategy 1: Find chat input and walk up to chat container
-        var input = document.querySelector(
+        var inputs = document.querySelectorAll(
             'textarea[placeholder*="message" i], textarea[placeholder*="Message"], ' +
             'textarea[placeholder*="Send" i], textarea[placeholder*="Type" i], ' +
             '[contenteditable="true"][role="textbox"], [contenteditable="true"], ' +
             'textarea[class*="chat"], textarea[class*="prompt"]'
         );
-        if (input) {
-            var boundary = _walkUpToChatContainer(input);
-            if (boundary) return boundary;
+        for (var i = 0; i < inputs.length; i++) {
+            var rect = inputs[i].getBoundingClientRect();
+            // Ignore hidden elements or background editors (e.g. Bolt's CodeMirror at x=1590)
+            if (rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.left < window.innerWidth) {
+                var boundary = _walkUpToChatContainer(inputs[i]);
+                if (boundary) return boundary;
+            }
         }
 
         // Strategy 2: Find a known message element (platform-specific) and walk up
         var sel = platform.boundarySelectors;
         if (sel) {
-            var msgEl = document.querySelector(sel);
-            if (msgEl) {
-                var boundary = _walkUpToChatContainer(msgEl);
-                if (boundary) return boundary;
+            var msgEls = document.querySelectorAll(sel);
+            for (var j = 0; j < msgEls.length; j++) {
+                var msgRect = msgEls[j].getBoundingClientRect();
+                if (msgRect.width > 0 && msgRect.height > 0 && msgRect.right > 0 && msgRect.left < window.innerWidth) {
+                    var boundary2 = _walkUpToChatContainer(msgEls[j]);
+                    if (boundary2) return boundary2;
+                }
             }
         }
 
@@ -1219,7 +1233,9 @@
         var panel = document.getElementById('ai-nav-panel');
         var contextPanel = document.getElementById('ai-context-panel');
         var searchPanel = document.getElementById('ai-search-panel');
-        var anyOpen = isNavOpen || isContextOpen || isSearchOpen;
+        var anyOpen = isNavOpen;
+        if (typeof isContextOpen !== 'undefined') anyOpen = anyOpen || isContextOpen;
+        if (typeof isSearchOpen !== 'undefined') anyOpen = anyOpen || isSearchOpen;
 
         // No chat panel detected → hide and reset all state
         // But never hide while panel is actively open (user is interacting)
@@ -1252,10 +1268,12 @@
                 _lastBoundaryX = boundaryX;
                 var panelRight = (window.innerWidth - boundaryX) + 'px';
                 var toggleRight = (window.innerWidth - boundaryX + toggleScrollbarOffset) + 'px';
+                if (anyOpen) toggleRight = (window.innerWidth - boundaryX + toggleScrollbarOffset + 320) + 'px';
+
                 if (panel) panel.style.right = panelRight;
                 if (contextPanel) contextPanel.style.right = panelRight;
                 if (searchPanel) searchPanel.style.right = panelRight;
-                if (container && !anyOpen) container.style.right = toggleRight;
+                if (container) container.style.right = toggleRight;
             }
             return;
         }
@@ -1281,10 +1299,12 @@
         _lastBoundaryX = boundaryX;
         var panelRight = (window.innerWidth - boundaryX) + 'px';
         var toggleRight = (window.innerWidth - boundaryX + toggleScrollbarOffset) + 'px';
+        if (anyOpen) toggleRight = (window.innerWidth - boundaryX + toggleScrollbarOffset + 320) + 'px';
+
         if (panel) panel.style.right = panelRight;
         if (contextPanel) contextPanel.style.right = panelRight;
         if (searchPanel) searchPanel.style.right = panelRight;
-        if (container && !anyOpen) container.style.right = toggleRight;
+        if (container) container.style.right = toggleRight;
     }
 
     // --- Create button container (holds multiple floating buttons) ---
@@ -1574,8 +1594,8 @@
             }
 
             // For left-chat platforms, close panel first since it overlays the chat
-            if (isLeftChat && isOpen) {
-                handleToggleClick(); // close panel
+            if (isLeftChat && isNavOpen) {
+                handleNavToggleClick(); // close panel
                 // Scroll after panel close animation completes
                 setTimeout(function () {
                     targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -2278,17 +2298,19 @@
         // Reposition on window resize (right is viewport-relative)
         window.addEventListener('resize', function () {
             _lastBoundaryX = null; // force recalculation
-            if (isNavOpen || isContextOpen) {
+            if (isNavOpen || isContextOpen || isSearchOpen) {
                 var bx = getChatBoundaryX() || (window.innerWidth * 0.35);
                 var panelRight = (window.innerWidth - bx) + 'px';
                 var containerRight = (window.innerWidth - bx + 320) + 'px';
 
                 var navPanel = document.getElementById('ai-nav-panel');
                 var ctxPanel = document.getElementById('ai-context-panel');
+                var searchPanel = document.getElementById('ai-search-panel');
                 var container = document.getElementById('ai-nav-button-container');
 
                 if (isNavOpen && navPanel) navPanel.style.right = panelRight;
                 if (isContextOpen && ctxPanel) ctxPanel.style.right = panelRight;
+                if (isSearchOpen && searchPanel) searchPanel.style.right = panelRight;
                 if (container) container.style.right = containerRight;
             } else {
                 updateLeftChatPositions();
@@ -2297,14 +2319,14 @@
 
         // Scroll listener — repositions button when page/chat scrolls (boundary can shift)
         window.addEventListener('scroll', function () {
-            if (!isNavOpen && !isContextOpen) {
+            if (!isNavOpen && !isContextOpen && !isSearchOpen) {
                 updateLeftChatPositions();
             }
         }, { passive: true });
 
         // Periodic boundary check (chat panels can resize dynamically)
         setInterval(function () {
-            if (!isNavOpen && !isContextOpen) {
+            if (!isNavOpen && !isContextOpen && !isSearchOpen) {
                 updateLeftChatPositions();
             }
         }, 3000);

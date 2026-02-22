@@ -30,7 +30,7 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v8.0
+## Current Status: v9.0
 
 The extension supports 14 platform variants across 12 websites. All platforms have been debugged on live sites (Firefox/Linux). All 140 automated tests pass (10 tests × 14 platforms).
 
@@ -46,6 +46,13 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry ob
 - V0 (v7.7) — `data-testid="message"` filtered by `origin-right` + `items-end` from live DOM inspection
 - Emergent (v7.7) — `data-testid^="user-message"` with virtuoso-specific boundary detection, accumulative scanning, and scroll-through collection
 - Firebase Studio (v7.8) — cross-origin iframe injection into correct workspace iframe (`/capra/` path discrimination), `[class*="_isUser_"]` CSS module selectors
+
+**v9.0 Context Tracking (new):**
+- Enabled on Claude (`200K`), ChatGPT (`128K`), Grok (`128K`), Gemini (`1M`)
+- Sidebar context bar shows estimated usage from full visible conversation text (user + assistant)
+- 10K system-prompt/formatting buffer applied to DOM estimates
+- Threshold colors + warnings at high utilization
+- Experimental Claude-only fetch interception for real token counts when SSE usage metadata is present
 
 **Documentation:**
 - `DOM-REFERENCE.md` — real DOM structures of all 14 platforms with selector rationale, debugging history, and Firebase iframe architecture
@@ -67,4 +74,4 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry ob
 
 ---
 
-*Last updated: 2026-02-18*
+*Last updated: 2026-02-22*
