@@ -1214,15 +1214,77 @@
     function updateLeftChatPositions() {
         if (!isLeftChat) return;
 
+        var boundaryX = getChatBoundaryX();
+        var container = document.getElementById('ai-nav-button-container');
+        var panel = document.getElementById('ai-nav-panel');
+        var contextPanel = document.getElementById('ai-context-panel');
+        var searchPanel = document.getElementById('ai-search-panel');
+        var anyOpen = isNavOpen || isContextOpen || isSearchOpen;
+
+        // No chat panel detected → hide and reset all state
+        // But never hide while panel is actively open (user is interacting)
+        if (!boundaryX) {
+            if (anyOpen) return;
+            if (container) container.style.display = 'none';
+            if (panel) panel.style.display = 'none';
+            if (contextPanel) contextPanel.style.display = 'none';
+            if (searchPanel) searchPanel.style.display = 'none';
+            _lastBoundaryX = null;
+            if (_boundaryDetected) {
+                _boundaryDetected = false;
+                if (_fadeTimer) { clearTimeout(_fadeTimer); _fadeTimer = null; }
+                if (container) container.classList.remove('ai-nav-positioned');
+            }
+            return;
+        }
+
+        // Emergent has a thick scrollbar at the chat boundary — offset toggle left
+        // so it doesn't overlap. Panel stays flush with the boundary.
+        var toggleScrollbarOffset = platform.scrollbarOffset || 0;
+
+        // Already confirmed — just update position smoothly, never hide
+        if (_boundaryDetected) {
+            // Safety: ensure container always has positioned class (DOM guardian may recreate it)
+            if (container && !container.classList.contains('ai-nav-positioned') && !anyOpen) {
+                container.classList.add('ai-nav-positioned');
+            }
+            if (!_lastBoundaryX || Math.abs(boundaryX - _lastBoundaryX) >= 3) {
+                _lastBoundaryX = boundaryX;
+                var panelRight = (window.innerWidth - boundaryX) + 'px';
+                var toggleRight = (window.innerWidth - boundaryX + toggleScrollbarOffset) + 'px';
+                if (panel) panel.style.right = panelRight;
+                if (contextPanel) contextPanel.style.right = panelRight;
+                if (searchPanel) searchPanel.style.right = panelRight;
+                if (container && !anyOpen) container.style.right = toggleRight;
+            }
+            return;
+        }
+
+        // Not yet confirmed — require two consecutive stable polls before showing
+        if (_lastBoundaryX && Math.abs(boundaryX - _lastBoundaryX) < 3) {
+            // Stable! Show and fade in
+            _boundaryDetected = true;
+            if (container) container.style.display = '';
+            if (panel) panel.style.display = '';
+            if (contextPanel) contextPanel.style.display = '';
+            if (searchPanel) searchPanel.style.display = '';
+            if (container) {
+                _fadeTimer = setTimeout(function () {
+                    _fadeTimer = null;
+                    container.classList.add('ai-nav-positioned');
+                }, 300);
+            }
+            return;
+        }
+
         // First detection or position still settling — store and position invisibly
         _lastBoundaryX = boundaryX;
         var panelRight = (window.innerWidth - boundaryX) + 'px';
         var toggleRight = (window.innerWidth - boundaryX + toggleScrollbarOffset) + 'px';
         if (panel) panel.style.right = panelRight;
         if (contextPanel) contextPanel.style.right = panelRight;
-        var searchPanel = document.getElementById('ai-search-panel');
         if (searchPanel) searchPanel.style.right = panelRight;
-        if (container && !isNavOpen && !isContextOpen && !isSearchOpen) container.style.right = toggleRight;
+        if (container && !anyOpen) container.style.right = toggleRight;
     }
 
     // --- Create button container (holds multiple floating buttons) ---
