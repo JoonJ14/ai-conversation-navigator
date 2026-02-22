@@ -585,6 +585,9 @@
 
     var isLeftChat = platform.layout === 'left-chat';
     var isVirtualScroll = platform.virtualScroll;
+    // Orbital system only for core AI chat platforms.
+    // App-builder platforms keep the legacy ghost-notch / right-edge button.
+    var useOrbital = ['claude', 'chatgpt', 'grok', 'gemini', 'perplexity'].indexOf(platform.id) >= 0;
 
     // ============================================================
     // DOM CREATION HELPER — no innerHTML (Trusted Types safe)
@@ -699,14 +702,14 @@
         if (!boundaryX) {
             _lastBoundaryX = null;
             _boundaryDetected = false;
-            orbApplyZonePosition();
+            if (useOrbital) { orbApplyZonePosition(); } else { legacyApplyPosition(); }
             return;
         }
 
         if (_boundaryDetected) {
             if (!_lastBoundaryX || Math.abs(boundaryX - _lastBoundaryX) >= 3) {
                 _lastBoundaryX = boundaryX;
-                orbApplyZonePosition();
+                if (useOrbital) { orbApplyZonePosition(); } else { legacyApplyPosition(); }
             }
             return;
         }
@@ -714,7 +717,7 @@
         if (_lastBoundaryX && Math.abs(boundaryX - _lastBoundaryX) < 3) {
             _boundaryDetected = true;
             _lastBoundaryX = boundaryX;
-            orbApplyZonePosition();
+            if (useOrbital) { orbApplyZonePosition(); } else { legacyApplyPosition(); }
             return;
         }
 
@@ -1869,7 +1872,8 @@
             if (f.id === 'nav') dot.setAttribute('data-acn-role', 'nav-trigger');
             // Label
             var lbl = createElement('span', { className: 'acn-lbl', textContent: f.label });
-            dot.appendChild(document.createTextNode(f.icon));
+            // Navigate dot shows the platform's own icon; all others use the feature icon
+            dot.appendChild(document.createTextNode(f.id === 'nav' ? platform.icon : f.icon));
             dot.appendChild(lbl);
             dot.addEventListener('click', (function (id) {
                 return function (e) { e.stopPropagation(); orbOpenPanel(id); };
@@ -1979,9 +1983,266 @@
         orbRender();
     }
 
+    // ============================================================
+    // LEGACY GHOST-NOTCH SYSTEM (app-builder platforms)
+    // ============================================================
+
+    // Position #ai-nav-button-container and #ai-nav-panel at the chat boundary
+    function legacyApplyPosition() {
+        var container = document.getElementById('ai-nav-button-container');
+        var panel     = document.getElementById('ai-nav-panel');
+        if (!_boundaryDetected || !_lastBoundaryX) {
+            if (container) { container.style.display = 'none'; container.classList.remove('ai-nav-positioned'); }
+            if (panel)     panel.style.display = 'none';
+            return;
+        }
+        var offset    = platform.scrollbarOffset || 0;
+        var panelRight  = (window.innerWidth - _lastBoundaryX) + 'px';
+        var btnRight    = (window.innerWidth - _lastBoundaryX + offset) + 'px';
+        if (container) {
+            container.style.display = '';
+            container.style.right   = btnRight;
+            // Fade in on first detection
+            setTimeout(function () { if (container) container.classList.add('ai-nav-positioned'); }, 300);
+        }
+        if (panel) {
+            panel.style.display = '';
+            panel.style.right   = panelRight;
+        }
+    }
+
+    function injectLegacy() {
+        if (document.getElementById('ai-nav-style-legacy')) return;
+
+        var theme     = platform.theme;
+        var siteIcon  = platform.icon;
+        var siteTitle = platform.title;
+
+        // ── CSS ──────────────────────────────────────────────────
+        var buttonCSS = isLeftChat ? (
+            '#ai-nav-button-container{position:fixed!important;left:auto!important;right:65%;top:50%!important;transform:translateY(-50%)!important;z-index:2147483647!important;display:flex!important;flex-direction:column!important;gap:2px!important;pointer-events:none!important;transition:right 0.3s ease!important;}' +
+            '#ai-nav-button-container.open{pointer-events:auto!important;}' +
+            '.ai-nav-floating-btn{background:' + theme.accent + '!important;color:' + (theme.textColor || '#fff') + '!important;border:none!important;cursor:pointer!important;border-radius:6px 0 0 6px!important;box-shadow:-2px 0 8px rgba(0,0,0,.3)!important;display:flex!important;align-items:center!important;justify-content:center!important;width:14px!important;height:52px!important;padding:0!important;font-weight:800!important;font-size:20px!important;overflow:hidden!important;transition:width .3s cubic-bezier(.4,0,.2,1),height .3s cubic-bezier(.4,0,.2,1),opacity .3s ease!important;white-space:nowrap!important;opacity:0!important;pointer-events:auto!important;position:relative!important;}' +
+            '.ai-nav-floating-btn .ai-nav-icon{font-size:14px!important;opacity:0!important;transform:scale(.6)!important;transition:opacity .25s ease .05s,transform .25s ease .05s!important;}' +
+            '.ai-nav-floating-btn .ai-nav-expand-text{display:none!important;}' +
+            '#ai-nav-button-container.ai-nav-positioned .ai-nav-floating-btn{opacity:0.65!important;}' +
+            '#ai-nav-button-container.ai-nav-positioned .ai-nav-floating-btn:hover,.ai-nav-floating-btn:hover,#ai-nav-button-container.open:hover .ai-nav-floating-btn{width:32px!important;height:40px!important;opacity:1!important;}' +
+            '#ai-nav-button-container.ai-nav-positioned .ai-nav-floating-btn:hover .ai-nav-icon,.ai-nav-floating-btn:hover .ai-nav-icon,#ai-nav-button-container.open:hover .ai-nav-floating-btn .ai-nav-icon{opacity:1!important;transform:scale(1)!important;}' +
+            '.ai-nav-floating-btn.open{opacity:1!important;background:' + theme.accentHover + '!important;}'
+        ) : (
+            '#ai-nav-button-container{position:fixed!important;right:0!important;top:50%!important;transform:translateY(-50%)!important;z-index:2147483647!important;display:flex!important;flex-direction:column!important;gap:2px!important;pointer-events:none!important;transition:right .3s ease!important;}' +
+            '#ai-nav-button-container.open{right:320px!important;pointer-events:auto!important;}' +
+            '.ai-nav-floating-btn{background:' + theme.accent + '!important;color:' + (theme.textColor || '#fff') + '!important;border:' + (theme.toggleBorder || 'none') + '!important;cursor:pointer!important;border-radius:8px 0 0 8px!important;box-shadow:-2px 0 10px rgba(0,0,0,.3)!important;display:flex!important;align-items:center!important;gap:0px!important;padding:12px!important;font-weight:800!important;font-size:20px!important;overflow:hidden!important;transition:all .25s ease!important;white-space:nowrap!important;opacity:1!important;pointer-events:auto!important;align-self:flex-end!important;box-sizing:border-box!important;width:48px!important;position:relative!important;}' +
+            '.ai-nav-floating-btn .ai-nav-icon{display:inline-flex!important;align-items:center!important;justify-content:center!important;width:24px!important;height:24px!important;flex-shrink:0!important;}' +
+            '.ai-nav-floating-btn:hover,#ai-nav-button-container.open:hover .ai-nav-floating-btn{padding-right:16px!important;width:127px!important;}' +
+            '.ai-nav-floating-btn .ai-nav-expand-text{width:0!important;opacity:0!important;overflow:hidden!important;transition:width .25s ease,opacity .2s ease,margin-left .25s ease!important;font-size:13px!important;font-weight:500!important;margin-left:0!important;display:inline-block!important;white-space:nowrap!important;}' +
+            '.ai-nav-floating-btn:hover .ai-nav-expand-text,#ai-nav-button-container.open:hover .ai-nav-floating-btn .ai-nav-expand-text{width:65px!important;opacity:1!important;margin-left:10px!important;}' +
+            '.ai-nav-floating-btn.open{background:' + theme.accentHover + '!important;}'
+        );
+        var panelCSS = isLeftChat ? (
+            '#ai-nav-panel{position:fixed!important;left:auto!important;right:65%;top:0!important;width:320px!important;height:100vh!important;background:#1a1a1a!important;border-right:1px solid #333!important;z-index:2147483646!important;clip-path:inset(0 0 0 100%)!important;transition:clip-path .3s ease!important;display:flex!important;flex-direction:column!important;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif!important;pointer-events:none!important;}' +
+            '#ai-nav-panel.open{clip-path:inset(0 0 0 0)!important;pointer-events:auto!important;}'
+        ) : (
+            '#ai-nav-panel{position:fixed!important;right:-320px!important;top:0!important;width:320px!important;height:100vh!important;background:#1a1a1a!important;border-left:1px solid #333!important;z-index:2147483646!important;transition:right .3s ease!important;display:flex!important;flex-direction:column!important;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif!important;}' +
+            '#ai-nav-panel.open{right:0!important;}'
+        );
+        var sharedCSS = (
+            '#ai-nav-header{padding:16px;background:#252525;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center;}' +
+            '#ai-nav-header h3{margin:0;color:#fff;font-size:14px;font-weight:600;}' +
+            '#ai-nav-refresh{background:#333;border:none;color:#aaa;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px;}' +
+            '#ai-nav-refresh:hover{background:#444;color:#fff;}' +
+            '#ai-nav-stats{padding:12px 16px;background:#202020;border-bottom:1px solid #333;color:#888;font-size:12px;}' +
+            '#ai-nav-list{flex:1;overflow-y:auto;padding:8px;}' +
+            '.ai-nav-item{padding:12px;margin-bottom:6px;background:#252525;border-radius:8px;cursor:pointer;border-left:3px solid ' + theme.accent + ';transition:all .15s ease;}' +
+            '.ai-nav-item:hover{background:#303030;border-left-color:' + theme.accentHover + ';}' +
+            '.ai-nav-number{color:' + (theme.numberColor || theme.accent) + ';font-size:11px;font-weight:600;margin-bottom:4px;}' +
+            '.ai-nav-summary{color:#e5e5e5;font-size:13px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}' +
+            '#ai-nav-empty{color:#666;text-align:center;padding:40px 20px;font-size:13px;}' +
+            '#ai-nav-list::-webkit-scrollbar{width:6px;}#ai-nav-list::-webkit-scrollbar-track{background:#1a1a1a;}#ai-nav-list::-webkit-scrollbar-thumb{background:#444;border-radius:3px;}'
+        );
+
+        var styleEl = document.createElement('style');
+        styleEl.id = 'ai-nav-style-legacy';
+        styleEl.setAttribute('data-acn-role', 'styles');   // contract attribute
+        styleEl.textContent = buttonCSS + panelCSS + sharedCSS;
+        document.head.appendChild(styleEl);
+
+        // ── State ────────────────────────────────────────────────
+        var legacyNavOpen = false;
+
+        // ── Build panel DOM ──────────────────────────────────────
+        function buildLegacyPanel() {
+            var closeBtn = createElement('button', { id: 'ai-nav-close', textContent: '\u00D7' });
+            closeBtn.setAttribute('data-acn-role', 'panel-close');  // contract attribute
+            closeBtn.addEventListener('click', function () {
+                legacyNavOpen = false;
+                var p = document.getElementById('ai-nav-panel');
+                var b = document.getElementById('ai-nav-toggle');
+                var c = document.getElementById('ai-nav-button-container');
+                if (p) { p.classList.remove('open'); p.removeAttribute('data-acn-open'); }
+                if (b) b.classList.remove('open');
+                if (isLeftChat && c) c.classList.remove('open');
+            });
+            var header = createElement('div', { id: 'ai-nav-header' }, [
+                createElement('h3', null, [siteIcon + ' ' + siteTitle + ' - Questions']),
+                createElement('button', { id: 'ai-nav-refresh', textContent: '\u21BB Refresh' })
+            ]);
+            header.appendChild(closeBtn);
+            header.querySelector('#ai-nav-refresh').addEventListener('click', function () {
+                scanConversation(true);
+                legacyRenderPanel();
+            });
+            var stats = createElement('div', { id: 'ai-nav-stats' });
+            stats.setAttribute('data-acn-role', 'nav-stat');    // contract attribute
+            stats.setAttribute('data-acn-count', '0');
+            var list  = createElement('div', { id: 'ai-nav-list' });
+            list.setAttribute('data-acn-role', 'nav-list');     // contract attribute
+            var panel = createElement('div', { id: 'ai-nav-panel' });
+            panel.setAttribute('data-acn-role', 'nav-panel');   // contract attribute
+            panel.appendChild(header);
+            panel.appendChild(stats);
+            panel.appendChild(list);
+            return panel;
+        }
+
+        // ── Render questions into panel ──────────────────────────
+        function legacyRenderPanel() {
+            var list  = document.getElementById('ai-nav-list');
+            var stats = document.getElementById('ai-nav-stats');
+            if (!list || !stats) return;
+            while (list.firstChild) list.removeChild(list.firstChild);
+            stats.setAttribute('data-acn-count', String(_questions.length));
+            if (_questions.length === 0) {
+                list.appendChild(createElement('div', { id: 'ai-nav-empty', textContent: 'No questions found. Try clicking \u21BB Refresh.' }));
+                stats.textContent = '0 questions found';
+                return;
+            }
+            stats.textContent = _questions.length + ' question' + (_questions.length !== 1 ? 's' : '') + ' found';
+            _questions.forEach(function (q, idx) {
+                var textEl = createElement('div', { className: 'ai-nav-summary', textContent: q.summary || q.text });
+                textEl.setAttribute('data-acn-role', 'nav-item-text');  // contract attribute
+                var item = createElement('div', { className: 'ai-nav-item' }, [
+                    createElement('div', { className: 'ai-nav-number', textContent: 'Question #' + (idx + 1) }),
+                    textEl
+                ]);
+                item.setAttribute('data-acn-role', 'nav-item');         // contract attribute
+                item.addEventListener('click', function () {
+                    if (!q.element) return;
+                    var target = q.element.isConnected ? q.element : (function () {
+                        var msgs = Array.from(getUserMessages());
+                        return msgs.find(function (m) {
+                            return (m.textContent || '').trim().startsWith((q.text || '').substring(0, 60));
+                        }) || null;
+                    })();
+                    if (target) {
+                        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        target.style.transition = 'background .3s';
+                        target.style.background = theme.accentLight || 'rgba(217,119,6,.2)';
+                        setTimeout(function () { target.style.background = ''; }, 1500);
+                    }
+                });
+                list.appendChild(item);
+            });
+        }
+
+        // ── Toggle handler ───────────────────────────────────────
+        function handleLegacyToggle() {
+            legacyNavOpen = !legacyNavOpen;
+            var panel     = document.getElementById('ai-nav-panel');
+            var btn       = document.getElementById('ai-nav-toggle');
+            var container = document.getElementById('ai-nav-button-container');
+            if (legacyNavOpen) {
+                if (panel)     { panel.classList.add('open'); panel.setAttribute('data-acn-open', 'true'); }
+                if (btn)       btn.classList.add('open');
+                if (isLeftChat && container) container.classList.add('open');
+                scanConversation();
+                legacyRenderPanel();
+            } else {
+                if (panel)     { panel.classList.remove('open'); panel.removeAttribute('data-acn-open'); }
+                if (btn)       btn.classList.remove('open');
+                if (isLeftChat && container) container.classList.remove('open');
+            }
+        }
+
+        // ── Create button ────────────────────────────────────────
+        function buildLegacyButton() {
+            var btn;
+            if (isLeftChat) {
+                btn = createElement('div', { id: 'ai-nav-toggle', className: 'ai-nav-floating-btn' }, [
+                    createElement('span', { className: 'ai-nav-icon', textContent: siteIcon })
+                ]);
+            } else {
+                btn = createElement('div', { id: 'ai-nav-toggle', className: 'ai-nav-floating-btn' }, [
+                    document.createTextNode(siteIcon),
+                    createElement('span', { className: 'ai-nav-expand-text', textContent: 'Navigate' })
+                ]);
+            }
+            btn.setAttribute('data-acn-role', 'nav-trigger');   // contract attribute
+            btn.addEventListener('click', handleLegacyToggle);
+            return btn;
+        }
+
+        // ── DOM Guardian ─────────────────────────────────────────
+        var guardianTimer = null;
+        new MutationObserver(function () {
+            if (guardianTimer) clearTimeout(guardianTimer);
+            guardianTimer = setTimeout(function () {
+                if (!document.getElementById('ai-nav-panel')) {
+                    var p = buildLegacyPanel();
+                    if (isLeftChat && !_boundaryDetected) p.style.display = 'none';
+                    if (legacyNavOpen) { p.classList.add('open'); p.setAttribute('data-acn-open', 'true'); legacyRenderPanel(); }
+                    document.body.appendChild(p);
+                }
+                if (!document.getElementById('ai-nav-button-container')) {
+                    var b   = buildLegacyButton();
+                    var con = createElement('div', { id: 'ai-nav-button-container' });
+                    con.setAttribute('data-acn-role', 'zone');
+                    con.setAttribute('data-acn-accent', theme.accent);
+                    con.setAttribute('data-acn-version', '10.0');
+                    con.appendChild(b);
+                    if (isLeftChat) {
+                        con.style.display = _boundaryDetected ? '' : 'none';
+                        if (_boundaryDetected) con.classList.add('ai-nav-positioned');
+                        if (_lastBoundaryX)    con.style.right = (window.innerWidth - _lastBoundaryX + (platform.scrollbarOffset || 0)) + 'px';
+                    }
+                    if (legacyNavOpen) { con.classList.add('open'); b.classList.add('open'); }
+                    document.body.appendChild(con);
+                }
+            }, 200);
+        }).observe(document.body, { childList: true, subtree: true });
+
+        // ── Initial injection ────────────────────────────────────
+        var initPanel = buildLegacyPanel();
+        var initBtn   = buildLegacyButton();
+        var initCon   = createElement('div', { id: 'ai-nav-button-container' });
+        initCon.setAttribute('data-acn-role',    'zone');           // contract attribute
+        initCon.setAttribute('data-acn-accent',  theme.accent);     // contract attribute
+        initCon.setAttribute('data-acn-version', '10.0');           // contract attribute
+        initCon.appendChild(initBtn);
+        if (isLeftChat) {
+            initPanel.style.display = 'none';
+            initCon.style.display   = 'none';
+        }
+        document.body.appendChild(initPanel);
+        document.body.appendChild(initCon);
+
+        // Populate on first open (also triggered by scan)
+        setTimeout(function () {
+            scanConversation();
+            // if panel is open at load time (shouldn't be, but guard)
+            if (legacyNavOpen) legacyRenderPanel();
+        }, 2000);
+    }
+
+    // ============================================================
     // Inject now (body is available — Tampermonkey runs at document-end)
-    injectOrbital();
+    // ============================================================
+    if (useOrbital) {
+        injectOrbital();
+    } else {
+        injectLegacy();
+    }
 
     console.log('AI Conversation Navigator v10.0 loaded for ' + platform.title +
-        (isLeftChat ? ' (left-chat mode)' : '') + '.');
+        (isLeftChat ? ' (left-chat mode)' : '') + (useOrbital ? ' [orbital]' : ' [legacy]') + '.');
 })();

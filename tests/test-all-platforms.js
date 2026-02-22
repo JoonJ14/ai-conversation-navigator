@@ -112,8 +112,8 @@ function slugify(name) {
 // ── Platform definitions ───────────────────────────────────────────────────────
 //
 // expectedAccent: the value set on data-acn-accent (hex string from the script's colour map).
-//   - AI chat platforms (claude, chatgpt, grok, gemini, perplexity) get their own colour.
-//   - App builder platforms and firebase_studio fall back to Claude orange '#d97706'.
+//   - Orbital platforms (claude, chatgpt, grok, gemini, perplexity) use ORB_COLORS[platform.id].bg.
+//   - Legacy platforms (app-builders + firebase_studio) use platform.theme.accent from PLATFORMS.
 //
 // expectedMessages: number of user messages in the mock HTML for that platform.
 //   Determined by the platform's getUserMessages() selector against the mock page DOM.
@@ -174,7 +174,7 @@ const PLATFORMS = [
         hostname: 'bolt.new',
         pathname: '/test-project',
         expectedMessages: 3,
-        expectedAccent: '#d97706',
+        expectedAccent: '#38BDF8',
     },
     {
         name: 'Lovable',
@@ -182,7 +182,7 @@ const PLATFORMS = [
         hostname: 'lovable.dev',
         pathname: '/projects/test-project',   // Must include /projects/ for the guard
         expectedMessages: 3,
-        expectedAccent: '#d97706',
+        expectedAccent: '#9b87f5',
     },
     {
         name: 'Replit',
@@ -190,7 +190,7 @@ const PLATFORMS = [
         hostname: 'replit.com',
         pathname: '/@user/project',
         expectedMessages: 3,
-        expectedAccent: '#d97706',
+        expectedAccent: '#F26522',
     },
     {
         name: 'V0',
@@ -198,7 +198,7 @@ const PLATFORMS = [
         hostname: 'v0.app',
         pathname: '/chat/test-project',
         expectedMessages: 3,
-        expectedAccent: '#d97706',
+        expectedAccent: '#ffffff',
     },
     {
         name: 'Base44',
@@ -206,7 +206,7 @@ const PLATFORMS = [
         hostname: 'app.base44.com',
         pathname: '/projects/test',
         expectedMessages: 3,
-        expectedAccent: '#d97706',
+        expectedAccent: '#6366f1',
     },
     {
         name: 'Emergent',
@@ -214,7 +214,7 @@ const PLATFORMS = [
         hostname: 'app.emergent.sh',
         pathname: '/project/test',
         expectedMessages: 3,
-        expectedAccent: '#d97706',
+        expectedAccent: '#10b981',
     },
     {
         name: 'Perplexity',
@@ -230,7 +230,7 @@ const PLATFORMS = [
         hostname: '6000-firebase-studio-12345.cluster-abc123.cloudworkstations.dev',
         pathname: '/capra/',
         expectedMessages: 3,
-        expectedAccent: '#d97706',   // firebase_studio not in ORB_COLORS → Claude orange
+        expectedAccent: '#FFA611',   // firebase_studio legacy mode → platform.theme.accent
     },
 ];
 
