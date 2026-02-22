@@ -1422,10 +1422,13 @@
         var resultsContainer = document.getElementById('ai-search-results');
         if (!resultsContainer) return;
 
-        resultsContainer.innerHTML = '';
+        resultsContainer.textContent = '';
         query = (query || '').trim();
         if (!query) {
-            resultsContainer.innerHTML = '<div id="ai-search-empty">Type a keyword across the whole conversation...</div>';
+            resultsContainer.appendChild(createElement('div', {
+                id: 'ai-search-empty',
+                textContent: 'Type a keyword across the whole conversation...'
+            }));
             return;
         }
 
@@ -1462,7 +1465,10 @@
         }
 
         if (matches.length === 0) {
-            resultsContainer.innerHTML = '<div id="ai-search-empty">No results found for "' + query + '".</div>';
+            resultsContainer.appendChild(createElement('div', {
+                id: 'ai-search-empty',
+                textContent: 'No results found for "' + query + '".'
+            }));
             return;
         }
 
@@ -1498,7 +1504,10 @@
         }
 
         if (uniqueBlocks.length === 0) {
-            resultsContainer.innerHTML = '<div id="ai-search-empty">No block results found for "' + query + '".</div>';
+            resultsContainer.appendChild(createElement('div', {
+                id: 'ai-search-empty',
+                textContent: 'No block results found for "' + query + '".'
+            }));
             return;
         }
 
