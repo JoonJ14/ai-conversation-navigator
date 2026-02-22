@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v8.0
+// @name         AI Conversation Navigator v9.4
 // @namespace    http://tampermonkey.net/
-// @version      8.0
+// @version      9.4
 // @description  Adds a sidebar with bookmarks to navigate long conversations on Claude, ChatGPT, Codex, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -56,6 +56,10 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
+            contextWindow: 200000,
+            tokensPerChar: 0.25,
+            contextTracking: true,
+            fetchInterceptEndpoint: '/chat_conversations',
             textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
@@ -89,6 +93,10 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
+            contextWindow: 128000,
+            tokensPerChar: 0.25,
+            contextTracking: true,
+            fetchInterceptEndpoint: null,
             textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
@@ -118,6 +126,10 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
+            contextWindow: 128000,
+            tokensPerChar: 0.25,
+            contextTracking: true,
+            fetchInterceptEndpoint: null,
             textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
@@ -152,6 +164,10 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
+            contextWindow: 1000000,
+            tokensPerChar: 0.25,
+            contextTracking: true,
+            fetchInterceptEndpoint: null,
             textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
@@ -178,6 +194,10 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
+            contextWindow: null,
+            tokensPerChar: null,
+            contextTracking: false,
+            fetchInterceptEndpoint: null,
             textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
@@ -264,6 +284,10 @@
             pathGuard: function (path) { return path.includes('/projects/'); },
             initGuards: [],
             retryDelays: [],
+            contextWindow: null,
+            tokensPerChar: null,
+            contextTracking: false,
+            fetchInterceptEndpoint: null,
             textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
@@ -329,6 +353,10 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
+            contextWindow: null,
+            tokensPerChar: null,
+            contextTracking: false,
+            fetchInterceptEndpoint: null,
             textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
@@ -401,6 +429,10 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
+            contextWindow: null,
+            tokensPerChar: null,
+            contextTracking: false,
+            fetchInterceptEndpoint: null,
             textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
@@ -456,6 +488,10 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
+            contextWindow: null,
+            tokensPerChar: null,
+            contextTracking: false,
+            fetchInterceptEndpoint: null,
             textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
@@ -484,6 +520,10 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
+            contextWindow: null,
+            tokensPerChar: null,
+            contextTracking: false,
+            fetchInterceptEndpoint: null,
             textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: function (msg) { return msg.querySelector('.prose'); },
             getUserMessages: function () {
@@ -520,6 +560,10 @@
             pathGuard: null,
             initGuards: [],
             retryDelays: [],
+            contextWindow: null,
+            tokensPerChar: null,
+            contextTracking: false,
+            fetchInterceptEndpoint: null,
             textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
@@ -577,6 +621,10 @@
                 }
             ],
             retryDelays: [5000, 10000, 20000],
+            contextWindow: null,
+            tokensPerChar: null,
+            contextTracking: false,
+            fetchInterceptEndpoint: null,
             textCleanup: [{ regex: /^You said\s*/i, replace: '' }],
             textExtractor: null,
             getUserMessages: function () {
@@ -636,16 +684,25 @@
     const isLeftChat = platform.layout === 'left-chat';
     const isVirtualScroll = platform.virtualScroll;
 
-    // Inject styles — toggle button and panel differ for left-chat vs standard platforms
+    // Inject styles — button container and panel differ for left-chat vs standard platforms
     const toggleStyles = isLeftChat ? `
-        /* === GHOST NOTCH V1 TOGGLE (left-chat platforms) === */
-        #ai-nav-toggle {
+        /* === GHOST NOTCH V1 BUTTON CONTAINER (left-chat platforms) === */
+        #ai-nav-button-container {
             position: fixed !important;
             left: auto !important;
             right: 65%;
             top: 50% !important;
             transform: translateY(-50%) !important;
             z-index: 2147483647 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 2px !important;
+            pointer-events: none !important;
+        }
+        #ai-nav-button-container.open {
+            pointer-events: auto !important;
+        }
+        .ai-nav-floating-btn {
             background: ${theme.accent} !important;
             color: ${theme.textColor} !important;
             border: none !important;
@@ -666,47 +723,66 @@
             visibility: visible !important;
             opacity: 0 !important;
             pointer-events: auto !important;
+            position: relative !important;
         }
-        #ai-nav-toggle .ai-nav-icon {
+        .ai-nav-floating-btn::after {
+            content: '' !important;
+            position: absolute !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: -2px !important;
+            height: 2px !important;
+            background: transparent !important;
+            pointer-events: auto !important;
+        }
+        .ai-nav-floating-btn .ai-nav-icon {
             font-size: 14px !important;
             opacity: 0 !important;
             transform: scale(0.6) !important;
             transition: opacity 0.25s ease 0.05s, transform 0.25s ease 0.05s !important;
         }
-        #ai-nav-toggle .ai-nav-expand-text {
+        .ai-nav-floating-btn .ai-nav-expand-text {
             display: none !important;
         }
-        #ai-nav-toggle.ai-nav-positioned {
+        #ai-nav-button-container.ai-nav-positioned .ai-nav-floating-btn {
             opacity: 0.35 !important;
             transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s ease, border-radius 0.3s ease, right 0.3s ease !important;
         }
-        #ai-nav-toggle:hover {
+        .ai-nav-floating-btn:hover,
+        #ai-nav-button-container.open:hover .ai-nav-floating-btn {
             width: 32px !important;
             height: 40px !important;
             opacity: 1 !important;
             border-radius: 6px 0 0 6px !important;
         }
-        #ai-nav-toggle:hover .ai-nav-icon {
+        .ai-nav-floating-btn:hover .ai-nav-icon,
+        #ai-nav-button-container.open:hover .ai-nav-floating-btn .ai-nav-icon {
             opacity: 1 !important;
             transform: scale(1) !important;
         }
-        #ai-nav-toggle.open {
+        .ai-nav-floating-btn.open {
             opacity: 1 !important;
-            width: 32px !important;
-            height: 40px !important;
-        }
-        #ai-nav-toggle.open .ai-nav-icon {
-            opacity: 1 !important;
-            transform: scale(1) !important;
+            background: ${theme.accentHover} !important;
         }
     ` : `
-        /* === STANDARD HOVER-EXPAND TOGGLE (right-edge platforms) === */
-        #ai-nav-toggle {
+        /* === STANDARD HOVER-EXPAND BUTTON CONTAINER (right-edge platforms) === */
+        #ai-nav-button-container {
             position: fixed !important;
             right: 0 !important;
             top: 50% !important;
             transform: translateY(-50%) !important;
             z-index: 2147483647 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 2px !important;
+            pointer-events: none !important;
+            transition: right 0.3s ease !important;
+        }
+        #ai-nav-button-container.open {
+            right: 320px !important;
+            pointer-events: auto !important;
+        }
+        .ai-nav-floating-btn {
             background: ${theme.accent} !important;
             color: ${theme.textColor} !important;
             border: ${theme.toggleBorder} !important;
@@ -725,32 +801,60 @@
             visibility: visible !important;
             opacity: 1 !important;
             pointer-events: auto !important;
+            align-self: flex-end !important;
+            box-sizing: border-box !important;
+            width: 48px !important;
+            position: relative !important;
         }
-        #ai-nav-toggle:hover {
+        .ai-nav-floating-btn::after {
+            content: '' !important;
+            position: absolute !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: -2px !important;
+            height: 2px !important;
+            background: transparent !important;
+            pointer-events: auto !important;
+        }
+        .ai-nav-floating-btn .ai-nav-icon {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            width: 24px !important;
+            height: 24px !important;
+            flex-shrink: 0 !important;
+        }
+        .ai-nav-floating-btn:hover,
+        #ai-nav-button-container.open:hover .ai-nav-floating-btn {
             padding-right: 16px !important;
+            width: 127px !important;
         }
-        #ai-nav-toggle .ai-nav-expand-text {
-            max-width: 0 !important;
+        .ai-nav-floating-btn .ai-nav-expand-text {
+            width: 0 !important;
             opacity: 0 !important;
             overflow: hidden !important;
-            transition: max-width 0.25s ease, opacity 0.2s ease, margin-left 0.25s ease !important;
+            transition: width 0.25s ease, opacity 0.2s ease, margin-left 0.25s ease !important;
             font-size: 13px !important;
             font-weight: 500 !important;
             margin-left: 0 !important;
+            display: inline-block !important;
+            text-align: left !important;
+            white-space: nowrap !important;
         }
-        #ai-nav-toggle:hover .ai-nav-expand-text {
-            max-width: 80px !important;
+        .ai-nav-floating-btn:hover .ai-nav-expand-text,
+        #ai-nav-button-container.open:hover .ai-nav-floating-btn .ai-nav-expand-text {
+            width: 65px !important;
             opacity: 1 !important;
             margin-left: 10px !important;
         }
-        #ai-nav-toggle.open {
-            right: 320px !important;
+        .ai-nav-floating-btn.open {
+            background: ${theme.accentHover} !important;
         }
     `;
 
     const panelStyles = isLeftChat ? `
         /* === NAVIGATION PANEL (left-chat: anchored at boundary, reveals leftward) === */
-        #ai-nav-panel {
+        #ai-nav-panel, #ai-context-panel, #ai-search-panel {
             position: fixed !important;
             left: auto !important;
             right: 65%;
@@ -770,13 +874,13 @@
             opacity: 1 !important;
             pointer-events: none !important;
         }
-        #ai-nav-panel.open {
+        #ai-nav-panel.open, #ai-context-panel.open, #ai-search-panel.open {
             clip-path: inset(0 0 0 0) !important;
             pointer-events: auto !important;
         }
     ` : `
         /* === NAVIGATION PANEL (standard: slides from right) === */
-        #ai-nav-panel {
+        #ai-nav-panel, #ai-context-panel, #ai-search-panel {
             position: fixed !important;
             right: -320px !important;
             top: 0 !important;
@@ -793,7 +897,7 @@
             opacity: 1 !important;
             pointer-events: auto !important;
         }
-        #ai-nav-panel.open {
+        #ai-nav-panel.open, #ai-context-panel.open, #ai-search-panel.open {
             right: 0 !important;
         }
     `;
@@ -833,6 +937,91 @@
             border-bottom: 1px solid #333;
             color: #888;
             font-size: 12px;
+        }
+
+        #ai-nav-context {
+            padding: 16px;
+            font-size: 13px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            line-height: 1.5;
+            min-height: 0;
+            transition: opacity 0.3s;
+        }
+        #ai-nav-context:empty {
+            display: none;
+            padding: 0;
+            border: none;
+        }
+        
+        #ai-search-input {
+            width: 100%;
+            padding: 8px 12px;
+            background: #333;
+            border: 1px solid #444;
+            color: #fff;
+            border-radius: 6px;
+            font-size: 14px;
+            box-sizing: border-box;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        #ai-search-input:focus {
+            border-color: ${theme.accent};
+        }
+        .ai-nav-search-highlight {
+            background-color: rgba(255, 255, 0, 0.3);
+            color: #fff;
+            font-weight: bold;
+            padding: 0 2px;
+            border-radius: 2px;
+        }
+        .ai-search-item {
+            padding: 12px 16px;
+            border-bottom: 1px solid #333;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .ai-search-item:hover {
+            background: #2a2a2a;
+        }
+        .ai-search-item.user {
+            border-left: 3px solid ${theme.accent};
+        }
+        .ai-search-item.agent {
+            border-left: 3px solid #555;
+        }
+        .ai-search-item-role {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+            color: #888;
+        }
+        .ai-search-item.user .ai-search-item-role {
+            color: ${theme.accent};
+        }
+        .ai-search-item-text {
+            font-size: 13px;
+            color: #ccc;
+            line-height: 1.5;
+            word-wrap: break-word;
+        }
+        #ai-search-empty {
+            padding: 24px;
+            text-align: center;
+            color: #777;
+            font-size: 13px;
+            font-style: italic;
+        }
+        .ai-nav-context-warning {
+            margin-top: 16px;
+            padding: 12px;
+            background: rgba(234, 179, 8, 0.1);
+            border: 1px solid rgba(234, 179, 8, 0.3);
+            border-radius: 6px;
+            color: #eab308;
+            font-size: 12px;
+            line-height: 1.5;
         }
 
         #ai-nav-list {
@@ -898,8 +1087,17 @@
     document.head.appendChild(styleEl);
 
     // --- State ---
-    let isOpen = false;
+    let isNavOpen = false;
+    let isContextOpen = false;
+    let isSearchOpen = false;
     let scanInterval = null;
+    var _interceptedTokens = {
+        inputTokens: 0,
+        outputTokens: 0,
+        lastUpdated: 0,
+        available: false
+    };
+    var _fetchInterceptorInstalled = false;
 
     // ============================================================
     // DOM CREATION HELPERS — No innerHTML anywhere (Trusted Types)
@@ -1016,94 +1214,64 @@
     function updateLeftChatPositions() {
         if (!isLeftChat) return;
 
-        var boundaryX = getChatBoundaryX();
-        var toggle = document.getElementById('ai-nav-toggle');
-        var panel = document.getElementById('ai-nav-panel');
-
-        // No chat panel detected → hide and reset all state
-        // But never hide while panel is actively open (user is interacting)
-        if (!boundaryX) {
-            if (isOpen) return;
-            if (toggle) toggle.style.display = 'none';
-            if (panel) panel.style.display = 'none';
-            _lastBoundaryX = null;
-            if (_boundaryDetected) {
-                _boundaryDetected = false;
-                if (_fadeTimer) { clearTimeout(_fadeTimer); _fadeTimer = null; }
-                if (toggle) toggle.classList.remove('ai-nav-positioned');
-            }
-            return;
-        }
-
-        // Emergent has a thick scrollbar at the chat boundary — offset toggle left
-        // so it doesn't overlap. Panel stays flush with the boundary.
-        var toggleScrollbarOffset = platform.scrollbarOffset || 0;
-
-        // Already confirmed — just update position smoothly, never hide
-        if (_boundaryDetected) {
-            // Safety: ensure toggle always has positioned class (DOM guardian may recreate it)
-            if (toggle && !toggle.classList.contains('ai-nav-positioned') && !isOpen) {
-                toggle.classList.add('ai-nav-positioned');
-            }
-            if (!_lastBoundaryX || Math.abs(boundaryX - _lastBoundaryX) >= 3) {
-                _lastBoundaryX = boundaryX;
-                var panelRight = (window.innerWidth - boundaryX) + 'px';
-                var toggleRight = (window.innerWidth - boundaryX + toggleScrollbarOffset) + 'px';
-                if (panel) panel.style.right = panelRight;
-                if (toggle && !isOpen) toggle.style.right = toggleRight;
-            }
-            return;
-        }
-
-        // Not yet confirmed — require two consecutive stable polls before showing
-        if (_lastBoundaryX && Math.abs(boundaryX - _lastBoundaryX) < 3) {
-            // Stable! Show and fade in
-            _boundaryDetected = true;
-            if (toggle) toggle.style.display = '';
-            if (panel) panel.style.display = '';
-            if (toggle) {
-                _fadeTimer = setTimeout(function () {
-                    _fadeTimer = null;
-                    toggle.classList.add('ai-nav-positioned');
-                }, 300);
-            }
-            return;
-        }
-
         // First detection or position still settling — store and position invisibly
         _lastBoundaryX = boundaryX;
         var panelRight = (window.innerWidth - boundaryX) + 'px';
         var toggleRight = (window.innerWidth - boundaryX + toggleScrollbarOffset) + 'px';
         if (panel) panel.style.right = panelRight;
-        if (toggle && !isOpen) toggle.style.right = toggleRight;
+        if (contextPanel) contextPanel.style.right = panelRight;
+        var searchPanel = document.getElementById('ai-search-panel');
+        if (searchPanel) searchPanel.style.right = panelRight;
+        if (container && !isNavOpen && !isContextOpen && !isSearchOpen) container.style.right = toggleRight;
     }
 
-    // --- Create toggle button ---
-    function createToggle() {
-        var btn;
+    // --- Create button container (holds multiple floating buttons) ---
+    function createButtonContainer() {
+        var container = createElement('div', { id: 'ai-nav-button-container' });
+
+        var navBtn, ctxBtn, searchBtn;
         if (isLeftChat) {
-            // Ghost notch V1: icon wrapped in span for scale animation
-            btn = createElement('button', { id: 'ai-nav-toggle', onClick: handleToggleClick }, [
+            navBtn = createElement('button', { id: 'ai-nav-toggle', className: 'ai-nav-floating-btn', onClick: handleNavToggleClick }, [
                 createElement('span', { className: 'ai-nav-icon', textContent: siteIcon })
             ]);
+            ctxBtn = createElement('button', { id: 'ai-context-toggle', className: 'ai-nav-floating-btn', onClick: handleContextToggleClick }, [
+                createElement('span', { className: 'ai-nav-icon', textContent: '\uD83D\uDCCA' })
+            ]);
+            searchBtn = createElement('button', { id: 'ai-search-toggle', className: 'ai-nav-floating-btn', onClick: handleSearchToggleClick }, [
+                createElement('span', { className: 'ai-nav-icon', textContent: '\uD83D\uDD0D' })
+            ]);
         } else {
-            // Standard: icon + expandable text
-            btn = createElement('button', { id: 'ai-nav-toggle', onClick: handleToggleClick }, [
+            navBtn = createElement('button', { id: 'ai-nav-toggle', className: 'ai-nav-floating-btn', onClick: handleNavToggleClick }, [
                 document.createTextNode(siteIcon),
                 createElement('span', { className: 'ai-nav-expand-text', textContent: 'Navigate' })
             ]);
+            ctxBtn = createElement('button', { id: 'ai-context-toggle', className: 'ai-nav-floating-btn', onClick: handleContextToggleClick }, [
+                document.createTextNode('\uD83D\uDCCA'),
+                createElement('span', { className: 'ai-nav-expand-text', textContent: 'Context' })
+            ]);
+            searchBtn = createElement('button', { id: 'ai-search-toggle', className: 'ai-nav-floating-btn', onClick: handleSearchToggleClick }, [
+                document.createTextNode('\uD83D\uDD0D'),
+                createElement('span', { className: 'ai-nav-expand-text', textContent: 'Search' })
+            ]);
         }
-        return btn;
+
+        container.appendChild(navBtn);
+        if (platform.contextTracking) container.appendChild(ctxBtn);
+        container.appendChild(searchBtn);
+
+        return container;
     }
 
-    // --- Create panel (fully programmatic, no innerHTML) ---
+    // --- Create nav panel (fully programmatic, no innerHTML) ---
     function createPanel() {
         const header = createElement('div', { id: 'ai-nav-header' }, [
-            createElement('h3', null, [siteIcon + ' ' + siteTitle + ' - Your Questions']),
+            createElement('h3', null, [siteIcon + ' ' + siteTitle + ' - Questions']),
             createElement('button', {
                 id: 'ai-nav-refresh',
                 textContent: '\u21BB Refresh',
-                onClick: function () { scanConversation(true); }
+                onClick: function () {
+                    scanConversation(true);
+                }
             })
         ]);
 
@@ -1111,6 +1279,189 @@
         const list = createElement('div', { id: 'ai-nav-list' });
 
         return createElement('div', { id: 'ai-nav-panel' }, [header, stats, list]);
+    }
+
+    // --- Create context panel ---
+    function createContextPanel() {
+        const header = createElement('div', { id: 'ai-nav-header' }, [
+            createElement('h3', null, ['\uD83D\uDCCA Context Tracker']),
+            createElement('button', {
+                id: 'ai-context-refresh',
+                textContent: '\u21BB Refresh',
+                onClick: function () {
+                    updateContextIndicator();
+                }
+            })
+        ]);
+
+        const contextIndicator = createElement('div', { id: 'ai-nav-context' });
+
+        const warningText = createElement('div', { className: 'ai-nav-context-warning' }, [
+            document.createTextNode('Start thinking about starting a new chat when the context is nearing 70%. The ai will have to compact your conversation probably around 80% to continue talking to you. You can still continue talking after ai compacts context window after 80%, but it might lose some memory of the earlier chats')
+        ]);
+
+        const container = createElement('div', { style: 'padding: 16px; flex: 1; overflow-y: auto;' }, [
+            contextIndicator,
+            warningText
+        ]);
+
+        return createElement('div', { id: 'ai-context-panel' }, [header, container]);
+    }
+
+    // --- Create search panel ---
+    let _searchTimeout = null;
+    function createSearchPanel() {
+        const header = createElement('div', { id: 'ai-nav-header' }, [
+            createElement('h3', null, ['\uD83D\uDD0D Search Conversation']),
+        ]);
+
+        const searchBoxContainer = createElement('div', { style: 'padding: 16px; border-bottom: 1px solid #333;' }, [
+            createElement('input', {
+                id: 'ai-search-input',
+                type: 'text',
+                placeholder: 'Search keywords...',
+                onInput: function (e) {
+                    if (_searchTimeout) clearTimeout(_searchTimeout);
+                    _searchTimeout = setTimeout(function () {
+                        executeConversationSearch(e.target.value);
+                    }, 300);
+                }
+            })
+        ]);
+
+        const resultsContainer = createElement('div', { id: 'ai-search-results', style: 'flex: 1; overflow-y: auto;' });
+
+        return createElement('div', { id: 'ai-search-panel' }, [header, searchBoxContainer, resultsContainer]);
+    }
+
+    // --- Universal Conversation Search ---
+    function executeConversationSearch(query) {
+        var resultsContainer = document.getElementById('ai-search-results');
+        if (!resultsContainer) return;
+
+        resultsContainer.innerHTML = '';
+        query = (query || '').trim();
+        if (!query) {
+            resultsContainer.innerHTML = '<div id="ai-search-empty">Type a keyword across the whole conversation...</div>';
+            return;
+        }
+
+        var queryLower = query.toLowerCase();
+
+        // Find user messages so we can categorize "user" vs "agent"
+        var userMessages = Array.from(getUserMessages());
+
+        var mainContent = document.querySelector('main') || document.body;
+
+        // Use TreeWalker to find all text nodes
+        var walker = document.createTreeWalker(mainContent, NodeFilter.SHOW_TEXT, {
+            acceptNode: function (node) {
+                var parent = node.parentElement;
+                if (!parent) return NodeFilter.FILTER_REJECT;
+                var tag = parent.tagName.toLowerCase();
+                if (tag === 'script' || tag === 'style' || tag === 'noscript') return NodeFilter.FILTER_REJECT;
+
+                if (parent.closest('#ai-nav-panel') || parent.closest('#ai-context-panel') || parent.closest('#ai-search-panel') || parent.closest('#ai-nav-button-container')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+
+                if (node.nodeValue.toLowerCase().includes(queryLower)) {
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+                return NodeFilter.FILTER_SKIP;
+            }
+        });
+
+        var matches = [];
+        var currentNode;
+        while ((currentNode = walker.nextNode())) {
+            matches.push(currentNode);
+        }
+
+        if (matches.length === 0) {
+            resultsContainer.innerHTML = '<div id="ai-search-empty">No results found for "' + query + '".</div>';
+            return;
+        }
+
+        var uniqueBlocks = [];
+        var seenParents = new Set();
+
+        for (var i = 0; i < matches.length; i++) {
+            var node = matches[i];
+            var hitParent = node.parentElement;
+            var blockAncestor = hitParent.closest('p, div, li, td, h1, h2, h3, h4, h5, h6, blockquote, pre, span');
+            if (!blockAncestor) blockAncestor = hitParent;
+
+            if (seenParents.has(blockAncestor)) continue;
+            seenParents.add(blockAncestor);
+
+            var fullText = (blockAncestor.textContent || '').trim();
+            if (!fullText) continue;
+
+            var role = 'agent';
+            for (var u = 0; u < userMessages.length; u++) {
+                if (userMessages[u].contains(blockAncestor)) {
+                    role = 'user';
+                    break;
+                }
+            }
+
+            uniqueBlocks.push({
+                element: blockAncestor,
+                text: fullText,
+                role: role
+            });
+            if (uniqueBlocks.length >= 50) break;
+        }
+
+        if (uniqueBlocks.length === 0) {
+            resultsContainer.innerHTML = '<div id="ai-search-empty">No block results found for "' + query + '".</div>';
+            return;
+        }
+
+        uniqueBlocks.forEach(function (match) {
+            var item = createElement('div', { className: 'ai-search-item ' + match.role });
+
+            var roleDiv = createElement('div', { className: 'ai-search-item-role', textContent: match.role === 'user' ? 'Question' : 'Answer' });
+            item.appendChild(roleDiv);
+
+            var lowerText = match.text.toLowerCase();
+            var index = lowerText.indexOf(queryLower);
+
+            var start = Math.max(0, index - 40);
+            var end = Math.min(match.text.length, index + query.length + 40);
+            var prefix = (start > 0 ? '...' : '') + match.text.substring(start, index);
+            var highlightToken = match.text.substring(index, index + query.length);
+            var postfix = match.text.substring(index + query.length, end) + (end < match.text.length ? '...' : '');
+
+            var textDiv = createElement('div', { className: 'ai-search-item-text' }, [
+                document.createTextNode(prefix),
+                createElement('span', { className: 'ai-nav-search-highlight', textContent: highlightToken }),
+                document.createTextNode(postfix)
+            ]);
+            item.appendChild(textDiv);
+
+            item.addEventListener('click', function () {
+                if (isLeftChat && isSearchOpen) {
+                    handleSearchToggleClick();
+                    setTimeout(function () {
+                        match.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        var origBg = match.element.style.backgroundColor;
+                        match.element.style.backgroundColor = 'rgba(255, 255, 0, 0.4)';
+                        match.element.style.transition = 'background-color 0.3s';
+                        setTimeout(function () { match.element.style.backgroundColor = origBg; }, 1500);
+                    }, 350);
+                } else {
+                    match.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    var origBg2 = match.element.style.backgroundColor;
+                    match.element.style.backgroundColor = 'rgba(255, 255, 0, 0.4)';
+                    match.element.style.transition = 'background-color 0.3s';
+                    setTimeout(function () { match.element.style.backgroundColor = origBg2; }, 1500);
+                }
+            });
+
+            resultsContainer.appendChild(item);
+        });
     }
 
     // --- Create empty state message ---
@@ -1186,55 +1537,49 @@
         return item;
     }
 
-    // --- Single unified toggle handler ---
-    function handleToggleClick() {
-        ensureElementsExist();
+    // --- Independent toggle handlers ---
+    function handleNavToggleClick() {
+        if (isContextOpen) handleContextToggleClick(); // auto-close other
+        if (isSearchOpen) handleSearchToggleClick();
 
+        ensureElementsExist();
         const panel = document.getElementById('ai-nav-panel');
         const toggle = document.getElementById('ai-nav-toggle');
+        const container = document.getElementById('ai-nav-button-container');
 
-        if (!panel || !toggle) {
-            console.warn('AI Nav: Elements missing even after re-inject attempt.');
-            return;
-        }
+        if (!panel || !toggle || !container) return;
 
-        isOpen = !isOpen;
-        panel.classList.toggle('open', isOpen);
-        toggle.classList.toggle('open', isOpen);
+        isNavOpen = !isNavOpen;
+        panel.classList.toggle('open', isNavOpen);
+        toggle.classList.toggle('open', isNavOpen);
+        container.classList.toggle('open', isNavOpen || isContextOpen || isSearchOpen);
 
-        // For left-chat: push button left by panel width (mirrors standard right: 0 → 320)
-        if (isLeftChat && toggle) {
+        // For left-chat: push container left by panel width (mirrors standard right: 0 → 320)
+        if (isLeftChat) {
             var bx = _lastBoundaryX || getChatBoundaryX() || (window.innerWidth * 0.35);
             var panelRight = (window.innerWidth - bx) + 'px';
-            if (isOpen) {
-                // Sync panel to boundary before opening
+            if (isNavOpen) {
                 if (panel) panel.style.right = panelRight;
-                // Button pushed left by 320px from boundary — sits at panel's left edge
-                toggle.style.right = (window.innerWidth - bx + 320) + 'px';
+                container.style.right = (window.innerWidth - bx + 320) + 'px';
             } else {
-                // Restore to boundary position
-                _lastBoundaryX = null; // force recalculation
+                _lastBoundaryX = null;
                 updateLeftChatPositions();
             }
         }
 
-        if (isOpen) {
+        if (isNavOpen) {
             if (isVirtualScroll) {
-                // Virtual scroll platforms: scroll through the chat to collect all messages.
-                // Virtuoso only renders visible items, so we must scroll to each section,
-                // wait for rendering, scan (accumulate), then move to the next section.
-                scanConversation(true); // force reset, start fresh
+                scanConversation(true);
                 var scroller = document.querySelector('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller="true"]');
                 if (scroller && scroller.scrollHeight > scroller.clientHeight) {
                     var savedScrollTop = scroller.scrollTop;
                     var totalHeight = scroller.scrollHeight;
                     var viewHeight = scroller.clientHeight;
-                    // Build scroll positions: top, then increments of 80% viewport, then original
                     var positions = [0];
                     for (var pos = viewHeight * 0.8; pos < totalHeight; pos += viewHeight * 0.8) {
                         positions.push(Math.floor(pos));
                     }
-                    positions.push(savedScrollTop); // restore original position at end
+                    positions.push(savedScrollTop);
 
                     var step = 0;
                     function _vsScrollStep() {
@@ -1242,7 +1587,7 @@
                         scroller.scrollTop = positions[step];
                         setTimeout(function () {
                             if (step < positions.length - 1) {
-                                scanConversation(); // accumulate mode
+                                scanConversation();
                             }
                             step++;
                             if (step < positions.length) {
@@ -1254,7 +1599,6 @@
                 }
             } else {
                 scanConversation();
-                // Retry scan after delay if 0 questions found (lazy rendering)
                 setTimeout(function () {
                     var items = document.querySelectorAll('.ai-nav-item');
                     if (items.length === 0) scanConversation();
@@ -1270,20 +1614,94 @@
         }
     }
 
+    function handleContextToggleClick() {
+        if (isNavOpen) handleNavToggleClick(); // auto-close other
+        if (isSearchOpen) handleSearchToggleClick();
+
+        ensureElementsExist();
+        const panel = document.getElementById('ai-context-panel');
+        const toggle = document.getElementById('ai-context-toggle');
+        const container = document.getElementById('ai-nav-button-container');
+
+        if (!panel || !toggle || !container) return;
+
+        isContextOpen = !isContextOpen;
+        panel.classList.toggle('open', isContextOpen);
+        toggle.classList.toggle('open', isContextOpen);
+        container.classList.toggle('open', isNavOpen || isContextOpen || isSearchOpen);
+
+        if (isLeftChat) {
+            var bx = _lastBoundaryX || getChatBoundaryX() || (window.innerWidth * 0.35);
+            var panelRight = (window.innerWidth - bx) + 'px';
+            if (isContextOpen) {
+                if (panel) panel.style.right = panelRight;
+                container.style.right = (window.innerWidth - bx + 320) + 'px';
+            } else {
+                _lastBoundaryX = null;
+                updateLeftChatPositions();
+            }
+        }
+
+        if (isContextOpen) {
+            updateContextIndicator();
+        }
+    }
+
+    function handleSearchToggleClick() {
+        if (isNavOpen) handleNavToggleClick(); // auto-close other
+        if (isContextOpen) handleContextToggleClick();
+
+        ensureElementsExist();
+        const panel = document.getElementById('ai-search-panel');
+        const toggle = document.getElementById('ai-search-toggle');
+        const container = document.getElementById('ai-nav-button-container');
+
+        if (!panel || !toggle || !container) return;
+
+        isSearchOpen = !isSearchOpen;
+        panel.classList.toggle('open', isSearchOpen);
+        toggle.classList.toggle('open', isSearchOpen);
+        container.classList.toggle('open', isNavOpen || isContextOpen || isSearchOpen);
+
+        if (isLeftChat) {
+            var bx = _lastBoundaryX || getChatBoundaryX() || (window.innerWidth * 0.35);
+            var panelRight = (window.innerWidth - bx) + 'px';
+            if (isSearchOpen) {
+                if (panel) panel.style.right = panelRight;
+                container.style.right = (window.innerWidth - bx + 320) + 'px';
+            } else {
+                _lastBoundaryX = null;
+                updateLeftChatPositions();
+            }
+        }
+
+        if (isSearchOpen) {
+            var searchInput = document.getElementById('ai-search-input');
+            if (searchInput) setTimeout(function () { searchInput.focus(); }, 300);
+        }
+    }
+
     // --- Ensure our elements exist in the DOM (with duplicate cleanup) ---
     function ensureElementsExist() {
         // --- Remove any duplicates first ---
-        const toggles = document.querySelectorAll('#ai-nav-toggle');
-        const panels = document.querySelectorAll('#ai-nav-panel');
+        const containers = document.querySelectorAll('#ai-nav-button-container');
+        const navPanels = document.querySelectorAll('#ai-nav-panel');
+        const contextPanels = document.querySelectorAll('#ai-context-panel');
+        const searchPanels = document.querySelectorAll('#ai-search-panel');
         const styleEls = document.querySelectorAll('#ai-nav-style');
 
-        if (toggles.length > 1) {
-            for (let i = 1; i < toggles.length; i++) toggles[i].remove();
-            console.log('AI Nav: Removed ' + (toggles.length - 1) + ' duplicate toggle(s).');
+        if (containers.length > 1) {
+            for (let i = 1; i < containers.length; i++) containers[i].remove();
+            console.log('AI Nav: Removed ' + (containers.length - 1) + ' duplicate container(s).');
         }
-        if (panels.length > 1) {
-            for (let i = 1; i < panels.length; i++) panels[i].remove();
-            console.log('AI Nav: Removed ' + (panels.length - 1) + ' duplicate panel(s).');
+        if (navPanels.length > 1) {
+            for (let i = 1; i < navPanels.length; i++) navPanels[i].remove();
+        }
+        if (contextPanels.length > 1) {
+            for (let i = 1; i < contextPanels.length; i++) contextPanels[i].remove();
+        }
+        if (searchPanels.length > 1) {
+            for (let i = 1; i < searchPanels.length; i++) searchPanels[i].remove();
         }
         if (styleEls.length > 1) {
             for (let i = 1; i < styleEls.length; i++) styleEls[i].remove();
@@ -1302,24 +1720,49 @@
             const panel = createPanel();
             if (isLeftChat && !_boundaryDetected) panel.style.display = 'none';
             document.body.appendChild(panel);
-            if (isOpen) panel.classList.add('open');
-            console.log('AI Nav: Re-injected panel.');
+            if (isNavOpen) panel.classList.add('open');
+            console.log('AI Nav: Re-injected nav panel.');
         }
 
-        if (!document.getElementById('ai-nav-toggle')) {
-            const toggle = createToggle();
+        if (platform.contextTracking && !document.getElementById('ai-context-panel')) {
+            const ctxPanel = createContextPanel();
+            if (isLeftChat && !_boundaryDetected) ctxPanel.style.display = 'none';
+            document.body.appendChild(ctxPanel);
+            if (isContextOpen) ctxPanel.classList.add('open');
+            console.log('AI Nav: Re-injected context panel.');
+        }
+
+        if (!document.getElementById('ai-search-panel')) {
+            const searchPanel = createSearchPanel();
+            if (isLeftChat && !_boundaryDetected) searchPanel.style.display = 'none';
+            document.body.appendChild(searchPanel);
+            if (isSearchOpen) searchPanel.classList.add('open');
+            console.log('AI Nav: Re-injected search panel.');
+        }
+
+        if (!document.getElementById('ai-nav-button-container')) {
+            const container = createButtonContainer();
             if (isLeftChat && !_boundaryDetected) {
-                toggle.style.display = 'none';
+                container.style.display = 'none';
             } else if (isLeftChat && _boundaryDetected) {
-                // Boundary already confirmed — restore positioned state immediately
-                toggle.classList.add('ai-nav-positioned');
+                container.classList.add('ai-nav-positioned');
                 if (_lastBoundaryX) {
-                    toggle.style.right = (window.innerWidth - _lastBoundaryX) + 'px';
+                    container.style.right = (window.innerWidth - _lastBoundaryX) + 'px';
                 }
             }
-            document.body.appendChild(toggle);
-            if (isOpen) toggle.classList.add('open');
-            console.log('AI Nav: Re-injected toggle button.');
+            document.body.appendChild(container);
+
+            // Re-apply open states to individual buttons if they were open
+            if (isNavOpen && document.getElementById('ai-nav-toggle')) {
+                document.getElementById('ai-nav-toggle').classList.add('open');
+            }
+            if (isContextOpen && document.getElementById('ai-context-toggle')) {
+                document.getElementById('ai-context-toggle').classList.add('open');
+            }
+            if (isSearchOpen && document.getElementById('ai-search-toggle')) {
+                document.getElementById('ai-search-toggle').classList.add('open');
+            }
+            console.log('AI Nav: Re-injected button container.');
         }
     }
 
@@ -1330,8 +1773,7 @@
         const observer = new MutationObserver(function () {
             if (guardianTimeout) clearTimeout(guardianTimeout);
             guardianTimeout = setTimeout(function () {
-                if (!document.getElementById('ai-nav-toggle') || !document.getElementById('ai-nav-panel')) {
-                    console.log('AI Nav: DOM Guardian detected missing elements, re-injecting...');
+                if (!document.getElementById('ai-nav-button-container') || !document.getElementById('ai-nav-panel') || !document.getElementById('ai-search-panel') || (platform.contextTracking && !document.getElementById('ai-context-panel'))) {
                     ensureElementsExist();
                 }
             }, 200);
@@ -1365,6 +1807,244 @@
     // --- Get user messages based on current site ---
     function getUserMessages() {
         return platform.getUserMessages();
+    }
+
+    // --- Get all message elements (user + assistant) for context estimation ---
+    function getAllMessages() {
+        if (!platform.contextTracking) return [];
+
+        var allMessages = [];
+
+        switch (platform.id) {
+            case 'claude':
+                allMessages = document.querySelectorAll(
+                    '[data-testid="user-message"], [data-testid="user-human-turn"], [data-testid="assistant-turn"]'
+                );
+                if (allMessages.length === 0) {
+                    var containers = new Set();
+                    document.querySelectorAll('.font-user-message, [data-testid="action-bar-copy"]').forEach(function (el) {
+                        var parent = el.closest('.group');
+                        if (parent) containers.add(parent);
+                    });
+                    allMessages = Array.from(containers);
+                }
+                if (allMessages.length === 0) {
+                    allMessages = document.querySelectorAll('div.rounded-lg.px-4');
+                }
+                break;
+
+            case 'chatgpt':
+                allMessages = document.querySelectorAll('[data-message-author-role]');
+                break;
+
+            case 'grok':
+                allMessages = document.querySelectorAll('div.message-bubble');
+                if (allMessages.length === 0) {
+                    allMessages = document.querySelectorAll('[class*="message"]');
+                }
+                break;
+
+            case 'gemini':
+                allMessages = document.querySelectorAll('user-query, model-response');
+                if (allMessages.length === 0) {
+                    allMessages = document.querySelectorAll('.query-text, .response-text');
+                }
+                break;
+        }
+
+        return allMessages;
+    }
+
+    // --- Estimate conversation context usage ---
+    function estimateContextUsage() {
+        if (!platform.contextTracking) return null;
+
+        if (_interceptedTokens.available && (Date.now() - _interceptedTokens.lastUpdated < 300000)) {
+            var realTokens = _interceptedTokens.inputTokens + _interceptedTokens.outputTokens;
+            var realPercentage = Math.min(100, Math.round((realTokens / platform.contextWindow) * 100));
+            return {
+                estimatedTokens: realTokens,
+                adjustedTokens: realTokens,
+                contextWindow: platform.contextWindow,
+                percentage: realPercentage,
+                messageCount: getAllMessages().length,
+                totalChars: 0,
+                source: 'intercepted'
+            };
+        }
+
+        var messages = getAllMessages();
+        if (messages.length === 0) return null;
+
+        var totalChars = 0;
+        messages.forEach(function (msg) {
+            var text = (msg.textContent || msg.innerText || '').trim();
+            totalChars += text.length;
+        });
+
+        var estimatedTokens = Math.round(totalChars * platform.tokensPerChar);
+        var SYSTEM_PROMPT_BUFFER = 10000;
+        var adjustedTokens = estimatedTokens + SYSTEM_PROMPT_BUFFER;
+        var percentage = Math.min(100, Math.round((adjustedTokens / platform.contextWindow) * 100));
+
+        return {
+            estimatedTokens: estimatedTokens,
+            adjustedTokens: adjustedTokens,
+            contextWindow: platform.contextWindow,
+            percentage: percentage,
+            messageCount: messages.length,
+            totalChars: totalChars,
+            source: 'dom-estimate'
+        };
+    }
+
+    // --- Render context indicator in panel ---
+    function updateContextIndicator() {
+        var indicator = document.getElementById('ai-nav-context');
+        if (!indicator || !platform.contextTracking) return;
+
+        var usage = estimateContextUsage();
+
+        while (indicator.firstChild) {
+            indicator.removeChild(indicator.firstChild);
+        }
+
+        if (!usage) {
+            indicator.textContent = '';
+            indicator.title = '';
+            return;
+        }
+
+        var color;
+        if (usage.percentage < 60) color = '#22c55e';
+        else if (usage.percentage < 80) color = '#eab308';
+        else if (usage.percentage < 90) color = '#f97316';
+        else color = '#ef4444';
+
+        var filled = Math.round(usage.percentage / 10);
+        var bar = '';
+        for (var i = 0; i < 10; i++) {
+            bar += i < filled ? '█' : '░';
+        }
+
+        var formatK = function (n) {
+            return n >= 1000 ? Math.round(n / 1000) + 'K' : n.toString();
+        };
+
+        var sourceLabel = usage.source === 'intercepted' ? '' : '~';
+
+        var barSpan = createElement('span', {
+            textContent: bar,
+            style: 'color: ' + color + '; font-family: monospace; letter-spacing: 1px;'
+        });
+
+        var textSpan = createElement('span', {
+            textContent: ' ' + sourceLabel + formatK(usage.adjustedTokens) + ' / ' + formatK(usage.contextWindow) + ' (' + usage.percentage + '%)',
+            style: 'color: ' + color + '; margin-left: 4px;'
+        });
+
+        indicator.appendChild(barSpan);
+        indicator.appendChild(textSpan);
+
+        if (usage.percentage >= 80) {
+            var warningSpan = createElement('div', {
+                textContent: usage.percentage >= 90
+                    ? '⚠ Context nearly full — responses may degrade'
+                    : '⚡ Context getting high — consider starting a new chat',
+                style: 'color: ' + color + '; font-size: 10px; margin-top: 2px; opacity: 0.9;'
+            });
+            indicator.appendChild(warningSpan);
+        }
+
+        if (usage.source === 'dom-estimate') {
+            indicator.title = 'Estimated from visible text (~4 chars/token + 10K system prompt buffer). Actual usage may be higher due to images, files, and hidden formatting.';
+        } else {
+            indicator.title = '';
+        }
+    }
+
+    // --- Experimental: fetch interception for real token data (Claude only) ---
+    function installFetchInterceptor() {
+        if (!platform.contextTracking) return;
+        if (platform.id !== 'claude') return;
+        if (_fetchInterceptorInstalled) return;
+
+        var originalFetch = window.fetch;
+        window.fetch = async function () {
+            var args = arguments;
+            var firstArg = args[0];
+            var url = (firstArg && typeof firstArg === 'string') ? firstArg : ((firstArg && firstArg.url) || '');
+            var response = await originalFetch.apply(this, args);
+
+            var endpoint = platform.fetchInterceptEndpoint;
+            var isChatRequest = !!(endpoint && url.includes(endpoint));
+            if (!isChatRequest && url.includes('/completion')) {
+                isChatRequest = true;
+            }
+
+            if (isChatRequest) {
+                try {
+                    var cloned = response.clone();
+                    parseStreamForTokens(cloned);
+                } catch (e) {
+                    console.log('AI Nav: fetch intercept error (non-critical):', e.message);
+                }
+            }
+
+            return response;
+        };
+
+        _fetchInterceptorInstalled = true;
+    }
+
+    async function parseStreamForTokens(response) {
+        try {
+            if (!response || !response.body || !response.body.getReader) return;
+
+            var reader = response.body.getReader();
+            var decoder = new TextDecoder();
+            var buffer = '';
+
+            while (true) {
+                var result = await reader.read();
+                if (result.done) break;
+
+                buffer += decoder.decode(result.value, { stream: true });
+                var lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i].trim();
+                    if (!line.startsWith('data: ')) continue;
+
+                    try {
+                        var data = JSON.parse(line.substring(6));
+
+                        if (data.type === 'message_start' && data.message && data.message.usage) {
+                            _interceptedTokens.inputTokens = data.message.usage.input_tokens || 0;
+                            if (typeof data.message.usage.output_tokens === 'number') {
+                                _interceptedTokens.outputTokens = data.message.usage.output_tokens;
+                            }
+                            _interceptedTokens.lastUpdated = Date.now();
+                            _interceptedTokens.available = true;
+                        }
+                        if (data.type === 'message_delta' && data.usage) {
+                            _interceptedTokens.outputTokens = data.usage.output_tokens || 0;
+                            _interceptedTokens.lastUpdated = Date.now();
+                            _interceptedTokens.available = true;
+                        }
+                    } catch (parseErr) {
+                        // Not valid JSON or not a token event — ignore.
+                    }
+                }
+            }
+
+            if (_interceptedTokens.available) {
+                updateContextIndicator();
+            }
+        } catch (e) {
+            // Stream reading failed — non-critical fallback to DOM estimate.
+        }
     }
 
     // --- Scan conversation for user messages ---
@@ -1474,15 +2154,20 @@
 
     // === INITIALIZATION (with duplicate guards) ===
 
-    if (!document.getElementById('ai-nav-toggle')) {
-        var initToggle = createToggle();
-        if (isLeftChat) initToggle.style.display = 'none';
-        document.body.appendChild(initToggle);
+    if (!document.getElementById('ai-nav-button-container')) {
+        var initContainer = createButtonContainer();
+        if (isLeftChat) initContainer.style.display = 'none';
+        document.body.appendChild(initContainer);
     }
     if (!document.getElementById('ai-nav-panel')) {
-        var initPanel = createPanel();
-        if (isLeftChat) initPanel.style.display = 'none';
-        document.body.appendChild(initPanel);
+        var initNavPanel = createPanel();
+        if (isLeftChat) initNavPanel.style.display = 'none';
+        document.body.appendChild(initNavPanel);
+    }
+    if (platform.contextTracking && !document.getElementById('ai-context-panel')) {
+        var initCtxPanel = createContextPanel();
+        if (isLeftChat) initCtxPanel.style.display = 'none';
+        document.body.appendChild(initCtxPanel);
     }
 
     // Start the DOM Guardian AFTER initial elements are in place
@@ -1528,12 +2213,18 @@
         // Reposition on window resize (right is viewport-relative)
         window.addEventListener('resize', function () {
             _lastBoundaryX = null; // force recalculation
-            if (isOpen) {
+            if (isNavOpen || isContextOpen) {
                 var bx = getChatBoundaryX() || (window.innerWidth * 0.35);
-                var panel = document.getElementById('ai-nav-panel');
-                var toggle = document.getElementById('ai-nav-toggle');
-                if (panel) panel.style.right = (window.innerWidth - bx) + 'px';
-                if (toggle) toggle.style.right = (window.innerWidth - bx + 320) + 'px';
+                var panelRight = (window.innerWidth - bx) + 'px';
+                var containerRight = (window.innerWidth - bx + 320) + 'px';
+
+                var navPanel = document.getElementById('ai-nav-panel');
+                var ctxPanel = document.getElementById('ai-context-panel');
+                var container = document.getElementById('ai-nav-button-container');
+
+                if (isNavOpen && navPanel) navPanel.style.right = panelRight;
+                if (isContextOpen && ctxPanel) ctxPanel.style.right = panelRight;
+                if (container) container.style.right = containerRight;
             } else {
                 updateLeftChatPositions();
             }
@@ -1541,21 +2232,24 @@
 
         // Scroll listener — repositions button when page/chat scrolls (boundary can shift)
         window.addEventListener('scroll', function () {
-            if (!isOpen) {
+            if (!isNavOpen && !isContextOpen) {
                 updateLeftChatPositions();
             }
         }, { passive: true });
 
         // Periodic boundary check (chat panels can resize dynamically)
-        // Note: Do NOT reset _lastBoundaryX here. Resetting prevented the two-consecutive-
-        // stable-polls requirement from ever being met via the interval, blocking late-rendering
-        // platforms (like Emergent's virtuoso scroller) from ever showing the ghost notch.
-        // The stability check in updateLeftChatPositions already handles boundary position changes.
         setInterval(function () {
-            if (!isOpen) {
+            if (!isNavOpen && !isContextOpen) {
                 updateLeftChatPositions();
             }
         }, 3000);
+    }
+
+    // Install fetch interceptor for Tier 2 token tracking (experimental)
+    try {
+        installFetchInterceptor();
+    } catch (e) {
+        console.log('AI Nav: Fetch interceptor failed to install (non-critical):', e.message);
     }
 
     // Initial scan after page load
@@ -1575,5 +2269,5 @@
         });
     }
 
-    console.log('AI Conversation Navigator v8.0 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
+    console.log('AI Conversation Navigator v9.3 loaded for ' + siteTitle + (isLeftChat ? ' (left-chat mode)' : '') + '!');
 })();

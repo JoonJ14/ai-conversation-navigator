@@ -9,7 +9,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-8.0-blue)
+![Version](https://img.shields.io/badge/version-9.4-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -153,6 +153,9 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 - **📝 Smart Summaries** — Automatically extracts the key part of each question
 - **🔄 Auto-Refresh** — Updates every 10 seconds while the panel is open
 - **🎨 Platform-Specific Themes** — Colors and icons match each platform's branding
+- **📊 Context Tracker** — Estimates text compaction limits on Claude, Grok, ChatGPT, and Gemini (Open via Context button)
+- **🔍 Universal Search** — Search keywords across the entire chat, automatically color-coded into 'Questions' and 'Answers'
+- **✨ Visual Feedback** — Briefly highlights the message when you navigate to it
 - **✨ Visual Feedback** — Briefly highlights the message when you navigate to it
 - **👻 Ghost Notch Button** — For left-chat app builders, a nearly-invisible 8px notch at the chat boundary that expands to reveal the icon on hover
 - **🛡️ SPA-Resilient** — DOM Guardian, SPA navigation hooks, and periodic health checks keep the button alive through aggressive re-rendering (Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Firebase Studio, Perplexity)
@@ -301,7 +304,7 @@ The entire source code is a single JavaScript file ([`ai-conversation-navigator.
 
 - [x] ~~**Support AI app-builder platforms** — Lovable, Bolt.new, and Replit~~ (added in v7.0, expanded with V0, Base44, Emergent, Firebase Studio in v7.1)
 - [x] ~~**Support Perplexity**~~ (added in v7.1)
-- [ ] Search/filter questions
+- [x] ~~**Search/filter questions**~~ (added in v9.4)
 - [ ] Keyboard shortcuts
 - [ ] Export conversation outline
 - [ ] Settings panel

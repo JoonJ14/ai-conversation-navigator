@@ -4,6 +4,63 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [9.4] - 2026-02-22
+
+### Added — Universal Conversation Search
+
+**Problem:** Users wanted to quickly locate specific keywords or topics discussed previously in a very long conversation, without aimlessly scrolling.
+
+**Method:** 
+Instead of writing and maintaining 14 different platform-specific web scrapers to target and differentiate AI responses from user responses, the v9.4 engine uses a universal DOM `TreeWalker`.
+1. It traverses all `NodeFilter.SHOW_TEXT` nodes in the `<main>` HTML body.
+2. It excludes nodes inside `<script>`, `<style>`, and any of our injected `#ai-nav-panel` trees.
+3. If the active text matches the case-insensitive search query, it resolves that node's parent block.
+4. **Dynamic Role Mapping:** To figure out who said the word without platform-specific rules, the tool dynamically iterates over the elements returned by `platform.getUserMessages()`. If the match's parent aligns inside any of those elements, the block is tagged uniquely as "Question". If it falls anywhere else in the document, it is deduced as an "Answer" from the AI agent.
+
+**Resolution:** 
+A 3rd button "🔍 Search" was added to the floating UI stack. Clicking opens a new `#ai-search-panel` containing a 300ms debounced input field. Entering queries builds a formatted, scrollable list of 80-character snippet windows centered around the actively yellow-highlighted word. Clicking smoothly scrolls the viewport to that exact conversation block and flashes the background momentarily.
+
+---
+
+## [9.3] - 2026-02-22
+
+### Refactored — Context Tracker Dedicated Panel & Button UI Redesign
+
+**Problem:** The addition of the Context feature in v9.0 crammed too much interface into the question navigation panel. The single floating button required users to blindly click to understand its purpose.
+
+**Method:**
+Refactored the singular floating toggle into a modular stacked `#ai-nav-button-container`. 
+- **Isolated Panels:** The Context Tracker was separated entirely from the Navigation panel into its own `#ai-context-panel`, triggered exclusively by a dedicated "bar chart" button.
+- **Uniform Styling:** All button styles were converged into a `.ai-nav-floating-btn` class. Fixed pixel-widths were enforced (48px collapsed, 127px expanded) overriding variable emoji font metrics to ensure perfectly flush stack bounds.
+- **Hover Bridges & Synchronization:** The distance between the stacked buttons was reduced to `2px`. More importantly, an invisible `::after` pseudo-element was injected expanding outward from the buttons. 
+- When an active panel (like Navigation) is open, hovering the button stack expands ALL feature buttons continuously. The `::after` hover bridges allow the user's cursor to physically traverse the 2px gap between the buttons without triggering a `mouseleave` collapse loop.
+
+**Resolution:** Users now experience a premium, synchronized 3-button stack capable of seamless cross-toggling, completely protected against sudden dropping when crossing the button gap boundaries.
+
+---
+
+## [9.0] - 2026-02-22
+
+### Added — Context & Token Tracking (Claude, ChatGPT, Grok, Gemini)
+
+**Problem:** Users had no visibility into how much of a chat's context window was consumed, so degradation or truncation could happen without warning.
+
+**Root cause:** Platform frontends do not provide a stable, user-visible context telemetry surface in the DOM by default.
+
+**Method:** Implemented a two-tier approach in the sidebar:
+- Tier 1 (default): DOM-based estimation by counting all visible user + assistant text, converting chars to tokens (`0.25` tokens/char), and adding a `10K` system/formatting buffer.
+- Tier 2 (experimental, Claude-only): passive `window.fetch` interception of streaming SSE events to capture real `input_tokens`/`output_tokens` when available.
+
+**Resolution:** Added a context indicator UI for Claude (`200K`), ChatGPT (`128K`), Grok (`128K`), and Gemini (`1M`) showing:
+- 10-segment usage bar with threshold coloring (green/yellow/orange/red)
+- token usage text (`~` prefix for estimates, no prefix for intercepted real data)
+- high-usage warnings at `80%+`
+- tooltip explaining estimation limits
+
+Other supported platforms remain unchanged and do not show the context bar.
+
+---
+
 ## [8.0] - 2026-02-18
 
 ### Refactored — Platform Registry Architecture
