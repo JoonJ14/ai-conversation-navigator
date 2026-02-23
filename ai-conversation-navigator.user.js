@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator v10.1
 // @namespace    http://tampermonkey.net/
-// @version      10.6
+// @version      10.7
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -38,7 +38,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '10.6';
+    var ACN_VERSION = '10.7';
 
     // ============================================================
     // i18n — internationalization string table
@@ -1289,7 +1289,7 @@
         { id: 'search',    icon: '\u2315', label: 'Search',    panelId: 'acn-panel-search' },
         { id: 'bookmarks', icon: '\u2691', label: 'Bookmarks', panelId: 'acn-panel-bookmarks' },
         { id: 'summary',   icon: '\u03A3', label: 'Summary',   panelId: 'acn-panel-summary' },
-        { id: 'export',    icon: '\u2197', label: 'Export',    panelId: 'acn-panel-export' },
+        { id: 'tools',     icon: '\uD83D\uDD27', label: i18n('tools') || 'Tools', panelId: 'acn-panel-tools' },
         { id: 'settings',  icon: '\u2699', label: 'Settings',  panelId: 'acn-panel-settings' },
     ];
     var ORB_N    = ORB_FEATURES.length;  // 6
@@ -1960,6 +1960,64 @@
             '.acn-bm-clearall{width:100%;margin-top:8px;padding:6px 10px;border-radius:6px;background:rgba(239,68,68,0.12);color:rgba(239,68,68,0.8);border:1px solid rgba(239,68,68,0.25);cursor:pointer;font-size:11px;transition:background 0.15s,color 0.15s}',
             '.acn-bm-clearall:hover{background:rgba(239,68,68,0.25);color:rgb(239,68,68)}',
             '.acn-qn-ai{background:rgba(var(--acn-rgb),0.15);border-left:2px solid var(--acn-accent)}',
+            // E2: Tools panel, image gallery, command palette, /commands
+            '.acn-tool-section{border-top:1px solid rgba(255,255,255,.07);padding-top:2px}',
+            '.acn-tool-section-header{font-size:11px;font-weight:700;color:var(--acn-accent);text-transform:uppercase;letter-spacing:.6px;padding:10px 14px 4px}',
+            '.acn-gallery-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:8px 12px}',
+            '.acn-gallery-card{position:relative;border-radius:6px;overflow:hidden;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);cursor:pointer;transition:border-color .15s ease}',
+            '.acn-gallery-card:hover{border-color:var(--acn-accent)}',
+            '.acn-gallery-thumb{width:100%;height:80px;object-fit:cover;display:block}',
+            '.acn-gallery-thumb-fallback{width:100%;height:80px;display:flex;align-items:center;justify-content:center;font-size:18px;color:#555;background:rgba(255,255,255,.03)}',
+            '.acn-gallery-label{font-size:10px;color:#aaa;text-align:center;padding:3px 0}',
+            '.acn-gallery-actions{position:absolute;top:4px;right:4px;display:none;gap:4px}',
+            '.acn-gallery-card:hover .acn-gallery-actions{display:flex}',
+            '.acn-gallery-btn{width:20px;height:20px;background:rgba(0,0,0,.7);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;color:#fff}',
+            '.acn-gallery-btn:hover{background:var(--acn-accent)}',
+            '.acn-gallery-empty{font-size:12px;color:#666;padding:12px;text-align:center;font-style:italic}',
+            '.acn-highlight-flash{animation:acn-flash 1.5s ease}',
+            '@keyframes acn-flash{0%{outline:2px solid var(--acn-accent);outline-offset:2px}100%{outline:2px solid transparent;outline-offset:2px}}',
+            '.acn-palette-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:99999;display:flex;justify-content:center;padding-top:20vh}',
+            '.acn-palette{width:480px;max-height:400px;background:#1a1a2e;border:1px solid #333;border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.4);overflow:hidden;display:flex;flex-direction:column}',
+            '.acn-palette-input{padding:12px 16px;background:transparent;border:none;border-bottom:1px solid #333;color:#eee;font-size:15px;outline:none;font-family:inherit}',
+            '.acn-palette-list{overflow-y:auto;flex:1}',
+            '.acn-palette-item{padding:10px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,.05)}',
+            '.acn-palette-item:hover,.acn-palette-item.acn-selected{background:rgba(255,255,255,.08)}',
+            '.acn-palette-item-left{flex:1;min-width:0}',
+            '.acn-palette-item-name{font-family:monospace;font-weight:bold;color:#eee;font-size:14px}',
+            '.acn-palette-item-desc{color:#888;font-size:12px;margin-top:2px}',
+            '.acn-palette-item-run{flex-shrink:0;margin-left:10px;color:#888;font-size:13px;padding:2px 6px;border-radius:4px;border:1px solid rgba(255,255,255,.1)}',
+            '.acn-palette-empty{padding:20px 16px;color:#555;font-size:13px;text-align:center}',
+            '.acn-cmd-card{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.05);display:flex;justify-content:space-between;align-items:flex-start;gap:8px}',
+            '.acn-cmd-card:hover{background:rgba(255,255,255,.03)}',
+            '.acn-cmd-info{flex:1;min-width:0}',
+            '.acn-cmd-name{font-family:monospace;font-weight:700;font-size:12px;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+            '.acn-cmd-desc{font-size:10px;color:#666;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+            '.acn-cmd-btns{display:flex;gap:4px;flex-shrink:0}',
+            '.acn-cmd-btn{width:22px;height:22px;background:rgba(255,255,255,.07);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer;color:#aaa;border:none;font-family:inherit;transition:background .1s,color .1s}',
+            '.acn-cmd-btn:hover{background:var(--acn-accent);color:#fff}',
+            '.acn-cmd-btn.acn-cmd-del-confirm{background:#b91c1c;color:#fff}',
+            '.acn-cmd-empty{padding:12px 14px;font-size:11px;color:#555;line-height:1.6}',
+            '.acn-cmd-tip{padding:6px 14px 10px;font-size:10px;color:#444;font-style:italic}',
+            '.acn-cmd-new-btn{margin:8px 14px;padding:7px 12px;width:calc(100% - 28px);background:rgba(var(--acn-rgb),.08);border:1px solid rgba(var(--acn-rgb),.2);border-radius:7px;color:var(--acn-accent);font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;text-align:center;box-sizing:border-box}',
+            '.acn-cmd-new-btn:hover{background:rgba(var(--acn-rgb),.15)}',
+            '.acn-cmd-form{padding:10px 14px}',
+            '.acn-cmd-form-title{font-size:11px;font-weight:700;color:var(--acn-accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}',
+            '.acn-cmd-label{font-size:10px;color:#888;margin-bottom:3px;display:block}',
+            '.acn-cmd-name-row{display:flex;align-items:center;gap:4px;margin-bottom:8px}',
+            '.acn-cmd-prefix{font-family:monospace;font-size:13px;color:#aaa}',
+            '.acn-cmd-input{width:100%;padding:5px 8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:5px;color:#ddd;font-size:12px;font-family:inherit;box-sizing:border-box;outline:none}',
+            '.acn-cmd-input:focus{border-color:var(--acn-accent)}',
+            '.acn-cmd-textarea{width:100%;padding:6px 8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:5px;color:#ddd;font-size:11px;font-family:inherit;box-sizing:border-box;outline:none;resize:vertical;min-height:90px;line-height:1.5}',
+            '.acn-cmd-textarea:focus{border-color:var(--acn-accent)}',
+            '.acn-cmd-form-err{font-size:10px;color:#f87171;margin-top:4px;min-height:14px}',
+            '.acn-cmd-form-btns{display:flex;gap:8px;margin-top:10px}',
+            '.acn-cmd-form-save{flex:1;padding:7px;background:var(--acn-accent);border:none;border-radius:6px;color:#fff;font-size:11px;font-weight:600;font-family:inherit;cursor:pointer}',
+            '.acn-cmd-form-cancel{flex:1;padding:7px;background:rgba(255,255,255,.08);border:none;border-radius:6px;color:#aaa;font-size:11px;font-family:inherit;cursor:pointer}',
+            '.acn-exp-opt{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer;transition:background .12s}',
+            '.acn-exp-opt:hover{background:rgba(var(--acn-rgb),.06)}',
+            '.acn-exp-icon{font-size:16px;margin-bottom:3px}',
+            '.acn-exp-title{font-size:12px;font-weight:600;color:#ccc;margin-bottom:2px}',
+            '.acn-exp-desc{font-size:10px;color:#666;line-height:1.4}',
         ].join('');
         document.head.appendChild(styleEl);
     }
@@ -2325,6 +2383,9 @@
 
             var numEl  = createElement('div', { className: 'acn-qn', textContent: 'Q#' + (idx + 1) });
             var textEl = createElement('div', { className: 'acn-qt', textContent: q.summary });
+            if (q.element && hasContentImage(q.element)) {
+                textEl.textContent = '\uD83D\uDDBC\uFE0F ' + textEl.textContent;
+            }
             textEl.setAttribute('data-acn-role', 'nav-item-text');
             var metaEl = createElement('div', { className: 'acn-qw', textContent: words + ' words' });
             var item   = createElement('div', { className: 'acn-qi' }, [numEl, textEl, metaEl]);
@@ -3889,24 +3950,989 @@
         return panel;
     }
 
-    function orbBuildPanelExport() {
-        var panel = createElement('div', { id: 'acn-panel-export', className: 'acn-panel' });
-        panel.appendChild(orbBuildPanelHeader('\u2197 Export'));
+    // ============================================================
+    // E2: Tools Panel — Image Gallery + Exports + /Commands
+    // ============================================================
 
-        var opts = [
-            { icon: '\uD83D\uDCC4', title: 'Full Conversation', desc: 'Markdown with all messages and code blocks.' },
-            { icon: '\uD83D\uDCCC', title: 'Bookmarks Only',    desc: 'Pinned messages as structured document.' },
-            { icon: '\uD83D\uDCCB', title: 'Summary',           desc: 'Topics, decisions, and action items.' },
-            { icon: '\uD83D\uDD17', title: 'Share Link',        desc: 'Copy shareable link (platform dependent).' },
-        ];
+    function getSummaryForExport() {
+        if (typeof generateFullSummary === 'function') return generateFullSummary();
+        return null;
+    }
 
-        opts.forEach(function (opt) {
-            var iconEl  = createElement('div', { className: 'acn-exp-icon',  textContent: opt.icon });
-            var titleEl = createElement('div', { className: 'acn-exp-title', textContent: opt.title });
-            var descEl  = createElement('div', { className: 'acn-exp-desc',  textContent: opt.desc });
-            panel.appendChild(createElement('div', { className: 'acn-exp-opt' }, [iconEl, titleEl, descEl]));
+    function isContentImage(img) {
+        var w = img.naturalWidth  || img.width  || parseInt(img.getAttribute('width'))  || 0;
+        var h = img.naturalHeight || img.height || parseInt(img.getAttribute('height')) || 0;
+        if ((w > 0 && w < 50) || (h > 0 && h < 50)) return false;
+        if (img.getAttribute('aria-hidden') === 'true') return false;
+        if (img.getAttribute('role') === 'presentation') return false;
+        var src = (img.src || '').toLowerCase();
+        if (src.indexOf('data:image/svg') === 0) return false;
+        if (src.indexOf('avatar')   !== -1) return false;
+        if (src.indexOf('favicon')  !== -1) return false;
+        if (src.indexOf('emoji')    !== -1) return false;
+        if (src.indexOf('logo')     !== -1) return false;
+        var parent = img.parentElement;
+        var msgAncestor = img.closest('[class*="message"]') || document.body;
+        while (parent && parent !== msgAncestor) {
+            var cls = (parent.className || '').toLowerCase();
+            if (cls.indexOf('avatar')  !== -1 ||
+                cls.indexOf('icon')    !== -1 ||
+                cls.indexOf('toolbar') !== -1) {
+                return false;
+            }
+            parent = parent.parentElement;
+        }
+        if (w >= 50 && h >= 50) return true;
+        if (w === 0 && h === 0) return true;
+        return true;
+    }
+
+    function hasContentImage(questionEl) {
+        if (!questionEl) return false;
+        var imgs = questionEl.querySelectorAll('img');
+        for (var i = 0; i < imgs.length; i++) {
+            if (isContentImage(imgs[i])) return true;
+        }
+        return false;
+    }
+
+    function getConversationImages() {
+        var allImages = [];
+        if (typeof platform === 'undefined' || !platform) return allImages;
+        var userMsgs = platform.getUserMessages ? Array.from(platform.getUserMessages()) : [];
+        var aiMsgs   = platform.getAIMessages   ? Array.from(platform.getAIMessages())   : [];
+        var allMsgs  = userMsgs.concat(aiMsgs);
+        allMsgs.forEach(function (msgEl, idx) {
+            var isUser = userMsgs.indexOf(msgEl) !== -1;
+            var imgs = msgEl.querySelectorAll('img');
+            imgs.forEach(function (img) {
+                if (!isContentImage(img)) return;
+                allImages.push({
+                    element:    img,
+                    src:        img.src,
+                    alt:        img.alt || '',
+                    msgElement: msgEl,
+                    msgIndex:   idx,
+                    isUserMsg:  isUser,
+                    width:      img.naturalWidth  || img.width  || 0,
+                    height:     img.naturalHeight || img.height || 0
+                });
+            });
         });
+        return allImages;
+    }
 
+    function getExtFromMime(mimeType) {
+        var map = {
+            'image/png':  '.png',
+            'image/jpeg': '.jpg',
+            'image/gif':  '.gif',
+            'image/webp': '.webp',
+            'image/avif': '.avif',
+            'image/bmp':  '.bmp',
+        };
+        return map[mimeType] || '.png';
+    }
+
+    function downloadImage(src, filename) {
+        fetch(src, { mode: 'cors', credentials: 'include' })
+            .then(function (response) {
+                if (!response.ok) throw new Error('Fetch failed: ' + response.status);
+                return response.blob();
+            })
+            .then(function (blob) {
+                var blobUrl = URL.createObjectURL(blob);
+                var link = document.createElement('a');
+                link.href     = blobUrl;
+                link.download = filename + getExtFromMime(blob.type);
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.click();
+                setTimeout(function () {
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(blobUrl);
+                }, 100);
+                if (typeof showToast === 'function') showToast('Image downloaded');
+            })
+            .catch(function () {
+                window.open(src, '_blank');
+                if (typeof showToast === 'function') showToast('Opened in new tab — right-click to save');
+            });
+    }
+
+    function renderImageGallery(container) {
+        var images = getConversationImages();
+        var header = document.createElement('div');
+        header.className = 'acn-tool-section-header';
+        header.textContent = '\uD83D\uDDBC\uFE0F Image Gallery (' + images.length + ')';
+        container.appendChild(header);
+        if (images.length === 0) {
+            var empty = document.createElement('div');
+            empty.className = 'acn-gallery-empty';
+            empty.textContent = 'No images in this conversation';
+            container.appendChild(empty);
+            return;
+        }
+        var grid = document.createElement('div');
+        grid.className = 'acn-gallery-grid';
+        images.forEach(function (imgData, i) {
+            var card = document.createElement('div');
+            card.className = 'acn-gallery-card';
+            var thumb = document.createElement('img');
+            thumb.className = 'acn-gallery-thumb';
+            thumb.src       = imgData.src;
+            thumb.alt       = imgData.alt || ('Image ' + (i + 1));
+            thumb.setAttribute('loading', 'lazy');
+            var label = document.createElement('div');
+            label.className   = 'acn-gallery-label';
+            label.textContent = imgData.isUserMsg
+                ? 'Q#' + (imgData.msgIndex + 1)
+                : 'A#' + (imgData.msgIndex + 1);
+            thumb.addEventListener('error', (function (lbl) {
+                return function () {
+                    thumb.style.display = 'none';
+                    var fallback = document.createElement('div');
+                    fallback.className   = 'acn-gallery-thumb-fallback';
+                    fallback.textContent = '\uD83D\uDDBC\uFE0F \u2715';
+                    card.insertBefore(fallback, lbl);
+                };
+            })(label));
+            var actions = document.createElement('div');
+            actions.className = 'acn-gallery-actions';
+            var navBtn = document.createElement('span');
+            navBtn.className   = 'acn-gallery-btn';
+            navBtn.textContent = '\u2197';
+            navBtn.title       = 'Go to message';
+            navBtn.addEventListener('click', (function (data) {
+                return function (e) {
+                    e.stopPropagation();
+                    data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    data.msgElement.classList.add('acn-highlight-flash');
+                    setTimeout(function () { data.msgElement.classList.remove('acn-highlight-flash'); }, 1500);
+                };
+            })(imgData));
+            var dlBtn = document.createElement('span');
+            dlBtn.className   = 'acn-gallery-btn';
+            dlBtn.textContent = '\u2B07';
+            dlBtn.title       = 'Download image';
+            dlBtn.addEventListener('click', (function (data, idx) {
+                return function (e) {
+                    e.stopPropagation();
+                    downloadImage(data.src, 'image-' + (idx + 1));
+                };
+            })(imgData, i));
+            actions.appendChild(navBtn);
+            actions.appendChild(dlBtn);
+            thumb.addEventListener('click', (function (data) {
+                return function () {
+                    data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    data.msgElement.classList.add('acn-highlight-flash');
+                    setTimeout(function () { data.msgElement.classList.remove('acn-highlight-flash'); }, 1500);
+                };
+            })(imgData));
+            card.appendChild(thumb);
+            card.appendChild(label);
+            card.appendChild(actions);
+            grid.appendChild(card);
+        });
+        container.appendChild(grid);
+    }
+
+    function buildTimeline(questions, aiMsgs) {
+        var items = [];
+        questions.forEach(function (q) {
+            if (q.element) items.push({ type: 'user', element: q.element });
+        });
+        aiMsgs.forEach(function (el) {
+            items.push({ type: 'ai', element: el });
+        });
+        items.sort(function (a, b) {
+            if (a.element === b.element) return 0;
+            var pos = a.element.compareDocumentPosition(b.element);
+            if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+            if (pos & Node.DOCUMENT_POSITION_PRECEDING)  return 1;
+            return 0;
+        });
+        return items;
+    }
+
+    function extractMarkdownContent(el) {
+        var result = [];
+        function isUIChrome(node) {
+            if (node.nodeType !== Node.ELEMENT_NODE) return false;
+            var cls = (node.className || '').toLowerCase();
+            var role = (node.getAttribute && node.getAttribute('aria-hidden')) || '';
+            if (role === 'true') return true;
+            var chromeFragments = ['copy-button', 'action-bar', 'toolbar', 'btn', 'button',
+                                   'avatar', 'feedback', 'thumb', 'vote', 'tooltip'];
+            for (var i = 0; i < chromeFragments.length; i++) {
+                if (cls.indexOf(chromeFragments[i]) !== -1) return true;
+            }
+            return false;
+        }
+        var walker = document.createTreeWalker(
+            el,
+            NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+            null,
+            false
+        );
+        var node = walker.nextNode();
+        while (node) {
+            if (node.nodeType === Node.ELEMENT_NODE && isUIChrome(node)) {
+                node = walker.nextNode();
+                continue;
+            }
+            if (node.nodeType === Node.TEXT_NODE) {
+                var text = node.textContent;
+                if (text) result.push(text);
+            } else if (node.nodeType === Node.ELEMENT_NODE) {
+                var tag = node.nodeName;
+                if (tag === 'PRE') {
+                    var codeEl  = node.querySelector('code');
+                    var lang    = '';
+                    if (codeEl) {
+                        var langMatch = (codeEl.className || '').match(/language-(\w+)/);
+                        if (langMatch) lang = langMatch[1];
+                    }
+                    var codeText = (codeEl ? codeEl : node).textContent.trim();
+                    result.push('\n```' + lang + '\n' + codeText + '\n```\n');
+                    node = walker.nextNode();
+                    while (node && node.nodeType) {
+                        if (!el.contains(node)) break;
+                        if (!node.parentNode) break;
+                        // advance past all PRE children
+                        var tmp = walker.nextNode();
+                        if (!tmp) { node = null; break; }
+                        if (!codeEl || !codeEl.contains(tmp)) {
+                            node = tmp;
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                if (tag === 'BR')  { result.push('\n'); }
+                if (tag === 'P'  || tag === 'DIV') { result.push('\n'); }
+                if (tag === 'H1' || tag === 'H2' || tag === 'H3') { result.push('\n## '); }
+                if (tag === 'LI') { result.push('\n- '); }
+                if (tag === 'A' && node.href) {
+                    var linkText = node.textContent.trim();
+                    result.push('[' + linkText + '](' + node.href + ')');
+                    node = walker.nextNode();
+                    continue;
+                }
+            }
+            node = walker.nextNode();
+        }
+        return result.join('').replace(/\n{3,}/g, '\n\n').trim();
+    }
+
+    function downloadFile(filename, content) {
+        var blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+        var url  = URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.href          = url;
+        link.download      = filename;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(function () {
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }, 100);
+    }
+
+    function exportFullConversation() {
+        var questions = typeof _questions !== 'undefined' ? _questions : [];
+        var aiMsgsArr = [];
+        if (typeof platform !== 'undefined' && platform && platform.getAIMessages) {
+            aiMsgsArr = Array.from(platform.getAIMessages());
+        } else if (typeof getAIMessages === 'function') {
+            aiMsgsArr = Array.from(getAIMessages());
+        }
+        var timeline = buildTimeline(questions, aiMsgsArr);
+        var platformTitle = (typeof platform !== 'undefined' && platform && platform.title)
+            ? platform.title : window.location.hostname;
+        var dateStr = new Date().toISOString().split('T')[0];
+        var lines = [];
+        lines.push('# Conversation Export');
+        lines.push('**Platform:** ' + platformTitle);
+        lines.push('**Date:** ' + dateStr);
+        lines.push('**Messages:** ' + timeline.length +
+            ' (' + questions.length + ' user, ' + aiMsgsArr.length + ' AI)');
+        lines.push('');
+        lines.push('---');
+        var qIdx = 0;
+        var aIdx = 0;
+        timeline.forEach(function (msg) {
+            lines.push('');
+            if (msg.type === 'user') {
+                qIdx++;
+                lines.push('## User (Q#' + qIdx + ')');
+            } else {
+                aIdx++;
+                lines.push('## Assistant (A#' + aIdx + ')');
+            }
+            lines.push('');
+            lines.push(extractMarkdownContent(msg.element));
+            lines.push('');
+            lines.push('---');
+        });
+        downloadFile('conversation-export.md', lines.join('\n'));
+        if (typeof showToast === 'function') showToast('Conversation exported');
+    }
+
+    function exportBookmarks() {
+        var bookmarks = getConversationBookmarks();
+        if (bookmarks.length === 0) {
+            if (typeof showToast === 'function') showToast('No bookmarks in this conversation');
+            return;
+        }
+        bookmarks.sort(function (a, b) { return (a.msgIndex || 0) - (b.msgIndex || 0); });
+        var typeIcons  = { 'user-msg': '\uD83D\uDCCC', 'ai-msg': '\uD83D\uDCCC', 'code': '\uD83D\uDCBB', 'file': '\uD83D\uDCC4' };
+        var typeLabels = { 'user-msg': 'Your Question', 'ai-msg': 'AI Response', 'code': 'Code Block', 'file': 'File' };
+        var platformTitle = (typeof platform !== 'undefined' && platform && platform.title)
+            ? platform.title : window.location.hostname;
+        var dateStr = new Date().toISOString().split('T')[0];
+        var lines = [];
+        lines.push('# Bookmarked Items');
+        lines.push('**Platform:** ' + platformTitle);
+        lines.push('**Date:** ' + dateStr);
+        lines.push('**Bookmarks:** ' + bookmarks.length);
+        lines.push('');
+        lines.push('---');
+        bookmarks.forEach(function (bm) {
+            var icon   = typeIcons[bm.entityType]  || '\uD83D\uDCCC';
+            var label  = typeLabels[bm.entityType] || 'Item';
+            var prefix = (bm.entityType === 'user-msg')
+                ? 'Q#' + ((bm.msgIndex || 0) + 1)
+                : 'A#' + ((bm.msgIndex || 0) + 1);
+            lines.push('');
+            lines.push('## ' + icon + ' ' + prefix + ' \u2014 ' + label);
+            lines.push('');
+            lines.push(bm.preview || '(no preview available)');
+            lines.push('');
+            lines.push('---');
+        });
+        downloadFile('bookmarks-export.md', lines.join('\n'));
+        if (typeof showToast === 'function') showToast('Bookmarks exported');
+    }
+
+    function exportSummary() {
+        var summary = getSummaryForExport();
+        if (!summary) {
+            if (typeof showToast === 'function') showToast('Summary not available yet');
+            return;
+        }
+        var platformTitle = (typeof platform !== 'undefined' && platform && platform.title)
+            ? platform.title : window.location.hostname;
+        var dateStr = new Date().toISOString().split('T')[0];
+        var lines = [];
+        lines.push('# Conversation Summary');
+        lines.push('**Platform:** ' + platformTitle);
+        lines.push('**Date:** ' + dateStr);
+        lines.push('');
+        lines.push('> \u2139\uFE0F This summary was generated by heuristic pattern matching, not AI.');
+        lines.push('');
+        lines.push('---');
+        if (summary.topics && summary.topics.length > 0) {
+            lines.push('');
+            lines.push('## Topics');
+            lines.push(summary.topics.join(' \u00B7 '));
+        }
+        if (summary.map && summary.map.length > 0) {
+            lines.push('');
+            lines.push('## Conversation Map');
+            summary.map.forEach(function (seg) {
+                var range = 'Q' + ((seg.startIdx || 0) + 1) + '\u2013Q' + ((seg.endIdx || 0) + 1);
+                lines.push('- **' + seg.label + '** (' + range + ')');
+                if (Array.isArray(seg.entities)) {
+                    seg.entities.forEach(function (ent) {
+                        lines.push('  - ' + (ent.icon || '') + ' ' + ent.label);
+                    });
+                }
+            });
+        }
+        if (summary.keyPoints && summary.keyPoints.length > 0) {
+            lines.push('');
+            lines.push('## Key Points');
+            summary.keyPoints.forEach(function (kp) {
+                var icon = kp.type === 'decision' ? '\uD83D\uDD39' :
+                           kp.type === 'finding'  ? '\uD83D\uDD38' : '\uD83D\uDD3A';
+                lines.push('- ' + icon + ' ' + kp.text);
+            });
+        }
+        if (summary.stats) {
+            lines.push('');
+            lines.push('## Stats');
+            var inv = summary.inventory || {};
+            lines.push(
+                (summary.stats.totalMessages || 0) + ' messages (' +
+                (summary.stats.userMessages  || 0) + ' user, ' +
+                (summary.stats.aiMessages    || 0) + ' AI) \u00B7 ' +
+                ((inv.codeBlocks && inv.codeBlocks.length) || 0) + ' code blocks \u00B7 ' +
+                ((inv.files && inv.files.length) || 0) + ' files'
+            );
+        }
+        downloadFile('conversation-summary.md', lines.join('\n'));
+        if (typeof showToast === 'function') showToast('Summary exported');
+    }
+
+    // /Commands — storage and CRUD
+    var COMMANDS_KEY = 'acn-commands';
+
+    function loadCommands() {
+        try { return GM_getValue(COMMANDS_KEY, []); } catch (e) { return []; }
+    }
+
+    function saveCommands(commands) {
+        try { GM_setValue(COMMANDS_KEY, commands); } catch (e) {}
+    }
+
+    function getCommandByName(name) {
+        var commands = loadCommands();
+        for (var i = 0; i < commands.length; i++) {
+            if (commands[i].name === name) return commands[i];
+        }
+        return null;
+    }
+
+    function sanitizeCommandName(raw) {
+        return raw.toLowerCase()
+                  .replace(/\s+/g, '-')
+                  .replace(/[^a-z0-9-]/g, '')
+                  .substring(0, 30);
+    }
+
+    function createCommand(name, description, prompt) {
+        name = sanitizeCommandName(name);
+        if (!name || name.length === 0) {
+            return { error: 'Name must be 1-30 lowercase characters, numbers, or hyphens' };
+        }
+        if (getCommandByName(name)) {
+            return { error: 'A command with this name already exists' };
+        }
+        if (!prompt || !prompt.trim()) {
+            return { error: 'Prompt is required' };
+        }
+        var commands = loadCommands();
+        var command = {
+            id:          'cmd_' + Date.now(),
+            name:        name,
+            description: description || '',
+            prompt:      prompt.trim(),
+            createdAt:   Date.now(),
+            updatedAt:   Date.now(),
+            usageCount:  0,
+            lastUsedAt:  null
+        };
+        commands.push(command);
+        saveCommands(commands);
+        return { success: true, command: command };
+    }
+
+    function updateCommand(id, updates) {
+        var commands = loadCommands();
+        for (var i = 0; i < commands.length; i++) {
+            if (commands[i].id === id) {
+                if (updates.name !== undefined && updates.name !== commands[i].name) {
+                    var cleanName = sanitizeCommandName(updates.name);
+                    if (!cleanName) return { error: 'Name must be 1-30 lowercase characters, numbers, or hyphens' };
+                    var existing = getCommandByName(cleanName);
+                    if (existing && existing.id !== id) return { error: 'A command with this name already exists' };
+                    commands[i].name = cleanName;
+                }
+                if (updates.description !== undefined) commands[i].description = updates.description;
+                if (updates.prompt !== undefined) {
+                    if (!updates.prompt.trim()) return { error: 'Prompt is required' };
+                    commands[i].prompt = updates.prompt.trim();
+                }
+                commands[i].updatedAt = Date.now();
+                saveCommands(commands);
+                return { success: true };
+            }
+        }
+        return { error: 'Command not found' };
+    }
+
+    function deleteCommand(id) {
+        var commands = loadCommands().filter(function (cmd) { return cmd.id !== id; });
+        saveCommands(commands);
+    }
+
+    function sortCommands(commands) {
+        return commands.slice().sort(function (a, b) {
+            if (a.lastUsedAt && b.lastUsedAt) return b.lastUsedAt - a.lastUsedAt;
+            if (a.lastUsedAt) return -1;
+            if (b.lastUsedAt) return 1;
+            return b.createdAt - a.createdAt;
+        });
+    }
+
+    function filterCommands(query, commands) {
+        if (!query) return commands;
+        var q = query.toLowerCase();
+        return commands.filter(function (cmd) {
+            return cmd.name.toLowerCase().indexOf(q)        !== -1 ||
+                   cmd.description.toLowerCase().indexOf(q) !== -1;
+        });
+    }
+
+    // /Commands — injection mechanism
+    function findChatInput() {
+        var platformId = (typeof platform !== 'undefined' && platform) ? platform.id : '';
+        var selectors = {
+            claude:     ['div.ProseMirror[contenteditable="true"]', '[contenteditable="true"].prose', 'fieldset textarea'],
+            chatgpt:    ['#prompt-textarea', 'textarea[data-id="root"]', 'div[contenteditable="true"]#prompt-textarea'],
+            grok:       ['textarea', '[contenteditable="true"]'],
+            gemini:     ['div.ql-editor[contenteditable="true"]', '.text-input-field [contenteditable="true"]', 'rich-textarea [contenteditable="true"]'],
+            perplexity: ['textarea', '[contenteditable="true"]']
+        };
+        var tryList = selectors[platformId] || ['textarea', '[contenteditable="true"]'];
+        for (var i = 0; i < tryList.length; i++) {
+            var el = document.querySelector(tryList[i]);
+            if (el) return el;
+        }
+        return null;
+    }
+
+    function copyToClipboard(text) {
+        function fallbackCopy(t) {
+            var ta = document.createElement('textarea');
+            ta.value = t;
+            ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch (e) {}
+            document.body.removeChild(ta);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).catch(function () { fallbackCopy(text); });
+        } else {
+            fallbackCopy(text);
+        }
+    }
+
+    function tryDirectInject(text) {
+        try {
+            var input = findChatInput();
+            if (!input) return false;
+            if (input.tagName === 'TEXTAREA') {
+                var nativeSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+                nativeSetter.call(input, text);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                return true;
+            }
+            if (input.contentEditable === 'true') {
+                input.focus();
+                input.textContent = '';
+                document.execCommand('insertText', false, text);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                return true;
+            }
+        } catch (e) { return false; }
+        return false;
+    }
+
+    function focusChatInput() {
+        var input = findChatInput();
+        if (!input) return;
+        input.focus();
+        if (input.tagName === 'TEXTAREA') {
+            input.selectionStart = input.selectionEnd = input.value.length;
+        } else if (input.contentEditable === 'true') {
+            try {
+                var range = document.createRange();
+                range.selectNodeContents(input);
+                range.collapse(false);
+                var sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+            } catch (e) {}
+        }
+    }
+
+    function executeCommand(command) {
+        var commands = loadCommands();
+        for (var i = 0; i < commands.length; i++) {
+            if (commands[i].id === command.id) {
+                commands[i].usageCount = (commands[i].usageCount || 0) + 1;
+                commands[i].lastUsedAt = Date.now();
+                break;
+            }
+        }
+        saveCommands(commands);
+        var prompt = command.prompt;
+        copyToClipboard(prompt);
+        var injected = tryDirectInject(prompt);
+        focusChatInput();
+        if (typeof showToast === 'function') {
+            if (injected) {
+                showToast('\u2713 /' + command.name + ' injected \u2014 press Enter to send');
+            } else {
+                showToast('\uD83D\uDCCB /' + command.name + ' copied \u2014 Ctrl+V to paste');
+            }
+        }
+    }
+
+    // /Commands — floating palette
+    var _paletteOpen     = false;
+    var _paletteSelIdx   = -1;
+    var _paletteFiltered = [];
+
+    function isPaletteOpen() { return _paletteOpen; }
+
+    function toggleCommandPalette() {
+        if (_paletteOpen) { closeCommandPalette(); } else { openCommandPalette(); }
+    }
+
+    function openCommandPalette() {
+        if (_paletteOpen) return;
+        _paletteOpen   = true;
+        _paletteSelIdx = -1;
+        var overlay = document.createElement('div');
+        overlay.className = 'acn-palette-overlay';
+        overlay.id        = 'acn-palette-overlay';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-label', 'Command palette');
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) closeCommandPalette();
+        });
+        var palette = document.createElement('div');
+        palette.className = 'acn-palette';
+        var input = document.createElement('input');
+        input.className   = 'acn-palette-input';
+        input.type        = 'text';
+        input.placeholder = 'Search commands\u2026';
+        input.setAttribute('aria-label', 'Search commands');
+        input.setAttribute('autocomplete', 'off');
+        input.setAttribute('spellcheck', 'false');
+        var list = document.createElement('div');
+        list.className = 'acn-palette-list';
+        list.id        = 'acn-palette-list';
+        list.setAttribute('role', 'listbox');
+        _refreshPaletteList(list, '');
+        input.addEventListener('input', function () {
+            _paletteSelIdx = -1;
+            _refreshPaletteList(list, input.value);
+        });
+        palette.appendChild(input);
+        palette.appendChild(list);
+        overlay.appendChild(palette);
+        document.body.appendChild(overlay);
+        setTimeout(function () { input.focus(); }, 20);
+    }
+
+    function closeCommandPalette() {
+        _paletteOpen     = false;
+        _paletteSelIdx   = -1;
+        _paletteFiltered = [];
+        var overlay = document.getElementById('acn-palette-overlay');
+        if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+
+    function _refreshPaletteList(listEl, query) {
+        while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
+        var commands = sortCommands(filterCommands(query, loadCommands()));
+        _paletteFiltered = commands;
+        if (commands.length === 0) {
+            var empty = document.createElement('div');
+            empty.className = 'acn-palette-empty';
+            empty.textContent = loadCommands().length === 0
+                ? 'No commands yet. Create one in Tools \u2192 /Commands'
+                : 'No commands match "' + query + '"';
+            listEl.appendChild(empty);
+            return;
+        }
+        commands.forEach(function (cmd, idx) {
+            var item = document.createElement('div');
+            item.className = 'acn-palette-item';
+            item.setAttribute('role', 'option');
+            item.setAttribute('data-cmd-id', cmd.id);
+            var left = document.createElement('div');
+            left.className = 'acn-palette-item-left';
+            var nameEl = document.createElement('div');
+            nameEl.className   = 'acn-palette-item-name';
+            nameEl.textContent = '/' + cmd.name;
+            var descEl = document.createElement('div');
+            descEl.className   = 'acn-palette-item-desc';
+            descEl.textContent = cmd.description || '';
+            left.appendChild(nameEl);
+            if (cmd.description) left.appendChild(descEl);
+            var runEl = document.createElement('div');
+            runEl.className   = 'acn-palette-item-run';
+            runEl.textContent = '\u25B6';
+            item.appendChild(left);
+            item.appendChild(runEl);
+            item.addEventListener('click', (function (command) {
+                return function () { executeCommand(command); closeCommandPalette(); };
+            })(cmd));
+            item.addEventListener('mouseenter', (function (i) {
+                return function () { _paletteSelIdx = i; _updatePaletteSelection(listEl); };
+            })(idx));
+            listEl.appendChild(item);
+        });
+    }
+
+    function _updatePaletteSelection(listEl) {
+        var items = listEl.querySelectorAll('.acn-palette-item');
+        for (var i = 0; i < items.length; i++) {
+            if (i === _paletteSelIdx) {
+                items[i].classList.add('acn-selected');
+                items[i].scrollIntoView({ block: 'nearest' });
+            } else {
+                items[i].classList.remove('acn-selected');
+            }
+        }
+    }
+
+    function moveSelection(dir) {
+        var overlay = document.getElementById('acn-palette-overlay');
+        if (!overlay) return;
+        var list  = overlay.querySelector('#acn-palette-list');
+        if (!list) return;
+        var items = list.querySelectorAll('.acn-palette-item');
+        if (items.length === 0) return;
+        _paletteSelIdx += dir;
+        if (_paletteSelIdx < 0)             _paletteSelIdx = items.length - 1;
+        if (_paletteSelIdx >= items.length) _paletteSelIdx = 0;
+        _updatePaletteSelection(list);
+    }
+
+    function executeSelected() {
+        var idx = _paletteSelIdx;
+        if (idx < 0 && _paletteFiltered.length > 0) idx = 0;
+        if (idx < 0 || idx >= _paletteFiltered.length) return;
+        executeCommand(_paletteFiltered[idx]);
+        closeCommandPalette();
+    }
+
+    // /Commands — tools panel UI
+    function renderCommandsSection(container) {
+        var section = document.createElement('div');
+        section.className = 'acn-tool-section';
+        var header = document.createElement('div');
+        header.className   = 'acn-tool-section-header';
+        header.textContent = '\u2328\uFE0F /Commands';
+        section.appendChild(header);
+        var body = document.createElement('div');
+        body.id = 'acn-cmd-body';
+        section.appendChild(body);
+        container.appendChild(section);
+        _renderCommandListView(body, null);
+    }
+
+    function _renderCommandListView(body, _unused) {
+        while (body.firstChild) body.removeChild(body.firstChild);
+        var commands = sortCommands(loadCommands());
+        if (commands.length === 0) {
+            var emptyEl = document.createElement('div');
+            emptyEl.className = 'acn-cmd-empty';
+            emptyEl.textContent = 'No commands yet.\nCreate reusable prompts you can inject into any AI chat with one click.';
+            emptyEl.style.whiteSpace = 'pre-line';
+            body.appendChild(emptyEl);
+        } else {
+            commands.forEach(function (cmd) {
+                body.appendChild(_buildCommandCard(cmd, body));
+            });
+        }
+        var newBtn = document.createElement('button');
+        newBtn.className   = 'acn-cmd-new-btn';
+        newBtn.textContent = '+ New Command';
+        newBtn.addEventListener('click', function () { _renderCommandForm(body, null); });
+        body.appendChild(newBtn);
+        var tip = document.createElement('div');
+        tip.className   = 'acn-cmd-tip';
+        tip.textContent = 'Tip: Ctrl+/ to open quick palette';
+        body.appendChild(tip);
+    }
+
+    function _buildCommandCard(cmd, body) {
+        var card = document.createElement('div');
+        card.className = 'acn-cmd-card';
+        card.setAttribute('data-cmd-id', cmd.id);
+        var info = document.createElement('div');
+        info.className = 'acn-cmd-info';
+        var nameEl = document.createElement('div');
+        nameEl.className   = 'acn-cmd-name';
+        nameEl.textContent = '/' + cmd.name;
+        var descEl = document.createElement('div');
+        descEl.className   = 'acn-cmd-desc';
+        descEl.textContent = cmd.description || '';
+        info.appendChild(nameEl);
+        info.appendChild(descEl);
+        var btns = document.createElement('div');
+        btns.className = 'acn-cmd-btns';
+        var playBtn = document.createElement('button');
+        playBtn.className   = 'acn-cmd-btn';
+        playBtn.textContent = '\u25B6';
+        playBtn.title       = 'Execute';
+        playBtn.addEventListener('click', function () { executeCommand(cmd); });
+        var editBtn = document.createElement('button');
+        editBtn.className   = 'acn-cmd-btn';
+        editBtn.textContent = '\u270E';
+        editBtn.title       = 'Edit';
+        editBtn.addEventListener('click', function () { _renderCommandForm(body, cmd); });
+        var delBtn = document.createElement('button');
+        delBtn.className   = 'acn-cmd-btn';
+        delBtn.textContent = '\u2715';
+        delBtn.title       = 'Delete';
+        var delConfirmTimer = null;
+        var awaitingConfirm = false;
+        delBtn.addEventListener('click', function () {
+            if (awaitingConfirm) {
+                clearTimeout(delConfirmTimer);
+                deleteCommand(cmd.id);
+                _renderCommandListView(body, null);
+            } else {
+                awaitingConfirm     = true;
+                delBtn.textContent  = 'Sure?';
+                delBtn.classList.add('acn-cmd-del-confirm');
+                delConfirmTimer = setTimeout(function () {
+                    awaitingConfirm     = false;
+                    delBtn.textContent  = '\u2715';
+                    delBtn.classList.remove('acn-cmd-del-confirm');
+                }, 3000);
+            }
+        });
+        btns.appendChild(playBtn);
+        btns.appendChild(editBtn);
+        btns.appendChild(delBtn);
+        card.appendChild(info);
+        card.appendChild(btns);
+        return card;
+    }
+
+    function _renderCommandForm(body, existingCmd) {
+        while (body.firstChild) body.removeChild(body.firstChild);
+        var isEdit = !!existingCmd;
+        var form = document.createElement('div');
+        form.className = 'acn-cmd-form';
+        var titleEl = document.createElement('div');
+        titleEl.className   = 'acn-cmd-form-title';
+        titleEl.textContent = isEdit ? 'Edit Command' : 'Create Command';
+        form.appendChild(titleEl);
+        var nameLbl = document.createElement('label');
+        nameLbl.className   = 'acn-cmd-label';
+        nameLbl.textContent = 'Name';
+        form.appendChild(nameLbl);
+        var nameRow = document.createElement('div');
+        nameRow.className = 'acn-cmd-name-row';
+        var prefix = document.createElement('span');
+        prefix.className   = 'acn-cmd-prefix';
+        prefix.textContent = '/';
+        var nameInput = document.createElement('input');
+        nameInput.type        = 'text';
+        nameInput.className   = 'acn-cmd-input';
+        nameInput.style.flex  = '1';
+        nameInput.placeholder = 'handoff';
+        nameInput.maxLength   = 30;
+        nameInput.setAttribute('autocomplete', 'off');
+        nameInput.setAttribute('spellcheck', 'false');
+        if (isEdit) nameInput.value = existingCmd.name;
+        nameRow.appendChild(prefix);
+        nameRow.appendChild(nameInput);
+        form.appendChild(nameRow);
+        var descLbl = document.createElement('label');
+        descLbl.className   = 'acn-cmd-label';
+        descLbl.textContent = 'Description';
+        descLbl.style.marginTop = '8px';
+        form.appendChild(descLbl);
+        var descInput = document.createElement('input');
+        descInput.type        = 'text';
+        descInput.className   = 'acn-cmd-input';
+        descInput.style.width = '100%';
+        descInput.placeholder = 'One-line description (optional)';
+        descInput.setAttribute('autocomplete', 'off');
+        if (isEdit) descInput.value = existingCmd.description || '';
+        form.appendChild(descInput);
+        var promptLbl = document.createElement('label');
+        promptLbl.className   = 'acn-cmd-label';
+        promptLbl.textContent = 'Prompt';
+        promptLbl.style.marginTop = '8px';
+        form.appendChild(promptLbl);
+        var promptTA = document.createElement('textarea');
+        promptTA.className   = 'acn-cmd-textarea';
+        promptTA.rows        = 6;
+        promptTA.placeholder = 'The full prompt text\u2026';
+        if (isEdit) promptTA.value = existingCmd.prompt || '';
+        form.appendChild(promptTA);
+        var errEl = document.createElement('div');
+        errEl.className = 'acn-cmd-form-err';
+        form.appendChild(errEl);
+        var btnRow = document.createElement('div');
+        btnRow.className = 'acn-cmd-form-btns';
+        var cancelBtn = document.createElement('button');
+        cancelBtn.className   = 'acn-cmd-form-cancel';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', function () { _renderCommandListView(body, null); });
+        var saveBtn = document.createElement('button');
+        saveBtn.className   = 'acn-cmd-form-save';
+        saveBtn.textContent = isEdit ? 'Save Changes' : 'Save Command';
+        saveBtn.addEventListener('click', function () {
+            var nameVal   = nameInput.value.trim();
+            var descVal   = descInput.value.trim();
+            var promptVal = promptTA.value;
+            var result;
+            if (isEdit) {
+                result = updateCommand(existingCmd.id, { name: nameVal, description: descVal, prompt: promptVal });
+            } else {
+                result = createCommand(nameVal, descVal, promptVal);
+            }
+            if (result.error) { errEl.textContent = result.error; return; }
+            _renderCommandListView(body, null);
+        });
+        btnRow.appendChild(cancelBtn);
+        btnRow.appendChild(saveBtn);
+        form.appendChild(btnRow);
+        body.appendChild(form);
+        setTimeout(function () { nameInput.focus(); }, 20);
+    }
+
+    function orbBuildPanelTools() {
+        var panel = createElement('div', { id: 'acn-panel-tools', className: 'acn-panel' });
+        panel.appendChild(orbBuildPanelHeader('\uD83D\uDD27 Tools'));
+        var scroll = createElement('div', { style: 'flex:1;overflow-y:auto' });
+
+        // 1. Image Gallery
+        var gallerySection = document.createElement('div');
+        gallerySection.className = 'acn-tool-section';
+        renderImageGallery(gallerySection);
+        scroll.appendChild(gallerySection);
+
+        // 2. Exports
+        var exportSection = document.createElement('div');
+        exportSection.className = 'acn-tool-section';
+        var exportHeader = document.createElement('div');
+        exportHeader.className   = 'acn-tool-section-header';
+        exportHeader.textContent = '\uD83D\uDCCB Exports';
+        exportSection.appendChild(exportHeader);
+        var TOOLS_EXPORT = [
+            { icon: '\uD83D\uDCC4', title: 'Full Conversation',  desc: 'Markdown with all messages and code blocks.', action: exportFullConversation },
+            { icon: '\uD83D\uDCCC', title: 'Bookmarks Only',     desc: 'Pinned messages as structured document.',     action: exportBookmarks },
+            { icon: '\u03A3',       title: 'Summary',            desc: 'Topics, decisions, and action items.',        action: exportSummary }
+        ];
+        TOOLS_EXPORT.forEach(function (tool) {
+            var iconEl  = createElement('div', { className: 'acn-exp-icon',  textContent: tool.icon });
+            var titleEl = createElement('div', { className: 'acn-exp-title', textContent: tool.title });
+            var descEl  = createElement('div', { className: 'acn-exp-desc',  textContent: tool.desc });
+            var opt     = createElement('div', { className: 'acn-exp-opt' }, [iconEl, titleEl, descEl]);
+            opt.addEventListener('click', function () { tool.action(); });
+            exportSection.appendChild(opt);
+        });
+        scroll.appendChild(exportSection);
+
+        // 3. /Commands
+        renderCommandsSection(scroll);
+
+        // 4. Footer
+        var footer = createElement('div', {
+            style: 'padding:12px 14px;font-size:10px;color:#444;line-height:1.6;border-top:1px solid rgba(255,255,255,.05)',
+            textContent: 'More tools coming soon. Got ideas? Open an issue on GitHub!'
+        });
+        scroll.appendChild(footer);
+
+        panel.appendChild(scroll);
         return panel;
     }
 
@@ -4330,7 +5356,7 @@
         document.body.appendChild(orbBuildPanelSearch());
         document.body.appendChild(orbBuildPanelBookmarks());
         document.body.appendChild(orbBuildPanelSummary());
-        document.body.appendChild(orbBuildPanelExport());
+        document.body.appendChild(orbBuildPanelTools());
         document.body.appendChild(orbBuildPanelSettings());
 
         // For left-chat: initially hidden until boundary is detected
@@ -4618,6 +5644,38 @@
     }
 
     // ============================================================
+    // E2: Keyboard listener — Ctrl+/ toggles command palette
+    // ============================================================
+    document.addEventListener('keydown', function (e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+            e.preventDefault();
+            toggleCommandPalette();
+            return;
+        }
+        if (!isPaletteOpen()) return;
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeCommandPalette();
+            return;
+        }
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            moveSelection(1);
+            return;
+        }
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            moveSelection(-1);
+            return;
+        }
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            executeSelected();
+            return;
+        }
+    });
+
+    // ============================================================
     // Inject now (body is available — Tampermonkey runs at document-end)
     // ============================================================
     if (useOrbital) {
@@ -4626,6 +5684,6 @@
         injectLegacy();
     }
 
-    console.log('AI Conversation Navigator v10.0 loaded for ' + platform.title +
+    console.log('AI Conversation Navigator v10.7 loaded for ' + platform.title +
         (isLeftChat ? ' (left-chat mode)' : '') + (useOrbital ? ' [orbital]' : ' [legacy]') + '.');
 })();
