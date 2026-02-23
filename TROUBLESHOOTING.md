@@ -6,6 +6,299 @@ If you run into a problem, check here first — you might find we've already sol
 
 ---
 
+## v10.0 — Panel Hover Fixes (2026-02-22, session 3)
+
+Three related bugs in Navigate panel hover behavior, all discovered through live site testing. All resolved in the same session.
+
+---
+
+### RESOLVED — Q# Badge Color and Hover Highlight Show as White (CSS Variable Scoping)
+
+**Versions affected:** v10.0 (after question list readability improvements)
+**Fixed in:** v10.0 session 3 | **Severity:** High | **Platforms:** All 5 orbital platforms
+
+**Symptom:** In the Navigate panel, the `Q#1`/`Q#2`/`Q#3` number badges appeared white instead of the platform accent color. The hover highlight — both the left-border color transition (`border-left-color: var(--acn-accent)`) and the background tint (`background: rgba(var(--acn-rgb), .14)`) — was also invisible. The question list was technically functional (items rendered, click worked) but visually undifferentiated.
+
+**Diagnosis / Root Cause:** Platform accent colors are distributed via CSS custom properties `--acn-accent` and `--acn-rgb`. These were set using `zone.style.setProperty()` on the `#acn-zone` element. CSS custom properties only cascade *down* to descendants. The critical architecture detail: `#acn-zone` and all `.acn-panel` elements are siblings — both are direct children of `document.body`:
+
+```javascript
+document.body.appendChild(zone);              // line 2061
+document.body.appendChild(orbBuildPanelNav()); // line 2064 — sibling, not child
+```
+
+Since the panels are siblings (not descendants) of `#acn-zone`, `var(--acn-accent)` and `var(--acn-rgb)` inside panel CSS resolved to nothing. The browser falls back to the CSS initial value for each property — `background: transparent` and `border-left-color: currentColor` (which was white in the dark panel) — making the styles silently invisible rather than producing an error.
+
+This design was introduced without issue in v10.0 because the orbital dots and zone children (`#acn-hitzone`, `.acn-lbl`, `.acn-dot`) are actual descendants of `#acn-zone` and inherited correctly. Only panel-specific styles (`.acn-qi:hover`, `.acn-qn`) using `var(--acn-*)` were affected, and these were added as a visual polish feature late in the session.
+
+**Solutions Considered:**
+
+*Approach 1: Move panel elements inside `#acn-zone` in the DOM.* Insert all 6 `.acn-panel` elements as children of the zone rather than appending them to `document.body`. Hypothesis: this restores normal CSS inheritance and resolves the scoping problem at the root. Rejected because: the z-index stacking context would change — panels are currently at `z-index:2147483641` which is above the zone's `z-index:2147483640`. Moving panels inside the zone makes them children within the zone's stacking context; achieving `641` above `640` while inside the same stacking context parent requires careful re-validation across all 14 platforms and all positioning code. The risk was higher than the benefit.
+
+*Approach 2: Set CSS variables directly on each panel element after creation.* After `orbBuildPanelNav()` returns, call `panelEl.style.setProperty('--acn-accent', orbTheme.bg)` on each panel. Hypothesis: variables set on the element itself have higher cascade priority than any inherited value, so this would work regardless of panel position in the DOM. Rejected as verbose: 6 panels × 3 variables = 18 `setProperty` calls, plus the same 18 calls must be re-applied if a future session re-injects panels without re-running `orbBuildZone()`.
+
+*Approach 3: Set CSS variables on `document.documentElement` (`:root`).* Variables on `:root` are globally available to every element on the page — no scoping restriction. Keep the zone-level assignments as well (zone children already use them correctly). Add 3 lines to `orbBuildZone()`.
+
+**Fix:** Approach 3 — add `:root`-level assignments in `orbBuildZone()` before the zone-level assignments:
+```javascript
+document.documentElement.style.setProperty('--acn-accent', orbTheme.bg);
+document.documentElement.style.setProperty('--acn-rgb',    orbTheme.rgb);
+document.documentElement.style.setProperty('--acn-shadow', orbTheme.shadow);
+zone.style.setProperty('--acn-accent', orbTheme.bg);
+// ...
+```
+
+The zone-level assignments are retained because they provide a more scoped cascade for dot/zone child styling, and their presence makes it clear the zone is the authoritative owner of its theming even if the root-level value is also available.
+
+**Results:** Q# badges display in platform accent color. Hover background tint and left-border color transition correctly. 168/168 tests pass.
+
+---
+
+### RESOLVED — `.acn-qi:hover` Hover Jitter (translateX Bounding Box Loop)
+
+**Versions affected:** v10.0 (after question list readability improvements)
+**Fixed in:** v10.0 session 3 | **Severity:** Medium | **Platforms:** All 5 orbital platforms
+
+**Symptom:** When holding the cursor still over a question item in the Navigate panel, the left-border highlight flickered on and off at a rapid, regular rate — approximately every 150ms. The highlight would flash, disappear, then reappear on re-hover. Described as "tweaks like every second" by the user.
+
+**Diagnosis / Root Cause:** The `.acn-qi:hover` rule applied `transform:translateX(2px)`. CSS `transform` repositions the element visually without changing layout flow, but it *does* change the element's rendered bounding box — and the browser uses the rendered bounding box for hover hit-testing. The feedback loop:
+
+1. Cursor enters `.acn-qi` at position X → hover fires → `translateX(2px)` shifts the rendered box 2px right
+2. Rendered box is now 2px right of cursor position → cursor is outside the hit area → hover lost
+3. Transition reverses (`.15s` transition) → element returns to original position → cursor is inside → hover fires
+4. Repeat every ~150ms (the transition duration)
+
+This is a known hover-jitter antipattern. Any `transform` that changes the element's rendered position on hover creates an unstable equilibrium at the boundary of the original hit area.
+
+**Diagnosis path:** The jitter was initially suspected to be caused by orbital dots overlapping the panel during animation (z-index conflict). This was investigated by reading the zone CSS (`right:0; width:160px; z-index:2147483640`) and panel CSS (`right:0; width:310px; z-index:2147483641`). When the panel opens, `acn-hp` adds `right:310px` to the zone — the zone slides left so its right edge is at `window.innerWidth - 310px`, flush with the panel's left edge but not overlapping it. The z-index investigation confirmed the panel (641) is above the zone (640), so dots don't intercept panel pointer events. This ruled out z-index as the cause. The `translateX` feedback loop was then identified as the actual mechanism.
+
+**Solutions Considered:**
+
+*Approach 1: Keep translateX but apply it on a wrapper element.* Wrap each `.acn-qi` in an outer div; apply `translateX` to the outer div while the hover target remains the inner div. The inner div never moves, so its hit area is stable. Rejected as over-engineered: adding a wrapper div to every list item for this single visual effect adds DOM nodes and complicates the item structure.
+
+*Approach 2: Use `translateX` but only apply it after a delay (`:hover:active` or JS-based).* Apply the translate only on `mousedown`, not `mouseover`. Hypothesis: user has clicked by then, so bounding box jitter doesn't matter. Rejected because: the visual intent was to show translate on hover (mouse-over), not click. Changing to click semantics changes the intended interaction model.
+
+*Approach 3: Remove `translateX` entirely.* The background tint and border-left color change on hover already provide clear feedback. The `translateX` was purely decorative — a subtle "lift" animation. Without it, the hover state is still clearly visible and perfectly stable.
+
+**Fix:** Approach 3 — removed `transform:translateX(2px)` from `.acn-qi:hover`:
+```css
+/* Before */ .acn-qi:hover { background:rgba(var(--acn-rgb),.14); border-left-color:var(--acn-accent); transform:translateX(2px) }
+/* After  */ .acn-qi:hover { background:rgba(var(--acn-rgb),.14); border-left-color:var(--acn-accent) }
+```
+
+**Results:** Hover highlight is stable. Background tint and border-left-color transition cleanly on enter/leave without any jitter. The `transition:all .15s` on `.acn-qi` still smoothly animates both remaining properties.
+
+---
+
+### RESOLVED — Nav Panel Question List Rebuilds on Every SPA Mutation (Hover Destroyed)
+
+**Versions affected:** v10.0 (all orbital sessions)
+**Fixed in:** v10.0 session 3 | **Severity:** Medium | **Platforms:** All 5 orbital platforms (worst on high-animation platforms: Gemini, Claude)
+
+**Symptom:** After fixing the CSS variable scoping and removing `translateX`, the hover highlight still flickered. On closer observation: the highlight would appear correctly on hover entry, hold for approximately 500ms, then disappear — regardless of cursor movement. Moving the cursor back onto the same item would restore the highlight for another ~500ms before it disappeared again. This was not the 150ms jitter from `translateX`; it was a longer, less predictable cycle.
+
+**Diagnosis / Root Cause:** `orbPopulateNavigate()` began with unconditional DOM teardown:
+```javascript
+while (list.firstChild) list.removeChild(list.firstChild);
+```
+
+It was called every time `orbOnScanComplete()` ran. `orbOnScanComplete()` was called at the end of every `scanConversation()` execution when `orbPanel === 'nav'`. `scanConversation()` was called by the MutationObserver callback after a 500ms debounce. The MutationObserver watched `document.body` with `{ childList: true, subtree: true }`.
+
+The chain: **any DOM mutation on the page → 500ms debounce → `scanConversation()` → `orbOnScanComplete()` → `orbPopulateNavigate()` → all `.acn-qi` elements destroyed and re-created**.
+
+Live AI platforms mutate the DOM continuously: Gemini's button hover effects, animated type indicators, streaming responses, sidebar item updates. On a static conversation (no new messages), `scanConversation()` was re-running every 500ms because the platform's UI — unrelated to the conversation content — was generating mutations. Each rebuild destroyed the currently-hovered element, causing the browser to drop its `:hover` state. New elements created by the rebuild had no hover state.
+
+The 500ms debounce explained the user's observed "about 500ms" cycle time. The user would hover → highlight appears → 500ms later Gemini does something → observer fires → list tears down → hover lost → user moves cursor → hover appears again.
+
+**Solutions Considered:**
+
+*Approach 1: Don't call `orbOnScanComplete()` during observer-triggered scans, only during user-action scans.* Pass a flag through the call chain — `scanConversation(triggered_by_user)` — and skip the panel update when triggered by the observer. Rejected because: new messages ARE mutations, and the observer is the only mechanism for detecting them. Skipping the panel update means the list never updates after a new message unless the user manually refreshes.
+
+*Approach 2: DOM diffing — update items in place, only add/remove changed questions.* For each entry in `_questions[]`, find the existing DOM element (by index or key) and update only if changed; add new elements at the end; remove stale elements. Rejected for now: requires a stable key system for matching old elements to new entries. `_questions[]` entries currently have no stable ID — the index changes if a question is prepended. Implementing stable keys correctly is a larger change than the problem warrants, since questions in a conversation rarely change after creation.
+
+*Approach 3: Increase the scan debounce from 500ms to 2000ms.* Reduce rebuild frequency. Rejected because: this makes the list feel stale after the user sends a new message — the panel wouldn't update for 2 seconds.
+
+*Approach 4: Fingerprint-gated rebuild — compare question content before rebuilding.* Compute a lightweight fingerprint of `_questions[]`. If identical to the fingerprint from the last render, skip teardown. The fingerprint changes only when new questions are added, not on platform UI mutations.
+
+**Fix:** Approach 4. Added `_navListFingerprint = ''` module variable. At the start of `orbPopulateNavigate()`:
+
+```javascript
+var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|');
+if (fp === _navListFingerprint && list.firstChild) return;
+_navListFingerprint = fp;
+```
+
+The fingerprint uses the first 100 characters of each question's text (sufficient to distinguish questions; trimmed to avoid generating multi-KB strings for long prompts). The `&& list.firstChild` guard forces a rebuild if the list is somehow empty even when the fingerprint matches (e.g., after a DOM flush from a SPA navigation). If questions genuinely change (new message → new `_questions[]` entry), the fingerprint changes and the rebuild proceeds normally.
+
+**Results:** On live Gemini with a 3-question conversation, hovering over any question item shows a stable, persistent highlight. Platform UI mutations (button animations, etc.) no longer cause list rebuilds. New questions added by sending a new message still appear immediately in the list (next scan cycle ≈ 500ms). 168/168 tests pass.
+
+---
+
+## v10.0 — Issues Found and Fixed Through Live Site Testing (2026-02-22)
+
+These issues were discovered by testing v10.0 on live sites after the orbital system shipped. All were resolved in the same session.
+
+---
+
+### RESOLVED — isLeftChat Button Stays Fixed When Panel Opens
+
+**Versions affected:** v10.0 initial
+**Fixed in:** v10.0 session 2 | **Severity:** High | **Platforms:** All 7 left-chat platforms (Bolt, Lovable, Replit, V0, Base44, Emergent, Firebase Studio)
+
+**Symptom:** On all app-builder platforms using the `left-chat` layout, clicking the ghost-notch toggle button correctly opened the 320px panel on the left — but the button itself stayed at its original position at the chat/preview boundary. The button ended up visually inside the open panel, stranded rather than flush with the panel's left edge.
+
+**Diagnosis / Root Cause:** The isLeftChat button container position is managed entirely by JS inline styles — `legacyApplyPosition()` computes `right = window.innerWidth - _lastBoundaryX + scrollbarOffset` and sets it as `container.style.right`. This is necessary because the boundary is detected dynamically and differs per platform and viewport width.
+
+The `.open` CSS class existed on the container during the open state, but that class only set `pointer-events: auto`. It never modified `right`. The problem is that CSS rules can't modify an inline `style.right` that was already set by JS with a computed value — a CSS class can override with `!important`, but the target `right` value when open isn't a constant; it's `(innerWidth - boundaryX + 320)` which varies per viewport. There was simply no mechanism for CSS alone to express "add 320px to the current dynamically-computed right."
+
+**Solutions Considered:**
+
+*Approach 1: Use a CSS transform instead of right for the open offset.* Add `transform: translateX(320px)` when open. Hypothesis: CSS `transform` doesn't conflict with `right`, so the class could apply the offset independently. Rejected because: the button is already `transform: translateY(-50%)` for vertical centering. Stacking `translateX(320px)` on top of this would require either a combined `transform` (breaking the centering) or a wrapper element (adding DOM complexity).
+
+*Approach 2: Use a CSS custom property for the boundary position.* Set `--acn-boundary: Npx` on the zone, then express the full formula in CSS. Hypothesis: this would allow CSS classes to perform the calculation. Rejected because: this approach would work for the zone element itself but not for the legacy button container, which is a separate element outside the zone (injected independently by `injectLegacy()`).
+
+*Approach 3: Update inline `style.right` directly in JS at toggle time.* When `legacyNavOpen` becomes true, set `container.style.right = (innerWidth - boundaryX + 320) + 'px'`. When it becomes false, restore the closed-state formula. This is the simplest and most direct approach — JS already manages this element's position, so adding state-conditional logic fits the existing pattern.
+
+**Fix:** Approach 3 was implemented across 4 code sites where the open/closed transition occurs:
+1. `handleLegacyToggle()` open branch
+2. `handleLegacyToggle()` close branch
+3. Close button click handler in `injectLegacy()`
+4. DOM guardian (MutationObserver re-injection callback)
+
+All four now call `container.style.right = (window.innerWidth - _lastBoundaryX + 320) + 'px'` on open and restore the closed formula on close.
+
+**Results:** Button correctly tracks with the panel's left edge on open and returns to the chat boundary on close. All 168 tests still pass.
+
+---
+
+### RESOLVED — Bolt.new Button Overshoots 16px Past Panel Left Edge
+
+**Versions affected:** v10.0 initial
+**Fixed in:** v10.0 session 2 | **Severity:** Medium | **Platforms:** Bolt.new only
+
+**Symptom:** After the isLeftChat sync fix was applied, testing on Bolt specifically showed the button landing about 16px further left than the panel's left edge. The button appeared to poke out from behind the panel rather than sitting flush.
+
+**Diagnosis / Root Cause:** `legacyApplyPosition()` computes:
+```javascript
+var offset  = platform.scrollbarOffset || 0; // 16 for bolt
+var btnRight = (window.innerWidth - _lastBoundaryX + offset) + 'px';
+```
+
+Bolt has `scrollbarOffset: 16`. When the panel-open state check was added to `legacyApplyPosition()`, it used a single formula for both states:
+```javascript
+// Incorrect — applies offset in open state too
+container.style.right = panelOpen
+    ? (window.innerWidth - _lastBoundaryX + offset + 320) + 'px'
+    : btnRight;
+```
+
+The `scrollbarOffset` exists to push the closed button inward from the exact boundary edge so it doesn't sit behind the OS scrollbar (which is drawn on the right side of the chat panel on some OSes). In Bolt's case, the scrollbar is 16px wide, so the offset keeps the button clear of it. But this offset has no meaning in the open state — when open, the button is positioned relative to the panel's left edge, not the chat/scrollbar boundary. The 16px offset was incorrectly applied to the open formula.
+
+**Solutions Considered:** No alternatives were seriously considered — this was a straightforward misunderstanding of when `scrollbarOffset` applies. The only question was whether the fix belonged in `legacyApplyPosition()` alone or also in `handleLegacyToggle()`. Both were checked and both required the same correction.
+
+**Fix:** Open-state formula in both `legacyApplyPosition()` and `handleLegacyToggle()` uses `(window.innerWidth - _lastBoundaryX + 320)` — no `offset`. Closed-state formula retains `+ offset`. The two formulas are now unambiguously different for different purposes.
+
+**Results:** Bolt button lands flush with the panel's left edge on open. Other platforms unaffected (their `scrollbarOffset` is 0 by default, so the formulas were equivalent before).
+
+---
+
+### RESOLVED — V0 Toggle Button Invisible in Light Mode
+
+**Versions affected:** v10.0 initial
+**Fixed in:** v10.0 session 2 | **Severity:** High | **Platforms:** V0 (`v0.app`)
+
+**Symptom:** On v0.app in light mode, the toggle button was present (boundary detection succeeded, the button was in the DOM) but completely invisible. Neither the button shape nor the icon inside it was visible.
+
+**Diagnosis / Root Cause:** Two bugs compounded:
+
+Bug 1 — Theme missing `textColor`: V0's theme object was:
+```javascript
+theme: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)' }
+```
+The button background was `theme.accent = '#ffffff'` (white). The icon color used `theme.textColor || '#fff'`, which resolved to `'#fff'` since `textColor` wasn't set. White icon on white background = invisible.
+
+Bug 2 — `border:none!important` hardcoded in CSS string: Even if Bug 1 were fixed by giving the button a dark icon, the button itself (a thin 14×52px sliver in closed state) would still be invisible on a white background without a border. V0's theme needed `toggleBorder: '1px solid rgba(0,0,0,0.2)'` to make the button visible. But the isLeftChat button CSS string contained:
+```javascript
+'.ai-nav-floating-btn{...border:none!important;...}'
+```
+The `!important` meant any `theme.toggleBorder` value would have been overridden silently. The theme property would exist but never be applied.
+
+**Solutions Considered:**
+
+*Approach 1: Use a platform-specific CSS block for V0, similar to how ChatGPT gets a special `data-acn-platform` CSS block.* Hypothesis: would work, but requires adding V0-detection logic and a separate CSS string just to handle border and icon color. Rejected as over-engineered — the theme system already exists to handle per-platform visual customization.
+
+*Approach 2: Change V0's accent color to something other than white.* Hypothesis: a dark accent (like `#1a1a1a` or the app's actual UI color) would make button and icon visible. Rejected because: V0 is a left-chat platform, not an orbital platform. The "accent" color drives the button background. Choosing a dark button that doesn't match V0's actual brand color is arbitrary and inconsistent with the approach used for other platforms.
+
+*Approach 3: Fix the theme system — add `textColor` and `toggleBorder` to V0's theme, AND change the CSS string to use `theme.toggleBorder` instead of hardcoding `none`.* This addresses both bugs at the root: the theme system becomes the single control surface for per-platform visual customization, and the hardcoded override is removed.
+
+**Fix:** Approach 3:
+```javascript
+theme: {
+    accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)',
+    textColor: '#000',
+    toggleBorder: '1px solid rgba(0,0,0,0.2)',
+}
+```
+
+And the CSS string changed from `'border:none!important'` to `'border:' + (theme.toggleBorder || 'none') + '!important'`. The `|| 'none'` default ensures all other left-chat platforms that don't set `toggleBorder` continue to have no border.
+
+**Results:** V0 button is now visible in both light and dark mode — dark icon on white button with a subtle grey border. Other left-chat platforms unaffected.
+
+---
+
+### RESOLVED — Context Window Bar Always Shows "—"
+
+**Versions affected:** v10.0 initial
+**Fixed in:** v10.0 session 2 | **Severity:** Medium | **Platforms:** All orbital platforms
+
+**Symptom:** The context window usage bar in the Navigate panel always showed "—" for the percentage and a 0% fill bar, regardless of conversation length.
+
+**Diagnosis / Root Cause:** `orbPopulateNavigate()` built the DOM elements for the context bar (`#acn-ctx-pct`, `#acn-ctx-fill`, `#acn-ctx-meta`) but never updated them. The function was a complete stub — the bar elements were injected but never written to.
+
+**Solutions Considered:**
+
+*Approach 1: Read token count from the API response.* Hypothesis: modern Claude/ChatGPT APIs return token usage in response headers or JSON. Intercept `window.fetch` and read the usage field. Rejected because: fetch interception was used in v9.x's context tracking feature and was one of the causes of architectural complexity. The v10.0 rewrite explicitly removed fetch interception. Re-introducing it would reintroduce the same entanglement that prompted the rewrite. Also, the AI assistant sites don't consistently expose token counts in client-accessible responses.
+
+*Approach 2: Count only user message characters and multiply by a factor.* Sum `q.text.length` for all items in `_questions[]` and multiply by 3. Fast and zero-DOM-side-effects. Implemented as initial approach. Problem: wildly inaccurate for conversations with short user questions and very long AI responses. A user who types 5-word questions and gets 2,000-word answers would see a 3× undercount.
+
+*Approach 3: Walk up the DOM from a known message element to the conversation scroll container.* From `_questions[0].element`, walk up through `.parentElement` until finding a node with `overflow-y: auto` or `overflow-y: scroll`. This container holds the full conversation. Read its `innerText.length`. This is more accurate because `innerText` includes both user AND AI message text.
+
+**Fix:** `orbUpdateContextBar()` implements Approach 3 with Approach 2 as fallback:
+- Walks from `_questions[0].element` to the scroll container
+- Reads `innerText.length` for total character count
+- Falls back to `_questions.reduce(...) * 3` if no scroll container found
+- Divides by 4 to estimate tokens (standard English heuristic)
+- Compares against `CTX_LIMITS[platform.id]` for the percentage
+- Color-codes: green <50%, amber 50–74%, red ≥75%
+
+Called at the end of `orbPopulateNavigate()` so it runs every time the Navigate panel is opened or refreshed.
+
+**Results:** Context bar now shows real percentage estimates. On a medium-length conversation, the bar shows reasonable values that track with conversation growth.
+
+---
+
+### RESOLVED — Arc Mode Labels Overlap Adjacent Dots
+
+**Versions affected:** v10.0 initial
+**Fixed in:** v10.0 session 2 | **Severity:** Low | **Platforms:** All orbital platforms (arc mode only)
+
+**Symptom:** In arc mode, hovering over an orbital dot caused its label to appear to the left — in the direction of adjacent dots on the arc. Dots near each other on the arc would have their labels overlap each other, creating visual clutter.
+
+**Diagnosis / Root Cause:** The label CSS (`position:absolute; right:calc(100% + 10px)`) positions the label to the left of the dot, which is ideal for show-all mode (where dots are in a vertical column on the right edge and labels appear in the clear space to the left). In arc mode, dots are positioned in a polygon — the space to the "left" of an arc dot is occupied by the adjacent arc position, so labels collide.
+
+**Solutions Considered:**
+
+*Approach 1: Change label position in JS per-mode.* In `orbRender()`, when `orbMode === 'arc'`, explicitly set `dot.querySelector('.acn-lbl').style.right = 'auto'` and set `top`, `left` for each dot. Rejected because: this mixes layout styling into the render loop. Every mode switch and every frame render would be touching label styles alongside position calculations. It also requires DOM queries per-dot per-render.
+
+*Approach 2: Store label position as a property on each dot object in `ORB_FEATURES` and re-apply on mode switch.* Rejected because: label position is a property of the mode, not the feature. The same feature dot should be left-labeled in show-all and below-labeled in arc. Storing it on the feature conflates per-feature and per-mode concerns.
+
+*Approach 3: Use `data-acn-mode` on the zone element to switch label position via CSS selectors.* `orbRender()` calls `zone.setAttribute('data-acn-mode', orbMode)`. CSS uses `#acn-zone[data-acn-mode="arc"] .acn-lbl { ... }` to override label position in arc mode only. No JS per-dot, no DOM queries per-render — one `setAttribute` call per render, CSS handles all 6 dots automatically.
+
+**Fix:** Approach 3. `data-acn-mode` is set at the top of `orbRender()`. CSS positions arc labels below the dot with a centered `translateX(-50%)` transform and a `translateY(-4px)` entrance offset (slides up to `translateY(0)` on hover, matching the horizontal slide used in show-all mode).
+
+**Results:** Arc mode labels appear cleanly below each dot with no overlap. Mode switch (show-all ↔ arc ↔ wheel) immediately repositions labels via CSS without any additional JS work. `data-acn-mode` is also now available for any future CSS targeting of mode-specific styles.
+
+---
+
 ## Recently Fixed Issues
 
 The following platform-specific issues have been identified through live site testing, diagnosed via live DOM inspection, and fully resolved.
@@ -247,6 +540,46 @@ Rewrote mock test page and created detailed DOM-REFERENCE.md entry. See CHANGELO
 ---
 
 ## Cross-Platform Issues
+
+### Orphaned panels on SPA re-inject cycles
+
+**Versions affected:** v10.0 (identified during Phase 2 development)
+**Fixed in:** v10.0 (defensive guard added during Phase 3)
+**Platforms:** All SPA platforms (Claude, ChatGPT, Gemini, and any platform where `injectOrbital()` can be called more than once per page session)
+
+#### What It Looked Like
+
+On single-page applications that trigger a full re-inject (e.g., Gemini's Angular route changes, or Claude's SPA navigation between conversations), if `injectOrbital()` ran a second time after the DOM had been partially cleaned, the orbital zone could appear normally but existing `.acn-panel` elements from the previous injection cycle would still exist in `document.body` — disconnected from the new zone, invisible, but present in the DOM. These orphaned panels could intercept pointer events or cause getElementById lookups to find the wrong element.
+
+A related issue: `orbInjectCSS()` injected a new `<style>` tag on each call. If the DOM Guardian triggered a re-inject while the style element was still present (common on Gemini), the same CSS rules would be injected twice, increasing stylesheet size and risking specificity collisions.
+
+#### Root Cause
+
+`injectOrbital()` was written assuming it would only ever be called once. The defensive mechanisms in the v9.x codebase that prevented duplicate button creation (`getElementById` checks, `_aiNavAlreadyLoaded` guard) were present at the global script level but not inside the orbital injection function itself.
+
+When Gemini's Angular framework triggers a `popstate` or route change, the MutationObserver or SPA hook can call `injectOrbital()` again. The zone is rebuilt fresh, but the old panels (`.acn-panel` elements) were appended directly to `document.body` — not inside the zone — so removing the zone didn't clean them up.
+
+Similarly, `orbInjectCSS()` unconditionally called `GM_addStyle()` and inserted a new `<style id="acn-style">` each time, without checking whether one already existed.
+
+#### What Was Fixed
+
+Two guards added to `injectOrbital()` in v10.0 Phase 3:
+
+```javascript
+// 1. Clean up orphaned panels from any previous injection cycle
+document.querySelectorAll('.acn-panel').forEach(function (p) { p.remove(); });
+
+// 2. In orbInjectCSS(): skip if style element already exists
+if (document.getElementById('acn-style')) return;
+```
+
+The panel cleanup runs unconditionally at the start of every `injectOrbital()` call. The CSS guard checks by element ID before inserting. Together, these ensure re-injection is idempotent — calling `injectOrbital()` multiple times leaves exactly one zone, one style block, and zero orphaned panels.
+
+#### Results
+
+No duplicate CSS injections observed in Chromium testing. Panel cleanup prevents stale `.acn-panel` elements from persisting across inject cycles.
+
+---
 
 ### Duplicate Navigate button (Linux Firefox)
 
