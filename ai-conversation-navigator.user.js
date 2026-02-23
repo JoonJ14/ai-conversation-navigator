@@ -752,6 +752,7 @@
     // Detected questions — consumed by Navigate and Search panels
     var _questions = []; // [{ element, text, summary, vsIndex? }]
     var _vsAccumulatedKeys = new Set();
+    var _navListFingerprint = ''; // used to skip DOM rebuild when questions are unchanged
 
     function scanConversation(forceReset) {
         var messages = getUserMessages();
@@ -1063,7 +1064,7 @@
             '.acn-ql::-webkit-scrollbar-track{background:transparent}',
             '.acn-ql::-webkit-scrollbar-thumb{background:#333;border-radius:2px}',
             '.acn-qi{padding:9px 14px;border-left:2px solid rgba(var(--acn-rgb),.25);cursor:pointer;transition:all .15s}',
-            '.acn-qi:hover{background:rgba(var(--acn-rgb),.14);border-left-color:var(--acn-accent);transform:translateX(2px)}',
+            '.acn-qi:hover{background:rgba(var(--acn-rgb),.14);border-left-color:var(--acn-accent)}',
             '.acn-qn{font-size:11px;font-weight:700;color:var(--acn-accent);margin-bottom:4px;',
             'display:inline-block;background:rgba(var(--acn-rgb),.18);border-radius:3px;padding:1px 6px}',
             '.acn-qt{font-size:13px;color:#ddd;line-height:1.35;',
@@ -1473,6 +1474,12 @@
         var list  = document.getElementById('acn-nav-list');
         var stat  = document.getElementById('acn-nav-stat');
         if (!list) return;
+
+        // Skip DOM rebuild if questions haven't changed — prevents hover flicker caused
+        // by MutationObserver firing on SPA animations and rebuilding the list mid-hover
+        var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|');
+        if (fp === _navListFingerprint && list.firstChild) return;
+        _navListFingerprint = fp;
 
         // Clear
         while (list.firstChild) list.removeChild(list.firstChild);
@@ -1939,7 +1946,11 @@
         zone.setAttribute('data-acn-version',  '10.0');
         zone.setAttribute('data-acn-platform', platform.id);   // for platform-specific CSS rules
 
-        // Set CSS variables for platform theming
+        // Set CSS variables for platform theming on :root so panels (which are
+        // document.body siblings of zone, not zone descendants) can also inherit them
+        document.documentElement.style.setProperty('--acn-accent', orbTheme.bg);
+        document.documentElement.style.setProperty('--acn-rgb',    orbTheme.rgb);
+        document.documentElement.style.setProperty('--acn-shadow', orbTheme.shadow);
         zone.style.setProperty('--acn-accent', orbTheme.bg);
         zone.style.setProperty('--acn-rgb',    orbTheme.rgb);
         zone.style.setProperty('--acn-shadow', orbTheme.shadow);
