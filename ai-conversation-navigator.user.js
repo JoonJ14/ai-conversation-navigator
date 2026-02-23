@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator v10.1
 // @namespace    http://tampermonkey.net/
-// @version      10.7
+// @version      10.7.3
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -278,7 +278,8 @@
             },
             getAIMessages: function () {
                 // Verified starting points — fallback chain
-                var messages = document.querySelectorAll('[data-testid="ai-turn"]');
+                var messages = document.querySelectorAll('.font-claude-response');
+                if (messages.length === 0) messages = document.querySelectorAll('[data-testid="ai-turn"]');
                 if (messages.length === 0) messages = document.querySelectorAll('[data-testid="assistant-message"]');
                 if (messages.length === 0) messages = document.querySelectorAll('.font-claude-message');
                 if (messages.length === 0) {
@@ -2310,7 +2311,8 @@
         }
 
         // Populate functional panels
-        if (fid === 'nav')    orbPopulateNavigate();
+        if (fid === 'nav')       orbPopulateNavigate();
+        if (fid === 'bookmarks') orbRefreshBookmarksPanel();
         if (fid === 'search') {
             orbPopulateSearch('');
             setTimeout(function () {
@@ -2749,7 +2751,7 @@
 
         var countHintEl = createElement('div', {
             className: 'acn-sh',
-            textContent: total + ' ' + (i18n('searchResults') || 'matches').replace('{count}', total) +
+            textContent: (i18n('searchResults') || '{count} matches').replace('{count}', total) +
                 (hintParts.length ? ' (' + hintParts.join(', ') + ')' : '')
         });
         countHintEl.style.display = '';
