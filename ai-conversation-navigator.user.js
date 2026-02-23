@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator v10.1
 // @namespace    http://tampermonkey.net/
-// @version      10.7.3
+// @version      10.7.4
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -289,6 +289,16 @@
                     });
                 }
                 return messages;
+            },
+            // Claude.ai keeps uploaded image thumbnails in a sibling div, both
+            // inside an outer .group turn container. The user-message itself is
+            // inside an inner .group bubble. We need the outer (second) .group
+            // ancestor so image searches also find uploaded file thumbnails.
+            getMessageContext: function (msgEl) {
+                var inner = msgEl.closest('.group');
+                if (!inner) return msgEl;
+                var outer = inner.parentElement ? inner.parentElement.closest('.group') : null;
+                return outer || inner;
             },
         },
 
@@ -1286,12 +1296,12 @@
 
     // ── Feature registry ────────────────────────────────────────
     var ORB_FEATURES = [
-        { id: 'nav',       icon: '\u2733', label: 'Navigate',  panelId: 'acn-panel-nav' },
-        { id: 'search',    icon: '\u2315', label: 'Search',    panelId: 'acn-panel-search' },
-        { id: 'bookmarks', icon: '\u2691', label: 'Bookmarks', panelId: 'acn-panel-bookmarks' },
-        { id: 'summary',   icon: '\u03A3', label: 'Summary',   panelId: 'acn-panel-summary' },
-        { id: 'tools',     icon: '\uD83D\uDD27', label: i18n('tools') || 'Tools', panelId: 'acn-panel-tools' },
-        { id: 'settings',  icon: '\u2699', label: 'Settings',  panelId: 'acn-panel-settings' },
+        { id: 'nav',       icon: '\u2733', label: i18n('navigate')  || 'Navigate',  panelId: 'acn-panel-nav' },
+        { id: 'search',    icon: '\u2315', label: i18n('search')    || 'Search',    panelId: 'acn-panel-search' },
+        { id: 'bookmarks', icon: '\u2691', label: i18n('bookmarks') || 'Bookmarks', panelId: 'acn-panel-bookmarks' },
+        { id: 'summary',   icon: '\u03A3', label: i18n('summary')   || 'Summary',   panelId: 'acn-panel-summary' },
+        { id: 'tools',     icon: '\uD83D\uDD27', label: i18n('tools') || 'Tools',   panelId: 'acn-panel-tools' },
+        { id: 'settings',  icon: '\u2699', label: i18n('settings')  || 'Settings',  panelId: 'acn-panel-settings' },
     ];
     var ORB_N    = ORB_FEATURES.length;  // 6
     var ORB_MAIN = 0;                     // Navigate is always index 0
@@ -1534,109 +1544,56 @@
             return;
         }
 
+        // Step 1: get org UUID from /api/organizations
         GM_xmlhttpRequest({
             method: 'GET',
-            url: 'https://claude.ai/settings/usage',
-            headers: {
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Cache-Control': 'no-cache'
+            url: 'https://claude.ai/api/organizations',
+            headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
+            onload: function (r1) {
+                var uuid = null;
+                try {
+                    var orgs = JSON.parse(r1.responseText);
+                    if (Array.isArray(orgs) && orgs[0] && orgs[0].uuid) {
+                        uuid = orgs[0].uuid;
+                    }
+                } catch (e) { /* skip */ }
+
+                if (!uuid) { callback(null); return; }
+
+                // Step 2: fetch usage for that org
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: 'https://claude.ai/api/organizations/' + uuid + '/usage',
+                    headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
+                    onload: function (r2) {
+                        try {
+                            var data = JSON.parse(r2.responseText);
+                            callback(parseUsageFromJSON(data));
+                        } catch (e) { callback(null); }
+                    },
+                    onerror: function () { callback(null); }
+                });
             },
-            onload: function (response) {
-                var parsed = parseUsageFromHTML(response.responseText || '');
-                callback(parsed);
-            },
-            onerror: function () {
-                callback(null);
-            }
+            onerror: function () { callback(null); }
         });
     }
 
-    function parseUsageFromHTML(html) {
-        if (!html) return null;
-
-        var keywordRx = /five_hour_usage|fiveHour|"messages_used"/;
-        if (!keywordRx.test(html)) return null;
-
-        var scriptRx = /<script[^>]*>([\s\S]*?)<\/script>/gi;
-        var m;
-        while ((m = scriptRx.exec(html)) !== null) {
-            var content = m[1];
-            if (!keywordRx.test(content)) continue;
-
-            var obj = _extractFirstJSON(content);
-            if (obj) {
-                var result = _normaliseUsageObject(obj);
-                if (result) return result;
-            }
+    function parseUsageFromJSON(data) {
+        if (!data || typeof data !== 'object') return null;
+        function parseTier(t) {
+            if (!t) return null;
+            return { utilization: t.utilization || 0, resetsAt: t.resets_at || null };
         }
-
-        var jsonBlobRx = /\{[^{}]{10,}\}/g;
-        var blob;
-        while ((blob = jsonBlobRx.exec(html)) !== null) {
-            if (!keywordRx.test(blob[0])) continue;
-            try {
-                var parsed = JSON.parse(blob[0]);
-                var result2 = _normaliseUsageObject(parsed);
-                if (result2) return result2;
-            } catch (e) { /* skip */ }
-        }
-
-        return null;
+        var result = {
+            fiveHour:      parseTier(data.five_hour),
+            sevenDay:      parseTier(data.seven_day),
+            sevenDaySonnet: parseTier(data.seven_day_sonnet)
+        };
+        // Return null if all tiers are missing
+        if (!result.fiveHour && !result.sevenDay && !result.sevenDaySonnet) return null;
+        return result;
     }
 
-    function _extractFirstJSON(str) {
-        var depth  = 0;
-        var start  = -1;
-        for (var i = 0; i < str.length; i++) {
-            if (str[i] === '{') {
-                if (depth === 0) start = i;
-                depth++;
-            } else if (str[i] === '}') {
-                depth--;
-                if (depth === 0 && start !== -1) {
-                    try {
-                        return JSON.parse(str.slice(start, i + 1));
-                    } catch (e) {
-                        start = -1;
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    function _normaliseUsageObject(obj) {
-        if (!obj || typeof obj !== 'object') return null;
-
-        if (obj.five_hour_usage !== undefined || obj.fiveHourUsage !== undefined) {
-            var fh = obj.five_hour_usage  || obj.fiveHourUsage  || {};
-            var sd = obj.seven_day_usage  || obj.sevenDayUsage  || {};
-            var ss = obj.seven_day_sonnet_usage || obj.sevenDaySonnetUsage || {};
-            return {
-                fiveHour: {
-                    used:     fh.messages_used   || fh.used  || 0,
-                    limit:    fh.messages_limit  || fh.limit || 0,
-                    resetsAt: fh.resets_at       || fh.resetsAt || null
-                },
-                sevenDay: {
-                    used:     sd.messages_used   || sd.used  || 0,
-                    limit:    sd.messages_limit  || sd.limit || 0,
-                    resetsAt: sd.resets_at       || sd.resetsAt || null
-                },
-                sevenDaySonnet: {
-                    used:     ss.messages_used   || ss.used  || 0,
-                    limit:    ss.messages_limit  || ss.limit || 0,
-                    resetsAt: ss.resets_at       || ss.resetsAt || null
-                }
-            };
-        }
-
-        if (obj.data && typeof obj.data === 'object') {
-            return _normaliseUsageObject(obj.data);
-        }
-
-        return null;
-    }
 
     function renderUsageBars(container, data) {
         if (!container) return;
@@ -1664,9 +1621,9 @@
         for (var i = 0; i < bars.length; i++) {
             var bar  = bars[i];
             var tier = bar.tier;
-            if (!tier || tier.limit === 0) continue;
+            if (!tier) continue;
 
-            var pct   = Math.min(100, Math.round((tier.used / tier.limit) * 100));
+            var pct   = Math.min(100, tier.utilization || 0);
             var color = getBarColor(pct);
             var reset = tier.resetsAt ? formatResetTime(tier.resetsAt) : '';
 
@@ -1674,7 +1631,7 @@
             labelLeft.textContent = bar.label;
 
             var labelRight = document.createElement('span');
-            labelRight.textContent = tier.used + ' / ' + tier.limit +
+            labelRight.textContent = pct + '% used' +
                                      (reset ? ' \u00b7 ' + reset : '');
 
             var labelRow = document.createElement('div');
@@ -2319,6 +2276,16 @@
                 var si = document.getElementById('acn-search-input');
                 if (si) si.focus();
             }, 350);
+        }
+        if (fid === 'summary') {
+            setTimeout(function () {
+                var genBtn = document.querySelector('#acn-panel-summary .acn-gen-btn');
+                if (genBtn && !genBtn.dataset.generated) genBtn.click();
+            }, 50);
+        }
+        if (fid === 'tools') {
+            var gallerySection = document.getElementById('acn-gallery-section');
+            if (gallerySection) renderImageGallery(gallerySection);
         }
 
         orbRender();
@@ -3922,7 +3889,6 @@
         var resultsContainer = createElement('div', { className: 'acn-sum-results' });
         scroll.appendChild(resultsContainer);
 
-        var hasGenerated = false;
         genBtn.addEventListener('click', function () {
             genBtn.disabled     = true;
             genBtn.textContent  = i18n('analyzing') || 'Analyzing...';
@@ -3938,13 +3904,9 @@
 
                 renderSummaryResults(resultsContainer, data);
 
-                genBtn.disabled    = false;
-                hasGenerated       = true;
-                genBtn.textContent = i18n('regenerateSummary') || 'Regenerate Summary';
-
-                if (!hasGenerated) {
-                    try { showToast('Summary generated'); } catch (e) {}
-                }
+                genBtn.disabled          = false;
+                genBtn.dataset.generated = 'true';
+                genBtn.textContent       = i18n('regenerateSummary') || 'Regenerate Summary';
             }, 40);
         });
 
@@ -3991,9 +3953,21 @@
 
     function hasContentImage(questionEl) {
         if (!questionEl) return false;
+        // Check inside the element itself
         var imgs = questionEl.querySelectorAll('img');
         for (var i = 0; i < imgs.length; i++) {
             if (isContentImage(imgs[i])) return true;
+        }
+        // Also check broader ancestor context (claude.ai keeps thumbnails in a
+        // sibling div above the user-message, both under a common .group element)
+        if (platform && typeof platform.getMessageContext === 'function') {
+            var ctx = platform.getMessageContext(questionEl);
+            if (ctx && ctx !== questionEl) {
+                var ctxImgs = ctx.querySelectorAll('img');
+                for (var j = 0; j < ctxImgs.length; j++) {
+                    if (isContentImage(ctxImgs[j])) return true;
+                }
+            }
         }
         return false;
     }
@@ -4003,24 +3977,50 @@
         if (typeof platform === 'undefined' || !platform) return allImages;
         var userMsgs = platform.getUserMessages ? Array.from(platform.getUserMessages()) : [];
         var aiMsgs   = platform.getAIMessages   ? Array.from(platform.getAIMessages())   : [];
-        var allMsgs  = userMsgs.concat(aiMsgs);
-        allMsgs.forEach(function (msgEl, idx) {
-            var isUser = userMsgs.indexOf(msgEl) !== -1;
-            var imgs = msgEl.querySelectorAll('img');
+        var seenImgs = [];  // dedup tracker
+
+        // User messages — use broader context if platform provides one
+        // (claude.ai keeps uploaded image thumbnails in a sibling div, not inside user-message)
+        userMsgs.forEach(function (msgEl, idx) {
+            var contextEl = (platform.getMessageContext ? platform.getMessageContext(msgEl) : null) || msgEl;
+            var imgs = contextEl.querySelectorAll('img');
             imgs.forEach(function (img) {
+                if (seenImgs.indexOf(img) !== -1) return;
                 if (!isContentImage(img)) return;
+                seenImgs.push(img);
                 allImages.push({
                     element:    img,
                     src:        img.src,
                     alt:        img.alt || '',
                     msgElement: msgEl,
                     msgIndex:   idx,
-                    isUserMsg:  isUser,
+                    isUserMsg:  true,
                     width:      img.naturalWidth  || img.width  || 0,
                     height:     img.naturalHeight || img.height || 0
                 });
             });
         });
+
+        // AI messages — search inside the message element directly
+        aiMsgs.forEach(function (msgEl, idx) {
+            var imgs = msgEl.querySelectorAll('img');
+            imgs.forEach(function (img) {
+                if (seenImgs.indexOf(img) !== -1) return;
+                if (!isContentImage(img)) return;
+                seenImgs.push(img);
+                allImages.push({
+                    element:    img,
+                    src:        img.src,
+                    alt:        img.alt || '',
+                    msgElement: msgEl,
+                    msgIndex:   userMsgs.length + idx,
+                    isUserMsg:  false,
+                    width:      img.naturalWidth  || img.width  || 0,
+                    height:     img.naturalHeight || img.height || 0
+                });
+            });
+        });
+
         return allImages;
     }
 
@@ -4827,7 +4827,7 @@
         nameInput.type        = 'text';
         nameInput.className   = 'acn-cmd-input';
         nameInput.style.flex  = '1';
-        nameInput.placeholder = 'handoff';
+        nameInput.placeholder = 'e.g. handoff';
         nameInput.maxLength   = 30;
         nameInput.setAttribute('autocomplete', 'off');
         nameInput.setAttribute('spellcheck', 'false');
@@ -4899,6 +4899,7 @@
         // 1. Image Gallery
         var gallerySection = document.createElement('div');
         gallerySection.className = 'acn-tool-section';
+        gallerySection.id = 'acn-gallery-section';
         renderImageGallery(gallerySection);
         scroll.appendChild(gallerySection);
 
