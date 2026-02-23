@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v10.1
+// @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      10.7.5
+// @version      10.7.6
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -2796,7 +2796,7 @@
         var panel = createElement('div', { id: 'acn-panel-nav', className: 'acn-panel' });
         panel.setAttribute('data-acn-role', 'nav-panel');
 
-        panel.appendChild(orbBuildPanelHeader('\u2733 Navigate'));
+        panel.appendChild(orbBuildPanelHeader('\u2733 ' + (i18n('navigate') || 'Navigate')));
 
         // Context bar
         var ctxLabel = createElement('span', { className: 'acn-ctx-l', textContent: 'Context window' });
@@ -2835,7 +2835,7 @@
 
     function orbBuildPanelSearch() {
         var panel = createElement('div', { id: 'acn-panel-search', className: 'acn-panel' });
-        panel.appendChild(orbBuildPanelHeader('\u2315 Search'));
+        panel.appendChild(orbBuildPanelHeader('\u2315 ' + (i18n('search') || 'Search')));
 
         var input = createElement('input', {
             id: 'acn-search-input',
@@ -4894,14 +4894,13 @@
 
     function orbBuildPanelTools() {
         var panel = createElement('div', { id: 'acn-panel-tools', className: 'acn-panel' });
-        panel.appendChild(orbBuildPanelHeader('\uD83D\uDD27 Tools'));
+        panel.appendChild(orbBuildPanelHeader('\uD83D\uDD27 ' + (i18n('tools') || 'Tools')));
         var scroll = createElement('div', { style: 'flex:1;overflow-y:auto' });
 
-        // 1. Image Gallery
+        // 1. Image Gallery — rendered on open by orbOpenPanel, not at injection time
         var gallerySection = document.createElement('div');
         gallerySection.className = 'acn-tool-section';
         gallerySection.id = 'acn-gallery-section';
-        renderImageGallery(gallerySection);
         scroll.appendChild(gallerySection);
 
         // 2. Exports
@@ -5003,12 +5002,18 @@
             var s = loadSettings();
             s.language = langSel.value;
             saveSettings(s);
-            // Update dot labels live without a page reload
+            // Update dot labels and panel headers live without a page reload
             ORB_FEATURES.forEach(function (f) {
                 var dot = document.getElementById('acn-dot-' + f.id);
-                if (!dot) return;
-                var lbl = dot.querySelector('.acn-lbl');
-                if (lbl) lbl.textContent = i18n(f.i18nKey) || f.label;
+                if (dot) {
+                    var lbl = dot.querySelector('.acn-lbl');
+                    if (lbl) lbl.textContent = i18n(f.i18nKey) || f.label;
+                }
+                var panel = document.getElementById('acn-panel-' + f.id);
+                if (panel) {
+                    var h3 = panel.querySelector('.acn-ph h3');
+                    if (h3) h3.textContent = f.icon + ' ' + (i18n(f.i18nKey) || f.label);
+                }
             });
             showToast(i18n('languageChanged'));
         });
