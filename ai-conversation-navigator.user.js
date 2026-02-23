@@ -5179,7 +5179,7 @@
         // Hitzone — captures hover/scroll events
         var hitzone = createElement('div', { id: 'acn-hitzone', className: 'acn-hitzone' });
         zone.appendChild(hitzone);
-        orbUpdateHitzone();
+        // orbUpdateHitzone() called after zone is in DOM (in injectOrbital)
 
         // Wheel/arc hint
         var hint = createElement('div', { id: 'acn-whint', className: 'acn-whint' });
@@ -5350,6 +5350,7 @@
         // Build and append zone
         var zone = orbBuildZone();
         document.body.appendChild(zone);
+        orbUpdateHitzone(); // must run after zone is in DOM so getElementById works
 
         // Build and append panels
         document.body.appendChild(orbBuildPanelNav());
