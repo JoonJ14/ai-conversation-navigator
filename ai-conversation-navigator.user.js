@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator v10.1
 // @namespace    http://tampermonkey.net/
-// @version      10.7.4
+// @version      10.7.5
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -1296,12 +1296,12 @@
 
     // ── Feature registry ────────────────────────────────────────
     var ORB_FEATURES = [
-        { id: 'nav',       icon: '\u2733', label: i18n('navigate')  || 'Navigate',  panelId: 'acn-panel-nav' },
-        { id: 'search',    icon: '\u2315', label: i18n('search')    || 'Search',    panelId: 'acn-panel-search' },
-        { id: 'bookmarks', icon: '\u2691', label: i18n('bookmarks') || 'Bookmarks', panelId: 'acn-panel-bookmarks' },
-        { id: 'summary',   icon: '\u03A3', label: i18n('summary')   || 'Summary',   panelId: 'acn-panel-summary' },
-        { id: 'tools',     icon: '\uD83D\uDD27', label: i18n('tools') || 'Tools',   panelId: 'acn-panel-tools' },
-        { id: 'settings',  icon: '\u2699', label: i18n('settings')  || 'Settings',  panelId: 'acn-panel-settings' },
+        { id: 'nav',       i18nKey: 'navigate',  icon: '\u2733', label: i18n('navigate')  || 'Navigate',  panelId: 'acn-panel-nav' },
+        { id: 'search',    i18nKey: 'search',    icon: '\u2315', label: i18n('search')    || 'Search',    panelId: 'acn-panel-search' },
+        { id: 'bookmarks', i18nKey: 'bookmarks', icon: '\u2691', label: i18n('bookmarks') || 'Bookmarks', panelId: 'acn-panel-bookmarks' },
+        { id: 'summary',   i18nKey: 'summary',   icon: '\u03A3', label: i18n('summary')   || 'Summary',   panelId: 'acn-panel-summary' },
+        { id: 'tools',     i18nKey: 'tools',     icon: '\uD83D\uDD27', label: i18n('tools') || 'Tools',   panelId: 'acn-panel-tools' },
+        { id: 'settings',  i18nKey: 'settings',  icon: '\u2699', label: i18n('settings')  || 'Settings',  panelId: 'acn-panel-settings' },
     ];
     var ORB_N    = ORB_FEATURES.length;  // 6
     var ORB_MAIN = 0;                     // Navigate is always index 0
@@ -4063,6 +4063,7 @@
     }
 
     function renderImageGallery(container) {
+        while (container.firstChild) container.removeChild(container.firstChild);
         var images = getConversationImages();
         var header = document.createElement('div');
         header.className = 'acn-tool-section-header';
@@ -5002,6 +5003,13 @@
             var s = loadSettings();
             s.language = langSel.value;
             saveSettings(s);
+            // Update dot labels live without a page reload
+            ORB_FEATURES.forEach(function (f) {
+                var dot = document.getElementById('acn-dot-' + f.id);
+                if (!dot) return;
+                var lbl = dot.querySelector('.acn-lbl');
+                if (lbl) lbl.textContent = i18n(f.i18nKey) || f.label;
+            });
             showToast(i18n('languageChanged'));
         });
         langGroup.appendChild(createElement('div', { className: 'acn-set-row' }, [
