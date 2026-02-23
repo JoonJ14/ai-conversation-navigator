@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator
+// @name         AI Conversation Navigator v10.7.7
 // @namespace    http://tampermonkey.net/
-// @version      10.7.6
+// @version      10.7.7
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -1102,7 +1102,10 @@
     // Detected questions — consumed by Navigate and Search panels
     var _questions = []; // [{ element, text, summary, vsIndex? }]
     var _vsAccumulatedKeys = new Set();
-    var _navListFingerprint = ''; // used to skip DOM rebuild when questions are unchanged
+    var _navListFingerprint    = ''; // used to skip DOM rebuild when questions are unchanged
+    var _searchListFingerprint = ''; // same guard for search panel
+    var _bmListFingerprint     = ''; // same guard for bookmarks panel
+    var _panelWidth            = 310; // current panel width — persisted in localStorage
 
     // ── Tier 1: Claude SSE exact token state ──────────────────
     var _sseTokenData = {
@@ -1336,15 +1339,17 @@
     function orbLoadSettings() {
         try {
             var saved = JSON.parse(localStorage.getItem('_acnv10') || '{}');
-            orbMode           = saved.mode    || 'show-all';
-            orbScrollInverted = saved.natural === true;
+            orbMode           = saved.mode      || 'show-all';
+            orbScrollInverted = saved.natural   === true;
+            _panelWidth       = saved.panelWidth || 310;
         } catch (e) {}
     }
     function orbSaveSettings() {
         try {
             localStorage.setItem('_acnv10', JSON.stringify({
-                mode:    orbMode,
-                natural: orbScrollInverted,
+                mode:       orbMode,
+                natural:    orbScrollInverted,
+                panelWidth: _panelWidth,
             }));
         } catch (e) {}
     }
@@ -1724,7 +1729,7 @@
         styleEl.textContent = [
             // Zone + hitzone
             '.acn-zone{position:fixed;right:0;top:0;bottom:0;width:160px;z-index:2147483640;pointer-events:none;transition:right .3s cubic-bezier(.4,0,.2,1);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif}',
-            '.acn-zone.acn-hp{right:310px}',
+            '.acn-zone.acn-hp{right:var(--acn-panel-w,310px)}',
             '.acn-hitzone{position:absolute;right:0;z-index:1;pointer-events:auto}',
 
             // Dots — critical: fast opacity, slow position
@@ -1775,13 +1780,18 @@
             '.acn-whint span{display:block;animation:acn-bounce 1.5s ease-in-out infinite}',
 
             // Panel — slides from right
-            '.acn-panel{position:fixed;right:0;top:0;bottom:0;width:310px;',
+            '.acn-panel{position:fixed;right:0;top:0;bottom:0;width:var(--acn-panel-w,310px);',
             'background:#1a1a1a;border-left:1px solid #2a2a2a;',
             'transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);',
             'display:flex;flex-direction:column;overflow:hidden;',
             'z-index:2147483641;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif;',
             'color:#e5e5e5;user-select:none}',
             '.acn-panel.acn-open{transform:translateX(0)}',
+
+            // Panel resize handle (left edge drag)
+            '.acn-resize-handle{position:absolute;left:0;top:0;bottom:0;width:6px;cursor:ew-resize;',
+            'z-index:10;transition:background .15s}',
+            '.acn-resize-handle:hover,.acn-resize-handle.acn-resizing{background:rgba(255,255,255,.15)}',
 
             // Panel header
             '.acn-ph{padding:12px 14px;display:flex;justify-content:space-between;',
@@ -2222,7 +2232,7 @@
 
         var base = window.innerWidth - _lastBoundaryX;
         // Zone shifts left by panel width when panel is open (mirrors .acn-zone.acn-hp)
-        zone.style.right = (base + (orbPanel ? 310 : 0)) + 'px';
+        zone.style.right = (base + (orbPanel ? _panelWidth : 0)) + 'px';
 
         // Position all panels to open from the chat boundary
         document.querySelectorAll('.acn-panel').forEach(function (p) {
@@ -2639,9 +2649,17 @@
         var hint = document.getElementById('acn-search-hint');
         if (!list) return;
 
-        while (list.firstChild) list.removeChild(list.firstChild);
-
         var q = (query || '').trim();
+
+        // Skip DOM teardown+rebuild if query and data are unchanged — prevents hover
+        // flicker caused by MutationObserver firing orbOnScanComplete every ~500ms
+        if (q) {
+            var sfp = q + '|' + _questions.length + '|' + (_aiResponses ? _aiResponses.length : 0);
+            if (sfp === _searchListFingerprint && list.firstChild) return;
+            _searchListFingerprint = sfp;
+        }
+
+        while (list.firstChild) list.removeChild(list.firstChild);
 
         if (!q) {
             if (hint) {
@@ -3071,11 +3089,17 @@
         var panel = document.getElementById('acn-panel-bookmarks');
         if (!panel) return;
 
+        var bookmarks = getConversationBookmarks();
+
+        // Skip DOM teardown+rebuild if bookmarks unchanged — prevents hover flicker
+        // caused by MutationObserver firing orbOnScanComplete every ~500ms
+        var bfp = bookmarks.map(function (b) { return b.id; }).join('|');
+        if (bfp === _bmListFingerprint && panel.children.length > 1) return;
+        _bmListFingerprint = bfp;
+
         while (panel.children.length > 1) {
             panel.removeChild(panel.lastChild);
         }
-
-        var bookmarks = getConversationBookmarks();
 
         if (bookmarks.length === 0) {
             var empty = createElement('div', {
@@ -4245,6 +4269,7 @@
     }
 
     function exportFullConversation() {
+        try {
         var questions = typeof _questions !== 'undefined' ? _questions : [];
         var aiMsgsArr = [];
         if (typeof platform !== 'undefined' && platform && platform.getAIMessages) {
@@ -4252,6 +4277,7 @@
         } else if (typeof getAIMessages === 'function') {
             aiMsgsArr = Array.from(getAIMessages());
         }
+        if (typeof showToast === 'function') showToast('Exporting ' + (questions.length + aiMsgsArr.length) + ' messages\u2026');
         var timeline = buildTimeline(questions, aiMsgsArr);
         var platformTitle = (typeof platform !== 'undefined' && platform && platform.title)
             ? platform.title : window.location.hostname;
@@ -4281,7 +4307,11 @@
             lines.push('---');
         });
         downloadFile('conversation-export.md', lines.join('\n'));
-        if (typeof showToast === 'function') showToast('Conversation exported');
+        if (typeof showToast === 'function') showToast('Saved: conversation-export.md');
+        } catch (err) {
+            console.error('[ACN] exportFullConversation failed:', err);
+            if (typeof showToast === 'function') showToast('Export failed — see console');
+        }
     }
 
     function exportBookmarks() {
@@ -4578,9 +4608,10 @@
     }
 
     // /Commands — floating palette
-    var _paletteOpen     = false;
-    var _paletteSelIdx   = -1;
-    var _paletteFiltered = [];
+    var _paletteOpen           = false;
+    var _paletteSelIdx         = -1;
+    var _paletteFiltered       = [];
+    var _paletteInputTriggered = false; // true when palette opened by typing /cmd in chat
 
     function isPaletteOpen() { return _paletteOpen; }
 
@@ -4588,7 +4619,7 @@
         if (_paletteOpen) { closeCommandPalette(); } else { openCommandPalette(); }
     }
 
-    function openCommandPalette() {
+    function openCommandPalette(initialQuery) {
         if (_paletteOpen) return;
         _paletteOpen   = true;
         _paletteSelIdx = -1;
@@ -4599,22 +4630,24 @@
         overlay.setAttribute('aria-modal', 'true');
         overlay.setAttribute('aria-label', 'Command palette');
         overlay.addEventListener('click', function (e) {
-            if (e.target === overlay) closeCommandPalette();
+            if (e.target === overlay) { _paletteInputTriggered = false; closeCommandPalette(); }
         });
         var palette = document.createElement('div');
         palette.className = 'acn-palette';
         var input = document.createElement('input');
         input.className   = 'acn-palette-input';
+        input.id          = 'acn-palette-input';
         input.type        = 'text';
         input.placeholder = 'Search commands\u2026';
         input.setAttribute('aria-label', 'Search commands');
         input.setAttribute('autocomplete', 'off');
         input.setAttribute('spellcheck', 'false');
+        if (initialQuery) input.value = initialQuery;
         var list = document.createElement('div');
         list.className = 'acn-palette-list';
         list.id        = 'acn-palette-list';
         list.setAttribute('role', 'listbox');
-        _refreshPaletteList(list, '');
+        _refreshPaletteList(list, initialQuery || '');
         input.addEventListener('input', function () {
             _paletteSelIdx = -1;
             _refreshPaletteList(list, input.value);
@@ -4623,13 +4656,17 @@
         palette.appendChild(list);
         overlay.appendChild(palette);
         document.body.appendChild(overlay);
-        setTimeout(function () { input.focus(); }, 20);
+        // Don't steal focus from chat input when palette opened by /cmd typing
+        if (!_paletteInputTriggered) {
+            setTimeout(function () { input.focus(); }, 20);
+        }
     }
 
     function closeCommandPalette() {
-        _paletteOpen     = false;
-        _paletteSelIdx   = -1;
-        _paletteFiltered = [];
+        _paletteOpen           = false;
+        _paletteSelIdx         = -1;
+        _paletteFiltered       = [];
+        _paletteInputTriggered = false;
         var overlay = document.getElementById('acn-palette-overlay');
         if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
     }
@@ -5368,6 +5405,9 @@
         document.body.appendChild(zone);
         orbUpdateHitzone(); // must run after zone is in DOM so getElementById works
 
+        // Apply saved panel width via CSS variable (before panels are built)
+        document.documentElement.style.setProperty('--acn-panel-w', _panelWidth + 'px');
+
         // Build and append panels
         document.body.appendChild(orbBuildPanelNav());
         document.body.appendChild(orbBuildPanelSearch());
@@ -5375,6 +5415,12 @@
         document.body.appendChild(orbBuildPanelSummary());
         document.body.appendChild(orbBuildPanelTools());
         document.body.appendChild(orbBuildPanelSettings());
+
+        // Add resize handle to each panel
+        addPanelResizeHandles();
+
+        // Set up /cmd typing detection in the chat input
+        setTimeout(setupChatInputSlashDetection, 1500);
 
         // For left-chat: initially hidden until boundary is detected
         if (isLeftChat) {
@@ -5661,11 +5707,88 @@
     }
 
     // ============================================================
+    // E3: Slash command detection — open palette when /cmd typed in chat
+    // ============================================================
+    function setupChatInputSlashDetection() {
+        var lastInputEl = null;
+        function tryAttach() {
+            var el = findChatInput();
+            if (!el || el === lastInputEl) return;
+            lastInputEl = el;
+            el.addEventListener('input', function () {
+                var text = (el.value !== undefined ? el.value : el.textContent || '').trim();
+                if (text.charAt(0) === '/' && text.length > 1 && text.indexOf(' ') === -1) {
+                    var query = text.substring(1);
+                    var cmds  = loadCommands();
+                    var hasMatch = cmds.some(function (c) { return c.name.indexOf(query) === 0; });
+                    if (hasMatch) {
+                        if (!isPaletteOpen()) {
+                            _paletteInputTriggered = true;
+                            openCommandPalette(query);
+                        } else if (_paletteInputTriggered) {
+                            // Update live filter as user keeps typing
+                            var pi = document.getElementById('acn-palette-input');
+                            if (pi && pi.value !== query) {
+                                pi.value = query;
+                                pi.dispatchEvent(new Event('input'));
+                            }
+                        }
+                    } else if (_paletteInputTriggered && isPaletteOpen()) {
+                        closeCommandPalette();
+                    }
+                } else if (_paletteInputTriggered && isPaletteOpen()) {
+                    closeCommandPalette();
+                }
+            });
+        }
+        tryAttach();
+        setInterval(tryAttach, 2000); // re-attach after SPA navigation replaces input
+    }
+
+    // ============================================================
+    // E4: Panel resize handle — drag left edge to widen/narrow
+    // ============================================================
+    function addPanelResizeHandles() {
+        var ACN_MIN_W = 240;
+        var ACN_MAX_W = 640;
+        document.querySelectorAll('.acn-panel').forEach(function (panel) {
+            var handle = createElement('div', { className: 'acn-resize-handle' });
+            handle.addEventListener('mousedown', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                handle.classList.add('acn-resizing');
+                var prevCursor  = document.body.style.cursor;
+                var prevSelect  = document.body.style.userSelect;
+                document.body.style.cursor     = 'ew-resize';
+                document.body.style.userSelect = 'none';
+                function onMove(ev) {
+                    var newW = Math.max(ACN_MIN_W, Math.min(ACN_MAX_W, window.innerWidth - ev.clientX));
+                    _panelWidth = newW;
+                    document.documentElement.style.setProperty('--acn-panel-w', newW + 'px');
+                    if (isLeftChat && orbPanel) orbApplyZonePosition();
+                }
+                function onUp() {
+                    handle.classList.remove('acn-resizing');
+                    document.body.style.cursor     = prevCursor;
+                    document.body.style.userSelect = prevSelect;
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup',   onUp);
+                    orbSaveSettings();
+                }
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup',   onUp);
+            });
+            panel.appendChild(handle);
+        });
+    }
+
+    // ============================================================
     // E2: Keyboard listener — Ctrl+/ toggles command palette
     // ============================================================
     document.addEventListener('keydown', function (e) {
         if ((e.ctrlKey || e.metaKey) && e.key === '/') {
             e.preventDefault();
+            _paletteInputTriggered = false; // Ctrl+/ always uses focused palette
             toggleCommandPalette();
             return;
         }
