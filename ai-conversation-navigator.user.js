@@ -369,7 +369,7 @@
             id: 'v0',
             title: 'V0',
             match: function (host) { return host.includes('v0.app'); },
-            theme: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)' },
+            theme: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)', textColor: '#000', toggleBorder: '1px solid rgba(0,0,0,0.2)' },
             icon: '\u25BD',
             layout: 'left-chat',
             virtualScroll: false,
@@ -840,7 +840,7 @@
             _origPushState.apply(this, arguments);
             if (isVirtualScroll) _vsAccumulatedKeys.clear();
             _questions = [];
-            orbClosePanel();
+            if (typeof orbClosePanel === 'function') orbClosePanel();
             setTimeout(scanConversation, 500);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         };
@@ -855,7 +855,7 @@
         window.addEventListener('popstate', function () {
             if (isVirtualScroll) _vsAccumulatedKeys.clear();
             _questions = [];
-            orbClosePanel();
+            if (typeof orbClosePanel === 'function') orbClosePanel();
             setTimeout(scanConversation, 500);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         });
@@ -922,6 +922,15 @@
     var ORB_MAIN = 0;                     // Navigate is always index 0
     var ORB_CX   = 42;                    // center axis from right edge (px)
 
+    // Context window token limits per platform (for usage bar estimation)
+    var CTX_LIMITS = {
+        claude:     200000,
+        chatgpt:    128000,
+        grok:       131072,
+        gemini:     1000000,
+        perplexity: 127072,
+    };
+
     // ── Orbital state ───────────────────────────────────────────
     var orbMode      = 'show-all'; // 'show-all' | 'arc' | 'wheel'
     var orbPanel     = null;       // open panel feature id, or null
@@ -969,7 +978,7 @@
         // CSS uses var(--acn-accent) and rgba(var(--acn-rgb), alpha) set on the zone
         styleEl.textContent = [
             // Zone + hitzone
-            '.acn-zone{position:fixed;right:0;top:0;bottom:0;width:160px;z-index:2147483640;transition:right .3s cubic-bezier(.4,0,.2,1)}',
+            '.acn-zone{position:fixed;right:0;top:0;bottom:0;width:160px;z-index:2147483640;transition:right .3s cubic-bezier(.4,0,.2,1);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif}',
             '.acn-zone.acn-hp{right:310px}',
             '.acn-hitzone{position:absolute;right:0;top:0;bottom:0;width:160px;z-index:1}',
 
@@ -986,12 +995,17 @@
             '.acn-dot:hover{filter:brightness(1.3);z-index:20}',
             '.acn-dot.acn-act{box-shadow:0 0 16px rgba(var(--acn-rgb),.5)!important}',
 
-            // Hover label
-            '.acn-lbl{position:absolute;right:calc(100% + 10px);font-size:10px;font-weight:600;',
+            // Hover label — default: appears to the LEFT of the dot
+            '.acn-lbl{position:absolute;right:calc(100% + 10px);font-size:12px;font-weight:600;',
             'color:var(--acn-accent);white-space:nowrap;opacity:0;',
             'transition:opacity .15s,transform .15s;transform:translateX(4px);',
             'pointer-events:none}',
             '.acn-dot:hover .acn-lbl,.acn-dot.acn-act .acn-lbl{opacity:1;transform:translateX(0)}',
+            // Arc mode: labels appear BELOW the dot to avoid overlapping adjacent dots
+            '#acn-zone[data-acn-mode="arc"] .acn-lbl{right:auto;left:50%;top:calc(100% + 5px);',
+            'transform:translateX(-50%) translateY(-4px);text-align:center}',
+            '#acn-zone[data-acn-mode="arc"] .acn-dot:hover .acn-lbl,',
+            '#acn-zone[data-acn-mode="arc"] .acn-dot.acn-act .acn-lbl{opacity:1;transform:translateX(-50%) translateY(0)}',
             // ChatGPT: button is light, icon must stay black in both modes; label is black light / white dark
             '#acn-zone[data-acn-platform="chatgpt"] .acn-dot{color:#000}',
             '#acn-zone[data-acn-platform="chatgpt"] .acn-lbl{color:#000}',
@@ -1009,7 +1023,7 @@
             '.acn-conn.acn-vis{opacity:1}',
 
             // Wheel hint
-            '.acn-whint{position:absolute;right:18px;font-size:9px;color:#555;text-align:center;',
+            '.acn-whint{position:absolute;right:18px;font-size:11px;color:#555;text-align:center;',
             'width:36px;pointer-events:none;opacity:0;transition:opacity .3s}',
             '.acn-whint.acn-vis{opacity:1}',
             '@keyframes acn-bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(3px)}}',
@@ -1020,49 +1034,49 @@
             'background:#1a1a1a;border-left:1px solid #2a2a2a;',
             'transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);',
             'display:flex;flex-direction:column;overflow:hidden;',
-            'z-index:2147483639;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;',
+            'z-index:2147483641;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif;',
             'color:#e5e5e5;user-select:none}',
             '.acn-panel.acn-open{transform:translateX(0)}',
 
             // Panel header
             '.acn-ph{padding:12px 14px;display:flex;justify-content:space-between;',
             'align-items:center;border-bottom:1px solid #2a2a2a;flex-shrink:0}',
-            '.acn-ph h3{font-size:13px;font-weight:600;margin:0;color:#fff}',
-            '.acn-xb{font-size:10px;background:rgba(255,255,255,.06);border:none;color:#888;',
+            '.acn-ph h3{font-size:15px;font-weight:600;margin:0;color:#fff}',
+            '.acn-xb{font-size:12px;background:rgba(255,255,255,.06);border:none;color:#888;',
             'padding:4px 10px;border-radius:5px;cursor:pointer;font-family:inherit}',
             '.acn-xb:hover{background:rgba(255,255,255,.12);color:#ccc}',
 
             // Context bar (Navigate panel)
             '.acn-ctx{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0}',
             '.acn-ctx-r{display:flex;justify-content:space-between;margin-bottom:5px}',
-            '.acn-ctx-l{font-size:9px;color:#555;text-transform:uppercase;letter-spacing:.5px;font-weight:500}',
-            '.acn-ctx-pct{font-family:monospace;font-size:10px;font-weight:600}',
+            '.acn-ctx-l{font-size:10px;color:#777;text-transform:uppercase;letter-spacing:.5px;font-weight:500}',
+            '.acn-ctx-pct{font-family:monospace;font-size:12px;font-weight:600}',
             '.acn-ctx-bar{height:4px;background:#222;border-radius:2px;overflow:hidden}',
             '.acn-ctx-fill{height:100%;border-radius:2px;transition:width .5s,background .5s}',
-            '.acn-ctx-meta{font-size:8px;color:#444;margin-top:3px}',
+            '.acn-ctx-meta{font-size:10px;color:#666;margin-top:3px}',
 
             // Stats + question list
-            '.acn-pstat{padding:7px 14px;font-size:10px;color:#777;',
+            '.acn-pstat{padding:7px 14px;font-size:12px;color:#777;',
             'border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0}',
             '.acn-ql{flex:1;overflow-y:auto;padding:2px 0}',
             '.acn-ql::-webkit-scrollbar{width:4px}',
             '.acn-ql::-webkit-scrollbar-track{background:transparent}',
             '.acn-ql::-webkit-scrollbar-thumb{background:#333;border-radius:2px}',
-            '.acn-qi{padding:9px 14px;border-left:2px solid transparent;cursor:pointer;transition:all .12s}',
+            '.acn-qi{padding:9px 14px;border-left:2px solid rgba(var(--acn-rgb),.25);cursor:pointer;transition:all .12s}',
             '.acn-qi:hover{background:rgba(var(--acn-rgb),.06);border-left-color:var(--acn-accent)}',
-            '.acn-qn{font-size:9px;font-weight:600;color:var(--acn-accent);margin-bottom:2px}',
-            '.acn-qt{font-size:11px;color:#999;line-height:1.35;',
+            '.acn-qn{font-size:11px;font-weight:600;color:var(--acn-accent);margin-bottom:2px}',
+            '.acn-qt{font-size:13px;color:#ddd;line-height:1.35;',
             'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
-            '.acn-qw{font-size:9px;color:#444;margin-top:2px}',
-            '.acn-empty{padding:40px 14px;text-align:center;font-size:11px;color:#555;line-height:1.6}',
+            '.acn-qw{font-size:11px;color:#666;margin-top:2px}',
+            '.acn-empty{padding:40px 14px;text-align:center;font-size:13px;color:#555;line-height:1.6}',
 
             // Search input
             '.acn-search-wrap{padding:14px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0}',
             '.acn-si{width:100%;padding:9px 11px;background:#222;border:1px solid #333;',
-            'border-radius:7px;color:#ddd;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box}',
+            'border-radius:7px;color:#ddd;font-size:14px;font-family:inherit;outline:none;box-sizing:border-box}',
             '.acn-si:focus{border-color:var(--acn-accent)}',
             '.acn-si::placeholder{color:#555}',
-            '.acn-sh{margin-top:8px;font-size:10px;color:#444;text-align:center}',
+            '.acn-sh{margin-top:8px;font-size:12px;color:#444;text-align:center}',
             '.acn-smatch{background:rgba(var(--acn-rgb),.2);color:var(--acn-accent);',
             'border-radius:2px;padding:0 2px;font-weight:600}',
 
@@ -1117,9 +1131,9 @@
             'flex-shrink:0;margin-left:10px}',
             '.acn-plat-row{display:flex;align-items:center;gap:8px;padding:5px 0}',
             '.acn-plat-icon{font-size:14px;width:22px;text-align:center}',
-            '.acn-plat-name{font-size:11px;color:#aaa;flex:1}',
+            '.acn-plat-name{font-size:13px;color:#aaa;flex:1}',
             '.acn-reset-btn{width:100%;padding:10px;background:rgba(239,68,68,.08);',
-            'border:1px solid rgba(239,68,68,.2);border-radius:7px;color:#ef4444;font-size:11px;',
+            'border:1px solid rgba(239,68,68,.2);border-radius:7px;color:#ef4444;font-size:13px;',
             'font-weight:600;font-family:inherit;cursor:pointer;margin-top:4px}',
             '.acn-reset-btn:hover{background:rgba(239,68,68,.15)}',
         ].join('');
@@ -1149,6 +1163,9 @@
         var zone = document.getElementById('acn-zone');
         if (!zone) return;
 
+        // Keep data-acn-mode in sync so CSS can target arc/wheel/show-all label positions
+        zone.setAttribute('data-acn-mode', orbMode);
+
         var cy   = window.innerHeight / 2;
         var show = orbHovering || orbPanel !== null;
 
@@ -1172,7 +1189,7 @@
     // Navigate at center, satellites above and below in a column.
     // ALL buttons share the same platform color — equal brightness.
     function orbRenderShowAll(cy, show) {
-        var sp = 42;
+        var sp = 48;
         // Compute above/below split dynamically from ORB_N
         var nSats  = ORB_N - 1;
         var nAbove = Math.floor(nSats / 2);
@@ -1183,9 +1200,9 @@
         // Navigate — always visible, rounded square
         orbDots[ORB_MAIN].style.background = orbTheme.bg;
         orbSd(orbDots[ORB_MAIN], {
-            w: 42, h: 42, fs: 17,
-            right: ORB_CX - 21, top: cy - 21,
-            rad: '13px', op: 1, click: true, shad: true,
+            w: 48, h: 48, fs: 20,
+            right: ORB_CX - 24, top: cy - 24,
+            rad: '14px', op: 1, click: true, shad: true,
         });
 
         // Satellites — same platform color, circles, fade on hover
@@ -1193,8 +1210,8 @@
             orbDots[idx].style.background = orbTheme.bg;
             var y = cy - (i + 1) * sp;
             orbSd(orbDots[idx], {
-                w: 28, h: 28, fs: 12,
-                right: ORB_CX - 14, top: y - 14,
+                w: 32, h: 32, fs: 14,
+                right: ORB_CX - 16, top: y - 16,
                 rad: '50%', op: show ? 1 : 0, click: show, shad: false,
             });
         });
@@ -1203,8 +1220,8 @@
             orbDots[idx].style.background = orbTheme.bg;
             var y = cy + (i + 1) * sp;
             orbSd(orbDots[idx], {
-                w: 28, h: 28, fs: 12,
-                right: ORB_CX - 14, top: y - 14,
+                w: 32, h: 32, fs: 14,
+                right: ORB_CX - 16, top: y - 16,
                 rad: '50%', op: show ? 1 : 0, click: show, shad: false,
             });
         });
@@ -1229,25 +1246,25 @@
     // Navigate at center. Satellites form a regular polygon.
     // Scrolling rotates which satellite is at focus (angle 0 = left of center).
     var ARC_RULES = [
-        { op: 1.0,  size: 30, fs: 13 },  // slot 0: focus
-        { op: 0.65, size: 26, fs: 11 },  // slot ±1: adjacent
-        { op: 0.40, size: 22, fs: 10 },  // slot ±2: far
-        { op: 0.25, size: 20, fs: 9  },  // slot ±3+: distant
+        { op: 1.0,  size: 34, fs: 15 },  // slot 0: focus
+        { op: 0.65, size: 30, fs: 13 },  // slot ±1: adjacent
+        { op: 0.40, size: 25, fs: 11 },  // slot ±2: far
+        { op: 0.25, size: 22, fs: 10 },  // slot ±3+: distant
     ];
 
     function orbRenderArc(cy, show) {
         // Navigate — always at center
         orbDots[ORB_MAIN].style.background = orbTheme.bg;
         orbSd(orbDots[ORB_MAIN], {
-            w: 42, h: 42, fs: 17,
-            right: ORB_CX - 21, top: cy - 21,
-            rad: '13px', op: 1, click: true, shad: true,
+            w: 48, h: 48, fs: 20,
+            right: ORB_CX - 24, top: cy - 24,
+            rad: '14px', op: 1, click: true, shad: true,
         });
 
         var sats   = [];
         for (var i = 0; i < ORB_N; i++) { if (i !== ORB_MAIN) sats.push(i); }
         var nS     = sats.length;
-        var radius = 76;
+        var radius = 88;
 
         sats.forEach(function (featIdx, satI) {
             orbDots[featIdx].style.background = orbTheme.bg;
@@ -1282,16 +1299,16 @@
     // Vertical conveyor belt. ALL buttons share strict slot rules.
     // Navigate gets a small brightness boost but obeys same rules.
     var WHEEL_RULES = [
-        { size: 42, fs: 17, op: 1.0  },  // slot 0: center (active)
-        { size: 28, fs: 12, op: 0.50 },  // slot ±1: adjacent
-        { size: 20, fs: 9,  op: 0.18 },  // slot ±2: far
+        { size: 48, fs: 20, op: 1.0  },  // slot 0: center (active)
+        { size: 32, fs: 14, op: 0.50 },  // slot ±1: adjacent
+        { size: 22, fs: 10, op: 0.18 },  // slot ±2: far
         // slot ±3+: invisible
     ];
-    var WHEEL_HIDDEN = { size: 14, fs: 7, op: 0 };
+    var WHEEL_HIDDEN = { size: 16, fs: 8, op: 0 };
     var NAV_BOOST    = 0.15;  // additive opacity for Navigate when off-center
 
     function orbRenderWheel(cy, show) {
-        var sp = 48;
+        var sp = 54;
 
         orbDots.forEach(function (dot, i) {
             dot.style.background = orbTheme.bg;
@@ -1339,7 +1356,7 @@
         orbSd(dot, {
             w: rule.size, h: rule.size, fs: rule.fs,
             right: ORB_CX - rule.size / 2, top: y - rule.size / 2,
-            rad: isCenter ? '13px' : '50%',
+            rad: isCenter ? '14px' : '50%',
             op: finalOp,
             click: show && op > 0.05,
             shad: isCenter,
@@ -1488,6 +1505,64 @@
 
             list.appendChild(item);
         });
+
+        orbUpdateContextBar();
+    }
+
+    // Estimate context usage by reading the full conversation container (user + AI text)
+    function orbUpdateContextBar() {
+        var pct  = document.getElementById('acn-ctx-pct');
+        var fill = document.getElementById('acn-ctx-fill');
+        var meta = document.getElementById('acn-ctx-meta');
+        if (!pct || !fill) return;
+
+        if (_questions.length === 0) {
+            pct.textContent  = '—';
+            pct.style.color  = '';
+            fill.style.width = '0%';
+            if (meta) meta.textContent = 'No messages detected';
+            return;
+        }
+
+        // Walk up from a known user message element to the first scrollable container.
+        // That container holds the entire conversation (user + AI), so innerText gives
+        // us the real total rather than a guess based on user messages only.
+        var totalChars = 0;
+        var anchor = _questions[0].element;
+        var node   = anchor ? anchor.parentElement : null;
+        var found  = false;
+
+        while (node && node !== document.body) {
+            var st = window.getComputedStyle(node);
+            if (st.overflowY === 'auto' || st.overflowY === 'scroll' ||
+                st.overflow  === 'auto' || st.overflow  === 'scroll') {
+                totalChars = (node.innerText || '').length;
+                found = true;
+                break;
+            }
+            node = node.parentElement;
+        }
+
+        if (!found || totalChars === 0) {
+            // Fallback: user chars × 3 to roughly account for AI responses
+            totalChars = _questions.reduce(function (s, q) { return s + q.text.length; }, 0) * 3;
+        }
+
+        var estTokens = Math.round(totalChars / 4);
+        var limit     = CTX_LIMITS[platform.id] || 128000;
+        var pctNum    = Math.min(100, Math.round((estTokens / limit) * 100));
+
+        var color = pctNum < 50 ? '#22c55e' : pctNum < 75 ? '#f59e0b' : '#ef4444';
+        pct.textContent  = pctNum + '%';
+        pct.style.color  = color;
+        fill.style.width = pctNum + '%';
+        fill.style.background = color;
+
+        if (meta) {
+            var kEst   = (estTokens / 1000).toFixed(1);
+            var kLimit = Math.round(limit / 1000);
+            meta.textContent = '~' + kEst + 'K / ' + kLimit + 'K tokens (estimated)';
+        }
     }
 
     function orbScrollToQuestion(q) {
@@ -2017,7 +2092,10 @@
         var btnRight    = (window.innerWidth - _lastBoundaryX + offset) + 'px';
         if (container) {
             container.style.display = '';
-            container.style.right   = btnRight;
+            // If panel is open (isLeftChat mode), keep button flush with panel's left edge
+            // No scrollbarOffset when open — the button is at the panel edge, not the chat boundary
+            var panelOpen = isLeftChat && container.classList.contains('open');
+            container.style.right   = panelOpen ? (window.innerWidth - _lastBoundaryX + 320) + 'px' : btnRight;
             // Fade in on first detection
             setTimeout(function () { if (container) container.classList.add('ai-nav-positioned'); }, 300);
         }
@@ -2038,7 +2116,7 @@
         var buttonCSS = isLeftChat ? (
             '#ai-nav-button-container{position:fixed!important;left:auto!important;right:65%;top:50%!important;transform:translateY(-50%)!important;z-index:2147483647!important;display:flex!important;flex-direction:column!important;gap:2px!important;pointer-events:none!important;transition:right 0.3s ease!important;}' +
             '#ai-nav-button-container.open{pointer-events:auto!important;}' +
-            '.ai-nav-floating-btn{background:' + theme.accent + '!important;color:' + (theme.textColor || '#fff') + '!important;border:none!important;cursor:pointer!important;border-radius:6px 0 0 6px!important;box-shadow:-2px 0 8px rgba(0,0,0,.3)!important;display:flex!important;align-items:center!important;justify-content:center!important;width:14px!important;height:52px!important;padding:0!important;font-weight:800!important;font-size:20px!important;overflow:hidden!important;transition:width .3s cubic-bezier(.4,0,.2,1),height .3s cubic-bezier(.4,0,.2,1),opacity .3s ease!important;white-space:nowrap!important;opacity:0!important;pointer-events:auto!important;position:relative!important;}' +
+            '.ai-nav-floating-btn{background:' + theme.accent + '!important;color:' + (theme.textColor || '#fff') + '!important;border:' + (theme.toggleBorder || 'none') + '!important;cursor:pointer!important;border-radius:6px 0 0 6px!important;box-shadow:-2px 0 8px rgba(0,0,0,.3)!important;display:flex!important;align-items:center!important;justify-content:center!important;width:14px!important;height:52px!important;padding:0!important;font-weight:800!important;font-size:20px!important;overflow:hidden!important;transition:width .3s cubic-bezier(.4,0,.2,1),height .3s cubic-bezier(.4,0,.2,1),opacity .3s ease!important;white-space:nowrap!important;opacity:0!important;pointer-events:auto!important;position:relative!important;}' +
             '.ai-nav-floating-btn .ai-nav-icon{font-size:14px!important;opacity:0!important;transform:scale(.6)!important;transition:opacity .25s ease .05s,transform .25s ease .05s!important;}' +
             '.ai-nav-floating-btn .ai-nav-expand-text{display:none!important;}' +
             '#ai-nav-button-container.ai-nav-positioned .ai-nav-floating-btn{opacity:0.65!important;}' +
@@ -2056,10 +2134,10 @@
             '.ai-nav-floating-btn.open{background:' + theme.accentHover + '!important;}'
         );
         var panelCSS = isLeftChat ? (
-            '#ai-nav-panel{position:fixed!important;left:auto!important;right:65%;top:0!important;width:320px!important;height:100vh!important;background:#1a1a1a!important;border-right:1px solid #333!important;z-index:2147483646!important;clip-path:inset(0 0 0 100%)!important;transition:clip-path .3s ease!important;display:flex!important;flex-direction:column!important;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif!important;pointer-events:none!important;}' +
+            '#ai-nav-panel{position:fixed!important;left:auto!important;right:65%;top:0!important;width:320px!important;height:100vh!important;background:#1a1a1a!important;border-right:1px solid #333!important;z-index:2147483646!important;clip-path:inset(0 0 0 100%)!important;transition:clip-path .3s ease!important;display:flex!important;flex-direction:column!important;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif!important;pointer-events:none!important;}' +
             '#ai-nav-panel.open{clip-path:inset(0 0 0 0)!important;pointer-events:auto!important;}'
         ) : (
-            '#ai-nav-panel{position:fixed!important;right:-320px!important;top:0!important;width:320px!important;height:100vh!important;background:#1a1a1a!important;border-left:1px solid #333!important;z-index:2147483646!important;transition:right .3s ease!important;display:flex!important;flex-direction:column!important;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif!important;}' +
+            '#ai-nav-panel{position:fixed!important;right:-320px!important;top:0!important;width:320px!important;height:100vh!important;background:#1a1a1a!important;border-left:1px solid #333!important;z-index:2147483646!important;transition:right .3s ease!important;display:flex!important;flex-direction:column!important;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif!important;}' +
             '#ai-nav-panel.open{right:0!important;}'
         );
         var sharedCSS = (
@@ -2097,7 +2175,13 @@
                 var c = document.getElementById('ai-nav-button-container');
                 if (p) { p.classList.remove('open'); p.removeAttribute('data-acn-open'); }
                 if (b) b.classList.remove('open');
-                if (isLeftChat && c) c.classList.remove('open');
+                if (isLeftChat && c) {
+                    c.classList.remove('open');
+                    if (_lastBoundaryX) {
+                        var off = platform.scrollbarOffset || 0;
+                        c.style.right = (window.innerWidth - _lastBoundaryX + off) + 'px';
+                    }
+                }
             });
             var header = createElement('div', { id: 'ai-nav-header' }, [
                 createElement('h3', null, [siteIcon + ' ' + siteTitle + ' - Questions']),
@@ -2170,13 +2254,24 @@
             if (legacyNavOpen) {
                 if (panel)     { panel.classList.add('open'); panel.setAttribute('data-acn-open', 'true'); }
                 if (btn)       btn.classList.add('open');
-                if (isLeftChat && container) container.classList.add('open');
+                if (isLeftChat && container) {
+                    container.classList.add('open');
+                    if (_lastBoundaryX) {
+                        container.style.right = (window.innerWidth - _lastBoundaryX + 320) + 'px';
+                    }
+                }
                 scanConversation();
                 legacyRenderPanel();
             } else {
                 if (panel)     { panel.classList.remove('open'); panel.removeAttribute('data-acn-open'); }
                 if (btn)       btn.classList.remove('open');
-                if (isLeftChat && container) container.classList.remove('open');
+                if (isLeftChat && container) {
+                    container.classList.remove('open');
+                    if (_lastBoundaryX) {
+                        var off = platform.scrollbarOffset || 0;
+                        container.style.right = (window.innerWidth - _lastBoundaryX + off) + 'px';
+                    }
+                }
             }
         }
 
@@ -2221,7 +2316,12 @@
                         if (_boundaryDetected) con.classList.add('ai-nav-positioned');
                         if (_lastBoundaryX)    con.style.right = (window.innerWidth - _lastBoundaryX + (platform.scrollbarOffset || 0)) + 'px';
                     }
-                    if (legacyNavOpen) { con.classList.add('open'); b.classList.add('open'); }
+                    if (legacyNavOpen) {
+                        con.classList.add('open'); b.classList.add('open');
+                        if (isLeftChat && _lastBoundaryX) {
+                            con.style.right = (window.innerWidth - _lastBoundaryX + 320) + 'px';
+                        }
+                    }
                     document.body.appendChild(con);
                 }
             }, 200);
