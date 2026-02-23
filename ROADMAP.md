@@ -30,11 +30,24 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v10.0
+## Current Status: v10.7.11
 
-The extension supports 14 platform variants across 12 websites. v10.0 is a complete architectural rewrite — a new orbital button system replaces the previous floating button/sidebar UI.
+The extension supports 14 platform variants across 12 websites. v10.7.11 continues from v10.0's orbital rewrite with a full live-testing polish sprint.
 
-**v10.0 Accomplishments:**
+**v10.7.x Accomplishments (2026-02-23):**
+- **Bookmarks Panel (fully functional):** Persistent message bookmarking across page reloads and script updates. Stored via `GM_setValue('acn-bookmarks-v1')` — survives script updates, browser restarts, and SPA navigation. Includes bookmark icon injection on all messages, panel list with click-to-scroll, and per-conversation storage.
+- **Full Conversation Export:** Walks entire conversation DOM, converts to Markdown with heading structure, downloads as `.md` file. Handles SVG elements in Claude.ai's toolbar (SVGAnimatedString fix).
+- **Panel Resize:** Drag panel's left edge to resize between 240–640px. Persists to `localStorage._acnv10.panelWidth`. CSS variable `--acn-panel-w` is the single source of truth for both panel width and zone offset.
+- **Chat Input /Command Detection:** Typing `/commandname` in the chat input opens the command palette pre-filtered. Updates live as you type. Closes if text is cleared or no command matches.
+- **Image Gallery:** Scans conversation for image attachments, displays in Tools panel with count. Lazy-renders on panel open (no injection-time render).
+- **Plan Usage Bar:** Fetches Claude plan utilization (session/weekly/7-day) and displays as progress bars in Navigate panel. Auto-refreshes after generation completes.
+- **Summary Auto-Generation:** Summary panel auto-generates content on open if empty.
+- **i18n:** Korean language support. All labels, panel headers, and dot tooltips update live on language switch without page reload.
+- **Context Window Estimation — Extended Thinking Correction:** Path B estimation now corrects for Claude's invisible overhead: system prompt (+15K tokens) and extended thinking blocks (count × 600 tokens). Combined with virtual-scroll coverage-ratio correction. See `docs/claude_specific_context_tracking_calculation.md` for full methodology.
+- **Hover Stability:** Fingerprint guards on Search (`_searchListFingerprint`) and Bookmarks (`_bmListFingerprint`) panels prevent DOM teardown on MutationObserver cycles. Navigate panel guard was already present.
+- **Bookmark Icon Visibility:** Fixed two distinct hover visibility bugs — active icon losing orange on hover (CSS specificity), and non-active icon camouflaging against light backgrounds (wrong hover background color).
+
+**v10.0 Accomplishments (2026-02-22):**
 - **Orbital Button System:** Six feature dots (Navigate ✳, Search ⌕, Bookmarks ⚑, Summary Σ, Export ↗, Settings ⚙) in three display modes — show-all, arc, wheel. Scroll wheel rotates arc/wheel focus. Settings persist to localStorage.
 - **Dual-System Architecture:** Orbital UI for the 5 primary AI platforms (Claude, ChatGPT, Grok, Gemini, Perplexity). Legacy ghost-notch button for the 7 app-builder platforms.
 - **Live Testing Fixes:** isLeftChat button-panel sync across 4 code sites; Bolt.new scrollbarOffset open-state bug; V0 light mode visibility (textColor + toggleBorder); arc mode labels below dot via `data-acn-mode` CSS; panel z-index above orbital dots.
@@ -65,6 +78,7 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 - `CHANGELOG.md` — detailed technical changelog with root cause analysis for every fix
 - `TROUBLESHOOTING.md` — platform-specific diagnostic guides
 - `DECISIONS.md` — architectural decision log (DEC-001 through DEC-009)
+- `docs/claude_specific_context_tracking_calculation.md` — deep-dive on Claude context window estimation methodology
 
 ---
 
@@ -79,5 +93,5 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 
 ---
 
-*Last updated: 2026-02-22*
+*Last updated: 2026-02-23*
 

@@ -4,6 +4,278 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [10.7.11 — Bookmark Icon Invisible on Hover (Non-Active State)] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+A CSS color-camouflage bug made bookmark icons invisible when hovering them before they had been clicked.
+
+---
+
+### Bookmark Icon Invisible on Hover — Wrong Background Color
+
+**The problem:** When hovering a bookmark icon that had NOT yet been clicked (no bookmark created), moving the cursor directly onto the icon made it visually disappear. The browser tooltip ("Bookmark this message") still showed, confirming the element existed and received pointer events — it was simply invisible.
+
+**Root cause — CSS color camouflage:** The `.acn-bm-icon` default style used a dark background (`rgba(0,0,0,0.3)`) with a white-ish flag glyph (`color: rgba(255,255,255,0.5)`). The hover rule changed the background to `rgba(255,255,255,0.2)`:
+
+```css
+.acn-bm-icon:hover { opacity:1; background:rgba(255,255,255,0.2); }
+```
+
+Claude.ai's message background is off-white/cream. A container with `rgba(255,255,255,0.2)` (20% white) over that background becomes nearly transparent. The flag glyph at `rgba(255,255,255,0.5)` (white text) on a near-white background becomes invisible — white on white. The element was technically visible (`opacity:1`) but optically camouflaged. The active-state fix from v10.7.7 (`rgba(255,255,255,0.2)` → orange) didn't cover the non-active case.
+
+**Fix:** Changed hover background to `rgba(0,0,0,0.55)` — a darker, more opaque background that remains visible on any page background color — and set color to `#fff` to ensure the flag glyph is always crisp:
+
+```css
+/* Before */
+.acn-bm-icon:hover { opacity:1; background:rgba(255,255,255,0.2); }
+
+/* After */
+.acn-bm-icon:hover { opacity:1; background:rgba(0,0,0,0.55); color:#fff; }
+```
+
+---
+
+## [10.7.10 — Context Window Estimation: Extended Thinking + System Prompt Overhead] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+Significantly improved context window estimation accuracy for Claude conversations using extended thinking, which was showing ~45% for a conversation that had physically exhausted the 200K context limit.
+
+---
+
+### Context Bar at 45% for a Maxed-Out 200K Extended Thinking Conversation
+
+**The problem:** A Claude Opus 4.6 Extended Thinking conversation with 83 questions that had physically exhausted the context limit (Claude was unable to generate further responses) showed only 45% (~90K / 200K tokens) in the context window bar. The user expected it to show near 100%.
+
+**Investigation — virtual scroll hypothesis (ruled out):** The first hypothesis was that Claude.ai uses virtual scroll to remove older messages from the DOM, so the `innerText`-based estimate only captured half the conversation. This was investigated by querying the scrollable container:
+
+```javascript
+var scrollDiv = document.querySelector('.overflow-y-scroll');
+// scrollHeight: 98,393px — full conversation height in DOM
+// clientHeight: 652px — visible viewport
+// innerText.length: 360,720 chars
+```
+
+The `scrollHeight >> clientHeight` confirmed the full conversation was in the DOM. All 83 questions were present in the live DOM (confirmed via `document.body.contains(q.element)`). Virtual scroll was not the cause for this conversation size.
+
+**Root cause — extended thinking tokens invisible to DOM:** Claude Opus Extended Thinking generates "thinking blocks" — reasoning chains that the model works through before producing a response. Claude.ai renders these as collapsed expandable summaries ("Examined repository state to assess...", "Prepared to examine..."). The FULL thinking content is never placed in the DOM — only a short summary phrase is rendered. These thinking tokens count toward the context limit but are completely invisible to `innerText` scraping.
+
+Investigation confirmed 161 collapsed thinking block elements (`[aria-expanded]`) in the 83-question conversation — approximately 1.94 thinking passes per response. At roughly 683 tokens per block, this accounts for ~110K hidden tokens (the gap between the 90K estimate and the 200K reality).
+
+Additionally, claude.ai injects a system prompt of approximately 15,000 tokens that is never rendered anywhere in the conversation DOM.
+
+**Fix — two-part invisible overhead correction:**
+
+```javascript
+// In _renderEstimatedBar(), after base estimate:
+if (platform && platform.id === 'claude' && found && node) {
+    // (1) System prompt: always ~15K tokens on claude.ai, never in DOM
+    estTokens += 15000;
+
+    // (2) Extended thinking blocks: count collapsed summaries, ~600 tokens each
+    var uiKw = ['hide','show','expand','collapse','menu','chat','chats','project','artifact','recent','starred'];
+    var thinkingCount = 0;
+    node.querySelectorAll('[aria-expanded]').forEach(function(el) {
+        var txt = (el.textContent || '').trim().toLowerCase();
+        var isUI = txt.length < 5 || uiKw.some(function(w) { return txt.indexOf(w) !== -1; });
+        if (!isUI) thinkingCount++;
+    });
+    estTokens += thinkingCount * 600;
+}
+```
+
+**Results for the 83Q maxed conversation:**
+- Before: 90K visible + 0 overhead = 90K → 45%
+- After: 90K + 15K system prompt + (161 × 600 thinking) = 201.6K → **100% (capped, correctly shows red)**
+
+Non-extended-thinking conversations: `thinkingCount = 0`, so only the +15K system prompt applies. Small conversations receive a modest ~7-8% increase from the system prompt overhead, which reflects reality (system prompt always exists).
+
+See `docs/claude_specific_context_tracking_calculation.md` for the full investigation methodology and architecture.
+
+---
+
+## [10.7.9 — Context Window: Virtual Scroll Coverage Ratio] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+Replaced the blunt ×2 multiplier from v10.7.8 with a self-correcting ratio based on how many detected messages are currently in the live DOM versus the total accumulated count.
+
+---
+
+### Self-Correcting Virtual Scroll Compensation
+
+**Problem with v10.7.8 (blunt ×2):** Doubling the estimate worked for long conversations where virtual scroll hid half the messages, but over-estimated by 2× for short conversations where all messages were in the DOM.
+
+**Key insight:** The `_questions` array uses VS accumulation — it records all messages ever seen during the session, including those later removed from DOM by virtual scroll. By comparing `_questions.length` (total ever detected) vs how many elements are currently in the live DOM, we can compute exactly how much is hidden and correct proportionally:
+
+```javascript
+var nInDOM   = _questions.filter(function(q) {
+    return q.element && document.body.contains(q.element);
+}).length;
+var coverage = nInDOM / Math.max(1, _questions.length);
+// coverage=1.0 → all in DOM → no correction
+// coverage=0.5 → half in DOM → ×2 correction
+var estTokens = Math.round((totalChars / 4) / Math.max(0.25, coverage));
+```
+
+- Short conversation (30Q, all in DOM): coverage=1.0 → estimate unchanged
+- Long conversation (83Q, 40 in DOM): coverage=0.48 → estimate ×2.1
+- `Math.max(0.25, coverage)` caps the multiplier at 4× to prevent extreme over-estimation if VS is very aggressive
+
+---
+
+## [10.7.8 — Context Window: Initial Estimate Doubling] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+*Note: This approach was superseded by v10.7.9's ratio-based correction within the same session.*
+
+Initial fix for the underestimation problem — changed the chars-to-tokens divisor from `4` to `2`, effectively doubling all estimates. While this helped for the specific long conversation case, it over-estimated all short conversations by 2×. Replaced by v10.7.9's self-correcting approach.
+
+---
+
+## [10.7.7 — Hover Flicker (Search+Bookmarks), Export, /Cmd Detection, Panel Resize] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+Four new features and two bug fixes discovered during continued live testing. Hotfixes for bookmark icon active-state disappearance and export SVG crash were applied to this same version number (per user preference).
+
+---
+
+### Version Number in Script @name
+
+Per user request, the `@name` header now includes the version: `AI Conversation Navigator v10.7.7`. Updated on every version bump going forward.
+
+---
+
+### Hover Flicker in Search and Bookmarks Panels — Missing Fingerprint Guards
+
+**The problem:** Opening the Search or Bookmarks panel and hovering over items caused the list to rebuild under the cursor — items would disappear and reappear, making the hover state unstable. Navigate panel was fine (it had a fingerprint guard since v10.0).
+
+**Root cause:** `orbOnScanComplete()` fires after every `scanConversation()` call (debounced 500ms from MutationObserver). Live AI platforms continuously mutate their DOM (streaming tokens, typing indicators), so this fires frequently. When the Search or Bookmarks panel was open, `orbPopulateSearch()` and `orbRefreshBookmarksPanel()` were called unconditionally — they tore down and rebuilt the entire DOM list every 500ms. Any `mouseenter` event was cancelled when the element was removed, and the new element had no hover state.
+
+**Fix:** Added fingerprint guards matching the Navigate panel pattern:
+
+```javascript
+// Search: fingerprint = query + question count + ai response count
+var sfp = q + '|' + _questions.length + '|' + (_aiResponses ? _aiResponses.length : 0);
+if (sfp === _searchListFingerprint && list.firstChild) return;
+_searchListFingerprint = sfp;
+
+// Bookmarks: fingerprint = joined bookmark IDs
+var bfp = bookmarks.map(function(b) { return b.id; }).join('|');
+if (bfp === _bmListFingerprint && panel.children.length > 1) return;
+_bmListFingerprint = bfp;
+```
+
+---
+
+### Full Conversation Export Failing — SVG Element `className` Not a String
+
+**The problem:** Clicking "Export Full Conversation" in the Tools panel showed a toast "Export failed — see console."
+
+**Root cause:** The `exportFullConversation()` function calls `extractMarkdownContent()` which walks the DOM tree. Inside the walk, `isUIChrome()` called `node.className.toLowerCase()`. For regular HTML elements, `className` is a string. But for SVG elements (e.g., inline SVG icons common in Claude.ai's UI), `className` is an `SVGAnimatedString` object — a JavaScript object with `.baseVal` and `.animVal` properties, not a string. Calling `.toLowerCase()` on an object threw `TypeError: (node.className || "").toLowerCase is not a function`.
+
+The error was caught by the outer try-catch, which showed the "Export failed" toast instead of surfacing the actual exception.
+
+**Fix:**
+```javascript
+var rawCls = node.className;
+var cls = (typeof rawCls === 'string' ? rawCls : (rawCls && rawCls.baseVal) || '').toLowerCase();
+```
+
+---
+
+### /Command Palette Triggered by Chat Input Typing
+
+**New feature:** When the user types `/commandname` in the chat input (e.g., `/handoff` on Claude.ai), the command palette opens automatically pre-filtered to commands starting with that name. As the user continues typing, the palette filter updates live. If the user clears the slash text or types something that doesn't match any command, the palette closes.
+
+`setupChatInputSlashDetection()` attaches an `input` listener to the chat textarea (found via `findChatInput()`). It distinguishes palette-triggered-by-input vs palette-triggered-by-Ctrl+/ using a `_paletteInputTriggered` flag, so the input-triggered palette doesn't steal keyboard focus from the chat input.
+
+---
+
+### Panel Resize by Dragging
+
+**New feature:** Each panel has a 6px drag handle on its left edge. Dragging adjusts panel width between 240px and 640px. Width is saved to `localStorage._acnv10.panelWidth` and restored on next load. CSS variable `--acn-panel-w` is the single source of truth for both `panel width` and `.acn-zone.acn-hp { right }`, so dragging atomically updates both.
+
+---
+
+### Hotfix: Active Bookmark Icon Disappears on Hover
+
+**The problem:** An already-bookmarked message (orange flag icon) would visually lose its orange color when hovered.
+
+**Root cause:** CSS specificity tie. `.acn-bm-icon:hover` (specificity 0,2,0) came after `.acn-bm-icon.acn-bm-active` (also 0,2,0) in the stylesheet. Later rule wins. The hover rule's `rgba(255,255,255,0.2)` overrode the active rule's `var(--acn-accent)` orange.
+
+**Fix:** Added `.acn-bm-icon.acn-bm-active:hover` with specificity 0,3,0 — three class selectors always beats two:
+```css
+.acn-bm-icon.acn-bm-active:hover { background:var(--acn-accent); filter:brightness(1.2); }
+```
+
+---
+
+## [10.7.6 — Panel Header i18n, Gallery Duplicates, @name Stripped] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+Three bugs from continued live testing.
+
+---
+
+### Navigate/Search/Tools Panel Headers Not Translating
+
+**Problem:** After switching language to Korean in Settings, the panel `h3` headers for Navigate, Search, and Tools remained in English.
+
+**Root cause:** `orbBuildPanelNav()`, `orbBuildPanelSearch()`, and `orbBuildPanelTools()` used hardcoded English strings for the `h3` header text. `orbBuildPanelHeader()` was called with literals like `'✳ Navigate'` rather than `'✳ ' + i18n('navigate')`.
+
+**Fix:** All panel headers now use `i18n()` calls. The language change handler in Settings was also extended to update all open panel `h3` headers live when language is switched.
+
+---
+
+### Image Gallery Showing Duplicate (0) and (N) Sections on Reopen
+
+**Problem:** Opening the Tools panel showed two image count sections — `(0)` from injection time and `(N)` from the actual scan.
+
+**Root cause:** `orbBuildPanelTools()` called `renderImageGallery()` at injection time (before any scan completed), creating a `(0)` section. When the panel was opened via `orbOpenPanel()`, it called `renderImageGallery()` again, appending a second `(N)` section on top.
+
+**Fix:** Removed the injection-time `renderImageGallery()` call from `orbBuildPanelTools()`. Gallery now only renders when the panel is opened. Added a `while (container.firstChild) container.removeChild(container.firstChild)` clear at the start of `renderImageGallery()` to prevent any future double-render accumulation.
+
+---
+
+### @name Contained Version Number That Wasn't Updated
+
+**Problem:** The `@name` header read "AI Conversation Navigator v10.1" while the actual version was v10.7.x.
+
+**Fix:** Stripped version from `@name`, then re-added it correctly in v10.7.7 (per user request, version is now always included and always matches `@version`).
+
+---
+
+## [10.7.5 — Gallery Re-render Clear, i18n Live Label Updates] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+Two polish fixes from v10.7.4 that were staged separately.
+
+- `renderImageGallery()` now clears its container before building to prevent accumulation on reopen.
+- Language change handler live-updates `.acn-lbl` dot label text so labels switch language without requiring a page reload.
+
+---
+
+## [10.7.4 — Plan Usage, Summary Auto-Gen, Gallery Count, Q# Thumbnails, i18n] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+Six bugs discovered during first live Tampermonkey installation and testing session.
+
+- **Plan Usage "loading…" never loads:** `fetchClaudeUsage()` was not being called on panel open. Added call to `maybeRefreshUsage()` in `orbOpenPanel()` for the Navigate panel.
+- **Summary panel blank:** Summary was not auto-generating on panel open. Added `generateSummary()` call in `orbOpenPanel()` when summary panel has no content.
+- **Image gallery showing (0):** `renderImageGallery()` was called before `scanConversation()` had run. Gallery now renders lazily when panel is opened post-scan.
+- **Navigate Q# items missing image thumbnails:** Image detection logic in `_questions` population was not extracting `img` elements from question containers. Fixed to check for `img` descendants.
+- **Slash command placeholder name error:** `/commands` conflicted with Claude.ai's native `/` menu. Command palette renamed and detection logic updated.
+- **Korean i18n not applying to all labels:** Several strings used hardcoded English rather than `i18n()` calls. Added `i18nKey` property to `ORB_FEATURES` entries and converted all affected labels.
+
+---
+
 ## [10.0 — Panel Hover Fixes: CSS Variable Scoping, Jitter, List Rebuild] — 2026-02-22
 **Branch:** `fix/v10-live-testing-polish` | **Commit:** pending
 

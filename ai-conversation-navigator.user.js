@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v10.7.7
+// @name         AI Conversation Navigator v10.7.11
 // @namespace    http://tampermonkey.net/
-// @version      10.7.7
+// @version      10.7.11
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -1914,9 +1914,9 @@
             '.acn-bm-icon{position:absolute;top:4px;right:4px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:14px;border-radius:4px;background:rgba(0,0,0,0.3);color:rgba(255,255,255,0.5);cursor:pointer;opacity:0;transition:opacity 0.15s ease,background 0.15s ease;z-index:10;pointer-events:auto;user-select:none}',
             '*:hover>.acn-bm-icon{opacity:1}',
             '.acn-bm-icon.acn-bm-active{opacity:1;background:var(--acn-accent);color:#fff}',
-            '.acn-bm-icon:hover{opacity:1;background:rgba(255,255,255,0.2)}',
+            '.acn-bm-icon:hover{opacity:1;background:rgba(0,0,0,0.55);color:#fff}',
             // Keep orange when hovering an already-bookmarked icon
-            '.acn-bm-icon.acn-bm-active:hover{background:var(--acn-accent);filter:brightness(1.2)}',
+            '.acn-bm-icon.acn-bm-active:hover{background:var(--acn-accent);filter:brightness(1.2);color:#fff}',
             '.acn-bm-flash{animation:acnBmFlash 1.5s ease}',
             '@keyframes acnBmFlash{0%{box-shadow:0 0 0 0 var(--acn-accent)}30%{box-shadow:0 0 0 4px var(--acn-accent)}100%{box-shadow:0 0 0 0 transparent}}',
             '.acn-bk{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:6px;cursor:pointer;background:rgba(255,255,255,0.04);margin-bottom:4px;border-left:3px solid var(--acn-accent);transition:background 0.15s}',
@@ -2459,9 +2459,30 @@
             totalChars = _questions.reduce(function (s, q) { return s + q.text.length; }, 0) * 3;
         }
 
-        var estTokens = Math.round(totalChars / 4);
-        var pctNum    = Math.min(100, Math.round((estTokens / limit) * 100));
-        var color     = getBarColor(pctNum);
+        // Correct for virtual scroll: if _questions has more entries than are currently in
+        // the DOM, the innerText only covers the live DOM portion — scale up accordingly.
+        var nInDOM   = _questions.filter(function(q) { return q.element && document.body.contains(q.element); }).length;
+        var coverage = nInDOM / Math.max(1, _questions.length);
+        var estTokens = Math.round((totalChars / 4) / Math.max(0.25, coverage));
+
+        // For Claude: add invisible overhead that DOM scraping can never see.
+        // (1) System prompt — claude.ai injects ~15K tokens of system context always.
+        // (2) Extended thinking — each collapsed [aria-expanded] thinking summary in the
+        //     conversation represents hidden thinking content (~600 tokens each on average).
+        if (platform && platform.id === 'claude' && found && node) {
+            estTokens += 15000;
+            var uiKw = ['hide','show','expand','collapse','menu','chat','chats','project','artifact','recent','starred'];
+            var thinkingCount = 0;
+            node.querySelectorAll('[aria-expanded]').forEach(function(el) {
+                var txt = (el.textContent || '').trim().toLowerCase();
+                var isUI = txt.length < 5 || uiKw.some(function(w) { return txt.indexOf(w) !== -1; });
+                if (!isUI) thinkingCount++;
+            });
+            estTokens += thinkingCount * 600;
+        }
+
+        var pctNum = Math.min(100, Math.round((estTokens / limit) * 100));
+        var color  = getBarColor(pctNum);
 
         pct.textContent  = pctNum + '%';
         pct.style.color  = color;
