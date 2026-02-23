@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v10.0
+// @name         AI Conversation Navigator v10.1
 // @namespace    http://tampermonkey.net/
-// @version      10.0
+// @version      10.2
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -20,6 +20,8 @@
 // @match        https://*.cloudworkstations.dev/*
 // @include      https://*cloudworkstations.dev/*
 // @grant        GM_addStyle
+// @grant        GM_getValue
+// @grant        GM_setValue
 // ==/UserScript==
 
 (function () {
@@ -31,6 +33,215 @@
         return;
     }
     window._aiNavAlreadyLoaded = true;
+
+    // ============================================================
+    // VERSION
+    // ============================================================
+    var ACN_VERSION = '10.2';
+
+    // ============================================================
+    // i18n — internationalization string table
+    // ============================================================
+    var I18N = {
+        en: {
+            navigate: 'Navigate',
+            search: 'Search',
+            bookmarks: 'Bookmarks',
+            summary: 'Summary',
+            tools: 'Tools',
+            settings: 'Settings',
+            questionPrefix: 'Q#',
+            noQuestions: 'No questions detected yet',
+            searchPlaceholder: 'Search conversation...',
+            searchResults: '{count} matches',
+            searchInQuestions: 'in questions',
+            searchInResponses: 'in responses',
+            noBookmarks: 'No bookmarks yet',
+            bookmarkAdded: 'Bookmark added',
+            bookmarkRemoved: 'Bookmark removed',
+            generateSummary: 'Generate Summary',
+            regenerateSummary: 'Regenerate Summary',
+            analyzing: 'Analyzing...',
+            summaryDisclaimer: "Pattern matching, not AI. For a real summary, just ask \u2014 you're literally inside one!",
+            conversationMap: 'Conversation Map',
+            topics: 'Topics',
+            keyPoints: 'Key Points',
+            stats: 'Stats',
+            summaryLanguageNote: '',
+            imageGallery: 'Image Gallery',
+            noImages: 'No images in this conversation',
+            goToMessage: 'Go to message',
+            downloadImage: 'Download image',
+            imageDownloaded: 'Image downloaded',
+            openedInNewTab: 'Opened in new tab \u2014 right-click to save',
+            exportFull: 'Full Conversation',
+            exportFullDesc: 'Markdown with all messages',
+            exportBookmarks: 'Bookmarks Only',
+            exportBookmarksDesc: 'Pinned messages as document',
+            exportSummary: 'Summary',
+            exportSummaryDesc: 'Topics, map, key points',
+            noBookmarksToExport: 'No bookmarks in this conversation',
+            moreToolsSoon: 'More tools coming soon.\nGot ideas? Open an issue on GitHub!',
+            display: 'Display',
+            orbitalMode: 'Orbital mode',
+            scrollDirection: 'Scroll direction',
+            standard: 'Standard',
+            natural: 'Natural',
+            language: 'Language',
+            platforms: 'Platforms',
+            cantDisableCurrent: "Can't disable while you're on this platform",
+            mustHaveOnePlatform: 'At least one platform must be enabled',
+            refreshToApply: 'Changes take effect after page refresh',
+            about: 'About',
+            resetToDefault: 'Reset to Default',
+            resetConfirm: 'Reset all settings to defaults?',
+            resetComplete: 'Settings reset to defaults',
+            languageChanged: 'Language updated \u2014 refresh to apply',
+            session: 'Session',
+            weekly: 'Weekly',
+            usageUnavailable: 'Usage data unavailable',
+            commands: 'Commands',
+            newCommand: 'New command',
+            commandName: 'Command name',
+            commandText: 'Command text',
+            saveCommand: 'Save',
+            deleteCommand: 'Delete',
+            noCommands: 'No commands saved yet',
+            commandPalette: 'Commands',
+            insertCommand: 'Insert',
+        },
+        ko: {
+            navigate: '\ud0d0\uc0c9',
+            search: '\uac80\uc0c9',
+            bookmarks: '\ubd81\ub9c8\ud06c',
+            summary: '\uc694\uc57d',
+            tools: '\ub3c4\uad6c',
+            settings: '\uc124\uc815',
+            questionPrefix: 'Q#',
+            noQuestions: '\uc544\uc9c1 \uac10\uc9c0\ub41c \uc9c8\ubb38\uc774 \uc5c6\uc2b5\ub2c8\ub2e4',
+            searchPlaceholder: '\ub300\ud654 \uac80\uc0c9...',
+            searchResults: '{count}\uac1c \uc77c\uce58',
+            searchInQuestions: '\uc9c8\ubb38\uc5d0\uc11c',
+            searchInResponses: '\uc751\ub2f5\uc5d0\uc11c',
+            noBookmarks: '\uc544\uc9c1 \ubd81\ub9c8\ud06c\uac00 \uc5c6\uc2b5\ub2c8\ub2e4',
+            bookmarkAdded: '\ubd81\ub9c8\ud06c \ucd94\uac00\ub428',
+            bookmarkRemoved: '\ubd81\ub9c8\ud06c \uc0ad\uc81c\ub428',
+            generateSummary: '\uc694\uc57d \uc0dd\uc131',
+            regenerateSummary: '\uc694\uc57d \ub2e4\uc2dc \uc0dd\uc131',
+            analyzing: '\ubd84\uc11d \uc911...',
+            summaryDisclaimer: '\ud328\ud134 \ub9e4\uce6d \uae30\ubc18\uc774\uba70 AI\uac00 \uc544\ub2d9\ub2c8\ub2e4. \uc9c4\uc9dc \uc694\uc57d\uc740 AI\uc5d0\uac8c \uc9c1\uc811 \ubb3c\uc5b4\ubcf4\uc138\uc694!',
+            conversationMap: '\ub300\ud654 \uc9c0\ub3c4',
+            topics: '\uc8fc\uc81c',
+            keyPoints: '\uc8fc\uc694 \ud3ec\uc778\ud2b8',
+            stats: '\ud1b5\uacc4',
+            summaryLanguageNote: '\u2139\ufe0f \uc694\uc57d \ubd84\uc11d\uc740 \uc601\uc5b4 \ub300\ud654\uc5d0\uc11c \uac00\uc7a5 \uc798 \uc791\ub3d9\ud569\ub2c8\ub2e4.',
+            imageGallery: '\uc774\ubbf8\uc9c0 \uac24\ub7ec\ub9ac',
+            noImages: '\uc774 \ub300\ud654\uc5d0 \uc774\ubbf8\uc9c0\uac00 \uc5c6\uc2b5\ub2c8\ub2e4',
+            goToMessage: '\uba54\uc2dc\uc9c0\ub85c \uc774\ub3d9',
+            downloadImage: '\uc774\ubbf8\uc9c0 \ub2e4\uc6b4\ub85c\ub4dc',
+            imageDownloaded: '\uc774\ubbf8\uc9c0 \ub2e4\uc6b4\ub85c\ub4dc \uc644\ub8cc',
+            openedInNewTab: '\uc0c8 \ud0ed\uc5d0\uc11c \uc5f4\ub9bc \u2014 \uc6b0\ud074\ub9ad\ud558\uc5ec \uc800\uc7a5',
+            exportFull: '\uc804\uccb4 \ub300\ud654',
+            exportFullDesc: '\ubaa8\ub4e0 \uba54\uc2dc\uc9c0\ub97c \ub9c8\ud06c\ub2e4\uc6b4\uc73c\ub85c',
+            exportBookmarks: '\ubd81\ub9c8\ud06c\ub9cc',
+            exportBookmarksDesc: '\uace0\uc815\ub41c \uba54\uc2dc\uc9c0\ub97c \ubb38\uc11c\ub85c',
+            exportSummary: '\uc694\uc57d',
+            exportSummaryDesc: '\uc8fc\uc81c, \uc9c0\ub3c4, \uc8fc\uc694 \ud3ec\uc778\ud2b8',
+            noBookmarksToExport: '\uc774 \ub300\ud654\uc5d0 \ubd81\ub9c8\ud06c\uac00 \uc5c6\uc2b5\ub2c8\ub2e4',
+            moreToolsSoon: '\ub354 \ub9ce\uc740 \ub3c4\uad6c\uac00 \uacf3 \ucd94\uac00\ub429\ub2c8\ub2e4.\n\uc544\uc774\ub514\uc5b4\uac00 \uc788\uc73c\uc2dc\uba74 GitHub\uc5d0\uc11c \uc774\uc288\ub97c \uc5f4\uc5b4\uc8fc\uc138\uc694!',
+            display: '\ub514\uc2a4\ud50c\ub808\uc774',
+            orbitalMode: '\uc624\ube44\ud0c8 \ubaa8\ub4dc',
+            scrollDirection: '\uc2a4\ud06c\ub864 \ubc29\ud5a5',
+            standard: '\ud45c\uc900',
+            natural: '\uc790\uc5f0',
+            language: '\uc5b8\uc5b4',
+            platforms: '\ud50c\ub7ab\ud3fc',
+            cantDisableCurrent: '\ud604\uc7ac \uc0ac\uc6a9 \uc911\uc778 \ud50c\ub7ab\ud3fc\uc740 \ube44\ud65c\uc131\ud654\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4',
+            mustHaveOnePlatform: '\ucd5c\uc18c \ud558\ub098\uc758 \ud50c\ub7ab\ud3fc\uc774 \ud65c\uc131\ud654\ub418\uc5b4 \uc788\uc5b4\uc57c \ud569\ub2c8\ub2e4',
+            refreshToApply: '\ubcc0\uacbd\uc0ac\ud56d\uc740 \ud398\uc774\uc9c0 \uc0c8\ub85c\uace0\uce68 \ud6c4 \uc801\uc6a9\ub429\ub2c8\ub2e4',
+            about: '\uc815\ubcf4',
+            resetToDefault: '\uae30\ubcf8\uac12\uc73c\ub85c \ucd08\uae30\ud654',
+            resetConfirm: '\ubaa8\ub4e0 \uc124\uc815\uc744 \uae30\ubcf8\uac12\uc73c\ub85c \ucd08\uae30\ud654\ud558\uc2dc\uac4c\uc2b5\ub2c8\uae4c?',
+            resetComplete: '\uc124\uc815\uc774 \uae30\ubcf8\uac12\uc73c\ub85c \ucd08\uae30\ud654\ub418\uc5c8\uc2b5\ub2c8\ub2e4',
+            languageChanged: '\uc5b8\uc5b4\uac00 \ubcc0\uacbd\ub428 \u2014 \uc0c8\ub85c\uace0\uce68\ud558\uc5ec \uc801\uc6a9',
+            session: '\uc138\uc158',
+            weekly: '\uc8fc\uac04',
+            usageUnavailable: '\uc0ac\uc6a9\ub7c9 \ub370\uc774\ud130\ub97c \ubd88\ub7ec\uc62c \uc218 \uc5c6\uc2b5\ub2c8\ub2e4',
+            commands: '\ucee4\ub9e8\ub4dc',
+            newCommand: '\uc0c8 \ucee4\ub9e8\ub4dc',
+            commandName: '\ucee4\ub9e8\ub4dc \uc774\ub984',
+            commandText: '\ucee4\ub9e8\ub4dc \ud14d\uc2a4\ud2b8',
+            saveCommand: '\uc800\uc7a5',
+            deleteCommand: '\uc0ad\uc81c',
+            noCommands: '\uc800\uc7a5\ub41c \ucee4\ub9e8\ub4dc\uac00 \uc5c6\uc2b5\ub2c8\ub2e4',
+            commandPalette: '\ucee4\ub9e8\ub4dc',
+            insertCommand: '\uc0bd\uc785',
+        }
+    };
+
+    function i18n(key, replacements) {
+        var lang = 'en';
+        try { lang = GM_getValue('acn-settings', {}).language || 'en'; } catch(e) {}
+        var str = (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
+        if (replacements) {
+            Object.keys(replacements).forEach(function (k) {
+                str = str.replace('{' + k + '}', replacements[k]);
+            });
+        }
+        return str;
+    }
+
+    // ============================================================
+    // Settings storage
+    // ============================================================
+    var DEFAULT_SETTINGS = {
+        orbMode: 'show-all',
+        scrollInverted: false,
+        language: 'en',
+        platforms: {
+            claude: true,
+            chatgpt: true,
+            grok: true,
+            gemini: true,
+            perplexity: true
+        }
+    };
+
+    var SUPPORTED_LANGUAGES = [
+        { code: 'en', label: 'English' },
+        { code: 'ko', label: '\ud55c\uad6d\uc5b4' }
+    ];
+
+    function loadSettings() {
+        var stored = {};
+        try { stored = GM_getValue('acn-settings', {}); } catch(e) {}
+        var settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+        if (stored.orbMode) settings.orbMode = stored.orbMode;
+        if (stored.scrollInverted !== undefined) settings.scrollInverted = stored.scrollInverted;
+        if (stored.language) settings.language = stored.language;
+        if (stored.platforms) {
+            Object.keys(stored.platforms).forEach(function (key) {
+                settings.platforms[key] = stored.platforms[key];
+            });
+        }
+        return settings;
+    }
+
+    function saveSettings(settings) {
+        try { GM_setValue('acn-settings', settings); } catch(e) {}
+    }
+
+    function migrateOldSettings() {
+        try {
+            var oldSettings = GM_getValue('acn-orb-settings', null);
+            if (oldSettings && !GM_getValue('acn-settings', null)) {
+                var newSettings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+                if (oldSettings.mode) newSettings.orbMode = oldSettings.mode;
+                if (oldSettings.scrollInverted !== undefined) newSettings.scrollInverted = oldSettings.scrollInverted;
+                saveSettings(newSettings);
+            }
+        } catch(e) {}
+    }
 
     // ================================================================
     // PLATFORMS REGISTRY
@@ -64,6 +275,19 @@
                 }
                 return messages;
             },
+            getAIMessages: function () {
+                // Verified starting points — fallback chain
+                var messages = document.querySelectorAll('[data-testid="ai-turn"]');
+                if (messages.length === 0) messages = document.querySelectorAll('[data-testid="assistant-message"]');
+                if (messages.length === 0) messages = document.querySelectorAll('.font-claude-message');
+                if (messages.length === 0) {
+                    var allTurns = document.querySelectorAll('[data-testid$="-turn"]');
+                    messages = Array.from(allTurns).filter(function (el) {
+                        return !el.getAttribute('data-testid').includes('human');
+                    });
+                }
+                return messages;
+            },
         },
 
         chatgpt: {
@@ -89,6 +313,18 @@
                 });
                 if (messages.length === 0) {
                     messages = document.querySelectorAll('div.self-end.bg-token-bg-tertiary');
+                }
+                return messages;
+            },
+            getAIMessages: function () {
+                var allMessages = document.querySelectorAll('[data-message-author-role]');
+                var messages = Array.from(allMessages).filter(function (msg) {
+                    return msg.getAttribute('data-message-author-role') === 'assistant';
+                });
+                if (messages.length === 0) {
+                    messages = Array.from(document.querySelectorAll('.markdown.prose')).filter(function (el) {
+                        return !el.closest('.bg-token-bg-tertiary');
+                    });
                 }
                 return messages;
             },
@@ -126,6 +362,21 @@
                 if (messages.length === 0) messages = document.querySelectorAll('[class*="user-message"]');
                 return messages;
             },
+            getAIMessages: function () {
+                var allBubbles = document.querySelectorAll('div.message-bubble');
+                var messages = [];
+                if (allBubbles.length > 0) {
+                    messages = Array.from(allBubbles).filter(function (bubble, index) {
+                        var classList = bubble.className.toLowerCase();
+                        if (classList.includes('assistant') || classList.includes('bot') || classList.includes('ai')) return true;
+                        var parent = bubble.closest('[class*="assistant"], [class*="bot"], [data-role="assistant"]');
+                        if (parent) return true;
+                        return index % 2 === 1;
+                    });
+                }
+                if (messages.length === 0) messages = Array.from(document.querySelectorAll('[data-role="assistant"]'));
+                return messages;
+            },
         },
 
         gemini: {
@@ -150,6 +401,18 @@
                 if (messages.length === 0) messages = document.querySelectorAll('p.query-text-line');
                 if (messages.length === 0) messages = document.querySelectorAll('[data-query-text]');
                 if (messages.length === 0) messages = document.querySelectorAll('.user-query');
+                return messages;
+            },
+            getAIMessages: function () {
+                var messages = document.querySelectorAll('div.model-response-text');
+                if (messages.length === 0) messages = document.querySelectorAll('.response-content');
+                if (messages.length === 0) messages = document.querySelectorAll('model-response');
+                if (messages.length === 0) {
+                    var allContent = document.querySelectorAll('.conversation-container > div');
+                    messages = Array.from(allContent).filter(function (el) {
+                        return !el.querySelector('.query-text') && el.textContent.trim().length > 0;
+                    });
+                }
                 return messages;
             },
         },
@@ -232,6 +495,7 @@
                 }
                 return messages;
             },
+            getAIMessages: function () { return []; },
         },
 
         lovable: {
@@ -290,6 +554,7 @@
                 }
                 return messages;
             },
+            getAIMessages: function () { return []; },
         },
 
         replit: {
@@ -363,6 +628,7 @@
                 }
                 return messages;
             },
+            getAIMessages: function () { return []; },
         },
 
         v0: {
@@ -414,6 +680,7 @@
                 }
                 return messages;
             },
+            getAIMessages: function () { return []; },
         },
 
         base44: {
@@ -442,6 +709,7 @@
                 }
                 return messages;
             },
+            getAIMessages: function () { return []; },
         },
 
         emergent: {
@@ -476,6 +744,7 @@
                 }
                 return messages;
             },
+            getAIMessages: function () { return []; },
         },
 
         perplexity: {
@@ -501,6 +770,17 @@
                 });
                 if (messages.length === 0) {
                     messages = document.querySelectorAll('.group\\/title .select-text');
+                }
+                return messages;
+            },
+            getAIMessages: function () {
+                var messages = document.querySelectorAll('[class*="prose"]');
+                if (messages.length === 0) messages = document.querySelectorAll('.col-span-8 .prose, .col-span-8 [class*="Answer"]');
+                if (messages.length === 0) {
+                    var responseBlocks = document.querySelectorAll('[class*="response"], [class*="Result"]');
+                    messages = Array.from(responseBlocks).filter(function (el) {
+                        return el.textContent.trim().length > 50;
+                    });
                 }
                 return messages;
             },
@@ -560,6 +840,7 @@
                 }
                 return messages;
             },
+            getAIMessages: function () { return []; },
         },
     };
 
@@ -578,6 +859,17 @@
     var platform = detectPlatform();
     if (!platform) {
         console.log('AI Conversation Navigator: Unknown site, exiting.');
+        return;
+    }
+
+    function shouldRunOnThisPlatform() {
+        if (!platform) return false;
+        var settings = loadSettings();
+        return settings.platforms[platform.id] !== false;
+    }
+
+    if (!shouldRunOnThisPlatform()) {
+        console.log('AI Nav: Platform "' + (platform ? platform.id : 'unknown') + '" disabled in settings, skipping.');
         return;
     }
 
@@ -626,6 +918,24 @@
             }
         }
         return el;
+    }
+
+    // ============================================================
+    // TOAST NOTIFICATION UTILITY
+    // ============================================================
+    function showToast(message) {
+        var existing = document.getElementById('acn-toast');
+        if (existing) existing.remove();
+        var toast = createElement('div', {
+            id: 'acn-toast',
+            style: 'position:fixed;bottom:80px;right:20px;background:rgba(0,0,0,0.85);color:#fff;' +
+                   'padding:8px 14px;border-radius:8px;font-size:13px;z-index:2147483647;' +
+                   'pointer-events:none;opacity:1;transition:opacity 0.4s;',
+            textContent: message
+        });
+        document.body.appendChild(toast);
+        setTimeout(function () { toast.style.opacity = '0'; }, 2000);
+        setTimeout(function () { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 2500);
     }
 
     // ============================================================
@@ -736,6 +1046,31 @@
         return platform.getUserMessages();
     }
 
+    function getAIMessages() {
+        if (platform && platform.getAIMessages) return platform.getAIMessages();
+        return [];
+    }
+
+    function getAllMessagesOrdered() {
+        var userMsgs = Array.from(getUserMessages()).map(function (el) {
+            return { element: el, type: 'user' };
+        });
+        var aiMsgs = Array.from(getAIMessages()).map(function (el) {
+            return { element: el, type: 'ai' };
+        });
+        var all = userMsgs.concat(aiMsgs);
+        all.sort(function (a, b) {
+            var pos = a.element.compareDocumentPosition(b.element);
+            if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+            if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+            return 0;
+        });
+        return all;
+    }
+
+    // Detected questions — consumed by Navigate and Search panels
+    var _aiResponses = [];
+
     function generateSummary(text) {
         var summary = text.trim();
         summary = summary.replace(/```[\s\S]*?```/g, '[code]');
@@ -806,6 +1141,9 @@
                 });
             }
         }
+
+        // Refresh AI responses array in sync with question scan
+        _aiResponses = Array.from(getAIMessages());
 
         // Notify orbital panels of updated question list
         if (typeof orbOnScanComplete === 'function') orbOnScanComplete();
@@ -878,6 +1216,9 @@
         setInterval(updateLeftChatPositions, 3000);
     }
 
+    // Unconditional resize listener for hitzone geometry (needed on all platforms)
+    window.addEventListener('resize', orbUpdateHitzone);
+
     startMessageObserver();
     setTimeout(scanConversation, 2000);
 
@@ -922,6 +1263,9 @@
     var ORB_N    = ORB_FEATURES.length;  // 6
     var ORB_MAIN = 0;                     // Navigate is always index 0
     var ORB_CX   = 42;                    // center axis from right edge (px)
+
+    var HITZONE_PAD_X = 30;  // px of extra width beyond the rightmost dot edge
+    var HITZONE_PAD_Y = 40;  // px of vertical padding above/below the dot stack
 
     // Context window token limits per platform (for usage bar estimation)
     var CTX_LIMITS = {
@@ -979,9 +1323,9 @@
         // CSS uses var(--acn-accent) and rgba(var(--acn-rgb), alpha) set on the zone
         styleEl.textContent = [
             // Zone + hitzone
-            '.acn-zone{position:fixed;right:0;top:0;bottom:0;width:160px;z-index:2147483640;transition:right .3s cubic-bezier(.4,0,.2,1);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif}',
+            '.acn-zone{position:fixed;right:0;top:0;bottom:0;width:160px;z-index:2147483640;pointer-events:none;transition:right .3s cubic-bezier(.4,0,.2,1);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif}',
             '.acn-zone.acn-hp{right:310px}',
-            '.acn-hitzone{position:absolute;right:0;top:0;bottom:0;width:160px;z-index:1}',
+            '.acn-hitzone{position:absolute;right:0;z-index:1;pointer-events:auto}',
 
             // Dots — critical: fast opacity, slow position
             '.acn-dot{position:absolute;display:flex;align-items:center;justify-content:center;',
@@ -1958,6 +2302,7 @@
         // Hitzone — captures hover/scroll events
         var hitzone = createElement('div', { id: 'acn-hitzone', className: 'acn-hitzone' });
         zone.appendChild(hitzone);
+        orbUpdateHitzone();
 
         // Wheel/arc hint
         var hint = createElement('div', { id: 'acn-whint', className: 'acn-whint' });
@@ -1999,7 +2344,7 @@
         // Hover enter
         function handleEnter() { orbHovering = true; orbRender(); }
         hitzone.addEventListener('mouseenter', handleEnter);
-        zone.addEventListener('mouseenter', handleEnter);
+        // NOTE: zone.addEventListener('mouseenter') removed — zone has pointer-events:none
 
         // Hover exit — resets rotIdx to Navigate when leaving and no panel open
         function handleExit(e) {
@@ -2020,7 +2365,29 @@
             orbRender();
         }
         hitzone.addEventListener('mouseleave', handleExit);
-        zone.addEventListener('mouseleave', handleExit);
+        // NOTE: zone.addEventListener('mouseleave') removed — zone has pointer-events:none
+
+        // Dot-level mouseleave safety net — catches fast movements that escape the hitzone
+        orbDots.forEach(function (dot) {
+            dot.addEventListener('mouseenter', handleEnter);
+            dot.addEventListener('mouseleave', function (e) {
+                var related = e.relatedTarget;
+                // Stay hovered if the mouse moved to another dot, the hitzone, or an open panel
+                if (related && related.closest && (
+                    related.closest('.acn-dot')    ||
+                    related.closest('#acn-hitzone') ||
+                    related.closest('.acn-panel')
+                )) return;
+                // Stay hovered if a panel is currently open (panel keeps UI alive)
+                if (orbPanel) return;
+                orbHovering = false;
+                if (orbMode === 'wheel' || orbMode === 'arc') {
+                    orbPrevRotIdx = orbRotIdx;
+                    orbRotIdx     = 0;
+                }
+                orbRender();
+            });
+        });
 
         // Scroll — rotates arc/wheel
         zone.addEventListener('wheel', function (e) {
@@ -2051,6 +2418,42 @@
         }, { passive: false });
 
         return zone;
+    }
+
+    // ============================================================
+    // HITZONE GEOMETRY — computes tight hitzone bounds from dot stack
+    // ============================================================
+    function orbUpdateHitzone() {
+        var hitzone = document.getElementById('acn-hitzone');
+        if (!hitzone) return;
+
+        // Vertical center of viewport (mirrors orbRender's `cy` computation)
+        var cy = window.innerHeight / 2;
+
+        // show-all geometry: Navigate at cy, satellites spread above/below at sp-px intervals
+        var sp = 48;
+
+        var nSats  = ORB_N - 1;           // satellite dots (all except Navigate)
+        var nAbove = Math.floor(nSats / 2);
+        var nBelow = nSats - nAbove;
+
+        // Topmost pixel of the highest dot
+        var stackTop    = cy - Math.max(nAbove * sp + 16, 24);
+        // Bottommost pixel of the lowest dot
+        var stackBottom = cy + Math.max(nBelow * sp + 16, 24);
+
+        // Hitzone bounds with padding
+        var hitzoneTop    = Math.max(0, stackTop - HITZONE_PAD_Y);
+        var hitzoneBottom = Math.min(window.innerHeight, stackBottom + HITZONE_PAD_Y);
+        var hitzoneHeight = hitzoneBottom - hitzoneTop;
+
+        // Width: from right edge inward far enough to cover the widest dot
+        var hitzoneWidth = ORB_CX + 24 + HITZONE_PAD_X;
+
+        hitzone.style.top    = hitzoneTop + 'px';
+        hitzone.style.height = hitzoneHeight + 'px';
+        hitzone.style.width  = hitzoneWidth + 'px';
+        hitzone.style.bottom = 'auto';   // override any inherited CSS bottom value
     }
 
     // ============================================================
