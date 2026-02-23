@@ -6,6 +6,134 @@ If you run into a problem, check here first — you might find we've already sol
 
 ---
 
+## v10.7.x — Live Testing Polish (2026-02-23)
+
+Eight bugs discovered and resolved during Tampermonkey live testing on claude.ai. All fixed in the `fix/v10-live-testing-polish` branch (v10.7.4 through v10.7.11).
+
+---
+
+### RESOLVED — Search and Bookmarks Panels Flickering on Hover
+
+**Versions affected:** v10.7.0–v10.7.6
+**Fixed in:** v10.7.7 | **Severity:** High | **Platforms:** All orbital platforms
+
+**Symptom:** When the Search or Bookmarks panel was open, hovering over items caused them to flicker — list items would disappear and reappear, making it impossible to hover-select or click stably. Navigate panel was unaffected.
+
+**Diagnosis / Root Cause:** `orbOnScanComplete()` fires after every `scanConversation()` call, which is debounced 500ms from `MutationObserver`. Live AI platforms continuously mutate their DOM (streaming tokens, animations, typing indicators), so `orbOnScanComplete()` fires roughly every 500ms. When Search or Bookmarks panel was open, the handler called `orbPopulateSearch()` and `orbRefreshBookmarksPanel()` unconditionally. Both functions began by removing all child nodes from the list container (`while (list.firstChild) list.removeChild(list.firstChild)`), then rebuilding from scratch. This DOM teardown cancelled any active `:hover` and `mouseenter` state on every item, approximately twice per second.
+
+Navigate panel already had a `_navListFingerprint` guard that prevented rebuild if the question list hadn't changed. Search and Bookmarks had no such guard.
+
+**Fix:** Added fingerprint guards:
+
+```javascript
+// Search panel — fingerprint: query string + question count + AI response count
+var sfp = q + '|' + _questions.length + '|' + (_aiResponses ? _aiResponses.length : 0);
+if (sfp === _searchListFingerprint && list.firstChild) return;
+_searchListFingerprint = sfp;
+
+// Bookmarks panel — fingerprint: joined bookmark IDs
+var bfp = bookmarks.map(function(b) { return b.id; }).join('|');
+if (bfp === _bmListFingerprint && panel.children.length > 1) return;
+_bmListFingerprint = bfp;
+```
+
+If neither the data nor the list content has changed, the rebuild is skipped entirely. Hover state is never interrupted unless the underlying data actually changes.
+
+**Result:** Search and Bookmarks panels are stable on hover. Rebuilds only occur when bookmarks are added/removed or when the search query or message count changes.
+
+---
+
+### RESOLVED — Full Conversation Export Failing Silently
+
+**Versions affected:** v10.7.0–v10.7.6
+**Fixed in:** v10.7.7 | **Severity:** High | **Platforms:** Claude.ai
+
+**Symptom:** Clicking "Export Full Conversation" in the Tools panel showed a toast: "Export failed — see console." No file was downloaded. Console showed: `TypeError: (node.className || "").toLowerCase is not a function at isUIChrome`.
+
+**Diagnosis / Root Cause:** `exportFullConversation()` calls `extractMarkdownContent()` which walks every DOM node in user and AI messages. The `isUIChrome()` helper function filtered out UI elements using `node.className.toLowerCase()`. For standard HTML elements, `className` is a plain string. However, Claude.ai's UI uses inline SVG elements extensively (icons in message toolbars, reaction buttons, etc.). On SVG elements, `className` is an `SVGAnimatedString` object — not a string — and has no `.toLowerCase()` method. The call threw a `TypeError`, which was caught by the outer try-catch, showing the generic "Export failed" toast instead of the actual error.
+
+**How it was found:** Console inspection via `mcp__claude-in-chrome__read_console_messages` with pattern `error|TypeError` revealed the exact error message and stack trace pointing to `isUIChrome`.
+
+**Fix:**
+```javascript
+// Before (crashes on SVG elements):
+var cls = node.className.toLowerCase();
+
+// After (handles SVGAnimatedString):
+var rawCls = node.className;
+var cls = (typeof rawCls === 'string' ? rawCls : (rawCls && rawCls.baseVal) || '').toLowerCase();
+```
+
+**Result:** Export now works correctly on Claude.ai, handling SVG icon elements in message containers without crashing.
+
+---
+
+### RESOLVED — Active Bookmark Icon Disappears on Hover
+
+**Versions affected:** v10.7.0–v10.7.6
+**Fixed in:** v10.7.7 | **Severity:** Medium | **Platforms:** All platforms
+
+**Symptom:** When a message had been bookmarked (orange flag icon visible), hovering the cursor over the bookmark icon made it lose its orange color and become nearly invisible.
+
+**Diagnosis / Root Cause:** CSS specificity tie between `.acn-bm-icon.acn-bm-active` and `.acn-bm-icon:hover`. Both rules have specificity (0,2,0) — two class selectors each. In CSS, when two rules have identical specificity, the later-declared rule wins. `.acn-bm-icon:hover` appeared after `.acn-bm-icon.acn-bm-active` in the stylesheet, so on hover the `.acn-bm-icon:hover` rule overrode the orange `.acn-bm-active` background with `rgba(255,255,255,0.2)`.
+
+**Fix:** Added a combined selector with higher specificity:
+```css
+/* Specificity (0,3,0) — beats (0,2,0) — keeps orange on hover */
+.acn-bm-icon.acn-bm-active:hover { background:var(--acn-accent); filter:brightness(1.2); }
+```
+
+Three-class specificity always beats two-class, regardless of declaration order.
+
+---
+
+### RESOLVED — Non-Active Bookmark Icon Invisible on Direct Hover
+
+**Versions affected:** v10.7.0–v10.7.10
+**Fixed in:** v10.7.11 | **Severity:** Medium | **Platforms:** Platforms with light-colored page backgrounds (Claude.ai, ChatGPT)
+
+**Symptom:** When a message had NOT been bookmarked yet, hovering the cursor directly over the flag icon made it visually disappear. The browser tooltip ("Bookmark this message") still showed, confirming the element existed — it was optically invisible, not removed from the DOM.
+
+**Diagnosis / Root Cause:** CSS color camouflage. Default bookmark icon: `background: rgba(0,0,0,0.3)` (dark) with `color: rgba(255,255,255,0.5)` (white flag). On hover, `.acn-bm-icon:hover` changed background to `rgba(255,255,255,0.2)` (light). On Claude.ai's off-white/cream page background, a container with 20% white opacity becomes nearly transparent. The white flag glyph on a near-white background = invisible. The element had `opacity:1` (not transparent) but was optically camouflaged.
+
+**Fix:** Changed hover background to a darker shade that works against any page background:
+```css
+/* Before — camouflages on light backgrounds */
+.acn-bm-icon:hover { opacity:1; background:rgba(255,255,255,0.2); }
+
+/* After — visible on any background */
+.acn-bm-icon:hover { opacity:1; background:rgba(0,0,0,0.55); color:#fff; }
+```
+
+---
+
+### RESOLVED — Context Window Bar Showing 45% for Maxed-Out Conversation
+
+**Versions affected:** v10.7.0–v10.7.9
+**Fixed in:** v10.7.10 | **Severity:** Medium | **Platforms:** Claude.ai (extended thinking)
+
+**Symptom:** A Claude Opus 4.6 Extended Thinking conversation that had physically exhausted the 200K token context limit (Claude was unable to generate further responses) displayed only 45% (~90K/200K tokens) in the Navigate panel's context window bar.
+
+**Investigation path:**
+
+1. **Virtual scroll hypothesis (ruled out):** First suspected that Claude.ai's virtual scroll was hiding older messages from the DOM, causing the `innerText`-based estimate to capture only half the conversation. Investigated by measuring the scrollable container: `scrollHeight=98,393px` vs `clientHeight=652px`. This confirmed all content was in the DOM. DOM element count via `document.body.contains(q.element)` for all 83 questions confirmed all were present.
+
+2. **Extended thinking blocks identified:** Queried `[aria-expanded]` elements within the conversation container. Found **161 thinking block summaries** (e.g., "Examined repository state to assess project progress...") — approximately 1.94 per response. These collapsed summaries represent extended thinking content that Claude generates but claude.ai renders as a short summary phrase only. The full thinking content (~683 tokens per block average) is never placed in the DOM.
+
+3. **System prompt identified:** Claude.ai injects a system prompt of approximately 15,000 tokens into every conversation context. This is also never rendered in the page DOM.
+
+**Token breakdown:**
+- Visible DOM text: 90K tokens (360K chars ÷ 4)
+- System prompt: +15K (always)
+- 161 thinking blocks × 600 tokens: +96.6K
+- **Total: ~201.6K → 100%** (correctly shows red/maxed)
+
+**Fix:** See `docs/claude_specific_context_tracking_calculation.md` for full technical details. The estimation function now adds Claude-specific invisible overhead when on claude.ai: system prompt (+15K) and thinking block count × 600.
+
+**Note:** For Path A (Claude with active SSE token data), the exact `input_tokens` from the API is used and is unaffected by this fix. This fix improves Path B estimation for historical/revisited conversations where no new generation has occurred in the current page session.
+
+---
+
 ## v10.0 — Panel Hover Fixes (2026-02-22, session 3)
 
 Three related bugs in Navigate panel hover behavior, all discovered through live site testing. All resolved in the same session.
