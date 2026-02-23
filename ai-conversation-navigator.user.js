@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator v10.1
 // @namespace    http://tampermonkey.net/
-// @version      10.5
+// @version      10.6
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -38,7 +38,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '10.5';
+    var ACN_VERSION = '10.6';
 
     // ============================================================
     // i18n — internationalization string table
@@ -3158,37 +3158,732 @@
         return panel;
     }
 
+    // ============================================================
+    // SUMMARY — heuristic analysis engine (Group E1)
+    // ============================================================
+
+    var _acnSummaryStyleInjected = false;
+
+    function _acnInjectSummaryCSS() {
+        if (_acnSummaryStyleInjected) return;
+        if (document.getElementById('acn-summary-style')) { _acnSummaryStyleInjected = true; return; }
+        var s = document.createElement('style');
+        s.id = 'acn-summary-style';
+        s.setAttribute('data-acn-role', 'summary-styles');
+        s.textContent = [
+            '.acn-gen-btn{width:100%;padding:10px;background:var(--acn-accent);color:#000;',
+            'border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;}',
+            '.acn-gen-btn:hover{filter:brightness(1.15)}',
+            '.acn-gen-btn:disabled{opacity:0.6;cursor:not-allowed;filter:none}',
+            '.acn-gen-wrap{margin-bottom:12px}',
+            '.acn-sum-disclaimer{font-size:11px;color:#888;margin-top:6px;font-style:italic}',
+            '.acn-map-segment{position:relative;padding:8px 12px;margin:0 0 2px 16px;',
+            'border-left:3px solid var(--acn-accent);background:rgba(var(--acn-rgb),0.05);',
+            'border-radius:0 6px 6px 0;cursor:pointer;transition:background 0.15s ease}',
+            '.acn-map-segment:hover{background:rgba(var(--acn-rgb),0.12)}',
+            '.acn-map-label{font-size:13px;font-weight:600;color:var(--acn-accent);margin-bottom:4px}',
+            '.acn-map-range{font-size:11px;color:#888;float:right}',
+            '.acn-map-entity{font-size:11px;color:#aaa;padding:1px 0;cursor:pointer}',
+            '.acn-map-entity:hover{color:#fff}',
+            '.acn-topic-pills{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}',
+            '.acn-topic-pill{padding:2px 8px;border-radius:12px;',
+            'background:rgba(var(--acn-rgb),0.2);color:var(--acn-accent);font-size:11px}',
+            '.acn-kp-item{font-size:12px;padding:3px 0;color:#ccc}',
+            '.acn-kp-badge{display:inline-block;font-size:10px;font-weight:700;border-radius:3px;',
+            'padding:1px 5px;margin-right:5px;vertical-align:middle}',
+            '.acn-kp-decision{background:rgba(var(--acn-rgb),0.25);color:var(--acn-accent)}',
+            '.acn-kp-action{background:rgba(0,180,120,0.25);color:#4caf90}',
+            '.acn-kp-finding{background:rgba(160,120,220,0.25);color:#b08de8}',
+            '.acn-stats-line{font-size:11px;color:#888;margin:4px 0}',
+            '.acn-code-item{font-size:11px;color:#aaa;padding:2px 0;cursor:pointer}',
+            '.acn-code-item:hover{color:#fff}',
+            '.acn-section-title{font-size:11px;font-weight:700;text-transform:uppercase;',
+            'letter-spacing:0.5px;color:#666;margin:10px 0 4px;cursor:pointer;',
+            'display:flex;align-items:center;justify-content:space-between;user-select:none}',
+            '.acn-section-title:hover{color:#999}',
+            '.acn-section-arrow{font-size:10px;transition:transform 0.2s}',
+            '.acn-section-body.acn-collapsed{display:none}',
+            '.acn-sum-empty{font-size:12px;color:#666;padding:8px 0;font-style:italic}',
+            '.acn-sum-results{padding:0 2px}'
+        ].join('');
+        (document.head || document.documentElement).appendChild(s);
+        _acnSummaryStyleInjected = true;
+    }
+
+    var SUMMARY_STOP_WORDS = new Set([
+        'a','an','the','and','or','but','in','on','at','to','for','of','with','by','from',
+        'up','about','into','through','during','before','after','above','below','between',
+        'out','off','over','under','again','further','then','once','here','there','when',
+        'where','why','how','all','both','each','few','more','most','other','some','such',
+        'no','nor','not','only','own','same','so','than','too','very','can','will','just',
+        'do','does','did','has','have','had','is','are','was','were','be','been','being',
+        'it','its','i','you','he','she','we','they','them','their','what','which','who',
+        'this','that','these','those','am','if','as','me','my','your','our','would',
+        'could','should','may','might','shall','get','got','let','now','also','like',
+        'use','used','using','make','made','way','see','look','go','going','new','one',
+        'two','three','time','day','back','need','still','even','much','many','first',
+        'last','want','know','think','come','take','give','find','work','well','yes',
+        'no','ok','okay','yeah','sure','hi','hey','hello','thanks','thank','please'
+    ]);
+
+    var KEY_POINT_PATTERNS = [
+        { re: /\b(decided?|choosing|chosen|going with|we('ll| will) use|settled on|picked)\b/i,    type: 'decision' },
+        { re: /\b(the (answer|solution|fix|approach) is|it('s| is) (because|due to))\b/i,          type: 'decision' },
+        { re: /\b(conclusion:|in conclusion|to summarize|in summary|the key (point|takeaway))\b/i, type: 'decision' },
+        { re: /\bshould (use|avoid|not|be|always|never)\b/i,                                        type: 'decision' },
+        { re: /\b(you('ll| will| should| need to)|next step|action item|todo|to.do|make sure|ensure)\b/i, type: 'action' },
+        { re: /\b(don't forget|remember to|be sure to|need to|have to|must)\b/i,                         type: 'action' },
+        { re: /\b(let me|i('ll| will)|going to|i'm going to|plan to)\b/i,                               type: 'action' },
+        { re: /\b(try|attempt|run|execute|install|update|add|remove|delete|replace|create|build)\b/i,    type: 'action' },
+        { re: /\b(found|discovered|noticed|realized|turns out|it turns out|appears that|seems like)\b/i, type: 'finding' },
+        { re: /\b(the (bug|issue|problem|error|cause) (is|was)|root cause|actually)\b/i,                type: 'finding' },
+        { re: /\b(important(ly)?|note that|keep in mind|worth noting|caveat|warning|caution)\b/i,       type: 'finding' },
+        { re: /\b(because|reason|why|explanation|this (means|is why|causes))\b/i,                      type: 'finding' }
+    ];
+
+    var SEGMENT_ICON_MAP = [
+        { keywords: ['bug','error','fix','broken','crash','fail','issue','problem'],  icon: 'BUG'    },
+        { keywords: ['setup','install','config','configure','environment','init'],    icon: 'SETUP'  },
+        { keywords: ['code','function','class','variable','refactor','implement'],    icon: 'CODE'   },
+        { keywords: ['design','ui','ux','layout','style','css','color','theme'],      icon: 'DESIGN' },
+        { keywords: ['test','spec','assert','expect','mock','coverage','unit'],       icon: 'TEST'   },
+        { keywords: ['deploy','build','ci','cd','pipeline','release','publish'],      icon: 'DEPLOY' },
+        { keywords: ['data','database','schema','query','sql','api','endpoint'],      icon: 'DATA'   },
+        { keywords: ['doc','document','readme','comment','explain','description'],    icon: 'DOCS'   },
+        { keywords: ['plan','roadmap','idea','feature','proposal','strategy'],        icon: 'PLAN'   }
+    ];
+
+    var FILE_EXTENSION_RE = /\b[\w\-]+\.(js|ts|jsx|tsx|css|html|py|rb|go|rs|java|c|cpp|h|json|yaml|yml|md|sh|bash|env|txt|csv|sql|graphql|vue|svelte)\b/gi;
+
+    function _sumTokenize(text) {
+        return text
+            .toLowerCase()
+            .replace(/```[\s\S]*?```/g, ' ')
+            .replace(/`[^`]+`/g, ' ')
+            .replace(/https?:\/\/\S+/g, ' ')
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .split(/\s+/)
+            .filter(function (w) { return w.length > 2 && !SUMMARY_STOP_WORDS.has(w); });
+    }
+
+    function _sumExtractBigrams(words) {
+        var bigrams = [];
+        for (var i = 0; i < words.length - 1; i++) {
+            if (!SUMMARY_STOP_WORDS.has(words[i]) && !SUMMARY_STOP_WORDS.has(words[i + 1])) {
+                bigrams.push(words[i] + ' ' + words[i + 1]);
+            }
+        }
+        return bigrams;
+    }
+
+    function _sumExtractTopicsFromText(text, maxTopics) {
+        maxTopics = maxTopics || 8;
+        var words   = _sumTokenize(text);
+        var bigrams = _sumExtractBigrams(words);
+        var freq    = {};
+
+        words.forEach(function (w) {
+            if (w.length < 3) return;
+            freq[w] = (freq[w] || 0) + 1;
+        });
+        bigrams.forEach(function (b) {
+            freq[b] = (freq[b] || 0) + 2;
+        });
+
+        var sorted = Object.keys(freq).sort(function (a, b) { return freq[b] - freq[a]; });
+        var chosen = [];
+        var coveredWords = {};
+
+        for (var i = 0; i < sorted.length && chosen.length < maxTopics; i++) {
+            var term = sorted[i];
+            if (freq[term] < 1) continue;
+            if (term.indexOf(' ') === -1 && coveredWords[term]) continue;
+            chosen.push(term);
+            if (term.indexOf(' ') !== -1) {
+                term.split(' ').forEach(function (w) { coveredWords[w] = true; });
+            }
+        }
+        return chosen;
+    }
+
+    function _sumExtractTopics(questions, aiResponses) {
+        var freq = {};
+
+        function addTerms(text, weight) {
+            var words   = _sumTokenize(text);
+            var bigrams = _sumExtractBigrams(words);
+            var local   = {};
+
+            words.forEach(function (w)   { if (w.length > 2) local[w]  = (local[w]  || 0) + 1; });
+            bigrams.forEach(function (b) { local[b] = (local[b] || 0) + 2; });
+
+            Object.keys(local).forEach(function (term) {
+                freq[term] = (freq[term] || 0) + local[term] * weight;
+            });
+        }
+
+        questions.forEach(function (q)   { addTerms(q.text || '', 1.5); });
+        aiResponses.forEach(function (r) { addTerms(r.text || '', 1.0); });
+
+        var sorted = Object.keys(freq).sort(function (a, b) { return freq[b] - freq[a]; });
+        var result = [];
+        var coveredWords = {};
+
+        for (var i = 0; i < sorted.length && result.length < 15; i++) {
+            var term = sorted[i];
+            if (freq[term] < 1.5) continue;
+            if (term.indexOf(' ') === -1 && coveredWords[term]) continue;
+            result.push(term);
+            if (term.indexOf(' ') !== -1) {
+                term.split(' ').forEach(function (w) { coveredWords[w] = true; });
+            }
+        }
+        return result;
+    }
+
+    function _sumWordOverlap(textA, textB) {
+        var wordsA = new Set(_sumTokenize(textA));
+        var wordsB = new Set(_sumTokenize(textB));
+        if (wordsA.size === 0 || wordsB.size === 0) return 0;
+        var intersection = 0;
+        wordsA.forEach(function (w) { if (wordsB.has(w)) intersection++; });
+        return intersection / Math.max(wordsA.size, wordsB.size);
+    }
+
+    function _sumTopicOverlap(topicsA, topicsB) {
+        if (!topicsA.length || !topicsB.length) return 0;
+        var setA = new Set(topicsA);
+        var setB = new Set(topicsB);
+        var intersection = 0;
+        setA.forEach(function (t) { if (setB.has(t)) intersection++; });
+        var union = setA.size + setB.size - intersection;
+        return union === 0 ? 0 : intersection / union;
+    }
+
+    function _sumMergeTopics(topicsA, topicsB) {
+        var seen = {};
+        var merged = [];
+        topicsA.concat(topicsB).forEach(function (t) {
+            if (!seen[t]) { seen[t] = true; merged.push(t); }
+        });
+        return merged.slice(0, 6);
+    }
+
+    function _sumDeduplicatePoints(points) {
+        var kept = [];
+        points.forEach(function (pt) {
+            var isDup = kept.some(function (k) {
+                return _sumWordOverlap(k.text, pt.text) > 0.6;
+            });
+            if (!isDup) kept.push(pt);
+        });
+        return kept;
+    }
+
+    function _sumExtractKeyPoints(questions, aiResponses) {
+        var points = [];
+
+        function checkMessage(msg, source, position) {
+            var text = msg.text || '';
+            var sentences = text.split(/(?<=[.!?])\s+|(?<=\n)\s*/).filter(function (s) {
+                return s.trim().length > 20;
+            });
+            sentences.forEach(function (sentence) {
+                var trimmed = sentence.trim();
+                for (var p = 0; p < KEY_POINT_PATTERNS.length; p++) {
+                    if (KEY_POINT_PATTERNS[p].re.test(trimmed)) {
+                        var display = trimmed.length > 140 ? trimmed.substring(0, 137) + '...' : trimmed;
+                        points.push({ text: display, type: KEY_POINT_PATTERNS[p].type, source: source, position: position });
+                        break;
+                    }
+                }
+            });
+        }
+
+        questions.forEach(function (q, i)   { checkMessage(q, 'user', i); });
+        aiResponses.forEach(function (r, i) { checkMessage(r, 'ai',   i); });
+
+        return _sumDeduplicatePoints(points).slice(0, 20);
+    }
+
+    function _sumGenerateStats(questions, aiResponses) {
+        var userChars = questions.reduce(function (s, q)   { return s + (q.text || '').length; }, 0);
+        var aiChars   = aiResponses.reduce(function (s, r) { return s + (r.text || '').length; }, 0);
+        return {
+            totalMessages: questions.length + aiResponses.length,
+            userMessages:  questions.length,
+            aiMessages:    aiResponses.length,
+            userChars:     userChars,
+            aiChars:       aiChars,
+            avgUserLen:    questions.length   ? Math.round(userChars / questions.length)   : 0,
+            avgAiLen:      aiResponses.length ? Math.round(aiChars  / aiResponses.length) : 0
+        };
+    }
+
+    function _sumInventoryCodeAndFiles(aiResponses) {
+        var codeBlocks = [];
+        var files      = [];
+        var seenFiles  = {};
+
+        aiResponses.forEach(function (r, msgIndex) {
+            var el = r.element;
+            if (!el) return;
+
+            try {
+                var pres = el.querySelectorAll('pre');
+                pres.forEach(function (pre) {
+                    var codeEl  = pre.querySelector('code') || pre;
+                    var rawText = (codeEl.textContent || '').trim();
+                    if (!rawText) return;
+
+                    var lang = '';
+                    var cls  = codeEl.className || pre.className || '';
+                    var langMatch = cls.match(/language-(\w+)/);
+                    if (langMatch) lang = langMatch[1];
+
+                    if (!lang) {
+                        if (/^\s*</.test(rawText))             lang = 'html';
+                        else if (/^\s*\{/.test(rawText))       lang = 'json';
+                        else if (/def |import |print\(/.test(rawText)) lang = 'python';
+                        else if (/function |const |var |let /.test(rawText)) lang = 'javascript';
+                    }
+
+                    var preview = rawText.substring(0, 60).replace(/\n/g, ' ');
+                    if (preview.length === 60) preview += '...';
+                    var label = (lang ? lang.toUpperCase() + ': ' : '') + preview;
+                    codeBlocks.push({ label: label, element: pre, msgIndex: msgIndex });
+                });
+            } catch (e) {}
+
+            try {
+                var links = el.querySelectorAll('a[href]');
+                links.forEach(function (a) {
+                    var href = a.getAttribute('href') || '';
+                    var text = (a.textContent || '').trim();
+                    var extMatch = (href + ' ' + text).match(FILE_EXTENSION_RE);
+                    if (extMatch) {
+                        extMatch.forEach(function (fname) {
+                            if (!seenFiles[fname]) {
+                                seenFiles[fname] = true;
+                                files.push({ label: fname, element: a, msgIndex: msgIndex });
+                            }
+                        });
+                    }
+                });
+            } catch (e) {}
+
+            try {
+                var textContent = (el.textContent || '');
+                var textMatches = textContent.match(FILE_EXTENSION_RE);
+                if (textMatches) {
+                    textMatches.forEach(function (fname) {
+                        if (!seenFiles[fname]) {
+                            seenFiles[fname] = true;
+                            files.push({ label: fname, element: null, msgIndex: msgIndex });
+                        }
+                    });
+                }
+            } catch (e) {}
+        });
+
+        return { codeBlocks: codeBlocks, files: files };
+    }
+
+    function _sumBuildTimeline(questions, aiResponses) {
+        var all = [];
+
+        questions.forEach(function (q, i) {
+            all.push({ element: q.element, text: q.text || '', type: 'user', srcIndex: i });
+        });
+        aiResponses.forEach(function (r, i) {
+            all.push({ element: r.element, text: r.text || '', type: 'ai',   srcIndex: i });
+        });
+
+        all.sort(function (a, b) {
+            if (!a.element || !b.element) return 0;
+            try {
+                var pos = a.element.compareDocumentPosition(b.element);
+                if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+                if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+            } catch (e) {}
+            return 0;
+        });
+
+        all.forEach(function (m, i) { m.globalIdx = i; });
+        return all;
+    }
+
+    function _sumScanEntities(messages) {
+        var entities = [];
+        messages.forEach(function (msg) {
+            var el = msg.element;
+            if (!el) return;
+            var idx = msg.globalIdx;
+
+            try {
+                el.querySelectorAll('pre').forEach(function (pre) {
+                    var codeEl = pre.querySelector('code') || pre;
+                    var cls    = codeEl.className || '';
+                    var langM  = cls.match(/language-(\w+)/);
+                    var lang   = langM ? langM[1] : 'code';
+                    entities.push({ type: 'code', icon: 'CODE', label: lang + ' code', element: pre, msgIndex: idx });
+                });
+            } catch (e) {}
+
+            try {
+                el.querySelectorAll('img[src]').forEach(function (img) {
+                    var alt = img.getAttribute('alt') || 'image';
+                    entities.push({ type: 'image', icon: 'IMG', label: alt, element: img, msgIndex: idx });
+                });
+            } catch (e) {}
+
+            try {
+                el.querySelectorAll('a[href]').forEach(function (a) {
+                    var href = (a.getAttribute('href') || '');
+                    var m    = href.match(FILE_EXTENSION_RE);
+                    if (m) {
+                        entities.push({ type: 'file', icon: 'FILE', label: m[0], element: a, msgIndex: idx });
+                    }
+                });
+            } catch (e) {}
+        });
+        return entities;
+    }
+
+    function _sumGetSegmentIcon(segment) {
+        var topics = (segment.topics || []).join(' ').toLowerCase();
+        var text   = (segment.messages || []).map(function (m) { return m.text || ''; }).join(' ').toLowerCase();
+        var combined = topics + ' ' + text;
+
+        for (var i = 0; i < SEGMENT_ICON_MAP.length; i++) {
+            var entry = SEGMENT_ICON_MAP[i];
+            for (var j = 0; j < entry.keywords.length; j++) {
+                if (combined.indexOf(entry.keywords[j]) !== -1) return entry.icon;
+            }
+        }
+        return 'MSG';
+    }
+
+    function _sumGenerateSegmentLabel(segment) {
+        var topics = segment.topics || [];
+        if (!topics.length) return 'Discussion';
+        function cap(str) {
+            return str.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+        }
+        if (topics.length === 1) return cap(topics[0]);
+        return cap(topics[0]) + ' / ' + cap(topics[1]);
+    }
+
+    var _SEGMENT_WINDOW = 4;
+
+    function _sumGetWindowSize(totalMessages) {
+        if (totalMessages < 4)   return totalMessages || 1;
+        if (totalMessages > 100) return 6;
+        return _SEGMENT_WINDOW;
+    }
+
+    function _sumMergeExcessSegments(segments) {
+        while (segments.length > 12) {
+            var maxOverlap = -1;
+            var mergeIdx   = 0;
+            for (var i = 0; i < segments.length - 1; i++) {
+                var overlap = _sumTopicOverlap(segments[i].topics, segments[i + 1].topics);
+                if (overlap > maxOverlap) {
+                    maxOverlap = overlap;
+                    mergeIdx   = i;
+                }
+            }
+            var a = segments[mergeIdx];
+            var b = segments[mergeIdx + 1];
+            var merged = {
+                startIdx:  a.startIdx,
+                endIdx:    b.endIdx,
+                messages:  a.messages.concat(b.messages),
+                topics:    _sumMergeTopics(a.topics, b.topics),
+                entities:  a.entities.concat(b.entities),
+                label:     ''
+            };
+            merged.label = _sumGenerateSegmentLabel(merged);
+            segments.splice(mergeIdx, 2, merged);
+        }
+        return segments;
+    }
+
+    function _sumBuildConversationMap(questions, aiResponses) {
+        var timeline = _sumBuildTimeline(questions, aiResponses);
+        if (!timeline.length) return [];
+
+        var windowSize = _sumGetWindowSize(timeline.length);
+        var segments   = [];
+
+        for (var i = 0; i < timeline.length; i += windowSize) {
+            var slice    = timeline.slice(i, i + windowSize);
+            var combined = slice.map(function (m) { return m.text; }).join(' ');
+            var topics   = _sumExtractTopicsFromText(combined, 5);
+            var entities = _sumScanEntities(slice);
+
+            var seg = {
+                startIdx: i,
+                endIdx:   Math.min(i + windowSize - 1, timeline.length - 1),
+                messages: slice,
+                topics:   topics,
+                entities: entities,
+                label:    ''
+            };
+            seg.label = _sumGenerateSegmentLabel(seg);
+            segments.push(seg);
+        }
+
+        return _sumMergeExcessSegments(segments);
+    }
+
+    function generateFullSummary() {
+        var aiMsgs = Array.from(getAIMessages()).map(function (el) {
+            return { element: el, text: (el.textContent || el.innerText || '').trim(), type: 'ai' };
+        });
+
+        return {
+            map:       _sumBuildConversationMap(_questions, aiMsgs),
+            topics:    _sumExtractTopics(_questions, aiMsgs),
+            keyPoints: _sumExtractKeyPoints(_questions, aiMsgs),
+            stats:     _sumGenerateStats(_questions, aiMsgs),
+            inventory: _sumInventoryCodeAndFiles(aiMsgs)
+        };
+    }
+
+    // Expose globally for Group E2 cross-module access
+    window.generateFullSummary = generateFullSummary;
+
+    function _sumMakeCollapsibleSection(titleText, bodyEl) {
+        var arrow   = createElement('span', { className: 'acn-section-arrow', textContent: '\u25BE' });
+        var titleEl = createElement('div', { className: 'acn-section-title' }, [titleText, arrow]);
+        bodyEl.classList.add('acn-section-body');
+
+        var collapsed = false;
+        titleEl.addEventListener('click', function () {
+            collapsed = !collapsed;
+            if (collapsed) {
+                bodyEl.classList.add('acn-collapsed');
+                arrow.style.transform = 'rotate(-90deg)';
+            } else {
+                bodyEl.classList.remove('acn-collapsed');
+                arrow.style.transform = '';
+            }
+        });
+
+        var wrapper = document.createElement('div');
+        wrapper.appendChild(titleEl);
+        wrapper.appendChild(bodyEl);
+        return wrapper;
+    }
+
+    function _sumScrollToElement(el) {
+        if (!el) return;
+        try {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            var prev = el.style.outline;
+            el.style.outline = '2px solid var(--acn-accent, #d97706)';
+            el.style.outlineOffset = '3px';
+            setTimeout(function () {
+                el.style.outline = prev;
+                el.style.outlineOffset = '';
+            }, 1400);
+        } catch (e) {}
+    }
+
+    function _sumRenderConversationMap(mapData) {
+        var body = document.createElement('div');
+        if (!mapData.length) {
+            body.appendChild(createElement('div', { className: 'acn-sum-empty', textContent: 'Not enough messages to segment.' }));
+            return _sumMakeCollapsibleSection(i18n('conversationMap') || 'Conversation Map', body);
+        }
+
+        mapData.forEach(function (seg) {
+            var icon      = _sumGetSegmentIcon(seg);
+            var rangeText = 'Msgs ' + (seg.startIdx + 1) + '-' + (seg.endIdx + 1);
+
+            var rangeEl = createElement('div', { className: 'acn-map-range', textContent: rangeText });
+            var labelEl = createElement('div', { className: 'acn-map-label', textContent: icon + '  ' + seg.label });
+            var segEl   = createElement('div', { className: 'acn-map-segment' }, [rangeEl, labelEl]);
+
+            if (seg.topics.length) {
+                var pillWrap = createElement('div', { className: 'acn-topic-pills', style: 'margin-top:4px;margin-bottom:2px' });
+                seg.topics.slice(0, 3).forEach(function (t) {
+                    pillWrap.appendChild(createElement('span', { className: 'acn-topic-pill', textContent: t }));
+                });
+                segEl.appendChild(pillWrap);
+            }
+
+            seg.entities.slice(0, 4).forEach(function (ent) {
+                var entEl = createElement('div', { className: 'acn-map-entity', textContent: ent.icon + ' ' + ent.label });
+                entEl.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    _sumScrollToElement(ent.element);
+                });
+                segEl.appendChild(entEl);
+            });
+
+            segEl.addEventListener('click', function () {
+                var firstMsg = seg.messages && seg.messages[0];
+                if (firstMsg) _sumScrollToElement(firstMsg.element);
+            });
+
+            body.appendChild(segEl);
+        });
+
+        return _sumMakeCollapsibleSection(i18n('conversationMap') || 'Conversation Map', body);
+    }
+
+    function _sumRenderTopics(topics) {
+        var body = document.createElement('div');
+        if (!topics.length) {
+            body.appendChild(createElement('div', { className: 'acn-sum-empty', textContent: 'No topics detected.' }));
+            return _sumMakeCollapsibleSection(i18n('topics') || 'Topics', body);
+        }
+        var pills = createElement('div', { className: 'acn-topic-pills' });
+        topics.forEach(function (t) {
+            pills.appendChild(createElement('span', { className: 'acn-topic-pill', textContent: t }));
+        });
+        body.appendChild(pills);
+        return _sumMakeCollapsibleSection(i18n('topics') || 'Topics', body);
+    }
+
+    function _sumRenderKeyPoints(keyPoints) {
+        var body = document.createElement('div');
+        if (!keyPoints.length) {
+            body.appendChild(createElement('div', { className: 'acn-sum-empty', textContent: 'No key points detected.' }));
+            return _sumMakeCollapsibleSection(i18n('keyPoints') || 'Key Points', body);
+        }
+
+        keyPoints.forEach(function (pt) {
+            var badgeClass = 'acn-kp-badge acn-kp-' + pt.type;
+            var badge = createElement('span', { className: badgeClass, textContent: pt.type.toUpperCase() });
+            var item  = createElement('div',  { className: 'acn-kp-item' });
+            item.appendChild(badge);
+            item.appendChild(document.createTextNode(pt.text));
+            body.appendChild(item);
+        });
+
+        return _sumMakeCollapsibleSection(i18n('keyPoints') || 'Key Points', body);
+    }
+
+    function _sumRenderStats(stats) {
+        var body = document.createElement('div');
+        var lines = [
+            'Total turns: ' + stats.totalMessages + ' (' + stats.userMessages + ' user, ' + stats.aiMessages + ' AI)',
+            'User: ' + stats.userChars.toLocaleString() + ' chars (avg ' + stats.avgUserLen + '/msg)',
+            'AI: '   + stats.aiChars.toLocaleString()   + ' chars (avg ' + stats.avgAiLen  + '/msg)'
+        ];
+        lines.forEach(function (line) {
+            body.appendChild(createElement('div', { className: 'acn-stats-line', textContent: line }));
+        });
+        return _sumMakeCollapsibleSection(i18n('stats') || 'Stats', body);
+    }
+
+    function _sumRenderInventory(inventory) {
+        var body = document.createElement('div');
+        var hasContent = false;
+
+        if (inventory.codeBlocks.length) {
+            hasContent = true;
+            body.appendChild(createElement('div', { className: 'acn-section-title', style: 'cursor:default', textContent: 'Code Blocks (' + inventory.codeBlocks.length + ')' }));
+            inventory.codeBlocks.slice(0, 10).forEach(function (cb) {
+                var item = createElement('div', { className: 'acn-code-item', textContent: cb.label });
+                item.addEventListener('click', function () { _sumScrollToElement(cb.element); });
+                body.appendChild(item);
+            });
+        }
+
+        if (inventory.files.length) {
+            hasContent = true;
+            body.appendChild(createElement('div', { className: 'acn-section-title', style: 'cursor:default', textContent: 'Files (' + inventory.files.length + ')' }));
+            inventory.files.slice(0, 10).forEach(function (f) {
+                var item = createElement('div', { className: 'acn-code-item', textContent: f.label });
+                if (f.element) {
+                    item.addEventListener('click', function () { _sumScrollToElement(f.element); });
+                }
+                body.appendChild(item);
+            });
+        }
+
+        if (!hasContent) {
+            body.appendChild(createElement('div', { className: 'acn-sum-empty', textContent: 'No code blocks or files found.' }));
+        }
+
+        return _sumMakeCollapsibleSection('Code & Files', body);
+    }
+
+    function renderSummaryResults(container, summaryData) {
+        while (container.firstChild) container.removeChild(container.firstChild);
+
+        if (!summaryData) {
+            container.appendChild(createElement('div', { className: 'acn-sum-empty', textContent: 'No data to display.' }));
+            return;
+        }
+
+        var stats = summaryData.stats;
+        if (!stats || stats.totalMessages === 0) {
+            container.appendChild(createElement('div', { className: 'acn-sum-empty', textContent: 'No messages detected yet. Start a conversation first.' }));
+            return;
+        }
+
+        container.appendChild(_sumRenderStats(summaryData.stats));
+        container.appendChild(_sumRenderTopics(summaryData.topics));
+        container.appendChild(_sumRenderKeyPoints(summaryData.keyPoints));
+        container.appendChild(_sumRenderConversationMap(summaryData.map));
+        container.appendChild(_sumRenderInventory(summaryData.inventory));
+    }
+
     function orbBuildPanelSummary() {
+        _acnInjectSummaryCSS();
+
         var panel = createElement('div', { id: 'acn-panel-summary', className: 'acn-panel' });
-        panel.appendChild(orbBuildPanelHeader('\u03A3 Summary'));
+        panel.appendChild(orbBuildPanelHeader('\u03A3 ' + (i18n('summary') || 'Summary')));
 
-        var scroll = createElement('div', { style: 'flex:1;overflow-y:auto' });
+        var scroll = createElement('div', { style: 'flex:1;overflow-y:auto;padding:4px 10px 10px' });
 
-        // Topics
-        var topicsSec   = createElement('div', { className: 'acn-sum-sec' });
-        topicsSec.appendChild(createElement('div', { className: 'acn-sum-title', textContent: 'Topics' }));
-        ['Orbital UI', 'Navigation', 'Conversation'].forEach(function (t) {
-            topicsSec.appendChild(createElement('span', { className: 'acn-sum-topic', textContent: t }));
+        var genBtn = createElement('button', {
+            className:   'acn-gen-btn',
+            textContent: i18n('generateSummary') || 'Generate Summary'
         });
-        scroll.appendChild(topicsSec);
 
-        // Key points
-        var keysSec = createElement('div', { className: 'acn-sum-sec' });
-        keysSec.appendChild(createElement('div', { className: 'acn-sum-title', textContent: 'Key Points' }));
-        ['→', '→'].forEach(function (b, i) {
-            var bullet = createElement('span', { className: 'acn-sum-bullet', textContent: b });
-            var text   = createElement('span', null,
-                [i === 0 ? 'Navigate between user questions' : 'Search conversation content']);
-            keysSec.appendChild(createElement('div', { className: 'acn-sum-action' }, [bullet, text]));
+        var disclaimer = createElement('div', {
+            className:   'acn-sum-disclaimer',
+            textContent: i18n('summaryDisclaimer') ||
+                "Pattern matching, not AI. For a real summary, just ask \u2014 you're literally inside one!"
         });
-        scroll.appendChild(keysSec);
 
-        // Generate button
-        var genSec = createElement('div', { className: 'acn-sum-sec' });
-        var genBtn = createElement('button', { className: 'acn-gen-btn',
-            textContent: '\u21BB Generate Summary' });
-        genSec.appendChild(genBtn);
-        scroll.appendChild(genSec);
+        var genWrap = createElement('div', { className: 'acn-gen-wrap' }, [genBtn, disclaimer]);
+        scroll.appendChild(genWrap);
+
+        var resultsContainer = createElement('div', { className: 'acn-sum-results' });
+        scroll.appendChild(resultsContainer);
+
+        var hasGenerated = false;
+        genBtn.addEventListener('click', function () {
+            genBtn.disabled     = true;
+            genBtn.textContent  = i18n('analyzing') || 'Analyzing...';
+
+            setTimeout(function () {
+                var data;
+                try {
+                    data = generateFullSummary();
+                } catch (e) {
+                    console.error('ACN Summary: generateFullSummary() threw:', e);
+                    data = null;
+                }
+
+                renderSummaryResults(resultsContainer, data);
+
+                genBtn.disabled    = false;
+                hasGenerated       = true;
+                genBtn.textContent = i18n('regenerateSummary') || 'Regenerate Summary';
+
+                if (!hasGenerated) {
+                    try { showToast('Summary generated'); } catch (e) {}
+                }
+            }, 40);
+        });
 
         panel.appendChild(scroll);
         return panel;
