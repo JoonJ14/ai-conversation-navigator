@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator v10.1
 // @namespace    http://tampermonkey.net/
-// @version      10.2
+// @version      10.3
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -22,6 +22,7 @@
 // @grant        GM_addStyle
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
 (function () {
@@ -37,7 +38,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '10.2';
+    var ACN_VERSION = '10.3';
 
     // ============================================================
     // i18n — internationalization string table
@@ -886,6 +887,9 @@
     // App-builder platforms keep the legacy ghost-notch / right-edge button.
     var useOrbital = ['claude', 'chatgpt', 'grok', 'gemini', 'perplexity'].indexOf(platform.id) >= 0;
 
+    // Wire up Claude SSE interceptor for exact token tracking
+    if (platform.id === 'claude') setupClaudeSSEInterceptor();
+
     // ============================================================
     // DOM CREATION HELPER — no innerHTML (Trusted Types safe)
     // ============================================================
@@ -1088,6 +1092,33 @@
     var _questions = []; // [{ element, text, summary, vsIndex? }]
     var _vsAccumulatedKeys = new Set();
     var _navListFingerprint = ''; // used to skip DOM rebuild when questions are unchanged
+
+    // ── Tier 1: Claude SSE exact token state ──────────────────
+    var _sseTokenData = {
+        inputTokens:  0,
+        outputTokens: 0,
+        lastUpdated:  0,
+        exact:        false   // true once we have at least one message_start reading
+    };
+    var _prevInputTokens  = 0;  // input tokens from previous message_start (compaction detect)
+    var _compactionCount  = 0;  // total number of compactions observed this session
+    var _compactionHistory = []; // turn numbers at which compaction was detected
+
+    // ── Tier 2: Non-Claude turn counter state ─────────────────
+    var _turnCounter = {
+        totalTurns:          0,
+        turnsSinceCompact:   0,
+        compactionCount:     0,
+        cycleLengths:        [],   // lengths of completed cycles between compactions
+        predictedCycleLength: null,
+        lastCompactTurn:     0
+    };
+
+    // ── Plan usage (Claude only) ───────────────────────────────
+    var USAGE_POLL_INTERVAL = 5 * 60 * 1000; // 5 minutes
+    var _usageData     = null;
+    var _usageLastFetch = 0;
+    var _usageRefreshTimer = null; // debounce timer for maybeRefreshUsage
 
     function scanConversation(forceReset) {
         var messages = getUserMessages();
@@ -1310,6 +1341,416 @@
     function orbOnScanComplete() {
         if (orbPanel === 'nav')    orbPopulateNavigate();
         if (orbPanel === 'search') orbPopulateSearch(orbSearchQuery);
+        if (platform.id !== 'claude') updateTurnCounter();
+        var bmPanel = document.getElementById('acn-panel-bookmarks');
+        if (bmPanel && bmPanel.classList.contains('acn-open')) {
+            orbRefreshBookmarksPanel();
+        }
+    }
+
+    // ============================================================
+    // SSE INTERCEPTOR — Tier 1 (Claude exact token tracking)
+    // ============================================================
+
+    function setupClaudeSSEInterceptor() {
+        if (typeof window.fetch !== 'function') return;
+        if (window._acnFetchPatched) return; // idempotent
+        window._acnFetchPatched = true;
+
+        var _nativeFetch = window.fetch;
+
+        window.fetch = function acnFetchProxy(input, init) {
+            var url = (typeof input === 'string') ? input :
+                      (input && input.url) ? input.url : '';
+
+            // Only intercept streaming requests to Claude's backend
+            var isClaude = url.indexOf('claude.ai') !== -1 ||
+                           url.indexOf('/api/organizations') !== -1 ||
+                           url.indexOf('/api/append_message') !== -1 ||
+                           url.indexOf('/completion') !== -1;
+
+            var result = _nativeFetch.apply(this, arguments);
+
+            if (!isClaude) return result;
+
+            return result.then(function (response) {
+                // Only attempt to tap text/event-stream responses
+                var ct = response.headers && response.headers.get('content-type');
+                if (!ct || ct.indexOf('text/event-stream') === -1) return response;
+
+                // We must clone: the original stream can only be consumed once
+                var cloned = response.clone();
+                readSSEStream(cloned.body);
+                return response;
+            });
+        };
+    }
+
+    function readSSEStream(body) {
+        if (!body || typeof body.getReader !== 'function') return;
+
+        var reader  = body.getReader();
+        var decoder = new TextDecoder('utf-8');
+        var buffer  = '';
+
+        function pump() {
+            reader.read().then(function (result) {
+                if (result.done) return;
+
+                buffer += decoder.decode(result.value, { stream: true });
+
+                // Split on double-newline (SSE event boundary)
+                var parts = buffer.split(/\n\n/);
+                buffer = parts.pop(); // last part may be incomplete
+
+                for (var i = 0; i < parts.length; i++) {
+                    if (parts[i].trim()) {
+                        parseSSEEvent(parts[i]);
+                    }
+                }
+
+                pump(); // recurse
+            }).catch(function () {
+                // Stream was aborted — silently ignore
+            });
+        }
+
+        pump();
+    }
+
+    function parseSSEEvent(eventStr) {
+        var lines = eventStr.split('\n');
+        var eventType = '';
+        var dataStr   = '';
+
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i];
+            if (line.indexOf('event:') === 0) {
+                eventType = line.slice(6).trim();
+            } else if (line.indexOf('data:') === 0) {
+                dataStr = line.slice(5).trim();
+            }
+        }
+
+        if (!dataStr || dataStr === '[DONE]') return;
+
+        var payload;
+        try {
+            payload = JSON.parse(dataStr);
+        } catch (e) {
+            return;
+        }
+
+        if (eventType === 'message_start' && payload.message && payload.message.usage) {
+            var usage       = payload.message.usage;
+            var newInput    = usage.input_tokens  || 0;
+            var newOutput   = usage.output_tokens || 0;
+
+            // ── Compaction detection ──────────────────────────────────
+            if (_sseTokenData.exact &&
+                _prevInputTokens > 2000 &&
+                newInput < _prevInputTokens * 0.60) {
+                _compactionCount++;
+                _compactionHistory.push(_turnCounter.totalTurns);
+
+                _turnCounter.compactionCount = _compactionCount;
+
+                var cycleLen = _turnCounter.turnsSinceCompact;
+                if (cycleLen > 0) {
+                    _turnCounter.cycleLengths.push(cycleLen);
+                    _turnCounter.predictedCycleLength = predictNextCycleLength();
+                }
+                _turnCounter.turnsSinceCompact = 0;
+                _turnCounter.lastCompactTurn   = _turnCounter.totalTurns;
+            }
+
+            _prevInputTokens        = newInput;
+            _sseTokenData.inputTokens  = newInput;
+            _sseTokenData.outputTokens = newOutput;
+            _sseTokenData.lastUpdated  = Date.now();
+            _sseTokenData.exact        = true;
+
+            orbUpdateContextBar();
+
+        } else if (eventType === 'message_delta' && payload.usage) {
+            _sseTokenData.outputTokens = payload.usage.output_tokens || _sseTokenData.outputTokens;
+            _sseTokenData.lastUpdated  = Date.now();
+
+            // Debounced plan usage refresh (3 s after last SSE activity)
+            if (_usageRefreshTimer) clearTimeout(_usageRefreshTimer);
+            _usageRefreshTimer = setTimeout(maybeRefreshUsage, 3000);
+
+            orbUpdateContextBar();
+        }
+    }
+
+    // ============================================================
+    // TURN COUNTER HELPERS (Tier 2 — non-Claude platforms)
+    // ============================================================
+
+    function updateTurnCounter() {
+        var newTotal = _questions.length;
+        if (newTotal <= _turnCounter.totalTurns) return;
+
+        var added = newTotal - _turnCounter.totalTurns;
+        _turnCounter.totalTurns        += added;
+        _turnCounter.turnsSinceCompact += added;
+    }
+
+    function predictNextCycleLength() {
+        var cycles = _turnCounter.cycleLengths;
+        var n = cycles.length;
+        if (n === 0) return null;
+        if (n === 1) return cycles[0];
+
+        var totalWeight  = 0;
+        var weightedSum  = 0;
+        for (var i = 0; i < n; i++) {
+            var weight;
+            if (i === n - 1)      weight = 0.5;
+            else if (i === n - 2) weight = 0.3;
+            else                  weight = 0.2 / Math.max(n - 2, 1);
+            totalWeight += weight;
+            weightedSum += cycles[i] * weight;
+        }
+        return Math.round(weightedSum / totalWeight);
+    }
+
+    // ============================================================
+    // PLAN USAGE (Claude only)
+    // ============================================================
+
+    function getBarColor(pct) {
+        if (pct < 70)  return '#22c55e';
+        if (pct < 85)  return '#eab308';
+        return '#ef4444';
+    }
+
+    function fetchClaudeUsage(callback) {
+        if (typeof GM_xmlhttpRequest !== 'function') {
+            callback(null);
+            return;
+        }
+
+        GM_xmlhttpRequest({
+            method: 'GET',
+            url: 'https://claude.ai/settings/usage',
+            headers: {
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Cache-Control': 'no-cache'
+            },
+            onload: function (response) {
+                var parsed = parseUsageFromHTML(response.responseText || '');
+                callback(parsed);
+            },
+            onerror: function () {
+                callback(null);
+            }
+        });
+    }
+
+    function parseUsageFromHTML(html) {
+        if (!html) return null;
+
+        var keywordRx = /five_hour_usage|fiveHour|"messages_used"/;
+        if (!keywordRx.test(html)) return null;
+
+        var scriptRx = /<script[^>]*>([\s\S]*?)<\/script>/gi;
+        var m;
+        while ((m = scriptRx.exec(html)) !== null) {
+            var content = m[1];
+            if (!keywordRx.test(content)) continue;
+
+            var obj = _extractFirstJSON(content);
+            if (obj) {
+                var result = _normaliseUsageObject(obj);
+                if (result) return result;
+            }
+        }
+
+        var jsonBlobRx = /\{[^{}]{10,}\}/g;
+        var blob;
+        while ((blob = jsonBlobRx.exec(html)) !== null) {
+            if (!keywordRx.test(blob[0])) continue;
+            try {
+                var parsed = JSON.parse(blob[0]);
+                var result2 = _normaliseUsageObject(parsed);
+                if (result2) return result2;
+            } catch (e) { /* skip */ }
+        }
+
+        return null;
+    }
+
+    function _extractFirstJSON(str) {
+        var depth  = 0;
+        var start  = -1;
+        for (var i = 0; i < str.length; i++) {
+            if (str[i] === '{') {
+                if (depth === 0) start = i;
+                depth++;
+            } else if (str[i] === '}') {
+                depth--;
+                if (depth === 0 && start !== -1) {
+                    try {
+                        return JSON.parse(str.slice(start, i + 1));
+                    } catch (e) {
+                        start = -1;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    function _normaliseUsageObject(obj) {
+        if (!obj || typeof obj !== 'object') return null;
+
+        if (obj.five_hour_usage !== undefined || obj.fiveHourUsage !== undefined) {
+            var fh = obj.five_hour_usage  || obj.fiveHourUsage  || {};
+            var sd = obj.seven_day_usage  || obj.sevenDayUsage  || {};
+            var ss = obj.seven_day_sonnet_usage || obj.sevenDaySonnetUsage || {};
+            return {
+                fiveHour: {
+                    used:     fh.messages_used   || fh.used  || 0,
+                    limit:    fh.messages_limit  || fh.limit || 0,
+                    resetsAt: fh.resets_at       || fh.resetsAt || null
+                },
+                sevenDay: {
+                    used:     sd.messages_used   || sd.used  || 0,
+                    limit:    sd.messages_limit  || sd.limit || 0,
+                    resetsAt: sd.resets_at       || sd.resetsAt || null
+                },
+                sevenDaySonnet: {
+                    used:     ss.messages_used   || ss.used  || 0,
+                    limit:    ss.messages_limit  || ss.limit || 0,
+                    resetsAt: ss.resets_at       || ss.resetsAt || null
+                }
+            };
+        }
+
+        if (obj.data && typeof obj.data === 'object') {
+            return _normaliseUsageObject(obj.data);
+        }
+
+        return null;
+    }
+
+    function renderUsageBars(container, data) {
+        if (!container) return;
+        while (container.firstChild) container.removeChild(container.firstChild);
+
+        if (!data) {
+            var ph = document.createElement('div');
+            ph.style.cssText = 'font-size:10px;color:#555;padding:2px 0';
+            ph.textContent   = 'Plan usage loading\u2026';
+            container.appendChild(ph);
+            return;
+        }
+
+        var title = document.createElement('div');
+        title.className   = 'acn-usage-title';
+        title.textContent = 'Plan usage';
+        container.appendChild(title);
+
+        var bars = [
+            { label: 'Session (5h)',  tier: data.fiveHour },
+            { label: 'Weekly',        tier: data.sevenDay },
+            { label: 'Sonnet (7d)',   tier: data.sevenDaySonnet }
+        ];
+
+        for (var i = 0; i < bars.length; i++) {
+            var bar  = bars[i];
+            var tier = bar.tier;
+            if (!tier || tier.limit === 0) continue;
+
+            var pct   = Math.min(100, Math.round((tier.used / tier.limit) * 100));
+            var color = getBarColor(pct);
+            var reset = tier.resetsAt ? formatResetTime(tier.resetsAt) : '';
+
+            var labelLeft = document.createElement('span');
+            labelLeft.textContent = bar.label;
+
+            var labelRight = document.createElement('span');
+            labelRight.textContent = tier.used + ' / ' + tier.limit +
+                                     (reset ? ' \u00b7 ' + reset : '');
+
+            var labelRow = document.createElement('div');
+            labelRow.className = 'acn-usage-label';
+            labelRow.appendChild(labelLeft);
+            labelRow.appendChild(labelRight);
+
+            var fillEl = document.createElement('div');
+            fillEl.className        = 'acn-usage-fill';
+            fillEl.style.width      = pct + '%';
+            fillEl.style.background = color;
+
+            var trackEl = document.createElement('div');
+            trackEl.className = 'acn-usage-track';
+            trackEl.appendChild(fillEl);
+
+            var barEl = document.createElement('div');
+            barEl.className = 'acn-usage-bar';
+            barEl.appendChild(labelRow);
+            barEl.appendChild(trackEl);
+
+            container.appendChild(barEl);
+        }
+    }
+
+    function maybeRefreshUsage() {
+        if (typeof platform === 'undefined' || platform.id !== 'claude') return;
+        var now = Date.now();
+        if (now - _usageLastFetch < USAGE_POLL_INTERVAL) {
+            var section = document.getElementById('acn-usage-section');
+            if (section) renderUsageBars(section, _usageData);
+            return;
+        }
+
+        _usageLastFetch = now;
+        fetchClaudeUsage(function (data) {
+            _usageData = data;
+            var section = document.getElementById('acn-usage-section');
+            if (section) renderUsageBars(section, _usageData);
+        });
+    }
+
+    function formatResetTime(resetsAt) {
+        var target;
+        try {
+            target = (typeof resetsAt === 'number') ? new Date(resetsAt) : new Date(resetsAt);
+            if (isNaN(target.getTime())) return '';
+        } catch (e) { return ''; }
+
+        var now    = Date.now();
+        var diffMs = target.getTime() - now;
+
+        if (diffMs <= 0) return 'resetting soon';
+
+        var diffMin  = Math.round(diffMs / 60000);
+        var diffHour = diffMin / 60;
+
+        if (diffMin < 60) {
+            return 'resets in ' + diffMin + ' min';
+        }
+
+        var h = Math.floor(diffHour);
+        var m = Math.round(diffMin - h * 60);
+
+        var todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+        if (target <= todayEnd) {
+            return 'resets in ' + h + 'h' + (m > 0 ? ' ' + m + 'm' : '');
+        }
+
+        var days    = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        var dayName = days[target.getDay()];
+        var hr      = target.getHours();
+        var min     = target.getMinutes();
+        var ampm    = hr >= 12 ? 'PM' : 'AM';
+        var hr12    = hr % 12 || 12;
+        var minStr  = min < 10 ? '0' + min : String(min);
+        return 'resets ' + dayName + ' ' + hr12 + ':' + minStr + ' ' + ampm;
     }
 
     // ============================================================
@@ -1482,6 +1923,18 @@
             'border:1px solid rgba(239,68,68,.2);border-radius:7px;color:#ef4444;font-size:13px;',
             'font-weight:600;font-family:inherit;cursor:pointer;margin-top:4px}',
             '.acn-reset-btn:hover{background:rgba(239,68,68,.15)}',
+            // Usage bars (Group B)
+            '.acn-usage-bar{margin-bottom:4px}',
+            '.acn-usage-label{font-size:10px;color:#aaa;display:flex;justify-content:space-between}',
+            '.acn-usage-track{height:4px;background:rgba(255,255,255,.1);border-radius:2px;overflow:hidden}',
+            '.acn-usage-fill{height:100%;border-radius:2px;transition:width .3s ease}',
+            '.acn-usage-separator{height:1px;background:rgba(255,255,255,.1);margin:6px 0}',
+            '.acn-usage-section{margin-top:4px;padding:0 14px 10px}',
+            '.acn-usage-title{font-size:10px;color:#777;text-transform:uppercase;letter-spacing:.5px;font-weight:500;margin-bottom:6px}',
+            '.acn-ctx-compact{font-size:10px;color:#a478f0;margin-top:3px}',
+            '.acn-ctx-warn{font-size:10px;color:#f87171;margin-top:3px}',
+            '.acn-ctx-dots{display:flex;gap:3px;margin-top:5px;flex-wrap:wrap}',
+            '.acn-ctx-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}',
         ].join('');
         document.head.appendChild(styleEl);
     }
@@ -1860,28 +2313,67 @@
         });
 
         orbUpdateContextBar();
+        if (platform.id === 'claude') maybeRefreshUsage();
     }
 
-    // Estimate context usage by reading the full conversation container (user + AI text)
+    // Context bar — multi-path rendering (Claude SSE exact / estimated / turn-dots)
     function orbUpdateContextBar() {
         var pct  = document.getElementById('acn-ctx-pct');
         var fill = document.getElementById('acn-ctx-fill');
         var meta = document.getElementById('acn-ctx-meta');
         if (!pct || !fill) return;
 
-        if (_questions.length === 0) {
-            pct.textContent  = '—';
-            pct.style.color  = '';
-            fill.style.width = '0%';
-            if (meta) meta.textContent = 'No messages detected';
+        var limit = (typeof CTX_LIMITS !== 'undefined' && platform && CTX_LIMITS[platform.id])
+                    ? CTX_LIMITS[platform.id]
+                    : 128000;
+
+        // ── Path A: Claude with exact SSE token data ──────────
+        if (platform && platform.id === 'claude' && _sseTokenData.exact) {
+            var inputTok = _sseTokenData.inputTokens;
+            var pctNum   = Math.min(100, Math.round((inputTok / limit) * 100));
+            var color    = getBarColor(pctNum);
+
+            var tokFmt   = inputTok.toLocaleString();
+            var limFmt   = Math.round(limit / 1000) + 'K';
+            pct.textContent  = pctNum + '%';
+            pct.style.color  = color;
+            fill.style.width      = pctNum + '%';
+            fill.style.background = color;
+
+            if (meta) {
+                meta.textContent = tokFmt + ' / ' + limFmt + ' tokens (exact)';
+                meta.style.color = '#888';
+            }
+
+            _renderCompactionInfo(pctNum);
             return;
         }
 
-        // Walk up from a known user message element to the first scrollable container.
-        // That container holds the entire conversation (user + AI), so innerText gives
-        // us the real total rather than a guess based on user messages only.
+        // ── Path B: Claude but no SSE data yet ────────────────
+        if (platform && platform.id === 'claude') {
+            _renderEstimatedBar(pct, fill, meta, limit);
+            _renderCompactionInfo(0);
+            return;
+        }
+
+        // ── Path C: Non-Claude — turn counter ─────────────────
+        if (_questions.length === 0) {
+            pct.textContent  = '\u2014';
+            pct.style.color  = '';
+            fill.style.width = '0%';
+            if (meta) { meta.textContent = 'No messages detected'; meta.style.color = ''; }
+            _removeTurnDots();
+            return;
+        }
+
+        _renderEstimatedBar(pct, fill, meta, limit);
+        _renderTurnDots();
+        _renderTurnCompactionInfo();
+    }
+
+    function _renderEstimatedBar(pct, fill, meta, limit) {
         var totalChars = 0;
-        var anchor = _questions[0].element;
+        var anchor = _questions.length > 0 ? _questions[0].element : null;
         var node   = anchor ? anchor.parentElement : null;
         var found  = false;
 
@@ -1897,24 +2389,146 @@
         }
 
         if (!found || totalChars === 0) {
-            // Fallback: user chars × 3 to roughly account for AI responses
             totalChars = _questions.reduce(function (s, q) { return s + q.text.length; }, 0) * 3;
         }
 
         var estTokens = Math.round(totalChars / 4);
-        var limit     = CTX_LIMITS[platform.id] || 128000;
         var pctNum    = Math.min(100, Math.round((estTokens / limit) * 100));
+        var color     = getBarColor(pctNum);
 
-        var color = pctNum < 50 ? '#22c55e' : pctNum < 75 ? '#f59e0b' : '#ef4444';
         pct.textContent  = pctNum + '%';
         pct.style.color  = color;
-        fill.style.width = pctNum + '%';
+        fill.style.width      = pctNum + '%';
         fill.style.background = color;
 
         if (meta) {
             var kEst   = (estTokens / 1000).toFixed(1);
             var kLimit = Math.round(limit / 1000);
-            meta.textContent = '~' + kEst + 'K / ' + kLimit + 'K tokens (estimated)';
+            meta.textContent = '~' + kEst + 'K / ' + kLimit + 'K tokens (est.)';
+            meta.style.color = '#666';
+        }
+    }
+
+    function _renderCompactionInfo(pctNum) {
+        var ctx = document.getElementById('acn-ctx-pct');
+        if (!ctx) return;
+        var container = ctx.closest ? ctx.closest('.acn-ctx') : null;
+        if (!container) return;
+
+        var badge = document.getElementById('acn-ctx-compact');
+        if (_compactionCount > 0) {
+            if (!badge) {
+                badge = document.createElement('div');
+                badge.id        = 'acn-ctx-compact';
+                badge.className = 'acn-ctx-compact';
+                container.appendChild(badge);
+            }
+            badge.textContent = '\u26a1 ' + _compactionCount +
+                ' compaction' + (_compactionCount !== 1 ? 's' : '') + ' detected';
+        } else if (badge) {
+            badge.remove();
+        }
+
+        var warn = document.getElementById('acn-ctx-warn');
+        if (pctNum >= 85) {
+            if (!warn) {
+                warn = document.createElement('div');
+                warn.id        = 'acn-ctx-warn';
+                warn.className = 'acn-ctx-warn';
+                container.appendChild(warn);
+            }
+            warn.textContent = '\u26a0 Context nearly full \u2014 quality may degrade';
+        } else if (warn) {
+            warn.remove();
+        }
+    }
+
+    function _renderTurnDots() {
+        var ctx = document.getElementById('acn-ctx-pct');
+        if (!ctx) return;
+        var container = ctx.closest ? ctx.closest('.acn-ctx') : null;
+        if (!container) return;
+
+        var dotsEl = document.getElementById('acn-ctx-dots');
+        if (!dotsEl) {
+            dotsEl = document.createElement('div');
+            dotsEl.id        = 'acn-ctx-dots';
+            dotsEl.className = 'acn-ctx-dots';
+            container.appendChild(dotsEl);
+        }
+
+        while (dotsEl.firstChild) dotsEl.removeChild(dotsEl.firstChild);
+
+        var predicted = _turnCounter.predictedCycleLength;
+        var since     = _turnCounter.turnsSinceCompact;
+        var total     = predicted || 40;
+
+        var dotsToShow = Math.min(since, 40);
+        for (var i = 0; i < dotsToShow; i++) {
+            var dot = document.createElement('div');
+            dot.className = 'acn-ctx-dot';
+
+            var pct = predicted ? (i / predicted) : (i / total);
+            if (pct < 0.70)      dot.style.background = '#22c55e';
+            else if (pct < 0.85) dot.style.background = '#eab308';
+            else                 dot.style.background = '#ef4444';
+
+            if (_compactionHistory.indexOf(_turnCounter.lastCompactTurn - since + i) !== -1) {
+                dot.style.background = '#a478f0';
+            }
+
+            dotsEl.appendChild(dot);
+        }
+    }
+
+    function _removeTurnDots() {
+        var el = document.getElementById('acn-ctx-dots');
+        if (el) el.remove();
+    }
+
+    function _renderTurnCompactionInfo() {
+        var ctx = document.getElementById('acn-ctx-pct');
+        if (!ctx) return;
+        var container = ctx.closest ? ctx.closest('.acn-ctx') : null;
+        if (!container) return;
+
+        var badge = document.getElementById('acn-ctx-compact');
+        if (_turnCounter.compactionCount > 0 || _turnCounter.totalTurns > 0) {
+            if (!badge) {
+                badge = document.createElement('div');
+                badge.id        = 'acn-ctx-compact';
+                badge.className = 'acn-ctx-compact';
+                container.appendChild(badge);
+            }
+            var since     = _turnCounter.turnsSinceCompact;
+            var predicted = _turnCounter.predictedCycleLength;
+            var txt = 'Turn ' + _turnCounter.totalTurns;
+            if (_turnCounter.compactionCount > 0) {
+                txt += ' \u2022 ' + _turnCounter.compactionCount + ' compaction' +
+                       (_turnCounter.compactionCount !== 1 ? 's' : '');
+            }
+            if (predicted && since > 0) {
+                var remaining = Math.max(0, predicted - since);
+                txt += ' \u2022 ~' + remaining + ' turns to next';
+            }
+            badge.textContent = txt;
+        } else if (badge) {
+            badge.remove();
+        }
+
+        var warn = document.getElementById('acn-ctx-warn');
+        var predicted2 = _turnCounter.predictedCycleLength;
+        var showWarn   = predicted2 && (_turnCounter.turnsSinceCompact / predicted2) >= 0.85;
+        if (showWarn) {
+            if (!warn) {
+                warn = document.createElement('div');
+                warn.id        = 'acn-ctx-warn';
+                warn.className = 'acn-ctx-warn';
+                container.appendChild(warn);
+            }
+            warn.textContent = '\u26a0 Approaching compaction \u2014 context may degrade';
+        } else if (warn) {
+            warn.remove();
         }
     }
 
@@ -2066,6 +2680,15 @@
             textContent: 'Estimated from visible text' });
         var ctx      = createElement('div', { className: 'acn-ctx' }, [ctxRow, ctxBar, ctxMeta]);
         panel.appendChild(ctx);
+
+        // Plan usage section (Claude only)
+        if (platform.id === 'claude') {
+            var usageSection = createElement('div', {
+                id: 'acn-usage-section',
+                className: 'acn-usage-section'
+            });
+            ctx.appendChild(usageSection);
+        }
 
         var stat = createElement('div', { id: 'acn-nav-stat', className: 'acn-pstat',
             textContent: '0 questions found' });
