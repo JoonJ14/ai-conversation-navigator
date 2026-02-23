@@ -1396,9 +1396,10 @@
     function orbOpenPanel(fid) {
         if (orbPanel === fid) { orbClosePanel(); return; }
 
-        // Close existing panel first
+        // Close existing panel first — clear both CSS class AND data-acn-open contract attribute
         document.querySelectorAll('.acn-panel').forEach(function (p) {
             p.classList.remove('acn-open');
+            p.removeAttribute('data-acn-open');
         });
         orbDots.forEach(function (d) { d.classList.remove('acn-act'); });
 
@@ -2175,9 +2176,9 @@
                 var c = document.getElementById('ai-nav-button-container');
                 if (p) { p.classList.remove('open'); p.removeAttribute('data-acn-open'); }
                 if (b) b.classList.remove('open');
-                if (isLeftChat && c) {
+                if (c) {
                     c.classList.remove('open');
-                    if (_lastBoundaryX) {
+                    if (isLeftChat && _lastBoundaryX) {
                         var off = platform.scrollbarOffset || 0;
                         c.style.right = (window.innerWidth - _lastBoundaryX + off) + 'px';
                     }
@@ -2254,9 +2255,9 @@
             if (legacyNavOpen) {
                 if (panel)     { panel.classList.add('open'); panel.setAttribute('data-acn-open', 'true'); }
                 if (btn)       btn.classList.add('open');
-                if (isLeftChat && container) {
+                if (container) {
                     container.classList.add('open');
-                    if (_lastBoundaryX) {
+                    if (isLeftChat && _lastBoundaryX) {
                         container.style.right = (window.innerWidth - _lastBoundaryX + 320) + 'px';
                     }
                 }
@@ -2265,9 +2266,9 @@
             } else {
                 if (panel)     { panel.classList.remove('open'); panel.removeAttribute('data-acn-open'); }
                 if (btn)       btn.classList.remove('open');
-                if (isLeftChat && container) {
+                if (container) {
                     container.classList.remove('open');
-                    if (_lastBoundaryX) {
+                    if (isLeftChat && _lastBoundaryX) {
                         var off = platform.scrollbarOffset || 0;
                         container.style.right = (window.innerWidth - _lastBoundaryX + off) + 'px';
                     }
