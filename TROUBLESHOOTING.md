@@ -6,6 +6,172 @@ If you run into a problem, check here first — you might find we've already sol
 
 ---
 
+## v10.0 — Issues Found and Fixed Through Live Site Testing (2026-02-22)
+
+These issues were discovered by testing v10.0 on live sites after the orbital system shipped. All were resolved in the same session.
+
+---
+
+### RESOLVED — isLeftChat Button Stays Fixed When Panel Opens
+
+**Versions affected:** v10.0 initial
+**Fixed in:** v10.0 session 2 | **Severity:** High | **Platforms:** All 7 left-chat platforms (Bolt, Lovable, Replit, V0, Base44, Emergent, Firebase Studio)
+
+**Symptom:** On all app-builder platforms using the `left-chat` layout, clicking the ghost-notch toggle button correctly opened the 320px panel on the left — but the button itself stayed at its original position at the chat/preview boundary. The button ended up visually inside the open panel, stranded rather than flush with the panel's left edge.
+
+**Diagnosis / Root Cause:** The isLeftChat button container position is managed entirely by JS inline styles — `legacyApplyPosition()` computes `right = window.innerWidth - _lastBoundaryX + scrollbarOffset` and sets it as `container.style.right`. This is necessary because the boundary is detected dynamically and differs per platform and viewport width.
+
+The `.open` CSS class existed on the container during the open state, but that class only set `pointer-events: auto`. It never modified `right`. The problem is that CSS rules can't modify an inline `style.right` that was already set by JS with a computed value — a CSS class can override with `!important`, but the target `right` value when open isn't a constant; it's `(innerWidth - boundaryX + 320)` which varies per viewport. There was simply no mechanism for CSS alone to express "add 320px to the current dynamically-computed right."
+
+**Solutions Considered:**
+
+*Approach 1: Use a CSS transform instead of right for the open offset.* Add `transform: translateX(320px)` when open. Hypothesis: CSS `transform` doesn't conflict with `right`, so the class could apply the offset independently. Rejected because: the button is already `transform: translateY(-50%)` for vertical centering. Stacking `translateX(320px)` on top of this would require either a combined `transform` (breaking the centering) or a wrapper element (adding DOM complexity).
+
+*Approach 2: Use a CSS custom property for the boundary position.* Set `--acn-boundary: Npx` on the zone, then express the full formula in CSS. Hypothesis: this would allow CSS classes to perform the calculation. Rejected because: this approach would work for the zone element itself but not for the legacy button container, which is a separate element outside the zone (injected independently by `injectLegacy()`).
+
+*Approach 3: Update inline `style.right` directly in JS at toggle time.* When `legacyNavOpen` becomes true, set `container.style.right = (innerWidth - boundaryX + 320) + 'px'`. When it becomes false, restore the closed-state formula. This is the simplest and most direct approach — JS already manages this element's position, so adding state-conditional logic fits the existing pattern.
+
+**Fix:** Approach 3 was implemented across 4 code sites where the open/closed transition occurs:
+1. `handleLegacyToggle()` open branch
+2. `handleLegacyToggle()` close branch
+3. Close button click handler in `injectLegacy()`
+4. DOM guardian (MutationObserver re-injection callback)
+
+All four now call `container.style.right = (window.innerWidth - _lastBoundaryX + 320) + 'px'` on open and restore the closed formula on close.
+
+**Results:** Button correctly tracks with the panel's left edge on open and returns to the chat boundary on close. All 168 tests still pass.
+
+---
+
+### RESOLVED — Bolt.new Button Overshoots 16px Past Panel Left Edge
+
+**Versions affected:** v10.0 initial
+**Fixed in:** v10.0 session 2 | **Severity:** Medium | **Platforms:** Bolt.new only
+
+**Symptom:** After the isLeftChat sync fix was applied, testing on Bolt specifically showed the button landing about 16px further left than the panel's left edge. The button appeared to poke out from behind the panel rather than sitting flush.
+
+**Diagnosis / Root Cause:** `legacyApplyPosition()` computes:
+```javascript
+var offset  = platform.scrollbarOffset || 0; // 16 for bolt
+var btnRight = (window.innerWidth - _lastBoundaryX + offset) + 'px';
+```
+
+Bolt has `scrollbarOffset: 16`. When the panel-open state check was added to `legacyApplyPosition()`, it used a single formula for both states:
+```javascript
+// Incorrect — applies offset in open state too
+container.style.right = panelOpen
+    ? (window.innerWidth - _lastBoundaryX + offset + 320) + 'px'
+    : btnRight;
+```
+
+The `scrollbarOffset` exists to push the closed button inward from the exact boundary edge so it doesn't sit behind the OS scrollbar (which is drawn on the right side of the chat panel on some OSes). In Bolt's case, the scrollbar is 16px wide, so the offset keeps the button clear of it. But this offset has no meaning in the open state — when open, the button is positioned relative to the panel's left edge, not the chat/scrollbar boundary. The 16px offset was incorrectly applied to the open formula.
+
+**Solutions Considered:** No alternatives were seriously considered — this was a straightforward misunderstanding of when `scrollbarOffset` applies. The only question was whether the fix belonged in `legacyApplyPosition()` alone or also in `handleLegacyToggle()`. Both were checked and both required the same correction.
+
+**Fix:** Open-state formula in both `legacyApplyPosition()` and `handleLegacyToggle()` uses `(window.innerWidth - _lastBoundaryX + 320)` — no `offset`. Closed-state formula retains `+ offset`. The two formulas are now unambiguously different for different purposes.
+
+**Results:** Bolt button lands flush with the panel's left edge on open. Other platforms unaffected (their `scrollbarOffset` is 0 by default, so the formulas were equivalent before).
+
+---
+
+### RESOLVED — V0 Toggle Button Invisible in Light Mode
+
+**Versions affected:** v10.0 initial
+**Fixed in:** v10.0 session 2 | **Severity:** High | **Platforms:** V0 (`v0.app`)
+
+**Symptom:** On v0.app in light mode, the toggle button was present (boundary detection succeeded, the button was in the DOM) but completely invisible. Neither the button shape nor the icon inside it was visible.
+
+**Diagnosis / Root Cause:** Two bugs compounded:
+
+Bug 1 — Theme missing `textColor`: V0's theme object was:
+```javascript
+theme: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)' }
+```
+The button background was `theme.accent = '#ffffff'` (white). The icon color used `theme.textColor || '#fff'`, which resolved to `'#fff'` since `textColor` wasn't set. White icon on white background = invisible.
+
+Bug 2 — `border:none!important` hardcoded in CSS string: Even if Bug 1 were fixed by giving the button a dark icon, the button itself (a thin 14×52px sliver in closed state) would still be invisible on a white background without a border. V0's theme needed `toggleBorder: '1px solid rgba(0,0,0,0.2)'` to make the button visible. But the isLeftChat button CSS string contained:
+```javascript
+'.ai-nav-floating-btn{...border:none!important;...}'
+```
+The `!important` meant any `theme.toggleBorder` value would have been overridden silently. The theme property would exist but never be applied.
+
+**Solutions Considered:**
+
+*Approach 1: Use a platform-specific CSS block for V0, similar to how ChatGPT gets a special `data-acn-platform` CSS block.* Hypothesis: would work, but requires adding V0-detection logic and a separate CSS string just to handle border and icon color. Rejected as over-engineered — the theme system already exists to handle per-platform visual customization.
+
+*Approach 2: Change V0's accent color to something other than white.* Hypothesis: a dark accent (like `#1a1a1a` or the app's actual UI color) would make button and icon visible. Rejected because: V0 is a left-chat platform, not an orbital platform. The "accent" color drives the button background. Choosing a dark button that doesn't match V0's actual brand color is arbitrary and inconsistent with the approach used for other platforms.
+
+*Approach 3: Fix the theme system — add `textColor` and `toggleBorder` to V0's theme, AND change the CSS string to use `theme.toggleBorder` instead of hardcoding `none`.* This addresses both bugs at the root: the theme system becomes the single control surface for per-platform visual customization, and the hardcoded override is removed.
+
+**Fix:** Approach 3:
+```javascript
+theme: {
+    accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)',
+    textColor: '#000',
+    toggleBorder: '1px solid rgba(0,0,0,0.2)',
+}
+```
+
+And the CSS string changed from `'border:none!important'` to `'border:' + (theme.toggleBorder || 'none') + '!important'`. The `|| 'none'` default ensures all other left-chat platforms that don't set `toggleBorder` continue to have no border.
+
+**Results:** V0 button is now visible in both light and dark mode — dark icon on white button with a subtle grey border. Other left-chat platforms unaffected.
+
+---
+
+### RESOLVED — Context Window Bar Always Shows "—"
+
+**Versions affected:** v10.0 initial
+**Fixed in:** v10.0 session 2 | **Severity:** Medium | **Platforms:** All orbital platforms
+
+**Symptom:** The context window usage bar in the Navigate panel always showed "—" for the percentage and a 0% fill bar, regardless of conversation length.
+
+**Diagnosis / Root Cause:** `orbPopulateNavigate()` built the DOM elements for the context bar (`#acn-ctx-pct`, `#acn-ctx-fill`, `#acn-ctx-meta`) but never updated them. The function was a complete stub — the bar elements were injected but never written to.
+
+**Solutions Considered:**
+
+*Approach 1: Read token count from the API response.* Hypothesis: modern Claude/ChatGPT APIs return token usage in response headers or JSON. Intercept `window.fetch` and read the usage field. Rejected because: fetch interception was used in v9.x's context tracking feature and was one of the causes of architectural complexity. The v10.0 rewrite explicitly removed fetch interception. Re-introducing it would reintroduce the same entanglement that prompted the rewrite. Also, the AI assistant sites don't consistently expose token counts in client-accessible responses.
+
+*Approach 2: Count only user message characters and multiply by a factor.* Sum `q.text.length` for all items in `_questions[]` and multiply by 3. Fast and zero-DOM-side-effects. Implemented as initial approach. Problem: wildly inaccurate for conversations with short user questions and very long AI responses. A user who types 5-word questions and gets 2,000-word answers would see a 3× undercount.
+
+*Approach 3: Walk up the DOM from a known message element to the conversation scroll container.* From `_questions[0].element`, walk up through `.parentElement` until finding a node with `overflow-y: auto` or `overflow-y: scroll`. This container holds the full conversation. Read its `innerText.length`. This is more accurate because `innerText` includes both user AND AI message text.
+
+**Fix:** `orbUpdateContextBar()` implements Approach 3 with Approach 2 as fallback:
+- Walks from `_questions[0].element` to the scroll container
+- Reads `innerText.length` for total character count
+- Falls back to `_questions.reduce(...) * 3` if no scroll container found
+- Divides by 4 to estimate tokens (standard English heuristic)
+- Compares against `CTX_LIMITS[platform.id]` for the percentage
+- Color-codes: green <50%, amber 50–74%, red ≥75%
+
+Called at the end of `orbPopulateNavigate()` so it runs every time the Navigate panel is opened or refreshed.
+
+**Results:** Context bar now shows real percentage estimates. On a medium-length conversation, the bar shows reasonable values that track with conversation growth.
+
+---
+
+### RESOLVED — Arc Mode Labels Overlap Adjacent Dots
+
+**Versions affected:** v10.0 initial
+**Fixed in:** v10.0 session 2 | **Severity:** Low | **Platforms:** All orbital platforms (arc mode only)
+
+**Symptom:** In arc mode, hovering over an orbital dot caused its label to appear to the left — in the direction of adjacent dots on the arc. Dots near each other on the arc would have their labels overlap each other, creating visual clutter.
+
+**Diagnosis / Root Cause:** The label CSS (`position:absolute; right:calc(100% + 10px)`) positions the label to the left of the dot, which is ideal for show-all mode (where dots are in a vertical column on the right edge and labels appear in the clear space to the left). In arc mode, dots are positioned in a polygon — the space to the "left" of an arc dot is occupied by the adjacent arc position, so labels collide.
+
+**Solutions Considered:**
+
+*Approach 1: Change label position in JS per-mode.* In `orbRender()`, when `orbMode === 'arc'`, explicitly set `dot.querySelector('.acn-lbl').style.right = 'auto'` and set `top`, `left` for each dot. Rejected because: this mixes layout styling into the render loop. Every mode switch and every frame render would be touching label styles alongside position calculations. It also requires DOM queries per-dot per-render.
+
+*Approach 2: Store label position as a property on each dot object in `ORB_FEATURES` and re-apply on mode switch.* Rejected because: label position is a property of the mode, not the feature. The same feature dot should be left-labeled in show-all and below-labeled in arc. Storing it on the feature conflates per-feature and per-mode concerns.
+
+*Approach 3: Use `data-acn-mode` on the zone element to switch label position via CSS selectors.* `orbRender()` calls `zone.setAttribute('data-acn-mode', orbMode)`. CSS uses `#acn-zone[data-acn-mode="arc"] .acn-lbl { ... }` to override label position in arc mode only. No JS per-dot, no DOM queries per-render — one `setAttribute` call per render, CSS handles all 6 dots automatically.
+
+**Fix:** Approach 3. `data-acn-mode` is set at the top of `orbRender()`. CSS positions arc labels below the dot with a centered `translateX(-50%)` transform and a `translateY(-4px)` entrance offset (slides up to `translateY(0)` on hover, matching the horizontal slide used in show-all mode).
+
+**Results:** Arc mode labels appear cleanly below each dot with no overlap. Mode switch (show-all ↔ arc ↔ wheel) immediately repositions labels via CSS without any additional JS work. `data-acn-mode` is also now available for any future CSS targeting of mode-specific styles.
+
+---
+
 ## Recently Fixed Issues
 
 The following platform-specific issues have been identified through live site testing, diagnosed via live DOM inspection, and fully resolved.

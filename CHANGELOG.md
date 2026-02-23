@@ -4,6 +4,237 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [10.0 — Live Testing Fixes, UI Polish, Context Bar] — 2026-02-22
+**Branch:** `docs/v9.6-documentation-sync` | **Commit:** pending
+
+This session covers fixes discovered through live site testing of v10.0 across all 14 supported platforms, plus three categories of UI polish work (size, font, readability), and the first real implementation of the context window usage bar.
+
+---
+
+### isLeftChat Button-Panel Synchronization
+
+**The problem:** On all 7 app-builder platforms using the `left-chat` layout (Bolt, Lovable, Replit, V0, Base44, Emergent, Firebase Studio), the ghost-notch toggle button stayed fixed at the chat/preview boundary when the panel opened. The 320px panel slid out to the left, but the button stayed at its original `right` position, ending up visually stranded inside the panel rather than flush with its left edge.
+
+**Root cause:** The `.open` class in the legacy button CSS only set `pointer-events:auto`. It never modified `right`. The button's `right` position is set by `legacyApplyPosition()` as a JS inline style based on `_lastBoundaryX`. There was no mechanism to update that inline style when the panel opened — the CSS `.open` class can't add a fixed pixel offset to a dynamically-computed inline `right` value.
+
+**Fix — four code sites updated:**
+
+1. `handleLegacyToggle()` open branch: When `legacyNavOpen` becomes true, after adding `.open` to the container, immediately set `container.style.right = (window.innerWidth - _lastBoundaryX + 320) + 'px'`. The `320` equals the panel width, placing the button flush with the panel's left edge.
+
+2. `handleLegacyToggle()` close branch: When `legacyNavOpen` becomes false, restore `container.style.right = (window.innerWidth - _lastBoundaryX + off) + 'px'` where `off = platform.scrollbarOffset || 0`. This brings the button back to its resting position at the chat boundary.
+
+3. Close button `click` handler (inside `injectLegacy()`): Same position restoration as the close branch above — without this, clicking X in the panel left the button floating in space.
+
+4. DOM guardian (the `MutationObserver` callback that re-attaches the container if an SPA rips it out): Added the panel-open check so a re-attached container during an open panel is placed at the correct offset immediately rather than the boundary position.
+
+**Key formula:** `open → right = (innerWidth - boundaryX + 320)px`; `closed → right = (innerWidth - boundaryX + scrollbarOffset)px`. The `+320` is intentionally NOT also applied to the closed state because `scrollbarOffset` already handles any gap needed at the closed position, and the panel width is independent of the scrollbar situation.
+
+---
+
+### Bolt.new Button Overshooting 16px on Panel Open
+
+**The problem:** After the isLeftChat sync fix was applied, Bolt's toggle button was landing ~16px further left than the panel's left edge. The button appeared to overshoot the panel.
+
+**Root cause:** `legacyApplyPosition()` computes `btnRight = window.innerWidth - _lastBoundaryX + offset` where `offset = platform.scrollbarOffset || 0`. Bolt has `scrollbarOffset: 16`. When the panel-open state check was added to `legacyApplyPosition()`, the open-state formula mistakenly included `offset`, making it `right = (innerWidth - boundaryX + 16 + 320)px`. But `scrollbarOffset` exists only to push the closed button inward from the boundary so it clears the OS scrollbar — it has no meaning in the open state where the button is positioned relative to the panel's left edge, not the chat boundary.
+
+**Fix:** In `legacyApplyPosition()`, the open-state calculation uses the boundary alone: `(window.innerWidth - _lastBoundaryX + 320) + 'px'`. The `scrollbarOffset` is only added to `btnRight` (the closed state). Both `handleLegacyToggle()` and `legacyApplyPosition()` were corrected consistently.
+
+---
+
+### V0 Button Invisible in Light Mode
+
+**The problem:** On v0.app in light mode, the toggle button was present (boundary detection worked) but completely invisible — neither the button outline nor the icon was visible against the white page background.
+
+**Root cause — two compounding issues:**
+
+Issue 1: V0's theme had `accent: '#ffffff'` but no `textColor`. The button background was white, and the icon was rendered in the default `theme.textColor || '#fff'` — also white. White icon on white button = invisible.
+
+Issue 2: The legacy left-chat button CSS hardcoded `border:none!important`. V0's theme did have an `accentHover` entry, but no `toggleBorder`. Even if `toggleBorder` had been set on the theme, the hardcoded `!important` on the CSS rule would have overridden it.
+
+**Fix — two changes:**
+
+1. V0 theme definition updated to include `textColor: '#000'` and `toggleBorder: '1px solid rgba(0,0,0,0.2)'`.
+
+2. The isLeftChat `.ai-nav-floating-btn` CSS rule changed from `border:none!important` to `border:' + (theme.toggleBorder || 'none') + '!important'` — making the border use the theme value when provided, or none otherwise. This correctly applies the border for V0 while leaving other left-chat platforms (which don't have a `toggleBorder`) unchanged.
+
+---
+
+### UI Scale Increase (~14%)
+
+**Reason:** Live browser testing showed the orbital dots and their labels appeared small at typical monitor densities. On a 27" monitor at native resolution, the 42px main dot looked like a minor UI element rather than the primary control it is.
+
+**Changes — all size constants increased proportionally:**
+
+| Element | Before | After |
+|---------|--------|-------|
+| Main dot (show-all, arc center, wheel center) | 42px / fs17 | 48px / fs20 |
+| Satellite dots (show-all) | 28px / fs12 | 32px / fs14 |
+| Arc slot 0 (focus) | 30px / fs13 | 34px / fs15 |
+| Arc slot ±1 (adjacent) | 26px / fs11 | 30px / fs13 |
+| Arc slot ±2 (far) | 22px / fs10 | 25px / fs11 |
+| Arc slot ±3+ (distant) | 20px / fs9 | 22px / fs10 |
+| Arc radius | 76px | 88px |
+| Show-all satellite spacing | 42px | 48px |
+| Wheel slot ±1 | 28px / fs12 | 32px / fs14 |
+| Wheel slot ±2 | 20px / fs9 | 22px / fs10 |
+| Wheel HIDDEN size | 14px / fs7 | 16px / fs8 |
+| Wheel spacing | 48px | 54px |
+| Main dot border-radius | 13px | 14px |
+
+The arc radius increased from 76 to 88 to maintain the arc's visual openness after the dots themselves grew — without this, the larger satellite dots would appear cramped on the arc.
+
+---
+
+### Arc Mode Labels Below Dot (CSS-Only, No JS per Dot)
+
+**The problem:** In arc mode, dot labels appeared to the left of each dot (the default for show-all mode). Because arc dots are positioned in a polygon centered on the right edge, the "left" of adjacent arc dots overlapped with each other's label text, making the system feel cluttered.
+
+**Why not just change label position in JS:** The label element's CSS is set once during `injectOrbital()`. Changing label position per-mode in JS would require either re-rendering labels on mode switch (invalidating a lot of cached DOM references) or setting inline styles per-dot on every `orbRender()` call (mixing style concerns into the layout loop).
+
+**Solution — `data-acn-mode` attribute + CSS attribute selectors:** `orbRender()` now calls `zone.setAttribute('data-acn-mode', orbMode)` at the start of each render. This means the zone element carries `data-acn-mode="arc"` in arc mode, `"show-all"`, or `"wheel"`. CSS attribute selectors target these:
+
+```css
+/* Default (show-all, wheel): label appears to the left */
+.acn-lbl { right: calc(100% + 10px); ... }
+
+/* Arc: label appears below the dot */
+#acn-zone[data-acn-mode="arc"] .acn-lbl {
+    right: auto;
+    left: 50%;
+    top: calc(100% + 5px);
+    transform: translateX(-50%) translateY(-4px);
+    text-align: center;
+}
+#acn-zone[data-acn-mode="arc"] .acn-dot:hover .acn-lbl,
+#acn-zone[data-acn-mode="arc"] .acn-dot.acn-act .acn-lbl {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+```
+
+The `translateY(-4px)` in the hidden state and `translateY(0)` in the visible state creates a subtle upward-slide entrance animation, consistent with the left-slide animation used in show-all mode. No JS changes required — mode change is a single `setAttribute` call, and CSS handles the rest.
+
+---
+
+### Panel Z-Index Fix: Arc Dots Behind Panel
+
+**The problem:** In arc mode, when a panel is open, the right-side arc dots were visually layered ON TOP of the panel, appearing as floating buttons over the panel content.
+
+**Root cause:** The orbital zone sits at `z-index: 2147483640`. The panel was at `z-index: 2147483639` — one below the zone, meaning it was also below the dots (which are children of the zone). Any dot rendered inside the zone's stacking context would appear above the panel.
+
+**Fix:** Panel z-index raised from `2147483639` to `2147483641`. Now the panel is above the zone (and therefore above its dot children), so arc dots render behind an open panel. The panel slides in from the right and sits cleanly over the dot layer.
+
+---
+
+### Font Unification Across All Platforms
+
+**The problem:** `.acn-dot` and `.acn-lbl` elements had no explicit `font-family` set. They inherited from their parent elements, which was `document.body` or whatever the platform's root element happened to be. Claude used a serif variable font; ChatGPT used its own sans-serif; Replit used a monospace font. The orbital system's emoji icons and labels appeared in radically different typefaces across platforms.
+
+**Why this happened:** The zone element (`#acn-zone`) is injected into `document.body` as a fixed-position overlay. Unlike a shadow DOM, it doesn't inherit a reset stylesheet — it inherits the host site's cascade. The dots themselves are divs with no font set, so they cascade from body.
+
+**Decision:** `system-ui` as primary — it resolves to the OS's native UI font (San Francisco on macOS, Segoe UI on Windows, Ubuntu/Roboto on Linux), giving the script a platform-native appearance without loading a remote font. `Inter` as secondary fallback — provides a high-quality geometric sans-serif for browsers that don't support `system-ui` (older Firefox, some Android WebViews). `sans-serif` as final fallback.
+
+Full stack: `system-ui, -apple-system, "Segoe UI", Roboto, Inter, sans-serif`
+
+Applied to: `.acn-zone` (orbital system root), `.acn-panel` (orbital panels), `#ai-nav-panel` in both legacy panel variants (isLeftChat and standard). By setting it on `.acn-zone`, all child elements (dots, labels, panel contents) inherit it automatically without needing per-element rules.
+
+Font size increases were also applied throughout to improve legibility at the new scale:
+
+| Element | Before | After |
+|---------|--------|-------|
+| Hover labels | 10px | 12px |
+| Panel header h3 | 13px | 15px |
+| Question text `.acn-qt` | 11px | 13px |
+| Question number `.acn-qn` | 9px | 11px |
+| Question summary `.acn-qw` | 9px | 11px |
+| Stats bar `.acn-pstat` | 10px | 12px |
+| Close button `.acn-xb` | 10px | 12px |
+| Context label | 9px | 10px |
+| Context percentage | 10px | 12px |
+| Search hint | 10px | 12px |
+| Search input | 12px | 14px |
+| Wheel hint | 9px | 11px |
+| Settings platform names | 11px | 13px |
+| Reset button | 11px | 13px |
+| Empty state | 11px | 13px |
+
+---
+
+### Question List Readability Improvements
+
+**The problem:** Side-by-side comparison of old (v9.x floating panel) vs new (v10.0 orbital panel) showed the question items were harder to navigate in the new design. Three specific issues:
+
+1. Question text (`.acn-qt`) was `color: #999` — medium grey, easy to miss when quickly scanning a list
+2. Each question item had `border-left: 2px solid transparent` — the border existed structurally but was invisible at rest, so the list had no visual rhythm; items blended into each other
+3. The accent-colored question numbers (`.acn-qn`) and summary text (`.acn-qw`) were too small to read at a glance
+
+**Fixes:**
+- `.acn-qt` color changed from `#999` to `#ddd` — near-white, high contrast against the `#1a1a1a` panel background
+- `.acn-qi` border-left changed from `transparent` to `rgba(var(--acn-rgb), .25)` — always-visible left border in the platform accent color at 25% opacity. On hover, it transitions to `var(--acn-accent)` at full opacity. This creates a visual cadence through the list without being distracting at rest.
+- `.acn-qw` color changed from `#444` to `#666` — visible but subdued; sufficient contrast for secondary metadata text
+
+---
+
+### Context Window Bar Implementation
+
+**The problem:** The context bar in the Navigate panel (showing "—" and an empty fill bar) was a static stub. `orbPopulateNavigate()` built the DOM elements but never called any function to update them. The bar showed "—" for percentage and 0% fill regardless of conversation length.
+
+**Initial approach — user chars × 3:** Estimate total conversation characters by summing `q.text.length` for all items in `_questions[]` (user messages only) and multiplying by 3 to account for AI responses. This was simple but imprecise — AI responses are often much longer than user questions, and the multiplier would be wildly wrong for conversations where the user asks short questions and gets long answers.
+
+**Improved approach — DOM walk to scroll container:** Walk up the DOM from `_questions[0].element` (a known user message node) through its ancestors until finding the first element with `overflow-y: auto` or `overflow-y: scroll`. This is the conversation scroll container — it holds both user and AI messages. Reading `node.innerText.length` from this element gives the total character count for the entire visible conversation (user + AI), not just user messages.
+
+```javascript
+var anchor = _questions[0].element;
+var node = anchor ? anchor.parentElement : null;
+while (node && node !== document.body) {
+    var st = window.getComputedStyle(node);
+    if (st.overflowY === 'auto' || st.overflowY === 'scroll' ||
+        st.overflow  === 'auto' || st.overflow  === 'scroll') {
+        totalChars = (node.innerText || '').length;
+        found = true;
+        break;
+    }
+    node = node.parentElement;
+}
+if (!found || totalChars === 0) {
+    totalChars = _questions.reduce(function (s, q) { return s + q.text.length; }, 0) * 3;
+}
+```
+
+The fallback (`_questions` × 3) is kept in case no scroll container is found (e.g., the page uses a non-scrolling layout).
+
+**Token estimation:** `estTokens = Math.round(totalChars / 4)`. The 1 token ≈ 4 characters heuristic is standard for English text.
+
+**Per-platform context limits (`CTX_LIMITS`):**
+```javascript
+var CTX_LIMITS = {
+    claude:     200000,
+    chatgpt:    128000,
+    grok:       131072,
+    gemini:     1000000,
+    perplexity: 127072,
+};
+```
+For platforms not in this map (legacy app-builders), falls back to 128,000. The bar shows `estTokens / limit * 100`, clamped to 100%.
+
+**Color coding:** Green (`#22c55e`) below 50%, amber (`#f59e0b`) at 50–74%, red (`#ef4444`) at 75%+. Applied to both the percentage text and the fill bar background.
+
+**Metadata line:** Shows `~3.2K / 200K tokens (estimated)` — the `(estimated)` qualifier is intentional because character-division is an approximation, not exact tokenization.
+
+---
+
+### `orbClosePanel()` Guard in SPA Navigation Handlers
+
+**The problem:** The `history.pushState` override and `popstate` event handler both called `orbClosePanel()` unconditionally. `orbClosePanel` is declared in the outer IIFE scope and has its own `if (!orbPanel) return` guard, so for legacy platforms this was technically a no-op rather than a crash. However, the unconditional call pattern was inconsistent with line 810, which uses `if (typeof orbOnScanComplete === 'function') orbOnScanComplete()`.
+
+**Fix:** Both SPA handlers now use the same guard pattern:
+```javascript
+if (typeof orbClosePanel === 'function') orbClosePanel();
+```
+This makes the defensive intent explicit — if a future refactor moved `orbClosePanel` inside `injectOrbital()` (making it undefined in the outer scope), the guard would prevent a real ReferenceError.
+
+---
+
 ## [10.0] - 2026-02-22
 
 ### Complete Architecture Rewrite — Orbital Button System
