@@ -1915,6 +1915,8 @@
             '*:hover>.acn-bm-icon{opacity:1}',
             '.acn-bm-icon.acn-bm-active{opacity:1;background:var(--acn-accent);color:#fff}',
             '.acn-bm-icon:hover{opacity:1;background:rgba(255,255,255,0.2)}',
+            // Keep orange when hovering an already-bookmarked icon
+            '.acn-bm-icon.acn-bm-active:hover{background:var(--acn-accent);filter:brightness(1.2)}',
             '.acn-bm-flash{animation:acnBmFlash 1.5s ease}',
             '@keyframes acnBmFlash{0%{box-shadow:0 0 0 0 var(--acn-accent)}30%{box-shadow:0 0 0 4px var(--acn-accent)}100%{box-shadow:0 0 0 0 transparent}}',
             '.acn-bk{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:6px;cursor:pointer;background:rgba(255,255,255,0.04);margin-bottom:4px;border-left:3px solid var(--acn-accent);transition:background 0.15s}',
@@ -4187,7 +4189,9 @@
         var result = [];
         function isUIChrome(node) {
             if (node.nodeType !== Node.ELEMENT_NODE) return false;
-            var cls = (node.className || '').toLowerCase();
+            // node.className is SVGAnimatedString on SVG elements — use baseVal fallback
+            var rawCls = node.className;
+            var cls = (typeof rawCls === 'string' ? rawCls : (rawCls && rawCls.baseVal) || '').toLowerCase();
             var role = (node.getAttribute && node.getAttribute('aria-hidden')) || '';
             if (role === 'true') return true;
             var chromeFragments = ['copy-button', 'action-bar', 'toolbar', 'btn', 'button',
