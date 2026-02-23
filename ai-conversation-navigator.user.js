@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator v10.1
 // @namespace    http://tampermonkey.net/
-// @version      10.4
+// @version      10.5
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -38,7 +38,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '10.4';
+    var ACN_VERSION = '10.5';
 
     // ============================================================
     // i18n — internationalization string table
@@ -1175,6 +1175,7 @@
 
         // Refresh AI responses array in sync with question scan
         _aiResponses = Array.from(getAIMessages());
+        if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
 
         // Notify orbital panels of updated question list
         if (typeof orbOnScanComplete === 'function') orbOnScanComplete();
@@ -1941,6 +1942,24 @@
             '.acn-about-link{color:var(--acn-accent);font-size:12px;text-decoration:none;display:block;margin-top:4px}',
             '.acn-about-link:hover{text-decoration:underline}',
             '.acn-set-refresh-note{font-size:11px;color:#666;margin-top:6px;font-style:italic}',
+            // Bookmark icons + flash + panel cards (Group D)
+            '.acn-bm-icon{position:absolute;top:4px;right:4px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:14px;border-radius:4px;background:rgba(0,0,0,0.3);color:rgba(255,255,255,0.5);cursor:pointer;opacity:0;transition:opacity 0.15s ease,background 0.15s ease;z-index:10;pointer-events:auto;user-select:none}',
+            '*:hover>.acn-bm-icon{opacity:1}',
+            '.acn-bm-icon.acn-bm-active{opacity:1;background:var(--acn-accent);color:#fff}',
+            '.acn-bm-icon:hover{opacity:1;background:rgba(255,255,255,0.2)}',
+            '.acn-bm-flash{animation:acnBmFlash 1.5s ease}',
+            '@keyframes acnBmFlash{0%{box-shadow:0 0 0 0 var(--acn-accent)}30%{box-shadow:0 0 0 4px var(--acn-accent)}100%{box-shadow:0 0 0 0 transparent}}',
+            '.acn-bk{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:6px;cursor:pointer;background:rgba(255,255,255,0.04);margin-bottom:4px;border-left:3px solid var(--acn-accent);transition:background 0.15s}',
+            '.acn-bk:hover{background:rgba(255,255,255,0.09)}',
+            '.acn-bk-header{display:flex;align-items:center;justify-content:space-between;gap:6px}',
+            '.acn-bk-type{font-size:10px;font-weight:600;letter-spacing:0.04em;opacity:0.6;text-transform:uppercase;flex-shrink:0}',
+            '.acn-bk-remove{font-size:12px;line-height:1;padding:1px 4px;border-radius:3px;cursor:pointer;opacity:0.4;background:transparent;border:none;color:inherit;transition:opacity 0.15s,background 0.15s;flex-shrink:0}',
+            '.acn-bk-remove:hover{opacity:1;background:rgba(239,68,68,0.3)}',
+            '.acn-bk-text{font-size:12px;opacity:0.85;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}',
+            '.acn-bk-meta{font-size:10px;opacity:0.45;margin-top:1px}',
+            '.acn-bm-clearall{width:100%;margin-top:8px;padding:6px 10px;border-radius:6px;background:rgba(239,68,68,0.12);color:rgba(239,68,68,0.8);border:1px solid rgba(239,68,68,0.25);cursor:pointer;font-size:11px;transition:background 0.15s,color 0.15s}',
+            '.acn-bm-clearall:hover{background:rgba(239,68,68,0.25);color:rgb(239,68,68)}',
+            '.acn-qn-ai{background:rgba(var(--acn-rgb),0.15);border-left:2px solid var(--acn-accent)}',
         ].join('');
         document.head.appendChild(styleEl);
     }
@@ -2582,39 +2601,101 @@
     // SEARCH PANEL CONTENT
     // ============================================================
     function orbPopulateSearch(query) {
-        orbSearchQuery = query || '';
+        if (typeof orbSearchQuery !== 'undefined') {
+            orbSearchQuery = query || '';
+        }
+
         var list = document.getElementById('acn-search-list');
         var hint = document.getElementById('acn-search-hint');
         if (!list) return;
 
         while (list.firstChild) list.removeChild(list.firstChild);
 
-        var q = orbSearchQuery.trim();
+        var q = (query || '').trim();
 
         if (!q) {
             if (hint) {
                 hint.style.display = '';
-                hint.textContent = 'Search through your conversation';
+                hint.textContent = i18n('searchPlaceholder') || 'Search through your conversation';
             }
             return;
         }
 
         if (hint) hint.style.display = 'none';
 
-        var qLower   = q.toLowerCase();
-        var matches  = _questions.filter(function (msg) {
-            return msg.text.toLowerCase().indexOf(qLower) !== -1;
-        });
+        var qLower = q.toLowerCase();
 
-        if (matches.length === 0) {
-            var empty = createElement('div', { className: 'acn-empty',
-                textContent: 'No matches for "' + q + '"' });
+        // --- Gather user-message matches ---
+        var questionMatches = [];
+        if (typeof _questions !== 'undefined') {
+            _questions.forEach(function (msg, idx) {
+                if (msg.text.toLowerCase().indexOf(qLower) !== -1) {
+                    questionMatches.push({
+                        element:   msg.element,
+                        text:      msg.text,
+                        labelText: 'Q#' + (idx + 1),
+                        isAI:      false,
+                        qObj:      msg
+                    });
+                }
+            });
+        }
+
+        // --- Gather AI-response matches ---
+        var aiMatches = [];
+        if (typeof _aiResponses !== 'undefined') {
+            _aiResponses.forEach(function (el, idx) {
+                var text = (el.textContent || '').trim();
+                if (text.toLowerCase().indexOf(qLower) !== -1) {
+                    aiMatches.push({
+                        element:   el,
+                        text:      text,
+                        labelText: 'A#' + (idx + 1),
+                        isAI:      true,
+                        qObj:      null
+                    });
+                }
+            });
+        }
+
+        var allMatches = questionMatches.concat(aiMatches);
+
+        if (allMatches.length === 0) {
+            var empty = createElement('div', {
+                className: 'acn-empty',
+                textContent: 'No matches for "' + q + '"'
+            });
             list.appendChild(empty);
             return;
         }
 
-        matches.forEach(function (msg, idx) {
-            var text  = msg.text;
+        // Sort all matches by DOM position
+        allMatches.sort(function (a, b) {
+            if (!a.element || !b.element) return 0;
+            var pos = a.element.compareDocumentPosition(b.element);
+            if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+            if (pos & Node.DOCUMENT_POSITION_PRECEDING)  return  1;
+            return 0;
+        });
+
+        // Build count hint
+        var qCount  = questionMatches.length;
+        var aiCount = aiMatches.length;
+        var total   = allMatches.length;
+        var hintParts = [];
+        if (qCount  > 0) hintParts.push(qCount  + ' ' + (i18n('searchInQuestions') || 'in questions'));
+        if (aiCount > 0) hintParts.push(aiCount + ' ' + (i18n('searchInResponses') || 'in responses'));
+
+        var countHintEl = createElement('div', {
+            className: 'acn-sh',
+            textContent: total + ' ' + (i18n('searchResults') || 'matches').replace('{count}', total) +
+                (hintParts.length ? ' (' + hintParts.join(', ') + ')' : '')
+        });
+        countHintEl.style.display = '';
+        list.appendChild(countHintEl);
+
+        allMatches.forEach(function (match) {
+            var text  = match.text;
             var lower = text.toLowerCase();
             var pos   = lower.indexOf(qLower);
             var start = Math.max(0, pos - 40);
@@ -2624,17 +2705,30 @@
             var hit  = text.substring(pos, pos + q.length);
             var post = text.substring(pos + q.length, end) + (end < text.length ? '...' : '');
 
-            var numEl  = createElement('div', { className: 'acn-qn',
-                textContent: 'Q#' + (_questions.indexOf(msg) + 1) });
+            var numEl = createElement('div', {
+                className: match.isAI ? 'acn-qn acn-qn-ai' : 'acn-qn',
+                textContent: match.labelText
+            });
+
             var mark   = createElement('span', { className: 'acn-smatch', textContent: hit });
             var textEl = createElement('div', { className: 'acn-qt' }, [
                 document.createTextNode(pre),
                 mark,
-                document.createTextNode(post),
+                document.createTextNode(post)
             ]);
+
             var item = createElement('div', { className: 'acn-qi' }, [numEl, textEl]);
 
-            item.addEventListener('click', function () { orbScrollToQuestion(msg); });
+            item.addEventListener('click', (function (m) {
+                return function () {
+                    if (!m.isAI && m.qObj) {
+                        orbScrollToQuestion(m.qObj);
+                    } else {
+                        orbScrollToMessage(m.element);
+                    }
+                };
+            }(match)));
+
             list.appendChild(item);
         });
     }
@@ -2739,29 +2833,328 @@
         return panel;
     }
 
-    function orbBuildPanelBookmarks() {
-        var panel = createElement('div', { id: 'acn-panel-bookmarks', className: 'acn-panel' });
-        panel.appendChild(orbBuildPanelHeader('\u2691 Bookmarks'));
+    // ============================================================
+    // BOOKMARKS — storage helpers, icon injection, panel (Group D)
+    // ============================================================
 
-        var stat = createElement('div', { className: 'acn-pstat', textContent: '3 bookmarks' });
-        panel.appendChild(stat);
+    var BOOKMARK_KEY = 'acn-bookmarks-v1';
+
+    function contentHash(text, msgIndex) {
+        var str = String(msgIndex) + '|' + (text || '').substring(0, 200);
+        var h = 0x811c9dc5;
+        for (var i = 0; i < str.length; i++) {
+            h ^= str.charCodeAt(i);
+            h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+            h = h >>> 0;
+        }
+        return ('00000000' + h.toString(16)).slice(-8);
+    }
+
+    function normalizeConversationUrl() {
+        return window.location.origin + window.location.pathname;
+    }
+
+    function getBookmarks() {
+        try {
+            var raw = GM_getValue(BOOKMARK_KEY, '{}');
+            return JSON.parse(raw) || {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function getConversationBookmarks() {
+        var store = getBookmarks();
+        var url   = normalizeConversationUrl();
+        return (store[url] && store[url].bookmarks) ? store[url].bookmarks : [];
+    }
+
+    function saveBookmark(bookmark) {
+        var store = getBookmarks();
+        var url   = normalizeConversationUrl();
+        if (!store[url]) store[url] = { bookmarks: [] };
+        store[url].bookmarks = store[url].bookmarks.filter(function (b) {
+            return b.id !== bookmark.id;
+        });
+        store[url].bookmarks.push(bookmark);
+        try {
+            GM_setValue(BOOKMARK_KEY, JSON.stringify(store));
+        } catch (e) {}
+    }
+
+    function removeBookmark(bookmarkId) {
+        var store = getBookmarks();
+        var url   = normalizeConversationUrl();
+        if (!store[url]) return;
+        store[url].bookmarks = store[url].bookmarks.filter(function (b) {
+            return b.id !== bookmarkId;
+        });
+        try {
+            GM_setValue(BOOKMARK_KEY, JSON.stringify(store));
+        } catch (e) {}
+    }
+
+    function _bmGenId() {
+        return 'bm_' + Math.random().toString(16).substring(2, 10);
+    }
+
+    function toggleBookmark(entityId, entityType, entityEl, msgIndex) {
+        var existing = getConversationBookmarks().filter(function (b) {
+            return b.contentHash === entityId;
+        });
+
+        var icon = entityEl.querySelector('[data-acn-bookmark]');
+
+        if (existing.length > 0) {
+            existing.forEach(function (b) { removeBookmark(b.id); });
+            if (icon) icon.classList.remove('acn-bm-active');
+            showToast(i18n('bookmarkRemoved'));
+        } else {
+            var text    = (entityEl.textContent || '').trim();
+            var preview = text.substring(0, 120);
+            var bm = {
+                id:          _bmGenId(),
+                entityType:  entityType,
+                contentHash: entityId,
+                preview:     preview,
+                msgIndex:    msgIndex,
+                createdAt:   Date.now(),
+                platform:    window.location.hostname
+            };
+            saveBookmark(bm);
+            if (icon) icon.classList.add('acn-bm-active');
+            showToast(i18n('bookmarkAdded'));
+        }
+
+        var bmPanel = document.getElementById('acn-panel-bookmarks');
+        if (bmPanel && bmPanel.classList.contains('acn-open')) {
+            orbRefreshBookmarksPanel();
+        }
+    }
+
+    function createBookmarkIcon(entityEl, entityType, entityId, msgIndex) {
+        if (entityEl.querySelector('[data-acn-bookmark]')) return;
+
+        var computed = window.getComputedStyle(entityEl);
+        if (computed.position === 'static') {
+            entityEl.style.position = 'relative';
+        }
+
+        var bookmarks    = getConversationBookmarks();
+        var isBookmarked = bookmarks.some(function (b) { return b.contentHash === entityId; });
+
+        var icon = document.createElement('div');
+        icon.className = 'acn-bm-icon' + (isBookmarked ? ' acn-bm-active' : '');
+        icon.textContent = '\u2691';
+        icon.setAttribute('data-acn-bookmark', entityId);
+        icon.setAttribute('title', isBookmarked ? 'Remove bookmark' : 'Bookmark this message');
+
+        icon.addEventListener('click', function (e) {
+            e.stopPropagation();
+            toggleBookmark(entityId, entityType, entityEl, msgIndex);
+            var nowBookmarked = getConversationBookmarks().some(function (b) {
+                return b.contentHash === entityId;
+            });
+            icon.setAttribute('title', nowBookmarked ? 'Remove bookmark' : 'Bookmark this message');
+        });
+
+        entityEl.appendChild(icon);
+    }
+
+    function injectBookmarkIcons() {
+        var userEls = Array.from(getUserMessages());
+        userEls.forEach(function (el, idx) {
+            if (el.getAttribute('data-acn-bookmarked') === 'u') return;
+            el.setAttribute('data-acn-bookmarked', 'u');
+            var text = (el.textContent || '').trim();
+            var hash = contentHash(text, idx);
+            createBookmarkIcon(el, 'user-msg', hash, idx);
+        });
+
+        var aiEls = Array.from(getAIMessages());
+        aiEls.forEach(function (el, idx) {
+            if (el.getAttribute('data-acn-bookmarked') === 'a') return;
+            el.setAttribute('data-acn-bookmarked', 'a');
+            var text = (el.textContent || '').trim();
+            var hash = contentHash(text, idx);
+            createBookmarkIcon(el, 'ai-msg', hash, idx);
+        });
+    }
+
+    function orbScrollToMessage(el) {
+        if (!el) return;
+
+        function doScroll() {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.remove('acn-bm-flash');
+            void el.offsetWidth;
+            el.classList.add('acn-bm-flash');
+            setTimeout(function () { el.classList.remove('acn-bm-flash'); }, 1600);
+        }
+
+        if (typeof isLeftChat !== 'undefined' && isLeftChat) {
+            orbClosePanel();
+            setTimeout(doScroll, 350);
+        } else {
+            doScroll();
+        }
+    }
+
+    function orbScrollToBookmark(bookmark) {
+        var targetEl = null;
+
+        if (bookmark.entityType === 'user-msg') {
+            var userEls = Array.from(getUserMessages());
+            for (var i = 0; i < userEls.length; i++) {
+                var text = (userEls[i].textContent || '').trim();
+                if (contentHash(text, i) === bookmark.contentHash) {
+                    targetEl = userEls[i];
+                    break;
+                }
+            }
+            if (!targetEl && userEls[bookmark.msgIndex]) {
+                targetEl = userEls[bookmark.msgIndex];
+            }
+        } else if (bookmark.entityType === 'ai-msg') {
+            var aiEls = Array.from(getAIMessages());
+            for (var j = 0; j < aiEls.length; j++) {
+                var aiText = (aiEls[j].textContent || '').trim();
+                if (contentHash(aiText, j) === bookmark.contentHash) {
+                    targetEl = aiEls[j];
+                    break;
+                }
+            }
+            if (!targetEl && aiEls[bookmark.msgIndex]) {
+                targetEl = aiEls[bookmark.msgIndex];
+            }
+        }
+
+        if (!targetEl) {
+            showToast('Message not found \u2014 it may have been deleted');
+            return;
+        }
+
+        orbScrollToMessage(targetEl);
+    }
+
+    function orbRefreshBookmarksPanel() {
+        var panel = document.getElementById('acn-panel-bookmarks');
+        if (!panel) return;
+
+        while (panel.children.length > 1) {
+            panel.removeChild(panel.lastChild);
+        }
+
+        var bookmarks = getConversationBookmarks();
+
+        if (bookmarks.length === 0) {
+            var empty = createElement('div', {
+                className: 'acn-empty',
+                textContent: i18n('noBookmarks')
+            });
+            panel.appendChild(empty);
+            return;
+        }
+
+        var sorted = bookmarks.slice().sort(function (a, b) {
+            return a.createdAt - b.createdAt;
+        });
 
         var list = createElement('div', { className: 'acn-ql' });
 
-        var items = [
-            { type: '\uD83D\uDCCC Response', text: 'The context window for Claude is 200K tokens...', meta: 'Msg #14' },
-            { type: '\uD83D\uDCCC Question', text: 'Difference between context tracking and rate limit tracking?', meta: 'Msg #8' },
-            { type: '\uD83D\uDCCC Code', text: 'function estimateContextUsage() { const messages = getAll()...', meta: 'Msg #22' },
-        ];
+        sorted.forEach(function (bm) {
+            var labelText = bm.entityType === 'user-msg'
+                ? 'Q#' + (bm.msgIndex + 1)
+                : 'A#' + (bm.msgIndex + 1);
 
-        items.forEach(function (item) {
-            var typeEl = createElement('div', { className: 'acn-bk-type', textContent: item.type });
-            var textEl = createElement('div', { className: 'acn-bk-text', textContent: item.text });
-            var metaEl = createElement('div', { className: 'acn-bk-meta', textContent: item.meta });
-            list.appendChild(createElement('div', { className: 'acn-bk' }, [typeEl, textEl, metaEl]));
+            var typeEl = createElement('div', {
+                className: 'acn-bk-type',
+                textContent: labelText
+            });
+
+            var removeBtn = createElement('button', {
+                className: 'acn-bk-remove',
+                textContent: '\u2715',
+                title: 'Remove bookmark'
+            });
+            removeBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                removeBookmark(bm.id);
+                var icon = document.querySelector('[data-acn-bookmark="' + bm.contentHash + '"]');
+                if (icon) icon.classList.remove('acn-bm-active');
+                orbRefreshBookmarksPanel();
+                showToast(i18n('bookmarkRemoved'));
+            });
+
+            var header = createElement('div', { className: 'acn-bk-header' }, [typeEl, removeBtn]);
+
+            var textEl = createElement('div', {
+                className: 'acn-bk-text',
+                textContent: bm.preview || '(empty message)'
+            });
+
+            var dateStr = bm.createdAt
+                ? new Date(bm.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                : '';
+            var metaEl = createElement('div', {
+                className: 'acn-bk-meta',
+                textContent: dateStr
+            });
+
+            var card = createElement('div', { className: 'acn-bk' }, [header, textEl, metaEl]);
+
+            card.addEventListener('click', function () {
+                orbScrollToBookmark(bm);
+            });
+
+            list.appendChild(card);
         });
 
         panel.appendChild(list);
+
+        var clearBtn = createElement('button', {
+            className: 'acn-bm-clearall',
+            textContent: 'Clear all bookmarks'
+        });
+        clearBtn.addEventListener('click', function () {
+            if (!window.confirm('Remove all bookmarks for this conversation?')) return;
+            var store = getBookmarks();
+            var url   = normalizeConversationUrl();
+            if (store[url]) {
+                store[url].bookmarks = [];
+                try {
+                    GM_setValue(BOOKMARK_KEY, JSON.stringify(store));
+                } catch (e) {}
+            }
+            var activeIcons = document.querySelectorAll('.acn-bm-icon.acn-bm-active');
+            for (var i = 0; i < activeIcons.length; i++) {
+                activeIcons[i].classList.remove('acn-bm-active');
+            }
+            orbRefreshBookmarksPanel();
+            showToast('All bookmarks cleared');
+        });
+
+        panel.appendChild(clearBtn);
+    }
+
+    function orbBuildPanelBookmarks() {
+        var panel = createElement('div', { id: 'acn-panel-bookmarks', className: 'acn-panel' });
+        panel.appendChild(orbBuildPanelHeader('\u2691 ' + i18n('bookmarks')));
+
+        var bookmarks = getConversationBookmarks();
+
+        if (bookmarks.length === 0) {
+            var empty = createElement('div', {
+                className: 'acn-empty',
+                textContent: i18n('noBookmarks')
+            });
+            panel.appendChild(empty);
+        } else {
+            panel.appendChild(createElement('div', { className: 'acn-ql' }));
+            orbRefreshBookmarksPanel();
+            return panel;
+        }
+
         return panel;
     }
 
