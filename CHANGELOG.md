@@ -4,6 +4,114 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [10.0 — Panel Hover Fixes: CSS Variable Scoping, Jitter, List Rebuild] — 2026-02-22
+**Branch:** `fix/v10-live-testing-polish` | **Commit:** pending
+
+This session resolves three related bugs in the Navigate panel question list — all visible as hover interaction failures. Together they form a complete treatment of the panel hover UX: colors now show correctly, the highlight is stable, and the list doesn't rebuild under your cursor.
+
+---
+
+### Q# Badge Color and Hover Highlight Invisible — CSS Variable Scoping Bug
+
+**The problem:** In the Navigate panel, the `Q#1`, `Q#2`, `Q#3` number badges were white instead of the platform accent color. The hover highlight (left-border color transition and background tint) was also invisible on hover.
+
+**Root cause — CSS inheritance boundary:** Platform accent colors are exposed via CSS custom properties `--acn-accent` and `--acn-rgb`. These were set via `zone.style.setProperty()` on the `#acn-zone` element. CSS custom properties only cascade *down* to descendants. The problem is that `.acn-panel` elements are appended to `document.body` as siblings of `#acn-zone`, not as descendants:
+
+```javascript
+// injectOrbital() lines 2061-2069
+document.body.appendChild(zone);            // zone is at body level
+document.body.appendChild(orbBuildPanelNav());   // panel is also at body level
+document.body.appendChild(orbBuildPanelSearch()); // sibling, not child
+```
+
+Since the panels are siblings of the zone, `var(--acn-accent)` inside any `.acn-panel` rule resolved to nothing (empty string), which the browser treated as `transparent`/`initial`. The `Q#` badge background and the hover border-left-color were both silent no-ops.
+
+The prior CHANGELOG entry for "Question List Readability Improvements" introduced these `var(--acn-*)` references in `.acn-qn` and `.acn-qi:hover`, but there was no test that detected their computed-value at runtime — the Playwright tests verified that elements existed and that `data-acn-accent` was set on the zone, not that the CSS variable resolved correctly inside panels.
+
+**Fix:** Set the same CSS variables on `document.documentElement` (`:root`) in addition to the zone element. Variables on `:root` are globally available to all elements on the page — panels included. Zone-level assignment is kept because zone children also use these variables (dot glow, etc.) and the zone assignment provides a more scoped fallback.
+
+```javascript
+// orbBuildZone() — set on :root for global inheritance, then on zone for scoped use
+document.documentElement.style.setProperty('--acn-accent', orbTheme.bg);
+document.documentElement.style.setProperty('--acn-rgb',    orbTheme.rgb);
+document.documentElement.style.setProperty('--acn-shadow', orbTheme.shadow);
+zone.style.setProperty('--acn-accent', orbTheme.bg);
+zone.style.setProperty('--acn-rgb',    orbTheme.rgb);
+zone.style.setProperty('--acn-shadow', orbTheme.shadow);
+```
+
+**Results:** Q# badges now appear in platform accent color. Hover highlight background and left-border transition correctly show the platform color. 168/168 tests pass.
+
+---
+
+### `translateX(2px)` Hover Jitter — Bounding Box Shift Loop
+
+**The problem:** When hovering steadily over a question item, the left-border highlight flickered on and off rapidly (approximately every 150ms) rather than staying lit.
+
+**Root cause:** The `.acn-qi:hover` CSS rule included `transform:translateX(2px)`. CSS `transform` changes an element's rendered position without affecting layout flow — but it *does* change the element's visual bounding box, which is what the browser uses for hit-testing (determining whether the cursor is "inside" the element). The jitter loop was:
+
+1. Cursor enters `.acn-qi` bounds → hover fires → `translateX(2px)` shifts element 2px right
+2. Rendered bounding box is now 2px to the right of cursor → cursor is outside → hover lost
+3. `translateX(0)` → element returns to original position → cursor is inside again → hover fires
+4. Repeat at the CSS transition rate (~150ms for `.15s` transition)
+
+This is a well-known CSS hover-jitter pattern. `translateX` (and `translateY`) change where the element renders, and hover hit-testing uses the rendered position, creating an unstable equilibrium. The symptom is exactly the "every ~150ms" rate the user observed — one cycle per transition duration.
+
+**First attempted fix (earlier in session):** The jitter was initially attributed to an incorrect hypothesis about orbital dots overlapping the panel area. Investigation confirmed that dots and panels don't overlap at runtime (dots move to `right:310px` when panel opens, panel is at `right:0; width:310px` — they're flush, not overlapping). This investigation was not wasted: it confirmed the panel z-index hierarchy is correct.
+
+**Fix:** Removed `transform:translateX(2px)` from `.acn-qi:hover` entirely. The hover state still transitions `background` and `border-left-color`, giving clear visual feedback without any position shift.
+
+```css
+/* Before */
+.acn-qi:hover { background:rgba(var(--acn-rgb),.14); border-left-color:var(--acn-accent); transform:translateX(2px) }
+
+/* After */
+.acn-qi:hover { background:rgba(var(--acn-rgb),.14); border-left-color:var(--acn-accent) }
+```
+
+**Results:** Hover highlight is stable. Left border transitions to accent color and background tints on enter; both transition back on leave. No flickering. 168/168 tests pass.
+
+---
+
+### Nav List Rebuild on Every SPA Mutation — Hover Flicker from DOM Teardown
+
+**The problem:** Even after removing `translateX`, the hover highlight continued to flicker, though less predictably. The border highlight would flash on briefly, then disappear, then reappear on the next hover entry.
+
+**Root cause — MutationObserver → list teardown chain:** The MutationObserver in `startMessageObserver()` watches `document.body` with `{ childList: true, subtree: true }`. Live AI platforms (Gemini, Claude, ChatGPT, etc.) continuously mutate their DOM — typing indicators pulse, streaming tokens arrive, animations fire, sidebar items update. Each mutation triggers the observer. The observer debounces by 500ms, then calls `scanConversation()`. `scanConversation()` always calls `orbOnScanComplete()`. `orbOnScanComplete()` calls `orbPopulateNavigate()` when the nav panel is open.
+
+`orbPopulateNavigate()` began with unconditional list teardown:
+```javascript
+while (list.firstChild) list.removeChild(list.firstChild);
+```
+
+This destroyed every `.acn-qi` element in the list, including the one the user was currently hovering. When the element is removed from the DOM, the browser drops the `:hover` state on it. New elements are created and appended, but they have no hover state. The next cycle (500ms later) removes them again. Result: the hover highlight appears for up to 500ms, then disappears when the list is rebuilt, then reappears on the next hover entry — exactly the "turns on and off" behavior the user reported.
+
+The mechanism was: any Gemini UI animation (button pulse, response caret, etc.) → MutationObserver fires → 500ms later → question list cleared → hovered item destroyed → hover lost. The cycle repeated as long as the nav panel was open and the site had any DOM activity.
+
+**Solutions Considered:**
+
+*Approach 1: DOM diffing — update individual items in place, add new ones, remove stale ones.* This would preserve elements currently in the DOM, so hover state on an unchanged item would survive. Hypothesis: correct semantics, good UX. Rejected for now because: proper diffing requires a key-based comparison (matching old elements to new `_questions[]` entries by stable key), stable keys would need to be added to `_questions[]`, and the complexity was disproportionate to the problem. The questions list for any given conversation is typically static — questions don't change unless the user sends a new message, which is rare while reading the navigate panel.
+
+*Approach 2: Debounce `orbPopulateNavigate()` calls separately from the scan debounce.* Add a 1s debounce specifically on the populate call, so rapid MutationObserver fires don't each trigger a rebuild. Rejected because: this delays the list update after a new message is sent — there's already a 500ms scan debounce, adding another 1s delay makes the panel feel stale. Also doesn't address the root cause: the scan could still fire once per debounce window and still tear down the list.
+
+*Approach 3: Don't call `orbPopulateNavigate()` during MutationObserver-triggered scans.* Skip `orbOnScanComplete()` if the scan was triggered by a mutation (not a user action). Rejected because: the distinction is hard to communicate cleanly through the call chain, and user messages ARE mutations — we need the list to update after new messages.
+
+*Approach 4: Fingerprint-gated rebuild.* Before clearing the list, compute a fingerprint of the current `_questions[]` array. If it matches the fingerprint from the last build, skip the teardown entirely. The list is only rebuilt when questions actually change (new messages added). This is `O(n)` in question count (typically 1–20 items), adds one string variable, and requires no structural changes.
+
+**Fix:** Added `_navListFingerprint` module variable (empty string). At the start of `orbPopulateNavigate()`:
+
+```javascript
+var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|');
+if (fp === _navListFingerprint && list.firstChild) return;
+_navListFingerprint = fp;
+```
+
+The fingerprint is the first 100 chars of each question's text joined by `|`. 100 chars is enough to distinguish questions reliably while keeping the fingerprint short. The `&& list.firstChild` guard ensures the list is rebuilt if it's empty (e.g., first open, or after panel close+reopen cleared the DOM).
+
+**Results:** On a live Gemini conversation with 3 questions, hovering over any question item shows a stable, persistent highlight. Repeated MutationObserver fires from Gemini's animations do not cause list rebuilds. The list still rebuilds immediately when new questions are added (new message sent), because the fingerprint changes. 168/168 tests pass.
+
+---
+
 ## [10.0 — Live Testing Fixes, UI Polish, Context Bar] — 2026-02-22
 **Branch:** `docs/v9.6-documentation-sync` | **Commit:** pending
 

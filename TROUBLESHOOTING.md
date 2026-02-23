@@ -6,6 +6,133 @@ If you run into a problem, check here first — you might find we've already sol
 
 ---
 
+## v10.0 — Panel Hover Fixes (2026-02-22, session 3)
+
+Three related bugs in Navigate panel hover behavior, all discovered through live site testing. All resolved in the same session.
+
+---
+
+### RESOLVED — Q# Badge Color and Hover Highlight Show as White (CSS Variable Scoping)
+
+**Versions affected:** v10.0 (after question list readability improvements)
+**Fixed in:** v10.0 session 3 | **Severity:** High | **Platforms:** All 5 orbital platforms
+
+**Symptom:** In the Navigate panel, the `Q#1`/`Q#2`/`Q#3` number badges appeared white instead of the platform accent color. The hover highlight — both the left-border color transition (`border-left-color: var(--acn-accent)`) and the background tint (`background: rgba(var(--acn-rgb), .14)`) — was also invisible. The question list was technically functional (items rendered, click worked) but visually undifferentiated.
+
+**Diagnosis / Root Cause:** Platform accent colors are distributed via CSS custom properties `--acn-accent` and `--acn-rgb`. These were set using `zone.style.setProperty()` on the `#acn-zone` element. CSS custom properties only cascade *down* to descendants. The critical architecture detail: `#acn-zone` and all `.acn-panel` elements are siblings — both are direct children of `document.body`:
+
+```javascript
+document.body.appendChild(zone);              // line 2061
+document.body.appendChild(orbBuildPanelNav()); // line 2064 — sibling, not child
+```
+
+Since the panels are siblings (not descendants) of `#acn-zone`, `var(--acn-accent)` and `var(--acn-rgb)` inside panel CSS resolved to nothing. The browser falls back to the CSS initial value for each property — `background: transparent` and `border-left-color: currentColor` (which was white in the dark panel) — making the styles silently invisible rather than producing an error.
+
+This design was introduced without issue in v10.0 because the orbital dots and zone children (`#acn-hitzone`, `.acn-lbl`, `.acn-dot`) are actual descendants of `#acn-zone` and inherited correctly. Only panel-specific styles (`.acn-qi:hover`, `.acn-qn`) using `var(--acn-*)` were affected, and these were added as a visual polish feature late in the session.
+
+**Solutions Considered:**
+
+*Approach 1: Move panel elements inside `#acn-zone` in the DOM.* Insert all 6 `.acn-panel` elements as children of the zone rather than appending them to `document.body`. Hypothesis: this restores normal CSS inheritance and resolves the scoping problem at the root. Rejected because: the z-index stacking context would change — panels are currently at `z-index:2147483641` which is above the zone's `z-index:2147483640`. Moving panels inside the zone makes them children within the zone's stacking context; achieving `641` above `640` while inside the same stacking context parent requires careful re-validation across all 14 platforms and all positioning code. The risk was higher than the benefit.
+
+*Approach 2: Set CSS variables directly on each panel element after creation.* After `orbBuildPanelNav()` returns, call `panelEl.style.setProperty('--acn-accent', orbTheme.bg)` on each panel. Hypothesis: variables set on the element itself have higher cascade priority than any inherited value, so this would work regardless of panel position in the DOM. Rejected as verbose: 6 panels × 3 variables = 18 `setProperty` calls, plus the same 18 calls must be re-applied if a future session re-injects panels without re-running `orbBuildZone()`.
+
+*Approach 3: Set CSS variables on `document.documentElement` (`:root`).* Variables on `:root` are globally available to every element on the page — no scoping restriction. Keep the zone-level assignments as well (zone children already use them correctly). Add 3 lines to `orbBuildZone()`.
+
+**Fix:** Approach 3 — add `:root`-level assignments in `orbBuildZone()` before the zone-level assignments:
+```javascript
+document.documentElement.style.setProperty('--acn-accent', orbTheme.bg);
+document.documentElement.style.setProperty('--acn-rgb',    orbTheme.rgb);
+document.documentElement.style.setProperty('--acn-shadow', orbTheme.shadow);
+zone.style.setProperty('--acn-accent', orbTheme.bg);
+// ...
+```
+
+The zone-level assignments are retained because they provide a more scoped cascade for dot/zone child styling, and their presence makes it clear the zone is the authoritative owner of its theming even if the root-level value is also available.
+
+**Results:** Q# badges display in platform accent color. Hover background tint and left-border color transition correctly. 168/168 tests pass.
+
+---
+
+### RESOLVED — `.acn-qi:hover` Hover Jitter (translateX Bounding Box Loop)
+
+**Versions affected:** v10.0 (after question list readability improvements)
+**Fixed in:** v10.0 session 3 | **Severity:** Medium | **Platforms:** All 5 orbital platforms
+
+**Symptom:** When holding the cursor still over a question item in the Navigate panel, the left-border highlight flickered on and off at a rapid, regular rate — approximately every 150ms. The highlight would flash, disappear, then reappear on re-hover. Described as "tweaks like every second" by the user.
+
+**Diagnosis / Root Cause:** The `.acn-qi:hover` rule applied `transform:translateX(2px)`. CSS `transform` repositions the element visually without changing layout flow, but it *does* change the element's rendered bounding box — and the browser uses the rendered bounding box for hover hit-testing. The feedback loop:
+
+1. Cursor enters `.acn-qi` at position X → hover fires → `translateX(2px)` shifts the rendered box 2px right
+2. Rendered box is now 2px right of cursor position → cursor is outside the hit area → hover lost
+3. Transition reverses (`.15s` transition) → element returns to original position → cursor is inside → hover fires
+4. Repeat every ~150ms (the transition duration)
+
+This is a known hover-jitter antipattern. Any `transform` that changes the element's rendered position on hover creates an unstable equilibrium at the boundary of the original hit area.
+
+**Diagnosis path:** The jitter was initially suspected to be caused by orbital dots overlapping the panel during animation (z-index conflict). This was investigated by reading the zone CSS (`right:0; width:160px; z-index:2147483640`) and panel CSS (`right:0; width:310px; z-index:2147483641`). When the panel opens, `acn-hp` adds `right:310px` to the zone — the zone slides left so its right edge is at `window.innerWidth - 310px`, flush with the panel's left edge but not overlapping it. The z-index investigation confirmed the panel (641) is above the zone (640), so dots don't intercept panel pointer events. This ruled out z-index as the cause. The `translateX` feedback loop was then identified as the actual mechanism.
+
+**Solutions Considered:**
+
+*Approach 1: Keep translateX but apply it on a wrapper element.* Wrap each `.acn-qi` in an outer div; apply `translateX` to the outer div while the hover target remains the inner div. The inner div never moves, so its hit area is stable. Rejected as over-engineered: adding a wrapper div to every list item for this single visual effect adds DOM nodes and complicates the item structure.
+
+*Approach 2: Use `translateX` but only apply it after a delay (`:hover:active` or JS-based).* Apply the translate only on `mousedown`, not `mouseover`. Hypothesis: user has clicked by then, so bounding box jitter doesn't matter. Rejected because: the visual intent was to show translate on hover (mouse-over), not click. Changing to click semantics changes the intended interaction model.
+
+*Approach 3: Remove `translateX` entirely.* The background tint and border-left color change on hover already provide clear feedback. The `translateX` was purely decorative — a subtle "lift" animation. Without it, the hover state is still clearly visible and perfectly stable.
+
+**Fix:** Approach 3 — removed `transform:translateX(2px)` from `.acn-qi:hover`:
+```css
+/* Before */ .acn-qi:hover { background:rgba(var(--acn-rgb),.14); border-left-color:var(--acn-accent); transform:translateX(2px) }
+/* After  */ .acn-qi:hover { background:rgba(var(--acn-rgb),.14); border-left-color:var(--acn-accent) }
+```
+
+**Results:** Hover highlight is stable. Background tint and border-left-color transition cleanly on enter/leave without any jitter. The `transition:all .15s` on `.acn-qi` still smoothly animates both remaining properties.
+
+---
+
+### RESOLVED — Nav Panel Question List Rebuilds on Every SPA Mutation (Hover Destroyed)
+
+**Versions affected:** v10.0 (all orbital sessions)
+**Fixed in:** v10.0 session 3 | **Severity:** Medium | **Platforms:** All 5 orbital platforms (worst on high-animation platforms: Gemini, Claude)
+
+**Symptom:** After fixing the CSS variable scoping and removing `translateX`, the hover highlight still flickered. On closer observation: the highlight would appear correctly on hover entry, hold for approximately 500ms, then disappear — regardless of cursor movement. Moving the cursor back onto the same item would restore the highlight for another ~500ms before it disappeared again. This was not the 150ms jitter from `translateX`; it was a longer, less predictable cycle.
+
+**Diagnosis / Root Cause:** `orbPopulateNavigate()` began with unconditional DOM teardown:
+```javascript
+while (list.firstChild) list.removeChild(list.firstChild);
+```
+
+It was called every time `orbOnScanComplete()` ran. `orbOnScanComplete()` was called at the end of every `scanConversation()` execution when `orbPanel === 'nav'`. `scanConversation()` was called by the MutationObserver callback after a 500ms debounce. The MutationObserver watched `document.body` with `{ childList: true, subtree: true }`.
+
+The chain: **any DOM mutation on the page → 500ms debounce → `scanConversation()` → `orbOnScanComplete()` → `orbPopulateNavigate()` → all `.acn-qi` elements destroyed and re-created**.
+
+Live AI platforms mutate the DOM continuously: Gemini's button hover effects, animated type indicators, streaming responses, sidebar item updates. On a static conversation (no new messages), `scanConversation()` was re-running every 500ms because the platform's UI — unrelated to the conversation content — was generating mutations. Each rebuild destroyed the currently-hovered element, causing the browser to drop its `:hover` state. New elements created by the rebuild had no hover state.
+
+The 500ms debounce explained the user's observed "about 500ms" cycle time. The user would hover → highlight appears → 500ms later Gemini does something → observer fires → list tears down → hover lost → user moves cursor → hover appears again.
+
+**Solutions Considered:**
+
+*Approach 1: Don't call `orbOnScanComplete()` during observer-triggered scans, only during user-action scans.* Pass a flag through the call chain — `scanConversation(triggered_by_user)` — and skip the panel update when triggered by the observer. Rejected because: new messages ARE mutations, and the observer is the only mechanism for detecting them. Skipping the panel update means the list never updates after a new message unless the user manually refreshes.
+
+*Approach 2: DOM diffing — update items in place, only add/remove changed questions.* For each entry in `_questions[]`, find the existing DOM element (by index or key) and update only if changed; add new elements at the end; remove stale elements. Rejected for now: requires a stable key system for matching old elements to new entries. `_questions[]` entries currently have no stable ID — the index changes if a question is prepended. Implementing stable keys correctly is a larger change than the problem warrants, since questions in a conversation rarely change after creation.
+
+*Approach 3: Increase the scan debounce from 500ms to 2000ms.* Reduce rebuild frequency. Rejected because: this makes the list feel stale after the user sends a new message — the panel wouldn't update for 2 seconds.
+
+*Approach 4: Fingerprint-gated rebuild — compare question content before rebuilding.* Compute a lightweight fingerprint of `_questions[]`. If identical to the fingerprint from the last render, skip teardown. The fingerprint changes only when new questions are added, not on platform UI mutations.
+
+**Fix:** Approach 4. Added `_navListFingerprint = ''` module variable. At the start of `orbPopulateNavigate()`:
+
+```javascript
+var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|');
+if (fp === _navListFingerprint && list.firstChild) return;
+_navListFingerprint = fp;
+```
+
+The fingerprint uses the first 100 characters of each question's text (sufficient to distinguish questions; trimmed to avoid generating multi-KB strings for long prompts). The `&& list.firstChild` guard forces a rebuild if the list is somehow empty even when the fingerprint matches (e.g., after a DOM flush from a SPA navigation). If questions genuinely change (new message → new `_questions[]` entry), the fingerprint changes and the rebuild proceeds normally.
+
+**Results:** On live Gemini with a 3-question conversation, hovering over any question item shows a stable, persistent highlight. Platform UI mutations (button animations, etc.) no longer cause list rebuilds. New questions added by sending a new message still appear immediately in the list (next scan cycle ≈ 500ms). 168/168 tests pass.
+
+---
+
 ## v10.0 — Issues Found and Fixed Through Live Site Testing (2026-02-22)
 
 These issues were discovered by testing v10.0 on live sites after the orbital system shipped. All were resolved in the same session.
