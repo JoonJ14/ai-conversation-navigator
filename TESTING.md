@@ -15,7 +15,7 @@ This document explains **everything** about the automated test suite: what it do
    - [Full Execution Flow (Step by Step)](#full-execution-flow-step-by-step)
    - [Browser Launch Configuration](#browser-launch-configuration)
    - [Page Reuse Strategy](#page-reuse-strategy)
-5. [What Each Test Checks (10 Tests Per Platform)](#what-each-test-checks-10-tests-per-platform)
+5. [What Each Test Checks (12 Tests Per Platform)](#what-each-test-checks-12-tests-per-platform)
 6. [Platform Configuration — The PLATFORMS Array](#platform-configuration--the-platforms-array)
    - [Field Reference](#field-reference)
    - [Current Platforms](#current-platforms)
@@ -206,17 +206,19 @@ Here's exactly what happens when you run the tests, in order:
    │
    ├── waitForTimeout(3500ms) ← Waits for the 2-second initial scan + buffer
    │
-   ├── Runs 10 test assertions via page.evaluate():
-   │   ├── TEST 1: document.getElementById('ai-nav-toggle') exists
-   │   ├── TEST 2: document.getElementById('ai-nav-panel') exists
-   │   ├── TEST 3: Toggle button's first text node matches expected icon
-   │   ├── TEST 4: getComputedStyle(toggle).backgroundColor matches expected accent
-   │   ├── TEST 5: Click toggle → panel gets .open class
-   │   ├── TEST 6: .ai-nav-item count matches expectedMessages
-   │   ├── TEST 7: #ai-nav-stats text matches "N questions found"
-   │   ├── TEST 8: Every .ai-nav-item has a non-empty .ai-nav-summary
-   │   ├── TEST 9: Clicking .ai-nav-item doesn't throw
-   │   └── TEST 10: Click toggle again → panel loses .open class
+   ├── Runs 12 test assertions via page.evaluate():
+   │   ├── TEST 1: [data-acn-role="zone"] exists (injection confirmed)
+   │   ├── TEST 2: [data-acn-role="styles"] exists (CSS injected)
+   │   ├── TEST 3: [data-acn-role="nav-trigger"] exists (Navigate dot present)
+   │   ├── TEST 4: [data-acn-role="nav-panel"] exists (Navigate panel present)
+   │   ├── TEST 5: data-acn-accent on zone matches expectedAccent hex
+   │   ├── TEST 6: Only one [data-acn-role="zone"] exists (no duplicate injection)
+   │   ├── TEST 7: Click nav-trigger → nav-panel gets data-acn-open="true"
+   │   ├── TEST 8: data-acn-count on nav-stat equals expectedMessages
+   │   ├── TEST 9: [data-acn-role="nav-item"] count equals expectedMessages
+   │   ├── TEST 10: All nav-item-text elements have non-empty text
+   │   ├── TEST 11: Clicking a nav-item doesn't throw
+   │   └── TEST 12: Click panel-close → nav-panel loses data-acn-open
    │
    └── Results collected into allResults[]
 
@@ -263,24 +265,28 @@ This is more stable than creating a new context per test (which crashed on the o
 
 ---
 
-## What Each Test Checks (10 Tests Per Platform)
+## What Each Test Checks (12 Tests Per Platform)
+
+Tests query only `data-acn-role` and `data-acn-*` contract attributes — no internal CSS class names or element IDs. This means the UI can be completely rebuilt in any future version without breaking the test suite, as long as the contract attributes are maintained on the correct elements.
 
 | # | Test Name | What It Verifies | How |
 |---|-----------|-----------------|-----|
-| 1 | Toggle button exists | The userscript detected the platform and injected its UI | `document.getElementById('ai-nav-toggle')` |
-| 2 | Panel exists | The navigation sidebar panel was created | `document.getElementById('ai-nav-panel')` |
-| 3 | Icon matches | The correct Unicode icon is displayed for this platform | Reads the first text child node of the toggle button |
-| 4 | Theme accent color | The button's background color matches the platform's brand color | `getComputedStyle(toggle).backgroundColor` compared to expected RGB |
-| 5 | Panel opens on click | Clicking the toggle opens the navigation panel | Clicks toggle, checks for `.open` class on panel |
-| 6 | Message count | The userscript's selectors found the correct number of user messages in the mock DOM | Counts `.ai-nav-item` elements in the panel |
-| 7 | Stats text | The "N questions found" text matches the expected count | Reads `#ai-nav-stats` textContent |
-| 8 | All items have summaries | Every detected message produced a non-empty summary | Checks `.ai-nav-summary` inside each `.ai-nav-item` |
-| 9 | Nav items clickable | Clicking a nav item doesn't throw a JavaScript error | Programmatic `.click()` on the first `.ai-nav-item` |
-| 10 | Panel closes on second click | Clicking the toggle again closes the panel | Clicks toggle again, checks `.open` class is removed |
+| 1 | Zone exists | The userscript detected the platform and injected its container | `[data-acn-role="zone"]` present in DOM |
+| 2 | Styles injected | The CSS block was added to the document | `[data-acn-role="styles"]` present in `<head>` |
+| 3 | Nav trigger exists | The Navigate button/dot is present and clickable | `[data-acn-role="nav-trigger"]` present |
+| 4 | Nav panel exists | The Navigate panel element is in the DOM | `[data-acn-role="nav-panel"]` present |
+| 5 | Accent color | The zone reports the correct platform theme color | `data-acn-accent` attribute matches `expectedAccent` hex string |
+| 6 | No duplicate zone | Only one zone was injected (no double-injection bug) | Count of `[data-acn-role="zone"]` equals exactly 1 |
+| 7 | Trigger opens panel | Clicking the Navigate trigger opens the panel | Click nav-trigger → `data-acn-open="true"` appears on nav-panel |
+| 8 | Question count stat | The stat element reports the correct detected message count | `data-acn-count` on `[data-acn-role="nav-stat"]` equals `expectedMessages` |
+| 9 | Question items rendered | The correct number of question rows appear in the list | Count of `[data-acn-role="nav-item"]` equals `expectedMessages` |
+| 10 | All items have text | Every question row has non-empty display text | All `[data-acn-role="nav-item-text"]` have non-empty `textContent` |
+| 11 | Items clickable | Clicking a question item doesn't throw | Programmatic `.click()` on first `[data-acn-role="nav-item"]` |
+| 12 | Close button works | Clicking close removes the open state | Click `[data-acn-role="panel-close"]` → `data-acn-open` removed from nav-panel |
 
-**Tests 1-2 are blockers** — if either fails, the remaining 8 tests are skipped for that platform (there's nothing to test without the UI elements).
+**Tests 1–4 are blockers** — if any fail, the remaining tests are skipped for that platform (there is nothing to interact with without the core elements).
 
-**Test 6 is the most important** — this is where selector bugs surface. If the message count is wrong, it means the mock DOM doesn't match the selector logic, or a selector bug was introduced.
+**Test 9 is the most important** — this is where selector bugs surface. If the nav-item count doesn't match `expectedMessages`, the userscript's `getUserMessages()` selector chain isn't matching the mock DOM correctly.
 
 ---
 
@@ -292,13 +298,12 @@ The `PLATFORMS` array in `test-all-platforms.js` is the **central configuration*
 
 ```javascript
 {
-    name: 'Claude',                          // Display name in test output
-    mockFile: 'claude.html',                 // File in tests/mock-pages/ to load
-    hostname: 'claude.ai',                   // The hostname the browser will "visit"
-    pathname: '/chat/test',                  // The URL path (some platforms check this)
-    expectedMessages: 3,                     // How many user messages the mock page contains
-    expectedAccent: 'rgb(217, 119, 6)',      // Expected CSS backgroundColor in RGB format
-    expectedIcon: '\u2733',                  // Expected Unicode icon character
+    name: 'Claude',            // Display name in test output
+    mockFile: 'claude.html',   // File in tests/mock-pages/ to load
+    hostname: 'claude.ai',     // The hostname the browser will "visit"
+    pathname: '/chat/test',    // The URL path (some platforms check this)
+    expectedMessages: 3,       // How many user messages the mock page contains
+    expectedAccent: '#d97706', // Expected data-acn-accent hex string
 }
 ```
 
@@ -310,28 +315,29 @@ The `PLATFORMS` array in `test-all-platforms.js` is the **central configuration*
 | `mockFile` | string | Filename within `tests/mock-pages/` | `buildTestPage()` reads this file |
 | `hostname` | string | Must match a hostname that one of the `PLATFORMS` registry's `match()` functions accepts | Used to construct the URL for `page.goto()` and `page.route()` |
 | `pathname` | string | URL path — matters for platforms with path guards (e.g., Lovable requires `/projects/`) | Appended to hostname for the target URL |
-| `expectedMessages` | number | Exact count of user messages in the mock HTML | Test 6 compares this to the number of `.ai-nav-item` elements |
-| `expectedAccent` | string | RGB value of the platform's accent color (from the `theme.accent` field in the `PLATFORMS` registry) | Test 4 compares this to `getComputedStyle().backgroundColor` |
-| `expectedIcon` | string | Unicode character(s) for the platform icon (from the `icon` field in the `PLATFORMS` registry) | Test 3 compares this to the toggle button's first text node |
+| `expectedMessages` | number | Exact count of user messages in the mock HTML | Test 9 compares this to the count of `[data-acn-role="nav-item"]` elements |
+| `expectedAccent` | string | Hex color of the platform's accent (from `ORB_COLORS` or `theme.accent` in the registry) | Test 5 compares this to the `data-acn-accent` attribute on the zone element |
 
 ### Current Platforms
 
-| name | hostname | mockFile | expectedMessages | expectedAccent | expectedIcon |
-|------|----------|----------|-----------------|----------------|--------------|
-| Claude | claude.ai | claude.html | 3 | rgb(217, 119, 6) | ✳ `\u2733` |
-| Claude Code | claude.ai | claude-code.html | 3 | rgb(217, 119, 6) | ✳ `\u2733` |
-| ChatGPT | chatgpt.com | chatgpt.html | 4 | rgb(255, 255, 255) | ⏣ `\u23E3` |
-| Codex Web | chatgpt.com | codex.html | 2 | rgb(255, 255, 255) | ⏣ `\u23E3` |
-| Grok | grok.com | grok.html | 3 | rgb(220, 38, 38) | X |
-| Gemini | gemini.google.com | gemini.html | 3 | rgb(66, 133, 244) | ✦ `\u2726` |
-| Bolt.new | bolt.new | bolt.html | 3 | rgb(56, 189, 248) | ⚡ `\u26A1\uFE0E` |
-| Lovable | lovable.dev | lovable.html | 4 | rgb(155, 135, 245) | ♥ `\u2665` |
-| Replit | replit.com | replit.html | 3 | rgb(242, 101, 34) | ⠕ `\u2815` |
-| V0 | v0.app | v0.html | 3 | rgb(255, 255, 255) | ▽ `\u25BD` |
-| Base44 | app.base44.com | base44.html | 3 | rgb(99, 102, 241) | ⬢ `\u2B22` |
-| Emergent | app.emergent.sh | emergent.html | 3 | rgb(16, 185, 129) | e |
-| Perplexity | www.perplexity.ai | perplexity.html | 3 | rgb(32, 184, 205) | ✳ `\u2733` |
-| Firebase Studio | 6000-firebase-studio-12345.cluster-abc123.cloudworkstations.dev | firebase.html | 3 | rgb(255, 166, 17) | ✦ `\u2726` |
+| name | hostname | mockFile | expectedMessages | expectedAccent |
+|------|----------|----------|-----------------|----------------|
+| Claude | claude.ai | claude.html | 3 | `#d97706` |
+| Claude Code | claude.ai | claude-code.html | 3 | `#d97706` |
+| ChatGPT | chatgpt.com | chatgpt.html | 4 | `#ffffff` |
+| Codex Web | chatgpt.com | codex.html | 2 | `#ffffff` |
+| Grok | grok.com | grok.html | 3 | `#e53e3e` |
+| Gemini | gemini.google.com | gemini.html | 3 | `#4285f4` |
+| Bolt.new | bolt.new | bolt.html | 3 | `#38BDF8` |
+| Lovable | lovable.dev | lovable.html | 4 | `#9b87f5` |
+| Replit | replit.com | replit.html | 3 | `#F26522` |
+| V0 | v0.app | v0.html | 3 | `#ffffff` |
+| Base44 | app.base44.com | base44.html | 3 | `#6366f1` |
+| Emergent | app.emergent.sh | emergent.html | 3 | `#10b981` |
+| Perplexity | www.perplexity.ai | perplexity.html | 3 | `#20b2aa` |
+| Firebase Studio | 6000-firebase-studio-12345.cluster-abc123.cloudworkstations.dev | firebase.html | 3 | `#FFA611` |
+
+**Note on accent sources:** Orbital platforms (Claude, ChatGPT, Grok, Gemini, Perplexity) source their accent from `ORB_COLORS[platform.id].bg`. Legacy app-builder platforms source theirs from `platform.theme.accent` — each platform has its own brand color (Bolt sky blue, Lovable violet, Replit orange, etc.).
 
 **Note on sub-platforms:** Claude and Claude Code both use `hostname: 'claude.ai'` but different mock files and different `pathname` values. The userscript detects both as the `claude` platform and uses a fallback chain — primary selectors (`data-testid="user-human-turn"`) work for Claude Chat, and the fallback (`div.bg-bg-200.rounded-lg` inside `.items-end`) catches Claude Code. The mock pages are designed so that Claude Chat's mock has `data-testid` attributes (primary selectors match) and Claude Code's mock does NOT have `data-testid` attributes (primary selectors find 0, fallback activates).
 
