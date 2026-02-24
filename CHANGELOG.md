@@ -4,6 +4,1188 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [10.9 — Hybrid SSE Context Tracking + Turn Dots for Claude] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+Four changes: SSE plumbing fixes discovered after v10.8 through systematic live debugging, hybrid context bar using SSE thinking data + DOM text, turn dots + compaction indicators added for Claude, and debug log cleanup.
+
+**Files modified:** `ai-conversation-navigator.user.js` only.
+
+---
+
+### Background: v10.8 Shipped But SSE Still Didn't Work
+
+v10.8 fixed `unsafeWindow` and verified that `window._acnFetchPatched` was `true` — the fetch proxy was correctly installed on the real page window. But after committing v10.8 and installing it in Tampermonkey, live testing revealed the context bar still never showed `(exact)`. Three more layers of bugs were hiding underneath, each invisible until the one above it was fixed.
+
+---
+
+### 10-Step Systematic Diagnosis
+
+Each step addressed one layer. The principle: you cannot see layer N+1 until layer N is fixed.
+
+| Step | What was checked | Result | What it told us |
+|------|-----------------|--------|-----------------|
+| 1 | Console manual fetch proxy (bypassing TM) | ✅ SSE intercepted | SSE endpoint exists, data flows |
+| 2 | `window._acnFetchPatched` after v10.8 | ❌ `undefined` | Patch was on wrong window |
+| 3 | After `unsafeWindow` fix: `_acnFetchPatched` | ✅ `true` | Fetch proxy on real window |
+| 4 | `console.log` added inside `readSSEStream()` | ✅ Magenta log appeared | Stream was being tapped |
+| 5 | `console.log` added inside `pump()` | ✅ Orange "chunk received" | Chunks were flowing |
+| 6 | `console.log` added inside `parseSSEEvent()` | ❌ Never appeared | Break between pump and parse |
+| 7 | Logged chunk type | `[object Uint8Array]` length > 0 | Real data in chunks |
+| 8 | Logged buffer length after `decoder.decode()` | Buffer stayed 0 | TextDecoder returning empty strings |
+| 9 | After Uint8Array fix: buffer length | Grew (8006→9170) but never shrank | Events not splitting at boundaries |
+| 10 | After `\r\n` fix: `parseSSEEvent()` fires | ✅ All event types firing | `message_start` has no `usage` → dead end |
+
+Steps 2–3 were v10.8. Steps 4–10 were v10.9 live debugging.
+
+---
+
+### Change 1 — SSE Plumbing: Two More Bugs Found After v10.8
+
+#### Bug A: Cross-Realm Uint8Array
+
+**Root cause:** The cloned response stream returns typed arrays from the **page realm** (the real browser JS context). Tampermonkey's sandbox runs in a separate realm. `TextDecoder.decode()` inside the sandbox **silently returns empty strings** when given a cross-realm `Uint8Array` — no error, no warning, just empty output. This is a subtle cross-realm typed-array incompatibility in Tampermonkey's sandboxed VM.
+
+Confirmed at Step 8: after `pump()` received a chunk with length > 0 (logged at Step 7), the buffer remained at 0 bytes. The decode call was consuming the chunk and producing nothing.
+
+**Fix:** Copy bytes into the sandbox realm before decoding:
+
+```javascript
+// Before:
+buffer += decoder.decode(result.value, { stream: true });
+
+// After:
+// Cross-realm fix: page-realm Uint8Array must be copied into sandbox realm
+var copied = new Uint8Array(result.value);
+buffer += decoder.decode(copied, { stream: true });
+```
+
+`new Uint8Array(result.value)` creates a new typed array **in the sandbox realm** with the same bytes. The sandbox's TextDecoder can then decode it correctly.
+
+#### Bug B: Line Ending Mismatch (`\r\n` vs `\n`)
+
+**Root cause:** After the Uint8Array fix, `buffer` accumulated text correctly (8006→9170 bytes, confirmed at Step 9) but never shrank — events were never being split out of the buffer. Claude's SSE uses **`\r\n` line endings**, not `\n`. The split regex `/\n\n/` never matched the `\r\n\r\n` event boundaries in Claude's stream. The buffer just kept growing.
+
+**Two fixes required:**
+
+Event boundary split in `readSSEStream()`:
+```javascript
+// Before:
+var parts = buffer.split(/\n\n/);
+// After:
+var parts = buffer.split(/\r?\n\r?\n/);
+```
+
+Line parsing in `parseSSEEvent()`:
+```javascript
+// Before:
+var lines = eventStr.split('\n');
+// After:
+var lines = eventStr.split(/\r?\n/);
+```
+
+---
+
+### Dead End: Claude Web SSE Has No Token Usage Data
+
+With all plumbing fixed, `parseSSEEvent()` began firing for all event types (Step 10). `message_start` events parsed successfully but contained **no `usage` field**:
+
+```json
+{
+  "type": "message_start",
+  "message": {
+    "id": "chatcompl_...", "type": "message", "role": "assistant",
+    "model": "", "content": [], "stop_reason": null,
+    "trace_id": "...", "request_id": "..."
+  }
+}
+```
+
+No `input_tokens`. No `output_tokens`. `message_delta` and `message_stop` also lack usage data. Claude's web UI strips the `usage` field from the SSE stream — it only exists in direct API responses.
+
+**What Claude web SSE DOES provide:**
+- `content_block_delta` with `type: "text_delta"` — exact output text characters
+- `content_block_delta` with `type: "thinking_delta"` — exact extended thinking characters
+- `message_start` / `message_delta` / `message_stop` — message lifecycle boundaries
+
+**What it does NOT provide:**
+- `input_tokens` — stripped by Claude's web UI, only in API responses
+- `output_tokens` — same
+- Any form of token count
+
+---
+
+### Change 2 — Hybrid Context Bar
+
+The SSE stream provides `thinking_delta` events with exact extended thinking text — the **one thing DOM cannot see** (thinking blocks are collapsed behind a toggle, invisible to `innerText`). This is exactly where DOM estimation falls furthest short in research and coding conversations.
+
+**Formula:**
+```
+total = DOM_visible_text/4 + system_overhead(15K) + cumulative_SSE_thinking/4
+```
+
+**Why cumulative and never-resetting:** The bar answers "how close am I to trouble?" not "what's currently in the model's context window." A conversation that has compacted 3 times and has 80 messages IS in trouble, even if the model's internal context window just reset to 20%. The bar should reflect the total conversation load that has accumulated, not just what's in the current context epoch. An epoch-based reset (dropping bar to 20% after compaction) gives false confidence that lots of room remains when the conversation is actually degrading. (See DEC-016.)
+
+**Why only thinking from SSE, not output too:** AI response output text IS visible in the DOM via `innerText`. If we added SSE output on top of DOM text, we'd double-count every AI response. Only thinking text is invisible in the DOM — so only thinking needs to come from SSE.
+
+**Three display states:**
+1. `~XX,XXX / 200K tokens (hybrid)` — live SSE thinking data available this session
+2. `~XX,XXX / 200K tokens (last known)` — cached from previous session (GM storage)
+3. `~XX,XXX / 200K tokens (est.)` — Path B DOM fallback; SSE never activated
+
+The `~` prefix signals "approximately" — honest about the estimated components. The bar can still be off by ±20% (system prompts vary, tool results vary) but is dramatically more accurate than DOM-only for extended thinking conversations.
+
+**New state tracked:**
+- `_sseTokenData.cumulativeThinkingChars` — total thinking chars across all messages, never resets within a conversation
+- `_sseTokenData.sseMessageCount` — assistant messages observed via SSE
+- `_currentMsgThinkingChars` — per-message accumulator, reset on each `message_start`
+
+**Typical improvement:** In a research conversation with extended thinking enabled, DOM-only might estimate 45K tokens. With cumulative thinking added: 45K + 25K thinking = 70K. Reality is probably 80K+ (system prompts, tool calls). The hybrid gets much closer.
+
+**GM cache updated** to persist `cumulativeThinkingChars` and `sseMessageCount` instead of the old `inputTokens`/`outputTokens` fields. On page reload or SPA navigation, cached thinking chars are restored and the bar shows `(last known)`.
+
+---
+
+### Change 3 — Claude Now Shows Both Bar AND Turn/Compaction Indicators
+
+Prior to v10.9, Claude's Navigate panel showed only the context percentage bar. Non-Claude platforms (v10.8) showed only turn dots + compaction count (no bar). Claude now shows **both**, making it the only platform with the full picture.
+
+**Why both for Claude:** Claude is the only platform where SSE data makes the percentage bar genuinely useful. The two signals are complementary:
+- **Percentage bar** (hybrid) — cumulative "how much has happened." Climbs steadily. Warns you're approaching trouble.
+- **Turn dots + compaction count** — "trouble is happening." Shows message count, compaction events, predicted turns to next compaction.
+
+Pre-compaction, the bar is the primary signal. Post-compaction, the compaction count becomes the primary signal. Neither alone tells the full story. (See DEC-017.)
+
+Implementation: Path A in `orbUpdateContextBar()` now calls both `_renderTurnDots()` and `_renderCompactionInfo(pctNum)` after rendering the bar. These functions were already built for non-Claude in v10.8 and work for Claude without modification since `_turnCounter` is updated on all platforms.
+
+---
+
+### Change 4 — Debug Console Log Cleanup
+
+Removed all `[ACN-SSE]` diagnostic `console.log` statements added during the v10.8→v10.9 debugging session. Zero debug logging in the released version.
+
+---
+
+## [10.8 — Context Tracking Overhaul, Arc Hitzone, Turn Counter Reset] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish` | **Commit:** `c45e88c`
+
+Five fixes across the context tracking system: the SSE interceptor had never worked in production due to Tampermonkey sandbox isolation, non-Claude platforms were showing a misleading estimated percentage bar, Claude lacked persistence on page reload, arc mode's hitzone geometry was too narrow to reach the focused satellite, and the turn counter went stale after SPA navigation.
+
+**Files modified:** `ai-conversation-navigator.user.js` only.
+
+---
+
+### Change 1 — SSE Interceptor: `unsafeWindow` Fixes Tampermonkey Sandbox Isolation
+
+**The problem:** The context bar on Claude.ai always showed `(est.)` regardless of how many messages were sent. `_sseTokenData.exact` was never `true`. The script contained `setupClaudeSSEInterceptor()` which appeared correct — it patched `window.fetch` and filtered for Claude URLs — but it had never intercepted a single SSE stream in production.
+
+**Root cause — Tampermonkey's sandboxed window:** When any `@grant` directive other than `none` is declared in the userscript header (`@grant GM_addStyle`, `@grant GM_getValue`, etc.), Tampermonkey runs the script in a sandboxed JavaScript context. In this context, `window` is a Tampermonkey-managed wrapper object — not the real page `window`. The script was patching the wrapper's `.fetch`, leaving the real `window.fetch` untouched. Claude.ai's own JavaScript exclusively uses the real page window for all network calls, so the SSE streams passed through completely unseen.
+
+Confirmed in production: `window._acnFetchPatched` typed in the browser DevTools console returned `undefined` — the flag was set on the sandbox wrapper, not on the page's actual window. Manually patching the real window's fetch from the console (`unsafeWindow.fetch = ...`) immediately began intercepting SSE streams with `input_tokens` data.
+
+**Implementation:**
+
+```javascript
+// Before — patches sandbox wrapper, not the real page window:
+function setupClaudeSSEInterceptor() {
+    if (typeof window.fetch !== 'function') return;
+    if (window._acnFetchPatched) return;
+    window._acnFetchPatched = true;
+    var _nativeFetch = window.fetch;
+    window.fetch = function acnFetchProxy(...) { ... };
+}
+
+// After — uses unsafeWindow to reach the real page window:
+function setupClaudeSSEInterceptor() {
+    var pw = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+    if (typeof pw.fetch !== 'function') return;
+    if (pw._acnFetchPatched) return;
+    pw._acnFetchPatched = true;
+    var _nativeFetch = pw.fetch.bind(pw);  // .bind() preserves `this` context
+    pw.fetch = function acnFetchProxy(...) { ... };
+}
+```
+
+Added `// @grant unsafeWindow` to the script header. `readSSEStream()` and `parseSSEEvent()` are unchanged — they don't touch `window.fetch` and operated correctly whenever they received a stream. The fix is entirely isolated to `setupClaudeSSEInterceptor()`.
+
+**Impact:** For the first time in production, `_sseTokenData.exact` becomes `true` after the first message sent in a Claude conversation. The context bar shows `(exact)` with real API token counts. Compaction detection now fires correctly when `input_tokens` drops >40% from the previous `message_start` event.
+
+---
+
+### Change 2 — Non-Claude: Eliminated Misleading Estimated Percentage Bar
+
+**The problem:** On ChatGPT, Grok, Gemini, and other non-Claude platforms, the Navigate panel showed both a filled percentage bar with a `(est.)` label AND turn-count dots below it. The percentage bar was produced by `_renderEstimatedBar()` which counts visible DOM text via `innerText` and divides by 4 chars/token. This estimate can be off by 15–20× because: system prompts (never in DOM), tool call results (often collapsed), search grounding context (injected invisibly), and streaming prefill aren't captured. A conversation that reads "~12K / 128K (est.)" might actually be at 90K+ tokens.
+
+**Decision:** The original design called for turn dots as the primary indicator on non-Claude platforms. DOM estimation is fundamentally inadequate for a percentage bar with a number that implies precision. The compaction-aware turn dots (weighted-average cycle prediction) are a more honest signal — they tell you where you are in the compaction cycle, not a false token percentage.
+
+**Implementation — Path C in `orbUpdateContextBar()`:**
+
+```javascript
+// Before:
+_renderEstimatedBar(pct, fill, meta, limit);   // showed misleading "~12K / 128K (est.)"
+_renderTurnDots();
+_renderTurnCompactionInfo();
+
+// After:
+pct.textContent  = '';    // clear number
+fill.style.width = '0%'; // clear bar fill
+if (meta) { meta.textContent = ''; }
+_renderTurnDots();
+_renderTurnCompactionInfo();
+```
+
+The section label in `orbBuildPanelNav()` changed from `'Context window'` (implies token tracking) to a platform-conditional string:
+
+```javascript
+var ctxLabelText = (platform.id === 'claude') ? 'Context window' : 'Conversation turns';
+```
+
+`_renderEstimatedBar()` is not removed from the codebase — it still runs for Path B (Claude with no SSE data for a conversation that has never been visited with the script installed). It is only removed from Path C (non-Claude).
+
+---
+
+### Change 3 — Claude: GM Storage Caching for Reload and Cross-Conversation Persistence
+
+**The problem:** Every page reload or SPA navigation to an existing Claude conversation reset `_sseTokenData` to zeros and `exact: false`. Until the user sent a new message and triggered an SSE `message_start` event, the context bar fell back to Path B (DOM estimation), showing an imprecise estimate for a conversation where exact data had already been collected.
+
+**Implementation — three new helpers:**
+
+```javascript
+function _getConvId() {
+    // Extracts UUID from /chat/6873dd1a-f895-4fef-a564-6f0e03b7e8ed
+    var parts = window.location.pathname.split('/');
+    var id = parts[parts.length - 1];
+    return (id && id.length > 8 && id.indexOf('-') !== -1) ? id : null;
+}
+
+function _cacheSSEData() {
+    // Called on every message_start event (after _sseTokenData.exact = true)
+    var convId = _getConvId();
+    if (!convId || !_sseTokenData.exact) return;
+    var cache = GM_getValue('acn_ctx_cache', {});
+    cache[convId] = {
+        inputTokens:  _sseTokenData.inputTokens,
+        outputTokens: _sseTokenData.outputTokens,
+        timestamp:    Date.now()
+    };
+    // Prune to 50 most recent by timestamp
+    var keys = Object.keys(cache);
+    if (keys.length > 50) {
+        keys.sort((a, b) => (cache[b].timestamp || 0) - (cache[a].timestamp || 0));
+        var pruned = {};
+        for (var i = 0; i < 50; i++) pruned[keys[i]] = cache[keys[i]];
+        cache = pruned;
+    }
+    GM_setValue('acn_ctx_cache', cache);
+}
+
+function _loadCachedSSEData() {
+    // Called on init and 600ms after each SPA navigation (URL has settled)
+    var convId = _getConvId();
+    if (!convId) return;
+    var cache = GM_getValue('acn_ctx_cache', {});
+    var entry = cache[convId];
+    if (entry && entry.inputTokens) {
+        _sseTokenData.inputTokens  = entry.inputTokens;
+        _sseTokenData.outputTokens = entry.outputTokens;
+        _sseTokenData.lastUpdated  = entry.timestamp;
+        _sseTokenData.exact        = false;  // not live data
+        _sseTokenData.cached       = true;   // new flag — triggers Path A with "(last known)" label
+    }
+}
+```
+
+Added `cached: false` field to `_sseTokenData` initialization. Path A in `orbUpdateContextBar()` now triggers on `exact || cached`:
+
+```javascript
+// Before:
+if (platform && platform.id === 'claude' && _sseTokenData.exact) {
+    meta.textContent = tokFmt + ' / ' + limFmt + ' tokens (exact)';
+    meta.style.color = '#888';
+}
+
+// After:
+if (platform && platform.id === 'claude' && (_sseTokenData.exact || _sseTokenData.cached)) {
+    var label = _sseTokenData.exact ? '(exact)' : '(last known)';
+    meta.textContent = tokFmt + ' / ' + limFmt + ' tokens ' + label;
+    meta.style.color = _sseTokenData.exact ? '#888' : '#666'; // slightly dimmer for cached
+}
+```
+
+**Three display states for Claude:**
+1. `(exact)` — live SSE `message_start` data received this page session
+2. `(last known)` — loaded from GM cache; real data from a previous session
+3. `(est.)` — Path B DOM estimation; never visited with the script installed
+
+**Cache key:** GM key `'acn_ctx_cache'` stores a JSON object keyed by conversation UUID. UUID is extracted from the URL pathname (last segment). Basic validation: length > 8 and contains `-`. Cache capped at 50 entries, pruned by timestamp descending.
+
+**When cached data is superseded:** On the next `message_start` SSE event, `_sseTokenData.cached = false` and `exact = true` are set before `_cacheSSEData()` runs. The UI updates from `(last known)` to `(exact)` and the cache entry for that conversation ID is overwritten.
+
+---
+
+### Change 4 — Arc Mode: Mode-Aware Hitzone Geometry
+
+**The problem:** In arc mode, moving the cursor from the center Navigate button leftward toward the focused satellite collapsed all orbital buttons before the cursor could reach the satellite. Only happened when no panel was open — the panel-open state keeps buttons visible regardless of hover state.
+
+**Geometry of the failure:**
+```
+ORB_CX        = 42px  (center axis from right edge)
+HITZONE_PAD_X = 30px
+radius        = 88px  (arc mode focused satellite distance from center)
+
+Old hitzone width = ORB_CX + 24 + HITZONE_PAD_X = 42 + 24 + 30 = 96px
+
+Arc focused satellite leftmost pixel:
+  right offset of center = ORB_CX = 42px
+  + radius × cos(0°)     = 88px  (directly left of center)
+  + dot half-width        = 17px  (dot diameter = 34px)
+  = 147px from right edge
+
+Gap: 147px - 96px = 51px of uncovered space
+```
+
+When the cursor crossed 96px from the right edge, `mouseleave` fired on `#acn-hitzone`, which set `orbHovering = false` and called `orbRender()`, collapsing all dots.
+
+**Implementation:**
+
+```javascript
+// Before — one fixed width for all modes:
+var hitzoneWidth = ORB_CX + 24 + HITZONE_PAD_X;  // 96px
+
+// After — mode-aware:
+var baseWidth = ORB_CX + 24 + HITZONE_PAD_X;       // 96px — show-all & wheel
+var arcWidth  = ORB_CX + 88 + 17 + HITZONE_PAD_X;  // 177px — arc mode
+
+var hitzoneWidth = (orbMode === 'arc') ? arcWidth : baseWidth;
+```
+
+`orbUpdateHitzone()` is also now called at the end of `orbSetMode()`, so the hitzone geometry updates immediately when the user switches modes in Settings. Previously it only ran on `window.resize` and after initial injection.
+
+---
+
+### Change 5 — Turn Counter: Reset on SPA Navigation and Shrinkage Detection
+
+**The problem:** After using SPA navigation (clicking a different conversation in the sidebar) to move from a 30-message conversation to a 5-message conversation, the turn counter dots and compaction badge still showed the 30-message state. The new conversation's `_questions.length` (5) was less than `_turnCounter.totalTurns` (30), so `updateTurnCounter()` returned early at its first guard: `if (newTotal <= _turnCounter.totalTurns) return`. This guard ran on every `orbOnScanComplete()` cycle, which fires every 500ms, so the stale state persisted indefinitely.
+
+**Root cause — incomplete reset in SPA handlers:** The `pushState`, `replaceState`, and `popstate` handlers (installed at startup when `platform.spa === true`) reset `_questions = []` but never touched `_turnCounter`. After `_questions` was cleared and `scanConversation()` ran and rebuilt it from the new conversation's DOM, `updateTurnCounter()` received a `newTotal` of 5 against a `_turnCounter.totalTurns` of 30 — and did nothing.
+
+**Implementation — `resetTurnCounter()` helper:**
+
+```javascript
+function resetTurnCounter() {
+    _turnCounter.totalTurns           = 0;
+    _turnCounter.turnsSinceCompact    = 0;
+    _turnCounter.compactionCount      = 0;
+    _turnCounter.cycleLengths         = [];
+    _turnCounter.predictedCycleLength = null;
+    _turnCounter.lastCompactTurn      = 0;
+
+    // Also reset Claude SSE state — the new conversation has different token counts
+    _sseTokenData.inputTokens  = 0;
+    _sseTokenData.outputTokens = 0;
+    _sseTokenData.lastUpdated  = 0;
+    _sseTokenData.exact        = false;
+    _sseTokenData.cached       = false;
+    _prevInputTokens           = 0;
+    _compactionCount           = 0;
+    _compactionHistory         = [];
+}
+```
+
+`resetTurnCounter()` is called in three places:
+1. `history.pushState` handler — after `_questions = []`
+2. `history.replaceState` handler — after `_questions = []`
+3. `window.addEventListener('popstate')` handler — after `_questions = []`
+
+A **shrinkage guard** was also added to `updateTurnCounter()` as a defensive fallback:
+
+```javascript
+function updateTurnCounter() {
+    var newTotal = _questions.length;
+
+    // Shrinkage = we navigated to a shorter conversation
+    if (newTotal < _turnCounter.totalTurns) {
+        resetTurnCounter();
+    }
+
+    if (newTotal <= _turnCounter.totalTurns) return;
+    // ... rest of function unchanged
+}
+```
+
+**SPA navigation + Claude GM cache integration:** After `resetTurnCounter()` in each SPA handler, a 600ms deferred call loads cached SSE data for the new conversation:
+
+```javascript
+if (platform.id === 'claude') setTimeout(_loadCachedSSEData, 600);
+```
+
+The 600ms delay ensures the URL has fully settled before `_getConvId()` reads the pathname. This means Claude users who switch between conversations immediately see `(last known)` token data if that conversation was previously visited, rather than waiting for a new message.
+
+---
+
+## [10.7.11 — Bookmark Icon Invisible on Hover (Non-Active State)] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+A CSS color-camouflage bug made bookmark icons invisible when hovering them before they had been clicked.
+
+---
+
+### Bookmark Icon Invisible on Hover — Wrong Background Color
+
+**The problem:** When hovering a bookmark icon that had NOT yet been clicked (no bookmark created), moving the cursor directly onto the icon made it visually disappear. The browser tooltip ("Bookmark this message") still showed, confirming the element existed and received pointer events — it was simply invisible.
+
+**Root cause — CSS color camouflage:** The `.acn-bm-icon` default style used a dark background (`rgba(0,0,0,0.3)`) with a white-ish flag glyph (`color: rgba(255,255,255,0.5)`). The hover rule changed the background to `rgba(255,255,255,0.2)`:
+
+```css
+.acn-bm-icon:hover { opacity:1; background:rgba(255,255,255,0.2); }
+```
+
+Claude.ai's message background is off-white/cream. A container with `rgba(255,255,255,0.2)` (20% white) over that background becomes nearly transparent. The flag glyph at `rgba(255,255,255,0.5)` (white text) on a near-white background becomes invisible — white on white. The element was technically visible (`opacity:1`) but optically camouflaged. The active-state fix from v10.7.7 (`rgba(255,255,255,0.2)` → orange) didn't cover the non-active case.
+
+**Fix:** Changed hover background to `rgba(0,0,0,0.55)` — a darker, more opaque background that remains visible on any page background color — and set color to `#fff` to ensure the flag glyph is always crisp:
+
+```css
+/* Before */
+.acn-bm-icon:hover { opacity:1; background:rgba(255,255,255,0.2); }
+
+/* After */
+.acn-bm-icon:hover { opacity:1; background:rgba(0,0,0,0.55); color:#fff; }
+```
+
+---
+
+## [10.7.10 — Context Window Estimation: Extended Thinking + System Prompt Overhead] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+Significantly improved context window estimation accuracy for Claude conversations using extended thinking, which was showing ~45% for a conversation that had physically exhausted the 200K context limit.
+
+---
+
+### Context Bar at 45% for a Maxed-Out 200K Extended Thinking Conversation
+
+**The problem:** A Claude Opus 4.6 Extended Thinking conversation with 83 questions that had physically exhausted the context limit (Claude was unable to generate further responses) showed only 45% (~90K / 200K tokens) in the context window bar. The user expected it to show near 100%.
+
+**Investigation — virtual scroll hypothesis (ruled out):** The first hypothesis was that Claude.ai uses virtual scroll to remove older messages from the DOM, so the `innerText`-based estimate only captured half the conversation. This was investigated by querying the scrollable container:
+
+```javascript
+var scrollDiv = document.querySelector('.overflow-y-scroll');
+// scrollHeight: 98,393px — full conversation height in DOM
+// clientHeight: 652px — visible viewport
+// innerText.length: 360,720 chars
+```
+
+The `scrollHeight >> clientHeight` confirmed the full conversation was in the DOM. All 83 questions were present in the live DOM (confirmed via `document.body.contains(q.element)`). Virtual scroll was not the cause for this conversation size.
+
+**Root cause — extended thinking tokens invisible to DOM:** Claude Opus Extended Thinking generates "thinking blocks" — reasoning chains that the model works through before producing a response. Claude.ai renders these as collapsed expandable summaries ("Examined repository state to assess...", "Prepared to examine..."). The FULL thinking content is never placed in the DOM — only a short summary phrase is rendered. These thinking tokens count toward the context limit but are completely invisible to `innerText` scraping.
+
+Investigation confirmed 161 collapsed thinking block elements (`[aria-expanded]`) in the 83-question conversation — approximately 1.94 thinking passes per response. At roughly 683 tokens per block, this accounts for ~110K hidden tokens (the gap between the 90K estimate and the 200K reality).
+
+Additionally, claude.ai injects a system prompt of approximately 15,000 tokens that is never rendered anywhere in the conversation DOM.
+
+**Fix — two-part invisible overhead correction:**
+
+```javascript
+// In _renderEstimatedBar(), after base estimate:
+if (platform && platform.id === 'claude' && found && node) {
+    // (1) System prompt: always ~15K tokens on claude.ai, never in DOM
+    estTokens += 15000;
+
+    // (2) Extended thinking blocks: count collapsed summaries, ~600 tokens each
+    var uiKw = ['hide','show','expand','collapse','menu','chat','chats','project','artifact','recent','starred'];
+    var thinkingCount = 0;
+    node.querySelectorAll('[aria-expanded]').forEach(function(el) {
+        var txt = (el.textContent || '').trim().toLowerCase();
+        var isUI = txt.length < 5 || uiKw.some(function(w) { return txt.indexOf(w) !== -1; });
+        if (!isUI) thinkingCount++;
+    });
+    estTokens += thinkingCount * 600;
+}
+```
+
+**Results for the 83Q maxed conversation:**
+- Before: 90K visible + 0 overhead = 90K → 45%
+- After: 90K + 15K system prompt + (161 × 600 thinking) = 201.6K → **100% (capped, correctly shows red)**
+
+Non-extended-thinking conversations: `thinkingCount = 0`, so only the +15K system prompt applies. Small conversations receive a modest ~7-8% increase from the system prompt overhead, which reflects reality (system prompt always exists).
+
+See `docs/claude_specific_context_tracking_calculation.md` for the full investigation methodology and architecture.
+
+---
+
+## [10.7.9 — Context Window: Virtual Scroll Coverage Ratio] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+Replaced the blunt ×2 multiplier from v10.7.8 with a self-correcting ratio based on how many detected messages are currently in the live DOM versus the total accumulated count.
+
+---
+
+### Self-Correcting Virtual Scroll Compensation
+
+**Problem with v10.7.8 (blunt ×2):** Doubling the estimate worked for long conversations where virtual scroll hid half the messages, but over-estimated by 2× for short conversations where all messages were in the DOM.
+
+**Key insight:** The `_questions` array uses VS accumulation — it records all messages ever seen during the session, including those later removed from DOM by virtual scroll. By comparing `_questions.length` (total ever detected) vs how many elements are currently in the live DOM, we can compute exactly how much is hidden and correct proportionally:
+
+```javascript
+var nInDOM   = _questions.filter(function(q) {
+    return q.element && document.body.contains(q.element);
+}).length;
+var coverage = nInDOM / Math.max(1, _questions.length);
+// coverage=1.0 → all in DOM → no correction
+// coverage=0.5 → half in DOM → ×2 correction
+var estTokens = Math.round((totalChars / 4) / Math.max(0.25, coverage));
+```
+
+- Short conversation (30Q, all in DOM): coverage=1.0 → estimate unchanged
+- Long conversation (83Q, 40 in DOM): coverage=0.48 → estimate ×2.1
+- `Math.max(0.25, coverage)` caps the multiplier at 4× to prevent extreme over-estimation if VS is very aggressive
+
+---
+
+## [10.7.8 — Context Window: Initial Estimate Doubling] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+*Note: This approach was superseded by v10.7.9's ratio-based correction within the same session.*
+
+Initial fix for the underestimation problem — changed the chars-to-tokens divisor from `4` to `2`, effectively doubling all estimates. While this helped for the specific long conversation case, it over-estimated all short conversations by 2×. Replaced by v10.7.9's self-correcting approach.
+
+---
+
+## [10.7.7 — Hover Flicker (Search+Bookmarks), Export, /Cmd Detection, Panel Resize] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+Four new features and two bug fixes discovered during continued live testing. Hotfixes for bookmark icon active-state disappearance and export SVG crash were applied to this same version number (per user preference).
+
+---
+
+### Version Number in Script @name
+
+Per user request, the `@name` header now includes the version: `AI Conversation Navigator v10.7.7`. Updated on every version bump going forward.
+
+---
+
+### Hover Flicker in Search and Bookmarks Panels — Missing Fingerprint Guards
+
+**The problem:** Opening the Search or Bookmarks panel and hovering over items caused the list to rebuild under the cursor — items would disappear and reappear, making the hover state unstable. Navigate panel was fine (it had a fingerprint guard since v10.0).
+
+**Root cause:** `orbOnScanComplete()` fires after every `scanConversation()` call (debounced 500ms from MutationObserver). Live AI platforms continuously mutate their DOM (streaming tokens, typing indicators), so this fires frequently. When the Search or Bookmarks panel was open, `orbPopulateSearch()` and `orbRefreshBookmarksPanel()` were called unconditionally — they tore down and rebuilt the entire DOM list every 500ms. Any `mouseenter` event was cancelled when the element was removed, and the new element had no hover state.
+
+**Fix:** Added fingerprint guards matching the Navigate panel pattern:
+
+```javascript
+// Search: fingerprint = query + question count + ai response count
+var sfp = q + '|' + _questions.length + '|' + (_aiResponses ? _aiResponses.length : 0);
+if (sfp === _searchListFingerprint && list.firstChild) return;
+_searchListFingerprint = sfp;
+
+// Bookmarks: fingerprint = joined bookmark IDs
+var bfp = bookmarks.map(function(b) { return b.id; }).join('|');
+if (bfp === _bmListFingerprint && panel.children.length > 1) return;
+_bmListFingerprint = bfp;
+```
+
+---
+
+### Full Conversation Export Failing — SVG Element `className` Not a String
+
+**The problem:** Clicking "Export Full Conversation" in the Tools panel showed a toast "Export failed — see console."
+
+**Root cause:** The `exportFullConversation()` function calls `extractMarkdownContent()` which walks the DOM tree. Inside the walk, `isUIChrome()` called `node.className.toLowerCase()`. For regular HTML elements, `className` is a string. But for SVG elements (e.g., inline SVG icons common in Claude.ai's UI), `className` is an `SVGAnimatedString` object — a JavaScript object with `.baseVal` and `.animVal` properties, not a string. Calling `.toLowerCase()` on an object threw `TypeError: (node.className || "").toLowerCase is not a function`.
+
+The error was caught by the outer try-catch, which showed the "Export failed" toast instead of surfacing the actual exception.
+
+**Fix:**
+```javascript
+var rawCls = node.className;
+var cls = (typeof rawCls === 'string' ? rawCls : (rawCls && rawCls.baseVal) || '').toLowerCase();
+```
+
+---
+
+### /Command Palette Triggered by Chat Input Typing
+
+**New feature:** When the user types `/commandname` in the chat input (e.g., `/handoff` on Claude.ai), the command palette opens automatically pre-filtered to commands starting with that name. As the user continues typing, the palette filter updates live. If the user clears the slash text or types something that doesn't match any command, the palette closes.
+
+`setupChatInputSlashDetection()` attaches an `input` listener to the chat textarea (found via `findChatInput()`). It distinguishes palette-triggered-by-input vs palette-triggered-by-Ctrl+/ using a `_paletteInputTriggered` flag, so the input-triggered palette doesn't steal keyboard focus from the chat input.
+
+---
+
+### Panel Resize by Dragging
+
+**New feature:** Each panel has a 6px drag handle on its left edge. Dragging adjusts panel width between 240px and 640px. Width is saved to `localStorage._acnv10.panelWidth` and restored on next load. CSS variable `--acn-panel-w` is the single source of truth for both `panel width` and `.acn-zone.acn-hp { right }`, so dragging atomically updates both.
+
+---
+
+### Hotfix: Active Bookmark Icon Disappears on Hover
+
+**The problem:** An already-bookmarked message (orange flag icon) would visually lose its orange color when hovered.
+
+**Root cause:** CSS specificity tie. `.acn-bm-icon:hover` (specificity 0,2,0) came after `.acn-bm-icon.acn-bm-active` (also 0,2,0) in the stylesheet. Later rule wins. The hover rule's `rgba(255,255,255,0.2)` overrode the active rule's `var(--acn-accent)` orange.
+
+**Fix:** Added `.acn-bm-icon.acn-bm-active:hover` with specificity 0,3,0 — three class selectors always beats two:
+```css
+.acn-bm-icon.acn-bm-active:hover { background:var(--acn-accent); filter:brightness(1.2); }
+```
+
+---
+
+## [10.7.6 — Panel Header i18n, Gallery Duplicates, @name Stripped] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+Three bugs from continued live testing.
+
+---
+
+### Navigate/Search/Tools Panel Headers Not Translating
+
+**Problem:** After switching language to Korean in Settings, the panel `h3` headers for Navigate, Search, and Tools remained in English.
+
+**Root cause:** `orbBuildPanelNav()`, `orbBuildPanelSearch()`, and `orbBuildPanelTools()` used hardcoded English strings for the `h3` header text. `orbBuildPanelHeader()` was called with literals like `'✳ Navigate'` rather than `'✳ ' + i18n('navigate')`.
+
+**Fix:** All panel headers now use `i18n()` calls. The language change handler in Settings was also extended to update all open panel `h3` headers live when language is switched.
+
+---
+
+### Image Gallery Showing Duplicate (0) and (N) Sections on Reopen
+
+**Problem:** Opening the Tools panel showed two image count sections — `(0)` from injection time and `(N)` from the actual scan.
+
+**Root cause:** `orbBuildPanelTools()` called `renderImageGallery()` at injection time (before any scan completed), creating a `(0)` section. When the panel was opened via `orbOpenPanel()`, it called `renderImageGallery()` again, appending a second `(N)` section on top.
+
+**Fix:** Removed the injection-time `renderImageGallery()` call from `orbBuildPanelTools()`. Gallery now only renders when the panel is opened. Added a `while (container.firstChild) container.removeChild(container.firstChild)` clear at the start of `renderImageGallery()` to prevent any future double-render accumulation.
+
+---
+
+### @name Contained Version Number That Wasn't Updated
+
+**Problem:** The `@name` header read "AI Conversation Navigator v10.1" while the actual version was v10.7.x.
+
+**Fix:** Stripped version from `@name`, then re-added it correctly in v10.7.7 (per user request, version is now always included and always matches `@version`).
+
+---
+
+## [10.7.5 — Gallery Re-render Clear, i18n Live Label Updates] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+Two polish fixes from v10.7.4 that were staged separately.
+
+- `renderImageGallery()` now clears its container before building to prevent accumulation on reopen.
+- Language change handler live-updates `.acn-lbl` dot label text so labels switch language without requiring a page reload.
+
+---
+
+## [10.7.4 — Plan Usage, Summary Auto-Gen, Gallery Count, Q# Thumbnails, i18n] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+Six bugs discovered during first live Tampermonkey installation and testing session.
+
+- **Plan Usage "loading…" never loads:** `fetchClaudeUsage()` was not being called on panel open. Added call to `maybeRefreshUsage()` in `orbOpenPanel()` for the Navigate panel.
+- **Summary panel blank:** Summary was not auto-generating on panel open. Added `generateSummary()` call in `orbOpenPanel()` when summary panel has no content.
+- **Image gallery showing (0):** `renderImageGallery()` was called before `scanConversation()` had run. Gallery now renders lazily when panel is opened post-scan.
+- **Navigate Q# items missing image thumbnails:** Image detection logic in `_questions` population was not extracting `img` elements from question containers. Fixed to check for `img` descendants.
+- **Slash command placeholder name error:** `/commands` conflicted with Claude.ai's native `/` menu. Command palette renamed and detection logic updated.
+- **Korean i18n not applying to all labels:** Several strings used hardcoded English rather than `i18n()` calls. Added `i18nKey` property to `ORB_FEATURES` entries and converted all affected labels.
+
+---
+
+## [10.0 — Panel Hover Fixes: CSS Variable Scoping, Jitter, List Rebuild] — 2026-02-22
+**Branch:** `fix/v10-live-testing-polish` | **Commit:** pending
+
+This session resolves three related bugs in the Navigate panel question list — all visible as hover interaction failures. Together they form a complete treatment of the panel hover UX: colors now show correctly, the highlight is stable, and the list doesn't rebuild under your cursor.
+
+---
+
+### Q# Badge Color and Hover Highlight Invisible — CSS Variable Scoping Bug
+
+**The problem:** In the Navigate panel, the `Q#1`, `Q#2`, `Q#3` number badges were white instead of the platform accent color. The hover highlight (left-border color transition and background tint) was also invisible on hover.
+
+**Root cause — CSS inheritance boundary:** Platform accent colors are exposed via CSS custom properties `--acn-accent` and `--acn-rgb`. These were set via `zone.style.setProperty()` on the `#acn-zone` element. CSS custom properties only cascade *down* to descendants. The problem is that `.acn-panel` elements are appended to `document.body` as siblings of `#acn-zone`, not as descendants:
+
+```javascript
+// injectOrbital() lines 2061-2069
+document.body.appendChild(zone);            // zone is at body level
+document.body.appendChild(orbBuildPanelNav());   // panel is also at body level
+document.body.appendChild(orbBuildPanelSearch()); // sibling, not child
+```
+
+Since the panels are siblings of the zone, `var(--acn-accent)` inside any `.acn-panel` rule resolved to nothing (empty string), which the browser treated as `transparent`/`initial`. The `Q#` badge background and the hover border-left-color were both silent no-ops.
+
+The prior CHANGELOG entry for "Question List Readability Improvements" introduced these `var(--acn-*)` references in `.acn-qn` and `.acn-qi:hover`, but there was no test that detected their computed-value at runtime — the Playwright tests verified that elements existed and that `data-acn-accent` was set on the zone, not that the CSS variable resolved correctly inside panels.
+
+**Fix:** Set the same CSS variables on `document.documentElement` (`:root`) in addition to the zone element. Variables on `:root` are globally available to all elements on the page — panels included. Zone-level assignment is kept because zone children also use these variables (dot glow, etc.) and the zone assignment provides a more scoped fallback.
+
+```javascript
+// orbBuildZone() — set on :root for global inheritance, then on zone for scoped use
+document.documentElement.style.setProperty('--acn-accent', orbTheme.bg);
+document.documentElement.style.setProperty('--acn-rgb',    orbTheme.rgb);
+document.documentElement.style.setProperty('--acn-shadow', orbTheme.shadow);
+zone.style.setProperty('--acn-accent', orbTheme.bg);
+zone.style.setProperty('--acn-rgb',    orbTheme.rgb);
+zone.style.setProperty('--acn-shadow', orbTheme.shadow);
+```
+
+**Results:** Q# badges now appear in platform accent color. Hover highlight background and left-border transition correctly show the platform color. 168/168 tests pass.
+
+---
+
+### `translateX(2px)` Hover Jitter — Bounding Box Shift Loop
+
+**The problem:** When hovering steadily over a question item, the left-border highlight flickered on and off rapidly (approximately every 150ms) rather than staying lit.
+
+**Root cause:** The `.acn-qi:hover` CSS rule included `transform:translateX(2px)`. CSS `transform` changes an element's rendered position without affecting layout flow — but it *does* change the element's visual bounding box, which is what the browser uses for hit-testing (determining whether the cursor is "inside" the element). The jitter loop was:
+
+1. Cursor enters `.acn-qi` bounds → hover fires → `translateX(2px)` shifts element 2px right
+2. Rendered bounding box is now 2px to the right of cursor → cursor is outside → hover lost
+3. `translateX(0)` → element returns to original position → cursor is inside again → hover fires
+4. Repeat at the CSS transition rate (~150ms for `.15s` transition)
+
+This is a well-known CSS hover-jitter pattern. `translateX` (and `translateY`) change where the element renders, and hover hit-testing uses the rendered position, creating an unstable equilibrium. The symptom is exactly the "every ~150ms" rate the user observed — one cycle per transition duration.
+
+**First attempted fix (earlier in session):** The jitter was initially attributed to an incorrect hypothesis about orbital dots overlapping the panel area. Investigation confirmed that dots and panels don't overlap at runtime (dots move to `right:310px` when panel opens, panel is at `right:0; width:310px` — they're flush, not overlapping). This investigation was not wasted: it confirmed the panel z-index hierarchy is correct.
+
+**Fix:** Removed `transform:translateX(2px)` from `.acn-qi:hover` entirely. The hover state still transitions `background` and `border-left-color`, giving clear visual feedback without any position shift.
+
+```css
+/* Before */
+.acn-qi:hover { background:rgba(var(--acn-rgb),.14); border-left-color:var(--acn-accent); transform:translateX(2px) }
+
+/* After */
+.acn-qi:hover { background:rgba(var(--acn-rgb),.14); border-left-color:var(--acn-accent) }
+```
+
+**Results:** Hover highlight is stable. Left border transitions to accent color and background tints on enter; both transition back on leave. No flickering. 168/168 tests pass.
+
+---
+
+### Nav List Rebuild on Every SPA Mutation — Hover Flicker from DOM Teardown
+
+**The problem:** Even after removing `translateX`, the hover highlight continued to flicker, though less predictably. The border highlight would flash on briefly, then disappear, then reappear on the next hover entry.
+
+**Root cause — MutationObserver → list teardown chain:** The MutationObserver in `startMessageObserver()` watches `document.body` with `{ childList: true, subtree: true }`. Live AI platforms (Gemini, Claude, ChatGPT, etc.) continuously mutate their DOM — typing indicators pulse, streaming tokens arrive, animations fire, sidebar items update. Each mutation triggers the observer. The observer debounces by 500ms, then calls `scanConversation()`. `scanConversation()` always calls `orbOnScanComplete()`. `orbOnScanComplete()` calls `orbPopulateNavigate()` when the nav panel is open.
+
+`orbPopulateNavigate()` began with unconditional list teardown:
+```javascript
+while (list.firstChild) list.removeChild(list.firstChild);
+```
+
+This destroyed every `.acn-qi` element in the list, including the one the user was currently hovering. When the element is removed from the DOM, the browser drops the `:hover` state on it. New elements are created and appended, but they have no hover state. The next cycle (500ms later) removes them again. Result: the hover highlight appears for up to 500ms, then disappears when the list is rebuilt, then reappears on the next hover entry — exactly the "turns on and off" behavior the user reported.
+
+The mechanism was: any Gemini UI animation (button pulse, response caret, etc.) → MutationObserver fires → 500ms later → question list cleared → hovered item destroyed → hover lost. The cycle repeated as long as the nav panel was open and the site had any DOM activity.
+
+**Solutions Considered:**
+
+*Approach 1: DOM diffing — update individual items in place, add new ones, remove stale ones.* This would preserve elements currently in the DOM, so hover state on an unchanged item would survive. Hypothesis: correct semantics, good UX. Rejected for now because: proper diffing requires a key-based comparison (matching old elements to new `_questions[]` entries by stable key), stable keys would need to be added to `_questions[]`, and the complexity was disproportionate to the problem. The questions list for any given conversation is typically static — questions don't change unless the user sends a new message, which is rare while reading the navigate panel.
+
+*Approach 2: Debounce `orbPopulateNavigate()` calls separately from the scan debounce.* Add a 1s debounce specifically on the populate call, so rapid MutationObserver fires don't each trigger a rebuild. Rejected because: this delays the list update after a new message is sent — there's already a 500ms scan debounce, adding another 1s delay makes the panel feel stale. Also doesn't address the root cause: the scan could still fire once per debounce window and still tear down the list.
+
+*Approach 3: Don't call `orbPopulateNavigate()` during MutationObserver-triggered scans.* Skip `orbOnScanComplete()` if the scan was triggered by a mutation (not a user action). Rejected because: the distinction is hard to communicate cleanly through the call chain, and user messages ARE mutations — we need the list to update after new messages.
+
+*Approach 4: Fingerprint-gated rebuild.* Before clearing the list, compute a fingerprint of the current `_questions[]` array. If it matches the fingerprint from the last build, skip the teardown entirely. The list is only rebuilt when questions actually change (new messages added). This is `O(n)` in question count (typically 1–20 items), adds one string variable, and requires no structural changes.
+
+**Fix:** Added `_navListFingerprint` module variable (empty string). At the start of `orbPopulateNavigate()`:
+
+```javascript
+var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|');
+if (fp === _navListFingerprint && list.firstChild) return;
+_navListFingerprint = fp;
+```
+
+The fingerprint is the first 100 chars of each question's text joined by `|`. 100 chars is enough to distinguish questions reliably while keeping the fingerprint short. The `&& list.firstChild` guard ensures the list is rebuilt if it's empty (e.g., first open, or after panel close+reopen cleared the DOM).
+
+**Results:** On a live Gemini conversation with 3 questions, hovering over any question item shows a stable, persistent highlight. Repeated MutationObserver fires from Gemini's animations do not cause list rebuilds. The list still rebuilds immediately when new questions are added (new message sent), because the fingerprint changes. 168/168 tests pass.
+
+---
+
+## [10.0 — Live Testing Fixes, UI Polish, Context Bar] — 2026-02-22
+**Branch:** `docs/v9.6-documentation-sync` | **Commit:** pending
+
+This session covers fixes discovered through live site testing of v10.0 across all 14 supported platforms, plus three categories of UI polish work (size, font, readability), and the first real implementation of the context window usage bar.
+
+---
+
+### isLeftChat Button-Panel Synchronization
+
+**The problem:** On all 7 app-builder platforms using the `left-chat` layout (Bolt, Lovable, Replit, V0, Base44, Emergent, Firebase Studio), the ghost-notch toggle button stayed fixed at the chat/preview boundary when the panel opened. The 320px panel slid out to the left, but the button stayed at its original `right` position, ending up visually stranded inside the panel rather than flush with its left edge.
+
+**Root cause:** The `.open` class in the legacy button CSS only set `pointer-events:auto`. It never modified `right`. The button's `right` position is set by `legacyApplyPosition()` as a JS inline style based on `_lastBoundaryX`. There was no mechanism to update that inline style when the panel opened — the CSS `.open` class can't add a fixed pixel offset to a dynamically-computed inline `right` value.
+
+**Fix — four code sites updated:**
+
+1. `handleLegacyToggle()` open branch: When `legacyNavOpen` becomes true, after adding `.open` to the container, immediately set `container.style.right = (window.innerWidth - _lastBoundaryX + 320) + 'px'`. The `320` equals the panel width, placing the button flush with the panel's left edge.
+
+2. `handleLegacyToggle()` close branch: When `legacyNavOpen` becomes false, restore `container.style.right = (window.innerWidth - _lastBoundaryX + off) + 'px'` where `off = platform.scrollbarOffset || 0`. This brings the button back to its resting position at the chat boundary.
+
+3. Close button `click` handler (inside `injectLegacy()`): Same position restoration as the close branch above — without this, clicking X in the panel left the button floating in space.
+
+4. DOM guardian (the `MutationObserver` callback that re-attaches the container if an SPA rips it out): Added the panel-open check so a re-attached container during an open panel is placed at the correct offset immediately rather than the boundary position.
+
+**Key formula:** `open → right = (innerWidth - boundaryX + 320)px`; `closed → right = (innerWidth - boundaryX + scrollbarOffset)px`. The `+320` is intentionally NOT also applied to the closed state because `scrollbarOffset` already handles any gap needed at the closed position, and the panel width is independent of the scrollbar situation.
+
+---
+
+### Bolt.new Button Overshooting 16px on Panel Open
+
+**The problem:** After the isLeftChat sync fix was applied, Bolt's toggle button was landing ~16px further left than the panel's left edge. The button appeared to overshoot the panel.
+
+**Root cause:** `legacyApplyPosition()` computes `btnRight = window.innerWidth - _lastBoundaryX + offset` where `offset = platform.scrollbarOffset || 0`. Bolt has `scrollbarOffset: 16`. When the panel-open state check was added to `legacyApplyPosition()`, the open-state formula mistakenly included `offset`, making it `right = (innerWidth - boundaryX + 16 + 320)px`. But `scrollbarOffset` exists only to push the closed button inward from the boundary so it clears the OS scrollbar — it has no meaning in the open state where the button is positioned relative to the panel's left edge, not the chat boundary.
+
+**Fix:** In `legacyApplyPosition()`, the open-state calculation uses the boundary alone: `(window.innerWidth - _lastBoundaryX + 320) + 'px'`. The `scrollbarOffset` is only added to `btnRight` (the closed state). Both `handleLegacyToggle()` and `legacyApplyPosition()` were corrected consistently.
+
+---
+
+### V0 Button Invisible in Light Mode
+
+**The problem:** On v0.app in light mode, the toggle button was present (boundary detection worked) but completely invisible — neither the button outline nor the icon was visible against the white page background.
+
+**Root cause — two compounding issues:**
+
+Issue 1: V0's theme had `accent: '#ffffff'` but no `textColor`. The button background was white, and the icon was rendered in the default `theme.textColor || '#fff'` — also white. White icon on white button = invisible.
+
+Issue 2: The legacy left-chat button CSS hardcoded `border:none!important`. V0's theme did have an `accentHover` entry, but no `toggleBorder`. Even if `toggleBorder` had been set on the theme, the hardcoded `!important` on the CSS rule would have overridden it.
+
+**Fix — two changes:**
+
+1. V0 theme definition updated to include `textColor: '#000'` and `toggleBorder: '1px solid rgba(0,0,0,0.2)'`.
+
+2. The isLeftChat `.ai-nav-floating-btn` CSS rule changed from `border:none!important` to `border:' + (theme.toggleBorder || 'none') + '!important'` — making the border use the theme value when provided, or none otherwise. This correctly applies the border for V0 while leaving other left-chat platforms (which don't have a `toggleBorder`) unchanged.
+
+---
+
+### UI Scale Increase (~14%)
+
+**Reason:** Live browser testing showed the orbital dots and their labels appeared small at typical monitor densities. On a 27" monitor at native resolution, the 42px main dot looked like a minor UI element rather than the primary control it is.
+
+**Changes — all size constants increased proportionally:**
+
+| Element | Before | After |
+|---------|--------|-------|
+| Main dot (show-all, arc center, wheel center) | 42px / fs17 | 48px / fs20 |
+| Satellite dots (show-all) | 28px / fs12 | 32px / fs14 |
+| Arc slot 0 (focus) | 30px / fs13 | 34px / fs15 |
+| Arc slot ±1 (adjacent) | 26px / fs11 | 30px / fs13 |
+| Arc slot ±2 (far) | 22px / fs10 | 25px / fs11 |
+| Arc slot ±3+ (distant) | 20px / fs9 | 22px / fs10 |
+| Arc radius | 76px | 88px |
+| Show-all satellite spacing | 42px | 48px |
+| Wheel slot ±1 | 28px / fs12 | 32px / fs14 |
+| Wheel slot ±2 | 20px / fs9 | 22px / fs10 |
+| Wheel HIDDEN size | 14px / fs7 | 16px / fs8 |
+| Wheel spacing | 48px | 54px |
+| Main dot border-radius | 13px | 14px |
+
+The arc radius increased from 76 to 88 to maintain the arc's visual openness after the dots themselves grew — without this, the larger satellite dots would appear cramped on the arc.
+
+---
+
+### Arc Mode Labels Below Dot (CSS-Only, No JS per Dot)
+
+**The problem:** In arc mode, dot labels appeared to the left of each dot (the default for show-all mode). Because arc dots are positioned in a polygon centered on the right edge, the "left" of adjacent arc dots overlapped with each other's label text, making the system feel cluttered.
+
+**Why not just change label position in JS:** The label element's CSS is set once during `injectOrbital()`. Changing label position per-mode in JS would require either re-rendering labels on mode switch (invalidating a lot of cached DOM references) or setting inline styles per-dot on every `orbRender()` call (mixing style concerns into the layout loop).
+
+**Solution — `data-acn-mode` attribute + CSS attribute selectors:** `orbRender()` now calls `zone.setAttribute('data-acn-mode', orbMode)` at the start of each render. This means the zone element carries `data-acn-mode="arc"` in arc mode, `"show-all"`, or `"wheel"`. CSS attribute selectors target these:
+
+```css
+/* Default (show-all, wheel): label appears to the left */
+.acn-lbl { right: calc(100% + 10px); ... }
+
+/* Arc: label appears below the dot */
+#acn-zone[data-acn-mode="arc"] .acn-lbl {
+    right: auto;
+    left: 50%;
+    top: calc(100% + 5px);
+    transform: translateX(-50%) translateY(-4px);
+    text-align: center;
+}
+#acn-zone[data-acn-mode="arc"] .acn-dot:hover .acn-lbl,
+#acn-zone[data-acn-mode="arc"] .acn-dot.acn-act .acn-lbl {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+```
+
+The `translateY(-4px)` in the hidden state and `translateY(0)` in the visible state creates a subtle upward-slide entrance animation, consistent with the left-slide animation used in show-all mode. No JS changes required — mode change is a single `setAttribute` call, and CSS handles the rest.
+
+---
+
+### Panel Z-Index Fix: Arc Dots Behind Panel
+
+**The problem:** In arc mode, when a panel is open, the right-side arc dots were visually layered ON TOP of the panel, appearing as floating buttons over the panel content.
+
+**Root cause:** The orbital zone sits at `z-index: 2147483640`. The panel was at `z-index: 2147483639` — one below the zone, meaning it was also below the dots (which are children of the zone). Any dot rendered inside the zone's stacking context would appear above the panel.
+
+**Fix:** Panel z-index raised from `2147483639` to `2147483641`. Now the panel is above the zone (and therefore above its dot children), so arc dots render behind an open panel. The panel slides in from the right and sits cleanly over the dot layer.
+
+---
+
+### Font Unification Across All Platforms
+
+**The problem:** `.acn-dot` and `.acn-lbl` elements had no explicit `font-family` set. They inherited from their parent elements, which was `document.body` or whatever the platform's root element happened to be. Claude used a serif variable font; ChatGPT used its own sans-serif; Replit used a monospace font. The orbital system's emoji icons and labels appeared in radically different typefaces across platforms.
+
+**Why this happened:** The zone element (`#acn-zone`) is injected into `document.body` as a fixed-position overlay. Unlike a shadow DOM, it doesn't inherit a reset stylesheet — it inherits the host site's cascade. The dots themselves are divs with no font set, so they cascade from body.
+
+**Decision:** `system-ui` as primary — it resolves to the OS's native UI font (San Francisco on macOS, Segoe UI on Windows, Ubuntu/Roboto on Linux), giving the script a platform-native appearance without loading a remote font. `Inter` as secondary fallback — provides a high-quality geometric sans-serif for browsers that don't support `system-ui` (older Firefox, some Android WebViews). `sans-serif` as final fallback.
+
+Full stack: `system-ui, -apple-system, "Segoe UI", Roboto, Inter, sans-serif`
+
+Applied to: `.acn-zone` (orbital system root), `.acn-panel` (orbital panels), `#ai-nav-panel` in both legacy panel variants (isLeftChat and standard). By setting it on `.acn-zone`, all child elements (dots, labels, panel contents) inherit it automatically without needing per-element rules.
+
+Font size increases were also applied throughout to improve legibility at the new scale:
+
+| Element | Before | After |
+|---------|--------|-------|
+| Hover labels | 10px | 12px |
+| Panel header h3 | 13px | 15px |
+| Question text `.acn-qt` | 11px | 13px |
+| Question number `.acn-qn` | 9px | 11px |
+| Question summary `.acn-qw` | 9px | 11px |
+| Stats bar `.acn-pstat` | 10px | 12px |
+| Close button `.acn-xb` | 10px | 12px |
+| Context label | 9px | 10px |
+| Context percentage | 10px | 12px |
+| Search hint | 10px | 12px |
+| Search input | 12px | 14px |
+| Wheel hint | 9px | 11px |
+| Settings platform names | 11px | 13px |
+| Reset button | 11px | 13px |
+| Empty state | 11px | 13px |
+
+---
+
+### Question List Readability Improvements
+
+**The problem:** Side-by-side comparison of old (v9.x floating panel) vs new (v10.0 orbital panel) showed the question items were harder to navigate in the new design. Three specific issues:
+
+1. Question text (`.acn-qt`) was `color: #999` — medium grey, easy to miss when quickly scanning a list
+2. Each question item had `border-left: 2px solid transparent` — the border existed structurally but was invisible at rest, so the list had no visual rhythm; items blended into each other
+3. The accent-colored question numbers (`.acn-qn`) and summary text (`.acn-qw`) were too small to read at a glance
+
+**Fixes:**
+- `.acn-qt` color changed from `#999` to `#ddd` — near-white, high contrast against the `#1a1a1a` panel background
+- `.acn-qi` border-left changed from `transparent` to `rgba(var(--acn-rgb), .25)` — always-visible left border in the platform accent color at 25% opacity. On hover, it transitions to `var(--acn-accent)` at full opacity. This creates a visual cadence through the list without being distracting at rest.
+- `.acn-qw` color changed from `#444` to `#666` — visible but subdued; sufficient contrast for secondary metadata text
+
+---
+
+### Context Window Bar Implementation
+
+**The problem:** The context bar in the Navigate panel (showing "—" and an empty fill bar) was a static stub. `orbPopulateNavigate()` built the DOM elements but never called any function to update them. The bar showed "—" for percentage and 0% fill regardless of conversation length.
+
+**Initial approach — user chars × 3:** Estimate total conversation characters by summing `q.text.length` for all items in `_questions[]` (user messages only) and multiplying by 3 to account for AI responses. This was simple but imprecise — AI responses are often much longer than user questions, and the multiplier would be wildly wrong for conversations where the user asks short questions and gets long answers.
+
+**Improved approach — DOM walk to scroll container:** Walk up the DOM from `_questions[0].element` (a known user message node) through its ancestors until finding the first element with `overflow-y: auto` or `overflow-y: scroll`. This is the conversation scroll container — it holds both user and AI messages. Reading `node.innerText.length` from this element gives the total character count for the entire visible conversation (user + AI), not just user messages.
+
+```javascript
+var anchor = _questions[0].element;
+var node = anchor ? anchor.parentElement : null;
+while (node && node !== document.body) {
+    var st = window.getComputedStyle(node);
+    if (st.overflowY === 'auto' || st.overflowY === 'scroll' ||
+        st.overflow  === 'auto' || st.overflow  === 'scroll') {
+        totalChars = (node.innerText || '').length;
+        found = true;
+        break;
+    }
+    node = node.parentElement;
+}
+if (!found || totalChars === 0) {
+    totalChars = _questions.reduce(function (s, q) { return s + q.text.length; }, 0) * 3;
+}
+```
+
+The fallback (`_questions` × 3) is kept in case no scroll container is found (e.g., the page uses a non-scrolling layout).
+
+**Token estimation:** `estTokens = Math.round(totalChars / 4)`. The 1 token ≈ 4 characters heuristic is standard for English text.
+
+**Per-platform context limits (`CTX_LIMITS`):**
+```javascript
+var CTX_LIMITS = {
+    claude:     200000,
+    chatgpt:    128000,
+    grok:       131072,
+    gemini:     1000000,
+    perplexity: 127072,
+};
+```
+For platforms not in this map (legacy app-builders), falls back to 128,000. The bar shows `estTokens / limit * 100`, clamped to 100%.
+
+**Color coding:** Green (`#22c55e`) below 50%, amber (`#f59e0b`) at 50–74%, red (`#ef4444`) at 75%+. Applied to both the percentage text and the fill bar background.
+
+**Metadata line:** Shows `~3.2K / 200K tokens (estimated)` — the `(estimated)` qualifier is intentional because character-division is an approximation, not exact tokenization.
+
+---
+
+### `orbClosePanel()` Guard in SPA Navigation Handlers
+
+**The problem:** The `history.pushState` override and `popstate` event handler both called `orbClosePanel()` unconditionally. `orbClosePanel` is declared in the outer IIFE scope and has its own `if (!orbPanel) return` guard, so for legacy platforms this was technically a no-op rather than a crash. However, the unconditional call pattern was inconsistent with line 810, which uses `if (typeof orbOnScanComplete === 'function') orbOnScanComplete()`.
+
+**Fix:** Both SPA handlers now use the same guard pattern:
+```javascript
+if (typeof orbClosePanel === 'function') orbClosePanel();
+```
+This makes the defensive intent explicit — if a future refactor moved `orbClosePanel` inside `injectOrbital()` (making it undefined in the outer scope), the guard would prevent a real ReferenceError.
+
+---
+
+## [10.0] - 2026-02-22
+
+### Complete Architecture Rewrite — Orbital Button System
+
+**Files modified:** `ai-conversation-navigator.user.js` (2,369 → 1,968 lines), `tests/test-all-platforms.js` (complete rewrite)
+
+This release is a three-phase complete architectural rewrite. The v9.x codebase had accumulated compounding complexity across multiple AI assistant development sessions — the context/token tracking additions in v9.0–9.3 had entangled button injection with message detection, introduced inconsistent rendering patterns, and left behind debugging artifacts throughout the file. Rather than patching on top, the decision was to strip the codebase to its healthy core engine and rebuild the UI layer cleanly.
+
+---
+
+#### Phase 0 — Audit Findings
+
+Read the full 2,369-line v9.x codebase before touching any code. Key findings:
+
+**Entangled button/detection code:** MutationObserver callbacks were wired to trigger both message scanning and button rendering in the same callback path. There was no clean separation between the detection engine (which should run silently) and the UI layer (which should render independently).
+
+**Dead code in Lovable selector chain:** The Lovable `getUserMessages()` function had `div[role="log"] .justify-end` as its primary selector — a pattern that never exists in Lovable's actual DOM. All three real user messages were being found three levels deep in the fallback chain on every call. The dead primary was silently skipped without error, so the detection appeared to work but was always running on backup selectors.
+
+**Version string inconsistency:** The `@version` header read `9.6` but internal version constants in the codebase read `9.3`, `9.4`, or `9.6` depending on which component you were looking at — an artifact of the compressed multi-session sprint development.
+
+**Context tracking architecture:** The v9.0–9.3 context/token tracking button had its own injection path, its own `#ai-context-panel`, and a passive `window.fetch` interceptor that ran on every network request. Removing it cleanly required identifying all three injection paths and their interdependencies.
+
+**Debugging artifacts:** Commented-out selector experiments, temporary `console.log` calls, and redundant guards added during prior debugging sessions.
+
+---
+
+#### Phase 1 — Clean Foundation
+
+**Removed (~1,410 lines):**
+- All existing button/sidebar UI: `createToggle()`, `createPanel()`, `buildPanel()`, `buildContextPanel()`, `updateButtonPositions()`, and ~30 related helpers
+- The context/token tracking system: fetch interception, DOM-based token estimation, rendering, the `#ai-context-panel` element
+- All CSS string constants (`AI_NAV_STYLES`, `CONTEXT_STYLES`, etc.)
+- Search panel UI and injection logic (the search algorithm was preserved internally)
+- Per-platform button injection quirks added during v9.x debugging
+- Dead code, commented experiments, debugging console.log calls
+
+**Kept (the core engine):**
+- `PLATFORMS` registry with 14 platform definitions and all `getUserMessages()` selector chains
+- `generateSummary()` — text truncation for question display
+- `detectPlatform()` — URL-based platform matching
+- `scanConversation()` — question detection loop; populates `_questions[]` array as `[{ element, text, summary, vsIndex? }]`
+- `MutationObserver` setup for SPA-aware re-scanning
+- `history.pushState` / `history.replaceState` SPA hooks
+- `window._aiNavAlreadyLoaded` duplicate execution guard
+- Virtual scroll accumulation logic for Emergent's virtuoso layout
+
+**Bugs fixed during Phase 1:**
+- **Lovable dead selector:** promoted `bg-neutral-200 rounded-xl` to primary position (it was the first selector that actually matched real Lovable DOM). Removed the never-matching `div[role="log"] .justify-end` primary entirely.
+- **Version string:** unified to `10.0` throughout header and internals.
+
+**Result:** 2,369 → 959 lines. The script detected platforms and found questions but rendered no UI at all.
+
+---
+
+#### Phase 2 — Orbital Button System
+
+Built the new UI as a clean fixed-position overlay on top of the Phase 1 engine. The orbital zone (`div#acn-zone`) is injected into `document.body` and is architecturally independent of each platform's DOM structure.
+
+**Color system (`ORB_COLORS`):** Five verified platform accent colors. App-builder platforms (bolt, lovable, replit, v0, base44, emergent, firebase) fall back to Claude orange since their brand colors were not verified at time of writing.
+```javascript
+var ORB_COLORS = {
+    claude:     { bg: '#d97706', rgb: '217,119,6',   shadow: 'rgba(217,119,6,.25)'   },
+    chatgpt:    { bg: '#ffffff', rgb: '255,255,255', shadow: 'rgba(255,255,255,.25)' },
+    grok:       { bg: '#e53e3e', rgb: '229,62,62',   shadow: 'rgba(229,62,62,.25)'   },
+    gemini:     { bg: '#4285f4', rgb: '66,133,244',  shadow: 'rgba(66,133,244,.25)'  },
+    perplexity: { bg: '#20b2aa', rgb: '32,178,170',  shadow: 'rgba(32,178,170,.25)'  },
+};
+var orbTheme = ORB_COLORS[platform.id] || ORB_COLORS.claude;
+```
+
+**Feature registry (`ORB_FEATURES`):** Single source-of-truth array drives slot positions, panel IDs, icons, and labels. Adding a 7th feature requires one array entry and one panel builder function — no other code changes.
+```javascript
+var ORB_FEATURES = [
+    { id: 'nav',       icon: '✳', label: 'Navigate',  panelId: 'acn-panel-nav'       },
+    { id: 'search',    icon: '⌕', label: 'Search',    panelId: 'acn-panel-search'    },
+    { id: 'bookmarks', icon: '⚑', label: 'Bookmarks', panelId: 'acn-panel-bookmarks' },
+    { id: 'summary',   icon: 'Σ', label: 'Summary',   panelId: 'acn-panel-summary'   },
+    { id: 'export',    icon: '↗', label: 'Export',    panelId: 'acn-panel-export'    },
+    { id: 'settings',  icon: '⚙', label: 'Settings',  panelId: 'acn-panel-settings'  },
+];
+```
+
+**Three display modes (`orbMode`):**
+- `show-all` — all 6 dots at equal opacity on hover; vertical stack; default mode
+- `arc` — slot-rule lookup table drives position along a polygon arc; scroll wheel rotates focus; brightness follows slot position
+- `wheel` — conveyor belt wrapping; Navigate dot (index 0) gets a persistent brightness boost; symmetric boundary behavior on wrap
+
+**CSS transition split — critical for feel:** Two separate CSS transitions per dot:
+- `opacity 80ms ease` — snaps immediately, so brightness feels locked to the dot's current position
+- `transform/position 300ms cubic-bezier(0.34, 1.56, 0.64, 1)` — springy motion for position changes
+
+Without this split, opacity would animate across the full 300ms of the position animation, making brightness "chase" the moving dot rather than snap to it. The 80ms opacity transition was the single most important tuning decision for making the system feel responsive rather than floaty.
+
+**Left-chat platform positioning:** For the 6 app-builder platforms with a split chat/preview layout (bolt, lovable, replit, v0, base44, emergent), `getChatBoundaryX()` locates the right edge of the chat panel. `orbPositionForLeftChat()` computes `zone.style.right = viewport.width - boundary.right + 'px'`, placing the orbital cluster exactly at the chat/preview divider rather than at the viewport edge.
+
+**Settings persistence:** `localStorage._acnv10` stores `{ mode, natural }`. Survives page refreshes and SPA navigation.
+
+**Defensive injection guards:**
+- `orbInjectCSS()` checks `document.getElementById('acn-style')` and returns early if already present — prevents CSS duplication on SPA re-inject cycles where `injectOrbital()` is called again on route change
+- `injectOrbital()` runs `document.querySelectorAll('.acn-panel').forEach(p => p.remove())` before building new panels — cleans up orphaned panels from a previous injection cycle that may have been disconnected from the zone but not garbage collected
+
+**Panel implementation status at v10.0:**
+- Navigate: Fully functional — lists detected questions, click scrolls to message
+- Search: Functional — text input filters `_questions[]` by content
+- Settings: Functional — mode selector (show-all / arc / wheel), scroll direction toggle
+- Bookmarks, Summary, Export: Placeholder UI only (non-functional, for future sprints)
+
+---
+
+#### Phase 3 — Contract-Based Test Suite
+
+**Problem with old tests:** The existing `tests/test-all-platforms.js` was written against v9.x internal element IDs (`#ai-nav-button-container`, `#ai-nav-panel`, `.ai-nav-item`). These selectors broke immediately on the v10.0 rewrite. The first v10.0 rewrite of the tests still used internal IDs (`#acn-zone`, `#acn-dot-nav`, `.acn-qi`) — these would break again on v11.0. The root problem was tests coupling to implementation details rather than a stable interface.
+
+**Solution — DOM contract via `data-acn-*` attributes:** The script publishes 9 stable role attributes on key elements. Tests query ONLY these attributes. The UI can be completely rebuilt in any future version — as long as the script assigns the 9 role attributes to the corresponding elements, the test suite passes without modification.
+
+| Attribute | Set on | Behavior |
+|-----------|--------|----------|
+| `data-acn-role="zone"` | `#acn-zone` container | Presence confirms injection |
+| `data-acn-role="styles"` | `<style>` element | CSS injection confirmed |
+| `data-acn-role="nav-trigger"` | Navigate dot | Click target for tests |
+| `data-acn-role="nav-panel"` | Navigate panel | Panel presence confirmed |
+| `data-acn-role="nav-stat"` | Stats element | Also carries `data-acn-count="N"` |
+| `data-acn-role="nav-list"` | Question list container | List structure confirmed |
+| `data-acn-role="nav-item"` | Each question row | Count compared to mock page messages |
+| `data-acn-role="nav-item-text"` | Question display text | Non-empty confirmed |
+| `data-acn-role="panel-close"` | All close buttons | Close behavior tested |
+| `data-acn-version="10.0"` | Zone | Version identification |
+| `data-acn-accent="#hexcolor"` | Zone | Platform theme color confirmed |
+| `data-acn-open="true"` | Open panels | State attribute, removed on close |
+
+**Test structure:** 14 platforms × 12 tests = 168 total. Platform config contains only contract-facing fields: `{ name, mockFile, hostname, pathname, expectedMessages, expectedAccent }`. No internal CSS class names, no `isLeftChat` flag, no implementation-specific fields.
+
+**12 tests per platform:**
+1. Zone exists
+2. Styles element exists
+3. Navigate trigger exists
+4. Navigate panel exists
+5. Accent color matches platform spec
+6. No duplicate zone (count === 1)
+7. Clicking trigger sets `data-acn-open="true"` on panel
+8. `data-acn-count` equals mock page's expected message count
+9. `[data-acn-role="nav-item"]` count equals expected messages
+10. All item texts are non-empty
+11. Clicking an item doesn't throw
+12. Close button removes `data-acn-open`
+
+**Result:** 168/168 tests passing (Chromium).
+
+---
+
 ## [9.6] - 2026-02-22
 
 ### Security — Trusted Types Compliance Refactor
