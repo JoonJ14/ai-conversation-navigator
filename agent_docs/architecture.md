@@ -81,20 +81,26 @@ There are 12 platform entries covering 14 platform variants (Claude/Claude Code 
 
 ## Test Contract (`data-acn-*` Attributes)
 
-Tests query **only** these stable DOM attributes — they are the public test API:
+Tests query **only** these stable DOM attributes — they are the public test API.
+
+**Roles** (queried via `[data-acn-role="..."]`):
 ```
-data-acn-role="zone"          -> Main container
-data-acn-role="nav-panel"     -> Navigation panel
-data-acn-role="nav-item"      -> Individual question entry
-data-acn-role="nav-item-text" -> Question text within nav item
-data-acn-role="panel-close"   -> Close button
-data-acn-role="styles"        -> Injected style element
-data-acn-open="true"          -> Panel is open
-data-acn-count="N"            -> Question count
-data-acn-accent="#hexcolor"   -> Theme accent color
-data-acn-version="10.9"       -> Script version
-data-acn-mode="arc"           -> Current display mode
-data-acn-platform="claude"    -> Detected platform ID
+data-acn-role="zone"          -> Main container injected into the page
+data-acn-role="styles"        -> Injected <style> element
+data-acn-role="nav-trigger"   -> Element that opens the navigation panel on click
+data-acn-role="nav-panel"     -> The navigation panel element
+data-acn-role="nav-stat"      -> Shows the detected question count
+data-acn-role="nav-list"      -> Container holding the question items
+data-acn-role="nav-item"      -> Each individual question entry
+data-acn-role="nav-item-text" -> Display text inside each nav-item
+data-acn-role="panel-close"   -> Closes the currently open panel on click
+```
+
+**Data attributes** (queried on the elements above):
+```
+data-acn-accent="#hexcolor"   -> Platform accent colour (on the zone element)
+data-acn-open="true"          -> Present on nav-panel when open, absent when closed
+data-acn-count="N"            -> Number of detected questions (on nav-stat element)
 ```
 
 Never remove or rename these attributes — tests depend on them.
