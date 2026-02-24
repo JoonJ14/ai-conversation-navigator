@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v10.7.11
+// @name         AI Conversation Navigator v10.9
 // @namespace    http://tampermonkey.net/
-// @version      10.7.11
+// @version      10.9
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -23,6 +23,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
 // ==/UserScript==
 
 (function () {
@@ -38,7 +39,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '10.7';
+    var ACN_VERSION = '10.9';
 
     // ============================================================
     // i18n — internationalization string table
@@ -898,8 +899,13 @@
     // App-builder platforms keep the legacy ghost-notch / right-edge button.
     var useOrbital = ['claude', 'chatgpt', 'grok', 'gemini', 'perplexity'].indexOf(platform.id) >= 0;
 
-    // Wire up Claude SSE interceptor for exact token tracking
-    if (platform.id === 'claude') setupClaudeSSEInterceptor();
+    // Wire up Claude SSE interceptor for exact token tracking.
+    // _loadCachedSSEData is deferred (setTimeout 0) so it runs after _sseTokenData
+    // is initialized further down the file — var hoisting leaves it undefined here.
+    if (platform.id === 'claude') {
+        setupClaudeSSEInterceptor();
+        setTimeout(_loadCachedSSEData, 0);
+    }
 
     // ============================================================
     // DOM CREATION HELPER — no innerHTML (Trusted Types safe)
@@ -1107,14 +1113,16 @@
     var _bmListFingerprint     = ''; // same guard for bookmarks panel
     var _panelWidth            = 310; // current panel width — persisted in localStorage
 
-    // ── Tier 1: Claude SSE exact token state ──────────────────
+    // ── Tier 1: Claude SSE hybrid token state ─────────────────
     var _sseTokenData = {
-        inputTokens:  0,
-        outputTokens: 0,
-        lastUpdated:  0,
-        exact:        false   // true once we have at least one message_start reading
+        lastUpdated:          0,
+        exact:                false,  // true = SSE thinking data available this session
+        cached:               false,  // true = loaded from GM cache
+        cumulativeThinkingChars: 0,   // total thinking chars across ALL messages (never resets)
+        sseMessageCount:         0    // fully-completed assistant messages observed via SSE
     };
-    var _prevInputTokens  = 0;  // input tokens from previous message_start (compaction detect)
+    // Per-message accumulator (reset on each message_start)
+    var _currentMsgThinkingChars = 0;
     var _compactionCount  = 0;  // total number of compactions observed this session
     var _compactionHistory = []; // turn numbers at which compaction was detected
 
@@ -1225,6 +1233,8 @@
             _origPushState.apply(this, arguments);
             if (isVirtualScroll) _vsAccumulatedKeys.clear();
             _questions = [];
+            resetTurnCounter();
+            if (platform.id === 'claude') setTimeout(_loadCachedSSEData, 600);
             if (typeof orbClosePanel === 'function') orbClosePanel();
             setTimeout(scanConversation, 500);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
@@ -1233,6 +1243,8 @@
         history.replaceState = function () {
             _origReplaceState.apply(this, arguments);
             _questions = [];
+            resetTurnCounter();
+            if (platform.id === 'claude') setTimeout(_loadCachedSSEData, 600);
             setTimeout(scanConversation, 500);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         };
@@ -1240,6 +1252,8 @@
         window.addEventListener('popstate', function () {
             if (isVirtualScroll) _vsAccumulatedKeys.clear();
             _questions = [];
+            resetTurnCounter();
+            if (platform.id === 'claude') setTimeout(_loadCachedSSEData, 600);
             if (typeof orbClosePanel === 'function') orbClosePanel();
             setTimeout(scanConversation, 500);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
@@ -1358,7 +1372,7 @@
     function orbOnScanComplete() {
         if (orbPanel === 'nav')    orbPopulateNavigate();
         if (orbPanel === 'search') orbPopulateSearch(orbSearchQuery);
-        if (platform.id !== 'claude') updateTurnCounter();
+        updateTurnCounter();
         var bmPanel = document.getElementById('acn-panel-bookmarks');
         if (bmPanel && bmPanel.classList.contains('acn-open')) {
             orbRefreshBookmarksPanel();
@@ -1370,13 +1384,17 @@
     // ============================================================
 
     function setupClaudeSSEInterceptor() {
-        if (typeof window.fetch !== 'function') return;
-        if (window._acnFetchPatched) return; // idempotent
-        window._acnFetchPatched = true;
+        // Tampermonkey sandbox: `window` is a wrapper, not the real page window.
+        // Claude.ai's JS uses the real window.fetch — we must patch that one.
+        var pw = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 
-        var _nativeFetch = window.fetch;
+        if (typeof pw.fetch !== 'function') return;
+        if (pw._acnFetchPatched) return; // idempotent
+        pw._acnFetchPatched = true;
 
-        window.fetch = function acnFetchProxy(input, init) {
+        var _nativeFetch = pw.fetch.bind(pw);
+
+        pw.fetch = function acnFetchProxy(input, init) {
             var url = (typeof input === 'string') ? input :
                       (input && input.url) ? input.url : '';
 
@@ -1414,10 +1432,12 @@
             reader.read().then(function (result) {
                 if (result.done) return;
 
-                buffer += decoder.decode(result.value, { stream: true });
+                // Cross-realm fix: page-realm Uint8Array must be copied into sandbox realm
+                var copied = new Uint8Array(result.value);
+                buffer += decoder.decode(copied, { stream: true });
 
-                // Split on double-newline (SSE event boundary)
-                var parts = buffer.split(/\n\n/);
+                // Split on double-newline (SSE event boundary, Claude uses \r\n)
+                var parts = buffer.split(/\r?\n\r?\n/);
                 buffer = parts.pop(); // last part may be incomplete
 
                 for (var i = 0; i < parts.length; i++) {
@@ -1436,7 +1456,7 @@
     }
 
     function parseSSEEvent(eventStr) {
-        var lines = eventStr.split('\n');
+        var lines = eventStr.split(/\r?\n/);
         var eventType = '';
         var dataStr   = '';
 
@@ -1458,47 +1478,89 @@
             return;
         }
 
-        if (eventType === 'message_start' && payload.message && payload.message.usage) {
-            var usage       = payload.message.usage;
-            var newInput    = usage.input_tokens  || 0;
-            var newOutput   = usage.output_tokens || 0;
+        // ── message_start: reset per-message accumulator ───────────
+        if (eventType === 'message_start') {
+            _currentMsgThinkingChars = 0;
+        }
 
-            // ── Compaction detection ──────────────────────────────────
-            if (_sseTokenData.exact &&
-                _prevInputTokens > 2000 &&
-                newInput < _prevInputTokens * 0.60) {
-                _compactionCount++;
-                _compactionHistory.push(_turnCounter.totalTurns);
-
-                _turnCounter.compactionCount = _compactionCount;
-
-                var cycleLen = _turnCounter.turnsSinceCompact;
-                if (cycleLen > 0) {
-                    _turnCounter.cycleLengths.push(cycleLen);
-                    _turnCounter.predictedCycleLength = predictNextCycleLength();
-                }
-                _turnCounter.turnsSinceCompact = 0;
-                _turnCounter.lastCompactTurn   = _turnCounter.totalTurns;
+        // ── content_block_delta: accumulate thinking chars ──────────
+        if (eventType === 'content_block_delta' && payload.delta) {
+            if (payload.delta.type === 'thinking_delta' && payload.delta.thinking) {
+                _currentMsgThinkingChars += payload.delta.thinking.length;
             }
+        }
 
-            _prevInputTokens        = newInput;
-            _sseTokenData.inputTokens  = newInput;
-            _sseTokenData.outputTokens = newOutput;
-            _sseTokenData.lastUpdated  = Date.now();
-            _sseTokenData.exact        = true;
-
-            orbUpdateContextBar();
-
-        } else if (eventType === 'message_delta' && payload.usage) {
-            _sseTokenData.outputTokens = payload.usage.output_tokens || _sseTokenData.outputTokens;
-            _sseTokenData.lastUpdated  = Date.now();
+        // ── message_delta: finalize message, add to cumulative total ─
+        if (eventType === 'message_delta') {
+            _sseTokenData.cumulativeThinkingChars += _currentMsgThinkingChars;
+            _sseTokenData.sseMessageCount++;
+            _sseTokenData.lastUpdated              = Date.now();
+            _sseTokenData.exact                    = true;
+            _sseTokenData.cached                   = false;
 
             // Debounced plan usage refresh (3 s after last SSE activity)
             if (_usageRefreshTimer) clearTimeout(_usageRefreshTimer);
             _usageRefreshTimer = setTimeout(maybeRefreshUsage, 3000);
 
+            _cacheSSEData();
             orbUpdateContextBar();
         }
+
+        // ── message_stop: final UI refresh ─────────────────────────
+        if (eventType === 'message_stop') {
+            orbUpdateContextBar();
+        }
+    }
+
+    // ── GM cache helpers for Claude context data ──────────
+    function _getConvId() {
+        // URL: /chat/6873dd1a-f895-4fef-a564-6f0e03b7e8ed
+        var parts = window.location.pathname.split('/');
+        var id = parts[parts.length - 1];
+        // Validate it looks like a UUID (8 hex chars, dash, 4 hex chars)
+        return (id && /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(id)) ? id : null;
+    }
+
+    function _cacheSSEData() {
+        var convId = _getConvId();
+        if (!convId || !_sseTokenData.exact) return;
+        try {
+            var cache = GM_getValue('acn_ctx_cache', {});
+            cache[convId] = {
+                cumulativeThinkingChars: _sseTokenData.cumulativeThinkingChars,
+                sseMessageCount:         _sseTokenData.sseMessageCount,
+                timestamp:               Date.now()
+            };
+
+            // Prune to 50 most recent conversations
+            var keys = Object.keys(cache);
+            if (keys.length > 50) {
+                keys.sort(function (a, b) {
+                    return (cache[b].timestamp || 0) - (cache[a].timestamp || 0);
+                });
+                var pruned = {};
+                for (var i = 0; i < 50; i++) pruned[keys[i]] = cache[keys[i]];
+                cache = pruned;
+            }
+
+            GM_setValue('acn_ctx_cache', cache);
+        } catch (e) {}
+    }
+
+    function _loadCachedSSEData() {
+        var convId = _getConvId();
+        if (!convId) return;
+        try {
+            var cache = GM_getValue('acn_ctx_cache', {});
+            var entry = cache[convId];
+            if (entry && entry.sseMessageCount) {
+                _sseTokenData.cumulativeThinkingChars = entry.cumulativeThinkingChars;
+                _sseTokenData.sseMessageCount         = entry.sseMessageCount || 0;
+                _sseTokenData.lastUpdated             = entry.timestamp;
+                _sseTokenData.exact                   = false;
+                _sseTokenData.cached                  = true;
+            }
+        } catch (e) {}
     }
 
     // ============================================================
@@ -1507,11 +1569,36 @@
 
     function updateTurnCounter() {
         var newTotal = _questions.length;
+
+        // SPA navigation: if message count decreased, we're in a new conversation
+        if (newTotal < _turnCounter.totalTurns) {
+            resetTurnCounter();
+        }
+
         if (newTotal <= _turnCounter.totalTurns) return;
 
         var added = newTotal - _turnCounter.totalTurns;
         _turnCounter.totalTurns        += added;
         _turnCounter.turnsSinceCompact += added;
+    }
+
+    function resetTurnCounter() {
+        _turnCounter.totalTurns          = 0;
+        _turnCounter.turnsSinceCompact   = 0;
+        _turnCounter.compactionCount     = 0;
+        _turnCounter.cycleLengths        = [];
+        _turnCounter.predictedCycleLength = null;
+        _turnCounter.lastCompactTurn     = 0;
+
+        // Reset hybrid SSE tracking for the new conversation
+        _sseTokenData.cumulativeThinkingChars = 0;
+        _sseTokenData.sseMessageCount         = 0;
+        _sseTokenData.lastUpdated             = 0;
+        _sseTokenData.exact                   = false;
+        _sseTokenData.cached                  = false;
+        _currentMsgThinkingChars              = 0;
+        _compactionCount                      = 0;
+        _compactionHistory                    = [];
     }
 
     function predictNextCycleLength() {
@@ -2394,24 +2481,65 @@
                     ? CTX_LIMITS[platform.id]
                     : 128000;
 
-        // ── Path A: Claude with exact SSE token data ──────────
-        if (platform && platform.id === 'claude' && _sseTokenData.exact) {
-            var inputTok = _sseTokenData.inputTokens;
-            var pctNum   = Math.min(100, Math.round((inputTok / limit) * 100));
+        // ── Path A: Claude with hybrid SSE data ───────────────
+        if (platform && platform.id === 'claude' &&
+            (_sseTokenData.exact || _sseTokenData.cached)) {
+
+            // ── DOM: walk scroll container for all visible text (user + AI) ──
+            // [data-is-streaming] is only present while actively streaming, so
+            // per-element selectors miss completed turns. The scroll container
+            // innerText captures everything regardless of streaming state.
+            var domChars = 0;
+            var anchor = _questions.length > 0 ? _questions[0].element : null;
+            var scrollNode = anchor ? anchor.parentElement : null;
+            var scrollFound = false;
+            while (scrollNode && scrollNode !== document.body) {
+                var st = window.getComputedStyle(scrollNode);
+                if (st.overflowY === 'auto' || st.overflowY === 'scroll' ||
+                    st.overflow  === 'auto' || st.overflow  === 'scroll') {
+                    domChars = (scrollNode.innerText || '').length;
+                    scrollFound = true;
+                    break;
+                }
+                scrollNode = scrollNode.parentElement;
+            }
+            if (!scrollFound || domChars === 0) {
+                domChars = _questions.reduce(function (s, q) { return s + q.text.length; }, 0) * 3;
+            }
+            // Virtual scroll correction: scale up if only a portion of turns is in DOM
+            var nInDOM = _questions.filter(function (q) {
+                return q.element && document.body.contains(q.element);
+            }).length;
+            var coverage = nInDOM / Math.max(1, _questions.length);
+            var domTokens = Math.round((domChars / 4) / Math.max(0.25, coverage));
+
+            // ── SSE: cumulative thinking tokens (invisible in DOM) ──────
+            var thinkingTokens = Math.round(_sseTokenData.cumulativeThinkingChars / 4);
+
+            // ── System prompt overhead (~15K for Claude with tools) ─────
+            var systemOverhead = 15000;
+
+            // ── Total ───────────────────────────────────────────────────
+            var totalTok = domTokens + thinkingTokens + systemOverhead;
+            var pctNum   = Math.min(100, Math.round((totalTok / limit) * 100));
             var color    = getBarColor(pctNum);
 
-            var tokFmt   = inputTok.toLocaleString();
-            var limFmt   = Math.round(limit / 1000) + 'K';
-            pct.textContent  = pctNum + '%';
-            pct.style.color  = color;
+            var tokFmt = totalTok.toLocaleString();
+            var limFmt = Math.round(limit / 1000) + 'K';
+
+            pct.textContent       = pctNum + '%';
+            pct.style.color       = color;
             fill.style.width      = pctNum + '%';
             fill.style.background = color;
 
             if (meta) {
-                meta.textContent = tokFmt + ' / ' + limFmt + ' tokens (exact)';
-                meta.style.color = '#888';
+                var label = _sseTokenData.cached ? '(last known)' : '(hybrid)';
+                meta.textContent = '~' + tokFmt + ' / ' + limFmt + ' tokens ' + label;
+                meta.style.color = _sseTokenData.cached ? '#666' : '#888';
             }
 
+            // ── Also render turn dots + compaction info below the bar ───
+            _renderTurnDots();
             _renderCompactionInfo(pctNum);
             return;
         }
@@ -2423,7 +2551,9 @@
             return;
         }
 
-        // ── Path C: Non-Claude — turn counter ─────────────────
+        // ── Path C: Non-Claude — turn dots only ───────────────
+        // DOM-based token estimation is too inaccurate (15-20x undercount).
+        // Turn dots with weighted-average compaction prediction are more honest.
         if (_questions.length === 0) {
             pct.textContent  = '\u2014';
             pct.style.color  = '';
@@ -2433,7 +2563,11 @@
             return;
         }
 
-        _renderEstimatedBar(pct, fill, meta, limit);
+        // Hide percentage bar elements — turn dots are the primary indicator
+        pct.textContent  = '';
+        fill.style.width = '0%';
+        if (meta) { meta.textContent = ''; }
+
         _renderTurnDots();
         _renderTurnCompactionInfo();
     }
@@ -2819,6 +2953,7 @@
 
         orbDots.forEach(function (d) { d.classList.remove('acn-no-t'); });
         orbRender();
+        orbUpdateHitzone();
     }
 
     // ============================================================
@@ -2840,7 +2975,8 @@
         panel.appendChild(orbBuildPanelHeader('\u2733 ' + (i18n('navigate') || 'Navigate')));
 
         // Context bar
-        var ctxLabel = createElement('span', { className: 'acn-ctx-l', textContent: 'Context window' });
+        var ctxLabelText = (platform.id === 'claude') ? 'Context window' : 'Conversation turns';
+        var ctxLabel = createElement('span', { className: 'acn-ctx-l', textContent: ctxLabelText });
         var ctxPct   = createElement('span', { id: 'acn-ctx-pct', className: 'acn-ctx-pct',
             textContent: '—' });
         var ctxRow   = createElement('div', { className: 'acn-ctx-r' }, [ctxLabel, ctxPct]);
@@ -5402,8 +5538,13 @@
         var hitzoneBottom = Math.min(window.innerHeight, stackBottom + HITZONE_PAD_Y);
         var hitzoneHeight = hitzoneBottom - hitzoneTop;
 
-        // Width: from right edge inward far enough to cover the widest dot
-        var hitzoneWidth = ORB_CX + 24 + HITZONE_PAD_X;
+        // Width must cover the furthest dot in the active mode.
+        // show-all/wheel: dots are on the center axis (ORB_CX ± 24px)
+        // arc: focused satellite extends ORB_CX + radius + half-dot from the right edge
+        var baseWidth = ORB_CX + 24 + HITZONE_PAD_X;      // 96px — covers show-all & wheel
+        var arcWidth  = ORB_CX + 88 + 17 + HITZONE_PAD_X; // 177px — covers arc focused dot
+
+        var hitzoneWidth = (orbMode === 'arc') ? arcWidth : baseWidth;
 
         hitzone.style.top    = hitzoneTop + 'px';
         hitzone.style.height = hitzoneHeight + 'px';
