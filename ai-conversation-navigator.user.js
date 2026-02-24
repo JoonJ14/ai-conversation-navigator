@@ -899,10 +899,12 @@
     // App-builder platforms keep the legacy ghost-notch / right-edge button.
     var useOrbital = ['claude', 'chatgpt', 'grok', 'gemini', 'perplexity'].indexOf(platform.id) >= 0;
 
-    // Wire up Claude SSE interceptor for exact token tracking
+    // Wire up Claude SSE interceptor for exact token tracking.
+    // _loadCachedSSEData is deferred (setTimeout 0) so it runs after _sseTokenData
+    // is initialized further down the file — var hoisting leaves it undefined here.
     if (platform.id === 'claude') {
         setupClaudeSSEInterceptor();
-        _loadCachedSSEData();
+        setTimeout(_loadCachedSSEData, 0);
     }
 
     // ============================================================
@@ -1374,7 +1376,7 @@
     function orbOnScanComplete() {
         if (orbPanel === 'nav')    orbPopulateNavigate();
         if (orbPanel === 'search') orbPopulateSearch(orbSearchQuery);
-        if (platform.id !== 'claude') updateTurnCounter();
+        updateTurnCounter();
         var bmPanel = document.getElementById('acn-panel-bookmarks');
         if (bmPanel && bmPanel.classList.contains('acn-open')) {
             orbRefreshBookmarksPanel();
