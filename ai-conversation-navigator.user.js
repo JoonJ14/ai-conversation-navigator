@@ -1115,18 +1115,14 @@
 
     // ── Tier 1: Claude SSE hybrid token state ─────────────────
     var _sseTokenData = {
-        inputTokens:          0,  // legacy, not used in hybrid
-        outputTokens:         0,  // legacy, not used in hybrid
         lastUpdated:          0,
-        exact:                false,  // true = SSE thinking data available
+        exact:                false,  // true = SSE thinking data available this session
         cached:               false,  // true = loaded from GM cache
-        // ── Hybrid SSE tracking (v10.9) ──────────────────────
         cumulativeThinkingChars: 0,   // total thinking chars across ALL messages (never resets)
-        sseMessageCount:         0    // assistant messages observed via SSE
+        sseMessageCount:         0    // fully-completed assistant messages observed via SSE
     };
     // Per-message accumulator (reset on each message_start)
     var _currentMsgThinkingChars = 0;
-    var _prevInputTokens  = 0;  // legacy: input tokens from previous message_start
     var _compactionCount  = 0;  // total number of compactions observed this session
     var _compactionHistory = []; // turn numbers at which compaction was detected
 
@@ -1485,7 +1481,6 @@
         // ── message_start: reset per-message accumulator ───────────
         if (eventType === 'message_start') {
             _currentMsgThinkingChars = 0;
-            _sseTokenData.sseMessageCount++;
         }
 
         // ── content_block_delta: accumulate thinking chars ──────────
@@ -1498,6 +1493,7 @@
         // ── message_delta: finalize message, add to cumulative total ─
         if (eventType === 'message_delta') {
             _sseTokenData.cumulativeThinkingChars += _currentMsgThinkingChars;
+            _sseTokenData.sseMessageCount++;
             _sseTokenData.lastUpdated              = Date.now();
             _sseTokenData.exact                    = true;
             _sseTokenData.cached                   = false;
@@ -1521,8 +1517,8 @@
         // URL: /chat/6873dd1a-f895-4fef-a564-6f0e03b7e8ed
         var parts = window.location.pathname.split('/');
         var id = parts[parts.length - 1];
-        // Validate it looks like a UUID (basic check)
-        return (id && id.length > 8 && id.indexOf('-') !== -1) ? id : null;
+        // Validate it looks like a UUID (8 hex chars, dash, 4 hex chars)
+        return (id && /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(id)) ? id : null;
     }
 
     function _cacheSSEData() {
@@ -1601,7 +1597,6 @@
         _sseTokenData.exact                   = false;
         _sseTokenData.cached                  = false;
         _currentMsgThinkingChars              = 0;
-        _prevInputTokens                      = 0;
         _compactionCount                      = 0;
         _compactionHistory                    = [];
     }
