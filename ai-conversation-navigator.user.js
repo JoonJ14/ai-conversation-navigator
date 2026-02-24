@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v10.8
+// @name         AI Conversation Navigator v10.9
 // @namespace    http://tampermonkey.net/
-// @version      10.8
+// @version      10.9
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -1111,15 +1111,20 @@
     var _bmListFingerprint     = ''; // same guard for bookmarks panel
     var _panelWidth            = 310; // current panel width — persisted in localStorage
 
-    // ── Tier 1: Claude SSE exact token state ──────────────────
+    // ── Tier 1: Claude SSE hybrid token state ─────────────────
     var _sseTokenData = {
-        inputTokens:  0,
-        outputTokens: 0,
-        lastUpdated:  0,
-        exact:        false,  // true once we have at least one message_start reading
-        cached:       false   // true when loaded from GM cache (not live SSE)
+        inputTokens:          0,  // legacy, not used in hybrid
+        outputTokens:         0,  // legacy, not used in hybrid
+        lastUpdated:          0,
+        exact:                false,  // true = SSE thinking data available
+        cached:               false,  // true = loaded from GM cache
+        // ── Hybrid SSE tracking (v10.9) ──────────────────────
+        cumulativeThinkingChars: 0,   // total thinking chars across ALL messages (never resets)
+        sseMessageCount:         0    // assistant messages observed via SSE
     };
-    var _prevInputTokens  = 0;  // input tokens from previous message_start (compaction detect)
+    // Per-message accumulator (reset on each message_start)
+    var _currentMsgThinkingChars = 0;
+    var _prevInputTokens  = 0;  // legacy: input tokens from previous message_start
     var _compactionCount  = 0;  // total number of compactions observed this session
     var _compactionHistory = []; // turn numbers at which compaction was detected
 
@@ -1429,10 +1434,12 @@
             reader.read().then(function (result) {
                 if (result.done) return;
 
-                buffer += decoder.decode(result.value, { stream: true });
+                // Cross-realm fix: page-realm Uint8Array must be copied into sandbox realm
+                var copied = new Uint8Array(result.value);
+                buffer += decoder.decode(copied, { stream: true });
 
-                // Split on double-newline (SSE event boundary)
-                var parts = buffer.split(/\n\n/);
+                // Split on double-newline (SSE event boundary, Claude uses \r\n)
+                var parts = buffer.split(/\r?\n\r?\n/);
                 buffer = parts.pop(); // last part may be incomplete
 
                 for (var i = 0; i < parts.length; i++) {
@@ -1451,7 +1458,7 @@
     }
 
     function parseSSEEvent(eventStr) {
-        var lines = eventStr.split('\n');
+        var lines = eventStr.split(/\r?\n/);
         var eventType = '';
         var dataStr   = '';
 
@@ -1473,47 +1480,36 @@
             return;
         }
 
-        if (eventType === 'message_start' && payload.message && payload.message.usage) {
-            var usage       = payload.message.usage;
-            var newInput    = usage.input_tokens  || 0;
-            var newOutput   = usage.output_tokens || 0;
+        // ── message_start: reset per-message accumulator ───────────
+        if (eventType === 'message_start') {
+            _currentMsgThinkingChars = 0;
+            _sseTokenData.sseMessageCount++;
+        }
 
-            // ── Compaction detection ──────────────────────────────────
-            if (_sseTokenData.exact &&
-                _prevInputTokens > 2000 &&
-                newInput < _prevInputTokens * 0.60) {
-                _compactionCount++;
-                _compactionHistory.push(_turnCounter.totalTurns);
-
-                _turnCounter.compactionCount = _compactionCount;
-
-                var cycleLen = _turnCounter.turnsSinceCompact;
-                if (cycleLen > 0) {
-                    _turnCounter.cycleLengths.push(cycleLen);
-                    _turnCounter.predictedCycleLength = predictNextCycleLength();
-                }
-                _turnCounter.turnsSinceCompact = 0;
-                _turnCounter.lastCompactTurn   = _turnCounter.totalTurns;
+        // ── content_block_delta: accumulate thinking chars ──────────
+        if (eventType === 'content_block_delta' && payload.delta) {
+            if (payload.delta.type === 'thinking_delta' && payload.delta.thinking) {
+                _currentMsgThinkingChars += payload.delta.thinking.length;
             }
+        }
 
-            _prevInputTokens        = newInput;
-            _sseTokenData.inputTokens  = newInput;
-            _sseTokenData.outputTokens = newOutput;
-            _sseTokenData.lastUpdated  = Date.now();
-            _sseTokenData.exact        = true;
-            _sseTokenData.cached       = false; // live data supersedes cache
-            _cacheSSEData();                    // persist for page reloads
-
-            orbUpdateContextBar();
-
-        } else if (eventType === 'message_delta' && payload.usage) {
-            _sseTokenData.outputTokens = payload.usage.output_tokens || _sseTokenData.outputTokens;
-            _sseTokenData.lastUpdated  = Date.now();
+        // ── message_delta: finalize message, add to cumulative total ─
+        if (eventType === 'message_delta') {
+            _sseTokenData.cumulativeThinkingChars += _currentMsgThinkingChars;
+            _sseTokenData.lastUpdated              = Date.now();
+            _sseTokenData.exact                    = true;
+            _sseTokenData.cached                   = false;
 
             // Debounced plan usage refresh (3 s after last SSE activity)
             if (_usageRefreshTimer) clearTimeout(_usageRefreshTimer);
             _usageRefreshTimer = setTimeout(maybeRefreshUsage, 3000);
 
+            _cacheSSEData();
+            orbUpdateContextBar();
+        }
+
+        // ── message_stop: final UI refresh ─────────────────────────
+        if (eventType === 'message_stop') {
             orbUpdateContextBar();
         }
     }
@@ -1533,26 +1529,24 @@
         try {
             var cache = GM_getValue('acn_ctx_cache', {});
             cache[convId] = {
-                inputTokens:  _sseTokenData.inputTokens,
-                outputTokens: _sseTokenData.outputTokens,
-                timestamp:    Date.now()
+                cumulativeThinkingChars: _sseTokenData.cumulativeThinkingChars,
+                sseMessageCount:         _sseTokenData.sseMessageCount,
+                timestamp:               Date.now()
             };
 
-            // Prune: keep only 50 most recent conversations
+            // Prune to 50 most recent conversations
             var keys = Object.keys(cache);
             if (keys.length > 50) {
                 keys.sort(function (a, b) {
                     return (cache[b].timestamp || 0) - (cache[a].timestamp || 0);
                 });
                 var pruned = {};
-                for (var i = 0; i < 50; i++) {
-                    pruned[keys[i]] = cache[keys[i]];
-                }
+                for (var i = 0; i < 50; i++) pruned[keys[i]] = cache[keys[i]];
                 cache = pruned;
             }
 
             GM_setValue('acn_ctx_cache', cache);
-        } catch (e) { /* GM storage unavailable — silently skip */ }
+        } catch (e) {}
     }
 
     function _loadCachedSSEData() {
@@ -1561,14 +1555,14 @@
         try {
             var cache = GM_getValue('acn_ctx_cache', {});
             var entry = cache[convId];
-            if (entry && entry.inputTokens) {
-                _sseTokenData.inputTokens  = entry.inputTokens;
-                _sseTokenData.outputTokens = entry.outputTokens;
-                _sseTokenData.lastUpdated  = entry.timestamp;
-                _sseTokenData.exact        = false; // not live
-                _sseTokenData.cached       = true;  // flag for UI label
+            if (entry && entry.cumulativeThinkingChars) {
+                _sseTokenData.cumulativeThinkingChars = entry.cumulativeThinkingChars;
+                _sseTokenData.sseMessageCount         = entry.sseMessageCount || 0;
+                _sseTokenData.lastUpdated             = entry.timestamp;
+                _sseTokenData.exact                   = false;
+                _sseTokenData.cached                  = true;
             }
-        } catch (e) { /* silently skip */ }
+        } catch (e) {}
     }
 
     // ============================================================
@@ -1598,15 +1592,16 @@
         _turnCounter.predictedCycleLength = null;
         _turnCounter.lastCompactTurn     = 0;
 
-        // Also reset Claude SSE state for the new conversation
-        _sseTokenData.inputTokens  = 0;
-        _sseTokenData.outputTokens = 0;
-        _sseTokenData.lastUpdated  = 0;
-        _sseTokenData.exact        = false;
-        _sseTokenData.cached       = false;
-        _prevInputTokens           = 0;
-        _compactionCount           = 0;
-        _compactionHistory         = [];
+        // Reset hybrid SSE tracking for the new conversation
+        _sseTokenData.cumulativeThinkingChars = 0;
+        _sseTokenData.sseMessageCount         = 0;
+        _sseTokenData.lastUpdated             = 0;
+        _sseTokenData.exact                   = false;
+        _sseTokenData.cached                  = false;
+        _currentMsgThinkingChars              = 0;
+        _prevInputTokens                      = 0;
+        _compactionCount                      = 0;
+        _compactionHistory                    = [];
     }
 
     function predictNextCycleLength() {
@@ -2489,26 +2484,53 @@
                     ? CTX_LIMITS[platform.id]
                     : 128000;
 
-        // ── Path A: Claude with exact or cached SSE token data ──
+        // ── Path A: Claude with hybrid SSE data ───────────────
         if (platform && platform.id === 'claude' &&
             (_sseTokenData.exact || _sseTokenData.cached)) {
-            var inputTok = _sseTokenData.inputTokens;
-            var pctNum   = Math.min(100, Math.round((inputTok / limit) * 100));
+
+            // ── DOM: all visible text (user messages + AI responses) ────
+            var domChars = 0;
+            _questions.forEach(function (q) {
+                if (q.element) domChars += (q.element.innerText || '').length;
+            });
+            // Count AI response text visible in DOM
+            var responseEls = document.querySelectorAll(
+                platform.responseSelector || '[data-is-streaming]'
+            );
+            if (responseEls && responseEls.length) {
+                responseEls.forEach(function (el) {
+                    domChars += (el.innerText || '').length;
+                });
+            }
+            var domTokens = Math.round(domChars / 4);
+
+            // ── SSE: cumulative thinking tokens (invisible in DOM) ──────
+            var thinkingTokens = Math.round(_sseTokenData.cumulativeThinkingChars / 4);
+
+            // ── System prompt overhead (~15K for Claude with tools) ─────
+            var systemOverhead = 15000;
+
+            // ── Total ───────────────────────────────────────────────────
+            var totalTok = domTokens + thinkingTokens + systemOverhead;
+            var pctNum   = Math.min(100, Math.round((totalTok / limit) * 100));
             var color    = getBarColor(pctNum);
 
-            var tokFmt   = inputTok.toLocaleString();
-            var limFmt   = Math.round(limit / 1000) + 'K';
-            pct.textContent  = pctNum + '%';
-            pct.style.color  = color;
+            var tokFmt = totalTok.toLocaleString();
+            var limFmt = Math.round(limit / 1000) + 'K';
+
+            pct.textContent       = pctNum + '%';
+            pct.style.color       = color;
             fill.style.width      = pctNum + '%';
             fill.style.background = color;
 
             if (meta) {
-                var label = _sseTokenData.exact ? '(exact)' : '(last known)';
-                meta.textContent = tokFmt + ' / ' + limFmt + ' tokens ' + label;
-                meta.style.color = _sseTokenData.exact ? '#888' : '#666';
+                var label = _sseTokenData.cached ? '(last known)' : '(hybrid)';
+                meta.textContent = '~' + tokFmt + ' / ' + limFmt + ' tokens ' + label;
+                meta.style.color = _sseTokenData.cached ? '#666' : '#888';
             }
 
+            // ── Also render turn dots + compaction info below the bar ───
+            _renderTurnDots();
             _renderCompactionInfo(pctNum);
             return;
         }

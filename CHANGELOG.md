@@ -4,95 +4,424 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
-## [10.8 — Context Tracking Overhaul, Arc Hitzone, Turn Counter Reset] — 2026-02-23
+## [10.9 — Hybrid SSE Context Tracking + Turn Dots for Claude] — 2026-02-23
 
 **Branch:** `fix/v10-live-testing-polish`
 
-Five fixes: critical SSE interceptor bug, non-Claude display cleanup, Claude GM caching,
-arc mode hitzone geometry, and SPA turn counter staleness.
+Four changes: SSE plumbing fixes discovered after v10.8 through systematic live debugging, hybrid context bar using SSE thinking data + DOM text, turn dots + compaction indicators added for Claude, and debug log cleanup.
+
+**Files modified:** `ai-conversation-navigator.user.js` only.
 
 ---
 
-### SSE Interceptor Never Worked — Tampermonkey Sandbox Isolation
+### Background: v10.8 Shipped But SSE Still Didn't Work
 
-**The problem:** The context bar always showed `(est.)` on Claude, even after sending
-multiple messages. `_sseTokenData.exact` was never set to `true`. The SSE interceptor
-appeared to be set up but never intercepted any traffic.
-
-**Root cause — Tampermonkey sandbox:** When `@grant` directives are present (GM_addStyle,
-GM_getValue, etc.), Tampermonkey runs the script in a sandboxed environment where `window`
-is a wrapper object, not the real page `window`. `setupClaudeSSEInterceptor()` patched
-`window.fetch` — but this patched the sandbox's copy. Claude.ai's JavaScript uses the real
-page's `window.fetch`, which was never touched. Confirmed by checking
-`window._acnFetchPatched` in the browser console — returned `undefined`. Manually patching
-the real `window.fetch` from console immediately intercepted SSE streams with `input_tokens`.
-
-**Fix:** Use `unsafeWindow` (Tampermonkey API that references the real page window) instead
-of `window` for the fetch patch. Added `@grant unsafeWindow` to the header. Used
-`unsafeWindow.fetch.bind(unsafeWindow)` to preserve `this` context.
+v10.8 fixed `unsafeWindow` and verified that `window._acnFetchPatched` was `true` — the fetch proxy was correctly installed on the real page window. But after committing v10.8 and installing it in Tampermonkey, live testing revealed the context bar still never showed `(exact)`. Three more layers of bugs were hiding underneath, each invisible until the one above it was fixed.
 
 ---
 
-### Non-Claude: Removed Misleading Estimated Percentage Bar
+### 10-Step Systematic Diagnosis
 
-**The problem:** ChatGPT, Grok, Gemini showed both an estimated percentage bar AND turn dots.
-The percentage bar used DOM `innerText / 4` estimation which can undercount by 15-20x
-(system prompts, tool calls, search results are invisible to DOM scraping). Showing "~12K /
-128K tokens (est.)" when real usage might be 90K+ is actively misleading.
+Each step addressed one layer. The principle: you cannot see layer N+1 until layer N is fixed.
 
-**Fix:** Removed `_renderEstimatedBar()` call from Path C. Non-Claude platforms now show
-only turn dots with weighted-average compaction prediction — honest about what we don't know,
-increasingly accurate over time. Section header changed from "Context window" to
-"Conversation turns".
+| Step | What was checked | Result | What it told us |
+|------|-----------------|--------|-----------------|
+| 1 | Console manual fetch proxy (bypassing TM) | ✅ SSE intercepted | SSE endpoint exists, data flows |
+| 2 | `window._acnFetchPatched` after v10.8 | ❌ `undefined` | Patch was on wrong window |
+| 3 | After `unsafeWindow` fix: `_acnFetchPatched` | ✅ `true` | Fetch proxy on real window |
+| 4 | `console.log` added inside `readSSEStream()` | ✅ Magenta log appeared | Stream was being tapped |
+| 5 | `console.log` added inside `pump()` | ✅ Orange "chunk received" | Chunks were flowing |
+| 6 | `console.log` added inside `parseSSEEvent()` | ❌ Never appeared | Break between pump and parse |
+| 7 | Logged chunk type | `[object Uint8Array]` length > 0 | Real data in chunks |
+| 8 | Logged buffer length after `decoder.decode()` | Buffer stayed 0 | TextDecoder returning empty strings |
+| 9 | After Uint8Array fix: buffer length | Grew (8006→9170) but never shrank | Events not splitting at boundaries |
+| 10 | After `\r\n` fix: `parseSSEEvent()` fires | ✅ All event types firing | `message_start` has no `usage` → dead end |
 
----
-
-### Claude: GM Storage Caching for Page Reloads
-
-**The problem:** On page reload or navigation to an existing conversation, `_sseTokenData`
-resets. Until the user sends a message and SSE fires, the context bar falls back to
-inaccurate DOM estimation.
-
-**Fix:** After each SSE `message_start`, persist token data to `GM_setValue` keyed by
-conversation ID (extracted from URL path). On page load, check GM cache first. Cached data
-displays with `(last known)` label, distinct from live `(exact)`. Cache is pruned to 50 most
-recent conversations. Three display states: `(exact)` = live SSE, `(last known)` = cached
-from previous session, `(est.)` = DOM fallback for never-visited conversations.
+Steps 2–3 were v10.8. Steps 4–10 were v10.9 live debugging.
 
 ---
 
-### Arc Mode: Hitzone Too Narrow for Focused Satellite
+### Change 1 — SSE Plumbing: Two More Bugs Found After v10.8
 
-**The problem:** In arc mode, the focused satellite button (directly left of Navigate) sat
-at ~147px from the right edge, but the hitzone was only 96px wide. Moving the cursor toward
-the button exited the hitzone at 96px, collapsing all buttons before the user could click.
-Only occurred when no panel was open (panel-open state bypasses hover-based visibility).
+#### Bug A: Cross-Realm Uint8Array
 
-**Root cause:** `orbUpdateHitzone()` computed a fixed width based on show-all layout geometry
-(all dots near the center axis). Arc mode's `radius = 88` pushes the focused dot far beyond.
+**Root cause:** The cloned response stream returns typed arrays from the **page realm** (the real browser JS context). Tampermonkey's sandbox runs in a separate realm. `TextDecoder.decode()` inside the sandbox **silently returns empty strings** when given a cross-realm `Uint8Array` — no error, no warning, just empty output. This is a subtle cross-realm typed-array incompatibility in Tampermonkey's sandboxed VM.
 
-**Fix:** Made `orbUpdateHitzone()` mode-aware. Arc mode uses a wider hitzone
-(`ORB_CX + 88 + 17 + HITZONE_PAD_X = 177px`) that covers the full arc radius plus the
-focused dot's half-width. Show-all and wheel modes keep the original 96px width.
-`orbUpdateHitzone()` is also called when the mode changes in Settings.
+Confirmed at Step 8: after `pump()` received a chunk with length > 0 (logged at Step 7), the buffer remained at 0 bytes. The decode call was consuming the chunk and producing nothing.
+
+**Fix:** Copy bytes into the sandbox realm before decoding:
+
+```javascript
+// Before:
+buffer += decoder.decode(result.value, { stream: true });
+
+// After:
+// Cross-realm fix: page-realm Uint8Array must be copied into sandbox realm
+var copied = new Uint8Array(result.value);
+buffer += decoder.decode(copied, { stream: true });
+```
+
+`new Uint8Array(result.value)` creates a new typed array **in the sandbox realm** with the same bytes. The sandbox's TextDecoder can then decode it correctly.
+
+#### Bug B: Line Ending Mismatch (`\r\n` vs `\n`)
+
+**Root cause:** After the Uint8Array fix, `buffer` accumulated text correctly (8006→9170 bytes, confirmed at Step 9) but never shrank — events were never being split out of the buffer. Claude's SSE uses **`\r\n` line endings**, not `\n`. The split regex `/\n\n/` never matched the `\r\n\r\n` event boundaries in Claude's stream. The buffer just kept growing.
+
+**Two fixes required:**
+
+Event boundary split in `readSSEStream()`:
+```javascript
+// Before:
+var parts = buffer.split(/\n\n/);
+// After:
+var parts = buffer.split(/\r?\n\r?\n/);
+```
+
+Line parsing in `parseSSEEvent()`:
+```javascript
+// Before:
+var lines = eventStr.split('\n');
+// After:
+var lines = eventStr.split(/\r?\n/);
+```
 
 ---
 
-### Turn Counter Stale After SPA Navigation (Codex Review)
+### Dead End: Claude Web SSE Has No Token Usage Data
 
-**The problem:** After SPA navigation to a new thread with fewer messages, the turn counter
-and compaction dots stayed stale from the previous conversation. `updateTurnCounter()` has
-`if (newTotal <= _turnCounter.totalTurns) return` — since the new conversation has fewer
-messages, it returned early forever.
+With all plumbing fixed, `parseSSEEvent()` began firing for all event types (Step 10). `message_start` events parsed successfully but contained **no `usage` field**:
 
-**Root cause:** SPA navigation handlers (`pushState`, `replaceState`, `popstate`) reset
-`_questions = []` but did not reset `_turnCounter` or any SSE state.
+```json
+{
+  "type": "message_start",
+  "message": {
+    "id": "chatcompl_...", "type": "message", "role": "assistant",
+    "model": "", "content": [], "stop_reason": null,
+    "trace_id": "...", "request_id": "..."
+  }
+}
+```
 
-**Fix:** Added `resetTurnCounter()` helper that zeroes all turn counter and SSE state.
-Called in all three SPA handlers alongside `_questions = []`. Also added a shrinkage check
-in `updateTurnCounter()` itself as a safety net: if `newTotal < _turnCounter.totalTurns`,
-call `resetTurnCounter()`. For Claude users, SPA navigation also triggers
-`_loadCachedSSEData()` to restore token data for the destination conversation.
+No `input_tokens`. No `output_tokens`. `message_delta` and `message_stop` also lack usage data. Claude's web UI strips the `usage` field from the SSE stream — it only exists in direct API responses.
+
+**What Claude web SSE DOES provide:**
+- `content_block_delta` with `type: "text_delta"` — exact output text characters
+- `content_block_delta` with `type: "thinking_delta"` — exact extended thinking characters
+- `message_start` / `message_delta` / `message_stop` — message lifecycle boundaries
+
+**What it does NOT provide:**
+- `input_tokens` — stripped by Claude's web UI, only in API responses
+- `output_tokens` — same
+- Any form of token count
+
+---
+
+### Change 2 — Hybrid Context Bar
+
+The SSE stream provides `thinking_delta` events with exact extended thinking text — the **one thing DOM cannot see** (thinking blocks are collapsed behind a toggle, invisible to `innerText`). This is exactly where DOM estimation falls furthest short in research and coding conversations.
+
+**Formula:**
+```
+total = DOM_visible_text/4 + system_overhead(15K) + cumulative_SSE_thinking/4
+```
+
+**Why cumulative and never-resetting:** The bar answers "how close am I to trouble?" not "what's currently in the model's context window." A conversation that has compacted 3 times and has 80 messages IS in trouble, even if the model's internal context window just reset to 20%. The bar should reflect the total conversation load that has accumulated, not just what's in the current context epoch. An epoch-based reset (dropping bar to 20% after compaction) gives false confidence that lots of room remains when the conversation is actually degrading. (See DEC-016.)
+
+**Why only thinking from SSE, not output too:** AI response output text IS visible in the DOM via `innerText`. If we added SSE output on top of DOM text, we'd double-count every AI response. Only thinking text is invisible in the DOM — so only thinking needs to come from SSE.
+
+**Three display states:**
+1. `~XX,XXX / 200K tokens (hybrid)` — live SSE thinking data available this session
+2. `~XX,XXX / 200K tokens (last known)` — cached from previous session (GM storage)
+3. `~XX,XXX / 200K tokens (est.)` — Path B DOM fallback; SSE never activated
+
+The `~` prefix signals "approximately" — honest about the estimated components. The bar can still be off by ±20% (system prompts vary, tool results vary) but is dramatically more accurate than DOM-only for extended thinking conversations.
+
+**New state tracked:**
+- `_sseTokenData.cumulativeThinkingChars` — total thinking chars across all messages, never resets within a conversation
+- `_sseTokenData.sseMessageCount` — assistant messages observed via SSE
+- `_currentMsgThinkingChars` — per-message accumulator, reset on each `message_start`
+
+**Typical improvement:** In a research conversation with extended thinking enabled, DOM-only might estimate 45K tokens. With cumulative thinking added: 45K + 25K thinking = 70K. Reality is probably 80K+ (system prompts, tool calls). The hybrid gets much closer.
+
+**GM cache updated** to persist `cumulativeThinkingChars` and `sseMessageCount` instead of the old `inputTokens`/`outputTokens` fields. On page reload or SPA navigation, cached thinking chars are restored and the bar shows `(last known)`.
+
+---
+
+### Change 3 — Claude Now Shows Both Bar AND Turn/Compaction Indicators
+
+Prior to v10.9, Claude's Navigate panel showed only the context percentage bar. Non-Claude platforms (v10.8) showed only turn dots + compaction count (no bar). Claude now shows **both**, making it the only platform with the full picture.
+
+**Why both for Claude:** Claude is the only platform where SSE data makes the percentage bar genuinely useful. The two signals are complementary:
+- **Percentage bar** (hybrid) — cumulative "how much has happened." Climbs steadily. Warns you're approaching trouble.
+- **Turn dots + compaction count** — "trouble is happening." Shows message count, compaction events, predicted turns to next compaction.
+
+Pre-compaction, the bar is the primary signal. Post-compaction, the compaction count becomes the primary signal. Neither alone tells the full story. (See DEC-017.)
+
+Implementation: Path A in `orbUpdateContextBar()` now calls both `_renderTurnDots()` and `_renderCompactionInfo(pctNum)` after rendering the bar. These functions were already built for non-Claude in v10.8 and work for Claude without modification since `_turnCounter` is updated on all platforms.
+
+---
+
+### Change 4 — Debug Console Log Cleanup
+
+Removed all `[ACN-SSE]` diagnostic `console.log` statements added during the v10.8→v10.9 debugging session. Zero debug logging in the released version.
+
+---
+
+## [10.8 — Context Tracking Overhaul, Arc Hitzone, Turn Counter Reset] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish` | **Commit:** `c45e88c`
+
+Five fixes across the context tracking system: the SSE interceptor had never worked in production due to Tampermonkey sandbox isolation, non-Claude platforms were showing a misleading estimated percentage bar, Claude lacked persistence on page reload, arc mode's hitzone geometry was too narrow to reach the focused satellite, and the turn counter went stale after SPA navigation.
+
+**Files modified:** `ai-conversation-navigator.user.js` only.
+
+---
+
+### Change 1 — SSE Interceptor: `unsafeWindow` Fixes Tampermonkey Sandbox Isolation
+
+**The problem:** The context bar on Claude.ai always showed `(est.)` regardless of how many messages were sent. `_sseTokenData.exact` was never `true`. The script contained `setupClaudeSSEInterceptor()` which appeared correct — it patched `window.fetch` and filtered for Claude URLs — but it had never intercepted a single SSE stream in production.
+
+**Root cause — Tampermonkey's sandboxed window:** When any `@grant` directive other than `none` is declared in the userscript header (`@grant GM_addStyle`, `@grant GM_getValue`, etc.), Tampermonkey runs the script in a sandboxed JavaScript context. In this context, `window` is a Tampermonkey-managed wrapper object — not the real page `window`. The script was patching the wrapper's `.fetch`, leaving the real `window.fetch` untouched. Claude.ai's own JavaScript exclusively uses the real page window for all network calls, so the SSE streams passed through completely unseen.
+
+Confirmed in production: `window._acnFetchPatched` typed in the browser DevTools console returned `undefined` — the flag was set on the sandbox wrapper, not on the page's actual window. Manually patching the real window's fetch from the console (`unsafeWindow.fetch = ...`) immediately began intercepting SSE streams with `input_tokens` data.
+
+**Implementation:**
+
+```javascript
+// Before — patches sandbox wrapper, not the real page window:
+function setupClaudeSSEInterceptor() {
+    if (typeof window.fetch !== 'function') return;
+    if (window._acnFetchPatched) return;
+    window._acnFetchPatched = true;
+    var _nativeFetch = window.fetch;
+    window.fetch = function acnFetchProxy(...) { ... };
+}
+
+// After — uses unsafeWindow to reach the real page window:
+function setupClaudeSSEInterceptor() {
+    var pw = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+    if (typeof pw.fetch !== 'function') return;
+    if (pw._acnFetchPatched) return;
+    pw._acnFetchPatched = true;
+    var _nativeFetch = pw.fetch.bind(pw);  // .bind() preserves `this` context
+    pw.fetch = function acnFetchProxy(...) { ... };
+}
+```
+
+Added `// @grant unsafeWindow` to the script header. `readSSEStream()` and `parseSSEEvent()` are unchanged — they don't touch `window.fetch` and operated correctly whenever they received a stream. The fix is entirely isolated to `setupClaudeSSEInterceptor()`.
+
+**Impact:** For the first time in production, `_sseTokenData.exact` becomes `true` after the first message sent in a Claude conversation. The context bar shows `(exact)` with real API token counts. Compaction detection now fires correctly when `input_tokens` drops >40% from the previous `message_start` event.
+
+---
+
+### Change 2 — Non-Claude: Eliminated Misleading Estimated Percentage Bar
+
+**The problem:** On ChatGPT, Grok, Gemini, and other non-Claude platforms, the Navigate panel showed both a filled percentage bar with a `(est.)` label AND turn-count dots below it. The percentage bar was produced by `_renderEstimatedBar()` which counts visible DOM text via `innerText` and divides by 4 chars/token. This estimate can be off by 15–20× because: system prompts (never in DOM), tool call results (often collapsed), search grounding context (injected invisibly), and streaming prefill aren't captured. A conversation that reads "~12K / 128K (est.)" might actually be at 90K+ tokens.
+
+**Decision:** The original design called for turn dots as the primary indicator on non-Claude platforms. DOM estimation is fundamentally inadequate for a percentage bar with a number that implies precision. The compaction-aware turn dots (weighted-average cycle prediction) are a more honest signal — they tell you where you are in the compaction cycle, not a false token percentage.
+
+**Implementation — Path C in `orbUpdateContextBar()`:**
+
+```javascript
+// Before:
+_renderEstimatedBar(pct, fill, meta, limit);   // showed misleading "~12K / 128K (est.)"
+_renderTurnDots();
+_renderTurnCompactionInfo();
+
+// After:
+pct.textContent  = '';    // clear number
+fill.style.width = '0%'; // clear bar fill
+if (meta) { meta.textContent = ''; }
+_renderTurnDots();
+_renderTurnCompactionInfo();
+```
+
+The section label in `orbBuildPanelNav()` changed from `'Context window'` (implies token tracking) to a platform-conditional string:
+
+```javascript
+var ctxLabelText = (platform.id === 'claude') ? 'Context window' : 'Conversation turns';
+```
+
+`_renderEstimatedBar()` is not removed from the codebase — it still runs for Path B (Claude with no SSE data for a conversation that has never been visited with the script installed). It is only removed from Path C (non-Claude).
+
+---
+
+### Change 3 — Claude: GM Storage Caching for Reload and Cross-Conversation Persistence
+
+**The problem:** Every page reload or SPA navigation to an existing Claude conversation reset `_sseTokenData` to zeros and `exact: false`. Until the user sent a new message and triggered an SSE `message_start` event, the context bar fell back to Path B (DOM estimation), showing an imprecise estimate for a conversation where exact data had already been collected.
+
+**Implementation — three new helpers:**
+
+```javascript
+function _getConvId() {
+    // Extracts UUID from /chat/6873dd1a-f895-4fef-a564-6f0e03b7e8ed
+    var parts = window.location.pathname.split('/');
+    var id = parts[parts.length - 1];
+    return (id && id.length > 8 && id.indexOf('-') !== -1) ? id : null;
+}
+
+function _cacheSSEData() {
+    // Called on every message_start event (after _sseTokenData.exact = true)
+    var convId = _getConvId();
+    if (!convId || !_sseTokenData.exact) return;
+    var cache = GM_getValue('acn_ctx_cache', {});
+    cache[convId] = {
+        inputTokens:  _sseTokenData.inputTokens,
+        outputTokens: _sseTokenData.outputTokens,
+        timestamp:    Date.now()
+    };
+    // Prune to 50 most recent by timestamp
+    var keys = Object.keys(cache);
+    if (keys.length > 50) {
+        keys.sort((a, b) => (cache[b].timestamp || 0) - (cache[a].timestamp || 0));
+        var pruned = {};
+        for (var i = 0; i < 50; i++) pruned[keys[i]] = cache[keys[i]];
+        cache = pruned;
+    }
+    GM_setValue('acn_ctx_cache', cache);
+}
+
+function _loadCachedSSEData() {
+    // Called on init and 600ms after each SPA navigation (URL has settled)
+    var convId = _getConvId();
+    if (!convId) return;
+    var cache = GM_getValue('acn_ctx_cache', {});
+    var entry = cache[convId];
+    if (entry && entry.inputTokens) {
+        _sseTokenData.inputTokens  = entry.inputTokens;
+        _sseTokenData.outputTokens = entry.outputTokens;
+        _sseTokenData.lastUpdated  = entry.timestamp;
+        _sseTokenData.exact        = false;  // not live data
+        _sseTokenData.cached       = true;   // new flag — triggers Path A with "(last known)" label
+    }
+}
+```
+
+Added `cached: false` field to `_sseTokenData` initialization. Path A in `orbUpdateContextBar()` now triggers on `exact || cached`:
+
+```javascript
+// Before:
+if (platform && platform.id === 'claude' && _sseTokenData.exact) {
+    meta.textContent = tokFmt + ' / ' + limFmt + ' tokens (exact)';
+    meta.style.color = '#888';
+}
+
+// After:
+if (platform && platform.id === 'claude' && (_sseTokenData.exact || _sseTokenData.cached)) {
+    var label = _sseTokenData.exact ? '(exact)' : '(last known)';
+    meta.textContent = tokFmt + ' / ' + limFmt + ' tokens ' + label;
+    meta.style.color = _sseTokenData.exact ? '#888' : '#666'; // slightly dimmer for cached
+}
+```
+
+**Three display states for Claude:**
+1. `(exact)` — live SSE `message_start` data received this page session
+2. `(last known)` — loaded from GM cache; real data from a previous session
+3. `(est.)` — Path B DOM estimation; never visited with the script installed
+
+**Cache key:** GM key `'acn_ctx_cache'` stores a JSON object keyed by conversation UUID. UUID is extracted from the URL pathname (last segment). Basic validation: length > 8 and contains `-`. Cache capped at 50 entries, pruned by timestamp descending.
+
+**When cached data is superseded:** On the next `message_start` SSE event, `_sseTokenData.cached = false` and `exact = true` are set before `_cacheSSEData()` runs. The UI updates from `(last known)` to `(exact)` and the cache entry for that conversation ID is overwritten.
+
+---
+
+### Change 4 — Arc Mode: Mode-Aware Hitzone Geometry
+
+**The problem:** In arc mode, moving the cursor from the center Navigate button leftward toward the focused satellite collapsed all orbital buttons before the cursor could reach the satellite. Only happened when no panel was open — the panel-open state keeps buttons visible regardless of hover state.
+
+**Geometry of the failure:**
+```
+ORB_CX        = 42px  (center axis from right edge)
+HITZONE_PAD_X = 30px
+radius        = 88px  (arc mode focused satellite distance from center)
+
+Old hitzone width = ORB_CX + 24 + HITZONE_PAD_X = 42 + 24 + 30 = 96px
+
+Arc focused satellite leftmost pixel:
+  right offset of center = ORB_CX = 42px
+  + radius × cos(0°)     = 88px  (directly left of center)
+  + dot half-width        = 17px  (dot diameter = 34px)
+  = 147px from right edge
+
+Gap: 147px - 96px = 51px of uncovered space
+```
+
+When the cursor crossed 96px from the right edge, `mouseleave` fired on `#acn-hitzone`, which set `orbHovering = false` and called `orbRender()`, collapsing all dots.
+
+**Implementation:**
+
+```javascript
+// Before — one fixed width for all modes:
+var hitzoneWidth = ORB_CX + 24 + HITZONE_PAD_X;  // 96px
+
+// After — mode-aware:
+var baseWidth = ORB_CX + 24 + HITZONE_PAD_X;       // 96px — show-all & wheel
+var arcWidth  = ORB_CX + 88 + 17 + HITZONE_PAD_X;  // 177px — arc mode
+
+var hitzoneWidth = (orbMode === 'arc') ? arcWidth : baseWidth;
+```
+
+`orbUpdateHitzone()` is also now called at the end of `orbSetMode()`, so the hitzone geometry updates immediately when the user switches modes in Settings. Previously it only ran on `window.resize` and after initial injection.
+
+---
+
+### Change 5 — Turn Counter: Reset on SPA Navigation and Shrinkage Detection
+
+**The problem:** After using SPA navigation (clicking a different conversation in the sidebar) to move from a 30-message conversation to a 5-message conversation, the turn counter dots and compaction badge still showed the 30-message state. The new conversation's `_questions.length` (5) was less than `_turnCounter.totalTurns` (30), so `updateTurnCounter()` returned early at its first guard: `if (newTotal <= _turnCounter.totalTurns) return`. This guard ran on every `orbOnScanComplete()` cycle, which fires every 500ms, so the stale state persisted indefinitely.
+
+**Root cause — incomplete reset in SPA handlers:** The `pushState`, `replaceState`, and `popstate` handlers (installed at startup when `platform.spa === true`) reset `_questions = []` but never touched `_turnCounter`. After `_questions` was cleared and `scanConversation()` ran and rebuilt it from the new conversation's DOM, `updateTurnCounter()` received a `newTotal` of 5 against a `_turnCounter.totalTurns` of 30 — and did nothing.
+
+**Implementation — `resetTurnCounter()` helper:**
+
+```javascript
+function resetTurnCounter() {
+    _turnCounter.totalTurns           = 0;
+    _turnCounter.turnsSinceCompact    = 0;
+    _turnCounter.compactionCount      = 0;
+    _turnCounter.cycleLengths         = [];
+    _turnCounter.predictedCycleLength = null;
+    _turnCounter.lastCompactTurn      = 0;
+
+    // Also reset Claude SSE state — the new conversation has different token counts
+    _sseTokenData.inputTokens  = 0;
+    _sseTokenData.outputTokens = 0;
+    _sseTokenData.lastUpdated  = 0;
+    _sseTokenData.exact        = false;
+    _sseTokenData.cached       = false;
+    _prevInputTokens           = 0;
+    _compactionCount           = 0;
+    _compactionHistory         = [];
+}
+```
+
+`resetTurnCounter()` is called in three places:
+1. `history.pushState` handler — after `_questions = []`
+2. `history.replaceState` handler — after `_questions = []`
+3. `window.addEventListener('popstate')` handler — after `_questions = []`
+
+A **shrinkage guard** was also added to `updateTurnCounter()` as a defensive fallback:
+
+```javascript
+function updateTurnCounter() {
+    var newTotal = _questions.length;
+
+    // Shrinkage = we navigated to a shorter conversation
+    if (newTotal < _turnCounter.totalTurns) {
+        resetTurnCounter();
+    }
+
+    if (newTotal <= _turnCounter.totalTurns) return;
+    // ... rest of function unchanged
+}
+```
+
+**SPA navigation + Claude GM cache integration:** After `resetTurnCounter()` in each SPA handler, a 600ms deferred call loads cached SSE data for the new conversation:
+
+```javascript
+if (platform.id === 'claude') setTimeout(_loadCachedSSEData, 600);
+```
+
+The 600ms delay ensures the URL has fully settled before `_getConvId()` reads the pathname. This means Claude users who switch between conversations immediately see `(last known)` token data if that conversation was previously visited, rather than waiting for a new message.
 
 ---
 

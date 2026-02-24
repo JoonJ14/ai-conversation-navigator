@@ -30,9 +30,23 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v10.7.11
+## Current Status: v10.9
 
-The extension supports 14 platform variants across 12 websites. v10.7.11 continues from v10.0's orbital rewrite with a full live-testing polish sprint.
+The extension supports 14 platform variants across 12 websites. v10.9 completes the SSE investigation that began in v10.8 and ships a hybrid context bar for Claude using SSE thinking data.
+
+**v10.9 Accomplishments (2026-02-23):**
+- **SSE Plumbing Fully Fixed:** v10.8's `unsafeWindow` fix was necessary but not sufficient. Two more bugs found through 10-step live debugging: (1) cross-realm `Uint8Array` — Tampermonkey's sandbox TextDecoder silently returns empty strings for page-realm typed arrays; fixed by copying bytes into sandbox realm with `new Uint8Array(result.value)`. (2) `\r\n` line endings — Claude SSE uses `\r\n`, not `\n`; split regex `/\n\n/` never matched. All plumbing now confirmed working.
+- **Dead End Confirmed: No Token Usage in Claude Web SSE.** After fixing all plumbing, `message_start` events parse successfully but contain no `usage` field — no `input_tokens`, no `output_tokens`. Claude's web UI strips this from the SSE stream. It only exists in direct API responses. This is a permanent dead end for exact token tracking from a userscript. Do not re-investigate.
+- **Hybrid Context Bar:** Uses `DOM_visible_text/4 + system_overhead(15K) + cumulative_SSE_thinking/4`. Extended thinking text (invisible in DOM, hidden behind collapse toggle) is now captured via `thinking_delta` SSE events and accumulated cumulatively across the entire conversation. Bar never resets — serves as "how close to trouble" indicator. Label shows `(hybrid)` with `~` prefix. Cached across page reloads via GM storage.
+- **Claude Gets Turn Dots + Compaction Count:** Claude now shows both the hybrid percentage bar AND the turn dots + compaction count system. Two complementary signals: bar = cumulative usage trend, compaction count = degradation warning. Claude is the only platform with both (non-Claude continues showing turn dots only).
+- **Debug Log Cleanup:** All `[ACN-SSE]` diagnostic console.log statements removed.
+
+**v10.8 Accomplishments (2026-02-23):**
+- **SSE Interceptor Partially Fixed:** `setupClaudeSSEInterceptor()` now patches `unsafeWindow.fetch` (real page window). This was necessary but not sufficient — two more bugs remained (fixed in v10.9).
+- **Claude GM Cache:** Token data persisted per conversation to `GM_setValue('acn_ctx_cache', {...})` keyed by conversation UUID. On reload or SPA navigation to a known conversation, shows `(last known)` label. Cache pruned to 50 most recent conversations by timestamp.
+- **Non-Claude: Turn Dots Only:** Removed misleading estimated percentage bar from Path C. DOM estimation can undercount by 15–20× on tool-heavy or search-augmented conversations. Non-Claude platforms now show turn dots with compaction prediction only.
+- **Arc Mode Hitzone Geometry Fixed:** `orbUpdateHitzone()` is now mode-aware. Arc mode uses `arcWidth = 177px`. Show-all/wheel use `96px`.
+- **Turn Counter SPA Reset:** Added `resetTurnCounter()` helper. Called in SPA navigation handlers. `updateTurnCounter()` also has a shrinkage guard as defensive fallback.
 
 **v10.7.x Accomplishments (2026-02-23):**
 - **Bookmarks Panel (fully functional):** Persistent message bookmarking across page reloads and script updates. Stored via `GM_setValue('acn-bookmarks-v1')` — survives script updates, browser restarts, and SPA navigation. Includes bookmark icon injection on all messages, panel list with click-to-scroll, and per-conversation storage.
@@ -77,7 +91,7 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 - `DOM-REFERENCE.md` — real DOM structures of all 14 platforms with selector rationale and debugging history
 - `CHANGELOG.md` — detailed technical changelog with root cause analysis for every fix
 - `TROUBLESHOOTING.md` — platform-specific diagnostic guides
-- `DECISIONS.md` — architectural decision log (DEC-001 through DEC-009)
+- `DECISIONS.md` — architectural decision log (DEC-001 through DEC-017)
 - `docs/claude_specific_context_tracking_calculation.md` — deep-dive on Claude context window estimation methodology
 
 ---
@@ -93,5 +107,5 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 
 ---
 
-*Last updated: 2026-02-23*
+*Last updated: 2026-02-23 (v10.9)*
 
