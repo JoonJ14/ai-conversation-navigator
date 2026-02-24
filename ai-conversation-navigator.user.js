@@ -1557,7 +1557,7 @@
         try {
             var cache = GM_getValue('acn_ctx_cache', {});
             var entry = cache[convId];
-            if (entry && entry.cumulativeThinkingChars) {
+            if (entry && entry.sseMessageCount) {
                 _sseTokenData.cumulativeThinkingChars = entry.cumulativeThinkingChars;
                 _sseTokenData.sseMessageCount         = entry.sseMessageCount || 0;
                 _sseTokenData.lastUpdated             = entry.timestamp;
@@ -2490,21 +2490,33 @@
         if (platform && platform.id === 'claude' &&
             (_sseTokenData.exact || _sseTokenData.cached)) {
 
-            // ── DOM: all visible text (user messages + AI responses) ────
+            // ── DOM: walk scroll container for all visible text (user + AI) ──
+            // [data-is-streaming] is only present while actively streaming, so
+            // per-element selectors miss completed turns. The scroll container
+            // innerText captures everything regardless of streaming state.
             var domChars = 0;
-            _questions.forEach(function (q) {
-                if (q.element) domChars += (q.element.innerText || '').length;
-            });
-            // Count AI response text visible in DOM
-            var responseEls = document.querySelectorAll(
-                platform.responseSelector || '[data-is-streaming]'
-            );
-            if (responseEls && responseEls.length) {
-                responseEls.forEach(function (el) {
-                    domChars += (el.innerText || '').length;
-                });
+            var anchor = _questions.length > 0 ? _questions[0].element : null;
+            var scrollNode = anchor ? anchor.parentElement : null;
+            var scrollFound = false;
+            while (scrollNode && scrollNode !== document.body) {
+                var st = window.getComputedStyle(scrollNode);
+                if (st.overflowY === 'auto' || st.overflowY === 'scroll' ||
+                    st.overflow  === 'auto' || st.overflow  === 'scroll') {
+                    domChars = (scrollNode.innerText || '').length;
+                    scrollFound = true;
+                    break;
+                }
+                scrollNode = scrollNode.parentElement;
             }
-            var domTokens = Math.round(domChars / 4);
+            if (!scrollFound || domChars === 0) {
+                domChars = _questions.reduce(function (s, q) { return s + q.text.length; }, 0) * 3;
+            }
+            // Virtual scroll correction: scale up if only a portion of turns is in DOM
+            var nInDOM = _questions.filter(function (q) {
+                return q.element && document.body.contains(q.element);
+            }).length;
+            var coverage = nInDOM / Math.max(1, _questions.length);
+            var domTokens = Math.round((domChars / 4) / Math.max(0.25, coverage));
 
             // ── SSE: cumulative thinking tokens (invisible in DOM) ──────
             var thinkingTokens = Math.round(_sseTokenData.cumulativeThinkingChars / 4);
