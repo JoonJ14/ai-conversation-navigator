@@ -5,6 +5,7 @@
 ```
 ├── ai-conversation-navigator.user.js   # Main userscript (single deployable file)
 ├── package.json                        # Node metadata + test scripts
+├── agent_docs/                         # AI assistant documentation (progressive disclosure)
 ├── modules/                            # Modular feature groups (reference/future integration)
 │   ├── groupA-hover-zone.js            # Hover zone hitzone geometry
 │   ├── groupB-context-tracking.js      # SSE interception, token counting
@@ -59,6 +60,25 @@ Each platform is an entry in the `PLATFORMS` object with properties:
 
 When adding a new platform, follow the existing entry structure exactly.
 
+### Platform Quick Reference
+
+There are 12 platform entries covering 14 platform variants (Claude/Claude Code share `claude`; ChatGPT/Codex share `chatgpt`).
+
+| ID | Title | Hostname(s) | Layout |
+|----|-------|-------------|--------|
+| `claude` | Claude | `claude.ai` | standard |
+| `chatgpt` | ChatGPT | `chatgpt.com`, `chat.openai.com` | standard |
+| `grok` | Grok | `grok.com` | standard |
+| `gemini` | Gemini | `gemini.google.com` | standard |
+| `bolt` | Bolt | `bolt.new` | standard |
+| `lovable` | Lovable | `lovable.dev` | standard |
+| `replit` | Replit | `replit.com` | standard |
+| `v0` | V0 | `v0.app` | standard |
+| `base44` | Base44 | `app.base44.com` | standard |
+| `emergent` | Emergent | `app.emergent.sh` | standard |
+| `perplexity` | Perplexity | `perplexity.ai`, `www.perplexity.ai` | standard |
+| `firebase_studio` | Firebase Studio | `studio.firebase.google.com`, `*.cloudworkstations.dev` | standard |
+
 ## Test Contract (`data-acn-*` Attributes)
 
 Tests query **only** these stable DOM attributes — they are the public test API:
@@ -106,3 +126,58 @@ Never remove or rename these attributes — tests depend on them.
 - Zone construction: `orbBuildZone()`
 - Rendering: `orbRenderShowAll()`, `orbRenderArc()`, `orbRenderWheel()`
 - CSS injection: `orbInjectCSS()`
+
+## The `modules/` Directory
+
+The `modules/` folder contains **extracted reference implementations** of feature groups from the main userscript. Each file isolates a logical subsystem with its own version and dependency notes. These are **not imported at runtime** — the main userscript is the single deployable file. The modules serve as:
+
+- Development references when working on a specific feature area
+- Historical snapshots of how features were integrated
+- Potential future integration targets if the project ever moves to a build step
+
+| File | Feature Area |
+|------|-------------|
+| `groupA-hover-zone.js` | Hover zone hitzone geometry (`orbUpdateHitzone()`) |
+| `groupB-context-tracking.js` | SSE interception, token counting |
+| `groupC-settings.js` | Settings panel, language selection |
+| `groupD-bookmarks-search.js` | Bookmarks, search, filtering |
+| `groupE1-summary.js` | Summary panel, conversation analysis |
+| `groupE2-tools-gallery.js` | Tools, image gallery, exports, commands |
+
+When modifying a feature, check the corresponding module file for design context, then make changes in the main userscript.
+
+## The `docs/` Directory
+
+The `docs/` folder contains detailed feature specs, design documents, and agent plans. These are valuable references when working on specific features:
+
+| File | Topic |
+|------|-------|
+| `BOOKMARKS.md` | Bookmarks feature spec |
+| `COMMANDS.md` | Commands feature spec |
+| `CONTEXT-TRACKING.md` | Context tracking design |
+| `FIX-V10.8-CONTEXT-TRACKING.md` | Context tracking v10.8 fix details |
+| `FIX-V10.9-HYBRID-CONTEXT-TRACKING.md` | Hybrid context tracking v10.9 fix |
+| `GET-AI-MESSAGES.md` | AI message extraction spec |
+| `HOVER-ZONE-FIX.md` | Hover zone fix spec |
+| `SEARCH-ENHANCEMENT.md` | Search enhancement spec |
+| `SETTINGS.md` | Settings panel spec |
+| `SUMMARY.md` | Summary panel spec |
+| `TOOLS.md` | Tools panel spec |
+| `PLAN-USAGE.md` | Usage/plan tracking spec |
+| `V10-PLAN.md` | v10 release plan |
+| `AGENT-PLAN.md` | Agent implementation plan |
+| `claude_specific_context_tracking_calculation.md` | Claude-specific context math |
+| `orbital/` | Orbital UI specs and reference HTML |
+
+## Root-Level Documentation
+
+These files at the repo root provide additional context:
+
+| File | Purpose |
+|------|---------|
+| `TESTING.md` | Comprehensive testing guide (more detailed than `agent_docs/testing.md`) |
+| `TROUBLESHOOTING.md` | Platform-specific diagnostics and known issues |
+| `DOM-REFERENCE.md` | Real DOM structures for all 14 platforms — essential for selector work |
+| `DECISIONS.md` | Architectural decision log with rationale |
+| `CHANGELOG.md` | Detailed version history |
+| `ROADMAP.md` | Future directions and planned features |

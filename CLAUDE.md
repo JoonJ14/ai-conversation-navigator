@@ -34,3 +34,13 @@ AI Conversation Navigator is a single-file browser userscript (Tampermonkey/Grea
 | `agent_docs/conventions.md` | ES5 constraints (detailed), naming conventions, CSS rules, storage keys, debugging policy |
 | `agent_docs/testing.md` | Prerequisites, setup, running tests, test architecture, CI/CD pipelines |
 | `agent_docs/git-workflow.md` | Branch protection, feature branches, PR process, commit conventions, version bumping |
+
+**Supplementary references** (not in agent_docs/ but useful for specific tasks):
+
+| Location | When to read |
+|----------|-------------|
+| `docs/*.md` | Working on a specific feature (bookmarks, search, context tracking, etc.) — contains detailed specs |
+| `modules/*.js` | Understanding a feature's design — extracted reference implementations (not imported at runtime) |
+| `TESTING.md`, `TROUBLESHOOTING.md` | Deep testing/debugging — more detail than `agent_docs/testing.md` |
+| `DOM-REFERENCE.md` | Fixing selectors or updating mock pages — real DOM structures for all 14 platforms |
+| `DECISIONS.md` | Understanding why something was built a certain way — architectural decision log |

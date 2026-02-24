@@ -50,3 +50,11 @@ GitHub Actions runs on push/PR to `main`:
 - **cross-platform-tests.yml:** 3 OS (Ubuntu, macOS, Windows) x 3 browsers (Chromium, Firefox, WebKit) = 9 test matrix jobs
 - **claude.yml:** Claude Code integration for automated issue/PR responses
 - **claude-code-review.yml:** Automated code review
+
+## Related Documentation
+
+For deeper testing and debugging context, see these root-level files:
+
+- **`TESTING.md`** — Comprehensive testing guide with additional detail beyond this summary
+- **`TROUBLESHOOTING.md`** — Platform-specific diagnostics, known issues, and debugging steps
+- **`DOM-REFERENCE.md`** — Real DOM structures for all 14 platforms; essential when fixing broken selectors or updating mock pages
