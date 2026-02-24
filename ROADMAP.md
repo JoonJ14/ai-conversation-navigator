@@ -99,11 +99,14 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 ## Future: General Feature Ideas
 
 - [ ] Keyboard shortcuts for navigation
-- [ ] Export conversation outline (stub panel exists in v10.0)
-- [ ] Bookmarks panel (stub panel exists in v10.0)
-- [ ] Conversation summary panel (stub panel exists in v10.0)
+- [x] Export conversation outline (stub panel exists in v10.0)
+- [x] Bookmarks panel (stub panel exists in v10.0)
+- [x] Conversation summary panel (stub panel exists in v10.0)
 - [ ] Per-platform accent colors for app-builder platforms
 - [ ] Convert to a standalone browser extension (beyond userscript)
+- [x] Korean translated language mode for mom
+- [ ] More translated language support in settings (?)
+- [ ] Project overview, or chat links view (?) when we are outside of conversation view
 
 ---
 
