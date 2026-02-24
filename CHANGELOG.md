@@ -4,6 +4,98 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [10.8 — Context Tracking Overhaul, Arc Hitzone, Turn Counter Reset] — 2026-02-23
+
+**Branch:** `fix/v10-live-testing-polish`
+
+Five fixes: critical SSE interceptor bug, non-Claude display cleanup, Claude GM caching,
+arc mode hitzone geometry, and SPA turn counter staleness.
+
+---
+
+### SSE Interceptor Never Worked — Tampermonkey Sandbox Isolation
+
+**The problem:** The context bar always showed `(est.)` on Claude, even after sending
+multiple messages. `_sseTokenData.exact` was never set to `true`. The SSE interceptor
+appeared to be set up but never intercepted any traffic.
+
+**Root cause — Tampermonkey sandbox:** When `@grant` directives are present (GM_addStyle,
+GM_getValue, etc.), Tampermonkey runs the script in a sandboxed environment where `window`
+is a wrapper object, not the real page `window`. `setupClaudeSSEInterceptor()` patched
+`window.fetch` — but this patched the sandbox's copy. Claude.ai's JavaScript uses the real
+page's `window.fetch`, which was never touched. Confirmed by checking
+`window._acnFetchPatched` in the browser console — returned `undefined`. Manually patching
+the real `window.fetch` from console immediately intercepted SSE streams with `input_tokens`.
+
+**Fix:** Use `unsafeWindow` (Tampermonkey API that references the real page window) instead
+of `window` for the fetch patch. Added `@grant unsafeWindow` to the header. Used
+`unsafeWindow.fetch.bind(unsafeWindow)` to preserve `this` context.
+
+---
+
+### Non-Claude: Removed Misleading Estimated Percentage Bar
+
+**The problem:** ChatGPT, Grok, Gemini showed both an estimated percentage bar AND turn dots.
+The percentage bar used DOM `innerText / 4` estimation which can undercount by 15-20x
+(system prompts, tool calls, search results are invisible to DOM scraping). Showing "~12K /
+128K tokens (est.)" when real usage might be 90K+ is actively misleading.
+
+**Fix:** Removed `_renderEstimatedBar()` call from Path C. Non-Claude platforms now show
+only turn dots with weighted-average compaction prediction — honest about what we don't know,
+increasingly accurate over time. Section header changed from "Context window" to
+"Conversation turns".
+
+---
+
+### Claude: GM Storage Caching for Page Reloads
+
+**The problem:** On page reload or navigation to an existing conversation, `_sseTokenData`
+resets. Until the user sends a message and SSE fires, the context bar falls back to
+inaccurate DOM estimation.
+
+**Fix:** After each SSE `message_start`, persist token data to `GM_setValue` keyed by
+conversation ID (extracted from URL path). On page load, check GM cache first. Cached data
+displays with `(last known)` label, distinct from live `(exact)`. Cache is pruned to 50 most
+recent conversations. Three display states: `(exact)` = live SSE, `(last known)` = cached
+from previous session, `(est.)` = DOM fallback for never-visited conversations.
+
+---
+
+### Arc Mode: Hitzone Too Narrow for Focused Satellite
+
+**The problem:** In arc mode, the focused satellite button (directly left of Navigate) sat
+at ~147px from the right edge, but the hitzone was only 96px wide. Moving the cursor toward
+the button exited the hitzone at 96px, collapsing all buttons before the user could click.
+Only occurred when no panel was open (panel-open state bypasses hover-based visibility).
+
+**Root cause:** `orbUpdateHitzone()` computed a fixed width based on show-all layout geometry
+(all dots near the center axis). Arc mode's `radius = 88` pushes the focused dot far beyond.
+
+**Fix:** Made `orbUpdateHitzone()` mode-aware. Arc mode uses a wider hitzone
+(`ORB_CX + 88 + 17 + HITZONE_PAD_X = 177px`) that covers the full arc radius plus the
+focused dot's half-width. Show-all and wheel modes keep the original 96px width.
+`orbUpdateHitzone()` is also called when the mode changes in Settings.
+
+---
+
+### Turn Counter Stale After SPA Navigation (Codex Review)
+
+**The problem:** After SPA navigation to a new thread with fewer messages, the turn counter
+and compaction dots stayed stale from the previous conversation. `updateTurnCounter()` has
+`if (newTotal <= _turnCounter.totalTurns) return` — since the new conversation has fewer
+messages, it returned early forever.
+
+**Root cause:** SPA navigation handlers (`pushState`, `replaceState`, `popstate`) reset
+`_questions = []` but did not reset `_turnCounter` or any SSE state.
+
+**Fix:** Added `resetTurnCounter()` helper that zeroes all turn counter and SSE state.
+Called in all three SPA handlers alongside `_questions = []`. Also added a shrinkage check
+in `updateTurnCounter()` itself as a safety net: if `newTotal < _turnCounter.totalTurns`,
+call `resetTurnCounter()`. For Claude users, SPA navigation also triggers
+`_loadCachedSSEData()` to restore token data for the destination conversation.
+
+---
+
 ## [10.7.11 — Bookmark Icon Invisible on Hover (Non-Active State)] — 2026-02-23
 
 **Branch:** `fix/v10-live-testing-polish`
