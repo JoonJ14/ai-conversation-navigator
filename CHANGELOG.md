@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
-## [11.0 — Summary Panel Overhaul] — 2026-03-09
+## [10.10 — Summary Panel Overhaul] — 2026-03-09
 
 **Branch:** `feature/summary-panel-overhaul`
 
