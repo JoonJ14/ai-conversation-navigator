@@ -4,6 +4,58 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [11.0 — Draggable Orbital Zone] — 2026-03-09
+
+**Branch:** `feature/draggable-orbital-zone`
+
+One feature: vertical repositioning of the orbital button cluster by click-and-hold drag.
+
+**Files modified:** `ai-conversation-navigator.user.js` only.
+
+### Problem
+
+The orbital button zone is fixed at the vertical center of the right edge. On some platforms and screen layouts, it overlaps UI elements the user needs — Claude's project content panel, sidebar toggles, etc. There was no way to move it without refreshing the page.
+
+### Technical Root Cause
+
+The zone element is `position:fixed; top:0; bottom:0; right:0` — a full-height strip. All dot positions are computed from `cy = window.innerHeight / 2` in `orbRender()` and `orbUpdateHitzone()`. This `cy` value was hardcoded to the vertical center with no user-adjustable offset.
+
+### Method Chosen
+
+Introduce a `_orbYRatio` variable (0.0–1.0, default 0.5 = center) that stores the vertical center as a fraction of viewport height. Replace the hardcoded `window.innerHeight / 2` with `_orbGetCy()` which returns `_orbYRatio * window.innerHeight`. Persist per-platform ratios in GM storage under `'acn-zone-positions'`.
+
+Why ratio instead of absolute pixels: ratios adapt when the user resizes the window or uses a different screen. A position at 40% of the screen stays at 40% regardless of resolution.
+
+### Drag Mechanics
+
+- `mousedown` on the hitzone or any dot starts a potential drag
+- `mousemove` on `document` computes delta from start; if `|deltaY| > 5px`, marks drag as "moved" and begins repositioning
+- `mouseup` on `document` ends drag; if moved, saves position and cancels the subsequent `click` event via a one-time capture-phase listener so dot click actions are not triggered
+- Any open panel closes at the moment the 5px threshold is first crossed
+
+### Drag Limits
+
+Computed from show-all mode (worst case — most vertical extent):
+- **Top limit:** `cy - 112 >= 20px` (topmost satellite at cy−96, size 32, gives cy−112 as top pixel; 20px padding)
+- **Bottom limit:** `cy + 160 <= viewportHeight − 20px` (bottommost satellite at cy+144, size 32, gives cy+160 as bottom pixel)
+- Fallback for very small viewports: 20%–80% of viewport height
+- Limits re-applied on `window.resize` events
+
+### Visual Feedback
+
+- `cursor: ns-resize` on the hitzone signals draggability
+- `.acn-zone.acn-dragging` class sets `opacity: 0.7` during active drag
+
+### Platform Scope
+
+Dragging is available on all orbital platforms (Claude, ChatGPT, Grok, Gemini, Perplexity, and their sub-variants Claude Code / Codex). App-builder platforms (Bolt, Lovable, Replit, V0, Base44, Emergent, Firebase Studio) are unaffected — they use the legacy ghost-notch system and their position is boundary-detected, not user-draggable.
+
+### Storage Key
+
+New GM storage key: `'acn-zone-positions'` — JSON object of `{ [platform.id]: ratio }`. Written on drag end, read on `injectOrbital()`. Separate from `'acn-settings'` to avoid coupling the drag feature to the settings migration path.
+
+---
+
 ## [10.9 — Hybrid SSE Context Tracking + Turn Dots for Claude] — 2026-02-23
 
 **Branch:** `fix/v10-live-testing-polish`
