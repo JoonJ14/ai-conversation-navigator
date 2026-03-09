@@ -4,6 +4,44 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [11.0 — Summary Panel Overhaul] — 2026-03-09
+
+**Branch:** `feature/summary-panel-overhaul`
+
+Three changes to reduce noise in the Summary panel's Topics, Key Points, and Conversation Map sections.
+
+**Files modified:** `ai-conversation-navigator.user.js` only.
+
+### 3a — Conversation Map: Content-Aware Segmentation
+
+**Problem:** Fixed sliding window of 4 messages chopped conversations into rigid blocks regardless of content flow. Segment labels also had category prefixes (BUG, CODE, SETUP, MSG) that cluttered the UI.
+
+**Root cause:** `_sumBuildConversationMap` used `i += windowSize` to slice the timeline into equal-sized chunks with no awareness of topic continuity.
+
+**Fix:** Replaced fixed-window loop with topic-shift detection using `_sumWordOverlap`:
+1. Start with message 0 in segment 0.
+2. For each subsequent message, compute overlap against the last 4 messages of the current segment.
+3. If `overlap >= 0.15`: add message to current segment (segment grows).
+4. If `overlap < 0.15`: commit current segment, start a new one.
+5. Short conversations (≤ 6 messages): single segment.
+6. Existing `_sumMergeExcessSegments` remains as safety net for >12 segments.
+
+Removed `SEGMENT_ICON_MAP` and `_sumGetSegmentIcon()`. Segment labels from `_sumGenerateSegmentLabel()` (top 1-2 topics) are sufficient on their own. `_sumRenderConversationMap` now renders `seg.label` directly.
+
+### 3b — Topics: Reduce Cap from 15 to 8
+
+Changed `result.length < 15` to `result.length < 8` in `_sumExtractTopics`.
+
+### 3c — Key Points: Tighten Patterns and Reduce Cap
+
+- Removed the overly broad action pattern `\b(try|attempt|run|execute|install|update|add|remove|delete|replace|create|build)\b` — matched nearly every sentence in coding conversations.
+- Removed "actually" from `root cause|actually` finding pattern — too common standalone.
+- Narrowed broad finding pattern from `because|reason|why|explanation|...` to `this (means|is why|causes)|the reason (is|being|for)` — avoids matching bare "because"/"why".
+- Raised minimum sentence length for extraction from 20 chars to 40 chars.
+- Reduced key point cap from 20 to 10.
+
+---
+
 ## [10.9 — Hybrid SSE Context Tracking + Turn Dots for Claude] — 2026-02-23
 
 **Branch:** `fix/v10-live-testing-polish`
