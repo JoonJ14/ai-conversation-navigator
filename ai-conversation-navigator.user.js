@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator v10.9
 // @namespace    http://tampermonkey.net/
-// @version      10.9
+// @version      10.10
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -39,7 +39,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '10.9';
+    var ACN_VERSION = '10.10';
 
     // ============================================================
     // i18n — internationalization string table
@@ -1349,6 +1349,13 @@
     var orbScrollInverted = false; // true = natural scroll
     var orbSearchQuery = '';
 
+    // ── Zone drag state ─────────────────────────────────────────
+    var _orbYRatio       = 0.5;   // vertical center as fraction of viewport height
+    var _orbDragActive   = false; // true while mouse is held down
+    var _orbDragMoved    = false; // true once 5px threshold is crossed
+    var _orbDragStartY   = 0;     // clientY at mousedown
+    var _orbDragStartRatio = 0.5; // _orbYRatio at drag start
+
     // ── Settings persistence ────────────────────────────────────
     function orbLoadSettings() {
         try {
@@ -1366,6 +1373,40 @@
                 panelWidth: _panelWidth,
             }));
         } catch (e) {}
+    }
+
+    // ── Zone position persistence (per-platform, GM storage) ───
+    function _orbLoadZonePosition() {
+        try {
+            var positions = GM_getValue('acn-zone-positions', {});
+            _orbYRatio = (positions[platform.id] !== undefined) ? positions[platform.id] : 0.5;
+            _orbYRatio = _orbClampYRatio(_orbYRatio);
+        } catch (e) { _orbYRatio = 0.5; }
+    }
+    function _orbSaveZonePosition() {
+        try {
+            var positions = GM_getValue('acn-zone-positions', {});
+            positions[platform.id] = _orbYRatio;
+            GM_setValue('acn-zone-positions', positions);
+        } catch (e) {}
+    }
+    // Returns the vertical center pixel for the orbital cluster
+    function _orbGetCy() {
+        return _orbYRatio * window.innerHeight;
+    }
+    // Clamps a Y ratio so all dots (worst-case: show-all mode) stay within viewport
+    function _orbClampYRatio(ratio) {
+        var h = window.innerHeight;
+        // show-all: topmost satellite at cy - 2*48 - 16 = cy - 112; topmost Navigate edge at cy - 24
+        // bottommost satellite at cy + 3*48 + 16 = cy + 160
+        var PAD    = 20;
+        var minCy  = 112 + PAD;
+        var maxCy  = h - 160 - PAD;
+        if (maxCy < minCy) { minCy = h * 0.2; maxCy = h * 0.8; }
+        var r = ratio;
+        if (r < minCy / h) r = minCy / h;
+        if (r > maxCy / h) r = maxCy / h;
+        return r;
     }
 
     // ── Orbital panel update hook (called by scanConversation) ──
@@ -1817,7 +1858,8 @@
             // Zone + hitzone
             '.acn-zone{position:fixed;right:0;top:0;bottom:0;width:160px;z-index:2147483640;pointer-events:none;transition:right .3s cubic-bezier(.4,0,.2,1);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif}',
             '.acn-zone.acn-hp{right:var(--acn-panel-w,310px)}',
-            '.acn-hitzone{position:absolute;right:0;z-index:1;pointer-events:auto}',
+            '.acn-hitzone{position:absolute;right:0;z-index:1;pointer-events:auto;cursor:ns-resize}',
+            '.acn-zone.acn-dragging{opacity:0.7}',
 
             // Dots — critical: fast opacity, slow position
             '.acn-dot{position:absolute;display:flex;align-items:center;justify-content:center;',
@@ -2105,7 +2147,7 @@
         // Keep data-acn-mode in sync so CSS can target arc/wheel/show-all label positions
         zone.setAttribute('data-acn-mode', orbMode);
 
-        var cy   = window.innerHeight / 2;
+        var cy   = _orbGetCy();
         var show = orbHovering || orbPanel !== null;
 
         // Wheel/arc hint
@@ -5508,6 +5550,58 @@
             setTimeout(function () { orbAnimLock = false; }, 250);
         }, { passive: false });
 
+        // ── Drag to reposition (orbital platforms only) ──────────
+        function _orbDragStart(e) {
+            if (e.button !== 0) return; // left button only
+            _orbDragActive     = true;
+            _orbDragMoved      = false;
+            _orbDragStartY     = e.clientY;
+            _orbDragStartRatio = _orbYRatio;
+            e.preventDefault(); // prevent text selection during drag
+        }
+        function _orbDragMove(e) {
+            if (!_orbDragActive) return;
+            var deltaY = e.clientY - _orbDragStartY;
+            if (!_orbDragMoved && Math.abs(deltaY) > 5) {
+                _orbDragMoved = true;
+                // Close any open panel when drag starts
+                if (orbPanel) { orbClosePanel(); }
+                zone.classList.add('acn-dragging');
+            }
+            if (!_orbDragMoved) return;
+            _orbYRatio = _orbClampYRatio(_orbDragStartRatio + deltaY / window.innerHeight);
+            orbUpdateHitzone();
+            orbRender();
+        }
+        function _orbDragEnd() {
+            if (!_orbDragActive) return;
+            _orbDragActive = false;
+            zone.classList.remove('acn-dragging');
+            if (_orbDragMoved) {
+                _orbSaveZonePosition();
+                // Suppress the click event that immediately follows mouseup after a drag
+                document.addEventListener('click', function _cancelDragClick(ev) {
+                    ev.stopImmediatePropagation();
+                    ev.preventDefault();
+                    document.removeEventListener('click', _cancelDragClick, true);
+                }, true);
+            }
+            _orbDragMoved = false;
+        }
+        hitzone.addEventListener('mousedown', _orbDragStart);
+        orbDots.forEach(function (dot) {
+            dot.addEventListener('mousedown', _orbDragStart);
+        });
+        document.addEventListener('mousemove', _orbDragMove);
+        document.addEventListener('mouseup',   _orbDragEnd);
+
+        // Recalculate clamped position on window resize so dots never go off-screen
+        window.addEventListener('resize', function () {
+            _orbYRatio = _orbClampYRatio(_orbYRatio);
+            orbUpdateHitzone();
+            orbRender();
+        });
+
         return zone;
     }
 
@@ -5519,7 +5613,7 @@
         if (!hitzone) return;
 
         // Vertical center of viewport (mirrors orbRender's `cy` computation)
-        var cy = window.innerHeight / 2;
+        var cy = _orbGetCy();
 
         // show-all geometry: Navigate at cy, satellites spread above/below at sp-px intervals
         var sp = 48;
@@ -5564,6 +5658,7 @@
         document.querySelectorAll('.acn-panel').forEach(function (p) { p.remove(); });
 
         orbLoadSettings();
+        _orbLoadZonePosition();
         orbInjectCSS();
 
         // Build and append zone
