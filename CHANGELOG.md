@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
-## [11.0 — Draggable Orbital Zone] — 2026-03-09
+## [10.10 — Draggable Orbital Zone] — 2026-03-09
 
 **Branch:** `feature/draggable-orbital-zone`
 
