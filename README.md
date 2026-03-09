@@ -1,6 +1,6 @@
 # AI Conversation Navigator
 
-A browser userscript that adds a navigation sidebar to long AI chat conversations. Quickly jump to any of your previous questions with a single click.
+A browser userscript that adds an orbital navigation system to long AI chat conversations. Quickly jump to any of your previous questions with a single click.
 
 If you are like me, I just go on and on with chat ai, learning one thing and it spurs another questions. Which is good in a sense I am constantly learning, but it turns out to be one very long conversation script. I know that the models have to compress and save it to memory and I should start another chat to save token consumption, but I just continually ask in chat and it kinda shows the flow of thought and learning. I just like it this way, what can I say. So it becomes troublesome trying to go back to chat ai's previous answers, I have to play the guessing game of "I think you said something about this here somewhere...". I thought soon OpenAI or Anthropic would add simple feature on the scroll bar to show my previous questions and I can "jump" to that part of conversation, but it hasn't came out yet, so I decided to make my own, for now. 
 
@@ -160,6 +160,10 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 - **🎨 Platform-Specific Themes** — Accent colors match each platform's branding (Claude orange, ChatGPT white, Grok red, Gemini blue, Perplexity teal)
 - **✨ Visual Feedback** — Briefly highlights the message when you navigate to it
 - **🛡️ SPA-Resilient** — DOM Guardian, SPA navigation hooks, and periodic health checks keep the UI alive through aggressive re-rendering (Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Firebase Studio, Perplexity)
+- **📊 Context Window Bar** — Claude: exact token count via SSE interception, labeled `(exact)` or `(last known)`. Non-Claude: turn dots and compaction prediction
+- **💬 /Commands** — Typing `/commandname` in the chat input opens the command palette pre-filtered; updates live as you type
+- **🌐 i18n** — Korean language support; all labels update live on language switch without page reload
+- **📈 Plan Usage** — Fetches Claude plan utilization (session/weekly) and displays as progress bars in the Navigate panel
 
 
 ## Usage
@@ -175,7 +179,7 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 
 ## How It Works
 
-The script injects a hover-expand button and sidebar panel into AI chat pages. It scans the page for your messages using platform-specific CSS selectors defined in the `PLATFORMS` registry:
+The script injects an orbital button cluster into AI chat pages. It scans the page for your messages using platform-specific CSS selectors defined in the `PLATFORMS` registry:
 
 | Platform | Selector |
 |----------|----------|
@@ -289,15 +293,15 @@ See [TESTING.md](TESTING.md) § "Step-by-Step: Adding a New Platform" for detail
 
 **Does this script collect any of my data or send it to external servers?**
 
-No. The script makes zero network requests. It doesn't phone home, track usage, or send anything anywhere. Everything runs 100% locally in your browser. You can verify this yourself — the script's only `@grant` is `GM_addStyle` (for injecting CSS). There are no calls to `fetch`, `XMLHttpRequest`, `GM_xmlhttpRequest`, or any other networking API in the entire codebase.
+No. The script makes zero network requests. It doesn't phone home, track usage, or send anything anywhere. Everything runs 100% locally in your browser. You can verify this yourself — the script's `@grant` declarations are `GM_addStyle` (CSS injection), `GM_getValue`/`GM_setValue` (bookmark and context-cache persistence), `GM_xmlhttpRequest` (Claude plan usage fetch), and `unsafeWindow` (SSE interception for Claude context tracking). None of these are used to exfiltrate data; there are no calls to send data to any external server.
 
 **Can this script see my other browser tabs or passwords?**
 
-No. The script only runs on the specific AI chat sites listed in [Supported Platforms](#supported-platforms) and has no access to your other browser tabs, browsing history, or saved passwords. On the matched pages where it does run, the script *could* technically access same-origin page state like cookies or local storage (as any userscript on that page can), but it never does — it only reads visible DOM text to build the navigation sidebar. You can verify this by searching the source code for `cookie`, `localStorage`, or `sessionStorage` — none appear.
+No. The script only runs on the specific AI chat sites listed in [Supported Platforms](#supported-platforms) and has no access to your other browser tabs, browsing history, or saved passwords. On the matched pages where it does run, the script *could* technically access same-origin page state like cookies or local storage (as any userscript on that page can), but it never does — it only reads visible DOM text to build the navigation list. The script uses `localStorage` only to persist your panel-width preference (`_acnv10`) and `GM_setValue` for bookmarks and context-cache data — never to store conversation content. You can verify this by searching the source code for `cookie` — none appear.
 
 **Is my conversation data kept private when using this?**
 
-Yes. The script reads the visible text of your messages on the page (the same text you're already looking at) to build the navigation sidebar. That text is held in memory only while the tab is open, never written to disk, never stored, and never transmitted. When you close or refresh the tab, it's gone.
+Yes. The script reads the visible text of your messages on the page (the same text you're already looking at) to build the navigation list. That text is held in memory only while the tab is open, never written to disk, never stored, and never transmitted. When you close or refresh the tab, it's gone.
 
 **Why should I trust this script?**
 
