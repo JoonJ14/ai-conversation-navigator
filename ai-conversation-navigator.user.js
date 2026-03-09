@@ -1434,12 +1434,19 @@
         if (z) z.classList.remove('acn-dragging');
         if (_orbDragMoved) {
             _orbSaveZonePosition();
-            // Suppress the click event that immediately follows mouseup after a drag
-            document.addEventListener('click', function _cancelDragClick(ev) {
+            // Suppress the click event that immediately follows mouseup after a drag.
+            // Store the reference so the timeout can also remove it — without this,
+            // if mouseup fired outside the browser window (blur path), no click ever
+            // fires and the canceller would swallow the user's next legitimate click.
+            var _cancelDragClick = function (ev) {
                 ev.stopImmediatePropagation();
                 ev.preventDefault();
                 document.removeEventListener('click', _cancelDragClick, true);
-            }, true);
+            };
+            document.addEventListener('click', _cancelDragClick, true);
+            setTimeout(function () {
+                document.removeEventListener('click', _cancelDragClick, true);
+            }, 300);
         }
         _orbDragMoved = false;
     }
