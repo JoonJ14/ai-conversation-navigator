@@ -3488,25 +3488,16 @@
         { re: /\bshould (use|avoid|not|be|always|never)\b/i,                                        type: 'decision' },
         { re: /\b(you('ll| will| should| need to)|next step|action item|todo|to.do|make sure|ensure)\b/i, type: 'action' },
         { re: /\b(don't forget|remember to|be sure to|need to|have to|must)\b/i,                         type: 'action' },
-        { re: /\b(let me|i('ll| will)|going to|i'm going to|plan to)\b/i,                               type: 'action' },
-        { re: /\b(try|attempt|run|execute|install|update|add|remove|delete|replace|create|build)\b/i,    type: 'action' },
+        { re: /\b(i('ll| will)|going to|i'm going to|plan to)\b/i,                                      type: 'action' },
+        // Note: the generic try/run/install/build pattern was removed — too broad for technical conversations
         { re: /\b(found|discovered|noticed|realized|turns out|it turns out|appears that|seems like)\b/i, type: 'finding' },
-        { re: /\b(the (bug|issue|problem|error|cause) (is|was)|root cause|actually)\b/i,                type: 'finding' },
+        { re: /\b(the (bug|issue|problem|error|cause) (is|was)|root cause)\b/i,                         type: 'finding' },
         { re: /\b(important(ly)?|note that|keep in mind|worth noting|caveat|warning|caution)\b/i,       type: 'finding' },
-        { re: /\b(because|reason|why|explanation|this (means|is why|causes))\b/i,                      type: 'finding' }
+        { re: /\b(this (means|is why|causes)|the reason (is|being|for))\b/i,                            type: 'finding' }
     ];
 
-    var SEGMENT_ICON_MAP = [
-        { keywords: ['bug','error','fix','broken','crash','fail','issue','problem'],  icon: 'BUG'    },
-        { keywords: ['setup','install','config','configure','environment','init'],    icon: 'SETUP'  },
-        { keywords: ['code','function','class','variable','refactor','implement'],    icon: 'CODE'   },
-        { keywords: ['design','ui','ux','layout','style','css','color','theme'],      icon: 'DESIGN' },
-        { keywords: ['test','spec','assert','expect','mock','coverage','unit'],       icon: 'TEST'   },
-        { keywords: ['deploy','build','ci','cd','pipeline','release','publish'],      icon: 'DEPLOY' },
-        { keywords: ['data','database','schema','query','sql','api','endpoint'],      icon: 'DATA'   },
-        { keywords: ['doc','document','readme','comment','explain','description'],    icon: 'DOCS'   },
-        { keywords: ['plan','roadmap','idea','feature','proposal','strategy'],        icon: 'PLAN'   }
-    ];
+    // SEGMENT_ICON_MAP removed — prefix labels like BUG/CODE/MSG were not useful
+    // and made segment labels noisy. _sumGenerateSegmentLabel() provides clean labels.
 
     var FILE_EXTENSION_RE = /\b[\w\-]+\.(js|ts|jsx|tsx|css|html|py|rb|go|rs|java|c|cpp|h|json|yaml|yml|md|sh|bash|env|txt|csv|sql|graphql|vue|svelte)\b/gi;
 
@@ -3584,7 +3575,7 @@
         var result = [];
         var coveredWords = {};
 
-        for (var i = 0; i < sorted.length && result.length < 15; i++) {
+        for (var i = 0; i < sorted.length && result.length < 8; i++) {
             var term = sorted[i];
             if (freq[term] < 1.5) continue;
             if (term.indexOf(' ') === -1 && coveredWords[term]) continue;
@@ -3641,7 +3632,7 @@
         function checkMessage(msg, source, position) {
             var text = msg.text || '';
             var sentences = text.split(/(?<=[.!?])\s+|(?<=\n)\s*/).filter(function (s) {
-                return s.trim().length > 20;
+                return s.trim().length > 40;
             });
             sentences.forEach(function (sentence) {
                 var trimmed = sentence.trim();
@@ -3658,7 +3649,7 @@
         questions.forEach(function (q, i)   { checkMessage(q, 'user', i); });
         aiResponses.forEach(function (r, i) { checkMessage(r, 'ai',   i); });
 
-        return _sumDeduplicatePoints(points).slice(0, 20);
+        return _sumDeduplicatePoints(points).slice(0, 10);
     }
 
     function _sumGenerateStats(questions, aiResponses) {
@@ -3805,20 +3796,6 @@
         return entities;
     }
 
-    function _sumGetSegmentIcon(segment) {
-        var topics = (segment.topics || []).join(' ').toLowerCase();
-        var text   = (segment.messages || []).map(function (m) { return m.text || ''; }).join(' ').toLowerCase();
-        var combined = topics + ' ' + text;
-
-        for (var i = 0; i < SEGMENT_ICON_MAP.length; i++) {
-            var entry = SEGMENT_ICON_MAP[i];
-            for (var j = 0; j < entry.keywords.length; j++) {
-                if (combined.indexOf(entry.keywords[j]) !== -1) return entry.icon;
-            }
-        }
-        return 'MSG';
-    }
-
     function _sumGenerateSegmentLabel(segment) {
         var topics = segment.topics || [];
         if (!topics.length) return 'Discussion';
@@ -3827,14 +3804,6 @@
         }
         if (topics.length === 1) return cap(topics[0]);
         return cap(topics[0]) + ' / ' + cap(topics[1]);
-    }
-
-    var _SEGMENT_WINDOW = 4;
-
-    function _sumGetWindowSize(totalMessages) {
-        if (totalMessages < 4)   return totalMessages || 1;
-        if (totalMessages > 100) return 6;
-        return _SEGMENT_WINDOW;
     }
 
     function _sumMergeExcessSegments(segments) {
@@ -3868,25 +3837,70 @@
         var timeline = _sumBuildTimeline(questions, aiResponses);
         if (!timeline.length) return [];
 
-        var windowSize = _sumGetWindowSize(timeline.length);
-        var segments   = [];
-
-        for (var i = 0; i < timeline.length; i += windowSize) {
-            var slice    = timeline.slice(i, i + windowSize);
-            var combined = slice.map(function (m) { return m.text; }).join(' ');
-            var topics   = _sumExtractTopicsFromText(combined, 5);
-            var entities = _sumScanEntities(slice);
-
+        // Short conversations: keep as a single segment
+        if (timeline.length <= 6) {
+            var combined = timeline.map(function (m) { return m.text; }).join(' ');
             var seg = {
-                startIdx: i,
-                endIdx:   Math.min(i + windowSize - 1, timeline.length - 1),
-                messages: slice,
-                topics:   topics,
-                entities: entities,
+                startIdx: 0,
+                endIdx:   timeline.length - 1,
+                messages: timeline,
+                topics:   _sumExtractTopicsFromText(combined, 5),
+                entities: _sumScanEntities(timeline),
                 label:    ''
             };
             seg.label = _sumGenerateSegmentLabel(seg);
-            segments.push(seg);
+            return [seg];
+        }
+
+        // Content-aware segmentation: compare each message against the recent
+        // context of the current segment using word overlap.
+        // If overlap drops below the threshold, start a new segment.
+        // This keeps a long deep-dive on one topic as a single block, while
+        // a quick topic shift creates its own small block.
+        var SPLIT_THRESHOLD = 0.15; // below this overlap → new segment
+        var CONTEXT_WINDOW  = 4;    // compare new msg against last N msgs in segment
+
+        var segments    = [];
+        var currentMsgs = [timeline[0]];
+
+        for (var i = 1; i < timeline.length; i++) {
+            var msg        = timeline[i];
+            var windowMsgs = currentMsgs.slice(-CONTEXT_WINDOW);
+            var windowText = windowMsgs.map(function (m) { return m.text; }).join(' ');
+            var overlap    = _sumWordOverlap(msg.text, windowText);
+
+            if (overlap >= SPLIT_THRESHOLD) {
+                currentMsgs.push(msg);
+            } else {
+                // Commit current segment
+                var segText = currentMsgs.map(function (m) { return m.text; }).join(' ');
+                var newSeg = {
+                    startIdx: currentMsgs[0].globalIdx,
+                    endIdx:   currentMsgs[currentMsgs.length - 1].globalIdx,
+                    messages: currentMsgs,
+                    topics:   _sumExtractTopicsFromText(segText, 5),
+                    entities: _sumScanEntities(currentMsgs),
+                    label:    ''
+                };
+                newSeg.label = _sumGenerateSegmentLabel(newSeg);
+                segments.push(newSeg);
+                currentMsgs = [msg];
+            }
+        }
+
+        // Commit the final segment
+        if (currentMsgs.length) {
+            var lastText = currentMsgs.map(function (m) { return m.text; }).join(' ');
+            var lastSeg = {
+                startIdx: currentMsgs[0].globalIdx,
+                endIdx:   currentMsgs[currentMsgs.length - 1].globalIdx,
+                messages: currentMsgs,
+                topics:   _sumExtractTopicsFromText(lastText, 5),
+                entities: _sumScanEntities(currentMsgs),
+                label:    ''
+            };
+            lastSeg.label = _sumGenerateSegmentLabel(lastSeg);
+            segments.push(lastSeg);
         }
 
         return _sumMergeExcessSegments(segments);
@@ -3954,11 +3968,10 @@
         }
 
         mapData.forEach(function (seg) {
-            var icon      = _sumGetSegmentIcon(seg);
             var rangeText = 'Msgs ' + (seg.startIdx + 1) + '-' + (seg.endIdx + 1);
 
             var rangeEl = createElement('div', { className: 'acn-map-range', textContent: rangeText });
-            var labelEl = createElement('div', { className: 'acn-map-label', textContent: icon + '  ' + seg.label });
+            var labelEl = createElement('div', { className: 'acn-map-label', textContent: seg.label });
             var segEl   = createElement('div', { className: 'acn-map-segment' }, [rangeEl, labelEl]);
 
             if (seg.topics.length) {
