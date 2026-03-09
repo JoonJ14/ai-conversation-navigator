@@ -1350,11 +1350,12 @@
     var orbSearchQuery = '';
 
     // ── Zone drag state ─────────────────────────────────────────
-    var _orbYRatio       = 0.5;   // vertical center as fraction of viewport height
-    var _orbDragActive   = false; // true while mouse is held down
-    var _orbDragMoved    = false; // true once 5px threshold is crossed
-    var _orbDragStartY   = 0;     // clientY at mousedown
-    var _orbDragStartRatio = 0.5; // _orbYRatio at drag start
+    var _orbYRatio              = 0.5;   // vertical center as fraction of viewport height
+    var _orbDragActive          = false; // true while mouse is held down
+    var _orbDragMoved           = false; // true once 5px threshold is crossed
+    var _orbDragStartY          = 0;     // clientY at mousedown
+    var _orbDragStartRatio      = 0.5;   // _orbYRatio at drag start
+    var _orbGlobalHandlersAttached = false; // guard against stacking on SPA reinjection
 
     // ── Settings persistence ────────────────────────────────────
     function orbLoadSettings() {
@@ -1407,6 +1408,55 @@
         if (r < minCy / h) r = minCy / h;
         if (r > maxCy / h) r = maxCy / h;
         return r;
+    }
+
+    // ── Global drag handlers (module scope — one reference, safe to add once) ──
+    // Defined here so they are the same function reference across SPA reinjections,
+    // making it safe to guard registration with _orbGlobalHandlersAttached.
+    function _orbDragMove(e) {
+        if (!_orbDragActive) return;
+        var deltaY = e.clientY - _orbDragStartY;
+        if (!_orbDragMoved && Math.abs(deltaY) > 5) {
+            _orbDragMoved = true;
+            if (orbPanel) { orbClosePanel(); }
+            var z = document.getElementById('acn-zone');
+            if (z) z.classList.add('acn-dragging');
+        }
+        if (!_orbDragMoved) return;
+        _orbYRatio = _orbClampYRatio(_orbDragStartRatio + deltaY / window.innerHeight);
+        orbUpdateHitzone();
+        orbRender();
+    }
+    function _orbDragEnd() {
+        if (!_orbDragActive) return;
+        _orbDragActive = false;
+        var z = document.getElementById('acn-zone');
+        if (z) z.classList.remove('acn-dragging');
+        if (_orbDragMoved) {
+            _orbSaveZonePosition();
+            // Suppress the click event that immediately follows mouseup after a drag
+            document.addEventListener('click', function _cancelDragClick(ev) {
+                ev.stopImmediatePropagation();
+                ev.preventDefault();
+                document.removeEventListener('click', _cancelDragClick, true);
+            }, true);
+        }
+        _orbDragMoved = false;
+    }
+    function _orbResizeHandler() {
+        _orbYRatio = _orbClampYRatio(_orbYRatio);
+        orbUpdateHitzone();
+        orbRender();
+    }
+    // Call once per page load — subsequent calls from SPA reinjection are no-ops
+    function _orbAttachGlobalDragHandlers() {
+        if (_orbGlobalHandlersAttached) return;
+        _orbGlobalHandlersAttached = true;
+        document.addEventListener('mousemove', _orbDragMove);
+        document.addEventListener('mouseup',   _orbDragEnd);
+        // Reset drag state when the user releases the mouse outside the browser window
+        window.addEventListener('blur',   _orbDragEnd);
+        window.addEventListener('resize', _orbResizeHandler);
     }
 
     // ── Orbital panel update hook (called by scanConversation) ──
@@ -5564,6 +5614,9 @@
         }, { passive: false });
 
         // ── Drag to reposition (orbital platforms only) ──────────
+        // _orbDragStart is element-local (attached to hitzone/dots that are recreated
+        // each injection), so it stays here. The move/end/resize handlers live at
+        // module scope and are registered only once via _orbAttachGlobalDragHandlers().
         function _orbDragStart(e) {
             if (e.button !== 0) return; // left button only
             _orbDragActive     = true;
@@ -5572,48 +5625,12 @@
             _orbDragStartRatio = _orbYRatio;
             e.preventDefault(); // prevent text selection during drag
         }
-        function _orbDragMove(e) {
-            if (!_orbDragActive) return;
-            var deltaY = e.clientY - _orbDragStartY;
-            if (!_orbDragMoved && Math.abs(deltaY) > 5) {
-                _orbDragMoved = true;
-                // Close any open panel when drag starts
-                if (orbPanel) { orbClosePanel(); }
-                zone.classList.add('acn-dragging');
-            }
-            if (!_orbDragMoved) return;
-            _orbYRatio = _orbClampYRatio(_orbDragStartRatio + deltaY / window.innerHeight);
-            orbUpdateHitzone();
-            orbRender();
-        }
-        function _orbDragEnd() {
-            if (!_orbDragActive) return;
-            _orbDragActive = false;
-            zone.classList.remove('acn-dragging');
-            if (_orbDragMoved) {
-                _orbSaveZonePosition();
-                // Suppress the click event that immediately follows mouseup after a drag
-                document.addEventListener('click', function _cancelDragClick(ev) {
-                    ev.stopImmediatePropagation();
-                    ev.preventDefault();
-                    document.removeEventListener('click', _cancelDragClick, true);
-                }, true);
-            }
-            _orbDragMoved = false;
-        }
         hitzone.addEventListener('mousedown', _orbDragStart);
         orbDots.forEach(function (dot) {
             dot.addEventListener('mousedown', _orbDragStart);
         });
-        document.addEventListener('mousemove', _orbDragMove);
-        document.addEventListener('mouseup',   _orbDragEnd);
-
-        // Recalculate clamped position on window resize so dots never go off-screen
-        window.addEventListener('resize', function () {
-            _orbYRatio = _orbClampYRatio(_orbYRatio);
-            orbUpdateHitzone();
-            orbRender();
-        });
+        // Register document/window listeners once — no-op on SPA reinjection
+        _orbAttachGlobalDragHandlers();
 
         return zone;
     }
