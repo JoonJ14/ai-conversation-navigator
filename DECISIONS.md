@@ -523,3 +523,32 @@ Both signals are useful, neither duplicates the other. The visual hierarchy is: 
 - Both functions read from `_turnCounter`, which is updated by `updateTurnCounter()` on all platforms.
 - `resetTurnCounter()` resets both the turn counter and the hybrid SSE state (`cumulativeThinkingChars` etc.) on SPA navigation — keeps the two systems in sync.
 - The hitzone height computation (vertical centering, stack bounds) is mode-independent and unchanged.
+
+
+## DEC-018: Userscript `// @name` Must Never Include Version Number (v10.13)
+**Date:** 2026-03-10 | **Stage:** v10.13
+
+### Decision
+The `// @name` header field is permanently set to `AI Conversation Navigator` with no version suffix. Version information lives only in `// @version` and `ACN_VERSION`.
+
+### Context
+The `// @name` field in a Tampermonkey userscript is the script's identity key for the user-facing extension list. It is distinct from `// @version`, which Tampermonkey uses for update detection. The problem emerged in v10.11: `// @name` had been frozen at `AI Conversation Navigator v10.9` since v10.9, then corrected to include the current version in v10.11. This immediately exposed a deeper issue.
+
+### Problem with Versioned Names
+Tampermonkey matches installed scripts by name. If a user has `AI Conversation Navigator v10.11` installed and then installs or updates to `AI Conversation Navigator v10.12`, Tampermonkey sees two different scripts (different names) and installs the new one alongside the old one. The user ends up with duplicate scripts — both active, both injecting into pages, causing conflicts and double-rendering. Users would need to manually uninstall the old version every time they updated.
+
+### Alternatives Considered
+
+**Alternative: Keep versioned name, document the duplicate risk.** Acceptable for a one-time correction but creates a recurring maintenance burden. Every release requires the user to uninstall the previous version manually. *Rejected.*
+
+**Alternative: Use `// @namespace` for version tracking.** Namespace is also an identity field in Tampermonkey and has the same problem. *Rejected.*
+
+**Alternative: No version anywhere in the script header.** Users would lose visibility into what version is installed. *Rejected:* `// @version` is how Tampermonkey displays and compares versions in the extension list — it must be accurate.
+
+### Rationale
+`// @name` = human-readable label, never changes. `// @version` = machine-readable version number, updated every release. This is the conventional userscript pattern and matches how browser extensions work (the extension name doesn't change; only the version badge updates).
+
+### Constraints
+- Never include a version number in `// @name`
+- Always update `// @version` and `ACN_VERSION` together on every release
+- If a future session sees a version number in `// @name`, remove it — do not "align" it to the current version
