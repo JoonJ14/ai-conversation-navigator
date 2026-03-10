@@ -6,6 +6,36 @@ If you run into a problem, check here first — you might find we've already sol
 
 ---
 
+## v10.15 — Map Alignment and Sub-Segmentation (2026-03-10)
+
+---
+
+### RESOLVED — Sub-Segments Clustered at Top with Empty Space Below
+
+**Versions affected:** v10.11 through v10.13
+**Fixed in:** v10.15 | **Severity:** Visual | **Area:** Conversation Map
+
+**Symptom:** In expanded mode (panel ≥ 420px wide), the left sub-segment labels all appeared at the top of their parent block. Large empty space sat below them while the right snapshot bars filled the entire zone height. The sub-segments did not correspond visually to their snapshot positions.
+
+**Root cause:** `updateSnapshot` used `data-acn-sub-offset` attributes (cumulative line offsets stored at render time) and computed `marginTop` for each sub-segment using approximate constants (`SUB_ITEM_H = 35`, `LABEL_H = 34`). These constants were averages; actual heights varied by content, font rendering, and OS. The result was sub-segments that started at approximately the right positions for short blocks but drifted significantly in taller rows. The constants also didn't account for the snapshot zone starting from the row top while sub-segments started below the parent label+meta.
+
+**Fix:** Replaced the marginTop approach with CSS `flex-grow` on both sides. Each sub-segment gets `style.flexGrow = childLineCount` (sum of message line counts in that sub-segment). Each snapshot message bar gets `style.flexGrow = msgLines`. `.acn-map-expanded .acn-seg-d2-children { flex:1 }` (toggled by `updateSnapshot`) makes the sub-segment container fill the available vertical space below the parent label. `updateSnapshot` then uses `getBoundingClientRect` to measure the live offset between the row top and the `childrenWrap` start, and sets matching `padding-top` on the snapshot zone. Both sides now fill proportionally based on real content weight, not estimated pixel constants.
+
+---
+
+### RESOLVED — Map Produced 20+ Sub-Segments for Long Conversational Segments
+
+**Versions affected:** v10.11 through v10.13
+**Fixed in:** v10.15 | **Severity:** Visual | **Area:** Conversation Map sub-segmentation
+
+**Symptom:** A 29-message segment produced 20+ sub-segments, turning the conversation map into a long scrolling list that defeated its purpose as a visual overview.
+
+**Root cause:** `_sumBuildSubSegments` used threshold 0.27 and minimum size 8 messages. At 0.27, any brief vocabulary shift (a greeting, a clarification question, a debugging step) triggered a new sub-segment. The threshold was appropriate for top-level segment splitting but too sensitive for within-segment secondary splitting.
+
+**Fix:** Raised threshold to 0.42 (split only on genuine topic divergence) and minimum segment size to 12 messages. Added a post-merge pass: after the initial split, any sub-segment with fewer than 3 messages is absorbed into its neighbor (next preferred, then previous) and the merged label is recomputed from combined vocabulary. This eliminates "orphan" fragments from brief off-topic exchanges while preserving genuine sub-topic boundaries.
+
+---
+
 ## v10.8 — Context Tracking Overhaul (2026-02-23)
 
 Five bugs discovered through live production testing and static analysis. All fixed in commit `c45e88c` on branch `fix/v10-live-testing-polish`.

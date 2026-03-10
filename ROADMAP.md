@@ -30,9 +30,17 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v10.13
+## Current Status: v10.15
 
-The extension supports 14 platform variants across 12 websites. v10.13 applies post-review polish from v10.11: summary section reordering, map overflow fix, drag performance, and permanent `// @name` cleanup.
+The extension supports 14 platform variants across 12 websites. v10.15 delivers a fully aligned conversation map: left sub-segments and right snapshot bars now fill their rows proportionally via `flex-grow`, hover highlighting links bracket items to their snapshot messages, and the sub-segmentation algorithm produces 3–5 meaningful blocks instead of 20+ fragments.
+
+**v10.15 Accomplishments (2026-03-10):**
+- **Proportional Map Alignment:** Replaced marginTop-based spacing with `flex-grow` on both left sub-segments and right snapshot messages, weighted by content line count. `updateSnapshot` uses live `getBoundingClientRect` to align the snapshot zone top with the sub-segment area start. Both sides now fill their rows proportionally — no more clustered sub-segments with empty space below.
+- **Hover Highlighting:** Hovering a sub-segment glows its corresponding snapshot messages orange (`acn-snap-highlight`). Hovering a parent block (no sub-segments) highlights all its snapshot messages. Cross-references are built at render time — no DOM queries on hover.
+- **Content-Driven Sub-Segmentation:** Raised threshold 0.27 → 0.42. Raised minimum segment size 8 → 12 messages. Added post-merge pass to absorb fragments < 3 messages into their neighbor. Result: topic blocks split only on genuine vocabulary divergence.
+- **Segment Merge Cap:** Lowered 10 → 5 top-level segments. Map feels like a summarized overview, not a list.
+- **Topic Pills Removed:** Eliminated redundant `.acn-seg-d2-pill` elements from leaf segments — labels alone identify topics without visual noise.
+- **Code Quality:** Extracted `_sumMsgLines(text)` helper (line-count formula was inlined 3×) and `_sumAttachHighlight(el, msgEls)` helper (hover loop was duplicated 2×). ResizeObserver cleanup interval tightened from 2000ms → 500ms.
 
 **v10.12 / v10.13 Accomplishments (2026-03-10):**
 - **Summary Section Order:** Reordered summary panel sections to Stats → Topics → Conversation Map → Key Points → Code & Files. Map now appears above key points so users see the visual overview first.

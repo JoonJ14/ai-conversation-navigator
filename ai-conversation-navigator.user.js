@@ -4111,6 +4111,27 @@
     // Expose globally for Group E2 cross-module access
     window.generateFullSummary = generateFullSummary;
 
+    // Normalize a message's text length to an approximate line count (capped at 15).
+    // Used for proportional sizing throughout the conversation map.
+    function _sumMsgLines(text) {
+        return Math.min(15, Math.max(1, Math.ceil((text || '').length / 80)));
+    }
+
+    // Attach mouseenter/mouseleave listeners to el that add/remove 'acn-snap-highlight'
+    // on each element in msgEls, linking a bracket item to its snapshot messages.
+    function _sumAttachHighlight(el, msgEls) {
+        el.addEventListener('mouseenter', function () {
+            for (var i = 0; i < msgEls.length; i++) {
+                msgEls[i].classList.add('acn-snap-highlight');
+            }
+        });
+        el.addEventListener('mouseleave', function () {
+            for (var i = 0; i < msgEls.length; i++) {
+                msgEls[i].classList.remove('acn-snap-highlight');
+            }
+        });
+    }
+
     function _sumMakeCollapsibleSection(titleText, bodyEl) {
         var arrow   = createElement('span', { className: 'acn-section-arrow', textContent: '\u25BE' });
         var titleEl = createElement('div', { className: 'acn-section-title' }, [titleText, arrow]);
@@ -4160,7 +4181,7 @@
         mapData.forEach(function (seg) {
             seg._lineCount = 0;
             seg.messages.forEach(function (m) {
-                seg._lineCount += Math.min(15, Math.max(1, Math.ceil((m.text || '').length / 80)));
+                seg._lineCount += _sumMsgLines(m.text);
             });
             totalLines += seg._lineCount;
         });
@@ -4217,7 +4238,7 @@
             var snapMsgEls = [];
 
             seg.messages.forEach(function (msg) {
-                var msgLines = Math.min(15, Math.max(1, Math.ceil((msg.text || '').length / 80)));
+                var msgLines = _sumMsgLines(msg.text);
                 var isUser   = msg.type === 'user';
 
                 var linesWrap = document.createElement('div');
@@ -4262,7 +4283,7 @@
                     for (var mi = 0; mi < seg.messages.length; mi++) {
                         var segMsg = seg.messages[mi];
                         if (segMsg.globalIdx >= child.startIdx && segMsg.globalIdx <= child.endIdx) {
-                            childLineCount += Math.min(15, Math.max(1, Math.ceil((segMsg.text || '').length / 80)));
+                            childLineCount += _sumMsgLines(segMsg.text);
                             childSnapMsgs.push(snapMsgEls[mi]);
                         }
                     }
@@ -4294,24 +4315,15 @@
                     subEl.appendChild(subBracket);
                     subEl.appendChild(subInner);
 
-                    (function (c, cSnapMsgs) {
+                    (function (c) {
                         subEl.addEventListener('click', function (e) {
                             e.stopPropagation();
                             var firstMsg = c.messages && c.messages[0];
                             if (firstMsg) _sumScrollToElement(firstMsg.element);
                         });
-                        // Highlight corresponding snapshot messages on hover
-                        subEl.addEventListener('mouseenter', function () {
-                            for (var hi = 0; hi < cSnapMsgs.length; hi++) {
-                                cSnapMsgs[hi].classList.add('acn-snap-highlight');
-                            }
-                        });
-                        subEl.addEventListener('mouseleave', function () {
-                            for (var hi = 0; hi < cSnapMsgs.length; hi++) {
-                                cSnapMsgs[hi].classList.remove('acn-snap-highlight');
-                            }
-                        });
-                    })(child, childSnapMsgs);
+                    })(child);
+                    // Highlight corresponding snapshot messages on hover
+                    _sumAttachHighlight(subEl, childSnapMsgs);
 
                     childrenWrap.appendChild(subEl);
                 }
@@ -4323,25 +4335,16 @@
             segEl.appendChild(bracket);
             segEl.appendChild(inner);
 
-            (function (s, allSnapMsgs, withChildren) {
+            (function (s) {
                 segEl.addEventListener('click', function () {
                     var firstMsg = s.messages && s.messages[0];
                     if (firstMsg) _sumScrollToElement(firstMsg.element);
                 });
-                // For segments without sub-segments, hovering the block highlights all its messages
-                if (!withChildren) {
-                    segEl.addEventListener('mouseenter', function () {
-                        for (var hi = 0; hi < allSnapMsgs.length; hi++) {
-                            allSnapMsgs[hi].classList.add('acn-snap-highlight');
-                        }
-                    });
-                    segEl.addEventListener('mouseleave', function () {
-                        for (var hi = 0; hi < allSnapMsgs.length; hi++) {
-                            allSnapMsgs[hi].classList.remove('acn-snap-highlight');
-                        }
-                    });
-                }
-            })(seg, snapMsgEls, hasChildren);
+            })(seg);
+            // For segments without sub-segments, hovering the block highlights all its messages
+            if (!hasChildren) {
+                _sumAttachHighlight(segEl, snapMsgEls);
+            }
 
             row.appendChild(segEl);
             row.appendChild(zone);
@@ -4406,7 +4409,7 @@
                         ro.disconnect();
                         clearInterval(checkRemoved);
                     }
-                }, 2000);
+                }, 500);
             }
         }, 0);
 
