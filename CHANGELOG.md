@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [10.11 — Summary Segmentation Engine + D2 Bracket Map] — 2026-03-10
+
+**Branch:** `feature/summary-segmentation-map-v10.11`
+
+Two tightly coupled improvements to the Summary panel.
+
+**Files modified:** `ai-conversation-navigator.user.js`, `CHANGELOG.md`.
+
+### Task 1 — Segmentation Engine Rewrite
+
+**Problem:** v10.10's content-aware segmentation was missing explicit pivot detection, sub-segment data for nested brackets, a scaled key-point cap, and the merge limit was 12 instead of the intended 10.
+
+**Pivot detection:** Added `PIVOT_PHRASES` regex and `_sumIsPivotMessage()`. User messages containing phrases like "by the way", "switch gears", "new topic", etc. force a segment break regardless of word-overlap score, since these are semantic pivots no overlap metric will catch.
+
+**Sub-segment generation:** Added `_sumBuildSubSegments(messages)`. For segments with 8+ messages, runs a secondary segmentation pass with a higher threshold (0.27 vs. 0.15) and 4-message context window. Produces an array of `children` attached to each parent segment. Only returned if 2+ sub-segments are found (a single result is not a meaningful split). These children are the data source for the nested brackets in Task 2.
+
+**Dynamic key-point cap:** Changed `.slice(0, 10)` to `Math.max(1, Math.min(10, Math.floor(totalMessages / 4)))`. A 12-message conversation gets at most 3 key points; a 40-message conversation gets up to 10. Prevents the panel from feeling overcrowded on short conversations.
+
+**Merge cap:** `_sumMergeExcessSegments` lowered from 12 → 10.
+
+### Task 2 — Conversation Map Visual Redesign
+
+**Problem:** The flat card list with left-border segments did not convey conversation proportions and had no visual summary of the conversation shape.
+
+**D2 Nested Bracket Map:** Replaced `_sumRenderConversationMap` entirely. Each segment is now a flex row containing: a `[` bracket (2px vertical line + 6px caps via `::before`/`::after`/bottom-cap element) and an inner column with label + meta (`msgs 1–12 · 12 msgs`). Topic pills shown on leaf segments only (segments with children get sub-labels instead). Children render indented 10px with thinner brackets (1.5px, 0.3 opacity vs 2px, 0.5). Click on any segment or child scrolls to its first message.
+
+**Proportional flex-grow:** Both bracket rows and snapshot zones use `flex-grow` set to each segment's total text lines (`sum of ceil(textLength/80)`). A long deep-dive gets a tall bracket; a 2-message tangent gets a tiny one. The container height is `Math.max(300, Math.min(700, totalLines * 2.2))` so short conversations are compact and long ones are readable.
+
+**Conversation Snapshot:** A second column (`acn-map-snapshot`) renders each message as a tiny block with proportional text-line bars (1.2px height). User messages have the platform accent color and right inset (15%); AI messages are gray. Each zone in the snapshot uses the same `flex-grow` as its corresponding bracket — horizontal alignment is automatic. Snapshot appears only when panel width ≥ 420px, scales from 70px (at 420px) to 160px (at ~640px) via `Math.max(70, Math.min(160, (panelW - 420) * 0.45 + 70))`. A `ResizeObserver` on the panel element toggles and resizes the snapshot live as the user drags the panel edge. Observer disconnects when the map container leaves the DOM to prevent leaks.
+
+**CSS added:** `acn-map-container`, `acn-map-brackets`, `acn-seg-d2`, `acn-seg-d2-bracket/cap/inner/label/meta/pills/pill/children`, `acn-seg-d2-sub` and sub variants, `acn-map-snapshot`, `acn-snap-inner/zone/msg/user/ai/lines/line`. Old `acn-map-segment/label/range/entity` CSS removed.
+
+---
+
 ## [10.10 — Draggable Orbital Zone + Summary Panel Overhaul] — 2026-03-09
 
 **Branch:** `release/v10.10`
