@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AI Conversation Navigator v10.11
+// @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      10.11
+// @version      10.12
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -39,7 +39,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '10.11';
+    var ACN_VERSION = '10.12';
 
     // ============================================================
     // i18n — internationalization string table
@@ -3502,7 +3502,7 @@
             '.acn-gen-wrap{margin-bottom:12px}',
             '.acn-sum-disclaimer{font-size:11px;color:#888;margin-top:6px;font-style:italic}',
             // D2 bracket map container
-            '.acn-map-container{display:flex;gap:0;align-items:stretch}',
+            '.acn-map-container{display:flex;gap:0;align-items:stretch;overflow:hidden}',
             '.acn-map-brackets{flex:1;min-width:0;display:flex;flex-direction:column}',
             // D2 parent segments
             '.acn-seg-d2{display:flex;align-items:stretch;cursor:pointer;position:relative}',
@@ -4431,8 +4431,8 @@
 
         container.appendChild(_sumRenderStats(summaryData.stats));
         container.appendChild(_sumRenderTopics(summaryData.topics));
-        container.appendChild(_sumRenderKeyPoints(summaryData.keyPoints));
         container.appendChild(_sumRenderConversationMap(summaryData.map));
+        container.appendChild(_sumRenderKeyPoints(summaryData.keyPoints));
         container.appendChild(_sumRenderInventory(summaryData.inventory));
     }
 
