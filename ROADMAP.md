@@ -30,9 +30,17 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v10.10
+## Current Status: v10.11
 
-The extension supports 14 platform variants across 12 websites. v10.10 adds a draggable orbital zone, overhauls the summary panel, and completes a full documentation audit.
+The extension supports 14 platform variants across 12 websites. v10.11 rewrites the summary segmentation engine and replaces the flat conversation map with a D2 nested bracket map and synced conversation snapshot.
+
+**v10.11 Accomplishments (2026-03-10):**
+- **Pivot Detection:** User messages containing phrases like "by the way", "switch gears", "new topic", etc. now force a hard segment break in the conversation map, independent of word-overlap score. Added `PIVOT_PHRASES` regex and `_sumIsPivotMessage()`.
+- **Sub-Segment Generation:** Added `_sumBuildSubSegments()` — a secondary segmentation pass (threshold 0.27) on segments with 8+ messages that produces nested `children[]` for parent segments. These drive the nested D2 bracket display.
+- **Dynamic Key-Point Cap:** Key points now scale with conversation length: `Math.max(1, Math.min(10, floor(totalMessages/4)))`. Short conversations get 1–3 key points instead of flooding the panel with 10.
+- **D2 Nested Bracket Map:** The flat card list is replaced with proportional `[` brackets. Each segment's height scales by total text lines (`flex-grow = ceil(textLength/80)`), so long deep-dives get tall brackets and tangents get tiny ones. Parent brackets show label + meta; child segments indent 10px with thinner 1.5px/0.3-opacity brackets. Topic pills on leaf segments only.
+- **Conversation Snapshot Column:** A second column renders each message as tiny text-line bars (accent color for user, gray for AI). Appears when panel width ≥ 420px, scales 70–160px wide, live-updated by `ResizeObserver`. Both columns share the same `flex-grow` values, so they stay vertically synchronized.
+- **Merge Cap:** `_sumMergeExcessSegments` lowered from 12 → 10 segments max.
 
 **v10.10 Accomplishments (2026-03-10):**
 - **Draggable Orbital Zone:** Click-and-hold anywhere in the orbital toggle zone and drag vertically to reposition the entire button cluster. Uses a 5px movement threshold to distinguish drag from click. Position persists per-platform as a viewport-height ratio via `GM_setValue('acn-zone-positions')` so it adapts across screen sizes. Drag limits calculated from full expanded height in show-all mode. Global drag handlers attached once via `_orbGlobalHandlersAttached` guard — no stacking on SPA reinjection. Stuck drag state cleared on `window blur`. Click-suppression canceller auto-removed after 300ms to prevent swallowing the next real click.
@@ -115,5 +123,5 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 
 ---
 
-*Last updated: 2026-03-10 (v10.10)*
+*Last updated: 2026-03-10 (v10.11)*
 

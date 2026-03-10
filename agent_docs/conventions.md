@@ -36,6 +36,7 @@ The userscript must remain **ES5 compatible**. This means:
 | `'acn-commands-v1'` | Saved /commands |
 | `'_acnv10'` | localStorage for panel width |
 | `'acn-ctx-cache'` | Claude context window cache |
+| `'acn-zone-positions'` | Orbital zone Y position per platform (fraction of viewport height, added v10.10) |
 
 ## Design Principles
 

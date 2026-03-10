@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-AI Conversation Navigator is a single-file browser userscript (Tampermonkey/Greasemonkey) that adds an orbital button cluster to 14 AI chat platforms, letting users jump to any previous question in one click. ~6,000 lines of ES5-compatible vanilla JavaScript, no build step, no dependencies.
+AI Conversation Navigator is a single-file browser userscript (Tampermonkey/Greasemonkey) that adds an orbital button cluster to 14 AI chat platforms, letting users jump to any previous question in one click. ~6,400 lines of ES5-compatible vanilla JavaScript, no build step, no dependencies.
 
 ## Tech Stack
 
