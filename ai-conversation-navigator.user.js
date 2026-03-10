@@ -3913,12 +3913,14 @@
             }
             var a = segments[mergeIdx];
             var b = segments[mergeIdx + 1];
+            var mergedMsgs = a.messages.concat(b.messages);
             var merged = {
                 startIdx:  a.startIdx,
                 endIdx:    b.endIdx,
-                messages:  a.messages.concat(b.messages),
+                messages:  mergedMsgs,
                 topics:    _sumMergeTopics(a.topics, b.topics),
                 entities:  a.entities.concat(b.entities),
+                children:  _sumBuildSubSegments(mergedMsgs),
                 label:     ''
             };
             merged.label = _sumGenerateSegmentLabel(merged);
