@@ -3601,7 +3601,9 @@
 
     // Pivot phrases that force a segment break regardless of word-overlap score.
     // Only tested on user messages.
-    var PIVOT_PHRASES = /\b(by the way|btw|actually let'?s pivot|pivot|switch gears|switch topics|different topic|change of topic|on another note|unrelated|off topic|something else|new topic)\b/i;
+    // Note: bare "pivot" is intentionally excluded — it fires on "pivot table",
+    // "pivot point", etc. Only explicit transition phrasings are matched.
+    var PIVOT_PHRASES = /\b(by the way|btw|actually let'?s pivot|let'?s pivot|pivot to|switch gears|switch topics|different topic|change of topic|on another note|unrelated question|off topic|something else entirely|new topic)\b/i;
 
     var FILE_EXTENSION_RE = /\b[\w\-]+\.(js|ts|jsx|tsx|css|html|py|rb|go|rs|java|c|cpp|h|json|yaml|yml|md|sh|bash|env|txt|csv|sql|graphql|vue|svelte)\b/gi;
 
