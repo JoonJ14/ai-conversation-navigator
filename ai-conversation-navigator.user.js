@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator v10.9
 // @namespace    http://tampermonkey.net/
-// @version      10.10
+// @version      10.11
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -39,7 +39,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '10.10';
+    var ACN_VERSION = '10.11';
 
     // ============================================================
     // i18n — internationalization string table
@@ -3489,14 +3489,45 @@
             '.acn-gen-btn:disabled{opacity:0.6;cursor:not-allowed;filter:none}',
             '.acn-gen-wrap{margin-bottom:12px}',
             '.acn-sum-disclaimer{font-size:11px;color:#888;margin-top:6px;font-style:italic}',
-            '.acn-map-segment{position:relative;padding:8px 12px;margin:0 0 2px 16px;',
-            'border-left:3px solid var(--acn-accent);background:rgba(var(--acn-rgb),0.05);',
-            'border-radius:0 6px 6px 0;cursor:pointer;transition:background 0.15s ease}',
-            '.acn-map-segment:hover{background:rgba(var(--acn-rgb),0.12)}',
-            '.acn-map-label{font-size:13px;font-weight:600;color:var(--acn-accent);margin-bottom:4px}',
-            '.acn-map-range{font-size:11px;color:#888;float:right}',
-            '.acn-map-entity{font-size:11px;color:#aaa;padding:1px 0;cursor:pointer}',
-            '.acn-map-entity:hover{color:#fff}',
+            // D2 bracket map container
+            '.acn-map-container{display:flex;gap:0;align-items:stretch}',
+            '.acn-map-brackets{flex:1;min-width:0;display:flex;flex-direction:column}',
+            // D2 parent segments
+            '.acn-seg-d2{display:flex;align-items:stretch;cursor:pointer;position:relative}',
+            '.acn-seg-d2:hover>.acn-seg-d2-inner{background:rgba(var(--acn-rgb),0.06)}',
+            '.acn-seg-d2-bracket{width:10px;flex-shrink:0;position:relative;margin-right:4px}',
+            '.acn-seg-d2-bracket::before{content:"";position:absolute;top:0;bottom:0;left:2px;width:2px;background:var(--acn-accent);opacity:0.5}',
+            '.acn-seg-d2-bracket::after{content:"";position:absolute;top:0;left:2px;width:6px;height:2px;background:var(--acn-accent);opacity:0.5}',
+            '.acn-seg-d2-cap{position:absolute;bottom:0;left:2px;width:6px;height:2px;background:var(--acn-accent);opacity:0.5}',
+            '.acn-seg-d2-inner{flex:1;display:flex;flex-direction:column;justify-content:center;padding:5px 6px;border-radius:4px;transition:background 0.15s;min-width:0}',
+            '.acn-seg-d2-label{font-size:12px;font-weight:600;color:var(--acn-accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+            '.acn-seg-d2-meta{font-size:10px;color:#888;margin-top:1px;font-family:monospace}',
+            '.acn-seg-d2-pills{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}',
+            '.acn-seg-d2-pill{font-size:9px;padding:1px 5px;border-radius:8px;background:rgba(var(--acn-rgb),0.12);color:var(--acn-accent)}',
+            '.acn-seg-d2-children{margin-top:4px;display:flex;flex-direction:column;gap:0}',
+            // D2 sub-segments (children)
+            '.acn-seg-d2-sub{display:flex;align-items:stretch;margin-left:10px;cursor:pointer}',
+            '.acn-seg-d2-sub:hover>.acn-seg-d2-sub-inner{background:rgba(var(--acn-rgb),0.08)}',
+            '.acn-seg-d2-sub-bracket{width:8px;flex-shrink:0;position:relative;margin-right:4px}',
+            '.acn-seg-d2-sub-bracket::before{content:"";position:absolute;top:0;bottom:0;left:2px;width:1.5px;background:var(--acn-accent);opacity:0.3}',
+            '.acn-seg-d2-sub-bracket::after{content:"";position:absolute;top:0;left:2px;width:5px;height:1.5px;background:var(--acn-accent);opacity:0.3}',
+            '.acn-seg-d2-sub-cap{position:absolute;bottom:0;left:2px;width:5px;height:1.5px;background:var(--acn-accent);opacity:0.3}',
+            '.acn-seg-d2-sub-inner{flex:1;padding:3px 5px;border-radius:3px;transition:background 0.15s;min-width:0}',
+            '.acn-seg-d2-sub-label{font-size:11px;font-weight:500;color:rgba(var(--acn-rgb),0.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+            '.acn-seg-d2-sub-meta{font-size:9px;color:#555;font-family:monospace}',
+            // Snapshot column
+            '.acn-map-snapshot{flex-shrink:0;overflow:hidden;opacity:0;width:0;transition:width 0.3s ease,opacity 0.3s ease,margin 0.3s ease}',
+            '.acn-map-snapshot.acn-map-snapshot-visible{opacity:1;margin-left:8px}',
+            '.acn-snap-inner{height:100%;display:flex;flex-direction:column}',
+            '.acn-snap-zone{display:flex;flex-direction:column;position:relative;overflow:hidden}',
+            '.acn-snap-zone+.acn-snap-zone{border-top:1px solid rgba(var(--acn-rgb),0.12)}',
+            '.acn-snap-msg{padding:1px 3px;margin-bottom:0.5px;position:relative;flex-shrink:0}',
+            '.acn-snap-user{background:rgba(var(--acn-rgb),0.12);border-left:2px solid var(--acn-accent);margin-right:15%;border-radius:1px}',
+            '.acn-snap-ai{background:rgba(255,255,255,0.03);border-left:2px solid #444;margin-right:0;border-radius:1px}',
+            '.acn-snap-lines{display:flex;flex-direction:column;gap:1px;padding:1px 0}',
+            '.acn-snap-line{height:1.2px;border-radius:1px;opacity:0.45}',
+            '.acn-snap-user .acn-snap-line{background:var(--acn-accent)}',
+            '.acn-snap-ai .acn-snap-line{background:#777}',
             '.acn-topic-pills{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}',
             '.acn-topic-pill{padding:2px 8px;border-radius:12px;',
             'background:rgba(var(--acn-rgb),0.2);color:var(--acn-accent);font-size:11px}',
@@ -3555,6 +3586,10 @@
 
     // SEGMENT_ICON_MAP removed — prefix labels like BUG/CODE/MSG were not useful
     // and made segment labels noisy. _sumGenerateSegmentLabel() provides clean labels.
+
+    // Pivot phrases that force a segment break regardless of word-overlap score.
+    // Only tested on user messages.
+    var PIVOT_PHRASES = /\b(by the way|btw|actually let'?s pivot|pivot|switch gears|switch topics|different topic|change of topic|on another note|unrelated|off topic|something else|new topic)\b/i;
 
     var FILE_EXTENSION_RE = /\b[\w\-]+\.(js|ts|jsx|tsx|css|html|py|rb|go|rs|java|c|cpp|h|json|yaml|yml|md|sh|bash|env|txt|csv|sql|graphql|vue|svelte)\b/gi;
 
@@ -3706,7 +3741,9 @@
         questions.forEach(function (q, i)   { checkMessage(q, 'user', i); });
         aiResponses.forEach(function (r, i) { checkMessage(r, 'ai',   i); });
 
-        return _sumDeduplicatePoints(points).slice(0, 10);
+        // Scale cap with conversation length: short convos get fewer key points
+        var cap = Math.max(1, Math.min(10, Math.floor((questions.length + aiResponses.length) / 4)));
+        return _sumDeduplicatePoints(points).slice(0, cap);
     }
 
     function _sumGenerateStats(questions, aiResponses) {
@@ -3864,7 +3901,7 @@
     }
 
     function _sumMergeExcessSegments(segments) {
-        while (segments.length > 12) {
+        while (segments.length > 10) {
             var maxOverlap = -1;
             var mergeIdx   = 0;
             for (var i = 0; i < segments.length - 1; i++) {
@@ -3890,6 +3927,53 @@
         return segments;
     }
 
+    function _sumIsPivotMessage(text) {
+        return PIVOT_PHRASES.test(text);
+    }
+
+    // Secondary segmentation pass for large segments (8+ messages).
+    // Uses a higher overlap threshold to detect finer topic shifts within a segment.
+    // Returns an array of sub-segments (children), or [] if no meaningful split found.
+    function _sumBuildSubSegments(messages) {
+        if (messages.length < 8) return [];
+        var SUB_THRESHOLD = 0.27;
+        var CONTEXT       = 4;
+        var subs          = [];
+        var cur           = [messages[0]];
+
+        for (var i = 1; i < messages.length; i++) {
+            var msg      = messages[i];
+            var win      = cur.slice(-CONTEXT);
+            var winText  = win.map(function (m) { return m.text; }).join(' ');
+            var overlap  = _sumWordOverlap(msg.text, winText);
+            if (overlap >= SUB_THRESHOLD) {
+                cur.push(msg);
+            } else {
+                var segText  = cur.map(function (m) { return m.text; }).join(' ');
+                var topics   = _sumExtractTopicsFromText(segText, 3);
+                subs.push({
+                    label:    _sumGenerateSegmentLabel({ topics: topics }),
+                    startIdx: cur[0].globalIdx,
+                    endIdx:   cur[cur.length - 1].globalIdx,
+                    messages: cur
+                });
+                cur = [msg];
+            }
+        }
+        if (cur.length) {
+            var lastText   = cur.map(function (m) { return m.text; }).join(' ');
+            var lastTopics = _sumExtractTopicsFromText(lastText, 3);
+            subs.push({
+                label:    _sumGenerateSegmentLabel({ topics: lastTopics }),
+                startIdx: cur[0].globalIdx,
+                endIdx:   cur[cur.length - 1].globalIdx,
+                messages: cur
+            });
+        }
+        // Only meaningful if it actually splits into more than one block
+        return subs.length > 1 ? subs : [];
+    }
+
     function _sumBuildConversationMap(questions, aiResponses) {
         var timeline = _sumBuildTimeline(questions, aiResponses);
         if (!timeline.length) return [];
@@ -3903,6 +3987,7 @@
                 messages: timeline,
                 topics:   _sumExtractTopicsFromText(combined, 5),
                 entities: _sumScanEntities(timeline),
+                children: _sumBuildSubSegments(timeline),
                 label:    ''
             };
             seg.label = _sumGenerateSegmentLabel(seg);
@@ -3911,9 +3996,8 @@
 
         // Content-aware segmentation: compare each message against the recent
         // context of the current segment using word overlap.
-        // If overlap drops below the threshold, start a new segment.
-        // This keeps a long deep-dive on one topic as a single block, while
-        // a quick topic shift creates its own small block.
+        // If overlap drops below the threshold — or if the user message contains
+        // an explicit pivot phrase — start a new segment.
         var SPLIT_THRESHOLD = 0.15; // below this overlap → new segment
         var CONTEXT_WINDOW  = 4;    // compare new msg against last N msgs in segment
 
@@ -3925,8 +4009,9 @@
             var windowMsgs = currentMsgs.slice(-CONTEXT_WINDOW);
             var windowText = windowMsgs.map(function (m) { return m.text; }).join(' ');
             var overlap    = _sumWordOverlap(msg.text, windowText);
+            var isPivot    = msg.type === 'user' && _sumIsPivotMessage(msg.text);
 
-            if (overlap >= SPLIT_THRESHOLD) {
+            if (!isPivot && overlap >= SPLIT_THRESHOLD) {
                 currentMsgs.push(msg);
             } else {
                 // Commit current segment
@@ -3937,6 +4022,7 @@
                     messages: currentMsgs,
                     topics:   _sumExtractTopicsFromText(segText, 5),
                     entities: _sumScanEntities(currentMsgs),
+                    children: _sumBuildSubSegments(currentMsgs),
                     label:    ''
                 };
                 newSeg.label = _sumGenerateSegmentLabel(newSeg);
@@ -3954,6 +4040,7 @@
                 messages: currentMsgs,
                 topics:   _sumExtractTopicsFromText(lastText, 5),
                 entities: _sumScanEntities(currentMsgs),
+                children: _sumBuildSubSegments(currentMsgs),
                 label:    ''
             };
             lastSeg.label = _sumGenerateSegmentLabel(lastSeg);
@@ -4024,37 +4111,211 @@
             return _sumMakeCollapsibleSection(i18n('conversationMap') || 'Conversation Map', body);
         }
 
+        // Compute total text lines across all segments for proportional flex-grow sizing
+        var totalLines = 0;
         mapData.forEach(function (seg) {
-            var rangeText = 'Msgs ' + (seg.startIdx + 1) + '-' + (seg.endIdx + 1);
+            seg._lineCount = 0;
+            seg.messages.forEach(function (m) {
+                seg._lineCount += Math.max(1, Math.ceil((m.text || '').length / 80));
+            });
+            totalLines += seg._lineCount;
+        });
+        if (totalLines === 0) totalLines = 1;
+        var mapHeight = Math.max(300, Math.min(700, totalLines * 2.2));
 
-            var rangeEl = createElement('div', { className: 'acn-map-range', textContent: rangeText });
-            var labelEl = createElement('div', { className: 'acn-map-label', textContent: seg.label });
-            var segEl   = createElement('div', { className: 'acn-map-segment' }, [rangeEl, labelEl]);
+        // Flex container: brackets column (left) + snapshot column (right)
+        var container = document.createElement('div');
+        container.className = 'acn-map-container';
+        container.style.height = mapHeight + 'px';
 
-            if (seg.topics.length) {
-                var pillWrap = createElement('div', { className: 'acn-topic-pills', style: 'margin-top:4px;margin-bottom:2px' });
+        // ── Brackets column ──────────────────────────────────────────────────────
+        var bracketsCol = document.createElement('div');
+        bracketsCol.className = 'acn-map-brackets';
+
+        mapData.forEach(function (seg) {
+            var msgStart  = seg.startIdx + 1;
+            var msgEnd    = seg.endIdx + 1;
+            var msgCount  = seg.messages.length;
+            var metaText  = 'msgs ' + msgStart + '\u2013' + msgEnd + ' \u00B7 ' + msgCount + ' msgs';
+
+            // Bottom cap of the bracket [ shape
+            var cap = document.createElement('div');
+            cap.className = 'acn-seg-d2-cap';
+
+            var bracket = document.createElement('div');
+            bracket.className = 'acn-seg-d2-bracket';
+            bracket.appendChild(cap);
+
+            var labelEl = document.createElement('div');
+            labelEl.className = 'acn-seg-d2-label';
+            labelEl.textContent = seg.label;
+
+            var metaEl = document.createElement('div');
+            metaEl.className = 'acn-seg-d2-meta';
+            metaEl.textContent = metaText;
+
+            var inner = document.createElement('div');
+            inner.className = 'acn-seg-d2-inner';
+            inner.appendChild(labelEl);
+            inner.appendChild(metaEl);
+
+            // Topic pills (only on segments without children — children show sub-labels)
+            var hasChildren = seg.children && seg.children.length > 0;
+            if (!hasChildren && seg.topics && seg.topics.length) {
+                var pills = document.createElement('div');
+                pills.className = 'acn-seg-d2-pills';
                 seg.topics.slice(0, 3).forEach(function (t) {
-                    pillWrap.appendChild(createElement('span', { className: 'acn-topic-pill', textContent: t }));
+                    var pill = document.createElement('span');
+                    pill.className = 'acn-seg-d2-pill';
+                    pill.textContent = t;
+                    pills.appendChild(pill);
                 });
-                segEl.appendChild(pillWrap);
+                inner.appendChild(pills);
             }
 
-            seg.entities.slice(0, 4).forEach(function (ent) {
-                var entEl = createElement('div', { className: 'acn-map-entity', textContent: ent.icon + ' ' + ent.label });
-                entEl.addEventListener('click', function (e) {
-                    e.stopPropagation();
-                    _sumScrollToElement(ent.element);
+            // Sub-segments (children)
+            if (hasChildren) {
+                var childrenWrap = document.createElement('div');
+                childrenWrap.className = 'acn-seg-d2-children';
+
+                seg.children.forEach(function (child) {
+                    var subCap = document.createElement('div');
+                    subCap.className = 'acn-seg-d2-sub-cap';
+
+                    var subBracket = document.createElement('div');
+                    subBracket.className = 'acn-seg-d2-sub-bracket';
+                    subBracket.appendChild(subCap);
+
+                    var subLabelEl = document.createElement('div');
+                    subLabelEl.className = 'acn-seg-d2-sub-label';
+                    subLabelEl.textContent = child.label;
+
+                    var subMetaEl = document.createElement('div');
+                    subMetaEl.className = 'acn-seg-d2-sub-meta';
+                    subMetaEl.textContent = 'msgs ' + (child.startIdx + 1) + '\u2013' + (child.endIdx + 1);
+
+                    var subInner = document.createElement('div');
+                    subInner.className = 'acn-seg-d2-sub-inner';
+                    subInner.appendChild(subLabelEl);
+                    subInner.appendChild(subMetaEl);
+
+                    var subEl = document.createElement('div');
+                    subEl.className = 'acn-seg-d2-sub';
+                    subEl.appendChild(subBracket);
+                    subEl.appendChild(subInner);
+
+                    // Click on child → scroll to its first message
+                    (function (c) {
+                        subEl.addEventListener('click', function (e) {
+                            e.stopPropagation();
+                            var firstMsg = c.messages && c.messages[0];
+                            if (firstMsg) _sumScrollToElement(firstMsg.element);
+                        });
+                    })(child);
+
+                    childrenWrap.appendChild(subEl);
                 });
-                segEl.appendChild(entEl);
-            });
+                inner.appendChild(childrenWrap);
+            }
 
-            segEl.addEventListener('click', function () {
-                var firstMsg = seg.messages && seg.messages[0];
-                if (firstMsg) _sumScrollToElement(firstMsg.element);
-            });
+            var segEl = document.createElement('div');
+            segEl.className = 'acn-seg-d2';
+            segEl.style.flexGrow = String(seg._lineCount);
+            segEl.style.flexBasis = '0';
+            segEl.style.minHeight = '0';
+            segEl.appendChild(bracket);
+            segEl.appendChild(inner);
 
-            body.appendChild(segEl);
+            // Click on segment → scroll to its first message
+            (function (s) {
+                segEl.addEventListener('click', function () {
+                    var firstMsg = s.messages && s.messages[0];
+                    if (firstMsg) _sumScrollToElement(firstMsg.element);
+                });
+            })(seg);
+
+            bracketsCol.appendChild(segEl);
         });
+
+        container.appendChild(bracketsCol);
+
+        // ── Snapshot column ──────────────────────────────────────────────────────
+        var snapshot = document.createElement('div');
+        snapshot.className = 'acn-map-snapshot';
+
+        var snapInner = document.createElement('div');
+        snapInner.className = 'acn-snap-inner';
+
+        mapData.forEach(function (seg) {
+            var zone = document.createElement('div');
+            zone.className = 'acn-snap-zone';
+            zone.style.flexGrow = String(seg._lineCount);
+            zone.style.flexBasis = '0';
+            zone.style.minHeight = '0';
+
+            seg.messages.forEach(function (msg) {
+                var msgLines = Math.max(1, Math.ceil((msg.text || '').length / 80));
+                var isUser   = msg.type === 'user';
+
+                var linesWrap = document.createElement('div');
+                linesWrap.className = 'acn-snap-lines';
+
+                for (var li = 0; li < msgLines; li++) {
+                    var line = document.createElement('div');
+                    line.className = 'acn-snap-line';
+                    var w = isUser ? (55 + Math.floor(Math.random() * 40)) : (35 + Math.floor(Math.random() * 60));
+                    if (li === msgLines - 1) {
+                        w = Math.floor(w * (0.25 + Math.random() * 0.4));
+                    }
+                    line.style.width = w + '%';
+                    linesWrap.appendChild(line);
+                }
+
+                var msgEl = document.createElement('div');
+                msgEl.className = 'acn-snap-msg ' + (isUser ? 'acn-snap-user' : 'acn-snap-ai');
+                msgEl.appendChild(linesWrap);
+                zone.appendChild(msgEl);
+            });
+
+            snapInner.appendChild(zone);
+        });
+
+        snapshot.appendChild(snapInner);
+        container.appendChild(snapshot);
+        body.appendChild(container);
+
+        // Wire up snapshot visibility: show at panel width >= 420px, scale with width
+        setTimeout(function () {
+            var panel = document.getElementById('acn-panel-summary');
+            if (!panel) return;
+
+            function updateSnapshot() {
+                var panelW = panel.offsetWidth;
+                if (panelW >= 420) {
+                    var sw = Math.max(70, Math.min(160, Math.round((panelW - 420) * 0.45 + 70)));
+                    snapshot.classList.add('acn-map-snapshot-visible');
+                    snapshot.style.width = sw + 'px';
+                    snapInner.style.width = sw + 'px';
+                } else {
+                    snapshot.classList.remove('acn-map-snapshot-visible');
+                    snapshot.style.width = '0';
+                }
+            }
+
+            updateSnapshot();
+
+            if (window.ResizeObserver) {
+                var ro = new ResizeObserver(updateSnapshot);
+                ro.observe(panel);
+                // Disconnect when the map is removed from the DOM
+                var checkRemoved = setInterval(function () {
+                    if (!document.contains(container)) {
+                        ro.disconnect();
+                        clearInterval(checkRemoved);
+                    }
+                }, 2000);
+            }
+        }, 0);
 
         return _sumMakeCollapsibleSection(i18n('conversationMap') || 'Conversation Map', body);
     }
