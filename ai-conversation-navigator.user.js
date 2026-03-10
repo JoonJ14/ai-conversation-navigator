@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      10.13
+// @version      10.15
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -39,7 +39,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '10.13';
+    var ACN_VERSION = '10.15';
 
     // ============================================================
     // i18n — internationalization string table
@@ -3512,22 +3512,20 @@
             '.acn-seg-d2-bracket::before{content:"";position:absolute;top:0;bottom:0;left:2px;width:2px;background:var(--acn-accent);opacity:0.5}',
             '.acn-seg-d2-bracket::after{content:"";position:absolute;top:0;left:2px;width:6px;height:2px;background:var(--acn-accent);opacity:0.5}',
             '.acn-seg-d2-cap{position:absolute;bottom:0;left:2px;width:6px;height:2px;background:var(--acn-accent);opacity:0.5}',
-            '.acn-seg-d2-inner{flex:1;display:flex;flex-direction:column;justify-content:center;padding:5px 6px;border-radius:4px;transition:background 0.15s;min-width:0}',
+            '.acn-seg-d2-inner{flex:1;display:flex;flex-direction:column;justify-content:flex-start;padding:5px 6px;border-radius:4px;transition:background 0.15s;min-width:0}',
             '.acn-seg-d2-label{font-size:12px;font-weight:600;color:var(--acn-accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
             '.acn-seg-d2-meta{font-size:10px;color:#888;margin-top:1px;font-family:monospace}',
-            '.acn-seg-d2-pills{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}',
-            '.acn-seg-d2-pill{font-size:9px;padding:1px 5px;border-radius:8px;background:rgba(var(--acn-rgb),0.12);color:var(--acn-accent)}',
-            '.acn-seg-d2-children{margin-top:4px;display:flex;flex-direction:column;gap:0}',
-            // D2 sub-segments (children)
-            '.acn-seg-d2-sub{display:flex;align-items:stretch;margin-left:10px;cursor:pointer}',
+            '.acn-seg-d2-children{margin-top:6px;display:flex;flex-direction:column;gap:0}',
+            // Sub-segments
+            '.acn-seg-d2-sub{display:flex;align-items:stretch;margin-left:8px;cursor:pointer;border-radius:3px}',
             '.acn-seg-d2-sub:hover>.acn-seg-d2-sub-inner{background:rgba(var(--acn-rgb),0.08)}',
-            '.acn-seg-d2-sub-bracket{width:8px;flex-shrink:0;position:relative;margin-right:4px}',
-            '.acn-seg-d2-sub-bracket::before{content:"";position:absolute;top:0;bottom:0;left:2px;width:1.5px;background:var(--acn-accent);opacity:0.3}',
-            '.acn-seg-d2-sub-bracket::after{content:"";position:absolute;top:0;left:2px;width:5px;height:1.5px;background:var(--acn-accent);opacity:0.3}',
-            '.acn-seg-d2-sub-cap{position:absolute;bottom:0;left:2px;width:5px;height:1.5px;background:var(--acn-accent);opacity:0.3}',
-            '.acn-seg-d2-sub-inner{flex:1;padding:3px 5px;border-radius:3px;transition:background 0.15s;min-width:0}',
-            '.acn-seg-d2-sub-label{font-size:11px;font-weight:500;color:rgba(var(--acn-rgb),0.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-            '.acn-seg-d2-sub-meta{font-size:9px;color:#555;font-family:monospace}',
+            '.acn-seg-d2-sub-bracket{width:7px;flex-shrink:0;position:relative;margin-right:4px}',
+            '.acn-seg-d2-sub-bracket::before{content:"";position:absolute;top:0;bottom:0;left:1px;width:1.5px;background:var(--acn-accent);opacity:0.3}',
+            '.acn-seg-d2-sub-bracket::after{content:"";position:absolute;top:0;left:1px;width:5px;height:1.5px;background:var(--acn-accent);opacity:0.3}',
+            '.acn-seg-d2-sub-cap{position:absolute;bottom:0;left:1px;width:5px;height:1.5px;background:var(--acn-accent);opacity:0.3}',
+            '.acn-seg-d2-sub-inner{flex:1;padding:3px 4px;border-radius:3px;transition:background 0.15s;min-width:0}',
+            '.acn-seg-d2-sub-label{font-size:11px;font-weight:500;color:rgba(var(--acn-rgb),0.75);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+            '.acn-seg-d2-sub-meta{font-size:9px;color:#555;font-family:monospace;margin-top:1px}',
             // Snapshot zone — one per row; display:none when hidden so content cannot drive row height
             '.acn-snap-zone{flex-shrink:0;overflow:hidden;display:none;flex-direction:column;position:relative;opacity:0;transition:opacity 0.3s ease,margin 0.3s ease}',
             '.acn-snap-zone.acn-snap-visible{display:flex;opacity:1;margin-left:8px}',
@@ -3538,6 +3536,10 @@
             '.acn-snap-line{height:1.2px;border-radius:1px;opacity:0.45}',
             '.acn-snap-user .acn-snap-line{background:var(--acn-accent)}',
             '.acn-snap-ai .acn-snap-line{background:#777}',
+            // Expanded mode: sub-segment container fills available space for flex-grow sizing
+            '.acn-map-expanded .acn-seg-d2-children{flex:1}',
+            // Hover highlight: subtle orange glow on corresponding snapshot messages
+            '.acn-snap-msg.acn-snap-highlight{background:rgba(255,165,0,0.18)!important;outline:1px solid rgba(255,165,0,0.35)}',
             '.acn-topic-pills{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}',
             '.acn-topic-pill{padding:2px 8px;border-radius:12px;',
             'background:rgba(var(--acn-rgb),0.2);color:var(--acn-accent);font-size:11px}',
@@ -3913,7 +3915,7 @@
     }
 
     function _sumMergeExcessSegments(segments) {
-        while (segments.length > 10) {
+        while (segments.length > 5) {
             var maxOverlap = -1;
             var mergeIdx   = 0;
             for (var i = 0; i < segments.length - 1; i++) {
@@ -3946,25 +3948,27 @@
     }
 
     // Secondary segmentation pass for large segments (8+ messages).
-    // Uses a higher overlap threshold to detect finer topic shifts within a segment.
+    // Detects genuine topic shifts within a long segment using a high overlap threshold.
+    // Purely content-driven — no count-based caps. A post-merge pass absorbs tiny
+    // fragments (< 3 messages) that form when a single off-topic exchange slips through.
     // Returns an array of sub-segments (children), or [] if no meaningful split found.
     function _sumBuildSubSegments(messages) {
-        if (messages.length < 8) return [];
-        var SUB_THRESHOLD = 0.27;
+        if (messages.length < 12) return [];
+        var SUB_THRESHOLD = 0.42;  // split on meaningful vocabulary divergence within a segment
         var CONTEXT       = 4;
         var subs          = [];
         var cur           = [messages[0]];
 
         for (var i = 1; i < messages.length; i++) {
-            var msg      = messages[i];
-            var win      = cur.slice(-CONTEXT);
-            var winText  = win.map(function (m) { return m.text; }).join(' ');
-            var overlap  = _sumWordOverlap(msg.text, winText);
+            var msg     = messages[i];
+            var win     = cur.slice(-CONTEXT);
+            var winText = win.map(function (m) { return m.text; }).join(' ');
+            var overlap = _sumWordOverlap(msg.text, winText);
             if (overlap >= SUB_THRESHOLD) {
                 cur.push(msg);
             } else {
-                var segText  = cur.map(function (m) { return m.text; }).join(' ');
-                var topics   = _sumExtractTopicsFromText(segText, 3);
+                var segText = cur.map(function (m) { return m.text; }).join(' ');
+                var topics  = _sumExtractTopicsFromText(segText, 3);
                 subs.push({
                     label:    _sumGenerateSegmentLabel({ topics: topics }),
                     startIdx: cur[0].globalIdx,
@@ -3984,7 +3988,33 @@
                 messages: cur
             });
         }
-        // Only meaningful if it actually splits into more than one block
+
+        // Post-merge: absorb any fragment smaller than 3 messages into its neighbor.
+        // Prefer merging with the next neighbor; fall back to prev.
+        var changed = true;
+        while (changed && subs.length > 1) {
+            changed = false;
+            for (var k = 0; k < subs.length; k++) {
+                if (subs[k].messages.length < 3) {
+                    var target = k < subs.length - 1 ? k + 1 : k - 1;
+                    var lo = Math.min(k, target);
+                    var hi = Math.max(k, target);
+                    var combinedMsgs = subs[lo].messages.concat(subs[hi].messages);
+                    var combinedStart = subs[lo].startIdx;
+                    var combinedText = combinedMsgs.map(function (m) { return m.text; }).join(' ');
+                    var combinedTopics = _sumExtractTopicsFromText(combinedText, 3);
+                    subs.splice(lo, 2, {
+                        label:    _sumGenerateSegmentLabel({ topics: combinedTopics }),
+                        startIdx: combinedStart,
+                        endIdx:   combinedMsgs[combinedMsgs.length - 1].globalIdx,
+                        messages: combinedMsgs
+                    });
+                    changed = true;
+                    break;
+                }
+            }
+        }
+
         return subs.length > 1 ? subs : [];
     }
 
@@ -4145,6 +4175,8 @@
 
         // Each segment is a row containing its bracket segment (left) and snapshot zone (right).
         // Row height is governed by whichever side is taller — no independent-column drift.
+        // In expanded mode (.acn-map-expanded), sub-segments and snapshot messages use flex-grow
+        // weighted by line count so both sides fill proportionally.
         mapData.forEach(function (seg) {
             var rowMinH = Math.max(36, Math.floor((seg._lineCount / totalLines) * mapBaseline));
 
@@ -4178,26 +4210,63 @@
             inner.appendChild(labelEl);
             inner.appendChild(metaEl);
 
-            // Topic pills (only on leaf segments — children show sub-labels instead)
-            var hasChildren = seg.children && seg.children.length > 0;
-            if (!hasChildren && seg.topics && seg.topics.length) {
-                var pills = document.createElement('div');
-                pills.className = 'acn-seg-d2-pills';
-                seg.topics.slice(0, 3).forEach(function (t) {
-                    var pill = document.createElement('span');
-                    pill.className = 'acn-seg-d2-pill';
-                    pill.textContent = t;
-                    pills.appendChild(pill);
-                });
-                inner.appendChild(pills);
-            }
+            // ── Snapshot zone (right side) ────────────────────────────────────────
+            // Built before sub-segments so cross-references can be stored for hover.
+            var zone = document.createElement('div');
+            zone.className = 'acn-snap-zone';
+            var snapMsgEls = [];
 
-            // Sub-segments (children)
+            seg.messages.forEach(function (msg) {
+                var msgLines = Math.min(15, Math.max(1, Math.ceil((msg.text || '').length / 80)));
+                var isUser   = msg.type === 'user';
+
+                var linesWrap = document.createElement('div');
+                linesWrap.className = 'acn-snap-lines';
+
+                for (var li = 0; li < msgLines; li++) {
+                    var line = document.createElement('div');
+                    line.className = 'acn-snap-line';
+                    var w = isUser ? (55 + Math.floor(Math.random() * 40)) : (35 + Math.floor(Math.random() * 60));
+                    if (li === msgLines - 1) {
+                        w = Math.floor(w * (0.25 + Math.random() * 0.4));
+                    }
+                    line.style.width = w + '%';
+                    linesWrap.appendChild(line);
+                }
+
+                var msgEl = document.createElement('div');
+                msgEl.className = 'acn-snap-msg ' + (isUser ? 'acn-snap-user' : 'acn-snap-ai');
+                // Proportional sizing in expanded mode: flex-grow by message text length
+                msgEl.style.flexGrow = String(msgLines);
+                msgEl.appendChild(linesWrap);
+                zone.appendChild(msgEl);
+                snapMsgEls.push(msgEl);
+            });
+
+            // ── Sub-segments ──────────────────────────────────────────────────────
+            // Each sub-segment gets flex-grow proportional to its line count so it
+            // fills vertical space matching its corresponding snapshot messages.
+            // Cross-references enable hover highlighting without DOM queries.
+            var hasChildren = seg.children && seg.children.length > 0;
             if (hasChildren) {
                 var childrenWrap = document.createElement('div');
                 childrenWrap.className = 'acn-seg-d2-children';
 
-                seg.children.forEach(function (child) {
+                for (var ci = 0; ci < seg.children.length; ci++) {
+                    var child = seg.children[ci];
+
+                    // Collect the snapshot message elements that belong to this child
+                    // and compute the child's total line count for flex-grow sizing.
+                    var childSnapMsgs = [];
+                    var childLineCount = 0;
+                    for (var mi = 0; mi < seg.messages.length; mi++) {
+                        var segMsg = seg.messages[mi];
+                        if (segMsg.globalIdx >= child.startIdx && segMsg.globalIdx <= child.endIdx) {
+                            childLineCount += Math.min(15, Math.max(1, Math.ceil((segMsg.text || '').length / 80)));
+                            childSnapMsgs.push(snapMsgEls[mi]);
+                        }
+                    }
+
                     var subCap = document.createElement('div');
                     subCap.className = 'acn-seg-d2-sub-cap';
 
@@ -4220,19 +4289,32 @@
 
                     var subEl = document.createElement('div');
                     subEl.className = 'acn-seg-d2-sub';
+                    // Proportional sizing in expanded mode
+                    subEl.style.flexGrow = String(childLineCount || 1);
                     subEl.appendChild(subBracket);
                     subEl.appendChild(subInner);
 
-                    (function (c) {
+                    (function (c, cSnapMsgs) {
                         subEl.addEventListener('click', function (e) {
                             e.stopPropagation();
                             var firstMsg = c.messages && c.messages[0];
                             if (firstMsg) _sumScrollToElement(firstMsg.element);
                         });
-                    })(child);
+                        // Highlight corresponding snapshot messages on hover
+                        subEl.addEventListener('mouseenter', function () {
+                            for (var hi = 0; hi < cSnapMsgs.length; hi++) {
+                                cSnapMsgs[hi].classList.add('acn-snap-highlight');
+                            }
+                        });
+                        subEl.addEventListener('mouseleave', function () {
+                            for (var hi = 0; hi < cSnapMsgs.length; hi++) {
+                                cSnapMsgs[hi].classList.remove('acn-snap-highlight');
+                            }
+                        });
+                    })(child, childSnapMsgs);
 
                     childrenWrap.appendChild(subEl);
-                });
+                }
                 inner.appendChild(childrenWrap);
             }
 
@@ -4241,40 +4323,25 @@
             segEl.appendChild(bracket);
             segEl.appendChild(inner);
 
-            (function (s) {
+            (function (s, allSnapMsgs, withChildren) {
                 segEl.addEventListener('click', function () {
                     var firstMsg = s.messages && s.messages[0];
                     if (firstMsg) _sumScrollToElement(firstMsg.element);
                 });
-            })(seg);
-
-            // ── Snapshot zone (right side) ────────────────────────────────────────
-            var zone = document.createElement('div');
-            zone.className = 'acn-snap-zone';
-
-            seg.messages.forEach(function (msg) {
-                var msgLines = Math.min(15, Math.max(1, Math.ceil((msg.text || '').length / 80)));
-                var isUser   = msg.type === 'user';
-
-                var linesWrap = document.createElement('div');
-                linesWrap.className = 'acn-snap-lines';
-
-                for (var li = 0; li < msgLines; li++) {
-                    var line = document.createElement('div');
-                    line.className = 'acn-snap-line';
-                    var w = isUser ? (55 + Math.floor(Math.random() * 40)) : (35 + Math.floor(Math.random() * 60));
-                    if (li === msgLines - 1) {
-                        w = Math.floor(w * (0.25 + Math.random() * 0.4));
-                    }
-                    line.style.width = w + '%';
-                    linesWrap.appendChild(line);
+                // For segments without sub-segments, hovering the block highlights all its messages
+                if (!withChildren) {
+                    segEl.addEventListener('mouseenter', function () {
+                        for (var hi = 0; hi < allSnapMsgs.length; hi++) {
+                            allSnapMsgs[hi].classList.add('acn-snap-highlight');
+                        }
+                    });
+                    segEl.addEventListener('mouseleave', function () {
+                        for (var hi = 0; hi < allSnapMsgs.length; hi++) {
+                            allSnapMsgs[hi].classList.remove('acn-snap-highlight');
+                        }
+                    });
                 }
-
-                var msgEl = document.createElement('div');
-                msgEl.className = 'acn-snap-msg ' + (isUser ? 'acn-snap-user' : 'acn-snap-ai');
-                msgEl.appendChild(linesWrap);
-                zone.appendChild(msgEl);
-            });
+            })(seg, snapMsgEls, hasChildren);
 
             row.appendChild(segEl);
             row.appendChild(zone);
@@ -4291,20 +4358,41 @@
             function updateSnapshot() {
                 var panelW = panel.offsetWidth;
                 var zones  = container.querySelectorAll('.acn-snap-zone');
-                var i;
+                var i, ri;
                 if (panelW >= 420) {
                     var sw = Math.max(70, Math.min(160, Math.round((panelW - 420) * 0.45 + 70)));
                     for (i = 0; i < zones.length; i++) {
-                        // Set width before adding visible class so the element has a size when it enters layout
                         zones[i].style.width = sw + 'px';
                         zones[i].classList.add('acn-snap-visible');
                     }
+                    // Expanded mode: enable flex-grow proportional sizing on both sides.
+                    // Sub-segments fill the bracket column proportionally (via flex-grow set
+                    // inline at render time). Snap-msgs fill the zone column proportionally.
+                    // Offset the snapshot top to align with the sub-segment area (below the
+                    // parent label+meta), measured from live layout for accuracy.
+                    container.classList.add('acn-map-expanded');
+                    var rows = container.querySelectorAll('.acn-map-row');
+                    for (ri = 0; ri < rows.length; ri++) {
+                        var zoneEl = rows[ri].querySelector('.acn-snap-zone');
+                        if (!zoneEl) continue;
+                        var wrap = rows[ri].querySelector('.acn-seg-d2-children');
+                        if (wrap) {
+                            // Align snapshot top with the sub-segment area by measuring the
+                            // childrenWrap position relative to the row after layout.
+                            var rowTop  = rows[ri].getBoundingClientRect().top;
+                            var wrapTop = wrap.getBoundingClientRect().top;
+                            zoneEl.style.paddingTop = Math.max(0, Math.round(wrapTop - rowTop)) + 'px';
+                        } else {
+                            zoneEl.style.paddingTop = '';
+                        }
+                    }
                 } else {
                     for (i = 0; i < zones.length; i++) {
-                        // Remove class first (triggers display:none via CSS), then clear inline width
                         zones[i].classList.remove('acn-snap-visible');
                         zones[i].style.width = '';
+                        zones[i].style.paddingTop = '';
                     }
+                    container.classList.remove('acn-map-expanded');
                 }
             }
 
