@@ -30,9 +30,14 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v10.9
+## Current Status: v10.10
 
-The extension supports 14 platform variants across 12 websites. v10.9 completes the SSE investigation that began in v10.8 and ships a hybrid context bar for Claude using SSE thinking data.
+The extension supports 14 platform variants across 12 websites. v10.10 adds a draggable orbital zone, overhauls the summary panel, and completes a full documentation audit.
+
+**v10.10 Accomplishments (2026-03-10):**
+- **Draggable Orbital Zone:** Click-and-hold anywhere in the orbital toggle zone and drag vertically to reposition the entire button cluster. Uses a 5px movement threshold to distinguish drag from click. Position persists per-platform as a viewport-height ratio via `GM_setValue('acn-zone-positions')` so it adapts across screen sizes. Drag limits calculated from full expanded height in show-all mode. Global drag handlers attached once via `_orbGlobalHandlersAttached` guard — no stacking on SPA reinjection. Stuck drag state cleared on `window blur`. Click-suppression canceller auto-removed after 300ms to prevent swallowing the next real click.
+- **Summary Panel Overhaul:** Three sections tightened to reduce noise. (1) Topics: cap reduced from 15 → 8. (2) Key Points: cap reduced from 20 → 10; removed overly broad action patterns (`try`, `run`, `install`, `build`, etc.); removed `actually` from finding patterns; narrowed `because/reason/why` to specific phrasings; minimum sentence length raised from 20 → 40 characters. (3) Conversation Map: replaced fixed 4-message sliding window with content-aware topic-shift segmentation — uses `_sumWordOverlap` (threshold 0.15) against a 4-message context window of the current segment; long deep-dives stay as one block, off-topic tangents split naturally; merge pass caps at 12 segments. Removed `SEGMENT_ICON_MAP` and icon prefixes from segment labels entirely.
+- **Documentation Audit:** Fixed stale version numbers, terminology ("sidebar" → "orbital button cluster"), missing features (context window bar, /commands, i18n, plan usage), and privacy section inaccuracies across README, ROADMAP, CLAUDE.md, and agent_docs.
 
 **v10.9 Accomplishments (2026-02-23):**
 - **SSE Plumbing Fully Fixed:** v10.8's `unsafeWindow` fix was necessary but not sufficient. Two more bugs found through 10-step live debugging: (1) cross-realm `Uint8Array` — Tampermonkey's sandbox TextDecoder silently returns empty strings for page-realm typed arrays; fixed by copying bytes into sandbox realm with `new Uint8Array(result.value)`. (2) `\r\n` line endings — Claude SSE uses `\r\n`, not `\n`; split regex `/\n\n/` never matched. All plumbing now confirmed working.
@@ -110,5 +115,5 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 
 ---
 
-*Last updated: 2026-03-09 (v10.9)*
+*Last updated: 2026-03-10 (v10.10)*
 
