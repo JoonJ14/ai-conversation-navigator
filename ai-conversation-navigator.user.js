@@ -3502,7 +3502,7 @@
             '.acn-gen-wrap{margin-bottom:12px}',
             '.acn-sum-disclaimer{font-size:11px;color:#888;margin-top:6px;font-style:italic}',
             // D2 bracket map container
-            '.acn-map-container{display:flex;gap:0;align-items:stretch}',
+            '.acn-map-container{display:flex;gap:0;align-items:stretch;overflow:hidden}',
             '.acn-map-brackets{flex:1;min-width:0;display:flex;flex-direction:column}',
             // D2 parent segments
             '.acn-seg-d2{display:flex;align-items:stretch;cursor:pointer;position:relative}',
@@ -4431,8 +4431,8 @@
 
         container.appendChild(_sumRenderStats(summaryData.stats));
         container.appendChild(_sumRenderTopics(summaryData.topics));
-        container.appendChild(_sumRenderKeyPoints(summaryData.keyPoints));
         container.appendChild(_sumRenderConversationMap(summaryData.map));
+        container.appendChild(_sumRenderKeyPoints(summaryData.keyPoints));
         container.appendChild(_sumRenderInventory(summaryData.inventory));
     }
 
