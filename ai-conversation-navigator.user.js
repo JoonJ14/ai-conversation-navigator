@@ -4261,9 +4261,7 @@
         mapData.forEach(function (seg) {
             var zone = document.createElement('div');
             zone.className = 'acn-snap-zone';
-            zone.style.flexGrow = String(seg._lineCount);
-            zone.style.flexBasis = '0';
-            zone.style.minHeight = '0';
+            zone.style.minHeight = Math.max(36, Math.floor((seg._lineCount / totalLines) * 600)) + 'px';
 
             seg.messages.forEach(function (msg) {
                 var msgLines = Math.min(15, Math.max(1, Math.ceil((msg.text || '').length / 80)));
