@@ -4132,7 +4132,7 @@
         mapData.forEach(function (seg) {
             seg._lineCount = 0;
             seg.messages.forEach(function (m) {
-                seg._lineCount += Math.max(1, Math.ceil((m.text || '').length / 80));
+                seg._lineCount += Math.min(15, Math.max(1, Math.ceil((m.text || '').length / 80)));
             });
             totalLines += seg._lineCount;
         });
@@ -4270,7 +4270,7 @@
             zone.style.minHeight = '0';
 
             seg.messages.forEach(function (msg) {
-                var msgLines = Math.max(1, Math.ceil((msg.text || '').length / 80));
+                var msgLines = Math.min(15, Math.max(1, Math.ceil((msg.text || '').length / 80)));
                 var isUser   = msg.type === 'user';
 
                 var linesWrap = document.createElement('div');
