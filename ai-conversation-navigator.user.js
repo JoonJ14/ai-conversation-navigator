@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      10.12
+// @version      10.13
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -39,7 +39,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '10.12';
+    var ACN_VERSION = '10.13';
 
     // ============================================================
     // i18n — internationalization string table
