@@ -3528,9 +3528,9 @@
             '.acn-seg-d2-sub-inner{flex:1;padding:3px 5px;border-radius:3px;transition:background 0.15s;min-width:0}',
             '.acn-seg-d2-sub-label{font-size:11px;font-weight:500;color:rgba(var(--acn-rgb),0.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
             '.acn-seg-d2-sub-meta{font-size:9px;color:#555;font-family:monospace}',
-            // Snapshot zone — one per row, width-toggled by ResizeObserver
-            '.acn-snap-zone{flex-shrink:0;overflow:hidden;opacity:0;width:0;display:flex;flex-direction:column;position:relative;transition:width 0.3s ease,opacity 0.3s ease,margin 0.3s ease}',
-            '.acn-snap-zone.acn-snap-visible{opacity:1;margin-left:8px}',
+            // Snapshot zone — one per row; display:none when hidden so content cannot drive row height
+            '.acn-snap-zone{flex-shrink:0;overflow:hidden;display:none;flex-direction:column;position:relative;opacity:0;transition:opacity 0.3s ease,margin 0.3s ease}',
+            '.acn-snap-zone.acn-snap-visible{display:flex;opacity:1;margin-left:8px}',
             '.acn-snap-msg{padding:1px 3px;margin-bottom:0.5px;position:relative;flex-shrink:0}',
             '.acn-snap-user{background:rgba(var(--acn-rgb),0.12);border-left:2px solid var(--acn-accent);margin-right:15%;border-radius:1px}',
             '.acn-snap-ai{background:rgba(255,255,255,0.03);border-left:2px solid #444;margin-right:0;border-radius:1px}',
@@ -4295,13 +4295,15 @@
                 if (panelW >= 420) {
                     var sw = Math.max(70, Math.min(160, Math.round((panelW - 420) * 0.45 + 70)));
                     for (i = 0; i < zones.length; i++) {
-                        zones[i].classList.add('acn-snap-visible');
+                        // Set width before adding visible class so the element has a size when it enters layout
                         zones[i].style.width = sw + 'px';
+                        zones[i].classList.add('acn-snap-visible');
                     }
                 } else {
                     for (i = 0; i < zones.length; i++) {
+                        // Remove class first (triggers display:none via CSS), then clear inline width
                         zones[i].classList.remove('acn-snap-visible');
-                        zones[i].style.width = '0';
+                        zones[i].style.width = '';
                     }
                 }
             }
