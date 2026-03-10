@@ -1423,17 +1423,29 @@
             if (z) z.classList.add('acn-dragging');
         }
         if (!_orbDragMoved) return;
+        // Clamp _orbYRatio to the final position (used on mouseup)
         _orbYRatio = _orbClampYRatio(_orbDragStartRatio + deltaY / window.innerHeight);
-        orbUpdateHitzone();
-        orbRender();
+        // During drag: move the zone with a GPU-composited transform instead of
+        // calling orbRender() on every mousemove event. This avoids per-frame
+        // layout reflows and makes the drag feel instant.
+        var zone = document.getElementById('acn-zone');
+        if (zone) {
+            var offsetPx = (_orbYRatio - _orbDragStartRatio) * window.innerHeight;
+            zone.style.transform = 'translateY(' + offsetPx + 'px)';
+        }
     }
     function _orbDragEnd() {
         if (!_orbDragActive) return;
         _orbDragActive = false;
         var z = document.getElementById('acn-zone');
-        if (z) z.classList.remove('acn-dragging');
+        if (z) {
+            z.classList.remove('acn-dragging');
+            z.style.transform = ''; // Clear drag transform before final render
+        }
         if (_orbDragMoved) {
             _orbSaveZonePosition();
+            orbUpdateHitzone();
+            orbRender(); // One render to set correct dot positions at new location
             // Suppress the click event that immediately follows mouseup after a drag.
             // Store the reference so the timeout can also remove it — without this,
             // if mouseup fired outside the browser window (blur path), no click ever
