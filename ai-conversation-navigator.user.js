@@ -3502,7 +3502,7 @@
             '.acn-gen-wrap{margin-bottom:12px}',
             '.acn-sum-disclaimer{font-size:11px;color:#888;margin-top:6px;font-style:italic}',
             // D2 bracket map container
-            '.acn-map-container{display:flex;gap:0;align-items:stretch;overflow:hidden}',
+            '.acn-map-container{display:flex;gap:0;align-items:stretch}',
             '.acn-map-brackets{flex:1;min-width:0;display:flex;flex-direction:column}',
             // D2 parent segments
             '.acn-seg-d2{display:flex;align-items:stretch;cursor:pointer;position:relative}',
@@ -4137,12 +4137,10 @@
             totalLines += seg._lineCount;
         });
         if (totalLines === 0) totalLines = 1;
-        var mapHeight = Math.max(300, Math.min(700, totalLines * 2.2));
 
         // Flex container: brackets column (left) + snapshot column (right)
         var container = document.createElement('div');
         container.className = 'acn-map-container';
-        container.style.height = mapHeight + 'px';
 
         // ── Brackets column ──────────────────────────────────────────────────────
         var bracketsCol = document.createElement('div');
@@ -4236,9 +4234,7 @@
 
             var segEl = document.createElement('div');
             segEl.className = 'acn-seg-d2';
-            segEl.style.flexGrow = String(seg._lineCount);
-            segEl.style.flexBasis = '0';
-            segEl.style.minHeight = '0';
+            segEl.style.minHeight = Math.max(36, Math.floor((seg._lineCount / totalLines) * 600)) + 'px';
             segEl.appendChild(bracket);
             segEl.appendChild(inner);
 
