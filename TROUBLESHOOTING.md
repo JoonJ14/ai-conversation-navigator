@@ -1557,6 +1557,77 @@ Claude's web UI deliberately strips the `usage` field from the SSE stream before
 
 ---
 
+## v10.12/v10.13 — Post-Review Fixes (2026-03-10)
+
+---
+
+### RESOLVED — Summary Map Segments Overlapping Each Other
+
+**Versions affected:** v10.11 only
+**Fixed in:** v10.13 | **Severity:** High (visual corruption) | **Platforms:** All
+
+**Symptom:** In the Summary panel, conversation map brackets overlapped adjacent segments. Child brackets and topic pills spilled into the section below. On long conversations the entire map became unreadable.
+
+**Root cause:** The map container had a fixed `height` (`Math.max(300, Math.min(700, totalLines * 2.2))px`) and used `flex-grow` on each segment row to partition that space proportionally. When a segment expanded due to children or topic pills, it overflowed its allocated flex slice into the next segment's zone. Adding `overflow: hidden` to the container only clipped the overflow — it did not give segments room to grow.
+
+**Fix:** Removed `container.style.height`. Replaced `flex-grow`/`flex-basis`/`min-height: 0` on segment rows with `segEl.style.minHeight = Math.max(36, Math.floor((seg._lineCount / totalLines) * 600)) + 'px'`. Segments now declare a proportional minimum height and expand freely to fit their content. The container grows with its children; the panel scrolls.
+
+**Snapshot column sync:** The snapshot column uses `flex-grow` (not `min-height`) on its zones, and `align-items: stretch` on the shared flex parent keeps both columns matched in total height without a fixed coordinate.
+
+---
+
+### RESOLVED — Drag Lag on Orbital Button Zone
+
+**Versions affected:** v10.10–v10.11
+**Fixed in:** v10.13 | **Severity:** Medium (UX degradation) | **Platforms:** All orbital platforms
+
+**Symptom:** Dragging the orbital button cluster up or down the right edge of the screen was visibly laggy, especially at fast mouse speeds.
+
+**Root cause:** `_orbDragMove()` called `orbRender()` on every `mousemove` event. `orbRender()` performs DOM reads (viewport dimensions, container measurements), repositions all dot elements, and recalculates hitzone geometry — triggering a synchronous browser layout reflow on every mouse event.
+
+**Fix:** During drag, `_orbDragMove()` now applies only `zone.style.transform = 'translateY(' + offsetPx + 'px)'`. CSS `transform` is GPU-composited and never triggers layout reflow. `orbRender()` fires once in `_orbDragEnd()` after mouseup to finalize positions and remove the transform.
+
+---
+
+### RESOLVED — Pivot Detection Matching Technical Terms
+
+**Versions affected:** v10.11 only
+**Fixed in:** v10.13 | **Severity:** Medium (incorrect segmentation) | **Platforms:** All
+
+**Symptom:** In coding or data-analysis conversations, the phrase "pivot table", "pivot column", or "pivot point" caused an unexpected segment break in the Summary conversation map.
+
+**Root cause:** `PIVOT_PHRASES` included the bare word `pivot` as a match, intended to catch "let's pivot". The regex matched any occurrence of the word regardless of context.
+
+**Fix:** Removed bare `pivot`. Added explicit transition forms `let's pivot` and `pivot to` instead — forms that cannot plausibly appear in a technical context. Also tightened `unrelated` → `unrelated question` and `something else` → `something else entirely` to reduce false positives from mid-sentence usage.
+
+---
+
+### RESOLVED — Summary Snapshot Column Creating Excessive DOM Nodes
+
+**Versions affected:** v10.11 only
+**Fixed in:** v10.13 | **Severity:** Medium (rendering lag on large conversations) | **Platforms:** All
+
+**Symptom:** Opening the Summary panel in a conversation with large code blocks or pasted logs caused a noticeable delay before the panel rendered. In extreme cases (multi-thousand-line pastes), the browser tab stalled briefly.
+
+**Root cause:** The snapshot column creates one `.acn-snap-line` DOM node per ~80 characters of message text. There was no upper bound per message. A single pasted log entry of 12,000 characters would create 150 line nodes; several such messages could push the total DOM count into the thousands.
+
+**Fix:** Applied `Math.min(15, ...)` cap in two places: (1) the `_lineCount` accumulator (used to set `flex-grow` on bracket segments), preventing any message from dominating vertical proportions; (2) the inner loop that appends `.acn-snap-line` elements, capping each message at 15 line nodes regardless of text length.
+
+---
+
+### RESOLVED — Sub-Segments Dropped When Map Segments Merge
+
+**Versions affected:** v10.11 only
+**Fixed in:** v10.13 | **Severity:** Low (missing nested brackets after merge) | **Platforms:** All
+
+**Symptom:** After `_sumMergeExcessSegments` ran on a conversation with more than 10 segments, the merged parent segments lost their nested child brackets. The D2 map showed only flat top-level segments with no sub-segments, even on segments with 8+ messages.
+
+**Root cause:** `_sumMergeExcessSegments` constructed the merged segment object without a `children` field. The original segments had `children` populated by `_sumBuildSubSegments`, but the merge code rebuilt the object from scratch and omitted the field.
+
+**Fix:** Added `children: _sumBuildSubSegments(mergedMsgs)` to the merged segment object, where `mergedMsgs = a.messages.concat(b.messages)`. The sub-segment pass is re-run on the combined message list, which may produce different children than either source segment alone (since the combined context may have stronger or weaker topic shifts).
+
+---
+
 ## Reporting New Issues
 
 If you hit a problem not listed here:

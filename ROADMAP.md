@@ -30,9 +30,18 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v10.11
+## Current Status: v10.13
 
-The extension supports 14 platform variants across 12 websites. v10.11 rewrites the summary segmentation engine and replaces the flat conversation map with a D2 nested bracket map and synced conversation snapshot.
+The extension supports 14 platform variants across 12 websites. v10.13 applies post-review polish from v10.11: summary section reordering, map overflow fix, drag performance, and permanent `// @name` cleanup.
+
+**v10.12 / v10.13 Accomplishments (2026-03-10):**
+- **Summary Section Order:** Reordered summary panel sections to Stats → Topics → Conversation Map → Key Points → Code & Files. Map now appears above key points so users see the visual overview first.
+- **Map Overflow Fixed:** Removed fixed container height from the D2 bracket map. Segments now use proportional `min-height` (`(seg._lineCount / totalLines) * 600px`) so they expand freely and the panel scrolls to accommodate long conversations. Eliminates segment overlap caused by children/pills overflowing fixed flex slices.
+- **Drag Performance:** Orbital zone drag now moves via CSS `transform: translateY()` on every mousemove (GPU-composited, no layout reflow). `orbRender()` fires once on mouseup to finalize dot positions.
+- **Userscript Name Permanently Fixed:** Removed version number from `// @name` header. Field is now permanently `AI Conversation Navigator` with no version suffix — prevents Tampermonkey from creating duplicate installs on each update. Version is tracked only in `// @version` and `ACN_VERSION`.
+- **Pivot Phrase Narrowed:** Removed bare `pivot` from `PIVOT_PHRASES` regex; added explicit forms `let's pivot` and `pivot to`. Tightened `unrelated` → `unrelated question` and `something else` → `something else entirely` to reduce false positives on technical vocabulary.
+- **Snapshot DOM Cap:** Snapshot bars per message capped at 15 lines in both the `_lineCount` accumulator and the snapshot DOM loop, preventing DOM blowups from large code blocks or pasted logs.
+- **Sub-Segments Preserved on Merge:** `_sumMergeExcessSegments` now recomputes `children: _sumBuildSubSegments(mergedMsgs)` on the combined message list when two segments are merged, so nested bracket data is never dropped.
 
 **v10.11 Accomplishments (2026-03-10):**
 - **Pivot Detection:** User messages containing phrases like "by the way", "switch gears", "new topic", etc. now force a hard segment break in the conversation map, independent of word-overlap score. Bare "pivot" intentionally excluded — only explicit transition forms like "let's pivot" and "pivot to" match, to avoid false positives on technical terms like "pivot table".
@@ -125,5 +134,5 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 
 ---
 
-*Last updated: 2026-03-10 (v10.11)*
+*Last updated: 2026-03-10 (v10.13)*
 

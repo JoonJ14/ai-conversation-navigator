@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      10.12
+// @version      10.13
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -39,7 +39,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '10.12';
+    var ACN_VERSION = '10.13';
 
     // ============================================================
     // i18n — internationalization string table
@@ -3501,11 +3501,12 @@
             '.acn-gen-btn:disabled{opacity:0.6;cursor:not-allowed;filter:none}',
             '.acn-gen-wrap{margin-bottom:12px}',
             '.acn-sum-disclaimer{font-size:11px;color:#888;margin-top:6px;font-style:italic}',
-            // D2 bracket map container
-            '.acn-map-container{display:flex;gap:0;align-items:stretch;overflow:hidden}',
-            '.acn-map-brackets{flex:1;min-width:0;display:flex;flex-direction:column}',
+            // D2 bracket map container — column of rows; each row = bracket + snapshot zone
+            '.acn-map-container{display:flex;flex-direction:column;gap:0}',
+            '.acn-map-row{display:flex;align-items:stretch}',
+            '.acn-map-row+.acn-map-row{border-top:1px solid rgba(var(--acn-rgb),0.06)}',
             // D2 parent segments
-            '.acn-seg-d2{display:flex;align-items:stretch;cursor:pointer;position:relative}',
+            '.acn-seg-d2{flex:1;min-width:0;display:flex;align-items:stretch;cursor:pointer;position:relative}',
             '.acn-seg-d2:hover>.acn-seg-d2-inner{background:rgba(var(--acn-rgb),0.06)}',
             '.acn-seg-d2-bracket{width:10px;flex-shrink:0;position:relative;margin-right:4px}',
             '.acn-seg-d2-bracket::before{content:"";position:absolute;top:0;bottom:0;left:2px;width:2px;background:var(--acn-accent);opacity:0.5}',
@@ -3527,12 +3528,9 @@
             '.acn-seg-d2-sub-inner{flex:1;padding:3px 5px;border-radius:3px;transition:background 0.15s;min-width:0}',
             '.acn-seg-d2-sub-label{font-size:11px;font-weight:500;color:rgba(var(--acn-rgb),0.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
             '.acn-seg-d2-sub-meta{font-size:9px;color:#555;font-family:monospace}',
-            // Snapshot column
-            '.acn-map-snapshot{flex-shrink:0;overflow:hidden;opacity:0;width:0;transition:width 0.3s ease,opacity 0.3s ease,margin 0.3s ease}',
-            '.acn-map-snapshot.acn-map-snapshot-visible{opacity:1;margin-left:8px}',
-            '.acn-snap-inner{height:100%;display:flex;flex-direction:column}',
-            '.acn-snap-zone{display:flex;flex-direction:column;position:relative;overflow:hidden}',
-            '.acn-snap-zone+.acn-snap-zone{border-top:1px solid rgba(var(--acn-rgb),0.12)}',
+            // Snapshot zone — one per row; display:none when hidden so content cannot drive row height
+            '.acn-snap-zone{flex-shrink:0;overflow:hidden;display:none;flex-direction:column;position:relative;opacity:0;transition:opacity 0.3s ease,margin 0.3s ease}',
+            '.acn-snap-zone.acn-snap-visible{display:flex;opacity:1;margin-left:8px}',
             '.acn-snap-msg{padding:1px 3px;margin-bottom:0.5px;position:relative;flex-shrink:0}',
             '.acn-snap-user{background:rgba(var(--acn-rgb),0.12);border-left:2px solid var(--acn-accent);margin-right:15%;border-radius:1px}',
             '.acn-snap-ai{background:rgba(255,255,255,0.03);border-left:2px solid #444;margin-right:0;border-radius:1px}',
@@ -4137,24 +4135,29 @@
             totalLines += seg._lineCount;
         });
         if (totalLines === 0) totalLines = 1;
-        var mapHeight = Math.max(300, Math.min(700, totalLines * 2.2));
 
         // Flex container: brackets column (left) + snapshot column (right)
+        // Scale map height with conversation length — short chats stay compact
+        var mapBaseline = Math.max(150, Math.min(500, totalLines * 2.2));
+
         var container = document.createElement('div');
         container.className = 'acn-map-container';
-        container.style.height = mapHeight + 'px';
 
-        // ── Brackets column ──────────────────────────────────────────────────────
-        var bracketsCol = document.createElement('div');
-        bracketsCol.className = 'acn-map-brackets';
-
+        // Each segment is a row containing its bracket segment (left) and snapshot zone (right).
+        // Row height is governed by whichever side is taller — no independent-column drift.
         mapData.forEach(function (seg) {
-            var msgStart  = seg.startIdx + 1;
-            var msgEnd    = seg.endIdx + 1;
-            var msgCount  = seg.messages.length;
-            var metaText  = 'msgs ' + msgStart + '\u2013' + msgEnd + ' \u00B7 ' + msgCount + ' msgs';
+            var rowMinH = Math.max(36, Math.floor((seg._lineCount / totalLines) * mapBaseline));
 
-            // Bottom cap of the bracket [ shape
+            var row = document.createElement('div');
+            row.className = 'acn-map-row';
+            row.style.minHeight = rowMinH + 'px';
+
+            // ── Bracket + label (left side) ──────────────────────────────────────
+            var msgStart = seg.startIdx + 1;
+            var msgEnd   = seg.endIdx + 1;
+            var msgCount = seg.messages.length;
+            var metaText = 'msgs ' + msgStart + '\u2013' + msgEnd + ' \u00B7 ' + msgCount + ' msgs';
+
             var cap = document.createElement('div');
             cap.className = 'acn-seg-d2-cap';
 
@@ -4175,7 +4178,7 @@
             inner.appendChild(labelEl);
             inner.appendChild(metaEl);
 
-            // Topic pills (only on segments without children — children show sub-labels)
+            // Topic pills (only on leaf segments — children show sub-labels instead)
             var hasChildren = seg.children && seg.children.length > 0;
             if (!hasChildren && seg.topics && seg.topics.length) {
                 var pills = document.createElement('div');
@@ -4220,7 +4223,6 @@
                     subEl.appendChild(subBracket);
                     subEl.appendChild(subInner);
 
-                    // Click on child → scroll to its first message
                     (function (c) {
                         subEl.addEventListener('click', function (e) {
                             e.stopPropagation();
@@ -4236,13 +4238,9 @@
 
             var segEl = document.createElement('div');
             segEl.className = 'acn-seg-d2';
-            segEl.style.flexGrow = String(seg._lineCount);
-            segEl.style.flexBasis = '0';
-            segEl.style.minHeight = '0';
             segEl.appendChild(bracket);
             segEl.appendChild(inner);
 
-            // Click on segment → scroll to its first message
             (function (s) {
                 segEl.addEventListener('click', function () {
                     var firstMsg = s.messages && s.messages[0];
@@ -4250,24 +4248,9 @@
                 });
             })(seg);
 
-            bracketsCol.appendChild(segEl);
-        });
-
-        container.appendChild(bracketsCol);
-
-        // ── Snapshot column ──────────────────────────────────────────────────────
-        var snapshot = document.createElement('div');
-        snapshot.className = 'acn-map-snapshot';
-
-        var snapInner = document.createElement('div');
-        snapInner.className = 'acn-snap-inner';
-
-        mapData.forEach(function (seg) {
+            // ── Snapshot zone (right side) ────────────────────────────────────────
             var zone = document.createElement('div');
             zone.className = 'acn-snap-zone';
-            zone.style.flexGrow = String(seg._lineCount);
-            zone.style.flexBasis = '0';
-            zone.style.minHeight = '0';
 
             seg.messages.forEach(function (msg) {
                 var msgLines = Math.min(15, Math.max(1, Math.ceil((msg.text || '').length / 80)));
@@ -4293,11 +4276,11 @@
                 zone.appendChild(msgEl);
             });
 
-            snapInner.appendChild(zone);
+            row.appendChild(segEl);
+            row.appendChild(zone);
+            container.appendChild(row);
         });
 
-        snapshot.appendChild(snapInner);
-        container.appendChild(snapshot);
         body.appendChild(container);
 
         // Wire up snapshot visibility: show at panel width >= 420px, scale with width
@@ -4307,14 +4290,21 @@
 
             function updateSnapshot() {
                 var panelW = panel.offsetWidth;
+                var zones  = container.querySelectorAll('.acn-snap-zone');
+                var i;
                 if (panelW >= 420) {
                     var sw = Math.max(70, Math.min(160, Math.round((panelW - 420) * 0.45 + 70)));
-                    snapshot.classList.add('acn-map-snapshot-visible');
-                    snapshot.style.width = sw + 'px';
-                    snapInner.style.width = sw + 'px';
+                    for (i = 0; i < zones.length; i++) {
+                        // Set width before adding visible class so the element has a size when it enters layout
+                        zones[i].style.width = sw + 'px';
+                        zones[i].classList.add('acn-snap-visible');
+                    }
                 } else {
-                    snapshot.classList.remove('acn-map-snapshot-visible');
-                    snapshot.style.width = '0';
+                    for (i = 0; i < zones.length; i++) {
+                        // Remove class first (triggers display:none via CSS), then clear inline width
+                        zones[i].classList.remove('acn-snap-visible');
+                        zones[i].style.width = '';
+                    }
                 }
             }
 
@@ -4323,7 +4313,6 @@
             if (window.ResizeObserver) {
                 var ro = new ResizeObserver(updateSnapshot);
                 ro.observe(panel);
-                // Disconnect when the map is removed from the DOM
                 var checkRemoved = setInterval(function () {
                     if (!document.contains(container)) {
                         ro.disconnect();

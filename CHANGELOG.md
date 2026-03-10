@@ -4,6 +4,60 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [10.13 — Post-Review Polish: Map Overflow, Section Order, Drag Performance] — 2026-03-10
+
+**Branch:** `release/v10.12`
+
+Six targeted fixes applied after code review of the v10.11 feature branch. No new features — all changes tighten correctness, performance, and naming hygiene.
+
+**Files modified:** `ai-conversation-navigator.user.js`, `CHANGELOG.md`.
+
+### Fix 1 — Map Segment Overflow / Overlap
+
+**Problem:** The D2 bracket map rendered correctly in short conversations but broke visually in longer ones — segments overlapped each other, and child brackets / topic pills spilled into adjacent segments.
+
+**Root cause:** `_sumRenderConversationMap` set a fixed `height` on the map container (`Math.max(300, Math.min(700, totalLines * 2.2)) + 'px'`) and then used CSS `flex-grow` on each segment row to divide that fixed space proportionally. When a segment contained children or many topic pills, the content exceeded its allocated flex slice and overflowed into the next segment's space. `overflow: hidden` on the container only masked the symptom — content was clipped at the container edge rather than pushing the container taller.
+
+**Fix:** Removed the fixed `container.style.height` assignment entirely. Removed `flexGrow`, `flexBasis`, and `minHeight: 0` from segment rows. Replaced with `segEl.style.minHeight = Math.max(36, Math.floor((seg._lineCount / totalLines) * 600)) + 'px'` — each segment declares a proportional *minimum* height but can grow freely to accommodate children. The map container stretches to the natural height of all segments combined; the panel scrolls. Also removed `overflow: hidden` from `.acn-map-container` CSS.
+
+**Snapshot sync:** With no fixed container height, the snapshot column automatically stretches to match the bracket column via `align-items: stretch` on the flex parent. Snapshot zones use `flex-grow` (not `min-height`) to divide the matched height proportionally — horizontal alignment is preserved without a fixed coordinate system.
+
+### Fix 2 — Summary Section Order
+
+**Problem:** The conversation map appeared after key points in the rendered panel. Users saw a wall of bullet-point key points before reaching the visual map, burying the highest-value section.
+
+**Root cause:** `renderSummaryResults()` appended sections in original insertion order: Stats → Topics → Key Points → Conversation Map → Code & Files.
+
+**Fix:** Reordered to Stats → Topics → Conversation Map → Key Points → Code & Files. The visual map now appears immediately after topics, giving users the conversation shape before the detail list.
+
+### Fix 3 — Drag Performance
+
+**Problem:** Dragging the orbital button zone vertically was noticeably laggy at fast mouse speeds.
+
+**Root cause:** `_orbDragMove()` called `orbRender()` on every `mousemove` event. `orbRender()` reads multiple DOM measurements, updates all dot positions, and recalculates hitzone geometry — forcing a synchronous layout reflow on every frame.
+
+**Fix:** During drag, `_orbDragMove()` now applies `zone.style.transform = 'translateY(' + offsetPx + 'px)'` only — a GPU-composited property that moves the element without triggering layout. `orbRender()` fires once in `_orbDragEnd()` after mouseup to finalize positions and clear the transform.
+
+### Fix 4 — Userscript Name Permanently Cleaned Up
+
+**Problem:** `// @name` contained `AI Conversation Navigator v10.9` (frozen since v10.9 despite two version bumps). v10.11 aligned it with the version, but the version number in the name causes a new problem: Tampermonkey matches installed scripts by name. A name change on each update registers it as a new script, leaving the old one installed in parallel.
+
+**Fix:** `// @name` permanently set to `AI Conversation Navigator` with no version suffix. Version is tracked only via `// @version` and `ACN_VERSION`. Tampermonkey uses `// @version` for update detection and display — the name field is purely for user identification.
+
+### Fix 5 — Pivot Phrase Over-Triggering
+
+**Problem:** The bare word `pivot` in `PIVOT_PHRASES` caused false segment breaks in technical conversations containing "pivot table", "pivot point", "pivot column", etc.
+
+**Fix:** Removed bare `pivot`. Added explicit transition forms `let's pivot` and `pivot to` instead. Also tightened `unrelated` → `unrelated question` and `something else` → `something else entirely` to avoid matching mid-sentence uses of these words.
+
+### Fix 6 — Snapshot DOM Blowup Prevention
+
+**Problem:** In conversations with large code blocks or pasted logs, individual messages could have thousands of characters. The snapshot column rendered one `.acn-snap-line` node per ~80 characters with no upper bound, creating hundreds of DOM nodes per message and causing visible rendering lag.
+
+**Fix:** Added `Math.min(15, ...)` cap in two locations: (1) the `_lineCount` accumulator used for `flex-grow` sizing, preventing any single message from dominating vertical space; (2) the snapshot DOM loop that creates `.acn-snap-line` elements, capping each message at 15 line nodes.
+
+---
+
 ## [10.11 — Summary Segmentation Engine + D2 Bracket Map] — 2026-03-10
 
 **Branch:** `feature/summary-segmentation-map-v10.11`
