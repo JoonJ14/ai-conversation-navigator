@@ -102,7 +102,7 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 - [x] Export conversation outline (stub panel exists in v10.0)
 - [x] Bookmarks panel (stub panel exists in v10.0)
 - [x] Conversation summary panel (stub panel exists in v10.0)
-- [ ] Per-platform accent colors for app-builder platforms
+- [x] ~~Per-platform accent colors for app-builder platforms~~ (each app-builder platform has its own accent color in the PLATFORMS registry — Bolt sky blue, Lovable violet, Replit red-orange, V0 white, Base44 indigo, Emergent emerald, Firebase Studio dark tangerine)
 - [ ] Convert to a standalone browser extension (beyond userscript)
 - [x] Korean translated language mode for mom
 - [ ] More translated language support in settings (?)
@@ -110,5 +110,5 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 
 ---
 
-*Last updated: 2026-02-23 (v10.9)*
+*Last updated: 2026-03-09 (v10.9)*
 

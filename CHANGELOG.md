@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [10.10 — Draggable Orbital Zone + Summary Panel Overhaul] — 2026-03-09
+
+**Branch:** `release/v10.10`
+
+Two code features and a documentation audit.
+
+**Files modified:** `ai-conversation-navigator.user.js`, `CHANGELOG.md`, `README.md`, `ROADMAP.md`, `CLAUDE.md`.
+
+### Draggable Orbital Zone
+
+**Problem:** The orbital button zone was fixed at the vertical center of the right edge with no way to move it, causing it to overlap platform UI elements (Claude's project panel, sidebar toggles, etc.).
+
+**Root cause:** `cy = window.innerHeight / 2` was hardcoded in `orbRender()` and `orbUpdateHitzone()` with no user-adjustable offset.
+
+**Fix:** Introduced `_orbYRatio` (0.0–1.0, default 0.5) stored as a fraction of viewport height. `_orbGetCy()` replaces the hardcoded division. Drag handlers on the hitzone and dots use a 5px movement threshold to distinguish drag from click; after a drag, a one-time capture-phase click listener suppresses the post-mouseup click. Any open panel closes when dragging starts. Limits keep all dots in viewport (top: `cy >= 132px`, bottom: `cy <= viewportHeight - 180px`), recalculated on resize. Visual feedback: `cursor: ns-resize` on hitzone, `opacity: 0.7` while dragging. Position persisted per-platform in GM storage key `'acn-zone-positions'`. Orbital platforms only (Claude, ChatGPT, Grok, Gemini, Perplexity + sub-variants).
+
+### Summary Panel Overhaul
+
+**Problem:** Topics (capped at 15), Key Points (capped at 20 with over-broad patterns), and Conversation Map (fixed 4-message window with category prefix labels) all generated too much content.
+
+**Conversation Map — content-aware segmentation:** Replaced fixed sliding window with topic-shift detection using `_sumWordOverlap`. Each message compared against the last 4 messages of the current segment; overlap < 0.15 starts a new segment. Short conversations (≤ 6 messages) stay as one segment. Removed `SEGMENT_ICON_MAP` and `_sumGetSegmentIcon()` — BUG/CODE/MSG prefixes were noisy; segment labels from `_sumGenerateSegmentLabel()` are rendered directly.
+
+**Topics:** Cap reduced 15 → 8.
+
+**Key Points:** Removed over-broad action pattern (`try|run|install|build|...`). Removed standalone "actually" from finding patterns. Narrowed `because|why` to `this (means|is why|causes)|the reason (is|being|for)`. Minimum sentence length raised 20 → 40 chars. Cap reduced 20 → 10.
+
+---
+
 ## [10.9 — Hybrid SSE Context Tracking + Turn Dots for Claude] — 2026-02-23
 
 **Branch:** `fix/v10-live-testing-polish`
