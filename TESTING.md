@@ -265,28 +265,36 @@ This is more stable than creating a new context per test (which crashed on the o
 
 ---
 
-## What Each Test Checks (12 Tests Per Platform)
+## What Each Test Checks (14 Tests Per Orbital Platform, 13 Per Legacy Platform)
 
 Tests query only `data-acn-role` and `data-acn-*` contract attributes — no internal CSS class names or element IDs. This means the UI can be completely rebuilt in any future version without breaking the test suite, as long as the contract attributes are maintained on the correct elements.
 
-| # | Test Name | What It Verifies | How |
-|---|-----------|-----------------|-----|
-| 1 | Zone exists | The userscript detected the platform and injected its container | `[data-acn-role="zone"]` present in DOM |
-| 2 | Styles injected | The CSS block was added to the document | `[data-acn-role="styles"]` present in `<head>` |
-| 3 | Nav trigger exists | The Navigate button/dot is present and clickable | `[data-acn-role="nav-trigger"]` present |
-| 4 | Nav panel exists | The Navigate panel element is in the DOM | `[data-acn-role="nav-panel"]` present |
-| 5 | Accent color | The zone reports the correct platform theme color | `data-acn-accent` attribute matches `expectedAccent` hex string |
-| 6 | No duplicate zone | Only one zone was injected (no double-injection bug) | Count of `[data-acn-role="zone"]` equals exactly 1 |
-| 7 | Trigger opens panel | Clicking the Navigate trigger opens the panel | Click nav-trigger → `data-acn-open="true"` appears on nav-panel |
-| 8 | Question count stat | The stat element reports the correct detected message count | `data-acn-count` on `[data-acn-role="nav-stat"]` equals `expectedMessages` |
-| 9 | Question items rendered | The correct number of question rows appear in the list | Count of `[data-acn-role="nav-item"]` equals `expectedMessages` |
-| 10 | All items have text | Every question row has non-empty display text | All `[data-acn-role="nav-item-text"]` have non-empty `textContent` |
-| 11 | Items clickable | Clicking a question item doesn't throw | Programmatic `.click()` on first `[data-acn-role="nav-item"]` |
-| 12 | Close button works | Clicking close removes the open state | Click `[data-acn-role="panel-close"]` → `data-acn-open` removed from nav-panel |
+**Total: 189 tests** — orbital platforms (claude, claude-code, chatgpt, codex, grok, gemini, perplexity) run 14 tests each; legacy platforms (bolt, lovable, replit, v0, base44, emergent, firebase) run 13 tests each.
+
+| # | Test Name | What It Verifies | How | Platforms |
+|---|-----------|-----------------|-----|-----------|
+| 1 | Zone exists | The userscript detected the platform and injected its container | `[data-acn-role="zone"]` present in DOM | All |
+| 2 | Styles injected | The CSS block was added to the document | `[data-acn-role="styles"]` present in `<head>` | All |
+| 3 | Nav trigger exists | The Navigate button/dot is present and clickable | `[data-acn-role="nav-trigger"]` present | All |
+| 4 | Nav panel exists | The Navigate panel element is in the DOM | `[data-acn-role="nav-panel"]` present | All |
+| 5 | Accent color | The zone reports the correct platform theme color | `data-acn-accent` attribute matches `expectedAccent` hex string | All |
+| 6 | No duplicate zone | Only one zone was injected (no double-injection bug) | Count of `[data-acn-role="zone"]` equals exactly 1 | All |
+| 7 | Trigger opens panel | Clicking the Navigate trigger opens the panel | Click nav-trigger → `data-acn-open="true"` appears on nav-panel | All |
+| 8 | Question count stat | The stat element reports the correct detected message count | `data-acn-count` on `[data-acn-role="nav-stat"]` equals `expectedMessages` | All |
+| 9 | Question items rendered | The correct number of question rows appear in the list | Count of `[data-acn-role="nav-item"]` equals `expectedMessages` | All |
+| 10 | All items have text | Every question row has non-empty display text | All `[data-acn-role="nav-item-text"]` have non-empty `textContent` | All |
+| 11 | Items clickable | Clicking a question item doesn't throw | Programmatic `.click()` on first `[data-acn-role="nav-item"]` | All |
+| 12 | Close button works | Clicking close removes the open state | Click `[data-acn-role="panel-close"]` → `data-acn-open` removed from nav-panel | All |
+| 13 | Correct injection mode | Platform gets orbital vs legacy UI as expected | `data-acn-ui` on zone matches `expectedMode` ("orbital" or "legacy") | All |
+| 14 | All orbital dots present | All 6 feature dots rendered in the orbital cluster | `[data-acn-dot="nav"]`, `[data-acn-dot="search"]`, etc. all present | Orbital only |
 
 **Tests 1–4 are blockers** — if any fail, the remaining tests are skipped for that platform (there is nothing to interact with without the core elements).
 
 **Test 9 is the most important** — this is where selector bugs surface. If the nav-item count doesn't match `expectedMessages`, the userscript's `getUserMessages()` selector chain isn't matching the mock DOM correctly.
+
+**Test 13** validates the registry-driven `useOrbital` flag — if a platform's `useOrbital` property is wrong, this test catches it immediately.
+
+**Test 14** catches rendering failures in the orbital cluster — if any dot fails to build, the entire cluster is broken for that platform.
 
 ---
 
@@ -304,6 +312,7 @@ The `PLATFORMS` array in `test-all-platforms.js` is the **central configuration*
     pathname: '/chat/test',    // The URL path (some platforms check this)
     expectedMessages: 3,       // How many user messages the mock page contains
     expectedAccent: '#d97706', // Expected data-acn-accent hex string
+    expectedMode: 'orbital',   // Expected data-acn-ui value: 'orbital' or 'legacy'
 }
 ```
 
@@ -317,6 +326,7 @@ The `PLATFORMS` array in `test-all-platforms.js` is the **central configuration*
 | `pathname` | string | URL path — matters for platforms with path guards (e.g., Lovable requires `/projects/`) | Appended to hostname for the target URL |
 | `expectedMessages` | number | Exact count of user messages in the mock HTML | Test 9 compares this to the count of `[data-acn-role="nav-item"]` elements |
 | `expectedAccent` | string | Hex color of the platform's accent (from `ORB_COLORS` or `theme.accent` in the registry) | Test 5 compares this to the `data-acn-accent` attribute on the zone element |
+| `expectedMode` | string | `'orbital'` or `'legacy'` — which UI system the platform should use | Test 13 compares this to the `data-acn-ui` attribute on the zone element |
 
 ### Current Platforms
 

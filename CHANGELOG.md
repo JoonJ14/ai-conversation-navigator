@@ -4,6 +4,98 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [11.0 — Pre-Release Code Quality & Registry Cleanup] — 2026-03-10
+
+**Branch:** `fix/segmentation-cold-start-bias` (continued from v10.16)
+
+A structural cleanup pass before public release. No new user-facing features. All changes are internal: ES5 compliance fix, registry-driven `useOrbital` flag, dead code removal, and expanded test contract attributes.
+
+**Files modified:** `ai-conversation-navigator.user.js`, `tests/test-all-platforms.js`, `CHANGELOG.md`, `ROADMAP.md`, `README.md`, `agent_docs/architecture.md`, `agent_docs/testing.md`, `TESTING.md`, `package.json`.
+
+### 1. ES5 Compliance Fix: `const` → `var` (Critical)
+
+**Problem:** The `PLATFORMS` registry was declared with `const` (line 251), the only ES5 violation in the entire file. This could silently fail in strict-mode ES5-only environments.
+
+**Fix:** Changed `const PLATFORMS = {` to `var PLATFORMS = {`. No behavior change — `PLATFORMS` was never reassigned.
+
+### 2. `useOrbital` Moved into Platform Registry
+
+**Problem:** The code that decided whether a platform gets the orbital cluster vs the legacy ghost-notch button was a hardcoded array lookup outside the registry:
+
+```javascript
+var useOrbital = ['claude', 'chatgpt', 'grok', 'gemini', 'perplexity'].indexOf(platform.id) >= 0;
+```
+
+This was the only platform-type distinction that wasn't driven by a registry property. Adding a new platform required remembering to update this list separately from the `PLATFORMS` object.
+
+**Fix:** Added `useOrbital: true` or `useOrbital: false` to each of the 12 platform configs in the `PLATFORMS` registry. Changed the derivation to:
+
+```javascript
+var useOrbital = !!platform.useOrbital;
+```
+
+The boolean result is identical for every platform. All 6 downstream references to the `useOrbital` variable are unchanged.
+
+**Platforms with `useOrbital: true`:** claude, chatgpt, grok, gemini, perplexity (5 platforms — orbital cluster)
+**Platforms with `useOrbital: false`:** bolt, lovable, replit, v0, base44, emergent, firebase_studio (7 platforms — legacy ghost-notch)
+
+### 3. Dead Code Removed (3 Functions)
+
+**`migrateOldSettings()`** (lines 236–246): A one-time migration function from an old storage key (`acn-orb-settings`) to the current key (`acn-settings`). It was defined but never called — the migration it was intended to perform was never wired into the initialization sequence. Removed entirely.
+
+**`getAllMessagesOrdered()`** (lines 1075–1090): An early utility that sorted user and AI messages by DOM position. It was superseded by `_sumBuildTimeline()` (the summary module's version, which also adds `globalIdx` and handles structured objects). `getAllMessagesOrdered` was never called. Removed entirely.
+
+**`predictNextCycleLength()`** (lines 1714–1731): A weighted-average prediction function for the turn counter's cycle length. It used a 3-tier exponential weighting scheme (0.5/0.3/0.2 split). No code in the file ever called it — `_renderTurnDots()` reads `_turnCounter.predictedCycleLength` directly but nothing ever set it via this function. Removed entirely.
+
+### 4. `window.generateFullSummary` Global Leak Removed
+
+**Problem:** `generateFullSummary` (the internal summary generation function) was exposed on the global `window` object with a comment "for Group E2 cross-module access." In practice, all callers (`getSummaryForExport` at line 4570, the export handler at line 4547) access it via closure scope within the same IIFE. The window assignment was unnecessary and leaked an internal function name onto the host page.
+
+**Fix:** Removed the two-line assignment and its comment. No callers were affected.
+
+### 5. Redundant Ternary Fixed in `formatResetTime`
+
+**Problem:** Line 1882 had a ternary where both branches executed `new Date(resetsAt)`:
+```javascript
+target = (typeof resetsAt === 'number') ? new Date(resetsAt) : new Date(resetsAt);
+```
+
+**Fix:** Simplified to `target = new Date(resetsAt);`. `new Date()` already handles both numeric timestamps and ISO date strings correctly.
+
+### 6. `data-acn-version` Now Uses `ACN_VERSION`
+
+**Problem:** Three places set `data-acn-version` to the hardcoded string `'10.0'` — a stale value from the v10.0 launch that was never updated as the version number advanced.
+
+**Fix:** All three locations (`orbBuildZone()`, and the two legacy zone injection sites) now use `ACN_VERSION`, the single source of truth for the version number.
+
+### 7. Duplicate CSS Block Removed
+
+**Problem:** The `.acn-exp-opt` CSS rule (export option row styling) was defined twice in `orbInjectCSS()` — once at line 2026 (`padding:14px`) and again at line 2148 (`padding:12px 14px`). Both were in the same `<style>` element. The second definition overrode the first. The first was dead CSS.
+
+**Fix:** Removed the first definition. No visual change — the second definition is the active one.
+
+### 8. Stale Version in Startup Console Log Fixed
+
+**Problem:** The startup banner logged `AI Conversation Navigator v10.7 loaded for ...` — stale since v10.7, never updated through v10.8–v10.16.
+
+**Fix:** Changed to `'AI Conversation Navigator v' + ACN_VERSION + ' loaded for ...'` so it always reflects the real version.
+
+### 9. Expanded Test Contract: `data-acn-ui` and `data-acn-dot`
+
+Added two new stable test-contract attributes:
+
+**`data-acn-ui="orbital"|"legacy"`** on the zone element: Distinguishes which UI system was injected. Note: `data-acn-mode` was already in use by the CSS and render system to track display modes (arc/wheel/show-all), so a separate attribute was added for the UI system type.
+
+**`data-acn-dot="nav"|"search"|"bookmarks"|"summary"|"tools"|"settings"`** on each orbital dot: Identifies every dot by feature ID, enabling tests to verify the complete orbital cluster rendered.
+
+### 10. Two New Tests Added (168 → 189 total)
+
+**Test 13 — Correct injection mode:** Verifies that each platform gets the expected UI system. Chat AI platforms must report `data-acn-ui="orbital"`; app-builder platforms must report `data-acn-ui="legacy"`. This directly validates the registry-driven `useOrbital` change.
+
+**Test 14 — All orbital dots present (orbital platforms only):** Verifies that all 6 feature dots (nav, search, bookmarks, summary, tools, settings) rendered in the orbital cluster. Legacy platforms skip this test. The count difference: orbital platforms run 14 tests, legacy platforms run 13 tests, for a total of **189 tests** (up from 168).
+
+---
+
 ## [10.16 — Conversation Map Segmentation: Cold-Start Bias Fix] — 2026-03-10
 
 **Branch:** `fix/segmentation-cold-start-bias`

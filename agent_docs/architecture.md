@@ -48,6 +48,7 @@ Each platform is an entry in the `PLATFORMS` object with properties:
     theme: { accent: '#d97706', accentHover: '#b45309', accentLight: '...' },
     icon: '\u2733',
     layout: 'standard',           // 'standard' | 'left-chat'
+    useOrbital: true,             // true = orbital cluster, false = legacy ghost-notch
     virtualScroll: false,
     spa: false,
     getUserMessages: function () { /* fallback selector chain */ },
@@ -64,20 +65,20 @@ When adding a new platform, follow the existing entry structure exactly.
 
 There are 12 platform entries covering 14 platform variants (Claude/Claude Code share `claude`; ChatGPT/Codex share `chatgpt`).
 
-| ID | Title | Hostname(s) | Layout |
-|----|-------|-------------|--------|
-| `claude` | Claude | `claude.ai` | standard |
-| `chatgpt` | ChatGPT | `chatgpt.com`, `chat.openai.com` | standard |
-| `grok` | Grok | `grok.com` | standard |
-| `gemini` | Gemini | `gemini.google.com` | standard |
-| `bolt` | Bolt | `bolt.new` | standard |
-| `lovable` | Lovable | `lovable.dev` | standard |
-| `replit` | Replit | `replit.com` | standard |
-| `v0` | V0 | `v0.app` | standard |
-| `base44` | Base44 | `app.base44.com` | standard |
-| `emergent` | Emergent | `app.emergent.sh` | standard |
-| `perplexity` | Perplexity | `perplexity.ai`, `www.perplexity.ai` | standard |
-| `firebase_studio` | Firebase Studio | `studio.firebase.google.com`, `*.cloudworkstations.dev` | standard |
+| ID | Title | Hostname(s) | Layout | useOrbital |
+|----|-------|-------------|--------|-----------|
+| `claude` | Claude | `claude.ai` | standard | `true` |
+| `chatgpt` | ChatGPT | `chatgpt.com`, `chat.openai.com` | standard | `true` |
+| `grok` | Grok | `grok.com` | standard | `true` |
+| `gemini` | Gemini | `gemini.google.com` | standard | `true` |
+| `perplexity` | Perplexity | `perplexity.ai`, `www.perplexity.ai` | standard | `true` |
+| `bolt` | Bolt | `bolt.new` | left-chat | `false` |
+| `lovable` | Lovable | `lovable.dev` | left-chat | `false` |
+| `replit` | Replit | `replit.com` | left-chat | `false` |
+| `v0` | V0 | `v0.app` | left-chat | `false` |
+| `base44` | Base44 | `app.base44.com` | left-chat | `false` |
+| `emergent` | Emergent | `app.emergent.sh` | left-chat | `false` |
+| `firebase_studio` | Firebase Studio | `studio.firebase.google.com`, `*.cloudworkstations.dev` | standard | `false` |
 
 ## Test Contract (`data-acn-*` Attributes)
 
@@ -98,9 +99,11 @@ data-acn-role="panel-close"   -> Closes the currently open panel on click
 
 **Data attributes** (queried on the elements above):
 ```
-data-acn-accent="#hexcolor"   -> Platform accent colour (on the zone element)
-data-acn-open="true"          -> Present on nav-panel when open, absent when closed
-data-acn-count="N"            -> Number of detected questions (on nav-stat element)
+data-acn-accent="#hexcolor"              -> Platform accent colour (on the zone element)
+data-acn-ui="orbital"|"legacy"          -> UI system (on zone; distinct from data-acn-mode which tracks arc/wheel/show-all)
+data-acn-dot="nav|search|bookmarks|…"   -> Feature ID on each orbital dot (orbital platforms only)
+data-acn-open="true"                    -> Present on nav-panel when open, absent when closed
+data-acn-count="N"                      -> Number of detected questions (on nav-stat element)
 ```
 
 Never remove or rename these attributes — tests depend on them.

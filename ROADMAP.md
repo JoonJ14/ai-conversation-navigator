@@ -30,9 +30,21 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v10.16
+## Current Status: v11.0
 
-The extension supports 14 platform variants across 12 websites. v10.16 fixes a structural bias in the conversation map segmentation algorithm — the map now accurately reflects actual conversation shape: big blocks for deep dives, small blocks for tangents, regardless of where in the conversation they occur.
+The extension supports 14 platform variants across 12 websites. v11.0 is a pre-release code quality and structural cleanup — no new user-facing features, but the codebase is now cleaner, more consistent, and has expanded test coverage before going public.
+
+**v11.0 Accomplishments (2026-03-10):**
+- **ES5 Compliance Fix:** `const PLATFORMS` → `var PLATFORMS`. The only ES5 violation in the entire ~6,400-line file. Fixed before public release.
+- **`useOrbital` Into Registry:** Moved the orbital-vs-legacy decision from a hardcoded 5-item array (`['claude','chatgpt','grok','gemini','perplexity'].indexOf(...)`) into the platform registry as a `useOrbital: true/false` property on each of the 12 platform configs. All platforms now declare their UI tier explicitly; the derivation is `var useOrbital = !!platform.useOrbital`.
+- **Dead Code Removed:** Three functions that were defined but never called: `migrateOldSettings()` (old storage key migration, never wired up), `getAllMessagesOrdered()` (superseded by `_sumBuildTimeline()`), `predictNextCycleLength()` (turn counter prediction, never invoked).
+- **`window.generateFullSummary` Removed:** Internal function was unnecessarily exposed on the global `window` object. All callers use closure scope within the same IIFE.
+- **`data-acn-version` Fixed:** Three zone element attribute sites were hardcoded to `'10.0'` instead of using `ACN_VERSION`. All now reflect the actual version.
+- **Startup Log Fixed:** Console banner was hardcoded `v10.7` since the v10.7 release — now uses `ACN_VERSION`.
+- **Redundant ternary fixed** in `formatResetTime`: both branches did `new Date(resetsAt)`.
+- **Duplicate CSS Removed:** First `.acn-exp-opt` definition in `orbInjectCSS()` was dead (overridden by the second in the same stylesheet).
+- **Expanded Test Contract:** Added `data-acn-ui="orbital"|"legacy"` on zone elements and `data-acn-dot="nav|search|bookmarks|summary|tools|settings"` on each orbital dot.
+- **Two New Tests (168 → 189 total):** Test 13 verifies each platform gets the correct UI system (orbital vs legacy). Test 14 verifies all 6 orbital dots rendered (orbital platforms only).
 
 **v10.16 Accomplishments (2026-03-10):**
 - **Segmentation Cold-Start Fix:** Added a post-merge pass to `_sumBuildConversationMap` that absorbs fragments < 3 messages into their most topically similar neighbor before applying the 5-segment cap. Eliminates the window reset bias where every topic shift caused cascading 1-2 message fragments. A 20-message deep-dive now produces one big block instead of `[1][1][2][15]`. The map reflects actual conversation shape in all patterns: big/small/big, all-random, single-topic.
@@ -102,7 +114,7 @@ The extension supports 14 platform variants across 12 websites. v10.16 fixes a s
 - **Live Testing Fixes:** isLeftChat button-panel sync across 4 code sites; Bolt.new scrollbarOffset open-state bug; V0 light mode visibility (textColor + toggleBorder); arc mode labels below dot via `data-acn-mode` CSS; panel z-index above orbital dots.
 - **Context Window Bar:** DOM walk to scroll container reads full conversation (user + AI) text; CTX_LIMITS per platform; green/amber/red color coding.
 - **Font Unification:** `system-ui` stack set on `.acn-zone` root; all children inherit consistently across all 14 platforms.
-- **Contract-Based Tests:** `data-acn-role` / `data-acn-*` attributes are the stable test interface — 14 platforms × 12 tests = 168 total. Tests survive complete UI rewrites as long as the 9 contract attributes are maintained.
+- **Contract-Based Tests:** `data-acn-role` / `data-acn-*` attributes are the stable test interface — 14 platforms × 12 tests = 168 total at launch (expanded to 189 in v11.0). Tests survive complete UI rewrites as long as the contract attributes are maintained.
 - **Full CI Matrix:** GitHub Actions runs Playwright across 3 OSes (ubuntu, macos, windows) × 3 browsers (chromium, firefox, webkit) = 9 checks on every PR.
 
 **v9.4 - v9.6 Accomplishments (historical):**
@@ -145,5 +157,5 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 
 ---
 
-*Last updated: 2026-03-10 (v10.13)*
+*Last updated: 2026-03-10 (v11.0)*
 

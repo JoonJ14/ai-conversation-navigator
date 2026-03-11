@@ -18,6 +18,8 @@
  *   data-acn-role="panel-close"  Closes the currently open panel when clicked
  *
  *   data-acn-accent="#hexcolor"  Platform accent colour (on the zone element)
+ *   data-acn-ui="orbital|legacy"   UI system (on the zone element; distinct from data-acn-mode which tracks display modes)
+ *   data-acn-dot="nav|search|bookmarks|summary|tools|settings" Each orbital dot (orbital mode only)
  *   data-acn-open="true"         Present on nav-panel when panel is open, absent when closed
  *   data-acn-count="N"           Number of detected questions (on nav-stat element)
  *
@@ -127,6 +129,7 @@ const PLATFORMS = [
         pathname: '/chat/test',
         expectedMessages: 3,
         expectedAccent: '#d97706',
+        expectedMode: 'orbital',
     },
     {
         name: 'Claude Code',
@@ -135,6 +138,7 @@ const PLATFORMS = [
         pathname: '/code/test',
         expectedMessages: 3,
         expectedAccent: '#d97706',
+        expectedMode: 'orbital',
     },
     {
         name: 'ChatGPT',
@@ -143,6 +147,7 @@ const PLATFORMS = [
         pathname: '/c/test',
         expectedMessages: 4,
         expectedAccent: '#ffffff',
+        expectedMode: 'orbital',
     },
     {
         name: 'Codex Web',
@@ -151,6 +156,7 @@ const PLATFORMS = [
         pathname: '/codex/test',
         expectedMessages: 2,
         expectedAccent: '#ffffff',
+        expectedMode: 'orbital',
     },
     {
         name: 'Grok',
@@ -159,6 +165,7 @@ const PLATFORMS = [
         pathname: '/chat/test',
         expectedMessages: 3,
         expectedAccent: '#e53e3e',
+        expectedMode: 'orbital',
     },
     {
         name: 'Gemini',
@@ -167,6 +174,7 @@ const PLATFORMS = [
         pathname: '/app/test',
         expectedMessages: 3,
         expectedAccent: '#4285f4',
+        expectedMode: 'orbital',
     },
     {
         name: 'Bolt.new',
@@ -175,6 +183,7 @@ const PLATFORMS = [
         pathname: '/test-project',
         expectedMessages: 3,
         expectedAccent: '#38BDF8',
+        expectedMode: 'legacy',
     },
     {
         name: 'Lovable',
@@ -183,6 +192,7 @@ const PLATFORMS = [
         pathname: '/projects/test-project',   // Must include /projects/ for the guard
         expectedMessages: 3,
         expectedAccent: '#9b87f5',
+        expectedMode: 'legacy',
     },
     {
         name: 'Replit',
@@ -191,6 +201,7 @@ const PLATFORMS = [
         pathname: '/@user/project',
         expectedMessages: 3,
         expectedAccent: '#F26522',
+        expectedMode: 'legacy',
     },
     {
         name: 'V0',
@@ -199,6 +210,7 @@ const PLATFORMS = [
         pathname: '/chat/test-project',
         expectedMessages: 3,
         expectedAccent: '#ffffff',
+        expectedMode: 'legacy',
     },
     {
         name: 'Base44',
@@ -207,6 +219,7 @@ const PLATFORMS = [
         pathname: '/projects/test',
         expectedMessages: 3,
         expectedAccent: '#6366f1',
+        expectedMode: 'legacy',
     },
     {
         name: 'Emergent',
@@ -215,6 +228,7 @@ const PLATFORMS = [
         pathname: '/project/test',
         expectedMessages: 3,
         expectedAccent: '#10b981',
+        expectedMode: 'legacy',
     },
     {
         name: 'Perplexity',
@@ -223,6 +237,7 @@ const PLATFORMS = [
         pathname: '/search/test',
         expectedMessages: 3,
         expectedAccent: '#20b2aa',
+        expectedMode: 'orbital',
     },
     {
         name: 'Firebase Studio',
@@ -231,6 +246,7 @@ const PLATFORMS = [
         pathname: '/capra/',
         expectedMessages: 3,
         expectedAccent: '#FFA611',   // firebase_studio legacy mode → platform.theme.accent
+        expectedMode: 'legacy',
     },
 ];
 
@@ -478,6 +494,30 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
         });
         assert('Close button dismisses panel', panelClosed,
             panelClosed ? 'Panel closed' : 'Panel still open after clicking close');
+
+        // ── TEST 13: Correct injection mode (orbital vs legacy) ────────────
+        // data-acn-ui on the zone confirms whether the platform got the orbital
+        // cluster or the legacy ghost-notch button.
+        // (Note: data-acn-mode is reserved for the display mode: arc/wheel/show-all)
+        const actualMode = await page.evaluate(() => {
+            const zone = document.querySelector('[data-acn-role="zone"]');
+            return zone ? zone.getAttribute('data-acn-ui') : null;
+        });
+        assert('Correct injection mode', actualMode === platform.expectedMode,
+            `Expected mode "${platform.expectedMode}", got "${actualMode}"`);
+
+        // ── TEST 14: All orbital dots present (orbital platforms only) ─────
+        // Skipped for legacy platforms — they only have one nav-trigger button.
+        if (platform.expectedMode === 'orbital') {
+            const orbitalDots = ['nav', 'search', 'bookmarks', 'summary', 'tools', 'settings'];
+            const missingDots = await page.evaluate((dots) => {
+                return dots.filter(id => !document.querySelector('[data-acn-dot="' + id + '"]'));
+            }, orbitalDots);
+            assert('All orbital dots present', missingDots.length === 0,
+                missingDots.length === 0
+                    ? 'All 6 dots found (nav, search, bookmarks, summary, tools, settings)'
+                    : 'Missing dots: ' + missingDots.join(', '));
+        }
 
     } catch (err) {
         assert('No runtime errors', false, err.message);

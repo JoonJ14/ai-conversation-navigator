@@ -1,6 +1,6 @@
 {
   "name": "ai-conversation-navigator",
-  "version": "7.8.0",
+  "version": "11.0",
   "description": "Browser userscript that adds a navigation sidebar to AI chat platforms — jump to any previous question in one click.",
   "private": true,
   "scripts": {
