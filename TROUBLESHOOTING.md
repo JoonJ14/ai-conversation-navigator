@@ -6,6 +6,53 @@ If you run into a problem, check here first — you might find we've already sol
 
 ---
 
+## v10.16 — Segmentation Cold-Start Bias (2026-03-10)
+
+---
+
+### RESOLVED — Map Always Shows One Big First Block, Then Many Tiny Blocks After
+
+**Versions affected:** v10.11 through v10.15
+**Fixed in:** v10.16 | **Severity:** Structural | **Area:** Conversation Map primary segmentation
+
+**Symptom:** The conversation map consistently showed one large block at the start of the conversation, and then many small 1-3 message segments for everything that followed — even when the user spent 20+ messages on a single subsequent topic. Regenerating the summary produced the same pattern every time, regardless of the actual conversation structure.
+
+**Diagnosis / Root Cause:**
+
+The primary segmentation function (`_sumBuildConversationMap`) uses a sliding window of the last 4 messages in the current segment to score overlap against each incoming message. When overlap drops below the threshold (0.15), the segment is committed and a new one begins:
+
+```javascript
+segments.push(newSeg);
+currentMsgs = [msg]; // ← resets to ONE message
+```
+
+After a reset, `currentMsgs.slice(-4)` returns an array of length 1. The next message is compared against just that one message — a single, unrepresentative data point. New-topic vocabulary diverges naturally, so overlap is low, and another split fires immediately. The cascade repeats for every message until the window stabilizes at 4 entries. A 20-message deep-dive on a new topic becomes `[1][1][1][2][15]` instead of `[20]`.
+
+The opening topic was immune because it starts accumulating from message 1 and never experiences a reset — by the time the window logic is relevant, it already has 4 messages. Every subsequent topic suffered the cold start.
+
+`_sumMergeExcessSegments` (which caps output at 5 segments) was unable to correct this because it only merges the most topically similar adjacent pairs — it had no way to know the fragmentation was artificial rather than topically meaningful.
+
+**Solutions Considered:**
+
+1. **Minimum accumulation before first split:** Require the current segment to have N messages before allowing a split. Simple, but forces early messages together even when they genuinely diverge.
+
+2. **Adaptive threshold by window size:** Lower the split sensitivity when the window has fewer than 4 messages. Adds per-message branching logic and a new tunable parameter.
+
+3. **Post-merge pass (chosen):** After the main split loop, absorb any segment with < 3 messages into its most topically similar adjacent neighbor. Same pattern as the existing `_sumBuildSubSegments` post-merge. Surgical — only touches small fragments, doesn't change how large blocks form.
+
+**Fix:** Added a post-merge pass in `_sumBuildConversationMap` between the main loop and `_sumMergeExcessSegments`. Scans for segments with < 3 messages, merges each into the adjacent neighbor with the highest `_sumTopicOverlap` score, recomputes label/topics/children on the merged result, repeats until all segments have 3+ messages. Uses four pre-existing utilities: `_sumTopicOverlap`, `_sumMergeTopics`, `_sumBuildSubSegments`, `_sumGenerateSegmentLabel`.
+
+**Result:**
+
+| Pattern | Before | After |
+|---|---|---|
+| 20 msgs on one topic | `[1][1][2][15]` | `[20]` |
+| Big → tangent → big | `[15][1][1][1][15]` | `[15][3][15]` |
+| 10 random questions | `[1]×10` → capped to 5 mixed blocks | `[3][3][4]` |
+| Single topic | `[30]` | `[30]` (unchanged) |
+
+---
+
 ## v10.15 — Map Alignment and Sub-Segmentation (2026-03-10)
 
 ---

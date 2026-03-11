@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      10.15
+// @version      10.16
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -39,7 +39,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '10.15';
+    var ACN_VERSION = '10.16';
 
     // ============================================================
     // i18n — internationalization string table
@@ -4089,6 +4089,44 @@
             };
             lastSeg.label = _sumGenerateSegmentLabel(lastSeg);
             segments.push(lastSeg);
+        }
+
+        // Post-merge: absorb segments with fewer than MIN_SEGMENT_SIZE messages into
+        // their most topically similar neighbor. Fixes the cold-start window bias —
+        // after any topic split, currentMsgs resets to 1 message, making the window
+        // unrepresentative. The next few messages often fragment incorrectly before the
+        // window accumulates enough context. This pass reassembles those fragments.
+        var MIN_SEGMENT_SIZE = 3;
+        var mergeChanged = true;
+        while (mergeChanged && segments.length > 1) {
+            mergeChanged = false;
+            for (var k = 0; k < segments.length; k++) {
+                if (segments[k].messages.length < MIN_SEGMENT_SIZE) {
+                    var prevOv = k > 0
+                        ? _sumTopicOverlap(segments[k].topics, segments[k - 1].topics) : -1;
+                    var nextOv = k < segments.length - 1
+                        ? _sumTopicOverlap(segments[k].topics, segments[k + 1].topics) : -1;
+                    var target = prevOv >= nextOv ? k - 1 : k + 1;
+                    var lo = Math.min(k, target);
+                    var hi = Math.max(k, target);
+                    var ma = segments[lo];
+                    var mb = segments[hi];
+                    var mergedMsgs = ma.messages.concat(mb.messages);
+                    var merged = {
+                        startIdx: ma.startIdx,
+                        endIdx:   mb.endIdx,
+                        messages: mergedMsgs,
+                        topics:   _sumMergeTopics(ma.topics, mb.topics),
+                        entities: ma.entities.concat(mb.entities),
+                        children: _sumBuildSubSegments(mergedMsgs),
+                        label:    ''
+                    };
+                    merged.label = _sumGenerateSegmentLabel(merged);
+                    segments.splice(lo, 2, merged);
+                    mergeChanged = true;
+                    break;
+                }
+            }
         }
 
         return _sumMergeExcessSegments(segments);
