@@ -4091,6 +4091,44 @@
             segments.push(lastSeg);
         }
 
+        // Post-merge: absorb segments with fewer than MIN_SEGMENT_SIZE messages into
+        // their most topically similar neighbor. Fixes the cold-start window bias —
+        // after any topic split, currentMsgs resets to 1 message, making the window
+        // unrepresentative. The next few messages often fragment incorrectly before the
+        // window accumulates enough context. This pass reassembles those fragments.
+        var MIN_SEGMENT_SIZE = 3;
+        var mergeChanged = true;
+        while (mergeChanged && segments.length > 1) {
+            mergeChanged = false;
+            for (var k = 0; k < segments.length; k++) {
+                if (segments[k].messages.length < MIN_SEGMENT_SIZE) {
+                    var prevOv = k > 0
+                        ? _sumTopicOverlap(segments[k].topics, segments[k - 1].topics) : -1;
+                    var nextOv = k < segments.length - 1
+                        ? _sumTopicOverlap(segments[k].topics, segments[k + 1].topics) : -1;
+                    var target = prevOv >= nextOv ? k - 1 : k + 1;
+                    var lo = Math.min(k, target);
+                    var hi = Math.max(k, target);
+                    var ma = segments[lo];
+                    var mb = segments[hi];
+                    var mergedMsgs = ma.messages.concat(mb.messages);
+                    var merged = {
+                        startIdx: ma.startIdx,
+                        endIdx:   mb.endIdx,
+                        messages: mergedMsgs,
+                        topics:   _sumMergeTopics(ma.topics, mb.topics),
+                        entities: ma.entities.concat(mb.entities),
+                        children: _sumBuildSubSegments(mergedMsgs),
+                        label:    ''
+                    };
+                    merged.label = _sumGenerateSegmentLabel(merged);
+                    segments.splice(lo, 2, merged);
+                    mergeChanged = true;
+                    break;
+                }
+            }
+        }
+
         return _sumMergeExcessSegments(segments);
     }
 
