@@ -16,7 +16,7 @@ But until then, I'll just keep making, building, and improving this project. Sta
 
 ### AI Chatbots
 
-<img src="assets/chatgpt-demo.gif" alt="AI Conversation Navigator demo on ChatGPT" width="600">
+<img src="assets/orbital-demo.gif" alt="AI Conversation Navigator demo" width="600">
 
 | Platform | Icon | Color | Status |
 |----------|------|-------|--------|
