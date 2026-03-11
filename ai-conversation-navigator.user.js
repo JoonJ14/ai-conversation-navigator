@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      10.16
+// @version      11.0
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -39,7 +39,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '10.16';
+    var ACN_VERSION = '11.0';
 
     // ============================================================
     // i18n — internationalization string table
@@ -233,22 +233,10 @@
         try { GM_setValue('acn-settings', settings); } catch(e) {}
     }
 
-    function migrateOldSettings() {
-        try {
-            var oldSettings = GM_getValue('acn-orb-settings', null);
-            if (oldSettings && !GM_getValue('acn-settings', null)) {
-                var newSettings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
-                if (oldSettings.mode) newSettings.orbMode = oldSettings.mode;
-                if (oldSettings.scrollInverted !== undefined) newSettings.scrollInverted = oldSettings.scrollInverted;
-                saveSettings(newSettings);
-            }
-        } catch(e) {}
-    }
-
     // ================================================================
     // PLATFORMS REGISTRY
     // ================================================================
-    const PLATFORMS = {
+    var PLATFORMS = {
         claude: {
             id: 'claude',
             title: 'Claude',
@@ -256,6 +244,7 @@
             theme: { accent: '#d97706', accentHover: '#b45309', accentLight: 'rgba(217, 119, 6, 0.2)' },
             icon: '\u2733',
             layout: 'standard',
+            useOrbital: true,
             virtualScroll: false,
             spa: false,
             scrollbarOffset: 0,
@@ -310,6 +299,7 @@
             theme: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)' },
             icon: '\u23E3',
             layout: 'standard',
+            useOrbital: true,
             virtualScroll: false,
             spa: false,
             scrollbarOffset: 0,
@@ -350,6 +340,7 @@
             theme: { accent: '#dc2626', accentHover: '#b91c1c', accentLight: 'rgba(220, 38, 38, 0.2)' },
             icon: 'X',
             layout: 'standard',
+            useOrbital: true,
             virtualScroll: false,
             spa: false,
             scrollbarOffset: 0,
@@ -399,6 +390,7 @@
             theme: { accent: '#4285f4', accentHover: '#3367d6', accentLight: 'rgba(66, 133, 244, 0.2)' },
             icon: '\u2726',
             layout: 'standard',
+            useOrbital: true,
             virtualScroll: false,
             spa: true,
             scrollbarOffset: 0,
@@ -437,6 +429,7 @@
             theme: { accent: '#38BDF8', accentHover: '#0EA5E9', accentLight: 'rgba(56, 189, 248, 0.2)' },
             icon: '\u26A1\uFE0E',
             layout: 'left-chat',
+            useOrbital: false,
             virtualScroll: false,
             spa: true,
             scrollbarOffset: 16,
@@ -518,6 +511,7 @@
             theme: { accent: '#9b87f5', accentHover: '#7c3aed', accentLight: 'rgba(155, 135, 245, 0.2)' },
             icon: '\u2665',
             layout: 'left-chat',
+            useOrbital: false,
             virtualScroll: false,
             spa: true,
             scrollbarOffset: 0,
@@ -577,6 +571,7 @@
             theme: { accent: '#F26522', accentHover: '#D4541A', accentLight: 'rgba(242, 101, 34, 0.2)' },
             icon: '\u2815',
             layout: 'left-chat',
+            useOrbital: false,
             virtualScroll: false,
             spa: true,
             scrollbarOffset: 0,
@@ -651,6 +646,7 @@
             theme: { accent: '#ffffff', accentHover: '#e0e0e0', accentLight: 'rgba(255, 255, 255, 0.15)', textColor: '#000', toggleBorder: '1px solid rgba(0,0,0,0.2)' },
             icon: '\u25BD',
             layout: 'left-chat',
+            useOrbital: false,
             virtualScroll: false,
             spa: true,
             scrollbarOffset: 0,
@@ -703,6 +699,7 @@
             theme: { accent: '#6366f1', accentHover: '#4f46e5', accentLight: 'rgba(99, 102, 241, 0.2)' },
             icon: '\u2B22',
             layout: 'left-chat',
+            useOrbital: false,
             virtualScroll: false,
             spa: true,
             scrollbarOffset: 0,
@@ -732,6 +729,7 @@
             theme: { accent: '#10b981', accentHover: '#059669', accentLight: 'rgba(16, 185, 129, 0.2)' },
             icon: 'e',
             layout: 'left-chat',
+            useOrbital: false,
             virtualScroll: true,
             spa: true,
             scrollbarOffset: 14,
@@ -767,6 +765,7 @@
             theme: { accent: '#20b8cd', accentHover: '#1a9aab', accentLight: 'rgba(32, 184, 205, 0.2)' },
             icon: '\u2733\uFE0E',
             layout: 'standard',
+            useOrbital: true,
             virtualScroll: false,
             spa: true,
             scrollbarOffset: 0,
@@ -810,6 +809,7 @@
             theme: { accent: '#FFA611', accentHover: '#F5820D', accentLight: 'rgba(255, 166, 17, 0.2)' },
             icon: '\u2726',
             layout: 'standard',
+            useOrbital: false,
             virtualScroll: false,
             spa: true,
             scrollbarOffset: 0,
@@ -895,9 +895,9 @@
 
     var isLeftChat = platform.layout === 'left-chat';
     var isVirtualScroll = platform.virtualScroll;
-    // Orbital system only for core AI chat platforms.
+    // Orbital system only for platforms with useOrbital: true in the registry.
     // App-builder platforms keep the legacy ghost-notch / right-edge button.
-    var useOrbital = ['claude', 'chatgpt', 'grok', 'gemini', 'perplexity'].indexOf(platform.id) >= 0;
+    var useOrbital = !!platform.useOrbital;
 
     // Wire up Claude SSE interceptor for exact token tracking.
     // _loadCachedSSEData is deferred (setTimeout 0) so it runs after _sseTokenData
@@ -1070,23 +1070,6 @@
     function getAIMessages() {
         if (platform && platform.getAIMessages) return platform.getAIMessages();
         return [];
-    }
-
-    function getAllMessagesOrdered() {
-        var userMsgs = Array.from(getUserMessages()).map(function (el) {
-            return { element: el, type: 'user' };
-        });
-        var aiMsgs = Array.from(getAIMessages()).map(function (el) {
-            return { element: el, type: 'ai' };
-        });
-        var all = userMsgs.concat(aiMsgs);
-        all.sort(function (a, b) {
-            var pos = a.element.compareDocumentPosition(b.element);
-            if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
-            if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
-            return 0;
-        });
-        return all;
     }
 
     // Detected questions — consumed by Navigate and Search panels
@@ -1711,25 +1694,6 @@
         _compactionHistory                    = [];
     }
 
-    function predictNextCycleLength() {
-        var cycles = _turnCounter.cycleLengths;
-        var n = cycles.length;
-        if (n === 0) return null;
-        if (n === 1) return cycles[0];
-
-        var totalWeight  = 0;
-        var weightedSum  = 0;
-        for (var i = 0; i < n; i++) {
-            var weight;
-            if (i === n - 1)      weight = 0.5;
-            else if (i === n - 2) weight = 0.3;
-            else                  weight = 0.2 / Math.max(n - 2, 1);
-            totalWeight += weight;
-            weightedSum += cycles[i] * weight;
-        }
-        return Math.round(weightedSum / totalWeight);
-    }
-
     // ============================================================
     // PLAN USAGE (Claude only)
     // ============================================================
@@ -1879,7 +1843,7 @@
     function formatResetTime(resetsAt) {
         var target;
         try {
-            target = (typeof resetsAt === 'number') ? new Date(resetsAt) : new Date(resetsAt);
+            target = new Date(resetsAt);
             if (isNaN(target.getTime())) return '';
         } catch (e) { return ''; }
 
@@ -2059,9 +2023,6 @@
             '.acn-gen-btn:hover{background:rgba(var(--acn-rgb),.15)}',
 
             // Export
-            '.acn-exp-opt{padding:14px;border-bottom:1px solid rgba(255,255,255,.05);',
-            'cursor:pointer;transition:background .12s}',
-            '.acn-exp-opt:hover{background:rgba(var(--acn-rgb),.06)}',
             '.acn-exp-icon{font-size:18px;margin-bottom:4px}',
             '.acn-exp-title{font-size:12px;font-weight:600;color:#ccc;margin-bottom:3px}',
             '.acn-exp-desc{font-size:10px;color:#666;line-height:1.4}',
@@ -4146,9 +4107,6 @@
         };
     }
 
-    // Expose globally for Group E2 cross-module access
-    window.generateFullSummary = generateFullSummary;
-
     // Normalize a message's text length to an approximate line count (capped at 15).
     // Used for proportional sizing throughout the conversation map.
     function _sumMsgLines(text) {
@@ -5884,8 +5842,9 @@
         var zone = createElement('div', { id: 'acn-zone', className: 'acn-zone' });
         // Stable test-contract attributes — tests use these roles, not internal IDs/classes
         zone.setAttribute('data-acn-role',     'zone');
+        zone.setAttribute('data-acn-ui',       'orbital');      // distinguishes orbital vs legacy UI system
         zone.setAttribute('data-acn-accent',   orbTheme.bg);   // platform hex color
-        zone.setAttribute('data-acn-version',  '10.0');
+        zone.setAttribute('data-acn-version',  ACN_VERSION);
         zone.setAttribute('data-acn-platform', platform.id);   // for platform-specific CSS rules
 
         // Set CSS variables for platform theming on :root so panels (which are
@@ -5915,6 +5874,8 @@
                 className: 'acn-dot',
             });
             dot.style.background = orbTheme.bg;
+            // Stable test-contract attribute — identifies each dot by feature
+            dot.setAttribute('data-acn-dot', f.id);
             // Navigate dot is the entry point for the core navigation feature
             if (f.id === 'nav') dot.setAttribute('data-acn-role', 'nav-trigger');
             // Label
@@ -6357,8 +6318,9 @@
                     var b   = buildLegacyButton();
                     var con = createElement('div', { id: 'ai-nav-button-container' });
                     con.setAttribute('data-acn-role', 'zone');
+                    con.setAttribute('data-acn-ui', 'legacy');
                     con.setAttribute('data-acn-accent', theme.accent);
-                    con.setAttribute('data-acn-version', '10.0');
+                    con.setAttribute('data-acn-version', ACN_VERSION);
                     con.appendChild(b);
                     if (isLeftChat) {
                         con.style.display = _boundaryDetected ? '' : 'none';
@@ -6381,8 +6343,9 @@
         var initBtn   = buildLegacyButton();
         var initCon   = createElement('div', { id: 'ai-nav-button-container' });
         initCon.setAttribute('data-acn-role',    'zone');           // contract attribute
+        initCon.setAttribute('data-acn-ui',      'legacy');          // contract attribute
         initCon.setAttribute('data-acn-accent',  theme.accent);     // contract attribute
-        initCon.setAttribute('data-acn-version', '10.0');           // contract attribute
+        initCon.setAttribute('data-acn-version', ACN_VERSION);      // contract attribute
         initCon.appendChild(initBtn);
         if (isLeftChat) {
             initPanel.style.display = 'none';
@@ -6517,6 +6480,6 @@
         injectLegacy();
     }
 
-    console.log('AI Conversation Navigator v10.7 loaded for ' + platform.title +
+    console.log('AI Conversation Navigator v' + ACN_VERSION + ' loaded for ' + platform.title +
         (isLeftChat ? ' (left-chat mode)' : '') + (useOrbital ? ' [orbital]' : ' [legacy]') + '.');
 })();

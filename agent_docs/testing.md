@@ -15,7 +15,7 @@ npx playwright install --with-deps
 ## Running Tests
 
 ```bash
-# Run all 14 platform tests on Chromium (default)
+# Run all tests on all 14 platforms (189 total: 14 tests × orbital, 13 tests × legacy)
 npm test
 
 # Run on specific browsers
@@ -36,6 +36,27 @@ Tests use Playwright with route interception:
 2. Inject the userscript (stripping the header lines 1-27)
 3. Navigate to `https://{platform-hostname}/`
 4. Assert against `data-acn-*` contract attributes
+
+## Test Contract Attributes
+
+The test suite queries only stable `data-acn-*` attributes — never internal CSS classes or IDs. Current contract:
+
+| Attribute | Element | Purpose |
+|-----------|---------|---------|
+| `data-acn-role="zone"` | Main container | Injection verified |
+| `data-acn-role="styles"` | `<style>` element | CSS injection verified |
+| `data-acn-role="nav-trigger"` | Nav dot/button | Click target |
+| `data-acn-role="nav-panel"` | Nav panel | Panel open/close |
+| `data-acn-role="nav-stat"` | Stats bar | Question count via `data-acn-count` |
+| `data-acn-role="nav-list"` | List container | Question item container |
+| `data-acn-role="nav-item"` | Question row | Individual question |
+| `data-acn-role="nav-item-text"` | Text inside row | Display text |
+| `data-acn-role="panel-close"` | Close button | Dismisses panel |
+| `data-acn-accent="#hex"` | On zone | Platform accent color |
+| `data-acn-ui="orbital"|"legacy"` | On zone | UI system type |
+| `data-acn-dot="nav|search|…"` | On each orbital dot | Feature ID (orbital only) |
+| `data-acn-open="true"` | On nav-panel | Panel open state |
+| `data-acn-count="N"` | On nav-stat | Question count |
 
 ## Modification Checklist
 
