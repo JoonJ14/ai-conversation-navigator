@@ -4,6 +4,63 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [10.15 — Proportional Map Alignment, Hover Highlighting, and Sub-Segmentation Refinement] — 2026-03-10
+
+**Branch:** `feature/map-alignment-hover-v10.15`
+
+Six improvements to the conversation map: better visual alignment between the left bracket column and right snapshot column, hover-based highlighting, content-driven sub-segmentation tuning, removal of redundant topic pills, and two code-quality refactors.
+
+**Files modified:** `ai-conversation-navigator.user.js`, `CHANGELOG.md`, `ROADMAP.md`, `README.md`, `TROUBLESHOOTING.md`.
+
+### Fix 1 — Proportional Map Alignment (Flex-grow, Not marginTop)
+
+**Problem:** Left sub-segments clustered at the top of their parent block with large empty space below, while the right snapshot bars filled their zone independently. The marginTop-based spacing hack used approximate constants (`SUB_ITEM_H=35`, `LABEL_H=34`) that drifted with real layout.
+
+**Root cause:** `updateSnapshot` used `data-acn-sub-offset` (cumulative line offsets) to compute `marginTop` per sub-segment, positioning them against a derived target position. Because the computation was based on estimated heights rather than live layout, the sub-segments never aligned precisely with their corresponding snapshot messages.
+
+**Fix:** Replaced marginTop-based spacing with CSS `flex-grow` on both sides:
+- Each `.acn-seg-d2-sub` gets `style.flexGrow = childLineCount` set at render time (computed from the messages in that child sub-segment).
+- Each `.acn-snap-msg` gets `style.flexGrow = msgLines` set at render time.
+- `.acn-map-expanded .acn-seg-d2-children { flex:1 }` (added CSS class, toggled by `updateSnapshot`) makes the sub-segment container fill the available vertical space below the parent label and meta.
+- `updateSnapshot` uses `getBoundingClientRect` to measure the exact offset from the row top to the `childrenWrap` start, then sets matching `padding-top` on the snapshot zone so both columns start at the same visual point.
+- Removed: `data-acn-seg-lines`, `data-acn-sub-offset`, `SUB_ITEM_H`, `LABEL_H`, `childLineOffsets` — all replaced by the flex-grow approach.
+
+### Fix 2 — Hover Highlighting
+
+**Problem:** No visual connection between a sub-segment label on the left and its corresponding messages on the right snapshot. Users had to infer the relationship by proximity.
+
+**Fix:** Added `mouseenter`/`mouseleave` handlers linking bracket items to their snapshot messages:
+- **Sub-segment hover:** Adds `acn-snap-highlight` (subtle orange glow via `rgba(255,165,0,0.18)`) to the snapshot message bars that belong to that sub-segment's message range.
+- **Parent segment hover (no sub-segments):** Highlights all snapshot messages in that segment's zone.
+- Cross-references are built at render time (snapshot zone is now built before sub-segments so the `snapMsgEls[]` array is available when children are constructed). No DOM queries are needed on hover — all lookups use pre-stored arrays.
+- New helper `_sumAttachHighlight(el, msgEls)` encapsulates the add/remove listener pair, eliminating the duplicated loop pattern.
+
+### Fix 3 — Content-Driven Sub-Segmentation
+
+**Problem:** The sub-segmentation algorithm with threshold 0.27 and a minimum of 8 messages produced 20+ sub-segments for long conversational segments, turning the map into a list. The user's intent was a visual overview, not an item-by-item breakdown.
+
+**Fix:** Raised overlap threshold from 0.27 → 0.42 (only split when vocabulary diverges meaningfully). Raised minimum segment size from 8 → 12 messages. Added a post-merge pass that absorbs any fragment smaller than 3 messages into its neighbor (prefers next, falls back to prev), re-computes the merged label from combined vocabulary. This eliminates "orphan" fragments that form when a single off-topic exchange slips through the threshold.
+
+### Fix 4 — Segment Merge Cap Lowered
+
+**Problem:** `_sumMergeExcessSegments` capped at 10 segments, producing map that felt like a list rather than a summarized overview.
+
+**Fix:** Lowered the merge cap from 10 → 5. The conversation map now produces 3–5 top-level blocks maximum, making it a true visual summary of topic transitions.
+
+### Fix 5 — Topic Pills Removed
+
+**Problem:** Topic pills on leaf segments duplicated the segment label text. They added visual noise without new information.
+
+**Fix:** Removed `.acn-seg-d2-pills` and `.acn-seg-d2-pill` CSS classes and their render code. Labels alone are sufficient to identify segment topics.
+
+### Fix 6 — Code Quality Refactors
+
+**_sumMsgLines helper:** The line-count formula `Math.min(15, Math.max(1, Math.ceil((text||'').length / 80)))` appeared three times in `_sumRenderConversationMap`. Extracted to `_sumMsgLines(text)` defined alongside the other `_sum*` utilities.
+
+**ResizeObserver cleanup interval:** The polling interval for detecting panel removal was 2000ms, leaving a zombie ResizeObserver for up to 2 seconds after the panel is destroyed. Reduced to 500ms for faster cleanup.
+
+---
+
 ## [10.13 — Post-Review Polish: Map Overflow, Section Order, Drag Performance] — 2026-03-10
 
 **Branch:** `release/v10.12`
