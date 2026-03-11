@@ -4,6 +4,64 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [10.16 — Conversation Map Segmentation: Cold-Start Bias Fix] — 2026-03-10
+
+**Branch:** `fix/segmentation-cold-start-bias`
+
+A single structural fix to the primary segmentation algorithm that fundamentally changes how the conversation map groups messages. The map now accurately reflects the actual shape of a conversation — big blocks for deep dives, small blocks for tangents, not an ever-fragmenting list.
+
+**Files modified:** `ai-conversation-navigator.user.js`, `CHANGELOG.md`, `ROADMAP.md`, `README.md`, `TROUBLESHOOTING.md`.
+
+### The Structural Bug: Cold-Start Window Bias
+
+**Problem:** The conversation map consistently produced one large first block and then many small 1-3 message segments for everything that followed — even when the user spent 20+ messages on a single subsequent topic. The map reflected a structural bias in the algorithm, not the actual conversation shape.
+
+**Root cause — sliding window reset after a split:**
+
+The primary segmentation algorithm (`_sumBuildConversationMap`) works by comparing each new message against a sliding context window of the last 4 messages in the current segment. If word overlap drops below the threshold (0.15), the current segment is committed and a new one begins with just the splitting message:
+
+```javascript
+currentMsgs = [msg]; // ← resets to ONE message
+```
+
+The next iteration's window is now `currentMsgs.slice(-4)` on a 1-element array — a single, unrepresentative message. New-topic messages naturally introduce new vocabulary with low mutual overlap. Because each of the first few messages of any new topic compares against only the previous message (not a stable 4-message context), they each trigger another split. A 20-message deep-dive becomes `[1][1][1][2][15]` instead of `[20]`. The cascade continues for every message until the window stabilizes at 4 entries — by which point significant fragmentation has already occurred.
+
+**Why the first block was immune:** The very first segment starts accumulating from message 1. By message 5, the window is already full. There's no cold start for the opening topic. Every subsequent topic suffers a cold start because `currentMsgs` always resets to `[msg]`.
+
+**Why the existing cap didn't fix it:** `_sumMergeExcessSegments` caps the output at 5 segments by repeatedly merging the two most topically similar adjacent pairs. It doesn't know that the fragmentation is artificial — it just merges whatever is most similar. The result was often "one big block + a few medium blocks" rather than "the actual conversation shape."
+
+**Why `_sumBuildSubSegments` didn't help:** The secondary sub-segmentation pass (which *does* have a post-merge step) only activates on segments that already have 12+ messages. If those 12 messages were fragmented at the primary level into `[1][1][1][2][...]`, they never reach `_sumBuildSubSegments` as one block.
+
+### The Fix: Post-Merge Pass in `_sumBuildConversationMap`
+
+Added a post-merge pass between the main split loop and `_sumMergeExcessSegments`. Same proven pattern as `_sumBuildSubSegments`'s post-merge, applied at the primary level:
+
+1. Scan all segments for any with fewer than 3 messages
+2. Merge it into whichever adjacent neighbor shares the highest topic overlap (`_sumTopicOverlap` — Jaccard similarity on extracted topic arrays)
+3. Recompute topics, entities, sub-segments, and label on the merged result
+4. Repeat until every segment has 3+ messages, or only one segment remains
+5. Then run `_sumMergeExcessSegments` as before to apply the 5-segment cap
+
+**Why topic-overlap neighbor selection:** Unlike `_sumBuildSubSegments` which blindly prefers the next neighbor, the primary pass uses `_sumTopicOverlap` to find the most semantically appropriate merge target. A short tangent question between two big blocks merges into whichever topic it's closer to — or merges with other short fragments to form a small "transition" block.
+
+**Why `MIN_SEGMENT_SIZE = 3`:** Absorbs 1-2 message cold-start fragments while preserving genuine 3-message exchanges as their own blocks. A 3-message exchange on a distinct topic is substantial enough to stand alone; a 1-2 message fragment is almost always either a cold-start artifact or a very brief tangent that belongs with its neighbor.
+
+### Before and After
+
+| Conversation shape | Before fix | After fix |
+|---|---|---|
+| 20 msgs deep-dive on React | `[1][1][2][15]` or worse | `[20]` |
+| Big topic → tangent → big topic | `[15][1][1][1][15]` | `[15][3][15]` |
+| All random questions (10 msgs) | `[1][1][1][1][1][1][1][1][1][1]` → capped to 5 | `[3][3][4]` |
+| Single topic start to finish | `[30]` (unchanged) | `[30]` |
+| Big start, scattered end | `[15][1][1][1][1][1]` | `[15][6]` or `[15][3][3]` |
+
+### Implementation Details
+
+Inserted at line ~4094 in `_sumBuildConversationMap`, after the final segment push, before `return _sumMergeExcessSegments(segments)`. Reuses four existing functions: `_sumTopicOverlap` (line 3705), `_sumMergeTopics` (line 3715), `_sumBuildSubSegments` (line 3955), `_sumGenerateSegmentLabel` (line 3907). No new functions introduced. 38 lines added, 0 removed.
+
+---
+
 ## [10.15 — Proportional Map Alignment, Hover Highlighting, and Sub-Segmentation Refinement] — 2026-03-10
 
 **Branch:** `feature/map-alignment-hover-v10.15`

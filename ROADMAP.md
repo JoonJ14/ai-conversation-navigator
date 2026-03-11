@@ -30,9 +30,12 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v10.15
+## Current Status: v10.16
 
-The extension supports 14 platform variants across 12 websites. v10.15 delivers a fully aligned conversation map: left sub-segments and right snapshot bars now fill their rows proportionally via `flex-grow`, hover highlighting links bracket items to their snapshot messages, and the sub-segmentation algorithm produces 3–5 meaningful blocks instead of 20+ fragments.
+The extension supports 14 platform variants across 12 websites. v10.16 fixes a structural bias in the conversation map segmentation algorithm — the map now accurately reflects actual conversation shape: big blocks for deep dives, small blocks for tangents, regardless of where in the conversation they occur.
+
+**v10.16 Accomplishments (2026-03-10):**
+- **Segmentation Cold-Start Fix:** Added a post-merge pass to `_sumBuildConversationMap` that absorbs fragments < 3 messages into their most topically similar neighbor before applying the 5-segment cap. Eliminates the window reset bias where every topic shift caused cascading 1-2 message fragments. A 20-message deep-dive now produces one big block instead of `[1][1][2][15]`. The map reflects actual conversation shape in all patterns: big/small/big, all-random, single-topic.
 
 **v10.15 Accomplishments (2026-03-10):**
 - **Proportional Map Alignment:** Replaced marginTop-based spacing with `flex-grow` on both left sub-segments and right snapshot messages, weighted by content line count. `updateSnapshot` uses live `getBoundingClientRect` to align the snapshot zone top with the sub-segment area start. Both sides now fill their rows proportionally — no more clustered sub-segments with empty space below.
