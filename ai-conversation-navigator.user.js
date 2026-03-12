@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      11.0
+// @version      11.1
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -39,7 +39,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '11.0';
+    var ACN_VERSION = '11.1';
 
     // ============================================================
     // i18n — internationalization string table
@@ -1656,6 +1656,22 @@
         } catch (e) {}
     }
 
+    // Returns the estimated token overhead for content invisible to DOM scraping:
+    // Claude system prompt, tool definitions, memory, project instructions, etc.
+    // These are never in the conversation DOM but always consume context window space.
+    //
+    // Breakdown (approximate):
+    //   Standard chat:  system prompt (~20K) + tool defs (~8K) = ~28K  → use 30K
+    //   Claude Project: adds project instructions (5–100K) + memory    → use 50K
+    //
+    // Project detection: Claude Project URLs contain "/project/" in the pathname.
+    // Regular chat URL:  /chat/{uuid}
+    // Project chat URL:  /project/{uuid}/chat/{uuid}
+    function _estimateClaudeOverhead() {
+        var inProject = window.location.pathname.indexOf('/project/') !== -1;
+        return inProject ? 50000 : 30000;
+    }
+
     // ============================================================
     // TURN COUNTER HELPERS (Tier 2 — non-Claude platforms)
     // ============================================================
@@ -2588,8 +2604,10 @@
             // ── SSE: cumulative thinking tokens (invisible in DOM) ──────
             var thinkingTokens = Math.round(_sseTokenData.cumulativeThinkingChars / 4);
 
-            // ── System prompt overhead (~15K for Claude with tools) ─────
-            var systemOverhead = 15000;
+            // ── System overhead: system prompt + tool defs + memory/project instructions ─
+            // Dynamic: 50K for Claude Projects (detected via URL), 30K for standard chat.
+            // These are invisible to DOM scraping but always consume context window space.
+            var systemOverhead = _estimateClaudeOverhead();
 
             // ── Total ───────────────────────────────────────────────────
             var totalTok = domTokens + thinkingTokens + systemOverhead;
