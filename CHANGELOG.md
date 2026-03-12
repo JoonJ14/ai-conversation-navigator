@@ -4,6 +4,66 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [11.1 — Context Bar Accuracy: Fix Underestimated System Overhead] — 2026-03-12
+
+**Branch:** `fix/context-tracking-audit`
+
+Full audit of the context tracking data flow, then targeted fix of the root cause of the persistent undercount.
+
+---
+
+### Investigation (Phase 1 & 2)
+
+A full end-to-end audit was performed before writing any code.
+
+**Symptom:** At ~50 questions into a conversation, the turn counter shows red while the context percentage shows only ~19%. These two indicators appear to contradict each other.
+
+**What the audit found:**
+
+The DOM estimation path (Path A) walks from `_questions[0].element` up the DOM tree to find the scroll container, then reads `scrollNode.innerText` to capture all visible conversation text in one shot. A coverage correction (`nInDOM / _questions.length`) scales up the estimate if virtual scrolling has removed old message elements. The SSE interceptor accumulates `cumulativeThinkingChars` (extended thinking text, invisible in the DOM). The formula is: `totalTok = domTokens + thinkingTokens + systemOverhead`.
+
+**The two indicators measure different things (by design):**
+- **Turn counter color** — measures position in the predicted compaction cycle (default 40 turns). At 50 questions with no compaction, the turn counter is at 125% of the predicted cycle → red. This is correct — it warns you're overdue for a compaction.
+- **Context percentage** — measures estimated token usage vs the 200K limit.
+
+The apparent contradiction is not a bug in either indicator. The actual undercount is in the `systemOverhead` constant.
+
+**Root cause — Category C (Calculation error): `systemOverhead = 15000` is too low**
+
+The `systemOverhead` was set to 15K in v10.9 as a rough initial estimate ("~15K for Claude with tools"). The real breakdown:
+- Claude's system prompt: ~20–50K tokens
+- Tool definitions (web search, code execution, analysis): ~5–20K tokens
+- Memory content: ~5–15K tokens
+- Project instructions (if in a Claude Project): ~5–100K tokens
+
+Realistic floor for a standard Claude chat: ~28K tokens. With a Claude Project: ~40–80K+. The 15K constant was missing the bulk of the invisible context.
+
+**What was already confirmed correct and not touched:**
+- `[data-is-streaming]` — not used anywhere in live code (comment at line 2561 explains it was considered and rejected)
+- GM cache load condition — uses `entry.sseMessageCount` check, not the falsy-zero `cumulativeThinkingChars` check; already correct
+- SSE plumbing — `unsafeWindow`, Uint8Array cross-realm fix, `\r\n` split — all correct since v10.9
+- Coverage correction for virtual scroll — correct, uses user question DOM presence as proxy
+
+---
+
+### Fix: Dynamic System Overhead Estimate
+
+Replaced the hardcoded `var systemOverhead = 15000` with a call to a new helper `_estimateClaudeOverhead()`.
+
+**Standard chat → 30K:** Covers system prompt (~20K) + tool definitions (~8K) with a realistic buffer. Doubles the previous constant, eliminating roughly half the chronic undercount.
+
+**Claude Projects → 50K:** Detected via URL — Claude Project conversations have `/project/` in the pathname (`https://claude.ai/project/{uuid}/chat/{uuid}` vs `https://claude.ai/chat/{uuid}`). Projects inject system prompt + project instructions + memory, making 50K a conservative but realistic floor.
+
+No DOM selector guessing required — the URL pattern is stable and deterministic.
+
+**Impact at 50 questions (standard chat, no extended thinking):**
+- Before: `(~23K DOM + 0 thinking + 15K overhead) / 200K = ~19%`
+- After: `(~23K DOM + 0 thinking + 30K overhead) / 200K = ~26%`
+
+The improvement is meaningful but still an estimate — system prompts vary. The `~` prefix on the label honestly reflects this.
+
+---
+
 ## [11.0 — Pre-Release Code Quality & Registry Cleanup] — 2026-03-10
 
 **Branch:** `fix/segmentation-cold-start-bias` (continued from v10.16)
