@@ -2690,11 +2690,11 @@
         var estTokens = Math.round((totalChars / 4) / Math.max(0.25, coverage));
 
         // For Claude: add invisible overhead that DOM scraping can never see.
-        // (1) System prompt — claude.ai injects ~15K tokens of system context always.
+        // (1) System prompt + tool defs — same dynamic estimate as Path A for consistency.
         // (2) Extended thinking — each collapsed [aria-expanded] thinking summary in the
         //     conversation represents hidden thinking content (~600 tokens each on average).
         if (platform && platform.id === 'claude' && found && node) {
-            estTokens += 15000;
+            estTokens += _estimateClaudeOverhead();
             var uiKw = ['hide','show','expand','collapse','menu','chat','chats','project','artifact','recent','starred'];
             var thinkingCount = 0;
             node.querySelectorAll('[aria-expanded]').forEach(function(el) {
