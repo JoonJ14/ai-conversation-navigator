@@ -4,6 +4,61 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [11.2 — Image Gallery: Platform-Specific Selectors + Perplexity Limitation] — 2026-03-12
+
+**Branch:** `fix/image-gallery-dom`
+
+Fix image gallery detection on Claude, Gemini, Grok, and Perplexity. Document the Perplexity limitation in README and TROUBLESHOOTING.md.
+
+---
+
+### Problem
+
+The Image Gallery feature in the Tools panel detects uploaded images by querying all `<img>` tags in conversation message elements and filtering out UI chrome via `isContentImage()`. Platform DOM changes had broken or degraded detection:
+
+- **Gemini:** `isContentImage()` could not reliably distinguish uploaded images from UI decorations because Gemini's Angular-generated images don't have simple src-pattern identifiers.
+- **Grok:** Uploaded image URLs (`assets.grok.com`) were being caught by generic src-string exclusion checks in some cases.
+- **Perplexity:** Never actually supported — Perplexity shows uploaded files as text filename labels in a Radix UI dropdown, not as inline `<img>` tags. The gallery silently returned empty with no user-facing explanation.
+- **Claude:** Generic filter worked but was fragile against false positives from avatar/icon elements within the wide `.group` context used by `getMessageContext`.
+
+---
+
+### Root cause
+
+The generic `isContentImage()` filter uses size thresholds and src-keyword exclusions that are not precise enough for platforms where uploaded images share DOM space with many other `<img>` elements. Platform-specific selectors that target exactly the user-uploaded images are more robust.
+
+---
+
+### Fix: `imageSelector` property in platform registry
+
+Added `imageSelector` to each relevant platform config. `getConversationImages()` now uses `platform.imageSelector` when defined, falling back to the existing `isContentImage` generic filter for platforms without a declared selector.
+
+**Three behaviors based on `imageSelector` value:**
+- `null` — platform explicitly unsupported; return empty immediately (Perplexity)
+- `string` — `querySelectorAll(imageSelector)` within each message context; skips `isContentImage`
+- `undefined` — fall through to generic `querySelectorAll('img')` + `isContentImage` (all other platforms)
+
+**Selectors added (verified live DOM, March 12, 2026):**
+
+| Platform | `imageSelector` | Rationale |
+|----------|----------------|-----------|
+| Claude | `div[data-test-render-count] img:not([class*="avatar"]):not([width="16"]):not([width="20"]):not([height="16"]):not([height="20"])` | Scopes to turn containers; `:not()` filters exclude known icon sizes |
+| ChatGPT | `img[src*="files.oaiusercontent.com"]` | Uploaded files hosted on OpenAI's CDN |
+| Grok | `img[src*="assets.grok.com"]` | Uploaded images hosted on Grok's asset CDN |
+| Gemini | `img[data-test-id="uploaded-img"]` | Stable Angular test attribute on upload preview images |
+| Perplexity | `null` | Attachments are text labels, not inline `<img>` tags |
+
+**Perplexity limitation rationale:** Perplexity's S3 attachment URLs are only accessible inside a modal triggered by programmatic clicks on each attachment dropdown item. The URLs have expiration parameters. Simulating those clicks would be invasive and fragile. The gallery correctly shows "No images in this conversation" on Perplexity.
+
+---
+
+### Documentation
+
+- **README.md:** Updated Tools Panel feature bullet to mention Image Gallery and the Perplexity limitation (visible to new users).
+- **TROUBLESHOOTING.md:** Added Image Gallery section documenting the Perplexity limitation and guidance for reporting broken selectors on other platforms.
+
+---
+
 ## [11.1 — Context Bar Accuracy: Fix Underestimated System Overhead] — 2026-03-12
 
 **Branch:** `fix/context-tracking-audit`

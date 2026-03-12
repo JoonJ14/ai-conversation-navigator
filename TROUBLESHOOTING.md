@@ -1716,3 +1716,14 @@ If you hit a problem not listed here:
 5. Look for any `AI Nav:` prefixed log messages in the console
 6. Include the error text when reporting
 7. Open an issue on GitHub with these details
+
+
+---
+
+## Image Gallery
+
+### Image Gallery shows "No images" even though I uploaded images
+
+**On Perplexity:** This is a known limitation. Perplexity displays uploaded images as text file attachments in a dropdown rather than rendering them as inline `<img>` tags in the conversation DOM. The gallery cannot detect images that are not rendered inline. This is intentional — attempting to programmatically open each attachment dropdown to extract the image URLs would be too fragile and invasive.
+
+**On Claude, ChatGPT, Gemini, or Grok:** If the gallery is not detecting images that ARE displayed inline, the platform may have changed its DOM structure since the last verified inspection (March 12, 2026). Please open a GitHub issue with a screenshot of the image in your conversation and the platform name, and the selectors will be updated.

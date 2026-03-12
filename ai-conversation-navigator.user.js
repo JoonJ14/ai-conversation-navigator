@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      11.1
+// @version      11.2
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -39,7 +39,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '11.1';
+    var ACN_VERSION = '11.2';
 
     // ============================================================
     // i18n — internationalization string table
@@ -290,6 +290,9 @@
                 var outer = inner.parentElement ? inner.parentElement.closest('.group') : null;
                 return outer || inner;
             },
+            // Uploaded images sit inside the turn container under data-test-render-count.
+            // Exclude tiny icon/avatar images by attribute-based :not() filters.
+            imageSelector: 'div[data-test-render-count] img:not([class*="avatar"]):not([width="16"]):not([width="20"]):not([height="16"]):not([height="20"])',
         },
 
         chatgpt: {
@@ -331,6 +334,8 @@
                 }
                 return messages;
             },
+            // Uploaded images are hosted on files.oaiusercontent.com
+            imageSelector: 'img[src*="files.oaiusercontent.com"]',
         },
 
         grok: {
@@ -381,6 +386,8 @@
                 if (messages.length === 0) messages = Array.from(document.querySelectorAll('[data-role="assistant"]'));
                 return messages;
             },
+            // Uploaded images are hosted on assets.grok.com
+            imageSelector: 'img[src*="assets.grok.com"]',
         },
 
         gemini: {
@@ -420,6 +427,8 @@
                 }
                 return messages;
             },
+            // Angular test attribute — stable across DOM updates (verified March 12, 2026)
+            imageSelector: 'img[data-test-id="uploaded-img"]',
         },
 
         bolt: {
@@ -796,6 +805,10 @@
                 }
                 return messages;
             },
+            // Perplexity attachments are text labels in a dropdown, not inline <img> tags.
+            // S3 URLs require programmatic modal clicks to access and have expiry params.
+            // Gallery will correctly show "No images in this conversation" on Perplexity.
+            imageSelector: null,
         },
 
         firebase_studio: {
@@ -4641,6 +4654,13 @@
     function getConversationImages() {
         var allImages = [];
         if (typeof platform === 'undefined' || !platform) return allImages;
+
+        // imageSelector: null  → platform explicitly unsupported (e.g. Perplexity)
+        // imageSelector: string → use as querySelectorAll argument within each message context
+        // imageSelector: undefined → fall through to generic isContentImage filter
+        if (platform.imageSelector === null) return allImages;
+
+        var imgSel   = platform.imageSelector;   // string or undefined
         var userMsgs = platform.getUserMessages ? Array.from(platform.getUserMessages()) : [];
         var aiMsgs   = platform.getAIMessages   ? Array.from(platform.getAIMessages())   : [];
         var seenImgs = [];  // dedup tracker
@@ -4649,10 +4669,10 @@
         // (claude.ai keeps uploaded image thumbnails in a sibling div, not inside user-message)
         userMsgs.forEach(function (msgEl, idx) {
             var contextEl = (platform.getMessageContext ? platform.getMessageContext(msgEl) : null) || msgEl;
-            var imgs = contextEl.querySelectorAll('img');
+            var imgs = imgSel ? contextEl.querySelectorAll(imgSel) : contextEl.querySelectorAll('img');
             imgs.forEach(function (img) {
                 if (seenImgs.indexOf(img) !== -1) return;
-                if (!isContentImage(img)) return;
+                if (!imgSel && !isContentImage(img)) return;  // generic filter only when no platform selector
                 seenImgs.push(img);
                 allImages.push({
                     element:    img,
@@ -4669,10 +4689,10 @@
 
         // AI messages — search inside the message element directly
         aiMsgs.forEach(function (msgEl, idx) {
-            var imgs = msgEl.querySelectorAll('img');
+            var imgs = imgSel ? msgEl.querySelectorAll(imgSel) : msgEl.querySelectorAll('img');
             imgs.forEach(function (img) {
                 if (seenImgs.indexOf(img) !== -1) return;
-                if (!isContentImage(img)) return;
+                if (!imgSel && !isContentImage(img)) return;
                 seenImgs.push(img);
                 allImages.push({
                     element:    img,

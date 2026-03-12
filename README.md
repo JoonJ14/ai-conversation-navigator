@@ -154,7 +154,7 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 - **🔍 Search Panel** — Type a keyword to filter your questions instantly. Narrows the question list in real time.
 - **🔖 Bookmarks Panel** — Bookmark specific messages for quick return. Bookmarks persist across page reloads and script updates via GM storage.
 - **Σ Summary Panel** — Auto-generates a summary of the conversation on panel open.
-- **↗ Export Panel** — Exports the full conversation as a Markdown `.md` file.
+- **↗ Tools Panel** — Image Gallery of uploaded images, full Markdown export, and `/commands` palette. The Image Gallery detects uploaded images inline in the conversation. **Note:** On Perplexity, uploaded images appear as file attachments rather than inline previews and are not currently detected by the gallery.
 - **⚙ Settings Panel** — Choose your display mode (Show All / Arc / Wheel) and scroll direction. Settings persist via localStorage.
 - **📝 Smart Summaries** — Automatically extracts the key part of each question for the navigation list
 - **🎨 Platform-Specific Themes** — Accent colors match each platform's branding (Claude orange, ChatGPT white, Grok red, Gemini blue, Perplexity teal)
