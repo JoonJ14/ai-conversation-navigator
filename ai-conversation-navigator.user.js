@@ -290,9 +290,10 @@
                 var outer = inner.parentElement ? inner.parentElement.closest('.group') : null;
                 return outer || inner;
             },
-            // Uploaded images sit inside the turn container under data-test-render-count.
-            // Exclude tiny icon/avatar images by attribute-based :not() filters.
-            imageSelector: 'div[data-test-render-count] img:not([class*="avatar"]):not([width="16"]):not([width="20"]):not([height="16"]):not([height="20"])',
+            // Find all img descendants of the message context, excluding tiny icons/avatars.
+            // data-test-render-count is an ANCESTOR of the context element (not a descendant)
+            // so it cannot be used as a scoping prefix in querySelectorAll(selector).
+            imageSelector: 'img:not([class*="avatar"]):not([width="16"]):not([width="20"]):not([height="16"]):not([height="20"])',
         },
 
         chatgpt: {

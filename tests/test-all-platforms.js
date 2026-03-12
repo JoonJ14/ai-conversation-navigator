@@ -336,7 +336,7 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
         // Navigate to the real URL (intercepted by route handler)
         await page.goto(targetURL, {
             waitUntil: 'domcontentloaded',
-            timeout: 10000,
+            timeout: 20000,  // 20s — Firefox on Windows can be slow to resolve mocked routes
         });
 
         // Wait for initialization.  The main container is injected synchronously on
