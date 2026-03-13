@@ -4,6 +4,53 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [11.3 — Image Gallery: Fix Gemini + Grok Detection (Document-Scope Query)] — 2026-03-12
+
+**Branch:** `fix/image-gallery-selectors`
+
+Fix image gallery showing "No images (0)" on Gemini and Grok despite uploaded images being visible in the conversation.
+
+---
+
+### Problem
+
+The gallery returned 0 images on Gemini and Grok even though correct platform selectors were defined in v11.2. The gallery opened, the right platform was detected, but the count stayed at zero.
+
+---
+
+### Root cause
+
+`getConversationImages()` called `contextEl.querySelectorAll(imgSel)` where `contextEl` was the element returned by `getUserMessages()` for that turn. The uploaded images on both platforms are **not descendants** of those message elements:
+
+- **Gemini:** `getUserMessages()` returns `div.query-text`, but uploaded images live in `user-query-file-carousel` — a sibling of `div.query-text` inside the parent `user-query` custom element. `div.query-text.querySelectorAll(imgSel)` found nothing.
+- **Grok:** `getUserMessages()` returns `div.message-bubble`, but the most recent message with uploaded images lives in `div#response-* → div#last-reply-container` — an entirely separate DOM branch not connected to any `div.message-bubble`. `div.message-bubble.querySelectorAll(imgSel)` found nothing.
+
+Additionally, `img[src*="assets.grok.com"]` matched profile picture avatars in addition to uploaded images. The profile picture uses `class="aspect-square h-full w-full"` while uploaded images use `class="h-full mx-auto object-cover"`.
+
+---
+
+### Fix
+
+**1. `imageSelectorScope: 'document'` config flag (Gemini + Grok)**
+
+Added a new platform registry property `imageSelectorScope`. When set to `'document'`, `getConversationImages()` queries the entire document with the platform's `imageSelector` rather than scoping to each message element. Found images are then associated to their nearest message by checking `msgEl.contains(img)` and `msgEl.parentElement.contains(img)` (handles the Gemini sibling-container case). If no message claims the image (Grok's `last-reply-container` case), the image element itself is used as the scroll target.
+
+The per-message scoping path is preserved for Claude and ChatGPT where images ARE descendants of message elements and the selector is broad enough that document-wide querying would produce false positives.
+
+**2. Grok selector refined**
+
+Updated from `img[src*="assets.grok.com"]` to `img[src*="assets.grok.com"][class*="object-cover"]`. Verified live DOM March 12, 2026: profile pictures have class `aspect-square h-full w-full`, uploaded image previews have class `h-full mx-auto object-cover`.
+
+---
+
+### Verification
+
+Live DOM inspection via Playwright MCP on the author's Gemini and Grok conversations (March 12, 2026):
+- Gemini: `document.querySelectorAll('img[data-test-id="uploaded-img"]').length` → 5 ✓
+- Grok: `document.querySelectorAll('img[src*="assets.grok.com"][class*="object-cover"]').length` → 5 ✓ (vs 6 for unfiltered, which included 1 profile picture)
+
+---
+
 ## [11.2 — Image Gallery: Platform-Specific Selectors + Perplexity Limitation] — 2026-03-12
 
 **Branch:** `fix/image-gallery-dom`
