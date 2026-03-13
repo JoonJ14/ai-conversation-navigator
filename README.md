@@ -9,7 +9,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-11.0-blue)
+![Version](https://img.shields.io/badge/version-11.3-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -154,7 +154,9 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 - **🔍 Search Panel** — Type a keyword to filter your questions instantly. Narrows the question list in real time.
 - **🔖 Bookmarks Panel** — Bookmark specific messages for quick return. Bookmarks persist across page reloads and script updates via GM storage.
 - **Σ Summary Panel** — Auto-generates a summary of the conversation on panel open.
-- **↗ Tools Panel** — Image Gallery of uploaded images, full Markdown export, and `/commands` palette. The Image Gallery detects uploaded images inline in the conversation. **Note:** On Perplexity, uploaded images appear as file attachments rather than inline previews and are not currently detected by the gallery.
+- **↗ Tools Panel** — Image Gallery of uploaded images, full Markdown export, and `/commands` palette. The Image Gallery detects uploaded images inline in the conversation.
+
+> **⚠ Perplexity — Image Gallery Limitation:** Unlike every other supported platform, Perplexity does not render uploaded images as inline `<img>` elements in the conversation. Instead, files appear as text labels in a collapsible attachment dropdown, and the actual image only loads inside a modal when clicked. Because the gallery works by scanning the conversation DOM for `<img>` tags, it currently shows "No images in this conversation" on Perplexity even when files have been uploaded. This is unique to how Perplexity handles attachments — no other platform we support does this. We're actively exploring alternative approaches to work around it and plan to add support in a future version.
 - **⚙ Settings Panel** — Choose your display mode (Show All / Arc / Wheel) and scroll direction. Settings persist via localStorage.
 - **📝 Smart Summaries** — Automatically extracts the key part of each question for the navigation list
 - **🎨 Platform-Specific Themes** — Accent colors match each platform's branding (Claude orange, ChatGPT white, Grok red, Gemini blue, Perplexity teal)

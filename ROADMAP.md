@@ -30,9 +30,21 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v11.0
+## Current Status: v11.3
 
-The extension supports 14 platform variants across 12 websites. v11.0 is a pre-release code quality and structural cleanup — no new user-facing features, but the codebase is now cleaner, more consistent, and has expanded test coverage before going public.
+The extension supports 14 platform variants across 12 websites.
+
+**v11.3 Accomplishments (2026-03-12):**
+- **Image Gallery Fix — Gemini + Grok (Document-Scope Query):** Gallery was returning 0 images on Gemini and Grok despite correct selectors added in v11.2. Root cause: `getConversationImages()` scoped `querySelectorAll` to each element from `getUserMessages()`, but on Gemini uploaded images live in `user-query-file-carousel` (a sibling of `div.query-text`, not a descendant), and on Grok they live in `div#last-reply-container` (an entirely separate DOM branch from `div.message-bubble`). Fix: added `imageSelectorScope: 'document'` config flag to both platforms, triggering a document-wide query that associates images back to messages via ancestry checks.
+- **Grok Selector Refined:** Updated from `img[src*="assets.grok.com"]` to `img[src*="assets.grok.com"][class*="object-cover"]` to exclude profile picture avatars, which share the same CDN host but use a different CSS class.
+
+**v11.2 Accomplishments (2026-03-12):**
+- **Image Gallery Platform-Specific Selectors:** Added `imageSelector` property to the platform registry for Claude, ChatGPT, Grok, Gemini, and Perplexity. `getConversationImages()` now uses the platform selector when defined, bypassing the generic `isContentImage` filter. Selectors verified against live DOM (March 12, 2026).
+- **Perplexity Limitation Documented:** Perplexity never actually supported image gallery — files appear as text labels in a Radix UI dropdown, not as inline `<img>` tags. Gallery now explicitly returns empty for Perplexity (`imageSelector: null`). Added user-facing note in README and TROUBLESHOOTING.md.
+- **Firefox/Windows CI Timeout Fixed:** `page.goto` timeout in test suite bumped from 10s → 20s to prevent flaky failures on slower CI runners.
+
+**v11.1 Accomplishments (2026-03-12):**
+- **Context Bar Accuracy — System Overhead Fix:** `_estimateClaudeOverhead()` now returns 30,000 tokens for standard Claude chats and 50,000 for Claude Projects (detected via `/project/` in the URL). Previously hardcoded at 15,000, which caused the context bar to underreport usage by 15–35K tokens on typical conversations. Applied to both Path A (exact SSE bar) and Path B (estimated bar).
 
 **v11.0 Accomplishments (2026-03-10):**
 - **ES5 Compliance Fix:** `const PLATFORMS` → `var PLATFORMS`. The only ES5 violation in the entire ~6,400-line file. Fixed before public release.
@@ -157,5 +169,5 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 
 ---
 
-*Last updated: 2026-03-10 (v11.0)*
+*Last updated: 2026-03-12 (v11.3)*
 
