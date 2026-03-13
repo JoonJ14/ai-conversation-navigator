@@ -1726,4 +1726,87 @@ If you hit a problem not listed here:
 
 **On Perplexity:** This is a known limitation. Perplexity displays uploaded images as text file attachments in a dropdown rather than rendering them as inline `<img>` tags in the conversation DOM. The gallery cannot detect images that are not rendered inline. This is intentional — attempting to programmatically open each attachment dropdown to extract the image URLs would be too fragile and invasive.
 
-**On Claude, ChatGPT, Gemini, or Grok:** If the gallery is not detecting images that ARE displayed inline, the platform may have changed its DOM structure since the last verified inspection (March 12, 2026). Please open a GitHub issue with a screenshot of the image in your conversation and the platform name, and the selectors will be updated.
+**On Claude, ChatGPT, Gemini, or Grok:** If the gallery is not detecting images that ARE displayed inline, the platform may have changed its DOM structure since the last verified inspection (March 13, 2026). Please open a GitHub issue with a screenshot of the image in your conversation and the platform name, and the selectors will be updated.
+
+---
+
+### Platform-specific image gallery history
+
+This section documents past breakages, root causes, and fixes for reference. If the gallery breaks again, these notes explain what changed last time and what to look for.
+
+---
+
+#### Claude — March 13, 2026 (fixed in v11.4)
+
+**Symptom:** Gallery showed "No images (0)" on Claude even with clearly visible uploaded screenshots in the conversation.
+
+**Root cause:** Claude.ai introduced a **Files Panel** — a collapsible sidebar (`div.w-0`, `opacity-0 pointer-events-none` when closed) that renders all uploaded file thumbnails in a completely separate DOM subtree from the conversation messages. The gallery previously searched for images *inside* each user message element returned by `getUserMessages()` (which returns `[data-testid="user-message"]` elements). With the files panel, no images exist inside any message element — they all live in the sidebar.
+
+Additionally, the previous broad filter selector `img:not([class*="avatar"]):not([width="16"])...` relied on HTML `width`/`height` attributes that modern Claude images don't have, making it both unreliable and obsolete.
+
+**How to detect if this breaks again:**
+Open DevTools Console on a Claude conversation with uploaded images and run:
+```javascript
+document.querySelectorAll('[data-testid="user-message"]').length        // should be > 0
+document.querySelectorAll('img[src*="/api/"][src*="/files/"]').length   // should match your image count
+// If the first is > 0 but the second is 0, the file URL pattern changed
+// Check: document.querySelectorAll('img').length and inspect srcs manually
+```
+
+**Fix applied:**
+- `imageSelector` changed to `img[src*="/api/"][src*="/files/"]` — targets Claude's API file endpoint (`claude.ai/api/{conv-id}/files/{file-id}`)
+- Added `imageSelectorScope: 'document'` — queries the entire document instead of scoping to individual message elements
+- Since images have no DOM association with specific messages, the scroll target falls back to the image element itself (located in the files panel)
+
+**What to check if it breaks again:**
+1. Run `document.querySelectorAll('img[src*="/api/"][src*="/files/"]').length` — if 0, the URL pattern changed
+2. Find the actual uploaded image srcs: `Array.from(document.querySelectorAll('img')).map(i => i.src).filter(s => s.includes('/api/') || s.includes('claude'))`
+3. Check if images are still in a separate panel or back inline in message elements
+
+---
+
+#### ChatGPT — March 13, 2026 (fixed in v11.4)
+
+**Symptom:** Gallery showed "No images (0)" on ChatGPT even with clearly visible uploaded images in the conversation.
+
+**Root cause:** ChatGPT migrated uploaded image hosting from `files.oaiusercontent.com` (OpenAI's external CDN) to `chatgpt.com/backend-api/estuary/content` (an internal backend proxy). The selector `img[src*="files.oaiusercontent.com"]` matched zero elements because the CDN no longer serves user uploads. This was a silent infrastructure change with no public announcement.
+
+The good news: uploaded images are still rendered inline inside `[data-message-author-role="user"]` elements at approximately 7–8 DOM levels deep. Per-message scoping still works; only the URL pattern needed updating.
+
+**How to detect if this breaks again:**
+Open DevTools Console on a ChatGPT conversation with uploaded images and run:
+```javascript
+document.querySelectorAll('[data-message-author-role="user"]').length              // should be > 0
+document.querySelectorAll('img[src*="backend-api/estuary/content"]').length        // should match your image count
+// If the second is 0, the URL pattern changed again
+// Check: Array.from(document.querySelectorAll('img')).map(i => i.src).filter(s => s.length > 20 && !s.endsWith('.svg'))
+```
+
+**Fix applied:**
+- `imageSelector` changed from `img[src*="files.oaiusercontent.com"]` to `img[src*="backend-api/estuary/content"]`
+- Per-message scoping (`[data-message-author-role="user"]`) preserved — no `imageSelectorScope` change needed
+
+**What to check if it breaks again:**
+1. Run the detection snippet above — if `backend-api/estuary/content` count is 0, the proxy URL changed
+2. Find actual uploaded image srcs and look for the common pattern: `Array.from(document.querySelectorAll('img')).map(i=>i.src).filter(s=>s.includes('chatgpt.com') && !s.includes('.svg'))`
+3. Check if images are still inside `[data-message-author-role="user"]` or moved to a separate container (like Claude's files panel)
+
+---
+
+#### Gemini — March 12, 2026 (fixed in v11.3)
+
+**Symptom:** Gallery showed "No images (0)" despite correct `img[data-test-id="uploaded-img"]` selector.
+
+**Root cause:** Gemini's uploaded images live in `user-query-file-carousel`, which is a *sibling* of `div.query-text` (what `getUserMessages()` returns) inside the parent `user-query` custom element. Per-message `querySelectorAll` on `div.query-text` finds nothing because the images are not descendants — they are siblings.
+
+**Fix applied:** `imageSelectorScope: 'document'` — queries document-wide, then associates images to messages by checking if `msgEl.parentElement.contains(img)` (one level up catches the shared `user-query` parent).
+
+---
+
+#### Grok — March 12, 2026 (fixed in v11.3)
+
+**Symptom:** Gallery showed "No images (0)".
+
+**Root cause:** Two issues: (1) The most recent user message with uploads lives in `div#last-reply-container`, a separate DOM branch from `div.message-bubble` elements returned by `getUserMessages()`. (2) The selector `img[src*="assets.grok.com"]` also matched profile picture avatars.
+
+**Fix applied:** `imageSelectorScope: 'document'` + selector refined to `img[src*="assets.grok.com"][class*="object-cover"]` to exclude avatars (which use `aspect-square h-full w-full` class, not `object-cover`).

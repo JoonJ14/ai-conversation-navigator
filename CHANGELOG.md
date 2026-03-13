@@ -8,45 +8,102 @@ All notable changes to this project will be documented in this file. Each entry 
 
 **Branch:** `fix/image-gallery-claude-chatgpt`
 
-Fix image gallery showing "No images (0)" on Claude and ChatGPT across all browsers.
+Fix image gallery showing "No images (0)" on Claude and ChatGPT across all browsers (Chrome, Safari, Firefox). Both platforms appear to have shipped silent infrastructure changes on or around March 12–13, 2026 — the gallery was confirmed working on March 12 and broken on March 13.
 
 ---
 
 ### Problem
 
-After v11.3 fixed Gemini and Grok, the gallery still failed on Claude and ChatGPT.
+After v11.3 fixed Gemini and Grok, the gallery still failed on Claude and ChatGPT. Both failures were diagnosed via live DOM inspection using Playwright MCP on the author's actual conversations.
 
 ---
 
-### Root causes
+### Root cause — Claude
 
-**Claude — images moved to a hidden files panel:**
-Claude.ai now renders uploaded file thumbnails in a separate FILES PANEL (`div.w-0`, `opacity-0 pointer-events-none`) that is entirely outside the conversation turn elements. The previous approach (per-message `querySelectorAll` + `getMessageContext` walking up to the outer `.group`) could no longer reach the images because they are in a completely different DOM subtree. Additionally, the old selector `img:not([class*="avatar"]):not([width="16"])...` relied on HTML attribute filters that are not present on modern Claude images.
+**Claude introduced a Files Panel.** Uploaded file thumbnails are now rendered exclusively in a collapsible sidebar (`div.w-0` when collapsed, `opacity-0 pointer-events-none`) that lives in a completely separate DOM subtree from the conversation turn elements. This is a new UI feature — a right-side panel listing all files uploaded in a conversation.
 
-The new image URL pattern (verified via live DOM inspection, March 13, 2026):
-`https://claude.ai/api/{conversation-id}/files/{file-id}`
+The gallery's per-message approach searches `contextEl.querySelectorAll(imgSel)` where `contextEl` is derived from `getUserMessages()` (returns `[data-testid="user-message"]` elements). None of the 70 user message elements in the test conversation contained a single image — all 29 uploaded file thumbnails were in the files panel, unreachable by message-scoped queries.
 
-**ChatGPT — CDN endpoint changed:**
-ChatGPT migrated uploaded image hosting from `files.oaiusercontent.com` to its own backend proxy at `chatgpt.com/backend-api/estuary/content`. The selector `img[src*="files.oaiusercontent.com"]` no longer matches anything. Images remain inline inside `[data-message-author-role="user"]` elements (5/5 confirmed via live DOM inspection), so per-message scoping still works — only the selector needed updating.
+Additionally, the old selector `img:not([class*="avatar"]):not([width="16"])...` used HTML `width`/`height` attribute filters. Modern Claude images set dimensions via CSS, not HTML attributes, so these `:not()` filters were already ineffective.
+
+**New DOM structure (verified March 13, 2026):**
+```
+div.overflow-x-hidden.overflow-y-auto   ← conversation scroll container
+  div.flex.flex-col.relative
+    div.flex.flex-1.h-full
+      div#main-content                  ← main content area
+        ...conversation turns...
+        div.w-0                         ← FILES PANEL (collapsed = width 0)
+          div.flex.flex-col.gap-5       ← opacity-0 when closed
+            div.grid.grid-cols-[...]    ← thumbnail grid
+              div.relative.group/thumbnail
+                button.relative.bg-bg-000
+                  img.w-full.h-full.object-cover   ← uploaded image
+                  src: "https://claude.ai/api/{conv-id}/files/{file-id}"
+```
+
+Key point: `[data-testid="user-message"]` elements have 0 images inside them. All images are siblings (or cousins) of the conversation turn container, not descendants.
+
+---
+
+### Root cause — ChatGPT
+
+**ChatGPT silently migrated their file upload CDN.** Uploaded images no longer served from `files.oaiusercontent.com` (OpenAI's external CDN). They are now proxied through ChatGPT's own backend at `chatgpt.com/backend-api/estuary/content`. No public announcement was made.
+
+Unlike Claude, the DOM structure did *not* change — uploaded images are still rendered inline as thumbnails inside `[data-message-author-role="user"]` elements. The per-message scoping approach still works. Only the URL pattern used to identify uploaded images changed.
+
+**Old URL pattern:**
+`https://files.oaiusercontent.com/file-{id}?...`
+
+**New URL pattern (verified March 13, 2026):**
+`https://chatgpt.com/backend-api/estuary/content?id=file_{id}&ts={timestamp}&p=...`
+
+**Verified DOM position:** All 5 uploaded images in the test conversation were confirmed inside `[data-message-author-role="user"]` elements (containedInUserMsg: 5/5).
 
 ---
 
 ### Fix
 
 **Claude:**
-- `imageSelector`: `img[src*="/api/"][src*="/files/"]` — matches Claude's API file endpoint
-- `imageSelectorScope: 'document'` — queries entire document since images are in the files panel, not in message elements; scroll target falls back to the image element itself
+- `imageSelector` changed to `img[src*="/api/"][src*="/files/"]` — matches Claude's internal API file endpoint regardless of conversation ID
+- Added `imageSelectorScope: 'document'` — queries the entire document, bypassing the per-message scope that can no longer reach the files panel
+- Scroll-to-message: since images have no DOM association with specific messages, `scrollTarget` falls back to the image element itself (which is in the files panel)
 
 **ChatGPT:**
-- `imageSelector`: `img[src*="backend-api/estuary/content"]` — matches new CDN proxy URL
-- Per-message scoping unchanged (images are still inside user message elements)
+- `imageSelector` changed from `img[src*="files.oaiusercontent.com"]` to `img[src*="backend-api/estuary/content"]`
+- Per-message scoping preserved — no `imageSelectorScope` change needed
+- `getMessageContext` unchanged
 
 ---
 
 ### Verification (live DOM inspection via Playwright MCP, March 13, 2026)
 
-- Claude: `document.querySelectorAll('img[src*="/api/"][src*="/files/"]').length` → 29 ✓ (all in hidden files panel, 0 inside any user-message element)
-- ChatGPT: `document.querySelectorAll('img[src*="backend-api/estuary/content"]').length` → 5 ✓ (all 5 contained inside `[data-message-author-role="user"]` elements)
+| Platform | Selector | Count | Inside message elements? |
+|----------|----------|-------|--------------------------|
+| Claude | `img[src*="/api/"][src*="/files/"]` | 29 | 0 / 29 (all in files panel) |
+| ChatGPT | `img[src*="backend-api/estuary/content"]` | 5 | 5 / 5 (all inline in user messages) |
+
+---
+
+### How to re-diagnose if this breaks again
+
+**Claude** — paste in DevTools console on a conversation with uploaded images:
+```javascript
+// Should return > 0 if selector still matches
+document.querySelectorAll('img[src*="/api/"][src*="/files/"]').length
+// If 0, find actual upload URLs:
+Array.from(document.querySelectorAll('img')).map(i=>i.src).filter(s=>s.includes('claude.ai') && s.length > 40)
+```
+
+**ChatGPT** — paste in DevTools console:
+```javascript
+// Should return > 0 if selector still matches
+document.querySelectorAll('img[src*="backend-api/estuary/content"]').length
+// If 0, find actual upload URLs:
+Array.from(document.querySelectorAll('img')).map(i=>i.src).filter(s=>s.includes('chatgpt.com') && !s.includes('.svg') && s.length > 40)
+```
+
+See also `TROUBLESHOOTING.md § Image Gallery` for the full per-platform breakage history.
 
 ---
 
