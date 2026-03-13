@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      11.2
+// @version      11.3
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -39,7 +39,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '11.2';
+    var ACN_VERSION = '11.3';
 
     // ============================================================
     // i18n — internationalization string table
@@ -387,8 +387,11 @@
                 if (messages.length === 0) messages = Array.from(document.querySelectorAll('[data-role="assistant"]'));
                 return messages;
             },
-            // Uploaded images are hosted on assets.grok.com
-            imageSelector: 'img[src*="assets.grok.com"]',
+            // Uploaded images are hosted on assets.grok.com; object-cover class excludes profile pictures.
+            // imageSelectorScope:'document' needed because Grok places uploaded images outside
+            // div.message-bubble (they live in div#response-* / div#last-reply-container).
+            imageSelector: 'img[src*="assets.grok.com"][class*="object-cover"]',
+            imageSelectorScope: 'document',
         },
 
         gemini: {
@@ -428,8 +431,12 @@
                 }
                 return messages;
             },
-            // Angular test attribute — stable across DOM updates (verified March 12, 2026)
+            // Angular test attribute — stable across DOM updates (verified March 12, 2026).
+            // imageSelectorScope:'document' needed because uploaded images live in user-query →
+            // user-query-file-carousel, which is a sibling of div.query-text (getUserMessages target),
+            // not a descendant — per-message querySelectorAll would find nothing.
             imageSelector: 'img[data-test-id="uploaded-img"]',
+            imageSelectorScope: 'document',
         },
 
         bolt: {
@@ -4659,12 +4666,65 @@
         // imageSelector: null  → platform explicitly unsupported (e.g. Perplexity)
         // imageSelector: string → use as querySelectorAll argument within each message context
         // imageSelector: undefined → fall through to generic isContentImage filter
+        // imageSelectorScope: 'document' → query entire document instead of per-message context
+        //   (needed when images live outside getUserMessages() elements, e.g. Gemini/Grok)
         if (platform.imageSelector === null) return allImages;
 
         var imgSel   = platform.imageSelector;   // string or undefined
         var userMsgs = platform.getUserMessages ? Array.from(platform.getUserMessages()) : [];
         var aiMsgs   = platform.getAIMessages   ? Array.from(platform.getAIMessages())   : [];
         var seenImgs = [];  // dedup tracker
+
+        // Document-wide path: used when uploaded images live outside message elements.
+        // Queries the full document, then associates each image to its nearest message by
+        // checking direct containment or one level up (handles sibling containers like Gemini).
+        if (imgSel && platform.imageSelectorScope === 'document') {
+            var docImgs = document.querySelectorAll(imgSel);
+            for (var di = 0; di < docImgs.length; di++) {
+                var dImg = docImgs[di];
+                if (seenImgs.indexOf(dImg) !== -1) continue;
+                seenImgs.push(dImg);
+                var scrollTarget = dImg;  // fallback: scroll to image itself
+                var dMsgIdx = 0;
+                var dIsUser = true;
+                var dFound  = false;
+
+                for (var du = 0; du < userMsgs.length; du++) {
+                    var duCtx = (platform.getMessageContext ? platform.getMessageContext(userMsgs[du]) : null) || userMsgs[du];
+                    if (duCtx.contains(dImg) || (duCtx.parentElement && duCtx.parentElement.contains(dImg))) {
+                        scrollTarget = userMsgs[du];
+                        dMsgIdx = du;
+                        dIsUser = true;
+                        dFound  = true;
+                        break;
+                    }
+                }
+                if (!dFound) {
+                    for (var da = 0; da < aiMsgs.length; da++) {
+                        if (aiMsgs[da].contains(dImg) || (aiMsgs[da].parentElement && aiMsgs[da].parentElement.contains(dImg))) {
+                            scrollTarget = aiMsgs[da];
+                            dMsgIdx = userMsgs.length + da;
+                            dIsUser = false;
+                            break;
+                        }
+                    }
+                }
+                allImages.push({
+                    element:    dImg,
+                    src:        dImg.src,
+                    alt:        dImg.alt || '',
+                    msgElement: scrollTarget,
+                    msgIndex:   dMsgIdx,
+                    isUserMsg:  dIsUser,
+                    width:      dImg.naturalWidth  || dImg.width  || 0,
+                    height:     dImg.naturalHeight || dImg.height || 0
+                });
+            }
+            return allImages;
+        }
+
+        // Per-message path: iterate over message elements, searching within each context.
+        // Used by Claude (broad filter selector) and ChatGPT (specific src selector).
 
         // User messages — use broader context if platform provides one
         // (claude.ai keeps uploaded image thumbnails in a sibling div, not inside user-message)
