@@ -293,6 +293,9 @@
             },
             imageSelector: 'img[src*="/api/"][src*="/files/"]',
             imageSelectorScope: 'document',
+            // Files panel is hidden (opacity-0); unassociated images have no usable
+            // scroll target — the image element itself is inside the hidden container.
+            imagesOrphaned: true,
         },
 
         chatgpt: {
@@ -4837,11 +4840,13 @@
             thumb.setAttribute('loading', 'lazy');
             var label = document.createElement('div');
             label.className   = 'acn-gallery-label';
-            label.textContent = (imgData.msgIndex === -1)
+            label.textContent = (imgData.msgIndex === -1 && platform.imagesOrphaned)
                 ? 'Upload'
-                : imgData.isUserMsg
-                    ? 'Q#' + (imgData.msgIndex + 1)
-                    : 'A#' + (imgData.msgIndex + 1);
+                : imgData.msgIndex === -1
+                    ? (imgData.isUserMsg ? 'Q#?' : 'A#?')
+                    : imgData.isUserMsg
+                        ? 'Q#' + (imgData.msgIndex + 1)
+                        : 'A#' + (imgData.msgIndex + 1);
             thumb.addEventListener('error', (function (lbl) {
                 return function () {
                     thumb.style.display = 'none';
@@ -4857,12 +4862,14 @@
             navBtn.className   = 'acn-gallery-btn';
             navBtn.textContent = '\u2197';
             navBtn.title       = 'Go to message';
-            if (imgData.msgIndex === -1) {
+            if (imgData.msgIndex === -1 && platform.imagesOrphaned) {
+                // Images are in a hidden container (e.g. Claude files panel) — no usable scroll target
                 navBtn.style.opacity = '0.3';
                 navBtn.style.cursor  = 'default';
                 navBtn.title         = 'No message link available';
                 navBtn.addEventListener('click', function (e) { e.stopPropagation(); });
             } else {
+                // msgElement is either a message element or the image itself (visible fallback)
                 navBtn.addEventListener('click', (function (data) {
                     return function (e) {
                         e.stopPropagation();
@@ -4884,7 +4891,7 @@
             })(imgData, i));
             actions.appendChild(navBtn);
             actions.appendChild(dlBtn);
-            if (imgData.msgIndex !== -1) {
+            if (!(imgData.msgIndex === -1 && platform.imagesOrphaned)) {
                 thumb.addEventListener('click', (function (data) {
                     return function () {
                         data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });

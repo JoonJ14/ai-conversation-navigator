@@ -9,7 +9,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-11.4-blue)
+![Version](https://img.shields.io/badge/version-11.5-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
