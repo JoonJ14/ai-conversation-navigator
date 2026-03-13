@@ -4,6 +4,56 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [11.5 — Image Gallery: Graceful Handling for Files-Panel Images (Claude)] — 2026-03-13
+
+**Branch:** `fix/image-gallery-claude-chatgpt`
+
+Fix Claude image gallery showing all images labeled "Q#1" with broken "Go to message" scroll targets.
+
+---
+
+### Problem
+
+After v11.4, Claude images were correctly detected (29 found via document-scope query), but the gallery rendered all of them as **Q#1** and clicking the navigate-to-message button scrolled to the hidden files panel (`opacity-0 pointer-events-none`), not to any conversation turn.
+
+---
+
+### Root cause
+
+The document-scope path in `getConversationImages()` initialised `dMsgIdx = 0` as the default when no message contained the image. Since Claude's files panel is a flat grid disconnected from all `[data-testid="user-message"]` elements (0 of 29 images were contained by any message), every image fell through with `dMsgIdx = 0` — producing Q#1 × 29 and `scrollTarget = dImg` (the hidden thumbnail element).
+
+The gallery rendering then blindly formatted the label as `Q#` + (0 + 1) = "Q#1" for all of them.
+
+---
+
+### Fix
+
+**1. Sentinel value `msgIndex: -1`**
+
+Changed the default from `dMsgIdx = 0` to `dMsgIdx = -1` in the document-scope path. A value of `-1` means "image found but no message association available".
+
+**2. Gallery label**
+
+When `msgIndex === -1`, the label now renders as **"Upload"** instead of "Q#1".
+
+**3. Nav button and thumb click**
+
+When `msgIndex === -1`, the `↗` navigate-to-message button is visually dimmed (`opacity: 0.3`, cursor default, tooltip "No message link available") and disabled. Clicking the thumbnail also does nothing (no scroll attempted). This avoids scrolling into the hidden files panel.
+
+---
+
+### Why no message association is possible on Claude
+
+Claude's files panel is a flat list of ALL uploaded files in the conversation — there is no per-message grouping in the DOM. A conversation with 70 user messages and 29 uploaded files has:
+
+- `distinctGroups: 1` — all 29 images in a single `div.grid` container
+- 0 images inside any `[data-testid="user-message"]` element
+- No `data-message-index`, `data-turn`, or similar attribute linking each thumbnail to its originating message
+
+A heuristic could associate all images with the last user message, but that would be incorrect for conversations where files were uploaded at different points. Showing "Upload" honestly reflects that the association is unknown.
+
+---
+
 ## [11.4 — Image Gallery: Fix Claude + ChatGPT Detection] — 2026-03-13
 
 **Branch:** `fix/image-gallery-claude-chatgpt`

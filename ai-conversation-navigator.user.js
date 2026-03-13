@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      11.4
+// @version      11.5
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -39,7 +39,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '11.4';
+    var ACN_VERSION = '11.5';
 
     // ============================================================
     // i18n — internationalization string table
@@ -4687,7 +4687,7 @@
                 if (seenImgs.indexOf(dImg) !== -1) continue;
                 seenImgs.push(dImg);
                 var scrollTarget = dImg;  // fallback: scroll to image itself
-                var dMsgIdx = 0;
+                var dMsgIdx = -1;  // -1 = no message association found (e.g. Claude files panel)
                 var dIsUser = true;
                 var dFound  = false;
 
@@ -4837,9 +4837,11 @@
             thumb.setAttribute('loading', 'lazy');
             var label = document.createElement('div');
             label.className   = 'acn-gallery-label';
-            label.textContent = imgData.isUserMsg
-                ? 'Q#' + (imgData.msgIndex + 1)
-                : 'A#' + (imgData.msgIndex + 1);
+            label.textContent = (imgData.msgIndex === -1)
+                ? 'Upload'
+                : imgData.isUserMsg
+                    ? 'Q#' + (imgData.msgIndex + 1)
+                    : 'A#' + (imgData.msgIndex + 1);
             thumb.addEventListener('error', (function (lbl) {
                 return function () {
                     thumb.style.display = 'none';
@@ -4855,14 +4857,21 @@
             navBtn.className   = 'acn-gallery-btn';
             navBtn.textContent = '\u2197';
             navBtn.title       = 'Go to message';
-            navBtn.addEventListener('click', (function (data) {
-                return function (e) {
-                    e.stopPropagation();
-                    data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    data.msgElement.classList.add('acn-highlight-flash');
-                    setTimeout(function () { data.msgElement.classList.remove('acn-highlight-flash'); }, 1500);
-                };
-            })(imgData));
+            if (imgData.msgIndex === -1) {
+                navBtn.style.opacity = '0.3';
+                navBtn.style.cursor  = 'default';
+                navBtn.title         = 'No message link available';
+                navBtn.addEventListener('click', function (e) { e.stopPropagation(); });
+            } else {
+                navBtn.addEventListener('click', (function (data) {
+                    return function (e) {
+                        e.stopPropagation();
+                        data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        data.msgElement.classList.add('acn-highlight-flash');
+                        setTimeout(function () { data.msgElement.classList.remove('acn-highlight-flash'); }, 1500);
+                    };
+                })(imgData));
+            }
             var dlBtn = document.createElement('span');
             dlBtn.className   = 'acn-gallery-btn';
             dlBtn.textContent = '\u2B07';
@@ -4875,13 +4884,15 @@
             })(imgData, i));
             actions.appendChild(navBtn);
             actions.appendChild(dlBtn);
-            thumb.addEventListener('click', (function (data) {
-                return function () {
-                    data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    data.msgElement.classList.add('acn-highlight-flash');
-                    setTimeout(function () { data.msgElement.classList.remove('acn-highlight-flash'); }, 1500);
-                };
-            })(imgData));
+            if (imgData.msgIndex !== -1) {
+                thumb.addEventListener('click', (function (data) {
+                    return function () {
+                        data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        data.msgElement.classList.add('acn-highlight-flash');
+                        setTimeout(function () { data.msgElement.classList.remove('acn-highlight-flash'); }, 1500);
+                    };
+                })(imgData));
+            }
             card.appendChild(thumb);
             card.appendChild(label);
             card.appendChild(actions);
