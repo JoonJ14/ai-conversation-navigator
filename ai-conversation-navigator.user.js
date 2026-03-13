@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      11.3
+// @version      11.4
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -39,7 +39,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '11.3';
+    var ACN_VERSION = '11.4';
 
     // ============================================================
     // i18n — internationalization string table
@@ -280,20 +280,19 @@
                 }
                 return messages;
             },
-            // Claude.ai keeps uploaded image thumbnails in a sibling div, both
-            // inside an outer .group turn container. The user-message itself is
-            // inside an inner .group bubble. We need the outer (second) .group
-            // ancestor so image searches also find uploaded file thumbnails.
+            // Claude.ai serves uploaded files from its own API endpoint.
+            // As of March 2026, thumbnails are rendered in a hidden FILES PANEL
+            // (div.w-0, opacity-0) that is separate from the conversation turn
+            // elements returned by getUserMessages(). Per-message querySelectorAll
+            // finds nothing; imageSelectorScope:'document' queries the full page.
             getMessageContext: function (msgEl) {
                 var inner = msgEl.closest('.group');
                 if (!inner) return msgEl;
                 var outer = inner.parentElement ? inner.parentElement.closest('.group') : null;
                 return outer || inner;
             },
-            // Find all img descendants of the message context, excluding tiny icons/avatars.
-            // data-test-render-count is an ANCESTOR of the context element (not a descendant)
-            // so it cannot be used as a scoping prefix in querySelectorAll(selector).
-            imageSelector: 'img:not([class*="avatar"]):not([width="16"]):not([width="20"]):not([height="16"]):not([height="20"])',
+            imageSelector: 'img[src*="/api/"][src*="/files/"]',
+            imageSelectorScope: 'document',
         },
 
         chatgpt: {
@@ -335,8 +334,11 @@
                 }
                 return messages;
             },
-            // Uploaded images are hosted on files.oaiusercontent.com
-            imageSelector: 'img[src*="files.oaiusercontent.com"]',
+            // As of March 2026 ChatGPT serves uploaded images from its own backend
+            // proxy (chatgpt.com/backend-api/estuary/content) rather than the old
+            // files.oaiusercontent.com CDN. Images remain inside the user message
+            // element so per-message scoping still works; only the selector changed.
+            imageSelector: 'img[src*="backend-api/estuary/content"]',
         },
 
         grok: {

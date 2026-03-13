@@ -4,6 +4,52 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [11.4 — Image Gallery: Fix Claude + ChatGPT Detection] — 2026-03-13
+
+**Branch:** `fix/image-gallery-claude-chatgpt`
+
+Fix image gallery showing "No images (0)" on Claude and ChatGPT across all browsers.
+
+---
+
+### Problem
+
+After v11.3 fixed Gemini and Grok, the gallery still failed on Claude and ChatGPT.
+
+---
+
+### Root causes
+
+**Claude — images moved to a hidden files panel:**
+Claude.ai now renders uploaded file thumbnails in a separate FILES PANEL (`div.w-0`, `opacity-0 pointer-events-none`) that is entirely outside the conversation turn elements. The previous approach (per-message `querySelectorAll` + `getMessageContext` walking up to the outer `.group`) could no longer reach the images because they are in a completely different DOM subtree. Additionally, the old selector `img:not([class*="avatar"]):not([width="16"])...` relied on HTML attribute filters that are not present on modern Claude images.
+
+The new image URL pattern (verified via live DOM inspection, March 13, 2026):
+`https://claude.ai/api/{conversation-id}/files/{file-id}`
+
+**ChatGPT — CDN endpoint changed:**
+ChatGPT migrated uploaded image hosting from `files.oaiusercontent.com` to its own backend proxy at `chatgpt.com/backend-api/estuary/content`. The selector `img[src*="files.oaiusercontent.com"]` no longer matches anything. Images remain inline inside `[data-message-author-role="user"]` elements (5/5 confirmed via live DOM inspection), so per-message scoping still works — only the selector needed updating.
+
+---
+
+### Fix
+
+**Claude:**
+- `imageSelector`: `img[src*="/api/"][src*="/files/"]` — matches Claude's API file endpoint
+- `imageSelectorScope: 'document'` — queries entire document since images are in the files panel, not in message elements; scroll target falls back to the image element itself
+
+**ChatGPT:**
+- `imageSelector`: `img[src*="backend-api/estuary/content"]` — matches new CDN proxy URL
+- Per-message scoping unchanged (images are still inside user message elements)
+
+---
+
+### Verification (live DOM inspection via Playwright MCP, March 13, 2026)
+
+- Claude: `document.querySelectorAll('img[src*="/api/"][src*="/files/"]').length` → 29 ✓ (all in hidden files panel, 0 inside any user-message element)
+- ChatGPT: `document.querySelectorAll('img[src*="backend-api/estuary/content"]').length` → 5 ✓ (all 5 contained inside `[data-message-author-role="user"]` elements)
+
+---
+
 ## [11.3 — Image Gallery: Fix Gemini + Grok Detection (Document-Scope Query)] — 2026-03-12
 
 **Branch:** `fix/image-gallery-selectors`
