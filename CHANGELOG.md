@@ -4,6 +4,159 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [11.5 — Image Gallery: Graceful Handling for Files-Panel Images (Claude)] — 2026-03-13
+
+**Branch:** `fix/image-gallery-claude-chatgpt`
+
+Fix Claude image gallery showing all images labeled "Q#1" with broken "Go to message" scroll targets.
+
+---
+
+### Problem
+
+After v11.4, Claude images were correctly detected (29 found via document-scope query), but the gallery rendered all of them as **Q#1** and clicking the navigate-to-message button scrolled to the hidden files panel (`opacity-0 pointer-events-none`), not to any conversation turn.
+
+---
+
+### Root cause
+
+The document-scope path in `getConversationImages()` initialised `dMsgIdx = 0` as the default when no message contained the image. Since Claude's files panel is a flat grid disconnected from all `[data-testid="user-message"]` elements (0 of 29 images were contained by any message), every image fell through with `dMsgIdx = 0` — producing Q#1 × 29 and `scrollTarget = dImg` (the hidden thumbnail element).
+
+The gallery rendering then blindly formatted the label as `Q#` + (0 + 1) = "Q#1" for all of them.
+
+---
+
+### Fix
+
+**1. Sentinel value `msgIndex: -1`**
+
+Changed the default from `dMsgIdx = 0` to `dMsgIdx = -1` in the document-scope path. A value of `-1` means "image found but no message association available".
+
+**2. Gallery label**
+
+When `msgIndex === -1`, the label now renders as **"Upload"** instead of "Q#1".
+
+**3. Nav button and thumb click**
+
+When `msgIndex === -1`, the `↗` navigate-to-message button is visually dimmed (`opacity: 0.3`, cursor default, tooltip "No message link available") and disabled. Clicking the thumbnail also does nothing (no scroll attempted). This avoids scrolling into the hidden files panel.
+
+---
+
+### Why no message association is possible on Claude
+
+Claude's files panel is a flat list of ALL uploaded files in the conversation — there is no per-message grouping in the DOM. A conversation with 70 user messages and 29 uploaded files has:
+
+- `distinctGroups: 1` — all 29 images in a single `div.grid` container
+- 0 images inside any `[data-testid="user-message"]` element
+- No `data-message-index`, `data-turn`, or similar attribute linking each thumbnail to its originating message
+
+A heuristic could associate all images with the last user message, but that would be incorrect for conversations where files were uploaded at different points. Showing "Upload" honestly reflects that the association is unknown.
+
+---
+
+## [11.4 — Image Gallery: Fix Claude + ChatGPT Detection] — 2026-03-13
+
+**Branch:** `fix/image-gallery-claude-chatgpt`
+
+Fix image gallery showing "No images (0)" on Claude and ChatGPT across all browsers (Chrome, Safari, Firefox). Both platforms appear to have shipped silent infrastructure changes on or around March 12–13, 2026 — the gallery was confirmed working on March 12 and broken on March 13.
+
+---
+
+### Problem
+
+After v11.3 fixed Gemini and Grok, the gallery still failed on Claude and ChatGPT. Both failures were diagnosed via live DOM inspection using Playwright MCP on the author's actual conversations.
+
+---
+
+### Root cause — Claude
+
+**Claude introduced a Files Panel.** Uploaded file thumbnails are now rendered exclusively in a collapsible sidebar (`div.w-0` when collapsed, `opacity-0 pointer-events-none`) that lives in a completely separate DOM subtree from the conversation turn elements. This is a new UI feature — a right-side panel listing all files uploaded in a conversation.
+
+The gallery's per-message approach searches `contextEl.querySelectorAll(imgSel)` where `contextEl` is derived from `getUserMessages()` (returns `[data-testid="user-message"]` elements). None of the 70 user message elements in the test conversation contained a single image — all 29 uploaded file thumbnails were in the files panel, unreachable by message-scoped queries.
+
+Additionally, the old selector `img:not([class*="avatar"]):not([width="16"])...` used HTML `width`/`height` attribute filters. Modern Claude images set dimensions via CSS, not HTML attributes, so these `:not()` filters were already ineffective.
+
+**New DOM structure (verified March 13, 2026):**
+```
+div.overflow-x-hidden.overflow-y-auto   ← conversation scroll container
+  div.flex.flex-col.relative
+    div.flex.flex-1.h-full
+      div#main-content                  ← main content area
+        ...conversation turns...
+        div.w-0                         ← FILES PANEL (collapsed = width 0)
+          div.flex.flex-col.gap-5       ← opacity-0 when closed
+            div.grid.grid-cols-[...]    ← thumbnail grid
+              div.relative.group/thumbnail
+                button.relative.bg-bg-000
+                  img.w-full.h-full.object-cover   ← uploaded image
+                  src: "https://claude.ai/api/{conv-id}/files/{file-id}"
+```
+
+Key point: `[data-testid="user-message"]` elements have 0 images inside them. All images are siblings (or cousins) of the conversation turn container, not descendants.
+
+---
+
+### Root cause — ChatGPT
+
+**ChatGPT silently migrated their file upload CDN.** Uploaded images no longer served from `files.oaiusercontent.com` (OpenAI's external CDN). They are now proxied through ChatGPT's own backend at `chatgpt.com/backend-api/estuary/content`. No public announcement was made.
+
+Unlike Claude, the DOM structure did *not* change — uploaded images are still rendered inline as thumbnails inside `[data-message-author-role="user"]` elements. The per-message scoping approach still works. Only the URL pattern used to identify uploaded images changed.
+
+**Old URL pattern:**
+`https://files.oaiusercontent.com/file-{id}?...`
+
+**New URL pattern (verified March 13, 2026):**
+`https://chatgpt.com/backend-api/estuary/content?id=file_{id}&ts={timestamp}&p=...`
+
+**Verified DOM position:** All 5 uploaded images in the test conversation were confirmed inside `[data-message-author-role="user"]` elements (containedInUserMsg: 5/5).
+
+---
+
+### Fix
+
+**Claude:**
+- `imageSelector` changed to `img[src*="/api/"][src*="/files/"]` — matches Claude's internal API file endpoint regardless of conversation ID
+- Added `imageSelectorScope: 'document'` — queries the entire document, bypassing the per-message scope that can no longer reach the files panel
+- Scroll-to-message: since images have no DOM association with specific messages, `scrollTarget` falls back to the image element itself (which is in the files panel)
+
+**ChatGPT:**
+- `imageSelector` changed from `img[src*="files.oaiusercontent.com"]` to `img[src*="backend-api/estuary/content"]`
+- Per-message scoping preserved — no `imageSelectorScope` change needed
+- `getMessageContext` unchanged
+
+---
+
+### Verification (live DOM inspection via Playwright MCP, March 13, 2026)
+
+| Platform | Selector | Count | Inside message elements? |
+|----------|----------|-------|--------------------------|
+| Claude | `img[src*="/api/"][src*="/files/"]` | 29 | 0 / 29 (all in files panel) |
+| ChatGPT | `img[src*="backend-api/estuary/content"]` | 5 | 5 / 5 (all inline in user messages) |
+
+---
+
+### How to re-diagnose if this breaks again
+
+**Claude** — paste in DevTools console on a conversation with uploaded images:
+```javascript
+// Should return > 0 if selector still matches
+document.querySelectorAll('img[src*="/api/"][src*="/files/"]').length
+// If 0, find actual upload URLs:
+Array.from(document.querySelectorAll('img')).map(i=>i.src).filter(s=>s.includes('claude.ai') && s.length > 40)
+```
+
+**ChatGPT** — paste in DevTools console:
+```javascript
+// Should return > 0 if selector still matches
+document.querySelectorAll('img[src*="backend-api/estuary/content"]').length
+// If 0, find actual upload URLs:
+Array.from(document.querySelectorAll('img')).map(i=>i.src).filter(s=>s.includes('chatgpt.com') && !s.includes('.svg') && s.length > 40)
+```
+
+See also `TROUBLESHOOTING.md § Image Gallery` for the full per-platform breakage history.
+
+---
+
 ## [11.3 — Image Gallery: Fix Gemini + Grok Detection (Document-Scope Query)] — 2026-03-12
 
 **Branch:** `fix/image-gallery-selectors`

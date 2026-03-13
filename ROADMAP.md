@@ -30,9 +30,23 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v11.0
+## Current Status: v11.4
 
-The extension supports 14 platform variants across 12 websites. v11.0 is a pre-release code quality and structural cleanup — no new user-facing features, but the codebase is now cleaner, more consistent, and has expanded test coverage before going public.
+The extension supports 14 platform variants across 12 websites.
+
+**v11.4 Accomplishments (2026-03-13):**
+- **Image Gallery Fix — Claude + ChatGPT:** Gallery was returning "No images" on both platforms. Two separate root causes found via live DOM inspection:
+  - *Claude:* As of March 2026 Claude renders uploaded file thumbnails in a hidden FILES PANEL (`div.w-0`, `opacity-0`) that is completely outside the conversation turn elements. Per-message scoping could never reach them. Fix: `imageSelectorScope:'document'` + new selector `img[src*="/api/"][src*="/files/"]`.
+  - *ChatGPT:* Migrated uploaded image hosting from `files.oaiusercontent.com` to `chatgpt.com/backend-api/estuary/content`. The old CDN selector matched nothing. Images remain inside `[data-message-author-role="user"]` elements; only the selector was updated.
+
+**v11.3 Accomplishments (2026-03-12):**
+- **Image Gallery Fix — Gemini + Grok:** Gallery returned 0 images despite correct selectors in v11.2. Root cause: per-message `querySelectorAll` scoping missed images that live outside `getUserMessages()` elements. Fix: `imageSelectorScope:'document'` flag added to both platforms; document-wide query with ancestry-based message association. Grok selector also refined to exclude profile picture avatars.
+
+**v11.2 Accomplishments (2026-03-12):**
+- **Image Gallery Platform-Specific Selectors:** Added `imageSelector` to Claude, ChatGPT, Grok, Gemini, and Perplexity platform configs. Perplexity marked `null` (explicitly unsupported — attachments are text labels, not `<img>` tags). Firefox/Windows CI timeout fixed (10s → 20s).
+
+**v11.1 Accomplishments (2026-03-12):**
+- **Context Bar Accuracy — System Overhead Fix:** `_estimateClaudeOverhead()` returns 30K tokens for standard chats and 50K for Claude Projects. Previously hardcoded at 15K, causing the bar to underreport by 15–35K tokens. Applied to both Path A (exact SSE) and Path B (estimated).
 
 **v11.0 Accomplishments (2026-03-10):**
 - **ES5 Compliance Fix:** `const PLATFORMS` → `var PLATFORMS`. The only ES5 violation in the entire ~6,400-line file. Fixed before public release.
@@ -157,5 +171,5 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 
 ---
 
-*Last updated: 2026-03-10 (v11.0)*
+*Last updated: 2026-03-13 (v11.4)*
 
