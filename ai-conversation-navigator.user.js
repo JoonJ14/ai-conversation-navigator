@@ -2680,8 +2680,11 @@
         }
 
         // ── Path B: Claude but no SSE data yet ────────────────
+        // (Firefox: SSE interception disabled due to sandbox contamination — DEC-020)
+        // (Chrome: SSE data not yet received, e.g. page just loaded)
         if (platform && platform.id === 'claude') {
             _renderEstimatedBar(pct, fill, meta, limit);
+            _renderTurnDots();
             _renderCompactionInfo(0);
             return;
         }
