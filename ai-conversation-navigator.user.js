@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      11.5
+// @version      11.6
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -1238,7 +1238,7 @@
         var _origPushState = history.pushState;
         var _origReplaceState = history.replaceState;
 
-        history.pushState = function () {
+        var pushProxy = function () {
             _origPushState.apply(this, arguments);
             if (isVirtualScroll) _vsAccumulatedKeys.clear();
             _questions = [];
@@ -1249,7 +1249,7 @@
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         };
 
-        history.replaceState = function () {
+        var replaceProxy = function () {
             _origReplaceState.apply(this, arguments);
             _questions = [];
             resetTurnCounter();
@@ -1257,6 +1257,18 @@
             setTimeout(scanConversation, 500);
             if (isLeftChat) setTimeout(updateLeftChatPositions, 600);
         };
+
+        // Firefox cross-compartment fix: history.pushState and replaceState are
+        // page-context functions. If our replacements live in the userscript sandbox,
+        // any page JS that calls .bind() on them will crash with "Permission denied".
+        // exportFunction clones them into the page context.
+        if (typeof exportFunction === 'function') {
+            history.pushState = exportFunction(pushProxy, history);
+            history.replaceState = exportFunction(replaceProxy, history);
+        } else {
+            history.pushState = pushProxy;
+            history.replaceState = replaceProxy;
+        }
 
         window.addEventListener('popstate', function () {
             if (isVirtualScroll) _vsAccumulatedKeys.clear();
@@ -1513,7 +1525,7 @@
 
         var _nativeFetch = pw.fetch.bind(pw);
 
-        pw.fetch = function acnFetchProxy(input, init) {
+        var proxyFn = function acnFetchProxy(input, init) {
             var url = (typeof input === 'string') ? input :
                       (input && input.url) ? input.url : '';
 
@@ -1538,6 +1550,16 @@
                 return response;
             });
         };
+
+        // Firefox cross-compartment fix: exportFunction clones our sandbox function
+        // into the page's security principal so .bind()/.call()/.apply() work.
+        // Without this, Claude's vendor bundle crashes with "Permission denied to
+        // access property 'bind'" when it tries to bind the replaced fetch.
+        if (typeof exportFunction === 'function') {
+            pw.fetch = exportFunction(proxyFn, pw);
+        } else {
+            pw.fetch = proxyFn;
+        }
     }
 
     function readSSEStream(body) {

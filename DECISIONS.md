@@ -552,3 +552,47 @@ Tampermonkey matches installed scripts by name. If a user has `AI Conversation N
 - Never include a version number in `// @name`
 - Always update `// @version` and `ACN_VERSION` together on every release
 - If a future session sees a version number in `// @name`, remove it — do not "align" it to the current version
+
+---
+
+## DEC-019: Always Wrap Replaced Page Globals with `exportFunction()` on Firefox (v11.6)
+**Date:** 2026-03-14 | **Stage:** v11.6
+
+### Decision
+Any function assigned to `unsafeWindow.*` properties or built-in page-context objects (like `history.pushState`, `history.replaceState`) must be wrapped with `exportFunction()` when available. Direct assignment is only used as a fallback when `exportFunction` is not present (Chrome, where it's unnecessary).
+
+### Context
+On March 13, 2026, Claude.ai shipped a vendor bundle update (Visualizer feature) that introduced `.bind()` calls on `fetch` and potentially `history.pushState`/`history.replaceState` during app initialization. This immediately crashed the entire Claude frontend on Firefox — black screen, no UI — while Chrome was completely unaffected.
+
+### The Cross-Compartment Problem
+Tampermonkey runs userscripts in a **sandbox compartment** — a separate security principal from the page's JavaScript context. When our userscript assigns `unsafeWindow.fetch = function() {...}`, the function object lives in the sandbox compartment. Firefox enforces strict cross-principal security: any attempt by page JS to call `.bind()`, `.call()`, or `.apply()` on a foreign-compartment function throws `Permission denied to access property "bind"`.
+
+This had been a latent bug since v10.8 (when SSE fetch interception was added). It was invisible because no platform's code called `.bind()` on `fetch` until Claude's March 13 update. Chrome masks the issue entirely because it doesn't enforce cross-compartment restrictions on function objects.
+
+### Why This Is a Convention, Not a One-Off Fix
+The bug pattern is general: any time we replace a page-visible function with a sandbox function, the page might call `.bind()` on it at any point in the future due to a vendor update we don't control. Rather than playing whack-a-mole each time a platform adds a `.bind()` call, every replacement should be wrapped proactively.
+
+### The `exportFunction()` Pattern
+```javascript
+var proxyFn = function() { /* our logic */ };
+if (typeof exportFunction === 'function') {
+    target.method = exportFunction(proxyFn, target);
+} else {
+    target.method = proxyFn;
+}
+```
+`exportFunction()` is a standard Greasemonkey/Tampermonkey API on Firefox that clones a sandbox function into the target context, making it appear as a native function to the page's JS.
+
+### Alternatives Considered
+
+**Alternative: Only patch on Chrome, skip Firefox.** Would mean Firefox users lose SSE token tracking and SPA navigation handling entirely. *Rejected:* these are core features.
+
+**Alternative: Use `@unwrap` or `@grant none` to run in page context.** Would eliminate the compartment boundary entirely, but also eliminates access to `GM_setValue`/`GM_getValue` and other Tampermonkey APIs we depend on for storage. *Rejected.*
+
+**Alternative: Inject a `<script>` element into the page instead of using `unsafeWindow`.** Would run our code in the page's context natively, avoiding the compartment issue. But this approach breaks on sites with strict Content Security Policy (CSP) that blocks inline scripts, and it loses access to Tampermonkey APIs. *Rejected:* too many side effects.
+
+### Constraints
+- When replacing any function on `unsafeWindow`, always check for `exportFunction` and wrap
+- When replacing any function on built-in objects (`history`, `navigator`, etc.), same pattern
+- Boolean/string/number assignments to `unsafeWindow` do NOT need wrapping — `.bind()` is only called on functions
+- This applies even if the current platform code doesn't call `.bind()` — vendor updates are unpredictable

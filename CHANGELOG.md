@@ -4,6 +4,76 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [11.6 — Firefox Cross-Compartment Crash Fix (claude.ai)] — 2026-03-14
+
+**Branch:** `fix/firefox-bind-crash`
+
+Fix Firefox crashing with a black screen on claude.ai after Claude's March 13, 2026 Visualizer vendor bundle update.
+
+---
+
+### Problem
+
+After Claude shipped a new vendor bundle on March 13, 2026 (Visualizer feature update), Firefox users visiting claude.ai saw a **complete black screen** — the entire Claude frontend crashed. Chrome users were unaffected. The browser console showed:
+
+```
+Uncaught Error: Permission denied to access property "bind"
+```
+
+This was the first time a platform update caused an entire browser to fail — not just our userscript breaking, but the host page itself crashing because of our presence.
+
+---
+
+### Root cause
+
+Our userscript replaces `unsafeWindow.fetch` and `history.pushState`/`history.replaceState` with proxy functions to intercept SSE streams and SPA navigations. These replacement functions are created inside the **Tampermonkey sandbox compartment** — a different security principal than the page's own JavaScript context.
+
+Previously, Claude's code never called `.bind()` on `fetch` or the history methods, so the cross-compartment boundary was invisible. The new vendor bundle introduced `.bind()` calls on these functions, and Firefox's security model (unlike Chrome's) **blocks `.bind()`, `.call()`, and `.apply()` across security principals**. The result: Claude's own initialization code threw a permission error and the entire React app failed to mount.
+
+Key distinction: Chrome does not enforce cross-compartment restrictions on function objects, which is why this was Firefox-only.
+
+---
+
+### Fix
+
+Used Firefox/Tampermonkey's `exportFunction()` API to clone our proxy functions into the page's security context before assigning them. `exportFunction()` is designed exactly for this: it takes a function from the userscript sandbox and creates a callable copy in the target context that the page's JS can freely `.bind()`, `.call()`, and `.apply()`.
+
+On Chrome (where `exportFunction` doesn't exist and isn't needed), we fall back to direct assignment — the existing behavior.
+
+**Two surgical patches:**
+
+1. **`setupClaudeSSEInterceptor()`** — the fetch proxy function is now stored in a `proxyFn` variable and wrapped with `exportFunction(proxyFn, pw)` before assigning to `pw.fetch`
+
+2. **SPA history patches (`if (platform.spa)`)** — `pushProxy` and `replaceProxy` variables wrapped with `exportFunction(pushProxy, history)` / `exportFunction(replaceProxy, history)` before assigning to `history.pushState`/`history.replaceState`
+
+Both patches follow the same pattern:
+```javascript
+if (typeof exportFunction === 'function') {
+    target.method = exportFunction(proxyFn, target);
+} else {
+    target.method = proxyFn;
+}
+```
+
+---
+
+### How we diagnosed this
+
+1. User reported black screen on Firefox + claude.ai — no UI rendered at all
+2. Console showed `Permission denied to access property "bind"` originating from Claude's vendor bundle, not our code
+3. Disabling the userscript fixed the black screen — confirmed our script was the trigger
+4. Traced the error: Claude's new bundle calls `fetch.bind(window)` during initialization. Our replaced `fetch` was a sandbox-compartment function, and Firefox blocked the cross-principal `.bind()`
+5. Identified the same risk for `history.pushState`/`history.replaceState` which we also replace
+6. `exportFunction()` is the standard Greasemonkey/Tampermonkey API for exactly this scenario — cloning functions across compartments
+
+### Lessons learned
+
+- **Platform vendor updates can break userscripts indirectly.** Claude's code change was unrelated to us, but it exposed a latent incompatibility in how we patched globals. The new code simply called `.bind()` on something we had replaced.
+- **Chrome's permissiveness masks real bugs.** This worked on Chrome for months because Chrome doesn't enforce cross-compartment function restrictions. Firefox's stricter model revealed the actual security violation.
+- **Always use `exportFunction()` when replacing page-context globals in Firefox.** Any function assigned to `unsafeWindow.*` or `history.*` should be wrapped. This is now a project convention.
+
+---
+
 ## [11.5 — Image Gallery: Graceful Handling for Files-Panel Images (Claude)] — 2026-03-13
 
 **Branch:** `fix/image-gallery-claude-chatgpt`
