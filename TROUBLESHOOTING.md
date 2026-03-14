@@ -6,6 +6,69 @@ If you run into a problem, check here first — you might find we've already sol
 
 ---
 
+## v11.6 — Firefox Black Screen Crash on claude.ai (2026-03-14)
+
+---
+
+### RESOLVED — Firefox Shows Black Screen on claude.ai, Console Shows "Permission denied to access property 'bind'"
+
+**Versions affected:** All versions from v10.8 (when SSE fetch interception was added) through v11.5
+**Fixed in:** v11.6 | **Severity:** Critical (entire browser page crash) | **Area:** `setupClaudeSSEInterceptor()`, SPA history patches
+**Browser:** Firefox only — Chrome unaffected
+
+**Trigger:** Claude.ai shipped a new vendor bundle on March 13, 2026 (Visualizer feature). The new bundle calls `.bind()` on `fetch` and `history.pushState`/`history.replaceState` during initialization.
+
+**Symptom:** Navigating to claude.ai on Firefox with the userscript enabled produced a completely black screen. No UI rendered. The browser console showed:
+
+```
+Uncaught Error: Permission denied to access property "bind"
+```
+
+The error originated from Claude's vendor JavaScript, not from our userscript directly. Disabling the userscript immediately resolved the black screen.
+
+**Why this happened:**
+
+Firefox enforces **cross-compartment security boundaries** between a Tampermonkey userscript's sandbox and the page's JavaScript context. These are different security principals. When our userscript replaced `unsafeWindow.fetch` with a function created in the sandbox compartment, that function object lived in a different security context than the page. Firefox blocks `.bind()`, `.call()`, and `.apply()` across security principals.
+
+Previously, Claude's code never called `.bind()` on `fetch`, so this was invisible. The March 13 vendor bundle update added `.bind(window)` calls on `fetch` during app initialization, which hit the cross-compartment boundary and threw a permission error. Since this happened during React initialization, the entire app failed to mount — producing the black screen.
+
+Chrome does not enforce these cross-compartment restrictions on function objects, which is why Chrome users saw no issue.
+
+**The same risk existed for `history.pushState` and `history.replaceState`**, which our SPA navigation patches also replace with sandbox-compartment functions.
+
+**How we diagnosed it:**
+
+1. User reported total black screen on Firefox + claude.ai — unprecedented failure mode (we'd never had an entire browser break before)
+2. Console error pointed to `.bind()` in Claude's vendor bundle, not our code — initially misleading
+3. Disabling the userscript fixed it — confirmed we were the trigger even though the error was in Claude's code
+4. Traced the call chain: Claude's new bundle → `fetch.bind(window)` → our replaced `fetch` is a sandbox function → Firefox blocks cross-principal `.bind()` → crash
+5. Identified `exportFunction()` as the standard Tampermonkey/Greasemonkey API for this exact scenario
+
+**Fix:**
+
+Wrapped all proxy functions with `exportFunction()` before assigning them to page-context globals. `exportFunction()` clones a sandbox function into the page's security context, making it a "native" function from the page's perspective.
+
+```javascript
+// Before (broken on Firefox when page calls .bind()):
+pw.fetch = function acnFetchProxy() { ... };
+
+// After (works on all browsers):
+var proxyFn = function acnFetchProxy() { ... };
+if (typeof exportFunction === 'function') {
+    pw.fetch = exportFunction(proxyFn, pw);
+} else {
+    pw.fetch = proxyFn;
+}
+```
+
+Applied to both:
+1. `setupClaudeSSEInterceptor()` — fetch proxy
+2. `if (platform.spa)` block — `history.pushState` and `history.replaceState` proxies
+
+**Key takeaway:** When replacing any global function on `unsafeWindow` or built-in objects like `history`, always wrap with `exportFunction()` on Firefox. Chrome's permissiveness masks the security violation, but Firefox enforces it strictly. This is now a project convention — see DEC-019.
+
+---
+
 ## v10.16 — Segmentation Cold-Start Bias (2026-03-10)
 
 ---

@@ -43,6 +43,7 @@ The userscript must remain **ES5 compatible**. This means:
 - **Fallback chains** — platform selectors should always have fallbacks since host sites change their DOM frequently
 - **Respect IIFE scope** — all code lives inside the `(function () { ... })()` wrapper
 - **DOM observation resilience** — use MutationObserver patterns for SPA-aware re-scanning; never assume DOM is static
+- **`exportFunction()` for replaced globals** — when assigning a function to `unsafeWindow.*` or built-in objects (`history.pushState`, etc.), always wrap with `exportFunction()` on Firefox. Page JS may call `.bind()` on these, and Firefox blocks cross-compartment `.bind()`. Pattern: `if (typeof exportFunction === 'function') { target.fn = exportFunction(proxy, target); } else { target.fn = proxy; }` — see DEC-019
 
 ## Debugging & Mistakes Policy
 
