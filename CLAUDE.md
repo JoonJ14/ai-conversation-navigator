@@ -23,6 +23,21 @@ AI Conversation Navigator is a single-file browser userscript (Tampermonkey/Grea
 6. **Never push directly to main** — use feature branches and PRs
 7. **Test all 14 platforms** — run `npm test` after any change to verify cross-platform compatibility
 8. **If you make a mistake or need to debug** — suggest adding the lesson to `agent_docs/conventions.md` so the user can decide whether to codify it
+9. **Always wrap replaced page globals with `exportFunction()`** — any function assigned to `unsafeWindow.*` or built-in objects like `history.*` must be wrapped (see DEC-019). Direct assignment is a Firefox crash risk.
+
+## Platform Risk Awareness
+
+This project injects code into web applications we don't control. There are **three distinct categories** of breakage — fixing one does not protect against the others. Any agent working on this codebase must understand all three.
+
+**Layer 1 — DOM breaks:** Platform changes HTML structure. Our selectors return empty. Features degrade but the host page works fine. This is the most common break. Fix by updating selectors and mock pages. The planned automated DOM validation framework targets this layer.
+
+**Layer 2 — Feature breaks:** Platform ships native features that overlap with ours. Our tool becomes redundant or conflicts. Fix by disabling/adapting specific features per-platform.
+
+**Layer 3 — Execution breaks (CRITICAL):** Platform changes vendor bundles, CSP headers, or security policies in ways that cause our injected code to crash the HOST PAGE entirely — not just our features. Users see a black screen or broken app. This is qualitatively different: Layers 1–2 degrade our tool, Layer 3 kills the platform. First occurrence: v11.6 (Claude's Visualizer update broke Firefox via cross-compartment `.bind()` on our replaced `fetch`). See TROUBLESHOOTING.md v11.6 entry and DEC-019.
+
+**Why Layer 3 matters for agents:** DOM validation and Playwright mock tests CANNOT catch Layer 3 breaks — they don't have real vendor bundles or CSP headers. If you're doing defensive work, DOM selectors are necessary but not sufficient. Any code that replaces page globals (`unsafeWindow.fetch`, `history.pushState`, etc.) is a latent Layer 3 risk. Minimize global patching. Always use `exportFunction()` wrapping.
+
+Full risk model with examples and mitigation strategies: see ROADMAP.md "Platform Risk Model" section.
 
 ## Agent Documentation
 
