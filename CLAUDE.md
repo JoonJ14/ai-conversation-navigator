@@ -23,7 +23,7 @@ AI Conversation Navigator is a single-file browser userscript (Tampermonkey/Grea
 6. **Never push directly to main** — use feature branches and PRs
 7. **Test all 14 platforms** — run `npm test` after any change to verify cross-platform compatibility
 8. **If you make a mistake or need to debug** — suggest adding the lesson to `agent_docs/conventions.md` so the user can decide whether to codify it
-9. **Always wrap replaced page globals with `exportFunction()`** — any function assigned to `unsafeWindow.*` or built-in objects like `history.*` must be wrapped (see DEC-019). Direct assignment is a Firefox crash risk.
+9. **Wrap replaced page globals with `exportFunction()` when available** — any function assigned to `unsafeWindow.*` or built-in objects like `history.*` must use the guarded pattern: `if (typeof exportFunction === 'function') { target.fn = exportFunction(proxy, target); } else { target.fn = proxy; }`. `exportFunction` is Firefox-only; the `else` fallback is required for Chrome. Note: this only works for functions whose return values the page does NOT inspect (like `pushState`). For `fetch` and similar, skip interception on Firefox entirely (see DEC-019, DEC-020).
 
 ## Platform Risk Awareness
 
