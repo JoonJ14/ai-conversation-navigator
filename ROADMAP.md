@@ -196,9 +196,10 @@ This project lives inside other companies' web applications. We don't control th
 - Minimize page-global monkey-patching — every replaced function is a potential future crash point
 - Investigate alternatives to `unsafeWindow.fetch` interception (e.g., `GM_xmlhttpRequest` for independent SSE monitoring)
 
-**Mitigation (extension era — eliminates this vulnerability class):**
-- Native extensions use `webRequest` / `declarativeNetRequest` APIs to observe network traffic from the background script — no page-global patching needed
-- Content scripts run in an isolated world with explicit browser support — not through a sandbox workaround
+**Mitigation (extension era — reduces but does not fully eliminate this vulnerability class):**
+- Content scripts run in an **isolated world** with explicit browser support — not through a Tampermonkey sandbox workaround. The isolated world shares the page's DOM but has a separate JavaScript context. Functions injected from the isolated world into the page (via `world: "MAIN"` content scripts) don't suffer from the cross-compartment `.bind()` problem that caused v11.6's crash.
+- **SSE interception still requires fetch patching.** `webRequest` / `declarativeNetRequest` APIs only provide request/response metadata (headers, URLs, status codes) and rule-based blocking — they do NOT expose response body content. Since our context tracking depends on parsing SSE response body chunks (`thinking_delta` events), an extension would still need to intercept `fetch` from a `world: "MAIN"` content script. The difference: this runs through the browser's official content script injection, not Tampermonkey's sandbox hack.
+- **SPA navigation is fully solved:** `webNavigation.onHistoryStateUpdated` API fires on pushState/replaceState changes — no need to monkey-patch `history.*` at all.
 - Extension APIs like `chrome.scripting` handle injection in a way the browser is designed to support
 - CSP changes that would break extensions would also break password managers, accessibility tools, and ad blockers — platforms generally won't go that far
 
@@ -222,7 +223,7 @@ The current userscript architecture has a fundamental limitation: it operates as
 
 Native browser extensions (Chrome Web Store, Firefox Add-ons, Safari App Store) operate through official browser APIs that are designed for third-party code to observe and modify web pages:
 
-- **Network observation:** `webRequest` API monitors HTTP traffic from the background script. No need to replace `window.fetch` — SSE streams can be observed without touching any page global.
+- **Network observation (partial):** `webRequest` API monitors HTTP traffic metadata (headers, URLs, status codes) from the background script, but does **not** expose response body content. For SSE body parsing (which our context tracking requires — `thinking_delta` events, token data), the extension would still need to intercept `fetch` via a `world: "MAIN"` content script. The key improvement: this injection runs through the browser's official content script mechanism, not Tampermonkey's sandbox compartment, so the cross-compartment `.bind()` crash (v11.6) cannot occur.
 - **Content script isolation:** Chrome's "isolated world" and Firefox's content script model provide clean separation without the cross-compartment `.bind()` problem that caused v11.6's crash.
 - **CSP immunity:** Content scripts injected by extensions are exempt from the page's Content Security Policy. Even if a platform adds `script-src 'nonce-xxx'` that blocks all inline scripts, extension content scripts still run.
 - **Proper storage:** `chrome.storage` / `browser.storage` replace `GM_setValue` with sync-capable, quota-aware storage.
@@ -244,7 +245,7 @@ The userscript remains the right choice for rapid iteration — one file, instan
 | `getUserMessages()` / `getAIMessages()` | ✅ Directly | Same DOM queries, same fallback chains |
 | Orbital UI system | ✅ Directly | Same CSS, same render engine |
 | All 6 panel features | ✅ Directly | Navigate, Search, Bookmarks, Summary, Tools, Settings |
-| SSE fetch interception | ❌ Replaced | `webRequest` API from background script — no `unsafeWindow` needed |
+| SSE fetch interception | ⚠️ Simplified | Still requires fetch patching via `world: "MAIN"` content script (webRequest cannot read response bodies), but runs through official browser injection — no `unsafeWindow` or `exportFunction` needed |
 | SPA history patches | ❌ Replaced | `webNavigation.onHistoryStateUpdated` API — no `history.pushState` patching |
 | `GM_setValue` / `GM_getValue` | ❌ Replaced | `chrome.storage.local` / `browser.storage.local` |
 | `exportFunction` workarounds | ❌ Eliminated | Not needed — content scripts use proper isolation |
