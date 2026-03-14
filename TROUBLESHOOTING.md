@@ -127,6 +127,30 @@ Detection: `typeof exportFunction === 'function'` — this API only exists on Fi
 
 ---
 
+### RESOLVED — Turn Dots Missing on Firefox After v11.8 (Path B rendering gap)
+
+**Versions affected:** v11.8 (initial)
+**Fixed in:** v11.8 (follow-up commit) | **Severity:** Minor (cosmetic) | **Area:** Context bar rendering, Path B
+**Browser:** Firefox only — Chrome unaffected (Path A takes over before anyone notices)
+
+**Symptom:** After v11.8 resolved the fetch proxy issues, the context bar showed the estimated percentage correctly on Firefox, but the turn counter dots (which appear below the context bar and plan usage section) were completely absent.
+
+**Root cause:** The context bar rendering has three paths:
+
+| Path | Condition | Renders turn dots? |
+|------|-----------|-------------------|
+| Path A | Claude + SSE data available | Yes — `_renderTurnDots()` called |
+| Path B | Claude + no SSE data | **No** — `_renderTurnDots()` was never called |
+| Path C | Non-Claude platforms | Yes — `_renderTurnDots()` called |
+
+On Chrome, Path B is a brief transitional state lasting only seconds before SSE data arrives and Path A takes over (which does render turn dots). With Firefox permanently on Path B (SSE interception disabled by DEC-020), the missing `_renderTurnDots()` call became a permanent gap.
+
+**Fix:** Added `_renderTurnDots()` call to Path B between `_renderEstimatedBar()` and `_renderCompactionInfo()`.
+
+**Lesson:** When a code path transitions from "brief/transitional" to "permanent" due to a platform constraint, audit everything that path renders vs. what the normal path renders. Missing calls that were invisible at sub-second durations become visible defects at permanent duration.
+
+---
+
 ## v10.16 — Segmentation Cold-Start Bias (2026-03-10)
 
 ---

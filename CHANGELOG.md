@@ -78,7 +78,25 @@ The critical distinction: `history.pushState()` returns `undefined`. There's no 
 |---------|--------------|------------------|
 | v11.6 | `.bind()` crash → `exportFunction()` wrapping | Fetch proxy tainted API responses |
 | v11.7 | Fire-and-forget pattern (don't return `.then()` chain) | Sandbox execution still tainted `arguments` and pipeline |
-| v11.8 | Skip fetch interception on Firefox entirely | Nothing — clean solution, DOM estimation works |
+| v11.8 | Skip fetch interception on Firefox entirely | Turn dots missing (Path B never called `_renderTurnDots`) |
+
+---
+
+### Follow-up fix: Turn dots missing on Firefox (Path B)
+
+After v11.8 shipped, live testing on Firefox revealed that the turn counter dots (below the context bar) were not rendering. The context bar itself worked (DOM estimation), but the turn dots and compaction indicators were absent.
+
+**Root cause:** The context bar rendering function has three paths:
+
+- **Path A** — Claude with SSE data: renders bar + turn dots + compaction info
+- **Path B** — Claude without SSE data: renders estimated bar + compaction info — but **never called `_renderTurnDots()`**
+- **Path C** — Non-Claude platforms: renders turn dots only (no bar)
+
+On Chrome, Path B was always a brief transitional state — SSE data arrives within seconds and Path A takes over, rendering turn dots. Nobody noticed Path B was missing the call because it was never the permanent state.
+
+With Firefox permanently on Path B (SSE interception disabled by DEC-020), the gap was exposed: turn dots never appeared.
+
+**Fix:** Added `_renderTurnDots()` call to Path B, between `_renderEstimatedBar()` and `_renderCompactionInfo()`.
 
 ---
 
