@@ -4,6 +4,84 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [11.8 — Firefox: Disable Fetch Interception, Keep DOM Estimation] — 2026-03-14
+
+**Branch:** `fix/firefox-bind-crash`
+
+Disable SSE fetch interception entirely on Firefox. Context bar falls back to DOM estimation (Path B).
+
+---
+
+### Problem
+
+v11.6's `exportFunction()` fix solved the `.bind()` crash (no more black screen), but the fetch proxy still broke Claude's internal API calls on Firefox. Symptoms: chat history empty ("Ready for your first chat?"), "Could not load connectors directory" error banner, existing conversations showing "Page not found", and `REACT_QUERY_CLIENT` errors in console.
+
+---
+
+### Root cause — deeper than `.bind()`
+
+`exportFunction()` makes a sandbox function *callable* from the page context, but the function body still *executes* in the sandbox compartment. When our proxy calls `_nativeFetch.apply(this, arguments)` from within the sandbox:
+
+1. The `arguments` passed by the page are accessed through cross-compartment wrappers
+2. The return value (a `Promise<Response>`) passes back through the sandbox boundary
+3. Claude's code then tries to access properties like `.length` on the Response — and Firefox blocks it with `Permission denied to access property "length"`
+
+This isn't just about the Promise chain. Even the fire-and-forget pattern (v11.7 — calling `result.then()` as a side effect and always returning the original `result`) still failed, because the mere act of the sandbox function touching the `arguments` and calling `_nativeFetch.apply()` taints the entire pipeline.
+
+Console errors confirmed this:
+- `[REACT_QUERY_CLIENT] QueryClient error: Permission denied to access property "length"` — inside `fetchFn` in Claude's vendor bundle
+- `RegistryFetchError: Registry fetch failed` — connectors API call failed
+- `Error: NEXT_NOT_FOUND` — conversation data fetch failed, Next.js showed 404
+
+---
+
+### Alternatives investigated and rejected
+
+1. **Inject `<script>` tag into page** — would run fetch proxy natively in page context. Rejected: Claude's CSP (`script-src 'self'`) blocks inline scripts.
+2. **`GM_xmlhttpRequest`** — Tampermonkey's own HTTP API, no cross-compartment. Rejected: makes *new* requests, can't intercept existing ones. Would duplicate every API call.
+3. **`@inject-into page` / `@sandbox raw`** — run entire script in page context. Rejected: loses `GM_setValue`/`GM_getValue` which bookmarks, settings, and caching depend on.
+4. **`cloneInto()` on return values** — Firefox companion API. Rejected: the contamination happens at the `arguments` level, not just return values.
+5. **Fire-and-forget pattern (v11.7)** — only call `.then()` as side effect, always return original Promise. Rejected: still failed in live testing. The sandbox execution context itself taints the pipeline.
+
+---
+
+### Fix
+
+Skip `setupClaudeSSEInterceptor()` entirely on Firefox. Detection: `typeof exportFunction === 'function'` (only exists on Firefox Tampermonkey/Greasemonkey).
+
+```javascript
+function setupClaudeSSEInterceptor() {
+    // Firefox: sandbox functions taint the fetch pipeline even with exportFunction().
+    // Skip entirely — fall back to DOM estimation for context bar.
+    if (typeof exportFunction === 'function') return;
+    // ... Chrome-only fetch proxy below ...
+}
+```
+
+**What Firefox users lose:** Exact SSE token tracking from `thinking_delta` events (Path A). The context bar shows `~XX% (estimated)` using DOM text measurement instead.
+
+**What Firefox users keep:** Everything else — navigation, search, bookmarks, summary, export, settings, SPA handling, context bar (in estimation mode). The SPA history patches (`pushState`/`replaceState`) still use `exportFunction()` safely because they return `undefined` — no return value to taint.
+
+---
+
+### Why SPA patches are safe but fetch is not
+
+The critical distinction: `history.pushState()` returns `undefined`. There's no return value for the sandbox to contaminate. The proxy fires side effects (clearing questions, triggering rescan) and calls the original — the page never inspects what comes back.
+
+`fetch()` returns a `Promise<Response>` that the page's code immediately inspects, chains `.then()` on, accesses `.headers`, `.json()`, `.text()`, etc. Any sandbox taint on this object crashes the caller.
+
+---
+
+### v11.6 and v11.7 — what they got right and wrong
+
+| Version | What it fixed | What still broke |
+|---------|--------------|------------------|
+| v11.6 | `.bind()` crash → `exportFunction()` wrapping | Fetch proxy tainted API responses |
+| v11.7 | Fire-and-forget pattern (don't return `.then()` chain) | Sandbox execution still tainted `arguments` and pipeline |
+| v11.8 | Skip fetch interception on Firefox entirely | Nothing — clean solution, DOM estimation works |
+
+---
+
 ## [11.6 — Firefox Cross-Compartment Crash Fix (claude.ai)] — 2026-03-14
 
 **Branch:** `fix/firefox-bind-crash`

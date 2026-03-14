@@ -6,14 +6,16 @@ If you run into a problem, check here first — you might find we've already sol
 
 ---
 
-## v11.6 — Firefox Black Screen Crash on claude.ai (2026-03-14)
+## v11.6–v11.8 — Firefox Cross-Compartment Crisis on claude.ai (2026-03-14)
+
+This was a three-version incident: v11.6 fixed the initial crash, v11.7 attempted to preserve SSE tracking, and v11.8 resolved the issue completely by disabling fetch interception on Firefox. Documenting the full progression because this was the first time a platform update broke an entire browser, and the debugging journey revealed fundamental limitations of Tampermonkey's sandbox model.
 
 ---
 
-### RESOLVED — Firefox Shows Black Screen on claude.ai, Console Shows "Permission denied to access property 'bind'"
+### RESOLVED — Firefox Black Screen on claude.ai (v11.6)
 
-**Versions affected:** All versions from v10.8 (when SSE fetch interception was added) through v11.5
-**Fixed in:** v11.6 | **Severity:** Critical (entire browser page crash) | **Area:** `setupClaudeSSEInterceptor()`, SPA history patches
+**Versions affected:** v10.8 through v11.5
+**Partially fixed in:** v11.6 | **Severity:** Critical (entire browser page crash) | **Area:** `setupClaudeSSEInterceptor()`, SPA history patches
 **Browser:** Firefox only — Chrome unaffected
 
 **Trigger:** Claude.ai shipped a new vendor bundle on March 13, 2026 (Visualizer feature). The new bundle calls `.bind()` on `fetch` and `history.pushState`/`history.replaceState` during initialization.
@@ -34,38 +36,94 @@ Previously, Claude's code never called `.bind()` on `fetch`, so this was invisib
 
 Chrome does not enforce these cross-compartment restrictions on function objects, which is why Chrome users saw no issue.
 
-**The same risk existed for `history.pushState` and `history.replaceState`**, which our SPA navigation patches also replace with sandbox-compartment functions.
+**v11.6 fix:** Wrapped proxy functions with `exportFunction()` before assigning to page-context globals. This solved the `.bind()` crash — but introduced the next problem.
 
-**How we diagnosed it:**
+---
 
-1. User reported total black screen on Firefox + claude.ai — unprecedented failure mode (we'd never had an entire browser break before)
-2. Console error pointed to `.bind()` in Claude's vendor bundle, not our code — initially misleading
-3. Disabling the userscript fixed it — confirmed we were the trigger even though the error was in Claude's code
-4. Traced the call chain: Claude's new bundle → `fetch.bind(window)` → our replaced `fetch` is a sandbox function → Firefox blocks cross-principal `.bind()` → crash
-5. Identified `exportFunction()` as the standard Tampermonkey/Greasemonkey API for this exact scenario
+### RESOLVED — Firefox: Chat History Gone, Connectors Failed, Conversations 404 (v11.7 → v11.8)
 
-**Fix:**
+**Versions affected:** v11.6 and v11.7
+**Fixed in:** v11.8 | **Severity:** Critical (Claude unusable) | **Area:** `setupClaudeSSEInterceptor()`
+**Browser:** Firefox only — Chrome unaffected
 
-Wrapped all proxy functions with `exportFunction()` before assigning them to page-context globals. `exportFunction()` clones a sandbox function into the page's security context, making it a "native" function from the page's perspective.
+**Symptom after v11.6:** No more black screen (the `.bind()` crash was fixed), but:
+- `claude.ai/recents` — "Could not load connectors directory" error banner, chat history empty ("Ready for your first chat?")
+- `claude.ai/chat/<uuid>` — "Page not found" for existing conversations
+- `claude.ai/new` — Worked fine (no API data needed for the new chat page)
+
+**Console errors:**
+```
+[REACT_QUERY_CLIENT] QueryClient error:
+    Error: Permission denied to access property "length"
+    fetchFn    _ts/v1/vendor-BHs30Vqo.js:20
+
+[REACT_QUERY_CLIENT] QueryClient error:
+    RegistryFetchError: Registry fetch failed:
+    Error: Permission denied to access property "length"
+
+Error: NEXT_NOT_FOUND
+```
+
+**Why `exportFunction()` alone wasn't enough:**
+
+`exportFunction()` makes a sandbox function *callable* from the page (fixing `.bind()`), but the function body still *executes in the sandbox compartment*. When the page calls our exported `fetch()` proxy:
+
+1. Page calls exported wrapper → enters sandbox scope
+2. Sandbox accesses `arguments` (page-context objects) → creates cross-compartment wrappers
+3. Sandbox calls `_nativeFetch.apply(this, arguments)` → passes wrapped arguments to page fetch
+4. Page fetch returns `Promise<Response>` → passes through sandbox boundary
+5. Page code tries to access `.length`, `.headers`, `.json()` on the response → **Firefox blocks it**: `Permission denied to access property "length"`
+
+The contamination happens at the `arguments` level — even before any `.then()` chaining. The sandbox's mere participation in the call creates cross-compartment wrappers on objects that the page then can't read.
+
+**v11.7 attempt — fire-and-forget pattern:**
+
+Changed the proxy to never return the `.then()` chain — call `result.then()` for the SSE tap as a side effect, always return the original `result` Promise:
 
 ```javascript
-// Before (broken on Firefox when page calls .bind()):
-pw.fetch = function acnFetchProxy() { ... };
+if (isClaude) {
+    result.then(function(response) { /* SSE tap */ }).catch(function(){});
+}
+return result; // always return original
+```
 
-// After (works on all browsers):
-var proxyFn = function acnFetchProxy() { ... };
-if (typeof exportFunction === 'function') {
-    pw.fetch = exportFunction(proxyFn, pw);
-} else {
-    pw.fetch = proxyFn;
+**This still failed.** The sandbox execution context taints the pipeline regardless of what we return. The `arguments` are already wrapped, the `_nativeFetch.apply()` call happens from the sandbox, and the returned Promise is tainted.
+
+**Alternatives investigated and rejected:**
+
+| Approach | Why it was rejected |
+|----------|-------------------|
+| Inject `<script>` tag into page | Claude's CSP (`script-src 'self'`) blocks inline scripts — confirmed in console errors |
+| `GM_xmlhttpRequest` | Makes *new* requests, can't intercept existing ones — would duplicate every API call |
+| `@inject-into page` / `@sandbox raw` | Loses `GM_setValue`/`GM_getValue` — bookmarks, settings, and caching all break |
+| `cloneInto()` on return values | Contamination happens at `arguments` level, not just returns |
+| Fire-and-forget `.then()` (v11.7) | Failed in live testing — sandbox execution context itself taints the pipeline |
+
+**v11.8 fix:** Skip `setupClaudeSSEInterceptor()` entirely on Firefox.
+
+```javascript
+function setupClaudeSSEInterceptor() {
+    // Firefox: sandbox functions taint the fetch pipeline even with exportFunction().
+    if (typeof exportFunction === 'function') return;
+    // ... Chrome-only fetch proxy continues below ...
 }
 ```
 
-Applied to both:
-1. `setupClaudeSSEInterceptor()` — fetch proxy
-2. `if (platform.spa)` block — `history.pushState` and `history.replaceState` proxies
+Detection: `typeof exportFunction === 'function'` — this API only exists on Firefox Tampermonkey/Greasemonkey.
 
-**Key takeaway:** When replacing any global function on `unsafeWindow` or built-in objects like `history`, always wrap with `exportFunction()` on Firefox. Chrome's permissiveness masks the security violation, but Firefox enforces it strictly. This is now a project convention — see DEC-019.
+**Why SPA history patches are safe but fetch is not:**
+
+`history.pushState()` returns `undefined`. There's no return value for the sandbox to contaminate. The proxy fires side effects (clearing questions, triggering rescan) and calls the original function — the page never inspects what comes back.
+
+`fetch()` returns a `Promise<Response>` that the page immediately chains `.then()` on, accesses `.headers`, `.json()`, `.text()`, etc. Any sandbox taint on this object crashes the caller.
+
+**What Firefox users lose:** Exact SSE token tracking from `thinking_delta` events (Path A). Context bar shows `~XX% (estimated)` using DOM text measurement instead.
+
+**What Firefox users keep:** Everything else — navigation, search, bookmarks, summary, export, settings, SPA handling, context bar (in estimation mode).
+
+**Permanent fix:** Requires the extension transition (WXP). A `world: "MAIN"` content script runs natively in the page context without sandbox compartments. See DEC-020.
+
+**Key takeaway:** `exportFunction()` solves `.bind()/.call()/.apply()` permission errors but does NOT solve return-value contamination. For functions whose return values the page inspects (like `fetch`), there is no way to safely proxy them from a Tampermonkey sandbox on Firefox.
 
 ---
 
