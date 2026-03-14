@@ -585,7 +585,7 @@ if (typeof exportFunction === 'function') {
 
 ### Alternatives Considered
 
-**Alternative: Only patch on Chrome, skip Firefox.** Would mean Firefox users lose SSE token tracking and SPA navigation handling entirely. *Rejected:* these are core features.
+**Alternative: Only patch on Chrome, skip Firefox.** Would mean Firefox users lose SSE token tracking and SPA navigation handling entirely. *Partially adopted in DEC-020:* fetch interception was ultimately skipped on Firefox (return-value contamination), but SPA history patches work fine with `exportFunction()` because they return `undefined`.
 
 **Alternative: Use `@unwrap` or `@grant none` to run in page context.** Would eliminate the compartment boundary entirely, but also eliminates access to `GM_setValue`/`GM_getValue` and other Tampermonkey APIs we depend on for storage. *Rejected.*
 
@@ -596,3 +596,47 @@ if (typeof exportFunction === 'function') {
 - When replacing any function on built-in objects (`history`, `navigator`, etc.), same pattern
 - Boolean/string/number assignments to `unsafeWindow` do NOT need wrapping — `.bind()` is only called on functions
 - This applies even if the current platform code doesn't call `.bind()` — vendor updates are unpredictable
+- **Important caveat:** `exportFunction()` solves `.bind()` permission errors but does NOT solve return-value contamination. For functions whose return values the page inspects (like `fetch`), `exportFunction()` is necessary but not sufficient — see DEC-020.
+
+---
+
+## DEC-020: Disable Fetch Interception on Firefox — exportFunction Cannot Solve Return-Value Contamination (v11.8)
+**Date:** 2026-03-14 | **Stage:** v11.8
+
+### Decision
+`setupClaudeSSEInterceptor()` returns immediately on Firefox (detected via `typeof exportFunction === 'function'`). No fetch patching occurs. Firefox users get DOM estimation (Path B) for the context bar instead of exact SSE token tracking (Path A). SPA history patches continue to use `exportFunction()` because they are safe (no return value).
+
+### Context
+v11.6 wrapped the fetch proxy with `exportFunction()` to fix the `.bind()` crash. This solved the immediate black screen but introduced a new failure: Claude's internal API calls (chat history, connectors, conversation loading) all broke with `Permission denied to access property "length"`. v11.7 tried a fire-and-forget pattern (never return the `.then()` chain), but this also failed in live testing.
+
+### The Fundamental Limitation of exportFunction()
+`exportFunction()` makes a sandbox function *callable* from the page context (solving `.bind()`, `.call()`, `.apply()` permission errors), but the function body still *executes in the sandbox compartment*. For functions like `fetch()` whose return values the page actively inspects (`Promise<Response>` → `.headers`, `.json()`, `.length`), the sandbox execution taints the entire return pipeline. Firefox's cross-compartment wrappers on the returned objects block property access from the page.
+
+This is not fixable through any combination of `exportFunction()`, `cloneInto()`, or careful Promise handling. The contamination happens at the `arguments` level — the sandbox's participation in the call creates wrappers that propagate through the entire chain.
+
+### Why SPA patches work but fetch does not
+The key distinction is return values:
+- `history.pushState()` returns `undefined` → no object for the sandbox to taint → safe with `exportFunction()`
+- `fetch()` returns `Promise<Response>` → the page inspects every property → sandbox taints it → broken
+
+### Alternatives Considered
+
+**Alternative: Inject `<script>` tag into page context.** Would run the fetch proxy natively in the page without sandbox involvement. *Rejected:* Claude's CSP (`script-src 'self'`) blocks inline scripts. Confirmed in Firefox console: `Content-Security-Policy: The page's settings blocked an inline script`.
+
+**Alternative: `GM_xmlhttpRequest` for parallel SSE monitoring.** Tampermonkey's own HTTP API runs outside the sandbox. *Rejected:* It makes independent requests, it cannot intercept existing ones. Would duplicate every API call, waste bandwidth, and possibly break auth/session state.
+
+**Alternative: `@inject-into page` / `@sandbox raw`.** Run the entire userscript in the page context. *Rejected:* Eliminates access to `GM_setValue`/`GM_getValue` which bookmarks, settings, cached data, and zone positions all depend on.
+
+**Alternative: `cloneInto()` on returned Promise.** Firefox's companion API for cloning objects across compartments. *Rejected:* The contamination starts at the `arguments` level when the sandbox accesses page-context objects, not just at the return value.
+
+**Alternative: Fire-and-forget `.then()` (v11.7).** Call `result.then()` as a side effect, always return the original untouched `result`. *Rejected:* Failed in live testing. The sandbox's execution of `_nativeFetch.apply(this, arguments)` itself taints the pipeline, regardless of what is returned.
+
+### Rationale
+SSE token tracking is a single-platform enhancement for Claude's context bar. Sacrificing it on Firefox preserves all core functionality (navigation, search, bookmarks, summary, export, settings, SPA handling) and still provides a context bar via DOM estimation. The only real path to exact SSE tracking on Firefox is the extension transition (WXP), where a `world: "MAIN"` content script runs in the page context natively.
+
+### Constraints
+- `setupClaudeSSEInterceptor()` must return immediately when `typeof exportFunction === 'function'`
+- Never attempt to proxy `fetch` on Firefox — this is a fundamental sandbox limitation, not a fixable bug
+- SPA history patches (`pushState`, `replaceState`) are safe with `exportFunction()` — continue using them
+- If a future Tampermonkey update provides `world: "MAIN"` support for userscripts, re-evaluate this decision
+- The extension transition (WXP) eliminates this limitation entirely — `world: "MAIN"` content scripts have no sandbox compartment

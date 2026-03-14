@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      11.6
+// @version      11.8
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -1515,6 +1515,14 @@
     // ============================================================
 
     function setupClaudeSSEInterceptor() {
+        // Firefox cross-compartment: even with exportFunction() wrapping, our fetch
+        // proxy contaminates the response pipeline. Sandbox-compartment functions
+        // that call page-context fetch produce tainted return values — breaking
+        // Claude's chat history, connectors, and conversation loading. SSE token
+        // tracking is not worth breaking core Claude functionality.
+        // Skip fetch interception entirely on Firefox.
+        if (typeof exportFunction === 'function') return;
+
         // Tampermonkey sandbox: `window` is a wrapper, not the real page window.
         // Claude.ai's JS uses the real window.fetch — we must patch that one.
         var pw = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
@@ -1525,11 +1533,10 @@
 
         var _nativeFetch = pw.fetch.bind(pw);
 
-        var proxyFn = function acnFetchProxy(input, init) {
+        pw.fetch = function acnFetchProxy(input, init) {
             var url = (typeof input === 'string') ? input :
                       (input && input.url) ? input.url : '';
 
-            // Only intercept streaming requests to Claude's backend
             var isClaude = url.indexOf('claude.ai') !== -1 ||
                            url.indexOf('/api/organizations') !== -1 ||
                            url.indexOf('/api/append_message') !== -1 ||
@@ -1537,29 +1544,19 @@
 
             var result = _nativeFetch.apply(this, arguments);
 
-            if (!isClaude) return result;
+            if (isClaude) {
+                // Fire-and-forget: tap SSE streams without touching the return chain.
+                result.then(function (response) {
+                    var ct = response.headers && response.headers.get('content-type');
+                    if (ct && ct.indexOf('text/event-stream') !== -1) {
+                        var cloned = response.clone();
+                        readSSEStream(cloned.body);
+                    }
+                }).catch(function () {});
+            }
 
-            return result.then(function (response) {
-                // Only attempt to tap text/event-stream responses
-                var ct = response.headers && response.headers.get('content-type');
-                if (!ct || ct.indexOf('text/event-stream') === -1) return response;
-
-                // We must clone: the original stream can only be consumed once
-                var cloned = response.clone();
-                readSSEStream(cloned.body);
-                return response;
-            });
+            return result;
         };
-
-        // Firefox cross-compartment fix: exportFunction clones our sandbox function
-        // into the page's security principal so .bind()/.call()/.apply() work.
-        // Without this, Claude's vendor bundle crashes with "Permission denied to
-        // access property 'bind'" when it tries to bind the replaced fetch.
-        if (typeof exportFunction === 'function') {
-            pw.fetch = exportFunction(proxyFn, pw);
-        } else {
-            pw.fetch = proxyFn;
-        }
     }
 
     function readSSEStream(body) {
