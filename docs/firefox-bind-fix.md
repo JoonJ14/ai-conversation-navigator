@@ -156,3 +156,27 @@ Run the Playwright test suite after patching.
 4. Verify: SSE token tracking still works (send a message, check context bar updates)
 5. Verify: SPA navigation still works (click between conversations)
 6. Run full Playwright suite
+
+---
+
+## Post-mortem: Patches 1 were insufficient (v11.6 → v11.8)
+
+**The `exportFunction()` approach in Patch 1 solved the `.bind()` crash but broke Claude's API calls.** After applying Patch 1, Firefox users saw: empty chat history, "Could not load connectors directory", and "Page not found" for existing conversations.
+
+### Why Patch 1 failed for fetch (but worked for history)
+
+`exportFunction()` makes a sandbox function callable from the page, but the function body still executes in the sandbox. For `history.pushState` (Patch 2), this is fine — the function returns `undefined`, so there's nothing for the sandbox to taint. For `fetch` (Patch 1), the return value is a `Promise<Response>` that the page actively inspects. The sandbox execution taints the arguments, the `_nativeFetch.apply()` call, and the returned Promise — causing `Permission denied to access property "length"` errors throughout Claude's React Query client.
+
+### v11.7: Fire-and-forget attempt (also failed)
+
+Changed the proxy to call `result.then()` as a fire-and-forget side effect and always return the original `result` Promise. Still failed — the sandbox's participation in the `_nativeFetch.apply()` call taints the pipeline regardless of what is returned.
+
+### v11.8: Final resolution
+
+`setupClaudeSSEInterceptor()` now returns immediately on Firefox (`typeof exportFunction === 'function'`). No fetch patching at all. Firefox users get DOM estimation (Path B) for the context bar — same accuracy as ChatGPT/Grok/Gemini users get.
+
+**Patch 2 (SPA history) remains correct and is still applied.** Only Patch 1 (fetch) was reverted.
+
+### Key lesson
+
+`exportFunction()` is the right tool for functions the page *calls* but doesn't *inspect the return value of*. For functions whose return values the page actively uses (`fetch`, `XMLHttpRequest.send`, etc.), there is no safe way to proxy them from a Tampermonkey sandbox on Firefox. The only solution is the extension transition (WXP) with `world: "MAIN"` content scripts.

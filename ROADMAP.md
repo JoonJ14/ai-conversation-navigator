@@ -157,6 +157,103 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 
 ---
 
+## Platform Risk Model — Three Layers of Breakage
+
+This project lives inside other companies' web applications. We don't control the host environment. Through 200+ commits of cross-platform work, we've identified three distinct categories of breakage, each requiring different detection and mitigation strategies. Understanding these layers is critical for planning defensive infrastructure and the eventual extension transition.
+
+### Layer 1: DOM Breaks — "Selectors stop matching"
+
+**What happens:** A platform updates its HTML structure — class names change, `data-testid` attributes are renamed, elements move to different containers. Our `getUserMessages()`, `getAIMessages()`, and `imageSelector` queries return empty results. Features degrade (0 questions detected, empty image gallery) but the host page continues working normally.
+
+**Examples:** Claude moved uploaded images from conversation turns to a hidden files panel (v11.4). ChatGPT migrated image hosting from `files.oaiusercontent.com` to `backend-api/estuary/content` (v11.4). Gemini, Grok, and Perplexity all broke image gallery detection due to DOM restructuring (v11.2–v11.3).
+
+**Detection:** Automated DOM validation framework (planned) — crawl live sites, compare selectors against known structures, flag mismatches.
+
+**Mitigation:** Fallback selector chains in the PLATFORMS registry. Per-platform `imageSelector` and `imageSelectorScope` configs. Mock page updates to match real DOM. This is the most common break type and the one we're best equipped to handle.
+
+### Layer 2: Feature Breaks — "Platforms ship what we built"
+
+**What happens:** A platform adds native functionality that overlaps with ours — built-in bookmarks, conversation search, export buttons, navigation shortcuts. Our tool becomes redundant for that specific feature on that specific platform, or worse, conflicts with it visually or functionally.
+
+**Examples:** Claude's March 2026 Visualizer update adds inline charts/diagrams that could eventually overlap with our Summary panel's conversation map. ChatGPT experimented with plugins and canvas features. Gemini has native conversation organization.
+
+**Detection:** Manual monitoring of platform changelogs and feature announcements. No automated detection possible — these are product decisions, not DOM changes.
+
+**Mitigation:** Design features that complement rather than duplicate. Focus on cross-platform consistency (our value is working the same way across 14 platforms — no single platform will match that). Be prepared to gracefully disable specific features per-platform if they conflict.
+
+### Layer 3: Execution Breaks — "Our code prevents the page from loading" ⚠️ NEW
+
+**What happens:** A platform changes its JavaScript bundle, Content Security Policy, or security headers in ways that cause our injected code to crash the host page entirely. The platform doesn't just ignore us — it *dies* because of us. This is qualitatively different from Layers 1 and 2: those degrade our features, this kills the user's ability to use the platform at all.
+
+**First occurrence:** v11.6 (2026-03-14). Claude shipped a new vendor bundle (Visualizer feature) that called `.bind()` on `fetch` during React initialization. Our `unsafeWindow.fetch` replacement was a Tampermonkey sandbox-compartment function. Firefox blocks cross-compartment `.bind()` — Claude's entire frontend crashed to a black screen. Chrome was unaffected due to its more permissive cross-compartment model. See TROUBLESHOOTING.md and DEC-019 for full technical details.
+
+**Why this will happen again:** Anthropic disclosed in February 2026 that Chinese AI labs (DeepSeek, Moonshot, MiniMax) ran industrial-scale distillation attacks against Claude using 24,000 fraudulent accounts and 16 million exchanges via proxy services. Anthropic is now actively hardening security — tightening CSP headers, updating vendor bundles, adding integrity checks. From a security perspective, our userscript's injection pattern (replacing `window.fetch`, patching `history.pushState`) looks identical to what proxy services do. Other platforms will likely follow similar security hardening trends as the AI industry matures.
+
+**Detection:** Cannot be caught by DOM validation — the DOM never renders. Requires actual browser testing with the script loaded against live sites. Playwright tests against mock pages won't catch this because mocks don't have real vendor bundles or CSP headers.
+
+**Mitigation (userscript era):**
+- `exportFunction()` wrapping for all replaced page globals (DEC-019 convention)
+- Minimize page-global monkey-patching — every replaced function is a potential future crash point
+- Investigate alternatives to `unsafeWindow.fetch` interception (e.g., `GM_xmlhttpRequest` for independent SSE monitoring)
+
+**Mitigation (extension era — reduces but does not fully eliminate this vulnerability class):**
+- Content scripts run in an **isolated world** with explicit browser support — not through a Tampermonkey sandbox workaround. The isolated world shares the page's DOM but has a separate JavaScript context. Functions injected from the isolated world into the page (via `world: "MAIN"` content scripts) don't suffer from the cross-compartment `.bind()` problem that caused v11.6's crash.
+- **SSE interception still requires fetch patching.** `webRequest` / `declarativeNetRequest` APIs only provide request/response metadata (headers, URLs, status codes) and rule-based blocking — they do NOT expose response body content. Since our context tracking depends on parsing SSE response body chunks (`thinking_delta` events), an extension would still need to intercept `fetch` from a `world: "MAIN"` content script. The difference: this runs through the browser's official content script injection, not Tampermonkey's sandbox hack.
+- **SPA navigation is fully solved:** `webNavigation.onHistoryStateUpdated` API fires on pushState/replaceState changes — no need to monkey-patch `history.*` at all.
+- Extension APIs like `chrome.scripting` handle injection in a way the browser is designed to support
+- CSP changes that would break extensions would also break password managers, accessibility tools, and ad blockers — platforms generally won't go that far
+
+### Layer severity comparison
+
+| Layer | What breaks | Severity | Frequency | Detectable automatically? |
+|-------|------------|----------|-----------|--------------------------|
+| DOM breaks | Our features degrade | Medium | High (monthly) | Yes — planned DOM validation framework |
+| Feature breaks | Our features become redundant | Low | Low (quarterly) | No — requires human monitoring |
+| Execution breaks | Host page crashes entirely | **Critical** | Low but increasing | No — requires live browser testing with real vendor bundles |
+
+The key insight: **DOM validation is necessary but not sufficient.** A project that only watches for selector changes will be blindsided by execution breaks. Live-site smoke testing with the actual script loaded (not just mock pages) is the only way to catch Layer 3 issues before users do.
+
+---
+
+## Extension Transition (WXP) — Strategic Context
+
+The current userscript architecture has a fundamental limitation: it operates as a guest in the page's security context, patching globals through `unsafeWindow` and relying on Tampermonkey's sandbox model. This worked when platforms had relaxed security postures. As platforms harden their frontends (see Layer 3 above), this approach becomes increasingly fragile.
+
+### Why native extensions solve Layer 3
+
+Native browser extensions (Chrome Web Store, Firefox Add-ons, Safari App Store) operate through official browser APIs that are designed for third-party code to observe and modify web pages:
+
+- **Network observation (partial):** `webRequest` API monitors HTTP traffic metadata (headers, URLs, status codes) from the background script, but does **not** expose response body content. For SSE body parsing (which our context tracking requires — `thinking_delta` events, token data), the extension would still need to intercept `fetch` via a `world: "MAIN"` content script. The key improvement: this injection runs through the browser's official content script mechanism, not Tampermonkey's sandbox compartment, so the cross-compartment `.bind()` crash (v11.6) cannot occur.
+- **Content script isolation:** Chrome's "isolated world" and Firefox's content script model provide clean separation without the cross-compartment `.bind()` problem that caused v11.6's crash.
+- **CSP immunity:** Content scripts injected by extensions are exempt from the page's Content Security Policy. Even if a platform adds `script-src 'nonce-xxx'` that blocks all inline scripts, extension content scripts still run.
+- **Proper storage:** `chrome.storage` / `browser.storage` replace `GM_setValue` with sync-capable, quota-aware storage.
+
+### When to transition
+
+The userscript remains the right choice for rapid iteration — one file, instant deployment, no review process. The extension transition makes sense when:
+
+1. **Feature set stabilizes** — no major new panels or features planned
+2. **Layer 3 breaks become frequent** — if multiple platforms start breaking monthly due to security changes, the maintenance cost of `exportFunction` workarounds exceeds the cost of extension packaging
+3. **User base grows beyond tech-savvy early adopters** — "install Tampermonkey, enable Developer Mode" is a barrier for non-technical users
+4. **Automated DOM validation framework is built** — the extension should ship with built-in DOM health checks, not bolt them on later
+
+### What transfers and what doesn't
+
+| Component | Transfers to extension? | Notes |
+|-----------|------------------------|-------|
+| PLATFORMS registry | ✅ Directly | manifest.json `content_scripts.matches` replaces `@match` headers |
+| `getUserMessages()` / `getAIMessages()` | ✅ Directly | Same DOM queries, same fallback chains |
+| Orbital UI system | ✅ Directly | Same CSS, same render engine |
+| All 6 panel features | ✅ Directly | Navigate, Search, Bookmarks, Summary, Tools, Settings |
+| SSE fetch interception | ⚠️ Simplified | Still requires fetch patching via `world: "MAIN"` content script (webRequest cannot read response bodies), but runs through official browser injection — no `unsafeWindow` or `exportFunction` needed |
+| SPA history patches | ❌ Replaced | `webNavigation.onHistoryStateUpdated` API — no `history.pushState` patching |
+| `GM_setValue` / `GM_getValue` | ❌ Replaced | `chrome.storage.local` / `browser.storage.local` |
+| `exportFunction` workarounds | ❌ Eliminated | Not needed — content scripts use proper isolation |
+
+The core product logic (~90% of the codebase) transfers directly. The ~10% that doesn't is precisely the fragile layer that causes execution breaks.
+
+---
+
 ## Future: General Feature Ideas
 
 - [ ] Keyboard shortcuts for navigation
@@ -171,5 +268,5 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 
 ---
 
-*Last updated: 2026-03-13 (v11.4)*
+*Last updated: 2026-03-14 (v11.6)*
 
