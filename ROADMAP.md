@@ -30,9 +30,22 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v11.4
+## Current Status: v11.8
 
 The extension supports 14 platform variants across 12 websites.
+
+**v11.8 Accomplishments (2026-03-14):**
+- **Firefox: Disable Fetch Interception (DEC-020):** `setupClaudeSSEInterceptor()` now returns immediately on Firefox (`typeof exportFunction === 'function'`). The sandbox execution taints `arguments` and return values when proxying `fetch` — even fire-and-forget patterns fail because the sandbox's participation in `_nativeFetch.apply()` creates cross-compartment wrappers that Firefox blocks with `Permission denied to access property "length"`. Context bar falls back to DOM estimation (Path B). SPA history patches remain safe with `exportFunction()` (they return `undefined`). Permanent fix requires the extension transition (WXP) with `world: "MAIN"` content scripts.
+- **Turn Dots in Path B:** Added `_renderTurnDots()` call to Path B (Claude without SSE data). Previously missing because Path B was a brief transitional state on Chrome — SSE data arrives quickly and Path A takes over. With Firefox permanently on Path B, the gap was exposed.
+
+**v11.7 (2026-03-14, superseded by v11.8):**
+- **Fire-and-Forget Fetch Pattern (failed):** Attempted to preserve SSE interception on Firefox by calling `result.then()` as a side effect and always returning the original `result` Promise. Still failed — sandbox execution taints the pipeline at the `arguments` level regardless of return value handling.
+
+**v11.6 Accomplishments (2026-03-14):**
+- **Firefox Black Screen Crash Fix (DEC-019):** Claude's March 13, 2026 Visualizer vendor bundle update called `.bind()` on `fetch` during React initialization. Our sandbox-compartment replacement triggered Firefox's cross-principal security check, crashing the entire page to a black screen. Fix: `exportFunction()` wrapping clones proxy functions into the page's security context. Applied to `fetch` proxy and SPA history patches (`pushState`/`replaceState`). This was the first Layer 3 execution break — platform update crashing the host page, not just degrading our features.
+
+**v11.5 Accomplishments (2026-03-13):**
+- **Image Gallery: Graceful Handling for Files-Panel Images (Claude):** Claude's files panel shows all uploads in a flat grid disconnected from conversation turns. Images get `msgIndex: -1` sentinel, gallery label shows "Upload" instead of "Q#1", navigate-to-message button disabled. Prevents scrolling into the hidden files panel.
 
 **v11.4 Accomplishments (2026-03-13):**
 - **Image Gallery Fix — Claude + ChatGPT:** Gallery was returning "No images" on both platforms. Two separate root causes found via live DOM inspection:
@@ -152,7 +165,7 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 - `DOM-REFERENCE.md` — real DOM structures of all 14 platforms with selector rationale and debugging history
 - `CHANGELOG.md` — detailed technical changelog with root cause analysis for every fix
 - `TROUBLESHOOTING.md` — platform-specific diagnostic guides
-- `DECISIONS.md` — architectural decision log (DEC-001 through DEC-017)
+- `DECISIONS.md` — architectural decision log (DEC-001 through DEC-020)
 - `docs/claude_specific_context_tracking_calculation.md` — deep-dive on Claude context window estimation methodology
 
 ---
@@ -268,5 +281,5 @@ The core product logic (~90% of the codebase) transfers directly. The ~10% that 
 
 ---
 
-*Last updated: 2026-03-14 (v11.6)*
+*Last updated: 2026-03-16 (v11.8)*
 

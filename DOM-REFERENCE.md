@@ -2,7 +2,7 @@
 
 This document records the **real DOM structure** of user messages on each supported platform, the selectors we chose, and the debugging history that led to each choice. This prevents context loss across sessions.
 
-Last updated: Feb 18, 2026 (v8.0 — all 14 platforms inspected from live sites)
+Last updated: Feb 18, 2026 (v8.0 — all 14 platforms inspected from live sites; selectors still current as of v11.8)
 
 ---
 
