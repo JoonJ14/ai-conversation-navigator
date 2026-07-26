@@ -141,6 +141,21 @@ const PLATFORMS = [
         expectedMode: 'orbital',
     },
     {
+        // Virtualized Claude — 40 turns exist, only 3 are ever mounted.
+        // The pathname must be a real-shaped conversation uuid so the userscript's
+        // ciIsClaudeChat() guard matches and the conversation-index path engages.
+        // The harness provides no GM_xmlhttpRequest, so the API fetch fails and the
+        // script must degrade to the DOM scan *visibly*.
+        name: 'Claude (virtualized)',
+        mockFile: 'claude-virtualized.html',
+        hostname: 'claude.ai',
+        pathname: '/chat/11111111-1111-4111-8111-111111111111',
+        expectedMessages: 3,      // mounted window, NOT the 40 real turns
+        expectedAccent: '#d97706',
+        expectedMode: 'orbital',
+        virtualized: { totalTurns: 40, windowSize: 3 },
+    },
+    {
         name: 'ChatGPT',
         mockFile: 'chatgpt.html',
         hostname: 'chatgpt.com',
@@ -517,6 +532,98 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                 missingDots.length === 0
                     ? 'All 6 dots found (nav, search, bookmarks, summary, tools, settings)'
                     : 'Missing dots: ' + missingDots.join(', '));
+        }
+
+        // ── TESTS 15-17: Virtualization (virtualized mocks only) ───────────
+        // These exist because a static mock can never fail on the v12.0 bug:
+        // every turn stays mounted, so a full-page scan always looks complete.
+        if (platform.virtualized) {
+            // TEST 15: the mock genuinely recycles. If this fails the mock is
+            // broken and tests 16-17 prove nothing.
+            const recycling = await page.evaluate(async () => {
+                const v = window.__mockVirtualization;
+                if (!v) return { ok: false, reason: 'mock hooks missing' };
+                const seen = new Set();
+                const counts = [];
+                // Hold a reference to a node mounted at the top so we can later
+                // prove it was REMOVED from the document, not just hidden.
+                v.scrollToFraction(0);
+                await new Promise(r => setTimeout(r, 120));
+                const firstNode = document.querySelector('[data-testid="user-message"]');
+                for (const f of [0, 0.35, 0.7, 1]) {
+                    v.scrollToFraction(f);
+                    await new Promise(r => setTimeout(r, 120));
+                    const texts = Array.from(
+                        document.querySelectorAll('[data-testid="user-message"]'))
+                        .map(e => e.textContent.trim().slice(0, 40));
+                    texts.forEach(t => seen.add(t));
+                    counts.push(texts.length);
+                }
+                // At the bottom of a 40-turn conversation the first turn must be gone.
+                const detachedProven = !!firstNode && !firstNode.isConnected;
+                v.scrollToFraction(0);
+                return {
+                    ok: true,
+                    counts,
+                    cumulativeUnique: seen.size,
+                    totalTurns: v.totalTurns,
+                    windowSize: v.windowSize,
+                    detachedProven,
+                };
+            });
+            // NOTE: `cumulativeUnique < totalTurns` alone is NOT diagnostic —
+            // sampling 4 windows of 3 can never exceed 12, so it is trivially true
+            // even for a STATIC 3-node mock that merely claims a total of 40.
+            // The assertions that actually carry weight are:
+            //   (a) the mounted SET changes as you scroll (proves recycling), and
+            //   (b) a node captured earlier is later DISCONNECTED from the document
+            //       (proves unmounting rather than hiding).
+            const neverExceedsWindow = recycling.ok &&
+                recycling.counts.every(c => c === recycling.windowSize);
+            const setChanges = recycling.ok &&
+                recycling.cumulativeUnique > recycling.windowSize;
+            const doesNotAccumulate = recycling.ok &&
+                recycling.cumulativeUnique < recycling.totalTurns;
+            assert('Mock recycles turns (set changes, never accumulates)',
+                neverExceedsWindow && setChanges && doesNotAccumulate &&
+                recycling.detachedProven,
+                recycling.ok
+                    ? `mounted per scroll position: [${recycling.counts}], ` +
+                      `unique seen ${recycling.cumulativeUnique} of ${recycling.totalTurns}, ` +
+                      `earlier node detached from DOM: ${recycling.detachedProven}`
+                    : recycling.reason);
+
+            // TEST 16: the DOM scan cannot see the whole conversation. This is the
+            // bug itself, asserted so a future change that silently "fixes" the
+            // count without an index gets caught.
+            const domCoverage = await page.evaluate(() => {
+                const v = window.__mockVirtualization;
+                return {
+                    mounted: v.mountedCount(),
+                    total: v.totalTurns,
+                };
+            });
+            assert('DOM exposes only the mounted window',
+                domCoverage.mounted === platform.virtualized.windowSize &&
+                domCoverage.total === platform.virtualized.totalTurns,
+                `${domCoverage.mounted} of ${domCoverage.total} turns in DOM ` +
+                `(~${Math.round(100 * domCoverage.mounted / domCoverage.total)}% coverage)`);
+
+            // TEST 17: degraded mode is VISIBLE, not just logged. Silent
+            // degradation is what let this bug hide — the panel must say so.
+            // No GM_xmlhttpRequest exists in the harness, so the index always
+            // fails here and the banner must appear.
+            await page.click('[data-acn-role="nav-trigger"]');
+            await page.waitForTimeout(600);
+            const degraded = await page.evaluate(() => {
+                const b = document.querySelector('[data-acn-index-status]');
+                return b ? { status: b.getAttribute('data-acn-index-status'),
+                             text: b.textContent.trim() } : null;
+            });
+            assert('Degraded mode is visible in the panel',
+                !!degraded && degraded.status === 'degraded',
+                degraded ? `banner: "${degraded.text}"`
+                         : 'No [data-acn-index-status] banner rendered');
         }
 
     } catch (err) {

@@ -269,7 +269,7 @@ This is more stable than creating a new context per test (which crashed on the o
 
 Tests query only `data-acn-role` and `data-acn-*` contract attributes — no internal CSS class names or element IDs. This means the UI can be completely rebuilt in any future version without breaking the test suite, as long as the contract attributes are maintained on the correct elements.
 
-**Total: 189 tests** — orbital platforms (claude, claude-code, chatgpt, codex, grok, gemini, perplexity) run 14 tests each; legacy platforms (bolt, lovable, replit, v0, base44, emergent, firebase) run 13 tests each.
+**Total: 206 tests** — orbital platforms (claude, claude-code, claude-virtualized, chatgpt, codex, grok, gemini, perplexity) run 14 tests each; legacy platforms (bolt, lovable, replit, v0, base44, emergent, firebase) run 13 tests each; the Claude (virtualized) entry runs 3 additional virtualization tests (17 total).
 
 | # | Test Name | What It Verifies | How | Platforms |
 |---|-----------|-----------------|-----|-----------|
@@ -287,6 +287,9 @@ Tests query only `data-acn-role` and `data-acn-*` contract attributes — no int
 | 12 | Close button works | Clicking close removes the open state | Click `[data-acn-role="panel-close"]` → `data-acn-open` removed from nav-panel | All |
 | 13 | Correct injection mode | Platform gets orbital vs legacy UI as expected | `data-acn-ui` on zone matches `expectedMode` ("orbital" or "legacy") | All |
 | 14 | All orbital dots present | All 6 feature dots rendered in the orbital cluster | `[data-acn-dot="nav"]`, `[data-acn-dot="search"]`, etc. all present | Orbital only |
+| 15 | Mock recycles turns | The virtualizing mock genuinely unmounts turns rather than hiding them | Scroll to 0/35/70/100%; mounted count stays at `windowSize` and cumulative unique stays below `totalTurns` | Virtualized only |
+| 16 | DOM exposes only the mounted window | The DOM cannot see the whole conversation — the bug itself, asserted | `__mockVirtualization.mountedCount()` equals `windowSize` while `totalTurns` is 40 | Virtualized only |
+| 17 | Degraded mode is visible | Index failure is surfaced in the UI, not just the console | `[data-acn-index-status="degraded"]` banner present after opening Navigate | Virtualized only |
 
 **Tests 1–4 are blockers** — if any fail, the remaining tests are skipped for that platform (there is nothing to interact with without the core elements).
 
@@ -295,6 +298,18 @@ Tests query only `data-acn-role` and `data-acn-*` contract attributes — no int
 **Test 13** validates the registry-driven `useOrbital` flag — if a platform's `useOrbital` property is wrong, this test catches it immediately.
 
 **Test 14** catches rendering failures in the orbital cluster — if any dot fails to build, the entire cluster is broken for that platform.
+
+### Tests 15–17 — virtualization (added v12.0)
+
+These exist because of a structural blind spot: **every mock page except `claude-virtualized.html` is static and mounts all of its turns permanently.** When Claude virtualized its real message list — mounting ~3 of 147 turns — the entire suite stayed green while Navigate, Search, Summary and Export were all operating on ~3% of the conversation. A suite of static mocks *cannot* fail on that class of bug. See DEC-022 (Layer 4: State Breaks).
+
+`tests/mock-pages/claude-virtualized.html` holds 40 turns in JavaScript and mounts 3, removing the rest from the document on scroll.
+
+- **Test 15** guards the mock itself. If it stopped recycling, tests 16–17 would prove nothing.
+- **Test 16** asserts the DOM is incomplete *on purpose*, so a future change that appears to fix the count without an index gets caught.
+- **Test 17** asserts degraded mode is visible. The harness provides no `GM_xmlhttpRequest`, so the API fetch always fails there and the fallback banner must appear. Silent degradation is what let the original bug hide.
+
+The virtualized entry uses a real-shaped conversation uuid in its pathname (`/chat/11111111-…`) because `ciIsClaudeChat()` gates on that pattern; the plain `claude.html` entry uses `/chat/test` and therefore never engages the index path.
 
 ---
 
@@ -334,6 +349,7 @@ The `PLATFORMS` array in `test-all-platforms.js` is the **central configuration*
 |------|----------|----------|-----------------|----------------|
 | Claude | claude.ai | claude.html | 3 | `#d97706` |
 | Claude Code | claude.ai | claude-code.html | 3 | `#d97706` |
+| Claude (virtualized) | claude.ai | claude-virtualized.html | 3 (of 40 real turns) | `#d97706` |
 | ChatGPT | chatgpt.com | chatgpt.html | 4 | `#ffffff` |
 | Codex Web | chatgpt.com | codex.html | 2 | `#ffffff` |
 | Grok | grok.com | grok.html | 3 | `#e53e3e` |
@@ -347,9 +363,11 @@ The `PLATFORMS` array in `test-all-platforms.js` is the **central configuration*
 | Perplexity | www.perplexity.ai | perplexity.html | 3 | `#20b2aa` |
 | Firebase Studio | 6000-firebase-studio-12345.cluster-abc123.cloudworkstations.dev | firebase.html | 3 | `#FFA611` |
 
+**Note on the virtualized entry:** `expectedMessages: 3` is the *mounted window*, not the conversation — the mock holds 40 turns. That is the point: it asserts the DOM is incomplete. Its `pathname` is a real-shaped conversation uuid so the userscript's conversation-index path engages and the degraded banner can be tested.
+
 **Note on accent sources:** Orbital platforms (Claude, ChatGPT, Grok, Gemini, Perplexity) source their accent from `ORB_COLORS[platform.id].bg`. Legacy app-builder platforms source theirs from `platform.theme.accent` — each platform has its own brand color (Bolt sky blue, Lovable violet, Replit orange, etc.).
 
-**Note on sub-platforms:** Claude and Claude Code both use `hostname: 'claude.ai'` but different mock files and different `pathname` values. The userscript detects both as the `claude` platform and uses a fallback chain — primary selectors (`data-testid="user-human-turn"`) work for Claude Chat, and the fallback (`div.bg-bg-200.rounded-lg` inside `.items-end`) catches Claude Code. The mock pages are designed so that Claude Chat's mock has `data-testid` attributes (primary selectors match) and Claude Code's mock does NOT have `data-testid` attributes (primary selectors find 0, fallback activates).
+**Note on sub-platforms:** Claude and Claude Code both use `hostname: 'claude.ai'` but different mock files and different `pathname` values. The userscript detects both as the `claude` platform and uses a fallback chain — primary selectors work for Claude Chat, and a later link in the chain catches Claude Code. (As of v12.0 the live primary is `data-testid="user-message"`; `data-testid="user-human-turn"` was removed from Claude's DOM and now sits later in the chain — see DOM-REFERENCE.md.) The mock pages are designed so that Claude Chat's mock has `data-testid` attributes (primary selectors match) and Claude Code's mock does NOT have `data-testid` attributes (primary selectors find 0, fallback activates).
 
 Same pattern for ChatGPT vs Codex: ChatGPT mock has `data-message-author-role="user"` attributes, Codex mock does not.
 

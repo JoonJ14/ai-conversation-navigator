@@ -34,8 +34,37 @@ The main file is organized into logical phases within a single IIFE:
 
 1. **Initialization (~lines 1-250):** Duplicate guard, i18n strings, settings, version constant
 2. **Platform Registry (~lines 251-950):** `PLATFORMS` object with 14 entries, each defining hostname matching, selectors, theme colors, and message extraction functions
-3. **Orbital UI System (~lines 950-5000):** Zone construction, panel builders (Navigate, Search, Bookmarks, Summary, Tools, Settings), rendering modes
-4. **Helpers & Utilities (~lines 5000+):** Scroll handling, SSE interception, context estimation, bookmark persistence
+3. **Conversation Index (~lines 1100-1600):** `ci*` functions — API-backed message enumeration for Claude (see below)
+4. **Orbital UI System (~lines 1600-5600):** Zone construction, panel builders (Navigate, Search, Bookmarks, Summary, Tools, Settings), rendering modes
+5. **Helpers & Utilities (~lines 5600+):** Scroll handling, SSE interception, context estimation, bookmark persistence
+
+## Conversation Index (v12.0)
+
+**Read this before touching anything that enumerates messages.**
+
+Claude virtualizes its message list with recycling — only ~3–5 user turns are mounted at any moment, so `document.querySelectorAll()` sees roughly 3% of a long conversation. `_questions` on `claude.ai/chat/<uuid>` is therefore populated from Claude's own conversation JSON, not from the DOM. See DEC-021 (the index) and DEC-022 (Layer 4: State Breaks).
+
+| Function | Role |
+|---|---|
+| `ciIsClaudeChat()` | Guard — true only on `claude.ai/chat/<uuid>` |
+| `ciLoadIndex(force, done)` | Resolves org, fetches, builds. Idempotent; `_ciInFlight` blocks concurrency |
+| `ciResolveActivePath(data)` | Walks `current_leaf_message_uuid` → root, excluding abandoned branches |
+| `ciExtractText(msg)` | `content[]` text blocks → attachment `extracted_content` → file names |
+| `ciIsReady()` | **Check this before reading the index.** False on other platforms and while degraded |
+| `ciUuidForText(text)` | Normalized text → stable message uuid (used by bookmarks) |
+| `ciFindScrollContainer()` | Shared, class-name-free scroll-container locator |
+| `ciTotalChars()` / `ciTotalThinkingChars()` | Whole-conversation counts for context tracking |
+
+State lives in `_ci*` module variables. `_ciIndex` holds human turns; `_ciFullPath` holds the full ordered path (human + assistant) and is what Export reads.
+
+### Invariants
+
+- **Never delete the DOM scanner.** It is the fallback and the only path for the other 13 platforms.
+- **`q.element` may be `null`** — any question outside the mounted window has no DOM node. Use `_relocateQuestionElement(q)`; if it returns null, fail *visibly*.
+- **Never order messages with `compareDocumentPosition` across unmounted nodes.** Detached nodes return `DOCUMENT_POSITION_DISCONNECTED`, matching neither FOLLOWING nor PRECEDING, so the comparator returns 0 and the sort silently degrades to arbitrary order.
+- **Never key persisted data to a DOM index.** Use the message uuid (bookmarks schema 2).
+- **Degradation must be visible.** `orbRenderIndexBanner()` renders `data-acn-index-status`. Silent fallback is what hid this bug.
+- **Never refetch without the cooldown.** `_ciInFlight` prevents only *concurrent* fetches; `CI_REFETCH_COOLDOWN_MS` prevents a sequential loop of 3.3 MB downloads.
 
 ## Platform Registry Pattern
 
@@ -104,9 +133,18 @@ data-acn-ui="orbital"|"legacy"          -> UI system (on zone; distinct from dat
 data-acn-dot="nav|search|bookmarks|…"   -> Feature ID on each orbital dot (orbital platforms only)
 data-acn-open="true"                    -> Present on nav-panel when open, absent when closed
 data-acn-count="N"                      -> Number of detected questions (on nav-stat element)
+data-acn-index-status="degraded|loading|ready-with-notes"
+                                        -> Conversation-index banner state (Claude only, v12.0+).
+                                           Absent when the index is healthy with nothing to report.
 ```
 
 Never remove or rename these attributes — tests depend on them.
+
+### Mock pages and virtualization
+
+`tests/mock-pages/claude-virtualized.html` is the reference for a **virtualizing** mock: it holds 40 turns in JavaScript and mounts 3, genuinely removing the rest from the document. Every other mock is static and mounts all its turns permanently.
+
+This distinction is load-bearing. A suite of static mocks **structurally cannot fail** on a Layer 4 state break — the entire suite stayed green while Navigate was showing 3% of the conversation. If you add a platform that virtualizes, ship a mock that genuinely unmounts nodes; `display:none` does not reproduce the failure.
 
 ## Three Display Modes
 

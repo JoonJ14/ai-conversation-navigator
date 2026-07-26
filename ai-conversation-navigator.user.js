@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      11.8
+// @version      12.0
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -24,6 +24,7 @@
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
+// @connect      claude.ai
 // ==/UserScript==
 
 (function () {
@@ -39,7 +40,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '11.5';
+    var ACN_VERSION = '12.0';
 
     // ============================================================
     // i18n — internationalization string table
@@ -254,12 +255,22 @@
             initGuards: [],
             retryDelays: [],
             textExtractor: null,
+            // v12.0 selector refresh — re-inspected live July 2026.
+            // Claude removed data-testid="user-human-turn" from the turn wrapper and
+            // moved data-testid="user-message" onto the INNER content node. Measured
+            // live: user-human-turn 0, user-message 3, .font-user-message 0,
+            // user_message 0, [data-testid$="-turn"] 0. Both chains were surviving on
+            // a single link. Note .font-user-message stopped matching because the class
+            // is now !font-user-message (Tailwind important prefix), which needs
+            // escaping in a selector. See DOM-REFERENCE.md.
             getUserMessages: function () {
-                var messages = document.querySelectorAll('[data-testid="user-human-turn"]');
-                if (messages.length === 0) messages = document.querySelectorAll('[data-testid="user-message"]');
-                if (messages.length === 0) messages = document.querySelectorAll('.font-user-message');
+                var messages = document.querySelectorAll('[data-testid="user-message"]');
+                if (messages.length === 0) messages = document.querySelectorAll('[data-testid="user-human-turn"]');
+                if (messages.length === 0) messages = document.querySelectorAll('.\\!font-user-message, .font-user-message');
+                if (messages.length === 0) messages = document.querySelectorAll('[data-testid="user_message"]');
                 if (messages.length === 0) {
-                    var bubbles = document.querySelectorAll('div.bg-bg-200.rounded-lg');
+                    var bubbles = document.querySelectorAll(
+                        'div.bg-bg-300.rounded-xl, div.bg-bg-300.rounded-lg, div.bg-bg-200.rounded-lg');
                     messages = Array.from(bubbles).filter(function (bubble) {
                         return bubble.closest('.items-end');
                     });
@@ -267,8 +278,10 @@
                 return messages;
             },
             getAIMessages: function () {
-                // Verified starting points — fallback chain
+                // .font-claude-response is the only live link as of July 2026 (5 mounted);
+                // every other entry below measured 0 and is retained as insurance.
                 var messages = document.querySelectorAll('.font-claude-response');
+                if (messages.length === 0) messages = document.querySelectorAll('.\\!font-claude-response');
                 if (messages.length === 0) messages = document.querySelectorAll('[data-testid="ai-turn"]');
                 if (messages.length === 0) messages = document.querySelectorAll('[data-testid="assistant-message"]');
                 if (messages.length === 0) messages = document.querySelectorAll('.font-claude-message');
@@ -1087,6 +1100,581 @@
     }
 
     // ============================================================
+    // CONVERSATION INDEX — API-backed message enumeration (v12.0)
+    // ============================================================
+    // WHY THIS EXISTS
+    // Claude virtualizes its message list with recycling: only ~3-5 turns are
+    // mounted at any moment (measured: 3 mounted of 96 real turns, ~3%).
+    // Everything outside that window is unmounted and torn down, so
+    // document.querySelectorAll() is no longer a complete record of the
+    // conversation. This is not a selector problem and cannot be fixed by
+    // changing selectors — it needs a different data source.
+    //
+    // Claude's own client already downloads the entire conversation as JSON on
+    // page load and then chooses to render a window of it. We read that same
+    // endpoint. This is an ORDINARY OUTBOUND REQUEST, not fetch interception:
+    // it replaces no page global and carries none of the Firefox
+    // cross-compartment risk that forced DEC-019 / DEC-020.
+    //
+    // See DEC-021 and the "Layer 4: State Breaks" section of ROADMAP.md.
+
+    // Root messages carry this sentinel as parent_message_uuid rather than null.
+    // The tree walk MUST test for it explicitly — relying on the uuid simply
+    // being absent from the message map is an accidental pass-through that
+    // would silently break if the API ever returned the root node itself.
+    var CI_ROOT_PARENT_UUID = '00000000-0000-4000-8000-000000000000';
+
+    var CI_ORG_CACHE_KEY    = 'acn-claude-org-v1';
+    var CI_FETCH_TIMEOUT_MS = 45000;  // 3.3MB payloads measured at ~2.1s foreground
+    // Minimum gap between tree-change refetches. Without it, a tree-change signal
+    // that survives the refetch would re-trigger on the very next MutationObserver
+    // tick — a 3.3MB download every ~500ms. _ciInFlight only prevents CONCURRENT
+    // fetches, not a sequential loop.
+    var CI_REFETCH_COOLDOWN_MS = 15000;
+
+    // ── Index state ─────────────────────────────────────────────
+    var _ciIndex          = null;   // array of human turns, or null when unavailable
+    var _ciFullPath       = null;   // full ordered active path (human + assistant), for Export
+    var _ciConversationId = null;   // conversation uuid the index was built for
+    var _ciStatus         = 'idle'; // 'idle' | 'loading' | 'ready' | 'degraded'
+    var _ciDegradedReason = '';     // human-readable, surfaced in the UI
+    var _ciTruncatedCount = 0;      // messages on the active path with truncated:true
+    var _ciUsedLeafFallback = false;
+    var _ciPathComplete   = true;  // false when the tree walk never reached the root sentinel
+    var _ciInFlight       = false;
+    var _ciOrgUuid        = null;
+    var _ciLastRefetchAt  = 0;
+
+    // The two real Claude conversation routes, and ONLY those:
+    //     /chat/<uuid>
+    //     /project/<uuid>/chat/<uuid>
+    //
+    // Anchoring to ^/chat/ alone left every Project conversation on the DOM-only
+    // path AND suppressed its degraded banner (ciIsClaudeChat() was false, so the
+    // banner never rendered). But a loose /(?:^|\/)chat\// is the opposite error:
+    // it also matches /code/x/chat/<uuid> and any other route containing a "chat"
+    // segment, which would enable the index and fire a fetch against an id that is
+    // not a conversation. Anchor at the start, allow only the optional project
+    // segment, and require a path boundary after the uuid.
+    var CI_CHAT_PATH_RE = /^\/(?:project\/[0-9a-f-]{36}\/)?chat\/([0-9a-f-]{36})(?:\/|$)/i;
+
+    function ciIsClaudeChat() {
+        return !!(platform && platform.id === 'claude' &&
+                  CI_CHAT_PATH_RE.test(window.location.pathname));
+    }
+
+    function ciGetConversationUuid() {
+        var m = window.location.pathname.match(CI_CHAT_PATH_RE);
+        return m ? m[1] : null;
+    }
+
+    function ciGetCookie(name) {
+        var m = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'));
+        return m ? decodeURIComponent(m[1]) : null;
+    }
+
+    // GM_xmlhttpRequest rather than fetch: this exact transport is already proven
+    // against claude.ai in fetchClaudeUsage(), and it keeps the response entirely
+    // out of the page realm. The spec's "bare fetch returns 200" was verified in
+    // the DevTools console (page realm), NOT the Tampermonkey sandbox — so
+    // sandbox-realm fetch is treated as unverified here.
+    function ciRequestJSON(url, cb) {
+        if (typeof GM_xmlhttpRequest !== 'function') {
+            cb(new Error('GM_xmlhttpRequest unavailable'), null, 0);
+            return;
+        }
+        GM_xmlhttpRequest({
+            method: 'GET',
+            url: url,
+            timeout: CI_FETCH_TIMEOUT_MS,
+            headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
+            onload: function (res) {
+                if (res.status !== 200) {
+                    cb(new Error('HTTP ' + res.status), null, res.status);
+                    return;
+                }
+                var data;
+                try {
+                    data = JSON.parse(res.responseText);
+                } catch (e) {
+                    cb(new Error('malformed JSON'), null, res.status);
+                    return;
+                }
+                cb(null, data, res.status);
+            },
+            onerror:   function () { cb(new Error('network error'), null, 0); },
+            ontimeout: function () { cb(new Error('timeout'), null, 0); }
+        });
+    }
+
+    // ── Org UUID resolution ─────────────────────────────────────
+    // The conversation uuid is in the URL; the org uuid is not. Resolution is
+    // ordered by reliability, and the caller VALIDATES the choice by using it —
+    // a wrong org returns 404 on the conversation fetch, which triggers the next
+    // candidate. We never probe speculatively: the conversation fetch is needed
+    // anyway, so making it the validator costs nothing extra.
+    function ciAccountKey() {
+        return ciGetCookie('ajs_user_id') || ciGetCookie('lastActiveOrg') || 'default';
+    }
+
+    function ciReadCachedOrg() {
+        try {
+            var raw = GM_getValue(CI_ORG_CACHE_KEY, '');
+            if (!raw) return null;
+            var o = JSON.parse(raw);
+            // Cached per account, not per conversation — the same org serves every
+            // conversation the account owns.
+            return (o && o.acct === ciAccountKey() && o.org) ? o.org : null;
+        } catch (e) { return null; }
+    }
+
+    function ciWriteCachedOrg(org) {
+        try {
+            GM_setValue(CI_ORG_CACHE_KEY, JSON.stringify({ acct: ciAccountKey(), org: org }));
+        } catch (e) {}
+    }
+
+    // Returns an ordered candidate list via callback. Cheapest, most-likely first.
+    function ciResolveOrgCandidates(cb) {
+        var candidates = [];
+        function add(u) {
+            if (u && candidates.indexOf(u) === -1) candidates.push(u);
+        }
+
+        add(ciReadCachedOrg());
+        add(ciGetCookie('lastActiveOrg'));
+
+        // Sidebar's own request URLs — readable without intercepting anything.
+        try {
+            var entries = window.performance.getEntriesByType('resource');
+            for (var i = 0; i < entries.length; i++) {
+                var m = entries[i].name.match(/\/api\/organizations\/([0-9a-f-]{36})/i);
+                if (m) add(m[1]);
+            }
+        } catch (e) {}
+
+        // If the cheap sources produced anything, use them; the caller falls back
+        // to the full org list only when every candidate 404s.
+        if (candidates.length) { cb(candidates); return; }
+
+        ciRequestJSON('https://claude.ai/api/organizations', function (err, orgs) {
+            if (err || !Array.isArray(orgs)) { cb(candidates); return; }
+            cb(ciRankOrgs(orgs));
+        });
+    }
+
+    // Orgs that can hold chats advertise the 'chat' capability. Ranking by it
+    // replaces the old orgs[0] positional guess, which silently picked the wrong
+    // org for anyone belonging to more than one.
+    function ciRankOrgs(orgs) {
+        var chatOrgs = [], others = [];
+        for (var i = 0; i < orgs.length; i++) {
+            var o = orgs[i];
+            if (!o || !o.uuid) continue;
+            var caps = o.capabilities || [];
+            if (caps.indexOf('chat') !== -1) chatOrgs.push(o.uuid);
+            else others.push(o.uuid);
+        }
+        return chatOrgs.concat(others);
+    }
+
+    function ciConversationUrl(org, cid) {
+        return 'https://claude.ai/api/organizations/' + org + '/chat_conversations/' + cid +
+               '?tree=True&rendering_mode=messages&render_all_tools=true&consistency=strong';
+    }
+
+    // ── Text extraction ─────────────────────────────────────────
+    // The top-level `text` field is EMPTY on every message under
+    // rendering_mode=messages (verified: 0 of 192 non-empty). Content lives in
+    // content[] blocks. Reading `text` would render a panel full of blank rows.
+    function ciExtractText(msg) {
+        var out = [];
+        var content = msg.content || [];
+        for (var i = 0; i < content.length; i++) {
+            if (content[i].type === 'text' && content[i].text) out.push(content[i].text);
+        }
+        var joined = out.join('\n').trim();
+        if (joined) return joined;
+
+        // Large pastes become a txt attachment with an empty file_name and the
+        // body in extracted_content — the message itself carries no text block.
+        // 14 of 147 human turns on the branch fixture were this shape.
+        var att = msg.attachments || [];
+        for (var j = 0; j < att.length; j++) {
+            if (att[j].extracted_content && att[j].extracted_content.trim()) {
+                return att[j].extracted_content.trim();
+            }
+        }
+        for (var k = 0; k < att.length; k++) {
+            if (att[k].file_name) return '[' + att[k].file_name + ']';
+        }
+
+        var files = msg.files || [], names = [];
+        for (var f = 0; f < files.length; f++) {
+            names.push(files[f].file_name || files[f].file_kind || 'file');
+        }
+        if (names.length) return '[' + names.join(', ') + ']';
+
+        return '';
+    }
+
+    function ciCountBlockChars(msg, type) {
+        var content = msg.content || [], n = 0;
+        for (var i = 0; i < content.length; i++) {
+            if (content[i].type !== type) continue;
+            var v = content[i].thinking || content[i].text || '';
+            n += v.length;
+        }
+        return n;
+    }
+
+    // ── Tree walk ───────────────────────────────────────────────
+    // Editing or regenerating creates a branch, so chat_messages contains
+    // abandoned branches alongside the live conversation. Listing every
+    // sender==='human' message would surface questions the user edited away —
+    // silently presenting discarded content as current.
+    function ciInferLeafUuid(msgs) {
+        var isParent = {};
+        for (var i = 0; i < msgs.length; i++) {
+            if (msgs[i].parent_message_uuid) isParent[msgs[i].parent_message_uuid] = true;
+        }
+        var newest = null;
+        for (var j = 0; j < msgs.length; j++) {
+            if (isParent[msgs[j].uuid]) continue;
+            if (!newest || new Date(msgs[j].created_at) > new Date(newest.created_at)) {
+                newest = msgs[j];
+            }
+        }
+        return newest ? newest.uuid : null;
+    }
+
+    function ciResolveActivePath(data) {
+        var msgs = (data && data.chat_messages) || [];
+        if (!msgs.length) return { path: [], usedFallback: false };
+
+        var byId = {};
+        for (var i = 0; i < msgs.length; i++) byId[msgs[i].uuid] = msgs[i];
+
+        var leafUuid = data.current_leaf_message_uuid;
+        var usedFallback = false;
+        if (!leafUuid || !byId[leafUuid]) {
+            leafUuid = ciInferLeafUuid(msgs);
+            usedFallback = true;
+            console.warn('[ACN] conversation index: current_leaf_message_uuid missing or ' +
+                         'unresolvable — falling back to newest-leaf heuristic. ' +
+                         'This is inference, not the authoritative pointer.');
+        }
+
+        var path = [];
+        var cur  = byId[leafUuid];
+        var guard = 0;
+        var reachedRoot = false;
+        // Iteration cap: a cycle in the data would otherwise spin forever.
+        while (cur && guard < msgs.length) {
+            guard++;
+            path.push(cur);
+            var pid = cur.parent_message_uuid;
+            if (!pid || pid === CI_ROOT_PARENT_UUID) { reachedRoot = true; break; }
+            cur = byId[pid];
+        }
+        path.reverse();
+
+        // Terminating is not the same as succeeding. Exiting because a parent uuid
+        // was missing from the map, or because the cycle cap tripped, yields a
+        // PARTIAL path — which must not then be exported as "complete conversation
+        // history". Track it so the banner and the export header can say so.
+        if (!reachedRoot) {
+            console.warn('[ACN] conversation index: active path did not reach the root ' +
+                         'sentinel (' + path.length + ' of ' + msgs.length + ' messages ' +
+                         'walked). The tree is malformed or truncated — treating the ' +
+                         'resulting path as INCOMPLETE.');
+        }
+        return { path: path, usedFallback: usedFallback, reachedRoot: reachedRoot };
+    }
+
+    function ciValidateShape(data) {
+        return !!(data && typeof data === 'object' &&
+                  Array.isArray(data.chat_messages) &&
+                  data.chat_messages.length > 0 &&
+                  data.chat_messages[0] &&
+                  typeof data.chat_messages[0].uuid === 'string' &&
+                  typeof data.chat_messages[0].sender === 'string');
+    }
+
+    function ciBuildIndex(data) {
+        var resolved = ciResolveActivePath(data);
+        var path = resolved.path;
+        var turns = [];
+        var truncated = 0;
+
+        // Full ordered path (human AND assistant) — Export needs both sides to
+        // produce a complete file. Without this, Export would still emit only the
+        // assistant messages that happened to be mounted.
+        _ciFullPath = [];
+        for (var p = 0; p < path.length; p++) {
+            _ciFullPath.push({
+                uuid:      path[p].uuid,
+                sender:    path[p].sender,
+                text:      ciExtractText(path[p]),
+                // Extended thinking is invisible to DOM scraping but consumes real
+                // context. content[] exposes it directly, which beats the old
+                // "count [aria-expanded] blocks x 600 tokens" heuristic — and that
+                // heuristic could only see mounted blocks anyway.
+                thinkingChars: ciCountBlockChars(path[p], 'thinking'),
+                truncated: !!path[p].truncated,
+                files:     path[p].files || [],
+                attachments: path[p].attachments || []
+            });
+        }
+
+        for (var i = 0; i < path.length; i++) {
+            var m = path[i];
+            if (m.truncated) truncated++;
+            if (m.sender !== 'human') continue;
+            var text = ciExtractText(m);
+            if (!text) continue;
+            turns.push({
+                uuid:       m.uuid,
+                text:       text,
+                summary:    generateSummary(text),
+                pathIndex:  i,
+                createdAt:  m.created_at,
+                attachments: m.attachments || [],
+                files:      m.files || [],
+                truncated:  !!m.truncated,
+                element:    null,       // bound opportunistically to mounted DOM
+                provisional: false      // true for DOM-merged turns not yet in the API
+            });
+        }
+
+        _ciTruncatedCount   = truncated;
+        _ciUsedLeafFallback = resolved.usedFallback;
+        _ciPathComplete     = resolved.reachedRoot;
+        _ciTextToUuid       = null;   // rebuilt lazily against the new path
+        return turns;
+    }
+
+    // ── Fetch orchestration ─────────────────────────────────────
+    // Tries candidate orgs in order. A 404 means "wrong org" and advances to the
+    // next; any other failure is terminal and drops us to degraded mode.
+    function ciFetchWithOrgFallback(cid, candidates, idx, cb, exhaustedCb) {
+        if (idx >= candidates.length) {
+            // Every cheap candidate was rejected. A stale cached org (account
+            // switched, org migrated) would otherwise dead-end here permanently,
+            // since ciResolveOrgCandidates short-circuits before ever querying
+            // /api/organizations when a cached value exists.
+            if (exhaustedCb) { exhaustedCb(); return; }
+            cb(new Error('no org candidate accepted the conversation'), null);
+            return;
+        }
+        var org = candidates[idx];
+        ciRequestJSON(ciConversationUrl(org, cid), function (err, data, status) {
+            if (!err) {
+                _ciOrgUuid = org;
+                ciWriteCachedOrg(org);
+                cb(null, data);
+                return;
+            }
+            if (status === 404 || status === 403) {
+                ciFetchWithOrgFallback(cid, candidates, idx + 1, cb, exhaustedCb);
+                return;
+            }
+            cb(err, null);
+        });
+    }
+
+    // Full org list, used only after the cheap candidates have all been rejected.
+    function ciFetchFromAllOrgs(cid, tried, cb) {
+        ciRequestJSON('https://claude.ai/api/organizations', function (err, orgs) {
+            if (err || !Array.isArray(orgs)) {
+                cb(new Error('no org candidate accepted the conversation'), null);
+                return;
+            }
+            var ranked = ciRankOrgs(orgs).filter(function (u) { return tried.indexOf(u) === -1; });
+            if (!ranked.length) {
+                cb(new Error('no org candidate accepted the conversation'), null);
+                return;
+            }
+            ciFetchWithOrgFallback(cid, ranked, 0, cb, null);
+        });
+    }
+
+    function ciSetDegraded(cid, reason) {
+        _ciStatus         = 'degraded';
+        _ciDegradedReason = reason;
+        // Clear the FULL derived state, not just _ciIndex. Every consumer guards on
+        // ciIsReady() so stale data could not be read, but leaving a multi-megabyte
+        // _ciFullPath (and the truncated/leaf-fallback flags describing a different
+        // conversation) alive after a failed load is a leak waiting to become a bug.
+        _ciIndex            = null;
+        _ciFullPath         = null;
+        _ciTextToUuid       = null;
+        _ciTruncatedCount   = 0;
+        _ciUsedLeafFallback = false;
+        _ciPathComplete     = true;
+        // Record which conversation failed so the retry condition in
+        // scanConversation() does not hammer a permanently failing endpoint every
+        // 500ms, while still retrying when the user opens a different conversation.
+        _ciConversationId = cid;
+        // Stamp the attempt so a TRANSIENT failure (network blip, timeout) recovers
+        // on its own after the cooldown instead of leaving the panel degraded for
+        // the rest of the session.
+        _ciLastRefetchAt  = Date.now();
+        console.warn('[ACN] conversation index unavailable — falling back to DOM scan. ' +
+                     'Reason: ' + reason);
+    }
+
+    // Loads the index for the current conversation. `done` is invoked with a
+    // boolean indicating whether an API-backed index is now available.
+    function ciLoadIndex(force, done) {
+        if (!ciIsClaudeChat()) { if (done) done(false); return; }
+
+        var cid = ciGetConversationUuid();
+        if (!cid) { if (done) done(false); return; }
+
+        // Cached and still the same conversation — nothing to do. Avoids
+        // re-downloading 3.3MB every time a panel opens.
+        if (!force && _ciIndex && _ciConversationId === cid) {
+            if (done) done(true);
+            return;
+        }
+        if (_ciInFlight) { if (done) done(false); return; }
+
+        _ciInFlight = true;
+        _ciStatus   = 'loading';
+
+        ciResolveOrgCandidates(function (candidates) {
+            if (!candidates.length) {
+                _ciInFlight = false;
+                ciSetDegraded(cid, 'could not resolve organization UUID');
+                if (done) done(false);
+                return;
+            }
+            function finish(err, data) {
+                _ciInFlight = false;
+                if (err) {
+                    ciSetDegraded(cid, err.message);
+                    if (done) done(false);
+                    return;
+                }
+                if (!ciValidateShape(data)) {
+                    ciSetDegraded(cid, 'unexpected response shape');
+                    if (done) done(false);
+                    return;
+                }
+                try {
+                    _ciIndex = ciBuildIndex(data);
+                } catch (buildErr) {
+                    // Shape validation only inspects chat_messages[0]; a malformed
+                    // record further in would throw here. Without this catch the
+                    // exception escaped after _ciInFlight was already cleared,
+                    // stranding _ciStatus at 'loading' — which is neither 'idle'
+                    // nor 'degraded', so no retry ever fired and no banner showed.
+                    ciSetDegraded(cid, 'malformed message data: ' + buildErr.message);
+                    if (done) done(false);
+                    return;
+                }
+                _ciConversationId = cid;
+                _ciStatus         = 'ready';
+                _ciDegradedReason = '';
+                console.log('[ACN] conversation index ready: ' + _ciIndex.length +
+                            ' questions (' + (data.chat_messages || []).length +
+                            ' messages in payload)');
+                if (done) done(true);
+            }
+
+            ciFetchWithOrgFallback(cid, candidates, 0, finish, function () {
+                ciFetchFromAllOrgs(cid, candidates, finish);
+            });
+        });
+    }
+
+    // Total characters across the whole active path. Replaces reading innerText
+    // off the scroll container, which on a virtualized list only ever sees the
+    // mounted window.
+    function ciTotalChars() {
+        if (!ciIsReady() || !_ciFullPath) return 0;
+        var n = 0;
+        for (var i = 0; i < _ciFullPath.length; i++) n += (_ciFullPath[i].text || '').length;
+        return n;
+    }
+
+    function ciTotalThinkingChars() {
+        if (!ciIsReady() || !_ciFullPath) return 0;
+        var n = 0;
+        for (var i = 0; i < _ciFullPath.length; i++) n += (_ciFullPath[i].thinkingChars || 0);
+        return n;
+    }
+
+    // Shared scroll-container locator. Anchors on a mounted message and walks up
+    // for the first genuinely scrollable ancestor. Deliberately class-name-free:
+    // Claude's container classes have already changed once (overflow-y-scroll ->
+    // overflow-y-auto, pt-6 -> mt-12 pt-2) since they were last documented.
+    var _ciScrollContainer = null;
+
+    function ciFindScrollContainer() {
+        if (_ciScrollContainer && _ciScrollContainer.isConnected) return _ciScrollContainer;
+        _ciScrollContainer = null;
+
+        var anchors = Array.from(getUserMessages());
+        if (!anchors.length) anchors = Array.from(getAIMessages());
+        if (!anchors.length) return null;
+
+        var node = anchors[0].parentElement;
+        while (node && node !== document.documentElement) {
+            var st = window.getComputedStyle(node);
+            var scrolls = (st.overflowY === 'auto' || st.overflowY === 'scroll') &&
+                          node.scrollHeight > node.clientHeight;
+            // Guard against latching onto a small inner scroller — code blocks and
+            // tables inside messages are themselves overflow:auto.
+            if (scrolls &&
+                node.clientHeight > window.innerHeight * 0.4 &&
+                node.scrollHeight > node.clientHeight * 1.5) {
+                _ciScrollContainer = node;
+                return node;
+            }
+            node = node.parentElement;
+        }
+        return null;
+    }
+
+    // Maps normalized message text -> stable message uuid, for callers that only
+    // have a DOM node to work from (bookmarks). Built lazily, cleared with the index.
+    var _ciTextToUuid = null;
+
+    function ciUuidForText(text) {
+        if (!ciIsReady() || !_ciFullPath) return null;
+        if (!_ciTextToUuid) {
+            _ciTextToUuid = {};
+            for (var i = 0; i < _ciFullPath.length; i++) {
+                var t = _normalizeKey(_ciFullPath[i].text || '');
+                if (t && !_ciTextToUuid[t]) _ciTextToUuid[t] = _ciFullPath[i].uuid;
+            }
+        }
+        return _ciTextToUuid[_normalizeKey(text || '')] || null;
+    }
+
+    function ciIsReady() {
+        return _ciStatus === 'ready' && !!_ciIndex &&
+               _ciConversationId === ciGetConversationUuid();
+    }
+
+    function ciInvalidate() {
+        _ciIndex          = null;
+        _ciFullPath       = null;
+        _ciTextToUuid     = null;
+        _ciConversationId = null;
+        _ciStatus         = 'idle';
+        _ciDegradedReason = '';
+        _ciTruncatedCount = 0;
+        _ciUsedLeafFallback = false;
+        _ciPathComplete   = true;
+        // Org is per-account, but a stale in-memory value would survive an account
+        // switch; the GM cache is account-validated, so re-resolving is cheap.
+        _ciOrgUuid        = null;
+    }
+
+    // ============================================================
     // QUESTION DETECTION ENGINE
     // ============================================================
     function getUserMessages() {
@@ -1151,20 +1739,181 @@
     var _usageLastFetch = 0;
     var _usageRefreshTimer = null; // debounce timer for maybeRefreshUsage
 
+    // Extracts display text from a mounted DOM node, shared by the DOM scan and
+    // the index's DOM-merge path.
+    // Reads a node's text while EXCLUDING our own injected bookmark icon.
+    //
+    // createBookmarkIcon() appends the icon as a child of the message element, so
+    // a naive textContent read picks up its glyph. That contamination is not
+    // cosmetic: the conversation index matches DOM text against API text by
+    // normalized 200-char prefix, so every message shorter than 200 characters
+    // would fail to match, be treated as new, get appended as a provisional
+    // entry (duplicating it in the list), and keep _ciNeedsResync() permanently
+    // true — triggering a 3.3MB refetch every cooldown period, forever.
+    function _textWithoutInjected(el) {
+        if (!el) return '';
+        // Fast path: nothing of ours inside, read it directly.
+        if (!el.querySelector || !el.querySelector('[data-acn-bookmark]')) {
+            return el.textContent || el.innerText || '';
+        }
+        var out = '';
+        var kids = el.childNodes;
+        for (var i = 0; i < kids.length; i++) {
+            var n = kids[i];
+            if (n.nodeType === 1 && n.getAttribute &&
+                n.getAttribute('data-acn-bookmark') !== null) continue;
+            out += _textWithoutInjected(n);
+        }
+        return out;
+    }
+
+    function _readMessageText(msg) {
+        var proseEl = platform.textExtractor ? platform.textExtractor(msg) : null;
+        var text = (_textWithoutInjected(proseEl || msg) || '').trim();
+        // ChatGPT prefixes user turns with a visually-hidden h5.sr-only reading
+        // "You said:". The old pattern (/^You said\s*/i) could not match the colon
+        // and left a stray ": " on every ChatGPT question.
+        //
+        // Scoped to ChatGPT deliberately: no other platform emits that label, and
+        // applying it everywhere would silently truncate a legitimate user message
+        // that happens to begin "You said:".
+        if (platform.id === 'chatgpt') text = text.replace(/^\s*You said:?\s*/i, '');
+        return text;
+    }
+
+    function _normalizeKey(text) {
+        return text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
+    }
+
+    // Binds index entries to whichever DOM nodes happen to be mounted right now.
+    // Under virtualization only a handful will match; the rest keep element:null
+    // until Phase 3's settle loop mounts them on demand.
+    function _ciBindMountedElements(questions) {
+        var mounted = Array.from(getUserMessages());
+        if (!mounted.length) return;
+        var byKey = {};
+        for (var i = 0; i < mounted.length; i++) {
+            var t = _readMessageText(mounted[i]);
+            if (t) byKey[_normalizeKey(t)] = mounted[i];
+        }
+        for (var j = 0; j < questions.length; j++) {
+            var el = byKey[_normalizeKey(questions[j].text)];
+            questions[j].element = el || null;
+        }
+    }
+
+    // Appends messages that are mounted but absent from the index. The index is a
+    // snapshot, so a turn sent after it was fetched would otherwise be missing.
+    // New turns are always mounted (the user is at the bottom when they send one),
+    // so a DOM read is sufficient and costs no network. Provisional entries carry
+    // no uuid until the next refetch.
+    function _ciMergeLiveMessages(questions) {
+        var mounted = Array.from(getUserMessages());
+        if (!mounted.length) return false;
+
+        var known = {};
+        for (var i = 0; i < questions.length; i++) known[_normalizeKey(questions[i].text)] = true;
+
+        var appended = false;
+        for (var j = 0; j < mounted.length; j++) {
+            var text = _readMessageText(mounted[j]);
+            if (!text) continue;
+            var key = _normalizeKey(text);
+            if (known[key]) continue;
+            known[key] = true;
+            questions.push({
+                uuid:        null,
+                text:        text,
+                summary:     generateSummary(text),
+                pathIndex:   Number.MAX_SAFE_INTEGER,  // sorts to the end
+                createdAt:   null,
+                attachments: [],
+                files:       [],
+                truncated:   false,
+                element:     mounted[j],
+                provisional: true
+            });
+            appended = true;
+        }
+        return appended;
+    }
+
+    // Signals that the index no longer matches reality and should be refetched.
+    //
+    // A provisional entry means the DOM holds a turn the index does not. That is
+    // either a newly sent message or an edit/regenerate that rewrote the tree —
+    // and the DOM genuinely cannot distinguish the two, because neither changes
+    // the URL and only ~3 turns are visible. Refetching resyncs either case, and
+    // also upgrades provisional entries to real uuids so bookmarks can key to them.
+    //
+    // (An earlier version compared the newest mounted turn against the question
+    // list. That could never fire: the merge runs first and guarantees every
+    // mounted turn is present, so the tail always matched.)
+    function _ciNeedsResync(questions) {
+        for (var i = 0; i < questions.length; i++) {
+            if (questions[i].provisional) return true;
+        }
+        return false;
+    }
+
     function scanConversation(forceReset) {
+        // ── Claude: index-backed path ────────────────────────────
+        // The DOM holds ~3% of a long conversation, so it cannot be the source of
+        // truth. When the index is available it wins; the DOM scan below stays as
+        // the fallback and remains the path for every other platform.
+        if (ciIsClaudeChat()) {
+            // Conversation switched: drop the previous payload immediately rather
+            // than holding a multi-megabyte active path for a conversation the user
+            // has navigated away from. Claude is registered with spa:false, so the
+            // pushState/popstate handlers never fire here — this is the only place
+            // a conversation change is observed.
+            if (_ciConversationId && _ciConversationId !== ciGetConversationUuid()) {
+                ciInvalidate();
+            }
+
+            if (ciIsReady()) {
+                var indexed = _ciIndex.slice();
+                _ciMergeLiveMessages(indexed);
+                indexed.sort(function (a, b) { return a.pathIndex - b.pathIndex; });
+                _ciBindMountedElements(indexed);
+                _questions = indexed;
+
+                _aiResponses = Array.from(getAIMessages());
+                if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
+                if (typeof orbOnScanComplete === 'function') orbOnScanComplete();
+
+                if (_ciNeedsResync(_questions) &&
+                    (Date.now() - _ciLastRefetchAt) > CI_REFETCH_COOLDOWN_MS) {
+                    _ciLastRefetchAt = Date.now();
+                    console.log('[ACN] index out of sync with DOM (new message, edit, or ' +
+                                'regenerate) — refetching');
+                    ciLoadIndex(true, function () { scanConversation(true); });
+                }
+                return;
+            }
+            // Not ready yet: kick off a load, then fall through to the DOM scan so
+            // the panel shows something immediately rather than an empty list.
+            var degradedRetryDue = _ciStatus === 'degraded' &&
+                (Date.now() - _ciLastRefetchAt) > CI_REFETCH_COOLDOWN_MS;
+            if (_ciStatus === 'idle' ||
+                _ciConversationId !== ciGetConversationUuid() ||
+                degradedRetryDue) {
+                if (degradedRetryDue) _ciLastRefetchAt = Date.now();
+                ciLoadIndex(false, function (ok) {
+                    if (ok) scanConversation(true);
+                });
+            }
+        }
+
         var messages = getUserMessages();
 
         if (isVirtualScroll && !forceReset) {
             if (messages.length === 0) return;
             var addedNew = false;
             messages.forEach(function (msg) {
-                var proseEl = platform.textExtractor ? platform.textExtractor(msg) : null;
-                var text = proseEl
-                    ? (proseEl.textContent || '').trim()
-                    : (msg.textContent || msg.innerText || '').trim();
-                text = text.replace(/^You said\s*/i, '');
+                var text = _readMessageText(msg);
                 if (!text.trim()) return;
-                var key = text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
+                var key = _normalizeKey(text);
                 if (!_vsAccumulatedKeys.has(key)) {
                     _vsAccumulatedKeys.add(key);
                     var virtuosoItem = msg.closest('[data-index]');
@@ -1183,14 +1932,10 @@
             _questions = [];
             if (messages.length > 0) {
                 messages.forEach(function (msg) {
-                    var proseEl = platform.textExtractor ? platform.textExtractor(msg) : null;
-                    var text = proseEl
-                        ? (proseEl.textContent || '').trim()
-                        : (msg.textContent || msg.innerText || '').trim();
-                    text = text.replace(/^You said\s*/i, '');
+                    var text = _readMessageText(msg);
                     if (!text.trim()) return;
                     if (isVirtualScroll) {
-                        var key = text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
+                        var key = _normalizeKey(text);
                         _vsAccumulatedKeys.add(key);
                         var virtuosoItem = msg.closest('[data-index]');
                         var vsIndex = virtuosoItem
@@ -1771,7 +2516,30 @@
             return;
         }
 
-        // Step 1: get org UUID from /api/organizations
+        function fetchUsageFor(uuid) {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: 'https://claude.ai/api/organizations/' + uuid + '/usage',
+                headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
+                onload: function (r2) {
+                    try {
+                        var data = JSON.parse(r2.responseText);
+                        callback(parseUsageFromJSON(data));
+                    } catch (e) { callback(null); }
+                },
+                onerror: function () { callback(null); }
+            });
+        }
+
+        // Reuse the org already resolved (and validated) by the conversation index
+        // rather than re-deriving it. The previous implementation took orgs[0] —
+        // a positional guess that silently returned another organization's usage
+        // numbers for anyone belonging to more than one.
+        if (_ciOrgUuid) { fetchUsageFor(_ciOrgUuid); return; }
+
+        var cookieOrg = ciGetCookie('lastActiveOrg');
+        if (cookieOrg) { fetchUsageFor(cookieOrg); return; }
+
         GM_xmlhttpRequest({
             method: 'GET',
             url: 'https://claude.ai/api/organizations',
@@ -1780,26 +2548,13 @@
                 var uuid = null;
                 try {
                     var orgs = JSON.parse(r1.responseText);
-                    if (Array.isArray(orgs) && orgs[0] && orgs[0].uuid) {
-                        uuid = orgs[0].uuid;
-                    }
+                    // Rank by the 'chat' capability instead of array position.
+                    var ranked = Array.isArray(orgs) ? ciRankOrgs(orgs) : [];
+                    if (ranked.length) uuid = ranked[0];
                 } catch (e) { /* skip */ }
 
                 if (!uuid) { callback(null); return; }
-
-                // Step 2: fetch usage for that org
-                GM_xmlhttpRequest({
-                    method: 'GET',
-                    url: 'https://claude.ai/api/organizations/' + uuid + '/usage',
-                    headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
-                    onload: function (r2) {
-                        try {
-                            var data = JSON.parse(r2.responseText);
-                            callback(parseUsageFromJSON(data));
-                        } catch (e) { callback(null); }
-                    },
-                    onerror: function () { callback(null); }
-                });
+                fetchUsageFor(uuid);
             },
             onerror: function () { callback(null); }
         });
@@ -2048,6 +2803,10 @@
             'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
             '.acn-qw{font-size:11px;color:#666;margin-top:2px}',
             '.acn-empty{padding:40px 14px;text-align:center;font-size:13px;color:#555;line-height:1.6}',
+            '.acn-ci-banner{padding:7px 10px;margin:0 0 6px;border-radius:6px;font-size:11px;line-height:1.45}',
+            '.acn-ci-degraded{background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3)}',
+            '.acn-ci-loading{background:rgba(255,255,255,.05);color:#888}',
+            '.acn-ci-note{background:rgba(234,179,8,.12);color:#eab308;border:1px solid rgba(234,179,8,.3)}',
 
             // Search input
             '.acn-search-wrap{padding:14px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0}',
@@ -2548,6 +3307,48 @@
         orbRender();
     }
 
+    // Degraded-mode banner. Silent degradation is exactly what let the
+    // virtualization bug hide for so long — a truncated list looked like a short
+    // conversation. When the index is unavailable the user must be able to SEE
+    // that the list is incomplete, not just find it in the console.
+    function orbRenderIndexBanner(list) {
+        if (!ciIsClaudeChat()) return;
+
+        var banner = null;
+
+        if (_ciStatus === 'degraded') {
+            banner = createElement('div', {
+                className: 'acn-ci-banner acn-ci-degraded',
+                textContent: '\u26a0 Showing only on-screen messages \u2014 full history unavailable (' +
+                             _ciDegradedReason + ')'
+            });
+            banner.setAttribute('data-acn-index-status', 'degraded');
+        } else if (_ciStatus === 'loading') {
+            banner = createElement('div', {
+                className: 'acn-ci-banner acn-ci-loading',
+                textContent: '\u2026 Loading full conversation history'
+            });
+            banner.setAttribute('data-acn-index-status', 'loading');
+        } else if (_ciStatus === 'ready') {
+            var notes = [];
+            if (_ciTruncatedCount > 0) {
+                notes.push(_ciTruncatedCount + ' message' + (_ciTruncatedCount !== 1 ? 's' : '') +
+                           ' truncated by Claude');
+            }
+            if (_ciUsedLeafFallback) notes.push('active branch inferred');
+            if (!_ciPathComplete) notes.push('history incomplete \u2014 conversation tree is malformed');
+            if (notes.length) {
+                banner = createElement('div', {
+                    className: 'acn-ci-banner acn-ci-note',
+                    textContent: '\u26a0 ' + notes.join(' \u00b7 ')
+                });
+                banner.setAttribute('data-acn-index-status', 'ready-with-notes');
+            }
+        }
+
+        if (banner) list.appendChild(banner);
+    }
+
     // ============================================================
     // NAVIGATE PANEL CONTENT
     // ============================================================
@@ -2558,12 +3359,17 @@
 
         // Skip DOM rebuild if questions haven't changed — prevents hover flicker caused
         // by MutationObserver firing on SPA animations and rebuilding the list mid-hover
-        var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|');
+        // (index status is part of the fingerprint so the banner appears without a
+        //  content change having to trigger the rebuild)
+        var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|') +
+                 '||' + _ciStatus;
         if (fp === _navListFingerprint && list.firstChild) return;
         _navListFingerprint = fp;
 
         // Clear
         while (list.firstChild) list.removeChild(list.firstChild);
+
+        orbRenderIndexBanner(list);
 
         if (_questions.length === 0) {
             var empty = createElement('div', { className: 'acn-empty' },
@@ -2622,29 +3428,30 @@
             // [data-is-streaming] is only present while actively streaming, so
             // per-element selectors miss completed turns. The scroll container
             // innerText captures everything regardless of streaming state.
+            // Index-backed: count the entire active path. The DOM path below could
+            // only ever see the mounted window — with ~3 of 147 turns rendered that
+            // undercounted by roughly 35x, which is the real cause of the
+            // long-standing "turn counter red but context shows 19%" mismatch.
+            // The old coverage correction could not save it either: _questions was
+            // rebuilt from live DOM on every scan, so nInDOM always equalled
+            // _questions.length and coverage was always exactly 1.0.
             var domChars = 0;
-            var anchor = _questions.length > 0 ? _questions[0].element : null;
-            var scrollNode = anchor ? anchor.parentElement : null;
-            var scrollFound = false;
-            while (scrollNode && scrollNode !== document.body) {
-                var st = window.getComputedStyle(scrollNode);
-                if (st.overflowY === 'auto' || st.overflowY === 'scroll' ||
-                    st.overflow  === 'auto' || st.overflow  === 'scroll') {
-                    domChars = (scrollNode.innerText || '').length;
-                    scrollFound = true;
-                    break;
+            var domTokens;
+            if (ciIsReady()) {
+                domChars  = ciTotalChars();
+                domTokens = Math.round(domChars / 4);
+            } else {
+                var scrollNode = ciFindScrollContainer();
+                if (scrollNode) domChars = (scrollNode.innerText || '').length;
+                if (!domChars) {
+                    domChars = _questions.reduce(function (s, q) { return s + q.text.length; }, 0) * 3;
                 }
-                scrollNode = scrollNode.parentElement;
+                var nInDOM = _questions.filter(function (q) {
+                    return q.element && document.body.contains(q.element);
+                }).length;
+                var coverage = nInDOM / Math.max(1, _questions.length);
+                domTokens = Math.round((domChars / 4) / Math.max(0.25, coverage));
             }
-            if (!scrollFound || domChars === 0) {
-                domChars = _questions.reduce(function (s, q) { return s + q.text.length; }, 0) * 3;
-            }
-            // Virtual scroll correction: scale up if only a portion of turns is in DOM
-            var nInDOM = _questions.filter(function (q) {
-                return q.element && document.body.contains(q.element);
-            }).length;
-            var coverage = nInDOM / Math.max(1, _questions.length);
-            var domTokens = Math.round((domChars / 4) / Math.max(0.25, coverage));
 
             // ── SSE: cumulative thinking tokens (invisible in DOM) ──────
             var thinkingTokens = Math.round(_sseTokenData.cumulativeThinkingChars / 4);
@@ -2712,36 +3519,39 @@
 
     function _renderEstimatedBar(pct, fill, meta, limit) {
         var totalChars = 0;
-        var anchor = _questions.length > 0 ? _questions[0].element : null;
-        var node   = anchor ? anchor.parentElement : null;
-        var found  = false;
+        var estTokens;
+        var node  = null;
+        var found = false;
 
-        while (node && node !== document.body) {
-            var st = window.getComputedStyle(node);
-            if (st.overflowY === 'auto' || st.overflowY === 'scroll' ||
-                st.overflow  === 'auto' || st.overflow  === 'scroll') {
-                totalChars = (node.innerText || '').length;
-                found = true;
-                break;
+        // Same correction as Path A — see the comment there. On Firefox this is the
+        // ONLY path (SSE interception is disabled per DEC-020), so the undercount
+        // was permanent for Firefox users.
+        if (ciIsReady()) {
+            totalChars = ciTotalChars();
+            estTokens  = Math.round(totalChars / 4);
+            node       = ciFindScrollContainer();
+            found      = !!node;
+        } else {
+            node  = ciFindScrollContainer();
+            found = !!node;
+            if (found) totalChars = (node.innerText || '').length;
+            if (!totalChars) {
+                totalChars = _questions.reduce(function (s, q) { return s + q.text.length; }, 0) * 3;
             }
-            node = node.parentElement;
+            var nInDOM   = _questions.filter(function(q) { return q.element && document.body.contains(q.element); }).length;
+            var coverage = nInDOM / Math.max(1, _questions.length);
+            estTokens = Math.round((totalChars / 4) / Math.max(0.25, coverage));
         }
-
-        if (!found || totalChars === 0) {
-            totalChars = _questions.reduce(function (s, q) { return s + q.text.length; }, 0) * 3;
-        }
-
-        // Correct for virtual scroll: if _questions has more entries than are currently in
-        // the DOM, the innerText only covers the live DOM portion — scale up accordingly.
-        var nInDOM   = _questions.filter(function(q) { return q.element && document.body.contains(q.element); }).length;
-        var coverage = nInDOM / Math.max(1, _questions.length);
-        var estTokens = Math.round((totalChars / 4) / Math.max(0.25, coverage));
 
         // For Claude: add invisible overhead that DOM scraping can never see.
         // (1) System prompt + tool defs — same dynamic estimate as Path A for consistency.
         // (2) Extended thinking — each collapsed [aria-expanded] thinking summary in the
         //     conversation represents hidden thinking content (~600 tokens each on average).
-        if (platform && platform.id === 'claude' && found && node) {
+        if (platform && platform.id === 'claude' && ciIsReady()) {
+            // Real thinking content from the index — no heuristic needed.
+            estTokens += _estimateClaudeOverhead();
+            estTokens += Math.round(ciTotalThinkingChars() / 4);
+        } else if (platform && platform.id === 'claude' && found && node) {
             estTokens += _estimateClaudeOverhead();
             var uiKw = ['hide','show','expand','collapse','menu','chat','chats','project','artifact','recent','starred'];
             var thinkingCount = 0;
@@ -2892,25 +3702,31 @@
         }
     }
 
-    function orbScrollToQuestion(q) {
-        var target = q.element;
-
-        // Virtual scroll: element may have been recycled — try to re-find it
-        if (isVirtualScroll && target && !target.isConnected) {
-            var searchText = q.text.substring(0, 200);
-            var current = getUserMessages();
-            var found = null;
-            for (var i = 0; i < current.length; i++) {
-                if ((current[i].textContent || '').trim().substring(0, 200) === searchText) {
-                    found = current[i];
-                    break;
-                }
-            }
-            if (!found) return; // not in DOM right now
-            target = found;
+    // Re-locates a question's DOM node among whatever is mounted right now.
+    // Under recycling the stored element reference goes stale constantly, so
+    // matching on normalized text is the only durable handle we have until the
+    // node carries a stable id.
+    function _relocateQuestionElement(q) {
+        if (q.element && q.element.isConnected) return q.element;
+        var wanted  = _normalizeKey(q.text);
+        var current = Array.from(getUserMessages());
+        for (var i = 0; i < current.length; i++) {
+            if (_normalizeKey(_readMessageText(current[i])) === wanted) return current[i];
         }
+        return null;
+    }
 
-        if (!target) return;
+    function orbScrollToQuestion(q) {
+        var target = _relocateQuestionElement(q);
+
+        if (!target) {
+            // The message exists in the index but is not mounted. Phase 3 adds the
+            // scroll-and-settle loop that pages the virtualizer to it; until then,
+            // fail loudly rather than silently doing nothing.
+            showToast('That message is not currently rendered — scroll toward it and try again');
+            return;
+        }
+        q.element = target;
 
         if (isLeftChat) {
             // Close panel first so it doesn't obscure the chat
@@ -2985,8 +3801,29 @@
         }
 
         // --- Gather AI-response matches ---
+        // Index-backed when available. _aiResponses is rebuilt from mounted DOM on
+        // every scan, so on a virtualized platform it holds only the ~3 visible
+        // responses — searching it alone matched every indexed QUESTION but only
+        // the on-screen ANSWERS, which fails the "search anywhere in the
+        // conversation" requirement for half the conversation.
         var aiMatches = [];
-        if (typeof _aiResponses !== 'undefined') {
+        if (ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
+            var aiSeq = 0;
+            for (var fp = 0; fp < _ciFullPath.length; fp++) {
+                if (_ciFullPath[fp].sender === 'human') continue;
+                aiSeq++;
+                var aiText = _ciFullPath[fp].text || '';
+                if (aiText.toLowerCase().indexOf(qLower) === -1) continue;
+                aiMatches.push({
+                    element:   null,          // resolved on click if mounted
+                    text:      aiText,
+                    labelText: 'A#' + aiSeq,
+                    isAI:      true,
+                    qObj:      null,
+                    uuid:      _ciFullPath[fp].uuid
+                });
+            }
+        } else if (typeof _aiResponses !== 'undefined') {
             _aiResponses.forEach(function (el, idx) {
                 var text = (el.textContent || '').trim();
                 if (text.toLowerCase().indexOf(qLower) !== -1) {
@@ -3066,9 +3903,27 @@
                 return function () {
                     if (!m.isAI && m.qObj) {
                         orbScrollToQuestion(m.qObj);
-                    } else {
-                        orbScrollToMessage(m.element);
+                        return;
                     }
+                    // Index-backed AI matches carry no element — the message may not
+                    // be mounted. Try to locate it among what IS mounted, and fail
+                    // visibly rather than silently doing nothing.
+                    var target = m.element;
+                    if (!target || !target.isConnected) {
+                        var wanted = _normalizeKey(m.text);
+                        var live   = Array.from(getAIMessages());
+                        for (var i = 0; i < live.length; i++) {
+                            if (_normalizeKey((live[i].textContent || '').trim()) === wanted) {
+                                target = live[i];
+                                break;
+                            }
+                        }
+                    }
+                    if (!target) {
+                        showToast('That message is not currently rendered — scroll toward it and try again');
+                        return;
+                    }
+                    orbScrollToMessage(target);
                 };
             }(match)));
 
@@ -3243,9 +4098,13 @@
         return 'bm_' + Math.random().toString(16).substring(2, 10);
     }
 
-    function toggleBookmark(entityId, entityType, entityEl, msgIndex) {
+    function toggleBookmark(entityId, entityType, entityEl, msgIndex, legacyId) {
+        // Match the legacy id too. createBookmarkIcon() renders a pre-v12.0 record
+        // as active via legacyId, so without this the toggle would add a SECOND
+        // record under the new identity and leave the old one behind — the icon
+        // would then never clear.
         var existing = getConversationBookmarks().filter(function (b) {
-            return b.contentHash === entityId;
+            return b.contentHash === entityId || (legacyId && b.contentHash === legacyId);
         });
 
         var icon = entityEl.querySelector('[data-acn-bookmark]');
@@ -3257,10 +4116,17 @@
         } else {
             var text    = (entityEl.textContent || '').trim();
             var preview = text.substring(0, 120);
+            // schema 2 records key to the stable message uuid. schema 1 records key
+            // to contentHash(text, msgIndex) — where msgIndex is a position in the
+            // live NodeList. Under virtualization that index changes as the user
+            // scrolls, so schema 1 records silently stop matching their own message.
+            var isUuid = /^[0-9a-f-]{36}$/i.test(entityId);
             var bm = {
                 id:          _bmGenId(),
+                schema:      isUuid ? 2 : 1,
                 entityType:  entityType,
                 contentHash: entityId,
+                msgUuid:     isUuid ? entityId : null,
                 preview:     preview,
                 msgIndex:    msgIndex,
                 createdAt:   Date.now(),
@@ -3277,7 +4143,7 @@
         }
     }
 
-    function createBookmarkIcon(entityEl, entityType, entityId, msgIndex) {
+    function createBookmarkIcon(entityEl, entityType, entityId, msgIndex, legacyId) {
         if (entityEl.querySelector('[data-acn-bookmark]')) return;
 
         var computed = window.getComputedStyle(entityEl);
@@ -3286,7 +4152,9 @@
         }
 
         var bookmarks    = getConversationBookmarks();
-        var isBookmarked = bookmarks.some(function (b) { return b.contentHash === entityId; });
+        var isBookmarked = bookmarks.some(function (b) {
+            return b.contentHash === entityId || (legacyId && b.contentHash === legacyId);
+        });
 
         var icon = document.createElement('div');
         icon.className = 'acn-bm-icon' + (isBookmarked ? ' acn-bm-active' : '');
@@ -3296,9 +4164,9 @@
 
         icon.addEventListener('click', function (e) {
             e.stopPropagation();
-            toggleBookmark(entityId, entityType, entityEl, msgIndex);
+            toggleBookmark(entityId, entityType, entityEl, msgIndex, legacyId);
             var nowBookmarked = getConversationBookmarks().some(function (b) {
-                return b.contentHash === entityId;
+                return b.contentHash === entityId || (legacyId && b.contentHash === legacyId);
             });
             icon.setAttribute('title', nowBookmarked ? 'Remove bookmark' : 'Bookmark this message');
         });
@@ -3306,23 +4174,43 @@
         entityEl.appendChild(icon);
     }
 
-    function injectBookmarkIcons() {
-        var userEls = Array.from(getUserMessages());
-        userEls.forEach(function (el, idx) {
-            if (el.getAttribute('data-acn-bookmarked') === 'u') return;
-            el.setAttribute('data-acn-bookmarked', 'u');
-            var text = (el.textContent || '').trim();
-            var hash = contentHash(text, idx);
-            createBookmarkIcon(el, 'user-msg', hash, idx);
-        });
+    // Resolves the stable identity for a message element. Prefers the API message
+    // uuid; falls back to the legacy position-dependent content hash on platforms
+    // (or conversations) where no index is available.
+    function _bmEntityId(el, idx, text) {
+        return ciUuidForText(text) || contentHash(text, idx);
+    }
 
-        var aiEls = Array.from(getAIMessages());
-        aiEls.forEach(function (el, idx) {
-            if (el.getAttribute('data-acn-bookmarked') === 'a') return;
-            el.setAttribute('data-acn-bookmarked', 'a');
-            var text = (el.textContent || '').trim();
-            var hash = contentHash(text, idx);
-            createBookmarkIcon(el, 'ai-msg', hash, idx);
+    // Pre-v12.0 records hashed the RAW textContent. v12.0 routes user-message text
+    // through _readMessageText(), which applies the platform textExtractor and a
+    // corrected "You said:" strip — so the hash input changed for Emergent (the one
+    // platform with a textExtractor) and for ChatGPT (whose sr-only label ends in a
+    // colon the old pattern could not match). Recognising the legacy id keeps those
+    // bookmarks working instead of silently orphaning them.
+    function _bmLegacyId(el, idx) {
+        return contentHash((el.textContent || '').trim(), idx);
+    }
+
+    function injectBookmarkIcons() {
+        // The guard below compares the RECORDED identity, not merely "has an icon".
+        // Under recycling React reuses the same DOM node for a different message,
+        // so a presence-only guard would leave a stale icon showing another
+        // message's bookmark state.
+        function inject(el, idx, type, text) {
+            if (!text) return;
+            var id = _bmEntityId(el, idx, text);
+            if (el.getAttribute('data-acn-bookmarked') === id) return;
+            var stale = el.querySelector('[data-acn-bookmark]');
+            if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
+            el.setAttribute('data-acn-bookmarked', id);
+            createBookmarkIcon(el, type, id, idx, _bmLegacyId(el, idx));
+        }
+
+        Array.from(getUserMessages()).forEach(function (el, idx) {
+            inject(el, idx, 'user-msg', _readMessageText(el));
+        });
+        Array.from(getAIMessages()).forEach(function (el, idx) {
+            inject(el, idx, 'ai-msg', (el.textContent || '').trim());
         });
     }
 
@@ -3347,36 +4235,60 @@
 
     function orbScrollToBookmark(bookmark) {
         var targetEl = null;
+        var isUser   = bookmark.entityType === 'user-msg';
+        var els      = Array.from(isUser ? getUserMessages() : getAIMessages());
+        var i;
 
-        if (bookmark.entityType === 'user-msg') {
-            var userEls = Array.from(getUserMessages());
-            for (var i = 0; i < userEls.length; i++) {
-                var text = (userEls[i].textContent || '').trim();
-                if (contentHash(text, i) === bookmark.contentHash) {
-                    targetEl = userEls[i];
-                    break;
-                }
-            }
-            if (!targetEl && userEls[bookmark.msgIndex]) {
-                targetEl = userEls[bookmark.msgIndex];
-            }
-        } else if (bookmark.entityType === 'ai-msg') {
-            var aiEls = Array.from(getAIMessages());
-            for (var j = 0; j < aiEls.length; j++) {
-                var aiText = (aiEls[j].textContent || '').trim();
-                if (contentHash(aiText, j) === bookmark.contentHash) {
-                    targetEl = aiEls[j];
-                    break;
-                }
-            }
-            if (!targetEl && aiEls[bookmark.msgIndex]) {
-                targetEl = aiEls[bookmark.msgIndex];
+        function textOf(el) {
+            return isUser ? _readMessageText(el) : (el.textContent || '').trim();
+        }
+
+        // Preferred: stable uuid match against whatever is mounted.
+        var wantUuid = bookmark.msgUuid ||
+                       (/^[0-9a-f-]{36}$/i.test(bookmark.contentHash) ? bookmark.contentHash : null);
+        if (wantUuid) {
+            for (i = 0; i < els.length; i++) {
+                if (ciUuidForText(textOf(els[i])) === wantUuid) { targetEl = els[i]; break; }
             }
         }
 
+        // Legacy schema 1: recompute the position-dependent hash. Note this only
+        // matches when the message happens to sit at the same index it did when
+        // bookmarked, which is why these records are migrated on sight below.
         if (!targetEl) {
-            showToast('Message not found \u2014 it may have been deleted');
+            for (i = 0; i < els.length; i++) {
+                if (contentHash(textOf(els[i]), i) === bookmark.contentHash) { targetEl = els[i]; break; }
+            }
+        }
+
+        // Pre-v12.0 hash input (raw textContent) — see _bmLegacyId().
+        if (!targetEl) {
+            for (i = 0; i < els.length; i++) {
+                if (contentHash((els[i].textContent || '').trim(), i) === bookmark.contentHash) {
+                    targetEl = els[i]; break;
+                }
+            }
+        }
+
+        // NOTE: the old `els[bookmark.msgIndex]` positional fallback is deliberately
+        // gone. With ~3 of 147 turns mounted it resolved to an unrelated message and
+        // then scrolled to and highlighted it as if correct \u2014 a confident wrong
+        // answer. Failing visibly is strictly better.
+        if (!targetEl) {
+            showToast('That message is not currently rendered \u2014 scroll toward it and try again');
             return;
+        }
+
+        // Opportunistic migration: once a legacy record is positively identified,
+        // upgrade it to a uuid so it stops depending on scroll position.
+        if (!bookmark.msgUuid) {
+            var resolved = ciUuidForText(textOf(targetEl));
+            if (resolved) {
+                bookmark.msgUuid    = resolved;
+                bookmark.contentHash = resolved;
+                bookmark.schema     = 2;
+                saveBookmark(bookmark);
+            }
         }
 
         orbScrollToMessage(targetEl);
@@ -3872,16 +4784,43 @@
 
     function _sumBuildTimeline(questions, aiResponses) {
         var all = [];
+        var i;
 
-        questions.forEach(function (q, i) {
-            all.push({ element: q.element, text: q.text || '', type: 'user', srcIndex: i });
+        // Index-backed: the active path is already in conversation order and
+        // covers the whole conversation, so no positional sort is needed.
+        if (ciIsClaudeChat() && ciIsReady() && _ciFullPath && _ciFullPath.length) {
+            for (i = 0; i < _ciFullPath.length; i++) {
+                all.push({
+                    element:  null,
+                    text:     _ciFullPath[i].text || '',
+                    type:     _ciFullPath[i].sender === 'human' ? 'user' : 'ai',
+                    srcIndex: i
+                });
+            }
+            all.forEach(function (m, idx) { m.globalIdx = idx; });
+            return all;
+        }
+
+        questions.forEach(function (q, qi) {
+            all.push({ element: q.element, text: q.text || '', type: 'user', srcIndex: qi });
         });
-        aiResponses.forEach(function (r, i) {
-            all.push({ element: r.element, text: r.text || '', type: 'ai',   srcIndex: i });
+        aiResponses.forEach(function (r, ri) {
+            all.push({ element: r.element, text: r.text || '', type: 'ai',   srcIndex: ri });
         });
 
-        all.sort(function (a, b) {
-            if (!a.element || !b.element) return 0;
+        // compareDocumentPosition returns DOCUMENT_POSITION_DISCONNECTED for
+        // detached nodes, matching neither FOLLOWING nor PRECEDING — the
+        // comparator then returns 0 and the sort degrades to arbitrary order.
+        // Drop unmounted entries from the ordering rather than letting them
+        // scramble the sequence.
+        var mounted   = [];
+        var unmounted = [];
+        for (i = 0; i < all.length; i++) {
+            if (all[i].element && all[i].element.isConnected) mounted.push(all[i]);
+            else unmounted.push(all[i]);
+        }
+
+        mounted.sort(function (a, b) {
             try {
                 var pos = a.element.compareDocumentPosition(b.element);
                 if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
@@ -3890,7 +4829,8 @@
             return 0;
         });
 
-        all.forEach(function (m, i) { m.globalIdx = i; });
+        all = mounted.concat(unmounted);
+        all.forEach(function (m, idx) { m.globalIdx = idx; });
         return all;
     }
 
@@ -4932,18 +5872,44 @@
 
     function buildTimeline(questions, aiMsgs) {
         var items = [];
-        questions.forEach(function (q) {
-            if (q.element) items.push({ type: 'user', element: q.element });
+        // Keep unmounted entries. Emergent accumulates questions across its own
+        // virtual scroll, so by the time the user exports, most stored elements
+        // are detached — filtering them out silently dropped them from the file
+        // while the header still counted them ("Messages: 3 (40 user, 0 AI)").
+        questions.forEach(function (q, i) {
+            if (q.element) items.push({ type: 'user', element: q.element, src: i });
         });
-        aiMsgs.forEach(function (el) {
-            items.push({ type: 'ai', element: el });
+        aiMsgs.forEach(function (el, j) {
+            if (el) items.push({ type: 'ai', element: el, src: j });
         });
+        // Pick ONE ordering key for the whole set. Mixing document position with a
+        // source-order fallback inside a single comparator is intransitive —
+        // detached-vs-mounted pairs answer by src while mounted pairs answer by DOM
+        // position, which admits cycles (a<b, b<c, c<a) and makes Array.sort emit
+        // arbitrary output.
+        var allMounted = true;
+        for (var k = 0; k < items.length; k++) {
+            if (!items[k].element.isConnected) { allMounted = false; break; }
+        }
+
+        if (allMounted) {
+            items.sort(function (a, b) {
+                if (a.element === b.element) return 0;
+                var pos = a.element.compareDocumentPosition(b.element);
+                if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+                if (pos & Node.DOCUMENT_POSITION_PRECEDING)  return 1;
+                return 0;
+            });
+            return items;
+        }
+
+        // Anything detached: order by (source index, question-before-answer). That
+        // is a genuine total order, and on accumulating virtual-scroll platforms
+        // _questions is already sorted by vsIndex, so it is chronological.
         items.sort(function (a, b) {
-            if (a.element === b.element) return 0;
-            var pos = a.element.compareDocumentPosition(b.element);
-            if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
-            if (pos & Node.DOCUMENT_POSITION_PRECEDING)  return 1;
-            return 0;
+            if (a.src !== b.src) return a.src - b.src;
+            if (a.type === b.type) return 0;
+            return a.type === 'user' ? -1 : 1;
         });
         return items;
     }
@@ -5035,8 +6001,81 @@
         }, 100);
     }
 
+    // Index-backed export. This is the highest-priority consumer: a truncated
+    // navigation list is visible to the user, a truncated export file is not.
+    // The old DOM path silently wrote "**Messages:** 8" for a 147-turn
+    // conversation — an authoritative-looking count over 3% of the data.
+    function _exportFromIndex() {
+        var path = _ciFullPath || [];
+        var users = 0, ais = 0, truncated = 0;
+        for (var i = 0; i < path.length; i++) {
+            if (path[i].sender === 'human') users++; else ais++;
+            if (path[i].truncated) truncated++;
+        }
+
+        var dateStr = new Date().toISOString().split('T')[0];
+        var lines = [];
+        lines.push('# Conversation Export');
+        lines.push('**Platform:** ' + platform.title);
+        lines.push('**Date:** ' + dateStr);
+        lines.push('**Messages:** ' + path.length + ' (' + users + ' user, ' + ais + ' AI)');
+        lines.push('**Source:** ' + (_ciPathComplete
+            ? 'complete conversation history (API)'
+            : 'PARTIAL conversation history (API) \u2014 see warning below'));
+        if (!_ciPathComplete) {
+            lines.push('');
+            lines.push('> \u26a0 **Incomplete history.** Walking the conversation tree from its ' +
+                       'current tip never reached the root message, so this export begins ' +
+                       'part-way through the conversation. Earlier messages are missing.');
+        }
+        if (truncated > 0) {
+            lines.push('');
+            lines.push('> \u26a0 **Incomplete:** ' + truncated + ' message' + (truncated !== 1 ? 's' : '') +
+                       ' in this conversation are marked truncated by Claude. Their full text is ' +
+                       'not available and the content below is partial.');
+        }
+        if (_ciUsedLeafFallback) {
+            lines.push('');
+            lines.push('> \u26a0 The active conversation branch was inferred rather than read from ' +
+                       'the authoritative pointer. If this conversation has edited or regenerated ' +
+                       'messages, verify the branch is the one you expect.');
+        }
+        lines.push('');
+        lines.push('---');
+
+        var qIdx = 0, aIdx = 0;
+        for (var j = 0; j < path.length; j++) {
+            var m = path[j];
+            lines.push('');
+            if (m.sender === 'human') { qIdx++; lines.push('## User (Q#' + qIdx + ')'); }
+            else                      { aIdx++; lines.push('## Assistant (A#' + aIdx + ')'); }
+            if (m.truncated) lines.push('*(truncated by Claude — partial content)*');
+            lines.push('');
+            lines.push(m.text || '*(no text content)*');
+            if (m.files && m.files.length) {
+                var names = [];
+                for (var f = 0; f < m.files.length; f++) {
+                    names.push(m.files[f].file_name || m.files[f].file_kind || 'file');
+                }
+                lines.push('');
+                lines.push('**Attachments:** ' + names.join(', '));
+            }
+            lines.push('');
+            lines.push('---');
+        }
+
+        downloadFile('conversation-export.md', lines.join('\n'));
+        showToast('Saved: conversation-export.md (' + path.length + ' messages)');
+    }
+
     function exportFullConversation() {
         try {
+        // Prefer the complete index; fall back to the DOM scan, which on a
+        // virtualized platform can only see what is mounted.
+        if (ciIsClaudeChat() && ciIsReady() && _ciFullPath && _ciFullPath.length) {
+            _exportFromIndex();
+            return;
+        }
         var questions = typeof _questions !== 'undefined' ? _questions : [];
         var aiMsgsArr = [];
         if (typeof platform !== 'undefined' && platform && platform.getAIMessages) {
@@ -5055,6 +6094,16 @@
         lines.push('**Date:** ' + dateStr);
         lines.push('**Messages:** ' + timeline.length +
             ' (' + questions.length + ' user, ' + aiMsgsArr.length + ' AI)');
+        // Never let a DOM-scraped export imply completeness on a platform that
+        // only mounts a window of the conversation.
+        if (ciIsClaudeChat()) {
+            lines.push('**Source:** on-screen messages only — DEGRADED');
+            lines.push('');
+            lines.push('> \u26a0 **This export is incomplete.** The full conversation history could ' +
+                       'not be loaded' + (_ciDegradedReason ? ' (' + _ciDegradedReason + ')' : '') +
+                       ', so only messages currently rendered on screen are included. ' +
+                       'Claude renders roughly 3\u20135 turns at a time.');
+        }
         lines.push('');
         lines.push('---');
         var qIdx = 0;

@@ -6,6 +6,74 @@ If you run into a problem, check here first — you might find we've already sol
 
 ---
 
+## v12.0 — Claude Virtualized Its Message List (2026-07-26)
+
+**The first Layer 4 "state break": the platform kept the data and stopped putting it in the DOM.**
+
+### Symptoms
+
+- Navigate panel shows only 3–6 questions no matter how long the conversation is
+- The list *changes as you scroll* — it follows the viewport, not the conversation
+- Search finds nothing for text you can clearly remember writing
+- Summary segments only the last few turns
+- Exported markdown is missing almost everything, but its header states a message count as if complete
+- Context bar reads implausibly low (e.g. 19%) while the turn counter is red
+- A bookmark jumps to the *wrong message* and highlights it as if correct
+- **No errors anywhere.** Console is clean. Everything looks like it is working.
+
+Measured on a real conversation: panel showed **4 questions; the conversation had 147.**
+
+### Diagnosis
+
+Run this in the console on a long claude.ai conversation:
+
+```js
+document.querySelectorAll('[data-testid="user-message"]').length
+```
+
+If that returns a single-digit number on a conversation you know is long, the message list is virtualized. Confirm it recycles rather than lazy-loads by scrolling the full length and re-running: with lazy loading the count grows and stays grown; with recycling it stays flat.
+
+Live measurements that confirmed it:
+
+| Probe | Result |
+|---|---|
+| Mounted user turns | **3** of 96 |
+| Scroll sweep 0 / 25 / 50 / 75 / 100% | same 3 at every position |
+| Cumulative unique turns | **3** — never accumulated |
+| `window.scrollY` | `0` throughout |
+| Scroll container | `scrollHeight` 124,064 / `clientHeight` 746 |
+
+### Root cause
+
+Claude virtualizes the message list **with recycling**: ~3–5 turns mounted, everything else unmounted and torn down. `document.querySelectorAll()` is no longer a complete record of the conversation.
+
+This is **not** a selector break. The selectors matched correctly — there was nothing else in the DOM to match. Changing selectors cannot fix it.
+
+### Fix
+
+Read Claude's own conversation JSON instead of the DOM. The full conversation is already in the browser — Claude's client downloads it on page load and chooses to render a window of it.
+
+See DEC-021 for the endpoint, the tree-walk algorithm, and why this is *not* the fetch interception that DEC-020 forbids. See DEC-022 for the Layer 4 risk category.
+
+### Gotchas found while implementing
+
+- **The API's top-level `text` field is empty on every message** (0 of 192). Content is in `content[]` blocks. Reading `text` yields a panel of blank rows.
+- **~10% of human turns have no text block.** Large pastes become a `txt` attachment with an empty `file_name`; the body is in `attachments[].extracted_content`.
+- **Root messages have a sentinel parent** `00000000-0000-4000-8000-000000000000`, not `null`.
+- **Setting `scrollTop` does not drive the virtualizer.** Verified: `scrollTop = x` plus a 3-second settle produced **no remount**. You must dispatch a synthetic `scroll` event on the container afterwards. This is the single most expensive thing to rediscover when implementing jump-to-message.
+- **A background tab stalls the fetch entirely.** Chromium freezes background tabs; a 3.3 MB request hung for minutes with `bytes: 0` and even a 40-second `AbortController` timer never fired. Foregrounding the tab completed the same request in 2.1 s. If you are debugging a "hanging" API call, check the tab is focused before assuming a server problem.
+- **`compareDocumentPosition` silently scrambles order** across unmounted nodes: detached nodes return `DOCUMENT_POSITION_DISCONNECTED`, matching neither FOLLOWING nor PRECEDING, so the comparator returns 0 and the sort degrades to arbitrary order.
+
+### Why the test suite never caught this
+
+Every mock page is static and mounts all its turns permanently, so `npm test` returned green throughout. **A suite of static mocks structurally cannot fail on a Layer 4 break.** `tests/mock-pages/claude-virtualized.html` was added for exactly this: 40 turns, 3 mounted, the rest genuinely removed from the document.
+
+### If it happens on another platform
+
+The general shape: DOM-derived counts that track the viewport instead of the conversation, with no errors. Find where the platform still holds the full data (its own API or store) and read from there, keeping the DOM path as a **visibly** degraded fallback. Do not let a fallback stay silent — that is what made this invisible for so long.
+
+---
+
 ## v11.6–v11.8 — Firefox Cross-Compartment Crisis on claude.ai (2026-03-14)
 
 This was a three-version incident: v11.6 fixed the initial crash, v11.7 attempted to preserve SSE tracking, and v11.8 resolved the issue completely by disabling fetch interception on Firefox. Documenting the full progression because this was the first time a platform update broke an entire browser, and the debugging journey revealed fundamental limitations of Tampermonkey's sandbox model.

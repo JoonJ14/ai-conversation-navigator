@@ -7,6 +7,13 @@ Design and implementation plan for real bookmark functionality, replacing the cu
 **Status:** Ready for implementation  
 **Depends on:** `getAIMessages()` selectors per platform (also needed by Context Tracking)
 
+> **v12.0 update — bookmarks are keyed to message UUIDs on Claude.**
+>
+> The scheme described below hashes `(text, msgIndex)` where `msgIndex` is a position in the live `getUserMessages()` NodeList. Claude now virtualizes its message list with recycling (~3 of 147 turns mounted), so that index changes as the user scrolls and records silently stop matching their own message. The `els[bookmark.msgIndex]` positional fallback was worse still: with ~3 elements mounted it resolved to an *unrelated* message and scrolled to it as if correct.
+>
+> Changes: records gained `schema: 2` and `msgUuid`, sourced from the conversation index (DEC-021). Resolution order is uuid → legacy `(text, index)` hash → pre-v12.0 raw-`textContent` hash. **The positional fallback is gone** — failing visibly beats a confident wrong answer. Legacy records migrate to a uuid the first time they are positively identified. Icon injection now guards on the recorded identity rather than mere presence, because React reuses the same DOM node for different messages under recycling.
+
+
 ---
 
 ## Table of Contents

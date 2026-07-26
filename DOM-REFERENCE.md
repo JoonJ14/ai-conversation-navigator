@@ -2,7 +2,9 @@
 
 This document records the **real DOM structure** of user messages on each supported platform, the selectors we chose, and the debugging history that led to each choice. This prevents context loss across sessions.
 
-Last updated: Feb 18, 2026 (v8.0 — all 14 platforms inspected from live sites; selectors still current as of v11.8)
+Last updated: Jul 26, 2026 (v12.0 — Claude fully re-inspected from the live site; the other 13 platforms were last verified Feb 18, 2026 and have NOT been re-checked since)
+
+> ⚠️ **Staleness warning.** Claude's selectors drifted substantially between Feb and Jul 2026 without anyone noticing, because the fallback chains absorbed it and the mock-based test suite stayed green. Assume the other 13 entries carry the same risk until re-inspected.
 
 ---
 
@@ -26,9 +28,59 @@ Last updated: Feb 18, 2026 (v8.0 — all 14 platforms inspected from live sites;
 
 ## Claude
 
-**Inspected:** Feb 16, 2026 (live site)
-**Selector:** `[data-testid="user-human-turn"]`
-**Fallback:** `[data-testid="user-message"]`, `.font-user-message`
+**Inspected:** Jul 26, 2026 (live site — full re-inspection)
+**Selector:** `[data-testid="user-message"]`
+**Fallback:** `[data-testid="user-human-turn"]`, `.\!font-user-message`, `[data-testid="user_message"]`, `div.bg-bg-300` filtered by `.items-end`
+
+> ⚠️ **Claude virtualizes its message list with recycling.** Only ~3–5 user turns are mounted at any moment; the rest are unmounted. Selector counts here describe the *mounted window*, not the conversation. Message enumeration comes from the API-backed conversation index (DEC-021), not from these selectors. They remain the degraded fallback.
+
+### v12.0 selector drift (measured live, Jul 26 2026)
+
+The structure documented for v11.x below is **stale**. What changed:
+
+| Selector | v11.x role | Jul 2026 live count |
+|---|---|---|
+| `[data-testid="user-human-turn"]` | primary | **0** — removed from the turn wrapper |
+| `[data-testid="user-message"]` | fallback ("not present in current DOM") | **3** — now the only live user selector |
+| `.font-user-message` | fallback | **0** — class is now `!font-user-message` |
+| `[data-testid="user_message"]` | fallback | **0** |
+| `.font-claude-response` | AI primary | **5** — only live AI selector |
+| `[data-testid="ai-turn"]` / `assistant-message` / `.font-claude-message` | AI fallbacks | **0** |
+| `[data-testid$="-turn"]` | AI last resort | **0** |
+
+Three things worth internalising:
+
+1. **`data-testid="user-message"` moved.** It used to be a wrapper-level attribute; it now sits on the **inner content node** (old element J). Anything treating the returned element as a *turn* — bookmark icon placement, `getMessageContext`, scroll targets — is now operating on a different node than v11.x assumed. Its `textContent` is clean (no sr-only label, no doubling).
+2. **`.font-user-message` → `!font-user-message`.** Tailwind's important prefix. A plain `.font-user-message` selector cannot match it; the escaped form `.\!font-user-message` is required.
+3. **Both chains were down to a single working link.** The fallback chains had been silently absorbing this the whole time.
+
+### Current structure (Jul 2026, live)
+
+```
+A: div.overflow-y-auto.overflow-x-hidden.[scrollbar-gutter:stable].mt-12.pt-2.flex-1  (scroll container)
+   └─ measured: scrollHeight 124064 / clientHeight 746 (166x) — full height reserved via spacers
+  C: div.mb-1.group                                    (turn wrapper — NO data-testid any more)
+    D: div.flex.flex-col.items-end.gap-1               (alignment — items-end for user)
+      E: div.group.relative.inline-flex.gap-2.bg-bg-300.rounded-xl   (bubble — note bg-bg-300, not bg-bg-200)
+        F: div.flex.flex-row.gap-2.relative
+          G: div.flex-1
+            H: div[data-testid="user-message"].font-large.!font-user-message.py-0.5.grid.grid-cols-1.gap-2   (OUR TARGET)
+              I: p.whitespace-pre-wrap.break-words     (actual text)
+```
+
+Assistant turns: `div.font-claude-response`, left-aligned (`items-start`).
+
+**Scroll container:** locate it by walking up from a mounted message for the first ancestor with computed `overflowY` of `auto`/`scroll` **and** `scrollHeight > clientHeight`, guarded by `clientHeight > innerHeight * 0.4` and `scrollHeight > clientHeight * 1.5`. Do **not** select on its class string — it has already changed once (`overflow-y-scroll` → `overflow-y-auto`, `pt-6` → `mt-12 pt-2`). The guard matters because code blocks and tables inside messages are themselves `overflow: auto`.
+
+**`window.scrollY` is always `0`** — the conversation scrolls in the inner container, not the window.
+
+**Driving the virtualizer:** setting `scrollTop` alone does **not** cause a remount (verified: `scrollTop = x` + 3 s settle → no change). Dispatch a synthetic `scroll` event on the container after repositioning.
+
+---
+
+### Historical: v11.x structure (superseded — kept for context)
+
+**Inspected:** Feb 16, 2026
 
 ### Real DOM Structure (A→K nesting)
 

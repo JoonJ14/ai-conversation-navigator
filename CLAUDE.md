@@ -27,7 +27,7 @@ AI Conversation Navigator is a single-file browser userscript (Tampermonkey/Grea
 
 ## Platform Risk Awareness
 
-This project injects code into web applications we don't control. There are **three distinct categories** of breakage — fixing one does not protect against the others. Any agent working on this codebase must understand all three.
+This project injects code into web applications we don't control. There are **four distinct categories** of breakage — fixing one does not protect against the others. Any agent working on this codebase must understand all four.
 
 **Layer 1 — DOM breaks:** Platform changes HTML structure. Our selectors return empty. Features degrade but the host page works fine. This is the most common break. Fix by updating selectors and mock pages. The planned automated DOM validation framework targets this layer.
 
@@ -35,9 +35,22 @@ This project injects code into web applications we don't control. There are **th
 
 **Layer 3 — Execution breaks (CRITICAL):** Platform changes vendor bundles, CSP headers, or security policies in ways that cause our injected code to crash the HOST PAGE entirely — not just our features. Users see a black screen or broken app. This is qualitatively different: Layers 1–2 degrade our tool, Layer 3 kills the platform. First occurrence: v11.6 (Claude's Visualizer update broke Firefox via cross-compartment `.bind()` on our replaced `fetch`). See TROUBLESHOOTING.md v11.6 entry and DEC-019.
 
+**Layer 4 — State breaks (CRITICAL):** Platform keeps the full data but stops putting it in the DOM. Message-list virtualization with recycling mounts a window of turns and unmounts the rest. Selectors still match; every match is still correct; there are just far fewer of them and no error anywhere. First occurrence: v12.0 (Claude — 3 of 96 turns mounted, ~3% coverage). This is the only layer that **reports success on a fraction of the data**, which is why it hid for so long: a 4-question panel on a 147-question conversation looks exactly like a short conversation. Fix by changing data source, not selectors. See DEC-021, DEC-022.
+
 **Why Layer 3 matters for agents:** DOM validation and Playwright mock tests CANNOT catch Layer 3 breaks — they don't have real vendor bundles or CSP headers. If you're doing defensive work, DOM selectors are necessary but not sufficient. Any code that replaces page globals (`unsafeWindow.fetch`, `history.pushState`, etc.) is a latent Layer 3 risk. Minimize global patching. Always use `exportFunction()` wrapping.
 
+**Why Layer 4 matters for agents:** it defeats *both* of the tools built for the other layers. DOM validation targets Layer 1 and would pass — the selectors are fine. Playwright mock tests pass too, because every static mock mounts all its turns permanently; **a suite of static mocks structurally cannot fail on a Layer 4 break.** Before trusting any count derived from `querySelectorAll`, ask whether the platform virtualizes. If you add a virtualizing platform, ship a mock that genuinely *unmounts* nodes (`tests/mock-pages/claude-virtualized.html` is the reference) — hiding them with `display:none` does not reproduce the failure. And whenever a feature falls back to DOM scanning, that degradation must be **visible in the UI**, never console-only.
+
 Full risk model with examples and mitigation strategies: see ROADMAP.md "Platform Risk Model" section.
+
+## Data Source Awareness (v12.0+)
+
+On `claude.ai/chat/<uuid>`, `_questions` is populated from the **API-backed conversation index** (`ci*` functions), not from the DOM. The DOM scan is the fallback. Before changing anything that enumerates messages:
+
+- `ciIsReady()` tells you which path is live. `getUserMessages()` returns only the ~3 mounted turns on Claude and is **not** a conversation-length signal.
+- `q.element` is `null` for any question outside the mounted window. Never assume it exists; use `_relocateQuestionElement(q)` and fail visibly if it returns null.
+- Never order messages with `compareDocumentPosition` across unmounted nodes — detached nodes compare as DISCONNECTED, the comparator returns 0, and the sort silently degrades to arbitrary order. Use the index order.
+- Never key persisted data to a DOM index. Use the message uuid (see the bookmarks schema-2 migration).
 
 ## Agent Documentation
 

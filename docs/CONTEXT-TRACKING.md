@@ -6,6 +6,15 @@ Research, implementation plans, and technical reference for the context window u
 **Applies to:** v10.0+ (Orbital UI)  
 **Status:** Planning — ready for implementation handoff
 
+> **v12.0 update — the DOM paths were undercounting by roughly 35x.**
+>
+> Path A and Path B both measured `innerText` on the scroll container, which on a virtualized list contains only the mounted window. The existing virtual-scroll coverage correction could never compensate: `_questions` is rebuilt from live DOM on every scan, so `nInDOM / _questions.length` evaluated to exactly `1.0` and the correction was a no-op. This is the underlying cause of the long-standing "turn counter red but context shows 19%" mismatch that PR #47 only partially addressed.
+>
+> Both paths now use `ciTotalChars()` over the full active path when the index is ready. Extended-thinking tokens come from real `content[]` blocks of type `thinking` via `ciTotalThinkingChars()`, replacing the `[aria-expanded] × 600 tokens` heuristic — which was itself doubly wrong here, since it could only count *mounted* thinking blocks.
+>
+> This matters most on Firefox, where SSE interception is disabled (DEC-020) and Path B is the only path, making the undercount permanent for those users.
+
+
 ---
 
 ## Table of Contents

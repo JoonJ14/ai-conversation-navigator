@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html><head><title>Claude Virtualized Mock</title></head>
+<body style="margin:0;padding:0;background:#2b2a27;color:#e8e4db;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<!-- Claude (claude.ai/chat) — VIRTUALIZED mock. Added v12.0.
+
+     WHY THIS MOCK EXISTS
+     claude.html is a static page: all of its user turns are permanently mounted,
+     so the test suite could never fail on the bug that motivated v12.0. Claude's
+     real web app virtualizes the message list WITH RECYCLING — it mounts a window
+     of roughly 3-5 turns and unmounts everything else. Measured live on a
+     96-turn conversation: 3 turns mounted, ~3% coverage. document.querySelectorAll()
+     is therefore not a complete record of the conversation.
+
+     A static mock cannot reproduce that. This page can: it holds 40 turns in
+     JavaScript and mounts only WINDOW_SIZE of them at a time, recycling the rest
+     out of the DOM exactly as the real app does. Without it, `npm test` returns
+     green on a feature that is 97% broken.
+
+     WHAT IT REPRODUCES
+       1. Only WINDOW_SIZE user turns exist in the DOM at any moment
+       2. Scrolling changes WHICH turns are mounted — the set never accumulates
+       3. Full scroll height is reserved via spacers (the real app does this too,
+          which is what makes Phase 3's offset estimation viable)
+       4. The CURRENT DOM shape as re-inspected live in July 2026, NOT the shape
+          documented for v11.x — see below
+
+     DOM SHAPE (live, July 2026 — differs from claude.html)
+       - data-testid="user-human-turn" NO LONGER EXISTS on the turn wrapper
+       - data-testid="user-message" moved ONTO the inner content node
+       - .font-user-message is now .!font-user-message (Tailwind important prefix),
+         which a plain `.font-user-message` selector cannot match
+       - scroll container is overflow-y-auto (was overflow-y-scroll)
+
+     Per user turn:
+       A: div (scroll container, overflow-y:auto)
+         B: div (top spacer — reserves scroll height for unmounted turns above)
+           C: div.mb-1.group (turn wrapper — NO data-testid any more)
+             D: div.flex.flex-col.items-end.gap-1
+               E: div.group.relative.inline-flex.bg-bg-300.rounded-xl (bubble)
+                 F: div.flex.flex-row.gap-2.relative
+                   G: div.flex-1
+                     H: div[data-testid="user-message"].!font-user-message  (TARGET)
+                       I: p.whitespace-pre-wrap.break-words (text)
+         J: div (bottom spacer)
+
+     Assistant turns use div.font-claude-response (the only live AI selector).
+
+     The test drives this page at /chat/<uuid> so the userscript's
+     ciIsClaudeChat() guard matches and the conversation-index path engages. No
+     GM_xmlhttpRequest shim exists in the harness, so the API fetch fails and the
+     script must fall back to the DOM scan AND surface the degraded banner —
+     which is precisely the acceptance criterion being tested. -->
+
+<div style="display:flex;height:100vh;width:100%;">
+
+  <!-- ── Left sidebar ──────────────────────────────────────────────────────── -->
+  <nav style="width:260px;min-width:260px;background:#1a1917;border-right:1px solid #3a3835;overflow-y:auto;">
+    <div style="padding:16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #3a3835;">
+      <svg width="20" height="20" viewBox="0 0 20 20" style="fill:#d97706;"><circle cx="10" cy="10" r="8"/></svg>
+      <span style="font-size:15px;font-weight:600;">Claude</span>
+    </div>
+  </nav>
+
+  <!-- ── Main column ───────────────────────────────────────────────────────── -->
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+
+    <header data-testid="chat-header" style="height:48px;border-bottom:1px solid #3a3835;display:flex;align-items:center;padding:0 20px;font-size:14px;">
+      Virtualized conversation
+    </header>
+
+    <!-- A: scroll container. overflow-y:auto + tall content, matching live. -->
+    <div id="mock-scroll-container"
+         class="overflow-y-auto overflow-x-hidden mt-12 pt-2 flex-1"
+         style="overflow-y:auto;overflow-x:hidden;flex:1;position:relative;">
+
+      <!-- B: top spacer -->
+      <div id="mock-spacer-top" style="width:100%;"></div>
+
+      <!-- Mounted window is rendered here -->
+      <div id="mock-mounted" class="mx-auto max-w-3xl" style="max-width:768px;margin:0 auto;padding:0 16px;"></div>
+
+      <!-- J: bottom spacer -->
+      <div id="mock-spacer-bottom" style="width:100%;"></div>
+    </div>
+
+    <div data-testid="chat-input" style="border-top:1px solid #3a3835;padding:12px 20px;">
+      <div contenteditable="true" role="textbox" style="min-height:24px;padding:8px 12px;background:#1a1917;border-radius:8px;">Reply to Claude…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+    // ── Conversation data (lives in JS, NOT in the DOM) ───────────────────────
+    // This mirrors reality: the full conversation is in the app's memory, and the
+    // renderer chooses to expose only a slice of it to the document.
+    var TOTAL_TURNS  = 40;
+    var WINDOW_SIZE  = 3;    // user turns mounted at once (live measured: 3)
+    var TURN_HEIGHT  = 320;  // px reserved per turn pair, for spacer math
+
+    var TURNS = [];
+    for (var i = 0; i < TOTAL_TURNS; i++) {
+        TURNS.push({
+            user: 'Question number ' + (i + 1) + ': how do I handle case ' + (i + 1) +
+                  ' when the input is unusual and needs special treatment?',
+            ai:   'Answer number ' + (i + 1) + ': you handle case ' + (i + 1) +
+                  ' by validating the input first and then branching on the result.'
+        });
+    }
+
+    var container   = document.getElementById('mock-scroll-container');
+    var mounted     = document.getElementById('mock-mounted');
+    var spacerTop   = document.getElementById('mock-spacer-top');
+    var spacerBot   = document.getElementById('mock-spacer-bottom');
+
+    function el(tag, cls, style) {
+        var n = document.createElement(tag);
+        if (cls)   n.className = cls;
+        if (style) n.setAttribute('style', style);
+        return n;
+    }
+
+    // Builds one user turn using the CURRENT live DOM shape.
+    function buildUserTurn(text) {
+        var wrapper = el('div', 'mb-1 group');                                  // C
+        var align   = el('div', 'flex flex-col items-end gap-1',
+                         'display:flex;flex-direction:column;align-items:flex-end;gap:4px;'); // D
+        var bubble  = el('div', 'group relative inline-flex gap-2 bg-bg-300 rounded-xl',
+                         'display:inline-flex;background:#3a3835;border-radius:12px;padding:10px 16px;max-width:85%;'); // E
+        var row     = el('div', 'flex flex-row gap-2 relative');                // F
+        var flex1   = el('div', 'flex-1');                                      // G
+
+        // H — the live target. Note the escaped-important class name.
+        var content = el('div', 'font-large !font-user-message py-0.5 grid grid-cols-1 gap-2 relative');
+        content.setAttribute('data-testid', 'user-message');
+
+        var p = el('p', 'whitespace-pre-wrap break-words', 'margin:0;white-space:pre-wrap;');
+        p.textContent = text;                                                   // I
+
+        content.appendChild(p);
+        flex1.appendChild(content);
+        row.appendChild(flex1);
+        bubble.appendChild(row);
+        align.appendChild(bubble);
+        wrapper.appendChild(align);
+        return wrapper;
+    }
+
+    function buildAiTurn(text) {
+        var wrapper = el('div', 'mb-1 mt-6 group');
+        var align   = el('div', 'flex flex-col items-start gap-1',
+                         'display:flex;flex-direction:column;align-items:flex-start;gap:4px;');
+        var body    = el('div', 'font-claude-response',
+                         'max-width:85%;line-height:1.6;padding:10px 0;');
+        var p       = el('p', 'whitespace-pre-wrap break-words', 'margin:0;');
+        p.textContent = text;
+        body.appendChild(p);
+        align.appendChild(body);
+        wrapper.appendChild(align);
+        return wrapper;
+    }
+
+    // ── The recycling renderer ────────────────────────────────────────────────
+    // Everything outside [start, end) is REMOVED from the document, not hidden.
+    // Hiding with display:none would leave the nodes queryable and would not
+    // reproduce the bug.
+    var currentStart = -1;
+
+    function render() {
+        var maxStart = Math.max(0, TOTAL_TURNS - WINDOW_SIZE);
+        var start = Math.round(container.scrollTop / TURN_HEIGHT);
+        if (start < 0) start = 0;
+        if (start > maxStart) start = maxStart;
+        if (start === currentStart) return;
+        currentStart = start;
+
+        var end = Math.min(TOTAL_TURNS, start + WINDOW_SIZE);
+
+        while (mounted.firstChild) mounted.removeChild(mounted.firstChild);
+        for (var i = start; i < end; i++) {
+            mounted.appendChild(buildUserTurn(TURNS[i].user));
+            mounted.appendChild(buildAiTurn(TURNS[i].ai));
+        }
+
+        // Reserve the full scroll height so the scrollbar reflects the whole
+        // conversation, exactly as the real app does.
+        spacerTop.style.height = (start * TURN_HEIGHT) + 'px';
+        spacerBot.style.height = Math.max(0, (TOTAL_TURNS - end) * TURN_HEIGHT) + 'px';
+    }
+
+    container.addEventListener('scroll', render, { passive: true });
+    render();
+
+    // Test hooks — mirror the data-acn-* contract style so assertions stay stable.
+    window.__mockVirtualization = {
+        totalTurns:  TOTAL_TURNS,
+        windowSize:  WINDOW_SIZE,
+        mountedCount: function () {
+            return document.querySelectorAll('[data-testid="user-message"]').length;
+        },
+        scrollToFraction: function (f) {
+            container.scrollTop = Math.round(
+                (container.scrollHeight - container.clientHeight) * f);
+            render();
+        }
+    };
+})();
+</script>
+</body>
+</html>

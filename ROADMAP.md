@@ -30,9 +30,18 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v11.8
+## Current Status: v12.0
 
 The extension supports 14 platform variants across 12 websites.
+
+**v12.0 Accomplishments (2026-07-26):**
+- **API-Backed Conversation Index (DEC-021):** Claude virtualized its message list with recycling — only ~3 of 147 user turns are mounted at any moment (~3% coverage), so `document.querySelectorAll()` stopped being a complete record of the conversation. Navigate, Search, Summary and Export were all operating on a fraction of the data, and Export was silently writing truncated files under an authoritative-looking message count. Fixed by reading Claude's own conversation JSON endpoint via `GM_xmlhttpRequest` and walking the message tree from `current_leaf_message_uuid` to isolate the active branch. This is an ordinary outbound request, not fetch interception — no Firefox cross-compartment exposure (DEC-019/DEC-020).
+- **Layer 4: State Breaks (DEC-022):** New platform-risk category. The selectors matched, the script ran, no competing feature shipped — the platform simply withdrew the data from the DOM while still holding it. It is the only failure mode that reports success on a fraction of the data.
+- **Claude Selector Refresh:** Live re-inspection found `[data-testid="user-human-turn"]` removed from the turn wrapper, `data-testid="user-message"` relocated onto the inner content node, and `.font-user-message` renamed to `!font-user-message`. Both the user and AI selector chains were surviving on a single link each; the fallback chain had been silently absorbing a Layer 1 break underneath the Layer 4 one.
+- **Virtualizing Test Mock:** `tests/mock-pages/claude-virtualized.html` holds 40 turns and mounts 3, genuinely unmounting the rest. Static mocks structurally cannot fail on a Layer 4 break — the suite had been green throughout.
+- **Bookmarks Keyed to Message UUIDs (schema 2):** Bookmarks hashed `(text, DOM index)`. Under recycling that index changes as the user scrolls, so bookmarks silently stopped matching their own messages — and the positional fallback resolved to an *unrelated* mounted message and scrolled to it as if correct. The positional fallback is gone; legacy records migrate on sight.
+- **Context Tracking Undercount Fixed:** Path A and Path B both measured `innerText` of the scroll container, seeing only the mounted window. The virtual-scroll coverage correction could never help, because `_questions` was rebuilt from live DOM each scan and so `nInDOM / _questions.length` was always exactly 1.0. Now driven from the index, with real thinking-token counts from `content[]` blocks instead of an `[aria-expanded] × 600` heuristic.
+- **Org UUID Resolution:** `fetchClaudeUsage()` took `orgs[0]` — a positional guess that returned another organization's usage for multi-org users. Replaced with cookie → `chat`-capability ranking → validate-by-use.
 
 **v11.8 Accomplishments (2026-03-14):**
 - **Firefox: Disable Fetch Interception (DEC-020):** `setupClaudeSSEInterceptor()` now returns immediately on Firefox (`typeof exportFunction === 'function'`). The sandbox execution taints `arguments` and return values when proxying `fetch` — even fire-and-forget patterns fail because the sandbox's participation in `_nativeFetch.apply()` creates cross-compartment wrappers that Firefox blocks with `Permission denied to access property "length"`. Context bar falls back to DOM estimation (Path B). SPA history patches remain safe with `exportFunction()` (they return `undefined`). Permanent fix requires the extension transition (WXP) with `world: "MAIN"` content scripts.
@@ -170,9 +179,9 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 
 ---
 
-## Platform Risk Model — Three Layers of Breakage
+## Platform Risk Model — Four Layers of Breakage
 
-This project lives inside other companies' web applications. We don't control the host environment. Through 200+ commits of cross-platform work, we've identified three distinct categories of breakage, each requiring different detection and mitigation strategies. Understanding these layers is critical for planning defensive infrastructure and the eventual extension transition.
+This project lives inside other companies' web applications. We don't control the host environment. Through 200+ commits of cross-platform work, we've identified four distinct categories of breakage, each requiring different detection and mitigation strategies. Understanding these layers is critical for planning defensive infrastructure and the eventual extension transition.
 
 ### Layer 1: DOM Breaks — "Selectors stop matching"
 
@@ -216,6 +225,37 @@ This project lives inside other companies' web applications. We don't control th
 - Extension APIs like `chrome.scripting` handle injection in a way the browser is designed to support
 - CSP changes that would break extensions would also break password managers, accessibility tools, and ad blockers — platforms generally won't go that far
 
+### Layer 4: State Breaks — "The DOM stops being the record" ⚠️ NEW
+
+**What happens:** A platform keeps rendering correctly and keeps holding the complete conversation — but stops putting all of it in the document. Message-list virtualization with recycling mounts a small window of turns and unmounts the rest. Our selectors still match. Every match is still correct. There are simply far fewer of them, and nothing anywhere reports an error.
+
+**First occurrence:** v12.0 (2026-07-26). Claude virtualized its message list. Measured live on a 96-turn conversation: **3 turns mounted, ~3% coverage.** A scroll sweep across the full conversation kept the same 3 mounted the entire way — the set never accumulated, confirming recycling rather than lazy loading. Navigate showed ~3% of questions; Search could only match mounted text; Summary segmented a fraction; and Export silently wrote a truncated file under an authoritative `**Messages:** 8` header. See DEC-021 and DEC-022.
+
+**Why this is its own category:** it is the only layer that **reports success on a fraction of the data.**
+
+- Layer 1 announces itself: zero results
+- Layer 2 announces itself: a visible competing feature
+- Layer 3 announces itself violently: a dead page
+- Layer 4 returns a plausible, non-empty, entirely wrong answer
+
+A 4-question panel on a 147-question conversation is indistinguishable from a short conversation. That is precisely why it survived undetected.
+
+**Why this will happen again:** virtualization is the standard fix for long-list rendering performance, and AI conversations only get longer. Any platform whose conversations routinely exceed a few hundred turns has a performance incentive to virtualize. ChatGPT has shipped list virtualization before. This is a normal front-end optimization, not a hostile act — which is exactly why there will be no warning.
+
+**Detection:** *Neither* of the tools built for the other layers works here.
+
+- DOM validation targets Layer 1 and would **pass** — the selectors are fine
+- Playwright mock tests **passed the entire time**, because every mock page is static and mounts all its turns permanently
+
+**A test suite of static mocks structurally cannot fail on a Layer 4 break.** The only reliable signal is comparing a DOM-derived count against an independent source of truth. `tests/mock-pages/claude-virtualized.html` exists for exactly this reason: it holds 40 turns and mounts 3, genuinely removing the rest from the document.
+
+**Mitigation:**
+- Find where the platform still holds the data — its own API or store — and read from there (DEC-021)
+- Keep the DOM path as a fallback, and make degraded operation **visible in the UI**, never console-only
+- For every virtualizing platform, ship a mock that genuinely unmounts nodes; `display:none` does not reproduce the failure
+- Record for each platform whether its message list is virtualized
+- Treat any "scan the page = see the conversation" assumption as a standing liability
+
 ### Layer severity comparison
 
 | Layer | What breaks | Severity | Frequency | Detectable automatically? |
@@ -223,8 +263,11 @@ This project lives inside other companies' web applications. We don't control th
 | DOM breaks | Our features degrade | Medium | High (monthly) | Yes — planned DOM validation framework |
 | Feature breaks | Our features become redundant | Low | Low (quarterly) | No — requires human monitoring |
 | Execution breaks | Host page crashes entirely | **Critical** | Low but increasing | No — requires live browser testing with real vendor bundles |
+| State breaks | Our features silently operate on a fraction of the data | **Critical** | Unknown — first seen v12.0 | Only by cross-checking DOM counts against an independent source; static mocks cannot catch it |
 
-The key insight: **DOM validation is necessary but not sufficient.** A project that only watches for selector changes will be blindsided by execution breaks. Live-site smoke testing with the actual script loaded (not just mock pages) is the only way to catch Layer 3 issues before users do.
+The key insight: **DOM validation is necessary but not sufficient.** A project that only watches for selector changes will be blindsided by execution breaks *and* by state breaks. Live-site smoke testing catches Layer 3. Layer 4 needs something different again — a source of truth outside the DOM to compare against, because the failure mode is not "no data" but "confidently incomplete data."
+
+Layer 4 is also the clearest ceiling yet on DOM augmentation as a strategy. Layers 1–3 are hazards to engineer around; Layer 4 says the DOM may stop being a complete record whenever a platform decides rendering performance matters more than document completeness. It is the strongest argument so far for the API-first direction of the extension transition.
 
 ---
 

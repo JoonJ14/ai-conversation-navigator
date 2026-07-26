@@ -640,3 +640,90 @@ SSE token tracking is a single-platform enhancement for Claude's context bar. Sa
 - SPA history patches (`pushState`, `replaceState`) are safe with `exportFunction()` — continue using them
 - If a future Tampermonkey update provides `world: "MAIN"` support for userscripts, re-evaluate this decision
 - The extension transition (WXP) eliminates this limitation entirely — `world: "MAIN"` content scripts have no sandbox compartment
+
+---
+
+## DEC-021: API-Backed Conversation Index for Claude — the DOM Is No Longer the Record (v12.0)
+**Date:** 2026-07-26 | **Stage:** v12.0
+
+### Decision
+On `claude.ai/chat/<uuid>`, message enumeration comes from Claude's own conversation JSON endpoint, not from `document.querySelectorAll()`. A module of `ci*`-prefixed functions fetches the conversation, walks the message tree from `current_leaf_message_uuid` to isolate the active branch, and becomes the source of truth for Navigate, Search, Summary, Export, and context tracking. The DOM scanner is retained as a fallback and remains the only path for the other 13 platforms.
+
+### Context
+Claude's web app virtualizes the message list **with recycling**. Only a window of roughly 3–5 user turns is mounted at any moment; everything outside it is unmounted and torn down. Measured on a live 96-turn conversation: **3 turns mounted, ~3% coverage**. A scroll sweep at 0/25/50/75/100% kept the same 3 turns mounted the whole way — the set never accumulated.
+
+This broke every feature built on a full-page scan. Navigate showed ~3% of questions. Search could only match mounted text. Summary segmented a fraction of the conversation. **Export silently wrote truncated files with an authoritative-looking `**Messages:** 8` header** — the worst of the set, because a short nav list is visible to the user and a truncated export file is not.
+
+Critically, this is **not** a selector break. The selectors matched correctly; there was simply nothing else in the DOM to match. No change to `getUserMessages()` could have fixed it.
+
+### Why an API read is safe here (and why fetch interception was not)
+DEC-019 and DEC-020 established that replacing page globals — especially `fetch` — crashes Claude on Firefox, because a sandbox-compartment function taints the return pipeline the page then inspects. **That reasoning does not apply here.** This is an ordinary *outbound* request via `GM_xmlhttpRequest`: it replaces no page global, the page never sees our Promise, and nothing crosses back into the page compartment. `GM_xmlhttpRequest` was explicitly rejected in DEC-020 as a way to *intercept* existing traffic — that rejection stands. Using it to make our own request is a different thing entirely.
+
+### Verified endpoint behaviour
+```
+GET /api/organizations/{org}/chat_conversations/{cid}
+    ?tree=True&rendering_mode=messages&render_all_tools=true&consistency=strong
+```
+Measured: HTTP 200, 3,289,821 bytes, ~2.1 s, 297 messages on the reference conversation. No `anthropic-client-*` headers required — which matters, because `anthropic-client-sha` looks like a build hash that would rotate every deploy.
+
+### Three findings that changed the design
+1. **The top-level `text` field is empty on every message** (0 of 192 non-empty). Content lives in `content[]` blocks (`text`, `thinking`, `tool_use`, `tool_result`). Reading `text` would have rendered a panel of blank rows.
+2. **~10% of human turns have no text block at all.** Large pastes become a `txt` attachment with an empty `file_name` and the body in `attachments[].extracted_content` — 14 of 147 turns on the branch fixture. `ciExtractText()` falls back through attachments, then file names.
+3. **Root messages carry a sentinel parent**, `00000000-0000-4000-8000-000000000000`, not `null`. The walk tests for it by name (`CI_ROOT_PARENT_UUID`) rather than relying on the uuid merely being absent from the message map.
+
+### The tree is not a list
+`parent_message_uuid` is on every message; editing or regenerating creates a branch, and `chat_messages` therefore contains abandoned branches alongside the live conversation. Listing every `sender === 'human'` message would surface questions the user edited away — presenting discarded content as current, which is arguably worse than showing too few. `current_leaf_message_uuid` is the authoritative tip; the newest-leaf heuristic is a logged fallback only. Verified against a 2-leaf fixture: 297 total / 148 human / 295 active path / **147 active human turns** / 2 abandoned — exact match on all six expected values.
+
+### Alternatives Considered
+**Flip the existing `virtualScroll: true` flag for Claude.** The registry already has an accumulate-across-scroll mode (used by Codex). *Rejected:* it only accumulates what the user has manually scrolled past, so opening a conversation and clicking Navigate still shows ~3. Its coverage correction is also inert here — `_questions` is rebuilt from live DOM every scan, so `nInDOM / _questions.length` is always exactly 1.0.
+
+**Scrape harder / widen selectors.** *Rejected:* the data is not in the document at any selector.
+
+**Intercept Claude's own conversation fetch.** *Rejected:* that is precisely the DEC-020 failure mode, and it would be Firefox-fatal.
+
+**Refetch on every new message.** *Rejected:* 3.3 MB per turn. Replaced by DOM-merging mounted messages as provisional entries, with a cooldown-gated refetch to resync UUIDs.
+
+### Constraints
+- The DOM scanner must never be deleted — it is the fallback and the path for 13 other platforms
+- Failure must be **visible**: `orbRenderIndexBanner()` renders a `data-acn-index-status` banner. Silent degradation is what let this bug hide for so long
+- Export must never imply completeness it does not have — the degraded path stamps `**Source:** on-screen messages only — DEGRADED`
+- Respect `truncated`; surface it in the banner and the export header
+- Cap the tree walk at `chat_messages.length` — a cycle would otherwise spin forever
+- Never refetch without the `CI_REFETCH_COOLDOWN_MS` gate; `_ciInFlight` alone prevents only *concurrent* fetches, not a sequential loop
+- Build for per-platform adapters: if another platform virtualizes, this becomes a shared abstraction rather than a Claude special case
+
+---
+
+## DEC-022: A Fourth Platform Risk Category — Layer 4: State Breaks (v12.0)
+**Date:** 2026-07-26 | **Stage:** v12.0
+
+### Decision
+The platform risk model gains a fourth category, **Layer 4: State Breaks**, documented in `ROADMAP.md` and `CLAUDE.md` alongside the existing three.
+
+### Context
+The v12.0 virtualization bug fits none of the existing layers:
+- **Not Layer 1 (DOM break):** every selector matched, and every match was correct
+- **Not Layer 2 (Feature break):** no competing native feature shipped
+- **Not Layer 3 (Execution break):** the script ran fine and the host page was healthy
+
+The platform kept the full data and simply stopped exposing it to the document.
+
+### Definition
+> **Layer 4 — State Breaks:** the platform continues to hold the complete data but withdraws it from the DOM, invalidating the assumption that a full-page scan sees a full conversation.
+
+### Why it needs its own category
+Its defining property is that **it reports success on a fraction of the data.** Layers 1–3 all announce themselves — empty results, a visible feature conflict, a dead page. Layer 4 returns a plausible, non-empty, entirely wrong answer with no error anywhere. That is why it went undetected: a 4-question panel on a 147-question conversation looks exactly like a short conversation.
+
+It also cannot be caught by the tooling built for the other layers. The planned DOM-validation framework targets Layer 1 and would have passed — the selectors were fine. Playwright mock tests passed too, because `claude.html` is static and mounts every turn permanently. **A test suite of static mocks structurally cannot fail on a Layer 4 break.** That is why `tests/mock-pages/claude-virtualized.html` is a required deliverable and not an optional extra.
+
+### How it was fixed
+By changing data source, not selectors — see DEC-021. The general mitigation for Layer 4 is: when a platform withdraws state from the DOM, find where the platform still holds it (its own API, its own store) and read from there, keeping the DOM path as a visibly-degraded fallback.
+
+### Strategic significance
+This is the clearest ceiling yet on DOM augmentation as a strategy. Layers 1–3 are hazards you engineer around; Layer 4 says the DOM may simply stop being a complete record whenever a platform decides rendering performance matters more than document completeness. It is the strongest argument so far for the API-first direction of the extension transition.
+
+### Constraints
+- Any feature that assumes "scan the page = see the conversation" is now a Layer 4 liability and must be listed as such
+- New platform integrations must record whether the platform virtualizes its message list
+- Mock pages for virtualizing platforms must genuinely unmount nodes — hiding them with `display:none` does not reproduce the failure
+- Degraded operation must always be visible in the UI, never console-only

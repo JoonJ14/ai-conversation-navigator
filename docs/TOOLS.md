@@ -7,6 +7,17 @@ Rename the "Export" orbital feature to "Tools" and replace the placeholder panel
 **Status:** Ready for implementation  
 **Depends on:** Task #0 (`getAIMessages()`), Task #3 (Bookmarks, for Bookmarks export), Task #5 (Summary, for Summary export)
 
+> **v12.0 update — Export was the highest-severity casualty of virtualization.**
+>
+> `exportFullConversation()` built its output from a DOM scan and wrote a header reading `**Messages:** N` from that scan. On a virtualized Claude conversation it produced a file containing ~3% of the messages **under a count that looked authoritative**. This was ranked above the originally reported Navigate bug: a short navigation list is visible to the user, a truncated export file is not.
+>
+> Export now reads `_ciFullPath` (human + assistant, whole active path) when the index is available. It stamps `**Source:** complete conversation history (API)`, and surfaces any message marked `truncated` plus any use of the leaf-inference fallback in the header. When the index is unavailable it stamps `**Source:** on-screen messages only — DEGRADED` with an explicit warning block. **Export must never imply completeness it does not have.**
+>
+> Known gap: assistant text is joined from `content[]` blocks of type `text` only, so `tool_use` / `tool_result` output visible on screen is not included.
+>
+> Image gallery: the API's `files[]` array carries `file_kind`, `file_uuid`, `thumbnail_url`, `preview_url` and `thumbnail_asset` (with `image_width` / `image_height` / `primary_color`). That would convert the gallery from a selector chase into an API read *and* restore message association, which the current document-wide scan loses (`imagesOrphaned: true`, `msgIndex: -1`). Not implemented in v12.0.
+
+
 ---
 
 ## Table of Contents

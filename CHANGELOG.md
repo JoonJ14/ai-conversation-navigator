@@ -4,6 +4,142 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.0 — API-Backed Conversation Index: Claude Virtualized Its Message List] — 2026-07-26
+
+**Branch:** `feat/v12.0-conversation-index`
+
+Message enumeration on Claude now comes from Claude's own conversation JSON, not from the DOM. Adds a fourth platform-risk category (Layer 4: State Breaks), refreshes the Claude selectors, migrates bookmarks to message UUIDs, fixes a ~35x context-tracking undercount, and adds the first virtualizing test mock.
+
+---
+
+### Problem
+
+The navigator's question list showed only 3–6 questions on claude.ai regardless of how long the conversation actually was, and the set changed as the user scrolled — it tracked the viewport, not the conversation. Measured on a real conversation: **the panel displayed 4 questions; the conversation contained 147.** About 3% coverage.
+
+The reported bug was Navigate, but every feature resting on a full-page scan was affected:
+
+- **Export** silently produced truncated files, with a header reading `**Messages:** 8` that looked authoritative. Ranked highest severity: a short nav list is visible to the user, a truncated export file is not.
+- **Search** could only match text currently mounted, so most searches returned nothing.
+- **Summary** segmented a fraction of the conversation, making the D2 nested bracket map wrong.
+- **Context tracking** undercounted by roughly 35x, which is the real cause of the long-standing "turn counter red but context shows 19%" mismatch that PR #47 only partially addressed.
+- **Bookmarks** silently stopped matching their own messages, and worse, the positional fallback scrolled to an *unrelated* message and highlighted it as if correct.
+
+---
+
+### Root cause
+
+Claude's web app virtualizes the message list **with recycling**. Only a window of roughly 3–5 user turns is mounted at any moment; everything outside it is unmounted and torn down.
+
+Live measurements on a 96-turn conversation:
+
+| Probe | Result |
+|---|---|
+| `[data-testid="user-message"]` mounted | **3** of 96 |
+| Scroll sweep at 0 / 25 / 50 / 75 / 100% | same 3 mounted at every position |
+| Cumulative unique turns seen | **3** — never accumulated |
+| `window.scrollY` | `0` throughout (inner container scrolls) |
+| Scroll container | `scrollHeight` 124,064 / `clientHeight` 746 (166x) |
+
+The non-accumulation is what distinguishes this from lazy loading, which accumulates and retains. This recycles.
+
+**The DOM is no longer a complete record of the conversation.** No selector change could fix that — the data is not in the document at any selector.
+
+---
+
+### Why this needed a new risk category
+
+The existing model in ROADMAP.md documented three layers: DOM breaks (selectors stop matching), Feature breaks (platform ships a competing feature), Execution breaks (our code kills the host page). This fits none of them. The selectors matched. The script ran. No competing feature shipped. **The rendering layer withdrew the data itself.**
+
+Added as **Layer 4: State Breaks** — the platform continues to hold the full data but stops exposing it to the DOM. Its defining property is that it *reports success on a fraction of the data*: Layers 1–3 all announce themselves with empty results, a visible conflict, or a dead page, while Layer 4 returns a plausible, non-empty, entirely wrong answer. See DEC-022.
+
+---
+
+### Fix — API-backed conversation index
+
+Claude's own client downloads the entire conversation as JSON on page load and then chooses to render a small window of it. The complete data was in the browser the whole time; this was never a data-availability problem, only a rendering-layer decision.
+
+```
+GET /api/organizations/{org}/chat_conversations/{cid}
+    ?tree=True&rendering_mode=messages&render_all_tools=true&consistency=strong
+```
+
+Verified: HTTP 200, 3,289,821 bytes, ~2.1 s, 297 messages. No `anthropic-client-*` headers required — which matters, since `anthropic-client-sha` looks like a build hash that would rotate every deploy.
+
+**This is not fetch interception.** It is an ordinary outbound `GM_xmlhttpRequest`: it replaces no page global, the page never touches our Promise, and nothing crosses back into the page compartment. The Firefox cross-compartment failure that forced DEC-019 and DEC-020 does not apply. (DEC-020 rejected `GM_xmlhttpRequest` as a way to *intercept* existing traffic; that rejection stands and is unrelated.)
+
+#### The conversation is a tree, not a list
+
+`parent_message_uuid` is on every message. Editing or regenerating creates a branch, so `chat_messages` contains abandoned branches alongside the live conversation. Naively listing every `sender === 'human'` message would surface questions the user edited away — presenting discarded content as current, which is arguably worse than showing too few.
+
+`current_leaf_message_uuid` is the authoritative tip. The walk goes leaf → root via `parent_message_uuid`, then reverses. The newest-leaf heuristic exists only as a logged fallback.
+
+Verified against a 2-leaf fixture — all six expected values matched exactly:
+
+| Metric | Expected | Got |
+|---|---|---|
+| Total messages | 297 | 297 |
+| Total human turns | 148 | 148 |
+| Leaf nodes | 2 | 2 |
+| Active path length | 295 | 295 |
+| **Active human turns** | **147** | **147** |
+| Abandoned branch | 2 | 2 |
+
+#### Three findings that changed the design
+
+1. **The top-level `text` field is empty on every message** — 0 of 192 non-empty. Content lives in `content[]` blocks (`text`, `thinking`, `tool_use`, `tool_result`). Building the index from `text` as originally specified would have rendered 147 blank rows.
+2. **~10% of human turns have no text block at all.** Large pastes become a `txt` attachment with an empty `file_name` and the body in `attachments[].extracted_content` — 14 of 147 turns on the fixture. `ciExtractText()` falls back through attachments, then file names.
+3. **Root messages carry a sentinel parent**, `00000000-0000-4000-8000-000000000000`, not `null`. The walk tests for it explicitly via `CI_ROOT_PARENT_UUID` rather than relying on the uuid merely being absent from the map.
+
+---
+
+### Also fixed: a Layer 1 break hiding underneath
+
+Live re-inspection found the Claude selectors had *also* drifted, and the fallback chain had been silently absorbing it:
+
+| Selector | Chain position | Live count |
+|---|---|---|
+| `[data-testid="user-human-turn"]` | primary | **0** |
+| `[data-testid="user-message"]` | fallback 1 | **3** ✅ |
+| `.font-user-message` | fallback 2 | **0** |
+| `[data-testid="user_message"]` | fallback 3 | **0** |
+| `.font-claude-response` | AI primary | **5** ✅ |
+| `[data-testid$="-turn"]` | AI last resort | **0** |
+
+Both chains were surviving on a single link each. `data-testid="user-message"` has also **moved** — it used to sit on the turn wrapper and is now on the inner content node. `.font-user-message` stopped matching because the class is now `!font-user-message` (Tailwind important prefix), which requires escaping in a selector.
+
+---
+
+### Also fixed
+
+- **Bookmarks migrated to message UUIDs (schema 2).** Bookmarks hashed `(text, DOM index)`, where the index is a position in the live NodeList. Under recycling that changes as the user scrolls, so records stopped matching their own messages. The `els[bookmark.msgIndex]` positional fallback was worse than useless — with ~3 of 147 turns mounted it resolved to an unrelated message and scrolled to it as if correct. That fallback is now gone; failing visibly beats a confident wrong answer. Legacy records migrate to a uuid the first time they are positively identified, and the pre-v12.0 hash input is still recognised so existing Emergent/ChatGPT bookmarks survive.
+- **Context tracking undercount.** Path A and Path B both read `innerText` off the scroll container, seeing only the mounted window. The existing virtual-scroll coverage correction could never help: `_questions` is rebuilt from live DOM on every scan, so `nInDOM / _questions.length` was always exactly 1.0 and the correction was a no-op. Now driven from the index. Thinking tokens now come from real `content[]` thinking blocks instead of an `[aria-expanded] × 600` heuristic that could only see mounted blocks. This matters most on Firefox, where Path B is the *only* path (DEC-020).
+- **Timeline ordering.** `buildTimeline()` and `_sumBuildTimeline()` sorted with `compareDocumentPosition`, which returns `DOCUMENT_POSITION_DISCONNECTED` for detached nodes — matching neither FOLLOWING nor PRECEDING, so the comparator returned 0 and the sort silently degraded to arbitrary order. Export and Summary could emit messages *out of sequence*, not merely incomplete.
+- **Org UUID resolution.** `fetchClaudeUsage()` took `orgs[0]` — a positional guess that returned another organization's usage numbers for anyone in more than one org. Now: `lastActiveOrg` cookie → `/api/organizations` ranked by the `chat` capability → validated by use, since a wrong org 404s on the conversation fetch. Cached per account.
+- **`You said:` strip.** The old pattern `/^You said\s*/i` could not match a colon, leaving a stray `": "` on every ChatGPT question. Corrected to `/^\s*You said:?\s*/i`. (The garbled text originally reported for Claude did not reproduce — the current selector chain resolves to a clean inner node with no sr-only descendants.)
+- **`ACN_VERSION` was stale at `11.5`** while the header read 11.8; the version-sync commit had only touched documentation.
+
+---
+
+### Degraded mode is visible, by design
+
+Silent degradation is what let this bug hide. When the index is unavailable the panel renders a `data-acn-index-status` banner reading *"Showing only on-screen messages — full history unavailable"* with the reason, and the export header is stamped `**Source:** on-screen messages only — DEGRADED` with an explicit warning block. The `truncated` flag and any use of the leaf-inference fallback are surfaced the same way.
+
+---
+
+### Testing
+
+`tests/mock-pages/claude-virtualized.html` is a new mock that holds 40 turns in JavaScript and mounts 3, genuinely removing the rest from the document. This was a required deliverable, not an extra: **every existing mock is static and mounts all its turns permanently, so the suite structurally could not fail on this bug** — it returned green throughout.
+
+Three new assertions:
+
+- **Mock recycles turns:** `[3,3,3,3]` mounted across a scroll sweep, 12 unique of 40 — proves it unmounts rather than hides
+- **DOM exposes only the mounted window:** 3 of 40 (~8% coverage) — the bug itself, asserted so a future change that "fixes" the count without an index gets caught
+- **Degraded mode is visible in the panel:** the banner must render
+
+Result: **206/206 passing across 15 platforms** (was 182 across 14).
+
+---
+
 ## [11.8 — Firefox: Disable Fetch Interception, Keep DOM Estimation] — 2026-03-14
 
 **Branch:** `fix/firefox-bind-crash`
