@@ -299,12 +299,25 @@ This is more stable than creating a new context per test (which crashed on the o
 
 Tests query only `data-acn-role` and `data-acn-*` contract attributes — no internal CSS class names or element IDs. This means the UI can be completely rebuilt in any future version without breaking the test suite, as long as the contract attributes are maintained on the correct elements.
 
-**Total: 267 tests across 16 platform entries**, verified green on **both Chromium and
-Firefox**. Firefox matters disproportionately here — it is where this project's
-execution-layer failures have happened (DEC-019, DEC-020) — and the jump loop was
-confirmed to converge identically there (question #1 from the bottom in ~207 ms,
-mid-conversation in ~307 ms). Run it with `--browser firefox`; it is not in the local
-default. Orbital platforms run 14 tests each; legacy platforms 13 each. The two virtualized Claude entries run additional tests: `Claude (virtualized)` adds 7, and `Claude (virtualized + index)` adds 13. Every non-virtualized entry gains a direct-path assertion, and **every** entry now ends with an uncaught-page-error check.
+**Total: 267 tests across 16 platform entries**, green on Chromium and on Playwright's
+Gecko build (`--browser firefox`; not in the local default).
+
+**Be precise about what the Firefox run covers.** Playwright launches its own Firefox
+binary and the harness injects the userscript as a plain `<script>` tag in the page realm.
+So it exercises **Gecko engine behaviour** — layout, `getBoundingClientRect`, `TreeWalker`
+semantics, rAF timing, regex, `scrollTo` — and nothing more.
+
+It does **not** exercise the Tampermonkey sandbox: no `unsafeWindow`, no `exportFunction`,
+no cross-compartment boundary. That matters, because **DEC-019 and DEC-020 both happened
+in the sandbox realm, not in Gecko generally.** A green Playwright-Firefox run is
+therefore evidence against engine-level regressions and says nothing about the failure
+class this project actually gets bitten by.
+
+Sandbox-realm behaviour has been verified exactly once, narrowly: Probe B, run manually in
+a real Firefox with Tampermonkey, confirming that sandbox-created events drive the
+virtualizer (`exportFunction` present, so genuinely the sandbox). Everything else on that
+axis is unverified. See the measurement-context rule above — "Firefox" is not one context,
+it is at least two. Orbital platforms run 14 tests each; legacy platforms 13 each. The two virtualized Claude entries run additional tests: `Claude (virtualized)` adds 7, and `Claude (virtualized + index)` adds 13. Every non-virtualized entry gains a direct-path assertion, and **every** entry now ends with an uncaught-page-error check.
 
 | # | Test Name | What It Verifies | How | Platforms |
 |---|-----------|-----------------|-----|-----------|
@@ -1009,7 +1022,7 @@ for (const platform of PLATFORMS.filter(p => p.name === 'Bolt.new')) {
 | CSS-in-JS hash instability | Replit's Emotion classes change per deployment; our mock uses a frozen snapshot of `data-testid` attributes | The mock tests the "happy path" (data-testid exists). If Replit removes data-testid, the fallback selectors activate — test a separate mock for that path if needed |
 | SPA navigation | The test loads the page once; it doesn't simulate route changes or conversation switching | The SPA hooks (pushState/replaceState interception) are tested implicitly — they exist in the script — but their behavior on navigation isn't exercised |
 | CSP (Content Security Policy) | Some sites (Gemini) have strict CSP that blocks inline scripts; the test pages have no CSP | The userscript avoids `innerHTML` (uses `createElement` + `textContent`) specifically for CSP compliance — this was validated manually |
-| Cross-browser differences | Tests run in Chromium only; Firefox/Safari may have different behavior | For Firefox/Safari testing, you'd need to download those browsers (`npx playwright install firefox webkit`) and add launch configs |
+| Cross-browser differences | Chromium and Playwright-Gecko are covered; WebKit is not installed locally | `npx playwright install webkit`, then `--browser webkit`. Note none of these are the Tampermonkey sandbox — see the Firefox scope note above |
 
 ### The `--single-process` flag
 

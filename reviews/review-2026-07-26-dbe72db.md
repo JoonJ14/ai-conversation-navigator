@@ -135,11 +135,19 @@ Phase 3 was built on run 1 alone; runs 2 and 3 changed the verdict. All nine app
 | Errors leaked between platforms | `pageerror` attached **after** navigation, buffer cleared per entry |
 | `not-sr-only` protection vacuous | Fixture text non-empty, so mis-stripping loses it |
 
-**267/267 on Chromium and Firefox.** Firefox is the platform where this project's
-execution-layer failures happen (DEC-019, DEC-020); Playwright's Firefox was not installed,
-so that acceptance criterion had never actually been run. Jump converges identically:
-question #1 from the bottom in ~207 ms, mid-conversation in ~307 ms, both landing on the
-correct message.
+**267/267 on Chromium and on Playwright's Gecko build.** Playwright's Firefox was not
+installed, so `--browser firefox` had never actually been run; it is now.
+
+**Scope correction.** This covers Gecko *engine* behaviour only — the harness injects the
+userscript as a plain `<script>` in the page realm, so there is no Tampermonkey sandbox, no
+`unsafeWindow`, no cross-compartment boundary. DEC-019 and DEC-020 both occurred in the
+sandbox realm, so a green Playwright-Firefox run is **not** evidence about that failure
+class. An earlier draft of this document implied otherwise.
+
+Sandbox-realm evidence in this release is limited to Probe B (manual, real Firefox +
+Tampermonkey, `exportFunction` confirmed present), which established only that
+sandbox-created events drive the virtualizer. The acceptance criterion "verified working on
+Firefox" is therefore **partially met**: engine yes, sandbox no, live site no.
 
 ---
 
