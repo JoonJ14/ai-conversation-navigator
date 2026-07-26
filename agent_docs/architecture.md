@@ -215,6 +215,11 @@ data-acn-count="N"                      -> Number of detected questions (on nav-
 data-acn-index-status="degraded|loading|ready-with-notes"
                                         -> Conversation-index banner state (Claude only, v12.0+).
                                            Absent when the index is healthy with nothing to report.
+data-acn-jumping="true"                 -> On any panel with a jump in flight. Also blocks clicks via CSS.
+data-acn-jump-resolved="N"              -> On the ZONE: the data-index a completed jump actually
+                                           resolved. Durable — the resolved ELEMENT is detached by
+                                           the re-render scrollIntoView triggers, so marking only
+                                           the element is unreadable by the time a test looks.
 ```
 
 Never remove or rename these attributes — tests depend on them.
@@ -222,6 +227,13 @@ Never remove or rename these attributes — tests depend on them.
 ### Mock pages and virtualization
 
 `tests/mock-pages/claude-virtualized.html` is the reference for a **virtualizing** mock: it holds 40 turns in JavaScript and mounts 3, genuinely removing the rest from the document. Every other mock is static and mounts all its turns permanently.
+
+**Assert on what the implementation RESOLVED, never on ambient DOM state.** A mutation
+test proved the difference: with the row offset forced to 0 and verification stubbed out,
+the navigator resolved the *assistant reply* instead of Question 1 — and the suite stayed
+green, because checking "is row 0 mounted and does it read right" passes whenever the
+6-row mount window happens to contain the intended row. Only `data-acn-jump-resolved`
+distinguishes a correct jump from a confidently wrong one.
 
 This distinction is load-bearing. A suite of static mocks **structurally cannot fail** on a Layer 4 state break — the entire suite stayed green while Navigate was showing 3% of the conversation. If you add a platform that virtualizes, ship a mock that genuinely unmounts nodes; `display:none` does not reproduce the failure.
 

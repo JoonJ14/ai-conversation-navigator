@@ -4502,6 +4502,7 @@
                 ciJumpToFullPathIndex(q.pathIndex, function (ok, el, reason) {
                     if (ok && el) {
                         q.element = el;
+                        orbMarkJumpTarget(el);
                         el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
                         orbFlashElement(el);
                     } else if (reason !== 'superseded' && reason !== 'user') {
@@ -4528,6 +4529,34 @@
             target.scrollIntoView({ behavior: 'smooth', block: 'center' });
             orbFlashElement(target);
         }
+    }
+
+    // Publishes WHICH element a jump actually resolved, as part of the data-acn-*
+    // test contract.
+    //
+    // Why this exists: a mutation test proved the suite could not tell a correct jump
+    // from a confidently wrong one. Asserting on post-hoc DOM state — "is row N mounted
+    // and does it read right" — passes even when the navigator resolved a DIFFERENT
+    // message, because the mount window is several rows wide and an off-by-one target
+    // lands in the same window. Forcing the row offset to 0 and stubbing verification
+    // to true made the jump resolve the ASSISTANT reply instead of the question, and
+    // the whole suite stayed green. The only sound assertion is on the element the
+    // implementation handed back, so it has to be observable.
+    function orbMarkJumpTarget(el) {
+        var prev = document.querySelectorAll('[data-acn-jump-target]');
+        for (var i = 0; i < prev.length; i++) prev[i].removeAttribute('data-acn-jump-target');
+        if (el && el.setAttribute) el.setAttribute('data-acn-jump-target', 'true');
+
+        // ALSO record the resolution on the zone, which is stable.
+        // Marking only the element is not enough: scrollIntoView fires a scroll, the
+        // virtualizer re-renders, and the resolved node is detached before anything can
+        // read it — the mark disappears precisely because virtualization works. The row
+        // index is the durable identity.
+        var zone = document.getElementById('acn-zone');
+        if (!zone) return;
+        var rowEl = (el && el.closest) ? el.closest('[' + CI_ROW_ATTR + ']') : null;
+        if (rowEl) zone.setAttribute('data-acn-jump-resolved', rowEl.getAttribute(CI_ROW_ATTR));
+        else zone.removeAttribute('data-acn-jump-resolved');
     }
 
     function orbFlashElement(el) {
@@ -5155,6 +5184,7 @@
             if (pathIdx >= 0) {
                 ciJumpToFullPathIndex(pathIdx, function (ok, el, reason) {
                     if (ok && el) {
+                        orbMarkJumpTarget(el);
                         el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
                         orbFlashElement(el);
                     } else if (reason !== 'superseded' && reason !== 'user') {

@@ -373,8 +373,14 @@ v12.0 bug, where a static mock could not fail on a virtualization break.
 
 Rules that came out of it, worth applying to any new assertion here:
 
-1. **Assert the outcome, not the attempt.** "A row mounted" is not "the right row
-   mounted" — check the message text.
+1. **Assert what the implementation RESOLVED, not ambient DOM state.** This is the
+   subtlest one and it survived two rounds of hardening. "Row N is mounted and reads
+   correctly" passes even when the navigator resolved a *different* message, because the
+   mount window is several rows wide and an off-by-one lands inside it. Mutation-proved:
+   offset forced to 0 + verification stubbed → the jump resolved the assistant reply
+   instead of Question 1, suite green. The fix is the `data-acn-jump-resolved` contract
+   attribute, recorded on the zone because the resolved element is detached by the
+   re-render `scrollIntoView` triggers.
 2. **Assert state was entered, not just exited.** `!stillBusy` is satisfied by never
    setting the flag; also assert it was *observed*.
 3. **Never target a row that is always mounted.** The pinned tail makes an off-by-one

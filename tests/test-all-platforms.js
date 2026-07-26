@@ -889,36 +889,53 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                     const before = v.mountedIndexes();
                     const items = document.querySelectorAll('[data-acn-role="nav-item"]');
                     if (!items.length) return { ok: false, reason: 'no nav items' };
+                    // Clear any marker from a previous jump, or a stale one satisfies this test.
+                    const z0 = document.querySelector('[data-acn-role="zone"]');
+                    if (z0) z0.removeAttribute('data-acn-jump-resolved');
                     const wantText = items[0].querySelector('[data-acn-role="nav-item-text"]').textContent.trim();
                     const t0 = Date.now();
                     items[0].click();
                     for (let i = 0; i < 110; i++) {
                         await new Promise(r => setTimeout(r, 100));
-                        const arrived = !!document.querySelector('[data-index="0"]');
+                        const z = document.querySelector('[data-acn-role="zone"]');
+                        const arrived = !!(z && z.getAttribute('data-acn-jump-resolved') !== null);
                         const busy = !!document.querySelector('[data-acn-jumping="true"]');
                         if (arrived && !busy) break;
                         if (Date.now() - t0 > 11000) break;
                     }
-                    const row = document.querySelector('[data-index="0"]');
-                    const rowText = row
-                        ? (row.querySelector('[data-testid="user-message"]') || row).textContent
-                        : '';
+                    // Assert on WHAT THE IMPLEMENTATION RESOLVED, via the
+                    // data-acn-jump-target contract attribute. Checking ambient DOM
+                    // state instead ("is row 0 mounted and does it read right") passes
+                    // even when the navigator resolved a different message: the mount
+                    // window is 6 rows wide, so an off-by-one target lands in the same
+                    // window. A mutation test proved a wrong-message jump passed here.
+                    // Read the DURABLE record on the zone: the resolved element itself
+                    // is detached by the re-render that scrollIntoView triggers.
+                    const zone = document.querySelector('[data-acn-role="zone"]');
+                    const rawIdx = zone ? zone.getAttribute('data-acn-jump-resolved') : null;
+                    const resolvedIdx = rawIdx === null ? null : +rawIdx;
+                    const rowNow = resolvedIdx === null
+                        ? null : document.querySelector(`[data-index="${resolvedIdx}"]`);
                     return { ok: true, elapsedMs: Date.now() - t0,
                              targetWasMountedAtClick: before.indexOf(0) !== -1,
-                             targetMountedNow: !!row,
-                             // Question 1 must be the message at row 0.
-                             rowIsQuestion1: /Question number 1\b/.test(rowText),
+                             resolvedAnything: resolvedIdx !== null,
+                             resolvedIsQuestion1: !!rowNow && /Question number 1\b/.test(rowNow.textContent),
+                             // Q1 is row 0. Any other row means the navigator resolved
+                             // a different message, however close it landed.
+                             resolvedDataIndex: resolvedIdx,
                              navTextWasQuestion1: /Question number 1\b/.test(wantText),
                              stillBusy: !!document.querySelector('[data-acn-jumping="true"]'),
                              mountedNow: v.mountedIndexes() };
                 });
-                assert('Jump reaches question #1 from the bottom, landing on the right message',
+                assert('Jump RESOLVES question #1 from the bottom (not a neighbour)',
                     firstJump.ok && !firstJump.targetWasMountedAtClick &&
-                    firstJump.targetMountedNow && firstJump.rowIsQuestion1 &&
+                    firstJump.resolvedAnything && firstJump.resolvedIsQuestion1 &&
+                    firstJump.resolvedDataIndex === 0 &&
                     firstJump.navTextWasQuestion1 && !firstJump.stillBusy,
                     firstJump.ok
                         ? `unmounted@click=${!firstJump.targetWasMountedAtClick} ` +
-                          `mounted=${firstJump.targetMountedNow} correctMsg=${firstJump.rowIsQuestion1} ` +
+                          `resolved=row ${firstJump.resolvedDataIndex} ` +
+                          `isQ1=${firstJump.resolvedIsQuestion1} ` +
                           `~${firstJump.elapsedMs}ms rows=[${firstJump.mountedNow}]`
                         : firstJump.reason);
 
@@ -934,34 +951,42 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                     const targetOrdinal = 20;                    // question #20
                     const item = items[targetOrdinal - 1];
                     if (!item) return { ok: false, reason: 'no item ' + targetOrdinal };
+                    const z0 = document.querySelector('[data-acn-role="zone"]');
+                    if (z0) z0.removeAttribute('data-acn-jump-resolved');
                     const before = v.mountedIndexes();
                     const expectRow = (targetOrdinal - 1) * 2;   // user rows are even
                     const t0 = Date.now();
                     item.click();
                     for (let i = 0; i < 110; i++) {
                         await new Promise(r => setTimeout(r, 100));
-                        const arrived = !!document.querySelector(`[data-index="${expectRow}"]`);
+                        const z = document.querySelector('[data-acn-role="zone"]');
+                        const arrived = !!(z && z.getAttribute('data-acn-jump-resolved') !== null);
                         const busy = !!document.querySelector('[data-acn-jumping="true"]');
                         if (arrived && !busy) break;
                         if (Date.now() - t0 > 11000) break;
                     }
-                    const row = document.querySelector(`[data-index="${expectRow}"]`);
-                    const rowText = row
-                        ? (row.querySelector('[data-testid="user-message"]') || row).textContent
-                        : '';
+                    const zone = document.querySelector('[data-acn-role="zone"]');
+                    const rawIdx = zone ? zone.getAttribute('data-acn-jump-resolved') : null;
+                    const resolvedIdx = rawIdx === null ? null : +rawIdx;
+                    const rowNow = resolvedIdx === null
+                        ? null : document.querySelector(`[data-index="${resolvedIdx}"]`);
                     return { ok: true, expectRow, elapsedMs: Date.now() - t0,
                              wasMountedAtClick: before.indexOf(expectRow) !== -1,
-                             mountedNow: !!row,
-                             correctMessage: new RegExp('Question number ' + targetOrdinal + '\\b').test(rowText),
+                             resolvedAnything: resolvedIdx !== null,
+                             resolvedDataIndex: resolvedIdx,
+                             correctMessage: !!rowNow &&
+                                 new RegExp('Question number ' + targetOrdinal + '\\b').test(rowNow.textContent),
                              stillBusy: !!document.querySelector('[data-acn-jumping="true"]'),
                              rows: v.mountedIndexes() };
                 });
-                assert('Jump reaches a mid-conversation question and lands on the right message',
-                    midJump.ok && !midJump.wasMountedAtClick && midJump.mountedNow &&
-                    midJump.correctMessage && !midJump.stillBusy,
+                assert('Jump RESOLVES a mid-conversation question (not a neighbour)',
+                    midJump.ok && !midJump.wasMountedAtClick && midJump.resolvedAnything &&
+                    midJump.correctMessage &&
+                    midJump.resolvedDataIndex === midJump.expectRow &&
+                    !midJump.stillBusy,
                     midJump.ok
-                        ? `row ${midJump.expectRow} unmounted@click=${!midJump.wasMountedAtClick} ` +
-                          `mounted=${midJump.mountedNow} correctMsg=${midJump.correctMessage} ` +
+                        ? `expected row ${midJump.expectRow}, resolved row ${midJump.resolvedDataIndex}, ` +
+                          `correctMsg=${midJump.correctMessage} ` +
                           `~${midJump.elapsedMs}ms rows=[${midJump.rows}]`
                         : midJump.reason);
 
