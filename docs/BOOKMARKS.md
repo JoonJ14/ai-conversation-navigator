@@ -7,6 +7,20 @@ Design and implementation plan for real bookmark functionality, replacing the cu
 **Status:** Ready for implementation  
 **Depends on:** `getAIMessages()` selectors per platform (also needed by Context Tracking)
 
+
+> **v12.0 Phase 3 — bookmark navigation unified with jump-to-message.**
+>
+> `orbScrollToBookmark` previously had its own resolution path ending in
+> `els[bookmark.msgIndex]`. With ~3 of 147 turns mounted, that positional fallback resolved
+> to an *unrelated* message and scrolled to and highlighted it as if correct — a confident
+> wrong answer with no error path. **It is deleted.**
+>
+> Bookmarks now resolve by message uuid and, when the target is not mounted, route through
+> the same `ciJumpToFullPathIndex()` settle loop Navigate uses. Resolution order: uuid match
+> against mounted rows → legacy `(text, index)` hash → pre-v12.0 raw-`textContent` hash →
+> settle loop → honest failure. Legacy records migrate to a uuid the first time they are
+> positively identified.
+
 > **v12.0 update — bookmarks are keyed to message UUIDs on Claude.**
 >
 > The scheme described below hashes `(text, msgIndex)` where `msgIndex` is a position in the live `getUserMessages()` NodeList. Claude now virtualizes its message list with recycling (~3 of 147 turns mounted), so that index changes as the user scrolls and records silently stop matching their own message. The `els[bookmark.msgIndex]` positional fallback was worse still: with ~3 elements mounted it resolved to an *unrelated* message and scrolled to it as if correct.

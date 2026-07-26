@@ -52,6 +52,37 @@ On `claude.ai/chat/<uuid>`, `_questions` is populated from the **API-backed conv
 - Never order messages with `compareDocumentPosition` across unmounted nodes — detached nodes compare as DISCONNECTED, the comparator returns 0, and the sort silently degrades to arbitrary order. Use the index order.
 - Never key persisted data to a DOM index. Use the message uuid (see the bookmarks schema-2 migration).
 
+## Measurement Context Is Part of the Finding (v12.0+)
+
+**Problem.** Three separate findings in v12.0 were verified, written down as settled fact, and later proved false — not because the measurement was sloppy, but because it was taken in a context different from the one the code runs in.
+
+| Finding | Verified in | False in | Cost |
+|---|---|---|---|
+| API `text` field is usable | shape inspection | actual contents — empty on all 192 messages | would have rendered 147 blank rows |
+| A bare `fetch` returns 200 | DevTools console (page realm) | Tampermonkey sandbox — never tested there | caught pre-ship by review |
+| `scrollTop` alone does not drive the virtualizer | a **hidden** window with rAF throttled | a visible window, and the Firefox sandbox | written into **three committed files** before correction |
+
+**Technical root cause.** Each measurement was correct *where it was taken*. The failure was promoting a context-scoped observation to a general one. This codebase has an unusually large number of contexts that change behaviour: page realm vs Tampermonkey sandbox; Chrome vs Firefox (cross-compartment rules differ — DEC-019, DEC-020); visible vs hidden tab (rAF and timers throttle, and a virtualizer simply stops running); one platform's DOM vs another's. A claim true in one is routinely false in the next.
+
+**Method chosen.** Record the measurement context alongside every finding, and treat the finding as **context-scoped until reproduced in the context where the code will run** — for this project that means the Tampermonkey sandbox, in a visible window, on Firefox.
+
+In practice:
+
+- Write findings as *"X, measured in \<context\>"*, never bare *"X"*.
+- Before writing a finding into `DOM-REFERENCE.md`, `TROUBLESHOOTING.md` or a decision record, ask which context it was taken in and whether that is the context that matters.
+- `document.visibilityState !== 'visible'` invalidates **any** timing, rendering, or virtualizer measurement. Check it first; a hidden tab produces plausible, stable, wrong numbers rather than obvious failure.
+- A DevTools console result does not establish sandbox behaviour. Probe from a userscript when the sandbox is what matters.
+- When a later measurement contradicts a documented one, correct the document and record **both** results with their contexts. Do not silently replace one with the other — the contradiction is itself the finding.
+
+**How it fixed it.** The `scrollTop` claim was corrected in `DOM-REFERENCE.md` and `TROUBLESHOOTING.md` to present both results with their contexts. It later turned out that even the "safe in every context" compromise (reposition **and** dispatch) was wrong — three repeated runs showed the dispatch causes a reproducible ~6-row overshoot, so it was removed entirely (DEC-024).
+
+**Two more shapes of the same mistake, both hit in v12.0:**
+
+- **A single run is not a measurement.** Probe C run 1 supported "dispatch is harmless"; runs 2 and 3, with nothing changed, showed the opposite. The metric that mattered (landing *cluster identity*) only diverged in runs 2–3, while the metric being watched (pixel drift) straddled a threshold. **Repeat before concluding, and prefer a metric that is discrete over one that is continuous near a threshold.**
+- **A success signal from a wrapper is not a success signal from the work.** A background task reported `exit 0` for a review that had not started — the launcher had launched. Likewise `codex exec` printed a token count for a round that produced no output. Check the artifact the work was supposed to produce, not the exit code of whatever spawned it.
+
+**And a corollary that caught several defects here:** *a comment describing behaviour is not evidence the behaviour exists.* v12.0 shipped a comment claiming clicks were disabled during a jump (no such CSS rule existed), a settle function that computed a `changed` signal its caller never bound, and an inverse index mapper that was defined and never called. When reviewing, check comment-versus-code agreement explicitly.
+
 ## Agent Documentation
 
 **IMPORTANT: Before starting any task, review the listing below and read any files relevant to your current task.**

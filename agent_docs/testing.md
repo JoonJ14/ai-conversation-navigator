@@ -15,8 +15,8 @@ npx playwright install --with-deps
 ## Running Tests
 
 ```bash
-# Run all tests on all 15 platform entries (206 total: 14 tests × orbital, 13 × legacy,
-# +3 virtualization tests on the Claude (virtualized) entry)
+# Run all tests on all 16 platform entries (236 total: 14 tests × orbital, 13 × legacy,
+# + virtualization and jump tests on the two Claude (virtualized) entries)
 npm test
 
 # Run on specific browsers
@@ -64,7 +64,8 @@ The test suite queries only stable `data-acn-*` attributes — never internal CS
 When modifying the userscript, ensure:
 - All `data-acn-*` attributes remain intact
 - Mock pages match the real platform DOM structure
-- Tests pass across all 15 platform entries (14 real platforms + the Claude virtualized mock)
+- Tests pass across all 16 platform entries (14 real platforms + two Claude virtualized entries,
+  one degraded and one index-backed)
 
 ## CI/CD
 

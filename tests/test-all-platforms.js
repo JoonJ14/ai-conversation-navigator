@@ -141,19 +141,41 @@ const PLATFORMS = [
         expectedMode: 'orbital',
     },
     {
-        // Virtualized Claude — 40 turns exist, only 3 are ever mounted.
+        // Virtualized Claude — 80 messages / 40 turns exist; only a 6-message
+        // window (3 user turns) plus a 1-row pinned tail is ever mounted.
         // The pathname must be a real-shaped conversation uuid so the userscript's
         // ciIsClaudeChat() guard matches and the conversation-index path engages.
-        // The harness provides no GM_xmlhttpRequest, so the API fetch fails and the
-        // script must degrade to the DOM scan *visibly*.
+        // The harness provides no GM_xmlhttpRequest, so the API fetch fails, the
+        // script must degrade to the DOM scan *visibly*, and every jump must take
+        // the honest-failure path — which is what tests 21-22 assert.
         name: 'Claude (virtualized)',
         mockFile: 'claude-virtualized.html',
         hostname: 'claude.ai',
         pathname: '/chat/11111111-1111-4111-8111-111111111111',
-        expectedMessages: 3,      // mounted window, NOT the 40 real turns
+        expectedMessages: 3,      // mounted USER turns, NOT the 40 real ones
         expectedAccent: '#d97706',
         expectedMode: 'orbital',
-        virtualized: { totalTurns: 40, windowSize: 3 },
+        virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
+    },
+    {
+        // Same virtualizing mock, but WITH a GM_xmlhttpRequest fixture so the
+        // conversation index actually builds. This is the entry that proves the
+        // primary v12.0 path works: 40 questions listed from a DOM that only ever
+        // mounts 3, and a jump loop that pages the virtualizer to an unmounted row.
+        // Without it, everything except the degraded fallback is untested.
+        name: 'Claude (virtualized + index)',
+        mockFile: 'claude-virtualized.html',
+        hostname: 'claude.ai',
+        pathname: '/chat/22222222-2222-4222-8222-222222222222',
+        expectedMessages: 40,     // FULL conversation from the index, not the 3 mounted
+        expectedAccent: '#d97706',
+        expectedMode: 'orbital',
+        virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
+        indexBacked: true,
+        gmFixture: {
+            totalMessages: 80,
+            conversationUuid: '22222222-2222-4222-8222-222222222222',
+        },
     },
     {
         name: 'ChatGPT',
@@ -277,6 +299,128 @@ function getScriptContent() {
     return content;
 }
 
+// ── GM_xmlhttpRequest fixture shim ────────────────────────────────────────────
+//
+// WHY THIS EXISTS
+// The harness previously provided no GM_* APIs at all, so on Claude the
+// conversation index could only ever FAIL and fall back to the DOM scan. That
+// left the entire primary v12.0 path — org resolution, ciBuildIndex, active-path
+// branch filtering, index-backed Navigate/Search/Export, and the whole Phase 3
+// jump loop — unverified by CI. Both independent review rounds flagged it.
+//
+// This shim serves a synthetic conversation whose messages line up exactly with
+// claude-virtualized.html, so the index builds and the settle loop runs for real.
+//
+// The fixture deliberately carries ONE LEADING assistant message that the mock
+// does NOT render. That makes the data-index -> _ciFullPath offset +1 rather
+// than 0, matching what was measured live — so an implementation that quietly
+// assumes zero alignment fails here instead of in production.
+function buildGmFixtureShim(cfg) {
+    const TOTAL = cfg.totalMessages;      // rendered rows (mock)
+    const ORG   = '99999999-9999-4999-8999-999999999999';
+
+    // messages[0] is the unrendered leading message; messages[i+1] <-> row i
+    const messages = [];
+    const uuidFor = (i) => `aaaaaaaa-0000-4000-8000-${String(i).padStart(12, '0')}`;
+    messages.push({
+        uuid: uuidFor(0),
+        parent_message_uuid: '00000000-0000-4000-8000-000000000000',
+        sender: 'assistant',
+        index: 0,
+        created_at: '2026-07-01T00:00:00Z',
+        text: '',
+        content: [{ type: 'text', text: 'Conversation started.' }],
+        attachments: [], files: [],
+    });
+    for (let row = 0; row < TOTAL; row++) {
+        const turn = Math.floor(row / 2) + 1;
+        const isUser = row % 2 === 0;
+        messages.push({
+            uuid: uuidFor(row + 1),
+            parent_message_uuid: uuidFor(row),
+            sender: isUser ? 'human' : 'assistant',
+            index: row + 1,
+            created_at: '2026-07-01T00:00:00Z',
+            text: '',                       // empty on purpose — mirrors the real API
+            // NOTE the trailing ' VISIBLE-NOT-SR-ONLY' on user turns: the mock renders a
+            // .not-sr-only span inside the message node, and that text is VISIBLE content
+            // which the extractor must KEEP. Including it here means the DOM-derived text
+            // and the API text agree — and if `not-sr-only` were ever wrongly treated as
+            // `sr-only`, they would stop agreeing and the question count would break.
+            content: [{ type: 'text', text: isUser
+                ? `Question number ${turn}: how do I handle case ${turn} when the input is unusual? VISIBLE-NOT-SR-ONLY`
+                : `Answer number ${turn}: validate the input first, then branch on the result.` }],
+            attachments: [], files: [],
+        });
+    }
+    // ABANDONED BRANCH — not on the active path.
+    // Without this the fixture is a single linear chain, so ciResolveActivePath's whole
+    // reason for existing is unexercised: a reviewer replaced the entire tree walk with
+    // `path = msgs.slice()` and the suite still passed 25/25. These two messages hang
+    // off a mid-conversation parent and must NEVER appear in the panel.
+    const ABANDONED_TEXT = 'ABANDONED BRANCH question that must never be listed';
+    messages.push({
+        uuid: 'bbbbbbbb-0000-4000-8000-000000000001',
+        parent_message_uuid: uuidFor(21),      // branches off mid-conversation
+        sender: 'human',
+        index: 999,
+        created_at: '2026-07-01T00:00:00Z',
+        text: '',
+        content: [{ type: 'text', text: ABANDONED_TEXT }],
+        attachments: [], files: [],
+    });
+    messages.push({
+        uuid: 'bbbbbbbb-0000-4000-8000-000000000002',
+        parent_message_uuid: 'bbbbbbbb-0000-4000-8000-000000000001',
+        sender: 'assistant',
+        index: 1000,
+        created_at: '2026-07-01T00:00:00Z',
+        text: '',
+        content: [{ type: 'text', text: 'Answer on the abandoned branch.' }],
+        attachments: [], files: [],
+    });
+
+    const payload = {
+        uuid: cfg.conversationUuid,
+        name: 'Fixture conversation',
+        current_leaf_message_uuid: uuidFor(TOTAL),
+        chat_messages: messages,
+    };
+
+    return `
+<script>
+(function () {
+    var ORG = ${JSON.stringify(ORG)};
+    var PAYLOAD = ${JSON.stringify(payload)};
+    // Minimal GM_* surface. Only what the userscript actually calls.
+    window.GM_xmlhttpRequest = function (opts) {
+        var url = opts.url || '';
+        function respond(status, body) {
+            setTimeout(function () {
+                if (status === 200 && opts.onload) opts.onload({ status: 200, responseText: body });
+                else if (opts.onerror) opts.onerror({ status: status });
+            }, 5);
+        }
+        if (/\\/api\\/organizations$/.test(url)) {
+            respond(200, JSON.stringify([{ uuid: ORG, name: 'Fixture Org', capabilities: ['chat'] }]));
+            return;
+        }
+        if (url.indexOf('/chat_conversations/') !== -1) {
+            if (url.indexOf(ORG) === -1) { respond(404, ''); return; }
+            respond(200, JSON.stringify(PAYLOAD));
+            return;
+        }
+        respond(404, '');
+    };
+    var _store = {};
+    window.GM_getValue = function (k, d) { return _store.hasOwnProperty(k) ? _store[k] : d; };
+    window.GM_setValue = function (k, v) { _store[k] = v; };
+    // The org resolver reads this before falling back to /api/organizations.
+    try { document.cookie = 'lastActiveOrg=' + ORG + '; path=/'; } catch (e) {}
+}());
+</script>`;
+}
+
 // Build a test page with mock DOM + userscript embedded
 function buildTestPage(platform, scriptContent) {
     const mockHTML = fs.readFileSync(path.join(MOCK_DIR, platform.mockFile), 'utf8');
@@ -284,6 +428,8 @@ function buildTestPage(platform, scriptContent) {
     // Extract just the <body> content from the mock HTML
     const bodyMatch = mockHTML.match(/<body[^>]*>([\s\S]*)<\/body>/i);
     const bodyContent = bodyMatch ? bodyMatch[1] : mockHTML;
+
+    const gmShim = platform.gmFixture ? buildGmFixtureShim(platform.gmFixture) : '';
 
     return `<!DOCTYPE html>
 <html>
@@ -295,6 +441,7 @@ ${bodyContent}
 // but belt-and-suspenders for any edge cases)
 delete window._aiNavAlreadyLoaded;
 </script>
+${gmShim}
 <script>
 ${scriptContent}
 </script>
@@ -341,6 +488,17 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
         if (!condition) results.passed = false;
     }
 
+    // Uncaught exceptions thrown by the userscript during this platform's run.
+    // Collected rather than asserted immediately so a throw inside an async
+    // callback (e.g. the jump settle loop) is still attributed to this platform.
+    // Attached AFTER page.goto below — not here. The page object is REUSED across all
+    // 16 entries, and during unrouteAll()/goto() the PREVIOUS platform's page is still
+    // live with its ~500ms scan interval running. Attaching before navigation let a
+    // throw from entry N land in entry N+1's collector (proven by gating a throw to
+    // entry 1 and watching entry 2 fail).
+    const pageErrors = [];
+    const onPageError = (err) => pageErrors.push(String(err && err.message || err));
+
     try {
         // Clear any previous routes
         await page.unrouteAll();
@@ -353,6 +511,10 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
             waitUntil: 'domcontentloaded',
             timeout: 20000,  // 20s — Firefox on Windows can be slow to resolve mocked routes
         });
+
+        // Now that navigation is complete, start collecting errors for THIS platform.
+        pageErrors.length = 0;
+        page.on('pageerror', onPageError);
 
         // Wait for initialization.  The main container is injected synchronously on
         // script load; question detection runs on a 2 s setTimeout.  3.5 s covers both.
@@ -534,85 +696,67 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                     : 'Missing dots: ' + missingDots.join(', '));
         }
 
-        // ── TESTS 15-17: Virtualization (virtualized mocks only) ───────────
-        // These exist because a static mock can never fail on the v12.0 bug:
-        // every turn stays mounted, so a full-page scan always looks complete.
+        // ── TESTS 15-25: virtualization and jump ──────────────────────────
+        //
+        // EVERY assertion here was rewritten after a review lens MUTATION-TESTED the
+        // originals and proved they pass against a broken implementation:
+        //   - jump body replaced with `done(false,null)`      -> 25/25 PASS
+        //   - ciDeriveRowOffset hardcoded to 0                -> passed, landed at top
+        //   - all sr-only/bookmark stripping disabled         -> test 20 PASS
+        //   - entire tree walk replaced with msgs.slice()     -> 25/25 PASS
+        //   - orbSetJumpBusy made a no-op                     -> 47/47 PASS
+        //   - uncaught throw during a jump                    -> 25/25 PASS
+        // Each mutation must now fail. Where an assertion checks a property of the
+        // MOCK rather than the product, it says so.
         if (platform.virtualized) {
-            // TEST 15: the mock genuinely recycles. If this fails the mock is
-            // broken and tests 16-17 prove nothing.
+            // TEST 15: the mock genuinely recycles. Guards tests 16-25.
             const recycling = await page.evaluate(async () => {
                 const v = window.__mockVirtualization;
                 if (!v) return { ok: false, reason: 'mock hooks missing' };
+                v.scrollToFraction(0);
+                await new Promise(r => setTimeout(r, 150));
+                const firstNode = document.querySelector('[data-testid="user-message"]');
                 const seen = new Set();
                 const counts = [];
-                // Hold a reference to a node mounted at the top so we can later
-                // prove it was REMOVED from the document, not just hidden.
-                v.scrollToFraction(0);
-                await new Promise(r => setTimeout(r, 120));
-                const firstNode = document.querySelector('[data-testid="user-message"]');
                 for (const f of [0, 0.35, 0.7, 1]) {
                     v.scrollToFraction(f);
-                    await new Promise(r => setTimeout(r, 120));
-                    const texts = Array.from(
-                        document.querySelectorAll('[data-testid="user-message"]'))
-                        .map(e => e.textContent.trim().slice(0, 40));
-                    texts.forEach(t => seen.add(t));
-                    counts.push(texts.length);
+                    await new Promise(r => setTimeout(r, 150));
+                    // Identity by data-index, not by a text slice. The mock now injects
+                    // contamination fixtures at the START of the message node, so a raw
+                    // textContent prefix is identical across messages and would report
+                    // 1 unique for the whole conversation.
+                    const userRows = v.mountedIndexes().filter(n => n % 2 === 0);
+                    userRows.forEach(n => seen.add(n));
+                    counts.push(document.querySelectorAll('[data-testid="user-message"]').length);
                 }
-                // At the bottom of a 40-turn conversation the first turn must be gone.
                 const detachedProven = !!firstNode && !firstNode.isConnected;
                 v.scrollToFraction(0);
-                return {
-                    ok: true,
-                    counts,
-                    cumulativeUnique: seen.size,
-                    totalTurns: v.totalTurns,
-                    windowSize: v.windowSize,
-                    detachedProven,
-                };
+                return { ok: true, counts, cumulativeUnique: seen.size,
+                         totalTurns: v.totalTurns, userWindowSize: v.userWindowSize,
+                         detachedProven };
             });
-            // NOTE: `cumulativeUnique < totalTurns` alone is NOT diagnostic —
-            // sampling 4 windows of 3 can never exceed 12, so it is trivially true
-            // even for a STATIC 3-node mock that merely claims a total of 40.
-            // The assertions that actually carry weight are:
-            //   (a) the mounted SET changes as you scroll (proves recycling), and
-            //   (b) a node captured earlier is later DISCONNECTED from the document
-            //       (proves unmounting rather than hiding).
-            const neverExceedsWindow = recycling.ok &&
-                recycling.counts.every(c => c === recycling.windowSize);
-            const setChanges = recycling.ok &&
-                recycling.cumulativeUnique > recycling.windowSize;
-            const doesNotAccumulate = recycling.ok &&
-                recycling.cumulativeUnique < recycling.totalTurns;
-            assert('Mock recycles turns (set changes, never accumulates)',
-                neverExceedsWindow && setChanges && doesNotAccumulate &&
+            assert('Mock recycles turns (set changes, node detaches)',
+                recycling.ok &&
+                recycling.counts.every(c => c === recycling.userWindowSize) &&
+                recycling.cumulativeUnique > recycling.userWindowSize &&
+                recycling.cumulativeUnique < recycling.totalTurns &&
                 recycling.detachedProven,
                 recycling.ok
-                    ? `mounted per scroll position: [${recycling.counts}], ` +
-                      `unique seen ${recycling.cumulativeUnique} of ${recycling.totalTurns}, ` +
-                      `earlier node detached from DOM: ${recycling.detachedProven}`
+                    ? `mounted [${recycling.counts}], unique ${recycling.cumulativeUnique}/` +
+                      `${recycling.totalTurns}, earlier node detached: ${recycling.detachedProven}`
                     : recycling.reason);
 
-            // TEST 16: the DOM scan cannot see the whole conversation. This is the
-            // bug itself, asserted so a future change that silently "fixes" the
-            // count without an index gets caught.
-            const domCoverage = await page.evaluate(() => {
-                const v = window.__mockVirtualization;
-                return {
-                    mounted: v.mountedCount(),
-                    total: v.totalTurns,
-                };
-            });
+            // TEST 16: DOM cannot see the whole conversation (the bug, asserted).
+            const domCoverage = await page.evaluate(() => ({
+                mounted: window.__mockVirtualization.mountedCount(),
+                total: window.__mockVirtualization.totalTurns,
+            }));
             assert('DOM exposes only the mounted window',
-                domCoverage.mounted === platform.virtualized.windowSize &&
+                domCoverage.mounted === platform.virtualized.userWindowSize &&
                 domCoverage.total === platform.virtualized.totalTurns,
-                `${domCoverage.mounted} of ${domCoverage.total} turns in DOM ` +
-                `(~${Math.round(100 * domCoverage.mounted / domCoverage.total)}% coverage)`);
+                `${domCoverage.mounted} of ${domCoverage.total} turns in DOM`);
 
-            // TEST 17: degraded mode is VISIBLE, not just logged. Silent
-            // degradation is what let this bug hide — the panel must say so.
-            // No GM_xmlhttpRequest exists in the harness, so the index always
-            // fails here and the banner must appear.
+            // TEST 17: degraded banner — required without the fixture, forbidden with it.
             await page.click('[data-acn-role="nav-trigger"]');
             await page.waitForTimeout(600);
             const degraded = await page.evaluate(() => {
@@ -620,14 +764,309 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                 return b ? { status: b.getAttribute('data-acn-index-status'),
                              text: b.textContent.trim() } : null;
             });
-            assert('Degraded mode is visible in the panel',
-                !!degraded && degraded.status === 'degraded',
-                degraded ? `banner: "${degraded.text}"`
-                         : 'No [data-acn-index-status] banner rendered');
+            if (!platform.indexBacked) {
+                assert('Degraded mode is visible in the panel',
+                    !!degraded && degraded.status === 'degraded',
+                    degraded ? `banner: "${degraded.text}"` : 'No banner rendered');
+            } else {
+                assert('Index-backed run does NOT show degraded banner',
+                    !degraded || degraded.status !== 'degraded',
+                    degraded ? `unexpected: "${degraded.text}"` : 'no degraded banner');
+            }
+
+            // TEST 18: virtualizer metadata. NOTE: a property of the MOCK — it can only
+            // fail if the mock file is edited. Kept as a guard on the fixture contract.
+            const meta = await page.evaluate(() => {
+                const rows = Array.from(document.querySelectorAll('[data-index]'))
+                    .map(e => +e.getAttribute('data-index')).sort((a, b) => a - b);
+                const art = document.querySelector('[aria-setsize]');
+                const runs = rows.reduce((acc, n, i) => (i && n === rows[i - 1] + 1) ? acc : acc + 1, 0);
+                const senders = {
+                    user: rows.filter(n => !!document.querySelector(`[data-index="${n}"] [data-testid="user-message"]`)).length,
+                    ai:   rows.filter(n => !!document.querySelector(`[data-index="${n}"] .font-claude-response`)).length,
+                };
+                return { rows, setsize: art ? +art.getAttribute('aria-setsize') : null,
+                         hasFeed: !!document.querySelector('[role="feed"]'),
+                         hasContainer: !!document.querySelector('[data-autoscroll-container="true"]'),
+                         runs, senders };
+            });
+            assert('Virtualizer metadata present and covers both senders',
+                meta.rows.length >= 2 && meta.setsize > 0 && meta.hasFeed &&
+                meta.hasContainer && meta.senders.user > 0 && meta.senders.ai > 0,
+                `rows=[${meta.rows}] setsize=${meta.setsize} user=${meta.senders.user} ai=${meta.senders.ai}`);
+
+            // TEST 19: mounted set is non-contiguous AT EVERY scroll position.
+            // The earlier version sampled one position and passed only because a prior
+            // test happened to leave the scroll at the top; at the bottom the window
+            // and the tail were adjacent (one run).
+            const nonContig = await page.evaluate(async () => {
+                const v = window.__mockVirtualization;
+                const out = [];
+                for (const f of [0, 0.5, 1]) {
+                    v.scrollToFraction(f);
+                    await new Promise(r => setTimeout(r, 150));
+                    const rows = v.mountedIndexes();
+                    const runs = rows.reduce((a, n, i) => (i && n === rows[i - 1] + 1) ? a : a + 1, 0);
+                    out.push({ f, rows, runs });
+                }
+                v.scrollToFraction(0);
+                return out;
+            });
+            assert('Mounted set is non-contiguous at every scroll position',
+                nonContig.every(x => x.runs >= 2),
+                nonContig.map(x => `f=${x.f}:${x.runs}run [${x.rows}]`).join('  '));
+
+            // TEST 20: contamination stripped. The mock now puts an HTML COMMENT and an
+            // .sr-only span INSIDE [data-testid="user-message"], so disabling the
+            // stripping makes this fail — previously it could not.
+            const contamination = await page.evaluate(() => {
+                const items = Array.from(document.querySelectorAll('[data-acn-role="nav-item-text"]'))
+                    .map(i => i.textContent.trim());
+                return {
+                    total: items.length,
+                    bad: items.filter(t =>
+                        /MOCK-COMMENT-SHOULD-NOT-APPEAR|SR-ONLY-SHOULD-NOT-APPEAR|you said|claude responded|load earlier/i.test(t)),
+                    sample: items[0] || '',
+                };
+            });
+            assert('Injected comment and sr-only stripped from question text',
+                contamination.total > 0 && contamination.bad.length === 0,
+                contamination.bad.length
+                    ? `leaked in ${contamination.bad.length}: ${JSON.stringify(contamination.bad[0].slice(0, 70))}`
+                    : `${contamination.total} items clean, e.g. ${JSON.stringify(contamination.sample.slice(0, 50))}`);
+
+            // TEST 21: jump terminates AND the busy flag is genuinely used.
+            // Asserting only "not busy at the end" was satisfied by never setting it.
+            const jump = await page.evaluate(async () => {
+                const v = window.__mockVirtualization;
+                v.scrollToFraction(1);
+                await new Promise(r => setTimeout(r, 250));
+                const items = document.querySelectorAll('[data-acn-role="nav-item"]');
+                if (!items.length) return { ok: false, reason: 'no nav items' };
+                let busySeen = false;
+                const t0 = Date.now();
+                items[0].click();
+                // 10s budget > the implementation's own 8 x (800+250) = 8400ms bound.
+                for (let i = 0; i < 100; i++) {
+                    if (document.querySelector('[data-acn-jumping="true"]')) busySeen = true;
+                    await new Promise(r => setTimeout(r, 100));
+                    if (!document.querySelector('[data-acn-jumping="true"]') && busySeen) break;
+                    if (Date.now() - t0 > 10000) break;
+                }
+                return { ok: true, elapsedMs: Date.now() - t0, busySeen,
+                         stillBusy: !!document.querySelector('[data-acn-jumping="true"]'),
+                         indexBacked: !!window.__ACN_INDEX_BACKED };
+            });
+            // Busy is only expected on the index-backed entry: without an index the
+            // click short-circuits to the toast and never enters the loop.
+            assert('Jump terminates without hanging',
+                jump.ok && !jump.stillBusy && (!platform.indexBacked || jump.busySeen),
+                jump.ok ? `~${jump.elapsedMs}ms, busy observed=${jump.busySeen}, stuck=${jump.stillBusy}`
+                        : jump.reason);
+
+            // ── TESTS 22-25: index-backed jump (the primary v12.0 path) ────
+            if (platform.indexBacked) {
+                // TEST 22: panel lists the whole conversation while the DOM holds 3.
+                const coverage = await page.evaluate(() => {
+                    const stat = document.querySelector('[data-acn-role="nav-stat"]');
+                    return { listed: stat ? +stat.getAttribute('data-acn-count') : -1,
+                             mountedInDom: window.__mockVirtualization.mountedCount(),
+                             realTurns: window.__mockVirtualization.totalTurns };
+                });
+                assert('Index lists the whole conversation, not the mounted window',
+                    coverage.listed === coverage.realTurns &&
+                    coverage.mountedInDom < coverage.realTurns,
+                    `lists ${coverage.listed}/${coverage.realTurns}, DOM holds ${coverage.mountedInDom}`);
+
+                // TEST 23: jump to question #1 from the BOTTOM.
+                // Asserts the target was unmounted at click time AND that the landed
+                // row is the RIGHT message — not merely that something mounted. With
+                // ciDeriveRowOffset hardcoded to 0 this must fail.
+                const firstJump = await page.evaluate(async () => {
+                    const v = window.__mockVirtualization;
+                    v.scrollToFraction(1);
+                    await new Promise(r => setTimeout(r, 300));
+                    const before = v.mountedIndexes();
+                    const items = document.querySelectorAll('[data-acn-role="nav-item"]');
+                    if (!items.length) return { ok: false, reason: 'no nav items' };
+                    const wantText = items[0].querySelector('[data-acn-role="nav-item-text"]').textContent.trim();
+                    const t0 = Date.now();
+                    items[0].click();
+                    for (let i = 0; i < 110; i++) {
+                        await new Promise(r => setTimeout(r, 100));
+                        const arrived = !!document.querySelector('[data-index="0"]');
+                        const busy = !!document.querySelector('[data-acn-jumping="true"]');
+                        if (arrived && !busy) break;
+                        if (Date.now() - t0 > 11000) break;
+                    }
+                    const row = document.querySelector('[data-index="0"]');
+                    const rowText = row
+                        ? (row.querySelector('[data-testid="user-message"]') || row).textContent
+                        : '';
+                    return { ok: true, elapsedMs: Date.now() - t0,
+                             targetWasMountedAtClick: before.indexOf(0) !== -1,
+                             targetMountedNow: !!row,
+                             // Question 1 must be the message at row 0.
+                             rowIsQuestion1: /Question number 1\b/.test(rowText),
+                             navTextWasQuestion1: /Question number 1\b/.test(wantText),
+                             stillBusy: !!document.querySelector('[data-acn-jumping="true"]'),
+                             mountedNow: v.mountedIndexes() };
+                });
+                assert('Jump reaches question #1 from the bottom, landing on the right message',
+                    firstJump.ok && !firstJump.targetWasMountedAtClick &&
+                    firstJump.targetMountedNow && firstJump.rowIsQuestion1 &&
+                    firstJump.navTextWasQuestion1 && !firstJump.stillBusy,
+                    firstJump.ok
+                        ? `unmounted@click=${!firstJump.targetWasMountedAtClick} ` +
+                          `mounted=${firstJump.targetMountedNow} correctMsg=${firstJump.rowIsQuestion1} ` +
+                          `~${firstJump.elapsedMs}ms rows=[${firstJump.mountedNow}]`
+                        : firstJump.reason);
+
+                // TEST 24: jump to a MID-conversation question from the top.
+                // Deliberately NOT the last question: the last one maps adjacent to the
+                // pinned tail, so an off-by-one lands on an always-mounted row and looks
+                // like success. A middle target has no such escape hatch.
+                const midJump = await page.evaluate(async () => {
+                    const v = window.__mockVirtualization;
+                    v.scrollToFraction(0);
+                    await new Promise(r => setTimeout(r, 300));
+                    const items = Array.from(document.querySelectorAll('[data-acn-role="nav-item"]'));
+                    const targetOrdinal = 20;                    // question #20
+                    const item = items[targetOrdinal - 1];
+                    if (!item) return { ok: false, reason: 'no item ' + targetOrdinal };
+                    const before = v.mountedIndexes();
+                    const expectRow = (targetOrdinal - 1) * 2;   // user rows are even
+                    const t0 = Date.now();
+                    item.click();
+                    for (let i = 0; i < 110; i++) {
+                        await new Promise(r => setTimeout(r, 100));
+                        const arrived = !!document.querySelector(`[data-index="${expectRow}"]`);
+                        const busy = !!document.querySelector('[data-acn-jumping="true"]');
+                        if (arrived && !busy) break;
+                        if (Date.now() - t0 > 11000) break;
+                    }
+                    const row = document.querySelector(`[data-index="${expectRow}"]`);
+                    const rowText = row
+                        ? (row.querySelector('[data-testid="user-message"]') || row).textContent
+                        : '';
+                    return { ok: true, expectRow, elapsedMs: Date.now() - t0,
+                             wasMountedAtClick: before.indexOf(expectRow) !== -1,
+                             mountedNow: !!row,
+                             correctMessage: new RegExp('Question number ' + targetOrdinal + '\\b').test(rowText),
+                             stillBusy: !!document.querySelector('[data-acn-jumping="true"]'),
+                             rows: v.mountedIndexes() };
+                });
+                assert('Jump reaches a mid-conversation question and lands on the right message',
+                    midJump.ok && !midJump.wasMountedAtClick && midJump.mountedNow &&
+                    midJump.correctMessage && !midJump.stillBusy,
+                    midJump.ok
+                        ? `row ${midJump.expectRow} unmounted@click=${!midJump.wasMountedAtClick} ` +
+                          `mounted=${midJump.mountedNow} correctMsg=${midJump.correctMessage} ` +
+                          `~${midJump.elapsedMs}ms rows=[${midJump.rows}]`
+                        : midJump.reason);
+
+                // TEST 25: the settle loop actually has to WORK for it.
+                // scrollHeight must drift as rows are measured, otherwise the first
+                // interpolation always lands and the convergence machinery is dead code
+                // (a reviewer proved this by throwing inside the cluster selector and
+                // seeing nothing fail).
+                const drift = await page.evaluate(async () => {
+                    const v = window.__mockVirtualization;
+                    // Reset measured heights first. Earlier tests scroll extensively, and
+                    // once most rows have been measured the estimate/actual gap closes —
+                    // drift is a property of the UNMEASURED state, so measuring it after
+                    // a full sweep reports ~0 and the assertion becomes order-dependent.
+                    v.resetMeasurements();
+                    const seen = [];
+                    for (const f of [0, 0.2, 0.4, 0.6, 0.8, 1]) {
+                        v.scrollToFraction(f);
+                        await new Promise(r => setTimeout(r, 120));
+                        seen.push(v.scrollHeight());
+                    }
+                    v.scrollToFraction(0);
+                    return { seen, min: Math.min(...seen), max: Math.max(...seen),
+                             measured: v.measuredCount(), total: v.totalMessages };
+                });
+                const driftPct = 100 * (drift.max - drift.min) / drift.min;
+                assert('Mock reproduces scrollHeight drift (convergence is exercised)',
+                    driftPct > 1,
+                    `scrollHeight ${drift.min}..${drift.max} (${driftPct.toFixed(2)}%), ` +
+                    `${drift.measured}/${drift.total} rows measured`);
+
+                // TEST 26: abandoned-branch messages must NOT be listed.
+                // The fixture hangs a two-message branch off a mid-conversation parent.
+                // Replacing the tree walk with `msgs.slice()` must now fail here.
+                const branch = await page.evaluate(() => {
+                    const items = Array.from(document.querySelectorAll('[data-acn-role="nav-item-text"]'))
+                        .map(i => i.textContent);
+                    return {
+                        total: items.length,
+                        leaked: items.filter(t => /ABANDONED BRANCH/i.test(t)).length,
+                    };
+                });
+                assert('Abandoned branch excluded from the question list',
+                    branch.leaked === 0 && branch.total === platform.virtualized.totalTurns,
+                    `${branch.leaked} abandoned message(s) leaked; ${branch.total} items listed ` +
+                    `(expected ${platform.virtualized.totalTurns})`);
+
+                // TEST 27: message text must come from content[] blocks, not the
+                // top-level `text` field. The real API returns `text: ''` on EVERY
+                // message (measured: 0 of 192 non-empty) and the fixture mirrors that,
+                // so if ciExtractText were "simplified" to read msg.text the index would
+                // be empty and every jump would fail — silently, with no error anywhere.
+                const contentSource = await page.evaluate(() => {
+                    const items = Array.from(document.querySelectorAll('[data-acn-role="nav-item-text"]'))
+                        .map(i => i.textContent.trim());
+                    return {
+                        count: items.length,
+                        nonEmpty: items.filter(t => t.length > 0).length,
+                        matchesFixture: items.filter(t => /Question number \d+/.test(t)).length,
+                    };
+                });
+                assert('Question text is sourced from content[] blocks, not the empty text field',
+                    contentSource.count > 0 &&
+                    contentSource.nonEmpty === contentSource.count &&
+                    contentSource.matchesFixture === contentSource.count,
+                    `${contentSource.matchesFixture}/${contentSource.count} items carry ` +
+                    `content[]-derived text (fixture sets text:'' on every message)`);
+            }
         }
+
+        // ── TEST: non-virtualized platforms must not enter the settle loop ──
+        // Acceptance criterion "non-virtualized platforms unaffected" had no coverage.
+        // Clicking a question on a static mock must resolve directly and never set the
+        // jump-busy state.
+        if (!platform.virtualized) {
+            const direct = await page.evaluate(async () => {
+                const items = document.querySelectorAll('[data-acn-role="nav-item"]');
+                if (!items.length) return { ok: false, reason: 'no nav items' };
+                let busySeen = false;
+                items[0].click();
+                for (let i = 0; i < 12; i++) {
+                    if (document.querySelector('[data-acn-jumping="true"]')) busySeen = true;
+                    await new Promise(r => setTimeout(r, 50));
+                }
+                return { ok: true, busySeen };
+            });
+            assert('Non-virtualized platform uses the direct path (no settle loop)',
+                direct.ok && !direct.busySeen,
+                direct.ok ? `jump-busy never set: ${!direct.busySeen}` : direct.reason);
+        }
+
+        // ── FINAL: no uncaught page errors, for EVERY platform ──────────────
+        // Must be last: an earlier position meant errors thrown by later tests were
+        // never seen (proven — a late throw during a jump passed 25/25). Previously
+        // this was also gated to virtualized platforms only, so the other 14 collected
+        // errors and discarded them.
+        assert('No uncaught page errors', pageErrors.length === 0,
+            pageErrors.length ? pageErrors.slice(0, 3).join(' | ') : 'clean');
 
     } catch (err) {
         assert('No runtime errors', false, err.message);
+    } finally {
+        // Detach so errors do not bleed into the next platform's run — the page
+        // object is reused across all 15 platforms.
+        page.off('pageerror', onPageError);
     }
 
     return results;

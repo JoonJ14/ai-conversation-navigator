@@ -1450,6 +1450,11 @@
         _ciTruncatedCount   = truncated;
         _ciUsedLeafFallback = resolved.usedFallback;
         _ciPathComplete     = resolved.reachedRoot;
+        // A mid-jump refetch for the SAME conversation (edit/regenerate resync) rebuilds
+        // the path without going through ciInvalidate, so indices shift underneath an
+        // in-flight jump and it would verify against the new array — landing confidently
+        // on a different message than the one clicked.
+        _ciJumpToken++;
         _ciTextToUuid       = null;   // rebuilt lazily against the new path
         return turns;
     }
@@ -1638,6 +1643,629 @@
         return null;
     }
 
+    // ============================================================
+    // VIRTUALIZER BRIDGE — data-index <-> conversation index (v12.0, Phase 3)
+    // ============================================================
+    // Claude's virtualizer ("rocksteady") tags each rendered row with data-index:
+    // contiguous, 0-based, covering BOTH senders. That is a positional identifier,
+    // so mapping a mounted DOM node to a conversation position needs no text
+    // matching at all — which removes the whole contamination class that produced
+    // the Tier 3 CRITICAL.
+    //
+    // What it does NOT give us is the alignment. _ciFullPath has 295 entries while
+    // aria-setsize reports 294 rows, so some constant offset exists. Measured once
+    // it was +1, but from a single matched row — and a wrong offset lands EVERY
+    // jump one message off, silently.
+    //
+    // So the offset is never hardcoded. It is re-derived on each jump from EVERY
+    // mounted user row, and all of them must agree. Disagreement means the mapping
+    // assumption is broken (a deploy changed the row model, a branch switch
+    // renumbered things) and we refuse to convert rather than jump somewhere wrong.
+    // That makes the check permanent and self-correcting instead of a one-time probe.
+
+    var CI_ROW_ATTR = 'data-index';
+
+    // Rows currently mounted, as { dataIndex, el, isUser }, ascending.
+    // Resolves the message-feed root once. EVERY row query must be scoped to it:
+    // [data-index] is not unique to Claude's feed (sidebar/virtuoso lists and carousels
+    // use it too). A foreign row entering the set fragments a real contiguous run and
+    // its geometry is converted against the wrong container, so it can win the
+    // nearest-cluster contest and drive the settle key and the anchor interpolation.
+    function ciFeedRoot() {
+        return document.querySelector('[role="feed"]') ||
+               document.querySelector('[data-autoscroll-container="true"]') ||
+               document;
+    }
+
+    function ciMountedRows() {
+        var els = ciFeedRoot().querySelectorAll('[' + CI_ROW_ATTR + ']');
+        var rows = [];
+        for (var i = 0; i < els.length; i++) {
+            var raw = els[i].getAttribute(CI_ROW_ATTR);
+            var n = parseInt(raw, 10);
+            if (isNaN(n)) continue;
+            rows.push({
+                dataIndex: n,
+                el: els[i],
+                isUser: !!els[i].querySelector('[data-testid="user-message"]')
+            });
+        }
+        rows.sort(function (a, b) { return a.dataIndex - b.dataIndex; });
+        return rows;
+    }
+
+    // Derives the offset such that:  _ciFullPath index === dataIndex + offset
+    // Returns null when it cannot be established or the rows disagree.
+    function ciDeriveRowOffset() {
+        if (!ciIsReady() || !_ciFullPath) return null;
+        var rows = ciMountedRows();
+        var offsets = [];
+        var i, j;
+
+        for (i = 0; i < rows.length; i++) {
+            if (!rows[i].isUser) continue;   // assistant text is less reliably matched
+            // isUser is defined as "has a [data-testid=user-message] descendant", so
+            // this querySelector always resolves — the old `|| rows[i].el` fallback
+            // was unreachable. Reading the INNER node also keeps the platform's
+            // sr-only sender label (which lives on the row wrapper) out of the key.
+            var inner = rows[i].el.querySelector('[data-testid="user-message"]');
+            if (!inner) continue;
+            var key = _normalizeKey(_readMessageText(inner));
+            if (!key) continue;
+            var matches = [];
+            for (j = 0; j < _ciFullPath.length; j++) {
+                if (_ciFullPath[j].sender !== 'human') continue;
+                if (_normalizeKey(_ciFullPath[j].text || '') === key) matches.push(j);
+            }
+            // Ambiguous text (the same question asked twice) proves nothing about
+            // alignment — skip it rather than letting it vote.
+            if (matches.length !== 1) continue;
+            offsets.push(matches[0] - rows[i].dataIndex);
+        }
+
+        if (!offsets.length) return null;
+        for (i = 1; i < offsets.length; i++) {
+            if (offsets[i] !== offsets[0]) {
+                console.warn('[ACN] virtualizer row offset is INCONSISTENT across mounted ' +
+                             'rows (' + offsets.join(', ') + '). The data-index <-> conversation ' +
+                             'mapping no longer holds; refusing to convert.');
+                return null;
+            }
+        }
+        // HONEST SCOPE: every sample comes from the 3-10 row mount window, so they sit
+        // within a few rows of each other. This proves the offset LOCALLY, not globally.
+        // If the mapping were piecewise (a virtualizer row that is not a path message,
+        // or a path entry the virtualizer never renders — which already happens once at
+        // the head), all local samples would agree and this check would still pass.
+        // That is why the jump VERIFIES the landed row's text before reporting success
+        // rather than trusting this value. Do not remove that verification on the
+        // grounds that "the offset is already checked here".
+        return offsets[0];
+    }
+
+    // Named wrappers. Both return null when the offset cannot be trusted; every
+    // caller must treat null as "fail visibly", never as 0.
+    function ciDataIndexToFullPath(dataIndex, offset) {
+        if (offset === null || offset === undefined) return null;
+        var v = dataIndex + offset;
+        if (v < 0 || !_ciFullPath || v >= _ciFullPath.length) return null;
+        return v;
+    }
+
+    function ciFullPathToDataIndex(fullPathIndex, offset, totalRows) {
+        if (offset === null || offset === undefined) return null;
+        var v = fullPathIndex - offset;
+        if (v < 0) return null;
+        // Symmetric with ciDataIndexToFullPath, which bounds both ends. Without the
+        // upper bound a skewed offset yields a row that can never mount, and the
+        // caller burns all 8 iterations (~8.4s of forced scrolling) before failing.
+        if (typeof totalRows === 'number' && totalRows > 0 && v >= totalRows) return null;
+        return v;
+    }
+
+    // ============================================================
+    // JUMP-TO-MESSAGE — settle loop (v12.0, Phase 3.1)
+    // ============================================================
+    // scrollIntoView cannot work on a node that is not mounted, and ~97% of a long
+    // conversation is unmounted. So: estimate an offset, scroll, see which rows
+    // actually mounted, and interpolate again from that real anchor.
+    //
+    // MEASURED CONSTRAINTS (Phase 3.0, live, Firefox sandbox + Chromium; Probe C
+    // re-run three times — run 1 was the outlier and its conclusions were wrong):
+    //
+    //  - scrollHeight DRIFTS as rows are measured: 12,050px / 3.2% on the test
+    //    conversation, monotonically decreasing, ~9-10 messages of error. It also
+    //    differs per page load (387132 / 388841 / 390502 observed). So the target
+    //    offset is re-normalised every iteration and never cached absolutely.
+    //
+    //  - DO NOT DISPATCH A SYNTHETIC SCROLL EVENT. Reposition only. Measured across
+    //    three identical runs: without dispatch the drift was EXACTLY -360px every
+    //    time; with dispatch it was -2784 then -6249 then -6249. Worse, cluster
+    //    identity showed a real overshoot — the dispatch run targeted a LOWER
+    //    document position (136292 vs 134056) yet landed ~6 rows HIGHER
+    //    ([113,114,115,116] vs [119,120,121,122]), beyond the +/-5 tolerance.
+    //    Mechanism: dispatching makes the app run its own scroll handling, which
+    //    triggers an extra height-measurement pass and shifts the coordinate system
+    //    mid-jump. See DEC-024.
+    //
+    //  - There is NO pin/autoscroll interference. Probe C runs 2 and 3 initially
+    //    printed "DISPATCH HARMFUL - pin/autoscroll" but that diagnosis is wrong:
+    //    scrollTop and cluster identity were static across all 8 samples over 3.2s,
+    //    drift was NEGATIVE (away from the bottom; a pin pulls toward it), and
+    //    SNAPPED_BACK_TO_BOTTOM was false in every run. The movement is entirely
+    //    scrollHeight re-normalisation, before sampling begins. Do NOT add a
+    //    pin-interference abort — there is nothing to abort.
+    //
+    //  - The mounted set is NOT contiguous, and the extra cluster is NOT a
+    //    fixed-size tail. Probe C Part A saw one at every sample; Part B saw none.
+    //    So clusters are detected structurally and selected by real geometry against
+    //    the current scroll offset. Nothing is excluded by index value.
+    //
+    //  - Settle: median 309ms, max 668ms -> 800ms cap with early exit.
+    //  - Mount window 3-10 rows -> +/-5 tolerance.
+    //  - A hidden tab throttles rAF and the virtualizer does not run at all, so the
+    //    loop cannot converge. Guarded, and rAF polling has a timer escape hatch.
+
+    var CI_JUMP_MAX_ITERATIONS = 8;
+    var CI_JUMP_SETTLE_CAP_MS  = 800;
+    var CI_JUMP_TOLERANCE_ROWS = 5;
+
+    var _ciJumpToken = 0;      // increments to cancel an in-flight jump
+    var _ciLastJumpToken = 0;  // token of the most recently STARTED jump
+
+    function ciFindScrollContainerStable() {
+        // Attribute first — stable across the class-name churn that already broke
+        // DOM-REFERENCE once. Walk-up retained as fallback and verified to resolve
+        // to the same node.
+        var c = document.querySelector('[data-autoscroll-container="true"]');
+        if (c && c.scrollHeight > c.clientHeight) return c;
+        return ciFindScrollContainer();
+    }
+
+    function ciTotalRows() {
+        // Scope to the message feed. aria-setsize is generic ARIA and appears on
+        // sidebar conversation lists, menus and comboboxes; an unscoped
+        // document.querySelector could return a 20-item sidebar, which collapses
+        // high.row, drives frac out of range, inverts the anchors and makes the loop
+        // oscillate to the iteration cap.
+        var scope = document.querySelector('[role="feed"]') ||
+                    document.querySelector('[data-autoscroll-container="true"]');
+        var a = null;
+        if (scope) a = scope.querySelector('[aria-setsize]');
+        if (!a) a = document.querySelector('[' + CI_ROW_ATTR + '] [aria-setsize]');
+        var n = a ? parseInt(a.getAttribute('aria-setsize'), 10) : NaN;
+        return isNaN(n) ? null : n;
+    }
+
+    function ciRowElement(dataIndex) {
+        var scope = document.querySelector('[role="feed"]') ||
+                    document.querySelector('[data-autoscroll-container="true"]') ||
+                    document;
+        return scope.querySelector('[' + CI_ROW_ATTR + '="' + dataIndex + '"]');
+    }
+
+    // Groups mounted rows into contiguous runs, then returns the run nearest the
+    // current scroll position by REAL GEOMETRY.
+    //
+    // Deliberately NOT "the largest run", and deliberately no fixed tail exclusion:
+    // an earlier version did both, and both were wrong. A stale cluster can be larger
+    // than the live viewport window, and the extra cluster is not a stable size (one
+    // probe run showed none at all, another showed one at every sample). Measuring
+    // where the rows actually are is correct whether the extras are a pinned tail,
+    // rows clearing late, or anything else.
+    function ciSelectCluster(container, rows) {
+        if (!rows || !rows.length) return null;
+
+        var clusters = [];
+        var cur = { lo: rows[0].dataIndex, hi: rows[0].dataIndex, els: [rows[0].el] };
+        for (var i = 1; i < rows.length; i++) {
+            if (rows[i].dataIndex === cur.hi + 1) {
+                cur.hi = rows[i].dataIndex;
+                cur.els.push(rows[i].el);
+            } else {
+                clusters.push(cur);
+                cur = { lo: rows[i].dataIndex, hi: rows[i].dataIndex, els: [rows[i].el] };
+            }
+        }
+        clusters.push(cur);
+        if (clusters.length === 1) return clusters[0];
+
+        // Viewport centre in container-content coordinates.
+        var viewCentre = container.scrollTop + container.clientHeight / 2;
+        var contRect = container.getBoundingClientRect();
+
+        var best = null, bestDist = Infinity;
+        for (var c = 0; c < clusters.length; c++) {
+            var els = clusters[c].els;
+            var sum = 0, n = 0;
+            for (var e = 0; e < els.length; e++) {
+                if (!els[e] || !els[e].getBoundingClientRect) continue;
+                var r = els[e].getBoundingClientRect();
+                // Convert viewport coords -> container content coords.
+                sum += (r.top - contRect.top) + container.scrollTop + r.height / 2;
+                n++;
+            }
+            if (!n) continue;
+            var dist = Math.abs((sum / n) - viewCentre);
+            if (dist < bestDist) { bestDist = dist; best = clusters[c]; }
+        }
+        return best || clusters[0];
+    }
+
+    // Reposition ONLY. No synthetic scroll event — see the constraints block above
+    // and DEC-024. Returns the clamped position actually requested.
+    function ciMoveTo(container, top) {
+        var max = Math.max(0, container.scrollHeight - container.clientHeight);
+        var clamped = Math.max(0, Math.min(top, max));
+        container.scrollTo({ top: clamped, behavior: 'auto' });
+        return clamped;
+    }
+
+    // Waits for the SELECTED cluster to stabilise — not merely for the whole mounted
+    // set to stop changing. A stale cluster clearing late makes the full set churn and
+    // then settle while the real viewport window is still moving, so keying on the set
+    // can exit early on a position that is about to change.
+    function ciWaitForSettle(container, beforeKey, cb) {
+        var start = Date.now();
+        var lastKey = beforeKey;
+        var stableSince = null;
+        var finished = false;
+
+        function clusterKey() {
+            var cl = ciSelectCluster(container, ciMountedRows());
+            return cl ? (cl.lo + '-' + cl.hi) : '';
+        }
+
+        function finishOnce(changed) {
+            if (finished) return;
+            finished = true;
+            clearTimeout(guardTimer);
+            cb(changed);
+        }
+
+        // requestAnimationFrame STOPS when the tab is hidden. Without this timer the
+        // poll would never run again, the callback would never fire, and the busy
+        // flag would never clear. Always terminate.
+        var guardTimer = setTimeout(function () {
+            // Evaluated OUTSIDE any caller try/catch — this is a timer callback, so a
+            // throw here (geometry reads on a detached container) would mean the
+            // callback never fires and the jump never completes.
+            var changed = false;
+            try { changed = clusterKey() !== beforeKey; } catch (e) {}
+            finishOnce(changed);
+        }, CI_JUMP_SETTLE_CAP_MS + 250);
+
+        (function poll() {
+            if (finished) return;
+            var key;
+            try { key = clusterKey(); } catch (e) { finishOnce(false); return; }
+            if (key !== lastKey) { lastKey = key; stableSince = Date.now(); }
+            else if (stableSince && key !== beforeKey && Date.now() - stableSince > 100) {
+                finishOnce(true); return;
+            }
+            if (Date.now() - start > CI_JUMP_SETTLE_CAP_MS) { finishOnce(key !== beforeKey); return; }
+            requestAnimationFrame(poll);
+        }());
+    }
+
+    // Confirms the row we landed on really is the requested message, by mapping the
+    // row index BACK through the offset and comparing text against the index.
+    //
+    // Without this, a wrong-but-locally-consistent offset produces a confident jump to
+    // the wrong message — the exact failure class this module was written to remove.
+    // The offset agreement check in ciDeriveRowOffset only proves the offset LOCALLY
+    // (all its samples come from one mount window); this is the global check.
+    // The API returns RAW MARKDOWN while the DOM holds RENDERED text, so a plain
+    // normalized compare fails for any message whose first 200 chars contain **bold**,
+    // a heading, a list marker or a code fence. That made assistant-target jumps
+    // (reachable from AI bookmarks) unable to verify at all, burning every iteration.
+    function _normalizeCompare(text) {
+        return _normalizeKey(
+            String(text == null ? '' : text)
+                .replace(/```[\s\S]*?```/g, ' ')
+                .replace(/[*_`~>#\[\]()]/g, '')
+                .replace(/^[\s-]+/gm, ' ')
+        );
+    }
+
+    function ciVerifyLandedRow(el, dataIndex, offset, expectedFullPathIdx) {
+        if (!el) return false;
+        var mapped = ciDataIndexToFullPath(dataIndex, offset);
+        if (mapped === null || mapped !== expectedFullPathIdx) return false;
+        if (!_ciFullPath || !_ciFullPath[expectedFullPathIdx]) return false;
+
+        var expected = _normalizeCompare(_ciFullPath[expectedFullPathIdx].text);
+        // "Nothing to compare" must FAIL, not pass. The index-mapping check above is a
+        // tautology — targetRow was computed as expected - offset with the same offset,
+        // so mapping it back always reproduces expected. The text compare is the ONLY
+        // real verification, so accepting an empty expectation accepts any row.
+        if (!expected) return false;
+
+        var inner = ciMessageNodeWithin(el);
+        if (!inner || inner === el) return false;   // never verify against the wrapper
+        return _normalizeCompare(_readMessageText(inner)) === expected;
+    }
+
+    // Returns the message-level node for a row, never the row wrapper itself. The
+    // wrapper is the virtualizer's recycling unit and carries the platform's sr-only
+    // sender label; storing it as q.element makes it type-inconsistent with everything
+    // getUserMessages() returns.
+    function ciMessageNodeWithin(rowEl) {
+        if (!rowEl) return null;
+        return rowEl.querySelector('[data-testid="user-message"]') ||
+               rowEl.querySelector('.font-claude-response') ||
+               // Tailwind important-prefix variant, same as the user-side selector chain.
+               rowEl.querySelector('.\\!font-claude-response') ||
+               rowEl;
+    }
+
+    /**
+     * Scrolls a message into view by its position in _ciFullPath, paging the
+     * virtualizer until the row mounts.
+     *
+     * @param targetFullPathIdx  index into _ciFullPath
+     * @param done               callback(success, resolvedMessageElementOrNull)
+     */
+    // Returns the token identifying THIS jump, so the caller can scope its busy-state
+    // reset to it and a superseded jump cannot clear a live jump's flag.
+    // done(ok, element, reason). `reason` distinguishes a genuine miss from an ABORT
+    // (superseded by a newer jump, user took control, conversation switched). Callers
+    // must not show "not currently rendered" for an abort: the user either started
+    // another jump or scrolled deliberately, and a failure toast for their own action
+    // is noise. It also stops a superseded jump from clearing the live jump's busy flag.
+    function ciJumpToFullPathIndex(targetFullPathIdx, done) {
+        var finishedOnce = false;
+        // Boxed so safeDone (defined before myToken is assigned) can read it later.
+        var myTokenRef = { v: 0 };
+        function safeDone(ok, el, reason) {
+            if (finishedOnce) return;
+            finishedOnce = true;
+            // Always release OUR token's claim before handing back.
+            try { orbSetJumpBusyFor(myTokenRef.v, false); } catch (e) {}
+            try { done(ok, el, reason || null); } catch (e) {
+                console.error('[ACN] jump completion handler threw:', e);
+            }
+        }
+
+        var container;
+        try {
+            container = ciFindScrollContainerStable();
+        } catch (e) {
+            // The prologue runs AFTER the caller set the busy flag and only `done`
+            // clears it, so a throw here (getComputedStyle walk, scrollHeight reads)
+            // would latch the panel dimmed and click-blocked until reload.
+            console.error('[ACN] jump prologue threw:', e);
+            safeDone(false, null); return;
+        }
+        if (!container) { safeDone(false, null); return; }
+
+        if (document.visibilityState !== 'visible') {
+            console.warn('[ACN] jump aborted: tab is not visible, the virtualizer is paused');
+            safeDone(false, null);
+            return;
+        }
+
+        var myToken = ++_ciJumpToken;
+        myTokenRef.v = myToken;
+        _ciLastJumpToken = myToken;
+        // The jump owns the busy state for its own token. Callers previously set it and
+        // cleared it from their completion callback via a GLOBAL "latest token", which
+        // reads whatever the newest jump wrote — so with two sequential jumps the first
+        // callback could not clear, and the flag stuck on permanently.
+        orbSetJumpBusyFor(myToken, true);
+        var userScrolled = false;
+        var totalRows = ciTotalRows();
+        if (!totalRows) {
+            // Without a row count, high.row collapses to 0, frac clamps to 1 and every
+            // estimate slams the container to the bottom — 8 forced scrolls then failure.
+            // Fail immediately instead of dragging the viewport.
+            console.warn('[ACN] jump aborted: could not read aria-setsize (row count)');
+            safeDone(false, null);
+            return;
+        }
+
+        var SCROLL_KEYS = {
+            PageUp: 1, PageDown: 1, Home: 1, End: 1, ArrowUp: 1, ArrowDown: 1, ' ': 1
+        };
+        function onUserScroll(e) {
+            // Our own repositioning is not a trusted event, so this cannot self-abort.
+            if (!e || !e.isTrusted) return;
+            if (e.type === 'keydown') {
+                // Only keys that actually scroll, and never while the user is typing —
+                // an unfiltered document-level keydown aborted the jump on any keystroke,
+                // including typing in the composer, and surfaced the failure toast.
+                var t = e.target;
+                if (t && (t.isContentEditable ||
+                          t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
+                          t.getAttribute && t.getAttribute('role') === 'textbox')) return;
+                if (!SCROLL_KEYS[e.key]) return;
+            }
+            userScrolled = true;
+        }
+        // wheel/touch cover pointer scrolling; mousedown catches scrollbar drags,
+        // which emit no wheel event; keydown is bound on the DOCUMENT because
+        // PageDown/Home/arrows land on body unless the scroller holds focus.
+        container.addEventListener('wheel', onUserScroll, { passive: true });
+        container.addEventListener('touchstart', onUserScroll, { passive: true });
+        container.addEventListener('mousedown', onUserScroll, { passive: true });
+        document.addEventListener('keydown', onUserScroll, true);
+
+        function cleanup() {
+            container.removeEventListener('wheel', onUserScroll);
+            container.removeEventListener('touchstart', onUserScroll);
+            container.removeEventListener('mousedown', onUserScroll);
+            document.removeEventListener('keydown', onUserScroll, true);
+        }
+        // EVERY exit runs through here, including supersession — an earlier version
+        // returned on supersession without calling done(), so the caller's
+        // orbSetJumpBusy(false) never ran and the panel stayed dimmed forever.
+        function finish(ok, el, reason) { cleanup(); safeDone(ok, el, reason); }
+
+        var low  = { row: 0, px: 0 };
+        var high = { row: (totalRows || 1) - 1,
+                     px: Math.max(0, container.scrollHeight - container.clientHeight) };
+        var iterations = 0;
+
+        function attempt() {
+            try {
+                if (myToken !== _ciJumpToken) { finish(false, null, 'superseded'); return; }
+                if (userScrolled) {
+                    console.log('[ACN] jump aborted: user took control');
+                    finish(false, null, 'user'); return;
+                }
+                if (!container.isConnected) { finish(false, null); return; }
+                if (document.visibilityState !== 'visible') { finish(false, null); return; }
+                // The index can be invalidated mid-jump by a conversation switch or a
+                // failed refetch; targetFullPathIdx would then refer to a different
+                // conversation's path.
+                if (!ciIsReady() || !_ciFullPath || targetFullPathIdx >= _ciFullPath.length) {
+                    finish(false, null); return;
+                }
+
+                // Re-derive every iteration: the first derivation happens at the
+                // least-informed moment (whatever was mounted before any scrolling),
+                // and can legitimately return null when the window holds no user rows.
+                var offset = ciDeriveRowOffset();
+                var targetRow = ciFullPathToDataIndex(targetFullPathIdx, offset, totalRows);
+                // An offset we DO know that still cannot map the target means the target
+                // is out of range — scrolling cannot fix that, so do not burn 8 probe
+                // scrolls dragging the viewport across the whole conversation.
+                if (targetRow === null && offset !== null && offset !== undefined) {
+                    console.log('[ACN] jump target is outside the rendered row range');
+                    finish(false, null); return;
+                }
+                if (targetRow === null) {
+                    if (++iterations > CI_JUMP_MAX_ITERATIONS) { finish(false, null); return; }
+                    // Nudge to mount a different window, then retry the derivation.
+                    var probePx = Math.max(0, container.scrollHeight - container.clientHeight) *
+                                  (iterations / (CI_JUMP_MAX_ITERATIONS + 1));
+                    var probeKeyCl = ciSelectCluster(container, ciMountedRows());
+                    var probeKey = probeKeyCl ? (probeKeyCl.lo + '-' + probeKeyCl.hi) : '';
+                    ciMoveTo(container, Math.round(probePx));
+                    ciWaitForSettle(container, probeKey, function () { attempt(); });
+                    return;
+                }
+
+                var here = ciRowElement(targetRow);
+                if (here && ciVerifyLandedRow(here, targetRow, offset, targetFullPathIdx)) {
+                    finish(true, ciMessageNodeWithin(here)); return;
+                }
+
+                if (++iterations > CI_JUMP_MAX_ITERATIONS) {
+                    console.log('[ACN] jump did not converge in ' + CI_JUMP_MAX_ITERATIONS +
+                                ' iterations');
+                    finish(false, null); return;
+                }
+
+                // Re-normalise against the CURRENT scrollHeight — it drifts ~3% as rows
+                // are measured and varies per page load.
+                var maxPx = Math.max(0, container.scrollHeight - container.clientHeight);
+                if (high.px > maxPx) high.px = maxPx;
+                if (low.px  > maxPx) low.px  = maxPx;   // clamp BOTH, or the bracket inverts
+                // Repair a degenerate bracket BEFORE it is used. Repairing it only in the
+                // settle callback wasted a whole iteration scrolling to the bottom first.
+                if (high.row - low.row < 1 || high.px - low.px < 1) {
+                    low  = { row: 0, px: 0 };
+                    high = { row: totalRows - 1, px: maxPx };
+                }
+
+                var span = (high.row - low.row) || 1;
+                var frac = (targetRow - low.row) / span;
+                if (frac < 0) frac = 0;
+                if (frac > 1) frac = 1;
+                var estimate = low.px + (high.px - low.px) * frac;
+
+                var beforeCl = ciSelectCluster(container, ciMountedRows());
+                var beforeKey = beforeCl ? (beforeCl.lo + '-' + beforeCl.hi) : '';
+                // Capture BEFORE the move. Comparing post-move scrollTop against the
+                // value ciMoveTo just wrote is a tautology — it matches after every
+                // ordinary successful move, so the "we are clamped at an extreme" bail
+                // would fire constantly and skip the retry and the tolerance branch.
+                var preMovePx  = Math.round(container.scrollTop);
+                ciMoveTo(container, Math.round(estimate));
+
+                ciWaitForSettle(container, beforeKey, function (changed) {
+                    try {
+                        if (myToken !== _ciJumpToken) { finish(false, null, 'superseded'); return; }
+                        if (userScrolled) { finish(false, null, 'user'); return; }
+
+                        var hit = ciRowElement(targetRow);
+                        if (hit && ciVerifyLandedRow(hit, targetRow, offset, targetFullPathIdx)) {
+                            finish(true, ciMessageNodeWithin(hit)); return;
+                        }
+
+                        // The virtualizer did not remount. The mounted set still
+                        // describes the OLD position while scrollTop describes the new
+                        // one, so recording an anchor here would pair a row index with a
+                        // pixel offset that never co-occurred and poison the
+                        // interpolation. Skip the anchor update and try again.
+                        if (!changed) {
+                            if (Math.abs(container.scrollTop - preMovePx) < 2) {
+                                // The position did not actually move: we are clamped at
+                                // an extreme and further estimates cannot help.
+                                finish(false, null); return;
+                            }
+                            attempt(); return;
+                        }
+
+                        var rows = ciMountedRows();
+                        var cluster = ciSelectCluster(container, rows);
+                        if (!cluster) { finish(false, null); return; }
+
+                        if (targetRow >= cluster.lo - CI_JUMP_TOLERANCE_ROWS &&
+                            targetRow <= cluster.hi + CI_JUMP_TOLERANCE_ROWS) {
+                            var nearIdx = Math.max(cluster.lo, Math.min(targetRow, cluster.hi));
+                            var near = ciRowElement(nearIdx);
+                            if (near) {
+                                near.scrollIntoView({ block: 'center' });
+                                // scrollIntoView moved the container, so any anchor must
+                                // be re-read AFTER it — pairing the pre-scroll cluster
+                                // with the post-scroll scrollTop was a real defect.
+                                var afterCl = ciSelectCluster(container, ciMountedRows());
+                                if (afterCl) cluster = afterCl;
+                            }
+                            var after = ciRowElement(targetRow);
+                            if (after && ciVerifyLandedRow(after, targetRow, offset, targetFullPathIdx)) {
+                                finish(true, ciMessageNodeWithin(after)); return;
+                            }
+                        }
+
+                        var observed = Math.round((cluster.lo + cluster.hi) / 2);
+                        var actualPx = Math.round(container.scrollTop);
+                        if (observed < targetRow) {
+                            if (observed >= low.row) low = { row: observed, px: actualPx };
+                        } else if (observed > targetRow) {
+                            if (observed <= high.row) high = { row: observed, px: actualPx };
+                        } else {
+                            // We are sitting ON the target row's cluster but verification
+                            // failed. Neither anchor moves, so the next iteration would
+                            // recompute an identical estimate and re-issue the same move
+                            // forever (visible thrashing, guaranteed failure). The target
+                            // is not going to resolve here.
+                            console.log('[ACN] jump: landed on the target cluster but the ' +
+                                        'row did not verify — aborting rather than thrashing');
+                            finish(false, null); return;
+                        }
+                        if (high.row - low.row < 1 || high.px - low.px < 1) {
+                            low  = { row: 0, px: 0 };
+                            high = { row: (totalRows || 1) - 1, px: maxPx };
+                        }
+                        attempt();
+                    } catch (err) {
+                        console.error('[ACN] jump settle step threw:', err);
+                        finish(false, null);
+                    }
+                });
+            } catch (err) {
+                // Any throw here would otherwise escape to the click handler with the
+                // busy flag already set and no path to clear it.
+                console.error('[ACN] jump step threw:', err);
+                finish(false, null);
+            }
+        }
+
+        attempt();
+    }
     // Maps normalized message text -> stable message uuid, for callers that only
     // have a DOM node to work from (bookmarks). Built lazily, cleared with the index.
     var _ciTextToUuid = null;
@@ -1647,11 +2275,16 @@
         if (!_ciTextToUuid) {
             _ciTextToUuid = {};
             for (var i = 0; i < _ciFullPath.length; i++) {
-                var t = _normalizeKey(_ciFullPath[i].text || '');
+                // Markdown-insensitive: the index holds RAW MARKDOWN while callers pass
+                // RENDERED DOM text. Keyed on _normalizeKey, any assistant message whose
+                // first 200 chars contain **, ##, `, or a list marker never matched, so
+                // its bookmark silently degraded to the position-dependent schema 1 —
+                // which, with the positional fallback deleted, is unresolvable.
+                var t = _normalizeCompare(_ciFullPath[i].text || '');
                 if (t && !_ciTextToUuid[t]) _ciTextToUuid[t] = _ciFullPath[i].uuid;
             }
         }
-        return _ciTextToUuid[_normalizeKey(text || '')] || null;
+        return _ciTextToUuid[_normalizeCompare(text || '')] || null;
     }
 
     function ciIsReady() {
@@ -1660,6 +2293,12 @@
     }
 
     function ciInvalidate() {
+        // Cancel any in-flight jump: it captured a target index against the OLD path,
+        // and the scroll container survives an SPA route change, so the loop would keep
+        // driving and could land on a same-numbered row in a different conversation.
+        // Safe to bump now that every superseded path calls finish() -> done(), so the
+        // caller's busy flag is always cleared.
+        _ciJumpToken++;
         _ciIndex          = null;
         _ciFullPath       = null;
         _ciTextToUuid     = null;
@@ -1750,39 +2389,92 @@
     // would fail to match, be treated as new, get appended as a provisional
     // entry (duplicating it in the list), and keep _ciNeedsResync() permanently
     // true — triggering a 3.3MB refetch every cooldown period, forever.
-    function _textWithoutInjected(el) {
+    // Nodes excluded from EVERY text read, platform-wide:
+    //
+    //   [data-acn-bookmark]  our own injected bookmark icon. Reading it back
+    //                        contaminated index<->DOM matching for short messages
+    //                        and drove a permanent refetch loop (Tier 3 CRITICAL).
+    //
+    //   .sr-only             the platform's screen-reader-only labels. ChatGPT emits
+    //                        "You said:", Claude emits "Claude responded:" and a
+    //                        "Load earlier messages" button, and all of it lands in
+    //                        textContent. Previously only ChatGPT's was handled, by
+    //                        a regex in one caller — so Claude's assistant prefix
+    //                        still reached Search, Export and Summary.
+    //
+    // Fixed here, in the shared extractor, rather than per-caller: every consumer
+    // reads through this path, so a per-caller strip is guaranteed to miss one.
+    // Matches sr-only as a whole class token, INCLUDING Tailwind responsive variants
+    // (sm:sr-only, md:sr-only) whose separator is ':' not whitespace — but NOT
+    // `not-sr-only`, whose entire purpose is to make content visible again.
+    // Token boundary is start/whitespace, optionally preceded by a variant prefix.
+    // Variant prefixes can contain '/', '&', '[', ']', '>', ':' etc.
+    // (group-hover/edit:sr-only, [&>*]:sr-only), so the prefix class is permissive —
+    // but it must NOT swallow a preceding '-', or `not-sr-only` would match.
+    var _SR_ONLY_RE = /(^|\s)(?:[^\s-]|[^\s]-[^\s])*?[:\]]sr-only(\s|$)|(^|\s)sr-only(\s|$)/i;
+
+    function _isSrOnlyClassList(cls) {
+        cls = (typeof cls === 'string' ? cls : (cls && cls.baseVal) || '');
+        return _SR_ONLY_RE.test(cls);
+    }
+
+    function _isExcludedFromText(n) {
+        if (!n || n.nodeType !== 1) return false;
+        if (n.getAttribute && n.getAttribute('data-acn-bookmark') !== null) return true;
+        return _isSrOnlyClassList(n.className);
+    }
+
+    function _cleanText(el) {
         if (!el) return '';
-        // Fast path: nothing of ours inside, read it directly.
-        if (!el.querySelector || !el.querySelector('[data-acn-bookmark]')) {
+        // Fast path: nothing excluded inside, read it directly.
+        // [class*="sr-only"] so the fast path also catches variant-prefixed tokens
+        // (sm:sr-only) that the slow path's regex excludes — otherwise the two paths
+        // disagree and a variant label survives into the text.
+        if (!el.querySelector ||
+            !el.querySelector('[data-acn-bookmark], .sr-only, [class*="sr-only"]')) {
             return el.textContent || el.innerText || '';
         }
         var out = '';
         var kids = el.childNodes;
         for (var i = 0; i < kids.length; i++) {
             var n = kids[i];
-            if (n.nodeType === 1 && n.getAttribute &&
-                n.getAttribute('data-acn-bookmark') !== null) continue;
-            out += _textWithoutInjected(n);
+            // ONLY elements (1) and text nodes (3). Recursing into a Comment node (8)
+            // would emit its contents: CharacterData.textContent IS the comment body,
+            // while Element.textContent excludes comments entirely. That made the slow
+            // path and the fast path return DIFFERENT strings for the same element,
+            // depending only on whether a bookmark icon had been injected yet.
+            // Verified live: Grok's first Navigate entry rendered "D: Inner layout
+            // wrapper..." — the mock's HTML comment — instead of the question.
+            // Load-bearing beyond cosmetics: it breaks ciDeriveRowOffset (no row
+            // matches the API text), which kills jump entirely, and makes every
+            // mounted message look new to _ciMergeLiveMessages, which reinstates the
+            // permanent-refetch loop this extractor exists to prevent.
+            if (n.nodeType !== 1 && n.nodeType !== 3) continue;
+            if (_isExcludedFromText(n)) continue;
+            out += _cleanText(n);
         }
         return out;
     }
 
     function _readMessageText(msg) {
         var proseEl = platform.textExtractor ? platform.textExtractor(msg) : null;
-        var text = (_textWithoutInjected(proseEl || msg) || '').trim();
-        // ChatGPT prefixes user turns with a visually-hidden h5.sr-only reading
-        // "You said:". The old pattern (/^You said\s*/i) could not match the colon
-        // and left a stray ": " on every ChatGPT question.
-        //
-        // Scoped to ChatGPT deliberately: no other platform emits that label, and
-        // applying it everywhere would silently truncate a legitimate user message
-        // that happens to begin "You said:".
-        if (platform.id === 'chatgpt') text = text.replace(/^\s*You said:?\s*/i, '');
-        return text;
+        // No "You said:" regex any more — the label is an .sr-only node and is now
+        // removed structurally. A regex could never distinguish the platform's label
+        // from a user message that legitimately begins with those words.
+        return (_cleanText(proseEl || msg) || '').trim();
+    }
+
+    // Assistant-side reader. Same exclusions — this is where Claude's
+    // "Claude responded:" sr-only prefix used to leak into Search and Export.
+    function _readAIText(el) {
+        return (_cleanText(el) || '').trim();
     }
 
     function _normalizeKey(text) {
-        return text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
+        // Coerce rather than trusting callers: several call sites pass the result of
+        // a DOM read or an index lookup without a `|| ''` guard.
+        return String(text == null ? '' : text)
+            .substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
     }
 
     // Binds index entries to whichever DOM nodes happen to be mounted right now.
@@ -2804,6 +3496,14 @@
             '.acn-qw{font-size:11px;color:#666;margin-top:2px}',
             '.acn-empty{padding:40px 14px;text-align:center;font-size:13px;color:#555;line-height:1.6}',
             '.acn-ci-banner{padding:7px 10px;margin:0 0 6px;border-radius:6px;font-size:11px;line-height:1.45}',
+            // Actually blocks re-entrant clicks while a jump is in flight. The busy
+            // state previously only dimmed the list, so the re-entrancy the jump token
+            // exists to make safe was directly reachable by the user.
+            // Covers Navigate/Search rows (.acn-qi) AND bookmark rows (.acn-bk); an
+            // earlier rule matched only .acn-qi, so bookmark clicks were never blocked.
+            '.acn-panel[data-acn-jumping="true"] .acn-qi,',
+            '.acn-panel[data-acn-jumping="true"] .acn-bk{pointer-events:none}',
+            '.acn-panel[data-acn-jumping="true"]{cursor:progress}',
             '.acn-ci-degraded{background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3)}',
             '.acn-ci-loading{background:rgba(255,255,255,.05);color:#888}',
             '.acn-ci-note{background:rgba(234,179,8,.12);color:#eab308;border:1px solid rgba(234,179,8,.3)}',
@@ -3702,12 +4402,80 @@
         }
     }
 
+    function _prefersReducedMotion() {
+        try {
+            return window.matchMedia &&
+                   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        } catch (e) { return false; }
+    }
+
+    // A multi-iteration jump can take a second or more; the panel must not look
+    // frozen. Marks the panel busy and disables further clicks while in flight.
+    // Token-aware so a SUPERSEDED jump cannot clear the busy state of the jump that
+    // superseded it. Without this, a second click started jump B, jump A was cancelled,
+    // and A's completion callback cleared the flag while B was still running — leaving B
+    // unguarded and firing a spurious failure toast.
+    var _ciBusyToken = 0;
+
+    function orbSetJumpBusyFor(token, busy) {
+        if (busy) { _ciBusyToken = token; orbSetJumpBusy(true); return; }
+        if (token !== _ciBusyToken) return;   // a newer jump owns the flag
+        orbSetJumpBusy(false);
+    }
+
+    function orbSetJumpBusy(busy) {
+        // Mark BOTH panels that can start a jump. An earlier version only marked the
+        // Navigate panel, so a bookmark-initiated jump gave no feedback at all for its
+        // whole multi-second duration.
+        var ids = ['acn-panel-nav', 'acn-panel-bookmarks'];
+        for (var i = 0; i < ids.length; i++) {
+            var panel = document.getElementById(ids[i]);
+            if (!panel) continue;
+            if (busy) panel.setAttribute('data-acn-jumping', 'true');
+            else panel.removeAttribute('data-acn-jumping');
+        }
+        // Dimming alone left the list fully interactive despite the comment claiming
+        // otherwise; the click-blocking is done by the [data-acn-jumping] CSS rule.
+        // getElementById('acn-bm-list') was always null — the bookmarks list is an
+        // unnamed .acn-ql inside #acn-panel-bookmarks. Dim by structure instead.
+        var list = document.getElementById('acn-nav-list');
+        if (list) list.style.opacity = busy ? '0.55' : '';
+        var bmPanel = document.getElementById('acn-panel-bookmarks');
+        var bmList  = bmPanel ? bmPanel.querySelector('.acn-ql') : null;
+        if (bmList) bmList.style.opacity = busy ? '0.55' : '';
+    }
+
     // Re-locates a question's DOM node among whatever is mounted right now.
     // Under recycling the stored element reference goes stale constantly, so
     // matching on normalized text is the only durable handle we have until the
     // node carries a stable id.
     function _relocateQuestionElement(q) {
-        if (q.element && q.element.isConnected) return q.element;
+        // Index-backed disambiguation first. Matching on normalized text alone returns
+        // the FIRST mounted match, so a repeated question — or two sharing a 200-char
+        // prefix — resolves to the wrong one, and the caller then treats the question as
+        // found and never enters the jump. q.pathIndex is authoritative; use it.
+        if (ciIsClaudeChat() && ciIsReady() && !q.provisional &&
+            typeof q.pathIndex === 'number') {
+            var off = ciDeriveRowOffset();
+            var wantRow = ciFullPathToDataIndex(q.pathIndex, off, ciTotalRows());
+            if (wantRow !== null) {
+                var rowEl = ciRowElement(wantRow);
+                if (rowEl && ciVerifyLandedRow(rowEl, wantRow, off, q.pathIndex)) {
+                    return ciMessageNodeWithin(rowEl);
+                }
+                // The authoritative row is not mounted (or does not verify): fall through
+                // to the jump rather than returning a same-text impostor.
+                return null;
+            }
+        }
+        // isConnected alone is NOT sufficient. Under recycling the virtualizer reuses
+        // the same DOM node for a different message, so a still-connected node can be
+        // displaying different content — the same trap the bookmark-icon guard
+        // documents. Re-validate the text before trusting the cached reference.
+        if (q.element && q.element.isConnected &&
+            _normalizeKey(_readMessageText(q.element)) === _normalizeKey(q.text)) {
+            return q.element;
+        }
         var wanted  = _normalizeKey(q.text);
         var current = Array.from(getUserMessages());
         for (var i = 0; i < current.length; i++) {
@@ -3719,10 +4487,31 @@
     function orbScrollToQuestion(q) {
         var target = _relocateQuestionElement(q);
 
+        // Not mounted. On Claude the settle loop can page the virtualizer to it.
+        // The other 13 platforms are not known to virtualize, so they short-circuit
+        // here and keep the plain behaviour — the seam stays clean for the
+        // cross-platform audit to add platforms later.
         if (!target) {
-            // The message exists in the index but is not mounted. Phase 3 adds the
-            // scroll-and-settle loop that pages the virtualizer to it; until then,
-            // fail loudly rather than silently doing nothing.
+            // pathIndex must be a REAL position in the active path. Provisional
+            // entries (DOM-merged, not yet in the index) carry MAX_SAFE_INTEGER as
+            // a sort key — jumping to that would burn all 8 iterations chasing a
+            // row that cannot exist.
+            if (ciIsClaudeChat() && ciIsReady() && _ciFullPath &&
+                !q.provisional && typeof q.pathIndex === 'number' &&
+                q.pathIndex >= 0 && q.pathIndex < _ciFullPath.length) {
+                ciJumpToFullPathIndex(q.pathIndex, function (ok, el, reason) {
+                    if (ok && el) {
+                        q.element = el;
+                        el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+                        orbFlashElement(el);
+                    } else if (reason !== 'superseded' && reason !== 'user') {
+                        // Honest failure retained — but only for a genuine miss. A
+                        // superseded jump or a user-initiated scroll is not a failure.
+                        showToast('That message is not currently rendered — scroll toward it and try again');
+                    }
+                });
+                return;
+            }
             showToast('That message is not currently rendered — scroll toward it and try again');
             return;
         }
@@ -3742,10 +4531,28 @@
     }
 
     function orbFlashElement(el) {
-        var orig = el.style.backgroundColor;
+        if (!el) return;
+        // Re-entrancy: a second flash within the window would capture the FIRST flash's
+        // tint as "original" and write it back permanently. Cancel any flash already in
+        // progress on this node and restore its true baseline first.
+        if (el.__acnFlash) {
+            clearTimeout(el.__acnFlash.timer);
+            el.style.backgroundColor = el.__acnFlash.bg;
+            el.style.transition      = el.__acnFlash.tran;
+            el.__acnFlash = null;
+        }
+        var orig     = el.style.backgroundColor;
+        var origTran = el.style.transition;
         el.style.backgroundColor = 'rgba(' + orbTheme.rgb + ',.15)';
         el.style.transition = 'background-color .3s';
-        setTimeout(function () { el.style.backgroundColor = orig; }, 1500);
+        var timer = setTimeout(function () {
+            el.__acnFlash = null;
+            // Always restore, connected or not: skipping cleanup on a detached node left
+            // our inline background/transition on a row the virtualizer can re-attach.
+            el.style.backgroundColor = orig;
+            el.style.transition = origTran;
+        }, 1500);
+        el.__acnFlash = { timer: timer, bg: orig, tran: origTran };
     }
 
     // ============================================================
@@ -3825,7 +4632,7 @@
             }
         } else if (typeof _aiResponses !== 'undefined') {
             _aiResponses.forEach(function (el, idx) {
-                var text = (el.textContent || '').trim();
+                var text = _readAIText(el);
                 if (text.toLowerCase().indexOf(qLower) !== -1) {
                     aiMatches.push({
                         element:   el,
@@ -3913,7 +4720,11 @@
                         var wanted = _normalizeKey(m.text);
                         var live   = Array.from(getAIMessages());
                         for (var i = 0; i < live.length; i++) {
-                            if (_normalizeKey((live[i].textContent || '').trim()) === wanted) {
+                            // MUST use the same extractor the stored text came from
+                            // (_readAIText). Raw textContent includes our injected
+                            // bookmark glyph, so for any AI response under ~200 chars the
+                            // normalized keys never match and the result is unreachable.
+                            if (_normalizeKey(_readAIText(live[i])) === wanted) {
                                 target = live[i];
                                 break;
                             }
@@ -4098,13 +4909,13 @@
         return 'bm_' + Math.random().toString(16).substring(2, 10);
     }
 
-    function toggleBookmark(entityId, entityType, entityEl, msgIndex, legacyId) {
+    function toggleBookmark(entityId, entityType, entityEl, msgIndex, legacyIds) {
         // Match the legacy id too. createBookmarkIcon() renders a pre-v12.0 record
         // as active via legacyId, so without this the toggle would add a SECOND
         // record under the new identity and leave the old one behind — the icon
         // would then never clear.
         var existing = getConversationBookmarks().filter(function (b) {
-            return b.contentHash === entityId || (legacyId && b.contentHash === legacyId);
+            return b.contentHash === entityId || _bmInLegacySet(b, legacyIds);
         });
 
         var icon = entityEl.querySelector('[data-acn-bookmark]');
@@ -4114,7 +4925,9 @@
             if (icon) icon.classList.remove('acn-bm-active');
             showToast(i18n('bookmarkRemoved'));
         } else {
-            var text    = (entityEl.textContent || '').trim();
+            // Through the shared extractor like every other consumer: raw textContent
+            // ends in our own bookmark glyph for messages under 120 chars.
+            var text    = _cleanText(entityEl).trim();
             var preview = text.substring(0, 120);
             // schema 2 records key to the stable message uuid. schema 1 records key
             // to contentHash(text, msgIndex) — where msgIndex is a position in the
@@ -4143,7 +4956,7 @@
         }
     }
 
-    function createBookmarkIcon(entityEl, entityType, entityId, msgIndex, legacyId) {
+    function createBookmarkIcon(entityEl, entityType, entityId, msgIndex, legacyIds) {
         if (entityEl.querySelector('[data-acn-bookmark]')) return;
 
         var computed = window.getComputedStyle(entityEl);
@@ -4153,7 +4966,7 @@
 
         var bookmarks    = getConversationBookmarks();
         var isBookmarked = bookmarks.some(function (b) {
-            return b.contentHash === entityId || (legacyId && b.contentHash === legacyId);
+            return b.contentHash === entityId || _bmInLegacySet(b, legacyIds);
         });
 
         var icon = document.createElement('div');
@@ -4164,9 +4977,9 @@
 
         icon.addEventListener('click', function (e) {
             e.stopPropagation();
-            toggleBookmark(entityId, entityType, entityEl, msgIndex, legacyId);
+            toggleBookmark(entityId, entityType, entityEl, msgIndex, legacyIds);
             var nowBookmarked = getConversationBookmarks().some(function (b) {
-                return b.contentHash === entityId || (legacyId && b.contentHash === legacyId);
+                return b.contentHash === entityId || _bmInLegacySet(b, legacyIds);
             });
             icon.setAttribute('title', nowBookmarked ? 'Remove bookmark' : 'Bookmark this message');
         });
@@ -4191,6 +5004,62 @@
         return contentHash((el.textContent || '').trim(), idx);
     }
 
+    // Pre-v12.0 records exist in BOTH shapes, because the icon is injected into the
+    // message element: records written before the first injection hashed clean text,
+    // records written after hashed text ending in the glyph. Two call sites disagreed
+    // — one evaluated with the icon removed, one with it present — so each recognised
+    // records the other could not. Both variants are returned here and every consumer
+    // checks the whole set.
+    // Reads textContent with ONLY our injected bookmark icon removed — sr-only labels
+    // and everything else kept. That is exactly what v11.8 hashed.
+    function _textAsLegacy(el) {
+        if (!el) return '';
+        if (!el.querySelector || !el.querySelector('[data-acn-bookmark]')) {
+            return el.textContent || '';
+        }
+        var out = '', kids = el.childNodes;
+        for (var i = 0; i < kids.length; i++) {
+            var k = kids[i];
+            if (k.nodeType !== 1 && k.nodeType !== 3) continue;
+            if (k.nodeType === 1 && k.getAttribute &&
+                k.getAttribute('data-acn-bookmark') !== null) continue;
+            out += _textAsLegacy(k);
+        }
+        return out;
+    }
+
+    // v11.8 hashed trim(textContent) BEFORE createBookmarkIcon appended the glyph — its
+    // injectBookmarkIcons was one-shot-guarded on data-acn-bookmarked === 'u'. So the
+    // "hashed with the glyph" shape CANNOT exist in stored data, and the shape that does
+    // exist must be reproduced with the glyph removed but sr-only KEPT (v11.8 did not
+    // strip it). An earlier version derived the set from whatever the live DOM happened
+    // to hold, so the two call sites — one evaluated with the icon removed, one with it
+    // present — produced different sets and each missed records the other found.
+    function _bmLegacyIdSet(el, idx) {
+        var ids   = [contentHash(_textAsLegacy(el).trim(), idx)];
+        var clean = _cleanText(el).trim();
+        var plain = (el.textContent || '').trim();
+        if (clean !== ids[0]) ids.push(contentHash(clean, idx));
+        if (plain !== ids[0]) ids.push(contentHash(plain, idx));
+        return ids;
+    }
+
+    function _bmInLegacySet(bookmark, legacyIds) {
+        if (!legacyIds) return false;
+        for (var i = 0; i < legacyIds.length; i++) {
+            if (bookmark.contentHash === legacyIds[i]) return true;
+        }
+        return false;
+    }
+
+    function _bmMatchesLegacy(bookmark, el, idx) {
+        var ids = _bmLegacyIdSet(el, idx);
+        for (var i = 0; i < ids.length; i++) {
+            if (bookmark.contentHash === ids[i]) return true;
+        }
+        return false;
+    }
+
     function injectBookmarkIcons() {
         // The guard below compares the RECORDED identity, not merely "has an icon".
         // Under recycling React reuses the same DOM node for a different message,
@@ -4203,14 +5072,14 @@
             var stale = el.querySelector('[data-acn-bookmark]');
             if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
             el.setAttribute('data-acn-bookmarked', id);
-            createBookmarkIcon(el, type, id, idx, _bmLegacyId(el, idx));
+            createBookmarkIcon(el, type, id, idx, _bmLegacyIdSet(el, idx));
         }
 
         Array.from(getUserMessages()).forEach(function (el, idx) {
             inject(el, idx, 'user-msg', _readMessageText(el));
         });
         Array.from(getAIMessages()).forEach(function (el, idx) {
-            inject(el, idx, 'ai-msg', (el.textContent || '').trim());
+            inject(el, idx, 'ai-msg', _readAIText(el));
         });
     }
 
@@ -4240,7 +5109,7 @@
         var i;
 
         function textOf(el) {
-            return isUser ? _readMessageText(el) : (el.textContent || '').trim();
+            return isUser ? _readMessageText(el) : _readAIText(el);
         }
 
         // Preferred: stable uuid match against whatever is mounted.
@@ -4264,16 +5133,39 @@
         // Pre-v12.0 hash input (raw textContent) — see _bmLegacyId().
         if (!targetEl) {
             for (i = 0; i < els.length; i++) {
-                if (contentHash((els[i].textContent || '').trim(), i) === bookmark.contentHash) {
-                    targetEl = els[i]; break;
-                }
+                // Both pre-v12.0 shapes: hashed before the icon existed, and hashed
+                // after it was injected. Evaluating only one shape here while
+                // createBookmarkIcon evaluated the other meant each recognised records
+                // the other could not — the icon showed active but the jump failed.
+                if (_bmMatchesLegacy(bookmark, els[i], i)) { targetEl = els[i]; break; }
             }
         }
 
-        // NOTE: the old `els[bookmark.msgIndex]` positional fallback is deliberately
-        // gone. With ~3 of 147 turns mounted it resolved to an unrelated message and
-        // then scrolled to and highlighted it as if correct \u2014 a confident wrong
-        // answer. Failing visibly is strictly better.
+        // Not mounted: route through the SAME settle loop Navigate uses, resolving
+        // by message uuid -> position in the active path. Previously this was a
+        // separate resolution path ending in `els[bookmark.msgIndex]`, which with
+        // ~3 of 147 turns mounted resolved to an unrelated message and scrolled to
+        // and highlighted it as if correct. That positional fallback is deleted;
+        // failing visibly is strictly better than a confident wrong answer.
+        if (!targetEl && wantUuid && ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
+            var pathIdx = -1;
+            for (i = 0; i < _ciFullPath.length; i++) {
+                if (_ciFullPath[i].uuid === wantUuid) { pathIdx = i; break; }
+            }
+            if (pathIdx >= 0) {
+                ciJumpToFullPathIndex(pathIdx, function (ok, el, reason) {
+                    if (ok && el) {
+                        el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+                        orbFlashElement(el);
+                    } else if (reason !== 'superseded' && reason !== 'user') {
+                        // Not a failure when the user scrolled or started another jump.
+                        showToast('That message is not currently rendered \u2014 scroll toward it and try again');
+                    }
+                });
+                return;
+            }
+        }
+
         if (!targetEl) {
             showToast('That message is not currently rendered \u2014 scroll toward it and try again');
             return;
@@ -5101,7 +5993,7 @@
 
     function generateFullSummary() {
         var aiMsgs = Array.from(getAIMessages()).map(function (el) {
-            return { element: el, text: (el.textContent || el.innerText || '').trim(), type: 'ai' };
+            return { element: el, text: _readAIText(el), type: 'ai' };
         });
 
         return {
@@ -5923,6 +6815,15 @@
             var cls = (typeof rawCls === 'string' ? rawCls : (rawCls && rawCls.baseVal) || '').toLowerCase();
             var role = (node.getAttribute && node.getAttribute('aria-hidden')) || '';
             if (role === 'true') return true;
+            // 'sr-only' added v12.0: screen-reader labels ("You said:",
+            // "Claude responded:", "Load earlier messages") were being written into
+            // exported markdown. Phase 1.5 flagged the omission; it was never fixed.
+            // sr-only is handled by _isSrOnlyClassList, NOT by substring: a plain
+            // indexOf('sr-only') also matches `not-sr-only` / `sm:not-sr-only`, whose
+            // whole purpose is to make content VISIBLE — the export path was deleting
+            // exactly the content those utilities exist to show. Two predicates that
+            // disagreed on the same class list; now one.
+            if (_isSrOnlyClassList(rawCls)) return true;
             var chromeFragments = ['copy-button', 'action-bar', 'toolbar', 'btn', 'button',
                                    'avatar', 'feedback', 'thumb', 'vote', 'tooltip'];
             for (var i = 0; i < chromeFragments.length; i++) {
@@ -5930,18 +6831,29 @@
             }
             return false;
         }
+        // FILTER_REJECT genuinely skips the whole subtree. Advancing with
+        // nextSibling() does not: per the DOM traverse-siblings algorithm, when the
+        // rejected element is the LAST child, nextSibling() walks up, accepts the
+        // parent, and returns null WITHOUT moving currentNode — so the nextNode()
+        // fallback descends straight back into the element just rejected. Measured:
+        // "<div>REAL TEXT B</div><h5 class='sr-only'>You said:</h5>" produced
+        // "REAL TEXT BYou said:". Source-parsed mocks hid it because HTML indentation
+        // leaves a whitespace text node after every element; React-rendered DOM has none.
         var walker = document.createTreeWalker(
             el,
             NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
-            null,
+            { acceptNode: function (n) {
+                if (n.nodeType === Node.ELEMENT_NODE && isUIChrome(n)) {
+                    return NodeFilter.FILTER_REJECT;   // skips this node AND its subtree
+                }
+                return NodeFilter.FILTER_ACCEPT;
+            } },
             false
         );
         var node = walker.nextNode();
         while (node) {
-            if (node.nodeType === Node.ELEMENT_NODE && isUIChrome(node)) {
-                node = walker.nextNode();
-                continue;
-            }
+            // Chrome elements never reach here — the NodeFilter above rejects their
+            // entire subtree.
             if (node.nodeType === Node.TEXT_NODE) {
                 var text = node.textContent;
                 if (text) result.push(text);
@@ -7431,7 +8343,10 @@
                     var target = q.element.isConnected ? q.element : (function () {
                         var msgs = Array.from(getUserMessages());
                         return msgs.find(function (m) {
-                            return (m.textContent || '').trim().startsWith((q.text || '').substring(0, 60));
+                            // q.text comes from _readMessageText (sr-only stripped structurally),
+                        // so comparing against raw textContent fails whenever a label is
+                        // present and the legacy nav item's click becomes a silent no-op.
+                        return _readMessageText(m).startsWith((q.text || '').substring(0, 60));
                         }) || null;
                     })();
                     if (target) {

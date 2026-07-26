@@ -57,6 +57,85 @@ Claude virtualizes its message list with recycling — only ~3–5 user turns ar
 
 State lives in `_ci*` module variables. `_ciIndex` holds human turns; `_ciFullPath` holds the full ordered path (human + assistant) and is what Export reads.
 
+### Jump-to-message (Phase 3)
+
+Clicking a question must reach messages that are not in the DOM. `ciJumpToFullPathIndex()`
+scrolls, waits for the virtualizer to remount, reads which rows landed, and interpolates
+again from that real anchor.
+
+| Function | Role |
+|---|---|
+| `ciJumpToFullPathIndex(idx, done)` | the settle loop; `done(ok, element)` |
+| `ciMountedRows()` | mounted rows as `{dataIndex, el, isUser}` — reads the virtualizer's own `data-index` |
+| `ciDeriveRowOffset()` | `data-index → _ciFullPath` offset, re-derived per jump from EVERY mounted user row; `null` on disagreement |
+| `ciDataIndexToFullPath()` / `ciFullPathToDataIndex()` | named conversions; **return `null` rather than guessing** |
+| `ciSelectCluster()` | contiguous runs, chosen by REAL GEOMETRY against the scroll offset — no index-based tail exclusion |
+| `ciWaitForSettle()` | waits for the SELECTED CLUSTER to stabilise (not the whole set); rAF poll + timer escape hatch + single-fire latch |
+| `ciFindScrollContainerStable()` | `[data-autoscroll-container="true"]`, computed-style walk-up as fallback |
+| `orbSetJumpBusy()` / `orbSetJumpBusyFor(token, busy)` | visible progress. **The jump owns its own busy state** — callers must not set or clear it |
+| `ciFeedRoot()` | the message-feed root; **every** row query must be scoped to it |
+| `ciVerifyLandedRow()` | maps the row back through the offset AND compares text before success |
+| `_normalizeCompare()` | markdown-insensitive comparison (API returns raw markdown, DOM holds rendered text) |
+| `_textAsLegacy()` | reproduces v11.8's exact bookmark-hash input (our glyph removed, sr-only kept) |
+
+Constants are measured, not guessed: `CI_JUMP_SETTLE_CAP_MS` 800 (median settle 309 ms,
+max 668), `CI_JUMP_TOLERANCE_ROWS` 5 (window is 3–10 rows), `CI_JUMP_MAX_ITERATIONS` 8.
+There is deliberately no pinned-tail constant: the extra cluster is not a stable size
+(one probe run showed none at all, another showed one at every sample).
+
+**Invariants specific to the loop:**
+
+- **Never hardcode the offset.** `+1` was measured once from a single row. Derive it per
+  jump; refuse to convert when mounted rows disagree.
+- **Re-read `scrollHeight` every iteration.** It drifts 3.2% as rows are measured, so a
+  cached absolute pixel offset goes stale by ~9–10 messages.
+- **Exclude the pinned tail from landing detection.** The last ~3 rows are mounted at every
+  scroll position; plain set membership gives false hits for tail indices from anywhere.
+- **Reposition ONLY — never dispatch a synthetic scroll event** (DEC-024). Dispatching
+  causes a reproducible ~6-row overshoot. Read *actual* `scrollTop` after every move; the
+  landed position is a constant −360 px off the requested one.
+- **There is no pin-interference to defend against.** Do not add an abort for it.
+- **Verify the landed row before reporting success.** `ciVerifyLandedRow` maps the row
+  index back through the offset and compares text. The offset agreement check proves the
+  offset only *locally* — all its samples come from one mount window.
+- **Guard `document.visibilityState`.** A hidden tab throttles rAF and the virtualizer
+  stops entirely, so the loop cannot converge. `requestAnimationFrame` polling needs a
+  timer escape hatch for the same reason.
+- **User input always wins.** Abort on a trusted scroll/wheel/key event; never fight the user.
+- **Non-virtualized platforms short-circuit** to plain `scrollIntoView`.
+- **Scope every `[data-index]` query to `ciFeedRoot()`.** That attribute is not unique to
+  Claude's feed; a foreign row fragments a real contiguous cluster and its geometry is
+  converted against the wrong container.
+- **"Nothing to compare" must FAIL verification, never pass.** The index-mapping half of
+  `ciVerifyLandedRow` is a tautology by construction — the text compare is the only real
+  check, so an empty expectation would accept any row.
+- **Compare with `_normalizeCompare`, not `_normalizeKey`,** anywhere API text meets DOM
+  text. The API returns raw markdown; the DOM holds rendered text. Plain normalization
+  makes assistant messages never match, which silently degrades their bookmarks and makes
+  assistant-target jumps unverifiable.
+- **The jump owns the busy flag.** A caller clearing it from its completion callback reads
+  whichever jump wrote last, so a superseded jump clears a live one's flag — or, with two
+  sequential jumps, nobody clears it and the panel stays locked.
+- **`done(ok, el, reason)`** — `reason` is `'superseded'` or `'user'` for aborts. Callers
+  must not show a failure toast for those: the user either started another jump or scrolled
+  deliberately.
+- **Use a `NodeFilter` returning `FILTER_REJECT` to skip subtrees.** `walker.nextSibling()`
+  returns null *without moving currentNode* when the rejected element is the last child, so
+  the `nextNode()` fallback descends straight back into it. Source-parsed mocks hide this
+  because HTML indentation leaves whitespace text nodes; React-rendered DOM does not.
+
+### Text extraction
+
+`_cleanText()` is the single path for reading message text. It removes our own injected
+bookmark icon (`[data-acn-bookmark]`) and the platform's `.sr-only` labels — ChatGPT's
+"You said:", Claude's "Claude responded:" and "Load earlier messages". Both leaked into
+`textContent` and both caused real defects: the icon broke index↔DOM matching for short
+messages, and the sr-only labels reached Search, Export and exported markdown.
+
+`_readMessageText()` (user) and `_readAIText()` (assistant) both route through it. There is
+no longer a `"You said:"` regex — a regex cannot distinguish the platform's label from a
+user message that begins with those words.
+
 ### Invariants
 
 - **Never delete the DOM scanner.** It is the fallback and the only path for the other 13 platforms.

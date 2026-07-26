@@ -126,17 +126,79 @@ Silent degradation is what let this bug hide. When the index is unavailable the 
 
 ---
 
+### Jump-to-message under virtualization
+
+Listing 147 questions is only half the feature. `scrollIntoView` cannot work on a node that is not mounted, and ~97% of a long conversation is unmounted, so clicking a question returned *"not currently rendered"* for almost every entry. A navigator that lists 147 destinations and can reach 5 of them is not a navigator.
+
+**The virtualizer hands us the answer.** Live inspection found Claude's virtualizer ("rocksteady") tags every rendered row with `data-index` — contiguous, 0-based, covering both senders — plus `aria-posinset` / `aria-setsize` on a `role="article"` wrapper, `role="feed"` on the list, and `data-autoscroll-container="true"` on the scroller. Mapping a DOM node to a conversation position therefore needs **no text matching at all**, which removes the entire contamination class that produced a CRITICAL earlier in this release.
+
+The jump is a settle loop: estimate an offset, scroll, read which rows actually mounted, interpolate again from that real anchor. Measured constraints that shaped it:
+
+| Measurement | Consequence for the design |
+|---|---|
+| `scrollHeight` drifts **12,050 px / 3.2%**, monotonically decreasing as rows are measured | ~9–10 messages of error. Re-normalise every iteration; never cache an absolute pixel offset |
+| The mounted set is **non-contiguous** — the last ~3 rows stay mounted at every scroll position | Landing detection uses the cluster nearest the scroll position and excludes the pinned tail. Plain set membership would report a false hit for tail indices from anywhere |
+| Settle: median 309 ms, max 668 ms | 800 ms cap with early exit |
+| Mount window 3–10 rows | ±5 row tolerance |
+| A hidden tab throttles rAF entirely; the virtualizer stops running | Runtime `visibilityState` guard — the loop cannot converge while hidden |
+| The dispatch causes a reproducible ~6-row overshoot (3 repeated runs) | **Reposition only.** No synthetic scroll event — see DEC-024 |
+| The landed position is a constant −360 px off the requested one | Read actual `scrollTop` after every move; never trust the requested value |
+
+The offset between `data-index` and the conversation path is **never hardcoded**. It is re-derived on every jump from *every* mounted user row, and all of them must agree; ambiguous duplicate text is skipped rather than allowed to vote, and disagreement refuses the conversion rather than jumping somewhere wrong.
+
+**Two dead ends, both documented rather than quietly dropped.** The synthetic scroll
+event was carried for most of Phase 3 on the strength of a single Chromium measurement —
+taken, it turned out, in a hidden window where the virtualizer does not run at all. Three
+repeated runs of the same probe then showed the dispatch causes a real, reproducible
+~6-row overshoot, visible in landing *cluster identity* rather than in pixel drift. And a
+probe verdict of "pin/autoscroll is fighting the jump" was wrong: scroll position and
+cluster identity were static across 3.2 s, and the drift ran *away* from the bottom while
+a pin pulls toward it. The cause of both was `scrollHeight` re-normalisation. DEC-024
+records the data so neither is re-derived.
+
+Investigated and rejected: an imperative `scrollToIndex`. The container's React ref exposes `getScrollContainer` / `scrollToBottom` / `setPinToBottom` / `isPinned`, but no index API — and the component is minified to `Oj`, which renames every deploy. Coupling to it would be the Layer 3 hazard DEC-019 punished.
+
+Bookmarks now route through the same path, resolving by message uuid. The positional `els[bookmark.msgIndex]` fallback is **deleted**.
+
+### Screen-reader label contamination
+
+Claude emits `"Claude responded:"` and a `"Load earlier messages"` button as `.sr-only` nodes; ChatGPT emits `"You said:"`. All of it landed in `textContent`. Only ChatGPT's was handled, by a regex in a single caller — so Claude's assistant prefix still reached Search, Export and Summary, and `extractMarkdownContent` wrote it into exported markdown.
+
+Fixed structurally in the shared extractor: `.sr-only` and our own injected bookmark icon are removed from every text read. The `"You said:"` regex is **deleted** — no regex can distinguish the platform's label from a user message that legitimately begins with those words.
+
 ### Testing
 
-`tests/mock-pages/claude-virtualized.html` is a new mock that holds 40 turns in JavaScript and mounts 3, genuinely removing the rest from the document. This was a required deliverable, not an extra: **every existing mock is static and mounts all its turns permanently, so the suite structurally could not fail on this bug** — it returned green throughout.
+`tests/mock-pages/claude-virtualized.html` is a new mock that holds 80 messages (40 turns) and mounts a 6-message window, genuinely removing the rest from the document. Required, not optional: **every other mock is static and mounts all its turns permanently, so the suite structurally could not fail on this bug** — it returned green throughout.
 
-Three new assertions:
+It reproduces the real virtualizer: `data-index` / `data-rs-index`, `aria-posinset` / `aria-setsize`, `role="feed"`, `data-autoscroll-container`, scroll-driven unmounting, a pinned tail producing a genuinely non-contiguous mounted set, and sr-only sender labels so the extractor is exercised against real noise.
 
-- **Mock recycles turns:** `[3,3,3,3]` mounted across a scroll sweep, 12 unique of 40 — proves it unmounts rather than hides
-- **DOM exposes only the mounted window:** 3 of 40 (~8% coverage) — the bug itself, asserted so a future change that "fixes" the count without an index gets caught
-- **Degraded mode is visible in the panel:** the banner must render
+A second entry, **`Claude (virtualized + index)`**, adds a `GM_xmlhttpRequest` fixture shim so the conversation index actually builds. This closes a gap flagged twice in review: the harness previously had no GM APIs, so org resolution, `ciBuildIndex`, branch filtering, index-backed Navigate/Search/Export and the entire jump loop were unverified by CI. The fixture deliberately carries one leading unrendered message, making the `data-index → path` offset **+1** rather than 0 — so an implementation that quietly assumes zero alignment fails in CI instead of in production.
 
-Result: **206/206 passing across 15 platforms** (was 182 across 14).
+Assertions now include:
+
+- **Panel lists 40 turns while the DOM holds 3** — the bug and the fix in one assertion
+- **Jump reaches question #1 from the bottom** — target unmounted at click, mounted after, ~200 ms
+- **Mounted set is non-contiguous** — guards the pinned-tail handling
+- **sr-only labels stripped** from question text
+- **Mock recycles** — set changes across a scroll sweep *and* a previously-mounted node is proven `isConnected === false`
+
+**The tests were then proven to be worthless, and rewritten.** An independent review lens
+mutation-tested them: replacing the entire jump implementation with `done(false, null)`
+still passed 25/25; hardcoding the index offset to 0 passed while landing at the *top* of
+the conversation when asked for the *last* question; disabling all text stripping passed;
+replacing the whole tree walk with `msgs.slice()` — zero branch filtering — passed 25/25;
+making the busy flag a no-op passed 47/47. They described the fix instead of failing
+without it.
+
+Every assertion now checks an outcome that a broken implementation cannot produce: the
+landed row must *be the right message*, the busy state must be *observed* rather than
+merely absent, the mounted set must be non-contiguous *at every scroll position*, and an
+abandoned branch planted in the fixture must not appear. The mock gained varied row
+heights and progressive height measurement, taking `scrollHeight` drift from 0.1% to
+6.28% — without it the first interpolation always landed and the entire convergence
+machinery was dead code under test.
+
+Result: **267/267 passing across 16 platform entries** (was 182 across 14).
 
 ---
 

@@ -29,6 +29,36 @@ This document explains **everything** about the automated test suite: what it do
 
 ---
 
+## Measurement Context Is Part of the Finding
+
+Before trusting any manual measurement taken against a live platform, check which
+context it came from. Three v12.0 findings were verified, documented as fact, and
+later disproved — each was correct where measured and false where it mattered.
+
+| Context | Changes | How to test the one that matters |
+|---|---|---|
+| Page realm vs **Tampermonkey sandbox** | cross-compartment rules, event trust | probe from an installed userscript, not the DevTools console |
+| Chrome vs **Firefox** | compartment strictness (DEC-019, DEC-020) | Firefox first — it is where this project's execution failures happen |
+| Visible vs **hidden tab** | rAF and timers throttle; a virtualizer stops running entirely | assert `document.visibilityState === 'visible'` before measuring |
+| Mock page vs live site | no vendor bundles, no CSP, no virtualization | mocks cannot catch Layer 3 or Layer 4 breaks |
+
+A hidden tab is the nastiest of these: it does not fail loudly, it returns
+plausible, stable, wrong numbers. Every early measurement failure in the v12.0
+Phase 3 investigation traced back to it — programmatic scrolls appearing to do
+nothing, multi-megabyte `fetch` calls hanging forever.
+
+**Rule:** write findings as *"X, measured in \<context\>"*, and treat them as
+context-scoped until reproduced in the Tampermonkey sandbox, in a visible window,
+on Firefox. When a later measurement contradicts an earlier one, record **both**
+with their contexts rather than replacing one — the contradiction is the finding.
+
+Probe scripts used for this in v12.0 are worth copying as a pattern: they abort
+loudly when `visibilityState !== 'visible'`, they state which realm they run in,
+and the userscript-based ones print `exportFunction` presence to prove they are
+genuinely in the Firefox sandbox.
+
+---
+
 ## Overview
 
 The test suite verifies that the AI Conversation Navigator userscript works correctly on **every supported platform** without needing to open a browser and manually visit each site. It does this by:
@@ -269,7 +299,12 @@ This is more stable than creating a new context per test (which crashed on the o
 
 Tests query only `data-acn-role` and `data-acn-*` contract attributes — no internal CSS class names or element IDs. This means the UI can be completely rebuilt in any future version without breaking the test suite, as long as the contract attributes are maintained on the correct elements.
 
-**Total: 206 tests** — orbital platforms (claude, claude-code, claude-virtualized, chatgpt, codex, grok, gemini, perplexity) run 14 tests each; legacy platforms (bolt, lovable, replit, v0, base44, emergent, firebase) run 13 tests each; the Claude (virtualized) entry runs 3 additional virtualization tests (17 total).
+**Total: 267 tests across 16 platform entries**, verified green on **both Chromium and
+Firefox**. Firefox matters disproportionately here — it is where this project's
+execution-layer failures have happened (DEC-019, DEC-020) — and the jump loop was
+confirmed to converge identically there (question #1 from the bottom in ~207 ms,
+mid-conversation in ~307 ms). Run it with `--browser firefox`; it is not in the local
+default. Orbital platforms run 14 tests each; legacy platforms 13 each. The two virtualized Claude entries run additional tests: `Claude (virtualized)` adds 7, and `Claude (virtualized + index)` adds 13. Every non-virtualized entry gains a direct-path assertion, and **every** entry now ends with an uncaught-page-error check.
 
 | # | Test Name | What It Verifies | How | Platforms |
 |---|-----------|-----------------|-----|-----------|
@@ -299,7 +334,57 @@ Tests query only `data-acn-role` and `data-acn-*` contract attributes — no int
 
 **Test 14** catches rendering failures in the orbital cluster — if any dot fails to build, the entire cluster is broken for that platform.
 
-### Tests 15–17 — virtualization (added v12.0)
+### The two virtualized Claude entries
+
+Both use `claude-virtualized.html`. They differ in one thing: whether a `GM_xmlhttpRequest`
+fixture is injected.
+
+| Entry | Fixture | Index builds? | Panel shows | Proves |
+|---|---|---|---|---|
+| `Claude (virtualized)` | none | no — degrades | 3 (mounted window) | the fallback is visible, not silent |
+| `Claude (virtualized + index)` | yes | **yes** | **40** (whole conversation) | the primary path works end to end |
+
+The fixture entry is what makes the v12.0 feature testable at all. Before it, the harness
+had no GM APIs, so org resolution, `ciBuildIndex`, active-path branch filtering, index-backed
+Navigate/Search/Export and the entire jump loop were unverified by CI — a gap flagged twice
+in independent review.
+
+**The fixture deliberately carries one leading unrendered message**, so the
+`data-index → _ciFullPath` offset is **+1** rather than 0. An implementation that quietly
+assumes zero alignment fails here instead of in production. If you regenerate the fixture,
+preserve that asymmetry — making it align at 0 would silently retire the check.
+
+### Why these assertions look paranoid
+
+An independent review lens **mutation-tested** the first version of these tests and proved
+they passed against a broken implementation:
+
+| Mutation | Old suite |
+|---|---|
+| jump body → `done(false, null)` | 25/25 PASS |
+| index offset hardcoded to `0` | passed, landing at the *top* when asked for the *last* question |
+| all text stripping disabled | test 20 PASS |
+| entire tree walk → `msgs.slice()` | 25/25 PASS |
+| `orbSetJumpBusy` → no-op | 47/47 PASS |
+| late uncaught throw during a jump | 25/25 PASS |
+
+They described the fix rather than failing without it — the same shape as the original
+v12.0 bug, where a static mock could not fail on a virtualization break.
+
+Rules that came out of it, worth applying to any new assertion here:
+
+1. **Assert the outcome, not the attempt.** "A row mounted" is not "the right row
+   mounted" — check the message text.
+2. **Assert state was entered, not just exited.** `!stillBusy` is satisfied by never
+   setting the flag; also assert it was *observed*.
+3. **Never target a row that is always mounted.** The pinned tail makes an off-by-one
+   look like success; jump targets are chosen mid-conversation for that reason.
+4. **Put the contamination inside the queried node.** The sr-only test passed vacuously
+   because no mock had `.sr-only` inside the element the extractor actually reads.
+5. **Error checks run last, and for every platform.** Placed early they miss everything
+   after them; gated to one platform they miss the other fifteen.
+
+### Tests 15–25 — virtualization and jump (added v12.0)
 
 These exist because of a structural blind spot: **every mock page except `claude-virtualized.html` is static and mounts all of its turns permanently.** When Claude virtualized its real message list — mounting ~3 of 147 turns — the entire suite stayed green while Navigate, Search, Summary and Export were all operating on ~3% of the conversation. A suite of static mocks *cannot* fail on that class of bug. See DEC-022 (Layer 4: State Breaks).
 
@@ -309,7 +394,32 @@ These exist because of a structural blind spot: **every mock page except `claude
 - **Test 16** asserts the DOM is incomplete *on purpose*, so a future change that appears to fix the count without an index gets caught.
 - **Test 17** asserts degraded mode is visible. The harness provides no `GM_xmlhttpRequest`, so the API fetch always fails there and the fallback banner must appear. Silent degradation is what let the original bug hide.
 
-The virtualized entry uses a real-shaped conversation uuid in its pathname (`/chat/11111111-…`) because `ciIsClaudeChat()` gates on that pattern; the plain `claude.html` entry uses `/chat/test` and therefore never engages the index path.
+Both virtualized entries use real-shaped conversation uuids in their pathnames
+(`/chat/11111111-…` and `/chat/22222222-…`) because `ciIsClaudeChat()` gates on that
+pattern; the plain `claude.html` entry uses `/chat/test` and therefore never engages the
+index path.
+
+**Tests 18–20** guard the foundations the jump rests on: the virtualizer's positional
+metadata (`data-index`, `aria-setsize`, `role="feed"`, the container attribute), the
+**non-contiguous** mounted set (the pinned tail — plain set membership would give false
+hits), and that `.sr-only` labels never reach the panel.
+
+**Tests 21–22** assert the jump *terminates* and throws nothing, on both entries. On the
+non-fixture entry every jump must take the honest-failure path, so what is being verified
+there is termination and the absence of a wrong-message scroll — not success.
+
+**Tests 23–25** are the primary path, fixture entry only:
+
+- **23** — the panel lists 40 turns while the DOM holds 3. The bug and the fix in one assertion.
+- **24** — jump to question #1 **from the bottom**. The assertion checks the target was
+  *unmounted at click time* and mounted afterwards; without that first half it would pass
+  trivially whenever the target happened to already be on screen.
+- **25** — jump to the last question, busy flag cleared.
+
+Tests 24 and 25 poll for completion rather than sleeping a fixed interval, and wait for
+**both** arrival and the busy flag clearing. Waiting on arrival alone races the flag reset,
+which happens after the final `scrollIntoView` — that race produced a spurious failure the
+first time these ran.
 
 ---
 
@@ -350,6 +460,7 @@ The `PLATFORMS` array in `test-all-platforms.js` is the **central configuration*
 | Claude | claude.ai | claude.html | 3 | `#d97706` |
 | Claude Code | claude.ai | claude-code.html | 3 | `#d97706` |
 | Claude (virtualized) | claude.ai | claude-virtualized.html | 3 (of 40 real turns) | `#d97706` |
+| Claude (virtualized + index) | claude.ai | claude-virtualized.html | 40 (whole conversation) | `#d97706` |
 | ChatGPT | chatgpt.com | chatgpt.html | 4 | `#ffffff` |
 | Codex Web | chatgpt.com | codex.html | 2 | `#ffffff` |
 | Grok | grok.com | grok.html | 3 | `#e53e3e` |

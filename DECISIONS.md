@@ -727,3 +727,167 @@ This is the clearest ceiling yet on DOM augmentation as a strategy. Layers 1–3
 - New platform integrations must record whether the platform virtualizes its message list
 - Mock pages for virtualizing platforms must genuinely unmount nodes — hiding them with `display:none` does not reproduce the failure
 - Degraded operation must always be visible in the UI, never console-only
+
+---
+
+## DEC-023: Jump-to-Message Uses the Virtualizer's Own `data-index`, Not Text Matching (v12.0)
+**Date:** 2026-07-26 | **Stage:** v12.0 Phase 3
+
+### Decision
+Jump-to-message maps mounted DOM rows to conversation positions using Claude's own
+`data-index` attribute, and pages the virtualizer with a scroll-and-settle loop that
+interpolates between observed anchors. The `data-index → _ciFullPath` offset is
+re-derived on every jump from every mounted user row and is never hardcoded.
+
+### Context
+Phase 2 made the panel complete — 147 questions instead of 4. But clicking still resolved
+targets through the DOM, and ~97% of them are unmounted, so almost every click returned
+"not currently rendered". That message is correct and is retained as the final fallback,
+but it is not acceptable as the primary behaviour.
+
+### The finding that shaped the design
+The Phase 3.0 investigation went looking for a stable identifier on the DOM node. There is
+no message uuid anywhere — a full attribute scan of mounted rows, their ancestors and their
+descendants returned zero. But the virtualizer publishes its own positional metadata:
+
+| Attribute | Location | Meaning |
+|---|---|---|
+| `data-index` / `data-rs-index` | turn wrapper | contiguous, 0-based, covers BOTH senders |
+| `aria-posinset` / `aria-setsize` | `role="article"` wrapper | 1-based position / total rows |
+| `role="feed"` | the list | the virtualized region |
+| `data-autoscroll-container="true"` | scroller | stable selector for the scroll container |
+| `data-rocksteady-sizer` | sizer | names the virtualizer: "rocksteady" |
+
+This is a **positional** identifier, so no text comparison is involved. That matters
+specifically: text matching had already caused a CRITICAL in this release, when the
+script's own injected bookmark icon contaminated `textContent` and broke index↔DOM
+matching for every message under 200 characters.
+
+`data-autoscroll-container="true"` was also verified to resolve to the same node as the
+computed-style walk-up, so it is used as the primary locator with the walk-up as fallback.
+
+### Alternatives Considered
+
+**Imperative `scrollToIndex` on the virtualizer.** Investigated first, because it would
+have made the settle loop unnecessary. The container's React ref exposes
+`getScrollContainer`, `scrollToBottom`, `setPinToBottom`, `isPinned`, `getLastUserInputAt`,
+`markUserInput` — an autoscroll/pin controller, with no index API. *Rejected* on
+availability, and would have been rejected anyway: the component is minified to `Oj`, a
+name that changes every deploy, and coupling to React internals is precisely the Layer 3
+hazard DEC-019 punished.
+
+**Text matching as the node→index bridge.** *Rejected:* it is what `data-index` makes
+unnecessary, and it had already produced a CRITICAL.
+
+**Linear re-estimation from a global px/message average.** *Rejected:* `scrollHeight` drifts
+3.2% as rows are measured, so a global average is wrong by ~9–10 messages and does not
+improve with iterations. Interpolating between real observed anchors converges instead.
+
+**Hardcoding the measured `+1` offset.** *Rejected:* it was measured from a single matched
+row, and a wrong offset lands every jump one message off, silently. Derived per jump from
+all mounted user rows instead, refusing to convert when they disagree.
+
+**Caching resolved scroll offsets per message (spec §4.2).** *Deferred:* with `scrollHeight`
+drifting, a cache keyed to pixels is actively harmful — it would send later jumps to stale
+positions. A cache keyed to row anchors would be safe and is the right follow-up. This
+leaves the "repeat jump is near-instant" acceptance criterion unmet, deliberately and on
+the record.
+
+### Constraints
+- Re-read `scrollHeight` every iteration; never seed from a cached absolute offset
+- Landing detection must use the cluster nearest the scroll position and **exclude the
+  pinned tail** — the last ~3 rows stay mounted at every scroll position, so plain set
+  membership reports a false hit for tail indices from anywhere in the conversation
+- Reposition ONLY — **superseded by DEC-024**, which removes the synthetic scroll event
+  entirely after three repeated runs showed it causes a reproducible ~6-row overshoot
+- Read actual `scrollTop` after every move — the landed position is not the requested one
+  (a constant −360 px even without the dispatch)
+- Guard on `document.visibilityState`: a hidden tab throttles rAF and the virtualizer stops
+  running entirely, so the loop cannot converge
+- `requestAnimationFrame` polling must have a timer-based escape hatch for the same reason
+- User input always wins — abort on a trusted scroll event, never fight the user
+- Non-virtualized platforms short-circuit to plain `scrollIntoView`
+- Iteration cap 8, then the honest failure message. Never loop indefinitely
+
+### How it fixed it
+Clicking any question now pages the virtualizer to it. Verified in CI against a mock that
+reproduces `data-index`, the non-contiguous pinned tail and scroll-driven unmounting:
+question #1 is reached from the bottom of a 40-turn conversation in ~200 ms, with the
+target provably unmounted at click time.
+
+---
+
+## DEC-024: No Synthetic Scroll Event — Reposition Only (v12.0 Phase 3)
+**Date:** 2026-07-26 | **Stage:** v12.0 Phase 3
+
+### Decision
+`ciMoveTo()` sets `scrollTo({top})` and **nothing else**. It does not dispatch a
+synthetic `scroll` event. This is not behind a flag; the dispatch is removed.
+
+### Context — a dead end reached twice
+Phase 1 measured, from Chromium's DevTools console, that `scrollTop = x` alone did not
+remount while `scrollTo()` + a dispatched `scroll` event did. That result was written
+into three files as settled fact and became the justification for dispatching.
+
+**Both halves of that were wrong.**
+
+The Chromium measurement was taken in a **hidden window**, where rAF is throttled and the
+virtualizer does not run at all — the same artifact `CLAUDE.md`'s measurement-context
+table now lists as a corrected finding. Probe B then showed `scrollTop` alone *does*
+remount from the Firefox sandbox.
+
+Worse, the dispatch is actively harmful. Probe C was run three times with nothing changed
+between runs:
+
+| Run | With dispatch | Without dispatch |
+|---|---|---|
+| 1 | requested 135590 → landed 132806 (drift −2784), cluster `[117,118,119,120]` | drift **−360**, cluster `[117,118,119,120]` |
+| 2 | requested 136292 → landed 130043 (drift −6249), cluster `[113,114,115,116]` | drift **−360**, cluster `[119,120,121,122]` |
+| 3 | identical to run 2 | drift **−360**, cluster `[119,120,121,122]` |
+
+Without the dispatch the drift was **exactly −360 px in all three runs**. With it, the
+drift tripled and — the decisive evidence — **cluster identity moved**: the dispatch run
+targeted a *lower* document position (136292 vs 134056) yet landed roughly **six rows
+higher**, past the ±5 row tolerance. That is a real overshoot, not measurement noise, and
+it is reproducible.
+
+**Mechanism:** dispatching a scroll event makes the application run its own scroll
+handling, which triggers an extra height-measurement pass and shifts the coordinate
+system mid-jump.
+
+### The wrong diagnosis, recorded so it is not re-derived
+Probe C runs 2 and 3 printed **"DISPATCH HARMFUL — it appears to trigger pin/autoscroll
+behaviour"**. The concern was right; the attribution was wrong. It is **not** the pin
+controller:
+
+- `scrollTop` and cluster identity were **static across all eight samples over 3.2 s**.
+  Pin behaviour would show *progressive* movement toward the bottom.
+- The drift is **negative** — away from the bottom. A pin pulls *toward* it.
+- `SNAPPED_BACK_TO_BOTTOM` was false in every run.
+- In run 2, `scrollTop` changed 136292 → 130043 while the **same four rows** stayed
+  mounted: the content did not move, only the coordinate.
+
+All of it happens during settle, *before* sampling begins. The cause is the
+`scrollHeight` re-normalisation already measured in Probe A (12,050 px / 3.2% shrink as
+estimated row heights are replaced by measured ones), compounded by `scrollHeight` also
+varying per page load (387132 / 388841 / 390502 observed). The verdict "flipped" between
+runs only because the probe thresholded on pixel drift: run 1 fell under the threshold,
+runs 2 and 3 crossed it.
+
+**Therefore: do NOT build a pin-interference abort.** There is nothing to abort.
+
+### Constraints
+- `ciMoveTo()` repositions only — never dispatch a synthetic scroll event
+- Do not add a pin-interference abort; the pin controller does not fight the jump
+- Do not cite the Chromium "scrollTop alone does not remount" result as justification for
+  anything: it was measured in a hidden window and is listed as a corrected finding
+- Re-read `scrollTop` after every move — the position that lands is not the position
+  requested, even without the dispatch (−360 px consistently)
+- Any future claim about virtualizer scroll behaviour must state its measurement context
+  and be reproduced more than once. This finding required three runs to become visible;
+  a single run produced the opposite conclusion.
+
+### How it fixed it
+Landing became reproducible: without the dispatch the drift is a constant −360 px, so
+the interpolation converges on stable ground instead of chasing a coordinate system that
+the dispatch itself was moving.

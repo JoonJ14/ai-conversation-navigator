@@ -1,59 +1,45 @@
 <!DOCTYPE html>
 <html><head><title>Claude Virtualized Mock</title></head>
 <body style="margin:0;padding:0;background:#2b2a27;color:#e8e4db;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-<!-- Claude (claude.ai/chat) — VIRTUALIZED mock. Added v12.0.
+<!-- Claude (claude.ai/chat) — VIRTUALIZED mock. Added v12.0, rebuilt for Phase 3.
 
      WHY THIS MOCK EXISTS
-     claude.html is a static page: all of its user turns are permanently mounted,
-     so the test suite could never fail on the bug that motivated v12.0. Claude's
-     real web app virtualizes the message list WITH RECYCLING — it mounts a window
-     of roughly 3-5 turns and unmounts everything else. Measured live on a
-     96-turn conversation: 3 turns mounted, ~3% coverage. document.querySelectorAll()
-     is therefore not a complete record of the conversation.
+     claude.html is static: all of its turns are permanently mounted, so the test
+     suite could never fail on the bug that motivated v12.0. Claude's real web app
+     virtualizes the message list WITH RECYCLING — measured live, 3 of 96 turns
+     mounted (~3% coverage). A suite of static mocks structurally cannot fail on
+     that, and it stayed green the entire time the feature was broken.
 
-     A static mock cannot reproduce that. This page can: it holds 40 turns in
-     JavaScript and mounts only WINDOW_SIZE of them at a time, recycling the rest
-     out of the DOM exactly as the real app does. Without it, `npm test` returns
-     green on a feature that is 97% broken.
+     WHAT IT REPRODUCES (all verified against the live site in Phase 3.0)
+       1. Only a window of rows is in the DOM; the rest are REMOVED, not hidden
+       2. Unmounting is driven by SCROLL EVENTS, not just initial load — without
+          this the settle loop cannot be exercised at all
+       3. data-index / data-rs-index on each row: contiguous, 0-based, and
+          covering BOTH senders (it indexes MESSAGES, not turns)
+       4. aria-posinset / aria-setsize on a role="article" wrapper
+       5. role="feed" on the list, data-autoscroll-container="true" on the scroller
+       6. A PINNED TAIL: the last row stays mounted at every scroll position, so
+          the mounted set is NON-CONTIGUOUS. This is the real behaviour and it is
+          why landing detection must use the cluster nearest the scroll position
+          rather than plain set membership — a naive check reports a false hit for
+          tail indices from anywhere in the conversation.
+       7. Full scroll height reserved via spacers
+       8. An sr-only "Load earlier messages" button and sr-only sender labels
+          ("You said:", "Claude responded:") — these leak into textContent and are
+          exactly what the shared text extractor has to strip
 
-     WHAT IT REPRODUCES
-       1. Only WINDOW_SIZE user turns exist in the DOM at any moment
-       2. Scrolling changes WHICH turns are mounted — the set never accumulates
-       3. Full scroll height is reserved via spacers (the real app does this too,
-          which is what makes Phase 3's offset estimation viable)
-       4. The CURRENT DOM shape as re-inspected live in July 2026, NOT the shape
-          documented for v11.x — see below
-
-     DOM SHAPE (live, July 2026 — differs from claude.html)
-       - data-testid="user-human-turn" NO LONGER EXISTS on the turn wrapper
-       - data-testid="user-message" moved ONTO the inner content node
-       - .font-user-message is now .!font-user-message (Tailwind important prefix),
-         which a plain `.font-user-message` selector cannot match
+     DOM SHAPE (live, July 2026 — differs from claude.html, which is v11.x)
+       - data-testid="user-human-turn" NO LONGER EXISTS
+       - data-testid="user-message" sits on the INNER content node
+       - .font-user-message is now .!font-user-message (Tailwind important prefix)
        - scroll container is overflow-y-auto (was overflow-y-scroll)
 
-     Per user turn:
-       A: div (scroll container, overflow-y:auto)
-         B: div (top spacer — reserves scroll height for unmounted turns above)
-           C: div.mb-1.group (turn wrapper — NO data-testid any more)
-             D: div.flex.flex-col.items-end.gap-1
-               E: div.group.relative.inline-flex.bg-bg-300.rounded-xl (bubble)
-                 F: div.flex.flex-row.gap-2.relative
-                   G: div.flex-1
-                     H: div[data-testid="user-message"].!font-user-message  (TARGET)
-                       I: p.whitespace-pre-wrap.break-words (text)
-         J: div (bottom spacer)
-
-     Assistant turns use div.font-claude-response (the only live AI selector).
-
-     The test drives this page at /chat/<uuid> so the userscript's
-     ciIsClaudeChat() guard matches and the conversation-index path engages. No
-     GM_xmlhttpRequest shim exists in the harness, so the API fetch fails and the
-     script must fall back to the DOM scan AND surface the degraded banner —
-     which is precisely the acceptance criterion being tested. -->
+     Row layout: 80 messages, even index = user, odd = assistant.
+     Window = 6 messages; pinned tail = the final row (79, an assistant message)
+     so the mounted USER count stays 3 and the count assertion stays stable. -->
 
 <div style="display:flex;height:100vh;width:100%;">
 
-  <!-- ── Left sidebar ──────────────────────────────────────────────────────── -->
   <nav style="width:260px;min-width:260px;background:#1a1917;border-right:1px solid #3a3835;overflow-y:auto;">
     <div style="padding:16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #3a3835;">
       <svg width="20" height="20" viewBox="0 0 20 20" style="fill:#d97706;"><circle cx="10" cy="10" r="8"/></svg>
@@ -61,26 +47,30 @@
     </div>
   </nav>
 
-  <!-- ── Main column ───────────────────────────────────────────────────────── -->
   <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
 
     <header data-testid="chat-header" style="height:48px;border-bottom:1px solid #3a3835;display:flex;align-items:center;padding:0 20px;font-size:14px;">
       Virtualized conversation
     </header>
 
-    <!-- A: scroll container. overflow-y:auto + tall content, matching live. -->
+    <!-- Scroll container — stable attribute selector, as on the live site -->
     <div id="mock-scroll-container"
+         data-autoscroll-container="true"
          class="overflow-y-auto overflow-x-hidden mt-12 pt-2 flex-1"
          style="overflow-y:auto;overflow-x:hidden;flex:1;position:relative;">
 
-      <!-- B: top spacer -->
-      <div id="mock-spacer-top" style="width:100%;"></div>
+      <div class="relative w-full min-h-full flex flex-col">
+        <div role="feed" id="mock-feed">
+          <p class="sr-only select-none">Use the up and down arrow keys to move between messages.</p>
+          <button class="sr-only select-none" id="mock-load-earlier">Load earlier messages</button>
 
-      <!-- Mounted window is rendered here -->
-      <div id="mock-mounted" class="mx-auto max-w-3xl" style="max-width:768px;margin:0 auto;padding:0 16px;"></div>
-
-      <!-- J: bottom spacer -->
-      <div id="mock-spacer-bottom" style="width:100%;"></div>
+          <div data-rocksteady-sizer data-sizer-excess="0" id="mock-sizer">
+            <div id="mock-spacer-top" style="width:100%;"></div>
+            <div id="mock-mounted" style="max-width:768px;margin:0 auto;padding:0 16px;"></div>
+            <div id="mock-spacer-bottom" style="width:100%;"></div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div data-testid="chat-input" style="border-top:1px solid #3a3835;padding:12px 20px;">
@@ -91,27 +81,54 @@
 
 <script>
 (function () {
-    // ── Conversation data (lives in JS, NOT in the DOM) ───────────────────────
-    // This mirrors reality: the full conversation is in the app's memory, and the
-    // renderer chooses to expose only a slice of it to the document.
-    var TOTAL_TURNS  = 40;
-    var WINDOW_SIZE  = 3;    // user turns mounted at once (live measured: 3)
-    var TURN_HEIGHT  = 320;  // px reserved per turn pair, for spacer math
+    // ── Conversation data lives in JS, NOT the DOM ───────────────────────────
+    var TOTAL_MESSAGES = 80;   // 40 user + 40 assistant, interleaved
+    var WINDOW_SIZE    = 6;    // messages mounted around the scroll position
+    var TAIL_ROWS      = 1;    // final row pinned mounted at every position
 
-    var TURNS = [];
-    for (var i = 0; i < TOTAL_TURNS; i++) {
-        TURNS.push({
-            user: 'Question number ' + (i + 1) + ': how do I handle case ' + (i + 1) +
-                  ' when the input is unusual and needs special treatment?',
-            ai:   'Answer number ' + (i + 1) + ': you handle case ' + (i + 1) +
-                  ' by validating the input first and then branching on the result.'
-        });
+    // REAL, VARIED ROW HEIGHTS.
+    // A previous version of this mock gave every row a constant height and mapped
+    // scrollTop linearly to an index. That made scrollHeight vary by 0.1% and made the
+    // settle loop's FIRST interpolation always land — so ciSelectCluster, the tolerance
+    // branch, re-anchoring, the degenerate-bracket reset and the iteration cap were all
+    // dead code under test. A reviewer proved it by throwing inside ciSelectCluster and
+    // seeing nothing fail. Varied heights plus progressive measurement fix that.
+    var REAL_H = [];
+    for (var h = 0; h < TOTAL_MESSAGES; h++) {
+        REAL_H.push(140 + ((h * 137) % 520));      // 140..659, deterministic, non-uniform
+    }
+    var ESTIMATED_H = 320;                          // used until a row has been mounted once
+    var measured = {};                              // rowIndex -> true once mounted
+
+    var MESSAGES = [];
+    for (var i = 0; i < TOTAL_MESSAGES; i++) {
+        var turn = Math.floor(i / 2) + 1;
+        MESSAGES.push(i % 2 === 0
+            ? { sender: 'user', text: 'Question number ' + turn +
+                  ': how do I handle case ' + turn + ' when the input is unusual?' }
+            : { sender: 'ai', text: 'Answer number ' + turn +
+                  ': validate the input first, then branch on the result.' });
     }
 
-    var container   = document.getElementById('mock-scroll-container');
-    var mounted     = document.getElementById('mock-mounted');
-    var spacerTop   = document.getElementById('mock-spacer-top');
-    var spacerBot   = document.getElementById('mock-spacer-bottom');
+    var container = document.getElementById('mock-scroll-container');
+    var mounted   = document.getElementById('mock-mounted');
+    var spacerTop = document.getElementById('mock-spacer-top');
+    var spacerBot = document.getElementById('mock-spacer-bottom');
+    var loadBtn   = document.getElementById('mock-load-earlier');
+
+    function hOf(i) { return measured[i] ? REAL_H[i] : ESTIMATED_H; }
+    function heightBefore(idx) { var t = 0; for (var i = 0; i < idx; i++) t += hOf(i); return t; }
+    function heightBetween(a, b) { var t = 0; for (var i = a; i < b; i++) t += hOf(i); return t; }
+
+    // Non-linear: walk cumulative heights instead of dividing by a constant.
+    function startForScroll(top) {
+        var acc = 0;
+        for (var i = 0; i < TOTAL_MESSAGES; i++) {
+            if (acc + hOf(i) > top) return i;
+            acc += hOf(i);
+        }
+        return TOTAL_MESSAGES - 1;
+    }
 
     function el(tag, cls, style) {
         var n = document.createElement(tag);
@@ -120,84 +137,143 @@
         return n;
     }
 
-    // Builds one user turn using the CURRENT live DOM shape.
-    function buildUserTurn(text) {
-        var wrapper = el('div', 'mb-1 group');                                  // C
-        var align   = el('div', 'flex flex-col items-end gap-1',
-                         'display:flex;flex-direction:column;align-items:flex-end;gap:4px;'); // D
-        var bubble  = el('div', 'group relative inline-flex gap-2 bg-bg-300 rounded-xl',
-                         'display:inline-flex;background:#3a3835;border-radius:12px;padding:10px 16px;max-width:85%;'); // E
-        var row     = el('div', 'flex flex-row gap-2 relative');                // F
-        var flex1   = el('div', 'flex-1');                                      // G
+    function buildRow(index) {
+        var msg = MESSAGES[index];
 
-        // H — the live target. Note the escaped-important class name.
-        var content = el('div', 'font-large !font-user-message py-0.5 grid grid-cols-1 gap-2 relative');
-        content.setAttribute('data-testid', 'user-message');
+        var row = el('div');
+        row.setAttribute('data-index', String(index));
+        row.setAttribute('data-rs-index', String(index));
 
-        var p = el('p', 'whitespace-pre-wrap break-words', 'margin:0;white-space:pre-wrap;');
-        p.textContent = text;                                                   // I
+        var article = el('div');
+        article.setAttribute('role', 'article');
+        article.setAttribute('aria-posinset', String(index + 1));
+        article.setAttribute('aria-setsize', String(TOTAL_MESSAGES));
 
-        content.appendChild(p);
-        flex1.appendChild(content);
-        row.appendChild(flex1);
-        bubble.appendChild(row);
-        align.appendChild(bubble);
-        wrapper.appendChild(align);
-        return wrapper;
-    }
+        // sr-only sender label on the WRAPPER — matches the live site, where it sits
+        // outside [data-testid="user-message"].
+        var srLabel = el('span', 'sr-only');
+        srLabel.textContent = msg.sender === 'user' ? 'You said: ' : 'Claude responded: ';
+        article.appendChild(srLabel);
 
-    function buildAiTurn(text) {
-        var wrapper = el('div', 'mb-1 mt-6 group');
-        var align   = el('div', 'flex flex-col items-start gap-1',
-                         'display:flex;flex-direction:column;align-items:flex-start;gap:4px;');
-        var body    = el('div', 'font-claude-response',
-                         'max-width:85%;line-height:1.6;padding:10px 0;');
-        var p       = el('p', 'whitespace-pre-wrap break-words', 'margin:0;');
-        p.textContent = text;
-        body.appendChild(p);
-        align.appendChild(body);
-        wrapper.appendChild(align);
-        return wrapper;
-    }
+        var renderWrap = el('div');
+        renderWrap.setAttribute('data-test-render-count', '1');
 
-    // ── The recycling renderer ────────────────────────────────────────────────
-    // Everything outside [start, end) is REMOVED from the document, not hidden.
-    // Hiding with display:none would leave the nodes queryable and would not
-    // reproduce the bug.
-    var currentStart = -1;
+        if (msg.sender === 'user') {
+            var align  = el('div', 'flex flex-col items-end gap-1',
+                            'display:flex;flex-direction:column;align-items:flex-end;gap:4px;');
+            var bubble = el('div', 'group relative inline-flex gap-2 bg-bg-300 rounded-xl',
+                            'display:inline-flex;background:#3a3835;border-radius:12px;padding:10px 16px;max-width:85%;');
+            bubble.setAttribute('data-user-message-bubble', 'true');
+            var flexRow = el('div', 'flex flex-row gap-2 relative');
+            var flex1   = el('div', 'flex-1');
 
-    function render() {
-        var maxStart = Math.max(0, TOTAL_TURNS - WINDOW_SIZE);
-        var start = Math.round(container.scrollTop / TURN_HEIGHT);
-        if (start < 0) start = 0;
-        if (start > maxStart) start = maxStart;
-        if (start === currentStart) return;
-        currentStart = start;
+            var content = el('div', 'font-large !font-user-message py-0.5 grid grid-cols-1 gap-2 relative');
+            content.setAttribute('data-testid', 'user-message');
 
-        var end = Math.min(TOTAL_TURNS, start + WINDOW_SIZE);
+            // CONTAMINATION FIXTURES, inside the queried node on purpose.
+            // (a) an HTML comment — real mocks (grok, claude, emergent) contain these,
+            //     and Comment.textContent IS the comment body, so a text walker that
+            //     recurses into comments emits it. That defect shipped and rendered
+            //     "D: Inner layout wrapper..." as a Grok question.
+            // (b) an .sr-only span — the live site keeps its label on the wrapper, but
+            //     our own fallback paths read the wrapper, so the extractor must strip
+            //     it wherever it appears.
+            // Without these INSIDE the queried element, the stripping tests pass
+            // vacuously: a reviewer disabled all stripping and they still passed.
+            content.appendChild(document.createComment(' MOCK-COMMENT-SHOULD-NOT-APPEAR '));
+            var srInner = el('span', 'sr-only');
+            srInner.textContent = 'SR-ONLY-SHOULD-NOT-APPEAR ';
+            content.appendChild(srInner);
+            // NON-EMPTY on purpose. With an empty string this fixture contributed
+            // nothing either way, so swapping the sr-only predicate for a plain
+            // indexOf('sr-only') — which also matches `not-sr-only` — failed no test.
+            // Now, wrongly treating not-sr-only as sr-only loses this text.
+            var notSr = el('span', 'not-sr-only');
+            notSr.textContent = ' VISIBLE-NOT-SR-ONLY';
 
-        while (mounted.firstChild) mounted.removeChild(mounted.firstChild);
-        for (var i = start; i < end; i++) {
-            mounted.appendChild(buildUserTurn(TURNS[i].user));
-            mounted.appendChild(buildAiTurn(TURNS[i].ai));
+            var p = el('p', 'whitespace-pre-wrap break-words', 'margin:0;white-space:pre-wrap;');
+            p.textContent = msg.text;
+
+            content.appendChild(p);
+            content.appendChild(notSr);
+            flex1.appendChild(content);
+            flexRow.appendChild(flex1);
+            bubble.appendChild(flexRow);
+            align.appendChild(bubble);
+            renderWrap.appendChild(align);
+        } else {
+            var aiAlign = el('div', 'flex flex-col items-start gap-1',
+                             'display:flex;flex-direction:column;align-items:flex-start;gap:4px;');
+            var body = el('div', 'font-claude-response', 'max-width:85%;line-height:1.6;padding:10px 0;');
+            body.appendChild(document.createComment(' MOCK-COMMENT-SHOULD-NOT-APPEAR '));
+            var ap = el('p', 'whitespace-pre-wrap break-words', 'margin:0;');
+            ap.textContent = msg.text;
+            body.appendChild(ap);
+            aiAlign.appendChild(body);
+            renderWrap.appendChild(aiAlign);
         }
 
-        // Reserve the full scroll height so the scrollbar reflects the whole
-        // conversation, exactly as the real app does.
-        spacerTop.style.height = (start * TURN_HEIGHT) + 'px';
-        spacerBot.style.height = Math.max(0, (TOTAL_TURNS - end) * TURN_HEIGHT) + 'px';
+        article.appendChild(renderWrap);
+        row.appendChild(article);
+        row.style.height = REAL_H[index] + 'px';
+        row.style.overflow = 'hidden';
+        measured[index] = true;      // mounting = measuring; shrinks scrollHeight over time
+        return row;
+    }
+
+    var currentStart = -1;
+
+    function render(force) {
+        // Keep a GAP between the scrolling window and the pinned tail at every
+        // position, so the mounted set is non-contiguous even at the bottom. The
+        // previous version let the window run up to the tail, making them adjacent —
+        // one contiguous run — which silently retired the non-contiguity assertion.
+        var maxStart = Math.max(0, TOTAL_MESSAGES - TAIL_ROWS - WINDOW_SIZE - 3);
+        var start = startForScroll(container.scrollTop);
+        if (start < 0) start = 0;
+        if (start > maxStart) start = maxStart;
+        if (start === currentStart && !force) return;
+        currentStart = start;
+
+        var end = Math.min(TOTAL_MESSAGES - TAIL_ROWS, start + WINDOW_SIZE);
+
+        while (mounted.firstChild) mounted.removeChild(mounted.firstChild);
+        for (var i = start; i < end; i++) mounted.appendChild(buildRow(i));
+        for (var t = TOTAL_MESSAGES - TAIL_ROWS; t < TOTAL_MESSAGES; t++) {
+            mounted.appendChild(buildRow(t));
+        }
+
+        spacerTop.style.height = heightBefore(start) + 'px';
+        spacerBot.style.height = Math.max(0, heightBetween(end, TOTAL_MESSAGES - TAIL_ROWS)) + 'px';
+
+        loadBtn.style.display = start === 0 ? 'none' : 'block';
     }
 
     container.addEventListener('scroll', render, { passive: true });
-    render();
+    render(true);
 
-    // Test hooks — mirror the data-acn-* contract style so assertions stay stable.
     window.__mockVirtualization = {
-        totalTurns:  TOTAL_TURNS,
-        windowSize:  WINDOW_SIZE,
+        totalMessages: TOTAL_MESSAGES,
+        totalTurns:    TOTAL_MESSAGES / 2,
+        windowSize:    WINDOW_SIZE,
+        userWindowSize: WINDOW_SIZE / 2,
+        tailRows:      TAIL_ROWS,
         mountedCount: function () {
             return document.querySelectorAll('[data-testid="user-message"]').length;
         },
+        mountedIndexes: function () {
+            return Array.prototype.slice
+                .call(document.querySelectorAll('[data-index]'))
+                .map(function (e) { return +e.getAttribute('data-index'); })
+                .sort(function (a, b) { return a - b; });
+        },
+        scrollHeight: function () { return container.scrollHeight; },
+        resetMeasurements: function () {
+            measured = {};
+            currentStart = -1;
+            render(true);
+        },
+        measuredCount: function () { return Object.keys(measured).length; },
         scrollToFraction: function (f) {
             container.scrollTop = Math.round(
                 (container.scrollHeight - container.clientHeight) * f);
