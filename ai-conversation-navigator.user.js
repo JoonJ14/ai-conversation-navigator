@@ -5648,6 +5648,32 @@
         if (bmList) bmList.style.opacity = busy ? '0.55' : '';
     }
 
+    // ONE MATCHER. The same 3a/3b arrival resolution the settle loop uses —
+    // markdown-tolerant, candidate-range disambiguation, both senders — applied to a
+    // path index. Returns the live mounted node for that entry, or null when it is
+    // not mounted or cannot be resolved unambiguously here.
+    //
+    // Every caller that holds a path index and wants a DOM node goes through this.
+    // The fast path runs far more often than the loop, so a second matcher is where
+    // drift would start; there isn't one. Callers must treat null as "not mounted"
+    // and route through the jump bridge rather than falling back to a cached node —
+    // a cached node is exactly what this function exists to distrust.
+    function ciResolveMountedByPathIndex(pathIdx) {
+        if (!(ciIsClaudeChat() && ciIsReady() && _ciFullPath)) return null;
+        if (typeof pathIdx !== 'number' || pathIdx < 0 || pathIdx >= _ciFullPath.length) return null;
+        var rows = ciMountedRows();
+        var u = Math.max(0, _ciFullPath.length - (ciTotalRows() || _ciFullPath.length));
+        var hit = ciMatchTargetInWindow(pathIdx, rows, u);
+        if (hit) return ciMessageNodeWithin(hit.el);
+        var meta = {};
+        var res = ciResolveFromPairs(ciLocalPairs(rows), pathIdx, u, meta);
+        if (res !== null && meta.exact) {
+            var el = ciRowElement(res);
+            if (el) return ciMessageNodeWithin(el);
+        }
+        return null;
+    }
+
     // Re-locates a question's DOM node among whatever is mounted right now.
     // Under recycling the stored element reference goes stale constantly, so
     // matching on normalized text is the only durable handle we have until the
@@ -5659,23 +5685,9 @@
         // found and never enters the jump. q.pathIndex is authoritative; use it.
         if (ciIsClaudeChat() && ciIsReady() && !q.provisional &&
             typeof q.pathIndex === 'number' && _ciFullPath) {
-            // ONE MATCHER. This is the same 3a/3b arrival resolution the settle loop
-            // uses — markdown-tolerant, candidate-range disambiguation, both senders.
-            // The fast path runs far more often than the loop, so a second legacy
-            // matcher here is where drift would start; there isn't one.
-            var relRows = ciMountedRows();
-            var relU = Math.max(0, _ciFullPath.length - (ciTotalRows() || _ciFullPath.length));
-            var relHit = ciMatchTargetInWindow(q.pathIndex, relRows, relU);
-            if (relHit) return ciMessageNodeWithin(relHit.el);
-            var relMeta = {};
-            var relRes = ciResolveFromPairs(ciLocalPairs(relRows), q.pathIndex, relU, relMeta);
-            if (relRes !== null && relMeta.exact) {
-                var relEl = ciRowElement(relRes);
-                if (relEl) return ciMessageNodeWithin(relEl);
-            }
-            // Not mounted (or not resolvable here): fall through to the jump rather
-            // than returning a same-text impostor.
-            return null;
+            // Not mounted (or not resolvable here) returns null, and the caller falls
+            // through to the jump rather than accepting a same-text impostor.
+            return ciResolveMountedByPathIndex(q.pathIndex);
         }
         // isConnected alone is NOT sufficient. Under recycling the virtualizer reuses
         // the same DOM node for a different message, so a still-connected node can be
@@ -6978,6 +6990,10 @@
 
         aiResponses.forEach(function (r, msgIndex) {
             var el = r.element;
+            // Position in the FULL path, present only on the index-backed build.
+            // msgIndex is this array's assistant-only ordinal and addresses a
+            // different message, so it is kept for labelling and never jumped on.
+            var pathIdx = (typeof r.pathIdx === 'number') ? r.pathIdx : null;
             if (!el) {
                 // Indexed, unmounted: derive from CONTENT. Fenced blocks give the
                 // code inventory; files/attachments metadata gives the file list.
@@ -6991,13 +7007,13 @@
                     // the off-screen content this path recovers (Codex R6 :6619).
                     var lbl = (fm[1] ? fm[1] + ' — ' : '') +
                               body.split('\n')[0].substring(0, 40);
-                    codeBlocks.push({ label: lbl, element: null, msgIndex: msgIndex });
+                    codeBlocks.push({ label: lbl, element: null, msgIndex: msgIndex, pathIdx: pathIdx });
                 }
                 var metas = (r.files || []).concat(r.attachments || []);
                 for (var mi = 0; mi < metas.length; mi++) {
                     var fn = metas[mi].file_name;
                     if (fn && !seenFiles[fn]) { seenFiles[fn] = true;
-                        files.push({ label: fn, element: null, msgIndex: msgIndex }); }
+                        files.push({ label: fn, element: null, msgIndex: msgIndex, pathIdx: pathIdx }); }
                 }
                 return;
             }
@@ -7024,7 +7040,7 @@
                     var preview = rawText.substring(0, 60).replace(/\n/g, ' ');
                     if (preview.length === 60) preview += '...';
                     var label = (lang ? lang.toUpperCase() + ': ' : '') + preview;
-                    codeBlocks.push({ label: label, element: pre, msgIndex: msgIndex });
+                    codeBlocks.push({ label: label, element: pre, msgIndex: msgIndex, pathIdx: pathIdx });
                 });
             } catch (e) {}
 
@@ -7038,7 +7054,7 @@
                         extMatch.forEach(function (fname) {
                             if (!seenFiles[fname]) {
                                 seenFiles[fname] = true;
-                                files.push({ label: fname, element: a, msgIndex: msgIndex });
+                                files.push({ label: fname, element: a, msgIndex: msgIndex, pathIdx: pathIdx });
                             }
                         });
                     }
@@ -7052,7 +7068,10 @@
                     textMatches.forEach(function (fname) {
                         if (!seenFiles[fname]) {
                             seenFiles[fname] = true;
-                            files.push({ label: fname, element: null, msgIndex: msgIndex });
+                            // Filename mentioned in prose, with no anchor to scroll to.
+                            // pathIdx still addresses the message that mentions it, so
+                            // the click lands on that message instead of doing nothing.
+                            files.push({ label: fname, element: null, msgIndex: msgIndex, pathIdx: pathIdx });
                         }
                     });
                 }
@@ -7071,8 +7090,14 @@
         if (ciIsClaudeChat() && ciIsReady() && _ciFullPath && _ciFullPath.length) {
             // Bind mounted elements by row identity: element:null on every entry made
             // each conversation-map segment click a silent no-op on indexed chats
-            // (post-closure Codex). Unmounted entries carry srcIndex — the PATH index —
-            // which _sumScrollToElement routes through the jump bridge.
+            // (post-closure Codex). Every entry also carries pathIdx — the PATH index —
+            // which _sumScrollToElement re-resolves against at click time and routes
+            // through the jump bridge when the target is not mounted.
+            //
+            // pathIdx is set ONLY on this branch. The DOM branch below indexes into
+            // per-sender arrays, and a per-sender ordinal read as a path index would
+            // jump to an unrelated message; giving that field a different name is what
+            // stops the two from ever being confused.
             var tlByPath = {};
             var tlRows = ciMountedRows();
             for (i = 0; i < tlRows.length; i++) {
@@ -7082,21 +7107,21 @@
             }
             for (i = 0; i < _ciFullPath.length; i++) {
                 all.push({
-                    element:  tlByPath[i] || null,
-                    text:     _ciFullPath[i].text || '',
-                    type:     _ciFullPath[i].sender === 'human' ? 'user' : 'ai',
-                    srcIndex: i
+                    element: tlByPath[i] || null,
+                    text:    _ciFullPath[i].text || '',
+                    type:    _ciFullPath[i].sender === 'human' ? 'user' : 'ai',
+                    pathIdx: i
                 });
             }
             all.forEach(function (m, idx) { m.globalIdx = idx; });
             return all;
         }
 
-        questions.forEach(function (q, qi) {
-            all.push({ element: q.element, text: q.text || '', type: 'user', srcIndex: qi });
+        questions.forEach(function (q) {
+            all.push({ element: q.element, text: q.text || '', type: 'user' });
         });
-        aiResponses.forEach(function (r, ri) {
-            all.push({ element: r.element, text: r.text || '', type: 'ai',   srcIndex: ri });
+        aiResponses.forEach(function (r) {
+            all.push({ element: r.element, text: r.text || '', type: 'ai' });
         });
 
         // compareDocumentPosition returns DOCUMENT_POSITION_DISCONNECTED for
@@ -7413,10 +7438,14 @@
             aiMsgs = [];
             for (var fp = 0; fp < _ciFullPath.length; fp++) {
                 if (_ciFullPath[fp].sender !== 'assistant') continue;
+                // pathIdx is the entry's position in the FULL path. The inventory's own
+                // msgIndex is a position in this assistant-only array, so it addresses a
+                // different message entirely and must never reach the jump bridge.
                 aiMsgs.push({ element: elByPath[fp] || null,
                               text: _ciFullPath[fp].text || '',
                               attachments: _ciFullPath[fp].attachments || [],
                               files: _ciFullPath[fp].files || [],
+                              pathIdx: fp,
                               type: 'ai' });
             }
         } else {
@@ -7479,11 +7508,33 @@
     }
 
     function _sumScrollToElement(el, pathIdx) {
+        // The element on a summary item is a SNAPSHOT taken when the summary was
+        // generated; the panel outlives that snapshot and Claude's virtualizer
+        // recycles rows behind the user. By click time the captured node may be
+        // detached (scrollIntoView silently does nothing) or — the case that matters —
+        // still connected while displaying a DIFFERENT message, which would scroll to
+        // and outline the wrong turn. v12.0's rule is that a jump is either right or
+        // honestly refused, so on indexed chats the cache is discarded and the target
+        // is re-resolved from its path index every time.
+        var indexed = typeof pathIdx === 'number' && ciIsClaudeChat() && ciIsReady() &&
+                      _ciFullPath && pathIdx >= 0 && pathIdx < _ciFullPath.length;
+        if (indexed) {
+            el = ciResolveMountedByPathIndex(pathIdx);
+        } else if (el && ciIsClaudeChat() && ciIsReady() && _ciFullPath && _ciFullPath.length) {
+            // Virtualized chat, but this item predates the index (summary generated
+            // before the fetch resolved) so there is no path index to re-resolve
+            // against. The cached node cannot be validated — refuse rather than risk
+            // landing on a recycled row. Regenerating the summary rebinds it.
+            showToast('Summary predates the conversation index — regenerate it to enable jumps');
+            return;
+        } else if (el && el.isConnected === false) {
+            el = null;
+        }
+
         if (!el) {
             // Unmounted indexed entry: route through the same jump bridge Search and
             // Bookmarks use, instead of silently doing nothing.
-            if (typeof pathIdx === 'number' && ciIsClaudeChat() && ciIsReady() &&
-                _ciFullPath && pathIdx >= 0 && pathIdx < _ciFullPath.length) {
+            if (indexed) {
                 ciJumpToFullPathIndex(pathIdx, function (ok, jel, reason) {
                     if (ok && jel) {
                         orbMarkJumpTarget(jel);
@@ -7658,7 +7709,7 @@
                         subEl.addEventListener('click', function (e) {
                             e.stopPropagation();
                             var firstMsg = c.messages && c.messages[0];
-                            if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.srcIndex);
+                            if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx);
                         });
                     })(child);
                     // Highlight corresponding snapshot messages on hover
@@ -7677,7 +7728,7 @@
             (function (s) {
                 segEl.addEventListener('click', function () {
                     var firstMsg = s.messages && s.messages[0];
-                    if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.srcIndex);
+                    if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx);
                 });
             })(seg);
             // For segments without sub-segments, hovering the block highlights all its messages
@@ -7810,7 +7861,11 @@
             body.appendChild(createElement('div', { className: 'acn-section-title', style: 'cursor:default', textContent: 'Code Blocks (' + inventory.codeBlocks.length + ')' }));
             inventory.codeBlocks.slice(0, 10).forEach(function (cb) {
                 var item = createElement('div', { className: 'acn-code-item', textContent: cb.label });
-                item.addEventListener('click', function () { _sumScrollToElement(cb.element); });
+                // pathIdx is what makes an off-screen block reachable: entries recovered
+                // from an unmounted response carry element:null, and calling the scroll
+                // helper without the index made every one of them a silent no-op even
+                // though the index can jump straight to its message.
+                item.addEventListener('click', function () { _sumScrollToElement(cb.element, cb.pathIdx); });
                 body.appendChild(item);
             });
         }
@@ -7820,8 +7875,8 @@
             body.appendChild(createElement('div', { className: 'acn-section-title', style: 'cursor:default', textContent: 'Files (' + inventory.files.length + ')' }));
             inventory.files.slice(0, 10).forEach(function (f) {
                 var item = createElement('div', { className: 'acn-code-item', textContent: f.label });
-                if (f.element) {
-                    item.addEventListener('click', function () { _sumScrollToElement(f.element); });
+                if (f.element || typeof f.pathIdx === 'number') {
+                    item.addEventListener('click', function () { _sumScrollToElement(f.element, f.pathIdx); });
                 }
                 body.appendChild(item);
             });
@@ -8370,15 +8425,42 @@
             if (path[i].truncated) truncated++;
         }
 
+        // Turns the DOM holds but the API snapshot does not \u2014 a prompt sent after the
+        // last fetch, before the resync completes. _ciMergeLiveMessages appends these
+        // to _questions only, so serializing _ciFullPath alone dropped them from a file
+        // headed "complete conversation history (API)". They are emitted below the
+        // path, flagged, and counted, because an omission from an authoritative-looking
+        // export is invisible to the reader (Codex post-closure).
+        var pending = [];
+        for (var pv = 0; pv < _questions.length; pv++) {
+            if (_questions[pv].provisional && (_questions[pv].text || '').trim()) {
+                pending.push(_questions[pv]);
+            }
+        }
+
         var dateStr = new Date().toISOString().split('T')[0];
         var lines = [];
         lines.push('# Conversation Export');
         lines.push('**Platform:** ' + platform.title);
         lines.push('**Date:** ' + dateStr);
-        lines.push('**Messages:** ' + path.length + ' (' + users + ' user, ' + ais + ' AI)');
+        lines.push('**Messages:** ' + (path.length + pending.length) +
+                   ' (' + (users + pending.length) + ' user, ' + ais + ' AI)' +
+                   (pending.length ? ' \u2014 including ' + pending.length +
+                    ' not yet in the API snapshot' : ''));
         lines.push('**Source:** ' + (_ciPathComplete
-            ? 'complete conversation history (API)'
+            ? (pending.length
+                ? 'complete conversation history (API) plus unconfirmed live turns \u2014 see warning below'
+                : 'complete conversation history (API)')
             : 'PARTIAL conversation history (API) \u2014 see warning below'));
+        if (pending.length) {
+            lines.push('');
+            lines.push('> \u26a0 **' + pending.length + ' turn' + (pending.length !== 1 ? 's' : '') +
+                       ' pending confirmation.** ' + (pending.length !== 1 ? 'These were' : 'This was') +
+                       ' read from the page because the API snapshot predates ' +
+                       (pending.length !== 1 ? 'them' : 'it') + '. Any reply still being ' +
+                       'generated is NOT included. Re-export once the conversation settles ' +
+                       'for a fully API-backed file.');
+        }
         if (!_ciPathComplete) {
             lines.push('');
             lines.push('> \u26a0 **Incomplete history.** Walking the conversation tree from its ' +
@@ -8460,8 +8542,21 @@
             lines.push('---');
         }
 
+        // Pending turns close the file, in conversation order after the last confirmed
+        // entry, each labelled so a reader can tell page-read text from API text.
+        for (var pq = 0; pq < pending.length; pq++) {
+            qIdx++;
+            lines.push('');
+            lines.push('## User (Q#' + qIdx + ')');
+            lines.push('*(pending API confirmation — read from the page)*');
+            lines.push('');
+            lines.push(pending[pq].text || '*(no text content)*');
+            lines.push('');
+            lines.push('---');
+        }
+
         downloadFile('conversation-export.md', lines.join('\n'));
-        showToast('Saved: conversation-export.md (' + path.length + ' messages)');
+        showToast('Saved: conversation-export.md (' + (path.length + pending.length) + ' messages)');
     }
 
     function exportFullConversation() {

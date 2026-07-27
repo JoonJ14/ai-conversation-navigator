@@ -72,6 +72,18 @@ version bump to v12.0 goes in the merge commit (already `@version 12.0` in-file)
    now reset _sseTokenData and _ciLastAsstMismatch in ciInvalidate (cross-conversation
    context-estimate inflation and inherited staleness signatures).
 **All 4 post-closure Codex comments addressed** (one was already fixed by #1).
+
+**Second post-closure batch (2026-07-27, 3 P2 comments, no review re-trigger):** all on
+index-consuming surfaces. (a) Summary map/inventory clicks trusted the element captured at
+summary-generation time; under recycling that node can be detached OR still connected while
+showing a different message — a wrong jump. Indexed chats now discard the cache and
+re-resolve from the path index on every click, through `ciResolveMountedByPathIndex()`,
+which was extracted from `_relocateQuestionElement` so both share ONE MATCHER. Items with
+no path index (summary generated pre-index) refuse with a toast. (b) Off-screen code
+inventory items were inert; a `pathIdx` distinct from the assistant-only `msgIndex` is now
+threaded through (passing `msgIndex` would have jumped to an unrelated message). (c)
+Index-backed exports dropped provisional turns while headed "complete conversation history
+(API)"; they are now emitted, counted and labelled.
 Final state: 374/374 both engines. Branch ready for owner merge — no known open items.
 
 ## G. What comes next — v12.1 plan (owner-agreed priority order, 2026-07-27)
@@ -80,8 +92,12 @@ Final state: 374/374 both engines. Branch ready for owner merge — no known ope
    localized unmatchable-cluster fixture (proves anchor-store arrival resolution, today
    verified by construction only); (b) unmatchable-HEAD fixture (the live Q#1 chip shape);
    (c) assistant-TAIL fixture (ciTryExtreme last-row branch, zero coverage); (d) GM-shim
-   failure fixtures (401/429/malformed-JSON -> backoff classes). Old-build-must-fail
-   discipline applies (DEC-027 methodology).
+   failure fixtures (401/429/malformed-JSON -> backoff classes); (e) **summary-click after
+   recycling** — generate a summary, scroll so the virtualizer recycles the bound rows,
+   then click a map segment and an off-screen inventory item; the pre-fix build scrolls to
+   the wrong turn (segment) and does nothing (inventory). Old-build-must-fail discipline
+   applies (DEC-027 methodology); note which fixtures are ancestor-gated (a real failing
+   commit exists) versus mutant-gated (weaker evidence) rather than listing them as equal.
 2. **Small correctness:** Retry-After honoring for HTTP 429 (plumb response headers
    through ciRequestJSON); tool-block representation in Export (toolChars already counts
    toward context totals; exports show text only).
@@ -117,7 +133,16 @@ gallery limitation (pre-existing, README).
 ## J. Risk caveats
 - **Rounds 14–23 fixes have no dedicated CI fixtures** (logged-out orgs, multi-org races,
   mid-stream refetches are not cheaply reproducible in the harness). Suite-green +
-  logic-reviewed only. If a regression appears in those paths, suspect them first.
+  logic-reviewed only. If a regression appears in those paths, suspect them first. **The
+  two post-closure batches are in this same category** — including the summary-click
+  re-resolution fix, which needs a fixture that generates a summary, recycles the rows,
+  then clicks (add to the §G item-1 batch).
+- **The jump fast path is not fixturable by the acceptance sweep.** Mutation-verified
+  2026-07-27: forcing `ciResolveMountedByPathIndex()` to return `null` always still passes
+  222/222 acceptance jumps, because resolve-on-arrival absorbs the miss. Green acceptance
+  numbers therefore say nothing about whether the fast path fired; only the timings do.
+  Any future claim that the fast path "works" needs a latency or instrumentation assertion,
+  not a correctness one.
 - The renderable predicate rests on the `stop_reason` discriminator (n=2 conversations +
   a 14-conversation census). `ciValidatePredicate()` warns loudly on divergence; anchors
   keep correctness independent of it, cost is extra iterations.

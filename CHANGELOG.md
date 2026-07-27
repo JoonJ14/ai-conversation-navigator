@@ -175,6 +175,49 @@ the strict anchors-only inverse. Post-closure Codex comments addressed without r
 the review loop: conversation-map segment clicks (element binding + jump bridge) and
 cross-conversation leaks of SSE thinking totals and the staleness signature.
 
+### Summary and Export: three post-closure Codex findings (2026-07-27, second batch)
+
+Three P2 comments, all on surfaces that consume the index rather than build it. The first
+is a correctness defect of the class this release exists to eliminate.
+
+**1. Summary clicks trusted a stale element (the one that mattered).** Summary items bind
+their DOM element when the summary is *generated*; the panel outlives that snapshot and the
+virtualizer recycles rows behind the user. By click time the captured node could be detached
+— `scrollIntoView` silently doing nothing — or, worse, still connected while displaying a
+*different* message, scrolling to and highlighting the wrong turn. That is precisely the
+"never a wrong jump" invariant DEC-027 is built around, arrived at from the opposite
+direction: not a jump that resolves incorrectly, but a jump that never re-resolves at all.
+
+Fixed by discarding the cached element on indexed chats and re-resolving from the path index
+at every click. To keep the release's ONE MATCHER property, the 3a/3b resolution body was
+extracted out of `_relocateQuestionElement` into `ciResolveMountedByPathIndex(pathIdx)` and
+both callers now share it, rather than growing a second matcher that could drift. Items that
+predate the index (summary generated before the fetch resolved, so no path index exists to
+re-resolve against) now refuse with a toast instead of gambling on the cached node.
+
+**2. Off-screen code-inventory clicks were silent no-ops.** Fenced blocks recovered from
+unmounted responses carry `element: null`, and the renderer called the scroll helper without
+an index, so every recovered off-screen block was inert — while the index could jump straight
+to its message. The trap here is that the inventory's existing `msgIndex` is an
+*assistant-only ordinal*, not a path position; passing it through would have produced a
+confident jump to an unrelated message. A separately-named `pathIdx` is threaded from the
+index-backed build instead, and the two are never interchangeable by construction.
+
+**3. Index-backed exports omitted provisional turns while claiming completeness.** A prompt
+sent after the current API snapshot is merged into `_questions` only, so the exporter —
+which serializes `_ciFullPath` — dropped it from a file headed "complete conversation history
+(API)". Same severity logic as the original v12.0 export bug: an omission from an
+authoritative-looking file is invisible to its reader. Pending turns are now emitted, counted,
+and labelled, with a warning that an in-flight reply is not included.
+
+**Verification and its limits.** 374/374 on Chromium and Firefox. Mutation-verifying the
+refactor produced a finding worth recording: forcing `ciResolveMountedByPathIndex` to always
+return `null` **still passes all 222 acceptance jumps**, because resolve-on-arrival catches
+the miss and lands correctly anyway. The fast path is a latency optimization, not a
+correctness dependency — defence in depth working as designed, and also the reason the suite
+cannot fixture it. These three fixes are suite-green and logic-verified but **unfixtured**,
+the same category as rounds 14–23 (see HANDOFF §J).
+
 ### Resolve-on-arrival (the final jump design)
 
 **Problem.** Second live test: jumps failed on targets whose neighbourhoods don't
