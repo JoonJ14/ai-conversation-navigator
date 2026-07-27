@@ -2971,6 +2971,43 @@
                 var hit = ciMatchTargetInWindow(targetFullPathIdx, rows, U);
                 if (hit) { succeed(hit, '3a-text'); return; }
 
+                // EXTREMES RESOLVE BY CONSTRUCTION (live-test failure: chip Q#1 on the
+                // 147-question conversation). The first renderable path entry IS row 0
+                // and the last IS row totalRows-1 — row numbering guarantees it, no text
+                // and no pairs required. A chip-shaped target at the path HEAD cannot be
+                // resolved any other way: 3a has no comparable text, and 3b has nothing
+                // below it to bracket with — live, the head neighbours also failed to
+                // text-match, so the jump ARRIVED at the right place and then declined
+                // to recognise it. Gated on the validated predicate: renderable[0] can
+                // only misidentify row 0 if the predicate under-predicts (an entry it
+                // says never renders actually rendering), the never-observed direction,
+                // and _ciPredicateWarned covers the observed one.
+                // Gate on the TARGET BEING HUMAN, not on _ciPredicateWarned: the
+                // warned flag is global, so one blind entry at path 200 was disabling
+                // head resolution for an unrelated Q#1 (caught by the pair-free mutant
+                // on the hostile fixture). For a HUMAN extreme the construction holds
+                // even when the predicate is warned: entries outside the renderable
+                // list are predicted non-rendering (under-prediction never observed),
+                // phantoms are assistant-shaped, and humans always render — so the
+                // first renderable human IS row 0 and the last IS the final row,
+                // whatever happens in between.
+                if (_ciRenderable && _ciRenderable.length &&
+                    _ciFullPath[targetFullPathIdx] &&
+                    _ciFullPath[targetFullPathIdx].sender === 'human') {
+                    var exRow = null;
+                    if (targetFullPathIdx === _ciRenderable[0]) exRow = 0;
+                    else if (targetFullPathIdx === _ciRenderable[_ciRenderable.length - 1]) {
+                        exRow = totalRows - 1;
+                    }
+                    if (exRow !== null) {
+                        for (var xr = 0; xr < rows.length; xr++) {
+                            if (rows[xr].dataIndex === exRow) {
+                                succeed(rows[xr], 'extreme-row'); return;
+                            }
+                        }
+                    }
+                }
+
                 // 3b — window-local pairs give local offsets; the target's exact row
                 // follows. Predicate counts steps inside gaps; measured pairs override.
                 var pairs = ciLocalPairs(rows);
