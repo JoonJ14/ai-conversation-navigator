@@ -1629,6 +1629,23 @@
         } else {
             _ciRetryDelayMs = 0;
         }
+        // A background REFRESH failing must not destroy a usable snapshot. ciLoadIndex
+        // deliberately keeps a ready index alive for the whole request (see its comment)
+        // so consumers never collapse to the ~3 mounted turns mid-refresh — and then this
+        // function threw that snapshot away on any timeout or network blip, collapsing
+        // Navigate, Search, Summary, Export and context tracking until a later retry, with
+        // a perfectly good full-history snapshot already in hand (Codex).
+        //
+        // Placed AFTER the backoff computation above so a permanent-class failure still
+        // lengthens its retry delay; only the destruction is skipped.
+        if (_ciIndex && _ciFullPath && _ciStatus === 'ready' && _ciConversationId === cid) {
+            _ciRefreshFailed = reason || 'unknown';
+            _ciLastRefetchAt = Date.now();
+            console.warn('[ACN] index REFRESH failed (' + reason + ') — keeping the ' +
+                         'existing snapshot, retrying after the cooldown');
+            return;
+        }
+
         // Clear the FULL derived state, not just _ciIndex. Every consumer guards on
         // ciIsReady() so stale data could not be read, but leaving a multi-megabyte
         // _ciFullPath (and the truncated/leaf-fallback flags describing a different
@@ -1734,6 +1751,7 @@
                 _ciStatus         = 'ready';
                 _ciDegradedReason = '';
                 _ciRetryDelayMs   = 0;
+                _ciRefreshFailed  = '';
                 console.log('[ACN] conversation index ready: ' + _ciIndex.length +
                             ' questions (' + (data.chat_messages || []).length +
                             ' messages in payload)');
@@ -3296,7 +3314,9 @@
         //    permitting a premature refetch of a still-streaming answer.
         try { resetTurnCounter(); } catch (e) {}
         _ciLastAsstMismatch = '';
-        _ciResyncedAsstSig  = '';
+        _ciResyncedSigs     = {};
+        _ciResyncedSigOrder = [];
+        _ciRefreshFailed    = '';
         _ciConversationId = null;
         _ciStatus         = 'idle';
         _ciDegradedReason = '';
@@ -3642,7 +3662,26 @@
     var _ciLastAsstMismatch = '';
     // Signature that has already caused a resync. Guards against re-downloading the
     // payload forever on a mismatch a refetch cannot fix. Per-conversation.
-    var _ciResyncedAsstSig = '';
+    // Consumed mismatch signatures, as a SET. A single slot was not enough: two settled
+    // signatures in different regions of a tool-heavy conversation displace each other, so
+    // scrolling A -> B -> A makes A look new again and re-triggers the multi-megabyte
+    // refetch every cooldown (Codex). Bounded, and conversation-scoped.
+    // Reason a background refresh failed while a usable snapshot was retained. The index
+    // stays READY, so this is surfaced as a note rather than the degraded banner.
+    var _ciRefreshFailed = '';
+
+    var _ciResyncedSigs      = {};
+    var _ciResyncedSigOrder  = [];
+    var CI_RESYNCED_SIG_CAP  = 512;
+
+    function _ciMarkResyncedSig(sig) {
+        if (_ciResyncedSigs[sig]) return;
+        _ciResyncedSigs[sig] = true;
+        _ciResyncedSigOrder.push(sig);
+        if (_ciResyncedSigOrder.length > CI_RESYNCED_SIG_CAP) {
+            delete _ciResyncedSigs[_ciResyncedSigOrder.shift()];
+        }
+    }
     function _ciAssistantStale() {
         if (!ciIsReady() || !_ciFullPath) return false;
         var rows = ciMountedRows(), sig = '', i;
@@ -3750,8 +3789,8 @@
         // successful rebuild — reinstates the infinite loop exactly, because the rebuild is
         // what completes each cycle. Fingerprinting is the only version that fixes one
         // without restoring the other.
-        if (sig === _ciResyncedAsstSig) return false;
-        if (sig === _ciLastAsstMismatch) { _ciResyncedAsstSig = sig; return true; }
+        if (_ciResyncedSigs[sig]) return false;
+        if (sig === _ciLastAsstMismatch) { _ciMarkResyncedSig(sig); return true; }
         _ciLastAsstMismatch = sig;
         return false;
     }
@@ -5325,6 +5364,9 @@
             }
             if (_ciUsedLeafFallback) notes.push('active branch inferred');
             if (!_ciPathComplete) notes.push('history incomplete \u2014 conversation tree is malformed');
+            // Retained snapshot after a failed refresh: the list is complete as of the
+            // last successful fetch, but newer turns may be missing. Ready, not degraded.
+            if (_ciRefreshFailed) notes.push('refresh failed \u2014 showing the last good snapshot');
             if (notes.length) {
                 banner = createElement('div', {
                     className: 'acn-ci-banner acn-ci-note',
