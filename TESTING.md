@@ -394,6 +394,19 @@ behaviour deliberately; when text matching is fixed those numbers must return to
 the `KNOWN DEFECT` assertion will fail loudly. That is the point of a characterisation
 test.
 
+### A green "question #1" result does NOT mean the settle loop works
+
+Question #1 and the last question are now resolved by `ciTryExtreme()` — first renderable
+entry maps to `scrollTop = 0`, last to `scrollTop = max`, recognised from the path index
+with no offset derivation and no interpolation. That is deliberate: those are the two
+targets an estimator handles worst, and on the live site question #1 previously failed
+*deterministically* (`targetRow = 0 - 1 = -1`, "outside the rendered row range").
+
+The consequence for reading test output: **test 23 no longer exercises the settle loop at
+all.** It proves the extremes shortcut works. The mid-conversation test (test 24) is the
+only assertion carrying the loop, the interpolation, the anchor updates and the bounded
+map search. If you add a jump test, target the middle.
+
 ### Known coverage gap — `ciTryExtreme`'s last-row branch
 
 `ciTryExtreme()` special-cases the first and last rows to exact scroll positions. Only the

@@ -3231,6 +3231,14 @@
             }
 
             if (ciIsReady()) {
+                // Harvest row anchors from whatever the virtualizer currently has mounted.
+                // The scan runs on every mutation batch, so ORDINARY SCROLLING builds the
+                // row map before any jump is ever requested — by the time the user clicks,
+                // the target is usually already bracketed and resolves exactly. Cheap
+                // (only unanchored rows are examined) and idempotent.
+                ciHarvestAnchors();
+                ciValidatePredicate();
+
                 var indexed = _ciIndex.slice();
                 _ciMergeLiveMessages(indexed);
                 indexed.sort(function (a, b) { return a.pathIndex - b.pathIndex; });
