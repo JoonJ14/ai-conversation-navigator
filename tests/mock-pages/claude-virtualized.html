@@ -82,7 +82,12 @@
 <script>
 (function () {
     // ── Conversation data lives in JS, NOT the DOM ───────────────────────────
-    var TOTAL_MESSAGES = 80;   // 40 user + 40 assistant, interleaved
+    // Overridable per test entry via window.__MOCK_CONFIG (injected by the harness
+    // BEFORE this script runs). Lets one mock serve the resolve-on-arrival fixture
+    // matrix: lengths 80/120/150/294, duplicated short questions, attachment rows whose
+    // DOM text cannot match their API text, and a giant row.
+    var CFG = window.__MOCK_CONFIG || {};
+    var TOTAL_MESSAGES = CFG.totalMessages || 80;   // user+assistant, interleaved
     var WINDOW_SIZE    = 6;    // messages mounted around the scroll position
     var TAIL_ROWS      = 1;    // final row pinned mounted at every position
 
@@ -159,15 +164,25 @@
     var ESTIMATED_H = 1150;
     var measured = {};                              // rowIndex -> true once mounted
 
+    var DUP_ROWS = CFG.duplicateRows || [];    // same <=25-char question, 2+ times
+    var ATT_ROWS = CFG.attachmentRows || [];   // DOM shows a file chip; API holds a paste
     var MESSAGES = [];
     for (var i = 0; i < TOTAL_MESSAGES; i++) {
         var turn = Math.floor(i / 2) + 1;
-        MESSAGES.push(i % 2 === 0
-            ? { sender: 'user', text: 'Question number ' + turn +
-                  ': how do I handle case ' + turn + ' when the input is unusual?' }
-            : { sender: 'ai', text: 'Answer number ' + turn +
+        if (i % 2 === 0) {
+            var qt;
+            if (DUP_ROWS.indexOf(i) !== -1)      qt = 'here is the full report.';
+            else if (ATT_ROWS.indexOf(i) !== -1) qt = '[Pasted text #' + turn + ']';
+            else qt = 'Question number ' + turn +
+                      ': how do I handle case ' + turn + ' when the input is unusual?';
+            MESSAGES.push({ sender: 'user', text: qt });
+        } else {
+            MESSAGES.push({ sender: 'ai', text: 'Answer number ' + turn +
                   ': validate the input first, then branch on the result.' });
+        }
     }
+    // One giant row (>=15,000px) exercises intra-row scrolling with no remount.
+    if (typeof CFG.giantRowAt === 'number') REAL_H[CFG.giantRowAt] = 15000;
 
     var container = document.getElementById('mock-scroll-container');
     var mounted   = document.getElementById('mock-mounted');
@@ -287,7 +302,11 @@
         // position, so the mounted set is non-contiguous even at the bottom. The
         // previous version let the window run up to the tail, making them adjacent —
         // one contiguous run — which silently retired the non-contiguity assertion.
-        var maxStart = Math.max(0, TOTAL_MESSAGES - TAIL_ROWS - WINDOW_SIZE - 3);
+        // No "-3": that clamp created a structural DEAD ZONE — with 294 rows the window
+        // start capped at 284, so rows 290-292 could NEVER mount and every jump to the
+        // last questions failed against the MOCK while working live (the real
+        // virtualizer mounts right up to the tail: [291,292,293] observed).
+        var maxStart = Math.max(0, TOTAL_MESSAGES - TAIL_ROWS - WINDOW_SIZE);
         var start = startForScroll(container.scrollTop);
         if (start < 0) start = 0;
         if (start > maxStart) start = maxStart;

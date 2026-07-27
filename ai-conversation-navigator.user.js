@@ -5325,6 +5325,12 @@
             return;
         }
         q.element = target;
+        // The fast path IS a resolution — the target was found mounted and verified.
+        // Publishing it through the same contract as the settle loop keeps success
+        // observable on ONE channel: without this, a sequential sweep (click Q1, then
+        // Q2...) reported 147/147 failures while every jump was actually correct,
+        // because each next target sat inside the mount window and resolved here.
+        orbMarkJumpTarget(target);
 
         if (isLeftChat) {
             // Close panel first so it doesn't obscure the chat
