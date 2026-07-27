@@ -1002,3 +1002,49 @@ Windows Chromium ~5m53s). So the fault does not reproduce without the flag. Reco
 because the objection was right on the evidence available at the time: removing a flag
 re-scopes a blast radius, and re-scoping is not diagnosis. The green runs are the
 diagnosis.
+
+---
+
+## DEC-027: Resolve-on-Arrival Replaces Global Mapping (v12.0)
+**Date:** 2026-07-27 | **Stage:** v12.0 Phase 3 — jump rebuild
+
+### Decision
+The jump no longer answers "what is the target's exact dataIndex?" **before** moving.
+It aims with the predicate/anchor seed, lands, and resolves **on arrival** against the
+~7 mounted rows: the target's own text first (one matcher, shared with the fast path),
+window-local offset pairs second, a bounded shift third. No pre-scroll resolution gates
+the jump; the `ambiguous-mapping` exit does not exist.
+
+### The gate that forced it (spec §5 — recorded numbers)
+CI was required to reproduce the live failures BEFORE the implementation was built.
+Fixture matrix: 294 rows / N=10 unrendered entries (full every-question sweep), 120-row
+hostile (duplicated short questions, attachment rows whose DOM chip cannot match their
+API text — the live Q#1 shape — one predicate-blind entry, one 15,000px row), 150 rows /
+N=3 (strided).
+
+| Build | N=10 | hostile | N=3 | total failed jumps |
+|---|---|---|---|---|
+| `0a30d3b` (produced the live traces) | 23/147 | 12/60 | 4/15 | **39** |
+| `1200a4b` (the 6-fix pass) | 10/147 | 13/60 | 1/15 | **24** |
+
+**The 6-fix build still failing 24 jumps is the evidence that stopping there would have
+shipped a broken feature.** The gate caught it in CI instead of a live session — the
+first time in v12.0 that CI failed before the owner did.
+
+### Why global mapping was structurally wrong
+The number of unrendered path entries U is tiny (bounded by `pathLength − aria-setsize`),
+so the target's dataIndex is confined to a range of width U+1 — smaller than the mount
+window. Landing in a neighbourhood that contains the target never requires the exact
+offset; exact resolution after arrival needs text uniqueness only among ~7 mounted rows
+instead of all 294. The old design demanded a global answer before moving and failed
+precisely where its inputs were weakest (regions whose rows don't uniquely text-match
+globally): targets 213/223/227 spent 6–9s in byte-identical iterations —
+`est=290645 actual=290645 anchors=10` unchanged across all 8 — then exited
+`ambiguous-mapping`.
+
+### Measurement-context addendum
+The MCP measurement browser was found running ACN **v11.8** during this work. The live
+sweeps stand — they were raw console JS that never invoked the userscript, and the
+harvest stripped `[data-acn-bookmark]` before matching — but *which version of your own
+script is installed in the measurement browser* is now on the context list: an old build
+scanning and mutating the DOM mid-measurement is a confound the numbers cannot reveal.

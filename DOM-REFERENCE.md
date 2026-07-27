@@ -729,3 +729,25 @@ Top frame: studio.firebase.google.com (shell, ~157 elements, no chat)
    - Subscription/warning areas can match broad selectors → explicit exclusion
    - `data-testid` vs `data-cy` — platforms use different conventions
    - Alignment classes differ: `self-end`/`justify-end`/`ml-auto` vs `items-end`/`origin-right`
+
+
+## Probe D — no native scroll-to-index (2026-07-27, Chromium page realm, live claude.ai)
+
+Run so nobody repeats the investigation. Rocksteady exposes **no usable imperative path**:
+
+- **Keyboard:** `role="feed"` does not hold focus (`document.activeElement` never lands
+  inside it); ArrowUp/PageUp dispatched at it move nothing. The sr-only arrow-key
+  instruction notwithstanding, keyboard is not a scroll-to-index channel.
+- **Sizer:** one `div[data-rocksteady-sizer][data-sizer-excess="0"]` carrying only the
+  total height (372,642px observed). No per-row offsets, no serialised position map on
+  any element.
+- **`offsetTop` is NOT in container-content coordinates** — 0/32 samples agreed with
+  rect-derived positions. Compute row positions as
+  `el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop`.
+- **Local density** varies 1,033→1,221 px/row across regions (~18%).
+- **Newton-step trial:** from the bottom, one move computed from purely local geometry
+  (nearest mounted row's rect + local px/row) mounted row 0. Local measurement is a
+  sufficient positioning primitive; a global average is not.
+
+Context: Chromium, page realm. API-surface findings (attributes, focus behaviour) are
+engine-independent; re-verify only if Firefox behaves visibly differently.

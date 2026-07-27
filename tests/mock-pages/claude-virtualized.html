@@ -57,7 +57,11 @@
     <div id="mock-scroll-container"
          data-autoscroll-container="true"
          class="overflow-y-auto overflow-x-hidden mt-12 pt-2 flex-1"
-         style="overflow-y:auto;overflow-x:hidden;flex:1;position:relative;">
+         style="overflow-y:auto;overflow-x:hidden;flex:1;position:relative;overflow-anchor:none;">
+         <!-- overflow-anchor:none, as every real virtualizer sets: without it Chromium's
+              scroll anchoring re-pins scrollTop to the always-mounted TAIL row whenever
+              re-measuring grows content above the viewport, teleporting a requested
+              117,936px landing to 299,075px and defeating any positioning logic. -->
 
       <div class="relative w-full min-h-full flex flex-col">
         <div role="feed" id="mock-feed">
