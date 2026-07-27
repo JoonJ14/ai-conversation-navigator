@@ -6344,6 +6344,43 @@
     // walk below runs once per rebuild rather than once per mutation batch.
     var _bmMigratedGen = -1;
 
+    // Occurrence identity for a provisional bookmark: the 0-based ordinal of its message
+    // among HUMAN turns. _questions is exactly that list, in path order, with provisional
+    // entries appended — so the element's position in it is the ordinal.
+    function _bmHumanOrdinalOf(el) {
+        if (!el) return -1;
+        for (var i = 0; i < _questions.length; i++) {
+            if (_questions[i].element === el) return i;
+        }
+        return -1;
+    }
+
+    // Resolves a provisional record to a uuid.
+    //
+    // Text alone cannot do it for a REPEATED prompt: the text map deliberately poisons
+    // duplicate keys rather than first-wins guessing, so a second "continue" returns null
+    // on every generation, forever, and the record can never leave schema 1 (Codex).
+    // The occurrence ordinal disambiguates it — but position is only ever used when it
+    // CONFIRMS the stored text. A bare positional read is what the schema-2 migration
+    // exists to eliminate, and a wrong uuid here would be persisted.
+    function _bmUuidForProvisional(b) {
+        var want = _normalizeCompare(b.pendingText || '');
+        if (!want) return null;
+        if (typeof b.pendingOrdinal === 'number' && b.pendingOrdinal >= 0 && _ciFullPath) {
+            var seen = -1;
+            for (var i = 0; i < _ciFullPath.length; i++) {
+                if (_ciFullPath[i].sender !== 'human') continue;
+                seen++;
+                if (seen !== b.pendingOrdinal) continue;
+                if (_normalizeCompare(_ciFullPath[i].text || '') === want) {
+                    return _ciFullPath[i].uuid || null;
+                }
+                break;   // ordinal exists but its text moved — do not guess from position
+            }
+        }
+        return ciUuidForText(b.pendingText, null);
+    }
+
     // Binds provisional bookmarks to their message uuid as soon as a refreshed index
     // knows it.
     //
@@ -6364,12 +6401,13 @@
             // Null when the text is absent from the index or AMBIGUOUS (the text map
             // poisons duplicate keys rather than first-wins guessing). Leave the record
             // alone and retry on the next generation — a wrong uuid would be persisted.
-            var uuid = ciUuidForText(b.pendingText, null);
+            var uuid = _bmUuidForProvisional(b);
             if (!uuid) continue;
             b.schema      = 2;
             b.contentHash = uuid;
             b.msgUuid     = uuid;
-            b.pendingText = null;
+            b.pendingText    = null;
+            b.pendingOrdinal = -1;
             saveBookmark(b);
             changed = true;
         }
@@ -6425,7 +6463,10 @@
                 // it is truncated to 120 chars and the text map keys on FULL normalized
                 // text. Cleared on migration, and never stored off Claude, where there
                 // are no uuids to migrate to.
-                pendingText: (!isUuid && ciIsClaudeChat()) ? text : null
+                pendingText: (!isUuid && ciIsClaudeChat()) ? text : null,
+                // Occurrence identity, so a REPEATED prompt can still be bound later;
+                // text alone is ambiguous and stays ambiguous forever.
+                pendingOrdinal: (!isUuid && ciIsClaudeChat()) ? _bmHumanOrdinalOf(entityEl) : -1
             };
             saveBookmark(bm);
             if (icon) icon.classList.add('acn-bm-active');
@@ -6721,7 +6762,14 @@
 
         // Skip DOM teardown+rebuild if bookmarks unchanged — prevents hover flicker
         // caused by MutationObserver firing orbOnScanComplete every ~500ms
-        var bfp = bookmarks.map(function (b) { return b.id; }).join('|');
+        // ROUTING fields, not just id. A provisional bookmark's migration to schema 2
+        // changes msgUuid while KEEPING its id, so an id-only fingerprint made the
+        // post-migration refresh a no-op: the rendered card kept its pre-migration
+        // object and still could not use the uuid jump bridge once its row recycled
+        // away — the exact failure the migration exists to fix (Codex).
+        var bfp = bookmarks.map(function (b) {
+            return b.id + ':' + (b.msgUuid || '') + ':' + (b.contentHash || '');
+        }).join('|');
         if (bfp === _bmListFingerprint && panel.children.length > 1) return;
         _bmListFingerprint = bfp;
 
