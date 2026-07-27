@@ -1633,7 +1633,19 @@
     function ciTotalChars() {
         if (!ciIsReady() || !_ciFullPath) return 0;
         var n = 0;
-        for (var i = 0; i < _ciFullPath.length; i++) n += (_ciFullPath[i].text || '').length;
+        for (var i = 0; i < _ciFullPath.length; i++) {
+            var e = _ciFullPath[i];
+            n += (e.text || '').length;
+            // "summarize this" + an uploaded document consumes the document's context
+            // too. When the entry's text came from the message body, attachment
+            // bodies are ADDITIONAL content; when the text IS the attachment
+            // (textSource !== 'content'), it is already counted (Codex :1315).
+            if (e.textSource === 'content' && e.attachments) {
+                for (var a = 0; a < e.attachments.length; a++) {
+                    n += (e.attachments[a].extracted_content || '').length;
+                }
+            }
+        }
         return n;
     }
 
@@ -3205,6 +3217,24 @@
         // Both normalizers: the index holds RAW MARKDOWN, the DOM holds RENDERED
         // text, so _normalizeKey alone never matched a markdown-bearing question and
         // its element stayed null even while mounted.
+        // ROW IDENTITY FIRST (Codex :2489): with two mounted "continue" turns a text
+        // map overwrote the earlier node with the later one and bound BOTH indexed
+        // occurrences to it — clicking either Navigate entry confidently scrolled to
+        // the latest duplicate. A row's path position is exact regardless of text.
+        var byPath = {};
+        var rowsB = (typeof ciMountedRows === 'function' && ciIsClaudeChat()) ? ciMountedRows() : [];
+        for (var r = 0; r < rowsB.length; r++) {
+            if (!rowsB[r].isUser) continue;
+            var pth = ciResolvePathForRowStrict(rowsB[r].dataIndex);
+            if (pth === null) pth = ciMatchRowToPath(rowsB[r]);
+            if (pth === null && _ciRenderable && rowsB[r].dataIndex < _ciRenderable.length) {
+                pth = _ciRenderable[rowsB[r].dataIndex];
+            }
+            if (pth !== null) {
+                var node = rowsB[r].el.querySelector('[data-testid="user-message"]');
+                if (node) byPath[pth] = node;
+            }
+        }
         var byKey = {};
         for (var i = 0; i < mounted.length; i++) {
             var t = _readMessageText(mounted[i]);
@@ -3213,7 +3243,8 @@
             byKey[_normalizeCompare(t)] = mounted[i];
         }
         for (var j = 0; j < questions.length; j++) {
-            var el = byKey[_normalizeKey(questions[j].text)] ||
+            var el = byPath[questions[j].pathIndex] ||
+                     byKey[_normalizeKey(questions[j].text)] ||
                      byKey[_normalizeCompare(questions[j].text)];
             questions[j].element = el || null;
         }
@@ -4934,7 +4965,14 @@
             }
 
             // ── SSE: cumulative thinking tokens (invisible in DOM) ──────
-            var thinkingTokens = Math.round(_sseTokenData.cumulativeThinkingChars / 4);
+            // max() with the INDEXED total: SSE only accumulates thinking streamed in
+            // THIS session, so the first streamed answer used to replace the whole
+            // history's thinking with one turn's worth and the display dropped
+            // sharply (Codex :4855). The index carries history; SSE covers turns the
+            // index has not refetched yet; max() never double-counts.
+            var thinkChars = _sseTokenData.cumulativeThinkingChars || 0;
+            if (ciIsReady()) thinkChars = Math.max(thinkChars, ciTotalThinkingChars());
+            var thinkingTokens = Math.round(thinkChars / 4);
 
             // ── System overhead: system prompt + tool defs + memory/project instructions ─
             // Dynamic: 50K for Claude Projects (detected via URL), 30K for standard chat.
@@ -5932,11 +5970,28 @@
             createBookmarkIcon(el, type, id, idx, _bmLegacyIdSet(el, idx));
         }
 
+        // Ordinal from the PATH, not the mounted window: under virtualization idx
+        // is the position among the 3-5 mounted nodes, so a bookmark on question 100
+        // rendered as Q#2 in the panel even though its uuid jumped correctly
+        // (Codex :5868). Row identity resolves the true ordinal; mounted-window
+        // index remains the non-indexed fallback.
+        function pathOrdinal(el, sender, fallbackIdx) {
+            if (!ciIsClaudeChat() || !ciIsReady() || !_ciFullPath) return fallbackIdx;
+            var uuid = ciUuidForText(sender === 'human' ? _readMessageText(el) : _readAIText(el), el);
+            if (!uuid) return fallbackIdx;
+            var ord = 0;
+            for (var i = 0; i < _ciFullPath.length; i++) {
+                if (_ciFullPath[i].sender !== sender) continue;
+                if (_ciFullPath[i].uuid === uuid) return ord;
+                ord++;
+            }
+            return fallbackIdx;
+        }
         Array.from(getUserMessages()).forEach(function (el, idx) {
-            inject(el, idx, 'user-msg', _readMessageText(el));
+            inject(el, pathOrdinal(el, 'human', idx), 'user-msg', _readMessageText(el));
         });
         Array.from(getAIMessages()).forEach(function (el, idx) {
-            inject(el, idx, 'ai-msg', _readAIText(el));
+            inject(el, pathOrdinal(el, 'assistant', idx), 'ai-msg', _readAIText(el));
         });
     }
 
@@ -6850,9 +6905,23 @@
     }
 
     function generateFullSummary() {
-        var aiMsgs = Array.from(getAIMessages()).map(function (el) {
-            return { element: el, text: _readAIText(el), type: 'ai' };
-        });
+        // Index-backed when available: only the timeline used the index, so topics,
+        // key points, stats and inventory ran on the 3-5 MOUNTED assistant responses
+        // while the map covered all 147 — internally inconsistent and truncated
+        // (Codex :6474, P1). element stays null for unmounted entries; the hover
+        // highlight degrades gracefully.
+        var aiMsgs;
+        if (ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
+            aiMsgs = [];
+            for (var fp = 0; fp < _ciFullPath.length; fp++) {
+                if (_ciFullPath[fp].sender !== 'assistant') continue;
+                aiMsgs.push({ element: null, text: _ciFullPath[fp].text || '', type: 'ai' });
+            }
+        } else {
+            aiMsgs = Array.from(getAIMessages()).map(function (el) {
+                return { element: el, text: _readAIText(el), type: 'ai' };
+            });
+        }
 
         return {
             map:       _sumBuildConversationMap(_questions, aiMsgs),
