@@ -3201,6 +3201,16 @@
     // keeps only the first uuid, so twin messages got one identity and a bookmark on
     // the second twin jumped to the first (Codex round-1 P2). A mounted element's ROW
     // resolves to its exact path entry regardless of what the text says.
+    // True when the DOM holds turns the current index does not — i.e. a prompt was sent
+    // after the last fetch and the resync has not landed. _ciMergeLiveMessages marks
+    // exactly those entries provisional, so this is the same signal the resync uses.
+    function _ciIndexBehindDom() {
+        for (var i = 0; i < _questions.length; i++) {
+            if (_questions[i].provisional) return true;
+        }
+        return false;
+    }
+
     function ciUuidForText(text, el) {
         if (!ciIsReady() || !_ciFullPath) return null;
         if (el && el.closest) {
@@ -3217,6 +3227,16 @@
                     if (p !== null && _ciFullPath[p]) return _ciFullPath[p].uuid;
                 }
             }
+            // Row present but unresolved, AND the index is known to lag the DOM: this is
+            // a turn beyond the snapshot. The text map must not answer here. A just-sent
+            // prompt repeating an older one is absent from the snapshot, so the map sees
+            // the single OLD occurrence and hands back ITS uuid — persisting a schema-2
+            // bookmark aimed at the wrong message, which provisional migration then skips
+            // because it looks already bound (Codex). Staying unresolved keeps the record
+            // provisional, and pendingRow/pendingOrdinal bind the right occurrence after
+            // the refetch. Gated on the lag so ordinary conversations keep text
+            // resolution, which icon identity depends on.
+            if (_ciIndexBehindDom()) return null;
         }
         if (!_ciTextToUuid) {
             _ciTextToUuid = {};
