@@ -3414,10 +3414,29 @@
                 if (ut && t !== ut) sig += 'e' + rows[i].dataIndex + ':' + t.length + ';';
                 continue;
             }
-            if (t.length < 60) continue;
-            if (ciMatchRowToPath(rows[i]) === null) {
-                sig += rows[i].dataIndex + ':' + t.length + ';';
+            // Long responses: global unique text match. SHORT responses cannot match
+            // globally (the 60-char floor exists to avoid collisions), which used to
+            // mean a regenerated short answer never reached this signal at all
+            // (Codex R7 :3417) — compare those against the entry their ROW resolves
+            // to, the same identity path the user-row edit check uses.
+            if (t.length >= 60) {
+                if (ciMatchRowToPath(rows[i]) === null) {
+                    sig += rows[i].dataIndex + ':' + t.length + ';';
+                }
+                continue;
             }
+            if (!t) continue;
+            var ap = ciResolvePathForRowStrict(rows[i].dataIndex);
+            if (ap === null && _ciRenderable &&
+                rows[i].dataIndex < _ciRenderable.length) {
+                ap = _ciRenderable[rows[i].dataIndex];
+            }
+            if (ap === null || !_ciFullPath[ap]) continue;
+            var ae = _ciFullPath[ap];
+            if (ae.sender !== 'assistant') continue;
+            if (ae.textSource && ae.textSource !== 'content') continue;
+            var at2 = _normalizeCompare(ae.text || '');
+            if (at2 && t !== at2) sig += 's' + rows[i].dataIndex + ':' + t.length + ';';
         }
         if (!sig) { _ciLastAsstMismatch = ''; return false; }
         if (sig === _ciLastAsstMismatch) return true;
@@ -4946,8 +4965,12 @@
         // by MutationObserver firing on SPA animations and rebuilding the list mid-hover
         // (index status is part of the fingerprint so the banner appears without a
         //  content change having to trigger the rebuild)
+        // _ciIndexGen for the same reason the Search fingerprint carries it: an
+        // edited prompt that keeps its first 100 chars survives a ready-to-ready
+        // refetch with an identical fingerprint, and the open panel kept click
+        // handlers closed over the PREVIOUS branch's q objects (Codex R7 :4950).
         var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|') +
-                 '||' + _ciStatus;
+                 '||' + _ciStatus + '|g' + _ciIndexGen;
         if (fp === _navListFingerprint && list.firstChild) return;
         _navListFingerprint = fp;
 
