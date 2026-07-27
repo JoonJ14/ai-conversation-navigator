@@ -84,7 +84,23 @@ inventory items were inert; a `pathIdx` distinct from the assistant-only `msgInd
 threaded through (passing `msgIndex` would have jumped to an unrelated message). (c)
 Index-backed exports dropped provisional turns while headed "complete conversation history
 (API)"; they are now emitted, counted and labelled.
-Final state: 374/374 both engines. Branch ready for owner merge — no known open items.
+**Pre-merge local Tier 3 review (2026-07-27, owner-directed, opus backend, 5 lenses):**
+found TWO pre-existing v12.0 CRITICALs on the ordinary load path that the 23-round GitHub
+cycle missed — (a) unbounded synchronous recursion `scanConversation ↔ ciLoadIndex` on
+every index load (RangeError storm; `done` fires synchronously on the in-flight branch
+while `_ciConversationId` is still null), and (b) a success-driven refetch loop
+re-downloading the full payload every ~15.5s forever on an idle page (a tool/artifact
+answer mismatches by construction; the backoff classifies failures only, so it never
+engages). Both fixed, both reproduced first per DEC-027.
+
+**Both were invisible to CI because of one fixture default each** — a 5ms API latency
+against a ~2.1s live payload, and fixture API text that always equals the DOM. Recorded as
+**DEC-028: a fixture's defaults are part of the finding.** Both reproductions are now
+permanent suite entries. The review also caught that the batch above had opened a new
+wrong-jump (a stale index driving a real jump after a conversation switch), closed with
+`ciIndexStamp()`.
+Final state: **427/427 across 22 platform entries**, both engines. Branch ready for owner
+merge pending the GitHub Codex cycle.
 
 ## G. What comes next — v12.1 plan (owner-agreed priority order, 2026-07-27)
 1. **Fixture batch (test debt — protects the 23-round review investment).** Rounds 14-23
@@ -137,6 +153,17 @@ gallery limitation (pre-existing, README).
   two post-closure batches are in this same category** — including the summary-click
   re-resolution fix, which needs a fixture that generates a summary, recycles the rows,
   then clicks (add to the §G item-1 batch).
+- **The summary, tools and export surfaces have ZERO test execution.** Mutation-verified
+  2026-07-27: replacing the bodies of `_sumBuildTimeline`, `_sumScrollToElement`,
+  `_exportFromIndex` and `ciIndexStamp` with unconditional `throw` still passes the whole
+  suite, because no test ever opens the Summary or Tools panel — every `click()` in the
+  harness targets `nav-trigger` or `nav-item`. Any "374/374" or "427/427" claim about code
+  in those surfaces is unearned. This is v12.1 item 1's first target.
+- **No test asserts that a jump to an already-mounted target moves the viewport.**
+  Deleting the scroll-and-flash block from `orbScrollToQuestion` leaves every platform
+  green: the static platforms only assert `.click()` returned (it always does) and that
+  nothing happens, and the virtualized sweeps place every target outside the mount window
+  so the fast path is never reached.
 - **The jump fast path is not fixturable by the acceptance sweep.** Mutation-verified
   2026-07-27: forcing `ciResolveMountedByPathIndex()` to return `null` always still passes
   222/222 acceptance jumps, because resolve-on-arrival absorbs the miss. Green acceptance

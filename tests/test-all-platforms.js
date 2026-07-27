@@ -221,6 +221,56 @@ const PLATFORMS = [
             markdownText: true,
         },
     },
+    // ── LOAD-PATH REGRESSION GUARDS (Tier 3 review, 2026-07-27) ─────────────
+    // Two CRITICALs shipped in v12.0 and survived a 23-round review because the
+    // fixture's own defaults made them unreachable. Both are reproductions first:
+    // each FAILS on 6bc7ed2 and passes on the fix (DEC-027 discipline).
+    {
+        // Recursion guard. The only change from a normal indexed entry is that the API
+        // answers slowly, like the real one does. On 6bc7ed2 this produces a storm of
+        // "RangeError: Maximum call stack size exceeded" from
+        // scanConversation -> ciLoadIndex -> done(false) -> scanConversation, caught by
+        // the existing "No uncaught page errors" assertion.
+        name: 'Claude (slow API — load recursion guard)',
+        mockFile: 'claude-virtualized.html',
+        hostname: 'claude.ai',
+        pathname: '/chat/aa000000-0000-4000-8000-00000000aaaa',
+        expectedMessages: 40,
+        expectedAccent: '#d97706',
+        expectedMode: 'orbital',
+        virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
+        indexBacked: true,
+        offsetUnderivable: true,
+        gmFixture: {
+            totalMessages: 80,
+            conversationUuid: 'aa000000-0000-4000-8000-00000000aaaa',
+            // The repo's own live measurement is ~2.1s; 1200ms reproduces the recursion
+            // just as reliably and keeps the suite quick.
+            apiLatencyMs: 1200,
+        },
+    },
+    {
+        // Refetch-loop guard. One assistant answer is given tool/artifact shape — the
+        // client renders more than the API's text blocks carry — which mismatches
+        // permanently. On 6bc7ed2 the idle page re-downloads the whole payload every
+        // ~15.5s forever; the fix resyncs once per distinct signature.
+        name: 'Claude (tool-shaped row — refetch loop guard)',
+        mockFile: 'claude-virtualized.html',
+        hostname: 'claude.ai',
+        pathname: '/chat/bb000000-0000-4000-8000-00000000bbbb',
+        expectedMessages: 40,
+        expectedAccent: '#d97706',
+        expectedMode: 'orbital',
+        virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
+        indexBacked: true,
+        offsetUnderivable: true,
+        refetchProbeMs: 36000,   // spans two full cooldown cycles (~15.5s each)
+        gmFixture: {
+            totalMessages: 80,
+            conversationUuid: 'bb000000-0000-4000-8000-00000000bbbb',
+            toolShapedRow: 3,
+        },
+    },
     // ── RESOLVE-ON-ARRIVAL FIXTURE MATRIX (spec §5 — the mock-first gate) ────
     // Proof pair required by the spec: the OLD build (0a30d3b, tonight's traces) must
     // FAIL these; the resolve-on-arrival build must pass them. jumpEveryQuestion runs
@@ -481,8 +531,16 @@ function buildGmFixtureShim(cfg) {
         const turn = Math.floor(row / 2) + 1;
         const isUser = row % 2 === 0;
         if (!isUser) {
+            // toolShapedRow models an artifact / tool_use / code-execution answer: the
+            // client RENDERS more than the API's text blocks carry, because tool output
+            // is deliberately not merged into entry text. That mismatch is permanent, so
+            // it is the shape that drove the endless success-refetch loop. Without this
+            // the fixture's API text always equals the DOM and the loop is unreachable.
+            const apiText = (cfg.toolShapedRow === row)
+                ? `Answer number ${turn}:`
+                : `Answer number ${turn}: validate the input first, then branch on the result.`;
             push({ sender: 'assistant', text: '', stop_reason: 'end_turn',
-                   content: [{ type: 'text', text: `Answer number ${turn}: validate the input first, then branch on the result.` }] });
+                   content: [{ type: 'text', text: apiText }] });
             continue;
         }
         if (attRows.indexOf(row) !== -1) {
@@ -542,13 +600,18 @@ function buildGmFixtureShim(cfg) {
     var ORG = ${JSON.stringify(ORG)};
     var PAYLOAD = ${JSON.stringify(payload)};
     // Minimal GM_* surface. Only what the userscript actually calls.
+    // Fixture latency. The default 5ms is NOT representative — the real payload is
+    // ~2.1s — and that gap hid an unbounded scanConversation/ciLoadIndex recursion for
+    // an entire release: the bug needs a second scan to land inside the fetch window,
+    // and at 5ms one never does. Any platform entry may raise it via apiLatencyMs.
+    var API_LATENCY_MS = ${JSON.stringify(cfg.apiLatencyMs || 5)};
     window.GM_xmlhttpRequest = function (opts) {
         var url = opts.url || '';
         function respond(status, body) {
             setTimeout(function () {
                 if (status === 200 && opts.onload) opts.onload({ status: 200, responseText: body });
                 else if (opts.onerror) opts.onerror({ status: status });
-            }, 5);
+            }, API_LATENCY_MS);
         }
         if (/\\/api\\/organizations$/.test(url)) {
             respond(200, JSON.stringify([{ uuid: ORG, name: 'Fixture Org', capabilities: ['chat'] }]));
@@ -556,6 +619,10 @@ function buildGmFixtureShim(cfg) {
         }
         if (url.indexOf('/chat_conversations/') !== -1) {
             if (url.indexOf(ORG) === -1) { respond(404, ''); return; }
+            // Counted so a test can assert the payload is not re-downloaded on a loop.
+            window.__convFetches = (window.__convFetches || 0) + 1;
+            window.__convFetchAt = (window.__convFetchAt || []);
+            window.__convFetchAt.push(Math.round(performance.now()));
             respond(200, JSON.stringify(PAYLOAD));
             return;
         }
@@ -1053,6 +1120,23 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                 jump.ok && !jump.stillBusy && (!platform.indexBacked || jump.busySeen),
                 jump.ok ? `~${jump.elapsedMs}ms, busy observed=${jump.busySeen}, stuck=${jump.stillBusy}`
                         : jump.reason);
+
+            // ── Idle refetch probe: the payload must not be re-downloaded on a loop ──
+            // Sits here so the page is genuinely idle — no clicks, no scrolling. Two
+            // fetches are expected and correct: the initial load, plus at most one
+            // resync attempt on the mismatch. A THIRD means the resync fired, succeeded,
+            // saw the same evidence and fired again, which repeats forever.
+            if (platform.refetchProbeMs) {
+                await page.waitForTimeout(platform.refetchProbeMs);
+                const probe = await page.evaluate(() => ({
+                    n: window.__convFetches || 0,
+                    at: window.__convFetchAt || [],
+                }));
+                const secs = Math.round(platform.refetchProbeMs / 1000);
+                assert('Idle page does not refetch the payload in a loop', probe.n <= 2,
+                    `${probe.n} conversation fetch(es) in ${secs}s idle` +
+                    (probe.at.length ? ` at ms ${probe.at.join(', ')}` : ''));
+            }
 
             // ── TESTS 22-25: index-backed jump (the primary v12.0 path) ────
             if (platform.indexBacked) {

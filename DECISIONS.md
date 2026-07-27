@@ -1060,3 +1060,42 @@ scanning and mutating the DOM mid-measurement is a confound the numbers cannot r
 The `overflow-anchor` caveat resolved empirically: no teleporting observed live.
 Methodology worth keeping: **an old build must FAIL a new fixture before the fixture
 counts as a reproduction** — a fixture the old code passes is not reproducing the bug.
+
+---
+
+## DEC-028: A Fixture's Defaults Are Part of the Finding (v12.0 close-out)
+**Date:** 2026-07-27 | **Stage:** v12.0 Tier 3 review, post-freeze
+
+### Decision
+A test fixture's incidental constants — latency, payload shape, timing — are **claims
+about the environment**, and a green suite is only evidence for the environment the
+fixture actually models. Where a constant is knowably unrepresentative, either set it to
+the measured value or add a second entry that does, and say which.
+
+### What forced it
+Two CRITICALs shipped in v12.0 and survived a 23-round independent review. Neither was
+subtle in the code; both were unreachable in CI because of one fixture default each.
+
+| Defect | Fixture default that hid it | Live value |
+|---|---|---|
+| Unbounded `scanConversation` ↔ `ciLoadIndex` recursion (RangeError storm on every load) | GM fixture answers in **5ms** | ~2.1s payload |
+| Success-driven refetch loop, full payload every ~15.5s forever on an idle page | fixture API text **always equals** the DOM | tool/artifact answers render more than their text blocks carry, permanently |
+
+The recursion needs a second scan to land inside the fetch window. At 5ms none ever
+does; at 1200ms it happens on essentially every load. Nothing about the userscript
+changed between those two runs — only a number in the harness.
+
+This is the measurement-context rule (CLAUDE.md) applied one level out. The existing rule
+governs where a *measurement* was taken. This governs where a *test* was taken: the suite
+is a measurement instrument, and its constants scope every result it produces.
+
+### Consequences
+- `apiLatencyMs`, `toolShapedRow` and `refetchProbeMs` are now per-entry fixture knobs,
+  with two dedicated guard entries: *Claude (slow API — load recursion guard)* and
+  *Claude (tool-shaped row — refetch loop guard)*. Both are **ancestor-gated** — they fail
+  on `6bc7ed2` and pass on the fix, per DEC-027.
+- The 5ms default remains for the other entries, deliberately: fast where latency is not
+  what is under test, realistic where it is.
+- **Corollary for reviewers:** when a bug is "impossible per CI", suspect the fixture
+  before the reasoning. Ask which constant makes the bug unreachable, then change that one
+  constant and re-run.

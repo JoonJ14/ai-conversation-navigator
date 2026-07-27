@@ -218,6 +218,68 @@ correctness dependency — defence in depth working as designed, and also the re
 cannot fixture it. These three fixes are suite-green and logic-verified but **unfixtured**,
 the same category as rounds 14–23 (see HANDOFF §J).
 
+### Local Tier 3 review before merge — two CRITICALs that a 23-round review missed
+
+Run at the owner's direction before merging. Five independent lenses, opus backend, scope
+preamble enforced; every finding re-verified against source before any fix. It found more
+than the batch above, and the two most serious findings were **pre-existing v12.0 bugs on
+the ordinary load path**, not regressions from the batch.
+
+**1. Unbounded synchronous recursion on every index load.** `ciLoadIndex` invokes its
+callback *synchronously* on the in-flight early return, and `_ciConversationId` is assigned
+only on success or degrade — so it stays null for the whole fetch window and
+`scanConversation`'s not-ready guard stays true. A second scan landing in that window
+recurses: `scanConversation → ciLoadIndex → done(false) → scanConversation → …` until
+`RangeError: Maximum call stack size exceeded`, which escapes `scanConversation` so not
+even the DOM fallback runs. The fetch is ~2.1s against a 500ms mutation debounce, so this
+fired on essentially every page load and every conversation switch.
+
+**2. Success-driven refetch loop.** `_ciAssistantStale()` returns true once a signature
+repeats and never clears it, so the resync fires, succeeds, observes the same mismatch, and
+fires again — the full payload re-downloaded every ~15.5s, indefinitely, on a completely
+idle page. Rendered tool output appears in DOM text but deliberately not in the API's text
+blocks, so any artifact/tool-bearing answer mismatches *by construction*; the growth
+disjunct had no `toolChars` guard, unlike the suffix one. The exponential backoff could
+never engage: it classifies *failures*, and this loop is driven entirely by successes. The
+comment at its own declaration describes this exact cost ("hundreds of MB per hour on an
+open tab") as the thing backoff was added to prevent.
+
+Both are fixed, and both were **reproduced before being fixed** (DEC-027): the recursion by
+raising the fixture's API latency from 5ms to the measured ~2.1s, the loop by giving one
+assistant answer tool shape. Old build → RangeError storm and 5 fetches in 50s idle at a
+steady 15.5s cadence. Fixed build → clean, and 2 fetches then silence.
+
+**Why a 23-round review missed both: the fixture's own defaults made them unreachable.**
+Nothing about the userscript changed between the failing and passing runs above — only a
+constant in the harness. That is recorded as **DEC-028: a fixture's defaults are part of
+the finding**, the measurement-context rule applied to the test suite itself. Both
+reproductions are now permanent entries (*slow API — load recursion guard*, *tool-shaped
+row — refetch loop guard*), taking the suite to **427 tests across 22 platform entries**.
+
+The review also found that the batch above had, in closing one wrong-jump, opened another:
+discarding the cached element meant a *stale index* drove a real jump, so after a
+conversation switch — which on Claude tears nothing down (`spa: false`) — every summary item
+became a confident jump into the new conversation at the old one's ordinal. Fixed with
+`ciIndexStamp()` (conversation uuid + `_ciIndexGen`, the pair Navigate and Search already
+fingerprint on), captured at generation and compared on every click. A follow-on hole found
+during the contract sweep: `getSummaryForExport()` also calls `generateFullSummary()`, so
+stamping inside the generator let an *export* re-validate a stale panel — the stamp now
+travels on the returned data and is committed only by the render.
+
+Smaller findings fixed in the same pass: non-rendering entries (interrupted generations,
+no `stop_reason`) could be jump targets even though they have no virtualizer row, so
+resolution landed on a neighbour and reported success — Search already excluded them for
+exactly this reason; the hand-rolled outline had no re-entrancy guard and could latch
+permanently onto a recycled row (now `orbFlashElement`); the Summary panel was a jump
+initiator outside `orbSetJumpBusy`; and `_ciLastRefetchAt`/`_ciRetryDelayMs` survived
+`ciInvalidate`, letting one conversation inherit another's cooldown and backoff.
+
+**Honest limit on all of it:** the test-integrity lens proved by mutation that replacing
+`_sumBuildTimeline`, `_sumScrollToElement`, `_exportFromIndex` and `ciIndexStamp` with
+unconditional `throw` still passes 374/374 — no test opens the summary or tools panel at
+all. The two new guard entries cover the load path; the summary/export surface remains
+unfixtured and is v12.1's first task.
+
 ### Resolve-on-arrival (the final jump design)
 
 **Problem.** Second live test: jumps failed on targets whose neighbourhoods don't

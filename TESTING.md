@@ -394,6 +394,36 @@ behaviour deliberately; when text matching is fixed those numbers must return to
 the `KNOWN DEFECT` assertion will fail loudly. That is the point of a characterisation
 test.
 
+### The load-path guard entries — a fixture default hid two CRITICALs for a release
+
+Two entries exist because the GM fixture's *incidental constants* made real bugs
+unreachable. Neither bug was subtle in the code; both were invisible in CI, and both
+survived a 23-round independent review (DEC-028).
+
+| Entry | Knob | Models | Old build (`6bc7ed2`) |
+|---|---|---|---|
+| `Claude (slow API — load recursion guard)` | `gmFixture.apiLatencyMs: 1200` | the real ~2.1s payload instead of the 5ms default | `RangeError: Maximum call stack size exceeded`, storm |
+| `Claude (tool-shaped row — refetch loop guard)` | `gmFixture.toolShapedRow: 3` + `refetchProbeMs` | an artifact/tool answer, where the client renders more than the API's text blocks carry | 4 fetches in 36s idle at a 15.5s cadence, forever |
+
+**The recursion entry changes nothing but a number.** `scanConversation → ciLoadIndex →
+done(false) → scanConversation` recurses only when a second scan lands inside the fetch
+window. At 5ms none ever does; at 1200ms it happens on essentially every load. The
+assertion that catches it is the pre-existing `No uncaught page errors` — no new assertion
+was needed, only a representative constant.
+
+**The refetch entry asserts a ceiling, not an exact count.** Two fetches are correct: the
+initial load plus at most one resync attempt. A third means the resync fired, succeeded,
+observed the same evidence and fired again — which then repeats indefinitely. It probes
+while the page is genuinely idle (no clicks, no scrolling), so anything it sees is
+self-inflicted.
+
+Both are **ancestor-gated**: they fail on a real commit (`6bc7ed2`) and pass on the fix, the
+strongest form of the DEC-027 gate. When adding fixtures, record which are ancestor-gated
+and which are only mutant-gated — they are not equally strong evidence.
+
+Fixture knobs available per entry: `apiLatencyMs` (default 5), `toolShapedRow`,
+`refetchProbeMs`, `markdownText`, `conversationUuid`, `totalMessages`.
+
 ### A green "question #1" result does NOT mean the settle loop works
 
 Question #1 and the last question are now resolved by `ciTryExtreme()` — first renderable
