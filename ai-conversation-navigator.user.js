@@ -1588,6 +1588,20 @@
         });
     }
 
+    // The scan pipeline is MUTATION-DRIVEN, which leaves two idle-page holes
+    // (Codex R20): staleness detected during the cooldown was skipped without
+    // scheduling anything, and a failed load's timed retry was only ever evaluated
+    // when the host page happened to mutate. One pending timer covers both — it
+    // re-runs the full scan, which re-evaluates banners, retries and staleness.
+    var _ciRescanTimer = null;
+    function _ciScheduleRescan(delayMs) {
+        if (_ciRescanTimer !== null) return;   // one pending rescan is enough
+        _ciRescanTimer = setTimeout(function () {
+            _ciRescanTimer = null;
+            try { scanConversation(true); } catch (e) {}
+        }, Math.max(1000, delayMs || 0));
+    }
+
     var _ciRetryDelayMs = 0;   // 0 = plain cooldown. Permanent failure classes back
                                // off exponentially: an API/schema change used to
                                // re-download and re-parse the 3.3MB payload every 15s
@@ -3177,6 +3191,7 @@
         _ciFullPath       = null;
         _ciTextToUuid     = null;
         _ciInFlightCid    = null;   // never let an old conversation's request block the new one
+        if (_ciRescanTimer !== null) { clearTimeout(_ciRescanTimer); _ciRescanTimer = null; }
         // Usage quota is org-scoped; a conversation switch can land in a different
         // org, and a warm cooldown would show org A's quota for org B for up to five
         // minutes (Codex :3943).
@@ -3642,12 +3657,23 @@
                 if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
                 if (typeof orbOnScanComplete === 'function') orbOnScanComplete();
 
-                if ((_ciNeedsResync(_questions) || _ciAssistantStale()) &&
-                    (Date.now() - _ciLastRefetchAt) > CI_REFETCH_COOLDOWN_MS) {
-                    _ciLastRefetchAt = Date.now();
-                    console.log('[ACN] index out of sync with DOM (new message, edit, or ' +
-                                'regenerate) — refetching');
-                    ciLoadIndex(true, function () { scanConversation(true); });
+                if (_ciNeedsResync(_questions) || _ciAssistantStale()) {
+                    var sinceRefetch = Date.now() - _ciLastRefetchAt;
+                    if (sinceRefetch > CI_REFETCH_COOLDOWN_MS) {
+                        _ciLastRefetchAt = Date.now();
+                        console.log('[ACN] index out of sync with DOM (new message, edit, ' +
+                                    'or regenerate) — refetching');
+                        ciLoadIndex(true, function (ok) {
+                            scanConversation(true);
+                            if (!ok) _ciScheduleRescan(
+                                Math.max(CI_REFETCH_COOLDOWN_MS, _ciRetryDelayMs) + 1000);
+                        });
+                    } else {
+                        // Cooldown blocks the refetch NOW — but a mutation may never
+                        // come again (streaming just ended on an idle chat), so the
+                        // remaining cooldown gets a timer instead of a shrug.
+                        _ciScheduleRescan(CI_REFETCH_COOLDOWN_MS - sinceRefetch + 500);
+                    }
                 }
                 return;
             }
@@ -3661,7 +3687,12 @@
                 degradedRetryDue) {
                 if (degradedRetryDue) _ciLastRefetchAt = Date.now();
                 ciLoadIndex(false, function (ok) {
-                    if (ok) scanConversation(true);
+                    // Rescan on failure too: the degraded banner otherwise stayed on
+                    // "Loading full conversation history" until an unrelated mutation,
+                    // and the timed retry was never evaluated on an idle page.
+                    scanConversation(true);
+                    if (!ok) _ciScheduleRescan(
+                        Math.max(CI_REFETCH_COOLDOWN_MS, _ciRetryDelayMs) + 1000);
                 });
             }
         }
