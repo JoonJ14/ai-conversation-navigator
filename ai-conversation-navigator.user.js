@@ -3551,8 +3551,19 @@
                 var mp = ciMatchRowToPath(rows[i]);
                 if (mp === null) {
                     sig += rows[i].dataIndex + ':' + rawLen + ';';
-                } else if (_ciFullPath[mp] &&
-                           rawLen > ((_ciFullPath[mp].text || '').length * 1.3 + 200)) {
+                } else if (_ciFullPath[mp] && (
+                           rawLen > ((_ciFullPath[mp].text || '').length * 1.3 + 200) ||
+                           // SAME-SIZED regeneration sharing the 120-char prefix
+                           // (Codex R17 :3555): growth alone cannot see it. A SUFFIX
+                           // probe can — but only for entries WITHOUT tool blocks:
+                           // rendered tool output appears in DOM text and not in the
+                           // API's text blocks, so a full or suffix compare on
+                           // tool-bearing answers would mismatch permanently and loop
+                           // the resync. toolChars (R16) marks exactly those entries.
+                           (!_ciFullPath[mp].toolChars && t.length >= 150 &&
+                            _normalizeCompare(_ciFullPath[mp].text || '').length >= 150 &&
+                            t.slice(-80) !==
+                            _normalizeCompare(_ciFullPath[mp].text || '').slice(-80)))) {
                     // PREFIX MATCH IS NOT ENOUGH: a refetch that captured a partial
                     // response (>=120 normalized chars) keeps prefix-matching the
                     // still-growing live one, so nothing ever signalled and the index
