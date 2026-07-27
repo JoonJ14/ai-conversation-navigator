@@ -57,6 +57,12 @@ version bump to v12.0 goes in the merge commit (already `@version 12.0` in-file)
 `TESTING.md` (fixture matrix, ACN_JUMP_TRACE, acceptance sweep), PR #58 closing comment
 (Codex ledger + v12.1 residuals), `reviews/review-2026-07-27-17bda2d.md`.
 
+**Post-freeze addendum (2026-07-27, owner-requested):** the live test found ONE failure —
+Q#1 (the chip target) arrived but failed to resolve at the path head (no comparable text,
+no pairs below to bracket). Fixed by by-construction extreme resolution for HUMAN targets
+(first renderable human = row 0, last = final row), proven under a no-pairs mutant.
+Branch re-frozen; Q#1 retest pending.
+
 ## G. What comes next (in order)
 1. **Owner live test** on the frozen branch (reinstall from raw URL, tip commit):
    Q#1 (chip), Q#75, one target in 205–228, Q#140, Q#147, one short-duplicate.
