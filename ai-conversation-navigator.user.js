@@ -1395,7 +1395,11 @@
             guard++;
             path.push(cur);
             var pid = cur.parent_message_uuid;
-            if (!pid || pid === CI_ROOT_PARENT_UUID) { reachedRoot = true; break; }
+            // ONLY the sentinel proves the root was reached. A missing/null parent on
+            // a malformed or truncated record used to count as "complete", so Export
+            // labelled a partial path as complete conversation history (Codex R4).
+            if (pid === CI_ROOT_PARENT_UUID) { reachedRoot = true; break; }
+            if (!pid) break;
             cur = byId[pid];
         }
         path.reverse();
@@ -1583,13 +1587,21 @@
 
         ciResolveOrgCandidates(function (candidates) {
             if (!candidates.length) {
-                _ciInFlightCid = null;
+                if (ciGetConversationUuid() !== cid) { if (done) done(false); return; }
+                if (_ciInFlightCid === cid) _ciInFlightCid = null;
                 ciSetDegraded(cid, 'could not resolve organization UUID');
                 if (done) done(false);
                 return;
             }
             function finish(err, data) {
-                _ciInFlightCid = null;
+                // SUPERSESSION GUARD (Codex R4): conversation scoping lets a NEW load
+                // start while the OLD request is still pending — but the old callback
+                // still fires. Without this check, an old request failing AFTER the
+                // new one succeeded called ciSetDegraded() over the fresh ready index,
+                // and clearing the in-flight marker unconditionally could clobber the
+                // NEW load's marker. A stale callback must touch nothing.
+                if (ciGetConversationUuid() !== cid) return;
+                if (_ciInFlightCid === cid) _ciInFlightCid = null;
                 if (err) {
                     ciSetDegraded(cid, err.message);
                     if (done) done(false);
@@ -5609,14 +5621,32 @@
                     // be mounted. Try to locate it among what IS mounted, and fail
                     // visibly rather than silently doing nothing.
                     var target = m.element;
-                    if (!target || !target.isConnected) {
+                    if ((!target || !target.isConnected) && typeof m.pathIndex === 'number' &&
+                        ciIsClaudeChat() && ciIsReady()) {
+                        // INDEXED match: resolve by ROW IDENTITY only. The old
+                        // text-prefix scan accepted the first mounted response sharing
+                        // the same 200-char normalized prefix, so boilerplate-prefixed
+                        // answers scrolled to the wrong message (Codex R4). A mounted
+                        // row that RESOLVES to this match's path entry is the target;
+                        // anything else falls through to the uuid jump bridge below.
+                        var mrows = ciMountedRows();
+                        for (var ri = 0; ri < mrows.length; ri++) {
+                            if (mrows[ri].isUser) continue;
+                            var rp = ciResolvePathForRowStrict(mrows[ri].dataIndex);
+                            if (rp === null) rp = ciMatchRowToPath(mrows[ri]);
+                            if (rp === m.pathIndex) {
+                                target = ciMessageNodeWithin(mrows[ri].el);
+                                break;
+                            }
+                        }
+                    } else if (!target || !target.isConnected) {
+                        // Non-indexed platforms: text matching is all there is.
                         var wanted = _normalizeKey(m.text);
                         var live   = Array.from(getAIMessages());
                         for (var i = 0; i < live.length; i++) {
                             // MUST use the same extractor the stored text came from
-                            // (_readAIText). Raw textContent includes our injected
-                            // bookmark glyph, so for any AI response under ~200 chars the
-                            // normalized keys never match and the result is unreachable.
+                            // (_readAIText) — raw textContent includes our injected
+                            // bookmark glyph.
                             if (_normalizeKey(_readAIText(live[i])) === wanted) {
                                 target = live[i];
                                 break;
