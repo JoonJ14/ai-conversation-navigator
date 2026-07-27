@@ -160,6 +160,21 @@ Investigated and rejected: an imperative `scrollToIndex`. The container's React 
 
 Bookmarks now route through the same path, resolving by message uuid. The positional `els[bookmark.msgIndex]` fallback is **deleted**.
 
+### Post-freeze live-test fixes (2026-07-27)
+
+The owner's six-target live confirmation passed except Q#1 — the attachment-chip message
+at the path head, where its own text is API-only and no lower neighbours exist to bracket
+with. Fixed by **by-construction extreme resolution**: the first renderable human entry IS
+row 0 and the last IS the final row, no text or pairs required (the gate is the target's
+sender, not the global predicate-warned flag — a mid-conversation anomaly must not disable
+head resolution; caught by a pair-free mutant). **Q#1 re-tested live: PASSED.**
+
+Proactively hardened the symmetric risk (mid-conversation chip flanked by unmatchable
+rows): the session anchor store now participates in arrival resolution, exactness-gated on
+the strict anchors-only inverse. Post-closure Codex comments addressed without re-opening
+the review loop: conversation-map segment clicks (element binding + jump bridge) and
+cross-conversation leaks of SSE thinking totals and the staleness signature.
+
 ### Resolve-on-arrival (the final jump design)
 
 **Problem.** Second live test: jumps failed on targets whose neighbourhoods don't

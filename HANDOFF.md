@@ -3,8 +3,8 @@
 **Scope:** v12.0 jump-to-message completion (resolve-on-arrival), Windows CI repair, live
 confirmation, and a 23-round GitHub Codex review cycle. **Prior handoff:** none (first).
 **Branch:** `feat/v12.0-conversation-index`, PR #58, ~30 commits ahead of main, pushed.
-**Next-session priority: NOTHING except the owner's final live test → merge.** The branch
-is FROZEN by owner decision.
+**Next-session priority: owner merges PR #58** (live test PASSED incl. the Q#1 retest;
+all Codex comments addressed). After merge: v12.1 backlog (PR #58 closing comment).
 
 ## A. State in one paragraph
 v12.0 fixes the first Layer 4 "state break": Claude virtualized its message list (~3 of
@@ -57,11 +57,22 @@ version bump to v12.0 goes in the merge commit (already `@version 12.0` in-file)
 `TESTING.md` (fixture matrix, ACN_JUMP_TRACE, acceptance sweep), PR #58 closing comment
 (Codex ledger + v12.1 residuals), `reviews/review-2026-07-27-17bda2d.md`.
 
-**Post-freeze addendum (2026-07-27, owner-requested):** the live test found ONE failure —
-Q#1 (the chip target) arrived but failed to resolve at the path head (no comparable text,
-no pairs below to bracket). Fixed by by-construction extreme resolution for HUMAN targets
-(first renderable human = row 0, last = final row), proven under a no-pairs mutant.
-Branch re-frozen; Q#1 retest pending.
+**Post-freeze addendum (2026-07-27, owner-requested, all LIVE-VERIFIED or suite-green):**
+1. Q#1 chip failure at the path head → by-construction extreme resolution for HUMAN
+   targets (first renderable human = row 0, last = final row). Proven under a no-pairs
+   mutant; **Q#1 re-tested live and PASSED.**
+2. Proactive cluster hardening: the SESSION ANCHOR STORE joins arrival resolution —
+   equal-offset anchors either side of a target pin its row exactly at any distance,
+   gated on the strict anchors-only inverse. Covers a mid-conversation chip flanked by
+   unmatchable rows whenever the session has prior evidence; cold-start cluster remains
+   honest-failure (localized-cluster fixture = v12.1 test debt).
+3. Post-closure Codex comment sweep (no re-trigger, owner token budget): summary
+   conversation-map segment clicks were silent no-ops on indexed chats (elements now
+   bound by row identity; unmounted segments use the jump bridge); conversation switches
+   now reset _sseTokenData and _ciLastAsstMismatch in ciInvalidate (cross-conversation
+   context-estimate inflation and inherited staleness signatures).
+**All 4 post-closure Codex comments addressed** (one was already fixed by #1).
+Final state: 374/374 both engines. Branch ready for owner merge — no known open items.
 
 ## G. What comes next (in order)
 1. **Owner live test** on the frozen branch (reinstall from raw URL, tip commit):
