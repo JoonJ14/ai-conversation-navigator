@@ -1141,7 +1141,10 @@
     var _ciTruncatedCount = 0;      // messages on the active path with truncated:true
     var _ciUsedLeafFallback = false;
     var _ciPathComplete   = true;  // false when the tree walk never reached the root sentinel
-    var _ciInFlight       = false;
+    var _ciInFlightCid    = null;   // conversation uuid the in-flight load is FOR.
+                                    // A boolean here let a slow request for the OLD
+                                    // conversation block every load attempt for the
+                                    // newly opened one until timeout (Codex :1570).
     var _ciOrgUuid        = null;
     var _ciLastRefetchAt  = 0;
 
@@ -1567,20 +1570,26 @@
             if (done) done(true);
             return;
         }
-        if (_ciInFlight) { if (done) done(false); return; }
-
-        _ciInFlight = true;
-        _ciStatus   = 'loading';
+        if (_ciInFlightCid === cid) { if (done) done(false); return; }
+        _ciInFlightCid = cid;
+        // KEEP the ready index during a same-conversation background refresh: setting
+        // 'loading' unconditionally made ciIsReady() false for the whole multi-MB
+        // request, so the next scan collapsed navigation/export/context to the mounted
+        // 3-5 turns until it completed (Codex :1573). The stale snapshot is strictly
+        // better than the DOM window; it is swapped atomically in finish().
+        if (!(_ciIndex && _ciConversationId === cid && _ciStatus === 'ready')) {
+            _ciStatus = 'loading';
+        }
 
         ciResolveOrgCandidates(function (candidates) {
             if (!candidates.length) {
-                _ciInFlight = false;
+                _ciInFlightCid = null;
                 ciSetDegraded(cid, 'could not resolve organization UUID');
                 if (done) done(false);
                 return;
             }
             function finish(err, data) {
-                _ciInFlight = false;
+                _ciInFlightCid = null;
                 if (err) {
                     ciSetDegraded(cid, err.message);
                     if (done) done(false);
@@ -2015,7 +2024,12 @@
     // One-sided pairs extrapolate with predicate step-counting. Returns null when the
     // nearest pair is too far to trust locally (geometry's job, not mapping's).
     var CI_LOCAL_HORIZON = 24;   // rows; ~2 mount windows either side
-    function ciResolveFromPairs(pairs, P, U) {
+    // meta.exact reports whether the result is MEASURED (bracketed/stepped by pairs)
+    // or a predicate-favoured GUESS. A guess is a fine aim point but must never be
+    // ACCEPTED as the landing: Codex round-2 caught the fast path publishing a mounted
+    // guessed row as a successful jump right after 3a had failed to verify it.
+    function ciResolveFromPairs(pairs, P, U, meta) {
+        if (meta) meta.exact = true;
         if (!pairs.length || !_ciFullPath) return null;
         var lo = null, hi = null, i;
         for (i = 0; i < pairs.length; i++) {
@@ -2040,6 +2054,7 @@
             // Predicate blind to a step in this gap: bound the answer and take the
             // predicate-favoured side; a wrong pick self-corrects on the next arrival
             // (the landed window yields fresh pairs that tighten the gap).
+            if (meta) meta.exact = false;
             var guess = ciPredictRowForPath(P);
             var a2 = P - oH, b2 = P - oL;
             if (guess !== null && guess >= Math.min(a2, b2) && guess <= Math.max(a2, b2)) return guess;
@@ -2536,7 +2551,14 @@
     function _normalizeCompare(text) {
         return _normalizeKey(
             String(text == null ? '' : text)
-                .replace(/```[\s\S]*?```/g, ' ')
+                // Links: keep the visible label, drop the destination — the DOM renders
+                // only the label, so 'label(https://...)' on the API side could never
+                // match (Codex :2540).
+                .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+                // Fences: strip the MARKERS and language tag, KEEP the enclosed code —
+                // deleting whole blocks made code-bearing messages unmatchable, since
+                // the DOM keeps their text (Codex :2539).
+                .replace(/```[a-zA-Z0-9_-]*\n?/g, ' ')
                 .replace(/[*_`~>#\[\]()]/g, '')
                 .replace(/^[\s-]+/gm, ' ')
         );
@@ -2778,13 +2800,14 @@
                 // follows. Predicate counts steps inside gaps; measured pairs override.
                 var pairs = ciLocalPairs(rows);
                 if (pairs.length) {
-                    var res = ciResolveFromPairs(pairs, targetFullPathIdx, U);
+                    var resMeta = {};
+                    var res = ciResolveFromPairs(pairs, targetFullPathIdx, U, resMeta);
                     if (res !== null) {
                         var el = null, r;
                         for (r = 0; r < rows.length; r++) {
                             if (rows[r].dataIndex === res) { el = rows[r]; break; }
                         }
-                        if (el) {
+                        if (el && resMeta.exact) {
                             // Mounted. For a content-sourced target 3a already had its
                             // chance, so only accept by construction when the target is
                             // text-unmatchable (chip/attachment) or markdown-skewed.
@@ -2988,6 +3011,11 @@
         _ciIndex          = null;
         _ciFullPath       = null;
         _ciTextToUuid     = null;
+        _ciInFlightCid    = null;   // never let an old conversation's request block the new one
+        // Usage quota is org-scoped; a conversation switch can land in a different
+        // org, and a warm cooldown would show org A's quota for org B for up to five
+        // minutes (Codex :3943).
+        _usageLastFetch   = 0;
         // Anchors are (dataIndex -> path index) pairs for THIS conversation's tree. A
         // route change renumbers everything, so carrying them over would map confidently
         // into the wrong conversation.
@@ -3205,19 +3233,30 @@
         // never matched its own index entry: it was appended as a provisional
         // duplicate AND _ciNeedsResync() kept refetching the multi-megabyte
         // conversation every cooldown, indefinitely (Codex round-1 P1).
+        // OCCURRENCE COUNTS, not set membership. Exact repeats ("continue") are
+        // common; with a plain set the second send matched the first occurrence, was
+        // never appended, and - since provisionals are also the resync signal - the
+        // index never refreshed either: the new turn was invisible everywhere
+        // (Codex :1822, P1). A repeat only counts as known while the index holds at
+        // least as many occurrences as are mounted.
+        // ONE canonical key (_normalizeCompare) on BOTH sides: the index holds raw
+        // markdown, the DOM holds rendered text, and only the markdown-insensitive
+        // form is equal across them. Counting under mixed keys regressed the markdown
+        // fixture straight back to provisional duplicates.
         var known = {};
         for (var i = 0; i < questions.length; i++) {
-            known[_normalizeKey(questions[i].text)] = true;
-            known[_normalizeCompare(questions[i].text)] = true;
+            var kc = _normalizeCompare(questions[i].text);
+            known[kc] = (known[kc] || 0) + 1;
         }
-
+        var seen = {};
         var appended = false;
         for (var j = 0; j < mounted.length; j++) {
             var text = _readMessageText(mounted[j]);
             if (!text) continue;
-            var key = _normalizeKey(text);
-            if (known[key] || known[_normalizeCompare(text)]) continue;
-            known[key] = true;
+            var key = _normalizeCompare(text);
+            seen[key] = (seen[key] || 0) + 1;
+            if ((known[key] || 0) >= seen[key]) continue;
+            known[key] = (known[key] || 0) + 1;
             questions.push({
                 uuid:        null,
                 text:        text,
@@ -3250,6 +3289,34 @@
         for (var i = 0; i < questions.length; i++) {
             if (questions[i].provisional) return true;
         }
+        return false;
+    }
+
+    // Assistant-side staleness. Provisional HUMAN turns were the only resync signal,
+    // so regenerating an answer — which changes no prompt — left Search, Summary,
+    // Export and context tracking on the previous branch until the next distinct
+    // prompt (Codex :3252, P1). A mounted assistant row that matches no path entry is
+    // the tell. STREAMING GUARD: a mid-generation answer also matches nothing and
+    // grows every scan, so only a mismatch signature that is IDENTICAL across two
+    // consecutive scans counts — a stream changes length; a settled regeneration
+    // does not.
+    var _ciLastAsstMismatch = '';
+    function _ciAssistantStale() {
+        if (!ciIsReady() || !_ciFullPath) return false;
+        var rows = ciMountedRows(), sig = '', i;
+        for (i = 0; i < rows.length; i++) {
+            if (rows[i].isUser) continue;
+            var inner = ciMessageNodeWithin(rows[i].el);
+            if (!inner || inner === rows[i].el) continue;
+            var t = _normalizeCompare(_readMessageText(inner));
+            if (t.length < 60) continue;
+            if (ciMatchRowToPath(rows[i]) === null) {
+                sig += rows[i].dataIndex + ':' + t.length + ';';
+            }
+        }
+        if (!sig) { _ciLastAsstMismatch = ''; return false; }
+        if (sig === _ciLastAsstMismatch) return true;
+        _ciLastAsstMismatch = sig;
         return false;
     }
 
@@ -3287,7 +3354,7 @@
                 if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
                 if (typeof orbOnScanComplete === 'function') orbOnScanComplete();
 
-                if (_ciNeedsResync(_questions) &&
+                if ((_ciNeedsResync(_questions) || _ciAssistantStale()) &&
                     (Date.now() - _ciLastRefetchAt) > CI_REFETCH_COOLDOWN_MS) {
                     _ciLastRefetchAt = Date.now();
                     console.log('[ACN] index out of sync with DOM (new message, edit, or ' +
@@ -5140,7 +5207,10 @@
         // Mark BOTH panels that can start a jump. An earlier version only marked the
         // Navigate panel, so a bookmark-initiated jump gave no feedback at all for its
         // whole multi-second duration.
-        var ids = ['acn-panel-nav', 'acn-panel-bookmarks'];
+        // Search included: its results can start jumps too (unmounted assistant
+        // matches route through the bridge), and without the guard repeated result
+        // clicks supersede and restart the in-flight jump (Codex :5143).
+        var ids = ['acn-panel-nav', 'acn-panel-bookmarks', 'acn-panel-search'];
         for (var i = 0; i < ids.length; i++) {
             var panel = document.getElementById(ids[i]);
             if (!panel) continue;
@@ -5177,8 +5247,9 @@
             var relU = Math.max(0, _ciFullPath.length - (ciTotalRows() || _ciFullPath.length));
             var relHit = ciMatchTargetInWindow(q.pathIndex, relRows, relU);
             if (relHit) return ciMessageNodeWithin(relHit.el);
-            var relRes = ciResolveFromPairs(ciLocalPairs(relRows), q.pathIndex, relU);
-            if (relRes !== null) {
+            var relMeta = {};
+            var relRes = ciResolveFromPairs(ciLocalPairs(relRows), q.pathIndex, relU, relMeta);
+            if (relRes !== null && relMeta.exact) {
                 var relEl = ciRowElement(relRes);
                 if (relEl) return ciMessageNodeWithin(relEl);
             }
@@ -5903,7 +5974,7 @@
                        (/^[0-9a-f-]{36}$/i.test(bookmark.contentHash) ? bookmark.contentHash : null);
         if (wantUuid) {
             for (i = 0; i < els.length; i++) {
-                if (ciUuidForText(textOf(els[i])) === wantUuid) { targetEl = els[i]; break; }
+                if (ciUuidForText(textOf(els[i]), els[i]) === wantUuid) { targetEl = els[i]; break; }
             }
         }
 
