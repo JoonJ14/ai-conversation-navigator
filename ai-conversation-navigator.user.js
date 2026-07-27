@@ -1145,6 +1145,13 @@
                                     // catch A->B->A, where the STALE A callback still
                                     // sees a matching uuid (Codex R6 :1605)
     var _ciInFlightCid    = null;   // conversation uuid the in-flight load is FOR.
+    var _ciInFlightGen    = 0;      // generation that OWNS the marker. A stale callback
+                                    // must clear ONLY its own marker: clearing by uuid
+                                    // alone would let old-A clobber new-A's marker
+                                    // (the R6 race), while never clearing left the
+                                    // marker stuck after leaving a chat route, so
+                                    // revisiting the SAME uuid could never load again
+                                    // without a page reload (Codex R9 :1608).
                                     // A boolean here let a slow request for the OLD
                                     // conversation block every load attempt for the
                                     // newly opened one until timeout (Codex :1570).
@@ -1579,8 +1586,9 @@
             return;
         }
         if (_ciInFlightCid === cid) { if (done) done(false); return; }
-        _ciInFlightCid = cid;
         var myGen = ++_ciLoadGen;
+        _ciInFlightCid = cid;
+        _ciInFlightGen = myGen;
         // KEEP the ready index during a same-conversation background refresh: setting
         // 'loading' unconditionally made ciIsReady() false for the whole multi-MB
         // request, so the next scan collapsed navigation/export/context to the mounted
@@ -1592,8 +1600,8 @@
 
         ciResolveOrgCandidates(function (candidates) {
             if (!candidates.length) {
+                if (_ciInFlightCid === cid && _ciInFlightGen === myGen) _ciInFlightCid = null;
                 if (myGen !== _ciLoadGen || ciGetConversationUuid() !== cid) { if (done) done(false); return; }
-                if (_ciInFlightCid === cid) _ciInFlightCid = null;
                 ciSetDegraded(cid, 'could not resolve organization UUID');
                 if (done) done(false);
                 return;
@@ -1605,8 +1613,11 @@
                 // new one succeeded called ciSetDegraded() over the fresh ready index,
                 // and clearing the in-flight marker unconditionally could clobber the
                 // NEW load's marker. A stale callback must touch nothing.
+                // Release OUR OWN marker first — ownership is the generation pair, so
+                // this cannot clobber a newer request's marker, and a request whose
+                // conversation the user left no longer wedges future loads of it.
+                if (_ciInFlightCid === cid && _ciInFlightGen === myGen) _ciInFlightCid = null;
                 if (myGen !== _ciLoadGen || ciGetConversationUuid() !== cid) return;
-                if (_ciInFlightCid === cid) _ciInFlightCid = null;
                 if (err) {
                     ciSetDegraded(cid, err.message);
                     if (done) done(false);
@@ -5940,6 +5951,23 @@
         } catch (e) {}
     }
 
+    // Removal must also RESET icon state. A pre-v12 bookmark's mounted icon
+    // carries the new uuid identity while the stored record kept its legacy hash;
+    // removal by the stored hash cannot find that icon, and injectBookmarkIcons'
+    // identity guard then skips recomputing it — the flag stayed visibly active and
+    // clicking it re-added the bookmark (Codex R9 :6118). Clearing the recorded
+    // identity on every mounted icon forces the next scan to rebuild all of them
+    // from the now-current store; a handful of icons is cheap.
+    function _bmResetIconState() {
+        var marked = document.querySelectorAll('[data-acn-bookmarked]');
+        for (var i = 0; i < marked.length; i++) {
+            marked[i].removeAttribute('data-acn-bookmarked');
+            var ic = marked[i].querySelector('[data-acn-bookmark]');
+            if (ic && ic.parentNode) ic.parentNode.removeChild(ic);
+        }
+        if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
+    }
+
     function removeBookmark(bookmarkId) {
         var store = getBookmarks();
         var url   = normalizeConversationUrl();
@@ -5950,6 +5978,7 @@
         try {
             GM_setValue(BOOKMARK_KEY, JSON.stringify(store));
         } catch (e) {}
+        _bmResetIconState();
     }
 
     function _bmGenId() {
