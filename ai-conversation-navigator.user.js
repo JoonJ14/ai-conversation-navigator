@@ -1899,6 +1899,12 @@
     var _ciAnchors    = [];     // [{row, path}] measured, kept sorted by row, deduped
     var _ciAnchorRows = null;   // Set of rows already anchored
     var _ciPredicateWarned = false;
+    var _ciRowsAtBuild = null;   // aria-setsize MEASURED for this index generation.
+                                 // The new-turn boundary must be the real row count:
+                                 // a predicate-blind entry makes _ciRenderable.length
+                                 // one too long, and a genuinely new message lands at
+                                 // dataIndex === realRows — inside the predicted range,
+                                 // silently classified as old (Codex R8 :3322).
 
     // THE PREDICATE — a hypothesis, not ground truth.
     //
@@ -1924,6 +1930,7 @@
             if (ciEntryRenders(_ciFullPath[i])) _ciRenderable.push(i);
         }
         _ciPredicateWarned = false;
+        _ciRowsAtBuild = null;   // re-measured by the next scan for THIS generation
     }
 
     function ciResetAnchors() {
@@ -1936,9 +1943,11 @@
     // numbers, so evidence accumulates for or against it at no cost. Never fatal — anchors
     // are what correctness rests on.
     function ciValidatePredicate() {
-        if (!_ciRenderable || _ciPredicateWarned) return;
+        if (!_ciRenderable) return;
         var total = ciTotalRows();
         if (!total) return;
+        if (_ciRowsAtBuild === null) _ciRowsAtBuild = total;
+        if (_ciPredicateWarned) return;
         if (_ciRenderable.length !== total) {
             _ciPredicateWarned = true;
             console.warn('[ACN] renderable-entry predicate disagrees with the DOM: ' +
@@ -2129,18 +2138,33 @@
             if ((key && _normalizeKey(domTxt) === key) ||
                 (keyMd && _normalizeCompare(domTxt) === keyMd)) hits.push(rows[i]);
         }
-        // The candidate-range bound applies to EVERY hit, single or not: the target's
-        // row lies in [P-U, P] unconditionally, so a matching row outside that range is
-        // the WRONG TWIN of a duplicated question, however unique it is in this window.
-        // (Caught by the hostile fixture: target row 30, its duplicate at row 34 was the
-        // only one mounted, and the single-hit path accepted it — a wrong-message jump.)
+        // The candidate-range bound applies to EVERY hit: the target's row lies in
+        // [P-U, P] unconditionally, so a hit outside it is the WRONG TWIN however
+        // unique it is in this window.
         var inRange = [];
         for (i = 0; i < hits.length; i++) {
             if (hits[i].dataIndex >= targetFullPathIdx - U &&
                 hits[i].dataIndex <= targetFullPathIdx) inRange.push(hits[i]);
         }
-        if (inRange.length === 1) return inRange[0];
-        return null;
+        if (inRange.length !== 1) return null;
+        // DUPLICATED TARGET TEXT: the range excludes impossible rows but does not
+        // establish WHICH duplicate this is — with twins closer together than U, the
+        // wrong twin can be the only mounted hit and still sit inside [P-U, P]
+        // (Codex R8 :2142). When the target's text occurs more than once on the path,
+        // demand a MEASURED row identity that names exactly P.
+        var dupCount = 0;
+        for (i = 0; i < _ciFullPath.length && dupCount < 2; i++) {
+            var de = _ciFullPath[i];
+            if (de.sender !== 'human') continue;
+            if (de.textSource && de.textSource !== 'content') continue;
+            if ((key && _normalizeKey(de.text || '') === key) ||
+                (keyMd && _normalizeCompare(de.text || '') === keyMd)) dupCount++;
+        }
+        if (dupCount > 1) {
+            return (ciResolvePathForRowStrict(inRange[0].dataIndex) === targetFullPathIdx)
+                ? inRange[0] : null;
+        }
+        return inRange[0];
     }
 
     // Harvests exact anchors from whatever is mounted right now. Cheap and idempotent;
@@ -3015,10 +3039,12 @@
             if (rowEl) {
                 var di = parseInt(rowEl.getAttribute(CI_ROW_ATTR), 10);
                 if (!isNaN(di)) {
+                    // MEASURED resolution only. This uuid gets PERSISTED (bookmarks),
+                    // and the predicate fallback assigned an adjacent message's
+                    // identity whenever the stop-reason predicate missed an unrendered
+                    // entry — a durably wrong bookmark (Codex R8 :3022). Unresolvable
+                    // stays unresolved; the text map / content hash below are honest.
                     var p = ciResolvePathForRowStrict(di);
-                    if (p === null && _ciRenderable && di < _ciRenderable.length) {
-                        p = _ciRenderable[di];
-                    }
                     if (p !== null && _ciFullPath[p]) return _ciFullPath[p].uuid;
                 }
             }
@@ -3318,7 +3344,10 @@
             for (var mr = 0; mr < mrRows.length; mr++) {
                 if (!mrRows[mr].isUser) continue;
                 var mDi = mrRows[mr].dataIndex;
-                if (mDi < _ciRenderable.length) continue;              // within indexed range
+                // Boundary: MEASURED rows at index build when available; the predicate
+                // length only as a fallback before the first measurement lands.
+                var newBound = (_ciRowsAtBuild !== null) ? _ciRowsAtBuild : _ciRenderable.length;
+                if (mDi < newBound) continue;                          // within indexed range
                 if (ciResolvePathForRowStrict(mDi) !== null) continue; // anchored: known
                 var mNode = mrRows[mr].el.querySelector('[data-testid="user-message"]');
                 if (mNode) newRowEls.push(mNode);
