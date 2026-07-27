@@ -1141,6 +1141,9 @@
     var _ciTruncatedCount = 0;      // messages on the active path with truncated:true
     var _ciUsedLeafFallback = false;
     var _ciPathComplete   = true;  // false when the tree walk never reached the root sentinel
+    var _ciLoadGen        = 0;      // bumped per load: uuid comparison alone cannot
+                                    // catch A->B->A, where the STALE A callback still
+                                    // sees a matching uuid (Codex R6 :1605)
     var _ciInFlightCid    = null;   // conversation uuid the in-flight load is FOR.
                                     // A boolean here let a slow request for the OLD
                                     // conversation block every load attempt for the
@@ -1577,6 +1580,7 @@
         }
         if (_ciInFlightCid === cid) { if (done) done(false); return; }
         _ciInFlightCid = cid;
+        var myGen = ++_ciLoadGen;
         // KEEP the ready index during a same-conversation background refresh: setting
         // 'loading' unconditionally made ciIsReady() false for the whole multi-MB
         // request, so the next scan collapsed navigation/export/context to the mounted
@@ -1588,7 +1592,7 @@
 
         ciResolveOrgCandidates(function (candidates) {
             if (!candidates.length) {
-                if (ciGetConversationUuid() !== cid) { if (done) done(false); return; }
+                if (myGen !== _ciLoadGen || ciGetConversationUuid() !== cid) { if (done) done(false); return; }
                 if (_ciInFlightCid === cid) _ciInFlightCid = null;
                 ciSetDegraded(cid, 'could not resolve organization UUID');
                 if (done) done(false);
@@ -1601,7 +1605,7 @@
                 // new one succeeded called ciSetDegraded() over the fresh ready index,
                 // and clearing the in-flight marker unconditionally could clobber the
                 // NEW load's marker. A stale callback must touch nothing.
-                if (ciGetConversationUuid() !== cid) return;
+                if (myGen !== _ciLoadGen || ciGetConversationUuid() !== cid) return;
                 if (_ciInFlightCid === cid) _ciInFlightCid = null;
                 if (err) {
                     ciSetDegraded(cid, err.message);
@@ -2086,6 +2090,19 @@
             return Math.round((a2 + b2) / 2);
         }
         var off = near.p - near.d;
+        // One-sided: the step count between the pair and the target comes from the
+        // PREDICATE, and a predicate-blind unrendered entry makes it wrong — leaving
+        // meta.exact true here let both exact-gated paths accept an adjacent row as a
+        // confident landing for text-unverifiable targets (Codex R6 :2090).
+        //
+        // EXCEPT the ADJACENT case, which is predicate-free by pigeonhole: with
+        // |near.p - P| === 1 there is no integer between the two path indices, so no
+        // hidden unrendered entry can sit in the gap and the target's row follows
+        // exactly. Without this carve-out, targets at the PATH EDGES — where
+        // bracketing is structurally impossible (nothing exists below the first
+        // question) — could never resolve at all: the hostile fixture's chip Q1
+        // regressed the moment one-sided became unconditionally inexact.
+        if (meta) meta.exact = (Math.abs(near.p - P) === 1);
         if (near.p < P)  return P - off - stepsBetween(near.p, P);
         return P - off + stepsBetween(P, near.p);
     }
@@ -5541,6 +5558,10 @@
             var aiSeq = 0;
             for (var fp = 0; fp < _ciFullPath.length; fp++) {
                 if (_ciFullPath[fp].sender === 'human') continue;
+                // Interrupted/superseded entries have NO virtualizer row: a click could
+                // never land, and the mapping fallback could report a neighbouring row
+                // as success (Codex R6 :5544). They are not reachable content.
+                if (!ciEntryRenders(_ciFullPath[fp])) continue;
                 aiSeq++;
                 var aiText = _ciFullPath[fp].text || '';
                 if (aiText.toLowerCase().indexOf(qLower) === -1) continue;
@@ -6614,15 +6635,19 @@
                 var fenceRe = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, fm;
                 while ((fm = fenceRe.exec(txt)) !== null) {
                     var body = (fm[2] || '').trim();
-                    if (body) codeBlocks.push({ language: fm[1] || '',
-                                                text: body, element: null,
-                                                msgIndex: msgIndex });
+                    if (!body) continue;
+                    // Same `label` shape the mounted branch builds — the renderer reads
+                    // cb.label, and {language,text} rendered as `undefined` for exactly
+                    // the off-screen content this path recovers (Codex R6 :6619).
+                    var lbl = (fm[1] ? fm[1] + ' — ' : '') +
+                              body.split('\n')[0].substring(0, 40);
+                    codeBlocks.push({ label: lbl, element: null, msgIndex: msgIndex });
                 }
                 var metas = (r.files || []).concat(r.attachments || []);
                 for (var mi = 0; mi < metas.length; mi++) {
                     var fn = metas[mi].file_name;
                     if (fn && !seenFiles[fn]) { seenFiles[fn] = true;
-                        files.push({ name: fn, element: null, msgIndex: msgIndex }); }
+                        files.push({ label: fn, element: null, msgIndex: msgIndex }); }
                 }
                 return;
             }
