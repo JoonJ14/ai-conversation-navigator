@@ -98,6 +98,69 @@ Both are the same lesson in different clothing — *a green suite on your machin
 context-scoped finding too.* Add CI runner OS and speed to the list of contexts in
 `CLAUDE.md` that can flip a result.
 
+### The jump thrashes for ~12 s and then fails — offset derivation, not the estimator
+
+**Symptom.** On a conversation past roughly 10–20 questions, clicking a question makes
+the page blink repeatedly for ~12 s, never arrives, then shows *"not currently rendered"*.
+Short conversations work fine. The same click sometimes lands and sometimes does not.
+The question list itself is complete and correct.
+
+**Do not read this as an estimator that converges slowly.** Short conversations work
+because the whole conversation fits inside the mount window, so the target is already
+mounted and the caller's fast path runs — the settle loop never executes at all. The
+loop is not converging slowly; on those conversations it is not running.
+
+**Mechanism.** `ciDeriveRowOffset()` aligns `data-index` to the conversation path by
+matching **rendered DOM text** against **the API's raw markdown**. Those need not
+normalise to the same key: a question containing a code span, bold, a list or a link
+differs on the two sides, and ~10% of human turns carry no API text at all (large pastes
+become attachments). If no mounted user row matches, the function returns `null` and the
+loop enters its blind-probe branch:
+
+```js
+var probePx = maxPx * (iterations / (CI_JUMP_MAX_ITERATIONS + 1));   // 1/9, 2/9 … 8/9
+```
+
+Eight scrolls to arbitrary document positions, each paying the 800 ms settle cap plus a
+250 ms guard — **~1.05 s per iteration, ~8.4 s of forced scrolling, ~12.5 s end to end**,
+dragging the viewport across the whole conversation. That is the blinking. It is
+non-deterministic because it depends on which rows happen to be mounted when you click.
+
+**Reproduced in CI**, by the `Claude (virtualized, markdown API text)` platform entry:
+`EXIT=no-offset-after-probes iterations=8`, mounted set walking `0 → 13 → 20 → 29 → 36 →
+45 → 52 → 62`, **18 feed mutations** against ~20 measured live.
+
+**A second defect shares the root cause.** When the text match fails, the live-message
+merge concludes the mounted rows are messages the API does not know about and appends
+them as provisional questions — so the panel lists 43 where the index holds 40, and the
+duplicates change as you scroll. Pinned by an explicit `KNOWN DEFECT` assertion so a
+partial fix cannot pass quietly.
+
+**To diagnose on the live site:**
+
+```js
+localStorage.setItem('acnJumpDebug', '1')   // then reload, then jump
+```
+
+Each iteration prints one line. The one that matters reads
+`note=BLIND-PROBE offset=null [...]`, and the bracketed array gives, per mounted user
+row, whether it matched and why not — `no-api-match` with a `domKeyHead` sample,
+`empty-dom-text`, or `ambiguous-xN`. If instead you see ordinary `est=`/`actual=` lines
+walking toward the target, the offset is fine and the estimator is the problem.
+
+### Why a mock with realistic row heights did NOT reproduce it
+
+Worth recording, because it was the leading hypothesis and it was wrong. The mock's row
+heights were rebuilt from Probe A's empirical distribution — 25.7x spread, heavy-tailed,
+autocorrelated, with a 6-row window whose local mean is 0.15x the global mean. The jump
+still converged on the **first** interpolation.
+
+The reason is arithmetic: for a sequence of row heights drawn from a fixed distribution,
+the cumulative-height curve's *relative* deviation from a straight line falls off as
+`1/sqrt(n)`. More rows makes linear interpolation **more** accurate, not less. So height
+variance alone cannot explain a failure that gets worse on longer conversations, and a
+mock cannot be made to fail by adding more of it.
+
 ### If it happens on another platform
 
 The general shape: DOM-derived counts that track the viewport instead of the conversation, with no errors. Find where the platform still holds the full data (its own API or store) and read from there, keeping the DOM path as a **visibly** degraded fallback. Do not let a fallback stay silent — that is what made this invisible for so long.

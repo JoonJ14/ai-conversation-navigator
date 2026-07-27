@@ -198,7 +198,38 @@ heights and progressive height measurement, taking `scrollHeight` drift from 0.1
 6.28% — without it the first interpolation always landed and the entire convergence
 machinery was dead code under test.
 
-Result: **267/267 passing across 16 platform entries** (was 182 across 14).
+Result: **294/294 passing across 17 platform entries** (was 182 across 14).
+
+**Live verification then failed, and CI could not have caught it.** On the real site the
+jump works only on conversations short enough that the whole thing fits in the mount
+window — where the target is already mounted and the settle loop never runs. Past roughly
+10–20 questions it engages and thrashes for ~12 s before failing honestly.
+
+The cause is not the estimator. `ciDeriveRowOffset()` aligns `data-index` to the
+conversation path by matching **rendered DOM text** against the API's **raw markdown**;
+those need not agree, and ~10% of human turns carry no API text at all. When no mounted
+row matches it returns `null`, and the loop falls into a blind-probe branch that scrolls
+to 1/9, 2/9 … 8/9 of the document — 8 moves at ~1.05 s each, the viewport dragged across
+the whole conversation. Reproduced end to end in CI by a third virtualized entry whose
+fixture text is deliberately markdown: `EXIT=no-offset-after-probes iterations=8`, 18 feed
+mutations against ~20 measured live.
+
+The same root cause produces a second defect: unmatched DOM rows are appended as
+provisional questions, so the panel lists 43 where the index holds 40 and the duplicates
+change as you scroll. Pinned by an explicit `KNOWN DEFECT` assertion.
+
+Also landed: per-iteration jump instrumentation behind `localStorage.acnJumpDebug`
+(`ACN_JUMP_TRACE=1` in CI), and exact handling of the extremes — target row 0 is
+`scrollTop = 0` and the last row is `scrollTop = max`, never estimated.
+
+**A rejected hypothesis, recorded because it was the leading one.** The mock's row heights
+were rebuilt from Probe A's empirical distribution (25.7x spread, heavy-tailed,
+autocorrelated, worst 6-row window at 0.15x the global mean) on the theory that flat
+heights were letting the estimator cheat. The jump still converged on the first
+interpolation — because for heights drawn from a fixed distribution the cumulative curve's
+relative deviation from linear falls off as `1/sqrt(n)`, so *more* rows makes linear
+interpolation *more* accurate. Height variance cannot explain a failure that worsens with
+conversation length. The harder distribution was kept; the hypothesis was not.
 
 **Then Windows CI went red, and both causes were in the harness.** The Ubuntu and macOS
 jobs passed; all three Windows engines failed. Neither cause was in the userscript, and

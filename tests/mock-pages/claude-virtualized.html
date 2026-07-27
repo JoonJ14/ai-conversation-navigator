@@ -86,18 +86,77 @@
     var WINDOW_SIZE    = 6;    // messages mounted around the scroll position
     var TAIL_ROWS      = 1;    // final row pinned mounted at every position
 
-    // REAL, VARIED ROW HEIGHTS.
-    // A previous version of this mock gave every row a constant height and mapped
-    // scrollTop linearly to an index. That made scrollHeight vary by 0.1% and made the
-    // settle loop's FIRST interpolation always land — so ciSelectCluster, the tolerance
-    // branch, re-anchoring, the degenerate-bracket reset and the iteration cap were all
-    // dead code under test. A reviewer proved it by throwing inside ciSelectCluster and
-    // seeing nothing fail. Varied heights plus progressive measurement fix that.
+    // ── ROW HEIGHTS: sampled from the REAL distribution, not invented ────────
+    //
+    // This has now been wrong twice, each time in a way that let CI pass while the
+    // live site failed. Both failures are recorded because the second one looked
+    // like a fix for the first.
+    //
+    //   v1  every row a constant height. scrollTop mapped to index linearly, so the
+    //       first interpolation always landed and ciSelectCluster, the tolerance
+    //       branch, re-anchoring, the degenerate-bracket reset and the iteration cap
+    //       were ALL dead code under test. Proved by throwing inside ciSelectCluster
+    //       and watching nothing fail.
+    //
+    //   v2  140 + ((h*137) % 520). Varied — and still far too easy, for reasons that
+    //       are not about the range:
+    //         * spread only 4.6x, where the real site spans 102..2624 px (25x);
+    //         * the distribution is FLAT, where the real one is heavy-tailed
+    //           (mostly 100-350, occasionally 2500+);
+    //         * `(h*137) % 520` is EQUIDISTRIBUTED — consecutive rows are maximally
+    //           spread out, so any window's local mean converges to the global mean
+    //           almost immediately, which is precisely the assumption a global-average
+    //           interpolator makes. The mock was constructed to satisfy the estimator.
+    //       Live result on real claude.ai: ~20 re-renders over 12.5 s on a single jump,
+    //       then honest failure, on any conversation past ~10-20 questions. CI: green.
+    //
+    // v3 (this one) samples the EMPIRICAL heights observed by Probe A on
+    // conversation b3c603a4 and adds AUTOCORRELATION, because real conversations
+    // cluster: a deep technical exchange runs several long turns in a row. Local
+    // density diverging from global density is the property that actually breaks a
+    // global interpolator, and no amount of range-widening reproduces it.
+    //
+    // Deterministic (fixed-seed LCG, no Math.random) so CI is reproducible and a
+    // failure can be replayed exactly.
+    var OBSERVED_H = [                          // Probe A, live, rows as rendered
+        102, 125, 184, 184, 234, 279, 304, 308, 308, 308, 308, 326, 326, 440,
+        848, 1063, 1108, 1172, 1208, 1267, 1276, 1327, 1463, 1504, 1540,
+        1740, 1752, 1859, 1932, 2232, 2315, 2429, 2521, 2623, 2624
+    ];
     var REAL_H = [];
-    for (var h = 0; h < TOTAL_MESSAGES; h++) {
-        REAL_H.push(140 + ((h * 137) % 520));      // 140..659, deterministic, non-uniform
-    }
-    var ESTIMATED_H = 320;                          // used until a row has been mounted once
+    (function buildHeights() {
+        var seed = 20260726;                    // fixed: reproducible across runs and OSes
+        // MINSTD (Lehmer). Chosen over a glibc-style LCG because `seed * 1103515245`
+        // with seed near 2^31 exceeds 2^53 and silently loses low bits in a double —
+        // deterministic, but a degenerate generator. 16807 * (2^31-1) is ~3.6e13, well
+        // inside exact integer range, so this stays a true MINSTD sequence.
+        function rnd() {                        // ES5, no Math.random
+            seed = (seed * 16807) % 2147483647;
+            return seed / 2147483647;
+        }
+        // Walk a band pointer that USUALLY stays put and occasionally jumps. That is
+        // what produces runs of similar heights instead of an even sprinkle.
+        var band = 0;
+        for (var h = 0; h < TOTAL_MESSAGES; h++) {
+            if (rnd() < 0.35) {                 // 35% chance to move to a new band
+                band = Math.floor(rnd() * OBSERVED_H.length);
+            }
+            var jitter = Math.floor(rnd() * 3) - 1;             // +/-1 slot inside the band
+            var idx = Math.min(OBSERVED_H.length - 1, Math.max(0, band + jitter));
+            REAL_H.push(OBSERVED_H[idx]);
+        }
+    })();
+    // A single flat guess for an unmeasured row — exactly what the real virtualizer
+    // does, and the reason scrollHeight moves as rows are measured. Deliberately NOT
+    // the true mean (1073 px here): the real estimate is wrong, and its wrongness IS
+    // the drift.
+    //
+    // Must sit ABOVE the true mean so scrollHeight SHRINKS monotonically, matching the
+    // live measurement (387,132 -> 375,082 px, -3.2%). An estimate below the mean would
+    // make it grow, and the loop's anchor handling was designed around shrinkage.
+    // 1150 gives ~6.7% — same direction as the real site, roughly twice the magnitude,
+    // so the mock is at least as hard as the case that failed live.
+    var ESTIMATED_H = 1150;
     var measured = {};                              // rowIndex -> true once mounted
 
     var MESSAGES = [];

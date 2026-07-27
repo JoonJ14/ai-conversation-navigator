@@ -186,6 +186,49 @@ const PLATFORMS = [
         },
     },
     {
+        // THIRD Claude entry: the index builds correctly, but the API text is raw
+        // MARKDOWN while the DOM holds RENDERED text — so ciDeriveRowOffset() can find
+        // no matching row and returns null.
+        //
+        // This exists because CI was green while the live site failed. The other two
+        // virtualized entries use prose that is byte-identical on both sides, so the
+        // offset always derives and the failure path is unreachable — the same
+        // "structurally cannot fail" shape as the original v12.0 bug.
+        //
+        // Live symptom being pinned down here: the jump enters the blind-probe branch,
+        // scrolls to 1/9, 2/9 ... 8/9 of the document looking for a window it can align,
+        // drags the viewport across the whole conversation, and fails after 8 iterations.
+        // Reproduced end to end; see TROUBLESHOOTING.
+        name: 'Claude (virtualized, markdown API text)',
+        mockFile: 'claude-virtualized.html',
+        hostname: 'claude.ai',
+        pathname: '/chat/33333333-3333-4333-8333-333333333333',
+        // KNOWN DEFECT, recorded not hidden: this entry lists 43 questions, not 40.
+        // The index holds 40 human turns, but the live-message merge compares mounted
+        // DOM rows against the index BY TEXT to decide which are new — and when that
+        // comparison fails, all 3 mounted user rows are appended as "provisional"
+        // messages the API supposedly does not know about. So the same text-matching
+        // failure that breaks the jump ALSO duplicates whichever questions happen to be
+        // on screen, and the duplicate set changes as the user scrolls.
+        //
+        // The counts below are the CURRENT behaviour, so this is a characterisation
+        // test: when the root cause is fixed these expectations must be changed back to
+        // 40 and the assertion below will fail loudly, which is the point.
+        expectedMessages: 43,
+        listedTurnsOverride: 43,
+        expectedAccent: '#d97706',
+        expectedMode: 'orbital',
+        virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
+        indexBacked: true,
+        offsetUnderivable: true,   // suppresses the jump-resolves assertions; see below
+        knownProvisionalDuplicates: 3,
+        gmFixture: {
+            totalMessages: 80,
+            conversationUuid: '33333333-3333-4333-8333-333333333333',
+            markdownText: true,
+        },
+    },
+    {
         name: 'ChatGPT',
         mockFile: 'chatgpt.html',
         hostname: 'chatgpt.com',
@@ -355,8 +398,15 @@ function buildGmFixtureShim(cfg) {
             // which the extractor must KEEP. Including it here means the DOM-derived text
             // and the API text agree — and if `not-sr-only` were ever wrongly treated as
             // `sr-only`, they would stop agreeing and the question count would break.
+            // cfg.markdownText models the real hazard: the API returns RAW MARKDOWN and
+            // the DOM shows RENDERED text, so the two need not normalise to the same
+            // key. A question containing a code span, bold, a list or a link breaks the
+            // match, ciDeriveRowOffset() returns null, and the jump degrades to blind
+            // probing. Used by the third Claude entry.
             content: [{ type: 'text', text: isUser
-                ? `Question number ${turn}: how do I handle case ${turn} when the input is unusual? VISIBLE-NOT-SR-ONLY`
+                ? (cfg.markdownText
+                    ? `**Question number ${turn}**: how do I handle \`case ${turn}\` when the input is unusual? VISIBLE-NOT-SR-ONLY`
+                    : `Question number ${turn}: how do I handle case ${turn} when the input is unusual? VISIBLE-NOT-SR-ONLY`)
                 : `Answer number ${turn}: validate the input first, then branch on the result.` }],
             attachments: [], files: [],
         });
@@ -448,7 +498,12 @@ ${bodyContent}
 // Clear duplicate guard from previous test run (fresh navigation means clean window,
 // but belt-and-suspenders for any edge cases)
 delete window._aiNavAlreadyLoaded;
-</script>
+${process.env.ACN_JUMP_TRACE ? `
+// ACN_JUMP_TRACE=1 — turn on the userscript's per-iteration jump logging so a CI run
+// can be compared line-for-line against a live claude.ai log. Must be set BEFORE the
+// userscript runs, which is why it lives here rather than in a page.evaluate.
+try { localStorage.setItem('acnJumpDebug', '1'); } catch (e) {}
+` : ''}</script>
 ${gmShim}
 <script>
 ${scriptContent}
@@ -506,6 +561,7 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
     // entry 1 and watching entry 2 fail).
     const pageErrors = [];
     const onPageError = (err) => pageErrors.push(String(err && err.message || err));
+    let onConsole = null;
 
     try {
         // Clear any previous routes
@@ -539,6 +595,18 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
         // Now that navigation is complete, start collecting errors for THIS platform.
         pageErrors.length = 0;
         page.on('pageerror', onPageError);
+
+        // ACN_JUMP_TRACE=1 forwards the userscript's per-iteration jump log to stdout,
+        // so a CI trace can be diffed line-for-line against one captured on live
+        // claude.ai. Attached per platform and removed in the finally block below,
+        // or entry N's listener would keep firing for entries N+1..16.
+        if (process.env.ACN_JUMP_TRACE) {
+            onConsole = (msg) => {
+                const t = msg.text();
+                if (t.indexOf('[ACN jump]') === 0) console.log(`      ${t}`);
+            };
+            page.on('console', onConsole);
+        }
 
         // Wait for initialization.  The main container is injected synchronously on
         // script load; question detection runs on a 2 s setTimeout.  3.5 s covers both.
@@ -897,11 +965,68 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                              mountedInDom: window.__mockVirtualization.mountedCount(),
                              realTurns: window.__mockVirtualization.totalTurns };
                 });
+                const expectListed = platform.listedTurnsOverride || coverage.realTurns;
                 assert('Index lists the whole conversation, not the mounted window',
-                    coverage.listed === coverage.realTurns &&
+                    coverage.listed === expectListed &&
                     coverage.mountedInDom < coverage.realTurns,
-                    `lists ${coverage.listed}/${coverage.realTurns}, DOM holds ${coverage.mountedInDom}`);
+                    `lists ${coverage.listed}/${expectListed}, DOM holds ${coverage.mountedInDom}`);
 
+                // Pins the duplication defect to an exact size so a partial fix cannot
+                // pass silently. When text matching is repaired this must go back to 0.
+                if (platform.knownProvisionalDuplicates) {
+                    assert('KNOWN DEFECT: unmatched DOM rows duplicated as provisional questions',
+                        coverage.listed - coverage.realTurns === platform.knownProvisionalDuplicates,
+                        `${coverage.listed - coverage.realTurns} duplicate(s); ` +
+                        `expected exactly ${platform.knownProvisionalDuplicates} ` +
+                        `(one per mounted user row). Fixing text matching must reduce this to 0.`);
+                }
+
+                // TEST 23a: offset-derivation failure must degrade HONESTLY.
+                //
+                // On the markdown-API entry ciDeriveRowOffset() can never succeed, which
+                // is the shape of the live failure. What must hold is not "the jump
+                // works" but "it gives up within its own budget instead of thrashing
+                // indefinitely, and never claims success".
+                if (platform.offsetUnderivable) {
+                    const honest = await page.evaluate(async () => {
+                        const v = window.__mockVirtualization;
+                        v.scrollToFraction(1);
+                        await new Promise(r => setTimeout(r, 300));
+                        const items = document.querySelectorAll('[data-acn-role="nav-item"]');
+                        if (!items.length) return { ok: false, reason: 'no nav items' };
+                        const z0 = document.querySelector('[data-acn-role="zone"]');
+                        if (z0) z0.removeAttribute('data-acn-jump-resolved');
+                        const t0 = Date.now();
+                        let renders = 0;
+                        const feed = document.querySelector('[role="feed"]') || document.body;
+                        const mo = new MutationObserver(() => { renders++; });
+                        mo.observe(feed, { childList: true, subtree: true });
+                        items[0].click();
+                        for (let i = 0; i < 200; i++) {
+                            await new Promise(r => setTimeout(r, 100));
+                            if (!document.querySelector('[data-acn-jumping="true"]')) break;
+                            if (Date.now() - t0 > 19000) break;
+                        }
+                        mo.disconnect();
+                        const zone = document.querySelector('[data-acn-role="zone"]');
+                        return { ok: true, elapsedMs: Date.now() - t0, renders,
+                                 claimedResolved: zone
+                                     ? zone.getAttribute('data-acn-jump-resolved') : null,
+                                 stillBusy: !!document.querySelector('[data-acn-jumping="true"]') };
+                    });
+                    // Must not claim a resolution it never made, must release the busy
+                    // flag, and must stop inside the iteration cap rather than looping.
+                    assert('Underivable offset fails honestly without claiming a jump',
+                        honest.ok && honest.claimedResolved === null && !honest.stillBusy,
+                        honest.ok
+                            ? `claimed=${honest.claimedResolved} busy=${honest.stillBusy} ` +
+                              `~${honest.elapsedMs}ms, ${honest.renders} feed mutations`
+                            : honest.reason);
+                }
+
+                // TESTS 23-25 assert a SUCCESSFUL jump, which presupposes a derivable
+                // offset. The markdown-API entry deliberately has none.
+                if (!platform.offsetUnderivable) {
                 // TEST 23: jump to question #1 from the BOTTOM.
                 // Asserts the target was unmounted at click time AND that the landed
                 // row is the RIGHT message — not merely that something mounted. With
@@ -1047,6 +1172,8 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                     `scrollHeight ${drift.min}..${drift.max} (${driftPct.toFixed(2)}%), ` +
                     `${drift.measured}/${drift.total} rows measured`);
 
+                }   // end !offsetUnderivable
+
                 // TEST 26: abandoned-branch messages must NOT be listed.
                 // The fixture hangs a two-message branch off a mid-conversation parent.
                 // Replacing the tree walk with `msgs.slice()` must now fail here.
@@ -1058,10 +1185,11 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                         leaked: items.filter(t => /ABANDONED BRANCH/i.test(t)).length,
                     };
                 });
+                const expectTotal = platform.listedTurnsOverride || platform.virtualized.totalTurns;
                 assert('Abandoned branch excluded from the question list',
-                    branch.leaked === 0 && branch.total === platform.virtualized.totalTurns,
+                    branch.leaked === 0 && branch.total === expectTotal,
                     `${branch.leaked} abandoned message(s) leaked; ${branch.total} items listed ` +
-                    `(expected ${platform.virtualized.totalTurns})`);
+                    `(expected ${expectTotal})`);
 
                 // TEST 27: message text must come from content[] blocks, not the
                 // top-level `text` field. The real API returns `text: ''` on EVERY
@@ -1121,6 +1249,7 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
         // Detach so errors do not bleed into the next platform's run — the page
         // object is reused across all 15 platforms.
         page.off('pageerror', onPageError);
+        if (onConsole) page.off('console', onConsole);
     }
 
     return results;

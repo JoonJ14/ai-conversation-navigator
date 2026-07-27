@@ -1696,8 +1696,25 @@
 
     // Derives the offset such that:  _ciFullPath index === dataIndex + offset
     // Returns null when it cannot be established or the rows disagree.
-    function ciDeriveRowOffset() {
-        if (!ciIsReady() || !_ciFullPath) return null;
+    // `diag`, when supplied, is filled with one record per mounted user row explaining
+    // whether it produced an offset vote and, if not, why. This path is the single most
+    // likely cause of a live jump failure and the hardest to see: returning null sends
+    // the loop into the blind-probe branch, which scrolls to 1/9, 2/9 ... 8/9 of the
+    // document looking for a window it can align — 8 moves, ~1.05s each, visible churn
+    // across the whole conversation, then the honest-failure toast. Without this
+    // breakdown a debug log shows the thrashing but not the reason for it.
+    //
+    // Why it can fail on the real site while CI is green: the DOM holds RENDERED text
+    // and the API holds RAW MARKDOWN, so a question containing a code fence, a list, a
+    // link or an em-dash need not round-trip to the same normalised key. ~10% of human
+    // turns also carry no text block at all (large pastes become attachments), giving
+    // an empty API side. CI's fixture uses plain prose identical on both sides, so it
+    // cannot reproduce any of that.
+    function ciDeriveRowOffset(diag) {
+        if (!ciIsReady() || !_ciFullPath) {
+            if (diag) diag.push({ why: 'index-not-ready' });
+            return null;
+        }
         var rows = ciMountedRows();
         var offsets = [];
         var i, j;
@@ -1711,7 +1728,10 @@
             var inner = rows[i].el.querySelector('[data-testid="user-message"]');
             if (!inner) continue;
             var key = _normalizeKey(_readMessageText(inner));
-            if (!key) continue;
+            if (!key) {
+                if (diag) diag.push({ row: rows[i].dataIndex, why: 'empty-dom-text' });
+                continue;
+            }
             var matches = [];
             for (j = 0; j < _ciFullPath.length; j++) {
                 if (_ciFullPath[j].sender !== 'human') continue;
@@ -1719,11 +1739,39 @@
             }
             // Ambiguous text (the same question asked twice) proves nothing about
             // alignment — skip it rather than letting it vote.
-            if (matches.length !== 1) continue;
+            if (matches.length !== 1) {
+                if (diag) {
+                    // Record enough to tell "the API text is different" from "the API
+                    // text is missing" without dumping message bodies into the log.
+                    var apiHuman = 0, apiEmpty = 0;
+                    for (j = 0; j < _ciFullPath.length; j++) {
+                        if (_ciFullPath[j].sender !== 'human') continue;
+                        apiHuman++;
+                        if (!_normalizeKey(_ciFullPath[j].text || '')) apiEmpty++;
+                    }
+                    diag.push({ row: rows[i].dataIndex,
+                                why: matches.length ? 'ambiguous-x' + matches.length
+                                                    : 'no-api-match',
+                                domKeyLen: key.length,
+                                domKeyHead: key.slice(0, 40),
+                                apiHumanCount: apiHuman,
+                                apiEmptyTextCount: apiEmpty });
+                }
+                continue;
+            }
             offsets.push(matches[0] - rows[i].dataIndex);
+            if (diag) diag.push({ row: rows[i].dataIndex, why: 'ok',
+                                  offset: matches[0] - rows[i].dataIndex });
         }
 
-        if (!offsets.length) return null;
+        if (!offsets.length) {
+            if (diag) diag.push({ why: 'NO-OFFSET-DERIVED',
+                                  mountedRows: rows.length,
+                                  mountedUserRows: rows.filter(function (r) {
+                                      return r.isUser;
+                                  }).length });
+            return null;
+        }
         for (i = 1; i < offsets.length; i++) {
             if (offsets[i] !== offsets[0]) {
                 console.warn('[ACN] virtualizer row offset is INCONSISTENT across mounted ' +
@@ -1812,6 +1860,69 @@
 
     var _ciJumpToken = 0;      // increments to cancel an in-flight jump
     var _ciLastJumpToken = 0;  // token of the most recently STARTED jump
+
+    // ── Jump instrumentation ─────────────────────────────────────────────────
+    //
+    // The settle loop converges in CI and does NOT converge on the live site. That
+    // gap cannot be closed by reasoning about the code, because the thing that
+    // differs is the data: real row heights span 102-2624 px with long runs of
+    // similar sizes, and CI's mock is our model of that. So the loop reports what
+    // it actually did, per iteration, and the live log is the measurement.
+    //
+    // Off by default — a jump is on the click path and must not pay for logging.
+    // Enable from the page console, then reload:
+    //     localStorage.setItem('acnJumpDebug', '1')
+    // Disable with:
+    //     localStorage.removeItem('acnJumpDebug')
+    //
+    // Each iteration prints one line; the final line prints the whole run as JSON
+    // on a single line so it can be copied in one piece. Traces are NOT published
+    // on window/unsafeWindow: crossing the sandbox boundary to hand the page an
+    // object is the DEC-019/DEC-020 hazard class, and it buys nothing the console
+    // does not already give us.
+    function ciJumpDebugOn() {
+        try { return localStorage.getItem('acnJumpDebug') === '1'; } catch (e) { return false; }
+    }
+
+    function ciMakeTrace(targetFullPathIdx, totalRows) {
+        var on = ciJumpDebugOn();
+        var t0 = Date.now();
+        var data = { target: targetFullPathIdx, totalRows: totalRows,
+                     iterations: [], exit: null, elapsedMs: 0 };
+        function n(v) { return (v === null || v === undefined) ? -1 : Math.round(v); }
+        return {
+            on: on,
+            step: function (r) {
+                if (!on) return;
+                data.iterations.push(r);
+                console.log('[ACN jump] i=' + r.i +
+                    ' targetRow=' + n(r.targetRow) + ' offset=' + n(r.offset) +
+                    ' sH=' + n(r.scrollHeight) + ' cH=' + n(r.clientHeight) +
+                    ' low=' + n(r.lowRow) + '@' + n(r.lowPx) +
+                    ' high=' + n(r.highRow) + '@' + n(r.highPx) +
+                    ' est=' + n(r.estimatePx) + ' actual=' + n(r.actualPx) +
+                    ' mounted=[' + (r.mounted || '') + ']' +
+                    ' cluster=' + (r.clusterLo === null ? 'none'
+                                   : n(r.clusterLo) + '-' + n(r.clusterHi)) +
+                    ' reset=' + (r.bracketReset ? 1 : 0) +
+                    ' remounted=' + (r.changed ? 1 : 0) +
+                    ' settle=' + n(r.settleMs) + 'ms' +
+                    (r.note ? ' note=' + r.note : ''));
+            },
+            end: function (reason) {
+                if (!on || data.exit !== null) return;   // idempotent: finish() is guarded
+                                                         // by safeDone, but do not rely on it
+                data.exit = reason || 'unknown';
+                data.elapsedMs = Date.now() - t0;
+                console.log('[ACN jump] EXIT=' + data.exit +
+                            ' iterations=' + data.iterations.length +
+                            ' elapsed=' + data.elapsedMs + 'ms');
+                try {
+                    console.log('[ACN jump] TRACE ' + JSON.stringify(data));
+                } catch (e) { /* a circular value would only ever be our own plain data */ }
+            }
+        };
+    }
 
     function ciFindScrollContainerStable() {
         // Attribute first — stable across the class-name churn that already broke
@@ -2105,6 +2216,67 @@
         var high = { row: (totalRows || 1) - 1,
                      px: Math.max(0, container.scrollHeight - container.clientHeight) };
         var iterations = 0;
+        var trace = ciMakeTrace(targetFullPathIdx, totalRows);
+
+        // finish() is the single exit. Wrap it so every exit is traced with a reason;
+        // previously only 'superseded' and 'user' carried one, which is exactly the
+        // information a failing live log needs most.
+        var rawFinish = finish;
+        finish = function (ok, el, reason) {
+            trace.end(reason || (ok ? 'resolved' : 'failed'));
+            rawFinish(ok, el, reason);
+        };
+
+        // ── Extremes are exact, never estimated ──────────────────────────────
+        // Row 0 is scrollTop 0 and the last row is scrollTop max, by definition —
+        // no interpolation can improve on that, and both are the cases where an
+        // estimator is least reliable (row 0's neighbourhood is the least-measured
+        // region, so scrollHeight drift is largest exactly there). Probe C Part A
+        // showed a single move to 0 mounts index 0 with aria-setsize unchanged.
+        //
+        // This deliberately makes "jump to question #1 from the bottom" stop
+        // exercising the settle loop. The mid-conversation test carries that load;
+        // see TESTING.md.
+        function ciTryExtreme() {
+            var offset0 = ciDeriveRowOffset();
+            var row0 = ciFullPathToDataIndex(targetFullPathIdx, offset0, totalRows);
+            if (row0 === null) return false;
+            var isFirst = (row0 === 0);
+            var isLast  = (row0 === totalRows - 1);
+            if (!isFirst && !isLast) return false;
+            var maxPx0 = Math.max(0, container.scrollHeight - container.clientHeight);
+            var destPx = isFirst ? 0 : maxPx0;
+            var beforeCl0 = ciSelectCluster(container, ciMountedRows());
+            var beforeKey0 = beforeCl0 ? (beforeCl0.lo + '-' + beforeCl0.hi) : '';
+            var tS = Date.now();
+            ciMoveTo(container, destPx);
+            ciWaitForSettle(container, beforeKey0, function (changed) {
+                try {
+                    if (myToken !== _ciJumpToken) { finish(false, null, 'superseded'); return; }
+                    if (userScrolled) { finish(false, null, 'user'); return; }
+                    var elx = ciRowElement(row0);
+                    var cl = ciSelectCluster(container, ciMountedRows());
+                    trace.step({ i: 0, targetRow: row0, offset: offset0,
+                        scrollHeight: container.scrollHeight, clientHeight: container.clientHeight,
+                        lowRow: null, lowPx: null, highRow: null, highPx: null,
+                        estimatePx: destPx, actualPx: container.scrollTop,
+                        mounted: ciMountedRows().map(function (r) { return r.dataIndex; }).join(','),
+                        clusterLo: cl ? cl.lo : null, clusterHi: cl ? cl.hi : null,
+                        bracketReset: false, changed: changed, settleMs: Date.now() - tS,
+                        note: isFirst ? 'extreme-first' : 'extreme-last' });
+                    if (elx && ciVerifyLandedRow(elx, row0, offset0, targetFullPathIdx)) {
+                        finish(true, ciMessageNodeWithin(elx), 'extreme'); return;
+                    }
+                    // Not resolved at the exact extreme: fall through to the loop
+                    // rather than failing, since the row may simply need a frame more.
+                    attempt();
+                } catch (err) {
+                    console.error('[ACN] jump extreme step threw:', err);
+                    finish(false, null, 'threw');
+                }
+            });
+            return true;
+        }
 
         function attempt() {
             try {
@@ -2125,7 +2297,8 @@
                 // Re-derive every iteration: the first derivation happens at the
                 // least-informed moment (whatever was mounted before any scrolling),
                 // and can legitimately return null when the window holds no user rows.
-                var offset = ciDeriveRowOffset();
+                var offDiag = trace.on ? [] : null;
+                var offset = ciDeriveRowOffset(offDiag);
                 var targetRow = ciFullPathToDataIndex(targetFullPathIdx, offset, totalRows);
                 // An offset we DO know that still cannot map the target means the target
                 // is out of range — scrolling cannot fix that, so do not burn 8 probe
@@ -2135,14 +2308,41 @@
                     finish(false, null); return;
                 }
                 if (targetRow === null) {
-                    if (++iterations > CI_JUMP_MAX_ITERATIONS) { finish(false, null); return; }
+                    if (++iterations > CI_JUMP_MAX_ITERATIONS) {
+                        finish(false, null, 'no-offset-after-probes'); return;
+                    }
                     // Nudge to mount a different window, then retry the derivation.
                     var probePx = Math.max(0, container.scrollHeight - container.clientHeight) *
                                   (iterations / (CI_JUMP_MAX_ITERATIONS + 1));
                     var probeKeyCl = ciSelectCluster(container, ciMountedRows());
                     var probeKey = probeKeyCl ? (probeKeyCl.lo + '-' + probeKeyCl.hi) : '';
+                    var tProbe = Date.now();
+                    var probeRows = ciMountedRows();
                     ciMoveTo(container, Math.round(probePx));
-                    ciWaitForSettle(container, probeKey, function () { attempt(); });
+                    ciWaitForSettle(container, probeKey, function (changed) {
+                        // This branch is where a live failure most plausibly lives, so it
+                        // reports as loudly as the interpolating branch. Previously it
+                        // emitted nothing at all and a failing log looked empty.
+                        if (trace.on) {
+                            var cl1 = ciSelectCluster(container, ciMountedRows());
+                            trace.step({ i: iterations, targetRow: null, offset: offset,
+                                scrollHeight: container.scrollHeight,
+                                clientHeight: container.clientHeight,
+                                lowRow: low.row, lowPx: low.px,
+                                highRow: high.row, highPx: high.px,
+                                estimatePx: Math.round(probePx),
+                                actualPx: Math.round(container.scrollTop),
+                                mounted: probeRows.map(function (r) {
+                                    return r.dataIndex + (r.isUser ? 'u' : '');
+                                }).join(','),
+                                clusterLo: cl1 ? cl1.lo : null,
+                                clusterHi: cl1 ? cl1.hi : null,
+                                bracketReset: false, changed: changed,
+                                settleMs: Date.now() - tProbe,
+                                note: 'BLIND-PROBE offset=null ' + JSON.stringify(offDiag) });
+                        }
+                        attempt();
+                    });
                     return;
                 }
 
@@ -2164,9 +2364,11 @@
                 if (low.px  > maxPx) low.px  = maxPx;   // clamp BOTH, or the bracket inverts
                 // Repair a degenerate bracket BEFORE it is used. Repairing it only in the
                 // settle callback wasted a whole iteration scrolling to the bottom first.
+                var didReset = false;
                 if (high.row - low.row < 1 || high.px - low.px < 1) {
                     low  = { row: 0, px: 0 };
                     high = { row: totalRows - 1, px: maxPx };
+                    didReset = true;
                 }
 
                 var span = (high.row - low.row) || 1;
@@ -2174,6 +2376,17 @@
                 if (frac < 0) frac = 0;
                 if (frac > 1) frac = 1;
                 var estimate = low.px + (high.px - low.px) * frac;
+
+                // Snapshot the inputs BEFORE the move; the settle callback completes
+                // the record with what actually happened.
+                var rec = { i: iterations, targetRow: targetRow, offset: offset,
+                            scrollHeight: container.scrollHeight,
+                            clientHeight: container.clientHeight,
+                            lowRow: low.row, lowPx: low.px,
+                            highRow: high.row, highPx: high.px,
+                            estimatePx: Math.round(estimate),
+                            bracketReset: didReset };
+                var tSettle = Date.now();
 
                 var beforeCl = ciSelectCluster(container, ciMountedRows());
                 var beforeKey = beforeCl ? (beforeCl.lo + '-' + beforeCl.hi) : '';
@@ -2186,6 +2399,19 @@
 
                 ciWaitForSettle(container, beforeKey, function (changed) {
                     try {
+                        // Record what the move actually achieved before any branch can
+                        // exit — a failing iteration is the one worth having in the log.
+                        if (trace.on) {
+                            var mr = ciMountedRows();
+                            var cl0 = ciSelectCluster(container, mr);
+                            rec.actualPx = Math.round(container.scrollTop);
+                            rec.mounted = mr.map(function (r) { return r.dataIndex; }).join(',');
+                            rec.clusterLo = cl0 ? cl0.lo : null;
+                            rec.clusterHi = cl0 ? cl0.hi : null;
+                            rec.changed = !!changed;
+                            rec.settleMs = Date.now() - tSettle;
+                            trace.step(rec);
+                        }
                         if (myToken !== _ciJumpToken) { finish(false, null, 'superseded'); return; }
                         if (userScrolled) { finish(false, null, 'user'); return; }
 
@@ -2260,11 +2486,19 @@
                 // Any throw here would otherwise escape to the click handler with the
                 // busy flag already set and no path to clear it.
                 console.error('[ACN] jump step threw:', err);
-                finish(false, null);
+                finish(false, null, 'threw');
             }
         }
 
-        attempt();
+        // Extremes resolve exactly; everything else goes through the settle loop.
+        // ciTryExtreme returns false when the target is not an extreme or when the
+        // offset cannot be derived yet, in which case the loop runs as before.
+        try {
+            if (!ciTryExtreme()) attempt();
+        } catch (e) {
+            console.error('[ACN] jump extreme probe threw:', e);
+            attempt();
+        }
     }
     // Maps normalized message text -> stable message uuid, for callers that only
     // have a DOM node to work from (bookmarks). Built lazily, cleared with the index.

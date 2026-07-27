@@ -375,6 +375,36 @@ in independent review.
 assumes zero alignment fails here instead of in production. If you regenerate the fixture,
 preserve that asymmetry — making it align at 0 would silently retire the check.
 
+### The third virtualized entry — a mock that can fail
+
+`Claude (virtualized, markdown API text)` exists because CI was green while the live site
+failed. The other two virtualized entries use prose that is byte-identical in the mock DOM
+and the GM fixture, so `ciDeriveRowOffset()` always succeeds and its failure path is
+unreachable — structurally the same "cannot fail" shape as the original v12.0 bug.
+
+This entry sets `gmFixture.markdownText`, giving the API side raw markdown
+(`**Question number 5**: ... \`case 5\``) against the DOM's rendered text. The offset
+therefore never derives, and the entry asserts what must remain true anyway: the jump
+gives up inside its iteration budget, never claims a resolution it did not make, and
+releases the busy flag.
+
+It also pins a **known defect** — unmatched DOM rows are appended as provisional
+questions, so 43 are listed where the index holds 40. The expectations encode current
+behaviour deliberately; when text matching is fixed those numbers must return to 40 and
+the `KNOWN DEFECT` assertion will fail loudly. That is the point of a characterisation
+test.
+
+### Tracing a jump
+
+```bash
+ACN_JUMP_TRACE=1 node tests/test-all-platforms.js --browser chromium
+```
+
+Sets `localStorage.acnJumpDebug` before the userscript runs and forwards its
+`[ACN jump]` lines to stdout, one per iteration, so a CI run can be diffed line-for-line
+against a log captured on live claude.ai with the same flag
+(`localStorage.setItem('acnJumpDebug','1')`, then reload).
+
 ### Why these assertions look paranoid
 
 An independent review lens **mutation-tested** the first version of these tests and proved
