@@ -1270,8 +1270,15 @@
         // to the full org list only when every candidate 404s.
         if (candidates.length) { cb(candidates); return; }
 
-        ciRequestJSON('https://claude.ai/api/organizations', function (err, orgs) {
-            if (err || !Array.isArray(orgs)) { cb(candidates); return; }
+        ciRequestJSON('https://claude.ai/api/organizations', function (err, orgs, status) {
+            if (err || !Array.isArray(orgs)) {
+                // Carry the HTTP status: discarding it made every logged-out or
+                // rate-limited session degrade with a generic reason that dodged the
+                // backoff classes, retrying /api/organizations every 15s
+                // (Codex R18 — third entry point into the same hole as R14/R16).
+                cb(candidates, err && status ? status : null);
+                return;
+            }
             cb(ciRankOrgs(orgs));
         });
     }
@@ -1646,11 +1653,12 @@
             _ciStatus = 'loading';
         }
 
-        ciResolveOrgCandidates(function (candidates) {
+        ciResolveOrgCandidates(function (candidates, orgStatus) {
             if (!candidates.length) {
                 if (_ciInFlightCid === cid && _ciInFlightGen === myGen) _ciInFlightCid = null;
                 if (myGen !== _ciLoadGen || ciGetConversationUuid() !== cid) { if (done) done(false); return; }
-                ciSetDegraded(cid, 'could not resolve organization UUID');
+                ciSetDegraded(cid, 'could not resolve organization UUID' +
+                                   (orgStatus ? ' (HTTP ' + orgStatus + ')' : ''));
                 if (done) done(false);
                 return;
             }
