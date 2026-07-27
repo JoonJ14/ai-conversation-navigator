@@ -3122,6 +3122,29 @@
                     return;
                 }
 
+                // 3b' — THE SESSION ANCHOR STORE. A target whose entire local
+                // neighbourhood is unmatchable (a paste-chip flanked by more chips or
+                // short duplicates) starves 3b — but anchors measured ANYWHERE this
+                // session (every scan and every jump harvests them) can still bracket
+                // it: equal-offset anchors either side pin the row exactly, by the same
+                // pigeonhole logic, at any distance. Exactness gate: the strict
+                // (anchors-only) inverse must name precisely this target — predicate-
+                // assisted guesses do not qualify for acceptance here.
+                var stored = ciResolveRowForPath(targetFullPathIdx);
+                if (stored && typeof stored.row === 'number' &&
+                    ciResolvePathForRowStrict(stored.row) === targetFullPathIdx) {
+                    var sEl = null;
+                    for (var sr = 0; sr < rows.length; sr++) {
+                        if (rows[sr].dataIndex === stored.row) { sEl = rows[sr]; break; }
+                    }
+                    if (sEl) { succeed(sEl, 'anchor-store'); return; }
+                    var maxPxS = Math.max(0, container.scrollHeight - container.clientHeight);
+                    moveAndArrive((totalRows > 1)
+                        ? maxPxS * (stored.row / (totalRows - 1)) : 0,
+                        'anchor-store->' + stored.row);
+                    return;
+                }
+
                 // 3c — nothing in the window matches anything. Shift one viewport
                 // toward the predicate's guess; after 2 such moves, fail honestly.
                 if (shifts++ >= 2) { finish(false, null, 'no-local-match'); return; }
