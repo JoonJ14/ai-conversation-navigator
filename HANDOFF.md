@@ -74,7 +74,25 @@ version bump to v12.0 goes in the merge commit (already `@version 12.0` in-file)
 **All 4 post-closure Codex comments addressed** (one was already fixed by #1).
 Final state: 374/374 both engines. Branch ready for owner merge — no known open items.
 
-## G. What comes next (in order)
+## G. What comes next — v12.1 plan (owner-agreed priority order, 2026-07-27)
+1. **Fixture batch (test debt — protects the 23-round review investment).** Rounds 14-23
+   + post-freeze fixes are suite-green but have NO dedicated fixtures. Build: (a)
+   localized unmatchable-cluster fixture (proves anchor-store arrival resolution, today
+   verified by construction only); (b) unmatchable-HEAD fixture (the live Q#1 chip shape);
+   (c) assistant-TAIL fixture (ciTryExtreme last-row branch, zero coverage); (d) GM-shim
+   failure fixtures (401/429/malformed-JSON -> backoff classes). Old-build-must-fail
+   discipline applies (DEC-027 methodology).
+2. **Small correctness:** Retry-After honoring for HTTP 429 (plumb response headers
+   through ciRequestJSON); tool-block representation in Export (toolChars already counts
+   toward context totals; exports show text only).
+3. **Reassess, don't build: §4.2 offset cache / §4.3 height learning.** The unmet
+   "repeat jump near-instant" criterion predates resolve-on-arrival (~330ms avg cold).
+   Measure a repeat jump LIVE first; if sub-400ms, close as satisfied-by-redesign.
+4. **Peek pane (spec §9, the headline feature):** the index holds every Q AND A — show
+   the exchange inline in the panel, zero scrolling, immune to virtualization. Deferred
+   until the jump worked; it does.
+
+### Original close-out sequencing (superseded by the plan above)
 1. **Owner live test** on the frozen branch (reinstall from raw URL, tip commit):
    Q#1 (chip), Q#75, one target in 205–228, Q#140, Q#147, one short-duplicate.
    `localStorage.setItem('acnJumpDebug','1')` for traces if anything misbehaves.
