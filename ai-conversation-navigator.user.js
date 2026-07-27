@@ -6345,14 +6345,28 @@
     var _bmMigratedGen = -1;
 
     // Occurrence identity for a provisional bookmark: the 0-based ordinal of its message
-    // among HUMAN turns. _questions is exactly that list, in path order, with provisional
-    // entries appended — so the element's position in it is the ordinal.
-    function _bmHumanOrdinalOf(el) {
-        if (!el) return -1;
+    // among turns OF ITS OWN SENDER. _questions is exactly that list for human turns, in
+    // path order, with provisional entries appended — so the element's position in it is
+    // the ordinal. There is no equivalent list for assistant turns that includes
+    // provisionals, so assistants return -1 and rely on the row route below instead.
+    function _bmSenderOrdinalOf(el, entityType) {
+        if (!el || entityType !== 'user-msg') return -1;
         for (var i = 0; i < _questions.length; i++) {
             if (_questions[i].element === el) return i;
         }
         return -1;
+    }
+
+    // The virtualizer's own row index for an element, or -1. Persisted on a provisional
+    // record so migration can re-resolve it after the index rebuild — this is what makes
+    // ASSISTANT provisionals migratable at all, since they have no provisional-aware
+    // ordinal list (Codex).
+    function _bmRowIndexOf(el) {
+        if (!el || !el.closest) return -1;
+        var rowEl = el.closest('[' + CI_ROW_ATTR + ']');
+        if (!rowEl) return -1;
+        var di = parseInt(rowEl.getAttribute(CI_ROW_ATTR), 10);
+        return isNaN(di) ? -1 : di;
     }
 
     // Resolves a provisional record to a uuid.
@@ -6366,10 +6380,27 @@
     function _bmUuidForProvisional(b) {
         var want = _normalizeCompare(b.pendingText || '');
         if (!want) return null;
-        if (typeof b.pendingOrdinal === 'number' && b.pendingOrdinal >= 0 && _ciFullPath) {
+        if (!_ciFullPath) return null;
+
+        // Route 1 — the virtualizer's own row index, re-resolved against the rebuilt path.
+        // The only route available to an ASSISTANT provisional, and the strongest one when
+        // the row is still mounted.
+        if (typeof b.pendingRow === 'number' && b.pendingRow >= 0) {
+            var rp = ciResolvePathForRowStrict(b.pendingRow);
+            if (rp !== null && _ciFullPath[rp] &&
+                _normalizeCompare(_ciFullPath[rp].text || '') === want) {
+                return _ciFullPath[rp].uuid || null;
+            }
+        }
+
+        // Route 2 — ordinal among turns of the record's OWN sender. An earlier version
+        // scanned human entries unconditionally, so an assistant record was compared
+        // against the wrong sequence entirely (Codex).
+        if (typeof b.pendingOrdinal === 'number' && b.pendingOrdinal >= 0) {
+            var wantSender = (b.pendingSender === 'ai-msg') ? 'assistant' : 'human';
             var seen = -1;
             for (var i = 0; i < _ciFullPath.length; i++) {
-                if (_ciFullPath[i].sender !== 'human') continue;
+                if (_ciFullPath[i].sender !== wantSender) continue;
                 seen++;
                 if (seen !== b.pendingOrdinal) continue;
                 if (_normalizeCompare(_ciFullPath[i].text || '') === want) {
@@ -6378,6 +6409,9 @@
                 break;   // ordinal exists but its text moved — do not guess from position
             }
         }
+
+        // Route 3 — the text map. Null when absent or ambiguous, which is why routes 1
+        // and 2 exist; a poisoned key would otherwise never resolve on any generation.
         return ciUuidForText(b.pendingText, null);
     }
 
@@ -6407,7 +6441,9 @@
             b.contentHash = uuid;
             b.msgUuid     = uuid;
             b.pendingText    = null;
+            b.pendingSender  = null;
             b.pendingOrdinal = -1;
+            b.pendingRow     = -1;
             saveBookmark(b);
             changed = true;
         }
@@ -6464,9 +6500,13 @@
                 // text. Cleared on migration, and never stored off Claude, where there
                 // are no uuids to migrate to.
                 pendingText: (!isUuid && ciIsClaudeChat()) ? text : null,
-                // Occurrence identity, so a REPEATED prompt can still be bound later;
-                // text alone is ambiguous and stays ambiguous forever.
-                pendingOrdinal: (!isUuid && ciIsClaudeChat()) ? _bmHumanOrdinalOf(entityEl) : -1
+                // Occurrence identity, so a REPEATED message can still be bound later;
+                // text alone is ambiguous and stays ambiguous forever. Sender is recorded
+                // because the ordinal is scoped to the sender's own sequence, and the row
+                // index is the only route an assistant provisional has.
+                pendingSender:  (!isUuid && ciIsClaudeChat()) ? entityType : null,
+                pendingOrdinal: (!isUuid && ciIsClaudeChat()) ? _bmSenderOrdinalOf(entityEl, entityType) : -1,
+                pendingRow:     (!isUuid && ciIsClaudeChat()) ? _bmRowIndexOf(entityEl) : -1
             };
             saveBookmark(bm);
             if (icon) icon.classList.add('acn-bm-active');
