@@ -1033,6 +1033,31 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                 // ciDeriveRowOffset hardcoded to 0 this must fail.
                 const firstJump = await page.evaluate(async () => {
                     const v = window.__mockVirtualization;
+                    // Distance from the CENTRE of the final mount window to the target
+                    // row. Restores the check lost when the text lookup moved to backing
+                    // data: querySelector('[data-index=N]') returned null when the row was
+                    // unmounted, so it doubled as a viewport assertion; rowText(i) reads
+                    // MESSAGES unconditionally and cannot. Bounded rather than membership,
+                    // because membership is exactly what raced on Windows — a correct jump
+                    // landed on [41..46] for target 38 (drift 5.5) while a jump that
+                    // resolves correctly but leaves the viewport at the top drifts 35.5.
+                    // Measured on the largest CONTIGUOUS run, not the whole set: the
+                    // mounted set includes the pinned tail, so spanning min..max of
+                    // [0,1,2,3,4,5,79] centres on 39.5 rather than 2.5 and the metric
+                    // becomes meaningless. Same rule the settle loop follows — reason
+                    // about the selected cluster, never the raw mounted set.
+                    const driftRows = (idx, target) => {
+                        if (!idx.length) return Infinity;
+                        const runs = [];
+                        let cur = [idx[0]];
+                        for (let k = 1; k < idx.length; k++) {
+                            if (idx[k] === idx[k - 1] + 1) cur.push(idx[k]);
+                            else { runs.push(cur); cur = [idx[k]]; }
+                        }
+                        runs.push(cur);
+                        const win = runs.reduce((a, b) => (b.length > a.length ? b : a));
+                        return Math.abs((win[0] + win[win.length - 1]) / 2 - target);
+                    };
                     v.scrollToFraction(1);
                     await new Promise(r => setTimeout(r, 300));
                     const before = v.mountedIndexes();
@@ -1062,7 +1087,11 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                     // is detached by the re-render that scrollIntoView triggers.
                     const zone = document.querySelector('[data-acn-role="zone"]');
                     const rawIdx = zone ? zone.getAttribute('data-acn-jump-resolved') : null;
-                    const resolvedIdx = rawIdx === null ? null : +rawIdx;
+                    // /^\d+$/ not `+rawIdx`: unary plus maps "" and whitespace to 0,
+                    // which is a PASSING index for the first-question test, so an empty
+                    // attribute would read as a correct resolution of row 0.
+                    const resolvedIdx = (rawIdx !== null && /^\d+$/.test(rawIdx.trim()))
+                        ? +rawIdx : null;
                     // Identify the resolved row from the mock's BACKING DATA, not from
                     // the DOM. The row is often already recycled out by the time this
                     // runs — see the rowText() comment in claude-virtualized.html.
@@ -1076,17 +1105,20 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                              resolvedDataIndex: resolvedIdx,
                              navTextWasQuestion1: /Question number 1\b/.test(wantText),
                              stillBusy: !!document.querySelector('[data-acn-jumping="true"]'),
-                             mountedNow: v.mountedIndexes() };
+                             mountedNow: v.mountedIndexes(),
+                             landingDrift: driftRows(v.mountedIndexes(), 0) };
                 });
                 assert('Jump RESOLVES question #1 from the bottom (not a neighbour)',
                     firstJump.ok && !firstJump.targetWasMountedAtClick &&
                     firstJump.resolvedAnything && firstJump.resolvedIsQuestion1 &&
                     firstJump.resolvedDataIndex === 0 &&
-                    firstJump.navTextWasQuestion1 && !firstJump.stillBusy,
+                    firstJump.navTextWasQuestion1 && !firstJump.stillBusy &&
+                    firstJump.landingDrift <= 15,
                     firstJump.ok
                         ? `unmounted@click=${!firstJump.targetWasMountedAtClick} ` +
                           `resolved=row ${firstJump.resolvedDataIndex} ` +
                           `isQ1=${firstJump.resolvedIsQuestion1} ` +
+                          `drift=${firstJump.landingDrift} ` +
                           `~${firstJump.elapsedMs}ms rows=[${firstJump.mountedNow}]`
                         : firstJump.reason);
 
@@ -1096,6 +1128,31 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                 // like success. A middle target has no such escape hatch.
                 const midJump = await page.evaluate(async () => {
                     const v = window.__mockVirtualization;
+                    // Distance from the CENTRE of the final mount window to the target
+                    // row. Restores the check lost when the text lookup moved to backing
+                    // data: querySelector('[data-index=N]') returned null when the row was
+                    // unmounted, so it doubled as a viewport assertion; rowText(i) reads
+                    // MESSAGES unconditionally and cannot. Bounded rather than membership,
+                    // because membership is exactly what raced on Windows — a correct jump
+                    // landed on [41..46] for target 38 (drift 5.5) while a jump that
+                    // resolves correctly but leaves the viewport at the top drifts 35.5.
+                    // Measured on the largest CONTIGUOUS run, not the whole set: the
+                    // mounted set includes the pinned tail, so spanning min..max of
+                    // [0,1,2,3,4,5,79] centres on 39.5 rather than 2.5 and the metric
+                    // becomes meaningless. Same rule the settle loop follows — reason
+                    // about the selected cluster, never the raw mounted set.
+                    const driftRows = (idx, target) => {
+                        if (!idx.length) return Infinity;
+                        const runs = [];
+                        let cur = [idx[0]];
+                        for (let k = 1; k < idx.length; k++) {
+                            if (idx[k] === idx[k - 1] + 1) cur.push(idx[k]);
+                            else { runs.push(cur); cur = [idx[k]]; }
+                        }
+                        runs.push(cur);
+                        const win = runs.reduce((a, b) => (b.length > a.length ? b : a));
+                        return Math.abs((win[0] + win[win.length - 1]) / 2 - target);
+                    };
                     v.scrollToFraction(0);
                     await new Promise(r => setTimeout(r, 300));
                     const items = Array.from(document.querySelectorAll('[data-acn-role="nav-item"]'));
@@ -1118,7 +1175,11 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                     }
                     const zone = document.querySelector('[data-acn-role="zone"]');
                     const rawIdx = zone ? zone.getAttribute('data-acn-jump-resolved') : null;
-                    const resolvedIdx = rawIdx === null ? null : +rawIdx;
+                    // /^\d+$/ not `+rawIdx`: unary plus maps "" and whitespace to 0,
+                    // which is a PASSING index for the first-question test, so an empty
+                    // attribute would read as a correct resolution of row 0.
+                    const resolvedIdx = (rawIdx !== null && /^\d+$/.test(rawIdx.trim()))
+                        ? +rawIdx : null;
                     // Backing data, not the DOM — the resolved row is commonly unmounted
                     // again before this line. Reading textContent here made the assertion
                     // machine-speed-dependent and failed all three Windows engines while
@@ -1131,16 +1192,18 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                              correctMessage: !!resolvedText &&
                                  new RegExp('Question number ' + targetOrdinal + '\\b').test(resolvedText),
                              stillBusy: !!document.querySelector('[data-acn-jumping="true"]'),
-                             rows: v.mountedIndexes() };
+                             rows: v.mountedIndexes(),
+                             landingDrift: driftRows(v.mountedIndexes(), expectRow) };
                 });
                 assert('Jump RESOLVES a mid-conversation question (not a neighbour)',
                     midJump.ok && !midJump.wasMountedAtClick && midJump.resolvedAnything &&
                     midJump.correctMessage &&
                     midJump.resolvedDataIndex === midJump.expectRow &&
-                    !midJump.stillBusy,
+                    !midJump.stillBusy &&
+                    midJump.landingDrift <= 15,
                     midJump.ok
                         ? `expected row ${midJump.expectRow}, resolved row ${midJump.resolvedDataIndex}, ` +
-                          `correctMsg=${midJump.correctMessage} ` +
+                          `correctMsg=${midJump.correctMessage} drift=${midJump.landingDrift} ` +
                           `~${midJump.elapsedMs}ms rows=[${midJump.rows}]`
                         : midJump.reason);
 

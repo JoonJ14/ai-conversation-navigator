@@ -394,6 +394,18 @@ behaviour deliberately; when text matching is fixed those numbers must return to
 the `KNOWN DEFECT` assertion will fail loudly. That is the point of a characterisation
 test.
 
+### Known coverage gap — `ciTryExtreme`'s last-row branch
+
+`ciTryExtreme()` special-cases the first and last rows to exact scroll positions. Only the
+**first**-row half is exercised. The mock has 80 messages with user turns on even indices,
+so the last row (79) is an assistant message, and Navigate only ever targets questions —
+`totalRows - 1` is unreachable from the panel. Confirmed by mutation: throwing inside that
+branch leaves the suite at 294/294.
+
+It is live code in production, reachable through assistant-targeted bookmark jumps. Closing
+the gap needs a fixture whose final row is a user turn, which changes turn counts across
+several assertions; it is recorded here rather than papered over.
+
 ### Tracing a jump
 
 ```bash

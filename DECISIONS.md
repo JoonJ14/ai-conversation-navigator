@@ -989,3 +989,16 @@ the one that actually failed.
 clean failure on the same runner, suspect crash isolation in the launcher rather than the
 code under test. The asymmetry is the clue — the flag was Chromium-only, and so was the
 cascade.
+
+### What the asymmetry did and did not prove, and how it was settled
+A review lens correctly objected that the Firefox/WebKit comparison proves the *cascade*
+is flag-attributable but not that the underlying renderer fault would be absent under
+supported multi-process Chromium — `--single-process` is an unsupported mode and faults
+exclusive to it are common. The decisive experiment is simply a Windows Chromium run
+without the flag.
+
+That has since run **twice, green both times** (`fde7ac2` and `349026f`, 9/9 checks,
+Windows Chromium ~5m53s). So the fault does not reproduce without the flag. Recorded
+because the objection was right on the evidence available at the time: removing a flag
+re-scopes a blast radius, and re-scoping is not diagnosis. The green runs are the
+diagnosis.

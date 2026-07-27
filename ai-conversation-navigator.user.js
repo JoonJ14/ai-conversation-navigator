@@ -1884,14 +1884,15 @@
         try { return localStorage.getItem('acnJumpDebug') === '1'; } catch (e) { return false; }
     }
 
-    function ciMakeTrace(targetFullPathIdx, totalRows) {
+    function ciMakeTrace(targetFullPathIdx) {
         var on = ciJumpDebugOn();
         var t0 = Date.now();
-        var data = { target: targetFullPathIdx, totalRows: totalRows,
+        var data = { target: targetFullPathIdx, totalRows: null,
                      iterations: [], exit: null, elapsedMs: 0 };
         function n(v) { return (v === null || v === undefined) ? -1 : Math.round(v); }
         return {
             on: on,
+            setTotalRows: function (v) { data.totalRows = v; },
             step: function (r) {
                 if (!on) return;
                 data.iterations.push(r);
@@ -2128,9 +2129,19 @@
         var finishedOnce = false;
         // Boxed so safeDone (defined before myToken is assigned) can read it later.
         var myTokenRef = { v: 0 };
+        // Constructed FIRST, before the container lookup, the visibility check and the
+        // row-count check. Those three exit through safeDone directly, so a trace built
+        // later cannot report them — and `if (!container)` logs nothing at all, making
+        // that failure invisible in both channels. Instrumentation that cannot report
+        // the failures occurring before it exists is instrumentation with a blind spot
+        // exactly where a jump is most likely to die early.
+        var trace = ciMakeTrace(targetFullPathIdx);
         function safeDone(ok, el, reason) {
             if (finishedOnce) return;
             finishedOnce = true;
+            // Every exit is traced here rather than in a finish() wrapper, so prologue
+            // exits are covered too. Idempotent on both sides.
+            try { trace.end(reason || (ok ? 'resolved' : 'failed')); } catch (e) {}
             // Always release OUR token's claim before handing back.
             try { orbSetJumpBusyFor(myTokenRef.v, false); } catch (e) {}
             try { done(ok, el, reason || null); } catch (e) {
@@ -2216,16 +2227,7 @@
         var high = { row: (totalRows || 1) - 1,
                      px: Math.max(0, container.scrollHeight - container.clientHeight) };
         var iterations = 0;
-        var trace = ciMakeTrace(targetFullPathIdx, totalRows);
-
-        // finish() is the single exit. Wrap it so every exit is traced with a reason;
-        // previously only 'superseded' and 'user' carried one, which is exactly the
-        // information a failing live log needs most.
-        var rawFinish = finish;
-        finish = function (ok, el, reason) {
-            trace.end(reason || (ok ? 'resolved' : 'failed'));
-            rawFinish(ok, el, reason);
-        };
+        trace.setTotalRows(totalRows);
 
         // ── Extremes are exact, never estimated ──────────────────────────────
         // Row 0 is scrollTop 0 and the last row is scrollTop max, by definition —
@@ -2246,6 +2248,11 @@
             if (!isFirst && !isLast) return false;
             var maxPx0 = Math.max(0, container.scrollHeight - container.clientHeight);
             var destPx = isFirst ? 0 : maxPx0;
+            // Counts against the budget. This performs a full scroll-and-settle, so on
+            // the fall-through path it has already spent one ~1050 ms cycle before
+            // attempt() starts; leaving it uncounted stretched the worst case from
+            // 8 x 1050 = 8400 ms to 9450 ms, past the 10 s bound test 21 asserts.
+            iterations++;
             var beforeCl0 = ciSelectCluster(container, ciMountedRows());
             var beforeKey0 = beforeCl0 ? (beforeCl0.lo + '-' + beforeCl0.hi) : '';
             var tS = Date.now();
@@ -2317,29 +2324,52 @@
                     var probeKeyCl = ciSelectCluster(container, ciMountedRows());
                     var probeKey = probeKeyCl ? (probeKeyCl.lo + '-' + probeKeyCl.hi) : '';
                     var tProbe = Date.now();
-                    var probeRows = ciMountedRows();
+                    var probeRowsBefore = ciMountedRows().map(function (r) {
+                        return r.dataIndex + (r.isUser ? 'u' : '');
+                    }).join(',');
                     ciMoveTo(container, Math.round(probePx));
                     ciWaitForSettle(container, probeKey, function (changed) {
                         // This branch is where a live failure most plausibly lives, so it
-                        // reports as loudly as the interpolating branch. Previously it
+                        // reports as loudly as the interpolating branch. It previously
                         // emitted nothing at all and a failing log looked empty.
-                        if (trace.on) {
-                            var cl1 = ciSelectCluster(container, ciMountedRows());
-                            trace.step({ i: iterations, targetRow: null, offset: offset,
-                                scrollHeight: container.scrollHeight,
-                                clientHeight: container.clientHeight,
-                                lowRow: low.row, lowPx: low.px,
-                                highRow: high.row, highPx: high.px,
-                                estimatePx: Math.round(probePx),
-                                actualPx: Math.round(container.scrollTop),
-                                mounted: probeRows.map(function (r) {
-                                    return r.dataIndex + (r.isUser ? 'u' : '');
-                                }).join(','),
-                                clusterLo: cl1 ? cl1.lo : null,
-                                clusterHi: cl1 ? cl1.hi : null,
-                                bracketReset: false, changed: changed,
-                                settleMs: Date.now() - tProbe,
-                                note: 'BLIND-PROBE offset=null ' + JSON.stringify(offDiag) });
+                        //
+                        // The try/catch is NOT decoration. This callback runs from rAF or
+                        // from the settle guard timer, outside any caller's try. Before
+                        // the trace existed the body was `function () { attempt(); }` and
+                        // attempt() guarded itself. Now geometry reads and JSON.stringify
+                        // run FIRST, and a throw there would skip attempt() entirely, so
+                        // finish() never runs and orbSetJumpBusyFor(token, false) — only
+                        // reachable through finish -> safeDone — never executes: the panel
+                        // stays dimmed and click-blocked until reload. Worse, it can only
+                        // happen when trace.on, i.e. exactly during a live debugging run.
+                        try {
+                            if (trace.on) {
+                                var mrAfter = ciMountedRows();
+                                var cl1 = ciSelectCluster(container, mrAfter);
+                                trace.step({ i: iterations, targetRow: null, offset: offset,
+                                    scrollHeight: container.scrollHeight,
+                                    clientHeight: container.clientHeight,
+                                    lowRow: low.row, lowPx: low.px,
+                                    highRow: high.row, highPx: high.px,
+                                    estimatePx: Math.round(probePx),
+                                    actualPx: Math.round(container.scrollTop),
+                                    // POST-move, matching the interpolating branch. These
+                                    // were pre-move while cluster/actualPx were post-move,
+                                    // so every line reported a cluster whose indices were
+                                    // absent from its own mounted set — one probe behind,
+                                    // and the final landing never reported at all.
+                                    mounted: mrAfter.map(function (r) {
+                                        return r.dataIndex + (r.isUser ? 'u' : '');
+                                    }).join(','),
+                                    mountedBefore: probeRowsBefore,
+                                    clusterLo: cl1 ? cl1.lo : null,
+                                    clusterHi: cl1 ? cl1.hi : null,
+                                    bracketReset: false, changed: changed,
+                                    settleMs: Date.now() - tProbe,
+                                    note: 'BLIND-PROBE offset=null ' + JSON.stringify(offDiag) });
+                            }
+                        } catch (e) {
+                            console.error('[ACN] jump probe trace threw:', e);
                         }
                         attempt();
                     });
