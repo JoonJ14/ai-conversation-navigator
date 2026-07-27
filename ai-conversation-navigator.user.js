@@ -1354,6 +1354,21 @@
         return '';
     }
 
+    // Approximate character weight of tool_use/tool_result payloads. Deliberately
+    // NOT merged into entry text (tool payloads would contaminate Navigate/Search
+    // and DOM matching — the documented scope decision) but they DO consume real
+    // context, and tool-heavy chats were materially undercounted (Codex R16 :1325).
+    function ciCountToolChars(msg) {
+        var n = 0, content = msg.content || [];
+        for (var i = 0; i < content.length; i++) {
+            var b = content[i];
+            if (b.type !== 'tool_use' && b.type !== 'tool_result') continue;
+            try { n += JSON.stringify(b.input || b.content || b).length; }
+            catch (e) { n += 200; }
+        }
+        return n;
+    }
+
     function ciCountBlockChars(msg, type) {
         var content = msg.content || [], n = 0;
         for (var i = 0; i < content.length; i++) {
@@ -1465,6 +1480,7 @@
                 // "count [aria-expanded] blocks x 600 tokens" heuristic — and that
                 // heuristic could only see mounted blocks anyway.
                 thinkingChars: ciCountBlockChars(path[p], 'thinking'),
+                toolChars: ciCountToolChars(path[p]),
                 truncated: !!path[p].truncated,
                 files:     path[p].files || [],
                 attachments: path[p].attachments || []
@@ -1509,14 +1525,18 @@
     // ── Fetch orchestration ─────────────────────────────────────
     // Tries candidate orgs in order. A 404 means "wrong org" and advances to the
     // next; any other failure is terminal and drops us to degraded mode.
-    function ciFetchWithOrgFallback(cid, candidates, idx, cb, exhaustedCb) {
+    function ciFetchWithOrgFallback(cid, candidates, idx, cb, exhaustedCb, lastStatus) {
         if (idx >= candidates.length) {
             // Every cheap candidate was rejected. A stale cached org (account
             // switched, org migrated) would otherwise dead-end here permanently,
             // since ciResolveOrgCandidates short-circuits before ever querying
             // /api/organizations when a cached value exists.
             if (exhaustedCb) { exhaustedCb(); return; }
-            cb(new Error('no org candidate accepted the conversation'), null);
+            // Carry the terminal status: all-orgs-403 is an AUTH failure, and the
+            // generic message dodged the backoff classes — mutation scans kept
+            // retrying org+conversation requests every 15s (Codex R16 :1536).
+            cb(new Error('no org candidate accepted the conversation' +
+                         (lastStatus ? ' (HTTP ' + lastStatus + ')' : '')), null);
             return;
         }
         var org = candidates[idx];
@@ -1532,7 +1552,7 @@
                 return;
             }
             if (status === 404 || status === 403) {
-                ciFetchWithOrgFallback(cid, candidates, idx + 1, cb, exhaustedCb);
+                ciFetchWithOrgFallback(cid, candidates, idx + 1, cb, exhaustedCb, status);
                 return;
             }
             cb(err, null);
@@ -1701,7 +1721,7 @@
         var n = 0;
         for (var i = 0; i < _ciFullPath.length; i++) {
             var e = _ciFullPath[i];
-            n += (e.text || '').length;
+            n += (e.text || '').length + (e.toolChars || 0);
             // "summarize this" + an uploaded document consumes the document's context
             // too. When the entry's text came from the message body, attachment
             // bodies are ADDITIONAL content; when the text IS the attachment
@@ -3528,8 +3548,19 @@
             // (Codex R7 :3417) — compare those against the entry their ROW resolves
             // to, the same identity path the user-row edit check uses.
             if (t.length >= 60) {
-                if (ciMatchRowToPath(rows[i]) === null) {
+                var mp = ciMatchRowToPath(rows[i]);
+                if (mp === null) {
                     sig += rows[i].dataIndex + ':' + rawLen + ';';
+                } else if (_ciFullPath[mp] &&
+                           rawLen > ((_ciFullPath[mp].text || '').length * 1.3 + 200)) {
+                    // PREFIX MATCH IS NOT ENOUGH: a refetch that captured a partial
+                    // response (>=120 normalized chars) keeps prefix-matching the
+                    // still-growing live one, so nothing ever signalled and the index
+                    // kept the truncated answer (Codex R16 :3532). Rendered text runs
+                    // longer than raw markdown, hence the generous slack — this only
+                    // fires on substantial growth, and the two-scan guard still
+                    // prevents refetching mid-stream.
+                    sig += 'g' + rows[i].dataIndex + ':' + rawLen + ';';
                 }
                 continue;
             }
@@ -6212,6 +6243,24 @@
         return false;
     }
 
+    // Conversation-level sender ordinal for a mounted element. On virtualized
+    // Claude the mounted list index is 0-3, NOT the ordinal contentHash was built
+    // with — so a pre-v12 bookmark for a later turn could never legacy-match even
+    // while that exact turn was mounted, and the uuid migration was never reached
+    // (Codex R16 :6309).
+    function _bmPathOrdinal(el, sender, fallbackIdx) {
+        if (!ciIsClaudeChat() || !ciIsReady() || !_ciFullPath) return fallbackIdx;
+        var uuid = ciUuidForText(sender === 'human' ? _readMessageText(el) : _readAIText(el), el);
+        if (!uuid) return fallbackIdx;
+        var ord = 0;
+        for (var i = 0; i < _ciFullPath.length; i++) {
+            if (_ciFullPath[i].sender !== sender) continue;
+            if (_ciFullPath[i].uuid === uuid) return ord;
+            ord++;
+        }
+        return fallbackIdx;
+    }
+
     function injectBookmarkIcons() {
         // The guard below compares the RECORDED identity, not merely "has an icon".
         // Under recycling React reuses the same DOM node for a different message,
@@ -6233,16 +6282,7 @@
         // (Codex :5868). Row identity resolves the true ordinal; mounted-window
         // index remains the non-indexed fallback.
         function pathOrdinal(el, sender, fallbackIdx) {
-            if (!ciIsClaudeChat() || !ciIsReady() || !_ciFullPath) return fallbackIdx;
-            var uuid = ciUuidForText(sender === 'human' ? _readMessageText(el) : _readAIText(el), el);
-            if (!uuid) return fallbackIdx;
-            var ord = 0;
-            for (var i = 0; i < _ciFullPath.length; i++) {
-                if (_ciFullPath[i].sender !== sender) continue;
-                if (_ciFullPath[i].uuid === uuid) return ord;
-                ord++;
-            }
-            return fallbackIdx;
+            return _bmPathOrdinal(el, sender, fallbackIdx);
         }
         Array.from(getUserMessages()).forEach(function (el, idx) {
             inject(el, pathOrdinal(el, 'human', idx), 'user-msg', _readMessageText(el));
@@ -6295,7 +6335,8 @@
         // bookmarked, which is why these records are migrated on sight below.
         if (!targetEl) {
             for (i = 0; i < els.length; i++) {
-                if (contentHash(textOf(els[i]), i) === bookmark.contentHash) { targetEl = els[i]; break; }
+                var ordC = _bmPathOrdinal(els[i], isUser ? 'human' : 'assistant', i);
+                if (contentHash(textOf(els[i]), ordC) === bookmark.contentHash) { targetEl = els[i]; break; }
             }
         }
 
@@ -6303,10 +6344,10 @@
         if (!targetEl) {
             for (i = 0; i < els.length; i++) {
                 // Both pre-v12.0 shapes: hashed before the icon existed, and hashed
-                // after it was injected. Evaluating only one shape here while
-                // createBookmarkIcon evaluated the other meant each recognised records
-                // the other could not — the icon showed active but the jump failed.
-                if (_bmMatchesLegacy(bookmark, els[i], i)) { targetEl = els[i]; break; }
+                // after it was injected. The ordinal must be the CONVERSATION one —
+                // legacy hashes were built with it, not the mounted-window index.
+                var ordL = _bmPathOrdinal(els[i], isUser ? 'human' : 'assistant', i);
+                if (_bmMatchesLegacy(bookmark, els[i], ordL)) { targetEl = els[i]; break; }
             }
         }
 
