@@ -4321,12 +4321,19 @@
                 url: 'https://claude.ai/api/organizations/' + uuid + '/usage',
                 headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
                 onload: function (r2) {
+                    // Responses are scoped to the org they were REQUESTED for: a slow
+                    // response for cookie-org B landing after validated-org A's request
+                    // overwrote A's fresh data and the wrong quota displayed for the
+                    // whole cache interval (Codex R21). _usageOrgUuid always names the
+                    // latest requested org, so a mismatched response is stale by
+                    // definition and is dropped silently.
+                    if (_usageOrgUuid !== uuid) return;
                     try {
                         var data = JSON.parse(r2.responseText);
                         callback(parseUsageFromJSON(data));
                     } catch (e) { callback(null); }
                 },
-                onerror: function () { callback(null); }
+                onerror: function () { if (_usageOrgUuid === uuid) callback(null); }
             });
         }
 
