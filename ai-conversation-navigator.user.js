@@ -1568,9 +1568,15 @@
 
     // Full org list, used only after the cheap candidates have all been rejected.
     function ciFetchFromAllOrgs(cid, tried, cb) {
-        ciRequestJSON('https://claude.ai/api/organizations', function (err, orgs) {
+        ciRequestJSON('https://claude.ai/api/organizations', function (err, orgs, status) {
             if (err || !Array.isArray(orgs)) {
-                cb(new Error('no org candidate accepted the conversation'), null);
+                // Status rides the error so the backoff can classify it — the FOURTH
+                // entry point of the same hole (R14, R16, R18): this fallback runs when
+                // cheap candidates existed but were all rejected, and a 401/403/429
+                // here degraded with the generic message and retried every 15s
+                // (Codex R19).
+                cb(new Error('no org candidate accepted the conversation' +
+                             (err && status ? ' (HTTP ' + status + ')' : '')), null);
                 return;
             }
             var ranked = ciRankOrgs(orgs).filter(function (u) { return tried.indexOf(u) === -1; });
