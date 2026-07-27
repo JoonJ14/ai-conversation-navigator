@@ -3266,6 +3266,16 @@
         // into the wrong conversation.
         _ciRenderable     = null;
         ciResetAnchors();
+        // Conversation-scoped runtime state must not leak across a switch
+        // (post-closure Codex, two findings):
+        //  - _sseTokenData carried chat A's cumulative thinking into chat B when the
+        //    navigation was not SPA-hooked, inflating B's context estimate and caching
+        //    A's totals under B. resetTurnCounter() owns that state.
+        //  - _ciLastAsstMismatch let chat B inherit A's two-scan stability signature;
+        //    a same-shaped first mismatch in B was instantly treated as settled,
+        //    permitting a premature refetch of a still-streaming answer.
+        try { resetTurnCounter(); } catch (e) {}
+        _ciLastAsstMismatch = '';
         _ciConversationId = null;
         _ciStatus         = 'idle';
         _ciDegradedReason = '';
@@ -7059,9 +7069,20 @@
         // Index-backed: the active path is already in conversation order and
         // covers the whole conversation, so no positional sort is needed.
         if (ciIsClaudeChat() && ciIsReady() && _ciFullPath && _ciFullPath.length) {
+            // Bind mounted elements by row identity: element:null on every entry made
+            // each conversation-map segment click a silent no-op on indexed chats
+            // (post-closure Codex). Unmounted entries carry srcIndex — the PATH index —
+            // which _sumScrollToElement routes through the jump bridge.
+            var tlByPath = {};
+            var tlRows = ciMountedRows();
+            for (i = 0; i < tlRows.length; i++) {
+                var tp = ciResolvePathForRowStrict(tlRows[i].dataIndex);
+                if (tp === null) tp = ciMatchRowToPath(tlRows[i]);
+                if (tp !== null) tlByPath[tp] = ciMessageNodeWithin(tlRows[i].el);
+            }
             for (i = 0; i < _ciFullPath.length; i++) {
                 all.push({
-                    element:  null,
+                    element:  tlByPath[i] || null,
                     text:     _ciFullPath[i].text || '',
                     type:     _ciFullPath[i].sender === 'human' ? 'user' : 'ai',
                     srcIndex: i
@@ -7457,8 +7478,24 @@
         return wrapper;
     }
 
-    function _sumScrollToElement(el) {
-        if (!el) return;
+    function _sumScrollToElement(el, pathIdx) {
+        if (!el) {
+            // Unmounted indexed entry: route through the same jump bridge Search and
+            // Bookmarks use, instead of silently doing nothing.
+            if (typeof pathIdx === 'number' && ciIsClaudeChat() && ciIsReady() &&
+                _ciFullPath && pathIdx >= 0 && pathIdx < _ciFullPath.length) {
+                ciJumpToFullPathIndex(pathIdx, function (ok, jel, reason) {
+                    if (ok && jel) {
+                        orbMarkJumpTarget(jel);
+                        jel.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+                        orbFlashElement(jel);
+                    } else if (reason !== 'superseded' && reason !== 'user') {
+                        showToast('That message is not currently rendered — scroll toward it and try again');
+                    }
+                });
+            }
+            return;
+        }
         try {
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             var prev = el.style.outline;
@@ -7621,7 +7658,7 @@
                         subEl.addEventListener('click', function (e) {
                             e.stopPropagation();
                             var firstMsg = c.messages && c.messages[0];
-                            if (firstMsg) _sumScrollToElement(firstMsg.element);
+                            if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.srcIndex);
                         });
                     })(child);
                     // Highlight corresponding snapshot messages on hover
@@ -7640,7 +7677,7 @@
             (function (s) {
                 segEl.addEventListener('click', function () {
                     var firstMsg = s.messages && s.messages[0];
-                    if (firstMsg) _sumScrollToElement(firstMsg.element);
+                    if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.srcIndex);
                 });
             })(seg);
             // For segments without sub-segments, hovering the block highlights all its messages
