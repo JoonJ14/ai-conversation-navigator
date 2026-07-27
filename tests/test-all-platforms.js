@@ -203,25 +203,18 @@ const PLATFORMS = [
         mockFile: 'claude-virtualized.html',
         hostname: 'claude.ai',
         pathname: '/chat/33333333-3333-4333-8333-333333333333',
-        // KNOWN DEFECT, recorded not hidden: this entry lists 43 questions, not 40.
-        // The index holds 40 human turns, but the live-message merge compares mounted
-        // DOM rows against the index BY TEXT to decide which are new — and when that
-        // comparison fails, all 3 mounted user rows are appended as "provisional"
-        // messages the API supposedly does not know about. So the same text-matching
-        // failure that breaks the jump ALSO duplicates whichever questions happen to be
-        // on screen, and the duplicate set changes as the user scrolls.
-        //
-        // The counts below are the CURRENT behaviour, so this is a characterisation
-        // test: when the root cause is fixed these expectations must be changed back to
-        // 40 and the assertion below will fail loudly, which is the point.
-        expectedMessages: 43,
-        listedTurnsOverride: 43,
+        // Was 43 with listedTurnsOverride while the live-merge compared by
+        // _normalizeKey only: mounted markdown questions could not match their own
+        // index entries and were appended as provisionals (the characterisation test
+        // that guarded this predicted its own obsolescence — the fix reverts to 40).
+        // Codex round-1 P1 also identified the worse consequence: the mismatch kept
+        // _ciNeedsResync() refetching the multi-MB conversation every cooldown.
+        expectedMessages: 40,
         expectedAccent: '#d97706',
         expectedMode: 'orbital',
         virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
         indexBacked: true,
         offsetUnderivable: true,   // suppresses the jump-resolves assertions; see below
-        knownProvisionalDuplicates: 3,
         gmFixture: {
             totalMessages: 80,
             conversationUuid: '33333333-3333-4333-8333-333333333333',

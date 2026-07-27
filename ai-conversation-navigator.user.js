@@ -2939,8 +2939,25 @@
     // have a DOM node to work from (bookmarks). Built lazily, cleared with the index.
     var _ciTextToUuid = null;
 
-    function ciUuidForText(text) {
+    // `el`, when given, disambiguates DUPLICATE texts: the text map deliberately
+    // keeps only the first uuid, so twin messages got one identity and a bookmark on
+    // the second twin jumped to the first (Codex round-1 P2). A mounted element's ROW
+    // resolves to its exact path entry regardless of what the text says.
+    function ciUuidForText(text, el) {
         if (!ciIsReady() || !_ciFullPath) return null;
+        if (el && el.closest) {
+            var rowEl = el.closest('[' + CI_ROW_ATTR + ']');
+            if (rowEl) {
+                var di = parseInt(rowEl.getAttribute(CI_ROW_ATTR), 10);
+                if (!isNaN(di)) {
+                    var p = ciResolvePathForRowStrict(di);
+                    if (p === null && _ciRenderable && di < _ciRenderable.length) {
+                        p = _ciRenderable[di];
+                    }
+                    if (p !== null && _ciFullPath[p]) return _ciFullPath[p].uuid;
+                }
+            }
+        }
         if (!_ciTextToUuid) {
             _ciTextToUuid = {};
             for (var i = 0; i < _ciFullPath.length; i++) {
@@ -3157,13 +3174,19 @@
     function _ciBindMountedElements(questions) {
         var mounted = Array.from(getUserMessages());
         if (!mounted.length) return;
+        // Both normalizers: the index holds RAW MARKDOWN, the DOM holds RENDERED
+        // text, so _normalizeKey alone never matched a markdown-bearing question and
+        // its element stayed null even while mounted.
         var byKey = {};
         for (var i = 0; i < mounted.length; i++) {
             var t = _readMessageText(mounted[i]);
-            if (t) byKey[_normalizeKey(t)] = mounted[i];
+            if (!t) continue;
+            byKey[_normalizeKey(t)] = mounted[i];
+            byKey[_normalizeCompare(t)] = mounted[i];
         }
         for (var j = 0; j < questions.length; j++) {
-            var el = byKey[_normalizeKey(questions[j].text)];
+            var el = byKey[_normalizeKey(questions[j].text)] ||
+                     byKey[_normalizeCompare(questions[j].text)];
             questions[j].element = el || null;
         }
     }
@@ -3177,15 +3200,23 @@
         var mounted = Array.from(getUserMessages());
         if (!mounted.length) return false;
 
+        // Markdown-insensitive membership, matching the jump and bookmark paths.
+        // With _normalizeKey alone, a mounted question whose API text carries markdown
+        // never matched its own index entry: it was appended as a provisional
+        // duplicate AND _ciNeedsResync() kept refetching the multi-megabyte
+        // conversation every cooldown, indefinitely (Codex round-1 P1).
         var known = {};
-        for (var i = 0; i < questions.length; i++) known[_normalizeKey(questions[i].text)] = true;
+        for (var i = 0; i < questions.length; i++) {
+            known[_normalizeKey(questions[i].text)] = true;
+            known[_normalizeCompare(questions[i].text)] = true;
+        }
 
         var appended = false;
         for (var j = 0; j < mounted.length; j++) {
             var text = _readMessageText(mounted[j]);
             if (!text) continue;
             var key = _normalizeKey(text);
-            if (known[key]) continue;
+            if (known[key] || known[_normalizeCompare(text)]) continue;
             known[key] = true;
             questions.push({
                 uuid:        null,
@@ -5349,7 +5380,8 @@
                     labelText: 'A#' + aiSeq,
                     isAI:      true,
                     qObj:      null,
-                    uuid:      _ciFullPath[fp].uuid
+                    uuid:      _ciFullPath[fp].uuid,
+                    pathIndex: fp
                 });
             }
         } else if (typeof _aiResponses !== 'undefined') {
@@ -5378,8 +5410,16 @@
             return;
         }
 
-        // Sort all matches by DOM position
+        // Sort by conversation position. Under virtualization almost every indexed
+        // match has element:null, so the DOM comparator returned 0 for them and the
+        // list stayed in concatenation order — all questions, then all answers
+        // (Codex round-1 P2). Path position is authoritative when either side has it.
         allMatches.sort(function (a, b) {
+            var ap = a.qObj ? a.qObj.pathIndex : a.pathIndex;
+            var bp = b.qObj ? b.qObj.pathIndex : b.pathIndex;
+            if (typeof ap === 'number' && typeof bp === 'number' && ap !== bp) {
+                return ap - bp;
+            }
             if (!a.element || !b.element) return 0;
             var pos = a.element.compareDocumentPosition(b.element);
             if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
@@ -5453,6 +5493,30 @@
                         }
                     }
                     if (!target) {
+                        // Unmounted assistant match: resolve its uuid to a path index
+                        // and use the jump bridge — the settle loop supports assistant
+                        // rows. Toast only when even that cannot resolve (Codex P1).
+                        var jp = null;
+                        if (m.uuid && ciIsReady() && _ciFullPath) {
+                            if (typeof m.pathIndex === 'number') jp = m.pathIndex;
+                            else {
+                                for (var pi = 0; pi < _ciFullPath.length; pi++) {
+                                    if (_ciFullPath[pi].uuid === m.uuid) { jp = pi; break; }
+                                }
+                            }
+                        }
+                        if (jp !== null) {
+                            ciJumpToFullPathIndex(jp, function (ok, el2, reason) {
+                                if (ok && el2) {
+                                    orbMarkJumpTarget(el2);
+                                    el2.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+                                    orbFlashElement(el2);
+                                } else if (reason !== 'superseded' && reason !== 'user') {
+                                    showToast('That message is not currently rendered — scroll toward it and try again');
+                                }
+                            });
+                            return;
+                        }
                         showToast('That message is not currently rendered — scroll toward it and try again');
                         return;
                     }
@@ -5713,7 +5777,7 @@
     // uuid; falls back to the legacy position-dependent content hash on platforms
     // (or conversations) where no index is available.
     function _bmEntityId(el, idx, text) {
-        return ciUuidForText(text) || contentHash(text, idx);
+        return ciUuidForText(text, el) || contentHash(text, idx);
     }
 
     // Pre-v12.0 records hashed the RAW textContent. v12.0 routes user-message text
@@ -7694,6 +7758,29 @@
                 }
                 lines.push('');
                 lines.push('**Attachments:** ' + names.join(', '));
+            }
+            // attachments[] is a separate channel from files[] — large pastes live in
+            // attachments[].extracted_content and were silently omitted from a file
+            // labelled as complete API history (Codex round-1 P1). ciExtractText
+            // already returns extracted_content when the message has NO text block, so
+            // only emit it here when it is NOT already the body.
+            if (m.attachments && m.attachments.length) {
+                for (var at = 0; at < m.attachments.length; at++) {
+                    var att = m.attachments[at];
+                    var body = att.extracted_content && att.extracted_content.trim();
+                    if (body && body !== (m.text || '').trim()) {
+                        lines.push('');
+                        lines.push('**Attached content' +
+                                   (att.file_name ? ' (' + att.file_name + ')' : '') + ':**');
+                        lines.push('');
+                        lines.push('```');
+                        lines.push(body);
+                        lines.push('```');
+                    } else if (!body && att.file_name) {
+                        lines.push('');
+                        lines.push('**Attachment:** ' + att.file_name);
+                    }
+                }
             }
             lines.push('');
             lines.push('---');
