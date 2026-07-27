@@ -7277,7 +7277,8 @@
                     var preview = rawText.substring(0, 60).replace(/\n/g, ' ');
                     if (preview.length === 60) preview += '...';
                     var label = (lang ? lang.toUpperCase() + ': ' : '') + preview;
-                    codeBlocks.push({ label: label, element: pre, msgIndex: msgIndex, pathIdx: pathIdx });
+                    codeBlocks.push({ label: label, element: pre, msgIndex: msgIndex,
+                                      pathIdx: pathIdx, elKey: _sumElKey(pre) });
                 });
             } catch (e) {}
 
@@ -7291,7 +7292,8 @@
                         extMatch.forEach(function (fname) {
                             if (!seenFiles[fname]) {
                                 seenFiles[fname] = true;
-                                files.push({ label: fname, element: a, msgIndex: msgIndex, pathIdx: pathIdx });
+                                files.push({ label: fname, element: a, msgIndex: msgIndex,
+                                             pathIdx: pathIdx, elKey: _sumElKey(a) });
                             }
                         });
                     }
@@ -7348,7 +7350,8 @@
                     text:    _ciFullPath[i].text || '',
                     type:    _ciFullPath[i].sender === 'human' ? 'user' : 'ai',
                     // null for entries with no virtualizer row — see the aiMsgs build.
-                    pathIdx: ciEntryRenders(_ciFullPath[i]) ? i : null
+                    pathIdx: ciEntryRenders(_ciFullPath[i]) ? i : null,
+                    elKey:   _sumElKey(tlByPath[i] || null)
                 });
             }
             all.forEach(function (m, idx) { m.globalIdx = idx; });
@@ -7356,10 +7359,12 @@
         }
 
         questions.forEach(function (q) {
-            all.push({ element: q.element, text: q.text || '', type: 'user' });
+            all.push({ element: q.element, text: q.text || '', type: 'user',
+                       elKey: _sumElKey(q.element) });
         });
         aiResponses.forEach(function (r) {
-            all.push({ element: r.element, text: r.text || '', type: 'ai' });
+            all.push({ element: r.element, text: r.text || '', type: 'ai',
+                       elKey: _sumElKey(r.element) });
         });
 
         // compareDocumentPosition returns DOCUMENT_POSITION_DISCONNECTED for
@@ -7768,6 +7773,18 @@
     // non-rendering entry (no path index, no row), which would make the whole segment
     // inert; the segment still means "jump to the start of this stretch", so fall
     // forward to the first member that is reachable.
+    // Fingerprint of an element's OWN rendered text, captured when a summary is built and
+    // re-checked on click. This is the only staleness signal available when there is no
+    // index to re-resolve against — a DEGRADED Claude session, where _sumIndexStamp and
+    // ciIndexStamp() are both null so the generation guard compares equal and passes, and
+    // isConnected cannot help because a recycled row is still connected (Codex, and
+    // independently the blast-radius lens). Computed from the element both times, never
+    // from API text: the two differ (rendered vs raw markdown).
+    function _sumElKey(el) {
+        if (!el) return null;
+        return _normalizeCompare((el.textContent || '').trim()).substring(0, 200);
+    }
+
     function _sumFirstJumpable(msgs) {
         if (!msgs || !msgs.length) return null;
         for (var i = 0; i < msgs.length; i++) {
@@ -7776,7 +7793,7 @@
         return msgs[0];
     }
 
-    function _sumScrollToElement(el, pathIdx) {
+    function _sumScrollToElement(el, pathIdx, elKey) {
         // A summary is a SNAPSHOT of one index generation, and the panel outlives it.
         // If the conversation changed underneath, or an edit/regenerate resync rebuilt
         // the index, then BOTH halves of every item are stale: the cached element points
@@ -7801,6 +7818,13 @@
             // resolved message is therefore kept; anything else (detached, or recycled
             // into a different message) is replaced by the message node.
             el = (live && el && live.contains(el)) ? el : live;
+        } else if (el && ciIsClaudeChat() && elKey && _sumElKey(el) !== elKey) {
+            // Claude with no usable index (degraded session, or a summary built from the
+            // DOM fallback). Nothing can re-resolve the target, and isConnected passes for
+            // a RECYCLED row — so the node's own text is the only evidence. It changed,
+            // meaning this node now shows a different message.
+            showToast('Summary is out of date — regenerate it to jump');
+            return;
         } else if (el && el.isConnected === false) {
             el = null;
         }
@@ -7989,7 +8013,7 @@
                         subEl.addEventListener('click', function (e) {
                             e.stopPropagation();
                             var firstMsg = _sumFirstJumpable(c.messages);
-                            if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx);
+                            if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx, firstMsg.elKey);
                         });
                     })(child);
                     // Highlight corresponding snapshot messages on hover
@@ -8008,7 +8032,7 @@
             (function (s) {
                 segEl.addEventListener('click', function () {
                     var firstMsg = _sumFirstJumpable(s.messages);
-                    if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx);
+                    if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx, firstMsg.elKey);
                 });
             })(seg);
             // For segments without sub-segments, hovering the block highlights all its messages
@@ -8145,7 +8169,7 @@
                 // from an unmounted response carry element:null, and calling the scroll
                 // helper without the index made every one of them a silent no-op even
                 // though the index can jump straight to its message.
-                item.addEventListener('click', function () { _sumScrollToElement(cb.element, cb.pathIdx); });
+                item.addEventListener('click', function () { _sumScrollToElement(cb.element, cb.pathIdx, cb.elKey); });
                 body.appendChild(item);
             });
         }
@@ -8156,7 +8180,7 @@
             inventory.files.slice(0, 10).forEach(function (f) {
                 var item = createElement('div', { className: 'acn-code-item', textContent: f.label });
                 if (f.element || typeof f.pathIdx === 'number') {
-                    item.addEventListener('click', function () { _sumScrollToElement(f.element, f.pathIdx); });
+                    item.addEventListener('click', function () { _sumScrollToElement(f.element, f.pathIdx, f.elKey); });
                 }
                 body.appendChild(item);
             });
