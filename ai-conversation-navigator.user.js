@@ -3276,6 +3276,7 @@
         //    permitting a premature refetch of a still-streaming answer.
         try { resetTurnCounter(); } catch (e) {}
         _ciLastAsstMismatch = '';
+        _ciResyncedAsstSig  = '';
         _ciConversationId = null;
         _ciStatus         = 'idle';
         _ciDegradedReason = '';
@@ -3619,6 +3620,9 @@
     // consecutive scans counts — a stream changes length; a settled regeneration
     // does not.
     var _ciLastAsstMismatch = '';
+    // Signature that has already caused a resync. Guards against re-downloading the
+    // payload forever on a mismatch a refetch cannot fix. Per-conversation.
+    var _ciResyncedAsstSig = '';
     function _ciAssistantStale() {
         if (!ciIsReady() || !_ciFullPath) return false;
         var rows = ciMountedRows(), sig = '', i;
@@ -3700,7 +3704,21 @@
             if (at2 && t !== at2) sig += 's' + rows[i].dataIndex + ':' + rawLen + ';';
         }
         if (!sig) { _ciLastAsstMismatch = ''; return false; }
-        if (sig === _ciLastAsstMismatch) return true;
+        // A signature we have ALREADY refetched on is no longer evidence of staleness —
+        // it is evidence the refetch could not resolve it. Rendered tool output appears
+        // in DOM text but not in the API's text blocks (deliberately: see ciExtractText),
+        // so a tool/artifact-bearing answer mismatches BY CONSTRUCTION and the growth
+        // disjunct above has no toolChars guard. Without this, the resync fires, succeeds,
+        // observes the same mismatch, and re-downloads the whole payload every cooldown
+        // FOREVER on a completely idle page — the exact cost the failure backoff was added
+        // to prevent, and unreachable from there because this loop is driven by SUCCESSES,
+        // which never enter the failure classifier.
+        //
+        // One refetch per DISTINCT signature: real staleness changes the signature (new
+        // row, new length) and is still resynced promptly; a permanent mismatch is
+        // resynced exactly once and then left alone.
+        if (sig === _ciResyncedAsstSig) return false;
+        if (sig === _ciLastAsstMismatch) { _ciResyncedAsstSig = sig; return true; }
         _ciLastAsstMismatch = sig;
         return false;
     }
@@ -3764,9 +3782,24 @@
             var degradedRetryDue = _ciStatus === 'degraded' &&
                 (Date.now() - _ciLastRefetchAt) >
                     Math.max(CI_REFETCH_COOLDOWN_MS, _ciRetryDelayMs);
-            if (_ciStatus === 'idle' ||
-                _ciConversationId !== ciGetConversationUuid() ||
-                degradedRetryDue) {
+            // A load already in flight for THIS conversation will rescan from its own
+            // completion callback, so re-entering here is not merely redundant — it is
+            // unbounded synchronous recursion. ciLoadIndex invokes `done` SYNCHRONOUSLY
+            // on its in-flight early return, and _ciConversationId is assigned only on
+            // success or degrade, so it stays null for the whole fetch window and the
+            // condition below stays true. Second scan -> ciLoadIndex -> done(false) ->
+            // scanConversation -> ciLoadIndex -> ... until RangeError, which escapes
+            // scanConversation so not even the DOM fallback below runs.
+            //
+            // CI never saw it because the fixture answers in 5ms; the live figure is
+            // ~2.1s against a 500ms mutation debounce, so a second scan lands inside the
+            // window on essentially every load and every conversation switch.
+            var ciLoadInFlight = _ciInFlightCid !== null &&
+                                 _ciInFlightCid === ciGetConversationUuid();
+            if (!ciLoadInFlight &&
+                (_ciStatus === 'idle' ||
+                 _ciConversationId !== ciGetConversationUuid() ||
+                 degradedRetryDue)) {
                 if (degradedRetryDue) _ciLastRefetchAt = Date.now();
                 ciLoadIndex(false, function (ok) {
                     // Rescan on failure too: the degraded banner otherwise stayed on
@@ -7461,9 +7494,11 @@
         // while the map covered all 147 — internally inconsistent and truncated
         // (Codex :6474, P1). element stays null for unmounted entries; the hover
         // highlight degrades gracefully.
-        // Stamp the generation BEFORE building, so every path index handed to the
-        // rendered panel is attributable to exactly this conversation and index gen.
-        _sumIndexStamp = ciIndexStamp();
+        // Captured BEFORE building so every path index in the result is attributable to
+        // exactly this conversation and index generation. Travels on the returned data;
+        // renderSummaryResults is what commits it, because only a render puts these
+        // indices somewhere the user can click.
+        var genStamp = ciIndexStamp();
 
         var aiMsgs;
         if (ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
@@ -7506,11 +7541,12 @@
         }
 
         return {
-            map:       _sumBuildConversationMap(_questions, aiMsgs),
-            topics:    _sumExtractTopics(_questions, aiMsgs),
-            keyPoints: _sumExtractKeyPoints(_questions, aiMsgs),
-            stats:     _sumGenerateStats(_questions, aiMsgs),
-            inventory: _sumInventoryCodeAndFiles(aiMsgs)
+            map:        _sumBuildConversationMap(_questions, aiMsgs),
+            topics:     _sumExtractTopics(_questions, aiMsgs),
+            keyPoints:  _sumExtractKeyPoints(_questions, aiMsgs),
+            stats:      _sumGenerateStats(_questions, aiMsgs),
+            inventory:  _sumInventoryCodeAndFiles(aiMsgs),
+            indexStamp: genStamp
         };
     }
 
@@ -7965,6 +8001,12 @@
 
     function renderSummaryResults(container, summaryData) {
         while (container.firstChild) container.removeChild(container.firstChild);
+
+        // The stamp must describe what is ON SCREEN, so it is set HERE rather than in
+        // generateFullSummary(): getSummaryForExport() also calls that function, and
+        // stamping there let an export re-validate a panel still showing another
+        // conversation — handing the click guard a matching stamp for stale rows.
+        _sumIndexStamp = summaryData ? (summaryData.indexStamp || null) : null;
 
         if (!summaryData) {
             container.appendChild(createElement('div', { className: 'acn-sum-empty', textContent: 'No data to display.' }));
