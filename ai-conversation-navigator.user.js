@@ -1555,9 +1555,23 @@
         });
     }
 
+    var _ciRetryDelayMs = 0;   // 0 = plain cooldown. Permanent failure classes back
+                               // off exponentially: an API/schema change used to
+                               // re-download and re-parse the 3.3MB payload every 15s
+                               // indefinitely — hundreds of MB per hour on an open
+                               // tab (Codex R12 :3564).
     function ciSetDegraded(cid, reason) {
         _ciStatus         = 'degraded';
         _ciDegradedReason = reason;
+        var permanent = /unexpected response shape|malformed message data/.test(reason || '');
+        if (permanent) {
+            _ciRetryDelayMs = _ciRetryDelayMs ? Math.min(_ciRetryDelayMs * 4, 1800000)
+                                              : 60000;
+            console.warn('[ACN] index failure looks PERMANENT (' + reason + ') — ' +
+                         'next retry in ' + Math.round(_ciRetryDelayMs / 1000) + 's');
+        } else {
+            _ciRetryDelayMs = 0;
+        }
         // Clear the FULL derived state, not just _ciIndex. Every consumer guards on
         // ciIsReady() so stale data could not be read, but leaving a multi-megabyte
         // _ciFullPath (and the truncated/leaf-fallback flags describing a different
@@ -1630,6 +1644,11 @@
                 if (org) {                 // guard passed: THIS load owns the state
                     _ciOrgUuid = org;
                     ciWriteCachedOrg(org);
+                    // Usage fetched against a guessed org (multi-org user opened the
+                    // panel before validation) stays cached for up to 5 minutes showing
+                    // the WRONG org's quota (Codex R12 :4204). Validating a different
+                    // org invalidates it.
+                    if (_usageOrgUuid && _usageOrgUuid !== org) _usageLastFetch = 0;
                 }
                 if (err) {
                     ciSetDegraded(cid, err.message);
@@ -1656,6 +1675,7 @@
                 _ciConversationId = cid;
                 _ciStatus         = 'ready';
                 _ciDegradedReason = '';
+                _ciRetryDelayMs   = 0;
                 console.log('[ACN] conversation index ready: ' + _ciIndex.length +
                             ' questions (' + (data.chat_messages || []).length +
                             ' messages in payload)');
@@ -3204,6 +3224,7 @@
     var USAGE_POLL_INTERVAL = 5 * 60 * 1000; // 5 minutes
     var _usageData     = null;
     var _usageLastFetch = 0;
+    var _usageOrgUuid   = null;   // org the cached usage was fetched FOR
     var _usageRefreshTimer = null; // debounce timer for maybeRefreshUsage
 
     // Extracts display text from a mounted DOM node, shared by the DOM scan and
@@ -3382,9 +3403,17 @@
             for (var mr = 0; mr < mrRows.length; mr++) {
                 if (!mrRows[mr].isUser) continue;
                 var mDi = mrRows[mr].dataIndex;
-                // Boundary: MEASURED rows at index build when available; the predicate
-                // length only as a fallback before the first measurement lands.
-                var newBound = (_ciRowsAtBuild !== null) ? _ciRowsAtBuild : _ciRenderable.length;
+                // Boundary for THE FETCHED SNAPSHOT. While the predicate holds
+                // (unwarned), renderable length IS the snapshot's row count — crucially
+                // it cannot be inflated by a message sent while the fetch was in
+                // flight, which the lazily-measured aria-setsize CAN be: measuring
+                // after the new row appeared classified that new prompt as inside the
+                // index, so it never went provisional (Codex R12 :3388). The measured
+                // capture survives only as the fallback once the predicate has been
+                // caught wrong, where the smaller of the two bounds is honest.
+                var newBound = _ciPredicateWarned && _ciRowsAtBuild !== null
+                    ? Math.min(_ciRowsAtBuild, _ciRenderable.length)
+                    : _ciRenderable.length;
                 if (mDi < newBound) continue;                          // within indexed range
                 if (ciResolvePathForRowStrict(mDi) !== null) continue; // anchored: known
                 var mNode = mrRows[mr].el.querySelector('[data-testid="user-message"]');
@@ -3557,7 +3586,8 @@
             // Not ready yet: kick off a load, then fall through to the DOM scan so
             // the panel shows something immediately rather than an empty list.
             var degradedRetryDue = _ciStatus === 'degraded' &&
-                (Date.now() - _ciLastRefetchAt) > CI_REFETCH_COOLDOWN_MS;
+                (Date.now() - _ciLastRefetchAt) >
+                    Math.max(CI_REFETCH_COOLDOWN_MS, _ciRetryDelayMs);
             if (_ciStatus === 'idle' ||
                 _ciConversationId !== ciGetConversationUuid() ||
                 degradedRetryDue) {
@@ -4312,6 +4342,7 @@
         }
 
         _usageLastFetch = now;
+        _usageOrgUuid   = _ciOrgUuid;
         fetchClaudeUsage(function (data) {
             _usageData = data;
             var section = document.getElementById('acn-usage-section');
