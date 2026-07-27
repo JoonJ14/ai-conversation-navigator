@@ -4210,6 +4210,13 @@
         }
 
         function fetchUsageFor(uuid) {
+            // Record the org THIS fetch actually uses. Snapshotting _ciOrgUuid at the
+            // call site recorded null whenever usage was requested before the index
+            // validated an org — while this function proceeded with lastActiveOrg or
+            // the first ranked org anyway. A null _usageOrgUuid then made the
+            // cross-org invalidation check unable to fire, so multi-org users kept
+            // the wrong quota for the full cache interval (Codex R13 :4345).
+            _usageOrgUuid = uuid;
             GM_xmlhttpRequest({
                 method: 'GET',
                 url: 'https://claude.ai/api/organizations/' + uuid + '/usage',
@@ -4342,7 +4349,6 @@
         }
 
         _usageLastFetch = now;
-        _usageOrgUuid   = _ciOrgUuid;
         fetchClaudeUsage(function (data) {
             _usageData = data;
             var section = document.getElementById('acn-usage-section');
@@ -8198,9 +8204,20 @@
                         lines.push('**Attached content' +
                                    (att.file_name ? ' (' + att.file_name + ')' : '') + ':**');
                         lines.push('');
-                        lines.push('```');
+                        // Fence must be longer than any backtick run INSIDE the body:
+                        // markdown documents commonly contain ``` themselves, and a
+                        // fixed fence closed at the first one, dumping the rest of the
+                        // attachment into the surrounding document structure
+                        // (Codex R13 :8203).
+                        var runs = body.match(/`+/g) || [];
+                        var maxRun = 0;
+                        for (var rr = 0; rr < runs.length; rr++) {
+                            if (runs[rr].length > maxRun) maxRun = runs[rr].length;
+                        }
+                        var fence = new Array(Math.max(4, maxRun + 2)).join('`');
+                        lines.push(fence);
                         lines.push(body);
-                        lines.push('```');
+                        lines.push(fence);
                     } else if (!body && att.file_name) {
                         lines.push('');
                         lines.push('**Attachment:** ' + att.file_name);
