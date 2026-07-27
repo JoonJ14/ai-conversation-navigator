@@ -1330,12 +1330,17 @@
         // Large pastes become a txt attachment with an empty file_name and the
         // body in extracted_content — the message itself carries no text block.
         // 14 of 147 human turns on the branch fixture were this shape.
+        // ALL bodies, not the first: a turn can carry several documents, and
+        // returning early hid every one after the first from Search, Summary and
+        // the context totals (Codex R10 :1337).
         var att = msg.attachments || [];
+        var bodies = [];
         for (var j = 0; j < att.length; j++) {
             if (att[j].extracted_content && att[j].extracted_content.trim()) {
-                return att[j].extracted_content.trim();
+                bodies.push(att[j].extracted_content.trim());
             }
         }
+        if (bodies.length) return bodies.join('\n\n');
         for (var k = 0; k < att.length; k++) {
             if (att[k].file_name) return '[' + att[k].file_name + ']';
         }
@@ -1517,9 +1522,13 @@
         var org = candidates[idx];
         ciRequestJSON(ciConversationUrl(org, cid), function (err, data, status) {
             if (!err) {
-                _ciOrgUuid = org;
-                ciWriteCachedOrg(org);
-                cb(null, data);
+                // NO commit here. A stale org-A request completing after org-B's ran
+                // these writes BEFORE finish() rejected the stale generation, so B's
+                // validated org cache was overwritten with A — wrong usage quota and
+                // wrong org for every later load (Codex R10 :1521). The successful org
+                // rides to the generation-guarded completion path, which commits it
+                // only after the guard passes.
+                cb(null, data, org);
                 return;
             }
             if (status === 404 || status === 403) {
@@ -1606,7 +1615,7 @@
                 if (done) done(false);
                 return;
             }
-            function finish(err, data) {
+            function finish(err, data, org) {
                 // SUPERSESSION GUARD (Codex R4): conversation scoping lets a NEW load
                 // start while the OLD request is still pending — but the old callback
                 // still fires. Without this check, an old request failing AFTER the
@@ -1618,6 +1627,10 @@
                 // conversation the user left no longer wedges future loads of it.
                 if (_ciInFlightCid === cid && _ciInFlightGen === myGen) _ciInFlightCid = null;
                 if (myGen !== _ciLoadGen || ciGetConversationUuid() !== cid) return;
+                if (org) {                 // guard passed: THIS load owns the state
+                    _ciOrgUuid = org;
+                    ciWriteCachedOrg(org);
+                }
                 if (err) {
                     ciSetDegraded(cid, err.message);
                     if (done) done(false);
