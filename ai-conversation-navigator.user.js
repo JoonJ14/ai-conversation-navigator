@@ -1538,7 +1538,7 @@
             // switched, org migrated) would otherwise dead-end here permanently,
             // since ciResolveOrgCandidates short-circuits before ever querying
             // /api/organizations when a cached value exists.
-            if (exhaustedCb) { exhaustedCb(); return; }
+            if (exhaustedCb) { exhaustedCb(lastStatus); return; }
             // Carry the terminal status: all-orgs-403 is an AUTH failure, and the
             // generic message dodged the backoff classes — mutation scans kept
             // retrying org+conversation requests every 15s (Codex R16 :1536).
@@ -1567,7 +1567,7 @@
     }
 
     // Full org list, used only after the cheap candidates have all been rejected.
-    function ciFetchFromAllOrgs(cid, tried, cb) {
+    function ciFetchFromAllOrgs(cid, tried, cb, triedStatus) {
         ciRequestJSON('https://claude.ai/api/organizations', function (err, orgs, status) {
             if (err || !Array.isArray(orgs)) {
                 // Status rides the error so the backoff can classify it — the FOURTH
@@ -1581,7 +1581,12 @@
             }
             var ranked = ciRankOrgs(orgs).filter(function (u) { return tried.indexOf(u) === -1; });
             if (!ranked.length) {
-                cb(new Error('no org candidate accepted the conversation'), null);
+                // FIFTH sibling of the status-discarding family (R14/R16/R18/R19,
+                // Codex R23): every cheap candidate 403'd and the org list held
+                // nothing new — without the status this dodged the backoff and an
+                // unauthorized tab retried every 15s.
+                cb(new Error('no org candidate accepted the conversation' +
+                             (triedStatus ? ' (HTTP ' + triedStatus + ')' : '')), null);
                 return;
             }
             ciFetchWithOrgFallback(cid, ranked, 0, cb, null);
@@ -1735,8 +1740,8 @@
                 if (done) done(true);
             }
 
-            ciFetchWithOrgFallback(cid, candidates, 0, finish, function () {
-                ciFetchFromAllOrgs(cid, candidates, finish);
+            ciFetchWithOrgFallback(cid, candidates, 0, finish, function (st) {
+                ciFetchFromAllOrgs(cid, candidates, finish, st);
             });
         });
     }
