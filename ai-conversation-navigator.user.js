@@ -1614,7 +1614,7 @@
         //  - schema/data failures: an API change makes every retry identical
         //  - HTTP 401/403: a logged-out or unauthorized tab polls forever
         //  - HTTP 429: retrying every cooldown actively worsens the rate limit
-        var permanent = /unexpected response shape|malformed message data|HTTP (401|403|429)/
+        var permanent = /unexpected response shape|malformed message data|malformed JSON|HTTP (401|403|429)/
             .test(reason || '');
         if (permanent) {
             _ciRetryDelayMs = _ciRetryDelayMs ? Math.min(_ciRetryDelayMs * 4, 1800000)
@@ -6237,7 +6237,15 @@
     // uuid; falls back to the legacy position-dependent content hash on platforms
     // (or conversations) where no index is available.
     function _bmEntityId(el, idx, text) {
-        return ciUuidForText(text, el) || contentHash(text, idx);
+        var uuid = ciUuidForText(text, el);
+        if (uuid) return uuid;
+        // POSITION-FREE fallback on Claude (Codex R22): bookmarking a just-sent
+        // prompt before the refetch assigns its uuid used the mounted-window ordinal
+        // — a number that means nothing under virtualization and never matches after
+        // the refetch, leaving a dead bookmark. Ordinal -1 is a stable, position-free
+        // schema-1 variant; _bmLegacyIdSet knows to try it. Non-virtualized
+        // platforms keep the historical positional shape.
+        return contentHash(text, ciIsClaudeChat() ? -1 : idx);
     }
 
     // Pre-v12.0 records hashed the RAW textContent. v12.0 routes user-message text
@@ -6287,6 +6295,12 @@
         var plain = (el.textContent || '').trim();
         if (clean !== ids[0]) ids.push(contentHash(clean, idx));
         if (plain !== ids[0]) ids.push(contentHash(plain, idx));
+        // The position-free variant (_bmEntityId with ordinal -1) used for
+        // provisional messages on Claude — see the comment there.
+        if (ciIsClaudeChat()) {
+            ids.push(contentHash(clean, -1));
+            ids.push(contentHash(plain, -1));
+        }
         return ids;
     }
 
