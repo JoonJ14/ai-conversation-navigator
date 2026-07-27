@@ -3665,7 +3665,7 @@
             if (t.length >= 60) {
                 var mp = ciMatchRowToPath(rows[i]);
                 if (mp === null) {
-                    sig += rows[i].dataIndex + ':' + rawLen + ';';
+                    sig += rows[i].dataIndex + ':' + rawLen + ':' + _fnv1aHex(t) + ';';
                 } else if (_ciFullPath[mp] && (
                            rawLen > ((_ciFullPath[mp].text || '').length * 1.3 + 200) ||
                            // SAME-SIZED regeneration sharing the 120-char prefix
@@ -3686,7 +3686,7 @@
                     // longer than raw markdown, hence the generous slack — this only
                     // fires on substantial growth, and the two-scan guard still
                     // prevents refetching mid-stream.
-                    sig += 'g' + rows[i].dataIndex + ':' + rawLen + ';';
+                    sig += 'g' + rows[i].dataIndex + ':' + rawLen + ':' + _fnv1aHex(t) + ';';
                 }
                 continue;
             }
@@ -3701,7 +3701,7 @@
             if (ae.sender !== 'assistant') continue;
             if (ae.textSource && ae.textSource !== 'content') continue;
             var at2 = _normalizeCompare(ae.text || '');
-            if (at2 && t !== at2) sig += 's' + rows[i].dataIndex + ':' + rawLen + ';';
+            if (at2 && t !== at2) sig += 's' + rows[i].dataIndex + ':' + rawLen + ':' + _fnv1aHex(t) + ';';
         }
         if (!sig) { _ciLastAsstMismatch = ''; return false; }
         // A signature we have ALREADY refetched on is no longer evidence of staleness —
@@ -3714,9 +3714,18 @@
         // to prevent, and unreachable from there because this loop is driven by SUCCESSES,
         // which never enter the failure classifier.
         //
-        // One refetch per DISTINCT signature: real staleness changes the signature (new
-        // row, new length) and is still resynced promptly; a permanent mismatch is
-        // resynced exactly once and then left alone.
+        // One refetch per DISTINCT signature: real staleness changes the signature and is
+        // still resynced promptly; a permanent mismatch is resynced once and left alone.
+        //
+        // The signature therefore has to carry CONTENT identity, not just row and length.
+        // With row+length alone, an edit or regeneration landing at the same row with the
+        // same character count as an already-resynced mismatch produced an identical
+        // signature and was suppressed indefinitely, leaving Navigate/Search/Summary/Export
+        // on the superseded branch until some unrelated change shifted a length (Codex).
+        // Note the other repair Codex offered — clearing the consumed signature after a
+        // successful rebuild — reinstates the infinite loop exactly, because the rebuild is
+        // what completes each cycle. Fingerprinting is the only version that fixes one
+        // without restoring the other.
         if (sig === _ciResyncedAsstSig) return false;
         if (sig === _ciLastAsstMismatch) { _ciResyncedAsstSig = sig; return true; }
         _ciLastAsstMismatch = sig;
@@ -3759,6 +3768,13 @@
                 // (only unanchored rows are examined) and idempotent.
                 ciHarvestAnchors();
                 ciValidatePredicate();
+                // Once per index generation: bind any bookmark taken before its message
+                // had a uuid. _ciIndexGen changes on every rebuild, which is exactly when
+                // a previously-unknown uuid can become known.
+                if (_bmMigratedGen !== _ciIndexGen) {
+                    _bmMigratedGen = _ciIndexGen;
+                    _bmMigrateProvisional();
+                }
 
                 var indexed = _ciIndex.slice();
                 _ciMergeLiveMessages(indexed);
@@ -6245,8 +6261,10 @@
 
     var BOOKMARK_KEY = 'acn-bookmarks-v1';
 
-    function contentHash(text, msgIndex) {
-        var str = String(msgIndex) + '|' + (text || '').substring(0, 200);
+    // FNV-1a, 8 hex chars. Extracted so the resync signature can fingerprint FULL text
+    // without duplicating the hash; contentHash's own output is unchanged, which matters
+    // because schema-1 bookmark ids are derived from it and must stay stable.
+    function _fnv1aHex(str) {
         var h = 0x811c9dc5;
         for (var i = 0; i < str.length; i++) {
             h ^= str.charCodeAt(i);
@@ -6254,6 +6272,10 @@
             h = h >>> 0;
         }
         return ('00000000' + h.toString(16)).slice(-8);
+    }
+
+    function contentHash(text, msgIndex) {
+        return _fnv1aHex(String(msgIndex) + '|' + (text || '').substring(0, 200));
     }
 
     function normalizeConversationUrl() {
@@ -6318,6 +6340,47 @@
         _bmResetIconState();
     }
 
+    // Index generation whose provisional bookmarks have already been migrated, so the
+    // walk below runs once per rebuild rather than once per mutation batch.
+    var _bmMigratedGen = -1;
+
+    // Binds provisional bookmarks to their message uuid as soon as a refreshed index
+    // knows it.
+    //
+    // Bookmarking a just-sent Claude prompt happens BEFORE the refetch assigns a uuid, so
+    // the record is schema 1 with no msgUuid and no path index. Once that prompt scrolls
+    // out of the mount window the click can neither find it among mounted elements nor
+    // enter the uuid jump bridge, so it reports "not currently rendered" forever — a dead
+    // bookmark on the newest message, which is the one most likely to be bookmarked.
+    // Waiting for the click cannot repair it: resolving at click time already requires the
+    // target to be mounted, which is exactly the case that works anyway (Codex).
+    function _bmMigrateProvisional() {
+        if (!(ciIsClaudeChat() && ciIsReady())) return;
+        var list    = getConversationBookmarks();
+        var changed = false;
+        for (var i = 0; i < list.length; i++) {
+            var b = list[i];
+            if (b.schema === 2 || b.msgUuid || !b.pendingText) continue;
+            // Null when the text is absent from the index or AMBIGUOUS (the text map
+            // poisons duplicate keys rather than first-wins guessing). Leave the record
+            // alone and retry on the next generation — a wrong uuid would be persisted.
+            var uuid = ciUuidForText(b.pendingText, null);
+            if (!uuid) continue;
+            b.schema      = 2;
+            b.contentHash = uuid;
+            b.msgUuid     = uuid;
+            b.pendingText = null;
+            saveBookmark(b);
+            changed = true;
+        }
+        // Open panel holds rows built from the pre-migration records; rebuild so their
+        // click handlers use the uuid path.
+        if (changed) {
+            var bmPanel = document.getElementById('acn-panel-bookmarks');
+            if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
+        }
+    }
+
     function _bmGenId() {
         return 'bm_' + Math.random().toString(16).substring(2, 10);
     }
@@ -6356,7 +6419,13 @@
                 preview:     preview,
                 msgIndex:    msgIndex,
                 createdAt:   Date.now(),
-                platform:    window.location.hostname
+                platform:    window.location.hostname,
+                // Kept ONLY while the record has no uuid, so _bmMigrateProvisional() can
+                // bind one once the index refresh assigns it. `preview` cannot serve:
+                // it is truncated to 120 chars and the text map keys on FULL normalized
+                // text. Cleared on migration, and never stored off Claude, where there
+                // are no uuids to migrate to.
+                pendingText: (!isUuid && ciIsClaudeChat()) ? text : null
             };
             saveBookmark(bm);
             if (icon) icon.classList.add('acn-bm-active');
