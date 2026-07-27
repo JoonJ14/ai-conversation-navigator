@@ -514,11 +514,27 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
         // Set up route interception — serves our mock HTML at the real hostname
         const targetURL = await setupRouteForPlatform(page, platform, scriptContent);
 
-        // Navigate to the real URL (intercepted by route handler)
-        await page.goto(targetURL, {
-            waitUntil: 'domcontentloaded',
-            timeout: 20000,  // 20s — Firefox on Windows can be slow to resolve mocked routes
-        });
+        // Navigate to the real URL (intercepted by route handler).
+        //
+        // `domcontentloaded` waits for the inlined userscript to parse AND execute —
+        // inline scripts block DOMContentLoaded — and that script is ~420 KB. The FIRST
+        // platform of a run therefore pays cold-start JIT on a browser that launched
+        // moments ago, which on the Windows runners has exceeded 20 s outright (observed:
+        // Firefox/Windows, entry 1 of 16, while entries 2-16 were unremarkable).
+        //
+        // Retried rather than simply given a bigger budget, because the failure mode is a
+        // one-off cold start, not a uniformly slow navigation: raising the ceiling for all
+        // 16 entries would slow every genuine hang by the same amount. The retry is
+        // announced on stderr — a silently-absorbed retry would turn a real regression
+        // (a mock that stopped loading) into an invisible slowdown.
+        try {
+            await page.goto(targetURL, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        } catch (navErr) {
+            if (!/Timeout .* exceeded/.test(String(navErr && navErr.message))) throw navErr;
+            process.stderr.write(
+                `\n  [retry] ${platform.name}: first navigation exceeded 20s, retrying at 60s\n`);
+            await page.goto(targetURL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        }
 
         // Now that navigation is complete, start collecting errors for THIS platform.
         pageErrors.length = 0;
