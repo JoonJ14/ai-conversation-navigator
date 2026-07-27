@@ -1287,6 +1287,24 @@
     // The top-level `text` field is EMPTY on every message under
     // rendering_mode=messages (verified: 0 of 192 non-empty). Content lives in
     // content[] blocks. Reading `text` would render a panel full of blank rows.
+    // Where ciExtractText() found an entry's text. 'content' means it is the message body
+    // and therefore appears in the DOM; anything else means it does NOT — a large paste
+    // becomes an attachment whose extracted_content the page renders as a file chip, so
+    // comparing API text against DOM text for those rows can only ever fail.
+    function ciTextSource(msg) {
+        var content = msg.content || [], i;
+        for (i = 0; i < content.length; i++) {
+            if (content[i].type === 'text' && content[i].text && content[i].text.trim()) return 'content';
+        }
+        var att = msg.attachments || [];
+        for (i = 0; i < att.length; i++) {
+            if (att[i].extracted_content && att[i].extracted_content.trim()) return 'attachment';
+        }
+        for (i = 0; i < att.length; i++) if (att[i].file_name) return 'attachment';
+        if ((msg.files || []).length) return 'files';
+        return '';
+    }
+
     function ciExtractText(msg) {
         var out = [];
         var content = msg.content || [];
@@ -1416,6 +1434,7 @@
                 uuid:      path[p].uuid,
                 sender:    path[p].sender,
                 text:      ciExtractText(path[p]),
+                textSource: ciTextSource(path[p]),
                 // Retained because it predicts whether this entry RENDERS A ROW, which is
                 // what makes dataIndex -> path index resolvable. See ciEntryRenders().
                 stopReason: path[p].stop_reason || null,
@@ -1974,16 +1993,41 @@
         if (!ciIsReady() || !_ciFullPath) return 0;
         var rows = ciMountedRows(), added = 0;
         for (var i = 0; i < rows.length; i++) {
-            if (!rows[i].isUser) continue;
             if (_ciAnchorRows && _ciAnchorRows.hasOwnProperty(String(rows[i].dataIndex))) continue;
-            var inner = rows[i].el.querySelector('[data-testid="user-message"]');
-            if (!inner) continue;
-            var key = _normalizeKey(_readMessageText(inner));
-            if (!key) continue;   // attachment-only turns have no text on either side
+
+            // BOTH SENDERS. Restricting this to user rows left dead regions wherever a
+            // run of questions was short or duplicated — live, targets in path 210-228
+            // could not be anchored at all while their neighbours could, and the jump had
+            // nothing to bracket with. Assistant text is far longer and collides far less
+            // often, so it is the better anchor source of the two; it was excluded only
+            // because it needs markdown-insensitive comparison, which _normalizeCompare
+            // already provides.
+            var isUser = rows[i].isUser;
+            var inner = isUser
+                ? rows[i].el.querySelector('[data-testid="user-message"]')
+                : ciMessageNodeWithin(rows[i].el);
+            if (!inner || inner === rows[i].el) continue;
+            var want = isUser ? 'human' : 'assistant';
+            // User rows: exact key equality. Assistant rows: the DOM holds RENDERED
+            // markdown while the API holds RAW, so compare with the markdown-insensitive
+            // normaliser and require a solid prefix rather than whole-string equality
+            // (rendered tool blocks and citations do not round-trip).
+            var domTxt = _readMessageText(inner);
+            var key = isUser ? _normalizeKey(domTxt) : _normalizeCompare(domTxt);
+            if (!key || (!isUser && key.length < 60)) continue;
+            var probe = isUser ? key : key.slice(0, 120);
             var matches = [], j;
             for (j = 0; j < _ciFullPath.length; j++) {
-                if (_ciFullPath[j].sender !== 'human') continue;
-                if (_normalizeKey(_ciFullPath[j].text || '') === key) matches.push(j);
+                if (_ciFullPath[j].sender !== want) continue;
+                // Attachment-sourced text is not in the DOM at all; it can never match and
+                // must never be allowed to match something else by accident.
+                if (_ciFullPath[j].textSource && _ciFullPath[j].textSource !== 'content') continue;
+                if (isUser) {
+                    if (_normalizeKey(_ciFullPath[j].text || '') === key) matches.push(j);
+                } else {
+                    var apiTxt = _normalizeCompare(_ciFullPath[j].text || '');
+                    if (apiTxt.length >= 60 && apiTxt.slice(0, 120) === probe) matches.push(j);
+                }
             }
             // Ambiguous text (the same question twice) proves nothing about alignment.
             if (matches.length !== 1) continue;
@@ -2056,6 +2100,25 @@
         // `lo` is the count of renderable entries before it, which is the row that would
         // follow it — the best available answer for a non-rendering target.
         return Math.min(Math.max(lo, 0), _ciRenderable.length - 1);
+    }
+
+    // Anchors-only inverse. Returns null rather than guessing — used where a MEASURED
+    // fact is required (verification), as opposed to a best effort (targeting).
+    function ciResolvePathForRowStrict(row) {
+        if (typeof row !== 'number' || row < 0) return null;
+        if (_ciAnchorRows && _ciAnchorRows.hasOwnProperty(String(row))) {
+            return _ciAnchorRows[String(row)];
+        }
+        var lo = null, hi = null;
+        for (var i = 0; i < _ciAnchors.length; i++) {
+            var a = _ciAnchors[i];
+            if (a.row < row && (!lo || a.row > lo.row)) lo = a;
+            if (a.row > row && (!hi || a.row < hi.row)) hi = a;
+        }
+        // Both sides measured AND in the same segment => the offset between them is
+        // constant, so this row's path index follows exactly.
+        if (lo && hi && (lo.path - lo.row) === (hi.path - hi.row)) return row + (lo.path - lo.row);
+        return null;
     }
 
     // Inverse: row -> path index. Exact when anchored or when the predicate is trusted.
@@ -2304,7 +2367,13 @@
     // set to stop changing. A stale cluster clearing late makes the full set churn and
     // then settle while the real viewport window is still moving, so keying on the set
     // can exit early on a position that is about to change.
-    function ciWaitForSettle(container, beforeKey, cb) {
+    // `requestedTop`, when supplied, lets the poll recognise a SETTLED state that is
+    // identical to the starting one. Without it the early exit required the cluster key to
+    // CHANGE (stableSince was assigned only inside `if (key !== lastKey)`), so any move
+    // that did not remount could exit only via the 800ms cap or the 1050ms guard. Live
+    // traces showed every remounted=0 line paying ~810ms, which is the dominant cost of a
+    // failing jump: 8 such iterations is the ~12s of thrashing.
+    function ciWaitForSettle(container, beforeKey, cb, requestedTop) {
         var start = Date.now();
         var lastKey = beforeKey;
         var stableSince = null;
@@ -2355,16 +2424,30 @@
             finishOnce(changed);
         }, CI_JUMP_SETTLE_CAP_MS + 250);
 
+        var unchangedSince = Date.now();
         (function poll() {
             if (finished) return;
             polls++;
-            var key;
+            var key, now = Date.now();
             try { key = clusterKey(); } catch (e) { exitReason = 'throw'; finishOnce(false); return; }
-            if (key !== lastKey) { lastKey = key; stableSince = Date.now(); }
-            else if (stableSince && key !== beforeKey && Date.now() - stableSince > 100) {
+            if (key !== lastKey) { lastKey = key; stableSince = now; unchangedSince = now; }
+
+            // Fast path, unchanged: the set moved and has now held still.
+            if (stableSince && key !== beforeKey && now - stableSince > 100) {
                 exitReason = 'stable'; finishOnce(true); return;
             }
-            if (Date.now() - start > CI_JUMP_SETTLE_CAP_MS) {
+
+            // SETTLED-BUT-IDENTICAL. The scroll reached where we asked and the mounted set
+            // has been stable for a while — that is settled, even though it matches what we
+            // started with. The 150ms floor keeps us from declaring victory before a slow
+            // virtualizer has begun reacting at all.
+            if (requestedTop !== undefined && requestedTop !== null &&
+                Math.abs(container.scrollTop - requestedTop) <= 2 &&
+                now - unchangedSince > 150 && now - start > 150) {
+                exitReason = 'settled-nochange'; finishOnce(key !== beforeKey); return;
+            }
+
+            if (now - start > CI_JUMP_SETTLE_CAP_MS) {
                 exitReason = 'cap'; finishOnce(key !== beforeKey); return;
             }
             requestAnimationFrame(poll);
@@ -2393,21 +2476,51 @@
 
     function ciVerifyLandedRow(el, dataIndex, offset, expectedFullPathIdx) {
         if (!el) return false;
-        var mapped = ciDataIndexToFullPath(dataIndex, offset);
-        if (mapped === null || mapped !== expectedFullPathIdx) return false;
         if (!_ciFullPath || !_ciFullPath[expectedFullPathIdx]) return false;
 
-        var expected = _normalizeCompare(_ciFullPath[expectedFullPathIdx].text);
+        // GROUND TRUTH FIRST. A MEASURED anchor for this exact row is stronger evidence
+        // than any text comparison, and unlike text it cannot be defeated by rendering.
+        var measured = ciResolvePathForRowStrict(dataIndex);
+        if (measured !== null) {
+            if (measured !== expectedFullPathIdx) { ciVerifyFailReason = 'anchor-says-path-' + measured; return false; }
+            return true;
+        }
+
+        var mapped = ciDataIndexToFullPath(dataIndex, offset);
+        if (mapped === null || mapped !== expectedFullPathIdx) {
+            ciVerifyFailReason = 'offset-remap-' + mapped; return false;
+        }
+
+        var entry = _ciFullPath[expectedFullPathIdx];
+        // ATTACHMENT-SOURCED TEXT IS NOT IN THE DOM. A large paste is stored as an
+        // attachment whose extracted_content ciExtractText() returns, while the page
+        // renders only a file chip. Comparing the two always fails, so such a row could
+        // never verify — the jump sat on the correct message and reported failure. On the
+        // live conversation the FIRST question is exactly this shape, which is why
+        // question #1 regressed even though row 0 was mounted.
+        if (entry.textSource && entry.textSource !== 'content') {
+            ciVerifyFailReason = 'attachment-text-unverifiable-no-anchor';
+            return false;   // no measured anchor and no comparable text: refuse, do not guess
+        }
+
+        var expected = _normalizeCompare(entry.text);
         // "Nothing to compare" must FAIL, not pass. The index-mapping check above is a
         // tautology — targetRow was computed as expected - offset with the same offset,
         // so mapping it back always reproduces expected. The text compare is the ONLY
         // real verification, so accepting an empty expectation accepts any row.
-        if (!expected) return false;
+        if (!expected) { ciVerifyFailReason = 'expected-text-empty'; return false; }
 
         var inner = ciMessageNodeWithin(el);
-        if (!inner || inner === el) return false;   // never verify against the wrapper
-        return _normalizeCompare(_readMessageText(inner)) === expected;
+        if (!inner || inner === el) { ciVerifyFailReason = 'no-message-node'; return false; }
+        var actual = _normalizeCompare(_readMessageText(inner));
+        if (actual === expected) return true;
+        // A verification rejection was previously invisible, which made it the most likely
+        // SILENT failure mode in the whole loop.
+        ciVerifyFailReason = 'text-mismatch exp="' + String(expected).slice(0, 40) +
+                             '" got="' + String(actual).slice(0, 40) + '"';
+        return false;
     }
+    var ciVerifyFailReason = '';
 
     // Returns the message-level node for a row, never the row wrapper itself. The
     // wrapper is the virtualizer's recycling unit and carries the platform's sr-only
@@ -2532,12 +2645,30 @@
         // EVERY exit runs through here, including supersession — an earlier version
         // returned on supersession without calling done(), so the caller's
         // orbSetJumpBusy(false) never ran and the panel stayed dimmed forever.
-        function finish(ok, el, reason) { cleanup(); safeDone(ok, el, reason); }
+        function finish(ok, el, reason) {
+            cleanup();
+            // Put the user back where they were. Not on success (we moved them on
+            // purpose), not when THEY scrolled (that would fight them), and not when a
+            // newer jump superseded this one (it owns the viewport now).
+            if (!ok && reason !== 'user' && reason !== 'superseded') {
+                try {
+                    if (container.isConnected && typeof _entryScrollTop === 'number') {
+                        ciMoveTo(container, _entryScrollTop);
+                    }
+                } catch (e) {}
+            }
+            safeDone(ok, el, reason);
+        }
 
         var low  = { row: 0, px: 0 };
         var high = { row: (totalRows || 1) - 1,
                      px: Math.max(0, container.scrollHeight - container.clientHeight) };
         var iterations = 0;
+        var _lastProgressKey = null, _noProgressPasses = 0;
+        // Restored on ANY failure exit. A failed jump previously left the viewport parked
+        // wherever the last probe landed and then showed a toast, so the user lost their
+        // place as the price of asking.
+        var _entryScrollTop = container.scrollTop;
         trace.setTotalRows(totalRows);
 
         // ── Extremes are exact, never estimated ──────────────────────────────
@@ -2598,7 +2729,7 @@
                     console.error('[ACN] jump extreme step threw:', err);
                     finish(false, null, 'threw');
                 }
-            });
+            }, destPx);
             return true;
         }
 
@@ -2624,57 +2755,43 @@
                 ciHarvestAnchors();
                 ciValidatePredicate();
                 var offDiag = trace.on ? [] : null;
+                var guessedMapping = null;
                 if (trace.on) ciDeriveRowOffset(offDiag);   // cross-check only; see item E
                 var resolved = ciResolveRowForPath(targetFullPathIdx);
                 var targetRow = (resolved && typeof resolved.row === 'number') ? resolved.row : null;
                 var offset = (targetRow === null) ? null : (targetFullPathIdx - targetRow);
 
-                // The mapping is AMBIGUOUS: a step lies between the bracketing anchors, so
-                // the answer is confined to [resolved.lo, resolved.hi]. That is a bounded
-                // search, not a reason to sweep the document. Probe the MIDPOINT of the
-                // candidate range to mount rows there and harvest an anchor that halves it.
-                // Typically 2-3 moves; the old code swept 1/9, 2/9 ... 8/9 of the document
-                // regardless of where the target was, and discarded every observation.
+                // AMBIGUOUS MAPPING => GUESS, DO NOT REFUSE.
+                //
+                // A step lies between the bracketing anchors, so the answer is confined to
+                // [resolved.lo, resolved.hi]. The previous version treated that as a reason
+                // to probe instead of jumping — which contradicts the whole point of item A.
+                // Mismatch-as-anchor makes a WRONG GUESS SAFE: we land, verification rejects
+                // it, the landed row yields an exact anchor, the map is corrected and the
+                // next iteration recomputes. Refusing to guess is therefore strictly worse
+                // than guessing, and it was the root cause of the 8 identical no-progress
+                // iterations on targets 213 / 223 / 227.
+                //
+                // Prefer the predicate's answer when it falls inside the candidate range —
+                // it encodes the known step structure — otherwise take the midpoint.
                 if (targetRow === null && resolved && typeof resolved.lo === 'number') {
-                    if (++iterations > CI_JUMP_MAX_ITERATIONS) {
-                        finish(false, null, 'ambiguous-mapping'); return;
+                    var predGuess = ciPredictRowForPath(targetFullPathIdx);
+                    targetRow = (predGuess !== null &&
+                                 predGuess >= resolved.lo && predGuess <= resolved.hi)
+                        ? predGuess
+                        : Math.floor((resolved.lo + resolved.hi) / 2);
+                    offset = targetFullPathIdx - targetRow;
+                    guessedMapping = 'range=' + resolved.lo + '..' + resolved.hi;
+                }
+
+                // Still nothing? Fall back to the predicate outright, for the same reason.
+                if (targetRow === null) {
+                    var predOnly = ciPredictRowForPath(targetFullPathIdx);
+                    if (predOnly !== null) {
+                        targetRow = predOnly;
+                        offset = targetFullPathIdx - targetRow;
+                        guessedMapping = 'predicate-only';
                     }
-                    var midRow = Math.floor((resolved.lo + resolved.hi) / 2);
-                    var maxPxA = Math.max(0, container.scrollHeight - container.clientHeight);
-                    var probePx = (totalRows > 1)
-                        ? Math.round(maxPxA * (midRow / (totalRows - 1))) : 0;
-                    var probeKeyClA = ciSelectCluster(container, ciMountedRows());
-                    var probeKeyA = probeKeyClA ? (probeKeyClA.lo + '-' + probeKeyClA.hi) : '';
-                    var tProbeA = Date.now();
-                    ciMoveTo(container, probePx);
-                    ciWaitForSettle(container, probeKeyA, function (changed, info) {
-                        try {
-                            ciHarvestAnchors();
-                            if (trace.on) {
-                                var mrA = ciMountedRows();
-                                var clA = ciSelectCluster(container, mrA);
-                                trace.step({ i: iterations, targetRow: null, offset: null,
-                                    scrollHeight: container.scrollHeight,
-                                    clientHeight: container.clientHeight,
-                                    lowRow: resolved.lo, lowPx: null,
-                                    highRow: resolved.hi, highPx: null,
-                                    estimatePx: probePx,
-                                    actualPx: Math.round(container.scrollTop),
-                                    mounted: mrA.map(function (r) {
-                                        return r.dataIndex + (r.isUser ? 'u' : '');
-                                    }).join(','),
-                                    clusterLo: clA ? clA.lo : null,
-                                    clusterHi: clA ? clA.hi : null,
-                                    bracketReset: false, changed: changed,
-                                    settleMs: (info && info.ms) || (Date.now() - tProbeA),
-                                    settleExit: info ? info.exit : null,
-                                    note: 'MAP-SEARCH range=' + resolved.lo + '..' + resolved.hi +
-                                          ' probeRow=' + midRow + ' anchors=' + _ciAnchors.length });
-                            }
-                        } catch (e) { console.error('[ACN] map-search trace threw:', e); }
-                        attempt();
-                    });
-                    return;
                 }
 
                 if (targetRow === null) {
@@ -2742,7 +2859,7 @@
                             console.error('[ACN] jump probe trace threw:', e);
                         }
                         attempt();
-                    });
+                    }, Math.round(probePx));
                     return;
                 }
 
@@ -2787,6 +2904,22 @@
                             estimatePx: Math.round(estimate),
                             bracketReset: didReset };
                 var tSettle = Date.now();
+
+                // NO-PROGRESS DETECTOR. An iteration that issues the same estimate, lands
+                // on the same rows and learns no new anchor accomplished nothing, and
+                // repeating it cannot help — live traces showed 8 byte-identical
+                // iterations burning 9+ seconds. Two such passes in a row and we stop.
+                var progressKey = Math.round(estimate) + '|' + targetRow + '|' +
+                                  ciMountedRows().map(function (r) { return r.dataIndex; }).join(',') +
+                                  '|' + _ciAnchors.length;
+                if (progressKey === _lastProgressKey) {
+                    if (++_noProgressPasses >= 2) {
+                        console.log('[ACN] jump made no progress across repeated iterations ' +
+                                    '(same estimate, same rows, no new anchors) — stopping');
+                        finish(false, null, 'no-progress'); return;
+                    }
+                } else { _noProgressPasses = 0; }
+                _lastProgressKey = progressKey;
 
                 var beforeCl = ciSelectCluster(container, ciMountedRows());
                 var beforeKey = beforeCl ? (beforeCl.lo + '-' + beforeCl.hi) : '';
@@ -2909,7 +3042,7 @@
                         console.error('[ACN] jump settle step threw:', err);
                         finish(false, null);
                     }
-                });
+                }, Math.round(estimate));
             } catch (err) {
                 // Any throw here would otherwise escape to the click handler with the
                 // busy flag already set and no path to clear it.
