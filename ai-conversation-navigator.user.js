@@ -3728,12 +3728,25 @@
         // The DOM holds ~3% of a long conversation, so it cannot be the source of
         // truth. When the index is available it wins; the DOM scan below stays as
         // the fallback and remains the path for every other platform.
+        //
+        // LEAVING a conversation must release its state too, and that cannot live inside
+        // the branch below: ciIsClaudeChat() requires the /chat/<uuid> path, so it is
+        // false on Claude's home, projects and settings routes and the chat-only branch
+        // never runs for those transitions. With spa:false no history handler clears it
+        // either, so the multi-megabyte active path, index, attachments and anchors
+        // stayed retained until another chat was opened or the page reloaded.
+        //
+        // _ciConversationId is only ever assigned on Claude, so a non-null value here
+        // means this tab did hold a conversation index — the other 13 platforms cannot
+        // reach this.
+        if (_ciConversationId && !ciIsClaudeChat()) {
+            ciInvalidate();
+        }
+
         if (ciIsClaudeChat()) {
-            // Conversation switched: drop the previous payload immediately rather
-            // than holding a multi-megabyte active path for a conversation the user
-            // has navigated away from. Claude is registered with spa:false, so the
-            // pushState/popstate handlers never fire here — this is the only place
-            // a conversation change is observed.
+            // Conversation SWITCHED (chat A -> chat B directly, without passing through a
+            // non-chat route): drop the previous payload rather than holding it for a
+            // conversation the user has navigated away from.
             if (_ciConversationId && _ciConversationId !== ciGetConversationUuid()) {
                 ciInvalidate();
             }
