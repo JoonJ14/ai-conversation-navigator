@@ -1487,6 +1487,7 @@
         // on a different message than the one clicked.
         _ciJumpToken++;
         _ciTextToUuid       = null;   // rebuilt lazily against the new path
+        _ciIndexGen++;
         return turns;
     }
 
@@ -3089,6 +3090,9 @@
     var _vsAccumulatedKeys = new Set();
     var _navListFingerprint    = ''; // used to skip DOM rebuild when questions are unchanged
     var _searchListFingerprint = ''; // same guard for search panel
+    var _ciIndexGen = 0;             // bumped on every index (re)build: a same-count
+                                     // branch swap must still invalidate cached search
+                                     // results (Codex R5 :1617)
     var _bmListFingerprint     = ''; // same guard for bookmarks panel
     var _panelWidth            = 310; // current panel width — persisted in localStorage
 
@@ -3370,10 +3374,29 @@
         if (!ciIsReady() || !_ciFullPath) return false;
         var rows = ciMountedRows(), sig = '', i;
         for (i = 0; i < rows.length; i++) {
-            if (rows[i].isUser) continue;
             var inner = ciMessageNodeWithin(rows[i].el);
             if (!inner || inner === rows[i].el) continue;
             var t = _normalizeCompare(_readMessageText(inner));
+            if (rows[i].isUser) {
+                // EDITED PROMPT (Codex R5 :3301): an edit keeps its row INSIDE the
+                // indexed range, so row-identity marks it known — but its content no
+                // longer matches its own path entry. Compare against the entry the
+                // row resolves to; a stable mismatch is the resync signal the merge
+                // and the short-answer assistant check both miss.
+                if (!t) continue;
+                var up = ciResolvePathForRowStrict(rows[i].dataIndex);
+                if (up === null && _ciRenderable &&
+                    rows[i].dataIndex < _ciRenderable.length) {
+                    up = _ciRenderable[rows[i].dataIndex];
+                }
+                if (up === null || !_ciFullPath[up]) continue;
+                var ue = _ciFullPath[up];
+                if (ue.sender !== 'human') continue;
+                if (ue.textSource && ue.textSource !== 'content') continue;
+                var ut = _normalizeCompare(ue.text || '');
+                if (ut && t !== ut) sig += 'e' + rows[i].dataIndex + ':' + t.length + ';';
+                continue;
+            }
             if (t.length < 60) continue;
             if (ciMatchRowToPath(rows[i]) === null) {
                 sig += rows[i].dataIndex + ':' + t.length + ';';
@@ -5468,7 +5491,11 @@
         // Skip DOM teardown+rebuild if query and data are unchanged — prevents hover
         // flicker caused by MutationObserver firing orbOnScanComplete every ~500ms
         if (q) {
-            var sfp = q + '|' + _questions.length + '|' + (_aiResponses ? _aiResponses.length : 0);
+            // _ciIndexGen: a regenerated/edited branch can swap the index with
+            // UNCHANGED counts; without the generation the early-return kept showing
+            // the old branch's results until the query changed (Codex R5 :1617).
+            var sfp = q + '|' + _questions.length + '|' + (_aiResponses ? _aiResponses.length : 0) +
+                      '|g' + _ciIndexGen;
             if (sfp === _searchListFingerprint && list.firstChild) return;
             _searchListFingerprint = sfp;
         }
@@ -6580,7 +6607,25 @@
 
         aiResponses.forEach(function (r, msgIndex) {
             var el = r.element;
-            if (!el) return;
+            if (!el) {
+                // Indexed, unmounted: derive from CONTENT. Fenced blocks give the
+                // code inventory; files/attachments metadata gives the file list.
+                var txt = r.text || '';
+                var fenceRe = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, fm;
+                while ((fm = fenceRe.exec(txt)) !== null) {
+                    var body = (fm[2] || '').trim();
+                    if (body) codeBlocks.push({ language: fm[1] || '',
+                                                text: body, element: null,
+                                                msgIndex: msgIndex });
+                }
+                var metas = (r.files || []).concat(r.attachments || []);
+                for (var mi = 0; mi < metas.length; mi++) {
+                    var fn = metas[mi].file_name;
+                    if (fn && !seenFiles[fn]) { seenFiles[fn] = true;
+                        files.push({ name: fn, element: null, msgIndex: msgIndex }); }
+                }
+                return;
+            }
 
             try {
                 var pres = el.querySelectorAll('pre');
@@ -6967,10 +7012,26 @@
         // highlight degrades gracefully.
         var aiMsgs;
         if (ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
+            // Bind mounted elements by row identity so DOM-dependent analyzers keep
+            // working for what IS on screen; carry text and attachments for the rest —
+            // element:null alone made the inventory report no code or files at all
+            // (Codex R5 :6974).
+            var elByPath = {};
+            var sRows = ciMountedRows();
+            for (var sr = 0; sr < sRows.length; sr++) {
+                if (sRows[sr].isUser) continue;
+                var sp = ciResolvePathForRowStrict(sRows[sr].dataIndex);
+                if (sp === null) sp = ciMatchRowToPath(sRows[sr]);
+                if (sp !== null) elByPath[sp] = ciMessageNodeWithin(sRows[sr].el);
+            }
             aiMsgs = [];
             for (var fp = 0; fp < _ciFullPath.length; fp++) {
                 if (_ciFullPath[fp].sender !== 'assistant') continue;
-                aiMsgs.push({ element: null, text: _ciFullPath[fp].text || '', type: 'ai' });
+                aiMsgs.push({ element: elByPath[fp] || null,
+                              text: _ciFullPath[fp].text || '',
+                              attachments: _ciFullPath[fp].attachments || [],
+                              files: _ciFullPath[fp].files || [],
+                              type: 'ai' });
             }
         } else {
             aiMsgs = Array.from(getAIMessages()).map(function (el) {
