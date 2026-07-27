@@ -160,6 +160,30 @@ Investigated and rejected: an imperative `scrollToIndex`. The container's React 
 
 Bookmarks now route through the same path, resolving by message uuid. The positional `els[bookmark.msgIndex]` fallback is **deleted**.
 
+### Resolve-on-arrival (the final jump design)
+
+**Problem.** Second live test: jumps failed on targets whose neighbourhoods don't
+uniquely text-match globally (6–9s of byte-identical iterations, `ambiguous-mapping`),
+while both sides of the mapping step resolved fine. **Root cause was structural:** the
+design demanded a GLOBAL answer ("the exact dataIndex") before moving, where the
+ambiguity (U = pathLength − aria-setsize unrendered entries) is smaller than the mount
+window itself.
+
+**Method.** Aim with the predicate seed, land, resolve ON ARRIVAL against the ~7 mounted
+rows: the target's own text first (which cannot select a different message — matching is
+the verification), window-local offset pairs second, a bounded shift third. One matcher
+serves the settle loop and the fast path; one arrival path serves extremes and everything
+else. **Density-dependence was the disease:** every estimator that measured real local
+heights failed (span-mean overshot 10x through a 15,000px row; median understepped 4x),
+because the virtualizer positions unmeasured rows at its ESTIMATE — its own density
+(`scrollHeight/totalRows`) is the only correct one, and bisection between straddling
+landings needs no density assumption at all.
+
+**Proof.** Mock-first gate: fixtures with N=0/1/3/10 unrendered entries, duplicate short
+questions, attachment-chip rows, a predicate-blind entry and a giant row. `0a30d3b`
+fails 39 acceptance jumps, `1200a4b` fails 24, `5f2a8be` passes **222/222** (avg ~330ms,
+max 925ms). Live-confirmed 2026-07-27 on the 147-question conversation, Firefox.
+
 ### Screen-reader label contamination
 
 Claude emits `"Claude responded:"` and a `"Load earlier messages"` button as `.sr-only` nodes; ChatGPT emits `"You said:"`. All of it landed in `textContent`. Only ChatGPT's was handled, by a regex in a single caller — so Claude's assistant prefix still reached Search, Export and Summary, and `extractMarkdownContent` wrote it into exported markdown.

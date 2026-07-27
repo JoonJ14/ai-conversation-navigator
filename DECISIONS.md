@@ -1048,3 +1048,15 @@ sweeps stand — they were raw console JS that never invoked the userscript, and
 harvest stripped `[data-acn-bookmark]` before matching — but *which version of your own
 script is installed in the measurement browser* is now on the context list: an old build
 scanning and mutating the DOM mid-measurement is a confound the numbers cannot reveal.
+
+
+### Proof chain closed — LIVE CONFIRMED (2026-07-27)
+| Build | Acceptance jumps | Live |
+|---|---|---|
+| `0a30d3b` (produced the live traces) | fails 39 | failed live |
+| `1200a4b` (6-fix pass) | fails 24 | never shipped — the gate caught it |
+| `5f2a8be` (resolve-on-arrival) | **222/222 exact** (avg ~330ms, max 925ms) | **PASSED** — Firefox, 147-question conversation, arrival highlight tracking the exact clicked question |
+
+The `overflow-anchor` caveat resolved empirically: no teleporting observed live.
+Methodology worth keeping: **an old build must FAIL a new fixture before the fixture
+counts as a reproduction** — a fixture the old code passes is not reproducing the bug.

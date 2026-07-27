@@ -15,7 +15,7 @@ npx playwright install --with-deps
 ## Running Tests
 
 ```bash
-# Run all tests on all 17 platform entries (294 total: 14 tests × orbital, 13 × legacy,
+# Run all tests on all 20 platform entries (376 total: 14 tests × orbital, 13 × legacy,
 # + virtualization and jump tests on the three Claude (virtualized) entries)
 npm test
 
@@ -74,7 +74,7 @@ the check pass on Linux and fail on Windows for the same correct jump.
 When modifying the userscript, ensure:
 - All `data-acn-*` attributes remain intact
 - Mock pages match the real platform DOM structure
-- Tests pass across all 17 platform entries (14 real platforms + three Claude virtualized
+- Tests pass across all 20 platform entries (14 real platforms + six Claude virtualized
   entries: degraded, index-backed, and index-backed with markdown API text whose DOM/API
   text deliberately does NOT match)
 

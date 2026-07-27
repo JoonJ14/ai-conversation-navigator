@@ -98,7 +98,14 @@ Both are the same lesson in different clothing — *a green suite on your machin
 context-scoped finding too.* Add CI runner OS and speed to the list of contexts in
 `CLAUDE.md` that can flip a result.
 
-### The jump thrashes for ~12 s and then fails — offset derivation, not the estimator
+### The jump thrashes for ~12 s and then fails — RESOLVED in v12.0 (resolve-on-arrival)
+
+**Resolution (2026-07-27).** The entry below is kept for the diagnostic method. The final
+fix was neither text matching nor the estimator but the design: resolution moved from
+before-the-scroll (global) to ON ARRIVAL (window-local) — DEC-027. Proof chain: 0a30d3b
+fails 39 acceptance jumps, 1200a4b fails 24, 5f2a8be passes 222/222; live-confirmed.
+
+### Original diagnosis — offset derivation, not the estimator
 
 **Symptom.** On a conversation past roughly 10–20 questions, clicking a question makes
 the page blink repeatedly for ~12 s, never arrives, then shows *"not currently rendered"*.
