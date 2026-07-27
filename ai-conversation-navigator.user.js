@@ -1563,7 +1563,12 @@
     function ciSetDegraded(cid, reason) {
         _ciStatus         = 'degraded';
         _ciDegradedReason = reason;
-        var permanent = /unexpected response shape|malformed message data/.test(reason || '');
+        // Backoff classes (Codex R12 :3564, R14 :1566):
+        //  - schema/data failures: an API change makes every retry identical
+        //  - HTTP 401/403: a logged-out or unauthorized tab polls forever
+        //  - HTTP 429: retrying every cooldown actively worsens the rate limit
+        var permanent = /unexpected response shape|malformed message data|HTTP (401|403|429)/
+            .test(reason || '');
         if (permanent) {
             _ciRetryDelayMs = _ciRetryDelayMs ? Math.min(_ciRetryDelayMs * 4, 1800000)
                                               : 60000;
