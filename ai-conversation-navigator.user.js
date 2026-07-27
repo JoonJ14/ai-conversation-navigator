@@ -3494,7 +3494,14 @@
         for (i = 0; i < rows.length; i++) {
             var inner = ciMessageNodeWithin(rows[i].el);
             if (!inner || inner === rows[i].el) continue;
-            var t = _normalizeCompare(_readMessageText(inner));
+            var rawTxt = _readMessageText(inner);
+            var t = _normalizeCompare(rawTxt);
+            // Signatures use the RAW length. _normalizeCompare feeds through
+            // _normalizeKey, which truncates at 200 chars — so a long streaming
+            // response's signature froze while it was still growing, two scans
+            // declared it settled, and the refetch captured a PARTIAL answer that the
+            // 120-char prefix match then treated as current forever (Codex R15 :3497).
+            var rawLen = (rawTxt || '').length;
             if (rows[i].isUser) {
                 // EDITED PROMPT (Codex R5 :3301): an edit keeps its row INSIDE the
                 // indexed range, so row-identity marks it known — but its content no
@@ -3512,7 +3519,7 @@
                 if (ue.sender !== 'human') continue;
                 if (ue.textSource && ue.textSource !== 'content') continue;
                 var ut = _normalizeCompare(ue.text || '');
-                if (ut && t !== ut) sig += 'e' + rows[i].dataIndex + ':' + t.length + ';';
+                if (ut && t !== ut) sig += 'e' + rows[i].dataIndex + ':' + rawLen + ';';
                 continue;
             }
             // Long responses: global unique text match. SHORT responses cannot match
@@ -3522,7 +3529,7 @@
             // to, the same identity path the user-row edit check uses.
             if (t.length >= 60) {
                 if (ciMatchRowToPath(rows[i]) === null) {
-                    sig += rows[i].dataIndex + ':' + t.length + ';';
+                    sig += rows[i].dataIndex + ':' + rawLen + ';';
                 }
                 continue;
             }
@@ -3537,7 +3544,7 @@
             if (ae.sender !== 'assistant') continue;
             if (ae.textSource && ae.textSource !== 'content') continue;
             var at2 = _normalizeCompare(ae.text || '');
-            if (at2 && t !== at2) sig += 's' + rows[i].dataIndex + ':' + t.length + ';';
+            if (at2 && t !== at2) sig += 's' + rows[i].dataIndex + ':' + rawLen + ';';
         }
         if (!sig) { _ciLastAsstMismatch = ''; return false; }
         if (sig === _ciLastAsstMismatch) return true;
