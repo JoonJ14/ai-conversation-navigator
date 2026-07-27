@@ -1613,6 +1613,13 @@
                                // indefinitely — hundreds of MB per hour on an open
                                // tab (Codex R12 :3564).
     function ciSetDegraded(cid, reason) {
+        // Captured BEFORE the status changes. The retention branch below tests it, and an
+        // earlier version tested _ciStatus directly — which this very line had already set
+        // to 'degraded', so the branch could never run and the snapshot was destroyed
+        // anyway. The comment described a behaviour the code did not have (Codex).
+        var wasReady = _ciStatus === 'ready' && !!_ciIndex && !!_ciFullPath &&
+                       _ciConversationId === cid;
+
         _ciStatus         = 'degraded';
         _ciDegradedReason = reason;
         // Backoff classes (Codex R12 :3564, R14 :1566):
@@ -1638,9 +1645,14 @@
         //
         // Placed AFTER the backoff computation above so a permanent-class failure still
         // lengthens its retry delay; only the destruction is skipped.
-        if (_ciIndex && _ciFullPath && _ciStatus === 'ready' && _ciConversationId === cid) {
-            _ciRefreshFailed = reason || 'unknown';
-            _ciLastRefetchAt = Date.now();
+        if (wasReady) {
+            // Restore READY: the retained snapshot really is a complete history as of the
+            // last successful fetch, so consumers must keep using it. The failure is
+            // reported through the notes surface instead of the degraded banner.
+            _ciStatus         = 'ready';
+            _ciDegradedReason = '';
+            _ciRefreshFailed  = reason || 'unknown';
+            _ciLastRefetchAt  = Date.now();
             console.warn('[ACN] index REFRESH failed (' + reason + ') — keeping the ' +
                          'existing snapshot, retrying after the cooldown');
             return;

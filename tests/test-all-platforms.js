@@ -271,6 +271,32 @@ const PLATFORMS = [
             toolShapedRow: 3,
         },
     },
+    {
+        // Retention guard. The first load succeeds; every later fetch 500s. A tool-shaped
+        // row forces exactly one resync, so the failure lands on a background REFRESH with
+        // a complete snapshot already in hand. The index must stay READY and keep listing
+        // the whole conversation — collapsing to the mounted window would throw away data
+        // it still holds. Twice a fix for this was written and was INERT; this entry is
+        // why it is now known to fire.
+        name: 'Claude (refresh failure retains snapshot)',
+        mockFile: 'claude-virtualized.html',
+        hostname: 'claude.ai',
+        pathname: '/chat/cc000000-0000-4000-8000-00000000cccc',
+        expectedMessages: 40,
+        expectedAccent: '#d97706',
+        expectedMode: 'orbital',
+        virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
+        indexBacked: true,
+        offsetUnderivable: true,
+        refetchProbeMs: 20000,          // long enough for the resync to fire and fail
+        expectRetainedSnapshot: true,
+        gmFixture: {
+            totalMessages: 80,
+            conversationUuid: 'cc000000-0000-4000-8000-00000000cccc',
+            toolShapedRow: 3,
+            failFetchAfter: 1,
+        },
+    },
     // ── RESOLVE-ON-ARRIVAL FIXTURE MATRIX (spec §5 — the mock-first gate) ────
     // Proof pair required by the spec: the OLD build (0a30d3b, tonight's traces) must
     // FAIL these; the resolve-on-arrival build must pass them. jumpEveryQuestion runs
@@ -605,6 +631,7 @@ function buildGmFixtureShim(cfg) {
     // an entire release: the bug needs a second scan to land inside the fetch window,
     // and at 5ms one never does. Any platform entry may raise it via apiLatencyMs.
     var API_LATENCY_MS = ${JSON.stringify(cfg.apiLatencyMs || 5)};
+    var FAIL_FETCH_AFTER = ${JSON.stringify(cfg.failFetchAfter || 0)};
     window.GM_xmlhttpRequest = function (opts) {
         var url = opts.url || '';
         function respond(status, body) {
@@ -623,6 +650,12 @@ function buildGmFixtureShim(cfg) {
             window.__convFetches = (window.__convFetches || 0) + 1;
             window.__convFetchAt = (window.__convFetchAt || []);
             window.__convFetchAt.push(Math.round(performance.now()));
+            // failFetchAfter models a background REFRESH failing after the first load
+            // succeeded — the case where a usable full-history snapshot already exists.
+            if (FAIL_FETCH_AFTER > 0 && window.__convFetches > FAIL_FETCH_AFTER) {
+                respond(500, '');
+                return;
+            }
             respond(200, JSON.stringify(PAYLOAD));
             return;
         }
@@ -1136,6 +1169,27 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                 assert('Idle page does not refetch the payload in a loop', probe.n <= 2,
                     `${probe.n} conversation fetch(es) in ${secs}s idle` +
                     (probe.at.length ? ` at ms ${probe.at.join(', ')}` : ''));
+
+                // A background refresh that FAILED must leave the existing snapshot in
+                // place: still ready, still listing the whole conversation, reporting the
+                // failure as a note rather than collapsing to the mounted window.
+                if (platform.expectRetainedSnapshot) {
+                    const kept = await page.evaluate(() => {
+                        const stat = document.querySelector('[data-acn-role="nav-stat"]');
+                        const banner = document.querySelector('[data-acn-index-status]');
+                        return {
+                            listed: stat ? +stat.getAttribute('data-acn-count') : -1,
+                            status: banner ? banner.getAttribute('data-acn-index-status') : 'none',
+                            mounted: window.__mockVirtualization.mountedCount(),
+                            fetches: window.__convFetches || 0,
+                        };
+                    });
+                    assert('Failed refresh retains the full-history snapshot',
+                        kept.fetches >= 2 && kept.listed === platform.expectedMessages &&
+                        kept.status !== 'degraded',
+                        `${kept.fetches} fetches (2nd+ forced to 500), lists ${kept.listed}/` +
+                        `${platform.expectedMessages}, DOM holds ${kept.mounted}, status=${kept.status}`);
+                }
             }
 
             // ── TESTS 22-25: index-backed jump (the primary v12.0 path) ────
