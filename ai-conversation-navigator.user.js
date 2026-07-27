@@ -7519,7 +7519,14 @@
         var indexed = typeof pathIdx === 'number' && ciIsClaudeChat() && ciIsReady() &&
                       _ciFullPath && pathIdx >= 0 && pathIdx < _ciFullPath.length;
         if (indexed) {
-            el = ciResolveMountedByPathIndex(pathIdx);
+            var live = ciResolveMountedByPathIndex(pathIdx);
+            // Containment IS the staleness check, and it preserves precision: inventory
+            // items point at a <pre> or an <a> INSIDE the message, and resolving to the
+            // message node alone would scroll to the top of a long response instead of
+            // the block the user clicked. A cached node still inside the freshly
+            // resolved message is therefore kept; anything else (detached, or recycled
+            // into a different message) is replaced by the message node.
+            el = (live && el && live.contains(el)) ? el : live;
         } else if (el && ciIsClaudeChat() && ciIsReady() && _ciFullPath && _ciFullPath.length) {
             // Virtualized chat, but this item predates the index (summary generated
             // before the fetch resolved) so there is no path index to re-resolve
@@ -7548,7 +7555,9 @@
             return;
         }
         try {
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Same reduced-motion respect as the jump-bridge branch above; these two
+            // are the same user action reached by different routes and had drifted.
+            el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
             var prev = el.style.outline;
             el.style.outline = '2px solid var(--acn-accent, #d97706)';
             el.style.outlineOffset = '3px';
