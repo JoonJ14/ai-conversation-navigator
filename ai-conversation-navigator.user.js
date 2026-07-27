@@ -3270,10 +3270,29 @@
         // index never refreshed either: the new turn was invisible everywhere
         // (Codex :1822, P1). A repeat only counts as known while the index holds at
         // least as many occurrences as are mounted.
-        // ONE canonical key (_normalizeCompare) on BOTH sides: the index holds raw
-        // markdown, the DOM holds rendered text, and only the markdown-insensitive
-        // form is equal across them. Counting under mixed keys regressed the markdown
-        // fixture straight back to provisional duplicates.
+        // ROW IDENTITY decides what is NEW (Codex round-3 P1). Text-count comparison
+        // failed twice: a set suppressed exact repeats entirely, and comparing
+        // mounted-window counts against WHOLE-HISTORY counts still suppressed a new
+        // prompt that repeated an old, unmounted turn ("continue" repeating last
+        // week's "continue"). A genuinely new turn is appended by the virtualizer at
+        // a dataIndex BEYOND the indexed renderable range — no text needed. A row
+        // inside the range that resolves to a path entry is known regardless of what
+        // its text matches.
+        var newRowEls = null;
+        if (ciIsClaudeChat() && _ciRenderable && typeof ciMountedRows === 'function') {
+            newRowEls = [];
+            var mrRows = ciMountedRows();
+            for (var mr = 0; mr < mrRows.length; mr++) {
+                if (!mrRows[mr].isUser) continue;
+                var mDi = mrRows[mr].dataIndex;
+                if (mDi < _ciRenderable.length) continue;              // within indexed range
+                if (ciResolvePathForRowStrict(mDi) !== null) continue; // anchored: known
+                var mNode = mrRows[mr].el.querySelector('[data-testid="user-message"]');
+                if (mNode) newRowEls.push(mNode);
+            }
+        }
+        // Canonical-key counting stays as the NON-ROW fallback (no virtualizer
+        // metadata -> no row identity to use).
         var known = {};
         for (var i = 0; i < questions.length; i++) {
             var kc = _normalizeCompare(questions[i].text);
@@ -3281,13 +3300,16 @@
         }
         var seen = {};
         var appended = false;
-        for (var j = 0; j < mounted.length; j++) {
-            var text = _readMessageText(mounted[j]);
+        var mergeList = (newRowEls !== null) ? newRowEls : mounted;
+        for (var j = 0; j < mergeList.length; j++) {
+            var text = _readMessageText(mergeList[j]);
             if (!text) continue;
             var key = _normalizeCompare(text);
-            seen[key] = (seen[key] || 0) + 1;
-            if ((known[key] || 0) >= seen[key]) continue;
-            known[key] = (known[key] || 0) + 1;
+            if (newRowEls === null) {
+                seen[key] = (seen[key] || 0) + 1;
+                if ((known[key] || 0) >= seen[key]) continue;
+                known[key] = (known[key] || 0) + 1;
+            }
             questions.push({
                 uuid:        null,
                 text:        text,
@@ -3297,7 +3319,7 @@
                 attachments: [],
                 files:       [],
                 truncated:   false,
-                element:     mounted[j],
+                element:     mergeList[j],
                 provisional: true
             });
             appended = true;
@@ -6087,7 +6109,10 @@
         // Opportunistic migration: once a legacy record is positively identified,
         // upgrade it to a uuid so it stops depending on scroll position.
         if (!bookmark.msgUuid) {
-            var resolved = ciUuidForText(textOf(targetEl));
+            // Pass the element: without it a duplicate-text bookmark migrated to the
+            // FIRST twin's uuid (the text map is deliberately first-wins) and every
+            // later click jumped to the wrong message (Codex round-3).
+            var resolved = ciUuidForText(textOf(targetEl), targetEl);
             if (resolved) {
                 bookmark.msgUuid    = resolved;
                 bookmark.contentHash = resolved;

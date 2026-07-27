@@ -253,13 +253,13 @@ const PLATFORMS = [
         mockFile: 'claude-virtualized.html',
         hostname: 'claude.ai',
         pathname: '/chat/55555555-5555-4555-8555-555555555555',
-        // 61, not 60: attachment row 0 is mounted at load, its DOM chip text cannot
-        // match its API text, and the live-message merge appends it as provisional —
-        // the documented KNOWN DEFECT this fixture deliberately reproduces.
-        expectedMessages: 61,
-        listedTurnsOverride: 61,
-        knownProvisionalDuplicates: 1,
-        contentPatternExempt: 5,   // 2 duplicates + 2 attachment rows + 1 provisional chip
+        // Clean 60: the merge now decides "new turn" by ROW IDENTITY (a new turn's
+        // dataIndex lies beyond the indexed range), so the mounted attachment chip —
+        // whose text can never match its API entry — no longer becomes a provisional
+        // duplicate. This entry listed 61 while the merge compared text
+        // (the KNOWN DEFECT its characterisation assertions used to pin).
+        expectedMessages: 60,
+        contentPatternExempt: 4,   // 2 duplicates + 2 attachment rows
         expectedAccent: '#d97706',
         expectedMode: 'orbital',
         virtualized: { totalTurns: 60, totalMessages: 120, userWindowSize: 3 },
