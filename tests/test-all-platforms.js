@@ -60,13 +60,21 @@ const BROWSER_ENGINES = {
     chromium: {
         name: 'Chromium',
         launcher: playwright.chromium,
-        // Chromium-specific launch args for sandboxed/CI environments
+        // Chromium-specific launch args for sandboxed/CI environments.
+        //
+        // NO --single-process. It was here from the suite's first commit and was
+        // survivable only while the mocks were light. In single-process mode the
+        // renderer shares the browser process, so ANY renderer fault takes the whole
+        // browser down and every later platform dies with "Target page, context or
+        // browser has been closed" — which is exactly what happened on Windows
+        // chromium once claude-virtualized.html started doing real scroll work:
+        // 13 of 16 platforms cascaded from one renderer fault. Firefox and WebKit on
+        // the same runner lost nothing, because only chromium was passed this flag.
         launchArgs: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-gpu',
             '--disable-dev-shm-usage',
-            '--single-process',
         ],
         // Hardcoded fallback paths for this specific dev environment
         fallbackPaths: [
@@ -914,12 +922,14 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                     const zone = document.querySelector('[data-acn-role="zone"]');
                     const rawIdx = zone ? zone.getAttribute('data-acn-jump-resolved') : null;
                     const resolvedIdx = rawIdx === null ? null : +rawIdx;
-                    const rowNow = resolvedIdx === null
-                        ? null : document.querySelector(`[data-index="${resolvedIdx}"]`);
+                    // Identify the resolved row from the mock's BACKING DATA, not from
+                    // the DOM. The row is often already recycled out by the time this
+                    // runs — see the rowText() comment in claude-virtualized.html.
+                    const resolvedText = resolvedIdx === null ? null : v.rowText(resolvedIdx);
                     return { ok: true, elapsedMs: Date.now() - t0,
                              targetWasMountedAtClick: before.indexOf(0) !== -1,
                              resolvedAnything: resolvedIdx !== null,
-                             resolvedIsQuestion1: !!rowNow && /Question number 1\b/.test(rowNow.textContent),
+                             resolvedIsQuestion1: !!resolvedText && /Question number 1\b/.test(resolvedText),
                              // Q1 is row 0. Any other row means the navigator resolved
                              // a different message, however close it landed.
                              resolvedDataIndex: resolvedIdx,
@@ -968,14 +978,17 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                     const zone = document.querySelector('[data-acn-role="zone"]');
                     const rawIdx = zone ? zone.getAttribute('data-acn-jump-resolved') : null;
                     const resolvedIdx = rawIdx === null ? null : +rawIdx;
-                    const rowNow = resolvedIdx === null
-                        ? null : document.querySelector(`[data-index="${resolvedIdx}"]`);
+                    // Backing data, not the DOM — the resolved row is commonly unmounted
+                    // again before this line. Reading textContent here made the assertion
+                    // machine-speed-dependent and failed all three Windows engines while
+                    // passing Linux/macOS, for an identical, correct jump.
+                    const resolvedText = resolvedIdx === null ? null : v.rowText(resolvedIdx);
                     return { ok: true, expectRow, elapsedMs: Date.now() - t0,
                              wasMountedAtClick: before.indexOf(expectRow) !== -1,
                              resolvedAnything: resolvedIdx !== null,
                              resolvedDataIndex: resolvedIdx,
-                             correctMessage: !!rowNow &&
-                                 new RegExp('Question number ' + targetOrdinal + '\\b').test(rowNow.textContent),
+                             correctMessage: !!resolvedText &&
+                                 new RegExp('Question number ' + targetOrdinal + '\\b').test(resolvedText),
                              stillBusy: !!document.querySelector('[data-acn-jumping="true"]'),
                              rows: v.mountedIndexes() };
                 });

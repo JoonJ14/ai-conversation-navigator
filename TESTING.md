@@ -270,14 +270,22 @@ const browser = await chromium.launch({
         '--disable-setuid-sandbox', // Same
         '--disable-gpu',           // No GPU in headless
         '--disable-dev-shm-usage', // Prevents /dev/shm issues in Docker
-        '--single-process',        // CRITICAL: Required on kernel 4.4.0
     ],
 });
 ```
 
-**Why `--single-process`?** The Antigravity IDE sandbox runs on Linux kernel 4.4.0, which is too old for Chromium's multi-process architecture. Without this flag, child processes crash silently with "Target page, context or browser has been closed" errors. This flag forces everything into one process.
+**Do not re-add `--single-process`.** It was present from the suite's first commit,
+justified by an Antigravity IDE sandbox on Linux kernel 4.4.0 that is no longer the
+environment this runs in. In single-process mode the renderer shares the browser process,
+so **any** renderer fault takes the whole browser down — and every platform after it fails
+with `Target page, context or browser has been closed`, which reads as fifteen broken
+platforms rather than one renderer fault.
 
-**If you're running on a normal machine** (macOS, modern Linux, Windows), you can remove `--single-process` for better stability. It's only needed in the sandboxed environment.
+That is precisely what happened on Windows CI in v12.0, once `claude-virtualized.html`
+started doing real scroll work: **13 of 16 platforms cascaded from a single fault.**
+Firefox and WebKit on the same runner lost nothing, because the flag was Chromium-only —
+which is also the diagnostic tell. If one engine cascades and the others report a single
+clean failure, suspect crash isolation, not the code under test.
 
 **Browser selection priority:**
 1. Full Chromium (`/root/.cache/ms-playwright/chromium-1194/chrome-linux/chrome`) — preferred, more stable
@@ -402,6 +410,22 @@ Rules that came out of it, worth applying to any new assertion here:
    because no mock had `.sr-only` inside the element the extractor actually reads.
 5. **Error checks run last, and for every platform.** Placed early they miss everything
    after them; gated to one platform they miss the other fifteen.
+6. **Read identity from the backing data, never from the recycled DOM.** Rule 1 fixed
+   *which* row the assertion asks about; this fixes *where it looks up the answer*. The
+   first version resolved the row index durably from `data-acn-jump-resolved` and then
+   turned around and read `querySelector('[data-index=N]').textContent` to check the text
+   — but by then the row is frequently unmounted again, because the re-render that
+   `scrollIntoView` triggers is what unmounts it. The check therefore depended on machine
+   speed: it passed on Linux and macOS (window `[34..39]`, target 38 present) and failed
+   on **all three** Windows engines (window `[41..46]`, target 38 gone) for an identical,
+   correct jump. Use `__mockVirtualization.rowText(i)`, which reads the mock's `MESSAGES`
+   array. Verified still diagnostic: with the offset forced to 0 and verification stubbed,
+   both jump assertions fail with `resolved=row 1 isQ1=false` and `expected row 38,
+   resolved row 39`.
+
+   This is the product's own Layer 4 rule turned on the harness: **do not ask the DOM for
+   data the index already holds.** A virtualized mock is subject to it exactly like a
+   virtualized platform.
 
 ### Tests 15–25 — virtualization and jump (added v12.0)
 

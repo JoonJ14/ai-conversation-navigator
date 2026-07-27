@@ -70,6 +70,34 @@ See DEC-021 for the endpoint, the tree-walk algorithm, and why this is *not* the
 
 Every mock page is static and mounts all its turns permanently, so `npm test` returned green throughout. **A suite of static mocks structurally cannot fail on a Layer 4 break.** `tests/mock-pages/claude-virtualized.html` was added for exactly this: 40 turns, 3 mounted, the rest genuinely removed from the document.
 
+### Two CI failures the virtualized mock exposed (both in the harness, not the product)
+
+Once `claude-virtualized.html` started doing real scroll work, Windows CI went red while
+Linux and macOS stayed green. Neither cause was in the userscript.
+
+**1. A test that passed or failed depending on machine speed.** The jump assertion
+resolved the row index durably from `data-acn-jump-resolved`, then looked the row's *text*
+up with `querySelector('[data-index="38"]')`. By then row 38 is usually recycled out
+again — the re-render `scrollIntoView` triggers is what unmounts it. Linux landed on
+window `[34..39]` and found it; Windows landed on `[41..46]` and did not, for the same
+correct jump. Symptom to recognise: **`resolved row N` equals `expected row N` and the
+text check still fails.** That combination means the implementation was right and the
+assertion looked in the wrong place. Read identity from the mock's `MESSAGES` array via
+`__mockVirtualization.rowText(i)`. See DEC-025.
+
+**2. `--single-process` turned one renderer fault into thirteen failing platforms.**
+Windows Chromium reported 13 of 16 platforms failing with
+`page.unrouteAll: Target page, context or browser has been closed`, while Firefox and
+WebKit on the same runner reported a single honest failure. The flag had been there since
+the suite's first commit for a kernel-4.4.0 sandbox that no longer applies; it removes
+crash isolation, so one renderer fault kills the browser and every platform after it.
+**Diagnostic tell:** when one engine cascades and the others report one clean failure,
+suspect the launcher, not the code under test. See DEC-026.
+
+Both are the same lesson in different clothing — *a green suite on your machine is a
+context-scoped finding too.* Add CI runner OS and speed to the list of contexts in
+`CLAUDE.md` that can flip a result.
+
 ### If it happens on another platform
 
 The general shape: DOM-derived counts that track the viewport instead of the conversation, with no errors. Find where the platform still holds the full data (its own API or store) and read from there, keeping the DOM path as a **visibly** degraded fallback. Do not let a fallback stay silent — that is what made this invisible for so long.

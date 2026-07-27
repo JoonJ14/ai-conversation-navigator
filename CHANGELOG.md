@@ -200,6 +200,30 @@ machinery was dead code under test.
 
 Result: **267/267 passing across 16 platform entries** (was 182 across 14).
 
+**Then Windows CI went red, and both causes were in the harness.** The Ubuntu and macOS
+jobs passed; all three Windows engines failed. Neither cause was in the userscript, and
+both are worth recording because they are the same mistake at two levels.
+
+The jump assertion resolved the row *index* durably — from `data-acn-jump-resolved`, added
+precisely because the resolved element does not survive — and then read that row's *text*
+straight back out of the live DOM, where it has usually been recycled away again. Whether
+it was still mounted came down to machine speed: Linux landed on window `[34..39]` and
+found row 38; Windows landed on `[41..46]` and did not, for an identical, correct jump.
+The durable read and the fragile read were adjacent lines in the same return statement.
+Identity now comes from the mock's `MESSAGES` array, and the assertion was re-checked
+against the mutation it exists to catch — still fails, now deterministically (DEC-025).
+
+Separately, `--single-process` — carried in the Chromium launch args since the suite's
+first commit, for a kernel-4.4.0 sandbox this project no longer runs in — removes crash
+isolation, so a single renderer fault took the whole browser down and reported **13 of 16
+platforms failing**. Firefox and WebKit on the same runner reported one honest failure.
+The flag did not cause the fault; it amplified one fault into fifteen and destroyed the
+evidence. Removed (DEC-026).
+
+Both belong to the measurement-context rule this release also introduced: **a green suite
+on your own machine is a context-scoped finding too.** Runner OS and speed are now listed
+in `CLAUDE.md` alongside page-realm-vs-sandbox and visible-vs-hidden-tab.
+
 ---
 
 ## [11.8 — Firefox: Disable Fetch Interception, Keep DOM Estimation] — 2026-03-14

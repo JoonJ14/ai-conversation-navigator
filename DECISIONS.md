@@ -891,3 +891,101 @@ runs 2 and 3 crossed it.
 Landing became reproducible: without the dispatch the drift is a constant −360 px, so
 the interpolation converges on stable ground instead of chasing a coordinate system that
 the dispatch itself was moving.
+
+---
+
+## DEC-025: Test Assertions Read Backing Data, Not the Recycled DOM (v12.0)
+**Date:** 2026-07-26 | **Stage:** v12.0 Phase 3 — CI hardening
+
+### Decision
+Any assertion that asks **"which message did the navigator resolve?"** reads the mock's
+`MESSAGES` array via `__mockVirtualization.rowText(i)`. It never reads
+`querySelector('[data-index="N"]').textContent`.
+
+### Problem
+The jump tests passed on Linux and macOS and failed on **all three** Windows engines,
+with an identical and entirely correct jump:
+
+```
+linux/macOS  ✓ expected row 38, resolved row 38, correctMsg=true   rows=[34,35,36,37,38,39,79]
+windows      ✗ expected row 38, resolved row 38, correctMsg=false  rows=[41,42,43,44,45,46,79]
+```
+
+`resolved row 38` is the implementation reporting the right answer on every OS. Only
+`correctMsg` diverged.
+
+### Technical root cause
+The assertion resolved the row *index* durably — from the `data-acn-jump-resolved`
+attribute on the zone, added precisely because the resolved element does not survive
+(DEC-023) — and then looked the *text* up in the live DOM. By that point row 38 has
+usually been recycled out again: the re-render that `scrollIntoView` triggers is what
+unmounts it. Whether the row is still mounted when the assertion runs is a race between
+the mock's render loop and the test's polling, so the outcome tracks **machine speed**.
+Windows runners are slower, the mock drifted three rows further, `rowNow` was `null`, and
+`correctMessage` came back false for a correct jump.
+
+This is the same defect that `data-acn-jump-resolved` was introduced to fix, left behind
+one line below the fix — the durable read and the fragile read sat adjacent in the same
+return statement.
+
+### Method chosen and why
+Expose `rowText(i)` on the mock, backed by the `MESSAGES` array that is always present
+regardless of mounting.
+
+Deleting `correctMessage` was rejected. It is the assertion that caught the most
+important mutation of the release — offset forced to `0` with verification stubbed made
+the navigator resolve the **assistant reply** instead of Question 1, and `isQ1=false` was
+what exposed it. Removing a flaky check that is also the load-bearing one trades a red CI
+for a silent one.
+
+### How it fixed it
+Deterministic on every OS, and re-verified as still diagnostic — under the same mutation
+both assertions fail, with `resolved=row 1 isQ1=false` and `expected row 38, resolved row
+39`. The general rule is the product's own Layer 4 rule applied to the harness: **do not
+ask the DOM for data the index already holds.** A virtualized mock is subject to it
+exactly like a virtualized platform.
+
+---
+
+## DEC-026: No `--single-process` in the Chromium Test Launcher (v12.0)
+**Date:** 2026-07-26 | **Stage:** v12.0 Phase 3 — CI hardening
+
+### Decision
+`--single-process` is removed from the Chromium launch args and must not be re-added.
+
+### Problem
+Windows Chromium CI reported **13 of 16 platforms failing**, all with the same message:
+
+```
+✗ No runtime errors: page.unrouteAll: Target page, context or browser has been closed
+```
+
+Firefox and WebKit on the same runner reported **266/267 — one honest failure** (DEC-025)
+and nothing else.
+
+### Technical root cause
+`--single-process` had been present since the suite's first commit (`9bad2b1`), justified
+by an Antigravity IDE sandbox on Linux kernel 4.4.0 that this project has not run in for a
+long time. In that mode the renderer shares the browser process, so there is no crash
+isolation: one renderer fault takes the entire browser with it, and every subsequent
+platform fails on its first Playwright call.
+
+It was survivable while the mocks were static and light. `claude-virtualized.html` gained
+scroll-driven mounting, varied row heights and progressive measurement in v12.0, and the
+extra renderer work was enough to trip it on the slower Windows runners.
+
+So one fault was being reported as fifteen broken platforms — the flag did not cause the
+fault, it **amplified** it and destroyed the evidence.
+
+### Method chosen and why
+Remove the flag. `--no-sandbox`, `--disable-setuid-sandbox`, `--disable-gpu` and
+`--disable-dev-shm-usage` are the legitimate CI args and are retained.
+
+### How it fixed it
+A renderer fault now costs one platform instead of thirteen, and the failing platform is
+the one that actually failed.
+
+**Diagnostic tell worth keeping:** when one engine cascades and the others report a single
+clean failure on the same runner, suspect crash isolation in the launcher rather than the
+code under test. The asymmetry is the clue — the flag was Chromium-only, and so was the
+cascade.

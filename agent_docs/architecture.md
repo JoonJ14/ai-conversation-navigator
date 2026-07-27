@@ -235,6 +235,14 @@ green, because checking "is row 0 mounted and does it read right" passes wheneve
 6-row mount window happens to contain the intended row. Only `data-acn-jump-resolved`
 distinguishes a correct jump from a confidently wrong one.
 
+**And look the answer up in the backing data, not the DOM.** Resolving the row *index*
+durably is only half of it. The first version then read that row's text back out of the
+live DOM, where it is usually already recycled away again — the re-render `scrollIntoView`
+triggers is what unmounts it. The check consequently tracked machine speed: green on Linux
+and macOS, red on all three Windows engines, for the same correct jump. Use
+`__mockVirtualization.rowText(i)`, which reads the mock's `MESSAGES` array. Same rule the
+product follows — do not ask the DOM for data the index already holds (DEC-025).
+
 This distinction is load-bearing. A suite of static mocks **structurally cannot fail** on a Layer 4 state break — the entire suite stayed green while Navigate was showing 3% of the conversation. If you add a platform that virtualizes, ship a mock that genuinely unmounts nodes; `display:none` does not reproduce the failure.
 
 ## Three Display Modes

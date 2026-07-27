@@ -267,6 +267,21 @@
                 .map(function (e) { return +e.getAttribute('data-index'); })
                 .sort(function (a, b) { return a - b; });
         },
+        // Text of a row read from the BACKING DATA, never from the DOM.
+        //
+        // A test that wants to know "which message did the navigator resolve?"
+        // must not answer it with querySelector('[data-index=N]').textContent:
+        // the row is routinely recycled out of the mount window before the
+        // assertion runs, because the re-render that scrollIntoView triggers is
+        // itself what unmounts it. That makes the read machine-speed-dependent —
+        // it passed on Linux/macOS (window [34..39], target 38 present) and
+        // failed on Windows (window [41..46], target 38 gone) for the same
+        // correct jump.
+        //
+        // MESSAGES is the source of truth and is always present. This is the
+        // same Layer 4 rule the product follows: do not ask the DOM for data
+        // the index already holds.
+        rowText: function (i) { return MESSAGES[i] ? MESSAGES[i].text : null; },
         scrollHeight: function () { return container.scrollHeight; },
         resetMeasurements: function () {
             measured = {};
