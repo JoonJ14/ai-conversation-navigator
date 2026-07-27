@@ -3654,7 +3654,11 @@
                 if (ue.sender !== 'human') continue;
                 if (ue.textSource && ue.textSource !== 'content') continue;
                 var ut = _normalizeCompare(ue.text || '');
-                if (ut && t !== ut) sig += 'e' + rows[i].dataIndex + ':' + rawLen + ';';
+                // Content fingerprint, for the same reason as the assistant branches
+                // below: two different edits of one prompt that happen to render to the
+                // same length would otherwise produce an identical signature, and the
+                // second would be suppressed as already-handled (Codex P1).
+                if (ut && t !== ut) sig += 'e' + rows[i].dataIndex + ':' + rawLen + ':' + _fnv1aHex(t) + ';';
                 continue;
             }
             // Long responses: global unique text match. SHORT responses cannot match
