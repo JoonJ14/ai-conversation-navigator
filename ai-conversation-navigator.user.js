@@ -2153,12 +2153,19 @@
         var key = _normalizeKey(entry.text || '');
         var keyMd = _normalizeCompare(entry.text || '');
         if (!key && !keyMd) return null;
+        // Rows must AGREE WITH THE TARGET'S SENDER. Assistant targets (Search and
+        // Bookmarks jump to them) previously matched against USER rows only, so a
+        // same-text user message inside the candidate range was accepted as the
+        // assistant target (Codex R11 :2160).
+        var wantUser = entry.sender === 'human';
         var hits = [], i;
         for (i = 0; i < rows.length; i++) {
-            if (!rows[i].isUser) continue;
-            var inner = rows[i].el.querySelector('[data-testid="user-message"]');
-            if (!inner) continue;
-            var domTxt = _readMessageText(inner);
+            if (rows[i].isUser !== wantUser) continue;
+            var inner = wantUser
+                ? rows[i].el.querySelector('[data-testid="user-message"]')
+                : ciMessageNodeWithin(rows[i].el);
+            if (!inner || inner === rows[i].el) continue;
+            var domTxt = wantUser ? _readMessageText(inner) : _readAIText(inner);
             if ((key && _normalizeKey(domTxt) === key) ||
                 (keyMd && _normalizeCompare(domTxt) === keyMd)) hits.push(rows[i]);
         }
@@ -2179,7 +2186,7 @@
         var dupCount = 0;
         for (i = 0; i < _ciFullPath.length && dupCount < 2; i++) {
             var de = _ciFullPath[i];
-            if (de.sender !== 'human') continue;
+            if (de.sender !== entry.sender) continue;
             if (de.textSource && de.textSource !== 'content') continue;
             if ((key && _normalizeKey(de.text || '') === key) ||
                 (keyMd && _normalizeCompare(de.text || '') === keyMd)) dupCount++;
@@ -3075,6 +3082,11 @@
         }
         if (!_ciTextToUuid) {
             _ciTextToUuid = {};
+            // Ambiguity POISONS a key rather than first-wins resolving it: two
+            // messages sharing normalized text (a user and assistant both saying
+            // "OK") each got the first one's uuid, and a schema-2 bookmark persisted
+            // that wrong identity durably (Codex R11 :3088). A poisoned key returns
+            // null and the caller falls back to the honest content hash.
             for (var i = 0; i < _ciFullPath.length; i++) {
                 // Markdown-insensitive: the index holds RAW MARKDOWN while callers pass
                 // RENDERED DOM text. Keyed on _normalizeKey, any assistant message whose
@@ -3082,7 +3094,9 @@
                 // its bookmark silently degraded to the position-dependent schema 1 —
                 // which, with the positional fallback deleted, is unresolvable.
                 var t = _normalizeCompare(_ciFullPath[i].text || '');
-                if (t && !_ciTextToUuid[t]) _ciTextToUuid[t] = _ciFullPath[i].uuid;
+                if (!t) continue;
+                if (_ciTextToUuid.hasOwnProperty(t)) _ciTextToUuid[t] = null; // poisoned
+                else _ciTextToUuid[t] = _ciFullPath[i].uuid;
             }
         }
         return _ciTextToUuid[_normalizeCompare(text || '')] || null;
@@ -8139,7 +8153,12 @@
             // labelled as complete API history (Codex round-1 P1). ciExtractText
             // already returns extracted_content when the message has NO text block, so
             // only emit it here when it is NOT already the body.
-            if (m.attachments && m.attachments.length) {
+            // Skip entirely when the body WAS the attachments: after R10's
+            // aggregation the message text is all bodies joined, and the
+            // per-attachment != comparison re-emitted every large document a second
+            // time (Codex R11 :8147).
+            if (m.attachments && m.attachments.length &&
+                (!m.textSource || m.textSource === 'content')) {
                 for (var at = 0; at < m.attachments.length; at++) {
                     var att = m.attachments[at];
                     var body = att.extracted_content && att.extracted_content.trim();
