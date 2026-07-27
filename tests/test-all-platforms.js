@@ -379,6 +379,11 @@ function buildGmFixtureShim(cfg) {
         sender: 'assistant',
         index: 0,
         created_at: '2026-07-01T00:00:00Z',
+        // The live API sets stop_reason on every COMPLETED assistant message. Its
+        // ABSENCE marks an interrupted generation, which renders no row — that is the
+        // renderable-entry predicate. Omitting it here made every assistant message look
+        // interrupted and collapsed the row map.
+        stop_reason: 'end_turn',
         text: '',
         content: [{ type: 'text', text: 'Conversation started.' }],
         attachments: [], files: [],
@@ -392,6 +397,12 @@ function buildGmFixtureShim(cfg) {
             sender: isUser ? 'human' : 'assistant',
             index: row + 1,
             created_at: '2026-07-01T00:00:00Z',
+            // Human turns carry no stop_reason in the live API; assistant turns do unless
+            // the generation was interrupted. cfg.unrenderedAt lists row positions whose
+            // assistant message should be marked interrupted (no stop_reason) and therefore
+            // render NO row — which is what makes the offset piecewise.
+            stop_reason: isUser ? undefined
+                : (((cfg.unrenderedAt || []).indexOf(row) !== -1) ? undefined : 'end_turn'),
             text: '',                       // empty on purpose — mirrors the real API
             // NOTE the trailing ' VISIBLE-NOT-SR-ONLY' on user turns: the mock renders a
             // .not-sr-only span inside the message node, and that text is VISIBLE content
