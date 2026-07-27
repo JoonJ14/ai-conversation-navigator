@@ -3282,6 +3282,13 @@
         _ciTruncatedCount = 0;
         _ciUsedLeafFallback = false;
         _ciPathComplete   = true;
+        // Both of these throttle REFETCHES, and a refetch belongs to one conversation.
+        // Carried across a switch, chat A's cooldown stamp defers a resync B genuinely
+        // needs, and A's accumulated backoff multiplies from its inherited value — so a
+        // single transient failure in B could schedule a retry half an hour out instead
+        // of at the 60s floor.
+        _ciLastRefetchAt  = 0;
+        _ciRetryDelayMs   = 0;
         // Org is per-account, but a stale in-memory value would survive an account
         // switch; the GM cache is account-validated, so re-resolving is cheap.
         _ciOrgUuid        = null;
@@ -4690,7 +4697,13 @@
             // exists to make safe was directly reachable by the user.
             // Covers Navigate/Search rows (.acn-qi) AND bookmark rows (.acn-bk); an
             // earlier rule matched only .acn-qi, so bookmark clicks were never blocked.
+            // Summary rows carry their own classes (map segments, sub-segments and
+            // code/file inventory items); without them the attribute was set on the
+            // panel but blocked nothing inside it.
             '.acn-panel[data-acn-jumping="true"] .acn-qi,',
+            '.acn-panel[data-acn-jumping="true"] .acn-seg-d2,',
+            '.acn-panel[data-acn-jumping="true"] .acn-seg-d2-sub,',
+            '.acn-panel[data-acn-jumping="true"] .acn-code-item,',
             '.acn-panel[data-acn-jumping="true"] .acn-bk{pointer-events:none}',
             '.acn-panel[data-acn-jumping="true"]{cursor:progress}',
             '.acn-ci-degraded{background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3)}',
@@ -5630,7 +5643,11 @@
         // Search included: its results can start jumps too (unmounted assistant
         // matches route through the bridge), and without the guard repeated result
         // clicks supersede and restart the in-flight jump (Codex :5143).
-        var ids = ['acn-panel-nav', 'acn-panel-bookmarks', 'acn-panel-search'];
+        // Summary included for the same reason Search was: its conversation-map
+        // segments and code/file inventory rows start jumps too, and only one panel is
+        // open at a time — so marking the other three left the panel the user is
+        // actually looking at undimmed and fully clickable for the whole jump.
+        var ids = ['acn-panel-nav', 'acn-panel-bookmarks', 'acn-panel-search', 'acn-panel-summary'];
         for (var i = 0; i < ids.length; i++) {
             var panel = document.getElementById(ids[i]);
             if (!panel) continue;
@@ -5658,9 +5675,26 @@
     // drift would start; there isn't one. Callers must treat null as "not mounted"
     // and route through the jump bridge rather than falling back to a cached node —
     // a cached node is exactly what this function exists to distrust.
+    // Identity of the index a stored path index was minted against. A path index is
+    // ONLY meaningful for the exact conversation AND index generation it came from:
+    // ciBuildIndex replaces _ciFullPath wholesale on an edit/regenerate resync and
+    // bumps _ciIndexGen for that reason, and Claude is registered spa:false so a
+    // conversation switch never tears long-lived panels down. Navigate (:_ciIndexGen
+    // in its fingerprint) and Search already key on this pair; anything else holding
+    // a raw ordinal across time must compare it too, or it addresses another
+    // conversation's messages with full confidence.
+    function ciIndexStamp() {
+        if (!(ciIsClaudeChat() && ciIsReady())) return null;
+        return String(_ciConversationId) + '|g' + _ciIndexGen;
+    }
+
     function ciResolveMountedByPathIndex(pathIdx) {
         if (!(ciIsClaudeChat() && ciIsReady() && _ciFullPath)) return null;
-        if (typeof pathIdx !== 'number' || pathIdx < 0 || pathIdx >= _ciFullPath.length) return null;
+        // isFinite rejects NaN, which typeof calls a number and which both bounds
+        // comparisons then let through — it would reach ciResolveFromPairs, leave
+        // `near` null and throw out of a click handler.
+        if (typeof pathIdx !== 'number' || !isFinite(pathIdx) ||
+            pathIdx < 0 || pathIdx >= _ciFullPath.length) return null;
         var rows = ciMountedRows();
         var u = Math.max(0, _ciFullPath.length - (ciTotalRows() || _ciFullPath.length));
         var hit = ciMatchTargetInWindow(pathIdx, rows, u);
@@ -7110,7 +7144,8 @@
                     element: tlByPath[i] || null,
                     text:    _ciFullPath[i].text || '',
                     type:    _ciFullPath[i].sender === 'human' ? 'user' : 'ai',
-                    pathIdx: i
+                    // null for entries with no virtualizer row — see the aiMsgs build.
+                    pathIdx: ciEntryRenders(_ciFullPath[i]) ? i : null
                 });
             }
             all.forEach(function (m, idx) { m.globalIdx = idx; });
@@ -7415,12 +7450,21 @@
         return _sumMergeExcessSegments(segments);
     }
 
+    // Index identity the currently-rendered summary was built from, or null when it was
+    // built from the DOM. Compared on every click; a mismatch means every path index in
+    // the panel now points somewhere else. See ciIndexStamp().
+    var _sumIndexStamp = null;
+
     function generateFullSummary() {
         // Index-backed when available: only the timeline used the index, so topics,
         // key points, stats and inventory ran on the 3-5 MOUNTED assistant responses
         // while the map covered all 147 — internally inconsistent and truncated
         // (Codex :6474, P1). element stays null for unmounted entries; the hover
         // highlight degrades gracefully.
+        // Stamp the generation BEFORE building, so every path index handed to the
+        // rendered panel is attributable to exactly this conversation and index gen.
+        _sumIndexStamp = ciIndexStamp();
+
         var aiMsgs;
         if (ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
             // Bind mounted elements by row identity so DOM-dependent analyzers keep
@@ -7441,11 +7485,18 @@
                 // pathIdx is the entry's position in the FULL path. The inventory's own
                 // msgIndex is a position in this assistant-only array, so it addresses a
                 // different message entirely and must never reach the jump bridge.
+                //
+                // Non-rendering entries (interrupted/superseded generations, no
+                // stop_reason) occupy a path slot but have NO virtualizer row. Resolving
+                // one lands on its NEIGHBOUR and reports success — which is why Search
+                // filters them out of its results entirely. Their content still counts
+                // toward the analysis, so they stay in aiMsgs, but with no path index
+                // they can never become a jump target.
                 aiMsgs.push({ element: elByPath[fp] || null,
                               text: _ciFullPath[fp].text || '',
                               attachments: _ciFullPath[fp].attachments || [],
                               files: _ciFullPath[fp].files || [],
-                              pathIdx: fp,
+                              pathIdx: ciEntryRenders(_ciFullPath[fp]) ? fp : null,
                               type: 'ai' });
             }
         } else {
@@ -7507,15 +7558,32 @@
         return wrapper;
     }
 
+    // First message in a segment that can actually be reached. messages[0] may be a
+    // non-rendering entry (no path index, no row), which would make the whole segment
+    // inert; the segment still means "jump to the start of this stretch", so fall
+    // forward to the first member that is reachable.
+    function _sumFirstJumpable(msgs) {
+        if (!msgs || !msgs.length) return null;
+        for (var i = 0; i < msgs.length; i++) {
+            if (typeof msgs[i].pathIdx === 'number' || msgs[i].element) return msgs[i];
+        }
+        return msgs[0];
+    }
+
     function _sumScrollToElement(el, pathIdx) {
-        // The element on a summary item is a SNAPSHOT taken when the summary was
-        // generated; the panel outlives that snapshot and Claude's virtualizer
-        // recycles rows behind the user. By click time the captured node may be
-        // detached (scrollIntoView silently does nothing) or — the case that matters —
-        // still connected while displaying a DIFFERENT message, which would scroll to
-        // and outline the wrong turn. v12.0's rule is that a jump is either right or
-        // honestly refused, so on indexed chats the cache is discarded and the target
-        // is re-resolved from its path index every time.
+        // A summary is a SNAPSHOT of one index generation, and the panel outlives it.
+        // If the conversation changed underneath, or an edit/regenerate resync rebuilt
+        // the index, then BOTH halves of every item are stale: the cached element points
+        // at a node the virtualizer has recycled, and the stored path index addresses a
+        // different message. A range check alone cannot see either — after a
+        // conversation switch (which on Claude tears nothing down, spa:false) an old
+        // ordinal is perfectly in-range for the NEW conversation, and the click jumped
+        // there with full confidence. Compare identity, and refuse when it moved.
+        if (ciIsClaudeChat() && _sumIndexStamp !== ciIndexStamp()) {
+            showToast('Summary is out of date — regenerate it to jump');
+            return;
+        }
+
         var indexed = typeof pathIdx === 'number' && ciIsClaudeChat() && ciIsReady() &&
                       _ciFullPath && pathIdx >= 0 && pathIdx < _ciFullPath.length;
         if (indexed) {
@@ -7527,13 +7595,6 @@
             // resolved message is therefore kept; anything else (detached, or recycled
             // into a different message) is replaced by the message node.
             el = (live && el && live.contains(el)) ? el : live;
-        } else if (el && ciIsClaudeChat() && ciIsReady() && _ciFullPath && _ciFullPath.length) {
-            // Virtualized chat, but this item predates the index (summary generated
-            // before the fetch resolved) so there is no path index to re-resolve
-            // against. The cached node cannot be validated — refuse rather than risk
-            // landing on a recycled row. Regenerating the summary rebinds it.
-            showToast('Summary predates the conversation index — regenerate it to enable jumps');
-            return;
         } else if (el && el.isConnected === false) {
             el = null;
         }
@@ -7551,20 +7612,24 @@
                         showToast('That message is not currently rendered — scroll toward it and try again');
                     }
                 });
+            } else {
+                // No element and no usable index: say so rather than absorb the click.
+                showToast('That message is not currently rendered — scroll toward it and try again');
             }
             return;
         }
         try {
-            // Same reduced-motion respect as the jump-bridge branch above; these two
-            // are the same user action reached by different routes and had drifted.
+            // Both routes now mark, scroll and flash identically. The flash MUST be
+            // orbFlashElement: it cancels an in-flight flash on the same node before
+            // capturing a baseline, whereas the hand-rolled outline this replaced read
+            // its "previous" value from the inline style — so a second click within the
+            // restore window captured the FIRST click's own highlight as the baseline
+            // and wrote it back permanently, onto a node the virtualizer then recycled
+            // to an unrelated message. Convergence made that easy to hit: every item
+            // from one response can now resolve to the same message node.
+            orbMarkJumpTarget(el);
             el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
-            var prev = el.style.outline;
-            el.style.outline = '2px solid var(--acn-accent, #d97706)';
-            el.style.outlineOffset = '3px';
-            setTimeout(function () {
-                el.style.outline = prev;
-                el.style.outlineOffset = '';
-            }, 1400);
+            orbFlashElement(el);
         } catch (e) {}
     }
 
@@ -7717,7 +7782,7 @@
                     (function (c) {
                         subEl.addEventListener('click', function (e) {
                             e.stopPropagation();
-                            var firstMsg = c.messages && c.messages[0];
+                            var firstMsg = _sumFirstJumpable(c.messages);
                             if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx);
                         });
                     })(child);
@@ -7736,7 +7801,7 @@
 
             (function (s) {
                 segEl.addEventListener('click', function () {
-                    var firstMsg = s.messages && s.messages[0];
+                    var firstMsg = _sumFirstJumpable(s.messages);
                     if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx);
                 });
             })(seg);
