@@ -280,6 +280,62 @@ unconditional `throw` still passes 374/374 — no test opens the summary or tool
 all. The two new guard entries cover the load path; the summary/export surface remains
 unfixtured and is v12.1's first task.
 
+### Second GitHub Codex cycle — 24 rounds, 40 findings, zero false positives
+
+Run after the local Tier 3 gate, on a renewed token budget. **Every finding in all 24
+rounds was verified real against source; not one was a false positive.** Suite grew from
+374/374 across 20 entries to **455/455 across 23**.
+
+The findings fall into four groups.
+
+**Shipped defects the earlier 23-round cycle missed** (rounds 1, 6, 13, 16, 21, 24):
+leaving a conversation never released its index, so multi-megabyte state was retained on
+Claude's home/projects routes (`ciIsClaudeChat()` requires the `/chat/<uuid>` path, so the
+invalidation nested inside it never ran); the edited-prompt staleness signature carried no
+content fingerprint; a mid-generation snapshot was labelled "complete conversation history
+(API)" while omitting the reply on screen; **the staleness check compared only the first
+200 characters** — `_normalizeCompare` caps there, so the R17 suffix probe had been
+examining the end of a *prefix* since the day it was written; exports silently dropped
+`tool_use`/`tool_result` payloads while claiming completeness; and the context bar's
+`max()` of indexed-vs-SSE thinking discarded the newest response's thinking whenever the
+indexed history was larger — the normal case after opening an old conversation.
+
+**A privacy regression this release introduced** (round 12, P1): a provisional bookmark
+stored the *entire* prompt text in `GM_setValue`, contradicting README's guarantee. Replaced
+with a hash — migration only ever compared the text, so a hash suffices. Checking that
+claim revealed the README was already wrong about the 120-character `preview` bookmarks have
+always stored; corrected explicitly rather than quietly rewritten.
+
+**Wrong-jump paths in surfaces that trust cached DOM nodes** (rounds 5, 7, 10, 14, 15, 18,
+20, 22): a still-*connected* node is not evidence of identity under recycling. Fixed in the
+summary (degraded sessions), Search (both indexed and non-indexed), and bookmark identity —
+including three cases where a *prefix* comparison accepted a recycled node, and two where
+row identity was trusted without checking the row's content.
+
+**Fixes that broke or under-delivered and had to be re-fixed** (rounds 3, 4, 9, 10, 12, 19,
+22, 23) — the most useful group, because it shows what review catches that reasoning does
+not:
+
+- Round 8's snapshot-retention guard was **inert**: `ciSetDegraded()` sets
+  `_ciStatus = 'degraded'` on its first line, and the guard tested `_ciStatus === 'ready'`
+  further down. The commit message described behaviour the code did not have. Round 9 fixed
+  it *and shipped a fixture*, because that was the second inert attempt in the same place.
+- The consumed-signature idea took four iterations (rounds 2 → 8 → 12 → 23) before landing
+  on a principled rule: **a signature is consumed only when it survives its own refetch.**
+  Clearing on rebuild or keying by index generation both reinstate the infinite refetch
+  loop; suppressing on trigger pins consumers to the wrong branch when cycling regenerated
+  alternatives. Survival is the only discriminator that separates "unfixable by
+  construction" from "genuine staleness, already resolved".
+- Round 18 gave the live tail response an element so it would be searchable, which let a
+  connected-but-recycled node bypass both guards — fixed in round 22 by making indexed
+  targets *always* re-resolve.
+
+Three new suite entries came out of it, all **ancestor-gated** (they fail on a real commit,
+not a mutant): the slow-API recursion guard, the tool-shaped refetch-loop guard, and the
+refresh-failure retention guard. One test metric was also corrected: the runaway-loop
+assertion counted *all* fetches, which broke once failed refreshes correctly began retrying
+— the property is about *successful* refetches re-triggering themselves.
+
 ### Resolve-on-arrival (the final jump design)
 
 **Problem.** Second live test: jumps failed on targets whose neighbourhoods don't

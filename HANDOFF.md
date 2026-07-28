@@ -99,8 +99,30 @@ against a ~2.1s live payload, and fixture API text that always equals the DOM. R
 permanent suite entries. The review also caught that the batch above had opened a new
 wrong-jump (a stale index driving a real jump after a conversation switch), closed with
 `ciIndexStamp()`.
-Final state: **427/427 across 22 platform entries**, both engines. Branch ready for owner
-merge pending the GitHub Codex cycle.
+**Second GitHub Codex cycle (2026-07-28): 24 rounds, 40 findings, ZERO false positives.**
+Did NOT converge — round 24 still produced a P1. Groups: shipped defects the first cycle
+missed (index never released on leaving a chat; staleness compared only the first 200 chars,
+so the suffix probe had always examined a prefix; mid-generation snapshots labelled
+complete; tool payloads dropped from exports; thinking totals discarding the newest
+response), a privacy regression this release introduced (full prompt text persisted to GM
+storage — now a hash, and the README's already-wrong privacy claim corrected), eight
+wrong-jump paths where a still-CONNECTED node was trusted under recycling, and eight fixes
+that had to be re-fixed. Three new ancestor-gated suite entries.
+
+Two lessons worth carrying: **round 8's retention guard was INERT** (it tested `_ciStatus`
+after the same function had set it to `'degraded'`) and shipped with a commit message
+describing behaviour the code lacked — the second inert attempt in that spot, which is why
+round 9 shipped a fixture with it. And the consumed-signature mechanism took four iterations
+(rounds 2→8→12→23) to reach a principled rule: **consume a signature only when it survives
+its own refetch** — every cheaper rule either reinstates the infinite refetch loop or pins
+consumers to a superseded branch.
+
+Final state: **455/455 across 23 platform entries**, both engines.
+
+**⚠ NOT LIVE-VERIFIED.** The owner's live test passed on `5f2a8be`. HEAD is now ~31 commits
+past `c863f2f`, touching the load path (recursion guard, retention, backoff), bookmark
+identity, Search, Summary and Export. A live retest on Firefox+Tampermonkey should precede
+merge — see §K.
 
 ## G. What comes next — v12.1 plan (owner-agreed priority order, 2026-07-27)
 1. **Fixture batch (test debt — protects the 23-round review investment).** Rounds 14-23
@@ -175,3 +197,41 @@ gallery limitation (pre-existing, README).
   keep correctness independent of it, cost is extra iterations.
 - The mock's `overflow-anchor:none` mirrors an ASSUMED live property; live confirmation
   observed no teleporting, but it remains unverified directly.
+
+## K. Live retest plan before merge (2026-07-28)
+
+The live confirmation in §B was taken on `5f2a8be`. Since then batch 2, a 5-lens local Tier 3
+gate and a 24-round Codex cycle have changed the load path, bookmark identity, Search,
+Summary, Export and the context bar. CI and 455/455 cover the mock; they do not cover the
+Tampermonkey sandbox on Firefox against the real site, which is where every Layer 3/4 lesson
+in this project was learned.
+
+**Install:** raw URL at the branch tip —
+`https://raw.githubusercontent.com/JoonJ14/ai-conversation-navigator/feat/v12.0-conversation-index/ai-conversation-navigator.user.js`
+(reinstall over the existing script; confirm `@version 12.0` and that the tip commit matches
+`git rev-parse --short HEAD`). `localStorage.setItem('acnJumpDebug','1')` for traces.
+
+**Steps, ordered by what the recent changes put at risk:**
+1. **Load a long conversation and watch the console.** Nothing resembling
+   `RangeError: Maximum call stack size exceeded` should appear. This is the round-1 fix and
+   the one that fires on every load with a realistic fetch time.
+2. **Leave the conversation** (Claude home, then Projects) and return. State should release
+   and rebuild; no stale question list from the previous chat.
+3. **Idle for two minutes on a conversation containing an artifact or tool use**, with
+   DevTools Network filtered to `chat_conversations`. Expect at most two requests, then
+   silence — not one every ~15s.
+4. **Jump spot-checks:** Q#1 (the attachment chip), Q#75, Q#140, Q#147, one short duplicate.
+   All must land exactly or refuse honestly. Never a wrong landing.
+5. **Summary:** generate it, scroll far enough to recycle the rows, then click a map segment
+   and an off-screen code-inventory item. Both should land or refuse — never highlight an
+   unrelated message. Then switch conversations with the panel open and click again: expect
+   "Summary is out of date — regenerate it to jump".
+6. **Search** for a phrase that spans markdown (e.g. a bolded word plus the next word) and
+   for a token with brackets like `array[index]`. Both should match.
+7. **Export** and check the header: it must not say "complete conversation history (API)"
+   while a reply is still generating, and tool/artifact blocks should appear in the body.
+8. **Bookmark the newest prompt immediately after sending it**, then scroll away so it
+   unmounts, then click the bookmark. It should still resolve.
+
+If any of 1–3 misbehaves, suspect the load-path work first (rounds 1, 8, 9, 11, 23). If 5–8
+misbehaves, suspect the surface-specific rounds (5, 13, 17–22, 24).
