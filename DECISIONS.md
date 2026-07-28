@@ -1202,3 +1202,51 @@ decides it.
 - Migration runs **once per index generation**, not per mutation batch.
 - No conversation text is persisted — only a hash.
 - **Unfixtured.** v12.1's first task is live-testing and fine-tuning this, then covering it.
+
+---
+
+## DEC-031: Review Decay — a Live Confirmation Expires When the Build Moves (v12.0)
+**Date:** 2026-07-28 | **Stage:** v12.0 post-merge
+
+### Decision
+A live confirmation certifies **one commit**, not a release. Any change to arrival, matching,
+verification, settle, or bookmarks re-runs the **full acceptance matrix on both engines** before
+landing — not just the tests nearest the change — and a release does not merge until a live
+confirmation has been run on the **final** commit, not an early one.
+
+### Context
+`5f2a8be` was live-confirmed on a real 147-question conversation, including the
+attachment-headed Q#1 case that had just been fixed. Thirty-four hardening commits then landed
+on top of it — a 5-lens Tier 3 gate and a 24-round Codex cycle, every round green on both
+engines — and shipped. Live testing after the merge found the attachment-headed Q#1 jump broken
+again.
+
+The suite never dipped below green. Each round verified the code nearest its own change, the
+acceptance sweep kept reporting every jump exact, and a real user-facing path degraded anyway.
+The mock resolves that case by a cheaper route than the live site does, so no assertion in the
+matrix was ever load-bearing for it.
+
+### Alternatives considered
+- **Re-run only the tests near the change.** This is what happened, and it is what failed. The
+  regression was in the jump path; the acceptance sweep *did* run and *did* pass.
+- **Re-confirm live after every round.** Rejected as impossible — 24 rounds, each needing a
+  human on Firefox with a real conversation.
+- **Trust the round-by-round green.** Rejected: that is precisely the assumption that decayed.
+
+### Rationale
+Green-per-round measures that no *modelled* behaviour regressed. It says nothing about behaviour
+the model reaches by a different route than the site does. Over enough rounds, the gap between
+"the suite is green" and "the product works" widens silently, and the only thing that closes it
+is a live run on the commit actually being shipped.
+
+### Key properties
+- **A live confirmation names a commit.** Record which one, and treat it as expired the moment
+  the build moves past it.
+- The full matrix on both engines is the floor for the listed subsystems, not the ceiling.
+- This is the third compounding instance of the same root cause as **DEC-028**: the mock differs
+  from the site in exactly the detail that matters, and each newly-discovered difference is
+  hand-modelled one live failure late. The systemic answer is to generate fixtures from real
+  payload STRUCTURE rather than hand-authoring it (v12.1).
+- Corollary, learned the same day: **two failed reproductions are data.** When a hypothesis
+  cannot be made to fail in the harness, the harness — not the reasoning — is usually what is
+  wrong, and the honest report is "not reproduced", never a fix asserted on plausibility.

@@ -176,6 +176,11 @@
     // difference that actually matters was never modelled — which is why a guard keyed on
     // isUser regressed the live Q#1 case with the suite green (DEC-028).
     var CHIP_ROWS = CFG.chipRows || [];
+    // SHORT_ANS rows render an answer under the 60-char floor ciMatchRowToPath needs, so
+    // the row CANNOT become a local pair. Adjacent to a chip row this is what removes
+    // 3b's one-sided adjacent cover and leaves the by-construction extreme path as the
+    // only route — the live shape the mock never modelled.
+    var SHORT_ANS = CFG.shortAnswerRows || [];
     var MESSAGES = [];
     for (var i = 0; i < TOTAL_MESSAGES; i++) {
         var turn = Math.floor(i / 2) + 1;
@@ -187,8 +192,10 @@
                       ': how do I handle case ' + turn + ' when the input is unusual?';
             MESSAGES.push({ sender: 'user', text: qt });
         } else {
-            MESSAGES.push({ sender: 'ai', text: 'Answer number ' + turn +
-                  ': validate the input first, then branch on the result.' });
+            MESSAGES.push({ sender: 'ai', text: SHORT_ANS.indexOf(i) !== -1
+                  ? 'Yes.'
+                  : 'Answer number ' + turn +
+                    ': validate the input first, then branch on the result.' });
         }
     }
     // One giant row (>=15,000px) exercises intra-row scrolling with no remount.

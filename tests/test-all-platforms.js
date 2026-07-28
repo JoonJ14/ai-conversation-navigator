@@ -335,14 +335,20 @@ const PLATFORMS = [
         // chipRows makes row 0 carry a chip and NO testid. The sweep jumps to every
         // question, so Q#1 runs against a row the DOM cannot identify as a user row.
         //
-        // HONEST LIMIT — this is NOT a reproduction of the live failure. It passes on the
-        // build that fails live, because the chip row here is still resolvable by
-        // window-local pairs (3b) before the head-extreme path is ever consulted. It closes
-        // a real MODELLING gap (no fixture previously varied user-row structure, only text)
-        // and it guards the head extreme against future regressions, but it did not gate
-        // the accompanying change and must not be cited as though it did. Reproducing the
-        // live case needs the chip row to be unresolvable by pairs as well — the
-        // localized-unmatchable-cluster fixture in the v12.1 batch.
+        // HONEST LIMIT — STILL NOT A REPRODUCTION, after two attempts.
+        //
+        // Attempt 1 (chipRows alone) passed on the failing build: the mock's normal answer
+        // pairs cleanly at distance 1 from the chip, and 3b's adjacent carve-out resolves
+        // Q#1 without consulting the head-extreme path.
+        // Attempt 2 (+ shortAnswerRows, removing that adjacent pair) ALSO passed. A trace
+        // probe then showed no jump trace fires at all for Q#1 here — it resolves before the
+        // settle loop runs, so neither 3b nor the head extreme is being exercised.
+        //
+        // What that means: the mock reaches Q#1 by a cheaper route than the live site does,
+        // and we do not yet know which. Do NOT cite this entry as gating anything. It is
+        // added coverage for user-row STRUCTURE (previously only text varied) and it will
+        // catch a future head-extreme regression once the resolution route is understood.
+        // The live diagnosis needs the owner's jump trace; see HANDOFF §G item 0.
         name: 'Claude (80 rows, Q#1 is a file chip)',
         mockFile: 'claude-virtualized.html',
         hostname: 'claude.ai',
@@ -355,11 +361,18 @@ const PLATFORMS = [
         indexBacked: true,
         offsetUnderivable: true,
         jumpEveryQuestion: { step: 1 },
-        mockConfig: { totalMessages: 80, attachmentRows: [0], chipRows: [0] },
+        // Row 1's answer is under the 60-char floor, so it cannot become a local pair.
+        // Without that, the mock's normal answer pairs cleanly at distance 1 from the
+        // chip and 3b's adjacent carve-out resolves Q#1 without ever consulting the
+        // by-construction head path — which is exactly why the first version of this
+        // fixture passed on a build that fails live.
+        mockConfig: { totalMessages: 80, attachmentRows: [0], chipRows: [0],
+                      shortAnswerRows: [1] },
         gmFixture: {
             totalMessages: 80,
             conversationUuid: 'dd000000-0000-4000-8000-00000000dddd',
             attachmentRows: [0],
+            shortAnswerRows: [1],
         },
     },
     {
@@ -603,9 +616,15 @@ function buildGmFixtureShim(cfg) {
             // is deliberately not merged into entry text. That mismatch is permanent, so
             // it is the shape that drove the endless success-refetch loop. Without this
             // the fixture's API text always equals the DOM and the loop is unreachable.
+            // shortAnswerRows mirrors the mock DOM: a genuinely SHORT answer, matching on
+            // both sides. Not a mismatch — it is simply below the 60-char floor
+            // ciMatchRowToPath requires, so the row cannot become a local pair.
+            const shortAns = (cfg.shortAnswerRows || []).indexOf(row) !== -1;
             const apiText = (cfg.toolShapedRow === row)
                 ? `Answer number ${turn}:`
-                : `Answer number ${turn}: validate the input first, then branch on the result.`;
+                : shortAns
+                    ? 'Yes.'
+                    : `Answer number ${turn}: validate the input first, then branch on the result.`;
             push({ sender: 'assistant', text: '', stop_reason: 'end_turn',
                    content: [{ type: 'text', text: apiText }] });
             continue;

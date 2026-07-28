@@ -355,7 +355,7 @@ Run by the owner on Firefox + Tampermonkey against real conversations.
 | **Test A — provisional bookmark** (bookmark a just-sent prompt, scroll the length of the conversation, click) | ✅ **one-shot** — the DEC-030 mechanism works end to end on the real site |
 | Bookmark on an assistant ANSWER | ✅ resolves |
 | Duplicate-text bookmark (`continue` twice, bookmarked the second) | ✅ resolves to the CORRECT one — via uuid, so the uniqueness gate was never consulted |
-| **Attachment-headed Q#1** | ❌ **REGRESSION** — scrolls to the area, refuses "not currently rendered", restores. Fixed and live-verified in v12.0 (`4ff87ab`); something in the pre-merge hardening broke it |
+| **Attachment-headed Q#1** | ❌ **BROKEN, AND IT SHIPPED.** Scrolls to the area, refuses "not currently rendered", restores. Fixed and live-verified at `5f2a8be`; broken again by the time of the merge. NOT a branch-only regression — only one commit was ever stranded outside `main`, so all 34 hardening commits shipped. Whether it broke during hardening or predates it is UNDECIDED pending the bisect (§G item 0) |
 | **Old pre-v12.0 bookmark on an answer** | ❌ does not resolve — **pre-existing gap, not a regression** |
 
 **On the duplicate-text result:** duplicate text only matters for a record with no uuid. Once a
@@ -368,8 +368,23 @@ message. This is the same gap DEC-030 closed for provisional records; extending 
 legacy records is v12.1 item 2.
 
 **Still needed:** the jump trace for the attachment-headed Q#1
-(`localStorage.setItem('acnJumpDebug','1')`, reload, click Q#1). The scope correction in
-`da4c24b` is a hypothesis, not a diagnosis — its fixture passes on the failing build.
+(`localStorage.setItem('acnJumpDebug','1')`, reload, click Q#1), plus the owner's bisect bound
+(`5f2a8be` vs `main` on that conversation).
+
+**Two reproductions have now FAILED.** `chipRows` alone passed on the shipped build because the
+mock's normal answer pairs at distance 1 from the chip and 3b's adjacent carve-out resolves Q#1
+without consulting the head-extreme path. Adding `shortAnswerRows` to remove that adjacent pair
+ALSO passed — and a trace probe showed no jump trace fires for Q#1 in the mock at all, so it
+resolves before the settle loop runs. The mock reaches that target by a cheaper route than the
+live site does, and we do not yet know which. `da4c24b` remains a scope correction, **not** a
+diagnosis.
+
+**One thing was learned that holds regardless:** `ciMatchRowToPath` will pair an ASSISTANT row,
+but only when its normalized text is **≥60 chars and uniquely matchable**. For a chip at path 0
+the only possible adjacent pair is that assistant answer — so live, whenever it is short, or
+tool/artifact-shaped so DOM text diverges from API text, 3b's adjacent carve-out is unavailable
+and the by-construction head path is the sole cover. That is a real structural narrowing at the
+path edges, independent of which commit broke Q#1.
 
 ---
 
