@@ -5,9 +5,9 @@
 bookmark-durability mechanism that was not planned.
 **Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-07-27_v12.0-closeout.md` (still
 authoritative for the resolve-on-arrival design rationale and proof chain).
-**Branch:** `feat/v12.0-conversation-index`, PR #58, 34 commits added this session, pushed,
-9/9 CI green at `55600d7`.
-**Next-session priority: v12.1 on a NEW PR (#59).** Owner merges #58 themselves.
+**Branch:** `feat/v12.0-conversation-index`, PR #58 — **MERGED 2026-07-28 06:06 UTC** (merge
+commit `1a7f732`). 34 commits added this session.
+**v12.1 continues on `feat/v12.1` → PR #59**, already open.
 
 ---
 
@@ -219,9 +219,15 @@ Unchanged in shape from the predecessor handoff §C. Additions this session:
 
 ## E. Git state
 
-`feat/v12.0-conversation-index` @ `55600d7`, pushed, PR #58 **OPEN**, 9/9 CI green, tree clean.
-34 commits added this session (`c863f2f..55600d7`), 1,018 insertions to the userscript.
-**Owner merges #58.** v12.1 work goes on a NEW branch → PR #59.
+**PR #58 is MERGED** (2026-07-28 06:06 UTC, merge commit `1a7f732`). `main` contains everything
+through `ed9c4fb`, including this handoff. 34 commits were added during the session
+(`c863f2f..ed9c4fb`), 1,018 insertions to the userscript.
+
+**v12.1 is open on `feat/v12.1` → PR #59.** One commit was pushed to the v12.0 branch *after*
+the merge and has been moved there (`da4c24b`, the extreme-row guard scoping + chip fixture).
+Suite on that branch: **483/483 across 24 entries**, both engines.
+
+Do not commit to `feat/v12.0-conversation-index` — it is merged and dead.
 
 ---
 
@@ -243,7 +249,15 @@ Unchanged in shape from the predecessor handoff §C. Additions this session:
 
 **All of this goes on a new branch → PR #59.** Do not reopen #58.
 
-1. **Live-test and fine-tune the bookmark mechanism** (owner-elevated). It is unplanned,
+0. **Attachment-headed Q#1 regression** (found live 2026-07-28, §K0). Get the jump trace
+   first — `da4c24b` corrects an over-broad guard but its fixture passes on the failing
+   build, so it is a hypothesis, not a diagnosis. The localized-unmatchable-cluster fixture
+   in item 2 is what would reproduce it.
+0b. **Legacy schema-1 bookmarks do not resolve when unmounted** (found live 2026-07-28).
+   Pre-existing, not a regression: no uuid means no jump bridge. Extend DEC-030's migration
+   to legacy records, using a uniqueness check against the stored 120-char preview.
+1. **Live-test and fine-tune the bookmark mechanism** (owner-elevated). Test A already PASSED
+   live — the mechanism works end to end. Remaining: fine-tuning and coverage. It is unplanned,
    valuable, persistence-writing, and completely unfixtured. Specific questions:
    - Does bookmarking a just-sent prompt, then scrolling away, still resolve?
    - Does the uniqueness gate refuse a repeated prompt (`continue`) as intended, and does that
@@ -327,6 +341,35 @@ Unchanged in shape from the predecessor handoff §C. Additions this session:
 - The renderable predicate still rests on the `stop_reason` discriminator (n=2 conversations +
   a 14-conversation census). `ciValidatePredicate()` warns on divergence; anchors keep
   correctness independent of it.
+
+---
+
+## K0. Owner live-test results (2026-07-28, run on the pre-merge build)
+
+Run by the owner on Firefox + Tampermonkey against real conversations.
+
+| Case | Result |
+|---|---|
+| Navigate jump to Q#1 from the far end (text-headed conversation) | ✅ one-shot, twice |
+| Bookmark on an INDEXED message, clicked while unmounted | ✅ resolves via the jump bridge |
+| **Test A — provisional bookmark** (bookmark a just-sent prompt, scroll the length of the conversation, click) | ✅ **one-shot** — the DEC-030 mechanism works end to end on the real site |
+| Bookmark on an assistant ANSWER | ✅ resolves |
+| Duplicate-text bookmark (`continue` twice, bookmarked the second) | ✅ resolves to the CORRECT one — via uuid, so the uniqueness gate was never consulted |
+| **Attachment-headed Q#1** | ❌ **REGRESSION** — scrolls to the area, refuses "not currently rendered", restores. Fixed and live-verified in v12.0 (`4ff87ab`); something in the pre-merge hardening broke it |
+| **Old pre-v12.0 bookmark on an answer** | ❌ does not resolve — **pre-existing gap, not a regression** |
+
+**On the duplicate-text result:** duplicate text only matters for a record with no uuid. Once a
+uuid exists it is exact regardless of text, which is why it landed correctly. The gate guards
+only the few-second provisional window.
+
+**On the old-bookmark result:** schema 1 stores a content hash, not a uuid — and only a uuid
+lets `orbScrollToBookmark` enter the jump bridge. So a legacy record can only match a MOUNTED
+message. This is the same gap DEC-030 closed for provisional records; extending migration to
+legacy records is v12.1 item 2.
+
+**Still needed:** the jump trace for the attachment-headed Q#1
+(`localStorage.setItem('acnJumpDebug','1')`, reload, click Q#1). The scope correction in
+`da4c24b` is a hypothesis, not a diagnosis — its fixture passes on the failing build.
 
 ---
 
