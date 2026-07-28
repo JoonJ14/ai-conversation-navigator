@@ -328,11 +328,13 @@ No. The script only runs on the specific AI chat sites listed in [Supported Plat
 - **`lastActiveOrg` cookie** — your organization ID, needed to build the conversation API URL. Falls back to `ajs_user_id` purely as a cache key so a resolved organization isn't re-fetched on every page load.
 - **Your conversation JSON**, via the `GET` requests listed above.
 
-Neither leaves your browser. The script uses `localStorage` only for your panel-width preference (`_acnv10`), and `GM_setValue` for bookmarks, settings, and the resolved organization ID — never to store conversation content. Search the source for `ciGetCookie` to see every cookie read; there are two, both named above.
+Neither leaves your browser. The script uses `localStorage` only for your panel-width preference (`_acnv10`), and `GM_setValue` for bookmarks, settings, and the resolved organization ID. Search the source for `ciGetCookie` to see every cookie read; there are two, both named above.
+
+**One exception, stated precisely:** a bookmark record stores a **120-character preview** of the message you bookmarked, because the Bookmarks panel has to label the entry with something recognisable. That preview is the only message content written to disk, it exists only for messages you explicitly bookmark, and it goes away when you delete the bookmark. Everything else a bookmark stores is identity, not content: a message UUID, or a hash. (An earlier draft of this section claimed no conversation content was ever stored; that was wrong about the preview, and is corrected here.)
 
 **Is my conversation data kept private when using this?**
 
-Yes. The script reads the visible text of your messages on the page (the same text you're already looking at) to build the navigation list. That text is held in memory only while the tab is open, never written to disk, never stored, and never transmitted. When you close or refresh the tab, it's gone.
+Yes. The script reads the visible text of your messages on the page (the same text you're already looking at) to build the navigation list. That text is held in memory only while the tab is open and is never transmitted anywhere. When you close or refresh the tab, it's gone — with the single exception of the 120-character preview stored for each bookmark you create, described in the answer above.
 
 **Why should I trust this script?**
 
