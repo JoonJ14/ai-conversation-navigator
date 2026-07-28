@@ -3127,23 +3127,31 @@
                     _ciFullPath[targetFullPathIdx] &&
                     _ciFullPath[targetFullPathIdx].sender === 'human') {
                     var exRow = null;
+                    var exIsTail = false;
                     if (targetFullPathIdx === _ciRenderable[0]) exRow = 0;
                     else if (targetFullPathIdx === _ciRenderable[_ciRenderable.length - 1]) {
                         exRow = totalRows - 1;
+                        exIsTail = true;
                     }
                     if (exRow !== null) {
                         for (var xr = 0; xr < rows.length; xr++) {
                             if (rows[xr].dataIndex === exRow) {
-                                // The row must actually be the target's SENDER. The
-                                // by-construction argument above assumes the DOM's last row
-                                // corresponds to the path's last renderable entry — false in
-                                // the mid-generation state this release explicitly supports:
-                                // the snapshot ends at the human prompt while the DOM
-                                // already renders the new assistant row, so totalRows-1 IS
-                                // that assistant row. For a text-unmatchable prompt (an
-                                // attachment-backed message) nothing else would catch it and
-                                // it would be reported as a successful jump (Codex).
-                                if (!rows[xr].isUser) break;
+                                // TAIL ONLY. The mid-generation hazard is specific to the
+                                // LAST row: the snapshot can end at the human prompt while
+                                // the DOM already renders the new assistant row, making
+                                // totalRows-1 that assistant row. Row 0 cannot be affected —
+                                // a turn appended at the END does not change the first row.
+                                //
+                                // Applying this to the head REGRESSED the live Q#1
+                                // attachment case, which is the exact scenario the
+                                // by-construction path was added for. An attachment-only
+                                // first message does not expose [data-testid="user-message"]
+                                // on the live site, so isUser is false, the guard broke, and
+                                // the jump refused a target it had previously resolved. CI
+                                // could not see it: the mock builds EVERY user row —
+                                // attachment rows included — with that testid, so isUser is
+                                // always true there. DEC-028 again.
+                                if (exIsTail && !rows[xr].isUser) break;
                                 succeed(rows[xr], 'extreme-row'); return;
                             }
                         }

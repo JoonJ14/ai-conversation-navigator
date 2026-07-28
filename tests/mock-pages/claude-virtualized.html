@@ -170,6 +170,12 @@
 
     var DUP_ROWS = CFG.duplicateRows || [];    // same <=25-char question, 2+ times
     var ATT_ROWS = CFG.attachmentRows || [];   // DOM shows a file chip; API holds a paste
+    // CHIP_ROWS model the LIVE attachment-only message: the row renders a file chip and
+    // carries NO [data-testid="user-message"] node at all. ATT_ROWS only varied the TEXT
+    // while keeping the testid, so ciMountedRows().isUser stayed true and the structural
+    // difference that actually matters was never modelled — which is why a guard keyed on
+    // isUser regressed the live Q#1 case with the suite green (DEC-028).
+    var CHIP_ROWS = CFG.chipRows || [];
     var MESSAGES = [];
     for (var i = 0; i < TOTAL_MESSAGES; i++) {
         var turn = Math.floor(i / 2) + 1;
@@ -245,8 +251,12 @@
             var flexRow = el('div', 'flex flex-row gap-2 relative');
             var flex1   = el('div', 'flex-1');
 
+            var isChip = CHIP_ROWS.indexOf(i) !== -1;
             var content = el('div', 'font-large !font-user-message py-0.5 grid grid-cols-1 gap-2 relative');
-            content.setAttribute('data-testid', 'user-message');
+            // A chip row deliberately does NOT get the testid: the live attachment-only
+            // message exposes no user-message node, so getUserMessages() cannot see it and
+            // ciMountedRows() reports isUser === false for its row.
+            if (!isChip) content.setAttribute('data-testid', 'user-message');
 
             // CONTAMINATION FIXTURES, inside the queried node on purpose.
             // (a) an HTML comment — real mocks (grok, claude, emergent) contain these,

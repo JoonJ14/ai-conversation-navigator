@@ -322,6 +322,47 @@ const PLATFORMS = [
         },
     },
     {
+        // Q#1 IS A FILE CHIP — the live shape, modelled STRUCTURALLY this time.
+        //
+        // attachmentRows only changed a row's TEXT while keeping
+        // [data-testid="user-message"], so ciMountedRows().isUser stayed true and the
+        // difference that actually matters was never modelled. On the live site an
+        // attachment-only first message exposes no user-message node at all, so isUser is
+        // false for its row — and a guard keyed on isUser silently refused a jump the
+        // by-construction head path had previously resolved. Live-reported by the owner
+        // 2026-07-28; the suite was green throughout. DEC-028.
+        //
+        // chipRows makes row 0 carry a chip and NO testid. The sweep jumps to every
+        // question, so Q#1 runs against a row the DOM cannot identify as a user row.
+        //
+        // HONEST LIMIT — this is NOT a reproduction of the live failure. It passes on the
+        // build that fails live, because the chip row here is still resolvable by
+        // window-local pairs (3b) before the head-extreme path is ever consulted. It closes
+        // a real MODELLING gap (no fixture previously varied user-row structure, only text)
+        // and it guards the head extreme against future regressions, but it did not gate
+        // the accompanying change and must not be cited as though it did. Reproducing the
+        // live case needs the chip row to be unresolvable by pairs as well — the
+        // localized-unmatchable-cluster fixture in the v12.1 batch.
+        name: 'Claude (80 rows, Q#1 is a file chip)',
+        mockFile: 'claude-virtualized.html',
+        hostname: 'claude.ai',
+        pathname: '/chat/dd000000-0000-4000-8000-00000000dddd',
+        expectedMessages: 40,
+        contentPatternExempt: 1,      // the chip row has no question text in the DOM
+        expectedAccent: '#d97706',
+        expectedMode: 'orbital',
+        virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
+        indexBacked: true,
+        offsetUnderivable: true,
+        jumpEveryQuestion: { step: 1 },
+        mockConfig: { totalMessages: 80, attachmentRows: [0], chipRows: [0] },
+        gmFixture: {
+            totalMessages: 80,
+            conversationUuid: 'dd000000-0000-4000-8000-00000000dddd',
+            attachmentRows: [0],
+        },
+    },
+    {
         // Hostile: duplicated short questions (co-mountable, rows 30/34), attachment
         // rows whose DOM text cannot match the API (row 0 = the live Q#1 shape, and a
         // mid target), a predicate-BLIND unrendered entry, and a 15,000px giant row.
