@@ -8914,11 +8914,30 @@
                    ' (' + (users + pending.length) + ' user, ' + ais + ' AI)' +
                    (pending.length ? ' \u2014 including ' + pending.length +
                     ' not yet in the API snapshot' : ''));
-        lines.push('**Source:** ' + (_ciPathComplete
-            ? (pending.length
-                ? 'complete conversation history (API) plus unconfirmed live turns \u2014 see warning below'
-                : 'complete conversation history (API)')
-            : 'PARTIAL conversation history (API) \u2014 see warning below'));
+        // A resync triggered by a new prompt can COMPLETE WHILE Claude is still
+        // generating. The path then ends at the human turn, or at an assistant entry with
+        // no stop_reason \u2014 and by then the provisional prompt is gone (it IS in the index
+        // now), so the pending branch below cannot fire. The file claimed "complete
+        // conversation history (API)" while omitting or truncating the reply visible on
+        // screen, and the next resync is cooldown-gated so that window is seconds wide
+        // (Codex P1). stop_reason is the same discriminator ciEntryRenders uses for
+        // "this entry finished".
+        var tail = path.length ? path[path.length - 1] : null;
+        var midGeneration = !!tail && (tail.sender === 'human' || !tail.stopReason);
+
+        var srcLabel;
+        if (!_ciPathComplete)    srcLabel = 'PARTIAL conversation history (API) \u2014 see warning below';
+        else if (pending.length) srcLabel = 'complete conversation history (API) plus unconfirmed live turns \u2014 see warning below';
+        else if (midGeneration)  srcLabel = 'API conversation history, captured MID-RESPONSE \u2014 see warning below';
+        else                     srcLabel = 'complete conversation history (API)';
+        lines.push('**Source:** ' + srcLabel);
+        if (midGeneration && _ciPathComplete && !pending.length) {
+            lines.push('');
+            lines.push('> \u26a0 **The last response was still being generated.** This snapshot ' +
+                       'was taken before the final turn finished, so the reply on screen is ' +
+                       'missing from this file or is cut short. Everything before it is ' +
+                       'complete. Re-export once the response has finished.');
+        }
         if (pending.length) {
             lines.push('');
             lines.push('> \u26a0 **' + pending.length + ' turn' + (pending.length !== 1 ? 's' : '') +
