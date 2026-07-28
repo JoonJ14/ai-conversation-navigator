@@ -6432,8 +6432,16 @@
                         _normalizeFull(_readAIText(target)) !== _normalizeFull(m.text)) {
                         target = null;
                     }
-                    if ((!target || !target.isConnected) && typeof m.pathIndex === 'number' &&
-                        ciIsClaudeChat() && ciIsReady()) {
+                    // ALWAYS re-resolve an INDEXED target by row identity — never trust a
+                    // cached node, not even a connected one. Round 18 gave the mounted tail
+                    // match an element, and that let a connected-but-recycled node skip both
+                    // guards: text validation is deliberately off for indexed matches (their
+                    // text is raw markdown, which cannot be compared to rendered DOM text),
+                    // and this branch used to be gated on the node being DISCONNECTED. The
+                    // click then scrolled confidently to whatever response now occupied it.
+                    // Same rule _sumScrollToElement follows (Codex).
+                    if (typeof m.pathIndex === 'number' && ciIsClaudeChat() && ciIsReady()) {
+                        target = null;
                         // INDEXED match: resolve by ROW IDENTITY only. The old
                         // text-prefix scan accepted the first mounted response sharing
                         // the same 200-char normalized prefix, so boilerplate-prefixed
