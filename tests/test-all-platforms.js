@@ -656,6 +656,10 @@ function buildGmFixtureShim(cfg) {
                 respond(500, '');
                 return;
             }
+            // Counted separately: a FAILED fetch retrying is correct behaviour, so the
+            // runaway-loop assertion must measure SUCCESSFUL refetches — those are the
+            // ones that can re-trigger themselves forever.
+            window.__convFetchOk = (window.__convFetchOk || 0) + 1;
             respond(200, JSON.stringify(PAYLOAD));
             return;
         }
@@ -1163,11 +1167,16 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                 await page.waitForTimeout(platform.refetchProbeMs);
                 const probe = await page.evaluate(() => ({
                     n: window.__convFetches || 0,
+                    ok: window.__convFetchOk || 0,
                     at: window.__convFetchAt || [],
                 }));
                 const secs = Math.round(platform.refetchProbeMs / 1000);
-                assert('Idle page does not refetch the payload in a loop', probe.n <= 2,
-                    `${probe.n} conversation fetch(es) in ${secs}s idle` +
+                // SUCCESSFUL fetches: the initial load plus at most one resync attempt.
+                // A third means a successful refetch observed the same evidence and fired
+                // again, which then repeats forever. Failed fetches are excluded on
+                // purpose — retrying a transient failure is required behaviour.
+                assert('Idle page does not refetch the payload in a loop', probe.ok <= 2,
+                    `${probe.ok} successful of ${probe.n} conversation fetch(es) in ${secs}s idle` +
                     (probe.at.length ? ` at ms ${probe.at.join(', ')}` : ''));
 
                 // A background refresh that FAILED must leave the existing snapshot in

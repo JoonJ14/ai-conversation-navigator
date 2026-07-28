@@ -1472,9 +1472,17 @@
         // Full ordered path (human AND assistant) — Export needs both sides to
         // produce a complete file. Without this, Export would still emit only the
         // assistant messages that happened to be mounted.
-        _ciFullPath = [];
+        //
+        // Built into a LOCAL and committed at the end. Mutating _ciFullPath in place made
+        // a same-conversation refresh non-atomic: a malformed later record throws, so
+        // _ciIndex is never reassigned, and the snapshot-retention path then sees the OLD
+        // truthy _ciIndex beside a PARTIAL _ciFullPath and restores ready — leaving
+        // consumers to combine a full question index with a truncated path, i.e. wrong
+        // jumps and incomplete exports (Codex). Nothing global changes until the build
+        // has completed.
+        var fullPath = [];
         for (var p = 0; p < path.length; p++) {
-            _ciFullPath.push({
+            fullPath.push({
                 uuid:      path[p].uuid,
                 sender:    path[p].sender,
                 text:      ciExtractText(path[p]),
@@ -1514,6 +1522,10 @@
             });
         }
 
+        // ── COMMIT POINT ────────────────────────────────────────────────────────
+        // Everything above is derived from `data` alone and can throw; everything below
+        // mutates shared state. Keep that ordering.
+        _ciFullPath         = fullPath;
         _ciTruncatedCount   = truncated;
         _ciUsedLeafFallback = resolved.usedFallback;
         _ciPathComplete     = resolved.reachedRoot;
@@ -1645,6 +1657,9 @@
         //
         // Placed AFTER the backoff computation above so a permanent-class failure still
         // lengthens its retry delay; only the destruction is skipped.
+        // Refresh failed, so its trigger was NOT acted on — allow a retry.
+        _ciPendingResyncSig = '';
+
         if (wasReady) {
             // Restore READY: the retained snapshot really is a complete history as of the
             // last successful fetch, so consumers must keep using it. The failure is
@@ -1764,6 +1779,13 @@
                 _ciDegradedReason = '';
                 _ciRetryDelayMs   = 0;
                 _ciRefreshFailed  = '';
+                // The rebuild landed: the evidence that triggered it has now been acted
+                // on, so suppress it. A mismatch a refetch cannot fix (rendered tool
+                // output) is thereby resynced exactly once.
+                if (_ciPendingResyncSig) {
+                    _ciMarkResyncedSig(_ciPendingResyncSig);
+                    _ciPendingResyncSig = '';
+                }
                 console.log('[ACN] conversation index ready: ' + _ciIndex.length +
                             ' questions (' + (data.chat_messages || []).length +
                             ' messages in payload)');
@@ -3328,6 +3350,7 @@
         _ciLastAsstMismatch = '';
         _ciResyncedSigs     = {};
         _ciResyncedSigOrder = [];
+        _ciPendingResyncSig = '';
         _ciRefreshFailed    = '';
         _ciConversationId = null;
         _ciStatus         = 'idle';
@@ -3685,6 +3708,13 @@
     var _ciResyncedSigs      = {};
     var _ciResyncedSigOrder  = [];
     var CI_RESYNCED_SIG_CAP  = 512;
+    // Signature that TRIGGERED the in-flight resync but is not consumed yet. Consuming on
+    // trigger was wrong: if the refresh then failed, the snapshot-retention path kept the
+    // index ready while this signature was already suppressed, so the scheduled rescan
+    // never retried and Navigate/Search/Summary/Export sat on the superseded branch until
+    // some unrelated mismatch appeared (Codex P1). Committed on success, dropped on
+    // failure so the next scan can try again — under the backoff gate, so not a hot loop.
+    var _ciPendingResyncSig  = '';
 
     function _ciMarkResyncedSig(sig) {
         if (_ciResyncedSigs[sig]) return;
@@ -3802,7 +3832,7 @@
         // what completes each cycle. Fingerprinting is the only version that fixes one
         // without restoring the other.
         if (_ciResyncedSigs[sig]) return false;
-        if (sig === _ciLastAsstMismatch) { _ciMarkResyncedSig(sig); return true; }
+        if (sig === _ciLastAsstMismatch) { _ciPendingResyncSig = sig; return true; }
         _ciLastAsstMismatch = sig;
         return false;
     }
@@ -6475,17 +6505,16 @@
     // CONFIRMS the stored text. A bare positional read is what the schema-2 migration
     // exists to eliminate, and a wrong uuid here would be persisted.
     function _bmUuidForProvisional(b) {
-        var want = _normalizeCompare(b.pendingText || '');
-        if (!want) return null;
-        if (!_ciFullPath) return null;
+        var want = b.pendingHash;
+        if (!want || !_ciFullPath) return null;
+        function entryHash(e) { return _fnv1aHex(_normalizeCompare(e.text || '')); }
 
         // Route 1 — the virtualizer's own row index, re-resolved against the rebuilt path.
         // The only route available to an ASSISTANT provisional, and the strongest one when
         // the row is still mounted.
         if (typeof b.pendingRow === 'number' && b.pendingRow >= 0) {
             var rp = ciResolvePathForRowStrict(b.pendingRow);
-            if (rp !== null && _ciFullPath[rp] &&
-                _normalizeCompare(_ciFullPath[rp].text || '') === want) {
+            if (rp !== null && _ciFullPath[rp] && entryHash(_ciFullPath[rp]) === want) {
                 return _ciFullPath[rp].uuid || null;
             }
         }
@@ -6500,16 +6529,24 @@
                 if (_ciFullPath[i].sender !== wantSender) continue;
                 seen++;
                 if (seen !== b.pendingOrdinal) continue;
-                if (_normalizeCompare(_ciFullPath[i].text || '') === want) {
+                if (entryHash(_ciFullPath[i]) === want) {
                     return _ciFullPath[i].uuid || null;
                 }
                 break;   // ordinal exists but its text moved — do not guess from position
             }
         }
 
-        // Route 3 — the text map. Null when absent or ambiguous, which is why routes 1
-        // and 2 exist; a poisoned key would otherwise never resolve on any generation.
-        return ciUuidForText(b.pendingText, null);
+        // Route 3 — a UNIQUE hash match across the path. Same poisoning rule the text map
+        // applies, made explicit: two candidates means ambiguous, so resolve nothing
+        // rather than guess. (The text map itself is unusable here — we no longer hold the
+        // text to look up, deliberately.)
+        var hit = null;
+        for (var k = 0; k < _ciFullPath.length; k++) {
+            if (entryHash(_ciFullPath[k]) !== want) continue;
+            if (hit !== null) return null;
+            hit = _ciFullPath[k];
+        }
+        return hit ? (hit.uuid || null) : null;
     }
 
     // Binds provisional bookmarks to their message uuid as soon as a refreshed index
@@ -6528,7 +6565,7 @@
         var changed = false;
         for (var i = 0; i < list.length; i++) {
             var b = list[i];
-            if (b.schema === 2 || b.msgUuid || !b.pendingText) continue;
+            if (b.schema === 2 || b.msgUuid || !b.pendingHash) continue;
             // Null when the text is absent from the index or AMBIGUOUS (the text map
             // poisons duplicate keys rather than first-wins guessing). Leave the record
             // alone and retry on the next generation — a wrong uuid would be persisted.
@@ -6537,7 +6574,7 @@
             b.schema      = 2;
             b.contentHash = uuid;
             b.msgUuid     = uuid;
-            b.pendingText    = null;
+            b.pendingHash    = null;
             b.pendingSender  = null;
             b.pendingOrdinal = -1;
             b.pendingRow     = -1;
@@ -6596,7 +6633,13 @@
                 // it is truncated to 120 chars and the text map keys on FULL normalized
                 // text. Cleared on migration, and never stored off Claude, where there
                 // are no uuids to migrate to.
-                pendingText: (!isUuid && ciIsClaudeChat()) ? text : null,
+                // A HASH, never the text. pendingText held the entire prompt and
+                // saveBookmark() writes to GM storage, so an unresolvable record kept
+                // sensitive or very large pasted content there indefinitely — flatly
+                // contradicting README's guarantee that GM storage never holds
+                // conversation content (Codex P1). The hash is all migration needs: it
+                // only ever COMPARES against candidate entries.
+                pendingHash: (!isUuid && ciIsClaudeChat()) ? _fnv1aHex(_normalizeCompare(text)) : null,
                 // Occurrence identity, so a REPEATED message can still be bound later;
                 // text alone is ambiguous and stays ambiguous forever. Sender is recorded
                 // because the ordinal is scoped to the sender's own sequence, and the row
