@@ -1824,8 +1824,8 @@
                 // on, so suppress it. A mismatch a refetch cannot fix (rendered tool
                 // output) is thereby resynced exactly once.
                 if (_ciPendingResyncSig) {
-                    _ciMarkResyncedSig(_ciPendingResyncSig);
-                    _ciPendingResyncSig = '';
+                    _ciAwaitingResyncSig = _ciPendingResyncSig;
+                    _ciPendingResyncSig  = '';
                 }
                 console.log('[ACN] conversation index ready: ' + _ciIndex.length +
                             ' questions (' + (data.chat_messages || []).length +
@@ -3465,6 +3465,7 @@
         _ciResyncedSigs     = {};
         _ciResyncedSigOrder = [];
         _ciPendingResyncSig = '';
+        _ciAwaitingResyncSig = '';
         _ciRefreshFailed    = '';
         _ciConversationId = null;
         _ciStatus         = 'idle';
@@ -3835,6 +3836,9 @@
     // some unrelated mismatch appeared (Codex P1). Committed on success, dropped on
     // failure so the next scan can try again — under the backoff gate, so not a hot loop.
     var _ciPendingResyncSig  = '';
+    // Signature whose refetch has COMPLETED but whose outcome is not yet judged. It is
+    // consumed only if it reappears afterwards, which proves a refetch cannot fix it.
+    var _ciAwaitingResyncSig = '';
 
     function _ciMarkResyncedSig(sig) {
         if (_ciResyncedSigs[sig]) return;
@@ -3945,7 +3949,7 @@
             var at2 = _normalizeCompareFull(ae.text || '');
             if (at2 && t !== at2) sig += 's' + rows[i].dataIndex + ':' + rawLen + ':' + _fnv1aHex(t) + ';';
         }
-        if (!sig) { _ciLastAsstMismatch = ''; return false; }
+        if (!sig) { _ciLastAsstMismatch = ''; _ciAwaitingResyncSig = ''; return false; }
         // A signature we have ALREADY refetched on is no longer evidence of staleness —
         // it is evidence the refetch could not resolve it. Rendered tool output appears
         // in DOM text but not in the API's text blocks (deliberately: see ciExtractText),
@@ -3969,6 +3973,20 @@
         // what completes each cycle. Fingerprinting is the only version that fixes one
         // without restoring the other.
         if (_ciResyncedSigs[sig]) return false;
+        // A signature is consumed only when it SURVIVES its own refetch — that is the proof
+        // a refetch cannot fix it. Consuming at trigger time, or at rebuild time, made the
+        // suppression permanent for a mismatch the refetch demonstrably DID resolve: cycling
+        // A -> B -> A -> B reproduces an earlier signature against a snapshot that has since
+        // moved, and it was suppressed even though refetching had worked last time, pinning
+        // Navigate/Search/Summary/Export to the wrong branch indefinitely (Codex P1).
+        //
+        // Reappeared  -> unfixable (rendered tool output etc.) -> consume, stop refetching.
+        // Disappeared -> genuine staleness, resolved -> stays eligible for next time.
+        if (_ciAwaitingResyncSig) {
+            var sigSurvived = (sig === _ciAwaitingResyncSig);
+            _ciAwaitingResyncSig = '';
+            if (sigSurvived) { _ciMarkResyncedSig(sig); return false; }
+        }
         if (sig === _ciLastAsstMismatch) { _ciPendingResyncSig = sig; return true; }
         _ciLastAsstMismatch = sig;
         return false;
@@ -6258,8 +6276,15 @@
                 var lNode = ciMessageNodeWithin(liveRows[lr].el);
                 if (!lNode) continue;
                 var lPath = ciResolvePathForRowStrict(liveRows[lr].dataIndex);
-                if (lPath === null) liveExtra.push(lNode);
-                else liveByPath[lPath] = lNode;
+                // A null strict resolution means NOT MEASURED, not necessarily absent
+                // from the snapshot — a short tail answer below the 60-char matching floor
+                // cannot anchor, and one adjacent user anchor is not enough. Treating those
+                // as extra listed them twice, misnumbered, with the duplicate carrying no
+                // uuid (Codex). Only rows PROVEN beyond the snapshot qualify.
+                if (lPath !== null) liveByPath[lPath] = lNode;
+                else if (_ciRenderable && liveRows[lr].dataIndex >= _ciRenderable.length) {
+                    liveExtra.push(lNode);
+                }
             }
 
             var seenPaths = {};
