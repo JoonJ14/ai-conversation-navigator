@@ -1593,8 +1593,14 @@
                 // entry point of the same hole (R14, R16, R18): this fallback runs when
                 // cheap candidates existed but were all rejected, and a 401/403/429
                 // here degraded with the generic message and retried every 15s
-                // (Codex R19).
+                // (Codex R19). And carry err.message, not only the status: a 200 with
+                // malformed JSON produced a useful 'malformed JSON' here that this branch
+                // replaced with a generic reason, which no longer matched the
+                // permanent-failure classifier — so a schema failure retried the org AND
+                // conversation requests on the short cooldown instead of backing off. Same
+                // defect as the initial org-resolution path, at the fallback (Codex).
                 cb(new Error('no org candidate accepted the conversation' +
+                             (err && err.message ? ': ' + err.message : '') +
                              (err && status ? ' (HTTP ' + status + ')' : '')), null);
                 return;
             }
@@ -2801,6 +2807,26 @@
                 .replace(/[*_`~>#\[\]()]/g, '')
                 .replace(/^[\s-]+/gm, ' ')
         );
+    }
+
+    // Markdown removal for SEARCH AND DISPLAY, where the user's query contains exactly the
+    // characters they can SEE. _mdFlatten is built for DOM-vs-API comparison, where
+    // stripping punctuation aggressively helps two differently-rendered strings meet — but
+    // it deletes every bracket and parenthesis, so searching `array[index]` or `foo()`
+    // matched nothing once search began running on flattened text (Codex). This removes
+    // only actual markdown SYNTAX. Single underscores are kept deliberately: they are far
+    // more often part of an identifier (my_var) than emphasis.
+    function _mdVisible(text) {
+        return String(text == null ? '' : text)
+            .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')       // links/images -> label
+            .replace(/^[ \t]*```[a-zA-Z0-9_-]*[ \t]*$/gm, '')  // fence lines
+            .replace(/```/g, '')
+            .replace(/\*\*|~~|__/g, '')                        // emphasis pairs
+            .replace(/\*/g, '')
+            .replace(/`/g, '')
+            .replace(/^[ \t]*>+[ \t]?/gm, '')                  // blockquote markers
+            .replace(/^[ \t]*#{1,6}[ \t]+/gm, '')              // heading markers
+            .replace(/^[ \t]*(?:[-+*]|\d+\.)[ \t]+/gm, '');    // list markers
     }
 
     // Capped at 200 chars (via _normalizeKey) — the historical behaviour, used for
@@ -6162,7 +6188,7 @@
                 // to fall back on. Flatten for matching and display, exactly as the indexed
                 // assistant side does. msg.text itself is untouched: jump matching,
                 // bookmarks and Summary all depend on it (Codex).
-                var qFlat = _mdFlatten(msg.text || '');
+                var qFlat = _mdVisible(msg.text || '');
                 if (qFlat.toLowerCase().indexOf(qLower) !== -1) {
                     questionMatches.push({
                         element:   msg.element,
@@ -6222,7 +6248,7 @@
                 // Match AND display the flattened form: _mdFlatten removes the markers
                 // without lowercasing or truncating, so the snippet stays readable and the
                 // highlight offsets computed by the renderer still line up.
-                var aiFlat = _mdFlatten(aiText);
+                var aiFlat = _mdVisible(aiText);
                 // For the TAIL entry the DOM is fresher than the snapshot — it holds
                 // everything generated since the fetch — so prefer it when mounted. Its own
                 // text is already rendered, so no flattening applies.
@@ -8107,7 +8133,12 @@
     // from API text: the two differ (rendered vs raw markdown).
     function _sumElKey(el) {
         if (!el) return null;
-        return _normalizeCompare((el.textContent || '').trim()).substring(0, 200);
+        // FULL length, and no markdown handling: this is a DOM-to-DOM comparison of the
+        // same node's rendered text. _normalizeCompare capped it at 200 chars, so a
+        // recycled message sharing a long boilerplate opening passed validation and the
+        // click scrolled to the wrong message — the single check standing between a
+        // degraded session and that outcome (Codex).
+        return _normalizeFull((el.textContent || '').trim());
     }
 
     function _sumFirstJumpable(msgs) {
