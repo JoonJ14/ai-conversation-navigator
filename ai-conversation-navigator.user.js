@@ -6202,6 +6202,22 @@
                     // be mounted. Try to locate it among what IS mounted, and fail
                     // visibly rather than silently doing nothing.
                     var target = m.element;
+                    // A CONNECTED node can still be the WRONG message: Claude recycles
+                    // rows, and the panel outlives a scroll (its fingerprint tracks result
+                    // counts, so the stale click closure survives). Neither branch below
+                    // re-examines a connected node, so it was trusted and the click jumped
+                    // to whatever answer now occupied it (Codex).
+                    //
+                    // Restricted to NON-index-backed matches on purpose. Those store text
+                    // from the same extractor used here (_readAIText), so the comparison is
+                    // sound — whereas an indexed match's text is RAW API MARKDOWN, which
+                    // legitimately differs from rendered DOM text and would invalidate
+                    // every target. Indexed matches carry no element anyway; their identity
+                    // comes from row resolution just below.
+                    if (target && typeof m.pathIndex !== 'number' &&
+                        _normalizeKey(_readAIText(target)) !== _normalizeKey(m.text)) {
+                        target = null;
+                    }
                     if ((!target || !target.isConnected) && typeof m.pathIndex === 'number' &&
                         ciIsClaudeChat() && ciIsReady()) {
                         // INDEXED match: resolve by ROW IDENTITY only. The old
