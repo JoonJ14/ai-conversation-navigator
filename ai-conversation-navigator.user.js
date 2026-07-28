@@ -6797,6 +6797,26 @@
         if (!want || !_ciFullPath) return null;
         function entryHash(e) { return _fnv1aHex(_normalizeCompare(e.text || '')); }
 
+        // UNIQUENESS GATE, ahead of every route.
+        //
+        // A wrong migration is wrong FOREVER: the record becomes schema 2, migration skips
+        // it thereafter because it looks bound, and both the jump AND the toggle then act on
+        // the wrong message. Routes 1 and 2 verify by hash, but they are anchored to a
+        // POSITION captured before the path changed — so if the path shifted such that the
+        // anchor lands on a DIFFERENT message with identical text, the hash check passes and
+        // the wrong uuid is persisted. Repeated prompts ("continue", "ok") are exactly that
+        // shape, and no test exercises any of this.
+        //
+        // So: bind only when the text is unique in the path. A duplicate-text message stays
+        // provisional and keeps resolving whenever it is mounted, which is the honest
+        // outcome — strictly better than a permanently wrong bookmark. This subsumes route
+        // 3's own ambiguity check and closes the same hole in routes 1 and 2.
+        var occurrences = 0;
+        for (var u = 0; u < _ciFullPath.length && occurrences < 2; u++) {
+            if (entryHash(_ciFullPath[u]) === want) occurrences++;
+        }
+        if (occurrences !== 1) return null;
+
         // Route 1 — the virtualizer's own row index, re-resolved against the rebuilt path.
         // The only route available to an ASSISTANT provisional, and the strongest one when
         // the row is still mounted.
@@ -6824,17 +6844,13 @@
             }
         }
 
-        // Route 3 — a UNIQUE hash match across the path. Same poisoning rule the text map
-        // applies, made explicit: two candidates means ambiguous, so resolve nothing
-        // rather than guess. (The text map itself is unusable here — we no longer hold the
-        // text to look up, deliberately.)
-        var hit = null;
+        // Route 3 — the single hash match. The gate above already proved there is exactly
+        // one, so this is a lookup, not a disambiguation: it is reached when both position
+        // anchors are missing or stale, and the text alone identifies the message.
         for (var k = 0; k < _ciFullPath.length; k++) {
-            if (entryHash(_ciFullPath[k]) !== want) continue;
-            if (hit !== null) return null;
-            hit = _ciFullPath[k];
+            if (entryHash(_ciFullPath[k]) === want) return _ciFullPath[k].uuid || null;
         }
-        return hit ? (hit.uuid || null) : null;
+        return null;
     }
 
     // Binds provisional bookmarks to their message uuid as soon as a refreshed index
