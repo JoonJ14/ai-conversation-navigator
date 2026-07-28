@@ -3079,6 +3079,16 @@
                     if (exRow !== null) {
                         for (var xr = 0; xr < rows.length; xr++) {
                             if (rows[xr].dataIndex === exRow) {
+                                // The row must actually be the target's SENDER. The
+                                // by-construction argument above assumes the DOM's last row
+                                // corresponds to the path's last renderable entry — false in
+                                // the mid-generation state this release explicitly supports:
+                                // the snapshot ends at the human prompt while the DOM
+                                // already renders the new assistant row, so totalRows-1 IS
+                                // that assistant row. For a text-unmatchable prompt (an
+                                // attachment-backed message) nothing else would catch it and
+                                // it would be reported as a successful jump (Codex).
+                                if (!rows[xr].isUser) break;
                                 succeed(rows[xr], 'extreme-row'); return;
                             }
                         }
@@ -3780,7 +3790,13 @@
             var inner = ciMessageNodeWithin(rows[i].el);
             if (!inner || inner === rows[i].el) continue;
             var rawTxt = _readMessageText(inner);
-            var t = _normalizeCompare(rawTxt);
+            // FULL length on BOTH sides. _normalizeCompare caps at 200 chars, which made
+            // the suffix probe examine the end of a PREFIX rather than the response, and
+            // capped the content fingerprint at 200 chars too — so a regenerated long
+            // answer preserving its opening was undetectable and consumers kept the
+            // superseded branch (Codex P1). Both sides switch together; comparing a full
+            // value against a capped one would mismatch on every long message.
+            var t = _normalizeCompareFull(rawTxt);
             // Signatures use the RAW length. _normalizeCompare feeds through
             // _normalizeKey, which truncates at 200 chars — so a long streaming
             // response's signature froze while it was still growing, two scans
@@ -3803,7 +3819,7 @@
                 var ue = _ciFullPath[up];
                 if (ue.sender !== 'human') continue;
                 if (ue.textSource && ue.textSource !== 'content') continue;
-                var ut = _normalizeCompare(ue.text || '');
+                var ut = _normalizeCompareFull(ue.text || '');
                 // Content fingerprint, for the same reason as the assistant branches
                 // below: two different edits of one prompt that happen to render to the
                 // same length would otherwise produce an identical signature, and the
@@ -3830,9 +3846,9 @@
                            // tool-bearing answers would mismatch permanently and loop
                            // the resync. toolChars (R16) marks exactly those entries.
                            (!_ciFullPath[mp].toolChars && t.length >= 150 &&
-                            _normalizeCompare(_ciFullPath[mp].text || '').length >= 150 &&
+                            _normalizeCompareFull(_ciFullPath[mp].text || '').length >= 150 &&
                             t.slice(-80) !==
-                            _normalizeCompare(_ciFullPath[mp].text || '').slice(-80)))) {
+                            _normalizeCompareFull(_ciFullPath[mp].text || '').slice(-80)))) {
                     // PREFIX MATCH IS NOT ENOUGH: a refetch that captured a partial
                     // response (>=120 normalized chars) keeps prefix-matching the
                     // still-growing live one, so nothing ever signalled and the index
@@ -3854,7 +3870,7 @@
             var ae = _ciFullPath[ap];
             if (ae.sender !== 'assistant') continue;
             if (ae.textSource && ae.textSource !== 'content') continue;
-            var at2 = _normalizeCompare(ae.text || '');
+            var at2 = _normalizeCompareFull(ae.text || '');
             if (at2 && t !== at2) sig += 's' + rows[i].dataIndex + ':' + rawLen + ':' + _fnv1aHex(t) + ';';
         }
         if (!sig) { _ciLastAsstMismatch = ''; return false; }
