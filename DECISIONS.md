@@ -640,3 +640,565 @@ SSE token tracking is a single-platform enhancement for Claude's context bar. Sa
 - SPA history patches (`pushState`, `replaceState`) are safe with `exportFunction()` — continue using them
 - If a future Tampermonkey update provides `world: "MAIN"` support for userscripts, re-evaluate this decision
 - The extension transition (WXP) eliminates this limitation entirely — `world: "MAIN"` content scripts have no sandbox compartment
+
+---
+
+## DEC-021: API-Backed Conversation Index for Claude — the DOM Is No Longer the Record (v12.0)
+**Date:** 2026-07-26 | **Stage:** v12.0
+
+### Decision
+On `claude.ai/chat/<uuid>`, message enumeration comes from Claude's own conversation JSON endpoint, not from `document.querySelectorAll()`. A module of `ci*`-prefixed functions fetches the conversation, walks the message tree from `current_leaf_message_uuid` to isolate the active branch, and becomes the source of truth for Navigate, Search, Summary, Export, and context tracking. The DOM scanner is retained as a fallback and remains the only path for the other 13 platforms.
+
+### Context
+Claude's web app virtualizes the message list **with recycling**. Only a window of roughly 3–5 user turns is mounted at any moment; everything outside it is unmounted and torn down. Measured on a live 96-turn conversation: **3 turns mounted, ~3% coverage**. A scroll sweep at 0/25/50/75/100% kept the same 3 turns mounted the whole way — the set never accumulated.
+
+This broke every feature built on a full-page scan. Navigate showed ~3% of questions. Search could only match mounted text. Summary segmented a fraction of the conversation. **Export silently wrote truncated files with an authoritative-looking `**Messages:** 8` header** — the worst of the set, because a short nav list is visible to the user and a truncated export file is not.
+
+Critically, this is **not** a selector break. The selectors matched correctly; there was simply nothing else in the DOM to match. No change to `getUserMessages()` could have fixed it.
+
+### Why an API read is safe here (and why fetch interception was not)
+DEC-019 and DEC-020 established that replacing page globals — especially `fetch` — crashes Claude on Firefox, because a sandbox-compartment function taints the return pipeline the page then inspects. **That reasoning does not apply here.** This is an ordinary *outbound* request via `GM_xmlhttpRequest`: it replaces no page global, the page never sees our Promise, and nothing crosses back into the page compartment. `GM_xmlhttpRequest` was explicitly rejected in DEC-020 as a way to *intercept* existing traffic — that rejection stands. Using it to make our own request is a different thing entirely.
+
+### Verified endpoint behaviour
+```
+GET /api/organizations/{org}/chat_conversations/{cid}
+    ?tree=True&rendering_mode=messages&render_all_tools=true&consistency=strong
+```
+Measured: HTTP 200, 3,289,821 bytes, ~2.1 s, 297 messages on the reference conversation. No `anthropic-client-*` headers required — which matters, because `anthropic-client-sha` looks like a build hash that would rotate every deploy.
+
+### Three findings that changed the design
+1. **The top-level `text` field is empty on every message** (0 of 192 non-empty). Content lives in `content[]` blocks (`text`, `thinking`, `tool_use`, `tool_result`). Reading `text` would have rendered a panel of blank rows.
+2. **~10% of human turns have no text block at all.** Large pastes become a `txt` attachment with an empty `file_name` and the body in `attachments[].extracted_content` — 14 of 147 turns on the branch fixture. `ciExtractText()` falls back through attachments, then file names.
+3. **Root messages carry a sentinel parent**, `00000000-0000-4000-8000-000000000000`, not `null`. The walk tests for it by name (`CI_ROOT_PARENT_UUID`) rather than relying on the uuid merely being absent from the message map.
+
+### The tree is not a list
+`parent_message_uuid` is on every message; editing or regenerating creates a branch, and `chat_messages` therefore contains abandoned branches alongside the live conversation. Listing every `sender === 'human'` message would surface questions the user edited away — presenting discarded content as current, which is arguably worse than showing too few. `current_leaf_message_uuid` is the authoritative tip; the newest-leaf heuristic is a logged fallback only. Verified against a 2-leaf fixture: 297 total / 148 human / 295 active path / **147 active human turns** / 2 abandoned — exact match on all six expected values.
+
+### Alternatives Considered
+**Flip the existing `virtualScroll: true` flag for Claude.** The registry already has an accumulate-across-scroll mode (used by Codex). *Rejected:* it only accumulates what the user has manually scrolled past, so opening a conversation and clicking Navigate still shows ~3. Its coverage correction is also inert here — `_questions` is rebuilt from live DOM every scan, so `nInDOM / _questions.length` is always exactly 1.0.
+
+**Scrape harder / widen selectors.** *Rejected:* the data is not in the document at any selector.
+
+**Intercept Claude's own conversation fetch.** *Rejected:* that is precisely the DEC-020 failure mode, and it would be Firefox-fatal.
+
+**Refetch on every new message.** *Rejected:* 3.3 MB per turn. Replaced by DOM-merging mounted messages as provisional entries, with a cooldown-gated refetch to resync UUIDs.
+
+### Constraints
+- The DOM scanner must never be deleted — it is the fallback and the path for 13 other platforms
+- Failure must be **visible**: `orbRenderIndexBanner()` renders a `data-acn-index-status` banner. Silent degradation is what let this bug hide for so long
+- Export must never imply completeness it does not have — the degraded path stamps `**Source:** on-screen messages only — DEGRADED`
+- Respect `truncated`; surface it in the banner and the export header
+- Cap the tree walk at `chat_messages.length` — a cycle would otherwise spin forever
+- Never refetch without the `CI_REFETCH_COOLDOWN_MS` gate; `_ciInFlight` alone prevents only *concurrent* fetches, not a sequential loop
+- Build for per-platform adapters: if another platform virtualizes, this becomes a shared abstraction rather than a Claude special case
+
+---
+
+## DEC-022: A Fourth Platform Risk Category — Layer 4: State Breaks (v12.0)
+**Date:** 2026-07-26 | **Stage:** v12.0
+
+### Decision
+The platform risk model gains a fourth category, **Layer 4: State Breaks**, documented in `ROADMAP.md` and `CLAUDE.md` alongside the existing three.
+
+### Context
+The v12.0 virtualization bug fits none of the existing layers:
+- **Not Layer 1 (DOM break):** every selector matched, and every match was correct
+- **Not Layer 2 (Feature break):** no competing native feature shipped
+- **Not Layer 3 (Execution break):** the script ran fine and the host page was healthy
+
+The platform kept the full data and simply stopped exposing it to the document.
+
+### Definition
+> **Layer 4 — State Breaks:** the platform continues to hold the complete data but withdraws it from the DOM, invalidating the assumption that a full-page scan sees a full conversation.
+
+### Why it needs its own category
+Its defining property is that **it reports success on a fraction of the data.** Layers 1–3 all announce themselves — empty results, a visible feature conflict, a dead page. Layer 4 returns a plausible, non-empty, entirely wrong answer with no error anywhere. That is why it went undetected: a 4-question panel on a 147-question conversation looks exactly like a short conversation.
+
+It also cannot be caught by the tooling built for the other layers. The planned DOM-validation framework targets Layer 1 and would have passed — the selectors were fine. Playwright mock tests passed too, because `claude.html` is static and mounts every turn permanently. **A test suite of static mocks structurally cannot fail on a Layer 4 break.** That is why `tests/mock-pages/claude-virtualized.html` is a required deliverable and not an optional extra.
+
+### How it was fixed
+By changing data source, not selectors — see DEC-021. The general mitigation for Layer 4 is: when a platform withdraws state from the DOM, find where the platform still holds it (its own API, its own store) and read from there, keeping the DOM path as a visibly-degraded fallback.
+
+### Strategic significance
+This is the clearest ceiling yet on DOM augmentation as a strategy. Layers 1–3 are hazards you engineer around; Layer 4 says the DOM may simply stop being a complete record whenever a platform decides rendering performance matters more than document completeness. It is the strongest argument so far for the API-first direction of the extension transition.
+
+### Constraints
+- Any feature that assumes "scan the page = see the conversation" is now a Layer 4 liability and must be listed as such
+- New platform integrations must record whether the platform virtualizes its message list
+- Mock pages for virtualizing platforms must genuinely unmount nodes — hiding them with `display:none` does not reproduce the failure
+- Degraded operation must always be visible in the UI, never console-only
+
+---
+
+## DEC-023: Jump-to-Message Uses the Virtualizer's Own `data-index`, Not Text Matching (v12.0)
+**Date:** 2026-07-26 | **Stage:** v12.0 Phase 3
+
+### Decision
+Jump-to-message maps mounted DOM rows to conversation positions using Claude's own
+`data-index` attribute, and pages the virtualizer with a scroll-and-settle loop that
+interpolates between observed anchors. The `data-index → _ciFullPath` offset is
+re-derived on every jump from every mounted user row and is never hardcoded.
+
+### Context
+Phase 2 made the panel complete — 147 questions instead of 4. But clicking still resolved
+targets through the DOM, and ~97% of them are unmounted, so almost every click returned
+"not currently rendered". That message is correct and is retained as the final fallback,
+but it is not acceptable as the primary behaviour.
+
+### The finding that shaped the design
+The Phase 3.0 investigation went looking for a stable identifier on the DOM node. There is
+no message uuid anywhere — a full attribute scan of mounted rows, their ancestors and their
+descendants returned zero. But the virtualizer publishes its own positional metadata:
+
+| Attribute | Location | Meaning |
+|---|---|---|
+| `data-index` / `data-rs-index` | turn wrapper | contiguous, 0-based, covers BOTH senders |
+| `aria-posinset` / `aria-setsize` | `role="article"` wrapper | 1-based position / total rows |
+| `role="feed"` | the list | the virtualized region |
+| `data-autoscroll-container="true"` | scroller | stable selector for the scroll container |
+| `data-rocksteady-sizer` | sizer | names the virtualizer: "rocksteady" |
+
+This is a **positional** identifier, so no text comparison is involved. That matters
+specifically: text matching had already caused a CRITICAL in this release, when the
+script's own injected bookmark icon contaminated `textContent` and broke index↔DOM
+matching for every message under 200 characters.
+
+`data-autoscroll-container="true"` was also verified to resolve to the same node as the
+computed-style walk-up, so it is used as the primary locator with the walk-up as fallback.
+
+### Alternatives Considered
+
+**Imperative `scrollToIndex` on the virtualizer.** Investigated first, because it would
+have made the settle loop unnecessary. The container's React ref exposes
+`getScrollContainer`, `scrollToBottom`, `setPinToBottom`, `isPinned`, `getLastUserInputAt`,
+`markUserInput` — an autoscroll/pin controller, with no index API. *Rejected* on
+availability, and would have been rejected anyway: the component is minified to `Oj`, a
+name that changes every deploy, and coupling to React internals is precisely the Layer 3
+hazard DEC-019 punished.
+
+**Text matching as the node→index bridge.** *Rejected:* it is what `data-index` makes
+unnecessary, and it had already produced a CRITICAL.
+
+**Linear re-estimation from a global px/message average.** *Rejected:* `scrollHeight` drifts
+3.2% as rows are measured, so a global average is wrong by ~9–10 messages and does not
+improve with iterations. Interpolating between real observed anchors converges instead.
+
+**Hardcoding the measured `+1` offset.** *Rejected:* it was measured from a single matched
+row, and a wrong offset lands every jump one message off, silently. Derived per jump from
+all mounted user rows instead, refusing to convert when they disagree.
+
+**Caching resolved scroll offsets per message (spec §4.2).** *Deferred:* with `scrollHeight`
+drifting, a cache keyed to pixels is actively harmful — it would send later jumps to stale
+positions. A cache keyed to row anchors would be safe and is the right follow-up. This
+leaves the "repeat jump is near-instant" acceptance criterion unmet, deliberately and on
+the record.
+
+### Constraints
+- Re-read `scrollHeight` every iteration; never seed from a cached absolute offset
+- Landing detection must use the cluster nearest the scroll position and **exclude the
+  pinned tail** — the last ~3 rows stay mounted at every scroll position, so plain set
+  membership reports a false hit for tail indices from anywhere in the conversation
+- Reposition ONLY — **superseded by DEC-024**, which removes the synthetic scroll event
+  entirely after three repeated runs showed it causes a reproducible ~6-row overshoot
+- Read actual `scrollTop` after every move — the landed position is not the requested one
+  (a constant −360 px even without the dispatch)
+- Guard on `document.visibilityState`: a hidden tab throttles rAF and the virtualizer stops
+  running entirely, so the loop cannot converge
+- `requestAnimationFrame` polling must have a timer-based escape hatch for the same reason
+- User input always wins — abort on a trusted scroll event, never fight the user
+- Non-virtualized platforms short-circuit to plain `scrollIntoView`
+- Iteration cap 8, then the honest failure message. Never loop indefinitely
+
+### How it fixed it
+Clicking any question now pages the virtualizer to it. Verified in CI against a mock that
+reproduces `data-index`, the non-contiguous pinned tail and scroll-driven unmounting:
+question #1 is reached from the bottom of a 40-turn conversation in ~200 ms, with the
+target provably unmounted at click time.
+
+---
+
+## DEC-024: No Synthetic Scroll Event — Reposition Only (v12.0 Phase 3)
+**Date:** 2026-07-26 | **Stage:** v12.0 Phase 3
+
+### Decision
+`ciMoveTo()` sets `scrollTo({top})` and **nothing else**. It does not dispatch a
+synthetic `scroll` event. This is not behind a flag; the dispatch is removed.
+
+### Context — a dead end reached twice
+Phase 1 measured, from Chromium's DevTools console, that `scrollTop = x` alone did not
+remount while `scrollTo()` + a dispatched `scroll` event did. That result was written
+into three files as settled fact and became the justification for dispatching.
+
+**Both halves of that were wrong.**
+
+The Chromium measurement was taken in a **hidden window**, where rAF is throttled and the
+virtualizer does not run at all — the same artifact `CLAUDE.md`'s measurement-context
+table now lists as a corrected finding. Probe B then showed `scrollTop` alone *does*
+remount from the Firefox sandbox.
+
+Worse, the dispatch is actively harmful. Probe C was run three times with nothing changed
+between runs:
+
+| Run | With dispatch | Without dispatch |
+|---|---|---|
+| 1 | requested 135590 → landed 132806 (drift −2784), cluster `[117,118,119,120]` | drift **−360**, cluster `[117,118,119,120]` |
+| 2 | requested 136292 → landed 130043 (drift −6249), cluster `[113,114,115,116]` | drift **−360**, cluster `[119,120,121,122]` |
+| 3 | identical to run 2 | drift **−360**, cluster `[119,120,121,122]` |
+
+Without the dispatch the drift was **exactly −360 px in all three runs**. With it, the
+drift tripled and — the decisive evidence — **cluster identity moved**: the dispatch run
+targeted a *lower* document position (136292 vs 134056) yet landed roughly **six rows
+higher**, past the ±5 row tolerance. That is a real overshoot, not measurement noise, and
+it is reproducible.
+
+**Mechanism:** dispatching a scroll event makes the application run its own scroll
+handling, which triggers an extra height-measurement pass and shifts the coordinate
+system mid-jump.
+
+### The wrong diagnosis, recorded so it is not re-derived
+Probe C runs 2 and 3 printed **"DISPATCH HARMFUL — it appears to trigger pin/autoscroll
+behaviour"**. The concern was right; the attribution was wrong. It is **not** the pin
+controller:
+
+- `scrollTop` and cluster identity were **static across all eight samples over 3.2 s**.
+  Pin behaviour would show *progressive* movement toward the bottom.
+- The drift is **negative** — away from the bottom. A pin pulls *toward* it.
+- `SNAPPED_BACK_TO_BOTTOM` was false in every run.
+- In run 2, `scrollTop` changed 136292 → 130043 while the **same four rows** stayed
+  mounted: the content did not move, only the coordinate.
+
+All of it happens during settle, *before* sampling begins. The cause is the
+`scrollHeight` re-normalisation already measured in Probe A (12,050 px / 3.2% shrink as
+estimated row heights are replaced by measured ones), compounded by `scrollHeight` also
+varying per page load (387132 / 388841 / 390502 observed). The verdict "flipped" between
+runs only because the probe thresholded on pixel drift: run 1 fell under the threshold,
+runs 2 and 3 crossed it.
+
+**Therefore: do NOT build a pin-interference abort.** There is nothing to abort.
+
+### Constraints
+- `ciMoveTo()` repositions only — never dispatch a synthetic scroll event
+- Do not add a pin-interference abort; the pin controller does not fight the jump
+- Do not cite the Chromium "scrollTop alone does not remount" result as justification for
+  anything: it was measured in a hidden window and is listed as a corrected finding
+- Re-read `scrollTop` after every move — the position that lands is not the position
+  requested, even without the dispatch (−360 px consistently)
+- Any future claim about virtualizer scroll behaviour must state its measurement context
+  and be reproduced more than once. This finding required three runs to become visible;
+  a single run produced the opposite conclusion.
+
+### How it fixed it
+Landing became reproducible: without the dispatch the drift is a constant −360 px, so
+the interpolation converges on stable ground instead of chasing a coordinate system that
+the dispatch itself was moving.
+
+---
+
+## DEC-025: Test Assertions Read Backing Data, Not the Recycled DOM (v12.0)
+**Date:** 2026-07-26 | **Stage:** v12.0 Phase 3 — CI hardening
+
+### Decision
+Any assertion that asks **"which message did the navigator resolve?"** reads the mock's
+`MESSAGES` array via `__mockVirtualization.rowText(i)`. It never reads
+`querySelector('[data-index="N"]').textContent`.
+
+### Problem
+The jump tests passed on Linux and macOS and failed on **all three** Windows engines,
+with an identical and entirely correct jump:
+
+```
+linux/macOS  ✓ expected row 38, resolved row 38, correctMsg=true   rows=[34,35,36,37,38,39,79]
+windows      ✗ expected row 38, resolved row 38, correctMsg=false  rows=[41,42,43,44,45,46,79]
+```
+
+`resolved row 38` is the implementation reporting the right answer on every OS. Only
+`correctMsg` diverged.
+
+### Technical root cause
+The assertion resolved the row *index* durably — from the `data-acn-jump-resolved`
+attribute on the zone, added precisely because the resolved element does not survive
+(DEC-023) — and then looked the *text* up in the live DOM. By that point row 38 has
+usually been recycled out again: the re-render that `scrollIntoView` triggers is what
+unmounts it. Whether the row is still mounted when the assertion runs is a race between
+the mock's render loop and the test's polling, so the outcome tracks **machine speed**.
+Windows runners are slower, the mock drifted three rows further, `rowNow` was `null`, and
+`correctMessage` came back false for a correct jump.
+
+This is the same defect that `data-acn-jump-resolved` was introduced to fix, left behind
+one line below the fix — the durable read and the fragile read sat adjacent in the same
+return statement.
+
+### Method chosen and why
+Expose `rowText(i)` on the mock, backed by the `MESSAGES` array that is always present
+regardless of mounting.
+
+Deleting `correctMessage` was rejected. It is the assertion that caught the most
+important mutation of the release — offset forced to `0` with verification stubbed made
+the navigator resolve the **assistant reply** instead of Question 1, and `isQ1=false` was
+what exposed it. Removing a flaky check that is also the load-bearing one trades a red CI
+for a silent one.
+
+### How it fixed it
+Deterministic on every OS, and re-verified as still diagnostic — under the same mutation
+both assertions fail, with `resolved=row 1 isQ1=false` and `expected row 38, resolved row
+39`. The general rule is the product's own Layer 4 rule applied to the harness: **do not
+ask the DOM for data the index already holds.** A virtualized mock is subject to it
+exactly like a virtualized platform.
+
+---
+
+## DEC-026: No `--single-process` in the Chromium Test Launcher (v12.0)
+**Date:** 2026-07-26 | **Stage:** v12.0 Phase 3 — CI hardening
+
+### Decision
+`--single-process` is removed from the Chromium launch args and must not be re-added.
+
+### Problem
+Windows Chromium CI reported **13 of 16 platforms failing**, all with the same message:
+
+```
+✗ No runtime errors: page.unrouteAll: Target page, context or browser has been closed
+```
+
+Firefox and WebKit on the same runner reported **266/267 — one honest failure** (DEC-025)
+and nothing else.
+
+### Technical root cause
+`--single-process` had been present since the suite's first commit (`9bad2b1`), justified
+by an Antigravity IDE sandbox on Linux kernel 4.4.0 that this project has not run in for a
+long time. In that mode the renderer shares the browser process, so there is no crash
+isolation: one renderer fault takes the entire browser with it, and every subsequent
+platform fails on its first Playwright call.
+
+It was survivable while the mocks were static and light. `claude-virtualized.html` gained
+scroll-driven mounting, varied row heights and progressive measurement in v12.0, and the
+extra renderer work was enough to trip it on the slower Windows runners.
+
+So one fault was being reported as fifteen broken platforms — the flag did not cause the
+fault, it **amplified** it and destroyed the evidence.
+
+### Method chosen and why
+Remove the flag. `--no-sandbox`, `--disable-setuid-sandbox`, `--disable-gpu` and
+`--disable-dev-shm-usage` are the legitimate CI args and are retained.
+
+### How it fixed it
+A renderer fault now costs one platform instead of thirteen, and the failing platform is
+the one that actually failed.
+
+**Diagnostic tell worth keeping:** when one engine cascades and the others report a single
+clean failure on the same runner, suspect crash isolation in the launcher rather than the
+code under test. The asymmetry is the clue — the flag was Chromium-only, and so was the
+cascade.
+
+### What the asymmetry did and did not prove, and how it was settled
+A review lens correctly objected that the Firefox/WebKit comparison proves the *cascade*
+is flag-attributable but not that the underlying renderer fault would be absent under
+supported multi-process Chromium — `--single-process` is an unsupported mode and faults
+exclusive to it are common. The decisive experiment is simply a Windows Chromium run
+without the flag.
+
+That has since run **twice, green both times** (`fde7ac2` and `349026f`, 9/9 checks,
+Windows Chromium ~5m53s). So the fault does not reproduce without the flag. Recorded
+because the objection was right on the evidence available at the time: removing a flag
+re-scopes a blast radius, and re-scoping is not diagnosis. The green runs are the
+diagnosis.
+
+---
+
+## DEC-027: Resolve-on-Arrival Replaces Global Mapping (v12.0)
+**Date:** 2026-07-27 | **Stage:** v12.0 Phase 3 — jump rebuild
+
+### Decision
+The jump no longer answers "what is the target's exact dataIndex?" **before** moving.
+It aims with the predicate/anchor seed, lands, and resolves **on arrival** against the
+~7 mounted rows: the target's own text first (one matcher, shared with the fast path),
+window-local offset pairs second, a bounded shift third. No pre-scroll resolution gates
+the jump; the `ambiguous-mapping` exit does not exist.
+
+### The gate that forced it (spec §5 — recorded numbers)
+CI was required to reproduce the live failures BEFORE the implementation was built.
+Fixture matrix: 294 rows / N=10 unrendered entries (full every-question sweep), 120-row
+hostile (duplicated short questions, attachment rows whose DOM chip cannot match their
+API text — the live Q#1 shape — one predicate-blind entry, one 15,000px row), 150 rows /
+N=3 (strided).
+
+| Build | N=10 | hostile | N=3 | total failed jumps |
+|---|---|---|---|---|
+| `0a30d3b` (produced the live traces) | 23/147 | 12/60 | 4/15 | **39** |
+| `1200a4b` (the 6-fix pass) | 10/147 | 13/60 | 1/15 | **24** |
+
+**The 6-fix build still failing 24 jumps is the evidence that stopping there would have
+shipped a broken feature.** The gate caught it in CI instead of a live session — the
+first time in v12.0 that CI failed before the owner did.
+
+### Why global mapping was structurally wrong
+The number of unrendered path entries U is tiny (bounded by `pathLength − aria-setsize`),
+so the target's dataIndex is confined to a range of width U+1 — smaller than the mount
+window. Landing in a neighbourhood that contains the target never requires the exact
+offset; exact resolution after arrival needs text uniqueness only among ~7 mounted rows
+instead of all 294. The old design demanded a global answer before moving and failed
+precisely where its inputs were weakest (regions whose rows don't uniquely text-match
+globally): targets 213/223/227 spent 6–9s in byte-identical iterations —
+`est=290645 actual=290645 anchors=10` unchanged across all 8 — then exited
+`ambiguous-mapping`.
+
+### Measurement-context addendum
+The MCP measurement browser was found running ACN **v11.8** during this work. The live
+sweeps stand — they were raw console JS that never invoked the userscript, and the
+harvest stripped `[data-acn-bookmark]` before matching — but *which version of your own
+script is installed in the measurement browser* is now on the context list: an old build
+scanning and mutating the DOM mid-measurement is a confound the numbers cannot reveal.
+
+
+### Proof chain closed — LIVE CONFIRMED (2026-07-27)
+| Build | Acceptance jumps | Live |
+|---|---|---|
+| `0a30d3b` (produced the live traces) | fails 39 | failed live |
+| `1200a4b` (6-fix pass) | fails 24 | never shipped — the gate caught it |
+| `5f2a8be` (resolve-on-arrival) | **222/222 exact** (avg ~330ms, max 925ms) | **PASSED** — Firefox, 147-question conversation, arrival highlight tracking the exact clicked question |
+
+The `overflow-anchor` caveat resolved empirically: no teleporting observed live.
+Methodology worth keeping: **an old build must FAIL a new fixture before the fixture
+counts as a reproduction** — a fixture the old code passes is not reproducing the bug.
+
+---
+
+## DEC-028: A Fixture's Defaults Are Part of the Finding (v12.0 close-out)
+**Date:** 2026-07-27 | **Stage:** v12.0 Tier 3 review, post-freeze
+
+### Decision
+A test fixture's incidental constants — latency, payload shape, timing — are **claims
+about the environment**, and a green suite is only evidence for the environment the
+fixture actually models. Where a constant is knowably unrepresentative, either set it to
+the measured value or add a second entry that does, and say which.
+
+### What forced it
+Two CRITICALs shipped in v12.0 and survived a 23-round independent review. Neither was
+subtle in the code; both were unreachable in CI because of one fixture default each.
+
+| Defect | Fixture default that hid it | Live value |
+|---|---|---|
+| Unbounded `scanConversation` ↔ `ciLoadIndex` recursion (RangeError storm on every load) | GM fixture answers in **5ms** | ~2.1s payload |
+| Success-driven refetch loop, full payload every ~15.5s forever on an idle page | fixture API text **always equals** the DOM | tool/artifact answers render more than their text blocks carry, permanently |
+
+The recursion needs a second scan to land inside the fetch window. At 5ms none ever
+does; at 1200ms it happens on essentially every load. Nothing about the userscript
+changed between those two runs — only a number in the harness.
+
+This is the measurement-context rule (CLAUDE.md) applied one level out. The existing rule
+governs where a *measurement* was taken. This governs where a *test* was taken: the suite
+is a measurement instrument, and its constants scope every result it produces.
+
+### Consequences
+- `apiLatencyMs`, `toolShapedRow` and `refetchProbeMs` are now per-entry fixture knobs,
+  with two dedicated guard entries: *Claude (slow API — load recursion guard)* and
+  *Claude (tool-shaped row — refetch loop guard)*. Both are **ancestor-gated** — they fail
+  on `6bc7ed2` and pass on the fix, per DEC-027.
+- The 5ms default remains for the other entries, deliberately: fast where latency is not
+  what is under test, realistic where it is.
+- **Corollary for reviewers:** when a bug is "impossible per CI", suspect the fixture
+  before the reasoning. Ask which constant makes the bug unreachable, then change that one
+  constant and re-run.
+
+---
+
+## DEC-029: End a Review Loop on Finding Provenance, Not Finding Count (v12.0 pre-merge)
+**Date:** 2026-07-28 | **Stage:** v12.0 pre-merge hardening
+
+### Decision
+Decide when to stop an automated review loop by classifying each round's findings into
+**pre-existing defects** versus **defects in fixes made during this loop**. While pre-existing
+dominates, continue. Once loop-introduced defects dominate, stop — **even if findings are still
+real and still P1**.
+
+### Context
+A 24-round GitHub Codex cycle produced ~42 findings with **zero false positives**. Round count
+and severity both argued for continuing: rounds 21, 23 and 24 each produced a P1. The owner
+asked the right question — "is our code that buggy?" — and the count could not answer it.
+
+The provenance split could: roughly **19 pre-existing** defects (about one per 240 lines of a
+4,567-line release, unremarkable for a release this intricate) versus roughly **23 defects in
+fixes made during the cycle**. Individual mechanisms needed four and five iterations. The cycle
+had also written **1,018 lines** — 22% of the release — into the Summary/Export surface, which
+mutation testing proved the suite does not execute at all. Each fix's only verification was the
+next round reading it.
+
+### Alternatives considered
+- **Run until a clean round.** Rejected: in freshly-written, untested code a good reviewer will
+  keep finding real material indefinitely. "Clean round" measures the reviewer's patience, not
+  the code's health.
+- **Stop on a severity floor (no more P1s).** Rejected: severity does not distinguish a P1 in
+  shipped code from a P1 in a mechanism introduced twenty minutes earlier. Ours were
+  increasingly the latter.
+- **Stop on a fixed round budget.** Rejected as arbitrary; it would have stopped before the two
+  load-path CRITICALs were found, or long after the loop turned self-referential.
+
+### Rationale
+A review loop is only reducing risk while it is reporting on code that predates it. Once most
+findings are its own output, the loop has become the dominant *source* of defects, and each
+additional round has roughly even odds of creating the next finding. That is a random walk, and
+no amount of reviewing converges it — only a feedback signal does.
+
+### Key properties
+- Track provenance **per round from the start**, not retroactively.
+- The aggravating factor to check alongside it: how much new code the loop has written into
+  surface no test executes.
+- The exit is **not** another round: stop changing code → live-verify → merge → fixture the
+  untested surface first in the next version.
+- Say the arithmetic out loud to the owner. "Still finding P1s" invites grinding; "23 of 42 are
+  ours" ends the debate.
+
+---
+
+## DEC-030: Provisional Bookmarks Bind by Identity, and Only When Text Is Unique (v12.0)
+**Date:** 2026-07-28 | **Stage:** v12.0 pre-merge hardening
+
+### Decision
+A bookmark taken before its message has an API uuid stores **identity hints, not text**
+(`pendingHash`, `pendingSender`, `pendingOrdinal`, `pendingRow`) and is upgraded to schema 2
+once the refreshed index knows the uuid — but **only when that text occurs exactly once in the
+active path**. Duplicate-text messages stay provisional and resolve while mounted.
+
+### Context
+Bookmarks store identity, not position: schema 2 keys to the message uuid, schema 1 to a content
+hash. Only a **uuid** lets `orbScrollToBookmark` fall through to the jump bridge that pages the
+virtualizer to an unmounted message — so on Claude a schema-1 record works *only while its
+message is on screen*.
+
+There is an unavoidable window that produces one: you send a prompt, it mounts immediately, the
+index snapshot predates it, and the refetch takes ~2s (up to ~17s behind the cooldown).
+Bookmarking in that window produced a permanently dead record on the newest message — the one
+most likely to be bookmarked.
+
+This is the gap the conversation index did **not** close. v12.0 gave Navigate, Search and Export
+the whole conversation; bookmarks still silently depended on the mounted window.
+
+### Alternatives considered
+- **Leave it.** Rejected once understood: a dead bookmark on your newest message is a visible
+  failure of the feature's core promise.
+- **Migrate on click.** Rejected — click-time resolution already requires the message to be
+  mounted, which is exactly the case that already worked.
+- **Store the full text and re-look it up.** Shipped briefly, then reverted: it wrote entire
+  prompts into `GM_setValue`, contradicting README's privacy guarantee (Codex P1). A hash is
+  sufficient because migration only ever *compares*.
+- **Bind on ordinal alone.** Rejected — `_ciBindMountedElements` assigns one mounted node to
+  *every* same-text question, so a position lookup returns the earliest twin.
+- **Bind whenever a hash matches (no uniqueness gate).** Rejected as the final hardening: routes
+  1 and 2 are position anchors, and a hash check cannot distinguish twins, so a shifted anchor
+  landing on a same-text message would persist a wrong uuid **forever** — migration then skips
+  the record because it looks bound, and both the jump and the toggle act on the wrong message.
+
+### Rationale
+Refusing to bind is cheap and recoverable: the record stays provisional and still works whenever
+its message is mounted, and the user can re-bookmark later for a clean schema-2 record. Binding
+wrongly is permanent and silent. Given that none of this machinery has a fixture, the asymmetry
+decides it.
+
+### Key properties
+- **Position may confirm identity; it may never establish it.** All three routes verify content.
+- Uniqueness is checked **ahead of** all routes, which also makes route 3 a lookup rather than a
+  disambiguation — its comment says so, since a comment describing an unreachable check is the
+  defect class this project keeps catching.
+- Migration runs **once per index generation**, not per mutation batch.
+- No conversation text is persisted — only a hash.
+- **Unfixtured.** v12.1's first task is live-testing and fine-tuning this, then covering it.

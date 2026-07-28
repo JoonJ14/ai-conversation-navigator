@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      11.8
+// @version      12.0
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -24,6 +24,7 @@
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
+// @connect      claude.ai
 // ==/UserScript==
 
 (function () {
@@ -39,7 +40,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '11.5';
+    var ACN_VERSION = '12.0';
 
     // ============================================================
     // i18n — internationalization string table
@@ -254,12 +255,22 @@
             initGuards: [],
             retryDelays: [],
             textExtractor: null,
+            // v12.0 selector refresh — re-inspected live July 2026.
+            // Claude removed data-testid="user-human-turn" from the turn wrapper and
+            // moved data-testid="user-message" onto the INNER content node. Measured
+            // live: user-human-turn 0, user-message 3, .font-user-message 0,
+            // user_message 0, [data-testid$="-turn"] 0. Both chains were surviving on
+            // a single link. Note .font-user-message stopped matching because the class
+            // is now !font-user-message (Tailwind important prefix), which needs
+            // escaping in a selector. See DOM-REFERENCE.md.
             getUserMessages: function () {
-                var messages = document.querySelectorAll('[data-testid="user-human-turn"]');
-                if (messages.length === 0) messages = document.querySelectorAll('[data-testid="user-message"]');
-                if (messages.length === 0) messages = document.querySelectorAll('.font-user-message');
+                var messages = document.querySelectorAll('[data-testid="user-message"]');
+                if (messages.length === 0) messages = document.querySelectorAll('[data-testid="user-human-turn"]');
+                if (messages.length === 0) messages = document.querySelectorAll('.\\!font-user-message, .font-user-message');
+                if (messages.length === 0) messages = document.querySelectorAll('[data-testid="user_message"]');
                 if (messages.length === 0) {
-                    var bubbles = document.querySelectorAll('div.bg-bg-200.rounded-lg');
+                    var bubbles = document.querySelectorAll(
+                        'div.bg-bg-300.rounded-xl, div.bg-bg-300.rounded-lg, div.bg-bg-200.rounded-lg');
                     messages = Array.from(bubbles).filter(function (bubble) {
                         return bubble.closest('.items-end');
                     });
@@ -267,8 +278,10 @@
                 return messages;
             },
             getAIMessages: function () {
-                // Verified starting points — fallback chain
+                // .font-claude-response is the only live link as of July 2026 (5 mounted);
+                // every other entry below measured 0 and is retained as insurance.
                 var messages = document.querySelectorAll('.font-claude-response');
+                if (messages.length === 0) messages = document.querySelectorAll('.\\!font-claude-response');
                 if (messages.length === 0) messages = document.querySelectorAll('[data-testid="ai-turn"]');
                 if (messages.length === 0) messages = document.querySelectorAll('[data-testid="assistant-message"]');
                 if (messages.length === 0) messages = document.querySelectorAll('.font-claude-message');
@@ -1087,6 +1100,2397 @@
     }
 
     // ============================================================
+    // CONVERSATION INDEX — API-backed message enumeration (v12.0)
+    // ============================================================
+    // WHY THIS EXISTS
+    // Claude virtualizes its message list with recycling: only ~3-5 turns are
+    // mounted at any moment (measured: 3 mounted of 96 real turns, ~3%).
+    // Everything outside that window is unmounted and torn down, so
+    // document.querySelectorAll() is no longer a complete record of the
+    // conversation. This is not a selector problem and cannot be fixed by
+    // changing selectors — it needs a different data source.
+    //
+    // Claude's own client already downloads the entire conversation as JSON on
+    // page load and then chooses to render a window of it. We read that same
+    // endpoint. This is an ORDINARY OUTBOUND REQUEST, not fetch interception:
+    // it replaces no page global and carries none of the Firefox
+    // cross-compartment risk that forced DEC-019 / DEC-020.
+    //
+    // See DEC-021 and the "Layer 4: State Breaks" section of ROADMAP.md.
+
+    // Root messages carry this sentinel as parent_message_uuid rather than null.
+    // The tree walk MUST test for it explicitly — relying on the uuid simply
+    // being absent from the message map is an accidental pass-through that
+    // would silently break if the API ever returned the root node itself.
+    var CI_ROOT_PARENT_UUID = '00000000-0000-4000-8000-000000000000';
+
+    var CI_ORG_CACHE_KEY    = 'acn-claude-org-v1';
+    var CI_FETCH_TIMEOUT_MS = 45000;  // 3.3MB payloads measured at ~2.1s foreground
+    // Minimum gap between tree-change refetches. Without it, a tree-change signal
+    // that survives the refetch would re-trigger on the very next MutationObserver
+    // tick — a 3.3MB download every ~500ms. _ciInFlight only prevents CONCURRENT
+    // fetches, not a sequential loop.
+    var CI_REFETCH_COOLDOWN_MS = 15000;
+
+    // ── Index state ─────────────────────────────────────────────
+    var _ciIndex          = null;   // array of human turns, or null when unavailable
+    var _ciFullPath       = null;   // full ordered active path (human + assistant), for Export
+    var _ciConversationId = null;   // conversation uuid the index was built for
+    var _ciStatus         = 'idle'; // 'idle' | 'loading' | 'ready' | 'degraded'
+    var _ciDegradedReason = '';     // human-readable, surfaced in the UI
+    var _ciTruncatedCount = 0;      // messages on the active path with truncated:true
+    var _ciUsedLeafFallback = false;
+    var _ciPathComplete   = true;  // false when the tree walk never reached the root sentinel
+    var _ciLoadGen        = 0;      // bumped per load: uuid comparison alone cannot
+                                    // catch A->B->A, where the STALE A callback still
+                                    // sees a matching uuid (Codex R6 :1605)
+    var _ciInFlightCid    = null;   // conversation uuid the in-flight load is FOR.
+    var _ciInFlightGen    = 0;      // generation that OWNS the marker. A stale callback
+                                    // must clear ONLY its own marker: clearing by uuid
+                                    // alone would let old-A clobber new-A's marker
+                                    // (the R6 race), while never clearing left the
+                                    // marker stuck after leaving a chat route, so
+                                    // revisiting the SAME uuid could never load again
+                                    // without a page reload (Codex R9 :1608).
+                                    // A boolean here let a slow request for the OLD
+                                    // conversation block every load attempt for the
+                                    // newly opened one until timeout (Codex :1570).
+    var _ciOrgUuid        = null;
+    var _ciLastRefetchAt  = 0;
+
+    // The two real Claude conversation routes, and ONLY those:
+    //     /chat/<uuid>
+    //     /project/<uuid>/chat/<uuid>
+    //
+    // Anchoring to ^/chat/ alone left every Project conversation on the DOM-only
+    // path AND suppressed its degraded banner (ciIsClaudeChat() was false, so the
+    // banner never rendered). But a loose /(?:^|\/)chat\// is the opposite error:
+    // it also matches /code/x/chat/<uuid> and any other route containing a "chat"
+    // segment, which would enable the index and fire a fetch against an id that is
+    // not a conversation. Anchor at the start, allow only the optional project
+    // segment, and require a path boundary after the uuid.
+    var CI_CHAT_PATH_RE = /^\/(?:project\/[0-9a-f-]{36}\/)?chat\/([0-9a-f-]{36})(?:\/|$)/i;
+
+    function ciIsClaudeChat() {
+        return !!(platform && platform.id === 'claude' &&
+                  CI_CHAT_PATH_RE.test(window.location.pathname));
+    }
+
+    function ciGetConversationUuid() {
+        var m = window.location.pathname.match(CI_CHAT_PATH_RE);
+        return m ? m[1] : null;
+    }
+
+    function ciGetCookie(name) {
+        var m = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'));
+        return m ? decodeURIComponent(m[1]) : null;
+    }
+
+    // GM_xmlhttpRequest rather than fetch: this exact transport is already proven
+    // against claude.ai in fetchClaudeUsage(), and it keeps the response entirely
+    // out of the page realm. The spec's "bare fetch returns 200" was verified in
+    // the DevTools console (page realm), NOT the Tampermonkey sandbox — so
+    // sandbox-realm fetch is treated as unverified here.
+    function ciRequestJSON(url, cb) {
+        if (typeof GM_xmlhttpRequest !== 'function') {
+            cb(new Error('GM_xmlhttpRequest unavailable'), null, 0);
+            return;
+        }
+        GM_xmlhttpRequest({
+            method: 'GET',
+            url: url,
+            timeout: CI_FETCH_TIMEOUT_MS,
+            headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
+            onload: function (res) {
+                if (res.status !== 200) {
+                    cb(new Error('HTTP ' + res.status), null, res.status);
+                    return;
+                }
+                var data;
+                try {
+                    data = JSON.parse(res.responseText);
+                } catch (e) {
+                    cb(new Error('malformed JSON'), null, res.status);
+                    return;
+                }
+                cb(null, data, res.status);
+            },
+            onerror:   function () { cb(new Error('network error'), null, 0); },
+            ontimeout: function () { cb(new Error('timeout'), null, 0); }
+        });
+    }
+
+    // ── Org UUID resolution ─────────────────────────────────────
+    // The conversation uuid is in the URL; the org uuid is not. Resolution is
+    // ordered by reliability, and the caller VALIDATES the choice by using it —
+    // a wrong org returns 404 on the conversation fetch, which triggers the next
+    // candidate. We never probe speculatively: the conversation fetch is needed
+    // anyway, so making it the validator costs nothing extra.
+    function ciAccountKey() {
+        return ciGetCookie('ajs_user_id') || ciGetCookie('lastActiveOrg') || 'default';
+    }
+
+    function ciReadCachedOrg() {
+        try {
+            var raw = GM_getValue(CI_ORG_CACHE_KEY, '');
+            if (!raw) return null;
+            var o = JSON.parse(raw);
+            // Cached per account, not per conversation — the same org serves every
+            // conversation the account owns.
+            return (o && o.acct === ciAccountKey() && o.org) ? o.org : null;
+        } catch (e) { return null; }
+    }
+
+    function ciWriteCachedOrg(org) {
+        try {
+            GM_setValue(CI_ORG_CACHE_KEY, JSON.stringify({ acct: ciAccountKey(), org: org }));
+        } catch (e) {}
+    }
+
+    // Returns an ordered candidate list via callback. Cheapest, most-likely first.
+    function ciResolveOrgCandidates(cb) {
+        var candidates = [];
+        function add(u) {
+            if (u && candidates.indexOf(u) === -1) candidates.push(u);
+        }
+
+        add(ciReadCachedOrg());
+        add(ciGetCookie('lastActiveOrg'));
+
+        // Sidebar's own request URLs — readable without intercepting anything.
+        try {
+            var entries = window.performance.getEntriesByType('resource');
+            for (var i = 0; i < entries.length; i++) {
+                var m = entries[i].name.match(/\/api\/organizations\/([0-9a-f-]{36})/i);
+                if (m) add(m[1]);
+            }
+        } catch (e) {}
+
+        // If the cheap sources produced anything, use them; the caller falls back
+        // to the full org list only when every candidate 404s.
+        if (candidates.length) { cb(candidates); return; }
+
+        ciRequestJSON('https://claude.ai/api/organizations', function (err, orgs, status) {
+            if (err || !Array.isArray(orgs)) {
+                // Carry the HTTP status: discarding it made every logged-out or
+                // rate-limited session degrade with a generic reason that dodged the
+                // backoff classes, retrying /api/organizations every 15s
+                // (Codex R18 — third entry point into the same hole as R14/R16).
+                //
+                // Carry the REASON as well. A 200 with malformed JSON produced
+                // 'malformed JSON' here, and reporting only the HTTP status turned that
+                // into 'could not resolve organization UUID (HTTP 200)' — which matches
+                // none of ciSetDegraded's permanent-failure patterns, so the backoff
+                // stayed at zero and the failing endpoint was polled every cooldown
+                // forever. The classifier keys on the reason TEXT, so it has to survive.
+                cb(candidates, err && status ? status : null, err ? err.message : null);
+                return;
+            }
+            cb(ciRankOrgs(orgs));
+        });
+    }
+
+    // Orgs that can hold chats advertise the 'chat' capability. Ranking by it
+    // replaces the old orgs[0] positional guess, which silently picked the wrong
+    // org for anyone belonging to more than one.
+    function ciRankOrgs(orgs) {
+        var chatOrgs = [], others = [];
+        for (var i = 0; i < orgs.length; i++) {
+            var o = orgs[i];
+            if (!o || !o.uuid) continue;
+            var caps = o.capabilities || [];
+            if (caps.indexOf('chat') !== -1) chatOrgs.push(o.uuid);
+            else others.push(o.uuid);
+        }
+        return chatOrgs.concat(others);
+    }
+
+    function ciConversationUrl(org, cid) {
+        return 'https://claude.ai/api/organizations/' + org + '/chat_conversations/' + cid +
+               '?tree=True&rendering_mode=messages&render_all_tools=true&consistency=strong';
+    }
+
+    // ── Text extraction ─────────────────────────────────────────
+    // The top-level `text` field is EMPTY on every message under
+    // rendering_mode=messages (verified: 0 of 192 non-empty). Content lives in
+    // content[] blocks. Reading `text` would render a panel full of blank rows.
+    // Where ciExtractText() found an entry's text. 'content' means it is the message body
+    // and therefore appears in the DOM; anything else means it does NOT — a large paste
+    // becomes an attachment whose extracted_content the page renders as a file chip, so
+    // comparing API text against DOM text for those rows can only ever fail.
+    function ciTextSource(msg) {
+        var content = msg.content || [], i;
+        for (i = 0; i < content.length; i++) {
+            if (content[i].type === 'text' && content[i].text && content[i].text.trim()) return 'content';
+        }
+        var att = msg.attachments || [];
+        for (i = 0; i < att.length; i++) {
+            if (att[i].extracted_content && att[i].extracted_content.trim()) return 'attachment';
+        }
+        for (i = 0; i < att.length; i++) if (att[i].file_name) return 'attachment';
+        if ((msg.files || []).length) return 'files';
+        return '';
+    }
+
+    function ciExtractText(msg) {
+        var out = [];
+        var content = msg.content || [];
+        for (var i = 0; i < content.length; i++) {
+            if (content[i].type === 'text' && content[i].text) out.push(content[i].text);
+        }
+        var joined = out.join('\n').trim();
+        if (joined) return joined;
+
+        // Large pastes become a txt attachment with an empty file_name and the
+        // body in extracted_content — the message itself carries no text block.
+        // 14 of 147 human turns on the branch fixture were this shape.
+        // ALL bodies, not the first: a turn can carry several documents, and
+        // returning early hid every one after the first from Search, Summary and
+        // the context totals (Codex R10 :1337).
+        var att = msg.attachments || [];
+        var bodies = [];
+        for (var j = 0; j < att.length; j++) {
+            if (att[j].extracted_content && att[j].extracted_content.trim()) {
+                bodies.push(att[j].extracted_content.trim());
+            }
+        }
+        if (bodies.length) return bodies.join('\n\n');
+        for (var k = 0; k < att.length; k++) {
+            if (att[k].file_name) return '[' + att[k].file_name + ']';
+        }
+
+        var files = msg.files || [], names = [];
+        for (var f = 0; f < files.length; f++) {
+            names.push(files[f].file_name || files[f].file_kind || 'file');
+        }
+        if (names.length) return '[' + names.join(', ') + ']';
+
+        return '';
+    }
+
+    // Approximate character weight of tool_use/tool_result payloads. Deliberately
+    // NOT merged into entry text (tool payloads would contaminate Navigate/Search
+    // and DOM matching — the documented scope decision) but they DO consume real
+    // context, and tool-heavy chats were materially undercounted (Codex R16 :1325).
+    function ciCountToolChars(msg) {
+        var n = 0, content = msg.content || [];
+        for (var i = 0; i < content.length; i++) {
+            var b = content[i];
+            if (b.type !== 'tool_use' && b.type !== 'tool_result') continue;
+            try { n += JSON.stringify(b.input || b.content || b).length; }
+            catch (e) { n += 200; }
+        }
+        return n;
+    }
+
+    // Readable representation of tool_use / tool_result blocks. ciExtractText deliberately
+    // omits them (they are not prose and would corrupt text matching), and ciCountToolChars
+    // proves the payloads ARE present in the fetched response — so an export that wrote only
+    // the text silently dropped artifact and tool content while calling itself complete
+    // (Codex). Kept separate from `text` so nothing that MATCHES on text is affected.
+    function ciExtractToolText(msg) {
+        var out = [], content = msg.content || [];
+        for (var i = 0; i < content.length; i++) {
+            var b = content[i];
+            if (b.type !== 'tool_use' && b.type !== 'tool_result') continue;
+            var label = b.type === 'tool_use'
+                ? ('tool_use' + (b.name ? ' (' + b.name + ')' : ''))
+                : 'tool_result';
+            var payload = b.input || b.content || '';
+            var body;
+            if (typeof payload === 'string') body = payload;
+            else { try { body = JSON.stringify(payload, null, 2); } catch (e) { body = '[unserializable]'; } }
+            out.push({ label: label, body: body || '' });
+        }
+        return out;
+    }
+
+    function ciCountBlockChars(msg, type) {
+        var content = msg.content || [], n = 0;
+        for (var i = 0; i < content.length; i++) {
+            if (content[i].type !== type) continue;
+            var v = content[i].thinking || content[i].text || '';
+            n += v.length;
+        }
+        return n;
+    }
+
+    // ── Tree walk ───────────────────────────────────────────────
+    // Editing or regenerating creates a branch, so chat_messages contains
+    // abandoned branches alongside the live conversation. Listing every
+    // sender==='human' message would surface questions the user edited away —
+    // silently presenting discarded content as current.
+    function ciInferLeafUuid(msgs) {
+        var isParent = {};
+        for (var i = 0; i < msgs.length; i++) {
+            if (msgs[i].parent_message_uuid) isParent[msgs[i].parent_message_uuid] = true;
+        }
+        var newest = null;
+        for (var j = 0; j < msgs.length; j++) {
+            if (isParent[msgs[j].uuid]) continue;
+            if (!newest || new Date(msgs[j].created_at) > new Date(newest.created_at)) {
+                newest = msgs[j];
+            }
+        }
+        return newest ? newest.uuid : null;
+    }
+
+    function ciResolveActivePath(data) {
+        var msgs = (data && data.chat_messages) || [];
+        if (!msgs.length) return { path: [], usedFallback: false };
+
+        var byId = {};
+        for (var i = 0; i < msgs.length; i++) byId[msgs[i].uuid] = msgs[i];
+
+        var leafUuid = data.current_leaf_message_uuid;
+        var usedFallback = false;
+        if (!leafUuid || !byId[leafUuid]) {
+            leafUuid = ciInferLeafUuid(msgs);
+            usedFallback = true;
+            console.warn('[ACN] conversation index: current_leaf_message_uuid missing or ' +
+                         'unresolvable — falling back to newest-leaf heuristic. ' +
+                         'This is inference, not the authoritative pointer.');
+        }
+
+        var path = [];
+        var cur  = byId[leafUuid];
+        var guard = 0;
+        var reachedRoot = false;
+        // Iteration cap: a cycle in the data would otherwise spin forever.
+        while (cur && guard < msgs.length) {
+            guard++;
+            path.push(cur);
+            var pid = cur.parent_message_uuid;
+            // ONLY the sentinel proves the root was reached. A missing/null parent on
+            // a malformed or truncated record used to count as "complete", so Export
+            // labelled a partial path as complete conversation history (Codex R4).
+            if (pid === CI_ROOT_PARENT_UUID) { reachedRoot = true; break; }
+            if (!pid) break;
+            cur = byId[pid];
+        }
+        path.reverse();
+
+        // Terminating is not the same as succeeding. Exiting because a parent uuid
+        // was missing from the map, or because the cycle cap tripped, yields a
+        // PARTIAL path — which must not then be exported as "complete conversation
+        // history". Track it so the banner and the export header can say so.
+        if (!reachedRoot) {
+            console.warn('[ACN] conversation index: active path did not reach the root ' +
+                         'sentinel (' + path.length + ' of ' + msgs.length + ' messages ' +
+                         'walked). The tree is malformed or truncated — treating the ' +
+                         'resulting path as INCOMPLETE.');
+        }
+        return { path: path, usedFallback: usedFallback, reachedRoot: reachedRoot };
+    }
+
+    function ciValidateShape(data) {
+        return !!(data && typeof data === 'object' &&
+                  Array.isArray(data.chat_messages) &&
+                  data.chat_messages.length > 0 &&
+                  data.chat_messages[0] &&
+                  typeof data.chat_messages[0].uuid === 'string' &&
+                  typeof data.chat_messages[0].sender === 'string');
+    }
+
+    function ciBuildIndex(data) {
+        var resolved = ciResolveActivePath(data);
+        var path = resolved.path;
+        var turns = [];
+        var truncated = 0;
+
+        // Full ordered path (human AND assistant) — Export needs both sides to
+        // produce a complete file. Without this, Export would still emit only the
+        // assistant messages that happened to be mounted.
+        //
+        // Built into a LOCAL and committed at the end. Mutating _ciFullPath in place made
+        // a same-conversation refresh non-atomic: a malformed later record throws, so
+        // _ciIndex is never reassigned, and the snapshot-retention path then sees the OLD
+        // truthy _ciIndex beside a PARTIAL _ciFullPath and restores ready — leaving
+        // consumers to combine a full question index with a truncated path, i.e. wrong
+        // jumps and incomplete exports (Codex). Nothing global changes until the build
+        // has completed.
+        var fullPath = [];
+        for (var p = 0; p < path.length; p++) {
+            fullPath.push({
+                uuid:      path[p].uuid,
+                sender:    path[p].sender,
+                text:      ciExtractText(path[p]),
+                textSource: ciTextSource(path[p]),
+                // Retained because it predicts whether this entry RENDERS A ROW, which is
+                // what makes dataIndex -> path index resolvable. See ciEntryRenders().
+                stopReason: path[p].stop_reason || null,
+                // Extended thinking is invisible to DOM scraping but consumes real
+                // context. content[] exposes it directly, which beats the old
+                // "count [aria-expanded] blocks x 600 tokens" heuristic — and that
+                // heuristic could only see mounted blocks anyway.
+                thinkingChars: ciCountBlockChars(path[p], 'thinking'),
+                toolChars: ciCountToolChars(path[p]),
+                // Serialized separately from `text` so Export can be genuinely complete
+                // without letting tool payloads into any text-matching path.
+                toolBlocks: ciExtractToolText(path[p]),
+                truncated: !!path[p].truncated,
+                files:     path[p].files || [],
+                attachments: path[p].attachments || []
+            });
+        }
+
+        for (var i = 0; i < path.length; i++) {
+            var m = path[i];
+            if (m.truncated) truncated++;
+            if (m.sender !== 'human') continue;
+            var text = ciExtractText(m);
+            if (!text) continue;
+            turns.push({
+                uuid:       m.uuid,
+                text:       text,
+                summary:    generateSummary(text),
+                pathIndex:  i,
+                createdAt:  m.created_at,
+                attachments: m.attachments || [],
+                files:      m.files || [],
+                truncated:  !!m.truncated,
+                element:    null,       // bound opportunistically to mounted DOM
+                provisional: false      // true for DOM-merged turns not yet in the API
+            });
+        }
+
+        // ── COMMIT POINT ────────────────────────────────────────────────────────
+        // Everything above is derived from `data` alone and can throw; everything below
+        // mutates shared state. Keep that ordering.
+        _ciFullPath         = fullPath;
+        _ciTruncatedCount   = truncated;
+        _ciUsedLeafFallback = resolved.usedFallback;
+        _ciPathComplete     = resolved.reachedRoot;
+        ciBuildRenderable();
+        ciResetAnchors();
+        // A mid-jump refetch for the SAME conversation (edit/regenerate resync) rebuilds
+        // the path without going through ciInvalidate, so indices shift underneath an
+        // in-flight jump and it would verify against the new array — landing confidently
+        // on a different message than the one clicked.
+        _ciJumpToken++;
+        _ciTextToUuid       = null;   // rebuilt lazily against the new path
+        _ciIndexGen++;
+        return turns;
+    }
+
+    // ── Fetch orchestration ─────────────────────────────────────
+    // Tries candidate orgs in order. A 404 means "wrong org" and advances to the
+    // next; any other failure is terminal and drops us to degraded mode.
+    function ciFetchWithOrgFallback(cid, candidates, idx, cb, exhaustedCb, lastStatus) {
+        if (idx >= candidates.length) {
+            // Every cheap candidate was rejected. A stale cached org (account
+            // switched, org migrated) would otherwise dead-end here permanently,
+            // since ciResolveOrgCandidates short-circuits before ever querying
+            // /api/organizations when a cached value exists.
+            if (exhaustedCb) { exhaustedCb(lastStatus); return; }
+            // Carry the terminal status: all-orgs-403 is an AUTH failure, and the
+            // generic message dodged the backoff classes — mutation scans kept
+            // retrying org+conversation requests every 15s (Codex R16 :1536).
+            cb(new Error('no org candidate accepted the conversation' +
+                         (lastStatus ? ' (HTTP ' + lastStatus + ')' : '')), null);
+            return;
+        }
+        var org = candidates[idx];
+        ciRequestJSON(ciConversationUrl(org, cid), function (err, data, status) {
+            if (!err) {
+                // NO commit here. A stale org-A request completing after org-B's ran
+                // these writes BEFORE finish() rejected the stale generation, so B's
+                // validated org cache was overwritten with A — wrong usage quota and
+                // wrong org for every later load (Codex R10 :1521). The successful org
+                // rides to the generation-guarded completion path, which commits it
+                // only after the guard passes.
+                cb(null, data, org);
+                return;
+            }
+            if (status === 404 || status === 403) {
+                ciFetchWithOrgFallback(cid, candidates, idx + 1, cb, exhaustedCb, status);
+                return;
+            }
+            cb(err, null);
+        });
+    }
+
+    // Full org list, used only after the cheap candidates have all been rejected.
+    function ciFetchFromAllOrgs(cid, tried, cb, triedStatus) {
+        ciRequestJSON('https://claude.ai/api/organizations', function (err, orgs, status) {
+            if (err || !Array.isArray(orgs)) {
+                // Status rides the error so the backoff can classify it — the FOURTH
+                // entry point of the same hole (R14, R16, R18): this fallback runs when
+                // cheap candidates existed but were all rejected, and a 401/403/429
+                // here degraded with the generic message and retried every 15s
+                // (Codex R19). And carry err.message, not only the status: a 200 with
+                // malformed JSON produced a useful 'malformed JSON' here that this branch
+                // replaced with a generic reason, which no longer matched the
+                // permanent-failure classifier — so a schema failure retried the org AND
+                // conversation requests on the short cooldown instead of backing off. Same
+                // defect as the initial org-resolution path, at the fallback (Codex).
+                cb(new Error('no org candidate accepted the conversation' +
+                             (err && err.message ? ': ' + err.message : '') +
+                             (err && status ? ' (HTTP ' + status + ')' : '')), null);
+                return;
+            }
+            var ranked = ciRankOrgs(orgs).filter(function (u) { return tried.indexOf(u) === -1; });
+            if (!ranked.length) {
+                // FIFTH sibling of the status-discarding family (R14/R16/R18/R19,
+                // Codex R23): every cheap candidate 403'd and the org list held
+                // nothing new — without the status this dodged the backoff and an
+                // unauthorized tab retried every 15s.
+                cb(new Error('no org candidate accepted the conversation' +
+                             (triedStatus ? ' (HTTP ' + triedStatus + ')' : '')), null);
+                return;
+            }
+            ciFetchWithOrgFallback(cid, ranked, 0, cb, null);
+        });
+    }
+
+    // The scan pipeline is MUTATION-DRIVEN, which leaves two idle-page holes
+    // (Codex R20): staleness detected during the cooldown was skipped without
+    // scheduling anything, and a failed load's timed retry was only ever evaluated
+    // when the host page happened to mutate. One pending timer covers both — it
+    // re-runs the full scan, which re-evaluates banners, retries and staleness.
+    var _ciRescanTimer = null;
+    function _ciScheduleRescan(delayMs) {
+        if (_ciRescanTimer !== null) return;   // one pending rescan is enough
+        _ciRescanTimer = setTimeout(function () {
+            _ciRescanTimer = null;
+            try { scanConversation(true); } catch (e) {}
+        }, Math.max(1000, delayMs || 0));
+    }
+
+    var _ciRetryDelayMs = 0;   // 0 = plain cooldown. Permanent failure classes back
+                               // off exponentially: an API/schema change used to
+                               // re-download and re-parse the 3.3MB payload every 15s
+                               // indefinitely — hundreds of MB per hour on an open
+                               // tab (Codex R12 :3564).
+    function ciSetDegraded(cid, reason) {
+        // Captured BEFORE the status changes. The retention branch below tests it, and an
+        // earlier version tested _ciStatus directly — which this very line had already set
+        // to 'degraded', so the branch could never run and the snapshot was destroyed
+        // anyway. The comment described a behaviour the code did not have (Codex).
+        var wasReady = _ciStatus === 'ready' && !!_ciIndex && !!_ciFullPath &&
+                       _ciConversationId === cid;
+
+        _ciStatus         = 'degraded';
+        _ciDegradedReason = reason;
+        // Backoff classes (Codex R12 :3564, R14 :1566):
+        //  - schema/data failures: an API change makes every retry identical
+        //  - HTTP 401/403: a logged-out or unauthorized tab polls forever
+        //  - HTTP 429: retrying every cooldown actively worsens the rate limit
+        var permanent = /unexpected response shape|malformed message data|malformed JSON|HTTP (401|403|429)/
+            .test(reason || '');
+        if (permanent) {
+            _ciRetryDelayMs = _ciRetryDelayMs ? Math.min(_ciRetryDelayMs * 4, 1800000)
+                                              : 60000;
+            console.warn('[ACN] index failure looks PERMANENT (' + reason + ') — ' +
+                         'next retry in ' + Math.round(_ciRetryDelayMs / 1000) + 's');
+        } else {
+            _ciRetryDelayMs = 0;
+        }
+        // A background REFRESH failing must not destroy a usable snapshot. ciLoadIndex
+        // deliberately keeps a ready index alive for the whole request (see its comment)
+        // so consumers never collapse to the ~3 mounted turns mid-refresh — and then this
+        // function threw that snapshot away on any timeout or network blip, collapsing
+        // Navigate, Search, Summary, Export and context tracking until a later retry, with
+        // a perfectly good full-history snapshot already in hand (Codex).
+        //
+        // Placed AFTER the backoff computation above so a permanent-class failure still
+        // lengthens its retry delay; only the destruction is skipped.
+        // Refresh failed, so its trigger was NOT acted on — allow a retry.
+        _ciPendingResyncSig = '';
+
+        if (wasReady) {
+            // Restore READY: the retained snapshot really is a complete history as of the
+            // last successful fetch, so consumers must keep using it. The failure is
+            // reported through the notes surface instead of the degraded banner.
+            _ciStatus         = 'ready';
+            _ciDegradedReason = '';
+            _ciRefreshFailed  = reason || 'unknown';
+            _ciLastRefetchAt  = Date.now();
+            console.warn('[ACN] index REFRESH failed (' + reason + ') — keeping the ' +
+                         'existing snapshot, retrying after the cooldown');
+            return;
+        }
+
+        // Clear the FULL derived state, not just _ciIndex. Every consumer guards on
+        // ciIsReady() so stale data could not be read, but leaving a multi-megabyte
+        // _ciFullPath (and the truncated/leaf-fallback flags describing a different
+        // conversation) alive after a failed load is a leak waiting to become a bug.
+        _ciIndex            = null;
+        _ciFullPath         = null;
+        _ciTextToUuid       = null;
+        _ciTruncatedCount   = 0;
+        _ciUsedLeafFallback = false;
+        _ciPathComplete     = true;
+        // Record which conversation failed so the retry condition in
+        // scanConversation() does not hammer a permanently failing endpoint every
+        // 500ms, while still retrying when the user opens a different conversation.
+        _ciConversationId = cid;
+        // Stamp the attempt so a TRANSIENT failure (network blip, timeout) recovers
+        // on its own after the cooldown instead of leaving the panel degraded for
+        // the rest of the session.
+        _ciLastRefetchAt  = Date.now();
+        console.warn('[ACN] conversation index unavailable — falling back to DOM scan. ' +
+                     'Reason: ' + reason);
+    }
+
+    // Loads the index for the current conversation. `done` is invoked with a
+    // boolean indicating whether an API-backed index is now available.
+    function ciLoadIndex(force, done) {
+        if (!ciIsClaudeChat()) { if (done) done(false); return; }
+
+        var cid = ciGetConversationUuid();
+        if (!cid) { if (done) done(false); return; }
+
+        // Cached and still the same conversation — nothing to do. Avoids
+        // re-downloading 3.3MB every time a panel opens.
+        if (!force && _ciIndex && _ciConversationId === cid) {
+            if (done) done(true);
+            return;
+        }
+        if (_ciInFlightCid === cid) { if (done) done(false); return; }
+        var myGen = ++_ciLoadGen;
+        _ciInFlightCid = cid;
+        _ciInFlightGen = myGen;
+        // KEEP the ready index during a same-conversation background refresh: setting
+        // 'loading' unconditionally made ciIsReady() false for the whole multi-MB
+        // request, so the next scan collapsed navigation/export/context to the mounted
+        // 3-5 turns until it completed (Codex :1573). The stale snapshot is strictly
+        // better than the DOM window; it is swapped atomically in finish().
+        if (!(_ciIndex && _ciConversationId === cid && _ciStatus === 'ready')) {
+            _ciStatus = 'loading';
+        }
+
+        ciResolveOrgCandidates(function (candidates, orgStatus, orgReason) {
+            if (!candidates.length) {
+                if (_ciInFlightCid === cid && _ciInFlightGen === myGen) _ciInFlightCid = null;
+                if (myGen !== _ciLoadGen || ciGetConversationUuid() !== cid) { if (done) done(false); return; }
+                // orgReason is included so a schema/parse failure reaches the
+                // permanent-failure classifier, which matches on the reason text.
+                ciSetDegraded(cid, 'could not resolve organization UUID' +
+                                   (orgReason ? ': ' + orgReason : '') +
+                                   (orgStatus ? ' (HTTP ' + orgStatus + ')' : ''));
+                if (done) done(false);
+                return;
+            }
+            function finish(err, data, org) {
+                // SUPERSESSION GUARD (Codex R4): conversation scoping lets a NEW load
+                // start while the OLD request is still pending — but the old callback
+                // still fires. Without this check, an old request failing AFTER the
+                // new one succeeded called ciSetDegraded() over the fresh ready index,
+                // and clearing the in-flight marker unconditionally could clobber the
+                // NEW load's marker. A stale callback must touch nothing.
+                // Release OUR OWN marker first — ownership is the generation pair, so
+                // this cannot clobber a newer request's marker, and a request whose
+                // conversation the user left no longer wedges future loads of it.
+                if (_ciInFlightCid === cid && _ciInFlightGen === myGen) _ciInFlightCid = null;
+                if (myGen !== _ciLoadGen || ciGetConversationUuid() !== cid) return;
+                if (org) {                 // guard passed: THIS load owns the state
+                    _ciOrgUuid = org;
+                    ciWriteCachedOrg(org);
+                    // Usage fetched against a guessed org (multi-org user opened the
+                    // panel before validation) stays cached for up to 5 minutes showing
+                    // the WRONG org's quota (Codex R12 :4204). Validating a different
+                    // org invalidates it.
+                    if (_usageOrgUuid && _usageOrgUuid !== org) _usageLastFetch = 0;
+                }
+                if (err) {
+                    ciSetDegraded(cid, err.message);
+                    if (done) done(false);
+                    return;
+                }
+                if (!ciValidateShape(data)) {
+                    ciSetDegraded(cid, 'unexpected response shape');
+                    if (done) done(false);
+                    return;
+                }
+                try {
+                    _ciIndex = ciBuildIndex(data);
+                } catch (buildErr) {
+                    // Shape validation only inspects chat_messages[0]; a malformed
+                    // record further in would throw here. Without this catch the
+                    // exception escaped after _ciInFlight was already cleared,
+                    // stranding _ciStatus at 'loading' — which is neither 'idle'
+                    // nor 'degraded', so no retry ever fired and no banner showed.
+                    ciSetDegraded(cid, 'malformed message data: ' + buildErr.message);
+                    if (done) done(false);
+                    return;
+                }
+                _ciConversationId = cid;
+                _ciStatus         = 'ready';
+                _ciDegradedReason = '';
+                _ciRetryDelayMs   = 0;
+                _ciRefreshFailed  = '';
+                // Baseline for the thinking reconciliation: everything SSE has observed so
+                // far is now also in the index, so only growth beyond this point is extra.
+                _sseThinkAtIndex = (typeof _sseTokenData !== 'undefined' && _sseTokenData)
+                    ? (_sseTokenData.cumulativeThinkingChars || 0) : 0;
+                // The rebuild landed: the evidence that triggered it has now been acted
+                // on, so suppress it. A mismatch a refetch cannot fix (rendered tool
+                // output) is thereby resynced exactly once.
+                if (_ciPendingResyncSig) {
+                    _ciAwaitingResyncSig = _ciPendingResyncSig;
+                    _ciPendingResyncSig  = '';
+                }
+                console.log('[ACN] conversation index ready: ' + _ciIndex.length +
+                            ' questions (' + (data.chat_messages || []).length +
+                            ' messages in payload)');
+                if (done) done(true);
+            }
+
+            ciFetchWithOrgFallback(cid, candidates, 0, finish, function (st) {
+                ciFetchFromAllOrgs(cid, candidates, finish, st);
+            });
+        });
+    }
+
+    // Total characters across the whole active path. Replaces reading innerText
+    // off the scroll container, which on a virtualized list only ever sees the
+    // mounted window.
+    function ciTotalChars() {
+        if (!ciIsReady() || !_ciFullPath) return 0;
+        var n = 0;
+        for (var i = 0; i < _ciFullPath.length; i++) {
+            var e = _ciFullPath[i];
+            n += (e.text || '').length + (e.toolChars || 0);
+            // "summarize this" + an uploaded document consumes the document's context
+            // too. When the entry's text came from the message body, attachment
+            // bodies are ADDITIONAL content; when the text IS the attachment
+            // (textSource !== 'content'), it is already counted (Codex :1315).
+            if (e.textSource === 'content' && e.attachments) {
+                for (var a = 0; a < e.attachments.length; a++) {
+                    n += (e.attachments[a].extracted_content || '').length;
+                }
+            }
+        }
+        return n;
+    }
+
+    function ciTotalThinkingChars() {
+        if (!ciIsReady() || !_ciFullPath) return 0;
+        var n = 0;
+        for (var i = 0; i < _ciFullPath.length; i++) n += (_ciFullPath[i].thinkingChars || 0);
+        return n;
+    }
+
+    // Shared scroll-container locator. Anchors on a mounted message and walks up
+    // for the first genuinely scrollable ancestor. Deliberately class-name-free:
+    // Claude's container classes have already changed once (overflow-y-scroll ->
+    // overflow-y-auto, pt-6 -> mt-12 pt-2) since they were last documented.
+    var _ciScrollContainer = null;
+
+    function ciFindScrollContainer() {
+        if (_ciScrollContainer && _ciScrollContainer.isConnected) return _ciScrollContainer;
+        _ciScrollContainer = null;
+
+        var anchors = Array.from(getUserMessages());
+        if (!anchors.length) anchors = Array.from(getAIMessages());
+        if (!anchors.length) return null;
+
+        var node = anchors[0].parentElement;
+        while (node && node !== document.documentElement) {
+            var st = window.getComputedStyle(node);
+            var scrolls = (st.overflowY === 'auto' || st.overflowY === 'scroll') &&
+                          node.scrollHeight > node.clientHeight;
+            // Guard against latching onto a small inner scroller — code blocks and
+            // tables inside messages are themselves overflow:auto.
+            if (scrolls &&
+                node.clientHeight > window.innerHeight * 0.4 &&
+                node.scrollHeight > node.clientHeight * 1.5) {
+                _ciScrollContainer = node;
+                return node;
+            }
+            node = node.parentElement;
+        }
+        return null;
+    }
+
+    // ============================================================
+    // VIRTUALIZER BRIDGE — data-index <-> conversation index (v12.0, Phase 3)
+    // ============================================================
+    // Claude's virtualizer ("rocksteady") tags each rendered row with data-index:
+    // contiguous, 0-based, covering BOTH senders. That is a positional identifier,
+    // so mapping a mounted DOM node to a conversation position needs no text
+    // matching at all — which removes the whole contamination class that produced
+    // the Tier 3 CRITICAL.
+    //
+    // What it does NOT give us is the alignment. _ciFullPath has 295 entries while
+    // aria-setsize reports 294 rows, so some constant offset exists. Measured once
+    // it was +1, but from a single matched row — and a wrong offset lands EVERY
+    // jump one message off, silently.
+    //
+    // So the offset is never hardcoded. It is re-derived on each jump from EVERY
+    // mounted user row, and all of them must agree. Disagreement means the mapping
+    // assumption is broken (a deploy changed the row model, a branch switch
+    // renumbered things) and we refuse to convert rather than jump somewhere wrong.
+    // That makes the check permanent and self-correcting instead of a one-time probe.
+
+    var CI_ROW_ATTR = 'data-index';
+
+    // Rows currently mounted, as { dataIndex, el, isUser }, ascending.
+    // Resolves the message-feed root once. EVERY row query must be scoped to it:
+    // [data-index] is not unique to Claude's feed (sidebar/virtuoso lists and carousels
+    // use it too). A foreign row entering the set fragments a real contiguous run and
+    // its geometry is converted against the wrong container, so it can win the
+    // nearest-cluster contest and drive the settle key and the anchor interpolation.
+    function ciFeedRoot() {
+        return document.querySelector('[role="feed"]') ||
+               document.querySelector('[data-autoscroll-container="true"]') ||
+               document;
+    }
+
+    function ciMountedRows() {
+        var els = ciFeedRoot().querySelectorAll('[' + CI_ROW_ATTR + ']');
+        var rows = [];
+        for (var i = 0; i < els.length; i++) {
+            var raw = els[i].getAttribute(CI_ROW_ATTR);
+            var n = parseInt(raw, 10);
+            if (isNaN(n)) continue;
+            rows.push({
+                dataIndex: n,
+                el: els[i],
+                isUser: !!els[i].querySelector('[data-testid="user-message"]')
+            });
+        }
+        rows.sort(function (a, b) { return a.dataIndex - b.dataIndex; });
+        return rows;
+    }
+
+    // Derives the offset such that:  _ciFullPath index === dataIndex + offset
+    // Returns null when it cannot be established or the rows disagree.
+    // `diag`, when supplied, is filled with one record per mounted user row explaining
+    // whether it produced an offset vote and, if not, why. This path is the single most
+    // likely cause of a live jump failure and the hardest to see: returning null sends
+    // the loop into the blind-probe branch, which scrolls to 1/9, 2/9 ... 8/9 of the
+    // document looking for a window it can align — 8 moves, ~1.05s each, visible churn
+    // across the whole conversation, then the honest-failure toast. Without this
+    // breakdown a debug log shows the thrashing but not the reason for it.
+    //
+    // Why it can fail on the real site while CI is green: the DOM holds RENDERED text
+    // and the API holds RAW MARKDOWN, so a question containing a code fence, a list, a
+    // link or an em-dash need not round-trip to the same normalised key. ~10% of human
+    // turns also carry no text block at all (large pastes become attachments), giving
+    // an empty API side. CI's fixture uses plain prose identical on both sides, so it
+    // cannot reproduce any of that.
+    function ciDeriveRowOffset(diag) {
+        if (!ciIsReady() || !_ciFullPath) {
+            if (diag) diag.push({ why: 'index-not-ready' });
+            return null;
+        }
+        var rows = ciMountedRows();
+        var offsets = [];
+        var i, j;
+
+        for (i = 0; i < rows.length; i++) {
+            if (!rows[i].isUser) continue;   // assistant text is less reliably matched
+            // isUser is defined as "has a [data-testid=user-message] descendant", so
+            // this querySelector always resolves — the old `|| rows[i].el` fallback
+            // was unreachable. Reading the INNER node also keeps the platform's
+            // sr-only sender label (which lives on the row wrapper) out of the key.
+            var inner = rows[i].el.querySelector('[data-testid="user-message"]');
+            if (!inner) continue;
+            var key = _normalizeKey(_readMessageText(inner));
+            if (!key) {
+                if (diag) diag.push({ row: rows[i].dataIndex, why: 'empty-dom-text' });
+                continue;
+            }
+            var matches = [];
+            for (j = 0; j < _ciFullPath.length; j++) {
+                if (_ciFullPath[j].sender !== 'human') continue;
+                if (_normalizeKey(_ciFullPath[j].text || '') === key) matches.push(j);
+            }
+            // Ambiguous text (the same question asked twice) proves nothing about
+            // alignment — skip it rather than letting it vote.
+            if (matches.length !== 1) {
+                if (diag) {
+                    // Record enough to tell "the API text is different" from "the API
+                    // text is missing" without dumping message bodies into the log.
+                    var apiHuman = 0, apiEmpty = 0;
+                    for (j = 0; j < _ciFullPath.length; j++) {
+                        if (_ciFullPath[j].sender !== 'human') continue;
+                        apiHuman++;
+                        if (!_normalizeKey(_ciFullPath[j].text || '')) apiEmpty++;
+                    }
+                    diag.push({ row: rows[i].dataIndex,
+                                why: matches.length ? 'ambiguous-x' + matches.length
+                                                    : 'no-api-match',
+                                domKeyLen: key.length,
+                                domKeyHead: key.slice(0, 40),
+                                apiHumanCount: apiHuman,
+                                apiEmptyTextCount: apiEmpty });
+                }
+                continue;
+            }
+            offsets.push(matches[0] - rows[i].dataIndex);
+            if (diag) diag.push({ row: rows[i].dataIndex, why: 'ok',
+                                  offset: matches[0] - rows[i].dataIndex });
+        }
+
+        // WITHDRAWN GUARD: this used to refuse whenever mounted rows disagreed. That was
+        // wrong — under a piecewise map, disagreement means A STEP EXISTS BETWEEN THEM,
+        // which is correct data. The pinned tail row legitimately sits past a step and
+        // votes a different offset from local rows on nearly every jump, so the old guard
+        // fired constantly and sent the loop into a blind document sweep. Mapping is now
+        // resolved by ciResolveRowForPath() against measured anchors; this function
+        // survives only as a cross-check and as a single-segment convenience.
+        if (!offsets.length) {
+            if (diag) diag.push({ why: 'NO-OFFSET-DERIVED',
+                                  mountedRows: rows.length,
+                                  mountedUserRows: rows.filter(function (r) {
+                                      return r.isUser;
+                                  }).length });
+            return null;
+        }
+        for (i = 1; i < offsets.length; i++) {
+            if (offsets[i] !== offsets[0]) {
+                // Not an error. Return null so callers fall through to the anchor-based
+                // piecewise resolver, which handles a step correctly, and log at debug
+                // level only — this fires on most jumps in a conversation containing an
+                // interrupted generation and is entirely expected there.
+                if (ciJumpDebugOn()) {
+                    console.log('[ACN] mounted rows span a mapping step (offsets ' +
+                                offsets.join(', ') + ') — resolving via anchors');
+                }
+                return null;
+            }
+        }
+        // HONEST SCOPE: every sample comes from the 3-10 row mount window, so they sit
+        // within a few rows of each other. This proves the offset LOCALLY, not globally.
+        // If the mapping were piecewise (a virtualizer row that is not a path message,
+        // or a path entry the virtualizer never renders — which already happens once at
+        // the head), all local samples would agree and this check would still pass.
+        // That is why the jump VERIFIES the landed row's text before reporting success
+        // rather than trusting this value. Do not remove that verification on the
+        // grounds that "the offset is already checked here".
+        return offsets[0];
+    }
+
+    // ============================================================
+    // PIECEWISE ROW MAP  (dataIndex <-> _ciFullPath index)
+    // ============================================================
+    //
+    // THE OFFSET IS NOT CONSTANT. Measured live on conversation b3c603a4 by sweeping 61
+    // scroll positions and harvesting 81 exact anchors: offsets {0, 1}, exactly one step,
+    // between row 198 and row 200. The earlier code demanded that every mounted user row
+    // agree on ONE offset and refused to convert otherwise — so the pinned tail row (292),
+    // which sits past the step and legitimately votes 1 while local rows vote 0, caused a
+    // refusal on nearly every jump. That refusal is what sent the loop into a blind
+    // document sweep: ~12s of visible thrashing, then honest failure.
+    //
+    // DISAGREEMENT BETWEEN ROWS MEANS A STEP EXISTS BETWEEN THEM. It is data, not error.
+    //
+    // Two independent unknowns, deliberately kept apart (they were previously tangled,
+    // so a MAPPING failure triggered a GEOMETRY search — solving the wrong problem):
+    //     MAPPING   pathIndex <-> dataIndex   "which row is my target?"   <- this section
+    //     GEOMETRY  dataIndex <-> scrollTop   "where is that row?"        <- the settle loop
+    //
+    // Sources of truth, in priority order:
+    //   1. _ciAnchors  — MEASURED (dataIndex, pathIndex) pairs. Ground truth. Accumulated
+    //                    all session from mounted rows and, critically, from rows the jump
+    //                    LANDED on whose verification failed (a mismatch identifies the
+    //                    true mapping at that position exactly — see ciJumpToFullPathIndex).
+    //   2. _ciRenderable — predicted, from the stop_reason predicate below. A seed only.
+    //
+    // ROBUSTNESS TARGET: N unrendered entries at arbitrary positions must not degrade
+    // correctness, only speed. Correctness therefore never depends on the predicate being
+    // right — anchors override it, and a wrong prediction costs an extra iteration.
+
+    var _ciRenderable = null;   // path indices predicted to render, in order; position === dataIndex
+    var _ciAnchors    = [];     // [{row, path}] measured, kept sorted by row, deduped
+    var _ciAnchorRows = null;   // Set of rows already anchored
+    var _ciPredicateWarned = false;
+    var _ciRowsAtBuild = null;   // aria-setsize MEASURED for this index generation.
+                                 // The new-turn boundary must be the real row count:
+                                 // a predicate-blind entry makes _ciRenderable.length
+                                 // one too long, and a genuinely new message lands at
+                                 // dataIndex === realRows — inside the predicted range,
+                                 // silently classified as old (Codex R8 :3322).
+
+    // THE PREDICATE — a hypothesis, not ground truth.
+    //
+    // An entry renders a row unless it is an assistant message with NO stop_reason: an
+    // interrupted or superseded generation, which the client never paints.
+    //
+    // Evidence: on the 147-turn conversation exactly one such entry exists (path 199) and
+    // 295 path entries - 1 == 294 == aria-setsize, with all 81 measured anchors reproduced
+    // exactly. On a second conversation containing a `stop_sequence` entry (a COMPLETED
+    // generation) the predicate correctly counts it as rendering: 32 == 32. Across 14
+    // conversations / 688 path entries, no other non-rendering category appeared.
+    //
+    // Note it keys on the ABSENCE of stop_reason, not on any particular value —
+    // "end_turn" and "stop_sequence" both render.
+    function ciEntryRenders(entry) {
+        return !(entry && entry.sender === 'assistant' && !entry.stopReason);
+    }
+
+    function ciBuildRenderable() {
+        _ciRenderable = [];
+        if (!_ciFullPath) return;
+        for (var i = 0; i < _ciFullPath.length; i++) {
+            if (ciEntryRenders(_ciFullPath[i])) _ciRenderable.push(i);
+        }
+        _ciPredicateWarned = false;
+        _ciRowsAtBuild = null;   // re-measured by the next scan for THIS generation
+    }
+
+    function ciResetAnchors() {
+        _ciAnchors = [];
+        _ciAnchorRows = null;
+    }
+
+    // Continuous self-validation, run whenever the DOM can tell us the true row count.
+    // Equality silently confirms the predicate; inequality is a loud warning carrying both
+    // numbers, so evidence accumulates for or against it at no cost. Never fatal — anchors
+    // are what correctness rests on.
+    function ciValidatePredicate() {
+        if (!_ciRenderable) return;
+        var total = ciTotalRows();
+        if (!total) return;
+        if (_ciRowsAtBuild === null) _ciRowsAtBuild = total;
+        if (_ciPredicateWarned) return;
+        if (_ciRenderable.length !== total) {
+            _ciPredicateWarned = true;
+            console.warn('[ACN] renderable-entry predicate disagrees with the DOM: ' +
+                'predicted ' + _ciRenderable.length + ' rendered rows, aria-setsize reports ' +
+                total + ' (path length ' + (_ciFullPath ? _ciFullPath.length : '?') + '). ' +
+                'Falling back to measured anchors, which override the prediction. If you ' +
+                'see this, the stop_reason predicate needs revisiting.');
+        }
+    }
+
+    // Records a MEASURED pair. Rejects only a genuinely broken mapping — a non-monotonic
+    // anchor set — never mere disagreement between offsets.
+    function ciRecordAnchor(row, pathIndex) {
+        if (typeof row !== 'number' || typeof pathIndex !== 'number') return false;
+        if (row < 0 || pathIndex < 0) return false;
+        if (!_ciFullPath || pathIndex >= _ciFullPath.length) return false;
+        if (!_ciAnchorRows) _ciAnchorRows = {};
+        var key = String(row);
+        if (_ciAnchorRows.hasOwnProperty(key)) {
+            // Same row resolving to a DIFFERENT path entry means the virtualizer
+            // renumbered underneath us (a new message, or a branch switch). Old anchors
+            // are stale; keep the new observation and drop the rest.
+            if (_ciAnchorRows[key] !== pathIndex) {
+                console.warn('[ACN] row ' + row + ' now maps to path ' + pathIndex +
+                             ' (was ' + _ciAnchorRows[key] + ') — discarding stale anchors');
+                ciResetAnchors();
+                _ciAnchorRows = {};
+                _ciAnchorRows[key] = pathIndex;
+                _ciAnchors = [{ row: row, path: pathIndex }];
+                return true;
+            }
+            return false;
+        }
+        // Monotonicity: offset must be non-decreasing in row, and path order must follow
+        // row order. A violation means the mapping itself is broken, not merely stepped.
+        var off = pathIndex - row;
+        for (var i = 0; i < _ciAnchors.length; i++) {
+            var a = _ciAnchors[i], aOff = a.path - a.row;
+            if ((a.row < row && (aOff > off || a.path >= pathIndex)) ||
+                (a.row > row && (aOff < off || a.path <= pathIndex))) {
+                console.warn('[ACN] NON-MONOTONIC row mapping: row ' + row + '->path ' +
+                    pathIndex + ' contradicts row ' + a.row + '->path ' + a.path +
+                    '. Discarding anchors and re-deriving.');
+                ciResetAnchors();
+                _ciAnchorRows = {};
+                _ciAnchorRows[String(row)] = pathIndex;
+                _ciAnchors = [{ row: row, path: pathIndex }];
+                return true;
+            }
+        }
+        _ciAnchorRows[key] = pathIndex;
+        _ciAnchors.push({ row: row, path: pathIndex });
+        _ciAnchors.sort(function (x, y) { return x.row - y.row; });
+        return true;
+    }
+
+
+
+    // ── THE ONE MATCHER family (resolve-on-arrival core) ─────────────────────
+    // One row -> its unique path entry. BOTH senders: restricting to user rows left
+    // dead regions wherever questions were short or duplicated (live: path 210-228
+    // unanchorable while neighbours anchored). User rows match by exact normalized
+    // key with a markdown-insensitive fallback; assistant rows by markdown-insensitive
+    // 120-char prefix (rendered tool blocks and citations do not round-trip).
+    // Attachment-sourced entries never participate: their text is not in the DOM at
+    // all, so they can neither match nor be allowed to match something else.
+    function ciMatchRowToPath(rowObj) {
+        if (!_ciFullPath) return null;
+        var isUser = rowObj.isUser;
+        var inner = isUser
+            ? rowObj.el.querySelector('[data-testid="user-message"]')
+            : ciMessageNodeWithin(rowObj.el);
+        if (!inner || inner === rowObj.el) return null;
+        var domTxt = _readMessageText(inner);
+        var key = isUser ? _normalizeKey(domTxt) : _normalizeCompare(domTxt);
+        if (!key || (!isUser && key.length < 60)) return null;
+        var keyMd = isUser ? _normalizeCompare(domTxt) : null;
+        var probe = isUser ? null : key.slice(0, 120);
+        var matches = [], j;
+        for (j = 0; j < _ciFullPath.length; j++) {
+            var e = _ciFullPath[j];
+            if (e.sender !== (isUser ? 'human' : 'assistant')) continue;
+            if (e.textSource && e.textSource !== 'content') continue;
+            if (isUser) {
+                if (_normalizeKey(e.text || '') === key ||
+                    (keyMd && _normalizeCompare(e.text || '') === keyMd)) matches.push(j);
+            } else {
+                var apiTxt = _normalizeCompare(e.text || '');
+                if (apiTxt.length >= 60 && apiTxt.slice(0, 120) === probe) matches.push(j);
+            }
+        }
+        return matches.length === 1 ? matches[0] : null;
+    }
+
+    // Window-local (dataIndex -> pathIndex) pairs from whatever is mounted. Records
+    // into the anchor store as a side effect (idempotent) — arrival observations are
+    // the same observations harvesting wants.
+    function ciLocalPairs(rows) {
+        var out = [], i;
+        for (i = 0; i < rows.length; i++) {
+            var m = ciMatchRowToPath(rows[i]);
+            if (m === null) continue;
+            ciRecordAnchor(rows[i].dataIndex, m);
+            out.push({ d: rows[i].dataIndex, p: m });
+        }
+        return out;
+    }
+
+    // 3b — exact target row from window-local pairs. Bracketing pairs with equal
+    // offsets pin it directly; unequal offsets mean steps lie in the gap, and the
+    // predicate says where (measured pairs already overrode it where they disagree).
+    // One-sided pairs extrapolate with predicate step-counting. Returns null when the
+    // nearest pair is too far to trust locally (geometry's job, not mapping's).
+    var CI_LOCAL_HORIZON = 24;   // rows; ~2 mount windows either side
+    // meta.exact reports whether the result is MEASURED (bracketed/stepped by pairs)
+    // or a predicate-favoured GUESS. A guess is a fine aim point but must never be
+    // ACCEPTED as the landing: Codex round-2 caught the fast path publishing a mounted
+    // guessed row as a successful jump right after 3a had failed to verify it.
+    function ciResolveFromPairs(pairs, P, U, meta) {
+        if (meta) meta.exact = true;
+        if (!pairs.length || !_ciFullPath) return null;
+        var lo = null, hi = null, i;
+        for (i = 0; i < pairs.length; i++) {
+            if (pairs[i].p <= P && (!lo || pairs[i].p > lo.p)) lo = pairs[i];
+            if (pairs[i].p >= P && (!hi || pairs[i].p < hi.p)) hi = pairs[i];
+        }
+        if (lo && lo.p === P) return lo.d;
+        if (hi && hi.p === P) return hi.d;
+        var near = lo || hi;
+        if (lo && hi) near = (P - lo.p <= hi.p - P) ? lo : hi;
+        if (Math.abs(near.p - P) > CI_LOCAL_HORIZON) return null;
+        function stepsBetween(a, b) {   // unrendered entries in (a, b]
+            var n = 0, j;
+            for (j = a + 1; j <= b; j++) if (!ciEntryRenders(_ciFullPath[j])) n++;
+            return n;
+        }
+        if (lo && hi) {
+            var oL = lo.p - lo.d, oH = hi.p - hi.d;
+            if (oL === oH) return P - oL;
+            var k = stepsBetween(lo.p, hi.p);
+            if (k === oH - oL) return P - (oL + stepsBetween(lo.p, P));
+            // Predicate blind to a step in this gap: bound the answer and take the
+            // predicate-favoured side; a wrong pick self-corrects on the next arrival
+            // (the landed window yields fresh pairs that tighten the gap).
+            if (meta) meta.exact = false;
+            var guess = ciPredictRowForPath(P);
+            var a2 = P - oH, b2 = P - oL;
+            if (guess !== null && guess >= Math.min(a2, b2) && guess <= Math.max(a2, b2)) return guess;
+            return Math.round((a2 + b2) / 2);
+        }
+        var off = near.p - near.d;
+        // One-sided: the step count between the pair and the target comes from the
+        // PREDICATE, and a predicate-blind unrendered entry makes it wrong — leaving
+        // meta.exact true here let both exact-gated paths accept an adjacent row as a
+        // confident landing for text-unverifiable targets (Codex R6 :2090).
+        //
+        // EXCEPT the ADJACENT case, which is predicate-free by pigeonhole: with
+        // |near.p - P| === 1 there is no integer between the two path indices, so no
+        // hidden unrendered entry can sit in the gap and the target's row follows
+        // exactly. Without this carve-out, targets at the PATH EDGES — where
+        // bracketing is structurally impossible (nothing exists below the first
+        // question) — could never resolve at all: the hostile fixture's chip Q1
+        // regressed the moment one-sided became unconditionally inexact.
+        if (meta) meta.exact = (Math.abs(near.p - P) === 1);
+        if (near.p < P)  return P - off - stepsBetween(near.p, P);
+        return P - off + stepsBetween(P, near.p);
+    }
+
+    // 3a — THE arrival matcher, shared verbatim by the settle loop and the fast path
+    // (_relocateQuestionElement). Matches the TARGET'S OWN text among mounted user
+    // rows; a multi-match (duplicated short question) is disambiguated by the
+    // candidate range [P-U, P] — the offset can only be 0..U. Returns the ROW OBJECT
+    // or null. Matching the target's own text cannot select a different message,
+    // which is what makes this the verification as well as the resolution.
+    function ciMatchTargetInWindow(targetFullPathIdx, rows, U) {
+        if (!_ciFullPath) return null;
+        var entry = _ciFullPath[targetFullPathIdx];
+        if (!entry || (entry.textSource && entry.textSource !== 'content')) return null;
+        var key = _normalizeKey(entry.text || '');
+        var keyMd = _normalizeCompare(entry.text || '');
+        if (!key && !keyMd) return null;
+        // Rows must AGREE WITH THE TARGET'S SENDER. Assistant targets (Search and
+        // Bookmarks jump to them) previously matched against USER rows only, so a
+        // same-text user message inside the candidate range was accepted as the
+        // assistant target (Codex R11 :2160).
+        var wantUser = entry.sender === 'human';
+        var hits = [], i;
+        for (i = 0; i < rows.length; i++) {
+            if (rows[i].isUser !== wantUser) continue;
+            var inner = wantUser
+                ? rows[i].el.querySelector('[data-testid="user-message"]')
+                : ciMessageNodeWithin(rows[i].el);
+            if (!inner || inner === rows[i].el) continue;
+            var domTxt = wantUser ? _readMessageText(inner) : _readAIText(inner);
+            if ((key && _normalizeKey(domTxt) === key) ||
+                (keyMd && _normalizeCompare(domTxt) === keyMd)) hits.push(rows[i]);
+        }
+        // The candidate-range bound applies to EVERY hit: the target's row lies in
+        // [P-U, P] unconditionally, so a hit outside it is the WRONG TWIN however
+        // unique it is in this window.
+        var inRange = [];
+        for (i = 0; i < hits.length; i++) {
+            if (hits[i].dataIndex >= targetFullPathIdx - U &&
+                hits[i].dataIndex <= targetFullPathIdx) inRange.push(hits[i]);
+        }
+        if (inRange.length !== 1) return null;
+        // DUPLICATED TARGET TEXT: the range excludes impossible rows but does not
+        // establish WHICH duplicate this is — with twins closer together than U, the
+        // wrong twin can be the only mounted hit and still sit inside [P-U, P]
+        // (Codex R8 :2142). When the target's text occurs more than once on the path,
+        // demand a MEASURED row identity that names exactly P.
+        var dupCount = 0;
+        for (i = 0; i < _ciFullPath.length && dupCount < 2; i++) {
+            var de = _ciFullPath[i];
+            if (de.sender !== entry.sender) continue;
+            if (de.textSource && de.textSource !== 'content') continue;
+            if ((key && _normalizeKey(de.text || '') === key) ||
+                (keyMd && _normalizeCompare(de.text || '') === keyMd)) dupCount++;
+        }
+        if (dupCount > 1) {
+            return (ciResolvePathForRowStrict(inRange[0].dataIndex) === targetFullPathIdx)
+                ? inRange[0] : null;
+        }
+        return inRange[0];
+    }
+
+    // Harvests exact anchors from whatever is mounted right now. Cheap and idempotent;
+    // called on every scan and every settle, so the map sharpens with use.
+    function ciHarvestAnchors() {
+        if (!ciIsReady() || !_ciFullPath) return 0;
+        var rows = ciMountedRows(), added = 0;
+        for (var i = 0; i < rows.length; i++) {
+            if (_ciAnchorRows && _ciAnchorRows.hasOwnProperty(String(rows[i].dataIndex))) continue;
+            var m = ciMatchRowToPath(rows[i]);
+            if (m !== null && ciRecordAnchor(rows[i].dataIndex, m)) added++;
+        }
+        return added;
+    }
+
+    // Nearest measured anchors bracketing a path index.
+    function ciBracketByPath(pathIndex) {
+        var lo = null, hi = null;
+        for (var i = 0; i < _ciAnchors.length; i++) {
+            var a = _ciAnchors[i];
+            if (a.path <= pathIndex && (!lo || a.path > lo.path)) lo = a;
+            if (a.path >= pathIndex && (!hi || a.path < hi.path)) hi = a;
+        }
+        return { lo: lo, hi: hi };
+    }
+
+    // MAPPING RESOLUTION: path index -> row.
+    // Returns { row: N }            when the answer is exact,
+    //         { lo: A, hi: B }      when it is confined to a small range (a step lies
+    //                               between the bracketing anchors) — caller searches it,
+    //         null                  when nothing can be said.
+    function ciResolveRowForPath(pathIndex) {
+        if (!_ciFullPath || pathIndex < 0 || pathIndex >= _ciFullPath.length) return null;
+
+        var b = ciBracketByPath(pathIndex);
+        if (b.lo && b.hi) {
+            var offLo = b.lo.path - b.lo.row, offHi = b.hi.path - b.hi.row;
+            if (offLo === offHi) return { row: pathIndex - offLo };   // same segment: exact
+            // A step sits between them. The answer is bounded by the two offsets, and
+            // additionally by the bracketing rows themselves.
+            var a = pathIndex - offHi, c = pathIndex - offLo;
+            var lo = Math.max(Math.min(a, c), b.lo.row);
+            var hi = Math.min(Math.max(a, c), b.hi.row);
+            if (lo === hi) return { row: lo };
+            if (lo > hi) return null;
+            return { lo: lo, hi: hi };
+        }
+        // Only one side anchored: the offset can only grow with row, so a single anchor
+        // bounds the answer on one side and the predicate supplies the other.
+        var pred = ciPredictRowForPath(pathIndex);
+        if (b.lo && !b.hi) {
+            var oL = b.lo.path - b.lo.row;
+            var rL = pathIndex - oL;                 // assumes no further step: upper bound on row
+            if (pred === null) return { row: rL };
+            return (pred === rL) ? { row: rL } : { lo: Math.min(pred, rL), hi: Math.max(pred, rL) };
+        }
+        if (b.hi && !b.lo) {
+            var oH = b.hi.path - b.hi.row;
+            var rH = pathIndex - oH;
+            if (pred === null) return { row: rH };
+            return (pred === rH) ? { row: rH } : { lo: Math.min(pred, rH), hi: Math.max(pred, rH) };
+        }
+        return pred === null ? null : { row: pred };
+    }
+
+    // Predicate-only estimate. Seed, never authority.
+    function ciPredictRowForPath(pathIndex) {
+        if (!_ciRenderable) return null;
+        // _ciRenderable is ascending, so binary search it.
+        var lo = 0, hi = _ciRenderable.length - 1;
+        while (lo <= hi) {
+            var mid = (lo + hi) >> 1;
+            if (_ciRenderable[mid] === pathIndex) return mid;
+            if (_ciRenderable[mid] < pathIndex) lo = mid + 1; else hi = mid - 1;
+        }
+        // pathIndex itself is predicted NOT to render (e.g. an interrupted generation).
+        // `lo` is the count of renderable entries before it, which is the row that would
+        // follow it — the best available answer for a non-rendering target.
+        return Math.min(Math.max(lo, 0), _ciRenderable.length - 1);
+    }
+
+    // Anchors-only inverse. Returns null rather than guessing — used where a MEASURED
+    // fact is required (verification), as opposed to a best effort (targeting).
+    function ciResolvePathForRowStrict(row) {
+        if (typeof row !== 'number' || row < 0) return null;
+        if (_ciAnchorRows && _ciAnchorRows.hasOwnProperty(String(row))) {
+            return _ciAnchorRows[String(row)];
+        }
+        var lo = null, hi = null;
+        for (var i = 0; i < _ciAnchors.length; i++) {
+            var a = _ciAnchors[i];
+            if (a.row < row && (!lo || a.row > lo.row)) lo = a;
+            if (a.row > row && (!hi || a.row < hi.row)) hi = a;
+        }
+        // Both sides measured AND in the same segment => the offset between them is
+        // constant, so this row's path index follows exactly.
+        if (lo && hi && (lo.path - lo.row) === (hi.path - hi.row)) return row + (lo.path - lo.row);
+        return null;
+    }
+
+    // Inverse: row -> path index. Exact when anchored or when the predicate is trusted.
+    function ciResolvePathForRow(row) {
+        if (typeof row !== 'number' || row < 0) return null;
+        if (_ciAnchorRows && _ciAnchorRows.hasOwnProperty(String(row))) {
+            return _ciAnchorRows[String(row)];
+        }
+        var lo = null, hi = null;
+        for (var i = 0; i < _ciAnchors.length; i++) {
+            var a = _ciAnchors[i];
+            if (a.row < row && (!lo || a.row > lo.row)) lo = a;
+            if (a.row > row && (!hi || a.row < hi.row)) hi = a;
+        }
+        if (lo && hi && (lo.path - lo.row) === (hi.path - hi.row)) {
+            return row + (lo.path - lo.row);      // inside one segment: exact
+        }
+        if (_ciRenderable && row < _ciRenderable.length) return _ciRenderable[row];
+        return null;
+    }
+
+    // Named wrappers. Both return null when the offset cannot be trusted; every
+    // caller must treat null as "fail visibly", never as 0.
+    function ciDataIndexToFullPath(dataIndex, offset) {
+        if (offset === null || offset === undefined) return null;
+        var v = dataIndex + offset;
+        if (v < 0 || !_ciFullPath || v >= _ciFullPath.length) return null;
+        return v;
+    }
+
+    function ciFullPathToDataIndex(fullPathIndex, offset, totalRows) {
+        if (offset === null || offset === undefined) return null;
+        var v = fullPathIndex - offset;
+        if (v < 0) return null;
+        // Symmetric with ciDataIndexToFullPath, which bounds both ends. Without the
+        // upper bound a skewed offset yields a row that can never mount, and the
+        // caller burns all 8 iterations (~8.4s of forced scrolling) before failing.
+        if (typeof totalRows === 'number' && totalRows > 0 && v >= totalRows) return null;
+        return v;
+    }
+
+    // ============================================================
+    // JUMP-TO-MESSAGE — settle loop (v12.0, Phase 3.1)
+    // ============================================================
+    // scrollIntoView cannot work on a node that is not mounted, and ~97% of a long
+    // conversation is unmounted. So: estimate an offset, scroll, see which rows
+    // actually mounted, and interpolate again from that real anchor.
+    //
+    // MEASURED CONSTRAINTS (Phase 3.0, live, Firefox sandbox + Chromium; Probe C
+    // re-run three times — run 1 was the outlier and its conclusions were wrong):
+    //
+    //  - scrollHeight DRIFTS as rows are measured: 12,050px / 3.2% on the test
+    //    conversation, monotonically decreasing, ~9-10 messages of error. It also
+    //    differs per page load (387132 / 388841 / 390502 observed). So the target
+    //    offset is re-normalised every iteration and never cached absolutely.
+    //
+    //  - DO NOT DISPATCH A SYNTHETIC SCROLL EVENT. Reposition only. Measured across
+    //    three identical runs: without dispatch the drift was EXACTLY -360px every
+    //    time; with dispatch it was -2784 then -6249 then -6249. Worse, cluster
+    //    identity showed a real overshoot — the dispatch run targeted a LOWER
+    //    document position (136292 vs 134056) yet landed ~6 rows HIGHER
+    //    ([113,114,115,116] vs [119,120,121,122]), beyond the +/-5 tolerance.
+    //    Mechanism: dispatching makes the app run its own scroll handling, which
+    //    triggers an extra height-measurement pass and shifts the coordinate system
+    //    mid-jump. See DEC-024.
+    //
+    //  - There is NO pin/autoscroll interference. Probe C runs 2 and 3 initially
+    //    printed "DISPATCH HARMFUL - pin/autoscroll" but that diagnosis is wrong:
+    //    scrollTop and cluster identity were static across all 8 samples over 3.2s,
+    //    drift was NEGATIVE (away from the bottom; a pin pulls toward it), and
+    //    SNAPPED_BACK_TO_BOTTOM was false in every run. The movement is entirely
+    //    scrollHeight re-normalisation, before sampling begins. Do NOT add a
+    //    pin-interference abort — there is nothing to abort.
+    //
+    //  - The mounted set is NOT contiguous, and the extra cluster is NOT a
+    //    fixed-size tail. Probe C Part A saw one at every sample; Part B saw none.
+    //    So clusters are detected structurally and selected by real geometry against
+    //    the current scroll offset. Nothing is excluded by index value.
+    //
+    //  - Settle: median 309ms, max 668ms -> 800ms cap with early exit.
+    //  - Mount window 3-10 rows -> +/-5 tolerance.
+    //  - A hidden tab throttles rAF and the virtualizer does not run at all, so the
+    //    loop cannot converge. Guarded, and rAF polling has a timer escape hatch.
+
+    // 24, not 8. The old cap was sized for ~1s settles gating a global estimator;
+    // arrival-architecture settles measure ~130ms in CI / ~300ms live, and the binding
+    // budget is the 5s wall-clock inside the jump. A converging nudge walk (one row per
+    // pass through an unmeasured tall region) was failing at 9 passes with the target
+    // one row away.
+    var CI_JUMP_MAX_ITERATIONS = 24;
+    var CI_JUMP_SETTLE_CAP_MS  = 800;
+    var CI_JUMP_TOLERANCE_ROWS = 5;
+
+    var _ciJumpToken = 0;      // increments to cancel an in-flight jump
+    var _ciLastJumpToken = 0;  // token of the most recently STARTED jump
+
+    // ── Jump instrumentation ─────────────────────────────────────────────────
+    //
+    // The settle loop converges in CI and does NOT converge on the live site. That
+    // gap cannot be closed by reasoning about the code, because the thing that
+    // differs is the data: real row heights span 102-2624 px with long runs of
+    // similar sizes, and CI's mock is our model of that. So the loop reports what
+    // it actually did, per iteration, and the live log is the measurement.
+    //
+    // Off by default — a jump is on the click path and must not pay for logging.
+    // Enable from the page console, then reload:
+    //     localStorage.setItem('acnJumpDebug', '1')
+    // Disable with:
+    //     localStorage.removeItem('acnJumpDebug')
+    //
+    // Each iteration prints one line; the final line prints the whole run as JSON
+    // on a single line so it can be copied in one piece. Traces are NOT published
+    // on window/unsafeWindow: crossing the sandbox boundary to hand the page an
+    // object is the DEC-019/DEC-020 hazard class, and it buys nothing the console
+    // does not already give us.
+    function ciJumpDebugOn() {
+        try { return localStorage.getItem('acnJumpDebug') === '1'; } catch (e) { return false; }
+    }
+
+    function ciMakeTrace(targetFullPathIdx) {
+        var on = ciJumpDebugOn();
+        var t0 = Date.now();
+        var data = { target: targetFullPathIdx, totalRows: null,
+                     iterations: [], exit: null, elapsedMs: 0 };
+        function n(v) { return (v === null || v === undefined) ? -1 : Math.round(v); }
+        return {
+            on: on,
+            setTotalRows: function (v) { data.totalRows = v; },
+            step: function (r) {
+                if (!on) return;
+                data.iterations.push(r);
+                console.log('[ACN jump] i=' + r.i +
+                    ' targetRow=' + n(r.targetRow) + ' offset=' + n(r.offset) +
+                    ' sH=' + n(r.scrollHeight) + ' cH=' + n(r.clientHeight) +
+                    ' low=' + n(r.lowRow) + '@' + n(r.lowPx) +
+                    ' high=' + n(r.highRow) + '@' + n(r.highPx) +
+                    ' est=' + n(r.estimatePx) + ' actual=' + n(r.actualPx) +
+                    ' mounted=[' + (r.mounted || '') + ']' +
+                    ' cluster=' + (r.clusterLo === null ? 'none'
+                                   : n(r.clusterLo) + '-' + n(r.clusterHi)) +
+                    ' reset=' + (r.bracketReset ? 1 : 0) +
+                    ' remounted=' + (r.changed ? 1 : 0) +
+                    ' settle=' + n(r.settleMs) + 'ms' +
+                    (r.settleExit ? '/' + r.settleExit : '') +
+                    (r.note ? ' note=' + r.note : ''));
+            },
+            end: function (reason) {
+                if (!on || data.exit !== null) return;   // idempotent: finish() is guarded
+                                                         // by safeDone, but do not rely on it
+                data.exit = reason || 'unknown';
+                data.elapsedMs = Date.now() - t0;
+                console.log('[ACN jump] EXIT=' + data.exit +
+                            ' iterations=' + data.iterations.length +
+                            ' elapsed=' + data.elapsedMs + 'ms');
+                try {
+                    console.log('[ACN jump] TRACE ' + JSON.stringify(data));
+                } catch (e) { /* a circular value would only ever be our own plain data */ }
+            }
+        };
+    }
+
+    function ciFindScrollContainerStable() {
+        // Attribute first — stable across the class-name churn that already broke
+        // DOM-REFERENCE once. Walk-up retained as fallback and verified to resolve
+        // to the same node.
+        var c = document.querySelector('[data-autoscroll-container="true"]');
+        if (c && c.scrollHeight > c.clientHeight) return c;
+        return ciFindScrollContainer();
+    }
+
+    function ciTotalRows() {
+        // Scope to the message feed. aria-setsize is generic ARIA and appears on
+        // sidebar conversation lists, menus and comboboxes; an unscoped
+        // document.querySelector could return a 20-item sidebar, which collapses
+        // high.row, drives frac out of range, inverts the anchors and makes the loop
+        // oscillate to the iteration cap.
+        var scope = document.querySelector('[role="feed"]') ||
+                    document.querySelector('[data-autoscroll-container="true"]');
+        var a = null;
+        if (scope) a = scope.querySelector('[aria-setsize]');
+        if (!a) a = document.querySelector('[' + CI_ROW_ATTR + '] [aria-setsize]');
+        var n = a ? parseInt(a.getAttribute('aria-setsize'), 10) : NaN;
+        return isNaN(n) ? null : n;
+    }
+
+    function ciRowElement(dataIndex) {
+        var scope = document.querySelector('[role="feed"]') ||
+                    document.querySelector('[data-autoscroll-container="true"]') ||
+                    document;
+        return scope.querySelector('[' + CI_ROW_ATTR + '="' + dataIndex + '"]');
+    }
+
+    // Groups mounted rows into contiguous runs, then returns the run nearest the
+    // current scroll position by REAL GEOMETRY.
+    //
+    // Deliberately NOT "the largest run", and deliberately no fixed tail exclusion:
+    // an earlier version did both, and both were wrong. A stale cluster can be larger
+    // than the live viewport window, and the extra cluster is not a stable size (one
+    // probe run showed none at all, another showed one at every sample). Measuring
+    // where the rows actually are is correct whether the extras are a pinned tail,
+    // rows clearing late, or anything else.
+    function ciSelectCluster(container, rows) {
+        if (!rows || !rows.length) return null;
+
+        var clusters = [];
+        var cur = { lo: rows[0].dataIndex, hi: rows[0].dataIndex, els: [rows[0].el] };
+        for (var i = 1; i < rows.length; i++) {
+            if (rows[i].dataIndex === cur.hi + 1) {
+                cur.hi = rows[i].dataIndex;
+                cur.els.push(rows[i].el);
+            } else {
+                clusters.push(cur);
+                cur = { lo: rows[i].dataIndex, hi: rows[i].dataIndex, els: [rows[i].el] };
+            }
+        }
+        clusters.push(cur);
+        if (clusters.length === 1) return clusters[0];
+
+        // Viewport centre in container-content coordinates.
+        var viewCentre = container.scrollTop + container.clientHeight / 2;
+        var contRect = container.getBoundingClientRect();
+
+        var best = null, bestDist = Infinity;
+        for (var c = 0; c < clusters.length; c++) {
+            var els = clusters[c].els;
+            var sum = 0, n = 0;
+            for (var e = 0; e < els.length; e++) {
+                if (!els[e] || !els[e].getBoundingClientRect) continue;
+                var r = els[e].getBoundingClientRect();
+                // Convert viewport coords -> container content coords.
+                sum += (r.top - contRect.top) + container.scrollTop + r.height / 2;
+                n++;
+            }
+            if (!n) continue;
+            var dist = Math.abs((sum / n) - viewCentre);
+            if (dist < bestDist) { bestDist = dist; best = clusters[c]; }
+        }
+        return best || clusters[0];
+    }
+
+    // Reposition ONLY. No synthetic scroll event — see the constraints block above
+    // and DEC-024. Returns the clamped position actually requested.
+    function ciMoveTo(container, top) {
+        var max = Math.max(0, container.scrollHeight - container.clientHeight);
+        var clamped = Math.max(0, Math.min(top, max));
+        container.scrollTo({ top: clamped, behavior: 'auto' });
+        return clamped;
+    }
+
+    // Waits for the SELECTED cluster to stabilise — not merely for the whole mounted
+    // set to stop changing. A stale cluster clearing late makes the full set churn and
+    // then settle while the real viewport window is still moving, so keying on the set
+    // can exit early on a position that is about to change.
+    // `requestedTop`, when supplied, lets the poll recognise a SETTLED state that is
+    // identical to the starting one. Without it the early exit required the cluster key to
+    // CHANGE (stableSince was assigned only inside `if (key !== lastKey)`), so any move
+    // that did not remount could exit only via the 800ms cap or the 1050ms guard. Live
+    // traces showed every remounted=0 line paying ~810ms, which is the dominant cost of a
+    // failing jump: 8 such iterations is the ~12s of thrashing.
+    function ciWaitForSettle(container, beforeKey, cb, requestedTop) {
+        var start = Date.now();
+        var lastKey = beforeKey;
+        var stableSince = null;
+        var finished = false;
+        var polls = 0;
+        var exitReason = 'none';
+
+        function clusterKey() {
+            var cl = ciSelectCluster(container, ciMountedRows());
+            return cl ? (cl.lo + '-' + cl.hi) : '';
+        }
+
+        function onVisibilityLost() {
+            // rAF stops when the page is not being rendered, so the poll never runs again
+            // and the guard timer becomes the only exit — and background timers are
+            // clamped, so it lands well past its nominal deadline. A live trace showed
+            // settle=1491ms against a 1050ms guard for exactly this reason. Failing
+            // immediately is both faster and honest: the virtualizer is not running, so
+            // there is nothing to wait for.
+            if (document.visibilityState !== 'visible') { exitReason = 'hidden'; finishOnce(false); }
+        }
+        document.addEventListener('visibilitychange', onVisibilityLost);
+
+        function finishOnce(changed) {
+            if (finished) return;
+            finished = true;
+            clearTimeout(guardTimer);
+            document.removeEventListener('visibilitychange', onVisibilityLost);
+            // Second argument reports the settle's OWN measurement. Callers previously
+            // timed it as (Date.now() - t) around the whole block, which also bracketed
+            // pre-move geometry, the move itself, the guard's own clusterKey pass and the
+            // post-settle instrumentation — so the reported figure exceeded the guard by
+            // construction and was not a settle duration at all.
+            cb(changed, { ms: Date.now() - start, exit: exitReason, polls: polls,
+                          vis: document.visibilityState });
+        }
+
+        // requestAnimationFrame STOPS when the tab is hidden. Without this timer the
+        // poll would never run again, the callback would never fire, and the busy
+        // flag would never clear. Always terminate.
+        var guardTimer = setTimeout(function () {
+            // Evaluated OUTSIDE any caller try/catch — this is a timer callback, so a
+            // throw here (geometry reads on a detached container) would mean the
+            // callback never fires and the jump never completes.
+            var changed = false;
+            try { changed = clusterKey() !== beforeKey; } catch (e) {}
+            exitReason = 'guard';
+            finishOnce(changed);
+        }, CI_JUMP_SETTLE_CAP_MS + 250);
+
+        var unchangedSince = Date.now();
+        (function poll() {
+            if (finished) return;
+            polls++;
+            var key, now = Date.now();
+            try { key = clusterKey(); } catch (e) { exitReason = 'throw'; finishOnce(false); return; }
+            if (key !== lastKey) { lastKey = key; stableSince = now; unchangedSince = now; }
+
+            // Fast path, unchanged: the set moved and has now held still.
+            if (stableSince && key !== beforeKey && now - stableSince > 100) {
+                exitReason = 'stable'; finishOnce(true); return;
+            }
+
+            // SETTLED-BUT-IDENTICAL. The scroll reached where we asked and the mounted set
+            // has been stable for a while — that is settled, even though it matches what we
+            // started with. The 150ms floor keeps us from declaring victory before a slow
+            // virtualizer has begun reacting at all.
+            if (requestedTop !== undefined && requestedTop !== null &&
+                Math.abs(container.scrollTop - requestedTop) <= 2 &&
+                now - unchangedSince > 150 && now - start > 150) {
+                exitReason = 'settled-nochange'; finishOnce(key !== beforeKey); return;
+            }
+
+            if (now - start > CI_JUMP_SETTLE_CAP_MS) {
+                exitReason = 'cap'; finishOnce(key !== beforeKey); return;
+            }
+            requestAnimationFrame(poll);
+        }());
+    }
+
+    // Confirms the row we landed on really is the requested message, by mapping the
+    // row index BACK through the offset and comparing text against the index.
+    //
+    // Without this, a wrong-but-locally-consistent offset produces a confident jump to
+    // the wrong message — the exact failure class this module was written to remove.
+    // The offset agreement check in ciDeriveRowOffset only proves the offset LOCALLY
+    // (all its samples come from one mount window); this is the global check.
+    // The API returns RAW MARKDOWN while the DOM holds RENDERED text, so a plain
+    // normalized compare fails for any message whose first 200 chars contain **bold**,
+    // a heading, a list marker or a code fence. That made assistant-target jumps
+    // (reachable from AI bookmarks) unable to verify at all, burning every iteration.
+    // Markdown-flattening transform chain, shared by both normalizers below so there is
+    // exactly ONE place these rules live.
+    function _mdFlatten(text) {
+        return (
+            String(text == null ? '' : text)
+                // Links: keep the visible label, drop the destination — the DOM renders
+                // only the label, so 'label(https://...)' on the API side could never
+                // match (Codex :2540).
+                .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+                // Fences: strip the MARKERS and language tag, KEEP the enclosed code —
+                // deleting whole blocks made code-bearing messages unmatchable, since
+                // the DOM keeps their text (Codex :2539).
+                .replace(/```[a-zA-Z0-9_-]*\n?/g, ' ')
+                .replace(/[*_`~>#\[\]()]/g, '')
+                .replace(/^[\s-]+/gm, ' ')
+        );
+    }
+
+    // Markdown removal for SEARCH AND DISPLAY, where the user's query contains exactly the
+    // characters they can SEE. _mdFlatten is built for DOM-vs-API comparison, where
+    // stripping punctuation aggressively helps two differently-rendered strings meet — but
+    // it deletes every bracket and parenthesis, so searching `array[index]` or `foo()`
+    // matched nothing once search began running on flattened text (Codex). This removes
+    // only actual markdown SYNTAX. Single underscores are kept deliberately: they are far
+    // more often part of an identifier (my_var) than emphasis.
+    function _mdVisible(text) {
+        return String(text == null ? '' : text)
+            .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')       // links/images -> label
+            .replace(/^[ \t]*```[a-zA-Z0-9_-]*[ \t]*$/gm, '')  // fence lines
+            .replace(/```/g, '')
+            .replace(/\*\*|~~|__/g, '')                        // emphasis pairs
+            .replace(/\*/g, '')
+            .replace(/`/g, '')
+            .replace(/^[ \t]*>+[ \t]?/gm, '')                  // blockquote markers
+            .replace(/^[ \t]*#{1,6}[ \t]+/gm, '')              // heading markers
+            .replace(/^[ \t]*(?:[-+*]|\d+\.)[ \t]+/gm, '');    // list markers
+    }
+
+    // Capped at 200 chars (via _normalizeKey) — the historical behaviour, used for
+    // DOM-vs-API comparison where the two sides are in different formats.
+    function _normalizeCompare(text) {
+        return _normalizeKey(_mdFlatten(text));
+    }
+
+    // FULL length, no 200-char cap. Truncation is a real hazard for identity checks:
+    // two messages sharing a long boilerplate opening compare equal on the prefix, which
+    // is exactly the recycled-node case a validation is trying to reject (Codex).
+    function _normalizeCompareFull(text) {
+        return _normalizeFull(_mdFlatten(text));
+    }
+
+    // ciVerifyLandedRow was deleted with the resolve-on-arrival rebuild (DEC-027):
+    // 3a matches the target's OWN text, which cannot select a different message, so
+    // arrival matching IS the verification. 3b results are exact by construction from
+    // measured local pairs, bounded by [P-U, P].
+
+    // Returns the message-level node for a row, never the row wrapper itself. The
+    // wrapper is the virtualizer's recycling unit and carries the platform's sr-only
+    // sender label; storing it as q.element makes it type-inconsistent with everything
+    // getUserMessages() returns.
+    function ciMessageNodeWithin(rowEl) {
+        if (!rowEl) return null;
+        return rowEl.querySelector('[data-testid="user-message"]') ||
+               rowEl.querySelector('.font-claude-response') ||
+               // Tailwind important-prefix variant, same as the user-side selector chain.
+               rowEl.querySelector('.\\!font-claude-response') ||
+               rowEl;
+    }
+
+    /**
+     * Scrolls a message into view by its position in _ciFullPath, paging the
+     * virtualizer until the row mounts.
+     *
+     * @param targetFullPathIdx  index into _ciFullPath
+     * @param done               callback(success, resolvedMessageElementOrNull)
+     */
+    // Returns the token identifying THIS jump, so the caller can scope its busy-state
+    // reset to it and a superseded jump cannot clear a live jump's flag.
+    // done(ok, element, reason). `reason` distinguishes a genuine miss from an ABORT
+    // (superseded by a newer jump, user took control, conversation switched). Callers
+    // must not show "not currently rendered" for an abort: the user either started
+    // another jump or scrolled deliberately, and a failure toast for their own action
+    // is noise. It also stops a superseded jump from clearing the live jump's busy flag.
+    function ciJumpToFullPathIndex(targetFullPathIdx, done) {
+        var finishedOnce = false;
+        // Boxed so safeDone (defined before myToken is assigned) can read it later.
+        var myTokenRef = { v: 0 };
+        // Constructed FIRST, before the container lookup, the visibility check and the
+        // row-count check. Those three exit through safeDone directly, so a trace built
+        // later cannot report them — and `if (!container)` logs nothing at all, making
+        // that failure invisible in both channels. Instrumentation that cannot report
+        // the failures occurring before it exists is instrumentation with a blind spot
+        // exactly where a jump is most likely to die early.
+        var trace = ciMakeTrace(targetFullPathIdx);
+        function safeDone(ok, el, reason) {
+            if (finishedOnce) return;
+            finishedOnce = true;
+            // Every exit is traced here rather than in a finish() wrapper, so prologue
+            // exits are covered too. Idempotent on both sides.
+            try { trace.end(reason || (ok ? 'resolved' : 'failed')); } catch (e) {}
+            // Always release OUR token's claim before handing back.
+            try { orbSetJumpBusyFor(myTokenRef.v, false); } catch (e) {}
+            try { done(ok, el, reason || null); } catch (e) {
+                console.error('[ACN] jump completion handler threw:', e);
+            }
+        }
+
+        var container;
+        try {
+            container = ciFindScrollContainerStable();
+        } catch (e) {
+            // The prologue runs AFTER the caller set the busy flag and only `done`
+            // clears it, so a throw here (getComputedStyle walk, scrollHeight reads)
+            // would latch the panel dimmed and click-blocked until reload.
+            console.error('[ACN] jump prologue threw:', e);
+            safeDone(false, null); return;
+        }
+        if (!container) { safeDone(false, null); return; }
+
+        if (document.visibilityState !== 'visible') {
+            console.warn('[ACN] jump aborted: tab is not visible, the virtualizer is paused');
+            safeDone(false, null);
+            return;
+        }
+
+        var myToken = ++_ciJumpToken;
+        myTokenRef.v = myToken;
+        _ciLastJumpToken = myToken;
+        // The jump owns the busy state for its own token. Callers previously set it and
+        // cleared it from their completion callback via a GLOBAL "latest token", which
+        // reads whatever the newest jump wrote — so with two sequential jumps the first
+        // callback could not clear, and the flag stuck on permanently.
+        orbSetJumpBusyFor(myToken, true);
+        var userScrolled = false;
+        var totalRows = ciTotalRows();
+        if (!totalRows) {
+            // Without a row count, high.row collapses to 0, frac clamps to 1 and every
+            // estimate slams the container to the bottom — 8 forced scrolls then failure.
+            // Fail immediately instead of dragging the viewport.
+            console.warn('[ACN] jump aborted: could not read aria-setsize (row count)');
+            safeDone(false, null);
+            return;
+        }
+
+        var SCROLL_KEYS = {
+            PageUp: 1, PageDown: 1, Home: 1, End: 1, ArrowUp: 1, ArrowDown: 1, ' ': 1
+        };
+        function onUserScroll(e) {
+            // Our own repositioning is not a trusted event, so this cannot self-abort.
+            if (!e || !e.isTrusted) return;
+            if (e.type === 'keydown') {
+                // Only keys that actually scroll, and never while the user is typing —
+                // an unfiltered document-level keydown aborted the jump on any keystroke,
+                // including typing in the composer, and surfaced the failure toast.
+                var t = e.target;
+                if (t && (t.isContentEditable ||
+                          t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
+                          t.getAttribute && t.getAttribute('role') === 'textbox')) return;
+                if (!SCROLL_KEYS[e.key]) return;
+            }
+            userScrolled = true;
+        }
+        // wheel/touch cover pointer scrolling; mousedown catches scrollbar drags,
+        // which emit no wheel event; keydown is bound on the DOCUMENT because
+        // PageDown/Home/arrows land on body unless the scroller holds focus.
+        container.addEventListener('wheel', onUserScroll, { passive: true });
+        container.addEventListener('touchstart', onUserScroll, { passive: true });
+        container.addEventListener('mousedown', onUserScroll, { passive: true });
+        document.addEventListener('keydown', onUserScroll, true);
+
+        function cleanup() {
+            container.removeEventListener('wheel', onUserScroll);
+            container.removeEventListener('touchstart', onUserScroll);
+            container.removeEventListener('mousedown', onUserScroll);
+            document.removeEventListener('keydown', onUserScroll, true);
+        }
+        // EVERY exit runs through here, including supersession — an earlier version
+        // returned on supersession without calling done(), so the caller's
+        // orbSetJumpBusy(false) never ran and the panel stayed dimmed forever.
+        function finish(ok, el, reason) {
+            cleanup();
+            // Put the user back where they were. Not on success (we moved them on
+            // purpose), not when THEY scrolled (that would fight them), and not when a
+            // newer jump superseded this one (it owns the viewport now).
+            if (!ok && reason !== 'user' && reason !== 'superseded') {
+                try {
+                    if (container.isConnected && typeof _entryScrollTop === 'number') {
+                        ciMoveTo(container, _entryScrollTop);
+                    }
+                } catch (e) {}
+            }
+            safeDone(ok, el, reason);
+        }
+
+        var low  = { row: 0, px: 0 };
+        var high = { row: (totalRows || 1) - 1,
+                     px: Math.max(0, container.scrollHeight - container.clientHeight) };
+        var iterations = 0;
+        var shifts = 0;                          // consecutive 3c no-match moves
+        var nudges = 0;                          // consecutive NON-IMPROVING local nudges
+        var lastNudgeDist = Infinity;            // rows from window to target, last arrival
+        var brkLoPx = null, brkHiPx = null;      // px landings straddling the target
+        var brkForRow = null;                    // which resolved row the bracket is for
+        var _lastProgressKey = null, _noProgressPasses = 0;
+        var _entryScrollTop = container.scrollTop;
+        var tJump = Date.now();
+        var HARD_CAP_MS = 5000;                  // wall-clock: no jump may exceed this
+        trace.setTotalRows(totalRows);
+
+        // Mapping uncertainty: the target's dataIndex lies in [P-U, P], always.
+        var U = Math.max(0, (_ciFullPath ? _ciFullPath.length : 0) - totalRows);
+
+        function guards() {
+            if (myToken !== _ciJumpToken) { finish(false, null, 'superseded'); return false; }
+            if (userScrolled) { finish(false, null, 'user'); return false; }
+            if (!container.isConnected) { finish(false, null, 'container-gone'); return false; }
+            if (document.visibilityState !== 'visible') { finish(false, null, 'hidden'); return false; }
+            if (!ciIsReady() || !_ciFullPath || targetFullPathIdx >= _ciFullPath.length) {
+                finish(false, null, 'index-invalidated'); return false;
+            }
+            if (Date.now() - tJump > HARD_CAP_MS) { finish(false, null, 'budget'); return false; }
+            return true;
+        }
+
+        function succeed(rowObj, how) {
+            var el = ciMessageNodeWithin(rowObj.el) || rowObj.el;
+            if (trace.on) console.log('[ACN jump] ARRIVE via ' + how +
+                                      ' row=' + rowObj.dataIndex);
+            finish(true, el, how);
+        }
+
+        function rowTop(el) {
+            return el.getBoundingClientRect().top -
+                   container.getBoundingClientRect().top + container.scrollTop;
+        }
+
+        function moveAndArrive(px, note) {
+            var beforeCl = ciSelectCluster(container, ciMountedRows());
+            var beforeKey = beforeCl ? (beforeCl.lo + '-' + beforeCl.hi) : '';
+            var req = Math.max(0, Math.min(Math.round(px),
+                Math.max(0, container.scrollHeight - container.clientHeight)));
+            var tMove = Date.now();
+            ciMoveTo(container, req);
+            ciWaitForSettle(container, beforeKey, function (changed, info) {
+                try {
+                    if (trace.on) {
+                        var mr0 = ciMountedRows();
+                        var cl0 = ciSelectCluster(container, mr0);
+                        trace.step({ i: iterations, targetRow: null, offset: null,
+                            scrollHeight: container.scrollHeight,
+                            clientHeight: container.clientHeight,
+                            lowRow: low.row, lowPx: low.px,
+                            highRow: high.row, highPx: high.px,
+                            estimatePx: req, actualPx: Math.round(container.scrollTop),
+                            mounted: mr0.map(function (r) {
+                                return r.dataIndex + (r.isUser ? 'u' : '');
+                            }).join(','),
+                            clusterLo: cl0 ? cl0.lo : null, clusterHi: cl0 ? cl0.hi : null,
+                            bracketReset: false, changed: !!changed,
+                            settleMs: (info && info.ms) || (Date.now() - tMove),
+                            settleExit: info ? info.exit : null,
+                            note: note });
+                    }
+                } catch (e) { console.error('[ACN] jump trace threw:', e); }
+                arrive();
+            }, req);
+        }
+
+        // RESOLVE-ON-ARRIVAL. One arrival path for extremes, aimed moves, nudges and
+        // shifts alike — there is no separate success logic anywhere else.
+        function arrive() {
+            try {
+                if (!guards()) return;
+                if (++iterations > CI_JUMP_MAX_ITERATIONS) {
+                    finish(false, null, 'iteration-cap'); return;
+                }
+                var rows = ciMountedRows();
+
+                // 3a — the target's own text among mounted user rows. THE matcher;
+                // matching its own text cannot select a different message.
+                var hit = ciMatchTargetInWindow(targetFullPathIdx, rows, U);
+                if (hit) { succeed(hit, '3a-text'); return; }
+
+                // EXTREMES RESOLVE BY CONSTRUCTION (live-test failure: chip Q#1 on the
+                // 147-question conversation). The first renderable path entry IS row 0
+                // and the last IS row totalRows-1 — row numbering guarantees it, no text
+                // and no pairs required. A chip-shaped target at the path HEAD cannot be
+                // resolved any other way: 3a has no comparable text, and 3b has nothing
+                // below it to bracket with — live, the head neighbours also failed to
+                // text-match, so the jump ARRIVED at the right place and then declined
+                // to recognise it. Gated on the validated predicate: renderable[0] can
+                // only misidentify row 0 if the predicate under-predicts (an entry it
+                // says never renders actually rendering), the never-observed direction,
+                // and _ciPredicateWarned covers the observed one.
+                // Gate on the TARGET BEING HUMAN, not on _ciPredicateWarned: the
+                // warned flag is global, so one blind entry at path 200 was disabling
+                // head resolution for an unrelated Q#1 (caught by the pair-free mutant
+                // on the hostile fixture). For a HUMAN extreme the construction holds
+                // even when the predicate is warned: entries outside the renderable
+                // list are predicted non-rendering (under-prediction never observed),
+                // phantoms are assistant-shaped, and humans always render — so the
+                // first renderable human IS row 0 and the last IS the final row,
+                // whatever happens in between.
+                if (_ciRenderable && _ciRenderable.length &&
+                    _ciFullPath[targetFullPathIdx] &&
+                    _ciFullPath[targetFullPathIdx].sender === 'human') {
+                    var exRow = null;
+                    if (targetFullPathIdx === _ciRenderable[0]) exRow = 0;
+                    else if (targetFullPathIdx === _ciRenderable[_ciRenderable.length - 1]) {
+                        exRow = totalRows - 1;
+                    }
+                    if (exRow !== null) {
+                        for (var xr = 0; xr < rows.length; xr++) {
+                            if (rows[xr].dataIndex === exRow) {
+                                // The row must actually be the target's SENDER. The
+                                // by-construction argument above assumes the DOM's last row
+                                // corresponds to the path's last renderable entry — false in
+                                // the mid-generation state this release explicitly supports:
+                                // the snapshot ends at the human prompt while the DOM
+                                // already renders the new assistant row, so totalRows-1 IS
+                                // that assistant row. For a text-unmatchable prompt (an
+                                // attachment-backed message) nothing else would catch it and
+                                // it would be reported as a successful jump (Codex).
+                                if (!rows[xr].isUser) break;
+                                succeed(rows[xr], 'extreme-row'); return;
+                            }
+                        }
+                    }
+                }
+
+                // 3b — window-local pairs give local offsets; the target's exact row
+                // follows. Predicate counts steps inside gaps; measured pairs override.
+                var pairs = ciLocalPairs(rows);
+                if (pairs.length) {
+                    var resMeta = {};
+                    var res = ciResolveFromPairs(pairs, targetFullPathIdx, U, resMeta);
+                    if (res !== null) {
+                        var el = null, r;
+                        for (r = 0; r < rows.length; r++) {
+                            if (rows[r].dataIndex === res) { el = rows[r]; break; }
+                        }
+                        if (el && resMeta.exact) {
+                            // Mounted. For a content-sourced target 3a already had its
+                            // chance, so only accept by construction when the target is
+                            // text-unmatchable (chip/attachment) or markdown-skewed.
+                            succeed(el, '3b-local'); return;
+                        }
+                        // Known row, not mounted: nudge by LOCAL geometry (Probe D:
+                        // one Newton step on measured local density reached row 0).
+                        // The cap bounds NON-IMPROVING nudges only. Local density
+                        // extrapolated over 10-20 heavy-tailed rows lands short
+                        // routinely, and each re-land halves the distance — capping
+                        // total nudges failed 52 converging jumps at 3 steps each.
+                        var near = rows[0], best = 1e9, k;
+                        for (k = 0; k < rows.length; k++) {
+                            var dd = Math.abs(rows[k].dataIndex - res);
+                            if (dd < best) { best = dd; near = rows[k]; }
+                        }
+                        if (best < lastNudgeDist) nudges = 0;   // progress: converging
+                        var gain = 1 + 0.25 * Math.min(nudges, 4);
+                        lastNudgeDist = best;
+
+                        // STRADDLE -> BISECT. Estimate-density steps are too coarse in
+                        // regions whose rows are already MEASURED (real heights run ~2x
+                        // finer than the estimate there), so the window can jump clean
+                        // over the target zone and oscillate: [48-53] <-> [63-68] around
+                        // 56, forever, in the traces. But those two landings BRACKET the
+                        // target in pixel space, and bisecting between them converges in
+                        // <=4 passes regardless of any density assumption. The bracket
+                        // resets when the resolved row moves (fresh pairs refined it).
+                        if (brkForRow === null || Math.abs(brkForRow - res) > 2) {
+                            brkLoPx = null; brkHiPx = null; brkForRow = res;
+                        }
+                        var curPx = Math.round(container.scrollTop);
+                        var winLo = rows[0].dataIndex, winHi = rows[rows.length - 1].dataIndex;
+                        // Ignore the pinned tail when judging which side we landed on.
+                        var mainHi = winHi;
+                        for (k = rows.length - 1; k > 0; k--) {
+                            if (rows[k].dataIndex - rows[k - 1].dataIndex > 1) {
+                                mainHi = rows[k - 1].dataIndex;
+                            } else break;
+                        }
+                        if (mainHi < res)      { if (brkLoPx === null || curPx > brkLoPx) brkLoPx = curPx; }
+                        else if (winLo > res)  { if (brkHiPx === null || curPx < brkHiPx) brkHiPx = curPx; }
+                        if (brkLoPx !== null && brkHiPx !== null && brkHiPx - brkLoPx > 4) {
+                            moveAndArrive((brkLoPx + brkHiPx) / 2, 'bisect->' + res);
+                            return;
+                        }
+
+                        if (nudges++ < 3) {
+                            // THE VIRTUALIZER'S OWN DENSITY, not measured local
+                            // heights. Rows between here and the target are mostly
+                            // UNMEASURED, and the virtualizer positions unmeasured
+                            // rows at its per-row ESTIMATE — so px-distance to the
+                            // target is (rows x estimate), whatever the real heights
+                            // turn out to be. Both locally-measured alternatives
+                            // failed in CI: the span MEAN, inflated 10x by one
+                            // 15,000px row, overshot to the bottom and oscillated to
+                            // no-progress; the MEDIAN from a short-row region
+                            // understepped 4x and walked one row per pass into the
+                            // iteration cap. scrollHeight/totalRows IS the estimate,
+                            // kept current as measurements land.
+                            var pxr = container.scrollHeight / Math.max(1, totalRows);
+                            var dest = rowTop(near.el) +
+                                       (res - near.dataIndex) * pxr * gain -
+                                       container.clientHeight / 3;
+                            moveAndArrive(dest, 'nudge->' + res); return;
+                        }
+                        finish(false, null, 'nudge-cap'); return;
+                    }
+                    nudges = 0;
+                    // Pairs exist but the target is far: GEOMETRY miss, not mapping.
+                    // Anchor the interpolation with what we actually observed.
+                    var mid = pairs[pairs.length >> 1];
+                    var obsPx = Math.round(container.scrollTop);
+                    if (mid.d < targetFullPathIdx - U) {
+                        if (mid.d >= low.row) low = { row: mid.d, px: obsPx };
+                    } else if (mid.d > targetFullPathIdx) {
+                        if (mid.d <= high.row) high = { row: mid.d, px: obsPx };
+                    }
+                    var maxPx = Math.max(0, container.scrollHeight - container.clientHeight);
+                    if (high.px > maxPx) high.px = maxPx;
+                    if (low.px > maxPx) low.px = maxPx;
+                    if (high.row - low.row < 1 || high.px - low.px < 1) {
+                        low = { row: 0, px: 0 };
+                        high = { row: totalRows - 1, px: maxPx };
+                    }
+                    var aimRow = ciPredictRowForPath(targetFullPathIdx);
+                    if (aimRow === null) aimRow = Math.max(0, targetFullPathIdx - U);
+                    var frac = (aimRow - low.row) / ((high.row - low.row) || 1);
+                    if (frac < 0) frac = 0; if (frac > 1) frac = 1;
+                    var noProgKey = aimRow + '|' + obsPx + '|' +
+                                    rows.map(function (x) { return x.dataIndex; }).join(',');
+                    if (noProgKey === _lastProgressKey) {
+                        if (++_noProgressPasses >= 2) {
+                            finish(false, null, 'no-progress'); return;
+                        }
+                    } else { _noProgressPasses = 0; }
+                    _lastProgressKey = noProgKey;
+                    shifts = 0;
+                    moveAndArrive(low.px + (high.px - low.px) * frac, 'geo->' + aimRow);
+                    return;
+                }
+
+                // 3b' — THE SESSION ANCHOR STORE. A target whose entire local
+                // neighbourhood is unmatchable (a paste-chip flanked by more chips or
+                // short duplicates) starves 3b — but anchors measured ANYWHERE this
+                // session (every scan and every jump harvests them) can still bracket
+                // it: equal-offset anchors either side pin the row exactly, by the same
+                // pigeonhole logic, at any distance. Exactness gate: the strict
+                // (anchors-only) inverse must name precisely this target — predicate-
+                // assisted guesses do not qualify for acceptance here.
+                var stored = ciResolveRowForPath(targetFullPathIdx);
+                if (stored && typeof stored.row === 'number' &&
+                    ciResolvePathForRowStrict(stored.row) === targetFullPathIdx) {
+                    var sEl = null;
+                    for (var sr = 0; sr < rows.length; sr++) {
+                        if (rows[sr].dataIndex === stored.row) { sEl = rows[sr]; break; }
+                    }
+                    if (sEl) { succeed(sEl, 'anchor-store'); return; }
+                    var maxPxS = Math.max(0, container.scrollHeight - container.clientHeight);
+                    moveAndArrive((totalRows > 1)
+                        ? maxPxS * (stored.row / (totalRows - 1)) : 0,
+                        'anchor-store->' + stored.row);
+                    return;
+                }
+
+                // 3c — nothing in the window matches anything. Shift one viewport
+                // toward the predicate's guess; after 2 such moves, fail honestly.
+                if (shifts++ >= 2) { finish(false, null, 'no-local-match'); return; }
+                var gRow = ciPredictRowForPath(targetFullPathIdx);
+                if (gRow === null) gRow = Math.max(0, targetFullPathIdx - U);
+                var maxPx2 = Math.max(0, container.scrollHeight - container.clientHeight);
+                var gPx = (totalRows > 1) ? maxPx2 * (gRow / (totalRows - 1)) : 0;
+                var cur = container.scrollTop;
+                var step = container.clientHeight *
+                           (gPx > cur ? 1 : -1);
+                moveAndArrive(Math.abs(gPx - cur) <= container.clientHeight ? gPx
+                              : cur + step, '3c-shift');
+            } catch (err) {
+                console.error('[ACN] jump arrival threw:', err);
+                finish(false, null, 'threw');
+            }
+        }
+
+        // AIM — one initial move; extremes are exact positions through the SAME
+        // arrival detection (this is what fixes Q#1 by construction: arrival is one
+        // code path, so "row 0 is mounted" cannot go unrecognised again).
+        try {
+            var destPx;
+            var maxPx0 = Math.max(0, container.scrollHeight - container.clientHeight);
+            if (_ciRenderable && _ciRenderable.length &&
+                targetFullPathIdx === _ciRenderable[0]) destPx = 0;
+            else if (_ciRenderable && _ciRenderable.length &&
+                targetFullPathIdx === _ciRenderable[_ciRenderable.length - 1]) destPx = maxPx0;
+            else {
+                var seed = ciResolveRowForPath(targetFullPathIdx);
+                var seedRow = (seed && typeof seed.row === 'number') ? seed.row
+                    : (seed && typeof seed.lo === 'number')
+                        ? Math.floor((seed.lo + seed.hi) / 2)
+                        : ciPredictRowForPath(targetFullPathIdx);
+                if (seedRow === null) seedRow = Math.max(0, targetFullPathIdx - U);
+                destPx = (totalRows > 1) ? maxPx0 * (seedRow / (totalRows - 1)) : 0;
+            }
+            // Already there? arrive() without moving — the fast path and the loop
+            // share arrival, so a mounted target resolves before any scroll.
+            var pre = ciMatchTargetInWindow(targetFullPathIdx, ciMountedRows(), U);
+            if (pre) { iterations++; succeed(pre, '3a-premove'); return; }
+            moveAndArrive(destPx, 'aim');
+        } catch (e) {
+            console.error('[ACN] jump aim threw:', e);
+            finish(false, null, 'threw');
+        }
+    }
+
+    // Maps normalized message text -> stable message uuid, for callers that only
+    // have a DOM node to work from (bookmarks). Built lazily, cleared with the index.
+    var _ciTextToUuid = null;
+
+    // `el`, when given, disambiguates DUPLICATE texts: the text map deliberately
+    // keeps only the first uuid, so twin messages got one identity and a bookmark on
+    // the second twin jumped to the first (Codex round-1 P2). A mounted element's ROW
+    // resolves to its exact path entry regardless of what the text says.
+    // True when the DOM holds turns the current index does not — i.e. a prompt was sent
+    // after the last fetch and the resync has not landed. _ciMergeLiveMessages marks
+    // exactly those entries provisional, so this is the same signal the resync uses.
+    function _ciIndexBehindDom() {
+        for (var i = 0; i < _questions.length; i++) {
+            if (_questions[i].provisional) return true;
+        }
+        return false;
+    }
+
+    function ciUuidForText(text, el) {
+        if (!ciIsReady() || !_ciFullPath) return null;
+        if (el && el.closest) {
+            var rowEl = el.closest('[' + CI_ROW_ATTR + ']');
+            if (rowEl) {
+                var di = parseInt(rowEl.getAttribute(CI_ROW_ATTR), 10);
+                if (!isNaN(di)) {
+                    // MEASURED resolution only. This uuid gets PERSISTED (bookmarks),
+                    // and the predicate fallback assigned an adjacent message's
+                    // identity whenever the stop-reason predicate missed an unrendered
+                    // entry — a durably wrong bookmark (Codex R8 :3022). Unresolvable
+                    // stays unresolved; the text map / content hash below are honest.
+                    var p = ciResolvePathForRowStrict(di);
+                    if (p !== null && _ciFullPath[p]) {
+                        // Confirm the row still SHOWS that entry before handing back an
+                        // identity that gets PERSISTED. When a prompt is edited before the
+                        // resync lands, the row stays inside the indexed range, so strict
+                        // mapping still names the SUPERSEDED entry while the row displays
+                        // the edited text. Bookmarking in that window stored a uuid the
+                        // refreshed path no longer contains — unresolvable, and unable to
+                        // migrate because a schema-2 record looks already bound (Codex).
+                        //
+                        // Full-length compare of the markdown-flattened forms. Skipped when
+                        // either side is empty: ~10% of human turns carry no text block at
+                        // all (large pastes become attachments), and for those the row
+                        // mapping is the only identity available.
+                        var mappedT = _normalizeCompareFull(_ciFullPath[p].text || '');
+                        var shownT  = _normalizeCompareFull(text || '');
+                        if (!mappedT || !shownT || mappedT === shownT) {
+                            return _ciFullPath[p].uuid;
+                        }
+                    }
+                }
+            }
+            // Row present but unresolved, AND the index is known to lag the DOM: this is
+            // a turn beyond the snapshot. The text map must not answer here. A just-sent
+            // prompt repeating an older one is absent from the snapshot, so the map sees
+            // the single OLD occurrence and hands back ITS uuid — persisting a schema-2
+            // bookmark aimed at the wrong message, which provisional migration then skips
+            // because it looks already bound (Codex). Staying unresolved keeps the record
+            // provisional, and pendingRow/pendingOrdinal bind the right occurrence after
+            // the refetch. Gated on the lag so ordinary conversations keep text
+            // resolution, which icon identity depends on.
+            // BEYOND THE SNAPSHOT, decided from the ROW rather than from provisional
+            // questions. _ciRenderable holds one entry per path entry that renders, so its
+            // length is the row count the snapshot predicts; a larger dataIndex is content
+            // the index does not contain. Sender-agnostic on purpose: keying on provisional
+            // HUMAN turns missed the window where a refresh has already taken the prompt but
+            // not its still-generating answer — there the live ASSISTANT row is off-snapshot
+            // with no provisional entry in sight, and the text map would hand back an older
+            // same-text message's uuid ("OK" said twice), persisting it as schema 2 (Codex).
+            if (_ciRenderable && di >= _ciRenderable.length) return null;
+            // Kept as well: covers the case where _ciRenderable is absent or itself stale.
+            if (_ciIndexBehindDom()) return null;
+        }
+        if (!_ciTextToUuid) {
+            _ciTextToUuid = {};
+            // Ambiguity POISONS a key rather than first-wins resolving it: two
+            // messages sharing normalized text (a user and assistant both saying
+            // "OK") each got the first one's uuid, and a schema-2 bookmark persisted
+            // that wrong identity durably (Codex R11 :3088). A poisoned key returns
+            // null and the caller falls back to the honest content hash.
+            for (var i = 0; i < _ciFullPath.length; i++) {
+                // Markdown-insensitive: the index holds RAW MARKDOWN while callers pass
+                // RENDERED DOM text. Keyed on _normalizeKey, any assistant message whose
+                // first 200 chars contain **, ##, `, or a list marker never matched, so
+                // its bookmark silently degraded to the position-dependent schema 1 —
+                // which, with the positional fallback deleted, is unresolvable.
+                var t = _normalizeCompare(_ciFullPath[i].text || '');
+                if (!t) continue;
+                if (_ciTextToUuid.hasOwnProperty(t)) _ciTextToUuid[t] = null; // poisoned
+                else _ciTextToUuid[t] = _ciFullPath[i].uuid;
+            }
+        }
+        return _ciTextToUuid[_normalizeCompare(text || '')] || null;
+    }
+
+    function ciIsReady() {
+        return _ciStatus === 'ready' && !!_ciIndex &&
+               _ciConversationId === ciGetConversationUuid();
+    }
+
+    function ciInvalidate() {
+        // Cancel any in-flight jump: it captured a target index against the OLD path,
+        // and the scroll container survives an SPA route change, so the loop would keep
+        // driving and could land on a same-numbered row in a different conversation.
+        // Safe to bump now that every superseded path calls finish() -> done(), so the
+        // caller's busy flag is always cleared.
+        _ciJumpToken++;
+        _ciIndex          = null;
+        _ciFullPath       = null;
+        _ciTextToUuid     = null;
+        _ciInFlightCid    = null;   // never let an old conversation's request block the new one
+        if (_ciRescanTimer !== null) { clearTimeout(_ciRescanTimer); _ciRescanTimer = null; }
+        // Usage quota is org-scoped; a conversation switch can land in a different
+        // org, and a warm cooldown would show org A's quota for org B for up to five
+        // minutes (Codex :3943).
+        _usageLastFetch   = 0;
+        // Anchors are (dataIndex -> path index) pairs for THIS conversation's tree. A
+        // route change renumbers everything, so carrying them over would map confidently
+        // into the wrong conversation.
+        _ciRenderable     = null;
+        ciResetAnchors();
+        // Conversation-scoped runtime state must not leak across a switch
+        // (post-closure Codex, two findings):
+        //  - _sseTokenData carried chat A's cumulative thinking into chat B when the
+        //    navigation was not SPA-hooked, inflating B's context estimate and caching
+        //    A's totals under B. resetTurnCounter() owns that state.
+        //  - _ciLastAsstMismatch let chat B inherit A's two-scan stability signature;
+        //    a same-shaped first mismatch in B was instantly treated as settled,
+        //    permitting a premature refetch of a still-streaming answer.
+        try { resetTurnCounter(); } catch (e) {}
+        _ciLastAsstMismatch = '';
+        _ciResyncedSigs     = {};
+        _ciResyncedSigOrder = [];
+        _ciPendingResyncSig = '';
+        _ciAwaitingResyncSig = '';
+        _ciRefreshFailed    = '';
+        _sseThinkAtIndex    = 0;
+        _ciConversationId = null;
+        _ciStatus         = 'idle';
+        _ciDegradedReason = '';
+        _ciTruncatedCount = 0;
+        _ciUsedLeafFallback = false;
+        _ciPathComplete   = true;
+        // Both of these throttle REFETCHES, and a refetch belongs to one conversation.
+        // Carried across a switch, chat A's cooldown stamp defers a resync B genuinely
+        // needs, and A's accumulated backoff multiplies from its inherited value — so a
+        // single transient failure in B could schedule a retry half an hour out instead
+        // of at the 60s floor.
+        _ciLastRefetchAt  = 0;
+        _ciRetryDelayMs   = 0;
+        // Org is per-account, but a stale in-memory value would survive an account
+        // switch; the GM cache is account-validated, so re-resolving is cheap.
+        _ciOrgUuid        = null;
+    }
+
+    // ============================================================
     // QUESTION DETECTION ENGINE
     // ============================================================
     function getUserMessages() {
@@ -1119,6 +3523,9 @@
     var _vsAccumulatedKeys = new Set();
     var _navListFingerprint    = ''; // used to skip DOM rebuild when questions are unchanged
     var _searchListFingerprint = ''; // same guard for search panel
+    var _ciIndexGen = 0;             // bumped on every index (re)build: a same-count
+                                     // branch swap must still invalidate cached search
+                                     // results (Codex R5 :1617)
     var _bmListFingerprint     = ''; // same guard for bookmarks panel
     var _panelWidth            = 310; // current panel width — persisted in localStorage
 
@@ -1149,22 +3556,578 @@
     var USAGE_POLL_INTERVAL = 5 * 60 * 1000; // 5 minutes
     var _usageData     = null;
     var _usageLastFetch = 0;
+    var _usageOrgUuid   = null;   // org the cached usage was fetched FOR
     var _usageRefreshTimer = null; // debounce timer for maybeRefreshUsage
 
+    // Extracts display text from a mounted DOM node, shared by the DOM scan and
+    // the index's DOM-merge path.
+    // Reads a node's text while EXCLUDING our own injected bookmark icon.
+    //
+    // createBookmarkIcon() appends the icon as a child of the message element, so
+    // a naive textContent read picks up its glyph. That contamination is not
+    // cosmetic: the conversation index matches DOM text against API text by
+    // normalized 200-char prefix, so every message shorter than 200 characters
+    // would fail to match, be treated as new, get appended as a provisional
+    // entry (duplicating it in the list), and keep _ciNeedsResync() permanently
+    // true — triggering a 3.3MB refetch every cooldown period, forever.
+    // Nodes excluded from EVERY text read, platform-wide:
+    //
+    //   [data-acn-bookmark]  our own injected bookmark icon. Reading it back
+    //                        contaminated index<->DOM matching for short messages
+    //                        and drove a permanent refetch loop (Tier 3 CRITICAL).
+    //
+    //   .sr-only             the platform's screen-reader-only labels. ChatGPT emits
+    //                        "You said:", Claude emits "Claude responded:" and a
+    //                        "Load earlier messages" button, and all of it lands in
+    //                        textContent. Previously only ChatGPT's was handled, by
+    //                        a regex in one caller — so Claude's assistant prefix
+    //                        still reached Search, Export and Summary.
+    //
+    // Fixed here, in the shared extractor, rather than per-caller: every consumer
+    // reads through this path, so a per-caller strip is guaranteed to miss one.
+    // Matches sr-only as a whole class token, INCLUDING Tailwind responsive variants
+    // (sm:sr-only, md:sr-only) whose separator is ':' not whitespace — but NOT
+    // `not-sr-only`, whose entire purpose is to make content visible again.
+    // Token boundary is start/whitespace, optionally preceded by a variant prefix.
+    // Variant prefixes can contain '/', '&', '[', ']', '>', ':' etc.
+    // (group-hover/edit:sr-only, [&>*]:sr-only), so the prefix class is permissive —
+    // but it must NOT swallow a preceding '-', or `not-sr-only` would match.
+    var _SR_ONLY_RE = /(^|\s)(?:[^\s-]|[^\s]-[^\s])*?[:\]]sr-only(\s|$)|(^|\s)sr-only(\s|$)/i;
+
+    function _isSrOnlyClassList(cls) {
+        cls = (typeof cls === 'string' ? cls : (cls && cls.baseVal) || '');
+        return _SR_ONLY_RE.test(cls);
+    }
+
+    function _isExcludedFromText(n) {
+        if (!n || n.nodeType !== 1) return false;
+        if (n.getAttribute && n.getAttribute('data-acn-bookmark') !== null) return true;
+        return _isSrOnlyClassList(n.className);
+    }
+
+    function _cleanText(el) {
+        if (!el) return '';
+        // Fast path: nothing excluded inside, read it directly.
+        // [class*="sr-only"] so the fast path also catches variant-prefixed tokens
+        // (sm:sr-only) that the slow path's regex excludes — otherwise the two paths
+        // disagree and a variant label survives into the text.
+        if (!el.querySelector ||
+            !el.querySelector('[data-acn-bookmark], .sr-only, [class*="sr-only"]')) {
+            return el.textContent || el.innerText || '';
+        }
+        var out = '';
+        var kids = el.childNodes;
+        for (var i = 0; i < kids.length; i++) {
+            var n = kids[i];
+            // ONLY elements (1) and text nodes (3). Recursing into a Comment node (8)
+            // would emit its contents: CharacterData.textContent IS the comment body,
+            // while Element.textContent excludes comments entirely. That made the slow
+            // path and the fast path return DIFFERENT strings for the same element,
+            // depending only on whether a bookmark icon had been injected yet.
+            // Verified live: Grok's first Navigate entry rendered "D: Inner layout
+            // wrapper..." — the mock's HTML comment — instead of the question.
+            // Load-bearing beyond cosmetics: it breaks ciDeriveRowOffset (no row
+            // matches the API text), which kills jump entirely, and makes every
+            // mounted message look new to _ciMergeLiveMessages, which reinstates the
+            // permanent-refetch loop this extractor exists to prevent.
+            if (n.nodeType !== 1 && n.nodeType !== 3) continue;
+            if (_isExcludedFromText(n)) continue;
+            out += _cleanText(n);
+        }
+        return out;
+    }
+
+    function _readMessageText(msg) {
+        var proseEl = platform.textExtractor ? platform.textExtractor(msg) : null;
+        // No "You said:" regex any more — the label is an .sr-only node and is now
+        // removed structurally. A regex could never distinguish the platform's label
+        // from a user message that legitimately begins with those words.
+        return (_cleanText(proseEl || msg) || '').trim();
+    }
+
+    // Assistant-side reader. Same exclusions — this is where Claude's
+    // "Claude responded:" sr-only prefix used to leak into Search and Export.
+    function _readAIText(el) {
+        return (_cleanText(el) || '').trim();
+    }
+
+    // _normalizeKey without its 200-char cap. Identity comparisons must not be decided by
+    // a prefix; see _normalizeCompareFull.
+    function _normalizeFull(text) {
+        return String(text == null ? '' : text).toLowerCase().replace(/\s+/g, ' ').trim();
+    }
+
+    function _normalizeKey(text) {
+        // Coerce rather than trusting callers: several call sites pass the result of
+        // a DOM read or an index lookup without a `|| ''` guard.
+        return String(text == null ? '' : text)
+            .substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
+    }
+
+    // Binds index entries to whichever DOM nodes happen to be mounted right now.
+    // Under virtualization only a handful will match; the rest keep element:null
+    // until Phase 3's settle loop mounts them on demand.
+    function _ciBindMountedElements(questions) {
+        var mounted = Array.from(getUserMessages());
+        if (!mounted.length) return;
+        // Both normalizers: the index holds RAW MARKDOWN, the DOM holds RENDERED
+        // text, so _normalizeKey alone never matched a markdown-bearing question and
+        // its element stayed null even while mounted.
+        // ROW IDENTITY FIRST (Codex :2489): with two mounted "continue" turns a text
+        // map overwrote the earlier node with the later one and bound BOTH indexed
+        // occurrences to it — clicking either Navigate entry confidently scrolled to
+        // the latest duplicate. A row's path position is exact regardless of text.
+        var byPath = {};
+        var rowsB = (typeof ciMountedRows === 'function' && ciIsClaudeChat()) ? ciMountedRows() : [];
+        for (var r = 0; r < rowsB.length; r++) {
+            if (!rowsB[r].isUser) continue;
+            var pth = ciResolvePathForRowStrict(rowsB[r].dataIndex);
+            if (pth === null) pth = ciMatchRowToPath(rowsB[r]);
+            if (pth === null && _ciRenderable && rowsB[r].dataIndex < _ciRenderable.length) {
+                pth = _ciRenderable[rowsB[r].dataIndex];
+            }
+            if (pth !== null) {
+                var node = rowsB[r].el.querySelector('[data-testid="user-message"]');
+                if (node) byPath[pth] = node;
+            }
+        }
+        var byKey = {};
+        for (var i = 0; i < mounted.length; i++) {
+            var t = _readMessageText(mounted[i]);
+            if (!t) continue;
+            byKey[_normalizeKey(t)] = mounted[i];
+            byKey[_normalizeCompare(t)] = mounted[i];
+        }
+        for (var j = 0; j < questions.length; j++) {
+            var el = byPath[questions[j].pathIndex] ||
+                     byKey[_normalizeKey(questions[j].text)] ||
+                     byKey[_normalizeCompare(questions[j].text)];
+            questions[j].element = el || null;
+        }
+    }
+
+    // Appends messages that are mounted but absent from the index. The index is a
+    // snapshot, so a turn sent after it was fetched would otherwise be missing.
+    // New turns are always mounted (the user is at the bottom when they send one),
+    // so a DOM read is sufficient and costs no network. Provisional entries carry
+    // no uuid until the next refetch.
+    function _ciMergeLiveMessages(questions) {
+        var mounted = Array.from(getUserMessages());
+        if (!mounted.length) return false;
+
+        // Markdown-insensitive membership, matching the jump and bookmark paths.
+        // With _normalizeKey alone, a mounted question whose API text carries markdown
+        // never matched its own index entry: it was appended as a provisional
+        // duplicate AND _ciNeedsResync() kept refetching the multi-megabyte
+        // conversation every cooldown, indefinitely (Codex round-1 P1).
+        // OCCURRENCE COUNTS, not set membership. Exact repeats ("continue") are
+        // common; with a plain set the second send matched the first occurrence, was
+        // never appended, and - since provisionals are also the resync signal - the
+        // index never refreshed either: the new turn was invisible everywhere
+        // (Codex :1822, P1). A repeat only counts as known while the index holds at
+        // least as many occurrences as are mounted.
+        // ROW IDENTITY decides what is NEW (Codex round-3 P1). Text-count comparison
+        // failed twice: a set suppressed exact repeats entirely, and comparing
+        // mounted-window counts against WHOLE-HISTORY counts still suppressed a new
+        // prompt that repeated an old, unmounted turn ("continue" repeating last
+        // week's "continue"). A genuinely new turn is appended by the virtualizer at
+        // a dataIndex BEYOND the indexed renderable range — no text needed. A row
+        // inside the range that resolves to a path entry is known regardless of what
+        // its text matches.
+        var newRowEls = null;
+        if (ciIsClaudeChat() && _ciRenderable && typeof ciMountedRows === 'function') {
+            newRowEls = [];
+            var mrRows = ciMountedRows();
+            for (var mr = 0; mr < mrRows.length; mr++) {
+                if (!mrRows[mr].isUser) continue;
+                var mDi = mrRows[mr].dataIndex;
+                // Boundary for THE FETCHED SNAPSHOT. While the predicate holds
+                // (unwarned), renderable length IS the snapshot's row count — crucially
+                // it cannot be inflated by a message sent while the fetch was in
+                // flight, which the lazily-measured aria-setsize CAN be: measuring
+                // after the new row appeared classified that new prompt as inside the
+                // index, so it never went provisional (Codex R12 :3388). The measured
+                // capture survives only as the fallback once the predicate has been
+                // caught wrong, where the smaller of the two bounds is honest.
+                var newBound = _ciPredicateWarned && _ciRowsAtBuild !== null
+                    ? Math.min(_ciRowsAtBuild, _ciRenderable.length)
+                    : _ciRenderable.length;
+                if (mDi < newBound) continue;                          // within indexed range
+                if (ciResolvePathForRowStrict(mDi) !== null) continue; // anchored: known
+                var mNode = mrRows[mr].el.querySelector('[data-testid="user-message"]');
+                if (mNode) newRowEls.push(mNode);
+            }
+        }
+        // Canonical-key counting stays as the NON-ROW fallback (no virtualizer
+        // metadata -> no row identity to use).
+        var known = {};
+        for (var i = 0; i < questions.length; i++) {
+            var kc = _normalizeCompare(questions[i].text);
+            known[kc] = (known[kc] || 0) + 1;
+        }
+        var seen = {};
+        var appended = false;
+        var mergeList = (newRowEls !== null) ? newRowEls : mounted;
+        for (var j = 0; j < mergeList.length; j++) {
+            var text = _readMessageText(mergeList[j]);
+            if (!text) continue;
+            var key = _normalizeCompare(text);
+            if (newRowEls === null) {
+                seen[key] = (seen[key] || 0) + 1;
+                if ((known[key] || 0) >= seen[key]) continue;
+                known[key] = (known[key] || 0) + 1;
+            }
+            questions.push({
+                uuid:        null,
+                text:        text,
+                summary:     generateSummary(text),
+                pathIndex:   Number.MAX_SAFE_INTEGER,  // sorts to the end
+                createdAt:   null,
+                attachments: [],
+                files:       [],
+                truncated:   false,
+                element:     mergeList[j],
+                provisional: true
+            });
+            appended = true;
+        }
+        return appended;
+    }
+
+    // Signals that the index no longer matches reality and should be refetched.
+    //
+    // A provisional entry means the DOM holds a turn the index does not. That is
+    // either a newly sent message or an edit/regenerate that rewrote the tree —
+    // and the DOM genuinely cannot distinguish the two, because neither changes
+    // the URL and only ~3 turns are visible. Refetching resyncs either case, and
+    // also upgrades provisional entries to real uuids so bookmarks can key to them.
+    //
+    // (An earlier version compared the newest mounted turn against the question
+    // list. That could never fire: the merge runs first and guarantees every
+    // mounted turn is present, so the tail always matched.)
+    function _ciNeedsResync(questions) {
+        for (var i = 0; i < questions.length; i++) {
+            if (questions[i].provisional) return true;
+        }
+        return false;
+    }
+
+    // Assistant-side staleness. Provisional HUMAN turns were the only resync signal,
+    // so regenerating an answer — which changes no prompt — left Search, Summary,
+    // Export and context tracking on the previous branch until the next distinct
+    // prompt (Codex :3252, P1). A mounted assistant row that matches no path entry is
+    // the tell. STREAMING GUARD: a mid-generation answer also matches nothing and
+    // grows every scan, so only a mismatch signature that is IDENTICAL across two
+    // consecutive scans counts — a stream changes length; a settled regeneration
+    // does not.
+    var _ciLastAsstMismatch = '';
+    // Signature that has already caused a resync. Guards against re-downloading the
+    // payload forever on a mismatch a refetch cannot fix. Per-conversation.
+    // Consumed mismatch signatures, as a SET. A single slot was not enough: two settled
+    // signatures in different regions of a tool-heavy conversation displace each other, so
+    // scrolling A -> B -> A makes A look new again and re-triggers the multi-megabyte
+    // refetch every cooldown (Codex). Bounded, and conversation-scoped.
+    // Reason a background refresh failed while a usable snapshot was retained. The index
+    // stays READY, so this is surfaced as a note rather than the degraded banner.
+    var _ciRefreshFailed = '';
+    // SSE thinking total at the moment the index was last built. The SSE counter and the
+    // index measure OVERLAPPING ranges, so neither can be used wholesale — see the
+    // reconciliation in the context bar.
+    var _sseThinkAtIndex = 0;
+
+    var _ciResyncedSigs      = {};
+    var _ciResyncedSigOrder  = [];
+    var CI_RESYNCED_SIG_CAP  = 512;
+    // Signature that TRIGGERED the in-flight resync but is not consumed yet. Consuming on
+    // trigger was wrong: if the refresh then failed, the snapshot-retention path kept the
+    // index ready while this signature was already suppressed, so the scheduled rescan
+    // never retried and Navigate/Search/Summary/Export sat on the superseded branch until
+    // some unrelated mismatch appeared (Codex P1). Committed on success, dropped on
+    // failure so the next scan can try again — under the backoff gate, so not a hot loop.
+    var _ciPendingResyncSig  = '';
+    // Signature whose refetch has COMPLETED but whose outcome is not yet judged. It is
+    // consumed only if it reappears afterwards, which proves a refetch cannot fix it.
+    var _ciAwaitingResyncSig = '';
+
+    function _ciMarkResyncedSig(sig) {
+        if (_ciResyncedSigs[sig]) return;
+        _ciResyncedSigs[sig] = true;
+        _ciResyncedSigOrder.push(sig);
+        if (_ciResyncedSigOrder.length > CI_RESYNCED_SIG_CAP) {
+            delete _ciResyncedSigs[_ciResyncedSigOrder.shift()];
+        }
+    }
+    function _ciAssistantStale() {
+        if (!ciIsReady() || !_ciFullPath) return false;
+        var rows = ciMountedRows(), sig = '', i;
+        for (i = 0; i < rows.length; i++) {
+            var inner = ciMessageNodeWithin(rows[i].el);
+            if (!inner || inner === rows[i].el) continue;
+            var rawTxt = _readMessageText(inner);
+            // FULL length on BOTH sides. _normalizeCompare caps at 200 chars, which made
+            // the suffix probe examine the end of a PREFIX rather than the response, and
+            // capped the content fingerprint at 200 chars too — so a regenerated long
+            // answer preserving its opening was undetectable and consumers kept the
+            // superseded branch (Codex P1). Both sides switch together; comparing a full
+            // value against a capped one would mismatch on every long message.
+            var t = _normalizeCompareFull(rawTxt);
+            // Signatures use the RAW length. _normalizeCompare feeds through
+            // _normalizeKey, which truncates at 200 chars — so a long streaming
+            // response's signature froze while it was still growing, two scans
+            // declared it settled, and the refetch captured a PARTIAL answer that the
+            // 120-char prefix match then treated as current forever (Codex R15 :3497).
+            var rawLen = (rawTxt || '').length;
+            if (rows[i].isUser) {
+                // EDITED PROMPT (Codex R5 :3301): an edit keeps its row INSIDE the
+                // indexed range, so row-identity marks it known — but its content no
+                // longer matches its own path entry. Compare against the entry the
+                // row resolves to; a stable mismatch is the resync signal the merge
+                // and the short-answer assistant check both miss.
+                if (!t) continue;
+                var up = ciResolvePathForRowStrict(rows[i].dataIndex);
+                if (up === null && _ciRenderable &&
+                    rows[i].dataIndex < _ciRenderable.length) {
+                    up = _ciRenderable[rows[i].dataIndex];
+                }
+                if (up === null || !_ciFullPath[up]) continue;
+                var ue = _ciFullPath[up];
+                if (ue.sender !== 'human') continue;
+                if (ue.textSource && ue.textSource !== 'content') continue;
+                var ut = _normalizeCompareFull(ue.text || '');
+                // Content fingerprint, for the same reason as the assistant branches
+                // below: two different edits of one prompt that happen to render to the
+                // same length would otherwise produce an identical signature, and the
+                // second would be suppressed as already-handled (Codex P1).
+                if (ut && t !== ut) sig += 'e' + rows[i].dataIndex + ':' + rawLen + ':' + _fnv1aHex(t) + ';';
+                continue;
+            }
+            // Long responses: global unique text match. SHORT responses cannot match
+            // globally (the 60-char floor exists to avoid collisions), which used to
+            // mean a regenerated short answer never reached this signal at all
+            // (Codex R7 :3417) — compare those against the entry their ROW resolves
+            // to, the same identity path the user-row edit check uses.
+            if (t.length >= 60) {
+                var mp = ciMatchRowToPath(rows[i]);
+                if (mp === null) {
+                    sig += rows[i].dataIndex + ':' + rawLen + ':' + _fnv1aHex(t) + ';';
+                } else if (_ciFullPath[mp] && (
+                           rawLen > ((_ciFullPath[mp].text || '').length * 1.3 + 200) ||
+                           // SAME-SIZED regeneration sharing the 120-char prefix
+                           // (Codex R17 :3555): growth alone cannot see it. A SUFFIX
+                           // probe can — but only for entries WITHOUT tool blocks:
+                           // rendered tool output appears in DOM text and not in the
+                           // API's text blocks, so a full or suffix compare on
+                           // tool-bearing answers would mismatch permanently and loop
+                           // the resync. toolChars (R16) marks exactly those entries.
+                           (!_ciFullPath[mp].toolChars && t.length >= 150 &&
+                            _normalizeCompareFull(_ciFullPath[mp].text || '').length >= 150 &&
+                            t.slice(-80) !==
+                            _normalizeCompareFull(_ciFullPath[mp].text || '').slice(-80)))) {
+                    // PREFIX MATCH IS NOT ENOUGH: a refetch that captured a partial
+                    // response (>=120 normalized chars) keeps prefix-matching the
+                    // still-growing live one, so nothing ever signalled and the index
+                    // kept the truncated answer (Codex R16 :3532). Rendered text runs
+                    // longer than raw markdown, hence the generous slack — this only
+                    // fires on substantial growth, and the two-scan guard still
+                    // prevents refetching mid-stream.
+                    sig += 'g' + rows[i].dataIndex + ':' + rawLen + ':' + _fnv1aHex(t) + ';';
+                }
+                continue;
+            }
+            if (!t) continue;
+            var ap = ciResolvePathForRowStrict(rows[i].dataIndex);
+            if (ap === null && _ciRenderable &&
+                rows[i].dataIndex < _ciRenderable.length) {
+                ap = _ciRenderable[rows[i].dataIndex];
+            }
+            // OFF-SNAPSHOT and unresolvable: the row lies beyond what the index accounts
+            // for, so this is a completed answer the snapshot does not contain at all. The
+            // long-response branch above already treats an unresolved row as a mismatch;
+            // this one used to `continue`, which permanently suppressed the signal for a
+            // SHORT final answer — and _ciMergeLiveMessages only appends human turns, so
+            // nothing else noticed. Search and Summary omitted the answer until an
+            // unrelated prompt forced a refresh (Codex).
+            if (ap === null && _ciRenderable && rows[i].dataIndex >= _ciRenderable.length) {
+                sig += 'o' + rows[i].dataIndex + ':' + rawLen + ':' + _fnv1aHex(t) + ';';
+                continue;
+            }
+            if (ap === null || !_ciFullPath[ap]) continue;
+            var ae = _ciFullPath[ap];
+            if (ae.sender !== 'assistant') continue;
+            if (ae.textSource && ae.textSource !== 'content') continue;
+            var at2 = _normalizeCompareFull(ae.text || '');
+            if (at2 && t !== at2) sig += 's' + rows[i].dataIndex + ':' + rawLen + ':' + _fnv1aHex(t) + ';';
+        }
+        if (!sig) { _ciLastAsstMismatch = ''; _ciAwaitingResyncSig = ''; return false; }
+        // A signature we have ALREADY refetched on is no longer evidence of staleness —
+        // it is evidence the refetch could not resolve it. Rendered tool output appears
+        // in DOM text but not in the API's text blocks (deliberately: see ciExtractText),
+        // so a tool/artifact-bearing answer mismatches BY CONSTRUCTION and the growth
+        // disjunct above has no toolChars guard. Without this, the resync fires, succeeds,
+        // observes the same mismatch, and re-downloads the whole payload every cooldown
+        // FOREVER on a completely idle page — the exact cost the failure backoff was added
+        // to prevent, and unreachable from there because this loop is driven by SUCCESSES,
+        // which never enter the failure classifier.
+        //
+        // One refetch per DISTINCT signature: real staleness changes the signature and is
+        // still resynced promptly; a permanent mismatch is resynced once and left alone.
+        //
+        // The signature therefore has to carry CONTENT identity, not just row and length.
+        // With row+length alone, an edit or regeneration landing at the same row with the
+        // same character count as an already-resynced mismatch produced an identical
+        // signature and was suppressed indefinitely, leaving Navigate/Search/Summary/Export
+        // on the superseded branch until some unrelated change shifted a length (Codex).
+        // Note the other repair Codex offered — clearing the consumed signature after a
+        // successful rebuild — reinstates the infinite loop exactly, because the rebuild is
+        // what completes each cycle. Fingerprinting is the only version that fixes one
+        // without restoring the other.
+        if (_ciResyncedSigs[sig]) return false;
+        // A signature is consumed only when it SURVIVES its own refetch — that is the proof
+        // a refetch cannot fix it. Consuming at trigger time, or at rebuild time, made the
+        // suppression permanent for a mismatch the refetch demonstrably DID resolve: cycling
+        // A -> B -> A -> B reproduces an earlier signature against a snapshot that has since
+        // moved, and it was suppressed even though refetching had worked last time, pinning
+        // Navigate/Search/Summary/Export to the wrong branch indefinitely (Codex P1).
+        //
+        // Reappeared  -> unfixable (rendered tool output etc.) -> consume, stop refetching.
+        // Disappeared -> genuine staleness, resolved -> stays eligible for next time.
+        if (_ciAwaitingResyncSig) {
+            var sigSurvived = (sig === _ciAwaitingResyncSig);
+            _ciAwaitingResyncSig = '';
+            if (sigSurvived) { _ciMarkResyncedSig(sig); return false; }
+        }
+        if (sig === _ciLastAsstMismatch) { _ciPendingResyncSig = sig; return true; }
+        _ciLastAsstMismatch = sig;
+        return false;
+    }
+
     function scanConversation(forceReset) {
+        // ── Claude: index-backed path ────────────────────────────
+        // The DOM holds ~3% of a long conversation, so it cannot be the source of
+        // truth. When the index is available it wins; the DOM scan below stays as
+        // the fallback and remains the path for every other platform.
+        //
+        // LEAVING a conversation must release its state too, and that cannot live inside
+        // the branch below: ciIsClaudeChat() requires the /chat/<uuid> path, so it is
+        // false on Claude's home, projects and settings routes and the chat-only branch
+        // never runs for those transitions. With spa:false no history handler clears it
+        // either, so the multi-megabyte active path, index, attachments and anchors
+        // stayed retained until another chat was opened or the page reloaded.
+        //
+        // _ciConversationId is only ever assigned on Claude, so a non-null value here
+        // means this tab did hold a conversation index — the other 13 platforms cannot
+        // reach this.
+        if (_ciConversationId && !ciIsClaudeChat()) {
+            ciInvalidate();
+        }
+
+        if (ciIsClaudeChat()) {
+            // Conversation SWITCHED (chat A -> chat B directly, without passing through a
+            // non-chat route): drop the previous payload rather than holding it for a
+            // conversation the user has navigated away from.
+            if (_ciConversationId && _ciConversationId !== ciGetConversationUuid()) {
+                ciInvalidate();
+            }
+
+            if (ciIsReady()) {
+                // Harvest row anchors from whatever the virtualizer currently has mounted.
+                // The scan runs on every mutation batch, so ORDINARY SCROLLING builds the
+                // row map before any jump is ever requested — by the time the user clicks,
+                // the target is usually already bracketed and resolves exactly. Cheap
+                // (only unanchored rows are examined) and idempotent.
+                ciHarvestAnchors();
+                ciValidatePredicate();
+                // Once per index generation: bind any bookmark taken before its message
+                // had a uuid. _ciIndexGen changes on every rebuild, which is exactly when
+                // a previously-unknown uuid can become known.
+                if (_bmMigratedGen !== _ciIndexGen) {
+                    _bmMigratedGen = _ciIndexGen;
+                    _bmMigrateProvisional();
+                }
+
+                var indexed = _ciIndex.slice();
+                _ciMergeLiveMessages(indexed);
+                indexed.sort(function (a, b) { return a.pathIndex - b.pathIndex; });
+                _ciBindMountedElements(indexed);
+                _questions = indexed;
+
+                _aiResponses = Array.from(getAIMessages());
+                if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
+                if (typeof orbOnScanComplete === 'function') orbOnScanComplete();
+
+                if (_ciNeedsResync(_questions) || _ciAssistantStale()) {
+                    var sinceRefetch = Date.now() - _ciLastRefetchAt;
+                    // Honour the PERMANENT-failure backoff here, not just the base
+                    // cooldown. Retaining the snapshot means the index stays READY after a
+                    // 429 or a schema failure, so this branch — which previously was not
+                    // reached at all in that state — kept re-downloading the multi-megabyte
+                    // payload every 15s while the log claimed an exponential backoff was in
+                    // force. It also makes the timer scheduled by the inner
+                    // scanConversation() agree with the one the callback wants, instead of
+                    // the shorter one winning by being scheduled first (Codex P1).
+                    var refetchGate = Math.max(CI_REFETCH_COOLDOWN_MS, _ciRetryDelayMs);
+                    if (sinceRefetch > refetchGate) {
+                        _ciLastRefetchAt = Date.now();
+                        console.log('[ACN] index out of sync with DOM (new message, edit, ' +
+                                    'or regenerate) — refetching');
+                        ciLoadIndex(true, function (ok) {
+                            scanConversation(true);
+                            if (!ok) _ciScheduleRescan(
+                                Math.max(CI_REFETCH_COOLDOWN_MS, _ciRetryDelayMs) + 1000);
+                        });
+                    } else {
+                        // Cooldown blocks the refetch NOW — but a mutation may never
+                        // come again (streaming just ended on an idle chat), so the
+                        // remaining cooldown gets a timer instead of a shrug.
+                        _ciScheduleRescan(refetchGate - sinceRefetch + 500);
+                    }
+                }
+                return;
+            }
+            // Not ready yet: kick off a load, then fall through to the DOM scan so
+            // the panel shows something immediately rather than an empty list.
+            var degradedRetryDue = _ciStatus === 'degraded' &&
+                (Date.now() - _ciLastRefetchAt) >
+                    Math.max(CI_REFETCH_COOLDOWN_MS, _ciRetryDelayMs);
+            // A load already in flight for THIS conversation will rescan from its own
+            // completion callback, so re-entering here is not merely redundant — it is
+            // unbounded synchronous recursion. ciLoadIndex invokes `done` SYNCHRONOUSLY
+            // on its in-flight early return, and _ciConversationId is assigned only on
+            // success or degrade, so it stays null for the whole fetch window and the
+            // condition below stays true. Second scan -> ciLoadIndex -> done(false) ->
+            // scanConversation -> ciLoadIndex -> ... until RangeError, which escapes
+            // scanConversation so not even the DOM fallback below runs.
+            //
+            // CI never saw it because the fixture answers in 5ms; the live figure is
+            // ~2.1s against a 500ms mutation debounce, so a second scan lands inside the
+            // window on essentially every load and every conversation switch.
+            var ciLoadInFlight = _ciInFlightCid !== null &&
+                                 _ciInFlightCid === ciGetConversationUuid();
+            if (!ciLoadInFlight &&
+                (_ciStatus === 'idle' ||
+                 _ciConversationId !== ciGetConversationUuid() ||
+                 degradedRetryDue)) {
+                if (degradedRetryDue) _ciLastRefetchAt = Date.now();
+                ciLoadIndex(false, function (ok) {
+                    // Rescan on failure too: the degraded banner otherwise stayed on
+                    // "Loading full conversation history" until an unrelated mutation,
+                    // and the timed retry was never evaluated on an idle page.
+                    scanConversation(true);
+                    if (!ok) _ciScheduleRescan(
+                        Math.max(CI_REFETCH_COOLDOWN_MS, _ciRetryDelayMs) + 1000);
+                });
+            }
+        }
+
         var messages = getUserMessages();
 
         if (isVirtualScroll && !forceReset) {
             if (messages.length === 0) return;
             var addedNew = false;
             messages.forEach(function (msg) {
-                var proseEl = platform.textExtractor ? platform.textExtractor(msg) : null;
-                var text = proseEl
-                    ? (proseEl.textContent || '').trim()
-                    : (msg.textContent || msg.innerText || '').trim();
-                text = text.replace(/^You said\s*/i, '');
+                var text = _readMessageText(msg);
                 if (!text.trim()) return;
-                var key = text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
+                var key = _normalizeKey(text);
                 if (!_vsAccumulatedKeys.has(key)) {
                     _vsAccumulatedKeys.add(key);
                     var virtuosoItem = msg.closest('[data-index]');
@@ -1183,14 +4146,10 @@
             _questions = [];
             if (messages.length > 0) {
                 messages.forEach(function (msg) {
-                    var proseEl = platform.textExtractor ? platform.textExtractor(msg) : null;
-                    var text = proseEl
-                        ? (proseEl.textContent || '').trim()
-                        : (msg.textContent || msg.innerText || '').trim();
-                    text = text.replace(/^You said\s*/i, '');
+                    var text = _readMessageText(msg);
                     if (!text.trim()) return;
                     if (isVirtualScroll) {
-                        var key = text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
+                        var key = _normalizeKey(text);
                         _vsAccumulatedKeys.add(key);
                         var virtuosoItem = msg.closest('[data-index]');
                         var vsIndex = virtuosoItem
@@ -1771,7 +4730,44 @@
             return;
         }
 
-        // Step 1: get org UUID from /api/organizations
+        function fetchUsageFor(uuid) {
+            // Record the org THIS fetch actually uses. Snapshotting _ciOrgUuid at the
+            // call site recorded null whenever usage was requested before the index
+            // validated an org — while this function proceeded with lastActiveOrg or
+            // the first ranked org anyway. A null _usageOrgUuid then made the
+            // cross-org invalidation check unable to fire, so multi-org users kept
+            // the wrong quota for the full cache interval (Codex R13 :4345).
+            _usageOrgUuid = uuid;
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: 'https://claude.ai/api/organizations/' + uuid + '/usage',
+                headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
+                onload: function (r2) {
+                    // Responses are scoped to the org they were REQUESTED for: a slow
+                    // response for cookie-org B landing after validated-org A's request
+                    // overwrote A's fresh data and the wrong quota displayed for the
+                    // whole cache interval (Codex R21). _usageOrgUuid always names the
+                    // latest requested org, so a mismatched response is stale by
+                    // definition and is dropped silently.
+                    if (_usageOrgUuid !== uuid) return;
+                    try {
+                        var data = JSON.parse(r2.responseText);
+                        callback(parseUsageFromJSON(data));
+                    } catch (e) { callback(null); }
+                },
+                onerror: function () { if (_usageOrgUuid === uuid) callback(null); }
+            });
+        }
+
+        // Reuse the org already resolved (and validated) by the conversation index
+        // rather than re-deriving it. The previous implementation took orgs[0] —
+        // a positional guess that silently returned another organization's usage
+        // numbers for anyone belonging to more than one.
+        if (_ciOrgUuid) { fetchUsageFor(_ciOrgUuid); return; }
+
+        var cookieOrg = ciGetCookie('lastActiveOrg');
+        if (cookieOrg) { fetchUsageFor(cookieOrg); return; }
+
         GM_xmlhttpRequest({
             method: 'GET',
             url: 'https://claude.ai/api/organizations',
@@ -1780,26 +4776,13 @@
                 var uuid = null;
                 try {
                     var orgs = JSON.parse(r1.responseText);
-                    if (Array.isArray(orgs) && orgs[0] && orgs[0].uuid) {
-                        uuid = orgs[0].uuid;
-                    }
+                    // Rank by the 'chat' capability instead of array position.
+                    var ranked = Array.isArray(orgs) ? ciRankOrgs(orgs) : [];
+                    if (ranked.length) uuid = ranked[0];
                 } catch (e) { /* skip */ }
 
                 if (!uuid) { callback(null); return; }
-
-                // Step 2: fetch usage for that org
-                GM_xmlhttpRequest({
-                    method: 'GET',
-                    url: 'https://claude.ai/api/organizations/' + uuid + '/usage',
-                    headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
-                    onload: function (r2) {
-                        try {
-                            var data = JSON.parse(r2.responseText);
-                            callback(parseUsageFromJSON(data));
-                        } catch (e) { callback(null); }
-                    },
-                    onerror: function () { callback(null); }
-                });
+                fetchUsageFor(uuid);
             },
             onerror: function () { callback(null); }
         });
@@ -2048,6 +5031,24 @@
             'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
             '.acn-qw{font-size:11px;color:#666;margin-top:2px}',
             '.acn-empty{padding:40px 14px;text-align:center;font-size:13px;color:#555;line-height:1.6}',
+            '.acn-ci-banner{padding:7px 10px;margin:0 0 6px;border-radius:6px;font-size:11px;line-height:1.45}',
+            // Actually blocks re-entrant clicks while a jump is in flight. The busy
+            // state previously only dimmed the list, so the re-entrancy the jump token
+            // exists to make safe was directly reachable by the user.
+            // Covers Navigate/Search rows (.acn-qi) AND bookmark rows (.acn-bk); an
+            // earlier rule matched only .acn-qi, so bookmark clicks were never blocked.
+            // Summary rows carry their own classes (map segments, sub-segments and
+            // code/file inventory items); without them the attribute was set on the
+            // panel but blocked nothing inside it.
+            '.acn-panel[data-acn-jumping="true"] .acn-qi,',
+            '.acn-panel[data-acn-jumping="true"] .acn-seg-d2,',
+            '.acn-panel[data-acn-jumping="true"] .acn-seg-d2-sub,',
+            '.acn-panel[data-acn-jumping="true"] .acn-code-item,',
+            '.acn-panel[data-acn-jumping="true"] .acn-bk{pointer-events:none}',
+            '.acn-panel[data-acn-jumping="true"]{cursor:progress}',
+            '.acn-ci-degraded{background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3)}',
+            '.acn-ci-loading{background:rgba(255,255,255,.05);color:#888}',
+            '.acn-ci-note{background:rgba(234,179,8,.12);color:#eab308;border:1px solid rgba(234,179,8,.3)}',
 
             // Search input
             '.acn-search-wrap{padding:14px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0}',
@@ -2548,6 +5549,51 @@
         orbRender();
     }
 
+    // Degraded-mode banner. Silent degradation is exactly what let the
+    // virtualization bug hide for so long — a truncated list looked like a short
+    // conversation. When the index is unavailable the user must be able to SEE
+    // that the list is incomplete, not just find it in the console.
+    function orbRenderIndexBanner(list) {
+        if (!ciIsClaudeChat()) return;
+
+        var banner = null;
+
+        if (_ciStatus === 'degraded') {
+            banner = createElement('div', {
+                className: 'acn-ci-banner acn-ci-degraded',
+                textContent: '\u26a0 Showing only on-screen messages \u2014 full history unavailable (' +
+                             _ciDegradedReason + ')'
+            });
+            banner.setAttribute('data-acn-index-status', 'degraded');
+        } else if (_ciStatus === 'loading') {
+            banner = createElement('div', {
+                className: 'acn-ci-banner acn-ci-loading',
+                textContent: '\u2026 Loading full conversation history'
+            });
+            banner.setAttribute('data-acn-index-status', 'loading');
+        } else if (_ciStatus === 'ready') {
+            var notes = [];
+            if (_ciTruncatedCount > 0) {
+                notes.push(_ciTruncatedCount + ' message' + (_ciTruncatedCount !== 1 ? 's' : '') +
+                           ' truncated by Claude');
+            }
+            if (_ciUsedLeafFallback) notes.push('active branch inferred');
+            if (!_ciPathComplete) notes.push('history incomplete \u2014 conversation tree is malformed');
+            // Retained snapshot after a failed refresh: the list is complete as of the
+            // last successful fetch, but newer turns may be missing. Ready, not degraded.
+            if (_ciRefreshFailed) notes.push('refresh failed \u2014 showing the last good snapshot');
+            if (notes.length) {
+                banner = createElement('div', {
+                    className: 'acn-ci-banner acn-ci-note',
+                    textContent: '\u26a0 ' + notes.join(' \u00b7 ')
+                });
+                banner.setAttribute('data-acn-index-status', 'ready-with-notes');
+            }
+        }
+
+        if (banner) list.appendChild(banner);
+    }
+
     // ============================================================
     // NAVIGATE PANEL CONTENT
     // ============================================================
@@ -2558,12 +5604,25 @@
 
         // Skip DOM rebuild if questions haven't changed — prevents hover flicker caused
         // by MutationObserver firing on SPA animations and rebuilding the list mid-hover
-        var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|');
+        // (index status is part of the fingerprint so the banner appears without a
+        //  content change having to trigger the rebuild)
+        // _ciIndexGen for the same reason the Search fingerprint carries it: an
+        // edited prompt that keeps its first 100 chars survives a ready-to-ready
+        // refetch with an identical fingerprint, and the open panel kept click
+        // handlers closed over the PREVIOUS branch's q objects (Codex R7 :4950).
+        // _ciRefreshFailed too: a retained snapshot after a failed refresh leaves
+        // _questions, _ciStatus and _ciIndexGen all unchanged by design, so without it the
+        // early return fired and the "refresh failed — showing the last good snapshot" note
+        // never appeared, including on reopening the panel (Codex).
+        var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|') +
+                 '||' + _ciStatus + '|g' + _ciIndexGen + '|r' + (_ciRefreshFailed ? '1' : '0');
         if (fp === _navListFingerprint && list.firstChild) return;
         _navListFingerprint = fp;
 
         // Clear
         while (list.firstChild) list.removeChild(list.firstChild);
+
+        orbRenderIndexBanner(list);
 
         if (_questions.length === 0) {
             var empty = createElement('div', { className: 'acn-empty' },
@@ -2622,32 +5681,52 @@
             // [data-is-streaming] is only present while actively streaming, so
             // per-element selectors miss completed turns. The scroll container
             // innerText captures everything regardless of streaming state.
+            // Index-backed: count the entire active path. The DOM path below could
+            // only ever see the mounted window — with ~3 of 147 turns rendered that
+            // undercounted by roughly 35x, which is the real cause of the
+            // long-standing "turn counter red but context shows 19%" mismatch.
+            // The old coverage correction could not save it either: _questions was
+            // rebuilt from live DOM on every scan, so nInDOM always equalled
+            // _questions.length and coverage was always exactly 1.0.
             var domChars = 0;
-            var anchor = _questions.length > 0 ? _questions[0].element : null;
-            var scrollNode = anchor ? anchor.parentElement : null;
-            var scrollFound = false;
-            while (scrollNode && scrollNode !== document.body) {
-                var st = window.getComputedStyle(scrollNode);
-                if (st.overflowY === 'auto' || st.overflowY === 'scroll' ||
-                    st.overflow  === 'auto' || st.overflow  === 'scroll') {
-                    domChars = (scrollNode.innerText || '').length;
-                    scrollFound = true;
-                    break;
+            var domTokens;
+            if (ciIsReady()) {
+                domChars  = ciTotalChars();
+                domTokens = Math.round(domChars / 4);
+            } else {
+                var scrollNode = ciFindScrollContainer();
+                if (scrollNode) domChars = (scrollNode.innerText || '').length;
+                if (!domChars) {
+                    domChars = _questions.reduce(function (s, q) { return s + q.text.length; }, 0) * 3;
                 }
-                scrollNode = scrollNode.parentElement;
+                var nInDOM = _questions.filter(function (q) {
+                    return q.element && document.body.contains(q.element);
+                }).length;
+                var coverage = nInDOM / Math.max(1, _questions.length);
+                domTokens = Math.round((domChars / 4) / Math.max(0.25, coverage));
             }
-            if (!scrollFound || domChars === 0) {
-                domChars = _questions.reduce(function (s, q) { return s + q.text.length; }, 0) * 3;
-            }
-            // Virtual scroll correction: scale up if only a portion of turns is in DOM
-            var nInDOM = _questions.filter(function (q) {
-                return q.element && document.body.contains(q.element);
-            }).length;
-            var coverage = nInDOM / Math.max(1, _questions.length);
-            var domTokens = Math.round((domChars / 4) / Math.max(0.25, coverage));
 
             // ── SSE: cumulative thinking tokens (invisible in DOM) ──────
-            var thinkingTokens = Math.round(_sseTokenData.cumulativeThinkingChars / 4);
+            // max() with the INDEXED total: SSE only accumulates thinking streamed in
+            // THIS session, so the first streamed answer used to replace the whole
+            // history's thinking with one turn's worth and the display dropped
+            // sharply (Codex :4855). The index carries history; SSE covers turns the
+            // index has not refetched yet; max() never double-counts.
+            // The two sources measure OVERLAPPING ranges: the index carries all history as
+            // of its fetch, SSE carries whatever streamed in this session. max() was chosen
+            // to stop one streamed answer replacing the whole history — but it also DISCARDS
+            // the new answer whenever the indexed history is larger, which is the normal
+            // case after opening an old conversation and generating one response. The new
+            // thinking then stayed invisible until a later refetch (Codex).
+            //
+            // Add only the SSE growth SINCE the index was built. A refetch re-baselines, so
+            // thinking that has been absorbed into the index is never counted twice.
+            var thinkChars = _sseTokenData.cumulativeThinkingChars || 0;
+            if (ciIsReady()) {
+                thinkChars = ciTotalThinkingChars() +
+                             Math.max(0, thinkChars - _sseThinkAtIndex);
+            }
+            var thinkingTokens = Math.round(thinkChars / 4);
 
             // ── System overhead: system prompt + tool defs + memory/project instructions ─
             // Dynamic: 50K for Claude Projects (detected via URL), 30K for standard chat.
@@ -2712,36 +5791,39 @@
 
     function _renderEstimatedBar(pct, fill, meta, limit) {
         var totalChars = 0;
-        var anchor = _questions.length > 0 ? _questions[0].element : null;
-        var node   = anchor ? anchor.parentElement : null;
-        var found  = false;
+        var estTokens;
+        var node  = null;
+        var found = false;
 
-        while (node && node !== document.body) {
-            var st = window.getComputedStyle(node);
-            if (st.overflowY === 'auto' || st.overflowY === 'scroll' ||
-                st.overflow  === 'auto' || st.overflow  === 'scroll') {
-                totalChars = (node.innerText || '').length;
-                found = true;
-                break;
+        // Same correction as Path A — see the comment there. On Firefox this is the
+        // ONLY path (SSE interception is disabled per DEC-020), so the undercount
+        // was permanent for Firefox users.
+        if (ciIsReady()) {
+            totalChars = ciTotalChars();
+            estTokens  = Math.round(totalChars / 4);
+            node       = ciFindScrollContainer();
+            found      = !!node;
+        } else {
+            node  = ciFindScrollContainer();
+            found = !!node;
+            if (found) totalChars = (node.innerText || '').length;
+            if (!totalChars) {
+                totalChars = _questions.reduce(function (s, q) { return s + q.text.length; }, 0) * 3;
             }
-            node = node.parentElement;
+            var nInDOM   = _questions.filter(function(q) { return q.element && document.body.contains(q.element); }).length;
+            var coverage = nInDOM / Math.max(1, _questions.length);
+            estTokens = Math.round((totalChars / 4) / Math.max(0.25, coverage));
         }
-
-        if (!found || totalChars === 0) {
-            totalChars = _questions.reduce(function (s, q) { return s + q.text.length; }, 0) * 3;
-        }
-
-        // Correct for virtual scroll: if _questions has more entries than are currently in
-        // the DOM, the innerText only covers the live DOM portion — scale up accordingly.
-        var nInDOM   = _questions.filter(function(q) { return q.element && document.body.contains(q.element); }).length;
-        var coverage = nInDOM / Math.max(1, _questions.length);
-        var estTokens = Math.round((totalChars / 4) / Math.max(0.25, coverage));
 
         // For Claude: add invisible overhead that DOM scraping can never see.
         // (1) System prompt + tool defs — same dynamic estimate as Path A for consistency.
         // (2) Extended thinking — each collapsed [aria-expanded] thinking summary in the
         //     conversation represents hidden thinking content (~600 tokens each on average).
-        if (platform && platform.id === 'claude' && found && node) {
+        if (platform && platform.id === 'claude' && ciIsReady()) {
+            // Real thinking content from the index — no heuristic needed.
+            estTokens += _estimateClaudeOverhead();
+            estTokens += Math.round(ciTotalThinkingChars() / 4);
+        } else if (platform && platform.id === 'claude' && found && node) {
             estTokens += _estimateClaudeOverhead();
             var uiKw = ['hide','show','expand','collapse','menu','chat','chats','project','artifact','recent','starred'];
             var thinkingCount = 0;
@@ -2892,25 +5974,169 @@
         }
     }
 
-    function orbScrollToQuestion(q) {
-        var target = q.element;
+    function _prefersReducedMotion() {
+        try {
+            return window.matchMedia &&
+                   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        } catch (e) { return false; }
+    }
 
-        // Virtual scroll: element may have been recycled — try to re-find it
-        if (isVirtualScroll && target && !target.isConnected) {
-            var searchText = q.text.substring(0, 200);
-            var current = getUserMessages();
-            var found = null;
-            for (var i = 0; i < current.length; i++) {
-                if ((current[i].textContent || '').trim().substring(0, 200) === searchText) {
-                    found = current[i];
-                    break;
-                }
-            }
-            if (!found) return; // not in DOM right now
-            target = found;
+    // A multi-iteration jump can take a second or more; the panel must not look
+    // frozen. Marks the panel busy and disables further clicks while in flight.
+    // Token-aware so a SUPERSEDED jump cannot clear the busy state of the jump that
+    // superseded it. Without this, a second click started jump B, jump A was cancelled,
+    // and A's completion callback cleared the flag while B was still running — leaving B
+    // unguarded and firing a spurious failure toast.
+    var _ciBusyToken = 0;
+
+    function orbSetJumpBusyFor(token, busy) {
+        if (busy) { _ciBusyToken = token; orbSetJumpBusy(true); return; }
+        if (token !== _ciBusyToken) return;   // a newer jump owns the flag
+        orbSetJumpBusy(false);
+    }
+
+    function orbSetJumpBusy(busy) {
+        // Mark BOTH panels that can start a jump. An earlier version only marked the
+        // Navigate panel, so a bookmark-initiated jump gave no feedback at all for its
+        // whole multi-second duration.
+        // Search included: its results can start jumps too (unmounted assistant
+        // matches route through the bridge), and without the guard repeated result
+        // clicks supersede and restart the in-flight jump (Codex :5143).
+        // Summary included for the same reason Search was: its conversation-map
+        // segments and code/file inventory rows start jumps too, and only one panel is
+        // open at a time — so marking the other three left the panel the user is
+        // actually looking at undimmed and fully clickable for the whole jump.
+        var ids = ['acn-panel-nav', 'acn-panel-bookmarks', 'acn-panel-search', 'acn-panel-summary'];
+        for (var i = 0; i < ids.length; i++) {
+            var panel = document.getElementById(ids[i]);
+            if (!panel) continue;
+            if (busy) panel.setAttribute('data-acn-jumping', 'true');
+            else panel.removeAttribute('data-acn-jumping');
         }
+        // Dimming alone left the list fully interactive despite the comment claiming
+        // otherwise; the click-blocking is done by the [data-acn-jumping] CSS rule.
+        // getElementById('acn-bm-list') was always null — the bookmarks list is an
+        // unnamed .acn-ql inside #acn-panel-bookmarks. Dim by structure instead.
+        var list = document.getElementById('acn-nav-list');
+        if (list) list.style.opacity = busy ? '0.55' : '';
+        var bmPanel = document.getElementById('acn-panel-bookmarks');
+        var bmList  = bmPanel ? bmPanel.querySelector('.acn-ql') : null;
+        if (bmList) bmList.style.opacity = busy ? '0.55' : '';
+    }
 
-        if (!target) return;
+    // ONE MATCHER. The same 3a/3b arrival resolution the settle loop uses —
+    // markdown-tolerant, candidate-range disambiguation, both senders — applied to a
+    // path index. Returns the live mounted node for that entry, or null when it is
+    // not mounted or cannot be resolved unambiguously here.
+    //
+    // Every caller that holds a path index and wants a DOM node goes through this.
+    // The fast path runs far more often than the loop, so a second matcher is where
+    // drift would start; there isn't one. Callers must treat null as "not mounted"
+    // and route through the jump bridge rather than falling back to a cached node —
+    // a cached node is exactly what this function exists to distrust.
+    // Identity of the index a stored path index was minted against. A path index is
+    // ONLY meaningful for the exact conversation AND index generation it came from:
+    // ciBuildIndex replaces _ciFullPath wholesale on an edit/regenerate resync and
+    // bumps _ciIndexGen for that reason, and Claude is registered spa:false so a
+    // conversation switch never tears long-lived panels down. Navigate (:_ciIndexGen
+    // in its fingerprint) and Search already key on this pair; anything else holding
+    // a raw ordinal across time must compare it too, or it addresses another
+    // conversation's messages with full confidence.
+    function ciIndexStamp() {
+        if (!(ciIsClaudeChat() && ciIsReady())) return null;
+        return String(_ciConversationId) + '|g' + _ciIndexGen;
+    }
+
+    function ciResolveMountedByPathIndex(pathIdx) {
+        if (!(ciIsClaudeChat() && ciIsReady() && _ciFullPath)) return null;
+        // isFinite rejects NaN, which typeof calls a number and which both bounds
+        // comparisons then let through — it would reach ciResolveFromPairs, leave
+        // `near` null and throw out of a click handler.
+        if (typeof pathIdx !== 'number' || !isFinite(pathIdx) ||
+            pathIdx < 0 || pathIdx >= _ciFullPath.length) return null;
+        var rows = ciMountedRows();
+        var u = Math.max(0, _ciFullPath.length - (ciTotalRows() || _ciFullPath.length));
+        var hit = ciMatchTargetInWindow(pathIdx, rows, u);
+        if (hit) return ciMessageNodeWithin(hit.el);
+        var meta = {};
+        var res = ciResolveFromPairs(ciLocalPairs(rows), pathIdx, u, meta);
+        if (res !== null && meta.exact) {
+            var el = ciRowElement(res);
+            if (el) return ciMessageNodeWithin(el);
+        }
+        return null;
+    }
+
+    // Re-locates a question's DOM node among whatever is mounted right now.
+    // Under recycling the stored element reference goes stale constantly, so
+    // matching on normalized text is the only durable handle we have until the
+    // node carries a stable id.
+    function _relocateQuestionElement(q) {
+        // Index-backed disambiguation first. Matching on normalized text alone returns
+        // the FIRST mounted match, so a repeated question — or two sharing a 200-char
+        // prefix — resolves to the wrong one, and the caller then treats the question as
+        // found and never enters the jump. q.pathIndex is authoritative; use it.
+        if (ciIsClaudeChat() && ciIsReady() && !q.provisional &&
+            typeof q.pathIndex === 'number' && _ciFullPath) {
+            // Not mounted (or not resolvable here) returns null, and the caller falls
+            // through to the jump rather than accepting a same-text impostor.
+            return ciResolveMountedByPathIndex(q.pathIndex);
+        }
+        // isConnected alone is NOT sufficient. Under recycling the virtualizer reuses
+        // the same DOM node for a different message, so a still-connected node can be
+        // displaying different content — the same trap the bookmark-icon guard
+        // documents. Re-validate the text before trusting the cached reference.
+        if (q.element && q.element.isConnected &&
+            _normalizeKey(_readMessageText(q.element)) === _normalizeKey(q.text)) {
+            return q.element;
+        }
+        var wanted  = _normalizeKey(q.text);
+        var current = Array.from(getUserMessages());
+        for (var i = 0; i < current.length; i++) {
+            if (_normalizeKey(_readMessageText(current[i])) === wanted) return current[i];
+        }
+        return null;
+    }
+
+    function orbScrollToQuestion(q) {
+        var target = _relocateQuestionElement(q);
+
+        // Not mounted. On Claude the settle loop can page the virtualizer to it.
+        // The other 13 platforms are not known to virtualize, so they short-circuit
+        // here and keep the plain behaviour — the seam stays clean for the
+        // cross-platform audit to add platforms later.
+        if (!target) {
+            // pathIndex must be a REAL position in the active path. Provisional
+            // entries (DOM-merged, not yet in the index) carry MAX_SAFE_INTEGER as
+            // a sort key — jumping to that would burn all 8 iterations chasing a
+            // row that cannot exist.
+            if (ciIsClaudeChat() && ciIsReady() && _ciFullPath &&
+                !q.provisional && typeof q.pathIndex === 'number' &&
+                q.pathIndex >= 0 && q.pathIndex < _ciFullPath.length) {
+                ciJumpToFullPathIndex(q.pathIndex, function (ok, el, reason) {
+                    if (ok && el) {
+                        q.element = el;
+                        orbMarkJumpTarget(el);
+                        el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+                        orbFlashElement(el);
+                    } else if (reason !== 'superseded' && reason !== 'user') {
+                        // Honest failure retained — but only for a genuine miss. A
+                        // superseded jump or a user-initiated scroll is not a failure.
+                        showToast('That message is not currently rendered — scroll toward it and try again');
+                    }
+                });
+                return;
+            }
+            showToast('That message is not currently rendered — scroll toward it and try again');
+            return;
+        }
+        q.element = target;
+        // The fast path IS a resolution — the target was found mounted and verified.
+        // Publishing it through the same contract as the settle loop keeps success
+        // observable on ONE channel: without this, a sequential sweep (click Q1, then
+        // Q2...) reported 147/147 failures while every jump was actually correct,
+        // because each next target sat inside the mount window and resolved here.
+        orbMarkJumpTarget(target);
 
         if (isLeftChat) {
             // Close panel first so it doesn't obscure the chat
@@ -2925,11 +6151,57 @@
         }
     }
 
+    // Publishes WHICH element a jump actually resolved, as part of the data-acn-*
+    // test contract.
+    //
+    // Why this exists: a mutation test proved the suite could not tell a correct jump
+    // from a confidently wrong one. Asserting on post-hoc DOM state — "is row N mounted
+    // and does it read right" — passes even when the navigator resolved a DIFFERENT
+    // message, because the mount window is several rows wide and an off-by-one target
+    // lands in the same window. Forcing the row offset to 0 and stubbing verification
+    // to true made the jump resolve the ASSISTANT reply instead of the question, and
+    // the whole suite stayed green. The only sound assertion is on the element the
+    // implementation handed back, so it has to be observable.
+    function orbMarkJumpTarget(el) {
+        var prev = document.querySelectorAll('[data-acn-jump-target]');
+        for (var i = 0; i < prev.length; i++) prev[i].removeAttribute('data-acn-jump-target');
+        if (el && el.setAttribute) el.setAttribute('data-acn-jump-target', 'true');
+
+        // ALSO record the resolution on the zone, which is stable.
+        // Marking only the element is not enough: scrollIntoView fires a scroll, the
+        // virtualizer re-renders, and the resolved node is detached before anything can
+        // read it — the mark disappears precisely because virtualization works. The row
+        // index is the durable identity.
+        var zone = document.getElementById('acn-zone');
+        if (!zone) return;
+        var rowEl = (el && el.closest) ? el.closest('[' + CI_ROW_ATTR + ']') : null;
+        if (rowEl) zone.setAttribute('data-acn-jump-resolved', rowEl.getAttribute(CI_ROW_ATTR));
+        else zone.removeAttribute('data-acn-jump-resolved');
+    }
+
     function orbFlashElement(el) {
-        var orig = el.style.backgroundColor;
+        if (!el) return;
+        // Re-entrancy: a second flash within the window would capture the FIRST flash's
+        // tint as "original" and write it back permanently. Cancel any flash already in
+        // progress on this node and restore its true baseline first.
+        if (el.__acnFlash) {
+            clearTimeout(el.__acnFlash.timer);
+            el.style.backgroundColor = el.__acnFlash.bg;
+            el.style.transition      = el.__acnFlash.tran;
+            el.__acnFlash = null;
+        }
+        var orig     = el.style.backgroundColor;
+        var origTran = el.style.transition;
         el.style.backgroundColor = 'rgba(' + orbTheme.rgb + ',.15)';
         el.style.transition = 'background-color .3s';
-        setTimeout(function () { el.style.backgroundColor = orig; }, 1500);
+        var timer = setTimeout(function () {
+            el.__acnFlash = null;
+            // Always restore, connected or not: skipping cleanup on a detached node left
+            // our inline background/transition on a row the virtualizer can re-attach.
+            el.style.backgroundColor = orig;
+            el.style.transition = origTran;
+        }, 1500);
+        el.__acnFlash = { timer: timer, bg: orig, tran: origTran };
     }
 
     // ============================================================
@@ -2949,7 +6221,24 @@
         // Skip DOM teardown+rebuild if query and data are unchanged — prevents hover
         // flicker caused by MutationObserver firing orbOnScanComplete every ~500ms
         if (q) {
-            var sfp = q + '|' + _questions.length + '|' + (_aiResponses ? _aiResponses.length : 0);
+            // _ciIndexGen: a regenerated/edited branch can swap the index with
+            // UNCHANGED counts; without the generation the early-return kept showing
+            // the old branch's results until the query changed (Codex R5 :1617).
+            // Live response LENGTH, not just counts. While Claude streams, the text of
+            // the mounted response changes without changing the query, the question count,
+            // the mounted-response count or the index generation — so the early return kept
+            // showing stale results and a query that said "No matches" never discovered a
+            // phrase generated seconds later in the same answer (Codex). Length is a cheap
+            // monotonic proxy for "the visible answer grew".
+            var liveLen = 0;
+            if (_aiResponses) {
+                for (var lf = 0; lf < _aiResponses.length; lf++) {
+                    var lfEl = _aiResponses[lf];
+                    if (lfEl && lfEl.textContent) liveLen += lfEl.textContent.length;
+                }
+            }
+            var sfp = q + '|' + _questions.length + '|' + (_aiResponses ? _aiResponses.length : 0) +
+                      '|g' + _ciIndexGen + '|L' + liveLen;
             if (sfp === _searchListFingerprint && list.firstChild) return;
             _searchListFingerprint = sfp;
         }
@@ -2972,10 +6261,17 @@
         var questionMatches = [];
         if (typeof _questions !== 'undefined') {
             _questions.forEach(function (msg, idx) {
-                if (msg.text.toLowerCase().indexOf(qLower) !== -1) {
+                // Indexed questions hold RAW MARKDOWN, so a phrase the user can SEE
+                // ("important word" from "**important** word") is absent from a literal
+                // match — worst for an UNMOUNTED prompt, where no rendered DOM text exists
+                // to fall back on. Flatten for matching and display, exactly as the indexed
+                // assistant side does. msg.text itself is untouched: jump matching,
+                // bookmarks and Summary all depend on it (Codex).
+                var qFlat = _mdVisible(msg.text || '');
+                if (qFlat.toLowerCase().indexOf(qLower) !== -1) {
                     questionMatches.push({
                         element:   msg.element,
-                        text:      msg.text,
+                        text:      qFlat,
                         labelText: 'Q#' + (idx + 1),
                         isAI:      false,
                         qObj:      msg
@@ -2985,10 +6281,97 @@
         }
 
         // --- Gather AI-response matches ---
+        // Index-backed when available. _aiResponses is rebuilt from mounted DOM on
+        // every scan, so on a virtualized platform it holds only the ~3 visible
+        // responses — searching it alone matched every indexed QUESTION but only
+        // the on-screen ANSWERS, which fails the "search anywhere in the
+        // conversation" requirement for half the conversation.
         var aiMatches = [];
-        if (typeof _aiResponses !== 'undefined') {
+        if (ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
+            // Mounted assistant rows, by path index where they resolve. The index alone
+            // cannot answer for the response being generated: the snapshot may end at the
+            // human prompt (the row is off-snapshot entirely) or hold only an early partial
+            // (everything generated since is missing). Both are text the user can SEE, so
+            // the DOM is unioned in below (Codex).
+            var liveByPath = {};
+            var liveExtra  = [];
+            var liveRows   = ciMountedRows();
+            for (var lr = 0; lr < liveRows.length; lr++) {
+                if (liveRows[lr].isUser) continue;
+                var lNode = ciMessageNodeWithin(liveRows[lr].el);
+                if (!lNode) continue;
+                var lPath = ciResolvePathForRowStrict(liveRows[lr].dataIndex);
+                // A null strict resolution means NOT MEASURED, not necessarily absent
+                // from the snapshot — a short tail answer below the 60-char matching floor
+                // cannot anchor, and one adjacent user anchor is not enough. Treating those
+                // as extra listed them twice, misnumbered, with the duplicate carrying no
+                // uuid (Codex). Only rows PROVEN beyond the snapshot qualify.
+                if (lPath !== null) liveByPath[lPath] = lNode;
+                else if (_ciRenderable && liveRows[lr].dataIndex >= _ciRenderable.length) {
+                    liveExtra.push(lNode);
+                }
+            }
+
+            var seenPaths = {};
+            var aiSeq = 0;
+            for (var fp = 0; fp < _ciFullPath.length; fp++) {
+                if (_ciFullPath[fp].sender === 'human') continue;
+                // Interrupted/superseded entries have NO virtualizer row: a click could
+                // never land, and the mapping fallback could report a neighbouring row
+                // as success (Codex R6 :5544). They are not reachable content.
+                // EXCEPTION: the TAIL entry without a stop_reason is the response being
+                // generated RIGHT NOW. Its row is mounted and its partial text is on
+                // screen, so excluding it made the current answer unsearchable until the
+                // next refresh — up to a cooldown away (Codex). Only mid-path entries are
+                // genuinely unreachable.
+                if (!ciEntryRenders(_ciFullPath[fp]) && fp !== _ciFullPath.length - 1) continue;
+                aiSeq++;
+                var aiText = _ciFullPath[fp].text || '';
+                // The index holds RAW MARKDOWN while the user searches the RENDERED text,
+                // so a visible phrase spanning formatting — "important word" from
+                // "**important** word", or text around a link — does not occur literally in
+                // the raw string and was silently missed by full-history search (Codex).
+                // Match AND display the flattened form: _mdFlatten removes the markers
+                // without lowercasing or truncating, so the snippet stays readable and the
+                // highlight offsets computed by the renderer still line up.
+                var aiFlat = _mdVisible(aiText);
+                // For the TAIL entry the DOM is fresher than the snapshot — it holds
+                // everything generated since the fetch — so prefer it when mounted. Its own
+                // text is already rendered, so no flattening applies.
+                var isTail = (fp === _ciFullPath.length - 1);
+                if (isTail && liveByPath[fp]) aiFlat = _readAIText(liveByPath[fp]) || aiFlat;
+                seenPaths[fp] = true;
+                if (aiFlat.toLowerCase().indexOf(qLower) === -1) continue;
+                aiMatches.push({
+                    element:   (isTail && liveByPath[fp]) ? liveByPath[fp] : null,
+                    text:      aiFlat,
+                    labelText: 'A#' + aiSeq,
+                    isAI:      true,
+                    qObj:      null,
+                    uuid:      _ciFullPath[fp].uuid,
+                    pathIndex: fp
+                });
+            }
+            // Assistant rows that resolve to NO path entry: the live response when the
+            // snapshot ends at the human prompt. Not in the index at any position, so they
+            // carry element identity only and are matched on rendered text.
+            for (var le = 0; le < liveExtra.length; le++) {
+                var leText = _readAIText(liveExtra[le]) || '';
+                if (!leText || leText.toLowerCase().indexOf(qLower) === -1) continue;
+                aiSeq++;
+                aiMatches.push({
+                    element:   liveExtra[le],
+                    text:      leText,
+                    labelText: 'A#' + aiSeq,
+                    isAI:      true,
+                    qObj:      null,
+                    uuid:      null,
+                    pathIndex: null
+                });
+            }
+        } else if (typeof _aiResponses !== 'undefined') {
             _aiResponses.forEach(function (el, idx) {
-                var text = (el.textContent || '').trim();
+                var text = _readAIText(el);
                 if (text.toLowerCase().indexOf(qLower) !== -1) {
                     aiMatches.push({
                         element:   el,
@@ -3012,8 +6395,16 @@
             return;
         }
 
-        // Sort all matches by DOM position
+        // Sort by conversation position. Under virtualization almost every indexed
+        // match has element:null, so the DOM comparator returned 0 for them and the
+        // list stayed in concatenation order — all questions, then all answers
+        // (Codex round-1 P2). Path position is authoritative when either side has it.
         allMatches.sort(function (a, b) {
+            var ap = a.qObj ? a.qObj.pathIndex : a.pathIndex;
+            var bp = b.qObj ? b.qObj.pathIndex : b.pathIndex;
+            if (typeof ap === 'number' && typeof bp === 'number' && ap !== bp) {
+                return ap - bp;
+            }
             if (!a.element || !b.element) return 0;
             var pos = a.element.compareDocumentPosition(b.element);
             if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
@@ -3066,9 +6457,100 @@
                 return function () {
                     if (!m.isAI && m.qObj) {
                         orbScrollToQuestion(m.qObj);
-                    } else {
-                        orbScrollToMessage(m.element);
+                        return;
                     }
+                    // Index-backed AI matches carry no element — the message may not
+                    // be mounted. Try to locate it among what IS mounted, and fail
+                    // visibly rather than silently doing nothing.
+                    var target = m.element;
+                    // A CONNECTED node can still be the WRONG message: Claude recycles
+                    // rows, and the panel outlives a scroll (its fingerprint tracks result
+                    // counts, so the stale click closure survives). Neither branch below
+                    // re-examines a connected node, so it was trusted and the click jumped
+                    // to whatever answer now occupied it (Codex).
+                    //
+                    // Restricted to NON-index-backed matches on purpose. Those store text
+                    // from the same extractor used here (_readAIText), so the comparison is
+                    // sound — whereas an indexed match's text is RAW API MARKDOWN, which
+                    // legitimately differs from rendered DOM text and would invalidate
+                    // every target. Indexed matches carry no element anyway; their identity
+                    // comes from row resolution just below.
+                    // FULL comparison, not _normalizeKey: that caps at 200 chars, so a
+                    // response recycled onto another sharing a long boilerplate opening
+                    // would still have been accepted — the very case this rejects (Codex).
+                    if (target && typeof m.pathIndex !== 'number' &&
+                        _normalizeFull(_readAIText(target)) !== _normalizeFull(m.text)) {
+                        target = null;
+                    }
+                    // ALWAYS re-resolve an INDEXED target by row identity — never trust a
+                    // cached node, not even a connected one. Round 18 gave the mounted tail
+                    // match an element, and that let a connected-but-recycled node skip both
+                    // guards: text validation is deliberately off for indexed matches (their
+                    // text is raw markdown, which cannot be compared to rendered DOM text),
+                    // and this branch used to be gated on the node being DISCONNECTED. The
+                    // click then scrolled confidently to whatever response now occupied it.
+                    // Same rule _sumScrollToElement follows (Codex).
+                    if (typeof m.pathIndex === 'number' && ciIsClaudeChat() && ciIsReady()) {
+                        target = null;
+                        // INDEXED match: resolve by ROW IDENTITY only. The old
+                        // text-prefix scan accepted the first mounted response sharing
+                        // the same 200-char normalized prefix, so boilerplate-prefixed
+                        // answers scrolled to the wrong message (Codex R4). A mounted
+                        // row that RESOLVES to this match's path entry is the target;
+                        // anything else falls through to the uuid jump bridge below.
+                        var mrows = ciMountedRows();
+                        for (var ri = 0; ri < mrows.length; ri++) {
+                            if (mrows[ri].isUser) continue;
+                            var rp = ciResolvePathForRowStrict(mrows[ri].dataIndex);
+                            if (rp === null) rp = ciMatchRowToPath(mrows[ri]);
+                            if (rp === m.pathIndex) {
+                                target = ciMessageNodeWithin(mrows[ri].el);
+                                break;
+                            }
+                        }
+                    } else if (!target || !target.isConnected) {
+                        // Non-indexed platforms: text matching is all there is.
+                        var wanted = _normalizeKey(m.text);
+                        var live   = Array.from(getAIMessages());
+                        for (var i = 0; i < live.length; i++) {
+                            // MUST use the same extractor the stored text came from
+                            // (_readAIText) — raw textContent includes our injected
+                            // bookmark glyph.
+                            if (_normalizeKey(_readAIText(live[i])) === wanted) {
+                                target = live[i];
+                                break;
+                            }
+                        }
+                    }
+                    if (!target) {
+                        // Unmounted assistant match: resolve its uuid to a path index
+                        // and use the jump bridge — the settle loop supports assistant
+                        // rows. Toast only when even that cannot resolve (Codex P1).
+                        var jp = null;
+                        if (m.uuid && ciIsReady() && _ciFullPath) {
+                            if (typeof m.pathIndex === 'number') jp = m.pathIndex;
+                            else {
+                                for (var pi = 0; pi < _ciFullPath.length; pi++) {
+                                    if (_ciFullPath[pi].uuid === m.uuid) { jp = pi; break; }
+                                }
+                            }
+                        }
+                        if (jp !== null) {
+                            ciJumpToFullPathIndex(jp, function (ok, el2, reason) {
+                                if (ok && el2) {
+                                    orbMarkJumpTarget(el2);
+                                    el2.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+                                    orbFlashElement(el2);
+                                } else if (reason !== 'superseded' && reason !== 'user') {
+                                    showToast('That message is not currently rendered — scroll toward it and try again');
+                                }
+                            });
+                            return;
+                        }
+                        showToast('That message is not currently rendered — scroll toward it and try again');
+                        return;
+                    }
+                    orbScrollToMessage(target);
                 };
             }(match)));
 
@@ -3184,8 +6666,10 @@
 
     var BOOKMARK_KEY = 'acn-bookmarks-v1';
 
-    function contentHash(text, msgIndex) {
-        var str = String(msgIndex) + '|' + (text || '').substring(0, 200);
+    // FNV-1a, 8 hex chars. Extracted so the resync signature can fingerprint FULL text
+    // without duplicating the hash; contentHash's own output is unchanged, which matters
+    // because schema-1 bookmark ids are derived from it and must stay stable.
+    function _fnv1aHex(str) {
         var h = 0x811c9dc5;
         for (var i = 0; i < str.length; i++) {
             h ^= str.charCodeAt(i);
@@ -3193,6 +6677,10 @@
             h = h >>> 0;
         }
         return ('00000000' + h.toString(16)).slice(-8);
+    }
+
+    function contentHash(text, msgIndex) {
+        return _fnv1aHex(String(msgIndex) + '|' + (text || '').substring(0, 200));
     }
 
     function normalizeConversationUrl() {
@@ -3227,6 +6715,23 @@
         } catch (e) {}
     }
 
+    // Removal must also RESET icon state. A pre-v12 bookmark's mounted icon
+    // carries the new uuid identity while the stored record kept its legacy hash;
+    // removal by the stored hash cannot find that icon, and injectBookmarkIcons'
+    // identity guard then skips recomputing it — the flag stayed visibly active and
+    // clicking it re-added the bookmark (Codex R9 :6118). Clearing the recorded
+    // identity on every mounted icon forces the next scan to rebuild all of them
+    // from the now-current store; a handful of icons is cheap.
+    function _bmResetIconState() {
+        var marked = document.querySelectorAll('[data-acn-bookmarked]');
+        for (var i = 0; i < marked.length; i++) {
+            marked[i].removeAttribute('data-acn-bookmarked');
+            var ic = marked[i].querySelector('[data-acn-bookmark]');
+            if (ic && ic.parentNode) ic.parentNode.removeChild(ic);
+        }
+        if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
+    }
+
     function removeBookmark(bookmarkId) {
         var store = getBookmarks();
         var url   = normalizeConversationUrl();
@@ -3237,15 +6742,168 @@
         try {
             GM_setValue(BOOKMARK_KEY, JSON.stringify(store));
         } catch (e) {}
+        _bmResetIconState();
+    }
+
+    // Index generation whose provisional bookmarks have already been migrated, so the
+    // walk below runs once per rebuild rather than once per mutation batch.
+    var _bmMigratedGen = -1;
+
+    // Occurrence identity for a provisional bookmark: the 0-based ordinal of its message
+    // among turns OF ITS OWN SENDER. _questions is exactly that list for human turns, in
+    // path order, with provisional entries appended — so the element's position in it is
+    // the ordinal. There is no equivalent list for assistant turns that includes
+    // provisionals, so assistants return -1 and rely on the row route below instead.
+    function _bmSenderOrdinalOf(el, entityType) {
+        if (!el || entityType !== 'user-msg') return -1;
+        // EXACT or nothing. _ciBindMountedElements falls back to a text map, which
+        // assigns the ONE mounted node to EVERY same-text question — so for a repeated
+        // prompt several _questions entries share this element and the first match is the
+        // earliest twin, not the clicked message. Migration could not catch that: twins
+        // have identical text, so its text check passes and the wrong uuid is persisted
+        // permanently (Codex). When the element is shared, leave the ordinal unset and let
+        // row identity decide, or let the record stay provisional.
+        var found = -1;
+        for (var i = 0; i < _questions.length; i++) {
+            if (_questions[i].element !== el) continue;
+            if (found !== -1) return -1;   // ambiguous — more than one entry claims it
+            found = i;
+        }
+        return found;
+    }
+
+    // The virtualizer's own row index for an element, or -1. Persisted on a provisional
+    // record so migration can re-resolve it after the index rebuild — this is what makes
+    // ASSISTANT provisionals migratable at all, since they have no provisional-aware
+    // ordinal list (Codex).
+    function _bmRowIndexOf(el) {
+        if (!el || !el.closest) return -1;
+        var rowEl = el.closest('[' + CI_ROW_ATTR + ']');
+        if (!rowEl) return -1;
+        var di = parseInt(rowEl.getAttribute(CI_ROW_ATTR), 10);
+        return isNaN(di) ? -1 : di;
+    }
+
+    // Resolves a provisional record to a uuid.
+    //
+    // Text alone cannot do it for a REPEATED prompt: the text map deliberately poisons
+    // duplicate keys rather than first-wins guessing, so a second "continue" returns null
+    // on every generation, forever, and the record can never leave schema 1 (Codex).
+    // The occurrence ordinal disambiguates it — but position is only ever used when it
+    // CONFIRMS the stored text. A bare positional read is what the schema-2 migration
+    // exists to eliminate, and a wrong uuid here would be persisted.
+    function _bmUuidForProvisional(b) {
+        var want = b.pendingHash;
+        if (!want || !_ciFullPath) return null;
+        function entryHash(e) { return _fnv1aHex(_normalizeCompare(e.text || '')); }
+
+        // UNIQUENESS GATE, ahead of every route.
+        //
+        // A wrong migration is wrong FOREVER: the record becomes schema 2, migration skips
+        // it thereafter because it looks bound, and both the jump AND the toggle then act on
+        // the wrong message. Routes 1 and 2 verify by hash, but they are anchored to a
+        // POSITION captured before the path changed — so if the path shifted such that the
+        // anchor lands on a DIFFERENT message with identical text, the hash check passes and
+        // the wrong uuid is persisted. Repeated prompts ("continue", "ok") are exactly that
+        // shape, and no test exercises any of this.
+        //
+        // So: bind only when the text is unique in the path. A duplicate-text message stays
+        // provisional and keeps resolving whenever it is mounted, which is the honest
+        // outcome — strictly better than a permanently wrong bookmark. This subsumes route
+        // 3's own ambiguity check and closes the same hole in routes 1 and 2.
+        var occurrences = 0;
+        for (var u = 0; u < _ciFullPath.length && occurrences < 2; u++) {
+            if (entryHash(_ciFullPath[u]) === want) occurrences++;
+        }
+        if (occurrences !== 1) return null;
+
+        // Route 1 — the virtualizer's own row index, re-resolved against the rebuilt path.
+        // The only route available to an ASSISTANT provisional, and the strongest one when
+        // the row is still mounted.
+        if (typeof b.pendingRow === 'number' && b.pendingRow >= 0) {
+            var rp = ciResolvePathForRowStrict(b.pendingRow);
+            if (rp !== null && _ciFullPath[rp] && entryHash(_ciFullPath[rp]) === want) {
+                return _ciFullPath[rp].uuid || null;
+            }
+        }
+
+        // Route 2 — ordinal among turns of the record's OWN sender. An earlier version
+        // scanned human entries unconditionally, so an assistant record was compared
+        // against the wrong sequence entirely (Codex).
+        if (typeof b.pendingOrdinal === 'number' && b.pendingOrdinal >= 0) {
+            var wantSender = (b.pendingSender === 'ai-msg') ? 'assistant' : 'human';
+            var seen = -1;
+            for (var i = 0; i < _ciFullPath.length; i++) {
+                if (_ciFullPath[i].sender !== wantSender) continue;
+                seen++;
+                if (seen !== b.pendingOrdinal) continue;
+                if (entryHash(_ciFullPath[i]) === want) {
+                    return _ciFullPath[i].uuid || null;
+                }
+                break;   // ordinal exists but its text moved — do not guess from position
+            }
+        }
+
+        // Route 3 — the single hash match. The gate above already proved there is exactly
+        // one, so this is a lookup, not a disambiguation: it is reached when both position
+        // anchors are missing or stale, and the text alone identifies the message.
+        for (var k = 0; k < _ciFullPath.length; k++) {
+            if (entryHash(_ciFullPath[k]) === want) return _ciFullPath[k].uuid || null;
+        }
+        return null;
+    }
+
+    // Binds provisional bookmarks to their message uuid as soon as a refreshed index
+    // knows it.
+    //
+    // Bookmarking a just-sent Claude prompt happens BEFORE the refetch assigns a uuid, so
+    // the record is schema 1 with no msgUuid and no path index. Once that prompt scrolls
+    // out of the mount window the click can neither find it among mounted elements nor
+    // enter the uuid jump bridge, so it reports "not currently rendered" forever — a dead
+    // bookmark on the newest message, which is the one most likely to be bookmarked.
+    // Waiting for the click cannot repair it: resolving at click time already requires the
+    // target to be mounted, which is exactly the case that works anyway (Codex).
+    function _bmMigrateProvisional() {
+        if (!(ciIsClaudeChat() && ciIsReady())) return;
+        var list    = getConversationBookmarks();
+        var changed = false;
+        for (var i = 0; i < list.length; i++) {
+            var b = list[i];
+            if (b.schema === 2 || b.msgUuid || !b.pendingHash) continue;
+            // Null when the text is absent from the index or AMBIGUOUS (the text map
+            // poisons duplicate keys rather than first-wins guessing). Leave the record
+            // alone and retry on the next generation — a wrong uuid would be persisted.
+            var uuid = _bmUuidForProvisional(b);
+            if (!uuid) continue;
+            b.schema      = 2;
+            b.contentHash = uuid;
+            b.msgUuid     = uuid;
+            b.pendingHash    = null;
+            b.pendingSender  = null;
+            b.pendingOrdinal = -1;
+            b.pendingRow     = -1;
+            saveBookmark(b);
+            changed = true;
+        }
+        // Open panel holds rows built from the pre-migration records; rebuild so their
+        // click handlers use the uuid path.
+        if (changed) {
+            var bmPanel = document.getElementById('acn-panel-bookmarks');
+            if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
+        }
     }
 
     function _bmGenId() {
         return 'bm_' + Math.random().toString(16).substring(2, 10);
     }
 
-    function toggleBookmark(entityId, entityType, entityEl, msgIndex) {
+    function toggleBookmark(entityId, entityType, entityEl, msgIndex, legacyIds) {
+        // Match the legacy id too. createBookmarkIcon() renders a pre-v12.0 record
+        // as active via legacyId, so without this the toggle would add a SECOND
+        // record under the new identity and leave the old one behind — the icon
+        // would then never clear.
         var existing = getConversationBookmarks().filter(function (b) {
-            return b.contentHash === entityId;
+            return b.contentHash === entityId || _bmInLegacySet(b, legacyIds);
         });
 
         var icon = entityEl.querySelector('[data-acn-bookmark]');
@@ -3255,16 +6913,44 @@
             if (icon) icon.classList.remove('acn-bm-active');
             showToast(i18n('bookmarkRemoved'));
         } else {
-            var text    = (entityEl.textContent || '').trim();
+            // Through the shared extractor like every other consumer: raw textContent
+            // ends in our own bookmark glyph for messages under 120 chars.
+            var text    = _cleanText(entityEl).trim();
             var preview = text.substring(0, 120);
+            // schema 2 records key to the stable message uuid. schema 1 records key
+            // to contentHash(text, msgIndex) — where msgIndex is a position in the
+            // live NodeList. Under virtualization that index changes as the user
+            // scrolls, so schema 1 records silently stop matching their own message.
+            var isUuid = /^[0-9a-f-]{36}$/i.test(entityId);
             var bm = {
                 id:          _bmGenId(),
+                schema:      isUuid ? 2 : 1,
                 entityType:  entityType,
                 contentHash: entityId,
+                msgUuid:     isUuid ? entityId : null,
                 preview:     preview,
                 msgIndex:    msgIndex,
                 createdAt:   Date.now(),
-                platform:    window.location.hostname
+                platform:    window.location.hostname,
+                // Kept ONLY while the record has no uuid, so _bmMigrateProvisional() can
+                // bind one once the index refresh assigns it. `preview` cannot serve:
+                // it is truncated to 120 chars and the text map keys on FULL normalized
+                // text. Cleared on migration, and never stored off Claude, where there
+                // are no uuids to migrate to.
+                // A HASH, never the text. pendingText held the entire prompt and
+                // saveBookmark() writes to GM storage, so an unresolvable record kept
+                // sensitive or very large pasted content there indefinitely — flatly
+                // contradicting README's guarantee that GM storage never holds
+                // conversation content (Codex P1). The hash is all migration needs: it
+                // only ever COMPARES against candidate entries.
+                pendingHash: (!isUuid && ciIsClaudeChat()) ? _fnv1aHex(_normalizeCompare(text)) : null,
+                // Occurrence identity, so a REPEATED message can still be bound later;
+                // text alone is ambiguous and stays ambiguous forever. Sender is recorded
+                // because the ordinal is scoped to the sender's own sequence, and the row
+                // index is the only route an assistant provisional has.
+                pendingSender:  (!isUuid && ciIsClaudeChat()) ? entityType : null,
+                pendingOrdinal: (!isUuid && ciIsClaudeChat()) ? _bmSenderOrdinalOf(entityEl, entityType) : -1,
+                pendingRow:     (!isUuid && ciIsClaudeChat()) ? _bmRowIndexOf(entityEl) : -1
             };
             saveBookmark(bm);
             if (icon) icon.classList.add('acn-bm-active');
@@ -3277,7 +6963,7 @@
         }
     }
 
-    function createBookmarkIcon(entityEl, entityType, entityId, msgIndex) {
+    function createBookmarkIcon(entityEl, entityType, entityId, msgIndex, legacyIds) {
         if (entityEl.querySelector('[data-acn-bookmark]')) return;
 
         var computed = window.getComputedStyle(entityEl);
@@ -3286,7 +6972,9 @@
         }
 
         var bookmarks    = getConversationBookmarks();
-        var isBookmarked = bookmarks.some(function (b) { return b.contentHash === entityId; });
+        var isBookmarked = bookmarks.some(function (b) {
+            return b.contentHash === entityId || _bmInLegacySet(b, legacyIds);
+        });
 
         var icon = document.createElement('div');
         icon.className = 'acn-bm-icon' + (isBookmarked ? ' acn-bm-active' : '');
@@ -3296,9 +6984,9 @@
 
         icon.addEventListener('click', function (e) {
             e.stopPropagation();
-            toggleBookmark(entityId, entityType, entityEl, msgIndex);
+            toggleBookmark(entityId, entityType, entityEl, msgIndex, legacyIds);
             var nowBookmarked = getConversationBookmarks().some(function (b) {
-                return b.contentHash === entityId;
+                return b.contentHash === entityId || _bmInLegacySet(b, legacyIds);
             });
             icon.setAttribute('title', nowBookmarked ? 'Remove bookmark' : 'Bookmark this message');
         });
@@ -3306,23 +6994,139 @@
         entityEl.appendChild(icon);
     }
 
-    function injectBookmarkIcons() {
-        var userEls = Array.from(getUserMessages());
-        userEls.forEach(function (el, idx) {
-            if (el.getAttribute('data-acn-bookmarked') === 'u') return;
-            el.setAttribute('data-acn-bookmarked', 'u');
-            var text = (el.textContent || '').trim();
-            var hash = contentHash(text, idx);
-            createBookmarkIcon(el, 'user-msg', hash, idx);
-        });
+    // Resolves the stable identity for a message element. Prefers the API message
+    // uuid; falls back to the legacy position-dependent content hash on platforms
+    // (or conversations) where no index is available.
+    function _bmEntityId(el, idx, text) {
+        var uuid = ciUuidForText(text, el);
+        if (uuid) return uuid;
+        // POSITION-FREE fallback on Claude (Codex R22): bookmarking a just-sent
+        // prompt before the refetch assigns its uuid used the mounted-window ordinal
+        // — a number that means nothing under virtualization and never matches after
+        // the refetch, leaving a dead bookmark. Ordinal -1 is a stable, position-free
+        // schema-1 variant; _bmLegacyIdSet knows to try it. Non-virtualized
+        // platforms keep the historical positional shape.
+        return contentHash(text, ciIsClaudeChat() ? -1 : idx);
+    }
 
-        var aiEls = Array.from(getAIMessages());
-        aiEls.forEach(function (el, idx) {
-            if (el.getAttribute('data-acn-bookmarked') === 'a') return;
-            el.setAttribute('data-acn-bookmarked', 'a');
-            var text = (el.textContent || '').trim();
-            var hash = contentHash(text, idx);
-            createBookmarkIcon(el, 'ai-msg', hash, idx);
+    // Pre-v12.0 records hashed the RAW textContent. v12.0 routes user-message text
+    // through _readMessageText(), which applies the platform textExtractor and a
+    // corrected "You said:" strip — so the hash input changed for Emergent (the one
+    // platform with a textExtractor) and for ChatGPT (whose sr-only label ends in a
+    // colon the old pattern could not match). Recognising the legacy id keeps those
+    // bookmarks working instead of silently orphaning them.
+    function _bmLegacyId(el, idx) {
+        return contentHash((el.textContent || '').trim(), idx);
+    }
+
+    // Pre-v12.0 records exist in BOTH shapes, because the icon is injected into the
+    // message element: records written before the first injection hashed clean text,
+    // records written after hashed text ending in the glyph. Two call sites disagreed
+    // — one evaluated with the icon removed, one with it present — so each recognised
+    // records the other could not. Both variants are returned here and every consumer
+    // checks the whole set.
+    // Reads textContent with ONLY our injected bookmark icon removed — sr-only labels
+    // and everything else kept. That is exactly what v11.8 hashed.
+    function _textAsLegacy(el) {
+        if (!el) return '';
+        if (!el.querySelector || !el.querySelector('[data-acn-bookmark]')) {
+            return el.textContent || '';
+        }
+        var out = '', kids = el.childNodes;
+        for (var i = 0; i < kids.length; i++) {
+            var k = kids[i];
+            if (k.nodeType !== 1 && k.nodeType !== 3) continue;
+            if (k.nodeType === 1 && k.getAttribute &&
+                k.getAttribute('data-acn-bookmark') !== null) continue;
+            out += _textAsLegacy(k);
+        }
+        return out;
+    }
+
+    // v11.8 hashed trim(textContent) BEFORE createBookmarkIcon appended the glyph — its
+    // injectBookmarkIcons was one-shot-guarded on data-acn-bookmarked === 'u'. So the
+    // "hashed with the glyph" shape CANNOT exist in stored data, and the shape that does
+    // exist must be reproduced with the glyph removed but sr-only KEPT (v11.8 did not
+    // strip it). An earlier version derived the set from whatever the live DOM happened
+    // to hold, so the two call sites — one evaluated with the icon removed, one with it
+    // present — produced different sets and each missed records the other found.
+    function _bmLegacyIdSet(el, idx) {
+        var ids   = [contentHash(_textAsLegacy(el).trim(), idx)];
+        var clean = _cleanText(el).trim();
+        var plain = (el.textContent || '').trim();
+        if (clean !== ids[0]) ids.push(contentHash(clean, idx));
+        if (plain !== ids[0]) ids.push(contentHash(plain, idx));
+        // The position-free variant (_bmEntityId with ordinal -1) used for
+        // provisional messages on Claude — see the comment there.
+        if (ciIsClaudeChat()) {
+            ids.push(contentHash(clean, -1));
+            ids.push(contentHash(plain, -1));
+        }
+        return ids;
+    }
+
+    function _bmInLegacySet(bookmark, legacyIds) {
+        if (!legacyIds) return false;
+        for (var i = 0; i < legacyIds.length; i++) {
+            if (bookmark.contentHash === legacyIds[i]) return true;
+        }
+        return false;
+    }
+
+    function _bmMatchesLegacy(bookmark, el, idx) {
+        var ids = _bmLegacyIdSet(el, idx);
+        for (var i = 0; i < ids.length; i++) {
+            if (bookmark.contentHash === ids[i]) return true;
+        }
+        return false;
+    }
+
+    // Conversation-level sender ordinal for a mounted element. On virtualized
+    // Claude the mounted list index is 0-3, NOT the ordinal contentHash was built
+    // with — so a pre-v12 bookmark for a later turn could never legacy-match even
+    // while that exact turn was mounted, and the uuid migration was never reached
+    // (Codex R16 :6309).
+    function _bmPathOrdinal(el, sender, fallbackIdx) {
+        if (!ciIsClaudeChat() || !ciIsReady() || !_ciFullPath) return fallbackIdx;
+        var uuid = ciUuidForText(sender === 'human' ? _readMessageText(el) : _readAIText(el), el);
+        if (!uuid) return fallbackIdx;
+        var ord = 0;
+        for (var i = 0; i < _ciFullPath.length; i++) {
+            if (_ciFullPath[i].sender !== sender) continue;
+            if (_ciFullPath[i].uuid === uuid) return ord;
+            ord++;
+        }
+        return fallbackIdx;
+    }
+
+    function injectBookmarkIcons() {
+        // The guard below compares the RECORDED identity, not merely "has an icon".
+        // Under recycling React reuses the same DOM node for a different message,
+        // so a presence-only guard would leave a stale icon showing another
+        // message's bookmark state.
+        function inject(el, idx, type, text) {
+            if (!text) return;
+            var id = _bmEntityId(el, idx, text);
+            if (el.getAttribute('data-acn-bookmarked') === id) return;
+            var stale = el.querySelector('[data-acn-bookmark]');
+            if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
+            el.setAttribute('data-acn-bookmarked', id);
+            createBookmarkIcon(el, type, id, idx, _bmLegacyIdSet(el, idx));
+        }
+
+        // Ordinal from the PATH, not the mounted window: under virtualization idx
+        // is the position among the 3-5 mounted nodes, so a bookmark on question 100
+        // rendered as Q#2 in the panel even though its uuid jumped correctly
+        // (Codex :5868). Row identity resolves the true ordinal; mounted-window
+        // index remains the non-indexed fallback.
+        function pathOrdinal(el, sender, fallbackIdx) {
+            return _bmPathOrdinal(el, sender, fallbackIdx);
+        }
+        Array.from(getUserMessages()).forEach(function (el, idx) {
+            inject(el, pathOrdinal(el, 'human', idx), 'user-msg', _readMessageText(el));
+        });
+        Array.from(getAIMessages()).forEach(function (el, idx) {
+            inject(el, pathOrdinal(el, 'assistant', idx), 'ai-msg', _readAIText(el));
         });
     }
 
@@ -3347,36 +7151,88 @@
 
     function orbScrollToBookmark(bookmark) {
         var targetEl = null;
+        var isUser   = bookmark.entityType === 'user-msg';
+        var els      = Array.from(isUser ? getUserMessages() : getAIMessages());
+        var i;
 
-        if (bookmark.entityType === 'user-msg') {
-            var userEls = Array.from(getUserMessages());
-            for (var i = 0; i < userEls.length; i++) {
-                var text = (userEls[i].textContent || '').trim();
-                if (contentHash(text, i) === bookmark.contentHash) {
-                    targetEl = userEls[i];
-                    break;
-                }
+        function textOf(el) {
+            return isUser ? _readMessageText(el) : _readAIText(el);
+        }
+
+        // Preferred: stable uuid match against whatever is mounted.
+        var wantUuid = bookmark.msgUuid ||
+                       (/^[0-9a-f-]{36}$/i.test(bookmark.contentHash) ? bookmark.contentHash : null);
+        if (wantUuid) {
+            for (i = 0; i < els.length; i++) {
+                if (ciUuidForText(textOf(els[i]), els[i]) === wantUuid) { targetEl = els[i]; break; }
             }
-            if (!targetEl && userEls[bookmark.msgIndex]) {
-                targetEl = userEls[bookmark.msgIndex];
+        }
+
+        // Legacy schema 1: recompute the position-dependent hash. Note this only
+        // matches when the message happens to sit at the same index it did when
+        // bookmarked, which is why these records are migrated on sight below.
+        if (!targetEl) {
+            for (i = 0; i < els.length; i++) {
+                var ordC = _bmPathOrdinal(els[i], isUser ? 'human' : 'assistant', i);
+                if (contentHash(textOf(els[i]), ordC) === bookmark.contentHash) { targetEl = els[i]; break; }
             }
-        } else if (bookmark.entityType === 'ai-msg') {
-            var aiEls = Array.from(getAIMessages());
-            for (var j = 0; j < aiEls.length; j++) {
-                var aiText = (aiEls[j].textContent || '').trim();
-                if (contentHash(aiText, j) === bookmark.contentHash) {
-                    targetEl = aiEls[j];
-                    break;
-                }
+        }
+
+        // Pre-v12.0 hash input (raw textContent) — see _bmLegacyId().
+        if (!targetEl) {
+            for (i = 0; i < els.length; i++) {
+                // Both pre-v12.0 shapes: hashed before the icon existed, and hashed
+                // after it was injected. The ordinal must be the CONVERSATION one —
+                // legacy hashes were built with it, not the mounted-window index.
+                var ordL = _bmPathOrdinal(els[i], isUser ? 'human' : 'assistant', i);
+                if (_bmMatchesLegacy(bookmark, els[i], ordL)) { targetEl = els[i]; break; }
             }
-            if (!targetEl && aiEls[bookmark.msgIndex]) {
-                targetEl = aiEls[bookmark.msgIndex];
+        }
+
+        // Not mounted: route through the SAME settle loop Navigate uses, resolving
+        // by message uuid -> position in the active path. Previously this was a
+        // separate resolution path ending in `els[bookmark.msgIndex]`, which with
+        // ~3 of 147 turns mounted resolved to an unrelated message and scrolled to
+        // and highlighted it as if correct. That positional fallback is deleted;
+        // failing visibly is strictly better than a confident wrong answer.
+        if (!targetEl && wantUuid && ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
+            var pathIdx = -1;
+            for (i = 0; i < _ciFullPath.length; i++) {
+                if (_ciFullPath[i].uuid === wantUuid) { pathIdx = i; break; }
+            }
+            if (pathIdx >= 0) {
+                ciJumpToFullPathIndex(pathIdx, function (ok, el, reason) {
+                    if (ok && el) {
+                        orbMarkJumpTarget(el);
+                        el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+                        orbFlashElement(el);
+                    } else if (reason !== 'superseded' && reason !== 'user') {
+                        // Not a failure when the user scrolled or started another jump.
+                        showToast('That message is not currently rendered \u2014 scroll toward it and try again');
+                    }
+                });
+                return;
             }
         }
 
         if (!targetEl) {
-            showToast('Message not found \u2014 it may have been deleted');
+            showToast('That message is not currently rendered \u2014 scroll toward it and try again');
             return;
+        }
+
+        // Opportunistic migration: once a legacy record is positively identified,
+        // upgrade it to a uuid so it stops depending on scroll position.
+        if (!bookmark.msgUuid) {
+            // Pass the element: without it a duplicate-text bookmark migrated to the
+            // FIRST twin's uuid (the text map is deliberately first-wins) and every
+            // later click jumped to the wrong message (Codex round-3).
+            var resolved = ciUuidForText(textOf(targetEl), targetEl);
+            if (resolved) {
+                bookmark.msgUuid    = resolved;
+                bookmark.contentHash = resolved;
+                bookmark.schema     = 2;
+                saveBookmark(bookmark);
+            }
         }
 
         orbScrollToMessage(targetEl);
@@ -3390,7 +7246,14 @@
 
         // Skip DOM teardown+rebuild if bookmarks unchanged — prevents hover flicker
         // caused by MutationObserver firing orbOnScanComplete every ~500ms
-        var bfp = bookmarks.map(function (b) { return b.id; }).join('|');
+        // ROUTING fields, not just id. A provisional bookmark's migration to schema 2
+        // changes msgUuid while KEEPING its id, so an id-only fingerprint made the
+        // post-migration refresh a no-op: the rendered card kept its pre-migration
+        // object and still could not use the uuid jump bridge once its row recycled
+        // away — the exact failure the migration exists to fix (Codex).
+        var bfp = bookmarks.map(function (b) {
+            return b.id + ':' + (b.msgUuid || '') + ':' + (b.contentHash || '');
+        }).join('|');
         if (bfp === _bmListFingerprint && panel.children.length > 1) return;
         _bmListFingerprint = bfp;
 
@@ -3808,7 +7671,33 @@
 
         aiResponses.forEach(function (r, msgIndex) {
             var el = r.element;
-            if (!el) return;
+            // Position in the FULL path, present only on the index-backed build.
+            // msgIndex is this array's assistant-only ordinal and addresses a
+            // different message, so it is kept for labelling and never jumped on.
+            var pathIdx = (typeof r.pathIdx === 'number') ? r.pathIdx : null;
+            if (!el) {
+                // Indexed, unmounted: derive from CONTENT. Fenced blocks give the
+                // code inventory; files/attachments metadata gives the file list.
+                var txt = r.text || '';
+                var fenceRe = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, fm;
+                while ((fm = fenceRe.exec(txt)) !== null) {
+                    var body = (fm[2] || '').trim();
+                    if (!body) continue;
+                    // Same `label` shape the mounted branch builds — the renderer reads
+                    // cb.label, and {language,text} rendered as `undefined` for exactly
+                    // the off-screen content this path recovers (Codex R6 :6619).
+                    var lbl = (fm[1] ? fm[1] + ' — ' : '') +
+                              body.split('\n')[0].substring(0, 40);
+                    codeBlocks.push({ label: lbl, element: null, msgIndex: msgIndex, pathIdx: pathIdx });
+                }
+                var metas = (r.files || []).concat(r.attachments || []);
+                for (var mi = 0; mi < metas.length; mi++) {
+                    var fn = metas[mi].file_name;
+                    if (fn && !seenFiles[fn]) { seenFiles[fn] = true;
+                        files.push({ label: fn, element: null, msgIndex: msgIndex, pathIdx: pathIdx }); }
+                }
+                return;
+            }
 
             try {
                 var pres = el.querySelectorAll('pre');
@@ -3832,7 +7721,8 @@
                     var preview = rawText.substring(0, 60).replace(/\n/g, ' ');
                     if (preview.length === 60) preview += '...';
                     var label = (lang ? lang.toUpperCase() + ': ' : '') + preview;
-                    codeBlocks.push({ label: label, element: pre, msgIndex: msgIndex });
+                    codeBlocks.push({ label: label, element: pre, msgIndex: msgIndex,
+                                      pathIdx: pathIdx, elKey: _sumElKey(pre) });
                 });
             } catch (e) {}
 
@@ -3846,7 +7736,8 @@
                         extMatch.forEach(function (fname) {
                             if (!seenFiles[fname]) {
                                 seenFiles[fname] = true;
-                                files.push({ label: fname, element: a, msgIndex: msgIndex });
+                                files.push({ label: fname, element: a, msgIndex: msgIndex,
+                                             pathIdx: pathIdx, elKey: _sumElKey(a) });
                             }
                         });
                     }
@@ -3860,7 +7751,10 @@
                     textMatches.forEach(function (fname) {
                         if (!seenFiles[fname]) {
                             seenFiles[fname] = true;
-                            files.push({ label: fname, element: null, msgIndex: msgIndex });
+                            // Filename mentioned in prose, with no anchor to scroll to.
+                            // pathIdx still addresses the message that mentions it, so
+                            // the click lands on that message instead of doing nothing.
+                            files.push({ label: fname, element: null, msgIndex: msgIndex, pathIdx: pathIdx });
                         }
                     });
                 }
@@ -3872,16 +7766,81 @@
 
     function _sumBuildTimeline(questions, aiResponses) {
         var all = [];
+        var i;
 
-        questions.forEach(function (q, i) {
-            all.push({ element: q.element, text: q.text || '', type: 'user', srcIndex: i });
+        // Index-backed: the active path is already in conversation order and
+        // covers the whole conversation, so no positional sort is needed.
+        if (ciIsClaudeChat() && ciIsReady() && _ciFullPath && _ciFullPath.length) {
+            // Bind mounted elements by row identity: element:null on every entry made
+            // each conversation-map segment click a silent no-op on indexed chats
+            // (post-closure Codex). Every entry also carries pathIdx — the PATH index —
+            // which _sumScrollToElement re-resolves against at click time and routes
+            // through the jump bridge when the target is not mounted.
+            //
+            // pathIdx is set ONLY on this branch. The DOM branch below indexes into
+            // per-sender arrays, and a per-sender ordinal read as a path index would
+            // jump to an unrelated message; giving that field a different name is what
+            // stops the two from ever being confused.
+            var tlByPath = {};
+            var tlRows = ciMountedRows();
+            for (i = 0; i < tlRows.length; i++) {
+                var tp = ciResolvePathForRowStrict(tlRows[i].dataIndex);
+                if (tp === null) tp = ciMatchRowToPath(tlRows[i]);
+                if (tp !== null) tlByPath[tp] = ciMessageNodeWithin(tlRows[i].el);
+            }
+            for (i = 0; i < _ciFullPath.length; i++) {
+                all.push({
+                    element: tlByPath[i] || null,
+                    text:    _ciFullPath[i].text || '',
+                    type:    _ciFullPath[i].sender === 'human' ? 'user' : 'ai',
+                    // null for entries with no virtualizer row — see the aiMsgs build.
+                    pathIdx: ciEntryRenders(_ciFullPath[i]) ? i : null,
+                    elKey:   _sumElKey(tlByPath[i] || null)
+                });
+            }
+            // Provisional turns live in _questions ONLY — sent after the snapshot, so
+            // absent from _ciFullPath. Ignoring the supplied `questions` array meant the
+            // map omitted a prompt that topics and stats, both computed from _questions,
+            // already counted: an internally inconsistent summary during the ordinary
+            // in-flight refresh window (Codex). No path index exists for them, so their
+            // mounted element is what a click resolves against — the same shape the export
+            // uses for pending turns.
+            for (i = 0; i < questions.length; i++) {
+                if (!questions[i].provisional) continue;
+                all.push({
+                    element: questions[i].element || null,
+                    text:    questions[i].text || '',
+                    type:    'user',
+                    pathIdx: null,
+                    elKey:   _sumElKey(questions[i].element || null)
+                });
+            }
+            all.forEach(function (m, idx) { m.globalIdx = idx; });
+            return all;
+        }
+
+        questions.forEach(function (q) {
+            all.push({ element: q.element, text: q.text || '', type: 'user',
+                       elKey: _sumElKey(q.element) });
         });
-        aiResponses.forEach(function (r, i) {
-            all.push({ element: r.element, text: r.text || '', type: 'ai',   srcIndex: i });
+        aiResponses.forEach(function (r) {
+            all.push({ element: r.element, text: r.text || '', type: 'ai',
+                       elKey: _sumElKey(r.element) });
         });
 
-        all.sort(function (a, b) {
-            if (!a.element || !b.element) return 0;
+        // compareDocumentPosition returns DOCUMENT_POSITION_DISCONNECTED for
+        // detached nodes, matching neither FOLLOWING nor PRECEDING — the
+        // comparator then returns 0 and the sort degrades to arbitrary order.
+        // Drop unmounted entries from the ordering rather than letting them
+        // scramble the sequence.
+        var mounted   = [];
+        var unmounted = [];
+        for (i = 0; i < all.length; i++) {
+            if (all[i].element && all[i].element.isConnected) mounted.push(all[i]);
+            else unmounted.push(all[i]);
+        }
+
+        mounted.sort(function (a, b) {
             try {
                 var pos = a.element.compareDocumentPosition(b.element);
                 if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
@@ -3890,7 +7849,8 @@
             return 0;
         });
 
-        all.forEach(function (m, i) { m.globalIdx = i; });
+        all = mounted.concat(unmounted);
+        all.forEach(function (m, idx) { m.globalIdx = idx; });
         return all;
     }
 
@@ -4159,17 +8119,70 @@
         return _sumMergeExcessSegments(segments);
     }
 
+    // Index identity the currently-rendered summary was built from, or null when it was
+    // built from the DOM. Compared on every click; a mismatch means every path index in
+    // the panel now points somewhere else. See ciIndexStamp().
+    var _sumIndexStamp = null;
+
     function generateFullSummary() {
-        var aiMsgs = Array.from(getAIMessages()).map(function (el) {
-            return { element: el, text: (el.textContent || el.innerText || '').trim(), type: 'ai' };
-        });
+        // Index-backed when available: only the timeline used the index, so topics,
+        // key points, stats and inventory ran on the 3-5 MOUNTED assistant responses
+        // while the map covered all 147 — internally inconsistent and truncated
+        // (Codex :6474, P1). element stays null for unmounted entries; the hover
+        // highlight degrades gracefully.
+        // Captured BEFORE building so every path index in the result is attributable to
+        // exactly this conversation and index generation. Travels on the returned data;
+        // renderSummaryResults is what commits it, because only a render puts these
+        // indices somewhere the user can click.
+        var genStamp = ciIndexStamp();
+
+        var aiMsgs;
+        if (ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
+            // Bind mounted elements by row identity so DOM-dependent analyzers keep
+            // working for what IS on screen; carry text and attachments for the rest —
+            // element:null alone made the inventory report no code or files at all
+            // (Codex R5 :6974).
+            var elByPath = {};
+            var sRows = ciMountedRows();
+            for (var sr = 0; sr < sRows.length; sr++) {
+                if (sRows[sr].isUser) continue;
+                var sp = ciResolvePathForRowStrict(sRows[sr].dataIndex);
+                if (sp === null) sp = ciMatchRowToPath(sRows[sr]);
+                if (sp !== null) elByPath[sp] = ciMessageNodeWithin(sRows[sr].el);
+            }
+            aiMsgs = [];
+            for (var fp = 0; fp < _ciFullPath.length; fp++) {
+                if (_ciFullPath[fp].sender !== 'assistant') continue;
+                // pathIdx is the entry's position in the FULL path. The inventory's own
+                // msgIndex is a position in this assistant-only array, so it addresses a
+                // different message entirely and must never reach the jump bridge.
+                //
+                // Non-rendering entries (interrupted/superseded generations, no
+                // stop_reason) occupy a path slot but have NO virtualizer row. Resolving
+                // one lands on its NEIGHBOUR and reports success — which is why Search
+                // filters them out of its results entirely. Their content still counts
+                // toward the analysis, so they stay in aiMsgs, but with no path index
+                // they can never become a jump target.
+                aiMsgs.push({ element: elByPath[fp] || null,
+                              text: _ciFullPath[fp].text || '',
+                              attachments: _ciFullPath[fp].attachments || [],
+                              files: _ciFullPath[fp].files || [],
+                              pathIdx: ciEntryRenders(_ciFullPath[fp]) ? fp : null,
+                              type: 'ai' });
+            }
+        } else {
+            aiMsgs = Array.from(getAIMessages()).map(function (el) {
+                return { element: el, text: _readAIText(el), type: 'ai' };
+            });
+        }
 
         return {
-            map:       _sumBuildConversationMap(_questions, aiMsgs),
-            topics:    _sumExtractTopics(_questions, aiMsgs),
-            keyPoints: _sumExtractKeyPoints(_questions, aiMsgs),
-            stats:     _sumGenerateStats(_questions, aiMsgs),
-            inventory: _sumInventoryCodeAndFiles(aiMsgs)
+            map:        _sumBuildConversationMap(_questions, aiMsgs),
+            topics:     _sumExtractTopics(_questions, aiMsgs),
+            keyPoints:  _sumExtractKeyPoints(_questions, aiMsgs),
+            stats:      _sumGenerateStats(_questions, aiMsgs),
+            inventory:  _sumInventoryCodeAndFiles(aiMsgs),
+            indexStamp: genStamp
         };
     }
 
@@ -4217,17 +8230,102 @@
         return wrapper;
     }
 
-    function _sumScrollToElement(el) {
-        if (!el) return;
+    // First message in a segment that can actually be reached. messages[0] may be a
+    // non-rendering entry (no path index, no row), which would make the whole segment
+    // inert; the segment still means "jump to the start of this stretch", so fall
+    // forward to the first member that is reachable.
+    // Fingerprint of an element's OWN rendered text, captured when a summary is built and
+    // re-checked on click. This is the only staleness signal available when there is no
+    // index to re-resolve against — a DEGRADED Claude session, where _sumIndexStamp and
+    // ciIndexStamp() are both null so the generation guard compares equal and passes, and
+    // isConnected cannot help because a recycled row is still connected (Codex, and
+    // independently the blast-radius lens). Computed from the element both times, never
+    // from API text: the two differ (rendered vs raw markdown).
+    function _sumElKey(el) {
+        if (!el) return null;
+        // FULL length, and no markdown handling: this is a DOM-to-DOM comparison of the
+        // same node's rendered text. _normalizeCompare capped it at 200 chars, so a
+        // recycled message sharing a long boilerplate opening passed validation and the
+        // click scrolled to the wrong message — the single check standing between a
+        // degraded session and that outcome (Codex).
+        return _normalizeFull((el.textContent || '').trim());
+    }
+
+    function _sumFirstJumpable(msgs) {
+        if (!msgs || !msgs.length) return null;
+        for (var i = 0; i < msgs.length; i++) {
+            if (typeof msgs[i].pathIdx === 'number' || msgs[i].element) return msgs[i];
+        }
+        return msgs[0];
+    }
+
+    function _sumScrollToElement(el, pathIdx, elKey) {
+        // A summary is a SNAPSHOT of one index generation, and the panel outlives it.
+        // If the conversation changed underneath, or an edit/regenerate resync rebuilt
+        // the index, then BOTH halves of every item are stale: the cached element points
+        // at a node the virtualizer has recycled, and the stored path index addresses a
+        // different message. A range check alone cannot see either — after a
+        // conversation switch (which on Claude tears nothing down, spa:false) an old
+        // ordinal is perfectly in-range for the NEW conversation, and the click jumped
+        // there with full confidence. Compare identity, and refuse when it moved.
+        if (ciIsClaudeChat() && _sumIndexStamp !== ciIndexStamp()) {
+            showToast('Summary is out of date — regenerate it to jump');
+            return;
+        }
+
+        var indexed = typeof pathIdx === 'number' && ciIsClaudeChat() && ciIsReady() &&
+                      _ciFullPath && pathIdx >= 0 && pathIdx < _ciFullPath.length;
+        if (indexed) {
+            var live = ciResolveMountedByPathIndex(pathIdx);
+            // Containment IS the staleness check, and it preserves precision: inventory
+            // items point at a <pre> or an <a> INSIDE the message, and resolving to the
+            // message node alone would scroll to the top of a long response instead of
+            // the block the user clicked. A cached node still inside the freshly
+            // resolved message is therefore kept; anything else (detached, or recycled
+            // into a different message) is replaced by the message node.
+            el = (live && el && live.contains(el)) ? el : live;
+        } else if (el && ciIsClaudeChat() && elKey && _sumElKey(el) !== elKey) {
+            // Claude with no usable index (degraded session, or a summary built from the
+            // DOM fallback). Nothing can re-resolve the target, and isConnected passes for
+            // a RECYCLED row — so the node's own text is the only evidence. It changed,
+            // meaning this node now shows a different message.
+            showToast('Summary is out of date — regenerate it to jump');
+            return;
+        } else if (el && el.isConnected === false) {
+            el = null;
+        }
+
+        if (!el) {
+            // Unmounted indexed entry: route through the same jump bridge Search and
+            // Bookmarks use, instead of silently doing nothing.
+            if (indexed) {
+                ciJumpToFullPathIndex(pathIdx, function (ok, jel, reason) {
+                    if (ok && jel) {
+                        orbMarkJumpTarget(jel);
+                        jel.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+                        orbFlashElement(jel);
+                    } else if (reason !== 'superseded' && reason !== 'user') {
+                        showToast('That message is not currently rendered — scroll toward it and try again');
+                    }
+                });
+            } else {
+                // No element and no usable index: say so rather than absorb the click.
+                showToast('That message is not currently rendered — scroll toward it and try again');
+            }
+            return;
+        }
         try {
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            var prev = el.style.outline;
-            el.style.outline = '2px solid var(--acn-accent, #d97706)';
-            el.style.outlineOffset = '3px';
-            setTimeout(function () {
-                el.style.outline = prev;
-                el.style.outlineOffset = '';
-            }, 1400);
+            // Both routes now mark, scroll and flash identically. The flash MUST be
+            // orbFlashElement: it cancels an in-flight flash on the same node before
+            // capturing a baseline, whereas the hand-rolled outline this replaced read
+            // its "previous" value from the inline style — so a second click within the
+            // restore window captured the FIRST click's own highlight as the baseline
+            // and wrote it back permanently, onto a node the virtualizer then recycled
+            // to an unrelated message. Convergence made that easy to hit: every item
+            // from one response can now resolve to the same message node.
+            orbMarkJumpTarget(el);
+            el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+            orbFlashElement(el);
         } catch (e) {}
     }
 
@@ -4380,8 +8478,8 @@
                     (function (c) {
                         subEl.addEventListener('click', function (e) {
                             e.stopPropagation();
-                            var firstMsg = c.messages && c.messages[0];
-                            if (firstMsg) _sumScrollToElement(firstMsg.element);
+                            var firstMsg = _sumFirstJumpable(c.messages);
+                            if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx, firstMsg.elKey);
                         });
                     })(child);
                     // Highlight corresponding snapshot messages on hover
@@ -4399,8 +8497,8 @@
 
             (function (s) {
                 segEl.addEventListener('click', function () {
-                    var firstMsg = s.messages && s.messages[0];
-                    if (firstMsg) _sumScrollToElement(firstMsg.element);
+                    var firstMsg = _sumFirstJumpable(s.messages);
+                    if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx, firstMsg.elKey);
                 });
             })(seg);
             // For segments without sub-segments, hovering the block highlights all its messages
@@ -4533,7 +8631,11 @@
             body.appendChild(createElement('div', { className: 'acn-section-title', style: 'cursor:default', textContent: 'Code Blocks (' + inventory.codeBlocks.length + ')' }));
             inventory.codeBlocks.slice(0, 10).forEach(function (cb) {
                 var item = createElement('div', { className: 'acn-code-item', textContent: cb.label });
-                item.addEventListener('click', function () { _sumScrollToElement(cb.element); });
+                // pathIdx is what makes an off-screen block reachable: entries recovered
+                // from an unmounted response carry element:null, and calling the scroll
+                // helper without the index made every one of them a silent no-op even
+                // though the index can jump straight to its message.
+                item.addEventListener('click', function () { _sumScrollToElement(cb.element, cb.pathIdx, cb.elKey); });
                 body.appendChild(item);
             });
         }
@@ -4543,8 +8645,8 @@
             body.appendChild(createElement('div', { className: 'acn-section-title', style: 'cursor:default', textContent: 'Files (' + inventory.files.length + ')' }));
             inventory.files.slice(0, 10).forEach(function (f) {
                 var item = createElement('div', { className: 'acn-code-item', textContent: f.label });
-                if (f.element) {
-                    item.addEventListener('click', function () { _sumScrollToElement(f.element); });
+                if (f.element || typeof f.pathIdx === 'number') {
+                    item.addEventListener('click', function () { _sumScrollToElement(f.element, f.pathIdx, f.elKey); });
                 }
                 body.appendChild(item);
             });
@@ -4559,6 +8661,12 @@
 
     function renderSummaryResults(container, summaryData) {
         while (container.firstChild) container.removeChild(container.firstChild);
+
+        // The stamp must describe what is ON SCREEN, so it is set HERE rather than in
+        // generateFullSummary(): getSummaryForExport() also calls that function, and
+        // stamping there let an export re-validate a panel still showing another
+        // conversation — handing the click guard a matching stamp for stale rows.
+        _sumIndexStamp = summaryData ? (summaryData.indexStamp || null) : null;
 
         if (!summaryData) {
             container.appendChild(createElement('div', { className: 'acn-sum-empty', textContent: 'No data to display.' }));
@@ -4932,18 +9040,44 @@
 
     function buildTimeline(questions, aiMsgs) {
         var items = [];
-        questions.forEach(function (q) {
-            if (q.element) items.push({ type: 'user', element: q.element });
+        // Keep unmounted entries. Emergent accumulates questions across its own
+        // virtual scroll, so by the time the user exports, most stored elements
+        // are detached — filtering them out silently dropped them from the file
+        // while the header still counted them ("Messages: 3 (40 user, 0 AI)").
+        questions.forEach(function (q, i) {
+            if (q.element) items.push({ type: 'user', element: q.element, src: i });
         });
-        aiMsgs.forEach(function (el) {
-            items.push({ type: 'ai', element: el });
+        aiMsgs.forEach(function (el, j) {
+            if (el) items.push({ type: 'ai', element: el, src: j });
         });
+        // Pick ONE ordering key for the whole set. Mixing document position with a
+        // source-order fallback inside a single comparator is intransitive —
+        // detached-vs-mounted pairs answer by src while mounted pairs answer by DOM
+        // position, which admits cycles (a<b, b<c, c<a) and makes Array.sort emit
+        // arbitrary output.
+        var allMounted = true;
+        for (var k = 0; k < items.length; k++) {
+            if (!items[k].element.isConnected) { allMounted = false; break; }
+        }
+
+        if (allMounted) {
+            items.sort(function (a, b) {
+                if (a.element === b.element) return 0;
+                var pos = a.element.compareDocumentPosition(b.element);
+                if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+                if (pos & Node.DOCUMENT_POSITION_PRECEDING)  return 1;
+                return 0;
+            });
+            return items;
+        }
+
+        // Anything detached: order by (source index, question-before-answer). That
+        // is a genuine total order, and on accumulating virtual-scroll platforms
+        // _questions is already sorted by vsIndex, so it is chronological.
         items.sort(function (a, b) {
-            if (a.element === b.element) return 0;
-            var pos = a.element.compareDocumentPosition(b.element);
-            if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
-            if (pos & Node.DOCUMENT_POSITION_PRECEDING)  return 1;
-            return 0;
+            if (a.src !== b.src) return a.src - b.src;
+            if (a.type === b.type) return 0;
+            return a.type === 'user' ? -1 : 1;
         });
         return items;
     }
@@ -4957,6 +9091,15 @@
             var cls = (typeof rawCls === 'string' ? rawCls : (rawCls && rawCls.baseVal) || '').toLowerCase();
             var role = (node.getAttribute && node.getAttribute('aria-hidden')) || '';
             if (role === 'true') return true;
+            // 'sr-only' added v12.0: screen-reader labels ("You said:",
+            // "Claude responded:", "Load earlier messages") were being written into
+            // exported markdown. Phase 1.5 flagged the omission; it was never fixed.
+            // sr-only is handled by _isSrOnlyClassList, NOT by substring: a plain
+            // indexOf('sr-only') also matches `not-sr-only` / `sm:not-sr-only`, whose
+            // whole purpose is to make content VISIBLE — the export path was deleting
+            // exactly the content those utilities exist to show. Two predicates that
+            // disagreed on the same class list; now one.
+            if (_isSrOnlyClassList(rawCls)) return true;
             var chromeFragments = ['copy-button', 'action-bar', 'toolbar', 'btn', 'button',
                                    'avatar', 'feedback', 'thumb', 'vote', 'tooltip'];
             for (var i = 0; i < chromeFragments.length; i++) {
@@ -4964,18 +9107,29 @@
             }
             return false;
         }
+        // FILTER_REJECT genuinely skips the whole subtree. Advancing with
+        // nextSibling() does not: per the DOM traverse-siblings algorithm, when the
+        // rejected element is the LAST child, nextSibling() walks up, accepts the
+        // parent, and returns null WITHOUT moving currentNode — so the nextNode()
+        // fallback descends straight back into the element just rejected. Measured:
+        // "<div>REAL TEXT B</div><h5 class='sr-only'>You said:</h5>" produced
+        // "REAL TEXT BYou said:". Source-parsed mocks hid it because HTML indentation
+        // leaves a whitespace text node after every element; React-rendered DOM has none.
         var walker = document.createTreeWalker(
             el,
             NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
-            null,
+            { acceptNode: function (n) {
+                if (n.nodeType === Node.ELEMENT_NODE && isUIChrome(n)) {
+                    return NodeFilter.FILTER_REJECT;   // skips this node AND its subtree
+                }
+                return NodeFilter.FILTER_ACCEPT;
+            } },
             false
         );
         var node = walker.nextNode();
         while (node) {
-            if (node.nodeType === Node.ELEMENT_NODE && isUIChrome(node)) {
-                node = walker.nextNode();
-                continue;
-            }
+            // Chrome elements never reach here — the NodeFilter above rejects their
+            // entire subtree.
             if (node.nodeType === Node.TEXT_NODE) {
                 var text = node.textContent;
                 if (text) result.push(text);
@@ -5035,8 +9189,217 @@
         }, 100);
     }
 
+    // Index-backed export. This is the highest-priority consumer: a truncated
+    // navigation list is visible to the user, a truncated export file is not.
+    // The old DOM path silently wrote "**Messages:** 8" for a 147-turn
+    // conversation — an authoritative-looking count over 3% of the data.
+    function _exportFromIndex() {
+        var path = _ciFullPath || [];
+        var users = 0, ais = 0, truncated = 0;
+        for (var i = 0; i < path.length; i++) {
+            if (path[i].sender === 'human') users++; else ais++;
+            if (path[i].truncated) truncated++;
+        }
+
+        // Turns the DOM holds but the API snapshot does not \u2014 a prompt sent after the
+        // last fetch, before the resync completes. _ciMergeLiveMessages appends these
+        // to _questions only, so serializing _ciFullPath alone dropped them from a file
+        // headed "complete conversation history (API)". They are emitted below the
+        // path, flagged, and counted, because an omission from an authoritative-looking
+        // export is invisible to the reader (Codex post-closure).
+        var pending = [];
+        for (var pv = 0; pv < _questions.length; pv++) {
+            if (_questions[pv].provisional && (_questions[pv].text || '').trim()) {
+                pending.push(_questions[pv]);
+            }
+        }
+
+        var dateStr = new Date().toISOString().split('T')[0];
+        var lines = [];
+        lines.push('# Conversation Export');
+        lines.push('**Platform:** ' + platform.title);
+        lines.push('**Date:** ' + dateStr);
+        lines.push('**Messages:** ' + (path.length + pending.length) +
+                   ' (' + (users + pending.length) + ' user, ' + ais + ' AI)' +
+                   (pending.length ? ' \u2014 including ' + pending.length +
+                    ' not yet in the API snapshot' : ''));
+        // A resync triggered by a new prompt can COMPLETE WHILE Claude is still
+        // generating. The path then ends at the human turn, or at an assistant entry with
+        // no stop_reason \u2014 and by then the provisional prompt is gone (it IS in the index
+        // now), so the pending branch below cannot fire. The file claimed "complete
+        // conversation history (API)" while omitting or truncating the reply visible on
+        // screen, and the next resync is cooldown-gated so that window is seconds wide
+        // (Codex P1). stop_reason is the same discriminator ciEntryRenders uses for
+        // "this entry finished".
+        var tail = path.length ? path[path.length - 1] : null;
+        var midGeneration = !!tail && (tail.sender === 'human' || !tail.stopReason);
+
+        var srcLabel;
+        if (!_ciPathComplete)      srcLabel = 'PARTIAL conversation history (API) \u2014 see warning below';
+        else if (_ciRefreshFailed) srcLabel = 'API conversation history from the LAST GOOD SNAPSHOT \u2014 see warning below';
+        else if (pending.length)   srcLabel = 'complete conversation history (API) plus unconfirmed live turns \u2014 see warning below';
+        else if (midGeneration)    srcLabel = 'API conversation history, captured MID-RESPONSE \u2014 see warning below';
+        else                       srcLabel = 'complete conversation history (API)';
+        lines.push('**Source:** ' + srcLabel);
+        // A retained snapshot after a FAILED refresh is complete only as of the last
+        // successful fetch. ciSetDegraded keeps the index ready on purpose so consumers do
+        // not collapse to the mounted window — but an export taken in that window could be
+        // serialising a superseded branch (the refresh was triggered by an edit or
+        // regenerate being detected), and it still claimed completeness (Codex P1).
+        if (_ciRefreshFailed) {
+            lines.push('');
+            lines.push('> \u26a0 **This is the last snapshot that loaded successfully.** A ' +
+                       'refresh was attempted and failed (' + _ciRefreshFailed + '), so if ' +
+                       'the conversation has been edited or regenerated since, the branch ' +
+                       'below may be the superseded one. Re-export once a refresh succeeds.');
+        }
+        if (midGeneration && _ciPathComplete && !pending.length) {
+            lines.push('');
+            lines.push('> \u26a0 **The last response was still being generated.** This snapshot ' +
+                       'was taken before the final turn finished, so the reply on screen is ' +
+                       'missing from this file or is cut short. Everything before it is ' +
+                       'complete. Re-export once the response has finished.');
+        }
+        if (pending.length) {
+            lines.push('');
+            lines.push('> \u26a0 **' + pending.length + ' turn' + (pending.length !== 1 ? 's' : '') +
+                       ' pending confirmation.** ' + (pending.length !== 1 ? 'These were' : 'This was') +
+                       ' read from the page because the API snapshot predates ' +
+                       (pending.length !== 1 ? 'them' : 'it') + '. Any reply still being ' +
+                       'generated is NOT included. Re-export once the conversation settles ' +
+                       'for a fully API-backed file.');
+        }
+        if (!_ciPathComplete) {
+            lines.push('');
+            lines.push('> \u26a0 **Incomplete history.** Walking the conversation tree from its ' +
+                       'current tip never reached the root message, so this export begins ' +
+                       'part-way through the conversation. Earlier messages are missing.');
+        }
+        if (truncated > 0) {
+            lines.push('');
+            lines.push('> \u26a0 **Incomplete:** ' + truncated + ' message' + (truncated !== 1 ? 's' : '') +
+                       ' in this conversation are marked truncated by Claude. Their full text is ' +
+                       'not available and the content below is partial.');
+        }
+        if (_ciUsedLeafFallback) {
+            lines.push('');
+            lines.push('> \u26a0 The active conversation branch was inferred rather than read from ' +
+                       'the authoritative pointer. If this conversation has edited or regenerated ' +
+                       'messages, verify the branch is the one you expect.');
+        }
+        lines.push('');
+        lines.push('---');
+
+        var qIdx = 0, aIdx = 0;
+        for (var j = 0; j < path.length; j++) {
+            var m = path[j];
+            lines.push('');
+            if (m.sender === 'human') { qIdx++; lines.push('## User (Q#' + qIdx + ')'); }
+            else                      { aIdx++; lines.push('## Assistant (A#' + aIdx + ')'); }
+            if (m.truncated) lines.push('*(truncated by Claude — partial content)*');
+            lines.push('');
+            lines.push(m.text || '*(no text content)*');
+            // Tool / artifact blocks. ciExtractText omits them from `text` on purpose, so
+            // writing only the text dropped substantive content from a file labelled
+            // complete — the same severity logic as the attachments channel above: an
+            // omission from an authoritative-looking export is invisible to its reader
+            // (Codex). Fenced so the payload cannot break the surrounding structure, with
+            // the fence sized past any backtick run inside it.
+            if (m.toolBlocks && m.toolBlocks.length) {
+                for (var tb = 0; tb < m.toolBlocks.length; tb++) {
+                    var tBody = m.toolBlocks[tb].body || '';
+                    lines.push('');
+                    lines.push('**' + m.toolBlocks[tb].label + ':**');
+                    if (tBody) {
+                        var tRuns = tBody.match(/`+/g) || [];
+                        var tMax = 0;
+                        for (var tr = 0; tr < tRuns.length; tr++) {
+                            if (tRuns[tr].length > tMax) tMax = tRuns[tr].length;
+                        }
+                        var tFence = new Array(Math.max(4, tMax + 2)).join('`');
+                        lines.push('');
+                        lines.push(tFence);
+                        lines.push(tBody);
+                        lines.push(tFence);
+                    }
+                }
+            }
+            if (m.files && m.files.length) {
+                var names = [];
+                for (var f = 0; f < m.files.length; f++) {
+                    names.push(m.files[f].file_name || m.files[f].file_kind || 'file');
+                }
+                lines.push('');
+                lines.push('**Attachments:** ' + names.join(', '));
+            }
+            // attachments[] is a separate channel from files[] — large pastes live in
+            // attachments[].extracted_content and were silently omitted from a file
+            // labelled as complete API history (Codex round-1 P1). ciExtractText
+            // already returns extracted_content when the message has NO text block, so
+            // only emit it here when it is NOT already the body.
+            // Skip entirely when the body WAS the attachments: after R10's
+            // aggregation the message text is all bodies joined, and the
+            // per-attachment != comparison re-emitted every large document a second
+            // time (Codex R11 :8147).
+            if (m.attachments && m.attachments.length &&
+                (!m.textSource || m.textSource === 'content')) {
+                for (var at = 0; at < m.attachments.length; at++) {
+                    var att = m.attachments[at];
+                    var body = att.extracted_content && att.extracted_content.trim();
+                    if (body && body !== (m.text || '').trim()) {
+                        lines.push('');
+                        lines.push('**Attached content' +
+                                   (att.file_name ? ' (' + att.file_name + ')' : '') + ':**');
+                        lines.push('');
+                        // Fence must be longer than any backtick run INSIDE the body:
+                        // markdown documents commonly contain ``` themselves, and a
+                        // fixed fence closed at the first one, dumping the rest of the
+                        // attachment into the surrounding document structure
+                        // (Codex R13 :8203).
+                        var runs = body.match(/`+/g) || [];
+                        var maxRun = 0;
+                        for (var rr = 0; rr < runs.length; rr++) {
+                            if (runs[rr].length > maxRun) maxRun = runs[rr].length;
+                        }
+                        var fence = new Array(Math.max(4, maxRun + 2)).join('`');
+                        lines.push(fence);
+                        lines.push(body);
+                        lines.push(fence);
+                    } else if (!body && att.file_name) {
+                        lines.push('');
+                        lines.push('**Attachment:** ' + att.file_name);
+                    }
+                }
+            }
+            lines.push('');
+            lines.push('---');
+        }
+
+        // Pending turns close the file, in conversation order after the last confirmed
+        // entry, each labelled so a reader can tell page-read text from API text.
+        for (var pq = 0; pq < pending.length; pq++) {
+            qIdx++;
+            lines.push('');
+            lines.push('## User (Q#' + qIdx + ')');
+            lines.push('*(pending API confirmation — read from the page)*');
+            lines.push('');
+            lines.push(pending[pq].text || '*(no text content)*');
+            lines.push('');
+            lines.push('---');
+        }
+
+        downloadFile('conversation-export.md', lines.join('\n'));
+        showToast('Saved: conversation-export.md (' + (path.length + pending.length) + ' messages)');
+    }
+
     function exportFullConversation() {
         try {
+        // Prefer the complete index; fall back to the DOM scan, which on a
+        // virtualized platform can only see what is mounted.
+        if (ciIsClaudeChat() && ciIsReady() && _ciFullPath && _ciFullPath.length) {
+            _exportFromIndex();
+            return;
+        }
         var questions = typeof _questions !== 'undefined' ? _questions : [];
         var aiMsgsArr = [];
         if (typeof platform !== 'undefined' && platform && platform.getAIMessages) {
@@ -5055,6 +9418,16 @@
         lines.push('**Date:** ' + dateStr);
         lines.push('**Messages:** ' + timeline.length +
             ' (' + questions.length + ' user, ' + aiMsgsArr.length + ' AI)');
+        // Never let a DOM-scraped export imply completeness on a platform that
+        // only mounts a window of the conversation.
+        if (ciIsClaudeChat()) {
+            lines.push('**Source:** on-screen messages only — DEGRADED');
+            lines.push('');
+            lines.push('> \u26a0 **This export is incomplete.** The full conversation history could ' +
+                       'not be loaded' + (_ciDegradedReason ? ' (' + _ciDegradedReason + ')' : '') +
+                       ', so only messages currently rendered on screen are included. ' +
+                       'Claude renders roughly 3\u20135 turns at a time.');
+        }
         lines.push('');
         lines.push('---');
         var qIdx = 0;
@@ -6382,7 +10755,10 @@
                     var target = q.element.isConnected ? q.element : (function () {
                         var msgs = Array.from(getUserMessages());
                         return msgs.find(function (m) {
-                            return (m.textContent || '').trim().startsWith((q.text || '').substring(0, 60));
+                            // q.text comes from _readMessageText (sr-only stripped structurally),
+                        // so comparing against raw textContent fails whenever a label is
+                        // present and the legacy nav item's click becomes a silent no-op.
+                        return _readMessageText(m).startsWith((q.text || '').substring(0, 60));
                         }) || null;
                     })();
                     if (target) {

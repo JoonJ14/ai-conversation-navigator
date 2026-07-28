@@ -7,6 +7,13 @@ Replace the placeholder Summary panel with a working conversation outline using 
 **Status:** Ready for implementation  
 **Depends on:** Task #0 (`getAIMessages()` selectors)
 
+> **v12.0 update — summary operates on the full conversation path.**
+>
+> Two problems on Claude. First, the DOM scan saw ~3% of the conversation, so segmentation and the D2 nested bracket map were computed over a fraction of it. Second, `_sumBuildTimeline()` ordered messages with `compareDocumentPosition`, which returns `DOCUMENT_POSITION_DISCONNECTED` for unmounted nodes — matching neither FOLLOWING nor PRECEDING, so the comparator returned 0 and the sort silently degraded to arbitrary order. Summary could therefore be both incomplete *and* out of sequence.
+>
+> `_sumBuildTimeline()` now returns `_ciFullPath` directly when the index is ready (already in conversation order, no positional sort needed), and the DOM fallback separates mounted from unmounted entries so detached nodes cannot scramble the ordering.
+
+
 ---
 
 ## Table of Contents

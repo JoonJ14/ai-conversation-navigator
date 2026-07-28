@@ -7,6 +7,11 @@ Extend the Search feature to search through both user questions AND AI responses
 **Status:** Ready for implementation  
 **Depends on:** `getAIMessages()` selectors per platform (shared with Bookmarks and Context Tracking)
 
+> **v12.0 update — search reads the conversation index on Claude.**
+>
+> The design below searches `_questions` and `_aiResponses`, both derived from a full-page DOM scan. On Claude that scan now sees only ~3 mounted turns, so most searches returned nothing regardless of the matching logic. `_questions` is now populated from the API-backed conversation index (DEC-021) and covers the whole conversation. Note that a match may have `element: null` when its message is not mounted — jump-to-result must handle that rather than assuming a node exists.
+
+
 ---
 
 ## Problem

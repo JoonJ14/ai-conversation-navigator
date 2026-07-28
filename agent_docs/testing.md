@@ -15,7 +15,8 @@ npx playwright install --with-deps
 ## Running Tests
 
 ```bash
-# Run all tests on all 14 platforms (189 total: 14 tests × orbital, 13 tests × legacy)
+# Run all tests on all 20 platform entries (376 total: 14 tests × orbital, 13 × legacy,
+# + virtualization and jump tests on the three Claude (virtualized) entries)
 npm test
 
 # Run on specific browsers
@@ -57,18 +58,36 @@ The test suite queries only stable `data-acn-*` attributes — never internal CS
 | `data-acn-dot="nav|search|…"` | On each orbital dot | Feature ID (orbital only) |
 | `data-acn-open="true"` | On nav-panel | Panel open state |
 | `data-acn-count="N"` | On nav-stat | Question count |
+| `data-acn-index-status="degraded\|loading\|ready-with-notes"` | On zone | Conversation-index banner state (Claude, v12.0+) |
+| `data-acn-jumping="true"` | On panel | A jump is in flight |
+| `data-acn-jump-resolved="N"` | On zone | The `data-index` a completed jump actually resolved — durable, because the resolved element is detached by the re-render `scrollIntoView` triggers |
+
+**Two rules for virtualized assertions** (both learned the hard way — see DEC-025):
+assert on what the implementation *resolved* via `data-acn-jump-resolved`, never on
+ambient DOM state; and look the resolved row's text up with
+`__mockVirtualization.rowText(i)`, never with `querySelector('[data-index="N"]')`, because
+that row is routinely recycled away before the assertion runs. Reading the DOM there made
+the check pass on Linux and fail on Windows for the same correct jump.
 
 ## Modification Checklist
 
 When modifying the userscript, ensure:
 - All `data-acn-*` attributes remain intact
 - Mock pages match the real platform DOM structure
-- Tests pass across all 14 platforms
+- Tests pass across all 20 platform entries (14 real platforms + six Claude virtualized
+  entries: degraded, index-backed, and index-backed with markdown API text whose DOM/API
+  text deliberately does NOT match)
 
 ## CI/CD
 
 GitHub Actions runs on push/PR to `main`:
 - **cross-platform-tests.yml:** 3 OS (Ubuntu, macOS, Windows) x 3 browsers (Chromium, Firefox, WebKit) = 9 test matrix jobs
+
+**Windows is the runner that catches timing assumptions.** It is materially slower than
+the Ubuntu and macOS runners, so an assertion that races the virtualizer passes on two OSes
+and fails on the third. Treat a Windows-only failure as a real finding about the assertion,
+not as runner flakiness. Do not add `--single-process` to the Chromium launcher — it removes
+crash isolation and reports one renderer fault as every-platform-after-it failing (DEC-026).
 - **claude.yml:** Claude Code integration for automated issue/PR responses
 - **claude-code-review.yml:** Automated code review
 

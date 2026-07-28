@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html><head><title>Claude Virtualized Mock</title></head>
+<body style="margin:0;padding:0;background:#2b2a27;color:#e8e4db;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<!-- Claude (claude.ai/chat) — VIRTUALIZED mock. Added v12.0, rebuilt for Phase 3.
+
+     WHY THIS MOCK EXISTS
+     claude.html is static: all of its turns are permanently mounted, so the test
+     suite could never fail on the bug that motivated v12.0. Claude's real web app
+     virtualizes the message list WITH RECYCLING — measured live, 3 of 96 turns
+     mounted (~3% coverage). A suite of static mocks structurally cannot fail on
+     that, and it stayed green the entire time the feature was broken.
+
+     WHAT IT REPRODUCES (all verified against the live site in Phase 3.0)
+       1. Only a window of rows is in the DOM; the rest are REMOVED, not hidden
+       2. Unmounting is driven by SCROLL EVENTS, not just initial load — without
+          this the settle loop cannot be exercised at all
+       3. data-index / data-rs-index on each row: contiguous, 0-based, and
+          covering BOTH senders (it indexes MESSAGES, not turns)
+       4. aria-posinset / aria-setsize on a role="article" wrapper
+       5. role="feed" on the list, data-autoscroll-container="true" on the scroller
+       6. A PINNED TAIL: the last row stays mounted at every scroll position, so
+          the mounted set is NON-CONTIGUOUS. This is the real behaviour and it is
+          why landing detection must use the cluster nearest the scroll position
+          rather than plain set membership — a naive check reports a false hit for
+          tail indices from anywhere in the conversation.
+       7. Full scroll height reserved via spacers
+       8. An sr-only "Load earlier messages" button and sr-only sender labels
+          ("You said:", "Claude responded:") — these leak into textContent and are
+          exactly what the shared text extractor has to strip
+
+     DOM SHAPE (live, July 2026 — differs from claude.html, which is v11.x)
+       - data-testid="user-human-turn" NO LONGER EXISTS
+       - data-testid="user-message" sits on the INNER content node
+       - .font-user-message is now .!font-user-message (Tailwind important prefix)
+       - scroll container is overflow-y-auto (was overflow-y-scroll)
+
+     Row layout: 80 messages, even index = user, odd = assistant.
+     Window = 6 messages; pinned tail = the final row (79, an assistant message)
+     so the mounted USER count stays 3 and the count assertion stays stable. -->
+
+<div style="display:flex;height:100vh;width:100%;">
+
+  <nav style="width:260px;min-width:260px;background:#1a1917;border-right:1px solid #3a3835;overflow-y:auto;">
+    <div style="padding:16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #3a3835;">
+      <svg width="20" height="20" viewBox="0 0 20 20" style="fill:#d97706;"><circle cx="10" cy="10" r="8"/></svg>
+      <span style="font-size:15px;font-weight:600;">Claude</span>
+    </div>
+  </nav>
+
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+
+    <header data-testid="chat-header" style="height:48px;border-bottom:1px solid #3a3835;display:flex;align-items:center;padding:0 20px;font-size:14px;">
+      Virtualized conversation
+    </header>
+
+    <!-- Scroll container — stable attribute selector, as on the live site -->
+    <div id="mock-scroll-container"
+         data-autoscroll-container="true"
+         class="overflow-y-auto overflow-x-hidden mt-12 pt-2 flex-1"
+         style="overflow-y:auto;overflow-x:hidden;flex:1;position:relative;overflow-anchor:none;">
+         <!-- overflow-anchor:none, as every real virtualizer sets: without it Chromium's
+              scroll anchoring re-pins scrollTop to the always-mounted TAIL row whenever
+              re-measuring grows content above the viewport, teleporting a requested
+              117,936px landing to 299,075px and defeating any positioning logic. -->
+
+      <div class="relative w-full min-h-full flex flex-col">
+        <div role="feed" id="mock-feed">
+          <p class="sr-only select-none">Use the up and down arrow keys to move between messages.</p>
+          <button class="sr-only select-none" id="mock-load-earlier">Load earlier messages</button>
+
+          <div data-rocksteady-sizer data-sizer-excess="0" id="mock-sizer">
+            <div id="mock-spacer-top" style="width:100%;"></div>
+            <div id="mock-mounted" style="max-width:768px;margin:0 auto;padding:0 16px;"></div>
+            <div id="mock-spacer-bottom" style="width:100%;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div data-testid="chat-input" style="border-top:1px solid #3a3835;padding:12px 20px;">
+      <div contenteditable="true" role="textbox" style="min-height:24px;padding:8px 12px;background:#1a1917;border-radius:8px;">Reply to Claude…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+    // ── Conversation data lives in JS, NOT the DOM ───────────────────────────
+    // Overridable per test entry via window.__MOCK_CONFIG (injected by the harness
+    // BEFORE this script runs). Lets one mock serve the resolve-on-arrival fixture
+    // matrix: lengths 80/120/150/294, duplicated short questions, attachment rows whose
+    // DOM text cannot match their API text, and a giant row.
+    var CFG = window.__MOCK_CONFIG || {};
+    var TOTAL_MESSAGES = CFG.totalMessages || 80;   // user+assistant, interleaved
+    var WINDOW_SIZE    = 6;    // messages mounted around the scroll position
+    var TAIL_ROWS      = 1;    // final row pinned mounted at every position
+
+    // ── ROW HEIGHTS: sampled from the REAL distribution, not invented ────────
+    //
+    // This has now been wrong twice, each time in a way that let CI pass while the
+    // live site failed. Both failures are recorded because the second one looked
+    // like a fix for the first.
+    //
+    //   v1  every row a constant height. scrollTop mapped to index linearly, so the
+    //       first interpolation always landed and ciSelectCluster, the tolerance
+    //       branch, re-anchoring, the degenerate-bracket reset and the iteration cap
+    //       were ALL dead code under test. Proved by throwing inside ciSelectCluster
+    //       and watching nothing fail.
+    //
+    //   v2  140 + ((h*137) % 520). Varied — and still far too easy, for reasons that
+    //       are not about the range:
+    //         * spread only 4.6x, where the real site spans 102..2624 px (25x);
+    //         * the distribution is FLAT, where the real one is heavy-tailed
+    //           (mostly 100-350, occasionally 2500+);
+    //         * `(h*137) % 520` is EQUIDISTRIBUTED — consecutive rows are maximally
+    //           spread out, so any window's local mean converges to the global mean
+    //           almost immediately, which is precisely the assumption a global-average
+    //           interpolator makes. The mock was constructed to satisfy the estimator.
+    //       Live result on real claude.ai: ~20 re-renders over 12.5 s on a single jump,
+    //       then honest failure, on any conversation past ~10-20 questions. CI: green.
+    //
+    // v3 (this one) samples the EMPIRICAL heights observed by Probe A on
+    // conversation b3c603a4 and adds AUTOCORRELATION, because real conversations
+    // cluster: a deep technical exchange runs several long turns in a row. Local
+    // density diverging from global density is the property that actually breaks a
+    // global interpolator, and no amount of range-widening reproduces it.
+    //
+    // Deterministic (fixed-seed LCG, no Math.random) so CI is reproducible and a
+    // failure can be replayed exactly.
+    var OBSERVED_H = [                          // Probe A, live, rows as rendered
+        102, 125, 184, 184, 234, 279, 304, 308, 308, 308, 308, 326, 326, 440,
+        848, 1063, 1108, 1172, 1208, 1267, 1276, 1327, 1463, 1504, 1540,
+        1740, 1752, 1859, 1932, 2232, 2315, 2429, 2521, 2623, 2624
+    ];
+    var REAL_H = [];
+    (function buildHeights() {
+        var seed = 20260726;                    // fixed: reproducible across runs and OSes
+        // MINSTD (Lehmer). Chosen over a glibc-style LCG because `seed * 1103515245`
+        // with seed near 2^31 exceeds 2^53 and silently loses low bits in a double —
+        // deterministic, but a degenerate generator. 16807 * (2^31-1) is ~3.6e13, well
+        // inside exact integer range, so this stays a true MINSTD sequence.
+        function rnd() {                        // ES5, no Math.random
+            seed = (seed * 16807) % 2147483647;
+            return seed / 2147483647;
+        }
+        // Walk a band pointer that USUALLY stays put and occasionally jumps. That is
+        // what produces runs of similar heights instead of an even sprinkle.
+        var band = 0;
+        for (var h = 0; h < TOTAL_MESSAGES; h++) {
+            if (rnd() < 0.35) {                 // 35% chance to move to a new band
+                band = Math.floor(rnd() * OBSERVED_H.length);
+            }
+            var jitter = Math.floor(rnd() * 3) - 1;             // +/-1 slot inside the band
+            var idx = Math.min(OBSERVED_H.length - 1, Math.max(0, band + jitter));
+            REAL_H.push(OBSERVED_H[idx]);
+        }
+    })();
+    // A single flat guess for an unmeasured row — exactly what the real virtualizer
+    // does, and the reason scrollHeight moves as rows are measured. Deliberately NOT
+    // the true mean (1073 px here): the real estimate is wrong, and its wrongness IS
+    // the drift.
+    //
+    // Must sit ABOVE the true mean so scrollHeight SHRINKS monotonically, matching the
+    // live measurement (387,132 -> 375,082 px, -3.2%). An estimate below the mean would
+    // make it grow, and the loop's anchor handling was designed around shrinkage.
+    // 1150 gives ~6.7% — same direction as the real site, roughly twice the magnitude,
+    // so the mock is at least as hard as the case that failed live.
+    var ESTIMATED_H = 1150;
+    var measured = {};                              // rowIndex -> true once mounted
+
+    var DUP_ROWS = CFG.duplicateRows || [];    // same <=25-char question, 2+ times
+    var ATT_ROWS = CFG.attachmentRows || [];   // DOM shows a file chip; API holds a paste
+    var MESSAGES = [];
+    for (var i = 0; i < TOTAL_MESSAGES; i++) {
+        var turn = Math.floor(i / 2) + 1;
+        if (i % 2 === 0) {
+            var qt;
+            if (DUP_ROWS.indexOf(i) !== -1)      qt = 'here is the full report.';
+            else if (ATT_ROWS.indexOf(i) !== -1) qt = '[Pasted text #' + turn + ']';
+            else qt = 'Question number ' + turn +
+                      ': how do I handle case ' + turn + ' when the input is unusual?';
+            MESSAGES.push({ sender: 'user', text: qt });
+        } else {
+            MESSAGES.push({ sender: 'ai', text: 'Answer number ' + turn +
+                  ': validate the input first, then branch on the result.' });
+        }
+    }
+    // One giant row (>=15,000px) exercises intra-row scrolling with no remount.
+    if (typeof CFG.giantRowAt === 'number') REAL_H[CFG.giantRowAt] = 15000;
+
+    var container = document.getElementById('mock-scroll-container');
+    var mounted   = document.getElementById('mock-mounted');
+    var spacerTop = document.getElementById('mock-spacer-top');
+    var spacerBot = document.getElementById('mock-spacer-bottom');
+    var loadBtn   = document.getElementById('mock-load-earlier');
+
+    function hOf(i) { return measured[i] ? REAL_H[i] : ESTIMATED_H; }
+    function heightBefore(idx) { var t = 0; for (var i = 0; i < idx; i++) t += hOf(i); return t; }
+    function heightBetween(a, b) { var t = 0; for (var i = a; i < b; i++) t += hOf(i); return t; }
+
+    // Non-linear: walk cumulative heights instead of dividing by a constant.
+    function startForScroll(top) {
+        var acc = 0;
+        for (var i = 0; i < TOTAL_MESSAGES; i++) {
+            if (acc + hOf(i) > top) return i;
+            acc += hOf(i);
+        }
+        return TOTAL_MESSAGES - 1;
+    }
+
+    function el(tag, cls, style) {
+        var n = document.createElement(tag);
+        if (cls)   n.className = cls;
+        if (style) n.setAttribute('style', style);
+        return n;
+    }
+
+    function buildRow(index) {
+        var msg = MESSAGES[index];
+
+        var row = el('div');
+        row.setAttribute('data-index', String(index));
+        row.setAttribute('data-rs-index', String(index));
+
+        var article = el('div');
+        article.setAttribute('role', 'article');
+        article.setAttribute('aria-posinset', String(index + 1));
+        article.setAttribute('aria-setsize', String(TOTAL_MESSAGES));
+
+        // sr-only sender label on the WRAPPER — matches the live site, where it sits
+        // outside [data-testid="user-message"].
+        var srLabel = el('span', 'sr-only');
+        srLabel.textContent = msg.sender === 'user' ? 'You said: ' : 'Claude responded: ';
+        article.appendChild(srLabel);
+
+        var renderWrap = el('div');
+        renderWrap.setAttribute('data-test-render-count', '1');
+
+        if (msg.sender === 'user') {
+            var align  = el('div', 'flex flex-col items-end gap-1',
+                            'display:flex;flex-direction:column;align-items:flex-end;gap:4px;');
+            var bubble = el('div', 'group relative inline-flex gap-2 bg-bg-300 rounded-xl',
+                            'display:inline-flex;background:#3a3835;border-radius:12px;padding:10px 16px;max-width:85%;');
+            bubble.setAttribute('data-user-message-bubble', 'true');
+            var flexRow = el('div', 'flex flex-row gap-2 relative');
+            var flex1   = el('div', 'flex-1');
+
+            var content = el('div', 'font-large !font-user-message py-0.5 grid grid-cols-1 gap-2 relative');
+            content.setAttribute('data-testid', 'user-message');
+
+            // CONTAMINATION FIXTURES, inside the queried node on purpose.
+            // (a) an HTML comment — real mocks (grok, claude, emergent) contain these,
+            //     and Comment.textContent IS the comment body, so a text walker that
+            //     recurses into comments emits it. That defect shipped and rendered
+            //     "D: Inner layout wrapper..." as a Grok question.
+            // (b) an .sr-only span — the live site keeps its label on the wrapper, but
+            //     our own fallback paths read the wrapper, so the extractor must strip
+            //     it wherever it appears.
+            // Without these INSIDE the queried element, the stripping tests pass
+            // vacuously: a reviewer disabled all stripping and they still passed.
+            content.appendChild(document.createComment(' MOCK-COMMENT-SHOULD-NOT-APPEAR '));
+            var srInner = el('span', 'sr-only');
+            srInner.textContent = 'SR-ONLY-SHOULD-NOT-APPEAR ';
+            content.appendChild(srInner);
+            // NON-EMPTY on purpose. With an empty string this fixture contributed
+            // nothing either way, so swapping the sr-only predicate for a plain
+            // indexOf('sr-only') — which also matches `not-sr-only` — failed no test.
+            // Now, wrongly treating not-sr-only as sr-only loses this text.
+            var notSr = el('span', 'not-sr-only');
+            notSr.textContent = ' VISIBLE-NOT-SR-ONLY';
+
+            var p = el('p', 'whitespace-pre-wrap break-words', 'margin:0;white-space:pre-wrap;');
+            p.textContent = msg.text;
+
+            content.appendChild(p);
+            content.appendChild(notSr);
+            flex1.appendChild(content);
+            flexRow.appendChild(flex1);
+            bubble.appendChild(flexRow);
+            align.appendChild(bubble);
+            renderWrap.appendChild(align);
+        } else {
+            var aiAlign = el('div', 'flex flex-col items-start gap-1',
+                             'display:flex;flex-direction:column;align-items:flex-start;gap:4px;');
+            var body = el('div', 'font-claude-response', 'max-width:85%;line-height:1.6;padding:10px 0;');
+            body.appendChild(document.createComment(' MOCK-COMMENT-SHOULD-NOT-APPEAR '));
+            var ap = el('p', 'whitespace-pre-wrap break-words', 'margin:0;');
+            ap.textContent = msg.text;
+            body.appendChild(ap);
+            aiAlign.appendChild(body);
+            renderWrap.appendChild(aiAlign);
+        }
+
+        article.appendChild(renderWrap);
+        row.appendChild(article);
+        row.style.height = REAL_H[index] + 'px';
+        row.style.overflow = 'hidden';
+        measured[index] = true;      // mounting = measuring; shrinks scrollHeight over time
+        return row;
+    }
+
+    var currentStart = -1;
+
+    function render(force) {
+        // Keep a GAP between the scrolling window and the pinned tail at every
+        // position, so the mounted set is non-contiguous even at the bottom. The
+        // previous version let the window run up to the tail, making them adjacent —
+        // one contiguous run — which silently retired the non-contiguity assertion.
+        // No "-3": that clamp created a structural DEAD ZONE — with 294 rows the window
+        // start capped at 284, so rows 290-292 could NEVER mount and every jump to the
+        // last questions failed against the MOCK while working live (the real
+        // virtualizer mounts right up to the tail: [291,292,293] observed).
+        var maxStart = Math.max(0, TOTAL_MESSAGES - TAIL_ROWS - WINDOW_SIZE);
+        var start = startForScroll(container.scrollTop);
+        if (start < 0) start = 0;
+        if (start > maxStart) start = maxStart;
+        if (start === currentStart && !force) return;
+        currentStart = start;
+
+        var end = Math.min(TOTAL_MESSAGES - TAIL_ROWS, start + WINDOW_SIZE);
+
+        while (mounted.firstChild) mounted.removeChild(mounted.firstChild);
+        for (var i = start; i < end; i++) mounted.appendChild(buildRow(i));
+        for (var t = TOTAL_MESSAGES - TAIL_ROWS; t < TOTAL_MESSAGES; t++) {
+            mounted.appendChild(buildRow(t));
+        }
+
+        spacerTop.style.height = heightBefore(start) + 'px';
+        spacerBot.style.height = Math.max(0, heightBetween(end, TOTAL_MESSAGES - TAIL_ROWS)) + 'px';
+
+        loadBtn.style.display = start === 0 ? 'none' : 'block';
+    }
+
+    container.addEventListener('scroll', render, { passive: true });
+    render(true);
+
+    window.__mockVirtualization = {
+        totalMessages: TOTAL_MESSAGES,
+        totalTurns:    TOTAL_MESSAGES / 2,
+        windowSize:    WINDOW_SIZE,
+        userWindowSize: WINDOW_SIZE / 2,
+        tailRows:      TAIL_ROWS,
+        mountedCount: function () {
+            return document.querySelectorAll('[data-testid="user-message"]').length;
+        },
+        mountedIndexes: function () {
+            return Array.prototype.slice
+                .call(document.querySelectorAll('[data-index]'))
+                .map(function (e) { return +e.getAttribute('data-index'); })
+                .sort(function (a, b) { return a - b; });
+        },
+        // Text of a row read from the BACKING DATA, never from the DOM.
+        //
+        // A test that wants to know "which message did the navigator resolve?"
+        // must not answer it with querySelector('[data-index=N]').textContent:
+        // the row is routinely recycled out of the mount window before the
+        // assertion runs, because the re-render that scrollIntoView triggers is
+        // itself what unmounts it. That makes the read machine-speed-dependent —
+        // it passed on Linux/macOS (window [34..39], target 38 present) and
+        // failed on Windows (window [41..46], target 38 gone) for the same
+        // correct jump.
+        //
+        // MESSAGES is the source of truth and is always present. This is the
+        // same Layer 4 rule the product follows: do not ask the DOM for data
+        // the index already holds.
+        rowText: function (i) { return MESSAGES[i] ? MESSAGES[i].text : null; },
+        scrollHeight: function () { return container.scrollHeight; },
+        resetMeasurements: function () {
+            measured = {};
+            currentStart = -1;
+            render(true);
+        },
+        measuredCount: function () { return Object.keys(measured).length; },
+        scrollToFraction: function (f) {
+            container.scrollTop = Math.round(
+                (container.scrollHeight - container.clientHeight) * f);
+            render();
+        }
+    };
+})();
+</script>
+</body>
+</html>

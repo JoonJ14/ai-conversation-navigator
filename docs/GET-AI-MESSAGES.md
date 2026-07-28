@@ -8,6 +8,15 @@ Add `getAIMessages()` to every platform entry in the PLATFORMS registry, followi
 **Depends on:** Nothing (this IS the prerequisite)  
 **Blocks:** Task #1 (Context Tracking), Task #3 (Bookmarks), Task #4 (Search), Task #5 (Summary), Task #6 (Tools/Image Gallery)
 
+> **v12.0 update — the fallback chains had decayed to a single link each.**
+>
+> Live re-inspection of Claude in July 2026 found `.font-claude-response` returning 5 while `[data-testid="ai-turn"]`, `[data-testid="assistant-message"]`, `.font-claude-message` and `[data-testid$="-turn"]` all returned **0**. The user chain was in the same state: only `[data-testid="user-message"]` matched, and it had *moved* from the turn wrapper to the inner content node.
+>
+> The fallback-chain pattern this spec describes worked exactly as designed — it absorbed a Layer 1 break with no visible symptom. That is its value and its hazard: nothing reported the degradation, and the chain was one platform update from returning zero. Chains need periodic live verification, not just a green test suite; the mock pages were built to match the old structure and passed throughout.
+>
+> Note also that on Claude these selectors now return only the mounted window (~3 turns), not the conversation. They are the degraded fallback; enumeration comes from the conversation index (DEC-021).
+
+
 ---
 
 ## Table of Contents

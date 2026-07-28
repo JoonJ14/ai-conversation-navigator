@@ -29,6 +29,36 @@ This document explains **everything** about the automated test suite: what it do
 
 ---
 
+## Measurement Context Is Part of the Finding
+
+Before trusting any manual measurement taken against a live platform, check which
+context it came from. Three v12.0 findings were verified, documented as fact, and
+later disproved — each was correct where measured and false where it mattered.
+
+| Context | Changes | How to test the one that matters |
+|---|---|---|
+| Page realm vs **Tampermonkey sandbox** | cross-compartment rules, event trust | probe from an installed userscript, not the DevTools console |
+| Chrome vs **Firefox** | compartment strictness (DEC-019, DEC-020) | Firefox first — it is where this project's execution failures happen |
+| Visible vs **hidden tab** | rAF and timers throttle; a virtualizer stops running entirely | assert `document.visibilityState === 'visible'` before measuring |
+| Mock page vs live site | no vendor bundles, no CSP, no virtualization | mocks cannot catch Layer 3 or Layer 4 breaks |
+
+A hidden tab is the nastiest of these: it does not fail loudly, it returns
+plausible, stable, wrong numbers. Every early measurement failure in the v12.0
+Phase 3 investigation traced back to it — programmatic scrolls appearing to do
+nothing, multi-megabyte `fetch` calls hanging forever.
+
+**Rule:** write findings as *"X, measured in \<context\>"*, and treat them as
+context-scoped until reproduced in the Tampermonkey sandbox, in a visible window,
+on Firefox. When a later measurement contradicts an earlier one, record **both**
+with their contexts rather than replacing one — the contradiction is the finding.
+
+Probe scripts used for this in v12.0 are worth copying as a pattern: they abort
+loudly when `visibilityState !== 'visible'`, they state which realm they run in,
+and the userscript-based ones print `exportFunction` presence to prove they are
+genuinely in the Firefox sandbox.
+
+---
+
 ## Overview
 
 The test suite verifies that the AI Conversation Navigator userscript works correctly on **every supported platform** without needing to open a browser and manually visit each site. It does this by:
@@ -240,14 +270,22 @@ const browser = await chromium.launch({
         '--disable-setuid-sandbox', // Same
         '--disable-gpu',           // No GPU in headless
         '--disable-dev-shm-usage', // Prevents /dev/shm issues in Docker
-        '--single-process',        // CRITICAL: Required on kernel 4.4.0
     ],
 });
 ```
 
-**Why `--single-process`?** The Antigravity IDE sandbox runs on Linux kernel 4.4.0, which is too old for Chromium's multi-process architecture. Without this flag, child processes crash silently with "Target page, context or browser has been closed" errors. This flag forces everything into one process.
+**Do not re-add `--single-process`.** It was present from the suite's first commit,
+justified by an Antigravity IDE sandbox on Linux kernel 4.4.0 that is no longer the
+environment this runs in. In single-process mode the renderer shares the browser process,
+so **any** renderer fault takes the whole browser down — and every platform after it fails
+with `Target page, context or browser has been closed`, which reads as fifteen broken
+platforms rather than one renderer fault.
 
-**If you're running on a normal machine** (macOS, modern Linux, Windows), you can remove `--single-process` for better stability. It's only needed in the sandboxed environment.
+That is precisely what happened on Windows CI in v12.0, once `claude-virtualized.html`
+started doing real scroll work: **13 of 16 platforms cascaded from a single fault.**
+Firefox and WebKit on the same runner lost nothing, because the flag was Chromium-only —
+which is also the diagnostic tell. If one engine cascades and the others report a single
+clean failure, suspect crash isolation, not the code under test.
 
 **Browser selection priority:**
 1. Full Chromium (`/root/.cache/ms-playwright/chromium-1194/chrome-linux/chrome`) — preferred, more stable
@@ -269,7 +307,25 @@ This is more stable than creating a new context per test (which crashed on the o
 
 Tests query only `data-acn-role` and `data-acn-*` contract attributes — no internal CSS class names or element IDs. This means the UI can be completely rebuilt in any future version without breaking the test suite, as long as the contract attributes are maintained on the correct elements.
 
-**Total: 189 tests** — orbital platforms (claude, claude-code, chatgpt, codex, grok, gemini, perplexity) run 14 tests each; legacy platforms (bolt, lovable, replit, v0, base44, emergent, firebase) run 13 tests each.
+**Total: 267 tests across 16 platform entries**, green on Chromium and on Playwright's
+Gecko build (`--browser firefox`; not in the local default).
+
+**Be precise about what the Firefox run covers.** Playwright launches its own Firefox
+binary and the harness injects the userscript as a plain `<script>` tag in the page realm.
+So it exercises **Gecko engine behaviour** — layout, `getBoundingClientRect`, `TreeWalker`
+semantics, rAF timing, regex, `scrollTo` — and nothing more.
+
+It does **not** exercise the Tampermonkey sandbox: no `unsafeWindow`, no `exportFunction`,
+no cross-compartment boundary. That matters, because **DEC-019 and DEC-020 both happened
+in the sandbox realm, not in Gecko generally.** A green Playwright-Firefox run is
+therefore evidence against engine-level regressions and says nothing about the failure
+class this project actually gets bitten by.
+
+Sandbox-realm behaviour has been verified exactly once, narrowly: Probe B, run manually in
+a real Firefox with Tampermonkey, confirming that sandbox-created events drive the
+virtualizer (`exportFunction` present, so genuinely the sandbox). Everything else on that
+axis is unverified. See the measurement-context rule above — "Firefox" is not one context,
+it is at least two. Orbital platforms run 14 tests each; legacy platforms 13 each. The two virtualized Claude entries run additional tests: `Claude (virtualized)` adds 7, and `Claude (virtualized + index)` adds 13. Every non-virtualized entry gains a direct-path assertion, and **every** entry now ends with an uncaught-page-error check.
 
 | # | Test Name | What It Verifies | How | Platforms |
 |---|-----------|-----------------|-----|-----------|
@@ -287,6 +343,9 @@ Tests query only `data-acn-role` and `data-acn-*` contract attributes — no int
 | 12 | Close button works | Clicking close removes the open state | Click `[data-acn-role="panel-close"]` → `data-acn-open` removed from nav-panel | All |
 | 13 | Correct injection mode | Platform gets orbital vs legacy UI as expected | `data-acn-ui` on zone matches `expectedMode` ("orbital" or "legacy") | All |
 | 14 | All orbital dots present | All 6 feature dots rendered in the orbital cluster | `[data-acn-dot="nav"]`, `[data-acn-dot="search"]`, etc. all present | Orbital only |
+| 15 | Mock recycles turns | The virtualizing mock genuinely unmounts turns rather than hiding them | Scroll to 0/35/70/100%; mounted count stays at `windowSize` and cumulative unique stays below `totalTurns` | Virtualized only |
+| 16 | DOM exposes only the mounted window | The DOM cannot see the whole conversation — the bug itself, asserted | `__mockVirtualization.mountedCount()` equals `windowSize` while `totalTurns` is 40 | Virtualized only |
+| 17 | Degraded mode is visible | Index failure is surfaced in the UI, not just the console | `[data-acn-index-status="degraded"]` banner present after opening Navigate | Virtualized only |
 
 **Tests 1–4 are blockers** — if any fail, the remaining tests are skipped for that platform (there is nothing to interact with without the core elements).
 
@@ -295,6 +354,200 @@ Tests query only `data-acn-role` and `data-acn-*` contract attributes — no int
 **Test 13** validates the registry-driven `useOrbital` flag — if a platform's `useOrbital` property is wrong, this test catches it immediately.
 
 **Test 14** catches rendering failures in the orbital cluster — if any dot fails to build, the entire cluster is broken for that platform.
+
+### The two virtualized Claude entries
+
+Both use `claude-virtualized.html`. They differ in one thing: whether a `GM_xmlhttpRequest`
+fixture is injected.
+
+| Entry | Fixture | Index builds? | Panel shows | Proves |
+|---|---|---|---|---|
+| `Claude (virtualized)` | none | no — degrades | 3 (mounted window) | the fallback is visible, not silent |
+| `Claude (virtualized + index)` | yes | **yes** | **40** (whole conversation) | the primary path works end to end |
+
+The fixture entry is what makes the v12.0 feature testable at all. Before it, the harness
+had no GM APIs, so org resolution, `ciBuildIndex`, active-path branch filtering, index-backed
+Navigate/Search/Export and the entire jump loop were unverified by CI — a gap flagged twice
+in independent review.
+
+**The fixture deliberately carries one leading unrendered message**, so the
+`data-index → _ciFullPath` offset is **+1** rather than 0. An implementation that quietly
+assumes zero alignment fails here instead of in production. If you regenerate the fixture,
+preserve that asymmetry — making it align at 0 would silently retire the check.
+
+### The third virtualized entry — a mock that can fail
+
+`Claude (virtualized, markdown API text)` exists because CI was green while the live site
+failed. The other two virtualized entries use prose that is byte-identical in the mock DOM
+and the GM fixture, so `ciDeriveRowOffset()` always succeeds and its failure path is
+unreachable — structurally the same "cannot fail" shape as the original v12.0 bug.
+
+This entry sets `gmFixture.markdownText`, giving the API side raw markdown
+(`**Question number 5**: ... \`case 5\``) against the DOM's rendered text. The offset
+therefore never derives, and the entry asserts what must remain true anyway: the jump
+gives up inside its iteration budget, never claims a resolution it did not make, and
+releases the busy flag.
+
+It also pins a **known defect** — unmatched DOM rows are appended as provisional
+questions, so 43 are listed where the index holds 40. The expectations encode current
+behaviour deliberately; when text matching is fixed those numbers must return to 40 and
+the `KNOWN DEFECT` assertion will fail loudly. That is the point of a characterisation
+test.
+
+### The load-path guard entries — a fixture default hid two CRITICALs for a release
+
+Two entries exist because the GM fixture's *incidental constants* made real bugs
+unreachable. Neither bug was subtle in the code; both were invisible in CI, and both
+survived a 23-round independent review (DEC-028).
+
+| Entry | Knob | Models | Old build (`6bc7ed2`) |
+|---|---|---|---|
+| `Claude (slow API — load recursion guard)` | `gmFixture.apiLatencyMs: 1200` | the real ~2.1s payload instead of the 5ms default | `RangeError: Maximum call stack size exceeded`, storm |
+| `Claude (tool-shaped row — refetch loop guard)` | `gmFixture.toolShapedRow: 3` + `refetchProbeMs` | an artifact/tool answer, where the client renders more than the API's text blocks carry | 4 fetches in 36s idle at a 15.5s cadence, forever |
+
+**The recursion entry changes nothing but a number.** `scanConversation → ciLoadIndex →
+done(false) → scanConversation` recurses only when a second scan lands inside the fetch
+window. At 5ms none ever does; at 1200ms it happens on essentially every load. The
+assertion that catches it is the pre-existing `No uncaught page errors` — no new assertion
+was needed, only a representative constant.
+
+**The refetch entry asserts a ceiling, not an exact count.** Two fetches are correct: the
+initial load plus at most one resync attempt. A third means the resync fired, succeeded,
+observed the same evidence and fired again — which then repeats indefinitely. It probes
+while the page is genuinely idle (no clicks, no scrolling), so anything it sees is
+self-inflicted.
+
+Both are **ancestor-gated**: they fail on a real commit (`6bc7ed2`) and pass on the fix, the
+strongest form of the DEC-027 gate. When adding fixtures, record which are ancestor-gated
+and which are only mutant-gated — they are not equally strong evidence.
+
+Fixture knobs available per entry: `apiLatencyMs` (default 5), `toolShapedRow`,
+`refetchProbeMs`, `markdownText`, `conversationUuid`, `totalMessages`.
+
+### A green "question #1" result does NOT mean the settle loop works
+
+Question #1 and the last question are now resolved by `ciTryExtreme()` — first renderable
+entry maps to `scrollTop = 0`, last to `scrollTop = max`, recognised from the path index
+with no offset derivation and no interpolation. That is deliberate: those are the two
+targets an estimator handles worst, and on the live site question #1 previously failed
+*deterministically* (`targetRow = 0 - 1 = -1`, "outside the rendered row range").
+
+The consequence for reading test output: **test 23 no longer exercises the settle loop at
+all.** It proves the extremes shortcut works. The mid-conversation test (test 24) is the
+only assertion carrying the loop, the interpolation, the anchor updates and the bounded
+map search. If you add a jump test, target the middle.
+
+### Known coverage gap — `ciTryExtreme`'s last-row branch
+
+`ciTryExtreme()` special-cases the first and last rows to exact scroll positions. Only the
+**first**-row half is exercised. The mock has 80 messages with user turns on even indices,
+so the last row (79) is an assistant message, and Navigate only ever targets questions —
+`totalRows - 1` is unreachable from the panel. Confirmed by mutation: throwing inside that
+branch leaves the suite at 294/294.
+
+It is live code in production, reachable through assistant-targeted bookmark jumps. Closing
+the gap needs a fixture whose final row is a user turn, which changes turn counts across
+several assertions; it is recorded here rather than papered over.
+
+### Tracing a jump
+
+```bash
+ACN_JUMP_TRACE=1 node tests/test-all-platforms.js --browser chromium
+```
+
+Sets `localStorage.acnJumpDebug` before the userscript runs and forwards its
+`[ACN jump]` lines to stdout, one per iteration, so a CI run can be diffed line-for-line
+against a log captured on live claude.ai with the same flag
+(`localStorage.setItem('acnJumpDebug','1')`, then reload).
+
+### Why these assertions look paranoid
+
+An independent review lens **mutation-tested** the first version of these tests and proved
+they passed against a broken implementation:
+
+| Mutation | Old suite |
+|---|---|
+| jump body → `done(false, null)` | 25/25 PASS |
+| index offset hardcoded to `0` | passed, landing at the *top* when asked for the *last* question |
+| all text stripping disabled | test 20 PASS |
+| entire tree walk → `msgs.slice()` | 25/25 PASS |
+| `orbSetJumpBusy` → no-op | 47/47 PASS |
+| late uncaught throw during a jump | 25/25 PASS |
+
+They described the fix rather than failing without it — the same shape as the original
+v12.0 bug, where a static mock could not fail on a virtualization break.
+
+Rules that came out of it, worth applying to any new assertion here:
+
+1. **Assert what the implementation RESOLVED, not ambient DOM state.** This is the
+   subtlest one and it survived two rounds of hardening. "Row N is mounted and reads
+   correctly" passes even when the navigator resolved a *different* message, because the
+   mount window is several rows wide and an off-by-one lands inside it. Mutation-proved:
+   offset forced to 0 + verification stubbed → the jump resolved the assistant reply
+   instead of Question 1, suite green. The fix is the `data-acn-jump-resolved` contract
+   attribute, recorded on the zone because the resolved element is detached by the
+   re-render `scrollIntoView` triggers.
+2. **Assert state was entered, not just exited.** `!stillBusy` is satisfied by never
+   setting the flag; also assert it was *observed*.
+3. **Never target a row that is always mounted.** The pinned tail makes an off-by-one
+   look like success; jump targets are chosen mid-conversation for that reason.
+4. **Put the contamination inside the queried node.** The sr-only test passed vacuously
+   because no mock had `.sr-only` inside the element the extractor actually reads.
+5. **Error checks run last, and for every platform.** Placed early they miss everything
+   after them; gated to one platform they miss the other fifteen.
+6. **Read identity from the backing data, never from the recycled DOM.** Rule 1 fixed
+   *which* row the assertion asks about; this fixes *where it looks up the answer*. The
+   first version resolved the row index durably from `data-acn-jump-resolved` and then
+   turned around and read `querySelector('[data-index=N]').textContent` to check the text
+   — but by then the row is frequently unmounted again, because the re-render that
+   `scrollIntoView` triggers is what unmounts it. The check therefore depended on machine
+   speed: it passed on Linux and macOS (window `[34..39]`, target 38 present) and failed
+   on **all three** Windows engines (window `[41..46]`, target 38 gone) for an identical,
+   correct jump. Use `__mockVirtualization.rowText(i)`, which reads the mock's `MESSAGES`
+   array. Verified still diagnostic: with the offset forced to 0 and verification stubbed,
+   both jump assertions fail with `resolved=row 1 isQ1=false` and `expected row 38,
+   resolved row 39`.
+
+   This is the product's own Layer 4 rule turned on the harness: **do not ask the DOM for
+   data the index already holds.** A virtualized mock is subject to it exactly like a
+   virtualized platform.
+
+### Tests 15–25 — virtualization and jump (added v12.0)
+
+These exist because of a structural blind spot: **every mock page except `claude-virtualized.html` is static and mounts all of its turns permanently.** When Claude virtualized its real message list — mounting ~3 of 147 turns — the entire suite stayed green while Navigate, Search, Summary and Export were all operating on ~3% of the conversation. A suite of static mocks *cannot* fail on that class of bug. See DEC-022 (Layer 4: State Breaks).
+
+`tests/mock-pages/claude-virtualized.html` holds 40 turns in JavaScript and mounts 3, removing the rest from the document on scroll.
+
+- **Test 15** guards the mock itself. If it stopped recycling, tests 16–17 would prove nothing.
+- **Test 16** asserts the DOM is incomplete *on purpose*, so a future change that appears to fix the count without an index gets caught.
+- **Test 17** asserts degraded mode is visible. The harness provides no `GM_xmlhttpRequest`, so the API fetch always fails there and the fallback banner must appear. Silent degradation is what let the original bug hide.
+
+Both virtualized entries use real-shaped conversation uuids in their pathnames
+(`/chat/11111111-…` and `/chat/22222222-…`) because `ciIsClaudeChat()` gates on that
+pattern; the plain `claude.html` entry uses `/chat/test` and therefore never engages the
+index path.
+
+**Tests 18–20** guard the foundations the jump rests on: the virtualizer's positional
+metadata (`data-index`, `aria-setsize`, `role="feed"`, the container attribute), the
+**non-contiguous** mounted set (the pinned tail — plain set membership would give false
+hits), and that `.sr-only` labels never reach the panel.
+
+**Tests 21–22** assert the jump *terminates* and throws nothing, on both entries. On the
+non-fixture entry every jump must take the honest-failure path, so what is being verified
+there is termination and the absence of a wrong-message scroll — not success.
+
+**Tests 23–25** are the primary path, fixture entry only:
+
+- **23** — the panel lists 40 turns while the DOM holds 3. The bug and the fix in one assertion.
+- **24** — jump to question #1 **from the bottom**. The assertion checks the target was
+  *unmounted at click time* and mounted afterwards; without that first half it would pass
+  trivially whenever the target happened to already be on screen.
+- **25** — jump to the last question, busy flag cleared.
+
+Tests 24 and 25 poll for completion rather than sleeping a fixed interval, and wait for
+**both** arrival and the busy flag clearing. Waiting on arrival alone races the flag reset,
+which happens after the final `scrollIntoView` — that race produced a spurious failure the
+first time these ran.
 
 ---
 
@@ -334,6 +587,8 @@ The `PLATFORMS` array in `test-all-platforms.js` is the **central configuration*
 |------|----------|----------|-----------------|----------------|
 | Claude | claude.ai | claude.html | 3 | `#d97706` |
 | Claude Code | claude.ai | claude-code.html | 3 | `#d97706` |
+| Claude (virtualized) | claude.ai | claude-virtualized.html | 3 (of 40 real turns) | `#d97706` |
+| Claude (virtualized + index) | claude.ai | claude-virtualized.html | 40 (whole conversation) | `#d97706` |
 | ChatGPT | chatgpt.com | chatgpt.html | 4 | `#ffffff` |
 | Codex Web | chatgpt.com | codex.html | 2 | `#ffffff` |
 | Grok | grok.com | grok.html | 3 | `#e53e3e` |
@@ -347,9 +602,11 @@ The `PLATFORMS` array in `test-all-platforms.js` is the **central configuration*
 | Perplexity | www.perplexity.ai | perplexity.html | 3 | `#20b2aa` |
 | Firebase Studio | 6000-firebase-studio-12345.cluster-abc123.cloudworkstations.dev | firebase.html | 3 | `#FFA611` |
 
+**Note on the virtualized entry:** `expectedMessages: 3` is the *mounted window*, not the conversation — the mock holds 40 turns. That is the point: it asserts the DOM is incomplete. Its `pathname` is a real-shaped conversation uuid so the userscript's conversation-index path engages and the degraded banner can be tested.
+
 **Note on accent sources:** Orbital platforms (Claude, ChatGPT, Grok, Gemini, Perplexity) source their accent from `ORB_COLORS[platform.id].bg`. Legacy app-builder platforms source theirs from `platform.theme.accent` — each platform has its own brand color (Bolt sky blue, Lovable violet, Replit orange, etc.).
 
-**Note on sub-platforms:** Claude and Claude Code both use `hostname: 'claude.ai'` but different mock files and different `pathname` values. The userscript detects both as the `claude` platform and uses a fallback chain — primary selectors (`data-testid="user-human-turn"`) work for Claude Chat, and the fallback (`div.bg-bg-200.rounded-lg` inside `.items-end`) catches Claude Code. The mock pages are designed so that Claude Chat's mock has `data-testid` attributes (primary selectors match) and Claude Code's mock does NOT have `data-testid` attributes (primary selectors find 0, fallback activates).
+**Note on sub-platforms:** Claude and Claude Code both use `hostname: 'claude.ai'` but different mock files and different `pathname` values. The userscript detects both as the `claude` platform and uses a fallback chain — primary selectors work for Claude Chat, and a later link in the chain catches Claude Code. (As of v12.0 the live primary is `data-testid="user-message"`; `data-testid="user-human-turn"` was removed from Claude's DOM and now sits later in the chain — see DOM-REFERENCE.md.) The mock pages are designed so that Claude Chat's mock has `data-testid` attributes (primary selectors match) and Claude Code's mock does NOT have `data-testid` attributes (primary selectors find 0, fallback activates).
 
 Same pattern for ChatGPT vs Codex: ChatGPT mock has `data-message-author-role="user"` attributes, Codex mock does not.
 
@@ -874,7 +1131,7 @@ for (const platform of PLATFORMS.filter(p => p.name === 'Bolt.new')) {
 | CSS-in-JS hash instability | Replit's Emotion classes change per deployment; our mock uses a frozen snapshot of `data-testid` attributes | The mock tests the "happy path" (data-testid exists). If Replit removes data-testid, the fallback selectors activate — test a separate mock for that path if needed |
 | SPA navigation | The test loads the page once; it doesn't simulate route changes or conversation switching | The SPA hooks (pushState/replaceState interception) are tested implicitly — they exist in the script — but their behavior on navigation isn't exercised |
 | CSP (Content Security Policy) | Some sites (Gemini) have strict CSP that blocks inline scripts; the test pages have no CSP | The userscript avoids `innerHTML` (uses `createElement` + `textContent`) specifically for CSP compliance — this was validated manually |
-| Cross-browser differences | Tests run in Chromium only; Firefox/Safari may have different behavior | For Firefox/Safari testing, you'd need to download those browsers (`npx playwright install firefox webkit`) and add launch configs |
+| Cross-browser differences | Chromium and Playwright-Gecko are covered; WebKit is not installed locally | `npx playwright install webkit`, then `--browser webkit`. Note none of these are the Tampermonkey sandbox — see the Firefox scope note above |
 
 ### The `--single-process` flag
 

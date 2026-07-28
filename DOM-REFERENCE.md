@@ -2,7 +2,9 @@
 
 This document records the **real DOM structure** of user messages on each supported platform, the selectors we chose, and the debugging history that led to each choice. This prevents context loss across sessions.
 
-Last updated: Feb 18, 2026 (v8.0 — all 14 platforms inspected from live sites; selectors still current as of v11.8)
+Last updated: Jul 26, 2026 (v12.0 — Claude fully re-inspected from the live site; the other 13 platforms were last verified Feb 18, 2026 and have NOT been re-checked since)
+
+> ⚠️ **Staleness warning.** Claude's selectors drifted substantially between Feb and Jul 2026 without anyone noticing, because the fallback chains absorbed it and the mock-based test suite stayed green. Assume the other 13 entries carry the same risk until re-inspected.
 
 ---
 
@@ -26,9 +28,131 @@ Last updated: Feb 18, 2026 (v8.0 — all 14 platforms inspected from live sites;
 
 ## Claude
 
-**Inspected:** Feb 16, 2026 (live site)
-**Selector:** `[data-testid="user-human-turn"]`
-**Fallback:** `[data-testid="user-message"]`, `.font-user-message`
+**Inspected:** Jul 26, 2026 (live site — full re-inspection)
+**Selector:** `[data-testid="user-message"]`
+**Fallback:** `[data-testid="user-human-turn"]`, `.\!font-user-message`, `[data-testid="user_message"]`, `div.bg-bg-300` filtered by `.items-end`
+
+> ⚠️ **Claude virtualizes its message list with recycling.** Only ~3–5 user turns are mounted at any moment; the rest are unmounted. Selector counts here describe the *mounted window*, not the conversation. Message enumeration comes from the API-backed conversation index (DEC-021), not from these selectors. They remain the degraded fallback.
+
+### v12.0 selector drift (measured live, Jul 26 2026)
+
+The structure documented for v11.x below is **stale**. What changed:
+
+| Selector | v11.x role | Jul 2026 live count |
+|---|---|---|
+| `[data-testid="user-human-turn"]` | primary | **0** — removed from the turn wrapper |
+| `[data-testid="user-message"]` | fallback ("not present in current DOM") | **3** — now the only live user selector |
+| `.font-user-message` | fallback | **0** — class is now `!font-user-message` |
+| `[data-testid="user_message"]` | fallback | **0** |
+| `.font-claude-response` | AI primary | **5** — only live AI selector |
+| `[data-testid="ai-turn"]` / `assistant-message` / `.font-claude-message` | AI fallbacks | **0** |
+| `[data-testid$="-turn"]` | AI last resort | **0** |
+
+Three things worth internalising:
+
+1. **`data-testid="user-message"` moved.** It used to be a wrapper-level attribute; it now sits on the **inner content node** (old element J). Anything treating the returned element as a *turn* — bookmark icon placement, `getMessageContext`, scroll targets — is now operating on a different node than v11.x assumed. Its `textContent` is clean (no sr-only label, no doubling).
+2. **`.font-user-message` → `!font-user-message`.** Tailwind's important prefix. A plain `.font-user-message` selector cannot match it; the escaped form `.\!font-user-message` is required.
+3. **Both chains were down to a single working link.** The fallback chains had been silently absorbing this the whole time.
+
+### Virtualizer metadata — the basis for jump-to-message (v12.0)
+
+Claude's virtualizer identifies itself as **rocksteady** and publishes positional metadata
+on every rendered row. This is what makes DOM→conversation mapping possible **without text
+matching**, which matters because text matching already caused one CRITICAL in v12.0 (the
+script's own injected bookmark icon contaminating `textContent`).
+
+| Attribute | Where | Value / meaning |
+|---|---|---|
+| `data-index`, `data-rs-index` | turn wrapper (9 levels above the message node) | contiguous, **0-based**, covers **both senders** — it indexes MESSAGES, not turns |
+| `aria-posinset`, `aria-setsize` | `role="article"` wrapper (level 8) | 1-based position / total row count (`aria-posinset === data-index + 1`) |
+| `role="feed"` | the list (level 11) | the virtualized region |
+| `data-rocksteady-sizer`, `data-sizer-excess` | sizer (level 10) | virtualizer internals |
+| `data-autoscroll-container="true"` | scroller (level 15) | **stable selector for the scroll container** |
+| `data-test-render-count` | render wrapper (level 7) | render bookkeeping |
+
+There is **no message uuid anywhere in the DOM** — a full attribute scan of mounted rows,
+all ancestors and all descendants returned zero matches against the API's message uuids.
+`data-index` is the only stable identifier available.
+
+**Alignment is NOT assumed.** `aria-setsize` reported 294 while the API active path had 295
+entries, i.e. one leading message is never rendered. The measured offset was +1, but from a
+single matched row — so production re-derives it on every jump from every mounted user row
+and refuses to convert when they disagree. Do not hardcode it.
+
+**The mounted set is NON-CONTIGUOUS.** The last ~3 rows stay mounted at *every* scroll
+position. At `scrollTop = 0` the mounted set was `[0,1,2,3,291,292,293]`. Any "is my target
+mounted?" check must use the cluster nearest the scroll position and exclude that tail —
+plain set membership reports a false hit for tail indices from anywhere in the conversation.
+
+**`scrollHeight` is not stable.** Measured across a scroll sweep it moved 387,132 → 375,082
+(12,050 px / 3.21%), decreasing monotonically as the virtualizer measures real row heights.
+That is ~9–10 messages of error, so any absolute pixel target computed once goes stale.
+
+**"Load earlier messages" is not a pagination gate.** It is a `BUTTON` with class
+`sr-only select-none`, 1×1 px, positioned off-screen — a keyboard affordance. All rows are
+in the virtualizer from load: a single jump from the bottom to offset 0 mounted index 0 and
+`aria-setsize` did not change.
+
+**Imperative API:** none for indexing. The container's React ref exposes
+`getScrollContainer`, `scrollToBottom`, `setPinToBottom`, `isPinned`, `getLastUserInputAt`,
+`markUserInput` — an autoscroll/pin controller. Do not couple to it: the component is
+minified to `Oj` and renames every deploy.
+
+### Current structure (Jul 2026, live)
+
+```
+A: div.overflow-y-auto.overflow-x-hidden.[scrollbar-gutter:stable].mt-12.pt-2.flex-1  (scroll container)
+   └─ measured: scrollHeight 124064 / clientHeight 746 (166x) — full height reserved via spacers
+  C: div.mb-1.group                                    (turn wrapper — NO data-testid any more)
+    D: div.flex.flex-col.items-end.gap-1               (alignment — items-end for user)
+      E: div.group.relative.inline-flex.gap-2.bg-bg-300.rounded-xl   (bubble — note bg-bg-300, not bg-bg-200)
+        F: div.flex.flex-row.gap-2.relative
+          G: div.flex-1
+            H: div[data-testid="user-message"].font-large.!font-user-message.py-0.5.grid.grid-cols-1.gap-2   (OUR TARGET)
+              I: p.whitespace-pre-wrap.break-words     (actual text)
+```
+
+Assistant turns: `div.font-claude-response`, left-aligned (`items-start`).
+
+**Scroll container:** locate it by walking up from a mounted message for the first ancestor with computed `overflowY` of `auto`/`scroll` **and** `scrollHeight > clientHeight`, guarded by `clientHeight > innerHeight * 0.4` and `scrollHeight > clientHeight * 1.5`. Do **not** select on its class string — it has already changed once (`overflow-y-scroll` → `overflow-y-auto`, `pt-6` → `mt-12 pt-2`). The guard matters because code blocks and tables inside messages are themselves `overflow: auto`.
+
+**`window.scrollY` is always `0`** — the conversation scrolls in the inner container, not the window.
+
+**Driving the virtualizer: reposition ONLY. Do NOT dispatch a synthetic `scroll` event.**
+
+An earlier revision of this file said the opposite. It was wrong twice over — see DEC-024.
+
+| Approach | Result |
+|---|---|
+| `scrollTo({top})` alone | drift **exactly −360 px** across three identical runs; cluster lands where expected |
+| `scrollTo({top})` + dispatched `scroll` | drift −2784 / −6249 / −6249 px, and **cluster identity moves ~6 rows** past the ±5 tolerance — a real, reproducible overshoot |
+
+Dispatching makes the app run its own scroll handling, which triggers an extra
+height-measurement pass and shifts the coordinate system mid-jump.
+
+The old justification ("`scrollTop` alone did not remount on Chromium") came from a
+measurement taken in a **hidden window**, where rAF is throttled and the virtualizer does
+not run at all. `CLAUDE.md`'s measurement-context table lists it as a corrected finding.
+
+**There is no pin/autoscroll interference.** A probe once reported "DISPATCH HARMFUL —
+pin/autoscroll", but `scrollTop` and cluster identity were static across all eight samples
+over 3.2 s, the drift was *negative* (away from the bottom; a pin pulls toward it), and
+`SNAPPED_BACK_TO_BOTTOM` was false every time. Do not build a pin-interference abort.
+
+| Condition | `scrollTop = x` alone | `scrollTo()` + dispatched `scroll` |
+|---|---|---|
+| Chromium, DevTools console (page realm) | ❌ no remount after 3 s | ✅ |
+| Firefox, Tampermonkey sandbox | ✅ remounted | ✅ |
+
+An earlier revision of this file stated flatly that `scrollTop` alone never works. Probe B disproved that on Firefox. The discrepancy is unresolved — it may be engine-, timing-, or warm-up-related — so do not rely on either mechanism alone.
+
+**Realm safety:** verified from inside the Tampermonkey sandbox on Firefox (`exportFunction` present). Sandbox-created `Event` and `WheelEvent` both work; `unsafeWindow`-constructed events are **not** required. This is not a DEC-019/DEC-020-class boundary.
+
+---
+
+### Historical: v11.x structure (superseded — kept for context)
+
+**Inspected:** Feb 16, 2026
 
 ### Real DOM Structure (A→K nesting)
 
@@ -605,3 +729,25 @@ Top frame: studio.firebase.google.com (shell, ~157 elements, no chat)
    - Subscription/warning areas can match broad selectors → explicit exclusion
    - `data-testid` vs `data-cy` — platforms use different conventions
    - Alignment classes differ: `self-end`/`justify-end`/`ml-auto` vs `items-end`/`origin-right`
+
+
+## Probe D — no native scroll-to-index (2026-07-27, Chromium page realm, live claude.ai)
+
+Run so nobody repeats the investigation. Rocksteady exposes **no usable imperative path**:
+
+- **Keyboard:** `role="feed"` does not hold focus (`document.activeElement` never lands
+  inside it); ArrowUp/PageUp dispatched at it move nothing. The sr-only arrow-key
+  instruction notwithstanding, keyboard is not a scroll-to-index channel.
+- **Sizer:** one `div[data-rocksteady-sizer][data-sizer-excess="0"]` carrying only the
+  total height (372,642px observed). No per-row offsets, no serialised position map on
+  any element.
+- **`offsetTop` is NOT in container-content coordinates** — 0/32 samples agreed with
+  rect-derived positions. Compute row positions as
+  `el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop`.
+- **Local density** varies 1,033→1,221 px/row across regions (~18%).
+- **Newton-step trial:** from the bottom, one move computed from purely local geometry
+  (nearest mounted row's rect + local px/row) mounted row 0. Local measurement is a
+  sufficient positioning primitive; a global average is not.
+
+Context: Chromium, page realm. API-surface findings (attributes, focus behaviour) are
+engine-independent; re-verify only if Firefox behaves visibly differently.

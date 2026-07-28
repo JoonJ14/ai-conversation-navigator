@@ -6,6 +6,277 @@ If you run into a problem, check here first — you might find we've already sol
 
 ---
 
+## v12.0 pre-merge — Two Load-Path Bugs a Fixture Default Hid for a Whole Release (2026-07-28)
+
+**Status:** RESOLVED | **Severity:** High (both) | **Found by:** local Tier 3 blast-radius lens
+
+Both shipped in v12.0, survived a 23-round independent review, and executed on ordinary use.
+Neither was subtle in the code. Both were unreachable in CI because of **one constant each**
+in the test fixture.
+
+### Symptom 1 — the page throws on every conversation load
+
+Repeated `RangeError: Maximum call stack size exceeded` into the host page on every load and
+every conversation switch. Our scan pipeline dead for the duration; the panel showed nothing,
+not even the DOM fallback the code comments promised. Self-healing once the fetch landed, so
+easy to dismiss as noise.
+
+### Diagnosis 1
+
+`ciLoadIndex` invokes its `done` callback **synchronously** on the in-flight early return:
+
+    if (_ciInFlightCid === cid) { if (done) done(false); return; }
+
+`_ciConversationId` is assigned only on success or degrade, so for the whole fetch window it is
+`null` and `scanConversation`'s not-ready guard (`_ciConversationId !== ciGetConversationUuid()`)
+is permanently true. The callback calls `scanConversation(true)`. So the second scan to land
+inside the window recurses: scan → load → `done(false)` → scan → load → … with nothing in the
+cycle mutating the state that would end it. The `RangeError` escapes `scanConversation`
+entirely, which is why no frame ever reached the DOM scan.
+
+**Why CI was green:** the GM fixture answered in **5ms**. The recursion needs a second scan to
+land inside the fetch window; at 5ms none ever does. The MutationObserver debounce is 500ms and
+the real payload takes ~2.1s.
+
+### Symptom 2 — hundreds of MB/hour on an idle tab
+
+With the tab open and untouched, the full conversation payload re-downloaded every ~15.5s,
+forever, on any conversation containing an artifact or tool use.
+
+### Diagnosis 2
+
+`_ciAssistantStale()` returns true once a signature repeats across two scans and **never clears
+it**, so every later scan returns true immediately. The resync fires, succeeds, observes the
+same mismatch — because refetching cannot fix it — and fires again. Rendered tool output
+appears in DOM text but deliberately **not** in the API's `content[]` text blocks
+(see `ciExtractText`), so an artifact-bearing answer mismatches *by construction*, and the
+growth disjunct had no `toolChars` guard unlike the suffix one.
+
+The exponential backoff could never help: it classifies **failure** reasons, and this loop is
+driven entirely by **successes**. The comment at `_ciRetryDelayMs`' declaration describes this
+exact cost as the thing backoff was added to prevent.
+
+**Why CI was green:** the fixture's API text always equalled the mock's DOM text, so no
+mismatch could exist.
+
+### Solutions considered
+
+**Recursion.** (a) Defer the in-flight `done(false)` with `setTimeout` — rejected: converts a
+stack overflow into a busy async spin, which is harder to diagnose, not safer. (b) Guard in
+`scanConversation` against re-entering when a load is already in flight — chosen: the in-flight
+load's own completion callback already rescans, so the re-entry was pure redundancy.
+
+**Refetch loop.** (a) Clear the mismatch signature after a successful rebuild — rejected, and
+this is the subtle one: the rebuild is what *completes* each cycle, so clearing there reinstates
+the loop exactly. (b) Key consumed signatures by index generation — rejected for the same
+reason, since every refetch mints a new generation. (c) One resync per distinct signature —
+shipped first, then refined twice more (see below).
+
+### Fix
+
+    // scanConversation
+    var ciLoadInFlight = _ciInFlightCid !== null &&
+                         _ciInFlightCid === ciGetConversationUuid();
+    if (!ciLoadInFlight && (_ciStatus === 'idle' || ... )) { ... }
+
+    // _ciAssistantStale — final form, after two further Codex rounds
+    if (_ciResyncedSigs[sig]) return false;
+    if (_ciAwaitingResyncSig) {
+        var sigSurvived = (sig === _ciAwaitingResyncSig);
+        _ciAwaitingResyncSig = '';
+        if (sigSurvived) { _ciMarkResyncedSig(sig); return false; }
+    }
+
+The signature rule went through four versions before settling on **consume only when the
+signature SURVIVES its own refetch** — that is the only discriminator that separates "a
+mismatch no refetch can fix" from "genuine staleness that was already resolved". Suppressing at
+trigger time pinned Navigate/Search/Summary/Export to the wrong branch when cycling regenerated
+alternatives (A → B → A → B).
+
+### Results and verification
+
+Reproduced **before** fixing, per DEC-027, by changing one fixture constant each:
+
+| Reproduction | Old build `6bc7ed2` | Fixed |
+|---|---|---|
+| latency 5ms → 2100ms | RangeError storm, 2 entries fail | 189/189, zero page errors |
+| tool-shaped row, 50s idle | 5 fetches (715, 1238, 16744, 32244, 47746ms), cadence continuing | 2 fetches, then silence |
+
+Both are now permanent ancestor-gated suite entries (`Claude (slow API — load recursion
+guard)`, `Claude (tool-shaped row — refetch loop guard)`). The recursion guard needed **no new
+assertion** — the pre-existing "No uncaught page errors" catches it once the latency is
+representative. That is the whole lesson, recorded as **DEC-028**.
+
+---
+
+## v12.0 — Claude Virtualized Its Message List (2026-07-26)
+
+**The first Layer 4 "state break": the platform kept the data and stopped putting it in the DOM.**
+
+### Symptoms
+
+- Navigate panel shows only 3–6 questions no matter how long the conversation is
+- The list *changes as you scroll* — it follows the viewport, not the conversation
+- Search finds nothing for text you can clearly remember writing
+- Summary segments only the last few turns
+- Exported markdown is missing almost everything, but its header states a message count as if complete
+- Context bar reads implausibly low (e.g. 19%) while the turn counter is red
+- A bookmark jumps to the *wrong message* and highlights it as if correct
+- **No errors anywhere.** Console is clean. Everything looks like it is working.
+
+Measured on a real conversation: panel showed **4 questions; the conversation had 147.**
+
+### Diagnosis
+
+Run this in the console on a long claude.ai conversation:
+
+```js
+document.querySelectorAll('[data-testid="user-message"]').length
+```
+
+If that returns a single-digit number on a conversation you know is long, the message list is virtualized. Confirm it recycles rather than lazy-loads by scrolling the full length and re-running: with lazy loading the count grows and stays grown; with recycling it stays flat.
+
+Live measurements that confirmed it:
+
+| Probe | Result |
+|---|---|
+| Mounted user turns | **3** of 96 |
+| Scroll sweep 0 / 25 / 50 / 75 / 100% | same 3 at every position |
+| Cumulative unique turns | **3** — never accumulated |
+| `window.scrollY` | `0` throughout |
+| Scroll container | `scrollHeight` 124,064 / `clientHeight` 746 |
+
+### Root cause
+
+Claude virtualizes the message list **with recycling**: ~3–5 turns mounted, everything else unmounted and torn down. `document.querySelectorAll()` is no longer a complete record of the conversation.
+
+This is **not** a selector break. The selectors matched correctly — there was nothing else in the DOM to match. Changing selectors cannot fix it.
+
+### Fix
+
+Read Claude's own conversation JSON instead of the DOM. The full conversation is already in the browser — Claude's client downloads it on page load and chooses to render a window of it.
+
+See DEC-021 for the endpoint, the tree-walk algorithm, and why this is *not* the fetch interception that DEC-020 forbids. See DEC-022 for the Layer 4 risk category.
+
+### Gotchas found while implementing
+
+- **The API's top-level `text` field is empty on every message** (0 of 192). Content is in `content[]` blocks. Reading `text` yields a panel of blank rows.
+- **~10% of human turns have no text block.** Large pastes become a `txt` attachment with an empty `file_name`; the body is in `attachments[].extracted_content`.
+- **Root messages have a sentinel parent** `00000000-0000-4000-8000-000000000000`, not `null`.
+- **Reposition only — do NOT dispatch a synthetic `scroll` event.** Measured three times with nothing changed between runs: without the dispatch the drift was exactly −360 px every time; with it, −2784 / −6249 / −6249 px, and the landing cluster moved ~6 rows past the tolerance. Dispatching makes the app run its own scroll handling, triggering an extra height-measurement pass that shifts the coordinate system mid-jump. An earlier version of this entry said the opposite, based on a Chromium result measured in a hidden window — see DEC-024.
+- **The apparent "pin/autoscroll fights the jump" is not real.** A probe reported it, but `scrollTop` and cluster identity were static across all 8 samples over 3.2 s, drift was *negative* (away from the bottom), and `SNAPPED_BACK_TO_BOTTOM` was false. It is `scrollHeight` re-normalisation, which also varies per page load (387132 / 388841 / 390502 observed). Do not add a pin-interference abort.
+- **A hidden tab makes all of this unmeasurable.** If `document.visibilityState !== 'visible'`, rAF and timers are throttled and the virtualizer does not run at all — programmatic scrolls appear to do nothing and large `fetch` calls hang indefinitely. Every early measurement failure in this investigation traced back to this. Check visibility before concluding anything about virtualizer behaviour, and guard the jump loop against it at runtime.
+- **A background tab stalls the fetch entirely.** Chromium freezes background tabs; a 3.3 MB request hung for minutes with `bytes: 0` and even a 40-second `AbortController` timer never fired. Foregrounding the tab completed the same request in 2.1 s. If you are debugging a "hanging" API call, check the tab is focused before assuming a server problem.
+- **`compareDocumentPosition` silently scrambles order** across unmounted nodes: detached nodes return `DOCUMENT_POSITION_DISCONNECTED`, matching neither FOLLOWING nor PRECEDING, so the comparator returns 0 and the sort degrades to arbitrary order.
+
+### Why the test suite never caught this
+
+Every mock page is static and mounts all its turns permanently, so `npm test` returned green throughout. **A suite of static mocks structurally cannot fail on a Layer 4 break.** `tests/mock-pages/claude-virtualized.html` was added for exactly this: 40 turns, 3 mounted, the rest genuinely removed from the document.
+
+### Two CI failures the virtualized mock exposed (both in the harness, not the product)
+
+Once `claude-virtualized.html` started doing real scroll work, Windows CI went red while
+Linux and macOS stayed green. Neither cause was in the userscript.
+
+**1. A test that passed or failed depending on machine speed.** The jump assertion
+resolved the row index durably from `data-acn-jump-resolved`, then looked the row's *text*
+up with `querySelector('[data-index="38"]')`. By then row 38 is usually recycled out
+again — the re-render `scrollIntoView` triggers is what unmounts it. Linux landed on
+window `[34..39]` and found it; Windows landed on `[41..46]` and did not, for the same
+correct jump. Symptom to recognise: **`resolved row N` equals `expected row N` and the
+text check still fails.** That combination means the implementation was right and the
+assertion looked in the wrong place. Read identity from the mock's `MESSAGES` array via
+`__mockVirtualization.rowText(i)`. See DEC-025.
+
+**2. `--single-process` turned one renderer fault into thirteen failing platforms.**
+Windows Chromium reported 13 of 16 platforms failing with
+`page.unrouteAll: Target page, context or browser has been closed`, while Firefox and
+WebKit on the same runner reported a single honest failure. The flag had been there since
+the suite's first commit for a kernel-4.4.0 sandbox that no longer applies; it removes
+crash isolation, so one renderer fault kills the browser and every platform after it.
+**Diagnostic tell:** when one engine cascades and the others report one clean failure,
+suspect the launcher, not the code under test. See DEC-026.
+
+Both are the same lesson in different clothing — *a green suite on your machine is a
+context-scoped finding too.* Add CI runner OS and speed to the list of contexts in
+`CLAUDE.md` that can flip a result.
+
+### The jump thrashes for ~12 s and then fails — RESOLVED in v12.0 (resolve-on-arrival)
+
+**Resolution (2026-07-27).** The entry below is kept for the diagnostic method. The final
+fix was neither text matching nor the estimator but the design: resolution moved from
+before-the-scroll (global) to ON ARRIVAL (window-local) — DEC-027. Proof chain: 0a30d3b
+fails 39 acceptance jumps, 1200a4b fails 24, 5f2a8be passes 222/222; live-confirmed.
+
+### Original diagnosis — offset derivation, not the estimator
+
+**Symptom.** On a conversation past roughly 10–20 questions, clicking a question makes
+the page blink repeatedly for ~12 s, never arrives, then shows *"not currently rendered"*.
+Short conversations work fine. The same click sometimes lands and sometimes does not.
+The question list itself is complete and correct.
+
+**Do not read this as an estimator that converges slowly.** Short conversations work
+because the whole conversation fits inside the mount window, so the target is already
+mounted and the caller's fast path runs — the settle loop never executes at all. The
+loop is not converging slowly; on those conversations it is not running.
+
+**Mechanism.** `ciDeriveRowOffset()` aligns `data-index` to the conversation path by
+matching **rendered DOM text** against **the API's raw markdown**. Those need not
+normalise to the same key: a question containing a code span, bold, a list or a link
+differs on the two sides, and ~10% of human turns carry no API text at all (large pastes
+become attachments). If no mounted user row matches, the function returns `null` and the
+loop enters its blind-probe branch:
+
+```js
+var probePx = maxPx * (iterations / (CI_JUMP_MAX_ITERATIONS + 1));   // 1/9, 2/9 … 8/9
+```
+
+Eight scrolls to arbitrary document positions, each paying the 800 ms settle cap plus a
+250 ms guard — **~1.05 s per iteration, ~8.4 s of forced scrolling, ~12.5 s end to end**,
+dragging the viewport across the whole conversation. That is the blinking. It is
+non-deterministic because it depends on which rows happen to be mounted when you click.
+
+**Reproduced in CI**, by the `Claude (virtualized, markdown API text)` platform entry:
+`EXIT=no-offset-after-probes iterations=8`, mounted set walking `0 → 13 → 20 → 29 → 36 →
+45 → 52 → 62`, **18 feed mutations** against ~20 measured live.
+
+**A second defect shares the root cause.** When the text match fails, the live-message
+merge concludes the mounted rows are messages the API does not know about and appends
+them as provisional questions — so the panel lists 43 where the index holds 40, and the
+duplicates change as you scroll. Pinned by an explicit `KNOWN DEFECT` assertion so a
+partial fix cannot pass quietly.
+
+**To diagnose on the live site:**
+
+```js
+localStorage.setItem('acnJumpDebug', '1')   // then reload, then jump
+```
+
+Each iteration prints one line. The one that matters reads
+`note=BLIND-PROBE offset=null [...]`, and the bracketed array gives, per mounted user
+row, whether it matched and why not — `no-api-match` with a `domKeyHead` sample,
+`empty-dom-text`, or `ambiguous-xN`. If instead you see ordinary `est=`/`actual=` lines
+walking toward the target, the offset is fine and the estimator is the problem.
+
+### Why a mock with realistic row heights did NOT reproduce it
+
+Worth recording, because it was the leading hypothesis and it was wrong. The mock's row
+heights were rebuilt from Probe A's empirical distribution — 25.7x spread, heavy-tailed,
+autocorrelated, with a 6-row window whose local mean is 0.15x the global mean. The jump
+still converged on the **first** interpolation.
+
+The reason is arithmetic: for a sequence of row heights drawn from a fixed distribution,
+the cumulative-height curve's *relative* deviation from a straight line falls off as
+`1/sqrt(n)`. More rows makes linear interpolation **more** accurate, not less. So height
+variance alone cannot explain a failure that gets worse on longer conversations, and a
+mock cannot be made to fail by adding more of it.
+
+### If it happens on another platform
+
+The general shape: DOM-derived counts that track the viewport instead of the conversation, with no errors. Find where the platform still holds the full data (its own API or store) and read from there, keeping the DOM path as a **visibly** degraded fallback. Do not let a fallback stay silent — that is what made this invisible for so long.
+
+---
+
 ## v11.6–v11.8 — Firefox Cross-Compartment Crisis on claude.ai (2026-03-14)
 
 This was a three-version incident: v11.6 fixed the initial crash, v11.7 attempted to preserve SSE tracking, and v11.8 resolved the issue completely by disabling fetch interception on Firefox. Documenting the full progression because this was the first time a platform update broke an entire browser, and the debugging journey revealed fundamental limitations of Tampermonkey's sandbox model.

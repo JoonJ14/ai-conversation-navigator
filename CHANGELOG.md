@@ -4,6 +4,475 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.0 — API-Backed Conversation Index: Claude Virtualized Its Message List] — 2026-07-26
+
+**Branch:** `feat/v12.0-conversation-index`
+
+Message enumeration on Claude now comes from Claude's own conversation JSON, not from the DOM. Adds a fourth platform-risk category (Layer 4: State Breaks), refreshes the Claude selectors, migrates bookmarks to message UUIDs, fixes a ~35x context-tracking undercount, and adds the first virtualizing test mock.
+
+---
+
+### Problem
+
+The navigator's question list showed only 3–6 questions on claude.ai regardless of how long the conversation actually was, and the set changed as the user scrolled — it tracked the viewport, not the conversation. Measured on a real conversation: **the panel displayed 4 questions; the conversation contained 147.** About 3% coverage.
+
+The reported bug was Navigate, but every feature resting on a full-page scan was affected:
+
+- **Export** silently produced truncated files, with a header reading `**Messages:** 8` that looked authoritative. Ranked highest severity: a short nav list is visible to the user, a truncated export file is not.
+- **Search** could only match text currently mounted, so most searches returned nothing.
+- **Summary** segmented a fraction of the conversation, making the D2 nested bracket map wrong.
+- **Context tracking** undercounted by roughly 35x, which is the real cause of the long-standing "turn counter red but context shows 19%" mismatch that PR #47 only partially addressed.
+- **Bookmarks** silently stopped matching their own messages, and worse, the positional fallback scrolled to an *unrelated* message and highlighted it as if correct.
+
+---
+
+### Root cause
+
+Claude's web app virtualizes the message list **with recycling**. Only a window of roughly 3–5 user turns is mounted at any moment; everything outside it is unmounted and torn down.
+
+Live measurements on a 96-turn conversation:
+
+| Probe | Result |
+|---|---|
+| `[data-testid="user-message"]` mounted | **3** of 96 |
+| Scroll sweep at 0 / 25 / 50 / 75 / 100% | same 3 mounted at every position |
+| Cumulative unique turns seen | **3** — never accumulated |
+| `window.scrollY` | `0` throughout (inner container scrolls) |
+| Scroll container | `scrollHeight` 124,064 / `clientHeight` 746 (166x) |
+
+The non-accumulation is what distinguishes this from lazy loading, which accumulates and retains. This recycles.
+
+**The DOM is no longer a complete record of the conversation.** No selector change could fix that — the data is not in the document at any selector.
+
+---
+
+### Why this needed a new risk category
+
+The existing model in ROADMAP.md documented three layers: DOM breaks (selectors stop matching), Feature breaks (platform ships a competing feature), Execution breaks (our code kills the host page). This fits none of them. The selectors matched. The script ran. No competing feature shipped. **The rendering layer withdrew the data itself.**
+
+Added as **Layer 4: State Breaks** — the platform continues to hold the full data but stops exposing it to the DOM. Its defining property is that it *reports success on a fraction of the data*: Layers 1–3 all announce themselves with empty results, a visible conflict, or a dead page, while Layer 4 returns a plausible, non-empty, entirely wrong answer. See DEC-022.
+
+---
+
+### Fix — API-backed conversation index
+
+Claude's own client downloads the entire conversation as JSON on page load and then chooses to render a small window of it. The complete data was in the browser the whole time; this was never a data-availability problem, only a rendering-layer decision.
+
+```
+GET /api/organizations/{org}/chat_conversations/{cid}
+    ?tree=True&rendering_mode=messages&render_all_tools=true&consistency=strong
+```
+
+Verified: HTTP 200, 3,289,821 bytes, ~2.1 s, 297 messages. No `anthropic-client-*` headers required — which matters, since `anthropic-client-sha` looks like a build hash that would rotate every deploy.
+
+**This is not fetch interception.** It is an ordinary outbound `GM_xmlhttpRequest`: it replaces no page global, the page never touches our Promise, and nothing crosses back into the page compartment. The Firefox cross-compartment failure that forced DEC-019 and DEC-020 does not apply. (DEC-020 rejected `GM_xmlhttpRequest` as a way to *intercept* existing traffic; that rejection stands and is unrelated.)
+
+#### The conversation is a tree, not a list
+
+`parent_message_uuid` is on every message. Editing or regenerating creates a branch, so `chat_messages` contains abandoned branches alongside the live conversation. Naively listing every `sender === 'human'` message would surface questions the user edited away — presenting discarded content as current, which is arguably worse than showing too few.
+
+`current_leaf_message_uuid` is the authoritative tip. The walk goes leaf → root via `parent_message_uuid`, then reverses. The newest-leaf heuristic exists only as a logged fallback.
+
+Verified against a 2-leaf fixture — all six expected values matched exactly:
+
+| Metric | Expected | Got |
+|---|---|---|
+| Total messages | 297 | 297 |
+| Total human turns | 148 | 148 |
+| Leaf nodes | 2 | 2 |
+| Active path length | 295 | 295 |
+| **Active human turns** | **147** | **147** |
+| Abandoned branch | 2 | 2 |
+
+#### Three findings that changed the design
+
+1. **The top-level `text` field is empty on every message** — 0 of 192 non-empty. Content lives in `content[]` blocks (`text`, `thinking`, `tool_use`, `tool_result`). Building the index from `text` as originally specified would have rendered 147 blank rows.
+2. **~10% of human turns have no text block at all.** Large pastes become a `txt` attachment with an empty `file_name` and the body in `attachments[].extracted_content` — 14 of 147 turns on the fixture. `ciExtractText()` falls back through attachments, then file names.
+3. **Root messages carry a sentinel parent**, `00000000-0000-4000-8000-000000000000`, not `null`. The walk tests for it explicitly via `CI_ROOT_PARENT_UUID` rather than relying on the uuid merely being absent from the map.
+
+---
+
+### Also fixed: a Layer 1 break hiding underneath
+
+Live re-inspection found the Claude selectors had *also* drifted, and the fallback chain had been silently absorbing it:
+
+| Selector | Chain position | Live count |
+|---|---|---|
+| `[data-testid="user-human-turn"]` | primary | **0** |
+| `[data-testid="user-message"]` | fallback 1 | **3** ✅ |
+| `.font-user-message` | fallback 2 | **0** |
+| `[data-testid="user_message"]` | fallback 3 | **0** |
+| `.font-claude-response` | AI primary | **5** ✅ |
+| `[data-testid$="-turn"]` | AI last resort | **0** |
+
+Both chains were surviving on a single link each. `data-testid="user-message"` has also **moved** — it used to sit on the turn wrapper and is now on the inner content node. `.font-user-message` stopped matching because the class is now `!font-user-message` (Tailwind important prefix), which requires escaping in a selector.
+
+---
+
+### Also fixed
+
+- **Bookmarks migrated to message UUIDs (schema 2).** Bookmarks hashed `(text, DOM index)`, where the index is a position in the live NodeList. Under recycling that changes as the user scrolls, so records stopped matching their own messages. The `els[bookmark.msgIndex]` positional fallback was worse than useless — with ~3 of 147 turns mounted it resolved to an unrelated message and scrolled to it as if correct. That fallback is now gone; failing visibly beats a confident wrong answer. Legacy records migrate to a uuid the first time they are positively identified, and the pre-v12.0 hash input is still recognised so existing Emergent/ChatGPT bookmarks survive.
+- **Context tracking undercount.** Path A and Path B both read `innerText` off the scroll container, seeing only the mounted window. The existing virtual-scroll coverage correction could never help: `_questions` is rebuilt from live DOM on every scan, so `nInDOM / _questions.length` was always exactly 1.0 and the correction was a no-op. Now driven from the index. Thinking tokens now come from real `content[]` thinking blocks instead of an `[aria-expanded] × 600` heuristic that could only see mounted blocks. This matters most on Firefox, where Path B is the *only* path (DEC-020).
+- **Timeline ordering.** `buildTimeline()` and `_sumBuildTimeline()` sorted with `compareDocumentPosition`, which returns `DOCUMENT_POSITION_DISCONNECTED` for detached nodes — matching neither FOLLOWING nor PRECEDING, so the comparator returned 0 and the sort silently degraded to arbitrary order. Export and Summary could emit messages *out of sequence*, not merely incomplete.
+- **Org UUID resolution.** `fetchClaudeUsage()` took `orgs[0]` — a positional guess that returned another organization's usage numbers for anyone in more than one org. Now: `lastActiveOrg` cookie → `/api/organizations` ranked by the `chat` capability → validated by use, since a wrong org 404s on the conversation fetch. Cached per account.
+- **`You said:` strip.** The old pattern `/^You said\s*/i` could not match a colon, leaving a stray `": "` on every ChatGPT question. Corrected to `/^\s*You said:?\s*/i`. (The garbled text originally reported for Claude did not reproduce — the current selector chain resolves to a clean inner node with no sr-only descendants.)
+- **`ACN_VERSION` was stale at `11.5`** while the header read 11.8; the version-sync commit had only touched documentation.
+
+---
+
+### Degraded mode is visible, by design
+
+Silent degradation is what let this bug hide. When the index is unavailable the panel renders a `data-acn-index-status` banner reading *"Showing only on-screen messages — full history unavailable"* with the reason, and the export header is stamped `**Source:** on-screen messages only — DEGRADED` with an explicit warning block. The `truncated` flag and any use of the leaf-inference fallback are surfaced the same way.
+
+---
+
+### Jump-to-message under virtualization
+
+Listing 147 questions is only half the feature. `scrollIntoView` cannot work on a node that is not mounted, and ~97% of a long conversation is unmounted, so clicking a question returned *"not currently rendered"* for almost every entry. A navigator that lists 147 destinations and can reach 5 of them is not a navigator.
+
+**The virtualizer hands us the answer.** Live inspection found Claude's virtualizer ("rocksteady") tags every rendered row with `data-index` — contiguous, 0-based, covering both senders — plus `aria-posinset` / `aria-setsize` on a `role="article"` wrapper, `role="feed"` on the list, and `data-autoscroll-container="true"` on the scroller. Mapping a DOM node to a conversation position therefore needs **no text matching at all**, which removes the entire contamination class that produced a CRITICAL earlier in this release.
+
+The jump is a settle loop: estimate an offset, scroll, read which rows actually mounted, interpolate again from that real anchor. Measured constraints that shaped it:
+
+| Measurement | Consequence for the design |
+|---|---|
+| `scrollHeight` drifts **12,050 px / 3.2%**, monotonically decreasing as rows are measured | ~9–10 messages of error. Re-normalise every iteration; never cache an absolute pixel offset |
+| The mounted set is **non-contiguous** — the last ~3 rows stay mounted at every scroll position | Landing detection uses the cluster nearest the scroll position and excludes the pinned tail. Plain set membership would report a false hit for tail indices from anywhere |
+| Settle: median 309 ms, max 668 ms | 800 ms cap with early exit |
+| Mount window 3–10 rows | ±5 row tolerance |
+| A hidden tab throttles rAF entirely; the virtualizer stops running | Runtime `visibilityState` guard — the loop cannot converge while hidden |
+| The dispatch causes a reproducible ~6-row overshoot (3 repeated runs) | **Reposition only.** No synthetic scroll event — see DEC-024 |
+| The landed position is a constant −360 px off the requested one | Read actual `scrollTop` after every move; never trust the requested value |
+
+The offset between `data-index` and the conversation path is **never hardcoded**. It is re-derived on every jump from *every* mounted user row, and all of them must agree; ambiguous duplicate text is skipped rather than allowed to vote, and disagreement refuses the conversion rather than jumping somewhere wrong.
+
+**Two dead ends, both documented rather than quietly dropped.** The synthetic scroll
+event was carried for most of Phase 3 on the strength of a single Chromium measurement —
+taken, it turned out, in a hidden window where the virtualizer does not run at all. Three
+repeated runs of the same probe then showed the dispatch causes a real, reproducible
+~6-row overshoot, visible in landing *cluster identity* rather than in pixel drift. And a
+probe verdict of "pin/autoscroll is fighting the jump" was wrong: scroll position and
+cluster identity were static across 3.2 s, and the drift ran *away* from the bottom while
+a pin pulls toward it. The cause of both was `scrollHeight` re-normalisation. DEC-024
+records the data so neither is re-derived.
+
+Investigated and rejected: an imperative `scrollToIndex`. The container's React ref exposes `getScrollContainer` / `scrollToBottom` / `setPinToBottom` / `isPinned`, but no index API — and the component is minified to `Oj`, which renames every deploy. Coupling to it would be the Layer 3 hazard DEC-019 punished.
+
+Bookmarks now route through the same path, resolving by message uuid. The positional `els[bookmark.msgIndex]` fallback is **deleted**.
+
+### Post-freeze live-test fixes (2026-07-27)
+
+The owner's six-target live confirmation passed except Q#1 — the attachment-chip message
+at the path head, where its own text is API-only and no lower neighbours exist to bracket
+with. Fixed by **by-construction extreme resolution**: the first renderable human entry IS
+row 0 and the last IS the final row, no text or pairs required (the gate is the target's
+sender, not the global predicate-warned flag — a mid-conversation anomaly must not disable
+head resolution; caught by a pair-free mutant). **Q#1 re-tested live: PASSED.**
+
+Proactively hardened the symmetric risk (mid-conversation chip flanked by unmatchable
+rows): the session anchor store now participates in arrival resolution, exactness-gated on
+the strict anchors-only inverse. Post-closure Codex comments addressed without re-opening
+the review loop: conversation-map segment clicks (element binding + jump bridge) and
+cross-conversation leaks of SSE thinking totals and the staleness signature.
+
+### Summary and Export: three post-closure Codex findings (2026-07-27, second batch)
+
+Three P2 comments, all on surfaces that consume the index rather than build it. The first
+is a correctness defect of the class this release exists to eliminate.
+
+**1. Summary clicks trusted a stale element (the one that mattered).** Summary items bind
+their DOM element when the summary is *generated*; the panel outlives that snapshot and the
+virtualizer recycles rows behind the user. By click time the captured node could be detached
+— `scrollIntoView` silently doing nothing — or, worse, still connected while displaying a
+*different* message, scrolling to and highlighting the wrong turn. That is precisely the
+"never a wrong jump" invariant DEC-027 is built around, arrived at from the opposite
+direction: not a jump that resolves incorrectly, but a jump that never re-resolves at all.
+
+Fixed by discarding the cached element on indexed chats and re-resolving from the path index
+at every click. To keep the release's ONE MATCHER property, the 3a/3b resolution body was
+extracted out of `_relocateQuestionElement` into `ciResolveMountedByPathIndex(pathIdx)` and
+both callers now share it, rather than growing a second matcher that could drift. Items that
+predate the index (summary generated before the fetch resolved, so no path index exists to
+re-resolve against) now refuse with a toast instead of gambling on the cached node.
+
+**2. Off-screen code-inventory clicks were silent no-ops.** Fenced blocks recovered from
+unmounted responses carry `element: null`, and the renderer called the scroll helper without
+an index, so every recovered off-screen block was inert — while the index could jump straight
+to its message. The trap here is that the inventory's existing `msgIndex` is an
+*assistant-only ordinal*, not a path position; passing it through would have produced a
+confident jump to an unrelated message. A separately-named `pathIdx` is threaded from the
+index-backed build instead, and the two are never interchangeable by construction.
+
+**3. Index-backed exports omitted provisional turns while claiming completeness.** A prompt
+sent after the current API snapshot is merged into `_questions` only, so the exporter —
+which serializes `_ciFullPath` — dropped it from a file headed "complete conversation history
+(API)". Same severity logic as the original v12.0 export bug: an omission from an
+authoritative-looking file is invisible to its reader. Pending turns are now emitted, counted,
+and labelled, with a warning that an in-flight reply is not included.
+
+**Verification and its limits.** 374/374 on Chromium and Firefox. Mutation-verifying the
+refactor produced a finding worth recording: forcing `ciResolveMountedByPathIndex` to always
+return `null` **still passes all 222 acceptance jumps**, because resolve-on-arrival catches
+the miss and lands correctly anyway. The fast path is a latency optimization, not a
+correctness dependency — defence in depth working as designed, and also the reason the suite
+cannot fixture it. These three fixes are suite-green and logic-verified but **unfixtured**,
+the same category as rounds 14–23 (see HANDOFF §J).
+
+### Local Tier 3 review before merge — two CRITICALs that a 23-round review missed
+
+Run at the owner's direction before merging. Five independent lenses, opus backend, scope
+preamble enforced; every finding re-verified against source before any fix. It found more
+than the batch above, and the two most serious findings were **pre-existing v12.0 bugs on
+the ordinary load path**, not regressions from the batch.
+
+**1. Unbounded synchronous recursion on every index load.** `ciLoadIndex` invokes its
+callback *synchronously* on the in-flight early return, and `_ciConversationId` is assigned
+only on success or degrade — so it stays null for the whole fetch window and
+`scanConversation`'s not-ready guard stays true. A second scan landing in that window
+recurses: `scanConversation → ciLoadIndex → done(false) → scanConversation → …` until
+`RangeError: Maximum call stack size exceeded`, which escapes `scanConversation` so not
+even the DOM fallback runs. The fetch is ~2.1s against a 500ms mutation debounce, so this
+fired on essentially every page load and every conversation switch.
+
+**2. Success-driven refetch loop.** `_ciAssistantStale()` returns true once a signature
+repeats and never clears it, so the resync fires, succeeds, observes the same mismatch, and
+fires again — the full payload re-downloaded every ~15.5s, indefinitely, on a completely
+idle page. Rendered tool output appears in DOM text but deliberately not in the API's text
+blocks, so any artifact/tool-bearing answer mismatches *by construction*; the growth
+disjunct had no `toolChars` guard, unlike the suffix one. The exponential backoff could
+never engage: it classifies *failures*, and this loop is driven entirely by successes. The
+comment at its own declaration describes this exact cost ("hundreds of MB per hour on an
+open tab") as the thing backoff was added to prevent.
+
+Both are fixed, and both were **reproduced before being fixed** (DEC-027): the recursion by
+raising the fixture's API latency from 5ms to the measured ~2.1s, the loop by giving one
+assistant answer tool shape. Old build → RangeError storm and 5 fetches in 50s idle at a
+steady 15.5s cadence. Fixed build → clean, and 2 fetches then silence.
+
+**Why a 23-round review missed both: the fixture's own defaults made them unreachable.**
+Nothing about the userscript changed between the failing and passing runs above — only a
+constant in the harness. That is recorded as **DEC-028: a fixture's defaults are part of
+the finding**, the measurement-context rule applied to the test suite itself. Both
+reproductions are now permanent entries (*slow API — load recursion guard*, *tool-shaped
+row — refetch loop guard*), taking the suite to **427 tests across 22 platform entries**.
+
+The review also found that the batch above had, in closing one wrong-jump, opened another:
+discarding the cached element meant a *stale index* drove a real jump, so after a
+conversation switch — which on Claude tears nothing down (`spa: false`) — every summary item
+became a confident jump into the new conversation at the old one's ordinal. Fixed with
+`ciIndexStamp()` (conversation uuid + `_ciIndexGen`, the pair Navigate and Search already
+fingerprint on), captured at generation and compared on every click. A follow-on hole found
+during the contract sweep: `getSummaryForExport()` also calls `generateFullSummary()`, so
+stamping inside the generator let an *export* re-validate a stale panel — the stamp now
+travels on the returned data and is committed only by the render.
+
+Smaller findings fixed in the same pass: non-rendering entries (interrupted generations,
+no `stop_reason`) could be jump targets even though they have no virtualizer row, so
+resolution landed on a neighbour and reported success — Search already excluded them for
+exactly this reason; the hand-rolled outline had no re-entrancy guard and could latch
+permanently onto a recycled row (now `orbFlashElement`); the Summary panel was a jump
+initiator outside `orbSetJumpBusy`; and `_ciLastRefetchAt`/`_ciRetryDelayMs` survived
+`ciInvalidate`, letting one conversation inherit another's cooldown and backoff.
+
+**Honest limit on all of it:** the test-integrity lens proved by mutation that replacing
+`_sumBuildTimeline`, `_sumScrollToElement`, `_exportFromIndex` and `ciIndexStamp` with
+unconditional `throw` still passes 374/374 — no test opens the summary or tools panel at
+all. The two new guard entries cover the load path; the summary/export surface remains
+unfixtured and is v12.1's first task.
+
+### Second GitHub Codex cycle — 24 rounds, 40 findings, zero false positives
+
+Run after the local Tier 3 gate, on a renewed token budget. **Every finding in all 24
+rounds was verified real against source; not one was a false positive.** Suite grew from
+374/374 across 20 entries to **455/455 across 23**.
+
+The findings fall into four groups.
+
+**Shipped defects the earlier 23-round cycle missed** (rounds 1, 6, 13, 16, 21, 24):
+leaving a conversation never released its index, so multi-megabyte state was retained on
+Claude's home/projects routes (`ciIsClaudeChat()` requires the `/chat/<uuid>` path, so the
+invalidation nested inside it never ran); the edited-prompt staleness signature carried no
+content fingerprint; a mid-generation snapshot was labelled "complete conversation history
+(API)" while omitting the reply on screen; **the staleness check compared only the first
+200 characters** — `_normalizeCompare` caps there, so the R17 suffix probe had been
+examining the end of a *prefix* since the day it was written; exports silently dropped
+`tool_use`/`tool_result` payloads while claiming completeness; and the context bar's
+`max()` of indexed-vs-SSE thinking discarded the newest response's thinking whenever the
+indexed history was larger — the normal case after opening an old conversation.
+
+**A privacy regression this release introduced** (round 12, P1): a provisional bookmark
+stored the *entire* prompt text in `GM_setValue`, contradicting README's guarantee. Replaced
+with a hash — migration only ever compared the text, so a hash suffices. Checking that
+claim revealed the README was already wrong about the 120-character `preview` bookmarks have
+always stored; corrected explicitly rather than quietly rewritten.
+
+**Wrong-jump paths in surfaces that trust cached DOM nodes** (rounds 5, 7, 10, 14, 15, 18,
+20, 22): a still-*connected* node is not evidence of identity under recycling. Fixed in the
+summary (degraded sessions), Search (both indexed and non-indexed), and bookmark identity —
+including three cases where a *prefix* comparison accepted a recycled node, and two where
+row identity was trusted without checking the row's content.
+
+**Fixes that broke or under-delivered and had to be re-fixed** (rounds 3, 4, 9, 10, 12, 19,
+22, 23) — the most useful group, because it shows what review catches that reasoning does
+not:
+
+- Round 8's snapshot-retention guard was **inert**: `ciSetDegraded()` sets
+  `_ciStatus = 'degraded'` on its first line, and the guard tested `_ciStatus === 'ready'`
+  further down. The commit message described behaviour the code did not have. Round 9 fixed
+  it *and shipped a fixture*, because that was the second inert attempt in the same place.
+- The consumed-signature idea took four iterations (rounds 2 → 8 → 12 → 23) before landing
+  on a principled rule: **a signature is consumed only when it survives its own refetch.**
+  Clearing on rebuild or keying by index generation both reinstate the infinite refetch
+  loop; suppressing on trigger pins consumers to the wrong branch when cycling regenerated
+  alternatives. Survival is the only discriminator that separates "unfixable by
+  construction" from "genuine staleness, already resolved".
+- Round 18 gave the live tail response an element so it would be searchable, which let a
+  connected-but-recycled node bypass both guards — fixed in round 22 by making indexed
+  targets *always* re-resolve.
+
+**Where the loop was stopped, and why.** After 24 rounds the arithmetic mattered more than
+the count: roughly **19 findings were pre-existing v12.0 defects, and roughly 23 were defects
+in fixes made during this cycle.** Nineteen genuine defects in a 4,567-line release that had
+already had 23 Codex rounds plus a Tier 3 pass is about one per 240 lines — unremarkable for
+a release this intricate. But the cycle had added **1,018 lines** (22% of the release) into a
+surface the test suite provably does not execute, so each fix's only verification was the next
+round reading it. Several mechanisms took four or five iterations to stabilise. At that point
+the loop was manufacturing risk rather than reducing it, and the correct exit was to stop
+changing code and get a real signal: live verification, then fixtures for the untested
+surface as v12.1's first task.
+
+One deliberate hardening was applied on the way out, not from a finding: provisional bookmark
+migration now binds **only when the message text is unique in the path.** It was the single
+path in the cycle that writes persistent data with no test, and a wrong binding is wrong
+forever — a duplicate-text prompt now stays provisional and resolves while mounted instead.
+
+Three new suite entries came out of it, all **ancestor-gated** (they fail on a real commit,
+not a mutant): the slow-API recursion guard, the tool-shaped refetch-loop guard, and the
+refresh-failure retention guard. One test metric was also corrected: the runaway-loop
+assertion counted *all* fetches, which broke once failed refreshes correctly began retrying
+— the property is about *successful* refetches re-triggering themselves.
+
+### Resolve-on-arrival (the final jump design)
+
+**Problem.** Second live test: jumps failed on targets whose neighbourhoods don't
+uniquely text-match globally (6–9s of byte-identical iterations, `ambiguous-mapping`),
+while both sides of the mapping step resolved fine. **Root cause was structural:** the
+design demanded a GLOBAL answer ("the exact dataIndex") before moving, where the
+ambiguity (U = pathLength − aria-setsize unrendered entries) is smaller than the mount
+window itself.
+
+**Method.** Aim with the predicate seed, land, resolve ON ARRIVAL against the ~7 mounted
+rows: the target's own text first (which cannot select a different message — matching is
+the verification), window-local offset pairs second, a bounded shift third. One matcher
+serves the settle loop and the fast path; one arrival path serves extremes and everything
+else. **Density-dependence was the disease:** every estimator that measured real local
+heights failed (span-mean overshot 10x through a 15,000px row; median understepped 4x),
+because the virtualizer positions unmeasured rows at its ESTIMATE — its own density
+(`scrollHeight/totalRows`) is the only correct one, and bisection between straddling
+landings needs no density assumption at all.
+
+**Proof.** Mock-first gate: fixtures with N=0/1/3/10 unrendered entries, duplicate short
+questions, attachment-chip rows, a predicate-blind entry and a giant row. `0a30d3b`
+fails 39 acceptance jumps, `1200a4b` fails 24, `5f2a8be` passes **222/222** (avg ~330ms,
+max 925ms). Live-confirmed 2026-07-27 on the 147-question conversation, Firefox.
+
+### Screen-reader label contamination
+
+Claude emits `"Claude responded:"` and a `"Load earlier messages"` button as `.sr-only` nodes; ChatGPT emits `"You said:"`. All of it landed in `textContent`. Only ChatGPT's was handled, by a regex in a single caller — so Claude's assistant prefix still reached Search, Export and Summary, and `extractMarkdownContent` wrote it into exported markdown.
+
+Fixed structurally in the shared extractor: `.sr-only` and our own injected bookmark icon are removed from every text read. The `"You said:"` regex is **deleted** — no regex can distinguish the platform's label from a user message that legitimately begins with those words.
+
+### Testing
+
+`tests/mock-pages/claude-virtualized.html` is a new mock that holds 80 messages (40 turns) and mounts a 6-message window, genuinely removing the rest from the document. Required, not optional: **every other mock is static and mounts all its turns permanently, so the suite structurally could not fail on this bug** — it returned green throughout.
+
+It reproduces the real virtualizer: `data-index` / `data-rs-index`, `aria-posinset` / `aria-setsize`, `role="feed"`, `data-autoscroll-container`, scroll-driven unmounting, a pinned tail producing a genuinely non-contiguous mounted set, and sr-only sender labels so the extractor is exercised against real noise.
+
+A second entry, **`Claude (virtualized + index)`**, adds a `GM_xmlhttpRequest` fixture shim so the conversation index actually builds. This closes a gap flagged twice in review: the harness previously had no GM APIs, so org resolution, `ciBuildIndex`, branch filtering, index-backed Navigate/Search/Export and the entire jump loop were unverified by CI. The fixture deliberately carries one leading unrendered message, making the `data-index → path` offset **+1** rather than 0 — so an implementation that quietly assumes zero alignment fails in CI instead of in production.
+
+Assertions now include:
+
+- **Panel lists 40 turns while the DOM holds 3** — the bug and the fix in one assertion
+- **Jump reaches question #1 from the bottom** — target unmounted at click, mounted after, ~200 ms
+- **Mounted set is non-contiguous** — guards the pinned-tail handling
+- **sr-only labels stripped** from question text
+- **Mock recycles** — set changes across a scroll sweep *and* a previously-mounted node is proven `isConnected === false`
+
+**The tests were then proven to be worthless, and rewritten.** An independent review lens
+mutation-tested them: replacing the entire jump implementation with `done(false, null)`
+still passed 25/25; hardcoding the index offset to 0 passed while landing at the *top* of
+the conversation when asked for the *last* question; disabling all text stripping passed;
+replacing the whole tree walk with `msgs.slice()` — zero branch filtering — passed 25/25;
+making the busy flag a no-op passed 47/47. They described the fix instead of failing
+without it.
+
+Every assertion now checks an outcome that a broken implementation cannot produce: the
+landed row must *be the right message*, the busy state must be *observed* rather than
+merely absent, the mounted set must be non-contiguous *at every scroll position*, and an
+abandoned branch planted in the fixture must not appear. The mock gained varied row
+heights and progressive height measurement, taking `scrollHeight` drift from 0.1% to
+6.28% — without it the first interpolation always landed and the entire convergence
+machinery was dead code under test.
+
+Result: **294/294 passing across 17 platform entries** (was 182 across 14).
+
+**Live verification then failed, and CI could not have caught it.** On the real site the
+jump works only on conversations short enough that the whole thing fits in the mount
+window — where the target is already mounted and the settle loop never runs. Past roughly
+10–20 questions it engages and thrashes for ~12 s before failing honestly.
+
+The cause is not the estimator. `ciDeriveRowOffset()` aligns `data-index` to the
+conversation path by matching **rendered DOM text** against the API's **raw markdown**;
+those need not agree, and ~10% of human turns carry no API text at all. When no mounted
+row matches it returns `null`, and the loop falls into a blind-probe branch that scrolls
+to 1/9, 2/9 … 8/9 of the document — 8 moves at ~1.05 s each, the viewport dragged across
+the whole conversation. Reproduced end to end in CI by a third virtualized entry whose
+fixture text is deliberately markdown: `EXIT=no-offset-after-probes iterations=8`, 18 feed
+mutations against ~20 measured live.
+
+The same root cause produces a second defect: unmatched DOM rows are appended as
+provisional questions, so the panel lists 43 where the index holds 40 and the duplicates
+change as you scroll. Pinned by an explicit `KNOWN DEFECT` assertion.
+
+Also landed: per-iteration jump instrumentation behind `localStorage.acnJumpDebug`
+(`ACN_JUMP_TRACE=1` in CI), and exact handling of the extremes — target row 0 is
+`scrollTop = 0` and the last row is `scrollTop = max`, never estimated.
+
+**A rejected hypothesis, recorded because it was the leading one.** The mock's row heights
+were rebuilt from Probe A's empirical distribution (25.7x spread, heavy-tailed,
+autocorrelated, worst 6-row window at 0.15x the global mean) on the theory that flat
+heights were letting the estimator cheat. The jump still converged on the first
+interpolation — because for heights drawn from a fixed distribution the cumulative curve's
+relative deviation from linear falls off as `1/sqrt(n)`, so *more* rows makes linear
+interpolation *more* accurate. Height variance cannot explain a failure that worsens with
+conversation length. The harder distribution was kept; the hypothesis was not.
+
+**Then Windows CI went red, and both causes were in the harness.** The Ubuntu and macOS
+jobs passed; all three Windows engines failed. Neither cause was in the userscript, and
+both are worth recording because they are the same mistake at two levels.
+
+The jump assertion resolved the row *index* durably — from `data-acn-jump-resolved`, added
+precisely because the resolved element does not survive — and then read that row's *text*
+straight back out of the live DOM, where it has usually been recycled away again. Whether
+it was still mounted came down to machine speed: Linux landed on window `[34..39]` and
+found row 38; Windows landed on `[41..46]` and did not, for an identical, correct jump.
+The durable read and the fragile read were adjacent lines in the same return statement.
+Identity now comes from the mock's `MESSAGES` array, and the assertion was re-checked
+against the mutation it exists to catch — still fails, now deterministically (DEC-025).
+
+Separately, `--single-process` — carried in the Chromium launch args since the suite's
+first commit, for a kernel-4.4.0 sandbox this project no longer runs in — removes crash
+isolation, so a single renderer fault took the whole browser down and reported **13 of 16
+platforms failing**. Firefox and WebKit on the same runner reported one honest failure.
+The flag did not cause the fault; it amplified one fault into fifteen and destroyed the
+evidence. Removed (DEC-026).
+
+Both belong to the measurement-context rule this release also introduced: **a green suite
+on your own machine is a context-scoped finding too.** Runner OS and speed are now listed
+in `CLAUDE.md` alongside page-realm-vs-sandbox and visible-vs-hidden-tab.
+
+---
+
 ## [11.8 — Firefox: Disable Fetch Interception, Keep DOM Estimation] — 2026-03-14
 
 **Branch:** `fix/firefox-bind-crash`

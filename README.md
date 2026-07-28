@@ -11,7 +11,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-11.8-blue)
+![Version](https://img.shields.io/badge/version-12.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -187,8 +187,8 @@ The script injects an orbital button cluster into AI chat pages. It scans the pa
 
 | Platform | Selector |
 |----------|----------|
-| Claude | `[data-testid="user-human-turn"]` |
-| Claude Code | `div.bg-bg-200.rounded-lg` + fallback chain |
+| Claude | `[data-testid="user-message"]` + fallback chain — **plus** the conversation API, see below |
+| Claude Code | `div.bg-bg-300`/`bg-bg-200` bubbles + fallback chain |
 | ChatGPT | `[data-message-author-role="user"]` |
 | Codex Web | `div.self-end.bg-token-bg-tertiary` |
 | Grok | `div.message-bubble` |
@@ -201,6 +201,34 @@ The script injects an orbital button cluster into AI chat pages. It scans the pa
 | Base44 | `[id^="message-"]` + `.justify-end` filter |
 | Emergent | `[data-testid^="user-message"]` |
 | Firebase Studio | `[class*="_isUser_"]` (CSS Modules partial match) |
+
+### Claude is different (v12.0+)
+
+Claude now renders only about 3–5 messages into the page at a time and unloads the rest as you scroll — a common performance technique called list virtualization. Scanning the page therefore sees roughly **3% of a long conversation**, and no selector can fix that, because the rest simply is not in the page.
+
+So on Claude the script reads the conversation from Claude's own API instead — the same data Claude already downloaded into your browser on page load. It also follows the message tree from the conversation's current tip, so questions you edited or regenerated away do **not** show up as if they were still part of the conversation.
+
+If that read fails for any reason, the script falls back to scanning the page and **says so in the panel** rather than quietly showing you a partial list. Exports produced in that state are labelled incomplete. The selectors above remain the fallback path.
+
+A refresh that fails *after* a successful read keeps the last good snapshot rather than
+collapsing back to the visible messages — the panel notes that it is showing the last good
+snapshot, and an export taken in that state says so in its header.
+
+**Jumping is either right or it refuses.** Because only a handful of messages are in the page
+at once, the script cannot rely on a remembered element still being the message it was: the
+browser reuses those slots for other messages as you scroll. So every jump re-identifies its
+target on arrival and, when it cannot, tells you the message is not currently rendered instead
+of scrolling somewhere plausible. The same rule governs Search results, bookmarks and the
+Summary panel's clickable map — if the panel was built against an older version of the
+conversation, clicking it asks you to regenerate rather than guessing.
+
+**Bookmarks on Claude** key to the message's own identifier rather than its position, so they
+survive scrolling, editing and reloading. One case needs a moment to settle: a message
+bookmarked in the second or two before the script has re-read the conversation has no
+identifier yet, so it is bound as soon as one becomes available. If the message's text appears
+more than once in the conversation, the script deliberately declines to guess which one you
+meant — that bookmark keeps working while the message is on screen, and re-bookmarking it later
+gives a permanent one.
 
 ## Icon Choices
 
@@ -297,15 +325,36 @@ See [TESTING.md](TESTING.md) § "Step-by-Step: Adding a New Platform" for detail
 
 **Does this script collect any of my data or send it to external servers?**
 
-No. The script makes zero network requests. It doesn't phone home, track usage, or send anything anywhere. Everything runs 100% locally in your browser. You can verify this yourself — the script's `@grant` declarations are `GM_addStyle` (CSS injection), `GM_getValue`/`GM_setValue` (bookmark and context-cache persistence), `GM_xmlhttpRequest` (Claude plan usage fetch), and `unsafeWindow` (SSE interception for Claude context tracking). None of these are used to exfiltrate data; there are no calls to send data to any external server.
+No — nothing is sent anywhere, and there is no telemetry, tracking, or phoning home.
+
+The script does make a small number of network requests, but **only to the site you are already on**, and only to *read*. On Claude they are:
+
+| Request | Why |
+|---|---|
+| `GET claude.ai/api/organizations` | Resolve your organization ID |
+| `GET claude.ai/api/organizations/{org}/usage` | Plan usage bars |
+| `GET claude.ai/api/organizations/{org}/chat_conversations/{id}` | Read the conversation you have open (v12.0+) |
+
+These are the same endpoints Claude's own web app calls, using your existing session, and the `@connect claude.ai` header restricts them to that domain. They are all `GET` requests — the script never POSTs, never uploads, and never contacts any third party. No other platform makes any network request at all.
+
+**Why does it need to read my conversation now (v12.0+)?** Claude changed its web app to keep only about 3–5 messages in the page at a time and unload the rest. Reading the page can no longer see your whole conversation, so navigation, search, and export were all silently showing a small fraction of it. The script now reads the conversation from Claude's own API — the same data Claude already downloaded into your browser — so the list is complete. It is held in memory for the open tab and is never written to disk or transmitted.
+
+You can verify all of this: the `@grant` declarations are `GM_addStyle` (CSS injection), `GM_getValue`/`GM_setValue` (bookmarks, settings, cached counts), `GM_xmlhttpRequest` (the reads above), `unsafeWindow` (SSE token counting on Claude, Chrome only), and `@connect claude.ai`.
 
 **Can this script see my other browser tabs or passwords?**
 
-No. The script only runs on the specific AI chat sites listed in [Supported Platforms](#supported-platforms) and has no access to your other browser tabs, browsing history, or saved passwords. On the matched pages where it does run, the script *could* technically access same-origin page state like cookies or local storage (as any userscript on that page can), but it never does — it only reads visible DOM text to build the navigation list. The script uses `localStorage` only to persist your panel-width preference (`_acnv10`) and `GM_setValue` for bookmarks and context-cache data — never to store conversation content. You can verify this by searching the source code for `cookie` — none appear.
+No. The script only runs on the specific AI chat sites listed in [Supported Platforms](#supported-platforms) and has no access to your other browser tabs, browsing history, or saved passwords. On the matched pages where it does run, the script reads two things beyond visible page text, both on Claude only and both used solely to talk to Claude's own API on your behalf:
+
+- **`lastActiveOrg` cookie** — your organization ID, needed to build the conversation API URL. Falls back to `ajs_user_id` purely as a cache key so a resolved organization isn't re-fetched on every page load.
+- **Your conversation JSON**, via the `GET` requests listed above.
+
+Neither leaves your browser. The script uses `localStorage` only for your panel-width preference (`_acnv10`), and `GM_setValue` for bookmarks, settings, and the resolved organization ID. Search the source for `ciGetCookie` to see every cookie read; there are two, both named above.
+
+**One exception, stated precisely:** a bookmark record stores a **120-character preview** of the message you bookmarked, because the Bookmarks panel has to label the entry with something recognisable. That preview is the only message content written to disk, it exists only for messages you explicitly bookmark, and it goes away when you delete the bookmark. Everything else a bookmark stores is identity, not content: a message UUID, or a hash. (An earlier draft of this section claimed no conversation content was ever stored; that was wrong about the preview, and is corrected here.)
 
 **Is my conversation data kept private when using this?**
 
-Yes. The script reads the visible text of your messages on the page (the same text you're already looking at) to build the navigation list. That text is held in memory only while the tab is open, never written to disk, never stored, and never transmitted. When you close or refresh the tab, it's gone.
+Yes. The script reads the visible text of your messages on the page (the same text you're already looking at) to build the navigation list. That text is held in memory only while the tab is open and is never transmitted anywhere. When you close or refresh the tab, it's gone — with the single exception of the 120-character preview stored for each bookmark you create, described in the answer above.
 
 **Why should I trust this script?**
 
