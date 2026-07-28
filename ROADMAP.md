@@ -60,7 +60,14 @@ Priority order agreed 2026-07-28:
 4. **Reassess, don't build: §4.2 offset cache / §4.3 height learning.** Measure a live repeat
    jump first; if sub-400ms, close as satisfied-by-redesign.
 5. **Peek pane (spec §9)** — show the exchange inline from the index, zero scrolling.
-6. **Debulking.** ~9,300 lines now. Known dead code: `ciResolvePathForRow`,
+6. **Mock fidelity — generate fixtures from a real payload.** Keep structure (senders,
+   `stop_reason`, content-block types, attachment/tool shapes, unrendered entries), replace
+   text with same-length placeholders. **Explicit limit:** this captures API structure ONLY.
+   It does not model DOM structure — the attachment-chip regression that shipped in v12.0
+   lived in the DOM (`[data-testid="user-message"]` absence) and this would not have caught
+   it. A DOM-structure capture is a separate, unbuilt piece. Never let "generated from real
+   payloads" be read as "models the real site".
+7. **Debulking.** ~9,300 lines now. Known dead code: `ciResolvePathForRow`,
    `ciDataIndexToFullPath`, `ciFullPathToDataIndex`, `_bmLegacyId`; inventory/entity `msgIndex`
    fields with no consumer; `_bmLegacyIdSet`'s two unreachable dedupe guards; two dead test
    config keys making one assertion unreachable.

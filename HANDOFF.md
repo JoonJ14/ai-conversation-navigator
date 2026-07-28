@@ -249,13 +249,12 @@ Do not commit to `feat/v12.0-conversation-index` — it is merged and dead.
 
 **All of this goes on a new branch → PR #59.** Do not reopen #58.
 
-0. **Attachment-headed Q#1 regression** (found live 2026-07-28, §K0). Get the jump trace
-   first — `da4c24b` corrects an over-broad guard but its fixture passes on the failing
-   build, so it is a hypothesis, not a diagnosis. The localized-unmatchable-cluster fixture
-   in item 2 is what would reproduce it.
-0b. **Legacy schema-1 bookmarks do not resolve when unmounted** (found live 2026-07-28).
-   Pre-existing, not a regression: no uuid means no jump bridge. Extend DEC-030's migration
-   to legacy records, using a uniqueness check against the stored 120-char preview.
+0. ~~**Attachment-headed Q#1**~~ — **DONE.** Cause confirmed (round 16's `isUser` guard),
+   fixed (`da4c24b`), reproduced ancestor-gated (`780b50f`), and **live-confirmed by the
+   owner on `feat/v12.1`**. Lessons: DEC-031, DEC-032, DEC-033.
+0b. ~~**Legacy schema-1 bookmarks**~~ — **DONE** (`1114749`), ancestor-gated fixture.
+   Awaiting the owner's real-world migration rate (logged to console as
+   `[ACN bookmarks] legacy migration: …`).
 1. **Live-test and fine-tune the bookmark mechanism** (owner-elevated). Test A already PASSED
    live — the mechanism works end to end. Remaining: fine-tuning and coverage. It is unplanned,
    valuable, persistence-writing, and completely unfixtured. Specific questions:
@@ -273,7 +272,22 @@ Do not commit to `feat/v12.0-conversation-index` — it is merged and dead.
 4. **Reassess, don't build: §4.2 offset cache / §4.3 height learning.** Measure a repeat jump
    live first; if sub-400ms, close as satisfied-by-redesign.
 5. **Peek pane (spec §9)** — show the exchange inline from the index, zero scrolling.
-6. **Debulking.** The userscript is now ~9,300 lines. Candidates the review surfaced: four
+6. **Mock fidelity — generate fixtures from a real payload (owner-approved scope).**
+   Take an actual conversation payload, replace every text field with same-length
+   placeholders and regenerate uuids, and KEEP the structure: senders, `stop_reason` values,
+   content-block types, attachment/tool shapes, unrendered entries, ordering. The fixture
+   then inherits structural properties we have not discovered yet, instead of us
+   hand-modelling each one a live failure late.
+
+   **EXPLICIT LIMIT — do not let a future session read this as more than it is.** A payload
+   generator captures **API structure only**. It does NOT model the real DOM: whether an
+   attachment row carries `[data-testid="user-message"]`, how a tool block renders, what a
+   chip's markup looks like. Three of the four DEC-028-class misses lived in the payload
+   (stop_reason, tool blocks, attachment shapes) — but the Q#1 regression that shipped lived
+   in the **DOM**, and this work would not have caught it. A parallel DOM-structure capture
+   is a separate, still-unbuilt piece. "Generated from real payloads" must never be written
+   or read as "models the real site".
+7. **Debulking.** The userscript is now ~9,300 lines. Candidates the review surfaced: four
    functions defined and never called (`ciResolvePathForRow`, `ciDataIndexToFullPath`,
    `ciFullPathToDataIndex`, `_bmLegacyId`); dead fields (`msgIndex` on inventory/entity
    entries has no consumer); `_bmLegacyIdSet`'s two dedupe guards compare raw text against a
