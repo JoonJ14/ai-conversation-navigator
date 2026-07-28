@@ -1250,3 +1250,82 @@ is a live run on the commit actually being shipped.
 - Corollary, learned the same day: **two failed reproductions are data.** When a hypothesis
   cannot be made to fail in the harness, the harness — not the reasoning — is usually what is
   wrong, and the honest report is "not reproduced", never a fix asserted on plausibility.
+
+---
+
+## DEC-032: A Fixture Knob Must Be Proven to Change the Output (v12.1)
+**Date:** 2026-07-28 | **Stage:** v12.1
+
+### Decision
+A new fixture knob is not evidence until it is shown to **change the output**. Assert the
+property the knob claims to model — not the knob's presence — before using it in an A/B.
+
+### Context
+Hunting the live attachment-headed Q#1 failure, a `chipRows` knob was added to render a user
+row as a file chip with no `[data-testid="user-message"]`. It was written as
+`CHIP_ROWS.indexOf(i)` inside `buildRow(index)` — the wrong variable — so `isChip` was always
+false and every chip row kept its testid.
+
+**Two A/B comparisons were then run against a fixture that could not fail**, and both were read
+as "the hypothesis is disconfirmed." A fixture that cannot fail is indistinguishable from one
+that passes: same green output, same confident conclusion, opposite meaning. The error was only
+found by tracing the pre-jump path and noticing Q#1 taking a route a chip row should not have
+been able to take. Once corrected, the reproduction was immediate and the hypothesis was right
+all along.
+
+### Rationale
+This is the **v12.0 bug reappearing inside the test tooling**. The original Layer 4 break
+reported success on 3% of the data; a vacuous knob reports success on 0% of the condition it
+claims to create. Both are silent, both look like health, and both defeat the reviewer.
+
+### Key properties
+- **Assert the modelled property directly.** For `chipRows`: assert the chip row has no
+  `[data-testid="user-message"]`. For `shortAnswerRows`: assert the rendered answer is below the
+  60-char pairing floor. The knob is a mechanism; the property is the claim.
+- **A knob's first run must FLIP something.** If enabling it changes no assertion and no trace,
+  it is not wired up — treat that as the null result it is, not as evidence.
+- Extends DEC-027 (an old build must fail a new fixture) one level down: **the fixture must
+  first be capable of failing at all.**
+- Extends DEC-028: fixture *defaults* are claims about the environment; fixture *knobs* are
+  claims about the condition under test. Both need proving.
+
+---
+
+## DEC-033: Safe vs Unsafe Generalization — Provably Absent, Not Merely Unmatched (v12.1)
+**Date:** 2026-07-28 | **Stage:** v12.1
+
+### Decision
+One-sided resolution may be treated as EXACT only when the missing evidence is **provably
+absent**, never when it is merely **unmatched**.
+
+### Context
+3b accepts a one-sided pair as exact at distance 1: with `|near.p - P| === 1` no integer sits
+between the two path indices, so no hidden unrendered entry can be in the gap. That is a
+pigeonhole fact.
+
+A proposed broadening — "treat one-sided as exact whenever the target is the first or last
+renderable entry, since the missing side cannot exist" — looks like the same argument and is
+not. At distance > 1 the step count between the pair and the target comes from the **predicate**,
+and a predicate-blind unrendered entry makes it wrong. The edge targets are exactly the ones
+that cannot be text-verified, so a wrong step count would be accepted as a confident landing —
+the failure `meta.exact` exists to prevent. (Proposed and withdrawn by the owner in the same
+exchange, on this reasoning.)
+
+### Rationale
+The distinction is the *reason* the evidence is missing:
+- **Provably absent** — no row can exist there (adjacent indices; row 0 has nothing above it).
+  Safe: the conclusion follows from structure.
+- **Merely unmatched** — a row may exist and simply failed to pair (short assistant text, tool
+  output diverging from API text, ambiguity). Unsafe: absence of evidence, not evidence of
+  absence.
+
+Both look identical from a distance: "there is nothing on that side."
+
+### Key properties
+- The correct cover for path extremes is the **by-construction** path (first renderable human IS
+  row 0), which needs no step counting at all — not a widened 3b.
+- Relatedly, `ciMatchRowToPath` pairs an assistant row only when its normalized text is ≥60 chars
+  AND uniquely matchable. For a chip at path 0 the only possible adjacent pair is that assistant
+  answer, so whenever it is short or tool-shaped, 3b's carve-out is unavailable and the
+  by-construction path is the sole cover. That is why breaking it (DEC-031) was invisible until
+  a live attachment conversation hit it.

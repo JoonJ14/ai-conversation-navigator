@@ -394,6 +394,43 @@ behaviour deliberately; when text matching is fixed those numbers must return to
 the `KNOWN DEFECT` assertion will fail loudly. That is the point of a characterisation
 test.
 
+### Regression hunting: `ACN_SCRIPT` is the first move, not a bisect
+
+`ACN_SCRIPT` points the harness at any build. Both runs then use **the same fixtures and the
+same instrumentation**, so the only variable is the code under test:
+
+```bash
+git show origin/main:ai-conversation-navigator.user.js > /tmp/shipped.js
+ACN_SCRIPT=/tmp/shipped.js ACN_JUMP_TRACE=1 \
+  node tests/test-all-platforms.js --browser chromium --platform "file chip"
+# then the same command without ACN_SCRIPT, for the working tree
+```
+
+`ACN_JUMP_TRACE=1` turns on both trace channels:
+
+| Channel | Covers |
+|---|---|
+| `[ACN pre]` | the click path BEFORE the settle loop — entry state, the fast-path outcome, and **which** condition refuses when the pre-jump guard rejects |
+| `[ACN jump]` | the settle loop: per-iteration geometry and the `EXIT=` reason |
+
+`[ACN pre]` exists because that whole path used to be silent. One toast covered six different
+refusal causes and the fast path logged nothing at all, so a failure there was
+indistinguishable from a failure in arrival.
+
+**Worked example — the live Q#1 regression (2026-07-28).** An attachment-headed first question
+stopped resolving on the real site. Three reproduction attempts failed:
+
+1. `chipRows` alone — passed, because the mock's normal answer pairs at distance 1 from the chip
+   and 3b's adjacent carve-out resolved Q#1 without consulting the head path.
+2. `+ shortAnswerRows` to remove that pair — **also passed**, because `chipRows` was vacuous
+   (`indexOf(i)` inside `buildRow(index)`; see DEC-032). Two A/Bs were run against a fixture
+   that could not fail.
+3. With the knob fixed, and `ACN_SCRIPT` A/B-ing shipped against working tree under identical
+   instrumentation: `origin/main` → `Q1: expected row 0, got null`; working tree → 40/40 exact.
+
+The alternative on the table was a seven-step manual bisect with a browser reinstall at each
+step. `ACN_SCRIPT` replaced it with two commands. **Reach for it before proposing a bisect.**
+
 ### The load-path guard entries — a fixture default hid two CRITICALs for a release
 
 Two entries exist because the GM fixture's *incidental constants* made real bugs
