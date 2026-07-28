@@ -235,3 +235,20 @@ in this project was learned.
 
 If any of 1–3 misbehaves, suspect the load-path work first (rounds 1, 8, 9, 11, 23). If 5–8
 misbehaves, suspect the surface-specific rounds (5, 13, 17–22, 24).
+
+## L. Stopping rule for review loops (learned here, 2026-07-28)
+
+The 24-round cycle was stopped on **provenance**, not on finding-count. Classify each round's
+findings into *pre-existing defects* versus *defects in fixes made during this cycle*. While
+the first group dominates, the loop is discovering shipped bugs and is worth continuing. Once
+the second group dominates — here it reached roughly 23 of 42, with individual mechanisms
+needing four and five iterations — the loop has become the primary source of new defects and
+should stop, regardless of whether findings are still real and still P1.
+
+The aggravating factor to check alongside it: **how much new code the loop has written into a
+surface no test executes.** This cycle added 1,018 lines (22% of the release) into exactly
+such a zone (proven by mutation — see §J), so every fix's only verification was the next round
+reading it. That combination is a random walk with a review bot as the sole safety net.
+
+The exit is not another round. It is: stop changing code → live-verify → merge → fixture the
+untested surface first in the next version.

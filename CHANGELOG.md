@@ -330,6 +330,22 @@ not:
   connected-but-recycled node bypass both guards — fixed in round 22 by making indexed
   targets *always* re-resolve.
 
+**Where the loop was stopped, and why.** After 24 rounds the arithmetic mattered more than
+the count: roughly **19 findings were pre-existing v12.0 defects, and roughly 23 were defects
+in fixes made during this cycle.** Nineteen genuine defects in a 4,567-line release that had
+already had 23 Codex rounds plus a Tier 3 pass is about one per 240 lines — unremarkable for
+a release this intricate. But the cycle had added **1,018 lines** (22% of the release) into a
+surface the test suite provably does not execute, so each fix's only verification was the next
+round reading it. Several mechanisms took four or five iterations to stabilise. At that point
+the loop was manufacturing risk rather than reducing it, and the correct exit was to stop
+changing code and get a real signal: live verification, then fixtures for the untested
+surface as v12.1's first task.
+
+One deliberate hardening was applied on the way out, not from a finding: provisional bookmark
+migration now binds **only when the message text is unique in the path.** It was the single
+path in the cycle that writes persistent data with no test, and a wrong binding is wrong
+forever — a duplicate-text prompt now stays provisional and resolves while mounted instead.
+
 Three new suite entries came out of it, all **ancestor-gated** (they fail on a real commit,
 not a mutant): the slow-API recursion guard, the tool-shaped refetch-loop guard, and the
 refresh-failure retention guard. One test metric was also corrected: the runaway-loop
