@@ -335,20 +335,20 @@ const PLATFORMS = [
         // chipRows makes row 0 carry a chip and NO testid. The sweep jumps to every
         // question, so Q#1 runs against a row the DOM cannot identify as a user row.
         //
-        // HONEST LIMIT — STILL NOT A REPRODUCTION, after two attempts.
+        // REPRODUCTION — ancestor-gated against origin/main (the shipped v12.0 build).
+        //   origin/main -> FAILS: "Q1: expected row 0, got null busySeen=true idx=null"
+        //   this build  -> 40/40 exact
+        // That is the owner's live symptom exactly: the jump runs, scrolls, and resolves
+        // nothing.
         //
-        // Attempt 1 (chipRows alone) passed on the failing build: the mock's normal answer
-        // pairs cleanly at distance 1 from the chip, and 3b's adjacent carve-out resolves
-        // Q#1 without consulting the head-extreme path.
-        // Attempt 2 (+ shortAnswerRows, removing that adjacent pair) ALSO passed. A trace
-        // probe then showed no jump trace fires at all for Q#1 here — it resolves before the
-        // settle loop runs, so neither 3b nor the head extreme is being exercised.
-        //
-        // What that means: the mock reaches Q#1 by a cheaper route than the live site does,
-        // and we do not yet know which. Do NOT cite this entry as gating anything. It is
-        // added coverage for user-row STRUCTURE (previously only text varied) and it will
-        // catch a future head-extreme regression once the resolution route is understood.
-        // The live diagnosis needs the owner's jump trace; see HANDOFF §G item 0.
+        // It took three attempts, and the first two failed for instructive reasons worth
+        // keeping. Attempt 1 (chipRows alone) passed because the mock's normal answer pairs
+        // at distance 1 from the chip and 3b's adjacent carve-out resolved Q#1 without the
+        // head path. Attempt 2 (+ shortAnswerRows, removing that pair) ALSO passed — and
+        // the reason was that chipRows was VACUOUS: it read `i` inside buildRow(index), so
+        // isChip was always false and the chip row kept its testid. A fixture that cannot
+        // fail looks exactly like a fixture that passes. Only tracing the pre-jump path
+        // (the [ACN pre] lines, which the harness had been filtering out) exposed it.
         name: 'Claude (80 rows, Q#1 is a file chip)',
         mockFile: 'claude-virtualized.html',
         hostname: 'claude.ai',
@@ -539,7 +539,9 @@ const PLATFORMS = [
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const MOCK_DIR = path.join(__dirname, 'mock-pages');
-const SCRIPT_PATH = path.join(__dirname, '..', 'ai-conversation-navigator.user.js');
+// ACN_SCRIPT overrides the build under test, so an A/B against a previous commit runs
+// the SAME fixtures and instrumentation against both. Defaults to the repo file.
+const SCRIPT_PATH = process.env.ACN_SCRIPT || path.join(__dirname, '..', 'ai-conversation-navigator.user.js');
 
 // Read the userscript, stripping the ==UserScript== header
 function getScriptContent() {
@@ -861,7 +863,10 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
         if (process.env.ACN_JUMP_TRACE) {
             onConsole = (msg) => {
                 const t = msg.text();
-                if (t.indexOf('[ACN jump]') === 0) console.log(`      ${t}`);
+                // [ACN pre] covers the exits BEFORE the settle loop — the fast path and the
+                // range/provisional refusal. Filtering to [ACN jump] alone hid the whole
+                // pre-jump path, which is where three failed reproductions were spent.
+                if (t.indexOf('[ACN jump]') === 0 || t.indexOf('[ACN pre]') === 0) console.log(`      ${t}`);
             };
             page.on('console', onConsole);
         }
@@ -1085,9 +1090,15 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                          totalTurns: v.totalTurns, userWindowSize: v.userWindowSize,
                          detachedProven };
             });
+            // A chip row is not a [data-testid="user-message"] node, so while it is inside
+            // the window the visible user-turn count is one lower. That is the fixture
+            // working as intended, not a mount failure — the row IS mounted, it simply is
+            // not a user-message node, which is the whole point of chipRows.
+            const chipSlack = ((platform.mockConfig || {}).chipRows || []).length;
             assert('Mock recycles turns (set changes, node detaches)',
                 recycling.ok &&
-                recycling.counts.every(c => c === recycling.userWindowSize) &&
+                recycling.counts.every(c => c === recycling.userWindowSize ||
+                                            c >= recycling.userWindowSize - chipSlack) &&
                 recycling.cumulativeUnique > recycling.userWindowSize &&
                 recycling.cumulativeUnique < recycling.totalTurns &&
                 recycling.detachedProven,
@@ -1102,7 +1113,8 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                 total: window.__mockVirtualization.totalTurns,
             }));
             assert('DOM exposes only the mounted window',
-                domCoverage.mounted === platform.virtualized.userWindowSize &&
+                domCoverage.mounted >= platform.virtualized.userWindowSize - chipSlack &&
+                domCoverage.mounted <= platform.virtualized.userWindowSize &&
                 domCoverage.total === platform.virtualized.totalTurns,
                 `${domCoverage.mounted} of ${domCoverage.total} turns in DOM`);
 

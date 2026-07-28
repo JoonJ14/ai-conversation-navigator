@@ -258,7 +258,7 @@
             var flexRow = el('div', 'flex flex-row gap-2 relative');
             var flex1   = el('div', 'flex-1');
 
-            var isChip = CHIP_ROWS.indexOf(i) !== -1;
+            var isChip = CHIP_ROWS.indexOf(index) !== -1;
             var content = el('div', 'font-large !font-user-message py-0.5 grid grid-cols-1 gap-2 relative');
             // A chip row deliberately does NOT get the testid: the live attachment-only
             // message exposes no user-message node, so getUserMessages() cannot see it and

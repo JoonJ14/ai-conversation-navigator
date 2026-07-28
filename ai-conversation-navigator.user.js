@@ -2588,6 +2588,16 @@
         try { return localStorage.getItem('acnJumpDebug') === '1'; } catch (e) { return false; }
     }
 
+    // PRE-JUMP tracing. ciMakeTrace only covers the settle loop, so every exit BEFORE
+    // ciJumpToFullPathIndex was silent — including the fast path (which is a success) and
+    // the range/provisional guard (which is a refusal that never scrolls). Three attempts
+    // to reproduce a live Q#1 failure were spent theorising about arrival code that may
+    // never have executed. Same flag, so one localStorage switch lights the whole path.
+    function ciPre(msg) {
+        if (!ciJumpDebugOn()) return;
+        try { console.log('[ACN pre] ' + msg); } catch (e) {}
+    }
+
     function ciMakeTrace(targetFullPathIdx) {
         var on = ciJumpDebugOn();
         var t0 = Date.now();
@@ -6088,7 +6098,10 @@
             typeof q.pathIndex === 'number' && _ciFullPath) {
             // Not mounted (or not resolvable here) returns null, and the caller falls
             // through to the jump rather than accepting a same-text impostor.
-            return ciResolveMountedByPathIndex(q.pathIndex);
+            var relOut = ciResolveMountedByPathIndex(q.pathIndex);
+            ciPre('relocate indexed p=' + q.pathIndex +
+                  ' -> ' + (relOut ? 'MOUNTED (fast path)' : 'null (will jump)'));
+            return relOut;
         }
         // isConnected alone is NOT sufficient. Under recycling the virtualizer reuses
         // the same DOM node for a different message, so a still-connected node can be
@@ -6107,6 +6120,12 @@
     }
 
     function orbScrollToQuestion(q) {
+        ciPre('click q.pathIndex=' + q.pathIndex +
+              ' provisional=' + (q.provisional ? 1 : 0) +
+              ' claudeChat=' + (ciIsClaudeChat() ? 1 : 0) +
+              ' indexReady=' + (ciIsReady() ? 1 : 0) +
+              ' pathLen=' + (_ciFullPath ? _ciFullPath.length : -1) +
+              ' hadElement=' + (q.element ? 1 : 0));
         var target = _relocateQuestionElement(q);
 
         // Not mounted. On Claude the settle loop can page the virtualizer to it.
@@ -6118,6 +6137,19 @@
             // entries (DOM-merged, not yet in the index) carry MAX_SAFE_INTEGER as
             // a sort key — jumping to that would burn all 8 iterations chasing a
             // row that cannot exist.
+            // Name the specific condition that refuses, rather than emitting one toast for
+            // six different causes.
+            if (ciJumpDebugOn()) {
+                var why = !ciIsClaudeChat() ? 'not-claude-chat'
+                        : !ciIsReady()      ? 'index-not-ready'
+                        : !_ciFullPath      ? 'no-path'
+                        : q.provisional     ? 'provisional-entry'
+                        : (typeof q.pathIndex !== 'number') ? 'pathIndex-not-number'
+                        : (q.pathIndex < 0 || q.pathIndex >= _ciFullPath.length) ? 'pathIndex-out-of-range'
+                        : null;
+                ciPre(why ? ('REFUSED before jump: ' + why + ' (no scroll will happen)')
+                          : 'entering jump bridge for p=' + q.pathIndex);
+            }
             if (ciIsClaudeChat() && ciIsReady() && _ciFullPath &&
                 !q.provisional && typeof q.pathIndex === 'number' &&
                 q.pathIndex >= 0 && q.pathIndex < _ciFullPath.length) {
@@ -6139,6 +6171,7 @@
             return;
         }
         q.element = target;
+        ciPre('FAST PATH resolved p=' + q.pathIndex + ' — no settle loop, no jump trace');
         // The fast path IS a resolution — the target was found mounted and verified.
         // Publishing it through the same contract as the settle loop keeps success
         // observable on ONE channel: without this, a sequential sweep (click Q1, then
