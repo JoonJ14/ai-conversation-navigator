@@ -1383,6 +1383,28 @@
         return n;
     }
 
+    // Readable representation of tool_use / tool_result blocks. ciExtractText deliberately
+    // omits them (they are not prose and would corrupt text matching), and ciCountToolChars
+    // proves the payloads ARE present in the fetched response — so an export that wrote only
+    // the text silently dropped artifact and tool content while calling itself complete
+    // (Codex). Kept separate from `text` so nothing that MATCHES on text is affected.
+    function ciExtractToolText(msg) {
+        var out = [], content = msg.content || [];
+        for (var i = 0; i < content.length; i++) {
+            var b = content[i];
+            if (b.type !== 'tool_use' && b.type !== 'tool_result') continue;
+            var label = b.type === 'tool_use'
+                ? ('tool_use' + (b.name ? ' (' + b.name + ')' : ''))
+                : 'tool_result';
+            var payload = b.input || b.content || '';
+            var body;
+            if (typeof payload === 'string') body = payload;
+            else { try { body = JSON.stringify(payload, null, 2); } catch (e) { body = '[unserializable]'; } }
+            out.push({ label: label, body: body || '' });
+        }
+        return out;
+    }
+
     function ciCountBlockChars(msg, type) {
         var content = msg.content || [], n = 0;
         for (var i = 0; i < content.length; i++) {
@@ -1503,6 +1525,9 @@
                 // heuristic could only see mounted blocks anyway.
                 thinkingChars: ciCountBlockChars(path[p], 'thinking'),
                 toolChars: ciCountToolChars(path[p]),
+                // Serialized separately from `text` so Export can be genuinely complete
+                // without letting tool payloads into any text-matching path.
+                toolBlocks: ciExtractToolText(path[p]),
                 truncated: !!path[p].truncated,
                 files:     path[p].files || [],
                 attachments: path[p].attachments || []
@@ -3901,6 +3926,17 @@
             if (ap === null && _ciRenderable &&
                 rows[i].dataIndex < _ciRenderable.length) {
                 ap = _ciRenderable[rows[i].dataIndex];
+            }
+            // OFF-SNAPSHOT and unresolvable: the row lies beyond what the index accounts
+            // for, so this is a completed answer the snapshot does not contain at all. The
+            // long-response branch above already treats an unresolved row as a mismatch;
+            // this one used to `continue`, which permanently suppressed the signal for a
+            // SHORT final answer — and _ciMergeLiveMessages only appends human turns, so
+            // nothing else noticed. Search and Summary omitted the answer until an
+            // unrelated prompt forced a refresh (Codex).
+            if (ap === null && _ciRenderable && rows[i].dataIndex >= _ciRenderable.length) {
+                sig += 'o' + rows[i].dataIndex + ':' + rawLen + ':' + _fnv1aHex(t) + ';';
+                continue;
             }
             if (ap === null || !_ciFullPath[ap]) continue;
             var ae = _ciFullPath[ap];
@@ -9176,6 +9212,31 @@
             if (m.truncated) lines.push('*(truncated by Claude — partial content)*');
             lines.push('');
             lines.push(m.text || '*(no text content)*');
+            // Tool / artifact blocks. ciExtractText omits them from `text` on purpose, so
+            // writing only the text dropped substantive content from a file labelled
+            // complete — the same severity logic as the attachments channel above: an
+            // omission from an authoritative-looking export is invisible to its reader
+            // (Codex). Fenced so the payload cannot break the surrounding structure, with
+            // the fence sized past any backtick run inside it.
+            if (m.toolBlocks && m.toolBlocks.length) {
+                for (var tb = 0; tb < m.toolBlocks.length; tb++) {
+                    var tBody = m.toolBlocks[tb].body || '';
+                    lines.push('');
+                    lines.push('**' + m.toolBlocks[tb].label + ':**');
+                    if (tBody) {
+                        var tRuns = tBody.match(/`+/g) || [];
+                        var tMax = 0;
+                        for (var tr = 0; tr < tRuns.length; tr++) {
+                            if (tRuns[tr].length > tMax) tMax = tRuns[tr].length;
+                        }
+                        var tFence = new Array(Math.max(4, tMax + 2)).join('`');
+                        lines.push('');
+                        lines.push(tFence);
+                        lines.push(tBody);
+                        lines.push(tFence);
+                    }
+                }
+            }
             if (m.files && m.files.length) {
                 var names = [];
                 for (var f = 0; f < m.files.length; f++) {
