@@ -6159,13 +6159,26 @@
                 // Interrupted/superseded entries have NO virtualizer row: a click could
                 // never land, and the mapping fallback could report a neighbouring row
                 // as success (Codex R6 :5544). They are not reachable content.
-                if (!ciEntryRenders(_ciFullPath[fp])) continue;
+                // EXCEPTION: the TAIL entry without a stop_reason is the response being
+                // generated RIGHT NOW. Its row is mounted and its partial text is on
+                // screen, so excluding it made the current answer unsearchable until the
+                // next refresh — up to a cooldown away (Codex). Only mid-path entries are
+                // genuinely unreachable.
+                if (!ciEntryRenders(_ciFullPath[fp]) && fp !== _ciFullPath.length - 1) continue;
                 aiSeq++;
                 var aiText = _ciFullPath[fp].text || '';
-                if (aiText.toLowerCase().indexOf(qLower) === -1) continue;
+                // The index holds RAW MARKDOWN while the user searches the RENDERED text,
+                // so a visible phrase spanning formatting — "important word" from
+                // "**important** word", or text around a link — does not occur literally in
+                // the raw string and was silently missed by full-history search (Codex).
+                // Match AND display the flattened form: _mdFlatten removes the markers
+                // without lowercasing or truncating, so the snippet stays readable and the
+                // highlight offsets computed by the renderer still line up.
+                var aiFlat = _mdFlatten(aiText);
+                if (aiFlat.toLowerCase().indexOf(qLower) === -1) continue;
                 aiMatches.push({
                     element:   null,          // resolved on click if mounted
-                    text:      aiText,
+                    text:      aiFlat,
                     labelText: 'A#' + aiSeq,
                     isAI:      true,
                     qObj:      null,
