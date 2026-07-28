@@ -3341,6 +3341,16 @@
             // provisional, and pendingRow/pendingOrdinal bind the right occurrence after
             // the refetch. Gated on the lag so ordinary conversations keep text
             // resolution, which icon identity depends on.
+            // BEYOND THE SNAPSHOT, decided from the ROW rather than from provisional
+            // questions. _ciRenderable holds one entry per path entry that renders, so its
+            // length is the row count the snapshot predicts; a larger dataIndex is content
+            // the index does not contain. Sender-agnostic on purpose: keying on provisional
+            // HUMAN turns missed the window where a refresh has already taken the prompt but
+            // not its still-generating answer — there the live ASSISTANT row is off-snapshot
+            // with no provisional entry in sight, and the text map would hand back an older
+            // same-text message's uuid ("OK" said twice), persisting it as schema 2 (Codex).
+            if (_ciRenderable && di >= _ciRenderable.length) return null;
+            // Kept as well: covers the case where _ciRenderable is absent or itself stale.
             if (_ciIndexBehindDom()) return null;
         }
         if (!_ciTextToUuid) {
@@ -6153,6 +6163,24 @@
         // conversation" requirement for half the conversation.
         var aiMatches = [];
         if (ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
+            // Mounted assistant rows, by path index where they resolve. The index alone
+            // cannot answer for the response being generated: the snapshot may end at the
+            // human prompt (the row is off-snapshot entirely) or hold only an early partial
+            // (everything generated since is missing). Both are text the user can SEE, so
+            // the DOM is unioned in below (Codex).
+            var liveByPath = {};
+            var liveExtra  = [];
+            var liveRows   = ciMountedRows();
+            for (var lr = 0; lr < liveRows.length; lr++) {
+                if (liveRows[lr].isUser) continue;
+                var lNode = ciMessageNodeWithin(liveRows[lr].el);
+                if (!lNode) continue;
+                var lPath = ciResolvePathForRowStrict(liveRows[lr].dataIndex);
+                if (lPath === null) liveExtra.push(lNode);
+                else liveByPath[lPath] = lNode;
+            }
+
+            var seenPaths = {};
             var aiSeq = 0;
             for (var fp = 0; fp < _ciFullPath.length; fp++) {
                 if (_ciFullPath[fp].sender === 'human') continue;
@@ -6175,15 +6203,38 @@
                 // without lowercasing or truncating, so the snippet stays readable and the
                 // highlight offsets computed by the renderer still line up.
                 var aiFlat = _mdFlatten(aiText);
+                // For the TAIL entry the DOM is fresher than the snapshot — it holds
+                // everything generated since the fetch — so prefer it when mounted. Its own
+                // text is already rendered, so no flattening applies.
+                var isTail = (fp === _ciFullPath.length - 1);
+                if (isTail && liveByPath[fp]) aiFlat = _readAIText(liveByPath[fp]) || aiFlat;
+                seenPaths[fp] = true;
                 if (aiFlat.toLowerCase().indexOf(qLower) === -1) continue;
                 aiMatches.push({
-                    element:   null,          // resolved on click if mounted
+                    element:   (isTail && liveByPath[fp]) ? liveByPath[fp] : null,
                     text:      aiFlat,
                     labelText: 'A#' + aiSeq,
                     isAI:      true,
                     qObj:      null,
                     uuid:      _ciFullPath[fp].uuid,
                     pathIndex: fp
+                });
+            }
+            // Assistant rows that resolve to NO path entry: the live response when the
+            // snapshot ends at the human prompt. Not in the index at any position, so they
+            // carry element identity only and are matched on rendered text.
+            for (var le = 0; le < liveExtra.length; le++) {
+                var leText = _readAIText(liveExtra[le]) || '';
+                if (!leText || leText.toLowerCase().indexOf(qLower) === -1) continue;
+                aiSeq++;
+                aiMatches.push({
+                    element:   liveExtra[le],
+                    text:      leText,
+                    labelText: 'A#' + aiSeq,
+                    isAI:      true,
+                    qObj:      null,
+                    uuid:      null,
+                    pathIndex: null
                 });
             }
         } else if (typeof _aiResponses !== 'undefined') {
