@@ -105,3 +105,4 @@ In practice:
 | `TESTING.md`, `TROUBLESHOOTING.md` | Deep testing/debugging — more detail than `agent_docs/testing.md` |
 | `DOM-REFERENCE.md` | Fixing selectors or updating mock pages — real DOM structures for all 14 platforms |
 | `DECISIONS.md` | Understanding why something was built a certain way — architectural decision log |
+| `HANDOFF.md` | **Read first in any new session.** Current state, what the last session did and why, what comes next, and the risk caveats that are not derivable from the code. Predecessors are archived under `docs/handoffs/`. |

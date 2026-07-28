@@ -210,6 +210,26 @@ So on Claude the script reads the conversation from Claude's own API instead —
 
 If that read fails for any reason, the script falls back to scanning the page and **says so in the panel** rather than quietly showing you a partial list. Exports produced in that state are labelled incomplete. The selectors above remain the fallback path.
 
+A refresh that fails *after* a successful read keeps the last good snapshot rather than
+collapsing back to the visible messages — the panel notes that it is showing the last good
+snapshot, and an export taken in that state says so in its header.
+
+**Jumping is either right or it refuses.** Because only a handful of messages are in the page
+at once, the script cannot rely on a remembered element still being the message it was: the
+browser reuses those slots for other messages as you scroll. So every jump re-identifies its
+target on arrival and, when it cannot, tells you the message is not currently rendered instead
+of scrolling somewhere plausible. The same rule governs Search results, bookmarks and the
+Summary panel's clickable map — if the panel was built against an older version of the
+conversation, clicking it asks you to regenerate rather than guessing.
+
+**Bookmarks on Claude** key to the message's own identifier rather than its position, so they
+survive scrolling, editing and reloading. One case needs a moment to settle: a message
+bookmarked in the second or two before the script has re-read the conversation has no
+identifier yet, so it is bound as soon as one becomes available. If the message's text appears
+more than once in the conversation, the script deliberately declines to guess which one you
+meant — that bookmark keeps working while the message is on screen, and re-bookmarking it later
+gives a permanent one.
+
 ## Icon Choices
 
 Each platform's toggle button uses a Unicode symbol chosen to suggest the platform's visual identity without using actual trademarked logos:

@@ -30,9 +30,40 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.0
+## Current Status: v12.0 (pre-merge hardening complete, 2026-07-28)
 
 The extension supports 14 platform variants across 12 websites.
+
+**Pre-merge hardening (2026-07-28) — 47 findings fixed across a 5-lens local Tier 3 gate and a
+24-round GitHub Codex cycle.** Two of them were pre-existing v12.0 CRITICALs on paths that run
+on every page load: an unbounded synchronous recursion between `scanConversation` and
+`ciLoadIndex`, and a success-driven refetch loop re-downloading the whole payload every ~15.5s
+on an idle page. Both were invisible to CI because of a single fixture constant each — recorded
+as **DEC-028: a fixture's defaults are part of the finding**. The cycle also produced
+**DEC-029** (end a review loop on finding *provenance*, not count) and **DEC-030** (provisional
+bookmark migration). Suite: 374/374 across 20 entries → **455/455 across 23**, including three
+new ancestor-gated load-path guards. Full detail in `HANDOFF.md` and the CHANGELOG.
+
+### Next: v12.1 (PR #59)
+
+Priority order agreed 2026-07-28:
+
+1. **Live-test and fine-tune the provisional bookmark mechanism** (DEC-030). Unplanned, valuable
+   — the index gave Navigate/Search/Export the full conversation while bookmarks still depended
+   on the mounted window — and entirely unfixtured, and it writes persistent data.
+2. **Fixture batch, starting with the Summary/Export dead zone.** Mutation testing proved those
+   surfaces have **zero test execution**: replacing their function bodies with `throw` leaves the
+   suite green. Then the carried-over batch (localized unmatchable-cluster, unmatchable-HEAD,
+   assistant-TAIL, GM-shim backoff classes, summary-click-after-recycling). Label each
+   ancestor-gated vs mutant-gated.
+3. **Retry-After honoring for HTTP 429** — plumb response headers through `ciRequestJSON`.
+4. **Reassess, don't build: §4.2 offset cache / §4.3 height learning.** Measure a live repeat
+   jump first; if sub-400ms, close as satisfied-by-redesign.
+5. **Peek pane (spec §9)** — show the exchange inline from the index, zero scrolling.
+6. **Debulking.** ~9,300 lines now. Known dead code: `ciResolvePathForRow`,
+   `ciDataIndexToFullPath`, `ciFullPathToDataIndex`, `_bmLegacyId`; inventory/entity `msgIndex`
+   fields with no consumer; `_bmLegacyIdSet`'s two unreachable dedupe guards; two dead test
+   config keys making one assertion unreachable.
 
 **v12.0 Accomplishments (2026-07-26):**
 - **API-Backed Conversation Index (DEC-021):** Claude virtualized its message list with recycling — only ~3 of 147 user turns are mounted at any moment (~3% coverage), so `document.querySelectorAll()` stopped being a complete record of the conversation. Navigate, Search, Summary and Export were all operating on a fraction of the data, and Export was silently writing truncated files under an authoritative-looking message count. Fixed by reading Claude's own conversation JSON endpoint via `GM_xmlhttpRequest` and walking the message tree from `current_leaf_message_uuid` to isolate the active branch. This is an ordinary outbound request, not fetch interception — no Firefox cross-compartment exposure (DEC-019/DEC-020).

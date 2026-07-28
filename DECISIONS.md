@@ -1099,3 +1099,106 @@ is a measurement instrument, and its constants scope every result it produces.
 - **Corollary for reviewers:** when a bug is "impossible per CI", suspect the fixture
   before the reasoning. Ask which constant makes the bug unreachable, then change that one
   constant and re-run.
+
+---
+
+## DEC-029: End a Review Loop on Finding Provenance, Not Finding Count (v12.0 pre-merge)
+**Date:** 2026-07-28 | **Stage:** v12.0 pre-merge hardening
+
+### Decision
+Decide when to stop an automated review loop by classifying each round's findings into
+**pre-existing defects** versus **defects in fixes made during this loop**. While pre-existing
+dominates, continue. Once loop-introduced defects dominate, stop — **even if findings are still
+real and still P1**.
+
+### Context
+A 24-round GitHub Codex cycle produced ~42 findings with **zero false positives**. Round count
+and severity both argued for continuing: rounds 21, 23 and 24 each produced a P1. The owner
+asked the right question — "is our code that buggy?" — and the count could not answer it.
+
+The provenance split could: roughly **19 pre-existing** defects (about one per 240 lines of a
+4,567-line release, unremarkable for a release this intricate) versus roughly **23 defects in
+fixes made during the cycle**. Individual mechanisms needed four and five iterations. The cycle
+had also written **1,018 lines** — 22% of the release — into the Summary/Export surface, which
+mutation testing proved the suite does not execute at all. Each fix's only verification was the
+next round reading it.
+
+### Alternatives considered
+- **Run until a clean round.** Rejected: in freshly-written, untested code a good reviewer will
+  keep finding real material indefinitely. "Clean round" measures the reviewer's patience, not
+  the code's health.
+- **Stop on a severity floor (no more P1s).** Rejected: severity does not distinguish a P1 in
+  shipped code from a P1 in a mechanism introduced twenty minutes earlier. Ours were
+  increasingly the latter.
+- **Stop on a fixed round budget.** Rejected as arbitrary; it would have stopped before the two
+  load-path CRITICALs were found, or long after the loop turned self-referential.
+
+### Rationale
+A review loop is only reducing risk while it is reporting on code that predates it. Once most
+findings are its own output, the loop has become the dominant *source* of defects, and each
+additional round has roughly even odds of creating the next finding. That is a random walk, and
+no amount of reviewing converges it — only a feedback signal does.
+
+### Key properties
+- Track provenance **per round from the start**, not retroactively.
+- The aggravating factor to check alongside it: how much new code the loop has written into
+  surface no test executes.
+- The exit is **not** another round: stop changing code → live-verify → merge → fixture the
+  untested surface first in the next version.
+- Say the arithmetic out loud to the owner. "Still finding P1s" invites grinding; "23 of 42 are
+  ours" ends the debate.
+
+---
+
+## DEC-030: Provisional Bookmarks Bind by Identity, and Only When Text Is Unique (v12.0)
+**Date:** 2026-07-28 | **Stage:** v12.0 pre-merge hardening
+
+### Decision
+A bookmark taken before its message has an API uuid stores **identity hints, not text**
+(`pendingHash`, `pendingSender`, `pendingOrdinal`, `pendingRow`) and is upgraded to schema 2
+once the refreshed index knows the uuid — but **only when that text occurs exactly once in the
+active path**. Duplicate-text messages stay provisional and resolve while mounted.
+
+### Context
+Bookmarks store identity, not position: schema 2 keys to the message uuid, schema 1 to a content
+hash. Only a **uuid** lets `orbScrollToBookmark` fall through to the jump bridge that pages the
+virtualizer to an unmounted message — so on Claude a schema-1 record works *only while its
+message is on screen*.
+
+There is an unavoidable window that produces one: you send a prompt, it mounts immediately, the
+index snapshot predates it, and the refetch takes ~2s (up to ~17s behind the cooldown).
+Bookmarking in that window produced a permanently dead record on the newest message — the one
+most likely to be bookmarked.
+
+This is the gap the conversation index did **not** close. v12.0 gave Navigate, Search and Export
+the whole conversation; bookmarks still silently depended on the mounted window.
+
+### Alternatives considered
+- **Leave it.** Rejected once understood: a dead bookmark on your newest message is a visible
+  failure of the feature's core promise.
+- **Migrate on click.** Rejected — click-time resolution already requires the message to be
+  mounted, which is exactly the case that already worked.
+- **Store the full text and re-look it up.** Shipped briefly, then reverted: it wrote entire
+  prompts into `GM_setValue`, contradicting README's privacy guarantee (Codex P1). A hash is
+  sufficient because migration only ever *compares*.
+- **Bind on ordinal alone.** Rejected — `_ciBindMountedElements` assigns one mounted node to
+  *every* same-text question, so a position lookup returns the earliest twin.
+- **Bind whenever a hash matches (no uniqueness gate).** Rejected as the final hardening: routes
+  1 and 2 are position anchors, and a hash check cannot distinguish twins, so a shifted anchor
+  landing on a same-text message would persist a wrong uuid **forever** — migration then skips
+  the record because it looks bound, and both the jump and the toggle act on the wrong message.
+
+### Rationale
+Refusing to bind is cheap and recoverable: the record stays provisional and still works whenever
+its message is mounted, and the user can re-bookmark later for a clean schema-2 record. Binding
+wrongly is permanent and silent. Given that none of this machinery has a fixture, the asymmetry
+decides it.
+
+### Key properties
+- **Position may confirm identity; it may never establish it.** All three routes verify content.
+- Uniqueness is checked **ahead of** all routes, which also makes route 3 a lookup rather than a
+  disambiguation — its comment says so, since a comment describing an unreachable check is the
+  defect class this project keeps catching.
+- Migration runs **once per index generation**, not per mutation batch.
+- No conversation text is persisted — only a hash.
+- **Unfixtured.** v12.1's first task is live-testing and fine-tuning this, then covering it.

@@ -6,6 +6,109 @@ If you run into a problem, check here first — you might find we've already sol
 
 ---
 
+## v12.0 pre-merge — Two Load-Path Bugs a Fixture Default Hid for a Whole Release (2026-07-28)
+
+**Status:** RESOLVED | **Severity:** High (both) | **Found by:** local Tier 3 blast-radius lens
+
+Both shipped in v12.0, survived a 23-round independent review, and executed on ordinary use.
+Neither was subtle in the code. Both were unreachable in CI because of **one constant each**
+in the test fixture.
+
+### Symptom 1 — the page throws on every conversation load
+
+Repeated `RangeError: Maximum call stack size exceeded` into the host page on every load and
+every conversation switch. Our scan pipeline dead for the duration; the panel showed nothing,
+not even the DOM fallback the code comments promised. Self-healing once the fetch landed, so
+easy to dismiss as noise.
+
+### Diagnosis 1
+
+`ciLoadIndex` invokes its `done` callback **synchronously** on the in-flight early return:
+
+    if (_ciInFlightCid === cid) { if (done) done(false); return; }
+
+`_ciConversationId` is assigned only on success or degrade, so for the whole fetch window it is
+`null` and `scanConversation`'s not-ready guard (`_ciConversationId !== ciGetConversationUuid()`)
+is permanently true. The callback calls `scanConversation(true)`. So the second scan to land
+inside the window recurses: scan → load → `done(false)` → scan → load → … with nothing in the
+cycle mutating the state that would end it. The `RangeError` escapes `scanConversation`
+entirely, which is why no frame ever reached the DOM scan.
+
+**Why CI was green:** the GM fixture answered in **5ms**. The recursion needs a second scan to
+land inside the fetch window; at 5ms none ever does. The MutationObserver debounce is 500ms and
+the real payload takes ~2.1s.
+
+### Symptom 2 — hundreds of MB/hour on an idle tab
+
+With the tab open and untouched, the full conversation payload re-downloaded every ~15.5s,
+forever, on any conversation containing an artifact or tool use.
+
+### Diagnosis 2
+
+`_ciAssistantStale()` returns true once a signature repeats across two scans and **never clears
+it**, so every later scan returns true immediately. The resync fires, succeeds, observes the
+same mismatch — because refetching cannot fix it — and fires again. Rendered tool output
+appears in DOM text but deliberately **not** in the API's `content[]` text blocks
+(see `ciExtractText`), so an artifact-bearing answer mismatches *by construction*, and the
+growth disjunct had no `toolChars` guard unlike the suffix one.
+
+The exponential backoff could never help: it classifies **failure** reasons, and this loop is
+driven entirely by **successes**. The comment at `_ciRetryDelayMs`' declaration describes this
+exact cost as the thing backoff was added to prevent.
+
+**Why CI was green:** the fixture's API text always equalled the mock's DOM text, so no
+mismatch could exist.
+
+### Solutions considered
+
+**Recursion.** (a) Defer the in-flight `done(false)` with `setTimeout` — rejected: converts a
+stack overflow into a busy async spin, which is harder to diagnose, not safer. (b) Guard in
+`scanConversation` against re-entering when a load is already in flight — chosen: the in-flight
+load's own completion callback already rescans, so the re-entry was pure redundancy.
+
+**Refetch loop.** (a) Clear the mismatch signature after a successful rebuild — rejected, and
+this is the subtle one: the rebuild is what *completes* each cycle, so clearing there reinstates
+the loop exactly. (b) Key consumed signatures by index generation — rejected for the same
+reason, since every refetch mints a new generation. (c) One resync per distinct signature —
+shipped first, then refined twice more (see below).
+
+### Fix
+
+    // scanConversation
+    var ciLoadInFlight = _ciInFlightCid !== null &&
+                         _ciInFlightCid === ciGetConversationUuid();
+    if (!ciLoadInFlight && (_ciStatus === 'idle' || ... )) { ... }
+
+    // _ciAssistantStale — final form, after two further Codex rounds
+    if (_ciResyncedSigs[sig]) return false;
+    if (_ciAwaitingResyncSig) {
+        var sigSurvived = (sig === _ciAwaitingResyncSig);
+        _ciAwaitingResyncSig = '';
+        if (sigSurvived) { _ciMarkResyncedSig(sig); return false; }
+    }
+
+The signature rule went through four versions before settling on **consume only when the
+signature SURVIVES its own refetch** — that is the only discriminator that separates "a
+mismatch no refetch can fix" from "genuine staleness that was already resolved". Suppressing at
+trigger time pinned Navigate/Search/Summary/Export to the wrong branch when cycling regenerated
+alternatives (A → B → A → B).
+
+### Results and verification
+
+Reproduced **before** fixing, per DEC-027, by changing one fixture constant each:
+
+| Reproduction | Old build `6bc7ed2` | Fixed |
+|---|---|---|
+| latency 5ms → 2100ms | RangeError storm, 2 entries fail | 189/189, zero page errors |
+| tool-shaped row, 50s idle | 5 fetches (715, 1238, 16744, 32244, 47746ms), cadence continuing | 2 fetches, then silence |
+
+Both are now permanent ancestor-gated suite entries (`Claude (slow API — load recursion
+guard)`, `Claude (tool-shaped row — refetch loop guard)`). The recursion guard needed **no new
+assertion** — the pre-existing "No uncaught page errors" catches it once the latency is
+representative. That is the whole lesson, recorded as **DEC-028**.
+
+---
+
 ## v12.0 — Claude Virtualized Its Message List (2026-07-26)
 
 **The first Layer 4 "state break": the platform kept the data and stopped putting it in the DOM.**
