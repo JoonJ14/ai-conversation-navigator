@@ -1276,7 +1276,14 @@
                 // rate-limited session degrade with a generic reason that dodged the
                 // backoff classes, retrying /api/organizations every 15s
                 // (Codex R18 — third entry point into the same hole as R14/R16).
-                cb(candidates, err && status ? status : null);
+                //
+                // Carry the REASON as well. A 200 with malformed JSON produced
+                // 'malformed JSON' here, and reporting only the HTTP status turned that
+                // into 'could not resolve organization UUID (HTTP 200)' — which matches
+                // none of ciSetDegraded's permanent-failure patterns, so the backoff
+                // stayed at zero and the failing endpoint was polled every cooldown
+                // forever. The classifier keys on the reason TEXT, so it has to survive.
+                cb(candidates, err && status ? status : null, err ? err.message : null);
                 return;
             }
             cb(ciRankOrgs(orgs));
@@ -1722,11 +1729,14 @@
             _ciStatus = 'loading';
         }
 
-        ciResolveOrgCandidates(function (candidates, orgStatus) {
+        ciResolveOrgCandidates(function (candidates, orgStatus, orgReason) {
             if (!candidates.length) {
                 if (_ciInFlightCid === cid && _ciInFlightGen === myGen) _ciInFlightCid = null;
                 if (myGen !== _ciLoadGen || ciGetConversationUuid() !== cid) { if (done) done(false); return; }
+                // orgReason is included so a schema/parse failure reaches the
+                // permanent-failure classifier, which matches on the reason text.
                 ciSetDegraded(cid, 'could not resolve organization UUID' +
+                                   (orgReason ? ': ' + orgReason : '') +
                                    (orgStatus ? ' (HTTP ' + orgStatus + ')' : ''));
                 if (done) done(false);
                 return;
@@ -2775,8 +2785,10 @@
     // normalized compare fails for any message whose first 200 chars contain **bold**,
     // a heading, a list marker or a code fence. That made assistant-target jumps
     // (reachable from AI bookmarks) unable to verify at all, burning every iteration.
-    function _normalizeCompare(text) {
-        return _normalizeKey(
+    // Markdown-flattening transform chain, shared by both normalizers below so there is
+    // exactly ONE place these rules live.
+    function _mdFlatten(text) {
+        return (
             String(text == null ? '' : text)
                 // Links: keep the visible label, drop the destination — the DOM renders
                 // only the label, so 'label(https://...)' on the API side could never
@@ -2789,6 +2801,19 @@
                 .replace(/[*_`~>#\[\]()]/g, '')
                 .replace(/^[\s-]+/gm, ' ')
         );
+    }
+
+    // Capped at 200 chars (via _normalizeKey) — the historical behaviour, used for
+    // DOM-vs-API comparison where the two sides are in different formats.
+    function _normalizeCompare(text) {
+        return _normalizeKey(_mdFlatten(text));
+    }
+
+    // FULL length, no 200-char cap. Truncation is a real hazard for identity checks:
+    // two messages sharing a long boilerplate opening compare equal on the prefix, which
+    // is exactly the recycled-node case a validation is trying to reject (Codex).
+    function _normalizeCompareFull(text) {
+        return _normalizeFull(_mdFlatten(text));
     }
 
     // ciVerifyLandedRow was deleted with the resolve-on-arrival rebuild (DEC-027):
@@ -3276,7 +3301,25 @@
                     // entry — a durably wrong bookmark (Codex R8 :3022). Unresolvable
                     // stays unresolved; the text map / content hash below are honest.
                     var p = ciResolvePathForRowStrict(di);
-                    if (p !== null && _ciFullPath[p]) return _ciFullPath[p].uuid;
+                    if (p !== null && _ciFullPath[p]) {
+                        // Confirm the row still SHOWS that entry before handing back an
+                        // identity that gets PERSISTED. When a prompt is edited before the
+                        // resync lands, the row stays inside the indexed range, so strict
+                        // mapping still names the SUPERSEDED entry while the row displays
+                        // the edited text. Bookmarking in that window stored a uuid the
+                        // refreshed path no longer contains — unresolvable, and unable to
+                        // migrate because a schema-2 record looks already bound (Codex).
+                        //
+                        // Full-length compare of the markdown-flattened forms. Skipped when
+                        // either side is empty: ~10% of human turns carry no text block at
+                        // all (large pastes become attachments), and for those the row
+                        // mapping is the only identity available.
+                        var mappedT = _normalizeCompareFull(_ciFullPath[p].text || '');
+                        var shownT  = _normalizeCompareFull(text || '');
+                        if (!mappedT || !shownT || mappedT === shownT) {
+                            return _ciFullPath[p].uuid;
+                        }
+                    }
                 }
             }
             // Row present but unresolved, AND the index is known to lag the DOM: this is
@@ -3529,6 +3572,12 @@
     // "Claude responded:" sr-only prefix used to leak into Search and Export.
     function _readAIText(el) {
         return (_cleanText(el) || '').trim();
+    }
+
+    // _normalizeKey without its 200-char cap. Identity comparisons must not be decided by
+    // a prefix; see _normalizeCompareFull.
+    function _normalizeFull(text) {
+        return String(text == null ? '' : text).toLowerCase().replace(/\s+/g, ' ').trim();
     }
 
     function _normalizeKey(text) {
@@ -6214,8 +6263,11 @@
                     // legitimately differs from rendered DOM text and would invalidate
                     // every target. Indexed matches carry no element anyway; their identity
                     // comes from row resolution just below.
+                    // FULL comparison, not _normalizeKey: that caps at 200 chars, so a
+                    // response recycled onto another sharing a long boilerplate opening
+                    // would still have been accepted — the very case this rejects (Codex).
                     if (target && typeof m.pathIndex !== 'number' &&
-                        _normalizeKey(_readAIText(target)) !== _normalizeKey(m.text)) {
+                        _normalizeFull(_readAIText(target)) !== _normalizeFull(m.text)) {
                         target = null;
                     }
                     if ((!target || !target.isConnected) && typeof m.pathIndex === 'number' &&
