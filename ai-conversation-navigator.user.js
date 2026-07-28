@@ -6119,8 +6119,21 @@
             // _ciIndexGen: a regenerated/edited branch can swap the index with
             // UNCHANGED counts; without the generation the early-return kept showing
             // the old branch's results until the query changed (Codex R5 :1617).
+            // Live response LENGTH, not just counts. While Claude streams, the text of
+            // the mounted response changes without changing the query, the question count,
+            // the mounted-response count or the index generation — so the early return kept
+            // showing stale results and a query that said "No matches" never discovered a
+            // phrase generated seconds later in the same answer (Codex). Length is a cheap
+            // monotonic proxy for "the visible answer grew".
+            var liveLen = 0;
+            if (_aiResponses) {
+                for (var lf = 0; lf < _aiResponses.length; lf++) {
+                    var lfEl = _aiResponses[lf];
+                    if (lfEl && lfEl.textContent) liveLen += lfEl.textContent.length;
+                }
+            }
             var sfp = q + '|' + _questions.length + '|' + (_aiResponses ? _aiResponses.length : 0) +
-                      '|g' + _ciIndexGen;
+                      '|g' + _ciIndexGen + '|L' + liveLen;
             if (sfp === _searchListFingerprint && list.firstChild) return;
             _searchListFingerprint = sfp;
         }
@@ -6143,10 +6156,17 @@
         var questionMatches = [];
         if (typeof _questions !== 'undefined') {
             _questions.forEach(function (msg, idx) {
-                if (msg.text.toLowerCase().indexOf(qLower) !== -1) {
+                // Indexed questions hold RAW MARKDOWN, so a phrase the user can SEE
+                // ("important word" from "**important** word") is absent from a literal
+                // match — worst for an UNMOUNTED prompt, where no rendered DOM text exists
+                // to fall back on. Flatten for matching and display, exactly as the indexed
+                // assistant side does. msg.text itself is untouched: jump matching,
+                // bookmarks and Summary all depend on it (Codex).
+                var qFlat = _mdFlatten(msg.text || '');
+                if (qFlat.toLowerCase().indexOf(qLower) !== -1) {
                     questionMatches.push({
                         element:   msg.element,
-                        text:      msg.text,
+                        text:      qFlat,
                         labelText: 'Q#' + (idx + 1),
                         isAI:      false,
                         qObj:      msg
