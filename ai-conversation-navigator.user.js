@@ -1820,6 +1820,10 @@
                 _ciDegradedReason = '';
                 _ciRetryDelayMs   = 0;
                 _ciRefreshFailed  = '';
+                // Baseline for the thinking reconciliation: everything SSE has observed so
+                // far is now also in the index, so only growth beyond this point is extra.
+                _sseThinkAtIndex = (typeof _sseTokenData !== 'undefined' && _sseTokenData)
+                    ? (_sseTokenData.cumulativeThinkingChars || 0) : 0;
                 // The rebuild landed: the evidence that triggered it has now been acted
                 // on, so suppress it. A mismatch a refetch cannot fix (rendered tool
                 // output) is thereby resynced exactly once.
@@ -3467,6 +3471,7 @@
         _ciPendingResyncSig = '';
         _ciAwaitingResyncSig = '';
         _ciRefreshFailed    = '';
+        _sseThinkAtIndex    = 0;
         _ciConversationId = null;
         _ciStatus         = 'idle';
         _ciDegradedReason = '';
@@ -3825,6 +3830,10 @@
     // Reason a background refresh failed while a usable snapshot was retained. The index
     // stays READY, so this is surfaced as a note rather than the degraded banner.
     var _ciRefreshFailed = '';
+    // SSE thinking total at the moment the index was last built. The SSE counter and the
+    // index measure OVERLAPPING ranges, so neither can be used wholesale — see the
+    // reconciliation in the context bar.
+    var _sseThinkAtIndex = 0;
 
     var _ciResyncedSigs      = {};
     var _ciResyncedSigOrder  = [];
@@ -5601,8 +5610,12 @@
         // edited prompt that keeps its first 100 chars survives a ready-to-ready
         // refetch with an identical fingerprint, and the open panel kept click
         // handlers closed over the PREVIOUS branch's q objects (Codex R7 :4950).
+        // _ciRefreshFailed too: a retained snapshot after a failed refresh leaves
+        // _questions, _ciStatus and _ciIndexGen all unchanged by design, so without it the
+        // early return fired and the "refresh failed — showing the last good snapshot" note
+        // never appeared, including on reopening the panel (Codex).
         var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|') +
-                 '||' + _ciStatus + '|g' + _ciIndexGen;
+                 '||' + _ciStatus + '|g' + _ciIndexGen + '|r' + (_ciRefreshFailed ? '1' : '0');
         if (fp === _navListFingerprint && list.firstChild) return;
         _navListFingerprint = fp;
 
@@ -5699,8 +5712,20 @@
             // history's thinking with one turn's worth and the display dropped
             // sharply (Codex :4855). The index carries history; SSE covers turns the
             // index has not refetched yet; max() never double-counts.
+            // The two sources measure OVERLAPPING ranges: the index carries all history as
+            // of its fetch, SSE carries whatever streamed in this session. max() was chosen
+            // to stop one streamed answer replacing the whole history — but it also DISCARDS
+            // the new answer whenever the indexed history is larger, which is the normal
+            // case after opening an old conversation and generating one response. The new
+            // thinking then stayed invisible until a later refetch (Codex).
+            //
+            // Add only the SSE growth SINCE the index was built. A refetch re-baselines, so
+            // thinking that has been absorbed into the index is never counted twice.
             var thinkChars = _sseTokenData.cumulativeThinkingChars || 0;
-            if (ciIsReady()) thinkChars = Math.max(thinkChars, ciTotalThinkingChars());
+            if (ciIsReady()) {
+                thinkChars = ciTotalThinkingChars() +
+                             Math.max(0, thinkChars - _sseThinkAtIndex);
+            }
             var thinkingTokens = Math.round(thinkChars / 4);
 
             // ── System overhead: system prompt + tool defs + memory/project instructions ─
@@ -9194,11 +9219,24 @@
         var midGeneration = !!tail && (tail.sender === 'human' || !tail.stopReason);
 
         var srcLabel;
-        if (!_ciPathComplete)    srcLabel = 'PARTIAL conversation history (API) \u2014 see warning below';
-        else if (pending.length) srcLabel = 'complete conversation history (API) plus unconfirmed live turns \u2014 see warning below';
-        else if (midGeneration)  srcLabel = 'API conversation history, captured MID-RESPONSE \u2014 see warning below';
-        else                     srcLabel = 'complete conversation history (API)';
+        if (!_ciPathComplete)      srcLabel = 'PARTIAL conversation history (API) \u2014 see warning below';
+        else if (_ciRefreshFailed) srcLabel = 'API conversation history from the LAST GOOD SNAPSHOT \u2014 see warning below';
+        else if (pending.length)   srcLabel = 'complete conversation history (API) plus unconfirmed live turns \u2014 see warning below';
+        else if (midGeneration)    srcLabel = 'API conversation history, captured MID-RESPONSE \u2014 see warning below';
+        else                       srcLabel = 'complete conversation history (API)';
         lines.push('**Source:** ' + srcLabel);
+        // A retained snapshot after a FAILED refresh is complete only as of the last
+        // successful fetch. ciSetDegraded keeps the index ready on purpose so consumers do
+        // not collapse to the mounted window — but an export taken in that window could be
+        // serialising a superseded branch (the refresh was triggered by an edit or
+        // regenerate being detected), and it still claimed completeness (Codex P1).
+        if (_ciRefreshFailed) {
+            lines.push('');
+            lines.push('> \u26a0 **This is the last snapshot that loaded successfully.** A ' +
+                       'refresh was attempted and failed (' + _ciRefreshFailed + '), so if ' +
+                       'the conversation has been edited or regenerated since, the branch ' +
+                       'below may be the superseded one. Re-export once a refresh succeeds.');
+        }
         if (midGeneration && _ciPathComplete && !pending.length) {
             lines.push('');
             lines.push('> \u26a0 **The last response was still being generated.** This snapshot ' +
