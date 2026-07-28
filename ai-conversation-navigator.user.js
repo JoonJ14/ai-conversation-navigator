@@ -4061,6 +4061,7 @@
                 if (_bmMigratedGen !== _ciIndexGen) {
                     _bmMigratedGen = _ciIndexGen;
                     _bmMigrateProvisional();
+                    _bmMigrateLegacy();
                 }
 
                 var indexed = _ciIndex.slice();
@@ -6934,6 +6935,73 @@
         }
     }
 
+    // LEGACY MIGRATION — pre-v12.0 schema-1 records.
+    //
+    // A schema-1 bookmark keys to a content hash, not a uuid, and only a uuid lets
+    // orbScrollToBookmark enter the jump bridge. Before virtualization that cost nothing:
+    // every message was mounted, so hash matching always had something to match against.
+    // Under virtualization ~3-7 turns are mounted, so every pre-v12.0 Claude bookmark is
+    // silently dead unless its message happens to be on screen — in a RELEASED version.
+    //
+    // The record has no uuid and no path index, but it does have `preview`: the first 120
+    // chars of the message as RENDERED. The index holds RAW MARKDOWN, so matching needs the
+    // markdown flattened (_mdVisible) and compared as a PREFIX at the preview's own length.
+    // Uniqueness across the whole path is required, same rule as DEC-030: binding wrongly is
+    // permanent and silent, refusing is recoverable.
+    function _bmLegacyPathIndexFor(preview) {
+        if (!_ciFullPath || !preview) return -1;
+        var want = _normalizeFull(_mdVisible(preview));
+        if (!want) return -1;
+        var hit = -1;
+        for (var i = 0; i < _ciFullPath.length; i++) {
+            var full = _normalizeFull(_mdVisible(_ciFullPath[i].text || ''));
+            if (!full) continue;
+            // PREFIX at the preview's length: `preview` was truncated to 120 chars of
+            // rendered text, so it can only ever be a prefix of the full message.
+            if (full.substring(0, want.length) !== want) continue;
+            if (hit !== -1) return -2;   // ambiguous — two messages share that opening
+            hit = i;
+        }
+        return hit;
+    }
+
+    // Runs once per index generation alongside the provisional migration. Returns a
+    // {upgraded, ambiguous, unmatched} tally so the rate can be reported rather than assumed.
+    function _bmMigrateLegacy() {
+        var stats = { upgraded: 0, ambiguous: 0, unmatched: 0, alreadyKeyed: 0 };
+        if (!(ciIsClaudeChat() && ciIsReady() && _ciFullPath)) return stats;
+        var list = getConversationBookmarks();
+        var changed = false;
+        for (var i = 0; i < list.length; i++) {
+            var b = list[i];
+            if (b.msgUuid || b.schema === 2) { stats.alreadyKeyed++; continue; }
+            if (b.pendingHash) continue;          // provisional — the other migrator owns it
+            var p = _bmLegacyPathIndexFor(b.preview);
+            if (p === -2) { b.legacyUnresolved = 'ambiguous'; stats.ambiguous++; saveBookmark(b); changed = true; continue; }
+            if (p < 0 || !_ciFullPath[p] || !_ciFullPath[p].uuid) {
+                b.legacyUnresolved = 'unmatched'; stats.unmatched++; saveBookmark(b); changed = true; continue;
+            }
+            b.schema           = 2;
+            b.contentHash      = _ciFullPath[p].uuid;
+            b.msgUuid          = _ciFullPath[p].uuid;
+            b.legacyUnresolved = null;
+            b.legacyMigrated   = true;
+            saveBookmark(b);
+            stats.upgraded++;
+            changed = true;
+        }
+        if (changed) {
+            var bmPanel = document.getElementById('acn-panel-bookmarks');
+            if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
+        }
+        if (stats.upgraded || stats.ambiguous || stats.unmatched) {
+            console.log('[ACN bookmarks] legacy migration: ' + stats.upgraded + ' upgraded, ' +
+                        stats.ambiguous + ' ambiguous, ' + stats.unmatched + ' unmatched, ' +
+                        stats.alreadyKeyed + ' already keyed');
+        }
+        return stats;
+    }
+
     function _bmGenId() {
         return 'bm_' + Math.random().toString(16).substring(2, 10);
     }
@@ -7190,6 +7258,20 @@
         }
     }
 
+    // A legacy record the migrator could not place must NOT report the generic
+    // "scroll toward it" message: scrolling cannot help, because the record has no uuid and
+    // its stored preview did not uniquely identify a message. Telling the user to recreate
+    // it is the only honest instruction.
+    function _bmFailToast(bookmark) {
+        if (bookmark && !bookmark.msgUuid && bookmark.legacyUnresolved) {
+            showToast(bookmark.legacyUnresolved === 'ambiguous'
+                ? 'This bookmark predates v12.0 and matches more than one message \u2014 please recreate it'
+                : 'This bookmark predates v12.0 and could not be located \u2014 please recreate it');
+            return;
+        }
+        showToast('That message is not currently rendered \u2014 scroll toward it and try again');
+    }
+
     function orbScrollToBookmark(bookmark) {
         var targetEl = null;
         var isUser   = bookmark.entityType === 'user-msg';
@@ -7249,7 +7331,7 @@
                         orbFlashElement(el);
                     } else if (reason !== 'superseded' && reason !== 'user') {
                         // Not a failure when the user scrolled or started another jump.
-                        showToast('That message is not currently rendered \u2014 scroll toward it and try again');
+                        _bmFailToast(bookmark);
                     }
                 });
                 return;
@@ -7257,7 +7339,7 @@
         }
 
         if (!targetEl) {
-            showToast('That message is not currently rendered \u2014 scroll toward it and try again');
+            _bmFailToast(bookmark);
             return;
         }
 

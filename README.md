@@ -222,6 +222,15 @@ of scrolling somewhere plausible. The same rule governs Search results, bookmark
 Summary panel's clickable map — if the panel was built against an older version of the
 conversation, clicking it asks you to regenerate rather than guessing.
 
+**Bookmarks made before v12.0** are upgraded automatically the first time you open a
+conversation: the script matches each old bookmark's stored preview against the conversation
+and, on a unique match, re-keys it to the message's identifier so it works again from anywhere.
+Old bookmarks stopped working when Claude started unloading messages — they could only find a
+message that happened to be on screen. If one cannot be matched (the message was edited away,
+or its opening text now matches more than one message), the bookmark is kept and clicking it
+says so and asks you to recreate it, rather than telling you to scroll toward something that
+cannot be found.
+
 **Bookmarks on Claude** key to the message's own identifier rather than its position, so they
 survive scrolling, editing and reloading. One case needs a moment to settle: a message
 bookmarked in the second or two before the script has re-read the conversation has no

@@ -221,6 +221,46 @@ const PLATFORMS = [
             markdownText: true,
         },
     },
+    {
+        // LEGACY BOOKMARK MIGRATION — the distribution blocker.
+        //
+        // Every pre-v12.0 Claude bookmark is a schema-1 content hash with no uuid, and only a
+        // uuid can enter the jump bridge. Under virtualization that means they only resolve
+        // while their message happens to be mounted — i.e. they are silently dead in a
+        // RELEASED version, which is the first bug report after any public push.
+        //
+        // Seeds two records with the shape real users have (contentHash + 120-char preview,
+        // no msgUuid): one whose preview uniquely identifies a message far outside the mount
+        // window, and one whose preview matches nothing. The first must be upgraded to
+        // schema 2 and become reachable; the second must be marked unresolved so the UI can
+        // say "recreate it" instead of "scroll toward it".
+        name: 'Claude (legacy schema-1 bookmarks)',
+        mockFile: 'claude-virtualized.html',
+        hostname: 'claude.ai',
+        pathname: '/chat/ee000000-0000-4000-8000-00000000eeee',
+        expectedMessages: 40,
+        expectedAccent: '#d97706',
+        expectedMode: 'orbital',
+        virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
+        indexBacked: true,
+        offsetUnderivable: true,
+        legacyBookmarkProbe: { uniquePreview: 'Question number 33', upgraded: 1, unmatched: 1 },
+        mockConfig: { totalMessages: 80 },
+        gmFixture: {
+            totalMessages: 80,
+            conversationUuid: 'ee000000-0000-4000-8000-00000000eeee',
+            seedBookmarks: [
+                { id: 'bm_legacy1', schema: 1, entityType: 'user-msg',
+                  contentHash: 'deadbeef', msgUuid: null,
+                  preview: 'Question number 33: how do I handle case 33 when the input is unusual?',
+                  msgIndex: 32, createdAt: 1, platform: 'claude.ai' },
+                { id: 'bm_legacy2', schema: 1, entityType: 'user-msg',
+                  contentHash: 'feedface', msgUuid: null,
+                  preview: 'A question that was edited away and no longer exists anywhere',
+                  msgIndex: 5, createdAt: 2, platform: 'claude.ai' },
+            ],
+        },
+    },
     // ── LOAD-PATH REGRESSION GUARDS (Tier 3 review, 2026-07-27) ─────────────
     // Two CRITICALs shipped in v12.0 and survived a 23-round review because the
     // fixture's own defaults made them unreachable. Both are reproductions first:
@@ -727,7 +767,15 @@ function buildGmFixtureShim(cfg) {
         }
         respond(404, '');
     };
+    // SEED_BOOKMARKS plants pre-v12.0 schema-1 records (content hash + 120-char preview,
+    // no uuid) so the legacy migration can be tested against the shape real users have.
     var _store = {};
+    var SEED_BM = ${JSON.stringify(cfg.seedBookmarks || null)};
+    if (SEED_BM) {
+        var _seedUrl = window.location.origin + window.location.pathname;
+        var _seeded = {}; _seeded[_seedUrl] = { bookmarks: SEED_BM };
+        _store['acn-bookmarks-v1'] = JSON.stringify(_seeded);
+    }
     window.GM_getValue = function (k, d) { return _store.hasOwnProperty(k) ? _store[k] : d; };
     window.GM_setValue = function (k, v) { _store[k] = v; };
     // The org resolver reads this before falling back to /api/organizations.
@@ -1271,6 +1319,32 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                         `${kept.fetches} fetches (2nd+ forced to 500), lists ${kept.listed}/` +
                         `${platform.expectedMessages}, DOM holds ${kept.mounted}, status=${kept.status}`);
                 }
+            }
+
+            // ── Legacy bookmark migration ──────────────────────────────────
+            if (platform.legacyBookmarkProbe) {
+                const lb = await page.evaluate(() => {
+                    const raw = window.GM_getValue('acn-bookmarks-v1', '{}');
+                    const store = JSON.parse(raw);
+                    const url = window.location.origin + window.location.pathname;
+                    const list = (store[url] && store[url].bookmarks) || [];
+                    return list.map(b => ({
+                        id: b.id, schema: b.schema, msgUuid: b.msgUuid || null,
+                        unresolved: b.legacyUnresolved || null, migrated: !!b.legacyMigrated,
+                    }));
+                });
+                const upgraded  = lb.filter(b => b.schema === 2 && b.msgUuid && b.migrated).length;
+                const unmatched = lb.filter(b => b.unresolved === 'unmatched').length;
+                const want = platform.legacyBookmarkProbe;
+                assert('Legacy schema-1 bookmark upgraded to a uuid',
+                    upgraded === want.upgraded,
+                    `${upgraded} upgraded (expected ${want.upgraded}) — ${JSON.stringify(lb)}`);
+                // An unmatched record must be MARKED, not silently left generic: that mark is
+                // what lets the UI say "recreate it" instead of "scroll toward it", which is
+                // advice that cannot work for a record with no uuid.
+                assert('Unmatchable legacy bookmark is marked, not left generic',
+                    unmatched === want.unmatched,
+                    `${unmatched} marked unmatched (expected ${want.unmatched})`);
             }
 
             // ── TESTS 22-25: index-backed jump (the primary v12.0 path) ────
