@@ -6429,10 +6429,20 @@
     // provisionals, so assistants return -1 and rely on the row route below instead.
     function _bmSenderOrdinalOf(el, entityType) {
         if (!el || entityType !== 'user-msg') return -1;
+        // EXACT or nothing. _ciBindMountedElements falls back to a text map, which
+        // assigns the ONE mounted node to EVERY same-text question — so for a repeated
+        // prompt several _questions entries share this element and the first match is the
+        // earliest twin, not the clicked message. Migration could not catch that: twins
+        // have identical text, so its text check passes and the wrong uuid is persisted
+        // permanently (Codex). When the element is shared, leave the ordinal unset and let
+        // row identity decide, or let the record stay provisional.
+        var found = -1;
         for (var i = 0; i < _questions.length; i++) {
-            if (_questions[i].element === el) return i;
+            if (_questions[i].element !== el) continue;
+            if (found !== -1) return -1;   // ambiguous — more than one entry claims it
+            found = i;
         }
-        return -1;
+        return found;
     }
 
     // The virtualizer's own row index for an element, or -1. Persisted on a provisional
