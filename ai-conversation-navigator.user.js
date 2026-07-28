@@ -3863,7 +3863,16 @@
 
                 if (_ciNeedsResync(_questions) || _ciAssistantStale()) {
                     var sinceRefetch = Date.now() - _ciLastRefetchAt;
-                    if (sinceRefetch > CI_REFETCH_COOLDOWN_MS) {
+                    // Honour the PERMANENT-failure backoff here, not just the base
+                    // cooldown. Retaining the snapshot means the index stays READY after a
+                    // 429 or a schema failure, so this branch — which previously was not
+                    // reached at all in that state — kept re-downloading the multi-megabyte
+                    // payload every 15s while the log claimed an exponential backoff was in
+                    // force. It also makes the timer scheduled by the inner
+                    // scanConversation() agree with the one the callback wants, instead of
+                    // the shorter one winning by being scheduled first (Codex P1).
+                    var refetchGate = Math.max(CI_REFETCH_COOLDOWN_MS, _ciRetryDelayMs);
+                    if (sinceRefetch > refetchGate) {
                         _ciLastRefetchAt = Date.now();
                         console.log('[ACN] index out of sync with DOM (new message, edit, ' +
                                     'or regenerate) — refetching');
@@ -3876,7 +3885,7 @@
                         // Cooldown blocks the refetch NOW — but a mutation may never
                         // come again (streaming just ended on an idle chat), so the
                         // remaining cooldown gets a timer instead of a shrug.
-                        _ciScheduleRescan(CI_REFETCH_COOLDOWN_MS - sinceRefetch + 500);
+                        _ciScheduleRescan(refetchGate - sinceRefetch + 500);
                     }
                 }
                 return;
@@ -7440,6 +7449,23 @@
                     // null for entries with no virtualizer row — see the aiMsgs build.
                     pathIdx: ciEntryRenders(_ciFullPath[i]) ? i : null,
                     elKey:   _sumElKey(tlByPath[i] || null)
+                });
+            }
+            // Provisional turns live in _questions ONLY — sent after the snapshot, so
+            // absent from _ciFullPath. Ignoring the supplied `questions` array meant the
+            // map omitted a prompt that topics and stats, both computed from _questions,
+            // already counted: an internally inconsistent summary during the ordinary
+            // in-flight refresh window (Codex). No path index exists for them, so their
+            // mounted element is what a click resolves against — the same shape the export
+            // uses for pending turns.
+            for (i = 0; i < questions.length; i++) {
+                if (!questions[i].provisional) continue;
+                all.push({
+                    element: questions[i].element || null,
+                    text:    questions[i].text || '',
+                    type:    'user',
+                    pathIdx: null,
+                    elKey:   _sumElKey(questions[i].element || null)
                 });
             }
             all.forEach(function (m, idx) { m.globalIdx = idx; });
