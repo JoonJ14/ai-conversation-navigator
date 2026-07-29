@@ -5,8 +5,8 @@ the owner's are now recovered, the panel shows message text instead of matching 
 work went through Tier 1/2/3 review plus a GitHub Codex cycle that ended in a genuine clean
 round.
 **Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-07-28_v12.0-premerge.md`.
-**Branch:** `feat/v12.1`, **PR #59 OPEN at `f45fb69`**, 9/9 CI, 20 commits ahead of main.
-**NOT MERGED — the owner merges after live confirmation.**
+**Branch:** `feat/v12.1`, **PR #59 OPEN** (22 commits ahead of main), CI green.
+**NOT MERGED — the owner merges after live confirmation of HEAD** (see §E).
 
 ---
 
@@ -121,7 +121,7 @@ retried.
 initially `null` — the work was in the transcripts. *Check the artifact, not the completion
 signal*, again.
 
-### 5. GitHub Codex cycle — 3 rounds to a genuine clean round
+### 5. GitHub Codex cycle — a clean round, then one more find on the docs push
 
 Round 1: migration ran before `_questions = indexed`, so human ordinals read the previous
 conversation's list, and that refresh cached the new `_ciIndexGen` so the correct refresh
@@ -135,9 +135,20 @@ vacuous again. Now asserts the property directly and is **mutation-verified**. R
 Round 4 returned *"Didn't find any major issues."* One transient `Unknown error` was retried
 rather than counted as clean — a wrapper's signal is not the work's signal.
 
-**Provenance (DEC-029):** 5 findings, 3 pre-existing / 2 cycle-introduced, zero false
-positives. Still pre-existing-dominant at the clean round, so it converged rather than being
-stopped.
+Round 5 ran against the **session-close docs push** — worth doing precisely because Codex reads
+the whole diff, and it came back with a real code finding it had not surfaced in four rounds
+against the same file. `_bmMatchesLegacy` reproduces the stored hash against a mounted row, which
+is proof, but the click path committed it without the proof flag: the record was recorded as
+`inference`, `_bmMigrateLegacy` kept counting it pending, and every new mount set re-read the
+whole store and re-walked the path to re-prove something already proven. One argument. It is
+recorded in the fixture as **test debt, not coverage** — the harvest proves that same record
+first on scan, so the click branch is unreachable without a knob to disable the harvest, and an
+assertion that cannot fail is the DEC-032 failure rather than a test.
+
+**Provenance (DEC-029):** 6 findings across 5 rounds, **4 pre-existing / 2 cycle-introduced**,
+zero false positives. Still pre-existing-dominant, so the loop converged rather than being
+stopped — and the last find arrived on a docs-only push, which is the argument for triggering a
+review on documentation commits rather than skipping them.
 
 ---
 
