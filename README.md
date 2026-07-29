@@ -222,6 +222,12 @@ of scrolling somewhere plausible. The same rule governs Search results, bookmark
 Summary panel's clickable map — if the panel was built against an older version of the
 conversation, clicking it asks you to regenerate rather than guessing.
 
+**Bookmark labels always show the message itself.** On answers where Claude worked with
+tools or extended thinking, the text captured at bookmark time can be the collapsed activity
+header rather than the answer — useful for matching, useless for recognising. So the panel
+derives every label from the conversation itself whenever it can, and keeps the captured text
+only as the matching key behind the scenes.
+
 **Bookmarks made before v12.0** are upgraded automatically the first time you open a
 conversation: the script matches each old bookmark's stored preview against the conversation
 and, on a unique match, re-keys it to the message's identifier so it works again from anywhere.

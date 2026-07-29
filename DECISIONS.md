@@ -1388,6 +1388,14 @@ Uniqueness remains the gate that makes a 40-char probe safe. The diagnostic
 (`summaries=<count> bestSummaryPrefix=<n>`) stays, as regression telemetry now rather than a
 falsifier.
 
+### Postscript — label vs key (owner-requested, same day)
+What a bookmark row DISPLAYS and what it MATCHES on are now different strings by design.
+The stored preview remains the matching evidence; the panel and the bookmarks export derive
+their labels from the index by uuid at render time (`_bmDisplayText`), falling back to the
+preview when no index is available. Summary-labelled rows "identify the record to the code
+but not to the owner" — the owner had to click one to learn what it was. Storage is never
+rewritten, so the evidence chain stays intact.
+
 ### Alternatives rejected
 - **Bind on stored `msgIndex`** — position establishing identity; wrong forever after any
   edit; rejected per DEC-033.

@@ -1411,6 +1411,23 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                 assert('Unmatchable legacy bookmark is marked, not left generic',
                     unmatched === want.unmatched,
                     `${unmatched} marked unmatched (expected ${want.unmatched})`);
+
+                // LABEL vs KEY: the panel row for a summary-preview record must display the
+                // MESSAGE text (derived from the index by uuid), while the stored preview —
+                // the matching evidence — remains the doubled summary. Owner-requested: a
+                // summary label identifies the record to the code but not to the human.
+                await page.evaluate(() => document.querySelector('#acn-dot-bookmarks').click());
+                await page.waitForTimeout(400);
+                const labels = await page.evaluate(() =>
+                    Array.from(document.querySelectorAll('#acn-panel-bookmarks .acn-bk-text'))
+                        .map(n => n.textContent));
+                const sumRow = labels.find(t => t.indexOf('Answer number 11:') === 0);
+                const stillSummary = labels.filter(t => t.indexOf('Architected mock governor') !== -1);
+                assert('Summary-preview bookmark displays the message text, not the summary',
+                    !!sumRow && stillSummary.length === 0,
+                    `labels=${JSON.stringify(labels.map(t => t.substring(0, 40)))}`);
+                await page.evaluate(() => document.querySelector('#acn-dot-bookmarks').click());
+                await page.waitForTimeout(200);
             }
 
             // ── TESTS 22-25: index-backed jump (the primary v12.0 path) ────

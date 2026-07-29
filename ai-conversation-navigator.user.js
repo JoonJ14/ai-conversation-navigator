@@ -6822,6 +6822,27 @@
     // Index generation whose provisional bookmarks have already been migrated, so the
     // walk below runs once per rebuild rather than once per mutation batch.
     var _bmMigratedGen = -1;
+    // LABEL vs KEY. What a bookmark row DISPLAYS and what the record MATCHES on are
+    // deliberately different strings. The stored preview is matching evidence: on a
+    // thinking/tool-heavy answer it captured Claude's collapsed activity summary, which
+    // identifies the record to the CODE but not to the OWNER — live feedback, 2026-07-29:
+    // "I have to guess what that is [until] I click on it." For any uuid-keyed record the
+    // index holds the real message, so the label derives from it at RENDER time; storage
+    // is never rewritten, non-indexed contexts fall back to the preview, and a future
+    // bookmark on a tool-heavy answer gets a readable label automatically.
+    function _bmDisplayText(bm) {
+        if (bm && bm.msgUuid && ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
+            for (var i = 0; i < _ciFullPath.length; i++) {
+                if (_ciFullPath[i].uuid !== bm.msgUuid) continue;
+                // Case-preserving flatten for DISPLAY — _normalizeFull would lowercase.
+                var t = _mdVisible(_ciFullPath[i].text || '').replace(/\s+/g, ' ').trim();
+                if (t) return t.substring(0, 120);
+                break;   // uuid known but no text (attachment-only turn) — fall back
+            }
+        }
+        return bm ? bm.preview : '';
+    }
+
     // Printed once per PAGE LOAD whenever un-uuid'd legacy records remain. The event-driven
     // summary line only fires on a CHANGE, so a settled store looked like silence — and the
     // owner read that as the diagnostics having been removed. State gets one line always.
@@ -7681,7 +7702,7 @@
 
             var textEl = createElement('div', {
                 className: 'acn-bk-text',
-                textContent: bm.preview || '(empty message)'
+                textContent: _bmDisplayText(bm) || '(empty message)'
             });
 
             var dateStr = bm.createdAt
@@ -9859,7 +9880,7 @@
             lines.push('');
             lines.push('## ' + icon + ' ' + prefix + ' \u2014 ' + label);
             lines.push('');
-            lines.push(bm.preview || '(no preview available)');
+            lines.push(_bmDisplayText(bm) || '(no preview available)');
             lines.push('');
             lines.push('---');
         });
