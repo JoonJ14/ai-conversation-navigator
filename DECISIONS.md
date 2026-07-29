@@ -1329,3 +1329,59 @@ Both look identical from a distance: "there is nothing on that side."
   answer, so whenever it is short or tool-shaped, 3b's carve-out is unavailable and the
   by-construction path is the sole cover. That is why breaking it (DEC-031) was invisible until
   a live attachment conversation hit it.
+
+---
+
+## DEC-034: Legacy Bookmark Recovery — an Evidence Ladder, and the Hash as an Oracle (v12.1)
+**Date:** 2026-07-29 | **Stage:** v12.1
+
+### Decision
+A pre-v12.0 schema-1 record may be upgraded to a uuid only through one of four evidence
+channels, each sender-scoped and (where it can be ambiguous) uniqueness-gated:
+
+| Channel | Evidence class |
+|---|---|
+| A — preview is a prefix of the message text | text, strong |
+| B — the message's opening appears inside the preview | text, strong |
+| C — the preview matches a thinking-block ACTIVITY SUMMARY | text, strong — different field |
+| Harvest — the stored `contentHash` REPRODUCES against mounted rendered text | **proof** (~2⁻³² collision) |
+
+Position never establishes identity (DEC-033). `msgIndex` is carried but never bound on.
+
+### Context
+16 live records. Rules A/B (plus glyph stripping) recovered 7. The remaining 9 all had the
+same shape: the preview was **Claude's collapsed activity summary, doubled, with zero message
+text anywhere in its 120 characters** — unmatchable against the message body *by construction*.
+
+The initial conclusion was "unrecoverable by text." That was wrong, and the correction came
+from re-reading the diagnostic output rather than the code: **the preview is not noise. It is
+a faithful capture of a DIFFERENT field** — the model-generated summary the client renders
+above a thinking/tool answer — and that field rides in the payload's thinking blocks, which
+`ciBuildIndex` was already walking for `thinkingChars` and simply not keeping.
+
+### The hash-oracle insight
+`contentHash` = FNV-1a over `(ordinal | first 200 rendered chars)`. It cannot be inverted, but
+it can be **reproduced**: hash what is mounted right now under the plausible ordinals, and
+equality is identity — not an inference. This makes the harvest exempt from
+refuse-on-ambiguity: it structurally cannot guess. It runs on every scan over the ~3–7 mounted
+rows and at click time, so a record no text channel can recover still binds the first time its
+message scrolls into view.
+
+**Ordinal-era trap, handled by trying both:** pre-v12.0 hashes used the rendered-only DOM
+enumeration index; `_bmPathOrdinal` counts non-rendering path entries too. One interrupted
+turn early in a conversation shifts every later ordinal and would have silently zeroed the
+harvest.
+
+### Hypothesis flag (rule C only)
+The payload shape `thinking.summaries[{summary}]` has **n=0 live verifications** — same
+epistemic class as the stop_reason predicate. The failure is designed to be visible, not
+silent: every UNMATCHED diagnostic now prints `summaries=<count> bestSummaryPrefix=<n>`, so a
+live run with `summaries=0` kills the hypothesis on the spot, leaving the harvest as the
+remaining channel. Fixtures assert the mechanism, not the payload shape (DEC-028 applies).
+
+### Alternatives rejected
+- **Bind on stored `msgIndex`** — position establishing identity; wrong forever after any
+  edit; rejected per DEC-033.
+- **Candidate-reconstruction hashing** (rebuild the 200-char hash input from summary + body
+  and test) — sound in principle (also oracle-class) but fragile to rendering-vs-markdown
+  divergence; deferred unless the shipped channels leave a residue worth chasing.

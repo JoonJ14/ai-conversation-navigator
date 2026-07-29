@@ -1405,6 +1405,34 @@
         return out;
     }
 
+    // Model-generated ACTIVITY SUMMARIES riding on thinking blocks. The claude.ai client
+    // renders these as the collapsed header above a thinking/tool-bearing response
+    // ("Architected layered governor mechanisms…"), which is exactly the text pre-v12.0
+    // bookmark previews captured on such answers — the header sat above the body, so
+    // _cleanText read it first. Keeping the summaries lets legacy migration match those
+    // previews against the payload.
+    //
+    // HYPOTHESIS about payload shape (summaries[] entries on thinking blocks) — n=0 live
+    // verifications so far, same epistemic class as the stop_reason predicate. The legacy
+    // diagnostic reports how many summaries it saw, so a wrong guess is VISIBLE, not silent.
+    function ciExtractThinkingSummaries(msg) {
+        var out = [], content = msg.content || [];
+        for (var i = 0; i < content.length; i++) {
+            var b = content[i];
+            if (b.type !== 'thinking') continue;
+            var arr = b.summaries;
+            if (arr && arr.length) {
+                for (var j = 0; j < arr.length; j++) {
+                    var e = arr[j];
+                    var t = e && (typeof e === 'string' ? e : (e.summary || e.text));
+                    if (typeof t === 'string' && t) out.push(t);
+                }
+            }
+            if (typeof b.summary === 'string' && b.summary) out.push(b.summary);
+        }
+        return out;
+    }
+
     function ciCountBlockChars(msg, type) {
         var content = msg.content || [], n = 0;
         for (var i = 0; i < content.length; i++) {
@@ -1528,6 +1556,9 @@
                 // Serialized separately from `text` so Export can be genuinely complete
                 // without letting tool payloads into any text-matching path.
                 toolBlocks: ciExtractToolText(path[p]),
+                // Collapsed-header summaries — the ONLY text some pre-v12.0 bookmark
+                // previews contain. See ciExtractThinkingSummaries.
+                thinkSummaries: ciExtractThinkingSummaries(path[p]),
                 truncated: !!path[p].truncated,
                 files:     path[p].files || [],
                 attachments: path[p].attachments || []
@@ -6940,6 +6971,79 @@
         }
     }
 
+    // Single upgrade path for a legacy record once identity is PROVEN — by the preview
+    // rules, the summary rule, or an exact-hash reproduction (harvest / click). Persisting
+    // is the point: every route only proves identity at a moment when the evidence happens
+    // to be available, and the uuid is what makes that proof durable.
+    function _bmCommitLegacyUpgrade(b, uuid) {
+        b.schema           = 2;
+        b.contentHash      = uuid;
+        b.msgUuid          = uuid;
+        b.legacyUnresolved = null;
+        b.legacyMigrated   = true;
+        saveBookmark(b);
+    }
+
+    // STAGE-1 HARVEST — the hash as an ORACLE. A schema-1 contentHash is an exact
+    // fingerprint of (ordinal | first 200 rendered chars) at bookmark time. It cannot be
+    // inverted, but it can be REPRODUCED: hash what is mounted right now with the
+    // plausible ordinals, and equality IS identity (collision ~2^-32) — this never
+    // guesses, so it is exempt from the refuse-on-ambiguity rules that govern the text
+    // channels. Runs on every scan over the ~3-7 mounted rows, so a record the preview
+    // rules cannot recover binds the first time its message scrolls into view.
+    //
+    // TWO ORDINAL ERAS, both tried: pre-v12.0 hashes used the RENDERED enumeration index
+    // (everything was mounted then, and non-rendering entries never render), while
+    // today's path ordinal counts non-rendering entries too. One interrupted turn early
+    // in a conversation would silently shift every later ordinal and zero the harvest.
+    function _bmHarvestLegacyFromMounted() {
+        if (!(ciIsClaudeChat() && ciIsReady() && _ciFullPath)) return;
+        var list = getConversationBookmarks();
+        var pending = [];
+        for (var i = 0; i < list.length; i++) {
+            if (!list[i].msgUuid && list[i].schema !== 2 && !list[i].pendingHash) {
+                pending.push(list[i]);
+            }
+        }
+        if (!pending.length) return;
+        var changed = false;
+        function sweep(els, sender, type) {
+            for (var e = 0; e < els.length && pending.length; e++) {
+                var el = els[e];
+                var text = sender === 'human' ? _readMessageText(el) : _readAIText(el);
+                if (!text) continue;
+                var uuid = ciUuidForText(text, el);
+                if (!uuid) continue;   // identity unmeasured — never bind on a guess
+                var p = -1, ordAll = 0, ordRen = 0, j;
+                for (j = 0; j < _ciFullPath.length; j++) {
+                    if (_ciFullPath[j].sender !== sender) continue;
+                    if (_ciFullPath[j].uuid === uuid) { p = j; break; }
+                    ordAll++;
+                    if (ciEntryRenders(_ciFullPath[j])) ordRen++;
+                }
+                if (p === -1) continue;
+                var ids = _bmLegacyIdSet(el, ordAll);
+                if (ordRen !== ordAll) ids = ids.concat(_bmLegacyIdSet(el, ordRen));
+                for (j = pending.length - 1; j >= 0; j--) {
+                    var b = pending[j];
+                    if (b.entityType !== type) continue;
+                    if (!_bmInLegacySet(b, ids)) continue;
+                    _bmCommitLegacyUpgrade(b, uuid);
+                    console.log('[ACN bookmarks] harvest: ' + b.id +
+                                ' bound by exact hash to a mounted message');
+                    pending.splice(j, 1);
+                    changed = true;
+                }
+            }
+        }
+        sweep(Array.from(getUserMessages()), 'human', 'user-msg');
+        sweep(Array.from(getAIMessages()), 'assistant', 'ai-msg');
+        if (changed) {
+            var bmPanel = document.getElementById('acn-panel-bookmarks');
+            if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
+        }
+    }
+
     // LEGACY MIGRATION — pre-v12.0 schema-1 records.
     //
     // A schema-1 bookmark keys to a content hash, not a uuid, and only a uuid lets
@@ -6956,6 +7060,10 @@
     // Probe length for rule B. Long enough to be specific inside a 120-char preview,
     // short enough to survive a summary header eating most of it.
     var BM_LEGACY_PROBE = 40;
+    // Minimum normalized summary length rule C will bind on. Short generic summaries
+    // ("Pondered the question") recur across turns; the uniqueness gate would refuse them
+    // anyway, but the floor keeps them from poisoning otherwise-unique candidates.
+    var BM_SUMMARY_FLOOR = 25;
 
     function _bmLegacyPathIndexFor(preview, entityType) {
         if (!_ciFullPath || !preview) return -1;
@@ -6971,19 +7079,36 @@
         var hit = -1;
         for (var i = 0; i < _ciFullPath.length; i++) {
             if (_ciFullPath[i].sender !== wantSender) continue;
+            var ok = false;
             var full = _normalizeFull(_mdVisible(_ciFullPath[i].text || ''));
-            if (!full) continue;
-            // RULE A — prefix. `preview` is 120 chars of rendered text, so in the clean
-            // case it is a prefix of the full message.
-            var ok = full.substring(0, want.length) === want;
-            // RULE B — the message's opening appears ANYWHERE in the preview. Claude renders
-            // a collapsed activity summary ("Architected layered governor mechanisms…") ABOVE
-            // a tool-bearing response, and _cleanText captured that first — so the preview is
-            // summary-then-body and the body is not at position 0. Measured live: this is why
-            // the remaining unmatched records failed. Requiring BM_LEGACY_PROBE chars of the
-            // real message keeps it specific, and uniqueness below still gates it.
-            if (!ok && full.length >= BM_LEGACY_PROBE) {
-                ok = want.indexOf(full.substring(0, BM_LEGACY_PROBE)) !== -1;
+            if (full) {
+                // RULE A — prefix. `preview` is 120 chars of rendered text, so in the
+                // clean case it is a prefix of the full message.
+                ok = full.substring(0, want.length) === want;
+                // RULE B — the message's opening appears ANYWHERE in the preview: a
+                // summary-then-body capture has the body after the header rather than at
+                // position 0. Requiring BM_LEGACY_PROBE chars keeps it specific.
+                if (!ok && full.length >= BM_LEGACY_PROBE) {
+                    ok = want.indexOf(full.substring(0, BM_LEGACY_PROBE)) !== -1;
+                }
+            }
+            // RULE C — the preview contains NO message text at all: it is Claude's
+            // collapsed ACTIVITY SUMMARY, captured (usually doubled) before the body ever
+            // starts. Measured live 2026-07-29: all 9 records the text rules could not
+            // recover are this shape. The summaries are model-generated and ride in the
+            // payload's thinking blocks, so match the preview against THEM — forward
+            // (preview begins with the summary) and reverse (preview is a truncation of a
+            // longer summary). Sender-scoped to assistant by construction; the uniqueness
+            // gate below still applies, so a summary Claude happened to generate twice
+            // refuses rather than guesses.
+            if (!ok && wantSender === 'assistant') {
+                var sums = _ciFullPath[i].thinkSummaries || [];
+                for (var si = 0; si < sums.length && !ok; si++) {
+                    var ns = _normalizeFull(_mdVisible(sums[si]));
+                    if (ns.length < BM_SUMMARY_FLOOR) continue;
+                    ok = want.indexOf(ns) === 0 ||
+                         (want.length >= 40 && ns.indexOf(want) === 0);
+                }
             }
             if (!ok) continue;
             if (hit !== -1) return -2;   // ambiguous — two messages match this preview
@@ -7005,9 +7130,21 @@
         var want = _normalizeFull(_mdVisible(String(b.preview || '').replace(/[\u2690\u2691]/g, ' ')));
         var wantSender = (b.entityType === 'ai-msg') ? 'assistant' : 'human';
         var best = null, bestLen = -1, considered = 0, emptyText = 0;
+        var sumsTotal = 0, bestSum = '', bestSumN = -1;
         for (var i = 0; i < _ciFullPath.length; i++) {
             if (_ciFullPath[i].sender !== wantSender) continue;
             considered++;
+            // The summary channel, reported alongside the text channel: summaries=0 on a
+            // live run means the payload-shape hypothesis behind rule C is WRONG — that is
+            // the falsifier, and it must be visible in the same place the failure is.
+            var dSums = _ciFullPath[i].thinkSummaries || [];
+            for (var sj = 0; sj < dSums.length; sj++) {
+                sumsTotal++;
+                var nsum = _normalizeFull(_mdVisible(dSums[sj]));
+                var m = 0;
+                while (m < want.length && m < nsum.length && want.charAt(m) === nsum.charAt(m)) m++;
+                if (m > bestSumN) { bestSumN = m; bestSum = nsum; }
+            }
             var full = _normalizeFull(_mdVisible(_ciFullPath[i].text || ''));
             if (!full) { emptyText++; continue; }
             var n = 0;
@@ -7019,10 +7156,14 @@
                     ' previewLen=' + (b.preview || '').length +
                     ' normLen=' + want.length +
                     ' candidates=' + considered + ' (emptyText=' + emptyText + ')' +
-                    ' bestCommonPrefix=' + bestLen);
+                    ' bestCommonPrefix=' + bestLen +
+                    ' summaries=' + sumsTotal + ' bestSummaryPrefix=' + bestSumN);
         console.log('   want: ' + JSON.stringify(want.substring(0, 80)));
         if (best) {
             console.log('   best: [' + best.i + '] ' + JSON.stringify(best.full.substring(0, 80)));
+        }
+        if (bestSumN > 0) {
+            console.log('   bestSummary: ' + JSON.stringify(bestSum.substring(0, 80)));
         }
     }
 
@@ -7056,12 +7197,7 @@
                 }
                 continue;
             }
-            b.schema           = 2;
-            b.contentHash      = _ciFullPath[p].uuid;
-            b.msgUuid          = _ciFullPath[p].uuid;
-            b.legacyUnresolved = null;
-            b.legacyMigrated   = true;
-            saveBookmark(b);
+            _bmCommitLegacyUpgrade(b, _ciFullPath[p].uuid);
             stats.upgraded++;
             changed = true;
         }
@@ -7312,6 +7448,9 @@
         Array.from(getAIMessages()).forEach(function (el, idx) {
             inject(el, pathOrdinal(el, 'assistant', idx), 'ai-msg', _readAIText(el));
         });
+        // Opportunistic legacy harvest over the same mounted set this scan just walked.
+        // Guarded inside: exits immediately when no un-uuid'd records remain.
+        try { _bmHarvestLegacyFromMounted(); } catch (e) {}
     }
 
     function orbScrollToMessage(el) {
@@ -7383,7 +7522,17 @@
                 // after it was injected. The ordinal must be the CONVERSATION one —
                 // legacy hashes were built with it, not the mounted-window index.
                 var ordL = _bmPathOrdinal(els[i], isUser ? 'human' : 'assistant', i);
-                if (_bmMatchesLegacy(bookmark, els[i], ordL)) { targetEl = els[i]; break; }
+                if (_bmMatchesLegacy(bookmark, els[i], ordL)) {
+                    targetEl = els[i];
+                    // A legacy match is exact-hash evidence — persist it. It only proves
+                    // identity while this node is mounted, and the uuid is what keeps the
+                    // bookmark reachable after the row recycles away.
+                    if (!bookmark.msgUuid) {
+                        var lUuid = ciUuidForText(textOf(els[i]), els[i]);
+                        if (lUuid) _bmCommitLegacyUpgrade(bookmark, lUuid);
+                    }
+                    break;
+                }
             }
         }
 

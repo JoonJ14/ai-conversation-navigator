@@ -252,9 +252,14 @@ Do not commit to `feat/v12.0-conversation-index` — it is merged and dead.
 0. ~~**Attachment-headed Q#1**~~ — **DONE.** Cause confirmed (round 16's `isUser` guard),
    fixed (`da4c24b`), reproduced ancestor-gated (`780b50f`), and **live-confirmed by the
    owner on `feat/v12.1`**. Lessons: DEC-031, DEC-032, DEC-033.
-0b. ~~**Legacy schema-1 bookmarks**~~ — **DONE** (`1114749`), ancestor-gated fixture.
-   Awaiting the owner's real-world migration rate (logged to console as
-   `[ACN bookmarks] legacy migration: …`).
+0b. **Legacy schema-1 bookmarks** — preview rules recovered **7 of 16 live** (`1114749`,
+   glyph strip + body-probe). The 9 residual records are summary-only previews; two further
+   channels shipped 2026-07-29 (DEC-034): **rule C** matches them against thinking-block
+   activity summaries in the payload (hypothesis-gated — diagnostic prints `summaries=` so a
+   wrong payload-shape guess is visible live), and the **hash-oracle harvest** reproduces the
+   stored contentHash against mounted rendered text under both ordinal eras — equality is
+   proof, runs per scan + at click. Both ancestor-gated (origin/main upgrades 0 of 5).
+   **Awaiting the owner's live re-run.**
 1. **Live-test and fine-tune the bookmark mechanism** (owner-elevated). Test A already PASSED
    live — the mechanism works end to end. Remaining: fine-tuning and coverage. It is unplanned,
    valuable, persistence-writing, and completely unfixtured. Specific questions:

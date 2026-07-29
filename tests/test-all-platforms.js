@@ -244,11 +244,12 @@ const PLATFORMS = [
         virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
         indexBacked: true,
         offsetUnderivable: true,
-        legacyBookmarkProbe: { upgraded: 3, unmatched: 1 },
+        legacyBookmarkProbe: { upgraded: 5, unmatched: 1 },
         mockConfig: { totalMessages: 80 },
         gmFixture: {
             totalMessages: 80,
             conversationUuid: 'ee000000-0000-4000-8000-00000000eeee',
+            summaryRows: { 21: 'Architected mock governor mechanisms balancing rate and limits for the run' },
             seedBookmarks: [
                 { id: 'bm_legacy1', schema: 1, entityType: 'user-msg',
                   contentHash: 'deadbeef', msgUuid: null,
@@ -274,6 +275,23 @@ const PLATFORMS = [
                   contentHash: 'deadc0de', msgUuid: null,
                   preview: 'Architected layered governor mechanismsAnswer number 9: validate the input first, then branch on the result.',
                   msgIndex: 8, createdAt: 4, platform: 'claude.ai' },
+                // SUMMARY-ONLY preview (rule C) — the live shape of all 9 unrecovered
+                // records: the activity summary DOUBLED, zero message text anywhere in
+                // the 120 chars. Only the thinking-block summary channel can match it.
+                { id: 'bm_legacy5', schema: 1, entityType: 'ai-msg',
+                  contentHash: 'beefbeef', msgUuid: null,
+                  preview: ('Architected mock governor mechanisms balancing rate and limits for the run' +
+                            'Architected mock governor mechanisms balancing rate and limits for the run').substring(0, 120),
+                  msgIndex: 10, createdAt: 5, platform: 'claude.ai' },
+                // HASH-ORACLE target (stage-1 harvest): the preview matches nothing, but
+                // the stored contentHash reproduces against a MOUNTED row's rendered text
+                // and rendered-era ordinal — equality is proof, harvested from the mount
+                // window without any user action.
+                { id: 'bm_legacy6', schema: 1, entityType: 'ai-msg',
+                  contentHash: legacyContentHash('Answer number 3: validate the input first, then branch on the result.', 2),
+                  msgUuid: null,
+                  preview: 'this preview matches nothing anywhere at all zz',
+                  msgIndex: 2, createdAt: 6, platform: 'claude.ai' },
             ],
         },
     },
@@ -599,6 +617,21 @@ const MOCK_DIR = path.join(__dirname, 'mock-pages');
 // the SAME fixtures and instrumentation against both. Defaults to the repo file.
 const SCRIPT_PATH = process.env.ACN_SCRIPT || path.join(__dirname, '..', 'ai-conversation-navigator.user.js');
 
+// Byte-exact replica of the userscript's contentHash(text, idx). Used to seed legacy
+// bookmark fixtures whose stored hash must REPRODUCE against mock rendered text — the
+// hash-oracle harvest binds only on equality, so the seed must be computed with the
+// identical algorithm, not merely a similar one.
+function legacyContentHash(text, idx) {
+    const str = String(idx) + '|' + String(text).substring(0, 200);
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+        h = h >>> 0;
+    }
+    return ('00000000' + h.toString(16)).slice(-8);
+}
+
 // Read the userscript, stripping the ==UserScript== header
 function getScriptContent() {
     let content = fs.readFileSync(SCRIPT_PATH, 'utf8');
@@ -683,8 +716,18 @@ function buildGmFixtureShim(cfg) {
                 : shortAns
                     ? 'Yes.'
                     : `Answer number ${turn}: validate the input first, then branch on the result.`;
-            push({ sender: 'assistant', text: '', stop_reason: 'end_turn',
-                   content: [{ type: 'text', text: apiText }] });
+            // summaryRows[row] attaches a thinking block carrying the model-generated
+            // ACTIVITY SUMMARY — the collapsed-header text claude.ai renders above a
+            // thinking/tool answer, and the text pre-v12.0 bookmark previews captured on
+            // exactly those answers. Shape mirrors the hypothesized live payload
+            // (summaries: [{summary}]); the userscript's diagnostic verifies it live.
+            const sumText = (cfg.summaryRows || {})[row];
+            const blocks = [];
+            if (sumText) blocks.push({ type: 'thinking',
+                                       thinking: 'mock thinking for row ' + row,
+                                       summaries: [{ summary: sumText }] });
+            blocks.push({ type: 'text', text: apiText });
+            push({ sender: 'assistant', text: '', stop_reason: 'end_turn', content: blocks });
             continue;
         }
         if (attRows.indexOf(row) !== -1) {
