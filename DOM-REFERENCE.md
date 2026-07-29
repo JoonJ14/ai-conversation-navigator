@@ -79,8 +79,15 @@ this project has a worked example of each answer:
 | Cost | modest, but **nobody here has built one yet** | a release, plus a second one for persisted data |
 
 Estimate the sweep cost before choosing: `scrollHeight / clientHeight` viewport steps at ~250 ms each.
-Claude's would be roughly 500 steps — minutes — and the measurement says it would still not be
-complete at the end.
+Claude's would be roughly **500 steps — minutes on every panel open**, which rules it out on cost
+alone.
+
+**Be careful what the Claude coverage measurement actually supports.** It sampled five positions
+(0/25/50/75/100%) and found the same 3 turns at each, cumulative unique 3. That is strong evidence
+against a *coarse* sweep and it is **not** evidence that a viewport-step sweep would stay incomplete —
+intermediate positions were never sampled and could expose different rows. Nobody has run the
+fine-grained test on Claude, because the cost argument settled it first. If you are tempted to cite
+this measurement for another platform, cite what it measured.
 
 > ⚠️ **Emergent is NOT a worked example of the sweep strategy. It has no sweep.**
 > This entry previously said otherwise, and the Emergent section below still claimed a
@@ -157,8 +164,11 @@ Virtuoso exposes `data-index` — never on message text, or duplicate prompts si
 **Confirming recycling — accept either form.** Virtualizers come in two flavours and a test for one
 gives a false negative on the other:
 
-- **Same-node repurposing** — hold a reference to a mounted row, scroll away and back, and the same
-  `Node` now shows *different text*.
+- **Same-node repurposing** — hold a reference to a mounted row, scroll far away, and inspect the
+  reference **while the original row is still off-screen**: the same `Node` now shows *different
+  text*. Do not scroll back before looking. A fixed node pool may hand that node to another row while
+  you are away and return it to its original content when you come back, which reads as "no
+  recycling" when the opposite is true.
 - **Detach and remount** — the row is destroyed and a new node created in its place, so the held
   reference reads `isConnected === false` and will *never* show different text. Claude works this way,
   and `tests/mock-pages/claude-virtualized.html` deliberately models it.

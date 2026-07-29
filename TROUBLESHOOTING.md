@@ -33,10 +33,18 @@ Every version of this userscript before v12.0 rested on one unstated premise:
 
 > **The DOM is the conversation.** If you want to know what the user asked, query the page.
 
-That premise was true for every platform, for every release, for two years. It is the reason
-`getUserMessages()` is a `querySelectorAll` call and the reason the entire feature set —
-navigation, search, summary, export, bookmarks, context tracking — was built as different views
-over one DOM scan.
+That premise held on twelve of the fourteen platforms, and the architecture was built on it as
+though it held everywhere: `getUserMessages()` is a `querySelectorAll` call, and the entire feature
+set — navigation, search, summary, export, bookmarks, context tracking — is different views over one
+DOM scan.
+
+**It was already false on Emergent before Claude broke it.** Emergent has recycled rows via Virtuoso
+since it was added in v7.7, so its Navigate list has only ever held the mounted window plus whatever
+the user scrolled past. That was mitigated with accumulation and *documented* as also having a
+panel-open sweep — a sweep that was never built (see the previous section). So the premise did not
+fail for the first time in July 2026; it failed quietly in 2026 on a low-traffic platform, was
+half-fixed, and the docs recorded it as solved. Claude is where the same failure hit a platform
+enough people used to notice.
 
 Virtualization did not make that premise *fail*. It made it **partially true**, which is far
 worse. `querySelectorAll('[data-testid="user-message"]')` still returned results. Every result was
