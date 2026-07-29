@@ -80,7 +80,10 @@ Priority order agreed 2026-07-28, re-ranked after v12.1:
    ancestor-gated vs mutant-gated.
 3. **Retry-After honoring for HTTP 429** — plumb response headers through `ciRequestJSON`.
 4. **Reassess, don't build: §4.2 offset cache / §4.3 height learning.** Measure a live repeat
-   jump first; if sub-400ms, close as satisfied-by-redesign.
+   jump first; if sub-400ms, close as satisfied-by-redesign. One live datapoint already exists
+   and it is about **precision, not speed**: a second jump to the same bookmark landed near the
+   target rather than exactly on it (`TESTING.md`, "Live observations that no fixture has
+   replaced"). Measure landing offset alongside latency.
 5. **Peek pane (spec §9)** — show the exchange inline from the index, zero scrolling.
 6. **Mock fidelity — generate fixtures from a real payload.** Keep structure (senders,
    `stop_reason`, content-block types, attachment/tool shapes, unrendered entries), replace

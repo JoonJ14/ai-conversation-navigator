@@ -1407,14 +1407,16 @@
 
     // Model-generated ACTIVITY SUMMARIES riding on thinking blocks. The claude.ai client
     // renders these as the collapsed header above a thinking/tool-bearing response
-    // ("Architected layered governor mechanisms…"), which is exactly the text pre-v12.0
-    // bookmark previews captured on such answers — the header sat above the body, so
-    // _cleanText read it first. Keeping the summaries lets legacy migration match those
-    // previews against the payload.
+    // ("Analyzed the scheduling tradeoffs..."), which is exactly the text pre-v12.0 bookmark
+    // previews captured on such answers — the header sat above the body, so _cleanText read
+    // it first. Keeping the summaries lets legacy migration match those previews.
     //
-    // HYPOTHESIS about payload shape (summaries[] entries on thinking blocks) — n=0 live
-    // verifications so far, same epistemic class as the stop_reason predicate. The legacy
-    // diagnostic reports how many summaries it saw, so a wrong guess is VISIBLE, not silent.
+    // PAYLOAD SHAPE — MEASURED, not assumed (DOM-REFERENCE.md "Probe E"): one real
+    // 297-message conversation fetched with our own URL parameters held 61 thinking blocks,
+    // 55 of them carrying `summaries: [{ summary }]`. Context: n=1 conversation, Chromium,
+    // page realm. That is enough to build on and not enough to call universal, so the legacy
+    // diagnostic reports how many summaries it saw — `summaries=0` on a conversation that
+    // visibly has extended thinking means the shape moved and rule C is dead.
     function ciExtractThinkingSummaries(msg) {
         var out = [], content = msg.content || [];
         for (var i = 0; i < content.length; i++) {

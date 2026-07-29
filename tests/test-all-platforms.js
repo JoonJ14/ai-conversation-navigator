@@ -280,7 +280,7 @@ const PLATFORMS = [
                 // rather than at position 0. Rule B (probe-anywhere) is what recovers these.
                 { id: 'bm_legacy4', schema: 1, entityType: 'ai-msg',
                   contentHash: 'deadc0de', msgUuid: null,
-                  preview: 'Architected layered governor mechanismsAnswer number 9: validate the input first, then branch on the result.',
+                  preview: 'Analyzed the mock scheduling tradeoffsAnswer number 9: validate the input first, then branch on the result.',
                   msgIndex: 8, createdAt: 4, platform: 'claude.ai' },
                 // SUMMARY-ONLY preview (rule C) — the live shape of all 9 unrecovered
                 // records: the activity summary DOUBLED, zero message text anywhere in

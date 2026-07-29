@@ -43,8 +43,8 @@ resolution path those records had — almost never has the right message in fron
 **The arc, including two wrong turns.** First attempt matched the preview as a prefix of the
 index text: **7 of 16**, all of them the ones whose preview began with our own `⚑` glyph
 (pre-v12.0 previews predate the `_cleanText` strip). The other 9 previews were Claude's
-**collapsed activity summary** — `"architected layered governor mechanisms…"` — describing the
-message rather than quoting it, so no amount of body matching could ever reach them. I called
+**collapsed activity summary** — the header Claude shows over a thinking/tool-heavy answer, which
+*describes* the message rather than quoting it, so no amount of body matching could ever reach them. I called
 those unrecoverable. That was wrong: the preview is not noise, it is a faithful capture of a
 *different field*, and that field rides in the payload's thinking blocks, which `ciBuildIndex`
 already walked for `thinkingChars` and simply discarded.
@@ -246,7 +246,10 @@ Chromium (8/8 uuid-keyed, 0 summary labels, 0 glyph labels). Codex round 7 clean
    remaining value in the release.
 3. **Retry-After honoring for HTTP 429** — plumb response headers through `ciRequestJSON`.
 4. **Reassess, don't build: §4.2 offset cache.** Measure a live repeat jump first; if
-   sub-400ms, close as satisfied-by-redesign.
+   sub-400ms, close as satisfied-by-redesign. **A partial datapoint already exists** — the owner
+   reported a second jump to the same bookmark landing *near* rather than exact (TESTING.md, "Live
+   observations"). Measure landing offset as well as latency; the existing evidence is about
+   precision, not speed.
 5. **Peek pane (spec §9)** — show the exchange inline from the index.
 6. **Mock fidelity — payload generator.** Explicit limit already recorded: it captures **API
    structure only** and would not have caught the v12.0 chip regression, which lived in the DOM.
@@ -275,6 +278,18 @@ Chromium (8/8 uuid-keyed, 0 summary labels, 0 glyph labels). Codex round 7 clean
 - **Legacy records that remain unmatched** (ambiguous or no usable evidence) keep their record
   and say "recreate it". The remaining option — binding on the stored `msgIndex` — was rejected:
   position establishing identity is DEC-033's failure mode.
+- **Designed but not built: the "recover old bookmarks" sweep (Stage 2).** The hash oracle is
+  *passive* — it only binds a record when that record's row happens to be mounted during a scan.
+  All 16 of the owner's records bound because rules A/B/C reached them first, but for a user whose
+  previews match nothing, recovery currently depends on scrolling past the right places. The
+  designed remedy is a one-button sweep reusing `ciJumpToFullPathIndex` — which already pages the
+  virtualizer to arbitrary rows — to walk the conversation in mount-window steps, harvesting at
+  each stop: deterministic coverage instead of opportunistic. It was staged behind Stage 1
+  deliberately (Stage 1 was the cheap experiment that proved the hashes reproduce at all) and was
+  never needed once rule C landed. Build it only if a real user reports residual unmatched records.
+- **Two live observations with no fixture behind them** — a repeat jump landing *near* rather than
+  exact, and a duplicate-text bookmark resolving by uuid. Written up in `TESTING.md` under "Live
+  observations that no fixture has replaced". The first is the §G.4 offset-cache datapoint.
 - The `overflow-anchor:none` mock assumption remains unverified directly.
 
 ---

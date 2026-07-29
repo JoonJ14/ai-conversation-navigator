@@ -516,6 +516,50 @@ It is live code in production, reachable through assistant-targeted bookmark jum
 the gap needs a fixture whose final row is a user turn, which changes turn counts across
 several assertions; it is recorded here rather than papered over.
 
+### What the suite DOES prove — the positive controls
+
+The mutation results in this document are mostly negative (X can be replaced with `throw` and
+the suite stays green), and read alone they invite the wrong conclusion — that the matrix proves
+nothing. The same review lens that found the Summary/Export dead zone also ran **positive
+controls** on the acceptance sweep, and those results matter just as much. Recorded here so a
+future session does not re-derive them or discount the sweep entirely.
+
+| Control | Method | Result |
+|---|---|---|
+| The sweep can fail | injected an off-by-one-turn error into the resolution | **146 of 147 jumps fail**, naming exact rows — it is load-bearing |
+| It does not race the virtualizer | `data-acn-jump-resolved` is written synchronously from the resolved element's own `data-index`, before `scrollIntoView` | no race; the assertion reads a value already committed |
+| It is not circular | expected comes from the mock's structure, actual from the product's resolution | independent sources |
+| The mock genuinely unmounts | node identity checked across scroll positions | real recycling, not `display:none` |
+| The jump stride is coprime with the turn count | arithmetic check | the sweep visits every residue class, not a repeating subset |
+| The old `-3` dead zone is gone | targeted probe | confirmed removed |
+
+So: **the acceptance sweep is trustworthy about what it covers.** The dead zone is a coverage
+boundary, not evidence that the covered part is fake. Both halves of that sentence are load-bearing.
+
+### Live observations that no fixture has replaced
+
+Two results the owner reported from live Firefox + Tampermonkey that are not modelled anywhere in
+the suite. Both are *live measurements in the context that matters*, and both are single readings
+— treat them as leads, not as settled numbers (a single run is not a measurement).
+
+**A repeat jump to the same bookmark landed NEAR, not exact.** First click on a bookmarked Q#1
+one-shotted precisely. A second click, after scrolling to the far end of the conversation,
+*"wasn't exact but it was like just a bit of scroll up and it did go near"*. Resolve-on-arrival
+guarantees the right message or an honest refusal — it does not guarantee identical final scroll
+offsets between two jumps to the same target, and this is the only live evidence we have on that.
+**It is directly the datapoint the §4.2 offset-cache backlog item asks for** ("measure a live
+repeat jump first; if sub-400ms, close as satisfied-by-redesign"). Whoever picks that item up
+should start from this observation rather than from zero, and should measure *landing offset*
+alongside latency — the owner's report is about precision, not speed.
+
+**A bookmark on a message whose text is literally "continue" resolved correctly** to the second
+of two such messages. The owner's hypothesis was that the `Q#68` / `Q#69` badge disambiguated it;
+that is not the mechanism. The record was created after the index was ready, so it carries a
+message uuid and never consults text at all. Duplicate text only matters for a record with **no**
+uuid — the provisional-binding case (DEC-030) and the legacy channels (DEC-034), both of which
+refuse rather than guess. The result is a genuine live confirmation of the uuid path; it is not
+evidence about the duplicate-text gate, which remains fixture-covered only.
+
 ### Tracing a jump
 
 ```bash
