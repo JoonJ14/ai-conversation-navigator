@@ -3488,6 +3488,7 @@
         _ciResyncedSigOrder = [];
         _ciPendingResyncSig = '';
         _ciAwaitingResyncSig = '';
+        _bmDiagnosed        = {};
         _ciRefreshFailed    = '';
         _sseThinkAtIndex    = 0;
         _ciConversationId = null;
@@ -6790,6 +6791,10 @@
     // Index generation whose provisional bookmarks have already been migrated, so the
     // walk below runs once per rebuild rather than once per mutation batch.
     var _bmMigratedGen = -1;
+    // Records already diagnosed this conversation. The migration re-runs on every index
+    // generation (a refetch fires on any new message, edit or regenerate), so without this
+    // the console filled with the same unresolved block over and over.
+    var _bmDiagnosed = {};
 
     // Occurrence identity for a provisional bookmark: the 0-based ordinal of its message
     // among turns OF ITS OWN SENDER. _questions is exactly that list for human turns, in
@@ -7033,10 +7038,23 @@
             if (b.msgUuid || b.schema === 2) { stats.alreadyKeyed++; continue; }
             if (b.pendingHash) continue;          // provisional — the other migrator owns it
             var p = _bmLegacyPathIndexFor(b.preview, b.entityType);
-            if (p < 0) _bmLegacyDiagnose(b);
-            if (p === -2) { b.legacyUnresolved = 'ambiguous'; stats.ambiguous++; saveBookmark(b); changed = true; continue; }
+            if (p < 0 && !_bmDiagnosed[b.id]) { _bmDiagnosed[b.id] = true; _bmLegacyDiagnose(b); }
+            // Only WRITE when the status actually changes. This runs once per index
+            // generation, so re-marking an already-marked record was a GM_setValue on every
+            // refetch, for every unresolved bookmark, forever.
+            if (p === -2) {
+                stats.ambiguous++;
+                if (b.legacyUnresolved !== 'ambiguous') {
+                    b.legacyUnresolved = 'ambiguous'; saveBookmark(b); changed = true;
+                }
+                continue;
+            }
             if (p < 0 || !_ciFullPath[p] || !_ciFullPath[p].uuid) {
-                b.legacyUnresolved = 'unmatched'; stats.unmatched++; saveBookmark(b); changed = true; continue;
+                stats.unmatched++;
+                if (b.legacyUnresolved !== 'unmatched') {
+                    b.legacyUnresolved = 'unmatched'; saveBookmark(b); changed = true;
+                }
+                continue;
             }
             b.schema           = 2;
             b.contentHash      = _ciFullPath[p].uuid;
@@ -7051,7 +7069,7 @@
             var bmPanel = document.getElementById('acn-panel-bookmarks');
             if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
         }
-        if (stats.upgraded || stats.ambiguous || stats.unmatched) {
+        if (changed) {
             console.log('[ACN bookmarks] legacy migration: ' + stats.upgraded + ' upgraded, ' +
                         stats.ambiguous + ' ambiguous, ' + stats.unmatched + ' unmatched, ' +
                         stats.alreadyKeyed + ' already keyed');
