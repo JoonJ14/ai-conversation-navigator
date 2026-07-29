@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.0
+// @version      12.1
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -6822,6 +6822,27 @@
     // Index generation whose provisional bookmarks have already been migrated, so the
     // walk below runs once per rebuild rather than once per mutation batch.
     var _bmMigratedGen = -1;
+    // Printed once per PAGE LOAD whenever un-uuid'd legacy records remain. The event-driven
+    // summary line only fires on a CHANGE, so a settled store looked like silence — and the
+    // owner read that as the diagnostics having been removed. State gets one line always.
+    var _bmStatusPrinted = false;
+    function _bmPrintLegacyStatus(list) {
+        if (_bmStatusPrinted) return;
+        var out = [];
+        for (var i = 0; i < list.length; i++) {
+            var b = list[i];
+            if (b.msgUuid || b.schema === 2 || b.pendingHash) continue;
+            out.push(b.id + ' ("' + String(b.preview || '').substring(0, 40) + '…")');
+        }
+        _bmStatusPrinted = true;
+        if (out.length) {
+            console.log('[ACN bookmarks] legacy status: ' + out.length +
+                        ' record(s) still without a uuid: ' + out.join(', '));
+        } else {
+            console.log('[ACN bookmarks] legacy status: all records carry a uuid');
+        }
+    }
+
     // Records already diagnosed this conversation. The migration re-runs on every index
     // generation (a refetch fires on any new message, edit or regenerate), so without this
     // the console filled with the same unresolved block over and over.
@@ -7106,8 +7127,16 @@
                 for (var si = 0; si < sums.length && !ok; si++) {
                     var ns = _normalizeFull(_mdVisible(sums[si]));
                     if (ns.length < BM_SUMMARY_FLOOR) continue;
-                    ok = want.indexOf(ns) === 0 ||
-                         (want.length >= 40 && ns.indexOf(want) === 0);
+                    // 40-CHAR BIDIRECTIONAL PROBE, not whole-string prefixes. Measured
+                    // against the real payload (2026-07-29, Chromium, the owner's
+                    // 297-message conversation): the DOM header TRUNCATES the summary
+                    // for display, so the captured preview holds a truncated (and
+                    // usually doubled) COPY while the payload holds the full text —
+                    // whole-prefix matching in either direction fails on 3 of the 6
+                    // live shapes. The probe binds all 6, each uniquely. Uniqueness is
+                    // still the gate that makes 40 chars safe.
+                    ok = want.indexOf(ns.substring(0, BM_LEGACY_PROBE)) !== -1 ||
+                         ns.indexOf(want.substring(0, BM_LEGACY_PROBE)) !== -1;
                 }
             }
             if (!ok) continue;
@@ -7205,6 +7234,7 @@
             var bmPanel = document.getElementById('acn-panel-bookmarks');
             if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
         }
+        _bmPrintLegacyStatus(list);
         if (changed) {
             console.log('[ACN bookmarks] legacy migration: ' + stats.upgraded + ' upgraded, ' +
                         stats.ambiguous + ' ambiguous, ' + stats.unmatched + ' unmatched, ' +

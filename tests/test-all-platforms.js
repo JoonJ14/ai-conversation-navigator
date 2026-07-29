@@ -249,7 +249,12 @@ const PLATFORMS = [
         gmFixture: {
             totalMessages: 80,
             conversationUuid: 'ee000000-0000-4000-8000-00000000eeee',
-            summaryRows: { 21: 'Architected mock governor mechanisms balancing rate and limits for the run' },
+            // LONGER than the preview's captured copy on purpose — the live shape. The
+            // DOM header truncates the summary for display; the preview stores that
+            // truncated copy doubled, while the payload carries the full text. Measured
+            // 2026-07-29 against the owner's real conversation; whole-prefix matching
+            // fails on this shape and only the 40-char probe binds it.
+            summaryRows: { 21: 'Architected mock governor mechanisms balancing rate and limits for the run with extended tail detail the header never displayed' },
             seedBookmarks: [
                 { id: 'bm_legacy1', schema: 1, entityType: 'user-msg',
                   contentHash: 'deadbeef', msgUuid: null,
@@ -280,6 +285,8 @@ const PLATFORMS = [
                 // the 120 chars. Only the thinking-block summary channel can match it.
                 { id: 'bm_legacy5', schema: 1, entityType: 'ai-msg',
                   contentHash: 'beefbeef', msgUuid: null,
+                  // display-truncated at 75 chars, then doubled, then preview-capped —
+                  // the payload's full summary is NOT a prefix of this, nor vice versa
                   preview: ('Architected mock governor mechanisms balancing rate and limits for the run' +
                             'Architected mock governor mechanisms balancing rate and limits for the run').substring(0, 120),
                   msgIndex: 10, createdAt: 5, platform: 'claude.ai' },

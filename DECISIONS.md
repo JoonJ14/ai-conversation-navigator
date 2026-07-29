@@ -1372,12 +1372,21 @@ enumeration index; `_bmPathOrdinal` counts non-rendering path entries too. One i
 turn early in a conversation shifts every later ordinal and would have silently zeroed the
 harvest.
 
-### Hypothesis flag (rule C only)
-The payload shape `thinking.summaries[{summary}]` has **n=0 live verifications** — same
-epistemic class as the stop_reason predicate. The failure is designed to be visible, not
-silent: every UNMATCHED diagnostic now prints `summaries=<count> bestSummaryPrefix=<n>`, so a
-live run with `summaries=0` kills the hypothesis on the spot, leaving the harvest as the
-remaining channel. Fixtures assert the mechanism, not the payload shape (DEC-028 applies).
+### Hypothesis → MEASURED (2026-07-29)
+The payload shape was verified directly against the owner's real 297-message conversation,
+fetched through Chromium with the userscript's own URL parameters (measurement context: page
+realm, live claude.ai, n=1 conversation): 61 thinking blocks, **55 carrying
+`summaries: [{summary}]`** — the hypothesized shape exactly.
+
+The same measurement found the defect in rule C's first form: **the DOM header TRUNCATES the
+summary for display.** The captured preview holds a truncated (usually doubled) COPY while
+the payload holds the full text, so whole-string prefix matching fails in both directions on
+3 of the 6 live shapes. Rule C's final form is a **40-char bidirectional probe**
+(`preview contains summary[0,40]` OR `summary contains preview[0,40]`), which the measurement
+showed binds **all 6 previews uniquely** — each to exactly one assistant entry with a uuid.
+Uniqueness remains the gate that makes a 40-char probe safe. The diagnostic
+(`summaries=<count> bestSummaryPrefix=<n>`) stays, as regression telemetry now rather than a
+falsifier.
 
 ### Alternatives rejected
 - **Bind on stored `msgIndex`** — position establishing identity; wrong forever after any
