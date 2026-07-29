@@ -101,6 +101,13 @@ Priority order agreed 2026-07-28, re-ranked after v12.1:
    bug v12.1 spent a release recovering from, on a platform nobody has checked. Its DOM inspection
    is also from **Feb 15, 2026**. Investigate before assuming it is fine; it has been quietly
    correct for months, which is not the same as verified.
+
+   **One defect is already confirmed by reading, no measurement needed:** the sweep accumulator
+   `_vsAccumulatedKeys` dedupes on normalized message **text**, so two identical user prompts —
+   "continue", "yes", "fix it", routine in an app-builder session — collapse into one Navigate
+   entry no matter how completely the sweep runs. Virtuoso's `data-index` is read three lines
+   later and would key it structurally. Small fix, real user-visible undercount, and the same
+   identity-by-content family as the bug v12.1 spent a release on.
 8. **Rename the `virtualScroll` platform flag.** It selects the Emergent DOM mitigation, not the
    platform property, so `claude` — the most virtualized platform in the project — is
    `virtualScroll: false`. Anyone grepping it to assess Layer 4 exposure gets the exactly wrong
@@ -410,13 +417,23 @@ the product worse: Layer 4 degrades our features, Layer 3 kills the host page.
 
 Most of v12.0/v12.1 is not Claude-specific, and the port should not re-derive it:
 
-| Already generic | Must be built per platform |
+**None of it is callable cross-platform today — budget for extraction.** Every one of these
+mechanisms is currently gated to Claude: `ciLoadIndex` early-returns unless `ciIsClaudeChat()`, the
+jump bridge is behind the same guard at its call sites, and the bookmark identity and migration
+paths carry it too (37 occurrences of that guard in the file). These are **proven patterns to
+extract and parameterize**, not machinery to wire up. Treating them as ready-made is the single
+easiest way to underestimate this work by an order of magnitude.
+
+| Pattern to extract (design is settled) | Must be built per platform |
 |---|---|
 | Index-backed enumeration with a DOM fallback and a **visible** degraded state | the fetch, the auth, the payload walk |
 | Resolve-on-arrival jumping — aim, land, re-identify, refuse rather than guess (DEC-027) | the scroll container and row-identity attributes |
 | Bookmarks keyed to message identity, never position | the platform's message id field |
 | The legacy-record evidence ladder and its proof/inference split (DEC-034/035) | whatever the old records happen to carry |
 | Staleness/refetch detection and its backoff | the "conversation changed" signal |
+
+The value carried over is the **design** — which failure modes to refuse rather than guess at, and
+in what order to resolve evidence. That is most of the thinking and none of the plumbing.
 
 The single most transferable idea is the one that is easiest to skip: **a held element reference is
 not an identity.** Any code that stores a node and uses it later is wrong on a recycling platform,

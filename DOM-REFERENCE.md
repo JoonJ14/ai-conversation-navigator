@@ -71,15 +71,28 @@ full acceptance matrix.
 "Does it virtualize?" only opens the decision. The second question decides the whole response, and
 this project has a worked example of each answer:
 
-| | **Sweep is viable** | **Sweep is not viable** |
+| | **Sweep may be viable** | **Sweep is not viable** |
 |---|---|---|
-| Example | **Emergent** — app-builder sessions are short; one pass over the scroller collects everything | **Claude** — 147+ turns, ~372,000 px of scroll height, and a measured sweep across 0/25/50/75/100% never accumulated past 3 unique turns |
+| Example | **Emergent** — app-builder sessions are typically short, so one pass over the scroller is affordable | **Claude** — 147+ turns, ~372,000 px of scroll height, and a measured sweep across 0/25/50/75/100% never accumulated past 3 unique turns |
 | Strategy | scroll-through on panel open + accumulate + re-resolve stale references at click time | non-DOM source of truth (API index) + resolve-on-arrival jumping |
-| Cost | modest — an existing pattern to copy | a release, plus a second one for persisted data |
+| Cost | modest — an existing pattern to adapt | a release, plus a second one for persisted data |
 
 Estimate the sweep cost before choosing: `scrollHeight / clientHeight` viewport steps at ~250 ms each.
 Emergent's is seconds. Claude's would be roughly 500 steps — minutes — and the measurement says it
 would still not be complete at the end.
+
+> ⚠️ **Emergent is a shipped precedent, NOT a verified-complete one. Do not copy it uncritically.**
+> Two things are unmeasured or known-lossy, both found while writing this table:
+> - Whether the sweep still completes on a *long* Emergent session has **never been measured**.
+>   "Sessions are typically short" is an assumption about usage, not a property of the code.
+> - Accumulation dedupes on **normalized message text** (`_vsAccumulatedKeys`), so two identical
+>   user prompts — "continue", "yes", "fix it", which are *routine* in an app-builder session —
+>   collapse into a single entry **even when the sweep visits every viewport**. That is an
+>   identity-by-content bug of the same family v12.1 spent a release recovering from, and it is
+>   independent of sweep coverage.
+>
+> Adapt the *pattern*; key the accumulator on something structural (Virtuoso's `data-index` is
+> already read a few lines later) rather than on text.
 
 ### The check, in full
 
