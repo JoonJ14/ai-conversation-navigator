@@ -40,7 +40,7 @@ follow — virtualization is the standard fix for a slow chat page, not a Claude
 | Platform | Virtualizes? | Last checked | Strategy in use |
 |---|---|---|---|
 | **Claude** (`claude.ai/chat`) | **YES — Virtuoso-style recycling**, ~3–7 of N turns mounted | Jul 26, 2026 | **API-backed conversation index** (DEC-021). DOM is the labelled fallback. |
-| **Emergent** (`app.emergent.sh`) | **YES — Virtuoso recycling**, `[data-testid="virtuoso-scroller"]` | Feb 15, 2026 | **DOM sweep**: scroll-through collection on panel open, accumulative scanning, click-time re-resolution of stale references |
+| **Emergent** (`app.emergent.sh`) | **YES — Virtuoso recycling**, `[data-testid="virtuoso-scroller"]` | Feb 15, 2026 | **Accumulation only** — scans keep messages the user has already scrolled past, plus click-time re-resolution of stale references. **Nothing sweeps.** See the ⚠️ below. |
 | ChatGPT · Grok · Gemini · Perplexity | not observed | Feb 18, 2026 | DOM |
 | Claude Code Web · Codex Web | not observed | Feb 18, 2026 | DOM |
 | Bolt · Lovable · Replit · V0 · Base44 · Firebase Studio | not observed | Feb 18, 2026 | DOM |
@@ -73,26 +73,35 @@ this project has a worked example of each answer:
 
 | | **Sweep may be viable** | **Sweep is not viable** |
 |---|---|---|
-| Example | **Emergent** — app-builder sessions are typically short, so one pass over the scroller is affordable | **Claude** — 147+ turns, ~372,000 px of scroll height, and a measured sweep across 0/25/50/75/100% never accumulated past 3 unique turns |
-| Strategy | scroll-through on panel open + accumulate + re-resolve stale references at click time | non-DOM source of truth (API index) + resolve-on-arrival jumping |
-| Cost | modest — an existing pattern to adapt | a release, plus a second one for persisted data |
+| Candidate | short sessions — estimate the cost before assuming | **Claude** — 147+ turns, ~372,000 px of scroll height, and a measured sweep across 0/25/50/75/100% never accumulated past 3 unique turns |
+| Strategy | scroll the container in viewport steps, accumulate, re-resolve stale references at click time | non-DOM source of truth (API index) + resolve-on-arrival jumping |
+| Cost | modest, but **nobody here has built one yet** | a release, plus a second one for persisted data |
 
 Estimate the sweep cost before choosing: `scrollHeight / clientHeight` viewport steps at ~250 ms each.
-Emergent's is seconds. Claude's would be roughly 500 steps — minutes — and the measurement says it
-would still not be complete at the end.
+Claude's would be roughly 500 steps — minutes — and the measurement says it would still not be
+complete at the end.
 
-> ⚠️ **Emergent is a shipped precedent, NOT a verified-complete one. Do not copy it uncritically.**
-> Two things are unmeasured or known-lossy, both found while writing this table:
-> - Whether the sweep still completes on a *long* Emergent session has **never been measured**.
->   "Sessions are typically short" is an assumption about usage, not a property of the code.
-> - Accumulation dedupes on **normalized message text** (`_vsAccumulatedKeys`), so two identical
->   user prompts — "continue", "yes", "fix it", which are *routine* in an app-builder session —
->   collapse into a single entry **even when the sweep visits every viewport**. That is an
->   identity-by-content bug of the same family v12.1 spent a release recovering from, and it is
->   independent of sweep coverage.
+> ⚠️ **Emergent is NOT a worked example of the sweep strategy. It has no sweep.**
+> This entry previously said otherwise, and the Emergent section below still claimed a
+> "scroll-through collection ... on panel open (250 ms per viewport step)". **That code does not
+> exist** — verified by enumerating every scroll mutation in the userscript: the only container
+> scroll is Claude's jump machinery, the rest are `scrollIntoView` click handlers, and there is no
+> stepped loop anywhere. It is not in `modules/` either, and git history shows no removal. It
+> appears to have been documented as designed and never built.
 >
-> Adapt the *pattern*; key the accumulator on something structural (Virtuoso's `data-index` is
-> already read a few lines later) rather than on text.
+> What Emergent *actually* has is **accumulation**: `scanConversation` keeps messages across scans
+> instead of clearing, so the Navigate list holds whatever the user has scrolled past **and nothing
+> else**. Open a long Emergent session, click Navigate without scrolling, and the panel shows the
+> mounted window — the Claude v12.0 failure mode, unmitigated, on a platform the docs described as
+> handled.
+>
+> Compounding it: accumulation dedupes on **normalized message text** (`_vsAccumulatedKeys`), so
+> two identical prompts — "continue", "yes", "fix it", routine in an app-builder session — collapse
+> into one entry even where coverage is complete. Virtuoso's `data-index` is read three lines later
+> and would key it structurally.
+>
+> Neither issue is measured against a real long Emergent session yet. Both are legible in the code.
+> Tracked in `ROADMAP.md` backlog item 7.
 
 ### The check, in full
 
@@ -750,7 +759,8 @@ div.relative.flex-1.w-full.h-full.overflow-hidden  (chat panel — flex child)
 - User message bubbles have `rounded-br-none` (bottom-right corner sharp), AI bubbles have `rounded-bl-none`
 - Virtual scrolling means DOM elements are recycled — messages scrolled far out of view may not be in the DOM
 - **Accumulative scanning**: Because of virtuoso, `scanConversation` uses accumulation mode for Emergent — it adds new messages to the list without clearing existing ones. This prevents the list from changing as the user scrolls. The Refresh button does a full reset.
-- **Scroll-through collection**: On panel open, script programmatically scrolls through the entire virtuoso container (250ms per viewport step) to force-render and collect all user messages, then restores scroll position.
+- ~~**Scroll-through collection**: On panel open, script programmatically scrolls through the entire virtuoso container (250ms per viewport step) to force-render and collect all user messages, then restores scroll position.~~
+  **❌ THIS IS NOT TRUE AND APPEARS NEVER TO HAVE BEEN** (corrected 2026-07-29, found by Codex review of PR #60). No such traversal exists in the userscript: enumerating every `scrollTop=` / `scrollTo(` / `scrollBy(` / `scrollIntoView(` call finds only Claude's jump machinery and click handlers, with no stepped loop; it is absent from `modules/` and git history shows no removal. Coverage on Emergent is therefore **only what the user has scrolled past**, retained by the accumulation below. This entry is struck rather than deleted because a doc that described an unbuilt mitigation as shipped is exactly why the gap survived — see `ROADMAP.md` backlog item 7.
 - **Stale DOM references**: When clicking a nav item, the original DOM element may have been recycled. The click handler re-searches the DOM for a matching element at click time using `isConnected` check.
 - **Broad fallbacks removed**: Fallbacks 3-7 (rounded-br-none, items-end, text-wrap, etc.) were matching AI agent status messages when user messages scrolled out of view. Only the primary selector and user-task ID fallback remain.
 

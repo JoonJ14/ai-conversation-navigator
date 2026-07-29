@@ -102,12 +102,26 @@ Priority order agreed 2026-07-28, re-ranked after v12.1:
    is also from **Feb 15, 2026**. Investigate before assuming it is fine; it has been quietly
    correct for months, which is not the same as verified.
 
-   **One defect is already confirmed by reading, no measurement needed:** the sweep accumulator
-   `_vsAccumulatedKeys` dedupes on normalized message **text**, so two identical user prompts —
-   "continue", "yes", "fix it", routine in an app-builder session — collapse into one Navigate
-   entry no matter how completely the sweep runs. Virtuoso's `data-index` is read three lines
-   later and would key it structurally. Small fix, real user-visible undercount, and the same
-   identity-by-content family as the bug v12.1 spent a release on.
+   **Two defects are already confirmed by reading the code, no measurement needed** (both found by
+   Codex during review of PR #60):
+
+   1. **There is no sweep.** `DOM-REFERENCE.md` claimed a "scroll-through collection ... on panel
+      open (250 ms per viewport step)" since v7.7. That code does not exist — every scroll mutation
+      in the userscript is Claude's jump machinery or a click handler, there is no stepped loop, it
+      is not in `modules/`, and git history shows no removal. **Emergent's coverage is only what the
+      user has scrolled past.** Open a long session, click Navigate without scrolling, and you get
+      the mounted window: the Claude v12.0 failure mode, unmitigated, on a platform the
+      documentation described as handled for five months. This is the "a comment describing
+      behaviour is not evidence the behaviour exists" rule, applied to a doc.
+   2. **Accumulation dedupes on normalized text.** `_vsAccumulatedKeys` keys on message text, so two
+      identical prompts — "continue", "yes", "fix it", routine here — collapse into one Navigate
+      entry even where coverage is complete. Virtuoso's `data-index` is read three lines later and
+      would key it structurally. Small fix, same identity-by-content family as the bug v12.1 spent
+      a release on.
+
+   Neither is measured against a real long Emergent session yet — do that first (DEC-027), because
+   the fix depends on whether a sweep is affordable there or Emergent needs something closer to
+   Claude's treatment.
 8. **Rename the `virtualScroll` platform flag.** It selects the Emergent DOM mitigation, not the
    platform property, so `claude` — the most virtualized platform in the project — is
    `virtualScroll: false`. Anyone grepping it to assess Layer 4 exposure gets the exactly wrong
@@ -406,12 +420,24 @@ it until it is measured. What to establish, in this order:
 **If no such source exists, the honest outcome is reduced functionality on that platform, clearly
 labelled in the UI.** That is a legitimate result. Silent partial data is not.
 
-### Step 2 — Respect the Layer 3 constraint, which is not negotiable
+### Step 2 — Respect the Layer 3 constraint, and declare the host
 
 Read it with `GM_xmlhttpRequest`. **Do not intercept `fetch` and do not patch page globals**
 (DEC-019/DEC-020). v11.6 crashed claude.ai to a black screen on Firefox because a vendor bundle
 called `.bind()` on our replaced `fetch`. A Layer 4 fix that reintroduces a Layer 3 hazard has made
 the product worse: Layer 4 degrades our features, Layer 3 kills the host page.
+
+**Then add the endpoint host to `@connect` in the userscript metadata.** The header currently
+declares `@connect claude.ai` and nothing else, so an otherwise finished ChatGPT/Grok/Gemini port
+will be blocked or will prompt for an undeclared permission, depending on the userscript manager —
+a failure that appears at the very end and looks like a broken request rather than a missing
+declaration. Two consequences that are easy to miss:
+
+- **Adding a `@connect` host changes what the script is permitted to talk to**, so it is a
+  user-visible permission change. Tampermonkey re-prompts on update. Update the README's
+  permissions section in the same commit — it enumerates the grants deliberately.
+- The privacy statement in README lists exactly which hosts are read. A new host makes that list
+  wrong until it is updated.
 
 ### Step 3 — Reuse the generic machinery; only the source is platform-specific
 
