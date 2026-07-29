@@ -3520,6 +3520,9 @@
         _ciPendingResyncSig = '';
         _ciAwaitingResyncSig = '';
         _bmDiagnosed        = {};
+        _bmStatusPrinted    = false;   // per-conversation, like _bmDiagnosed
+        _bmPendingLegacy    = true;    // unknown until the next migration pass counts it
+        _bmNormGen          = -1;      // drop the normalization memo for the old path
         _ciRefreshFailed    = '';
         _sseThinkAtIndex    = 0;
         _ciConversationId = null;
@@ -6885,6 +6888,11 @@
     // generation (a refetch fires on any new message, edit or regenerate), so without this
     // the console filled with the same unresolved block over and over.
     var _bmDiagnosed = {};
+    // Does this conversation still hold a record without a uuid? The harvest runs from
+    // injectBookmarkIcons — i.e. every scan — and used to JSON.parse the whole bookmark
+    // store each time just to discover there was nothing to do. The migration pass already
+    // walks the list once per index generation, so it can answer this for free.
+    var _bmPendingLegacy = true;
 
     // Occurrence identity for a provisional bookmark: the 0-based ordinal of its message
     // among turns OF ITS OWN SENDER. _questions is exactly that list for human turns, in
@@ -7056,6 +7064,7 @@
     // today's path ordinal counts non-rendering entries too. One interrupted turn early
     // in a conversation would silently shift every later ordinal and zero the harvest.
     function _bmHarvestLegacyFromMounted() {
+        if (!_bmPendingLegacy) return;   // nothing un-uuid'd — skip the store read entirely
         if (!(ciIsClaudeChat() && ciIsReady() && _ciFullPath)) return;
         var list = getConversationBookmarks();
         var pending = [];
@@ -7064,7 +7073,7 @@
                 pending.push(list[i]);
             }
         }
-        if (!pending.length) return;
+        if (!pending.length) { _bmPendingLegacy = false; return; }
         var changed = false;
         function sweep(els, sender, type) {
             for (var e = 0; e < els.length && pending.length; e++) {
@@ -7097,6 +7106,7 @@
         }
         sweep(Array.from(getUserMessages()), 'human', 'user-msg');
         sweep(Array.from(getAIMessages()), 'assistant', 'ai-msg');
+        if (!pending.length) _bmPendingLegacy = false;   // harvest cleared the last one
         if (changed) {
             var bmPanel = document.getElementById('acn-panel-bookmarks');
             if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
@@ -7124,6 +7134,29 @@
     // anyway, but the floor keeps them from poisoning otherwise-unique candidates.
     var BM_SUMMARY_FLOOR = 25;
 
+    // Normalized text + summaries per path entry, memoized for one index generation. Both
+    // the matcher and the diagnostic walk every candidate for every unresolved record, and
+    // _mdVisible runs nine regexes per call — on the owner's conversation that was ~145k
+    // regex passes per load. Rebuilt whenever _ciIndexGen moves, dropped on ciInvalidate.
+    var _bmNormGen = -1, _bmNormRows = null;
+    function _bmNormPath() {
+        if (_bmNormGen === _ciIndexGen && _bmNormRows) return _bmNormRows;
+        _bmNormRows = [];
+        if (_ciFullPath) {
+            for (var i = 0; i < _ciFullPath.length; i++) {
+                var e = _ciFullPath[i];
+                var raw = e.thinkSummaries || [];
+                var ns = [];
+                for (var j = 0; j < raw.length; j++) ns.push(_normalizeFull(_mdVisible(raw[j])));
+                _bmNormRows.push({ sender: e.sender,
+                                   text: _normalizeFull(_mdVisible(e.text || '')),
+                                   sums: ns });
+            }
+        }
+        _bmNormGen = _ciIndexGen;
+        return _bmNormRows;
+    }
+
     function _bmLegacyPathIndexFor(preview, entityType) {
         if (!_ciFullPath || !preview) return -1;
         // Strip OUR OWN injected bookmark glyph. Pre-v12.0 previews were captured before
@@ -7136,10 +7169,11 @@
         // reachable than a full match would, and the resulting uuid would be persisted.
         var wantSender = (entityType === 'ai-msg') ? 'assistant' : 'human';
         var hit = -1;
-        for (var i = 0; i < _ciFullPath.length; i++) {
-            if (_ciFullPath[i].sender !== wantSender) continue;
+        var rows = _bmNormPath();
+        for (var i = 0; i < rows.length; i++) {
+            if (rows[i].sender !== wantSender) continue;
             var ok = false;
-            var full = _normalizeFull(_mdVisible(_ciFullPath[i].text || ''));
+            var full = rows[i].text;
             if (full) {
                 // RULE A — prefix. `preview` is 120 chars of rendered text, so in the
                 // clean case it is a prefix of the full message.
@@ -7161,9 +7195,9 @@
             // gate below still applies, so a summary Claude happened to generate twice
             // refuses rather than guesses.
             if (!ok && wantSender === 'assistant') {
-                var sums = _ciFullPath[i].thinkSummaries || [];
+                var sums = rows[i].sums;
                 for (var si = 0; si < sums.length && !ok; si++) {
-                    var ns = _normalizeFull(_mdVisible(sums[si]));
+                    var ns = sums[si];
                     if (ns.length < BM_SUMMARY_FLOOR) continue;
                     // 40-CHAR BIDIRECTIONAL PROBE, not whole-string prefixes. Measured
                     // against the real payload (2026-07-29, Chromium, the owner's
@@ -7198,21 +7232,22 @@
         var wantSender = (b.entityType === 'ai-msg') ? 'assistant' : 'human';
         var best = null, bestLen = -1, considered = 0, emptyText = 0;
         var sumsTotal = 0, bestSum = '', bestSumN = -1;
-        for (var i = 0; i < _ciFullPath.length; i++) {
-            if (_ciFullPath[i].sender !== wantSender) continue;
+        var dRows = _bmNormPath();
+        for (var i = 0; i < dRows.length; i++) {
+            if (dRows[i].sender !== wantSender) continue;
             considered++;
             // The summary channel, reported alongside the text channel: summaries=0 on a
             // live run means the payload-shape hypothesis behind rule C is WRONG — that is
             // the falsifier, and it must be visible in the same place the failure is.
-            var dSums = _ciFullPath[i].thinkSummaries || [];
+            var dSums = dRows[i].sums;
             for (var sj = 0; sj < dSums.length; sj++) {
                 sumsTotal++;
-                var nsum = _normalizeFull(_mdVisible(dSums[sj]));
+                var nsum = dSums[sj];
                 var m = 0;
                 while (m < want.length && m < nsum.length && want.charAt(m) === nsum.charAt(m)) m++;
                 if (m > bestSumN) { bestSumN = m; bestSum = nsum; }
             }
-            var full = _normalizeFull(_mdVisible(_ciFullPath[i].text || ''));
+            var full = dRows[i].text;
             if (!full) { emptyText++; continue; }
             var n = 0;
             while (n < want.length && n < full.length && want.charAt(n) === full.charAt(n)) n++;
@@ -7272,6 +7307,9 @@
             var bmPanel = document.getElementById('acn-panel-bookmarks');
             if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
         }
+        // The migration walk already knows whether anything is still un-uuid'd; hand that
+        // to the harvest so it can no-op without touching storage.
+        _bmPendingLegacy = (stats.ambiguous + stats.unmatched) > 0;
         _bmPrintLegacyStatus(list);
         if (changed) {
             console.log('[ACN bookmarks] legacy migration: ' + stats.upgraded + ' upgraded, ' +
