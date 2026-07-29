@@ -92,7 +92,21 @@ Priority order agreed 2026-07-28, re-ranked after v12.1:
    lived in the DOM (`[data-testid="user-message"]` absence) and this would not have caught
    it. A DOM-structure capture is a separate, unbuilt piece. Never let "generated from real
    payloads" be read as "models the real site".
-7. **Debulking.** ~9,300 lines now. Known dead code: `ciResolvePathForRow`,
+7. **Emergent: re-examine it as a Layer 4 platform** (surfaced by Codex review of PR #60,
+   2026-07-29). It recycles via Virtuoso and predates the Layer 4 category, so it was never
+   audited against what that category now teaches. Open questions, none of them yet measured:
+   does the scroll-through sweep still complete on a *long* session, or does it degrade the way
+   Claude's would? Are Emergent bookmarks keyed to anything positional — an accumulated-list index
+   that shifts when the sweep collects in a different order would be the same identity-vs-position
+   bug v12.1 spent a release recovering from, on a platform nobody has checked. Its DOM inspection
+   is also from **Feb 15, 2026**. Investigate before assuming it is fine; it has been quietly
+   correct for months, which is not the same as verified.
+8. **Rename the `virtualScroll` platform flag.** It selects the Emergent DOM mitigation, not the
+   platform property, so `claude` — the most virtualized platform in the project — is
+   `virtualScroll: false`. Anyone grepping it to assess Layer 4 exposure gets the exactly wrong
+   answer. Something like `domSweepStrategy` states what it does. Touches 12 platform configs, so
+   it needs the full acceptance matrix on both engines despite being a rename.
+9. **Debulking.** ~9,300 lines now. Known dead code: `ciResolvePathForRow`,
    `ciDataIndexToFullPath`, `ciFullPathToDataIndex`, `_bmLegacyId`; inventory/entity `msgIndex`
    fields with no consumer; `_bmLegacyIdSet`'s two unreachable dedupe guards; two dead test
    config keys making one assertion unreachable.
