@@ -237,8 +237,10 @@ Two of the steps exist because shortcutting produced wrong answers here:
 - **A flat count proves recycling — it does not prove a sweep is futile.** The recycler exposes
   *different* rows as the container moves, so a stepped sweep can accumulate the whole conversation
   even though the instantaneous count never rises. Only an incomplete union, or a sweep too slow to
-  run on panel open, forces a non-DOM source. Claude failed both (union stayed at 3; ~500 steps) —
-  that conclusion is Claude's, not a general law.
+  run on panel open, forces a non-DOM source. Claude was ruled out **on cost** (~500 steps, minutes
+  per panel open); its coarse five-position sweep never accumulated past 3, but the fine-grained
+  union was never measured. Cite that precisely — it is Claude's result at Claude's resolution, not
+  a general law.
 
 Per-platform status and the check procedure live in `DOM-REFERENCE.md` ("Virtualization status").
 **What to actually do when one of them flips is in `ROADMAP.md` → "Porting the Layer 4 response to

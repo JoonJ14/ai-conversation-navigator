@@ -400,8 +400,10 @@ including selector validation and the two forms of recycling — is in `DOM-REFE
 
 **(b) If recycling — is a full sweep viable?** This is the question that actually decides the size of
 the work, and **the answer is not always no** — on a platform with short sessions a sweep may be the
-entire fix. Claude is the clear negative case: a measured sweep never accumulated past 3 unique turns,
-and at 372,642 px of scroll height a viewport-step sweep would take minutes per conversation. There is
+entire fix. Claude is the clear negative case, but note *which* evidence settles it: a coarse sweep
+(five positions) never accumulated past 3 unique turns, and at 372,642 px of scroll height a
+viewport-step sweep would take minutes on every panel open. **The cost is what rules it out** — the
+fine-grained coverage question was never measured there. There is
 no positive case in this repo yet (see below).
 
 Estimate before choosing: `scrollHeight / clientHeight` steps at ~250 ms. Seconds means a sweep is
@@ -487,7 +489,10 @@ and it will not throw. Audit for **both** failure modes, because checking for on
 - **Same-node repurposing** — the node is reused for another message, so the code scrolls
   confidently to the **wrong content** and reports success.
 - **Detach-and-remount** — the node is destroyed, so the reference is disconnected and the action is
-  a silent **no-op**: nothing moves, nothing errors. Claude works this way.
+  a silent **no-op**: nothing moves, nothing errors.
+
+Which form Claude uses has **never been measured live** — this repo asserts both (backlog item 8), so
+audit for both rather than picking one.
 
 A search for "does this stored element still show the right text?" only finds the first.
 

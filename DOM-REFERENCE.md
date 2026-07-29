@@ -125,9 +125,12 @@ time.
 //   Count what the selector matches, then count the user turns you can SEE on screen.
 //   FEWER matches than visible turns => Layer 1 selector drift, not virtualization.
 //   (A drifted selector produces the same single-digit, flat count as recycling.)
-//   MORE matches than visible is NORMAL and is not drift: virtualizers mount overscan
-//   rows above/below the viewport and often pin the first or last row permanently —
-//   our own claude-virtualized mock mounts a 6-row window PLUS a pinned tail.
+//   MORE matches than visible is not automatically drift — virtualizers mount overscan
+//   rows above/below the viewport and often pin the first or last row permanently (our
+//   own claude-virtualized mock mounts a 6-row window PLUS a pinned tail). But do not
+//   accept the surplus blindly: a selector that has drifted BROAD matches assistant
+//   turns, status rows and other chrome, which also inflates the count. Spot-check that
+//   the extra matches are user turns before carrying the number into step 1.
 
 // STEP 1 — How much of the conversation is in the DOM?
 document.querySelectorAll('<the user-message selector for this platform>').length
