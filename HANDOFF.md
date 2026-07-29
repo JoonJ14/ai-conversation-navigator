@@ -239,7 +239,7 @@ Chromium (8/8 uuid-keyed, 0 summary labels, 0 glyph labels). Codex round 7 clean
 
 ## G. What comes next
 
-1. **Owner live-confirms `f45fb69`, then merges #59.** Specific checks: the console line
+1. **Owner live-confirms `3c63c86`, then merges #59.** Specific checks: the console line
    `[ACN bookmarks] legacy status: all records carry a uuid`; a few recovered bookmarks landing
    on the messages they name; panel labels showing message text for both questions and answers.
 2. **Summary/Export fixtures** — still the zero-execution zone (mutation-proven). Highest
@@ -281,10 +281,11 @@ Chromium (8/8 uuid-keyed, 0 summary labels, 0 glyph labels). Codex round 7 clean
 
 ## J. Risk caveats
 
-- **⚠ NOT LIVE-VERIFIED AT `f45fb69`.** The owner confirmed labels and recovery at an earlier
-  commit; 6 commits of review fixes landed after, touching migration ordering, the panel
-  fingerprint, and icon state. The live-data harness re-ran green on the final commit, but that
-  is Chromium page realm, not Firefox+Tampermonkey.
+- **⚠ NOT LIVE-VERIFIED AT `3c63c86`.** The owner confirmed labels and recovery at an earlier
+  commit; review fixes landed after, touching migration ordering, the panel fingerprint, icon
+  state, and the click path's proof flag. The live-data harness re-ran green on the final commit,
+  but that is Chromium page realm, not Firefox+Tampermonkey — the two contexts have disagreed
+  before, which is the whole reason DEC-031 exists.
 - **⚠ Summary, Tools and Export still have ZERO test execution** (mutation-proven, carried from
   the predecessor). Any suite number about that code is unearned.
 - **⚠ One honest test-debt item, recorded in the fixture itself:** "a harvest-bound record
@@ -296,3 +297,48 @@ Chromium (8/8 uuid-keyed, 0 summary labels, 0 glyph labels). Codex round 7 clean
 - A lens wrote `tests/_review_probe.js` into the repo despite instructions to work in
   scratchpad copies; caught and removed. **Use explicit `git add` paths, never `-A`,** while
   review agents are running.
+
+---
+
+## K. Kickoff prompt for the next session
+
+Paste this as the opening message.
+
+> Picking up AI Conversation Navigator after the v12.1 legacy-bookmark session. Read `HANDOFF.md`
+> first, then `DECISIONS.md` DEC-031 through DEC-035.
+>
+> **State:** `feat/v12.1` → PR #59, **open and unmerged**, 9/9 CI, 515/515 across 25 entries on
+> Chromium and Firefox. Last code-bearing commit `3c63c86`; commits after it are documentation.
+> The GitHub Codex loop is finished — 8 findings across 7 rounds, zero false positives, provenance
+> 4 pre-existing / 4 cycle-introduced, clean round on `3c63c86`.
+>
+> **First thing, before any code:** ask me whether I have live-confirmed `3c63c86` on
+> Firefox + Tampermonkey. Do not merge — I merge, and only after that confirmation (DEC-031).
+> What I check: the console line `[ACN bookmarks] legacy status: all records carry a uuid`,
+> recovered bookmarks landing on the messages they name, and panel labels showing message text
+> for both my questions and Claude's answers.
+>
+> **Then, in order:**
+> 1. **Summary/Export fixtures** — mutation testing proves those surfaces have *zero* test
+>    execution: replace `_sumBuildTimeline`, `_sumScrollToElement`, `_exportFromIndex` or
+>    `ciIndexStamp` with an unconditional `throw` and the suite still passes. This is the highest
+>    remaining value in the release, and every "515/515" claim about that code is unearned until
+>    it is done. Label each new fixture ancestor-gated or mutant-gated.
+> 2. **Retry-After honoring for HTTP 429** — plumb response headers through `ciRequestJSON`.
+> 3. **Reassess, don't build: the §4.2 offset cache.** Measure a live repeat jump first; if it is
+>    already sub-400ms, close it as satisfied-by-redesign rather than building it.
+> 4. **Peek pane** (spec §9), **mock-fidelity payload generator** (API structure ONLY — it does
+>    not model DOM structure and would not have caught the v12.0 chip regression), **debulking**.
+>
+> **Rules that are not negotiable here:**
+> - I merge PRs, not you, and a live confirmation certifies exactly one commit (DEC-031).
+> - Reproduce before fixing — a hypothesis is not authorisation to change code (DEC-027).
+> - A fixture knob must be proven to change the output; assert the property it models and
+>   mutation-verify it (DEC-032). Two A/B experiments in this project ran against a knob that
+>   could not fail and disconfirmed the *correct* hypothesis.
+> - Record the measurement context with every finding. Page realm ≠ Tampermonkey sandbox,
+>   Chromium ≠ Firefox, hidden tab ≠ visible tab, and a green local suite is context-scoped too.
+> - Stage with explicit `git add` paths, never `-A`, while review agents are running.
+>
+> **Do NOT:** merge #59, reopen #58, restart the Codex loop on the current code, or re-derive the
+> bookmark recovery design — it is settled, live-verified at 16/16, and documented in DEC-034/035.
