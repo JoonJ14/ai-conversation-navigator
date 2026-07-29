@@ -5,8 +5,8 @@ the owner's are now recovered, the panel shows message text instead of matching 
 work went through Tier 1/2/3 review plus a GitHub Codex cycle that ended in a genuine clean
 round.
 **Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-07-28_v12.0-premerge.md`.
-**Branch:** `feat/v12.1`, **PR #59 OPEN**, CI green, **live-confirmed at `3c63c86`** (§E).
-**NOT MERGED — the owner merges, and only the owner.**
+**Status:** **MERGED** — PR #59, 2026-07-29, `main` @ `4329097`, version 12.1. Live-confirmed at
+`3c63c86` before merge (§E). Released on GitHub as `v12.1`.
 
 ---
 
@@ -201,7 +201,8 @@ Unchanged from the predecessor except the bookmark subsystem:
 
 ## E. Git state
 
-`feat/v12.1`, pushed, **PR #59 OPEN**, CI 9/9, tree clean. **Only the owner merges.**
+**PR #59 is MERGED** (2026-07-29). `main` @ `4329097`, version 12.1, CI 9/9. The owner merged it
+themselves after the live confirmation below, as they do every PR.
 
 ### ✅ LIVE-CONFIRMED — `3c63c86`, 2026-07-29, owner, Firefox + Tampermonkey
 
@@ -250,8 +251,8 @@ Chromium (8/8 uuid-keyed, 0 summary labels, 0 glyph labels), Codex round 7 clean
 
 ## G. What comes next
 
-1. ~~**Owner live-confirms `3c63c86`**~~ — **done 2026-07-29** (§E). The remaining step is the
-   owner merging #59; nobody else merges it. If the branch has moved since, re-confirm first.
+1. ~~**Owner live-confirms `3c63c86`, then merges #59**~~ — **both done 2026-07-29** (§E).
+   v12.1 is on `main` and tagged as a GitHub release. Nothing is in flight.
 2. **Summary/Export fixtures** — still the zero-execution zone (mutation-proven). Highest
    remaining value in the release.
 3. **Retry-After honoring for HTTP 429** — plumb response headers through `ciRequestJSON`.

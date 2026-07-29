@@ -44,6 +44,12 @@ The main file is organized into logical phases within a single IIFE:
 
 Claude virtualizes its message list with recycling — only ~3–5 user turns are mounted at any moment, so `document.querySelectorAll()` sees roughly 3% of a long conversation. `_questions` on `claude.ai/chat/<uuid>` is therefore populated from Claude's own conversation JSON, not from the DOM. See DEC-021 (the index) and DEC-022 (Layer 4: State Breaks).
 
+**Claude is currently the only virtualized platform, and that is a fact with a date on it, not a property of the design.** Virtualization is the standard fix for a slow chat page; Claude's own answer flipped between February and July 2026 with no announcement, no error, and a green test suite. Treat "platform X is not virtualized" as *unverified* rather than *verified false* — per-platform status and the two-command check are in `DOM-REFERENCE.md` → "Virtualization status".
+
+If one of the other 13 flips, do **not** start from selectors. The order of operations, what is already generic (resolve-on-arrival, identity-keyed bookmarks, the degraded-state UI) and what has to be built per platform (the fetch, the auth, the payload walk) is in `ROADMAP.md` → "Porting the Layer 4 response to another platform". The reasoning behind the whole architecture — why a repair was impossible and why it took two releases — is in `TROUBLESHOOTING.md` → "Why v12.0 and v12.1 Exist".
+
+**The single most transferable rule: a held element reference is not an identity.** On a recycling platform the browser reuses that node for a different message, so cached references fail by scrolling confidently to the wrong content rather than by throwing.
+
 | Function | Role |
 |---|---|
 | `ciIsClaudeChat()` | Guard — true only on `claude.ai/chat/<uuid>` |

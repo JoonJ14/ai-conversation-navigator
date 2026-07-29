@@ -30,7 +30,7 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.1 (legacy bookmark recovery complete and live-confirmed, PR #59 open, 2026-07-29)
+## Current Status: v12.1 — MERGED and live-confirmed (2026-07-29)
 
 The extension supports 14 platform variants across 12 websites.
 
@@ -331,6 +331,96 @@ A 4-question panel on a 147-question conversation is indistinguishable from a sh
 The key insight: **DOM validation is necessary but not sufficient.** A project that only watches for selector changes will be blindsided by execution breaks *and* by state breaks. Live-site smoke testing catches Layer 3. Layer 4 needs something different again — a source of truth outside the DOM to compare against, because the failure mode is not "no data" but "confidently incomplete data."
 
 Layer 4 is also the clearest ceiling yet on DOM augmentation as a strategy. Layers 1–3 are hazards to engineer around; Layer 4 says the DOM may stop being a complete record whenever a platform decides rendering performance matters more than document completeness. It is the strongest argument so far for the API-first direction of the extension transition.
+
+---
+
+## Porting the Layer 4 response to another platform
+
+**Assume this is a when, not an if.** Virtualization is the standard answer to "our chat page gets
+slow on long conversations", and Claude's flip between February and July 2026 came with no
+announcement, no error, and a green test suite. ChatGPT, Grok and Gemini render long threads the
+same naive way Claude used to. Detection procedure and per-platform status live in
+`DOM-REFERENCE.md` → "Virtualization status"; the full narrative of why the Claude response took
+the shape it did is in `TROUBLESHOOTING.md` → "Why v12.0 and v12.1 Exist". This section is the
+**order of operations** for the next one.
+
+### Step 0 — Confirm it is recycling, not lazy loading
+
+Do this before anything else; it decides whether the work is an afternoon or a release. Lazy
+loading accumulates nodes and a scroll sweep before scanning fixes it. Recycling keeps a flat pool
+and reuses nodes for different messages — no scroll strategy will ever help, and every cached
+element reference in the codebase becomes a latent wrong-answer bug. The check is two console
+commands (`DOM-REFERENCE.md`).
+
+### Step 1 — Find out whether an independent source exists, and do not assume the answer
+
+The entire v12.0 approach rests on one fact about Claude: **the client already downloads the whole
+conversation and chooses to render a window of it**, so a plain authenticated GET returns
+everything. Whether the same is true of any other platform is **unverified** — do not plan around
+it until it is measured. What to establish, in this order:
+
+1. Does an endpoint return the full conversation for the open thread? (DevTools → Network on a
+   page load, then look for the conversation payload.)
+2. What authenticates it — a cookie, a bearer token in memory, a CSRF header? A token that only
+   exists inside the page's JS is a much harder problem than a cookie, and may rule the approach
+   out entirely under the constraint in Step 2.
+3. Does the payload contain the message *text*, or only metadata? Claude's top-level `text` field
+   is empty on every message and the content lives in `content[]` blocks — a shape that would have
+   rendered 147 blank rows if it had not been checked.
+4. Does it expose branch structure (edits, regenerations)? If so, the walk must follow the active
+   branch, or edited-away questions reappear as if current.
+
+**If no such source exists, the honest outcome is reduced functionality on that platform, clearly
+labelled in the UI.** That is a legitimate result. Silent partial data is not.
+
+### Step 2 — Respect the Layer 3 constraint, which is not negotiable
+
+Read it with `GM_xmlhttpRequest`. **Do not intercept `fetch` and do not patch page globals**
+(DEC-019/DEC-020). v11.6 crashed claude.ai to a black screen on Firefox because a vendor bundle
+called `.bind()` on our replaced `fetch`. A Layer 4 fix that reintroduces a Layer 3 hazard has made
+the product worse: Layer 4 degrades our features, Layer 3 kills the host page.
+
+### Step 3 — Reuse the generic machinery; only the source is platform-specific
+
+Most of v12.0/v12.1 is not Claude-specific, and the port should not re-derive it:
+
+| Already generic | Must be built per platform |
+|---|---|
+| Index-backed enumeration with a DOM fallback and a **visible** degraded state | the fetch, the auth, the payload walk |
+| Resolve-on-arrival jumping — aim, land, re-identify, refuse rather than guess (DEC-027) | the scroll container and row-identity attributes |
+| Bookmarks keyed to message identity, never position | the platform's message id field |
+| The legacy-record evidence ladder and its proof/inference split (DEC-034/035) | whatever the old records happen to carry |
+| Staleness/refetch detection and its backoff | the "conversation changed" signal |
+
+The single most transferable idea is the one that is easiest to skip: **a held element reference is
+not an identity.** Any code that stores a node and uses it later is wrong on a recycling platform,
+and it will fail by scrolling confidently to the wrong message rather than by throwing.
+
+### Step 4 — Do not forget the data users already saved
+
+This is what turned one release into two. Bookmarks, and anything else persisted, may be keyed to
+something that only behaved like an identity because the DOM was static — a position, an index, a
+hash containing one. Those records keep working right up until the platform virtualizes, and then
+they fail silently for existing users only, which is a class of bug that no amount of reviewing the
+current diff will surface. Check for it **in the same release**, and recover by *earning* the new
+identity from evidence the old record carries, refusing when the evidence is insufficient
+(DEC-034/DEC-035).
+
+### Step 5 — Ship a mock that genuinely unmounts
+
+A static mock **cannot** fail on a Layer 4 break; the suite will be green through the entire
+incident. `tests/mock-pages/claude-virtualized.html` is the reference: 40 turns, 3 mounted, the
+rest removed from the document. Hiding rows with `display: none` does not reproduce the failure.
+Until such a mock exists for the new platform, its fix is unverified regardless of the test count.
+
+### Step 6 — Anything derived from a DOM count is now suspect on that platform
+
+Sweep for it rather than waiting for reports. On Claude these were all separately broken and none
+of them announced it: context-tracking percentages measured from container `innerText`; export
+headers stating a message count; any `nInDOM / total` coverage ratio (which was always exactly 1.0
+because both sides came from the same truncated scan); and message ordering via
+`compareDocumentPosition`, which returns 0 for unmounted nodes and silently degrades a sort to
+arbitrary order.
 
 ---
 

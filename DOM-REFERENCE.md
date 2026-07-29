@@ -24,9 +24,64 @@ Last updated: Jul 29, 2026 (v12.1 — Probe E added: the conversation payload's 
 13. [Emergent](#emergent)
 14. [Firebase Studio](#firebase-studio)
 
+Before using any selector below: [Virtualization status](#virtualization-status--check-this-before-trusting-any-selector-count) — the DOM is only a complete record on platforms that do not virtualize.
+
 Live probes (measurement context stated in each): [Probe D — no native scroll-to-index](#probe-d--no-native-scroll-to-index-2026-07-27-chromium-page-realm-live-claudeai) · [Probe E — conversation payload thinking-block shape](#probe-e--conversation-payload-thinking-block-shape-2026-07-29-chromium-page-realm-live-claudeai)
 
 ---
+
+## Virtualization status — check this before trusting any selector count
+
+**Every selector in this document describes what is in the DOM. On a virtualizing platform that is
+not the same thing as what is in the conversation.** Claude proved that the hard way (see
+`TROUBLESHOOTING.md` → "Why v12.0 and v12.1 Exist"), and there is no reason the others will not
+follow — virtualization is the standard fix for a slow chat page, not a Claude quirk.
+
+| Platform | Virtualized? | Last checked | Enumeration source |
+|---|---|---|---|
+| **Claude** (`claude.ai/chat`) | **YES — recycling**, ~3–7 of N turns mounted | Jul 26, 2026 | **API-backed conversation index** (DEC-021); DOM is the fallback |
+| ChatGPT | No — full DOM at time of check | Feb 18, 2026 | DOM |
+| Grok | No — full DOM at time of check | Feb 18, 2026 | DOM |
+| Gemini | No — full DOM at time of check | Feb 18, 2026 | DOM |
+| Perplexity | No — full DOM at time of check | Feb 18, 2026 | DOM |
+| Claude Code Web | No — full DOM at time of check | Feb 18, 2026 | DOM |
+| Codex Web | No — full DOM at time of check | Feb 18, 2026 | DOM |
+| The 7 app builders | No — full DOM at time of check | Feb 18, 2026 | DOM |
+
+> ⚠️ **Every "No" above is five months stale** and was recorded before anyone was looking for this
+> failure mode. Treat them as *unverified*, not as *verified negative*. Claude's own answer flipped
+> between February and July with no announcement and no error.
+
+### The check, in full
+
+Run on a conversation you **know** is long (100+ turns). A short conversation cannot distinguish a
+virtualized list from a complete one — that ambiguity is exactly what hid the Claude break.
+
+```js
+// 1. How much of the conversation is actually in the DOM?
+document.querySelectorAll('<the user-message selector for this platform>').length
+// Single digit on a long conversation => virtualized. Proceed to step 2.
+
+// 2. Recycling or lazy loading? Scroll the full length, then re-run step 1.
+//    Count grows and STAYS grown  -> lazy loading
+//    Count stays flat             -> recycling
+```
+
+The distinction in step 2 decides the entire response and the two are easy to confuse:
+
+- **Lazy loading** — the nodes accumulate. A scroll sweep before scanning genuinely fixes it, and
+  the DOM remains a valid source. Cheap.
+- **Recycling** — the client reuses a fixed pool of nodes for different messages. The count is flat
+  no matter what you do, held element references silently come to point at *other* messages, and
+  the DOM can never be a complete source. Expensive: this is the Layer 4 case, and it needs a
+  non-DOM enumeration source plus a jump path that re-identifies its target on arrival.
+
+Confirm recycling rather than assuming it: hold a reference to a mounted row, scroll away and back,
+and check whether that same node now displays different text. If it does, every cached element
+reference in the codebase is a latent wrong-answer bug.
+
+**If a platform flips to recycling, do not start with selectors.** The response is scoped in
+`ROADMAP.md` → "Porting the Layer 4 response to another platform".
 
 ## Claude
 
