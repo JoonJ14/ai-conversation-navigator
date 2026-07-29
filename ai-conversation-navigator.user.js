@@ -7362,7 +7362,7 @@
     //                             (pre-v12.0 previews predate the "You said:" strip)
     //   divergence mid-string  -> rendered DOM text vs raw markdown differ there
     //   no candidates at all   -> index text empty for that sender (attachment-only turns)
-    function _bmLegacyDiagnose(b) {
+    function _bmLegacyDiagnose(b, kind) {
         if (!_ciFullPath) return;
         var want = _normalizeFull(_mdVisible(String(b.preview || '').replace(/[\u2690\u2691]/g, ' ')));
         var wantSender = (b.entityType === 'ai-msg') ? 'assistant' : 'human';
@@ -7389,7 +7389,7 @@
             while (n < want.length && n < full.length && want.charAt(n) === full.charAt(n)) n++;
             if (n > bestLen) { bestLen = n; best = { i: i, full: full }; }
         }
-        console.log('[ACN bookmarks] ' + (b.legacyUnresolved === 'ambiguous'
+        console.log('[ACN bookmarks] ' + (kind === 'ambiguous'
                         ? 'AMBIGUOUS ' : 'UNMATCHED ') + b.id +
                     ' type=' + b.entityType +
                     ' previewLen=' + (b.preview || '').length +
@@ -7418,7 +7418,15 @@
             if (b.msgUuid || b.schema === 2) { stats.alreadyKeyed++; continue; }
             if (b.pendingHash) continue;          // provisional — the other migrator owns it
             var p = _bmLegacyPathIndexFor(b.preview, b.entityType);
-            if (p < 0 && !_bmDiagnosed[b.id]) { _bmDiagnosed[b.id] = true; _bmLegacyDiagnose(b); }
+            // NOTE the resolution kind is passed explicitly: the record is not marked
+            // legacyUnresolved until below, so a diagnostic that read b.legacyUnresolved
+            // printed UNMATCHED for an ambiguous record — and _bmDiagnosed then suppressed
+            // the corrected line on every later generation, leaving the one-shot
+            // troubleshooting output permanently wrong (Codex).
+            if (p < 0 && !_bmDiagnosed[b.id]) {
+                _bmDiagnosed[b.id] = true;
+                _bmLegacyDiagnose(b, p === -2 ? 'ambiguous' : 'unmatched');
+            }
             // Only WRITE when the status actually changes. This runs once per index
             // generation, so re-marking an already-marked record was a GM_setValue on every
             // refetch, for every unresolved bookmark, forever.

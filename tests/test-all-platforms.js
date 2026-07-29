@@ -1234,6 +1234,29 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
             // working as intended, not a mount failure — the row IS mounted, it simply is
             // not a user-message node, which is the whole point of chipRows.
             const chipSlack = ((platform.mockConfig || {}).chipRows || []).length;
+            // DEC-032 applied to this fixture's own knob. The bounds below tolerate a
+            // range, so if chipRows ever stopped suppressing the testid they would still
+            // pass — and the Q#1 jump would pass too, because the head-row path works when
+            // isUser stays true. The fixture would then be green while no longer modelling
+            // the structural condition it exists for. Assert the PROPERTY directly (Codex).
+            if (chipSlack) {
+                const chipProof = await page.evaluate(async (rows) => {
+                    // The row must be MOUNTED to be inspected — the acceptance sweep leaves
+                    // the viewport wherever its last jump landed, and an unmounted row reads
+                    // as "no testid" for the wrong reason, which would make this assertion
+                    // pass vacuously in exactly the way it exists to prevent.
+                    window.__mockVirtualization.scrollToFraction(0);
+                    await new Promise(function (r) { setTimeout(r, 400); });
+                    return rows.map(function (r) {
+                        const row = document.querySelector('[data-index="' + r + '"]');
+                        return { row: r, present: !!row,
+                                 hasTestid: !!(row && row.querySelector('[data-testid="user-message"]')) };
+                    });
+                }, (platform.mockConfig || {}).chipRows || []);
+                assert('chipRows genuinely suppresses [data-testid="user-message"]',
+                    chipProof.every(c => c.present && !c.hasTestid),
+                    JSON.stringify(chipProof));
+            }
             assert('Mock recycles turns (set changes, node detaches)',
                 recycling.ok &&
                 recycling.counts.every(c => c === recycling.userWindowSize ||
