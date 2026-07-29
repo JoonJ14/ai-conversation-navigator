@@ -124,9 +124,18 @@ Reading the conversation solves *listing* it. Clicking a row is a separate probl
 one that makes recycling genuinely hard.
 
 Pre-v12.0, "jump to question 47" meant: keep the element you found during the scan, call
-`scrollIntoView` on it later. Under recycling that element reference is worse than stale — the
-node still exists and is still in the document, but **the browser has reused it to display a
-different message**. Scrolling to it lands confidently on the wrong content.
+`scrollIntoView` on it later. Under recycling a stored element stops being a reliable handle, and
+**how** it fails depends on which kind of virtualizer you are on:
+
+- **Claude detaches and remounts.** The row is destroyed and a new node is built when that region
+  scrolls back; the stored reference is left `isConnected === false`. `scrollIntoView` on a
+  disconnected node does nothing at all — a silent no-op, no error, no movement. That is the failure
+  users actually reported here.
+- **A same-node repurposing virtualizer** keeps the node and swaps its content, so the same call
+  lands confidently on the **wrong message** and reports success.
+
+Both are unacceptable and neither throws, which is why the fix could not be "check the element is
+still valid" — there is no cheap check that covers both.
 
 The replacement (DEC-027) inverts the order of operations: **aim, land, then resolve on arrival.**
 The jump estimates a scroll position, waits for the virtualizer to mount whatever belongs there,
