@@ -6948,12 +6948,17 @@
     // markdown flattened (_mdVisible) and compared as a PREFIX at the preview's own length.
     // Uniqueness across the whole path is required, same rule as DEC-030: binding wrongly is
     // permanent and silent, refusing is recoverable.
-    function _bmLegacyPathIndexFor(preview) {
+    function _bmLegacyPathIndexFor(preview, entityType) {
         if (!_ciFullPath || !preview) return -1;
         var want = _normalizeFull(_mdVisible(preview));
         if (!want) return -1;
+        // SENDER-SCOPED. Without this a bookmark on YOUR message could bind to an assistant
+        // message that merely opens with the same words — a prefix match makes that far more
+        // reachable than a full match would, and the resulting uuid would be persisted.
+        var wantSender = (entityType === 'ai-msg') ? 'assistant' : 'human';
         var hit = -1;
         for (var i = 0; i < _ciFullPath.length; i++) {
+            if (_ciFullPath[i].sender !== wantSender) continue;
             var full = _normalizeFull(_mdVisible(_ciFullPath[i].text || ''));
             if (!full) continue;
             // PREFIX at the preview's length: `preview` was truncated to 120 chars of
@@ -6976,7 +6981,7 @@
             var b = list[i];
             if (b.msgUuid || b.schema === 2) { stats.alreadyKeyed++; continue; }
             if (b.pendingHash) continue;          // provisional — the other migrator owns it
-            var p = _bmLegacyPathIndexFor(b.preview);
+            var p = _bmLegacyPathIndexFor(b.preview, b.entityType);
             if (p === -2) { b.legacyUnresolved = 'ambiguous'; stats.ambiguous++; saveBookmark(b); changed = true; continue; }
             if (p < 0 || !_ciFullPath[p] || !_ciFullPath[p].uuid) {
                 b.legacyUnresolved = 'unmatched'; stats.unmatched++; saveBookmark(b); changed = true; continue;
