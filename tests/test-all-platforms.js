@@ -221,6 +221,109 @@ const PLATFORMS = [
             markdownText: true,
         },
     },
+    {
+        // LEGACY BOOKMARK MIGRATION — the distribution blocker.
+        //
+        // Every pre-v12.0 Claude bookmark is a schema-1 content hash with no uuid, and only a
+        // uuid can enter the jump bridge. Under virtualization that means they only resolve
+        // while their message happens to be mounted — i.e. they are silently dead in a
+        // RELEASED version, which is the first bug report after any public push.
+        //
+        // Seeds two records with the shape real users have (contentHash + 120-char preview,
+        // no msgUuid): one whose preview uniquely identifies a message far outside the mount
+        // window, and one whose preview matches nothing. The first must be upgraded to
+        // schema 2 and become reachable; the second must be marked unresolved so the UI can
+        // say "recreate it" instead of "scroll toward it".
+        name: 'Claude (legacy schema-1 bookmarks)',
+        mockFile: 'claude-virtualized.html',
+        hostname: 'claude.ai',
+        pathname: '/chat/ee000000-0000-4000-8000-00000000eeee',
+        expectedMessages: 40,
+        expectedAccent: '#d97706',
+        expectedMode: 'orbital',
+        virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
+        indexBacked: true,
+        offsetUnderivable: true,
+        legacyBookmarkProbe: { upgraded: 5, unmatched: 2 },
+
+        mockConfig: { totalMessages: 80, identicalAnswerRows: [51, 55] },
+        gmFixture: {
+            totalMessages: 80,
+            conversationUuid: 'ee000000-0000-4000-8000-00000000eeee',
+            identicalAnswerRows: [51, 55],
+            // LONGER than the preview's captured copy on purpose — the live shape. The
+            // DOM header truncates the summary for display; the preview stores that
+            // truncated copy doubled, while the payload carries the full text. Measured
+            // 2026-07-29 against the owner's real conversation; whole-prefix matching
+            // fails on this shape and only the 40-char probe binds it.
+            summaryRows: { 21: 'Architected mock governor mechanisms balancing rate and limits for the run with extended tail detail the header never displayed' },
+            seedBookmarks: [
+                { id: 'bm_legacy1', schema: 1, entityType: 'user-msg',
+                  contentHash: 'deadbeef', msgUuid: null,
+                  preview: 'Question number 33: how do I handle case 33 when the input is unusual?',
+                  msgIndex: 32, createdAt: 1, platform: 'claude.ai' },
+                { id: 'bm_legacy2', schema: 1, entityType: 'user-msg',
+                  contentHash: 'feedface', msgUuid: null,
+                  preview: 'A question that was edited away and no longer exists anywhere',
+                  msgIndex: 5, createdAt: 2, platform: 'claude.ai' },
+                // GLYPH CONTAMINATION — the live shape. Pre-v12.0 previews were captured
+                // before _cleanText stripped our own U+2691 bookmark icon, so they begin
+                // with it and a prefix match fails at character 0. Six of the owner's
+                // sixteen unmatched records looked exactly like this.
+                { id: 'bm_legacy3', schema: 1, entityType: 'ai-msg',
+                  contentHash: 'cafebabe', msgUuid: null,
+                  preview: '\u2691Answer number 21: validate the input first, then branch',
+                  msgIndex: 20, createdAt: 3, platform: 'claude.ai' },
+                // SUMMARY-HEADER CONTAMINATION — also the live shape. Claude renders a
+                // collapsed activity summary ABOVE a tool-bearing response, and _cleanText
+                // captured that first, so the real message text sits AFTER it in the preview
+                // rather than at position 0. Rule B (probe-anywhere) is what recovers these.
+                { id: 'bm_legacy4', schema: 1, entityType: 'ai-msg',
+                  contentHash: 'deadc0de', msgUuid: null,
+                  preview: 'Analyzed the mock scheduling tradeoffsAnswer number 9: validate the input first, then branch on the result.',
+                  msgIndex: 8, createdAt: 4, platform: 'claude.ai' },
+                // SUMMARY-ONLY preview (rule C) — the live shape of all 9 unrecovered
+                // records: the activity summary DOUBLED, zero message text anywhere in
+                // the 120 chars. Only the thinking-block summary channel can match it.
+                { id: 'bm_legacy5', schema: 1, entityType: 'ai-msg',
+                  contentHash: 'beefbeef', msgUuid: null,
+                  // display-truncated at 75 chars, then doubled, then preview-capped —
+                  // the payload's full summary is NOT a prefix of this, nor vice versa
+                  preview: ('Architected mock governor mechanisms balancing rate and limits for the run' +
+                            'Architected mock governor mechanisms balancing rate and limits for the run').substring(0, 120),
+                  msgIndex: 10, createdAt: 5, platform: 'claude.ai' },
+                // SHORT-PREVIEW WRONG-BINDING GUARD. "balancing rate" is 14 chars and
+                // appears incidentally inside row 21's activity summary. Rule C's reverse
+                // probe used want.substring(0, 40) as the needle — only 40 chars when the
+                // preview HAS 40 — so a short preview degraded it to an unbounded substring
+                // test, found that one incidental hit, passed the uniqueness gate on it and
+                // bound PERMANENTLY to a message it had no evidence of. Three independent
+                // review lenses reproduced this against the real build. The record must now
+                // stay unmatched: refusing is recoverable, a wrong binding is not.
+                // UNIQUENESS-GATE COVERAGE. The gate is the branch's only defence against a
+                // permanent silent mis-binding and had ZERO tests. This preview is the exact
+                // body text of the DUPLICATED answer seeded at rows 30 and 34, so rules A/B
+                // match two candidates and the gate must refuse rather than pick one.
+                { id: 'bm_ambig', schema: 1, entityType: 'ai-msg',
+                  contentHash: 'bb22cc33', msgUuid: null,
+                  preview: 'Identical answer text used twice so a legacy preview is ambiguous.',
+                  msgIndex: 15, createdAt: 8, platform: 'claude.ai' },
+                { id: 'bm_shortprev', schema: 1, entityType: 'ai-msg',
+                  contentHash: 'aa11bb22', msgUuid: null,
+                  preview: 'balancing rate',
+                  msgIndex: 60, createdAt: 7, platform: 'claude.ai' },
+                // HASH-ORACLE target (stage-1 harvest): the preview matches nothing, but
+                // the stored contentHash reproduces against a MOUNTED row's rendered text
+                // and rendered-era ordinal — equality is proof, harvested from the mount
+                // window without any user action.
+                { id: 'bm_legacy6', schema: 1, entityType: 'ai-msg',
+                  contentHash: legacyContentHash('Answer number 3: validate the input first, then branch on the result.', 2),
+                  msgUuid: null,
+                  preview: 'this preview matches nothing anywhere at all zz',
+                  msgIndex: 2, createdAt: 6, platform: 'claude.ai' },
+            ],
+        },
+    },
     // ── LOAD-PATH REGRESSION GUARDS (Tier 3 review, 2026-07-27) ─────────────
     // Two CRITICALs shipped in v12.0 and survived a 23-round review because the
     // fixture's own defaults made them unreachable. Both are reproductions first:
@@ -319,6 +422,60 @@ const PLATFORMS = [
             totalMessages: 294,
             conversationUuid: '44444444-4444-4444-8444-444444444444',
             insertInterruptedBeforeRow: [30, 55, 80, 105, 130, 155, 180, 205, 230, 255],
+        },
+    },
+    {
+        // Q#1 IS A FILE CHIP — the live shape, modelled STRUCTURALLY this time.
+        //
+        // attachmentRows only changed a row's TEXT while keeping
+        // [data-testid="user-message"], so ciMountedRows().isUser stayed true and the
+        // difference that actually matters was never modelled. On the live site an
+        // attachment-only first message exposes no user-message node at all, so isUser is
+        // false for its row — and a guard keyed on isUser silently refused a jump the
+        // by-construction head path had previously resolved. Live-reported by the owner
+        // 2026-07-28; the suite was green throughout. DEC-028.
+        //
+        // chipRows makes row 0 carry a chip and NO testid. The sweep jumps to every
+        // question, so Q#1 runs against a row the DOM cannot identify as a user row.
+        //
+        // REPRODUCTION — ancestor-gated against origin/main (the shipped v12.0 build).
+        //   origin/main -> FAILS: "Q1: expected row 0, got null busySeen=true idx=null"
+        //   this build  -> 40/40 exact
+        // That is the owner's live symptom exactly: the jump runs, scrolls, and resolves
+        // nothing.
+        //
+        // It took three attempts, and the first two failed for instructive reasons worth
+        // keeping. Attempt 1 (chipRows alone) passed because the mock's normal answer pairs
+        // at distance 1 from the chip and 3b's adjacent carve-out resolved Q#1 without the
+        // head path. Attempt 2 (+ shortAnswerRows, removing that pair) ALSO passed — and
+        // the reason was that chipRows was VACUOUS: it read `i` inside buildRow(index), so
+        // isChip was always false and the chip row kept its testid. A fixture that cannot
+        // fail looks exactly like a fixture that passes. Only tracing the pre-jump path
+        // (the [ACN pre] lines, which the harness had been filtering out) exposed it.
+        name: 'Claude (80 rows, Q#1 is a file chip)',
+        mockFile: 'claude-virtualized.html',
+        hostname: 'claude.ai',
+        pathname: '/chat/dd000000-0000-4000-8000-00000000dddd',
+        expectedMessages: 40,
+        contentPatternExempt: 1,      // the chip row has no question text in the DOM
+        expectedAccent: '#d97706',
+        expectedMode: 'orbital',
+        virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
+        indexBacked: true,
+        offsetUnderivable: true,
+        jumpEveryQuestion: { step: 1 },
+        // Row 1's answer is under the 60-char floor, so it cannot become a local pair.
+        // Without that, the mock's normal answer pairs cleanly at distance 1 from the
+        // chip and 3b's adjacent carve-out resolves Q#1 without ever consulting the
+        // by-construction head path — which is exactly why the first version of this
+        // fixture passed on a build that fails live.
+        mockConfig: { totalMessages: 80, attachmentRows: [0], chipRows: [0],
+                      shortAnswerRows: [1] },
+        gmFixture: {
+            totalMessages: 80,
+            conversationUuid: 'dd000000-0000-4000-8000-00000000dddd',
+            attachmentRows: [0],
+            shortAnswerRows: [1],
         },
     },
     {
@@ -485,7 +642,24 @@ const PLATFORMS = [
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const MOCK_DIR = path.join(__dirname, 'mock-pages');
-const SCRIPT_PATH = path.join(__dirname, '..', 'ai-conversation-navigator.user.js');
+// ACN_SCRIPT overrides the build under test, so an A/B against a previous commit runs
+// the SAME fixtures and instrumentation against both. Defaults to the repo file.
+const SCRIPT_PATH = process.env.ACN_SCRIPT || path.join(__dirname, '..', 'ai-conversation-navigator.user.js');
+
+// Byte-exact replica of the userscript's contentHash(text, idx). Used to seed legacy
+// bookmark fixtures whose stored hash must REPRODUCE against mock rendered text — the
+// hash-oracle harvest binds only on equality, so the seed must be computed with the
+// identical algorithm, not merely a similar one.
+function legacyContentHash(text, idx) {
+    const str = String(idx) + '|' + String(text).substring(0, 200);
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+        h = h >>> 0;
+    }
+    return ('00000000' + h.toString(16)).slice(-8);
+}
 
 // Read the userscript, stripping the ==UserScript== header
 function getScriptContent() {
@@ -562,11 +736,30 @@ function buildGmFixtureShim(cfg) {
             // is deliberately not merged into entry text. That mismatch is permanent, so
             // it is the shape that drove the endless success-refetch loop. Without this
             // the fixture's API text always equals the DOM and the loop is unreachable.
+            // shortAnswerRows mirrors the mock DOM: a genuinely SHORT answer, matching on
+            // both sides. Not a mismatch — it is simply below the 60-char floor
+            // ciMatchRowToPath requires, so the row cannot become a local pair.
+            const shortAns = (cfg.shortAnswerRows || []).indexOf(row) !== -1;
+            const identAns = (cfg.identicalAnswerRows || []).indexOf(row) !== -1;
             const apiText = (cfg.toolShapedRow === row)
                 ? `Answer number ${turn}:`
-                : `Answer number ${turn}: validate the input first, then branch on the result.`;
-            push({ sender: 'assistant', text: '', stop_reason: 'end_turn',
-                   content: [{ type: 'text', text: apiText }] });
+                : shortAns
+                    ? 'Yes.'
+                    : identAns
+                        ? 'Identical answer text used twice so a legacy preview is ambiguous.'
+                        : `Answer number ${turn}: validate the input first, then branch on the result.`;
+            // summaryRows[row] attaches a thinking block carrying the model-generated
+            // ACTIVITY SUMMARY — the collapsed-header text claude.ai renders above a
+            // thinking/tool answer, and the text pre-v12.0 bookmark previews captured on
+            // exactly those answers. Shape mirrors the hypothesized live payload
+            // (summaries: [{summary}]); the userscript's diagnostic verifies it live.
+            const sumText = (cfg.summaryRows || {})[row];
+            const blocks = [];
+            if (sumText) blocks.push({ type: 'thinking',
+                                       thinking: 'mock thinking for row ' + row,
+                                       summaries: [{ summary: sumText }] });
+            blocks.push({ type: 'text', text: apiText });
+            push({ sender: 'assistant', text: '', stop_reason: 'end_turn', content: blocks });
             continue;
         }
         if (attRows.indexOf(row) !== -1) {
@@ -665,7 +858,15 @@ function buildGmFixtureShim(cfg) {
         }
         respond(404, '');
     };
+    // SEED_BOOKMARKS plants pre-v12.0 schema-1 records (content hash + 120-char preview,
+    // no uuid) so the legacy migration can be tested against the shape real users have.
     var _store = {};
+    var SEED_BM = ${JSON.stringify(cfg.seedBookmarks || null)};
+    if (SEED_BM) {
+        var _seedUrl = window.location.origin + window.location.pathname;
+        var _seeded = {}; _seeded[_seedUrl] = { bookmarks: SEED_BM };
+        _store['acn-bookmarks-v1'] = JSON.stringify(_seeded);
+    }
     window.GM_getValue = function (k, d) { return _store.hasOwnProperty(k) ? _store[k] : d; };
     window.GM_setValue = function (k, v) { _store[k] = v; };
     // The org resolver reads this before falling back to /api/organizations.
@@ -801,7 +1002,10 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
         if (process.env.ACN_JUMP_TRACE) {
             onConsole = (msg) => {
                 const t = msg.text();
-                if (t.indexOf('[ACN jump]') === 0) console.log(`      ${t}`);
+                // [ACN pre] covers the exits BEFORE the settle loop — the fast path and the
+                // range/provisional refusal. Filtering to [ACN jump] alone hid the whole
+                // pre-jump path, which is where three failed reproductions were spent.
+                if (t.indexOf('[ACN jump]') === 0 || t.indexOf('[ACN pre]') === 0) console.log(`      ${t}`);
             };
             page.on('console', onConsole);
         }
@@ -1025,9 +1229,44 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                          totalTurns: v.totalTurns, userWindowSize: v.userWindowSize,
                          detachedProven };
             });
+            // A chip row is not a [data-testid="user-message"] node, so while it is inside
+            // the window the visible user-turn count is one lower. That is the fixture
+            // working as intended, not a mount failure — the row IS mounted, it simply is
+            // not a user-message node, which is the whole point of chipRows.
+            const chipSlack = ((platform.mockConfig || {}).chipRows || []).length;
+            // DEC-032 applied to this fixture's own knob. The bounds below tolerate a
+            // range, so if chipRows ever stopped suppressing the testid they would still
+            // pass — and the Q#1 jump would pass too, because the head-row path works when
+            // isUser stays true. The fixture would then be green while no longer modelling
+            // the structural condition it exists for. Assert the PROPERTY directly (Codex).
+            if (chipSlack) {
+                const chipProof = await page.evaluate(async (rows) => {
+                    // The row must be MOUNTED to be inspected — the acceptance sweep leaves
+                    // the viewport wherever its last jump landed, and an unmounted row reads
+                    // as "no testid" for the wrong reason, which would make this assertion
+                    // pass vacuously in exactly the way it exists to prevent.
+                    window.__mockVirtualization.scrollToFraction(0);
+                    await new Promise(function (r) { setTimeout(r, 400); });
+                    return rows.map(function (r) {
+                        const row = document.querySelector('[data-index="' + r + '"]');
+                        return { row: r, present: !!row,
+                                 hasTestid: !!(row && row.querySelector('[data-testid="user-message"]')) };
+                    });
+                }, (platform.mockConfig || {}).chipRows || []);
+                assert('chipRows genuinely suppresses [data-testid="user-message"]',
+                    chipProof.every(c => c.present && !c.hasTestid),
+                    JSON.stringify(chipProof));
+            }
             assert('Mock recycles turns (set changes, node detaches)',
                 recycling.ok &&
-                recycling.counts.every(c => c === recycling.userWindowSize) &&
+                // BOUNDED ON BOTH SIDES. `chipSlack` exists because a chip row has no
+                // user-message testid and so counts one short — it is a floor allowance,
+                // not permission to exceed the window. Written as a bare `>=` this
+                // accepted ANY larger count, so a mock that stopped unmounting would have
+                // sailed through the recycling check that exists to catch exactly that
+                // (Codex #59 R6). The DOM-coverage assertion below already bounds both ends.
+                recycling.counts.every(c => c >= recycling.userWindowSize - chipSlack &&
+                                            c <= recycling.userWindowSize) &&
                 recycling.cumulativeUnique > recycling.userWindowSize &&
                 recycling.cumulativeUnique < recycling.totalTurns &&
                 recycling.detachedProven,
@@ -1042,7 +1281,8 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                 total: window.__mockVirtualization.totalTurns,
             }));
             assert('DOM exposes only the mounted window',
-                domCoverage.mounted === platform.virtualized.userWindowSize &&
+                domCoverage.mounted >= platform.virtualized.userWindowSize - chipSlack &&
+                domCoverage.mounted <= platform.virtualized.userWindowSize &&
                 domCoverage.total === platform.virtualized.totalTurns,
                 `${domCoverage.mounted} of ${domCoverage.total} turns in DOM`);
 
@@ -1199,6 +1439,74 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                         `${kept.fetches} fetches (2nd+ forced to 500), lists ${kept.listed}/` +
                         `${platform.expectedMessages}, DOM holds ${kept.mounted}, status=${kept.status}`);
                 }
+            }
+
+            // ── Legacy bookmark migration ──────────────────────────────────
+            if (platform.legacyBookmarkProbe) {
+                const lb = await page.evaluate(() => {
+                    const raw = window.GM_getValue('acn-bookmarks-v1', '{}');
+                    const store = JSON.parse(raw);
+                    const url = window.location.origin + window.location.pathname;
+                    const list = (store[url] && store[url].bookmarks) || [];
+                    return list.map(b => ({
+                        id: b.id, schema: b.schema, msgUuid: b.msgUuid || null,
+                        unresolved: b.legacyUnresolved || null, migrated: !!b.legacyMigrated,
+                    }));
+                });
+                const upgraded  = lb.filter(b => b.schema === 2 && b.msgUuid && b.migrated).length;
+                const unmatched = lb.filter(b => b.unresolved === 'unmatched').length;
+                const want = platform.legacyBookmarkProbe;
+                assert('Legacy schema-1 bookmark upgraded to a uuid',
+                    upgraded === want.upgraded,
+                    `${upgraded} upgraded (expected ${want.upgraded}) — ${JSON.stringify(lb)}`);
+                // An unmatched record must be MARKED, not silently left generic: that mark is
+                // what lets the UI say "recreate it" instead of "scroll toward it", which is
+                // advice that cannot work for a record with no uuid.
+                // The gate must REFUSE an ambiguous preview. Binding either candidate would
+                // be permanent and silent, which is precisely what it exists to prevent.
+                const ambigRec = lb.find(b => b.id === 'bm_ambig');
+                assert('Uniqueness gate refuses an ambiguous legacy preview',
+                    !!ambigRec && !ambigRec.msgUuid && ambigRec.unresolved === 'ambiguous',
+                    ambigRec ? `uuid=${ambigRec.msgUuid || 'none'} unresolved=${ambigRec.unresolved}` : 'record missing');
+
+                // NOT COVERED, deliberately: "a harvest-bound record renders an ACTIVE
+                // flag". The fix is in place (the sweep clears data-acn-bookmarked and
+                // activates the icon), but the bound row is not reliably mounted when the
+                // panel is read here, so any assertion I can write passes by finding no
+                // icons at all — a test that cannot fail, which DEC-032 records as
+                // indistinguishable from one that passes. Left as honest test debt.
+                //
+                // ALSO NOT COVERED, same reasoning: "the click path records an exact-hash
+                // legacy match as boundBy:'proof'". Reaching that branch needs a record the
+                // text rules cannot bind whose hash DOES reproduce against a mounted row —
+                // but the harvest runs on scan and proves exactly that record first, so the
+                // click branch is unreachable here without a knob to disable the harvest.
+                // Codex #59 R5 found the missing flag by reading, not by a red test.
+
+                const shortRec = lb.find(b => b.id === 'bm_shortprev');
+                assert('Short legacy preview REFUSES to bind rather than guessing',
+                    !!shortRec && !shortRec.msgUuid && shortRec.schema !== 2,
+                    shortRec ? `schema=${shortRec.schema} uuid=${shortRec.msgUuid || 'none'}` : 'record missing');
+                assert('Unmatchable legacy bookmark is marked, not left generic',
+                    unmatched === want.unmatched,
+                    `${unmatched} marked unmatched (expected ${want.unmatched})`);
+
+                // LABEL vs KEY: the panel row for a summary-preview record must display the
+                // MESSAGE text (derived from the index by uuid), while the stored preview —
+                // the matching evidence — remains the doubled summary. Owner-requested: a
+                // summary label identifies the record to the code but not to the human.
+                await page.evaluate(() => document.querySelector('#acn-dot-bookmarks').click());
+                await page.waitForTimeout(400);
+                const labels = await page.evaluate(() =>
+                    Array.from(document.querySelectorAll('#acn-panel-bookmarks .acn-bk-text'))
+                        .map(n => n.textContent));
+                const sumRow = labels.find(t => t.indexOf('Answer number 11:') === 0);
+                const stillSummary = labels.filter(t => t.indexOf('Architected mock governor') !== -1);
+                assert('Summary-preview bookmark displays the message text, not the summary',
+                    !!sumRow && stillSummary.length === 0,
+                    `labels=${JSON.stringify(labels.map(t => t.substring(0, 40)))}`);
+                await page.evaluate(() => document.querySelector('#acn-dot-bookmarks').click());
+                await page.waitForTimeout(200);
             }
 
             // ── TESTS 22-25: index-backed jump (the primary v12.0 path) ────

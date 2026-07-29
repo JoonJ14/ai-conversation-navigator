@@ -11,7 +11,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-12.0-blue)
+![Version](https://img.shields.io/badge/version-12.1-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -221,6 +221,21 @@ target on arrival and, when it cannot, tells you the message is not currently re
 of scrolling somewhere plausible. The same rule governs Search results, bookmarks and the
 Summary panel's clickable map — if the panel was built against an older version of the
 conversation, clicking it asks you to regenerate rather than guessing.
+
+**Bookmark labels always show the message itself.** On answers where Claude worked with
+tools or extended thinking, the text captured at bookmark time can be the collapsed activity
+header rather than the answer — useful for matching, useless for recognising. So the panel
+derives every label from the conversation itself whenever it can, and keeps the captured text
+only as the matching key behind the scenes.
+
+**Bookmarks made before v12.0** are upgraded automatically the first time you open a
+conversation: the script matches each old bookmark's stored preview against the conversation
+and, on a unique match, re-keys it to the message's identifier so it works again from anywhere.
+Old bookmarks stopped working when Claude started unloading messages — they could only find a
+message that happened to be on screen. If one cannot be matched (the message was edited away,
+or its opening text now matches more than one message), the bookmark is kept and clicking it
+says so and asks you to recreate it, rather than telling you to scroll toward something that
+cannot be found.
 
 **Bookmarks on Claude** key to the message's own identifier rather than its position, so they
 survive scrolling, editing and reloading. One case needs a moment to settle: a message

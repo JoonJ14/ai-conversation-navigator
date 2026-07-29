@@ -6,6 +6,120 @@ If you run into a problem, check here first — you might find we've already sol
 
 ---
 
+## v12.1 — Every Pre-v12.0 Bookmark Was Dead, and the Preview Was Not Quoting the Message (2026-07-29)
+
+**Status:** RESOLVED (16/16 recovered on the owner's live conversation) | **Severity:** High —
+distribution blocker | **Found by:** owner live test of the merged v12.0 build
+
+### Symptom
+
+Clicking a bookmark created before v12.0 did nothing, or reported failure. After the first
+migration attempt the panel filled with *"This bookmark predates v12.0 and could not be
+located — please recreate it."* on nearly every row, while one or two rows worked. Console:
+
+    [ACN bookmarks] legacy migration: 0 upgraded, 0 ambiguous, 16 unmatched, 3 already keyed
+
+New bookmarks were fine. Only old ones failed, and they failed **silently before v12.1** —
+the "could not be located" message is itself part of the fix.
+
+### Diagnosis
+
+A pre-v12.0 bookmark stores `contentHash` (FNV of the message text + its DOM enumeration index)
+and a `preview`. It has no message uuid. `orbScrollToBookmark` needs a uuid to enter the jump
+bridge that pages Claude's virtualizer to an unmounted message; without one it can only match
+against **mounted** rows. With 3–7 of 147 turns mounted, a legacy bookmark resolves only in the
+rare case that its message happens to be on screen. The records were not corrupt — they were
+keyed to an identifier the v12.0 architecture no longer uses.
+
+The migration therefore has to *re-derive* the uuid from the evidence the record does carry.
+
+### The two wrong turns, and what actually fixed it
+
+**Wrong turn 1 — assuming the preview quotes the message.** Rule A (preview is a prefix of the
+message text) recovered 0. The previews began with our own `⚑` bookmark glyph: pre-v12.0
+previews were captured before `_cleanText` learned to strip it. Stripping the glyph and adding
+rule B (the message's first 40 characters appearing anywhere in the preview) recovered **7 of
+16** — every one of them a *question*.
+
+**Wrong turn 2 — declaring the remaining 9 unrecoverable.** Those previews read like
+*"Analyzing the tradeoffs between two scheduling strategies"* — Claude's collapsed **activity
+summary**, not the answer text. The conclusion was that the source text no longer existed. It
+did: the summary rides in the payload's thinking blocks, in a field `ciBuildIndex` already
+walked (for `thinkingChars`) and threw away.
+
+**What settled it was measuring the payload rather than guessing a third time.** The owner's
+real 297-message conversation was fetched through Chromium using the userscript's own URL
+parameters:
+
+    ?tree=True&rendering_mode=messages&render_all_tools=true&consistency=strong
+
+**61 thinking blocks, 55 carrying `summaries: [{ summary }]`.** Two things fell out that no
+amount of reasoning would have produced:
+
+1. The shape is `summaries[].summary`, so the extractor is three lines.
+2. **The DOM header truncates the summary for display.** The captured preview holds a truncated
+   — and usually *doubled*, header text repeated — copy while the payload holds the full text.
+   Whole-string prefix matching fails **in both directions** on 3 of the 6 live shapes. A
+   40-character bidirectional probe binds all 6, each uniquely.
+
+Live result after that commit: **16/16**.
+
+### The evidence ladder (DEC-034)
+
+| Channel | Class | Rule |
+|---|---|---|
+| A | inference | preview is a prefix of the message text |
+| B | inference | the message's first 40 chars appear anywhere in the preview |
+| C | inference | preview matches a thinking-block activity summary (40-char bidirectional probe) |
+| Harvest | **proof** | the stored `contentHash` reproduces against mounted rendered text |
+
+All four are sender-scoped: a bookmark on a question never binds to an answer. A/B/C are
+uniqueness-gated — a second candidate returns `-2` and the record is marked `ambiguous` rather
+than bound — and floored, so a short preview refuses instead of matching loosely. The harvest
+cannot guess (reproducing a 32-bit hash is proof at ~2⁻³²), so it is exempt from the gate and
+is allowed to **correct** an inference binding.
+
+### Two review findings worth knowing about
+
+**Rule C's reverse probe had no floor on the preview.** The needle is `want.substring(0, 40)`,
+which is only 40 characters when the preview *has* 40. A 14-character preview degraded it to an
+unbounded substring test and bound permanently on incidental overlap. The comment above it
+asserted the opposite ("uniqueness is the gate that makes 40 chars safe"). Fixed with an
+explicit `want.length < BM_LEGACY_PROBE → continue` and a floor on rule A.
+
+**Inference committed before proof and destroyed it** (DEC-035). `_bmCommitLegacyUpgrade`
+overwrote `contentHash` with the uuid — the exact input the proof channel needs — so a wrong
+inference became permanent *and* unverifiable. The hash is now preserved as `legacyHash`,
+records carry `boundBy: 'proof' | 'inference'`, proof runs first, and it may overwrite an
+inference binding (logged as `harvest CORRECTED`).
+
+### Diagnosing this yourself
+
+Open the console on a Claude conversation. The migration prints a status line every index
+generation, and one block per unresolved record:
+
+    [ACN bookmarks] legacy UNMATCHED  id=… kind=ai-msg  preview="…"  summaries=61  bestSummaryPrefix="…"
+
+`summaries=0` on a conversation that clearly has thinking blocks means the payload shape moved —
+that is the regression signal for rule C, whose shape is measured on n=1 conversation. A row
+that reports `ambiguous` is the uniqueness gate refusing, which is working as designed:
+recreating that bookmark is correct, a guessed binding is not.
+
+### Also fixed in this cycle — the attachment-headed Q#1
+
+A conversation whose first question is headed by an attachment chip failed to resolve on arrival:
+the jump landed, then reported the message was not rendered. The extreme-row guard treated the
+head like the tail and rejected the correct row. It was fixed by scoping the guard to the tail
+only (`if (exIsTail && !rows[xr].isUser) break;`).
+
+The reproduction is the more useful part of the story: the fixture knob meant to model a chip row
+was **vacuous** — `CHIP_ROWS.indexOf(i)` inside `buildRow(index)`, so `isChip` was always false —
+and two A/B experiments ran against a fixture that could not fail, appearing to *disconfirm* the
+correct hypothesis. See DEC-032. If a knob is supposed to change behaviour, assert the property
+it models and mutation-verify it.
+
+---
+
 ## v12.0 pre-merge — Two Load-Path Bugs a Fixture Default Hid for a Whole Release (2026-07-28)
 
 **Status:** RESOLVED | **Severity:** High (both) | **Found by:** local Tier 3 blast-radius lens

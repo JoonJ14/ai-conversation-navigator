@@ -30,7 +30,7 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.0 (pre-merge hardening complete, 2026-07-28)
+## Current Status: v12.1 (legacy bookmark recovery complete and live-confirmed, PR #59 open, 2026-07-29)
 
 The extension supports 14 platform variants across 12 websites.
 
@@ -44,13 +44,35 @@ as **DEC-028: a fixture's defaults are part of the finding**. The cycle also pro
 bookmark migration). Suite: 374/374 across 20 entries → **455/455 across 23**, including three
 new ancestor-gated load-path guards. Full detail in `HANDOFF.md` and the CHANGELOG.
 
-### Next: v12.1 (PR #59)
+**v12.1 (2026-07-29) — the bookmark half of the Layer 4 fix, plus its review.** v12.0 gave
+Navigate, Search and Export the whole conversation through the index; bookmarks did not follow.
+Pre-v12.0 records key to a content hash with no uuid, and only a uuid enters the jump bridge that
+pages the virtualizer — so every one of them was **silently dead** in a released version. Recovery
+is an evidence ladder (**DEC-034**): three uniqueness-gated, sender-scoped, floored inference rules
+plus a **proof** channel that reproduces the stored hash against mounted text. The measurement that
+made it work was fetching the owner's real 297-message payload through Chromium: 61 thinking blocks,
+55 carrying `summaries[].summary`, and a DOM header that *truncates* the summary for display — so
+whole-string matching fails in both directions and a 40-char bidirectional probe is required. Live:
+**0/16 → 16/16**. The panel now labels every row with the *message* text derived from the index at
+render time while the stored preview stays untouched as matching evidence. Review: 36 raw findings /
+21 verified locally (two CRITICAL — rule C's reverse probe had no floor on the preview; inference
+committed before proof and destroyed the hash oracle, now **DEC-035**), then seven Codex rounds to a clean
+round (8 findings, zero false positives, 4 pre-existing / 4 cycle-introduced — parity is the
+DEC-029 stop signal). Suite **515/515 across 25 entries**, both engines. Also fixed: the
+attachment-headed Q#1 that shipped in v12.0, whose reproduction was blocked by a **vacuous fixture
+knob** (**DEC-032**).
 
-Priority order agreed 2026-07-28:
+### Next: v12.2 / remaining v12.1 backlog (PR #59 open, awaiting owner live confirmation)
 
-1. **Live-test and fine-tune the provisional bookmark mechanism** (DEC-030). Unplanned, valuable
-   — the index gave Navigate/Search/Export the full conversation while bookmarks still depended
-   on the mounted window — and entirely unfixtured, and it writes persistent data.
+Priority order agreed 2026-07-28, re-ranked after v12.1:
+
+1. ~~**Live-test and fine-tune the provisional bookmark mechanism** (DEC-030).~~ **Done in v12.1**
+   — and it went considerably further than fine-tuning: the legacy path is now four channels with a
+   proof/inference split, live-verified at 16/16, and fixtured (`Claude (legacy schema-1 bookmarks)`,
+   including the uniqueness gate that had zero coverage). Remaining debt in this area: the
+   "harvest-bound record renders an ACTIVE flag" assertion is deliberately **not** written — the
+   bound row is not reliably mounted when the panel is read, so every available form of it passes
+   vacuously. It is recorded in the fixture as test debt, not silently skipped.
 2. **Fixture batch, starting with the Summary/Export dead zone.** Mutation testing proved those
    surfaces have **zero test execution**: replacing their function bodies with `throw` leaves the
    suite green. Then the carried-over batch (localized unmatchable-cluster, unmatchable-HEAD,
@@ -58,9 +80,19 @@ Priority order agreed 2026-07-28:
    ancestor-gated vs mutant-gated.
 3. **Retry-After honoring for HTTP 429** — plumb response headers through `ciRequestJSON`.
 4. **Reassess, don't build: §4.2 offset cache / §4.3 height learning.** Measure a live repeat
-   jump first; if sub-400ms, close as satisfied-by-redesign.
+   jump first; if sub-400ms, close as satisfied-by-redesign. One live datapoint already exists
+   and it is about **precision, not speed**: a second jump to the same bookmark landed near the
+   target rather than exactly on it (`TESTING.md`, "Live observations that no fixture has
+   replaced"). Measure landing offset alongside latency.
 5. **Peek pane (spec §9)** — show the exchange inline from the index, zero scrolling.
-6. **Debulking.** ~9,300 lines now. Known dead code: `ciResolvePathForRow`,
+6. **Mock fidelity — generate fixtures from a real payload.** Keep structure (senders,
+   `stop_reason`, content-block types, attachment/tool shapes, unrendered entries), replace
+   text with same-length placeholders. **Explicit limit:** this captures API structure ONLY.
+   It does not model DOM structure — the attachment-chip regression that shipped in v12.0
+   lived in the DOM (`[data-testid="user-message"]` absence) and this would not have caught
+   it. A DOM-structure capture is a separate, unbuilt piece. Never let "generated from real
+   payloads" be read as "models the real site".
+7. **Debulking.** ~9,300 lines now. Known dead code: `ciResolvePathForRow`,
    `ciDataIndexToFullPath`, `ciFullPathToDataIndex`, `_bmLegacyId`; inventory/entity `msgIndex`
    fields with no consumer; `_bmLegacyIdSet`'s two unreachable dedupe guards; two dead test
    config keys making one assertion unreachable.

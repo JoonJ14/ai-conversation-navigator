@@ -1202,3 +1202,258 @@ decides it.
 - Migration runs **once per index generation**, not per mutation batch.
 - No conversation text is persisted — only a hash.
 - **Unfixtured.** v12.1's first task is live-testing and fine-tuning this, then covering it.
+
+---
+
+## DEC-031: Review Decay — a Live Confirmation Expires When the Build Moves (v12.0)
+**Date:** 2026-07-28 | **Stage:** v12.0 post-merge
+
+### Decision
+A live confirmation certifies **one commit**, not a release. Any change to arrival, matching,
+verification, settle, or bookmarks re-runs the **full acceptance matrix on both engines** before
+landing — not just the tests nearest the change — and a release does not merge until a live
+confirmation has been run on the **final** commit, not an early one.
+
+### Context
+`5f2a8be` was live-confirmed on a real 147-question conversation, including the
+attachment-headed Q#1 case that had just been fixed. Thirty-four hardening commits then landed
+on top of it — a 5-lens Tier 3 gate and a 24-round Codex cycle, every round green on both
+engines — and shipped. Live testing after the merge found the attachment-headed Q#1 jump broken
+again.
+
+The suite never dipped below green. Each round verified the code nearest its own change, the
+acceptance sweep kept reporting every jump exact, and a real user-facing path degraded anyway.
+The mock resolves that case by a cheaper route than the live site does, so no assertion in the
+matrix was ever load-bearing for it.
+
+### Alternatives considered
+- **Re-run only the tests near the change.** This is what happened, and it is what failed. The
+  regression was in the jump path; the acceptance sweep *did* run and *did* pass.
+- **Re-confirm live after every round.** Rejected as impossible — 24 rounds, each needing a
+  human on Firefox with a real conversation.
+- **Trust the round-by-round green.** Rejected: that is precisely the assumption that decayed.
+
+### Rationale
+Green-per-round measures that no *modelled* behaviour regressed. It says nothing about behaviour
+the model reaches by a different route than the site does. Over enough rounds, the gap between
+"the suite is green" and "the product works" widens silently, and the only thing that closes it
+is a live run on the commit actually being shipped.
+
+### Key properties
+- **A live confirmation names a commit.** Record which one, and treat it as expired the moment
+  the build moves past it.
+- The full matrix on both engines is the floor for the listed subsystems, not the ceiling.
+- This is the third compounding instance of the same root cause as **DEC-028**: the mock differs
+  from the site in exactly the detail that matters, and each newly-discovered difference is
+  hand-modelled one live failure late. The systemic answer is to generate fixtures from real
+  payload STRUCTURE rather than hand-authoring it (v12.1).
+- Corollary, learned the same day: **two failed reproductions are data.** When a hypothesis
+  cannot be made to fail in the harness, the harness — not the reasoning — is usually what is
+  wrong, and the honest report is "not reproduced", never a fix asserted on plausibility.
+
+---
+
+## DEC-032: A Fixture Knob Must Be Proven to Change the Output (v12.1)
+**Date:** 2026-07-28 | **Stage:** v12.1
+
+### Decision
+A new fixture knob is not evidence until it is shown to **change the output**. Assert the
+property the knob claims to model — not the knob's presence — before using it in an A/B.
+
+### Context
+Hunting the live attachment-headed Q#1 failure, a `chipRows` knob was added to render a user
+row as a file chip with no `[data-testid="user-message"]`. It was written as
+`CHIP_ROWS.indexOf(i)` inside `buildRow(index)` — the wrong variable — so `isChip` was always
+false and every chip row kept its testid.
+
+**Two A/B comparisons were then run against a fixture that could not fail**, and both were read
+as "the hypothesis is disconfirmed." A fixture that cannot fail is indistinguishable from one
+that passes: same green output, same confident conclusion, opposite meaning. The error was only
+found by tracing the pre-jump path and noticing Q#1 taking a route a chip row should not have
+been able to take. Once corrected, the reproduction was immediate and the hypothesis was right
+all along.
+
+### Rationale
+This is the **v12.0 bug reappearing inside the test tooling**. The original Layer 4 break
+reported success on 3% of the data; a vacuous knob reports success on 0% of the condition it
+claims to create. Both are silent, both look like health, and both defeat the reviewer.
+
+### Key properties
+- **Assert the modelled property directly.** For `chipRows`: assert the chip row has no
+  `[data-testid="user-message"]`. For `shortAnswerRows`: assert the rendered answer is below the
+  60-char pairing floor. The knob is a mechanism; the property is the claim.
+- **A knob's first run must FLIP something.** If enabling it changes no assertion and no trace,
+  it is not wired up — treat that as the null result it is, not as evidence.
+- Extends DEC-027 (an old build must fail a new fixture) one level down: **the fixture must
+  first be capable of failing at all.**
+- Extends DEC-028: fixture *defaults* are claims about the environment; fixture *knobs* are
+  claims about the condition under test. Both need proving.
+
+---
+
+## DEC-033: Safe vs Unsafe Generalization — Provably Absent, Not Merely Unmatched (v12.1)
+**Date:** 2026-07-28 | **Stage:** v12.1
+
+### Decision
+One-sided resolution may be treated as EXACT only when the missing evidence is **provably
+absent**, never when it is merely **unmatched**.
+
+### Context
+3b accepts a one-sided pair as exact at distance 1: with `|near.p - P| === 1` no integer sits
+between the two path indices, so no hidden unrendered entry can be in the gap. That is a
+pigeonhole fact.
+
+A proposed broadening — "treat one-sided as exact whenever the target is the first or last
+renderable entry, since the missing side cannot exist" — looks like the same argument and is
+not. At distance > 1 the step count between the pair and the target comes from the **predicate**,
+and a predicate-blind unrendered entry makes it wrong. The edge targets are exactly the ones
+that cannot be text-verified, so a wrong step count would be accepted as a confident landing —
+the failure `meta.exact` exists to prevent. (Proposed and withdrawn by the owner in the same
+exchange, on this reasoning.)
+
+### Rationale
+The distinction is the *reason* the evidence is missing:
+- **Provably absent** — no row can exist there (adjacent indices; row 0 has nothing above it).
+  Safe: the conclusion follows from structure.
+- **Merely unmatched** — a row may exist and simply failed to pair (short assistant text, tool
+  output diverging from API text, ambiguity). Unsafe: absence of evidence, not evidence of
+  absence.
+
+Both look identical from a distance: "there is nothing on that side."
+
+### Key properties
+- The correct cover for path extremes is the **by-construction** path (first renderable human IS
+  row 0), which needs no step counting at all — not a widened 3b.
+- Relatedly, `ciMatchRowToPath` pairs an assistant row only when its normalized text is ≥60 chars
+  AND uniquely matchable. For a chip at path 0 the only possible adjacent pair is that assistant
+  answer, so whenever it is short or tool-shaped, 3b's carve-out is unavailable and the
+  by-construction path is the sole cover. That is why breaking it (DEC-031) was invisible until
+  a live attachment conversation hit it.
+
+---
+
+## DEC-034: Legacy Bookmark Recovery — an Evidence Ladder, and the Hash as an Oracle (v12.1)
+**Date:** 2026-07-29 | **Stage:** v12.1
+
+### Decision
+A pre-v12.0 schema-1 record may be upgraded to a uuid only through one of four evidence
+channels, each sender-scoped and (where it can be ambiguous) uniqueness-gated:
+
+| Channel | Evidence class |
+|---|---|
+| A — preview is a prefix of the message text | text, strong |
+| B — the message's opening appears inside the preview | text, strong |
+| C — the preview matches a thinking-block ACTIVITY SUMMARY | text, strong — different field |
+| Harvest — the stored `contentHash` REPRODUCES against mounted rendered text | **proof** (~2⁻³² collision) |
+
+Position never establishes identity (DEC-033). `msgIndex` is carried but never bound on.
+
+### Context
+16 live records. Rules A/B (plus glyph stripping) recovered 7. The remaining 9 all had the
+same shape: the preview was **Claude's collapsed activity summary, doubled, with zero message
+text anywhere in its 120 characters** — unmatchable against the message body *by construction*.
+
+The initial conclusion was "unrecoverable by text." That was wrong, and the correction came
+from re-reading the diagnostic output rather than the code: **the preview is not noise. It is
+a faithful capture of a DIFFERENT field** — the model-generated summary the client renders
+above a thinking/tool answer — and that field rides in the payload's thinking blocks, which
+`ciBuildIndex` was already walking for `thinkingChars` and simply not keeping.
+
+### The hash-oracle insight
+`contentHash` = FNV-1a over `(ordinal | first 200 rendered chars)`. It cannot be inverted, but
+it can be **reproduced**: hash what is mounted right now under the plausible ordinals, and
+equality is identity — not an inference. This makes the harvest exempt from
+refuse-on-ambiguity: it structurally cannot guess. It runs on every scan over the ~3–7 mounted
+rows and at click time, so a record no text channel can recover still binds the first time its
+message scrolls into view.
+
+**Ordinal-era trap, handled by trying both:** pre-v12.0 hashes used the rendered-only DOM
+enumeration index; `_bmPathOrdinal` counts non-rendering path entries too. One interrupted
+turn early in a conversation shifts every later ordinal and would have silently zeroed the
+harvest.
+
+### Hypothesis → MEASURED (2026-07-29)
+The payload shape was verified directly against the owner's real 297-message conversation,
+fetched through Chromium with the userscript's own URL parameters (measurement context: page
+realm, live claude.ai, n=1 conversation): 61 thinking blocks, **55 carrying
+`summaries: [{summary}]`** — the hypothesized shape exactly.
+
+The same measurement found the defect in rule C's first form: **the DOM header TRUNCATES the
+summary for display.** The captured preview holds a truncated (usually doubled) COPY while
+the payload holds the full text, so whole-string prefix matching fails in both directions on
+3 of the 6 live shapes. Rule C's final form is a **40-char bidirectional probe**
+(`preview contains summary[0,40]` OR `summary contains preview[0,40]`), which the measurement
+showed binds **all 6 previews uniquely** — each to exactly one assistant entry with a uuid.
+Uniqueness remains the gate that makes a 40-char probe safe. The diagnostic
+(`summaries=<count> bestSummaryPrefix=<n>`) stays, as regression telemetry now rather than a
+falsifier.
+
+### Postscript — label vs key (owner-requested, same day)
+What a bookmark row DISPLAYS and what it MATCHES on are now different strings by design.
+The stored preview remains the matching evidence; the panel and the bookmarks export derive
+their labels from the index by uuid at render time (`_bmDisplayText`), falling back to the
+preview when no index is available. Summary-labelled rows "identify the record to the code
+but not to the owner" — the owner had to click one to learn what it was. Storage is never
+rewritten, so the evidence chain stays intact.
+
+### Alternatives rejected
+- **Bind on stored `msgIndex`** — position establishing identity; wrong forever after any
+  edit; rejected per DEC-033.
+- **Candidate-reconstruction hashing** (rebuild the 200-char hash input from summary + body
+  and test) — sound in principle (also oracle-class) but fragile to rendering-vs-markdown
+  divergence; deferred unless the shipped channels leave a residue worth chasing.
+
+---
+
+## DEC-035: Proof Outranks Inference, and Inference Must Never Destroy Proof (v12.1)
+**Date:** 2026-07-29 | **Stage:** v12.1
+
+### Decision
+When a record can be identified by more than one class of evidence, the **proof-grade** channel
+runs first and may **correct** a binding made by an inference channel. Inference may never
+overwrite the evidence proof depends on.
+
+### Context
+Legacy bookmark recovery has four channels (DEC-034): three text rules — inference — and the
+hash oracle, where the stored `contentHash` reproduces exactly against mounted rendered text so
+equality *is* identity (~2⁻³²).
+
+`_bmCommitLegacyUpgrade` wrote `b.contentHash = uuid`. That hash was the only proof-grade
+evidence the record carried, and the text rules ran first in the scan. So the guess channel
+destroyed the proof channel's input **before it ever ran** — and because the record then looked
+bound, no channel re-examined it. A wrong inference became permanent *and* unverifiable.
+
+Reproduced by review: a record whose hash proves "Answer number 3" but whose preview is a
+summary-then-body capture of "Answer number 9" binds to 9; with rule B disabled it binds to 3.
+Both runs green — nothing could tell the difference. Rules B and C exist *precisely because*
+the preview does not contain the message text, so preview-and-hash disagreeing is the normal
+operating regime for them, not a contrived case.
+
+### Alternatives considered
+- **Order the channels but still overwrite the hash.** Rejected: proof would win the first
+  race, but a record bound by inference in an earlier session or before the message ever
+  mounted could never be corrected — the evidence is gone.
+- **Never let inference bind at all; require proof.** Rejected: proof needs the message mounted,
+  and the whole problem is that ~3–7 of 147 turns are. Most records would stay dead.
+- **Re-derive the hash from the index.** Rejected: the hash covers the *rendered* text at
+  bookmark time, including the collapsed activity header. It is not reconstructible from the API.
+
+### Rationale
+Evidence classes are not interchangeable, and the cheap one usually runs first because it is
+cheap. Without an explicit precedence rule that is exactly backwards: the weakest evidence
+commits, and the strongest never gets asked.
+
+### Key properties
+- `legacyHash` preserves the oracle; `boundBy: 'proof' | 'inference'` records provenance.
+- The harvest re-examines inference-bound records and **corrects** them, logging loudly.
+- Proof runs before inference within a scan, forced past the mount-set gate on a new index
+  generation (a new generation is itself new evidence).
+- **Generalisation for this codebase:** any future channel added to a resolution ladder must
+  declare its evidence class, and a lower class must not mutate a higher class's inputs.
+
+### Postscript to DEC-032 (same session)
+The vacuous-knob rule was violated in the very fixture written to demonstrate it: the chip
+fixture's bounds tolerated a range, so `chipRows` could stop suppressing the testid and stay
+green. Now asserts the modelled property directly (row mounted, no `user-message` node) and is
+**mutation-verified** — forcing `isChip=false` fails it. Writing a rule is not applying it; the
+first place to check is your own newest work.

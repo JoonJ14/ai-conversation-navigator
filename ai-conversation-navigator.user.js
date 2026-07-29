@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.0
+// @version      12.1
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -40,7 +40,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.0';
+    var ACN_VERSION = '12.1';
 
     // ============================================================
     // i18n — internationalization string table
@@ -1405,6 +1405,42 @@
         return out;
     }
 
+    // Model-generated ACTIVITY SUMMARIES riding on thinking blocks. The claude.ai client
+    // renders these as the collapsed header above a thinking/tool-bearing response
+    // ("Analyzed the scheduling tradeoffs..."), which is exactly the text pre-v12.0 bookmark
+    // previews captured on such answers — the header sat above the body, so _cleanText read
+    // it first. Keeping the summaries lets legacy migration match those previews.
+    //
+    // PAYLOAD SHAPE — MEASURED, not assumed (DOM-REFERENCE.md "Probe E"): one real
+    // 297-message conversation fetched with our own URL parameters held 61 thinking blocks,
+    // 55 of them carrying `summaries: [{ summary }]`. Context: n=1 conversation, Chromium,
+    // page realm. That is enough to build on and not enough to call universal, so the legacy
+    // diagnostic reports how many summaries it saw — `summaries=0` on a conversation that
+    // visibly has extended thinking means the shape moved and rule C is dead.
+    function ciExtractThinkingSummaries(msg) {
+        var out = [], content = msg.content || [];
+        for (var i = 0; i < content.length; i++) {
+            var b = content[i];
+            if (b.type !== 'thinking') continue;
+            var arr = b.summaries;
+            // Array.isArray, not truthy-with-length: a STRING has .length, so a payload
+            // shape change to `summaries: "..."` would iterate per CHARACTER — inflating
+            // the diagnostic's summaries= count into a false confirmation of the very
+            // hypothesis that line exists to falsify, and re-creating the ~145k-regex
+            // blowup the memo removed. Rule C would still be safe (the floor rejects
+            // 1-char entries), so the failure would be entirely silent.
+            if (Array.isArray(arr) && arr.length) {
+                for (var j = 0; j < arr.length; j++) {
+                    var e = arr[j];
+                    var t = e && (typeof e === 'string' ? e : (e.summary || e.text));
+                    if (typeof t === 'string' && t) out.push(t);
+                }
+            }
+            if (typeof b.summary === 'string' && b.summary) out.push(b.summary);
+        }
+        return out;
+    }
+
     function ciCountBlockChars(msg, type) {
         var content = msg.content || [], n = 0;
         for (var i = 0; i < content.length; i++) {
@@ -1528,6 +1564,9 @@
                 // Serialized separately from `text` so Export can be genuinely complete
                 // without letting tool payloads into any text-matching path.
                 toolBlocks: ciExtractToolText(path[p]),
+                // Collapsed-header summaries — the ONLY text some pre-v12.0 bookmark
+                // previews contain. See ciExtractThinkingSummaries.
+                thinkSummaries: ciExtractThinkingSummaries(path[p]),
                 truncated: !!path[p].truncated,
                 files:     path[p].files || [],
                 attachments: path[p].attachments || []
@@ -2588,6 +2627,16 @@
         try { return localStorage.getItem('acnJumpDebug') === '1'; } catch (e) { return false; }
     }
 
+    // PRE-JUMP tracing. ciMakeTrace only covers the settle loop, so every exit BEFORE
+    // ciJumpToFullPathIndex was silent — including the fast path (which is a success) and
+    // the range/provisional guard (which is a refusal that never scrolls). Three attempts
+    // to reproduce a live Q#1 failure were spent theorising about arrival code that may
+    // never have executed. Same flag, so one localStorage switch lights the whole path.
+    function ciPre(msg) {
+        if (!ciJumpDebugOn()) return;
+        try { console.log('[ACN pre] ' + msg); } catch (e) {}
+    }
+
     function ciMakeTrace(targetFullPathIdx) {
         var on = ciJumpDebugOn();
         var t0 = Date.now();
@@ -3127,23 +3176,31 @@
                     _ciFullPath[targetFullPathIdx] &&
                     _ciFullPath[targetFullPathIdx].sender === 'human') {
                     var exRow = null;
+                    var exIsTail = false;
                     if (targetFullPathIdx === _ciRenderable[0]) exRow = 0;
                     else if (targetFullPathIdx === _ciRenderable[_ciRenderable.length - 1]) {
                         exRow = totalRows - 1;
+                        exIsTail = true;
                     }
                     if (exRow !== null) {
                         for (var xr = 0; xr < rows.length; xr++) {
                             if (rows[xr].dataIndex === exRow) {
-                                // The row must actually be the target's SENDER. The
-                                // by-construction argument above assumes the DOM's last row
-                                // corresponds to the path's last renderable entry — false in
-                                // the mid-generation state this release explicitly supports:
-                                // the snapshot ends at the human prompt while the DOM
-                                // already renders the new assistant row, so totalRows-1 IS
-                                // that assistant row. For a text-unmatchable prompt (an
-                                // attachment-backed message) nothing else would catch it and
-                                // it would be reported as a successful jump (Codex).
-                                if (!rows[xr].isUser) break;
+                                // TAIL ONLY. The mid-generation hazard is specific to the
+                                // LAST row: the snapshot can end at the human prompt while
+                                // the DOM already renders the new assistant row, making
+                                // totalRows-1 that assistant row. Row 0 cannot be affected —
+                                // a turn appended at the END does not change the first row.
+                                //
+                                // Applying this to the head REGRESSED the live Q#1
+                                // attachment case, which is the exact scenario the
+                                // by-construction path was added for. An attachment-only
+                                // first message does not expose [data-testid="user-message"]
+                                // on the live site, so isUser is false, the guard broke, and
+                                // the jump refused a target it had previously resolved. CI
+                                // could not see it: the mock builds EVERY user row —
+                                // attachment rows included — with that testid, so isUser is
+                                // always true there. DEC-028 again.
+                                if (exIsTail && !rows[xr].isUser) break;
                                 succeed(rows[xr], 'extreme-row'); return;
                             }
                         }
@@ -3470,6 +3527,16 @@
         _ciResyncedSigOrder = [];
         _ciPendingResyncSig = '';
         _ciAwaitingResyncSig = '';
+        _bmDiagnosed        = {};
+        _bmStatusPrinted    = false;   // per-conversation, like _bmDiagnosed
+        _bmPendingLegacy    = true;    // unknown until the next migration pass counts it
+        _bmHarvestSeen      = '';      // new conversation, new mount set
+        _bmNormGen          = -1;      // drop the normalization memo for the old path
+        _bmNormRows         = null;    // ...and RELEASE it. Resetting only the stamp kept a
+                                       // full normalized copy of the conversation just left
+                                       // alive until some later conversation happened to
+                                       // rebuild it — in the very function whose stated job
+                                       // is releasing the multi-megabyte path on a switch.
         _ciRefreshFailed    = '';
         _sseThinkAtIndex    = 0;
         _ciConversationId = null;
@@ -4040,16 +4107,46 @@
                 // Once per index generation: bind any bookmark taken before its message
                 // had a uuid. _ciIndexGen changes on every rebuild, which is exactly when
                 // a previously-unknown uuid can become known.
-                if (_bmMigratedGen !== _ciIndexGen) {
-                    _bmMigratedGen = _ciIndexGen;
-                    _bmMigrateProvisional();
-                }
-
                 var indexed = _ciIndex.slice();
                 _ciMergeLiveMessages(indexed);
                 indexed.sort(function (a, b) { return a.pathIndex - b.pathIndex; });
                 _ciBindMountedElements(indexed);
                 _questions = indexed;
+
+                // MIGRATION RUNS AFTER _questions IS INSTALLED. _bmDisplayOrdinal numbers a
+                // HUMAN bookmark by its position in _questions (so the badge agrees with the
+                // Navigate list), and migration refreshes the open panel — so running it
+                // before this assignment made that refresh read the PREVIOUS conversation's
+                // questions. Worse, the same refresh cached the new _ciIndexGen in
+                // _bmListFingerprint, so the correct refresh afterwards early-returned and
+                // the stale badge survived until some later index generation (Codex).
+                if (_bmMigratedGen !== _ciIndexGen) {
+                    // Guarded, and the generation is stamped only on success. Unguarded, a
+                    // throw here aborted the remainder of the index-backed branch for that
+                    // batch — _ciMergeLiveMessages, _ciBindMountedElements, _questions,
+                    // injectBookmarkIcons and orbOnScanComplete all skipped — while having
+                    // already marked the generation migrated, so it was never retried and
+                    // nothing was logged. Bookmark recovery must not be able to take the
+                    // navigation path down with it.
+                    try {
+                        _bmMigrateProvisional();
+                        // PROOF BEFORE INFERENCE. The harvest reproduces a stored hash
+                        // against mounted text — equality is identity. The text rules are
+                        // inference. Running inference first let a guess bind (and, before
+                        // the oracle was preserved, destroy the evidence) for a record the
+                        // proof channel could have settled in the same scan. Forced past
+                        // the mount-set gate because a new index generation is itself new
+                        // evidence, even if nothing scrolled.
+                        _bmHarvestSeen = '';
+                        _bmHarvestLegacyFromMounted();
+                        _bmMigrateLegacy();
+                        _bmMigratedGen = _ciIndexGen;
+                    } catch (e) {
+                        console.warn('[ACN bookmarks] migration pass failed; will retry ' +
+                                     'on the next index generation:', e);
+                    }
+                }
+
 
                 _aiResponses = Array.from(getAIMessages());
                 if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
@@ -6080,7 +6177,10 @@
             typeof q.pathIndex === 'number' && _ciFullPath) {
             // Not mounted (or not resolvable here) returns null, and the caller falls
             // through to the jump rather than accepting a same-text impostor.
-            return ciResolveMountedByPathIndex(q.pathIndex);
+            var relOut = ciResolveMountedByPathIndex(q.pathIndex);
+            ciPre('relocate indexed p=' + q.pathIndex +
+                  ' -> ' + (relOut ? 'MOUNTED (fast path)' : 'null (will jump)'));
+            return relOut;
         }
         // isConnected alone is NOT sufficient. Under recycling the virtualizer reuses
         // the same DOM node for a different message, so a still-connected node can be
@@ -6099,6 +6199,12 @@
     }
 
     function orbScrollToQuestion(q) {
+        ciPre('click q.pathIndex=' + q.pathIndex +
+              ' provisional=' + (q.provisional ? 1 : 0) +
+              ' claudeChat=' + (ciIsClaudeChat() ? 1 : 0) +
+              ' indexReady=' + (ciIsReady() ? 1 : 0) +
+              ' pathLen=' + (_ciFullPath ? _ciFullPath.length : -1) +
+              ' hadElement=' + (q.element ? 1 : 0));
         var target = _relocateQuestionElement(q);
 
         // Not mounted. On Claude the settle loop can page the virtualizer to it.
@@ -6110,6 +6216,19 @@
             // entries (DOM-merged, not yet in the index) carry MAX_SAFE_INTEGER as
             // a sort key — jumping to that would burn all 8 iterations chasing a
             // row that cannot exist.
+            // Name the specific condition that refuses, rather than emitting one toast for
+            // six different causes.
+            if (ciJumpDebugOn()) {
+                var why = !ciIsClaudeChat() ? 'not-claude-chat'
+                        : !ciIsReady()      ? 'index-not-ready'
+                        : !_ciFullPath      ? 'no-path'
+                        : q.provisional     ? 'provisional-entry'
+                        : (typeof q.pathIndex !== 'number') ? 'pathIndex-not-number'
+                        : (q.pathIndex < 0 || q.pathIndex >= _ciFullPath.length) ? 'pathIndex-out-of-range'
+                        : null;
+                ciPre(why ? ('REFUSED before jump: ' + why + ' (no scroll will happen)')
+                          : 'entering jump bridge for p=' + q.pathIndex);
+            }
             if (ciIsClaudeChat() && ciIsReady() && _ciFullPath &&
                 !q.provisional && typeof q.pathIndex === 'number' &&
                 q.pathIndex >= 0 && q.pathIndex < _ciFullPath.length) {
@@ -6131,6 +6250,7 @@
             return;
         }
         q.element = target;
+        ciPre('FAST PATH resolved p=' + q.pathIndex + ' — no settle loop, no jump trace');
         // The fast path IS a resolution — the target was found mounted and verified.
         // Publishing it through the same contract as the settle loop keeps success
         // observable on ONE channel: without this, a sequential sweep (click Q1, then
@@ -6748,6 +6868,93 @@
     // Index generation whose provisional bookmarks have already been migrated, so the
     // walk below runs once per rebuild rather than once per mutation batch.
     var _bmMigratedGen = -1;
+    // LABEL vs KEY. What a bookmark row DISPLAYS and what the record MATCHES on are
+    // deliberately different strings. The stored preview is matching evidence: on a
+    // thinking/tool-heavy answer it captured Claude's collapsed activity summary, which
+    // identifies the record to the CODE but not to the OWNER — live feedback, 2026-07-29:
+    // "I have to guess what that is [until] I click on it." For any uuid-keyed record the
+    // index holds the real message, so the label derives from it at RENDER time; storage
+    // is never rewritten, non-indexed contexts fall back to the preview, and a future
+    // bookmark on a tool-heavy answer gets a readable label automatically.
+    // Q#/A# ordinal for a bookmark row. Same reasoning as _bmDisplayText: the STORED
+    // msgIndex is the ordinal at bookmark time and goes stale — a migrated legacy record
+    // rendered "A#91" in an 8-message conversation (measured 2026-07-29). With a uuid the
+    // index knows the true position, so derive it and fall back only when it cannot.
+    function _bmDisplayOrdinal(bm) {
+        if (bm && bm.msgUuid && ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
+            // HUMAN: number exactly as the Navigate panel does — its Q# is a position in
+            // _questions, which drops human turns with no extractable text (~10% of turns:
+            // large pastes become attachments). Counting raw path entries instead made the
+            // badge disagree with the list it is meant to help you find.
+            if (bm.entityType !== 'ai-msg') {
+                for (var q = 0; q < _questions.length; q++) {
+                    if (_questions[q].uuid === bm.msgUuid) return q;
+                }
+            } else {
+                // ASSISTANT: count only entries that RENDER a row. Non-rendering entries
+                // (interrupted generations, no stop_reason) are invisible on screen, so
+                // counting them inflates A# past anything the user can see.
+                var ord = 0;
+                for (var i = 0; i < _ciFullPath.length; i++) {
+                    if (_ciFullPath[i].sender !== 'assistant') continue;
+                    if (_ciFullPath[i].uuid === bm.msgUuid) return ord;
+                    if (ciEntryRenders(_ciFullPath[i])) ord++;
+                }
+            }
+        }
+        return bm ? (bm.msgIndex || 0) : 0;
+    }
+
+    function _bmDisplayText(bm) {
+        if (bm && bm.msgUuid && ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
+            for (var i = 0; i < _ciFullPath.length; i++) {
+                if (_ciFullPath[i].uuid !== bm.msgUuid) continue;
+                // Case-preserving flatten for DISPLAY — _normalizeFull would lowercase.
+                var t = _mdVisible(_ciFullPath[i].text || '').replace(/\s+/g, ' ').trim();
+                if (t) return t.substring(0, 120);
+                break;   // uuid known but no text (attachment-only turn) — fall back
+            }
+        }
+        return bm ? bm.preview : '';
+    }
+
+    // Printed once per PAGE LOAD whenever un-uuid'd legacy records remain. The event-driven
+    // summary line only fires on a CHANGE, so a settled store looked like silence — and the
+    // owner read that as the diagnostics having been removed. State gets one line always.
+    var _bmStatusPrinted = false;
+    function _bmPrintLegacyStatus(list) {
+        if (_bmStatusPrinted) return;
+        var out = [];
+        for (var i = 0; i < list.length; i++) {
+            var b = list[i];
+            if (b.msgUuid || b.schema === 2 || b.pendingHash) continue;
+            out.push(b.id + ' ("' + String(b.preview || '').substring(0, 40) + '…")');
+        }
+        _bmStatusPrinted = true;
+        if (out.length) {
+            console.log('[ACN bookmarks] legacy status: ' + out.length +
+                        ' record(s) still without a uuid: ' + out.join(', '));
+        } else {
+            console.log('[ACN bookmarks] legacy status: all records carry a uuid');
+        }
+    }
+
+    // Records already diagnosed this conversation. The migration re-runs on every index
+    // generation (a refetch fires on any new message, edit or regenerate), so without this
+    // the console filled with the same unresolved block over and over.
+    var _bmDiagnosed = {};
+    // Does this conversation still hold a record without a uuid? The harvest runs from
+    // injectBookmarkIcons — i.e. every scan — and used to JSON.parse the whole bookmark
+    // store each time just to discover there was nothing to do. The migration pass already
+    // walks the list once per index generation, so it can answer this for free.
+    var _bmPendingLegacy = true;
+    var _bmHarvestBroken = false;   // set once if the harvest throws; see its catch
+    // Mount-set fingerprint of the last harvest sweep. A permanently unmatchable record
+    // pins _bmPendingLegacy true, so without this the harvest ran its full body — a
+    // JSON.parse of the whole bookmark store, plus ciUuidForText and a path walk per
+    // mounted row — on every 500ms mutation batch for the life of the tab. Only a change
+    // in what is MOUNTED can newly reproduce a hash, so nothing is lost by skipping.
+    var _bmHarvestSeen = '';
 
     // Occurrence identity for a provisional bookmark: the 0-based ordinal of its message
     // among turns OF ITS OWN SENDER. _questions is exactly that list for human turns, in
@@ -6891,6 +7098,378 @@
             var bmPanel = document.getElementById('acn-panel-bookmarks');
             if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
         }
+    }
+
+    // Single upgrade path for a legacy record once identity is PROVEN — by the preview
+    // rules, the summary rule, or an exact-hash reproduction (harvest / click). Persisting
+    // is the point: every route only proves identity at a moment when the evidence happens
+    // to be available, and the uuid is what makes that proof durable.
+    function _bmCommitLegacyUpgrade(b, uuid, proven) {
+        // PRESERVE THE ORACLE. The schema-1 contentHash is the only PROOF-grade evidence a
+        // legacy record carries: it reproduces exactly against rendered text, so equality
+        // is identity rather than inference. Overwriting it with the uuid destroyed that
+        // evidence — and because most records are bound by the TEXT rules, which are
+        // inference, a wrong guess became permanent AND unverifiable. Keeping the hash lets
+        // the proof channel re-examine an inferred binding later and correct it.
+        if (!b.legacyHash && b.schema !== 2 && b.contentHash) b.legacyHash = b.contentHash;
+        b.boundBy          = proven ? 'proof' : 'inference';
+        b.schema           = 2;
+        b.contentHash      = uuid;
+        b.msgUuid          = uuid;
+        b.legacyUnresolved = null;
+        b.legacyMigrated   = true;
+        saveBookmark(b);
+    }
+
+    // STAGE-1 HARVEST — the hash as an ORACLE. A schema-1 contentHash is an exact
+    // fingerprint of (ordinal | first 200 rendered chars) at bookmark time. It cannot be
+    // inverted, but it can be REPRODUCED: hash what is mounted right now with the
+    // plausible ordinals, and equality IS identity (collision ~2^-32) — this never
+    // guesses, so it is exempt from the refuse-on-ambiguity rules that govern the text
+    // channels. Runs on every scan over the ~3-7 mounted rows, so a record the preview
+    // rules cannot recover binds the first time its message scrolls into view.
+    //
+    // TWO ORDINAL ERAS, both tried: pre-v12.0 hashes used the RENDERED enumeration index
+    // (everything was mounted then, and non-rendering entries never render), while
+    // today's path ordinal counts non-rendering entries too. One interrupted turn early
+    // in a conversation would silently shift every later ordinal and zero the harvest.
+    function _bmHarvestLegacyFromMounted() {
+        if (_bmHarvestBroken) return;
+        if (!_bmPendingLegacy) return;   // nothing un-uuid'd — skip the store read entirely
+        if (!(ciIsClaudeChat() && ciIsReady() && _ciFullPath)) return;
+        // Cheap first: the mounted set is the only new evidence a sweep can act on.
+        var mountKey = '';
+        try {
+            var mrows = ciMountedRows();
+            for (var mi = 0; mi < mrows.length; mi++) mountKey += mrows[mi].dataIndex + ',';
+        } catch (e) { mountKey = String(Date.now()); }   // unknown -> do not skip
+        if (mountKey === _bmHarvestSeen) return;
+        _bmHarvestSeen = mountKey;
+        var list = getConversationBookmarks();
+        var pending = [];
+        for (var i = 0; i < list.length; i++) {
+            var c = list[i];
+            if (c.pendingHash) continue;                       // provisional migrator owns it
+            // Unbound records, AND records bound by INFERENCE that still carry their
+            // oracle: proof outranks a guess, so the harvest keeps the right to correct one.
+            if (!c.msgUuid && c.schema !== 2) pending.push(c);
+            else if (c.boundBy === 'inference' && c.legacyHash) pending.push(c);
+        }
+        if (!pending.length) { _bmPendingLegacy = false; return; }
+        var changed = false;
+        function sweep(els, sender, type) {
+            for (var e = 0; e < els.length && pending.length; e++) {
+                var el = els[e];
+                var text = sender === 'human' ? _readMessageText(el) : _readAIText(el);
+                if (!text) continue;
+                var uuid = ciUuidForText(text, el);
+                if (!uuid) continue;   // identity unmeasured — never bind on a guess
+                var p = -1, ordAll = 0, ordRen = 0, j;
+                for (j = 0; j < _ciFullPath.length; j++) {
+                    if (_ciFullPath[j].sender !== sender) continue;
+                    if (_ciFullPath[j].uuid === uuid) { p = j; break; }
+                    ordAll++;
+                    if (ciEntryRenders(_ciFullPath[j])) ordRen++;
+                }
+                if (p === -1) continue;
+                var ids = _bmLegacyIdSet(el, ordAll);
+                if (ordRen !== ordAll) ids = ids.concat(_bmLegacyIdSet(el, ordRen));
+                for (j = pending.length - 1; j >= 0; j--) {
+                    var b = pending[j];
+                    if (b.entityType !== type) continue;
+                    // Test the ORACLE — the preserved schema-1 hash for an
+                    // inference-bound record, or the live contentHash for an unbound one.
+                    var probe = { contentHash: b.legacyHash || b.contentHash };
+                    if (!_bmInLegacySet(probe, ids)) continue;
+                    var wasWrong = b.msgUuid && b.msgUuid !== uuid;
+                    var oldUuid = b.msgUuid;
+                    _bmCommitLegacyUpgrade(b, uuid, true);
+                    // A CORRECTION leaves the WRONGLY-inferred row still wearing an active
+                    // flag if it is also mounted: its data-acn-bookmarked still matches, so
+                    // inject() skips it forever, and clicking it would not find the
+                    // corrected record — it would ADD a second bookmark, for the wrong
+                    // message (Codex). Clear that row too, not just the proven one.
+                    if (wasWrong && oldUuid) {
+                        try {
+                            var stale = Array.from(els);
+                            for (var sx = 0; sx < stale.length; sx++) {
+                                if (stale[sx] === el) continue;
+                                if (stale[sx].getAttribute('data-acn-bookmarked') !== oldUuid) continue;
+                                stale[sx].removeAttribute('data-acn-bookmarked');
+                                var sic = stale[sx].querySelector('[data-acn-bookmark]');
+                                if (sic) {
+                                    sic.classList.remove('acn-bm-active');
+                                    sic.setAttribute('title', 'Bookmark this message');
+                                }
+                            }
+                        } catch (e) {}
+                    }
+                    if (wasWrong) {
+                        console.warn('[ACN bookmarks] harvest CORRECTED ' + b.id +
+                                     ': a text rule had bound it to the wrong message; ' +
+                                     'the stored hash proves this one.');
+                    } else {
+                        console.log('[ACN bookmarks] harvest: ' + b.id +
+                                    ' bound by exact hash to a mounted message');
+                    }
+                    // The icon for this row was built EARLIER in this same
+                    // injectBookmarkIcons pass, while the record still carried its legacy
+                    // hash — so it rendered INACTIVE, and inject()'s identity early-return
+                    // meant it never recomputed. Clicking that flag would have called
+                    // toggleBookmark and DELETED the record the harvest just recovered.
+                    try {
+                        el.removeAttribute('data-acn-bookmarked');
+                        var ic = el.querySelector('[data-acn-bookmark]');
+                        if (ic) {
+                            ic.classList.add('acn-bm-active');
+                            ic.setAttribute('title', 'Remove bookmark');
+                        }
+                    } catch (e) {}
+                    pending.splice(j, 1);
+                    changed = true;
+                }
+            }
+        }
+        sweep(Array.from(getUserMessages()), 'human', 'user-msg');
+        sweep(Array.from(getAIMessages()), 'assistant', 'ai-msg');
+        if (!pending.length) _bmPendingLegacy = false;   // harvest cleared the last one
+        if (changed) {
+            var bmPanel = document.getElementById('acn-panel-bookmarks');
+            if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
+        }
+    }
+
+    // LEGACY MIGRATION — pre-v12.0 schema-1 records.
+    //
+    // A schema-1 bookmark keys to a content hash, not a uuid, and only a uuid lets
+    // orbScrollToBookmark enter the jump bridge. Before virtualization that cost nothing:
+    // every message was mounted, so hash matching always had something to match against.
+    // Under virtualization ~3-7 turns are mounted, so every pre-v12.0 Claude bookmark is
+    // silently dead unless its message happens to be on screen — in a RELEASED version.
+    //
+    // The record has no uuid and no path index, but it does have `preview`: the first 120
+    // chars of the message as RENDERED. The index holds RAW MARKDOWN, so matching needs the
+    // markdown flattened (_mdVisible) and compared as a PREFIX at the preview's own length.
+    // Uniqueness across the whole path is required, same rule as DEC-030: binding wrongly is
+    // permanent and silent, refusing is recoverable.
+    // Probe length for rule B. Long enough to be specific inside a 120-char preview,
+    // short enough to survive a summary header eating most of it.
+    var BM_LEGACY_PROBE = 40;
+    // Minimum normalized summary length rule C will bind on. Short generic summaries
+    // ("Pondered the question") recur across turns; the uniqueness gate would refuse them
+    // anyway, but the floor keeps them from poisoning otherwise-unique candidates.
+    var BM_SUMMARY_FLOOR = 25;
+
+    // Normalized text + summaries per path entry, memoized for one index generation. Both
+    // the matcher and the diagnostic walk every candidate for every unresolved record, and
+    // _mdVisible runs nine regexes per call — on the owner's conversation that was ~145k
+    // regex passes per load. Rebuilt whenever _ciIndexGen moves, dropped on ciInvalidate.
+    var _bmNormGen = -1, _bmNormRows = null;
+    function _bmNormPath() {
+        if (_bmNormGen === _ciIndexGen && _bmNormRows) return _bmNormRows;
+        _bmNormRows = [];
+        if (_ciFullPath) {
+            for (var i = 0; i < _ciFullPath.length; i++) {
+                var e = _ciFullPath[i];
+                var raw = e.thinkSummaries || [];
+                var ns = [];
+                for (var j = 0; j < raw.length; j++) ns.push(_normalizeFull(_mdVisible(raw[j])));
+                _bmNormRows.push({ sender: e.sender,
+                                   text: _normalizeFull(_mdVisible(e.text || '')),
+                                   sums: ns });
+            }
+        }
+        _bmNormGen = _ciIndexGen;
+        return _bmNormRows;
+    }
+
+    function _bmLegacyPathIndexFor(preview, entityType) {
+        if (!_ciFullPath || !preview) return -1;
+        // Strip OUR OWN injected bookmark glyph. Pre-v12.0 previews were captured before
+        // _cleanText learned to remove it, so many begin with U+2691 — which guarantees a
+        // prefix match fails at character 0. Measured live: 6 of 16 unmatched records.
+        var want = _normalizeFull(_mdVisible(String(preview).replace(/[\u2690\u2691]/g, ' ')));
+        if (!want) return -1;
+        // SENDER-SCOPED. Without this a bookmark on YOUR message could bind to an assistant
+        // message that merely opens with the same words — a prefix match makes that far more
+        // reachable than a full match would, and the resulting uuid would be persisted.
+        var wantSender = (entityType === 'ai-msg') ? 'assistant' : 'human';
+        var hit = -1;
+        var rows = _bmNormPath();
+        for (var i = 0; i < rows.length; i++) {
+            if (rows[i].sender !== wantSender) continue;
+            var ok = false;
+            var full = rows[i].text;
+            if (full) {
+                // RULE A — prefix. `preview` is 120 chars of rendered text, so in the
+                // clean case it is a prefix of the full message.
+                // Floored for the same reason as rule C: a very short `want` makes this a
+                // near-tautology on any message that happens to start with those words.
+                ok = want.length >= BM_SUMMARY_FLOOR && full.substring(0, want.length) === want;
+                // RULE B — the message's opening appears ANYWHERE in the preview: a
+                // summary-then-body capture has the body after the header rather than at
+                // position 0. Requiring BM_LEGACY_PROBE chars keeps it specific.
+                if (!ok && full.length >= BM_LEGACY_PROBE) {
+                    ok = want.indexOf(full.substring(0, BM_LEGACY_PROBE)) !== -1;
+                }
+            }
+            // RULE C — the preview contains NO message text at all: it is Claude's
+            // collapsed ACTIVITY SUMMARY, captured (usually doubled) before the body ever
+            // starts. Measured live 2026-07-29: all 9 records the text rules could not
+            // recover are this shape. The summaries are model-generated and ride in the
+            // payload's thinking blocks, so match the preview against THEM — forward
+            // (preview begins with the summary) and reverse (preview is a truncation of a
+            // longer summary). Sender-scoped to assistant by construction; the uniqueness
+            // gate below still applies, so a summary Claude happened to generate twice
+            // refuses rather than guesses.
+            if (!ok && wantSender === 'assistant') {
+                var sums = rows[i].sums;
+                for (var si = 0; si < sums.length && !ok; si++) {
+                    var ns = sums[si];
+                    if (ns.length < BM_SUMMARY_FLOOR) continue;
+                    // 40-CHAR BIDIRECTIONAL PROBE, not whole-string prefixes. Measured
+                    // against the real payload (2026-07-29, Chromium, the owner's
+                    // 297-message conversation): the DOM header TRUNCATES the summary
+                    // for display, so the captured preview holds a truncated (and
+                    // usually doubled) COPY while the payload holds the full text —
+                    // whole-prefix matching in either direction fails on 3 of the 6
+                    // live shapes. The probe binds all 6, each uniquely. Uniqueness is
+                    // still the gate that makes 40 chars safe.
+                    // BOTH sides floored. The reverse probe's needle is
+                    // want.substring(0, 40) — which is only 40 chars when `want` HAS 40.
+                    // A short preview ("balancing rate", 14 chars) degraded it to an
+                    // unbounded substring test that found incidental overlap inside one
+                    // summary, passed the uniqueness gate on that single hit, and bound
+                    // permanently to a message it had no evidence of. Three independent
+                    // review lenses reproduced it. The comment here used to assert
+                    // "uniqueness is the gate that makes 40 chars safe" while the code
+                    // was not using 40 chars — the claim and the behaviour disagreed.
+                    if (want.length < BM_LEGACY_PROBE) continue;
+                    ok = want.indexOf(ns.substring(0, BM_LEGACY_PROBE)) !== -1 ||
+                         ns.indexOf(want.substring(0, BM_LEGACY_PROBE)) !== -1;
+                }
+            }
+            if (!ok) continue;
+            if (hit !== -1) return -2;   // ambiguous — two messages match this preview
+            hit = i;
+        }
+        return hit;
+    }
+
+    // WHY a legacy record failed to match — printed for each one, because guessing at the
+    // cause is exactly what wasted three attempts on the Q#1 hunt. Shows the normalized
+    // preview against the closest same-sender candidate and where the two diverge, which
+    // distinguishes the plausible causes at a glance:
+    //   divergence at 0        -> leading contamination in the old preview
+    //                             (pre-v12.0 previews predate the "You said:" strip)
+    //   divergence mid-string  -> rendered DOM text vs raw markdown differ there
+    //   no candidates at all   -> index text empty for that sender (attachment-only turns)
+    function _bmLegacyDiagnose(b, kind) {
+        if (!_ciFullPath) return;
+        var want = _normalizeFull(_mdVisible(String(b.preview || '').replace(/[\u2690\u2691]/g, ' ')));
+        var wantSender = (b.entityType === 'ai-msg') ? 'assistant' : 'human';
+        var best = null, bestLen = -1, considered = 0, emptyText = 0;
+        var sumsTotal = 0, bestSum = '', bestSumN = -1;
+        var dRows = _bmNormPath();
+        for (var i = 0; i < dRows.length; i++) {
+            if (dRows[i].sender !== wantSender) continue;
+            considered++;
+            // The summary channel, reported alongside the text channel: summaries=0 on a
+            // live run means the payload-shape hypothesis behind rule C is WRONG — that is
+            // the falsifier, and it must be visible in the same place the failure is.
+            var dSums = dRows[i].sums;
+            for (var sj = 0; sj < dSums.length; sj++) {
+                sumsTotal++;
+                var nsum = dSums[sj];
+                var m = 0;
+                while (m < want.length && m < nsum.length && want.charAt(m) === nsum.charAt(m)) m++;
+                if (m > bestSumN) { bestSumN = m; bestSum = nsum; }
+            }
+            var full = dRows[i].text;
+            if (!full) { emptyText++; continue; }
+            var n = 0;
+            while (n < want.length && n < full.length && want.charAt(n) === full.charAt(n)) n++;
+            if (n > bestLen) { bestLen = n; best = { i: i, full: full }; }
+        }
+        console.log('[ACN bookmarks] ' + (kind === 'ambiguous'
+                        ? 'AMBIGUOUS ' : 'UNMATCHED ') + b.id +
+                    ' type=' + b.entityType +
+                    ' previewLen=' + (b.preview || '').length +
+                    ' normLen=' + want.length +
+                    ' candidates=' + considered + ' (emptyText=' + emptyText + ')' +
+                    ' bestCommonPrefix=' + bestLen +
+                    ' summaries=' + sumsTotal + ' bestSummaryPrefix=' + bestSumN);
+        console.log('   want: ' + JSON.stringify(want.substring(0, 80)));
+        if (best) {
+            console.log('   best: [' + best.i + '] ' + JSON.stringify(best.full.substring(0, 80)));
+        }
+        if (bestSumN > 0) {
+            console.log('   bestSummary: ' + JSON.stringify(bestSum.substring(0, 80)));
+        }
+    }
+
+    // Runs once per index generation alongside the provisional migration. Returns a
+    // {upgraded, ambiguous, unmatched} tally so the rate can be reported rather than assumed.
+    function _bmMigrateLegacy() {
+        var stats = { upgraded: 0, ambiguous: 0, unmatched: 0, alreadyKeyed: 0 };
+        if (!(ciIsClaudeChat() && ciIsReady() && _ciFullPath)) return stats;
+        var list = getConversationBookmarks();
+        var changed = false;
+        for (var i = 0; i < list.length; i++) {
+            var b = list[i];
+            if (b.msgUuid || b.schema === 2) { stats.alreadyKeyed++; continue; }
+            if (b.pendingHash) continue;          // provisional — the other migrator owns it
+            var p = _bmLegacyPathIndexFor(b.preview, b.entityType);
+            // NOTE the resolution kind is passed explicitly: the record is not marked
+            // legacyUnresolved until below, so a diagnostic that read b.legacyUnresolved
+            // printed UNMATCHED for an ambiguous record — and _bmDiagnosed then suppressed
+            // the corrected line on every later generation, leaving the one-shot
+            // troubleshooting output permanently wrong (Codex).
+            if (p < 0 && !_bmDiagnosed[b.id]) {
+                _bmDiagnosed[b.id] = true;
+                _bmLegacyDiagnose(b, p === -2 ? 'ambiguous' : 'unmatched');
+            }
+            // Only WRITE when the status actually changes. This runs once per index
+            // generation, so re-marking an already-marked record was a GM_setValue on every
+            // refetch, for every unresolved bookmark, forever.
+            if (p === -2) {
+                stats.ambiguous++;
+                if (b.legacyUnresolved !== 'ambiguous') {
+                    b.legacyUnresolved = 'ambiguous'; saveBookmark(b); changed = true;
+                }
+                continue;
+            }
+            if (p < 0 || !_ciFullPath[p] || !_ciFullPath[p].uuid) {
+                stats.unmatched++;
+                if (b.legacyUnresolved !== 'unmatched') {
+                    b.legacyUnresolved = 'unmatched'; saveBookmark(b); changed = true;
+                }
+                continue;
+            }
+            _bmCommitLegacyUpgrade(b, _ciFullPath[p].uuid);
+            stats.upgraded++;
+            changed = true;
+        }
+        if (changed) {
+            var bmPanel = document.getElementById('acn-panel-bookmarks');
+            if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
+        }
+        // The migration walk already knows whether anything is still un-uuid'd; hand that
+        // to the harvest so it can no-op without touching storage.
+        // Still pending if anything is unresolved OR still only inference-bound (the
+        // harvest retains the right to correct those, and only proof retires them).
+        var inferred = 0;
+        for (var pi = 0; pi < list.length; pi++) {
+            if (list[pi].boundBy === 'inference' && list[pi].legacyHash) inferred++;
+        }
+        _bmPendingLegacy = (stats.ambiguous + stats.unmatched + inferred) > 0;
+        _bmPrintLegacyStatus(list);
+        if (changed) {
+            console.log('[ACN bookmarks] legacy migration: ' + stats.upgraded + ' upgraded, ' +
+                        stats.ambiguous + ' ambiguous, ' + stats.unmatched + ' unmatched, ' +
+                        stats.alreadyKeyed + ' already keyed');
+        }
+        return stats;
     }
 
     function _bmGenId() {
@@ -7128,6 +7707,20 @@
         Array.from(getAIMessages()).forEach(function (el, idx) {
             inject(el, pathOrdinal(el, 'assistant', idx), 'ai-msg', _readAIText(el));
         });
+        // Opportunistic legacy harvest over the same mounted set this scan just walked.
+        // Guarded inside: exits immediately when no un-uuid'd records remain.
+        try { _bmHarvestLegacyFromMounted(); } catch (e) {
+            // Never silent. This runs every scan, so without the guard one bad node would
+            // re-throw and re-swallow forever with nothing in the console and nothing in
+            // the UI — a feature degrading invisibly, which this project treats as a
+            // defect in its own right. Logged once, then the channel is disabled rather
+            // than left thrashing.
+            if (!_bmHarvestBroken) {
+                _bmHarvestBroken = true;
+                console.warn('[ACN bookmarks] legacy harvest disabled after an error; ' +
+                             'recovery by hash is off for this session:', e);
+            }
+        }
     }
 
     function orbScrollToMessage(el) {
@@ -7147,6 +7740,20 @@
         } else {
             doScroll();
         }
+    }
+
+    // A legacy record the migrator could not place must NOT report the generic
+    // "scroll toward it" message: scrolling cannot help, because the record has no uuid and
+    // its stored preview did not uniquely identify a message. Telling the user to recreate
+    // it is the only honest instruction.
+    function _bmFailToast(bookmark) {
+        if (bookmark && !bookmark.msgUuid && bookmark.legacyUnresolved) {
+            showToast(bookmark.legacyUnresolved === 'ambiguous'
+                ? 'This bookmark predates v12.0 and matches more than one message \u2014 please recreate it'
+                : 'This bookmark predates v12.0 and could not be located \u2014 please recreate it');
+            return;
+        }
+        showToast('That message is not currently rendered \u2014 scroll toward it and try again');
     }
 
     function orbScrollToBookmark(bookmark) {
@@ -7185,7 +7792,24 @@
                 // after it was injected. The ordinal must be the CONVERSATION one —
                 // legacy hashes were built with it, not the mounted-window index.
                 var ordL = _bmPathOrdinal(els[i], isUser ? 'human' : 'assistant', i);
-                if (_bmMatchesLegacy(bookmark, els[i], ordL)) { targetEl = els[i]; break; }
+                if (_bmMatchesLegacy(bookmark, els[i], ordL)) {
+                    targetEl = els[i];
+                    // A legacy match is exact-hash evidence — persist it. It only proves
+                    // identity while this node is mounted, and the uuid is what keeps the
+                    // bookmark reachable after the row recycles away.
+                    //
+                    // PROVEN, not inferred: _bmMatchesLegacy reproduced the stored hash
+                    // against this row's rendered text, which is the same oracle the harvest
+                    // uses. Omitting the flag recorded it as inference, so _bmMigrateLegacy
+                    // kept counting it in `inferred`, _bmPendingLegacy never cleared, and
+                    // every new mount set re-parsed the whole store and re-walked the path
+                    // to re-prove a record that was already proven (Codex #59 R5).
+                    if (!bookmark.msgUuid) {
+                        var lUuid = ciUuidForText(textOf(els[i]), els[i]);
+                        if (lUuid) _bmCommitLegacyUpgrade(bookmark, lUuid, true);
+                    }
+                    break;
+                }
             }
         }
 
@@ -7208,7 +7832,7 @@
                         orbFlashElement(el);
                     } else if (reason !== 'superseded' && reason !== 'user') {
                         // Not a failure when the user scrolled or started another jump.
-                        showToast('That message is not currently rendered \u2014 scroll toward it and try again');
+                        _bmFailToast(bookmark);
                     }
                 });
                 return;
@@ -7216,7 +7840,7 @@
         }
 
         if (!targetEl) {
-            showToast('That message is not currently rendered \u2014 scroll toward it and try again');
+            _bmFailToast(bookmark);
             return;
         }
 
@@ -7251,9 +7875,20 @@
         // post-migration refresh a no-op: the rendered card kept its pre-migration
         // object and still could not use the uuid jump bridge once its row recycled
         // away — the exact failure the migration exists to fix (Codex).
+        // The fingerprint has to cover EVERY input the row derives from, and since
+        // _bmDisplayText/_bmDisplayOrdinal read the INDEX, storage alone is not enough.
+        // A panel rendered before ciIsReady() (trivially reachable on load, and guaranteed
+        // on a same-tab conversation switch since Claude is spa:false and the panel is
+        // never torn down) rendered the raw preview and the stale badge, and then every
+        // later refresh early-returned because storage had not changed — so the derived
+        // label was silently absent for the rest of the session. Verified by review.
+        // Navigate and Search already carry _ciIndexGen for exactly this reason.
+        // legacyUnresolved is included too: it drives which toast _bmFailToast shows, and
+        // a card closed over a pre-migration object fell back to the generic one.
         var bfp = bookmarks.map(function (b) {
-            return b.id + ':' + (b.msgUuid || '') + ':' + (b.contentHash || '');
-        }).join('|');
+            return b.id + ':' + (b.msgUuid || '') + ':' + (b.contentHash || '') +
+                   ':' + (b.legacyUnresolved || '');
+        }).join('|') + '||g' + _ciIndexGen + '|r' + (ciIsReady() ? 1 : 0);
         if (bfp === _bmListFingerprint && panel.children.length > 1) return;
         _bmListFingerprint = bfp;
 
@@ -7278,8 +7913,8 @@
 
         sorted.forEach(function (bm) {
             var labelText = bm.entityType === 'user-msg'
-                ? 'Q#' + (bm.msgIndex + 1)
-                : 'A#' + (bm.msgIndex + 1);
+                ? 'Q#' + (_bmDisplayOrdinal(bm) + 1)
+                : 'A#' + (_bmDisplayOrdinal(bm) + 1);
 
             var typeEl = createElement('div', {
                 className: 'acn-bk-type',
@@ -7304,7 +7939,7 @@
 
             var textEl = createElement('div', {
                 className: 'acn-bk-text',
-                textContent: bm.preview || '(empty message)'
+                textContent: _bmDisplayText(bm) || '(empty message)'
             });
 
             var dateStr = bm.createdAt
@@ -9460,7 +10095,11 @@
             if (typeof showToast === 'function') showToast('No bookmarks in this conversation');
             return;
         }
-        bookmarks.sort(function (a, b) { return (a.msgIndex || 0) - (b.msgIndex || 0); });
+        // Sort by the SAME ordinal the headings use. Sorting on the stale stored msgIndex
+        // while labelling with the derived one produced markdown whose own Q#/A# numbers
+        // did not ascend — the last consumer still trusting a value the rest of the branch
+        // stopped trusting.
+        bookmarks.sort(function (a, b) { return _bmDisplayOrdinal(a) - _bmDisplayOrdinal(b); });
         var typeIcons  = { 'user-msg': '\uD83D\uDCCC', 'ai-msg': '\uD83D\uDCCC', 'code': '\uD83D\uDCBB', 'file': '\uD83D\uDCC4' };
         var typeLabels = { 'user-msg': 'Your Question', 'ai-msg': 'AI Response', 'code': 'Code Block', 'file': 'File' };
         var platformTitle = (typeof platform !== 'undefined' && platform && platform.title)
@@ -9477,12 +10116,12 @@
             var icon   = typeIcons[bm.entityType]  || '\uD83D\uDCCC';
             var label  = typeLabels[bm.entityType] || 'Item';
             var prefix = (bm.entityType === 'user-msg')
-                ? 'Q#' + ((bm.msgIndex || 0) + 1)
-                : 'A#' + ((bm.msgIndex || 0) + 1);
+                ? 'Q#' + (_bmDisplayOrdinal(bm) + 1)
+                : 'A#' + (_bmDisplayOrdinal(bm) + 1);
             lines.push('');
             lines.push('## ' + icon + ' ' + prefix + ' \u2014 ' + label);
             lines.push('');
-            lines.push(bm.preview || '(no preview available)');
+            lines.push(_bmDisplayText(bm) || '(no preview available)');
             lines.push('');
             lines.push('---');
         });

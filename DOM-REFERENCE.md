@@ -2,7 +2,7 @@
 
 This document records the **real DOM structure** of user messages on each supported platform, the selectors we chose, and the debugging history that led to each choice. This prevents context loss across sessions.
 
-Last updated: Jul 26, 2026 (v12.0 — Claude fully re-inspected from the live site; the other 13 platforms were last verified Feb 18, 2026 and have NOT been re-checked since)
+Last updated: Jul 29, 2026 (v12.1 — Probe E added: the conversation payload's thinking-block shape. Claude's DOM was fully re-inspected Jul 26, 2026 for v12.0; the other 13 platforms were last verified Feb 18, 2026 and have NOT been re-checked since)
 
 > ⚠️ **Staleness warning.** Claude's selectors drifted substantially between Feb and Jul 2026 without anyone noticing, because the fallback chains absorbed it and the mock-based test suite stayed green. Assume the other 13 entries carry the same risk until re-inspected.
 
@@ -23,6 +23,8 @@ Last updated: Jul 26, 2026 (v12.0 — Claude fully re-inspected from the live si
 12. [Base44](#base44)
 13. [Emergent](#emergent)
 14. [Firebase Studio](#firebase-studio)
+
+Live probes (measurement context stated in each): [Probe D — no native scroll-to-index](#probe-d--no-native-scroll-to-index-2026-07-27-chromium-page-realm-live-claudeai) · [Probe E — conversation payload thinking-block shape](#probe-e--conversation-payload-thinking-block-shape-2026-07-29-chromium-page-realm-live-claudeai)
 
 ---
 
@@ -751,3 +753,36 @@ Run so nobody repeats the investigation. Rocksteady exposes **no usable imperati
 
 Context: Chromium, page realm. API-surface findings (attributes, focus behaviour) are
 engine-independent; re-verify only if Firefox behaves visibly differently.
+
+---
+
+## Probe E — conversation payload thinking-block shape (2026-07-29, Chromium page realm, live claude.ai)
+
+Measured by fetching one real conversation with the userscript's own parameters —
+`?tree=True&rendering_mode=messages&render_all_tools=true&consistency=strong` — and counting
+shapes rather than reasoning about them. **Context: 297 messages, one conversation (n=1), page
+realm, Chromium.** This is the evidence rule C of the legacy-bookmark ladder rests on (DEC-034).
+
+| Observation | Count |
+|---|---|
+| Messages in the payload | 297 |
+| Thinking content blocks | 61 |
+| Thinking blocks carrying `summaries: [{ summary }]` | **55** |
+| Thinking blocks with no summaries array | 6 |
+
+Two properties that matter, neither derivable from the DOM:
+
+1. **Shape is `block.summaries[].summary`** — an array of objects, not a string. A defensive
+   `Array.isArray` guard is required: a string-valued `summaries` would iterate per character.
+2. **The DOM header truncates the summary for display.** A bookmark preview captured from the
+   collapsed activity header therefore holds a *truncated* — and frequently *doubled*, the header
+   text repeated — copy, while the payload holds the full text. Whole-string prefix matching fails
+   **in both directions** on 3 of the 6 live shapes tested; a 40-character bidirectional probe
+   binds all 6, each uniquely.
+
+**Regression signal.** The migration diagnostic prints `summaries=<n>` per unresolved record. On a
+conversation that visibly contains extended thinking, `summaries=0` means this shape moved and rule
+C is dead. That is the check to run before re-deriving anything here.
+
+**Limit of this probe:** one conversation. It establishes the shape exists and how it is displayed;
+it does not establish a distribution across account types, models, or older conversations.

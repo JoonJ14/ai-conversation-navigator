@@ -170,6 +170,23 @@
 
     var DUP_ROWS = CFG.duplicateRows || [];    // same <=25-char question, 2+ times
     var ATT_ROWS = CFG.attachmentRows || [];   // DOM shows a file chip; API holds a paste
+    // CHIP_ROWS model the LIVE attachment-only message: the row renders a file chip and
+    // carries NO [data-testid="user-message"] node at all. ATT_ROWS only varied the TEXT
+    // while keeping the testid, so ciMountedRows().isUser stayed true and the structural
+    // difference that actually matters was never modelled — which is why a guard keyed on
+    // isUser regressed the live Q#1 case with the suite green (DEC-028).
+    var CHIP_ROWS = CFG.chipRows || [];
+    // SHORT_ANS rows render an answer under the 60-char floor ciMatchRowToPath needs, so
+    // the row CANNOT become a local pair. Adjacent to a chip row this is what removes
+    // 3b's one-sided adjacent cover and leaves the by-construction extreme path as the
+    // only route — the live shape the mock never modelled.
+    var SHORT_ANS = CFG.shortAnswerRows || [];
+    // IDENT_ANS rows render the SAME long answer text, so a legacy preview of it has
+    // two candidates and must hit the uniqueness gate. The duplicateRows knob only
+    // duplicates QUESTIONS, and its text is 24 chars — below the matching floor — so
+    // it cannot reach the gate at all.
+    var IDENT_ANS = CFG.identicalAnswerRows || [];
+    var IDENT_TEXT = 'Identical answer text used twice so a legacy preview is ambiguous.';
     var MESSAGES = [];
     for (var i = 0; i < TOTAL_MESSAGES; i++) {
         var turn = Math.floor(i / 2) + 1;
@@ -181,8 +198,12 @@
                       ': how do I handle case ' + turn + ' when the input is unusual?';
             MESSAGES.push({ sender: 'user', text: qt });
         } else {
-            MESSAGES.push({ sender: 'ai', text: 'Answer number ' + turn +
-                  ': validate the input first, then branch on the result.' });
+            MESSAGES.push({ sender: 'ai', text: SHORT_ANS.indexOf(i) !== -1
+                  ? 'Yes.'
+                  : IDENT_ANS.indexOf(i) !== -1
+                    ? IDENT_TEXT
+                    : 'Answer number ' + turn +
+                      ': validate the input first, then branch on the result.' });
         }
     }
     // One giant row (>=15,000px) exercises intra-row scrolling with no remount.
@@ -245,8 +266,12 @@
             var flexRow = el('div', 'flex flex-row gap-2 relative');
             var flex1   = el('div', 'flex-1');
 
+            var isChip = CHIP_ROWS.indexOf(index) !== -1;
             var content = el('div', 'font-large !font-user-message py-0.5 grid grid-cols-1 gap-2 relative');
-            content.setAttribute('data-testid', 'user-message');
+            // A chip row deliberately does NOT get the testid: the live attachment-only
+            // message exposes no user-message node, so getUserMessages() cannot see it and
+            // ciMountedRows() reports isUser === false for its row.
+            if (!isChip) content.setAttribute('data-testid', 'user-message');
 
             // CONTAMINATION FIXTURES, inside the queried node on purpose.
             // (a) an HTML comment — real mocks (grok, claude, emergent) contain these,

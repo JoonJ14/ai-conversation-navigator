@@ -394,6 +394,43 @@ behaviour deliberately; when text matching is fixed those numbers must return to
 the `KNOWN DEFECT` assertion will fail loudly. That is the point of a characterisation
 test.
 
+### Regression hunting: `ACN_SCRIPT` is the first move, not a bisect
+
+`ACN_SCRIPT` points the harness at any build. Both runs then use **the same fixtures and the
+same instrumentation**, so the only variable is the code under test:
+
+```bash
+git show origin/main:ai-conversation-navigator.user.js > /tmp/shipped.js
+ACN_SCRIPT=/tmp/shipped.js ACN_JUMP_TRACE=1 \
+  node tests/test-all-platforms.js --browser chromium --platform "file chip"
+# then the same command without ACN_SCRIPT, for the working tree
+```
+
+`ACN_JUMP_TRACE=1` turns on both trace channels:
+
+| Channel | Covers |
+|---|---|
+| `[ACN pre]` | the click path BEFORE the settle loop — entry state, the fast-path outcome, and **which** condition refuses when the pre-jump guard rejects |
+| `[ACN jump]` | the settle loop: per-iteration geometry and the `EXIT=` reason |
+
+`[ACN pre]` exists because that whole path used to be silent. One toast covered six different
+refusal causes and the fast path logged nothing at all, so a failure there was
+indistinguishable from a failure in arrival.
+
+**Worked example — the live Q#1 regression (2026-07-28).** An attachment-headed first question
+stopped resolving on the real site. Three reproduction attempts failed:
+
+1. `chipRows` alone — passed, because the mock's normal answer pairs at distance 1 from the chip
+   and 3b's adjacent carve-out resolved Q#1 without consulting the head path.
+2. `+ shortAnswerRows` to remove that pair — **also passed**, because `chipRows` was vacuous
+   (`indexOf(i)` inside `buildRow(index)`; see DEC-032). Two A/Bs were run against a fixture
+   that could not fail.
+3. With the knob fixed, and `ACN_SCRIPT` A/B-ing shipped against working tree under identical
+   instrumentation: `origin/main` → `Q1: expected row 0, got null`; working tree → 40/40 exact.
+
+The alternative on the table was a seven-step manual bisect with a browser reinstall at each
+step. `ACN_SCRIPT` replaced it with two commands. **Reach for it before proposing a bisect.**
+
 ### The load-path guard entries — a fixture default hid two CRITICALs for a release
 
 Two entries exist because the GM fixture's *incidental constants* made real bugs
@@ -422,7 +459,37 @@ strongest form of the DEC-027 gate. When adding fixtures, record which are ances
 and which are only mutant-gated — they are not equally strong evidence.
 
 Fixture knobs available per entry: `apiLatencyMs` (default 5), `toolShapedRow`,
-`refetchProbeMs`, `markdownText`, `conversationUuid`, `totalMessages`.
+`refetchProbeMs`, `markdownText`, `conversationUuid`, `totalMessages`, `failFetchAfter`,
+`summaryRows`, `seedBookmarks`, plus the mock-page knobs `chipRows`, `shortAnswerRows` and
+`identicalAnswerRows` (query params on `claude-virtualized.html`).
+
+**Every knob must be proven to change the output (DEC-032).** `chipRows` shipped vacuous —
+`CHIP_ROWS.indexOf(i)` inside `buildRow(index)` — and two A/B experiments ran against a fixture
+that could not fail, appearing to disconfirm the correct hypothesis. Assert the property the knob
+models (for `chipRows`: that the named row has **no** `[data-testid="user-message"]` descendant,
+read after `scrollToFraction(0)` so the row is actually mounted), and mutation-verify by flipping
+the knob off and watching the assertion fail.
+
+### The legacy-bookmark entry — the uniqueness gate had zero coverage
+
+`Claude (legacy schema-1 bookmarks)` seeds pre-v12.0 records through the GM shim with
+`seedBookmarks`, hashing their text with a replica of the old FNV function (`legacyContentHash`),
+and asserts the migration outcome via `legacyBookmarkProbe: { upgraded: 5, unmatched: 2 }`.
+
+What it is really there to protect is the **refusal** path — the only defence against a permanent,
+silent mis-binding, and previously untested:
+
+| Assertion | Seeded record | Refusal it proves |
+|---|---|---|
+| Uniqueness gate refuses an ambiguous legacy preview | `bm_ambig` against `identicalAnswerRows` | two candidates → `legacyUnresolved: 'ambiguous'`, no binding |
+| Short legacy preview REFUSES to bind | `bm_shortprev` (14 chars) | rule C's reverse probe is floored, not an unbounded substring test |
+| Unmatchable record is marked, not silently generic | `bm_legacy6` | the record survives with a specific failure message |
+| Summary-preview bookmark displays the message text | `bm_legacy4` + `summaryRows` | the panel label is derived from the index, not the stored preview |
+
+**Recorded test debt, deliberately unasserted:** "a harvest-bound record renders an ACTIVE flag."
+The bound row is not reliably mounted when the panel is read, so every available form of that
+assertion passes by finding no icons at all — a vacuous pass, which is the exact failure DEC-032
+exists to prevent. It is written into the fixture as a comment rather than shipped green.
 
 ### A green "question #1" result does NOT mean the settle loop works
 
@@ -448,6 +515,50 @@ branch leaves the suite at 294/294.
 It is live code in production, reachable through assistant-targeted bookmark jumps. Closing
 the gap needs a fixture whose final row is a user turn, which changes turn counts across
 several assertions; it is recorded here rather than papered over.
+
+### What the suite DOES prove — the positive controls
+
+The mutation results in this document are mostly negative (X can be replaced with `throw` and
+the suite stays green), and read alone they invite the wrong conclusion — that the matrix proves
+nothing. The same review lens that found the Summary/Export dead zone also ran **positive
+controls** on the acceptance sweep, and those results matter just as much. Recorded here so a
+future session does not re-derive them or discount the sweep entirely.
+
+| Control | Method | Result |
+|---|---|---|
+| The sweep can fail | injected an off-by-one-turn error into the resolution | **146 of 147 jumps fail**, naming exact rows — it is load-bearing |
+| It does not race the virtualizer | `data-acn-jump-resolved` is written synchronously from the resolved element's own `data-index`, before `scrollIntoView` | no race; the assertion reads a value already committed |
+| It is not circular | expected comes from the mock's structure, actual from the product's resolution | independent sources |
+| The mock genuinely unmounts | node identity checked across scroll positions | real recycling, not `display:none` |
+| The jump stride is coprime with the turn count | arithmetic check | the sweep visits every residue class, not a repeating subset |
+| The old `-3` dead zone is gone | targeted probe | confirmed removed |
+
+So: **the acceptance sweep is trustworthy about what it covers.** The dead zone is a coverage
+boundary, not evidence that the covered part is fake. Both halves of that sentence are load-bearing.
+
+### Live observations that no fixture has replaced
+
+Two results the owner reported from live Firefox + Tampermonkey that are not modelled anywhere in
+the suite. Both are *live measurements in the context that matters*, and both are single readings
+— treat them as leads, not as settled numbers (a single run is not a measurement).
+
+**A repeat jump to the same bookmark landed NEAR, not exact.** First click on a bookmarked Q#1
+one-shotted precisely. A second click, after scrolling to the far end of the conversation,
+*"wasn't exact but it was like just a bit of scroll up and it did go near"*. Resolve-on-arrival
+guarantees the right message or an honest refusal — it does not guarantee identical final scroll
+offsets between two jumps to the same target, and this is the only live evidence we have on that.
+**It is directly the datapoint the §4.2 offset-cache backlog item asks for** ("measure a live
+repeat jump first; if sub-400ms, close as satisfied-by-redesign"). Whoever picks that item up
+should start from this observation rather than from zero, and should measure *landing offset*
+alongside latency — the owner's report is about precision, not speed.
+
+**A bookmark on a message whose text is literally "continue" resolved correctly** to the second
+of two such messages. The owner's hypothesis was that the `Q#68` / `Q#69` badge disambiguated it;
+that is not the mechanism. The record was created after the index was ready, so it carries a
+message uuid and never consults text at all. Duplicate text only matters for a record with **no**
+uuid — the provisional-binding case (DEC-030) and the legacy channels (DEC-034), both of which
+refuse rather than guess. The result is a genuine live confirmation of the uuid path; it is not
+evidence about the duplicate-text gate, which remains fixture-covered only.
 
 ### Tracing a jump
 
