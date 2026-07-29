@@ -201,40 +201,35 @@ Unchanged from the predecessor except the bookmark subsystem:
 
 ## E. Git state
 
-`feat/v12.1`, pushed, **PR #59 OPEN**, 9/9 CI green, tree clean. **Owner merges after live
-confirmation** — do not merge.
-
-**The last code-bearing commit is `3c63c86`** — the Codex R6 test fix. Two commits landed after
-the owner's live confirmation of `f45fb69`:
-
-| Commit | Change | Surface |
-|---|---|---|
-| `cfd8fba` | an exact-hash legacy match on the click path records `boundBy: 'proof'`, one argument | userscript |
-| `3c63c86` | the recycling assertion is bounded on both sides | tests only |
-
-Per DEC-031 a live confirmation certifies **one** commit, so the confirmation must be re-taken on
-`3c63c86`. Only one of the two touches the userscript, it is one argument, and it makes the
-migration do *less* work rather than more — but that reasoning is exactly what DEC-031 exists to
-override, so re-confirm rather than reason.
-
-Verified on `3c63c86`: **515/515 both engines**, and the live-data label harness re-run in
-Chromium (8/8 uuid-keyed, 0 summary labels, 0 glyph labels). Codex round 7 clean on this commit.
-
-A later commit (`5a6bda0`) touches the userscript again, but **only inside comments** — verified
-mechanically: `git diff 3c63c86 HEAD -- ai-conversation-navigator.user.js` filtered to non-comment
-lines is empty. It also changes one fixture string. So `3c63c86` remains a valid build to install
-and confirm; the suite and the label harness were re-run on the newer commit anyway.
+`feat/v12.1`, pushed, **PR #59 OPEN**, CI 9/9, tree clean. **Only the owner merges.**
 
 ### ✅ LIVE-CONFIRMED — `3c63c86`, 2026-07-29, owner, Firefox + Tampermonkey
 
-The owner installed the pinned `3c63c86` build on the real site and reported: **every bookmark row
-shows message text, and clicking a row lands on that message.** That is the DEC-031 confirmation
-this release was gated on, and it names a commit rather than a release.
+Installed the pinned `3c63c86` build on the real site: **every bookmark row shows message text, and
+clicking a row lands on that message.** That is the DEC-031 gate this release was waiting on, and it
+names a commit, not a release.
 
-It covers HEAD as well, but by *mechanical* extension only: every commit after `3c63c86` changes
-comments, one fixture string, and documentation, with the non-comment diff of the userscript proven
-empty. **Anything that changes a line of live code invalidates this and the rule applies again from
-scratch.**
+It extends to HEAD, but *mechanically* rather than by testing: every commit after `3c63c86` changes
+comments, one fixture string, and documentation, and the non-comment diff of the userscript is proven
+empty —
+
+    git diff 3c63c86 HEAD -- ai-conversation-navigator.user.js   # (filtered to non-comment lines: empty)
+
+**Any change to a line of live code re-arms DEC-031 and the confirmation must be re-taken.**
+
+### How the branch got here
+
+`f45fb69` was confirmed live first; three commits landed after it and are the reason a second
+confirmation was needed:
+
+| Commit | Change | Surface |
+|---|---|---|
+| `cfd8fba` | Codex R5 — an exact-hash legacy match on the click path records `boundBy: 'proof'` (one argument) | userscript |
+| `3c63c86` | Codex R6 — the recycling assertion bounded on both sides | tests |
+| `5a6bda0` | privacy scrub + a stale comment corrected | comments / one fixture string |
+
+Verified on `3c63c86` before the live run: **515/515 both engines**, live-data label harness green in
+Chromium (8/8 uuid-keyed, 0 summary labels, 0 glyph labels), Codex round 7 clean.
 
 ---
 
@@ -336,16 +331,15 @@ Paste this as the opening message.
 > Picking up AI Conversation Navigator after the v12.1 legacy-bookmark session. Read `HANDOFF.md`
 > first, then `DECISIONS.md` DEC-031 through DEC-035.
 >
-> **State:** `feat/v12.1` → PR #59, **open and unmerged**, 9/9 CI, 515/515 across 25 entries on
-> Chromium and Firefox. Last code-bearing commit `3c63c86`; commits after it are documentation.
-> The GitHub Codex loop is finished — 8 findings across 7 rounds, zero false positives, provenance
-> 4 pre-existing / 4 cycle-introduced, clean round on `3c63c86`.
+> **State:** `feat/v12.1` → PR #59, 9/9 CI, 515/515 across 25 entries on Chromium and Firefox,
+> **live-confirmed at `3c63c86`** (bookmark rows show message text; clicks land on the named
+> message). Commits after it are comments and documentation only. The GitHub Codex loop is finished
+> — 8 findings across 7 rounds, zero false positives, provenance 4 pre-existing / 4 cycle-introduced.
 >
-> **First thing, before any code:** ask me whether I have live-confirmed `3c63c86` on
-> Firefox + Tampermonkey. Do not merge — I merge, and only after that confirmation (DEC-031).
-> What I check: the console line `[ACN bookmarks] legacy status: all records carry a uuid`,
-> recovered bookmarks landing on the messages they name, and panel labels showing message text
-> for both my questions and Claude's answers.
+> **First thing:** check whether I have merged #59 (`gh pr view 59 --json state`). If it is still
+> open, that is mine to do — do not merge it, and do not restart the Codex loop on the current code.
+> If anything has since changed a line of live code, DEC-031 re-arms: say so and ask me to re-confirm
+> before that change ships.
 >
 > **Then, in order:**
 > 1. **Summary/Export fixtures** — mutation testing proves those surfaces have *zero* test
