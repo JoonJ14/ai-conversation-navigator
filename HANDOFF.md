@@ -145,10 +145,26 @@ recorded in the fixture as **test debt, not coverage** — the harvest proves th
 first on scan, so the click branch is unreachable without a knob to disable the harvest, and an
 assertion that cannot fail is the DEC-032 failure rather than a test.
 
-**Provenance (DEC-029):** 6 findings across 5 rounds, **4 pre-existing / 2 cycle-introduced**,
-zero false positives. Still pre-existing-dominant, so the loop converged rather than being
-stopped — and the last find arrived on a docs-only push, which is the argument for triggering a
-review on documentation commits rather than skipping them.
+Round 6 (triggered on the R5 fix) found a **test** defect: `chipSlack` — a floor allowance for
+the chip row's missing testid — was written as a bare `>=`, so the recycling assertion also
+accepted counts *above* the window and a mock that stopped unmounting would have passed the check
+whose whole purpose is to prove it still unmounts. Bounded on both sides, and the predicate was
+evaluated directly to confirm `[4,3,3]` now fails. Round 7 came back clean at `3c63c86`. One more
+`Unknown error` was retried rather than counted, same as round 4.
+
+**Provenance (DEC-029) — this is where the loop stopped.** 8 findings across 7 rounds, zero false
+positives, **4 pre-existing / 4 cycle-introduced**. Both late findings were defects in fixes made
+*during* review: R5's missing flag was a call site not updated when the Tier 3 fix added the
+`proven` parameter, and R6's unbounded comparison came from the round-2 chip-fixture fix. The
+ratio has reached parity, which is the DEC-029 signal — the loop is now mostly reviewing its own
+edits. Round 7 being clean makes it a convergence rather than a forced stop, and no further round
+was triggered: the last push is documentation only, so a fresh round would re-read code Codex has
+already passed.
+
+Worth keeping, though: **R5 arrived on a docs-only push** and was a real code finding four rounds
+against the same file had not surfaced. Codex re-reads the whole diff each time, so a
+documentation push is a free extra look at the code. Trigger a review on doc commits; just don't
+keep triggering once the code underneath is unchanged.
 
 ---
 
@@ -188,15 +204,21 @@ Unchanged from the predecessor except the bookmark subsystem:
 `feat/v12.1`, pushed, **PR #59 OPEN**, 9/9 CI green, tree clean. **Owner merges after live
 confirmation** — do not merge.
 
-**The last code-bearing commit is the Codex R5 fix** (one argument on the bookmark click path —
-an exact-hash legacy match now records `boundBy: 'proof'` instead of `'inference'`, so
-`_bmPendingLegacy` can actually clear). `f45fb69` was the previously confirmed build; per DEC-031
-the owner's live confirmation must be taken **on HEAD**, not on `f45fb69`. The change is small and
-one-directional, and the surface it touches — recovered bookmarks landing on their messages — is
-exactly what the live check already exercises.
+**The last code-bearing commit is `3c63c86`** — the Codex R6 test fix. Two commits landed after
+the owner's live confirmation of `f45fb69`:
 
-Verified on HEAD: **515/515 both engines**, and the live-data label harness re-run in Chromium
-(8/8 uuid-keyed, 0 summary labels, 0 glyph labels).
+| Commit | Change | Surface |
+|---|---|---|
+| `cfd8fba` | an exact-hash legacy match on the click path records `boundBy: 'proof'`, one argument | userscript |
+| `3c63c86` | the recycling assertion is bounded on both sides | tests only |
+
+Per DEC-031 a live confirmation certifies **one** commit, so the confirmation must be re-taken on
+`3c63c86`. Only one of the two touches the userscript, it is one argument, and it makes the
+migration do *less* work rather than more — but that reasoning is exactly what DEC-031 exists to
+override, so re-confirm rather than reason.
+
+Verified on `3c63c86`: **515/515 both engines**, and the live-data label harness re-run in
+Chromium (8/8 uuid-keyed, 0 summary labels, 0 glyph labels). Codex round 7 clean on this commit.
 
 ---
 

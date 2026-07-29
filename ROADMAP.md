@@ -56,8 +56,9 @@ whole-string matching fails in both directions and a 40-char bidirectional probe
 **0/16 → 16/16**. The panel now labels every row with the *message* text derived from the index at
 render time while the stored preview stays untouched as matching evidence. Review: 36 raw findings /
 21 verified locally (two CRITICAL — rule C's reverse probe had no floor on the preview; inference
-committed before proof and destroyed the hash oracle, now **DEC-035**), then three Codex rounds to a
-genuine clean round. Suite **515/515 across 25 entries**, both engines. Also fixed: the
+committed before proof and destroyed the hash oracle, now **DEC-035**), then seven Codex rounds to a clean
+round (8 findings, zero false positives, 4 pre-existing / 4 cycle-introduced — parity is the
+DEC-029 stop signal). Suite **515/515 across 25 entries**, both engines. Also fixed: the
 attachment-headed Q#1 that shipped in v12.0, whose reproduction was blocked by a **vacuous fixture
 knob** (**DEC-032**).
 

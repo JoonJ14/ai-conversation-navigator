@@ -55,7 +55,7 @@ the panel and the bookmarks export derive their label — and the Q#/A# badge �
 uuid at render time. A migrated record had been rendering **"A#91" in an 8-message
 conversation**; human ordinals now count `_questions` so the badge agrees with the Navigate list.
 
-### Review — 36 raw findings, 21 verified, then 3 Codex rounds to a clean round
+### Review — 36 raw findings, 21 verified, then 7 Codex rounds to a clean round
 
 Two CRITICALs. **Rule C's reverse probe had no floor on the preview** — the needle is
 `want.substring(0, 40)`, which is only 40 chars when the preview *has* 40, so a short preview
@@ -79,6 +79,15 @@ add a *second* bookmark for the wrong message), the diagnostic mislabelling ambi
 and `ACN_VERSION` still reading `12.0`. It also aimed **DEC-032 at this release's own chip
 fixture** — the bounds tolerated a range, so the knob could go vacuous again. It now asserts the
 modelled property and is mutation-verified.
+
+Two later rounds, both triggered on **documentation** pushes, found defects in the *fixes*: an
+exact-hash match on the bookmark click path was recorded as `inference` rather than `proof`, so
+`_bmPendingLegacy` never cleared and every new mount window re-read the whole store to re-prove an
+already-proven record; and the recycling assertion's `chipSlack` floor was written as a bare `>=`,
+so it also accepted mounted counts *above* the window — a mock that stopped unmounting would have
+passed the check that exists to prove it unmounts. Final ledger: **8 findings across 7 rounds, zero
+false positives, 4 pre-existing / 4 cycle-introduced.** Parity is the DEC-029 stop signal; round 7
+came back clean, so it converged rather than being cut off.
 
 ### Results
 
