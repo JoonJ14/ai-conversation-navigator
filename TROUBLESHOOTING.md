@@ -75,12 +75,22 @@ release, and zero improvement. (There *was* a genuine selector drift underneath,
 same investigation, and the fallback chains had been silently absorbing it. Fixing it changed
 nothing about coverage.)
 
-**"Scroll the conversation to load everything, then scan."** This confuses recycling with lazy
-loading. Under lazy loading, scrolling accumulates nodes and the count grows and stays grown.
-Under recycling, the count is flat forever — scroll from top to bottom and you finish with the
-same three rows mounted that you started with. Measured directly: a sweep across 0/25/50/75/100%
-of a 96-turn conversation kept the identical three turns mounted at every stop, cumulative unique
-total **3**. There is no scroll position at which the conversation is in the DOM.
+**"Scroll the conversation to load everything, then scan."** This one deserves care, because **it
+is not universally wrong — this project already does exactly that on another platform.** Emergent
+also uses a Virtuoso recycling scroller, and it is handled by sweeping the scroller on panel open,
+accumulating messages across the sweep, and re-resolving stale element references at click time.
+That works there.
+
+It does not work on Claude, for two measured reasons. First, a sweep across 0/25/50/75/100% of a
+96-turn conversation kept the identical three turns mounted at every stop — cumulative unique total
+**3**, no accumulation at all. Second, even a sweep that did accumulate would be prohibitive: the
+scroll container measured 372,642 px against a 746 px viewport, so a viewport-step sweep at the
+250 ms Emergent uses is roughly 500 steps — minutes of scrolling before the panel can be drawn, on
+every conversation.
+
+So the question is not "does it virtualize" but **"does it virtualize, and is a sweep viable here?"**
+Emergent answers yes/yes and gets a DOM strategy. Claude answers yes/no and needs a source of truth
+outside the DOM. The comparison table is in `DOM-REFERENCE.md` → "Two questions, not one".
 
 **"Cache what we see as the user scrolls."** This produces a partial, stale, order-unknown record
 that depends on where the user happened to look — and it fails the moment they open a conversation
@@ -180,7 +190,9 @@ software is part of the world and is easy to leave out of it.
 
 Virtualization is not a Claude quirk. It is the standard answer to "our chat page gets slow on long
 conversations", and every platform this userscript supports will eventually have that conversation
-internally. ChatGPT, Grok and Gemini all render long threads the same naive way Claude used to.
+internally. **Claude was not even the first here** — Emergent has used a Virtuoso recycling scroller
+since before this was recognised as a category, and is handled by a DOM sweep (see the previous
+section). ChatGPT, Grok and Gemini still render long threads the naive way Claude used to.
 
 **When one of them does it, the tool will not report an error.** It will quietly start describing
 a fraction of the conversation, exactly as it did here, and the test suite will stay green. So the

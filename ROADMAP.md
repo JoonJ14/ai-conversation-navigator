@@ -344,13 +344,25 @@ same naive way Claude used to. Detection procedure and per-platform status live 
 the shape it did is in `TROUBLESHOOTING.md` → "Why v12.0 and v12.1 Exist". This section is the
 **order of operations** for the next one.
 
-### Step 0 — Confirm it is recycling, not lazy loading
+### Step 0 — Two questions, not one
 
-Do this before anything else; it decides whether the work is an afternoon or a release. Lazy
-loading accumulates nodes and a scroll sweep before scanning fixes it. Recycling keeps a flat pool
-and reuses nodes for different messages — no scroll strategy will ever help, and every cached
-element reference in the codebase becomes a latent wrong-answer bug. The check is two console
-commands (`DOM-REFERENCE.md`).
+**(a) Recycling or lazy loading?** Lazy loading accumulates nodes, so a scroll sweep before scanning
+fixes it and the DOM stays a valid source. Recycling reuses a fixed pool for different messages, so
+every cached element reference in the codebase becomes a latent wrong-answer bug. Two console
+commands, in `DOM-REFERENCE.md`.
+
+**(b) If recycling — is a full sweep viable?** This is the question that actually decides the size of
+the work, and **the answer is not always no.** Emergent recycles via Virtuoso and is handled entirely
+in the DOM: sweep the scroller on panel open, accumulate across the sweep, re-resolve stale references
+at click time. Claude cannot be handled that way — a measured sweep never accumulated past 3 unique
+turns, and at 372,642 px of scroll height a viewport-step sweep would take minutes per conversation.
+
+Estimate before choosing: `scrollHeight / clientHeight` steps at ~250 ms. Seconds means copy the
+Emergent pattern and stop here. Minutes — or a sweep that does not accumulate — means Steps 1–6.
+
+**Do not use the `virtualScroll` platform flag to answer this.** It selects the Emergent DOM
+mitigation, not the platform property, so Claude is `virtualScroll: false`. The
+`DOM-REFERENCE.md` table is the record.
 
 ### Step 1 — Find out whether an independent source exists, and do not assume the answer
 

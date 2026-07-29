@@ -37,20 +37,49 @@ not the same thing as what is in the conversation.** Claude proved that the hard
 `TROUBLESHOOTING.md` → "Why v12.0 and v12.1 Exist"), and there is no reason the others will not
 follow — virtualization is the standard fix for a slow chat page, not a Claude quirk.
 
-| Platform | Virtualized? | Last checked | Enumeration source |
+| Platform | Virtualizes? | Last checked | Strategy in use |
 |---|---|---|---|
-| **Claude** (`claude.ai/chat`) | **YES — recycling**, ~3–7 of N turns mounted | Jul 26, 2026 | **API-backed conversation index** (DEC-021); DOM is the fallback |
-| ChatGPT | No — full DOM at time of check | Feb 18, 2026 | DOM |
-| Grok | No — full DOM at time of check | Feb 18, 2026 | DOM |
-| Gemini | No — full DOM at time of check | Feb 18, 2026 | DOM |
-| Perplexity | No — full DOM at time of check | Feb 18, 2026 | DOM |
-| Claude Code Web | No — full DOM at time of check | Feb 18, 2026 | DOM |
-| Codex Web | No — full DOM at time of check | Feb 18, 2026 | DOM |
-| The 7 app builders | No — full DOM at time of check | Feb 18, 2026 | DOM |
+| **Claude** (`claude.ai/chat`) | **YES — Virtuoso-style recycling**, ~3–7 of N turns mounted | Jul 26, 2026 | **API-backed conversation index** (DEC-021). DOM is the labelled fallback. |
+| **Emergent** (`app.emergent.sh`) | **YES — Virtuoso recycling**, `[data-testid="virtuoso-scroller"]` | Feb 15, 2026 | **DOM sweep**: scroll-through collection on panel open, accumulative scanning, click-time re-resolution of stale references |
+| ChatGPT · Grok · Gemini · Perplexity | not observed | Feb 18, 2026 | DOM |
+| Claude Code Web · Codex Web | not observed | Feb 18, 2026 | DOM |
+| Bolt · Lovable · Replit · V0 · Base44 · Firebase Studio | not observed | Feb 18, 2026 | DOM |
 
-> ⚠️ **Every "No" above is five months stale** and was recorded before anyone was looking for this
-> failure mode. Treat them as *unverified*, not as *verified negative*. Claude's own answer flipped
-> between February and July with no announcement and no error.
+> ⚠️ **"Not observed" is not "verified absent."** Those twelve were checked in February, *before anyone
+> knew to look for this failure mode*, and a short test conversation cannot distinguish a virtualized
+> list from a complete one. Claude's own answer flipped between February and July with no
+> announcement, no error, and a green test suite.
+
+### ⚠️ The `virtualScroll` platform flag does NOT mean "this platform virtualizes"
+
+Read this before using the flag to assess anything. In the platform registry:
+
+```js
+claude:   { virtualScroll: false, ... }   // the MOST virtualized platform in the project
+emergent: { virtualScroll: true,  ... }   // the only `true` in the file
+```
+
+The flag selects the **Emergent-style DOM mitigation** (accumulative scanning + scroll-through
+collection), not the platform property. Claude is `false` because it does not use that strategy — it
+uses the index instead. So grepping `virtualScroll` to find virtualized platforms returns exactly the
+wrong answer, and the name invites that mistake. **This table, not the flag, is the record of which
+platforms virtualize.** A rename is on the backlog; it touches 12 platform configs and so needs the
+full acceptance matrix.
+
+### Two questions, not one
+
+"Does it virtualize?" only opens the decision. The second question decides the whole response, and
+this project has a worked example of each answer:
+
+| | **Sweep is viable** | **Sweep is not viable** |
+|---|---|---|
+| Example | **Emergent** — app-builder sessions are short; one pass over the scroller collects everything | **Claude** — 147+ turns, ~372,000 px of scroll height, and a measured sweep across 0/25/50/75/100% never accumulated past 3 unique turns |
+| Strategy | scroll-through on panel open + accumulate + re-resolve stale references at click time | non-DOM source of truth (API index) + resolve-on-arrival jumping |
+| Cost | modest — an existing pattern to copy | a release, plus a second one for persisted data |
+
+Estimate the sweep cost before choosing: `scrollHeight / clientHeight` viewport steps at ~250 ms each.
+Emergent's is seconds. Claude's would be roughly 500 steps — minutes — and the measurement says it
+would still not be complete at the end.
 
 ### The check, in full
 
