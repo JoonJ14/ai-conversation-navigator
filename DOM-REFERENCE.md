@@ -109,30 +109,61 @@ complete at the end.
 Run on a conversation you **know** is long (100+ turns). A short conversation cannot distinguish a
 virtualized list from a complete one — that ambiguity is exactly what hid the Claude break.
 
-```js
-// 1. How much of the conversation is actually in the DOM?
-document.querySelectorAll('<the user-message selector for this platform>').length
-// Single digit on a long conversation => virtualized. Proceed to step 2.
+**This block is the canonical procedure.** `TROUBLESHOOTING.md` and `ROADMAP.md` point here rather
+than restating it — earlier revisions of this PR kept three drifting copies and fixed them one at a
+time.
 
-// 2. Recycling or lazy loading? Scroll the full length, then re-run step 1.
-//    Count grows and STAYS grown  -> lazy loading
-//    Count stays flat             -> recycling
+```js
+// STEP 0 — Is the selector still good? Do this FIRST.
+//   Count what the selector matches, then count the user turns you can SEE on screen.
+//   If they disagree, you have a Layer 1 selector drift, not virtualization. A drifted
+//   selector produces the same single-digit, flat count as recycling.
+
+// STEP 1 — How much of the conversation is in the DOM?
+document.querySelectorAll('<the user-message selector for this platform>').length
+// Single digit on a conversation you KNOW is long => virtualized. Continue.
+
+// STEP 2 — Recycling or lazy loading? Scroll the full length, then re-run step 1.
+//   Count grows and STAYS grown  -> lazy loading
+//   Count stays flat             -> recycling
+
+// STEP 3 — (recycling only) Does a STEPPED SWEEP accumulate the whole conversation?
+//   Scroll in viewport-sized steps; at each stop, add the matches to a Set keyed on
+//   something structural. Then ask: does the union reach BOTH ends of the conversation,
+//   and how long did the sweep take?
 ```
 
-The distinction in step 2 decides the entire response and the two are easy to confuse:
+**Step 2's two outcomes:**
 
-- **Lazy loading** — the nodes accumulate. A scroll sweep before scanning genuinely fixes it, and
-  the DOM remains a valid source. Cheap.
-- **Recycling** — the client reuses a fixed pool of nodes for different messages. The count is flat
-  no matter what you do, held element references silently come to point at *other* messages, and
-  the DOM can never be a complete source. Expensive: this is the Layer 4 case, and it needs a
-  non-DOM enumeration source plus a jump path that re-identifies its target on arrival.
+- **Lazy loading** — nodes accumulate. A sweep before scanning fixes it and the DOM stays a valid
+  source. Cheap.
+- **Recycling** — the client serves a fixed-size window. Held element references stop being
+  trustworthy, which is the expensive part regardless of what else you decide.
 
-Confirm recycling rather than assuming it: hold a reference to a mounted row, scroll away and back,
-and check whether that same node now displays different text. If it does, every cached element
-reference in the codebase is a latent wrong-answer bug.
+**Step 3 is the one that actually decides the architecture, and it is easy to skip.** A flat count in
+step 2 proves recycling — *it does not prove that a sweep is futile*. The recycler exposes **different
+rows** as the container moves, so scanning at each stop can accumulate the complete set even though
+the instantaneous count never rises. Only two results force a non-DOM source of truth:
 
-**If a platform flips to recycling, do not start with selectors.** The response is scoped in
+1. the union stays incomplete no matter how finely you step (Claude: the union stayed at **3**), or
+2. the sweep is too slow to run whenever a panel opens (Claude: ~500 steps, minutes).
+
+If neither holds, a sweep may be the entire fix. Key the accumulator on something **structural** —
+Virtuoso exposes `data-index` — never on message text, or duplicate prompts silently collapse.
+
+**Confirming recycling — accept either form.** Virtualizers come in two flavours and a test for one
+gives a false negative on the other:
+
+- **Same-node repurposing** — hold a reference to a mounted row, scroll away and back, and the same
+  `Node` now shows *different text*.
+- **Detach and remount** — the row is destroyed and a new node created in its place, so the held
+  reference reads `isConnected === false` and will *never* show different text. Claude works this way,
+  and `tests/mock-pages/claude-virtualized.html` deliberately models it.
+
+Either one means every cached element reference in the codebase is a latent wrong-answer bug. Test
+for both: `node.isConnected === false` **or** the node's text changed.
+
+**If a platform is recycling, do not start with selectors.** The response is scoped in
 `ROADMAP.md` → "Porting the Layer 4 response to another platform".
 
 ## Claude

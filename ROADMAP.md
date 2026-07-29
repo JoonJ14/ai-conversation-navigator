@@ -385,9 +385,10 @@ the shape it did is in `TROUBLESHOOTING.md` → "Why v12.0 and v12.1 Exist". Thi
 ### Step 0 — Two questions, not one
 
 **(a) Recycling or lazy loading?** Lazy loading accumulates nodes, so a scroll sweep before scanning
-fixes it and the DOM stays a valid source. Recycling reuses a fixed pool for different messages, so
-every cached element reference in the codebase becomes a latent wrong-answer bug. Two console
-commands, in `DOM-REFERENCE.md`.
+fixes it and the DOM stays a valid source. Recycling serves a fixed-size window, so every cached
+element reference in the codebase becomes a latent wrong-answer bug. **Full procedure — four steps,
+including selector validation and the two forms of recycling — is in `DOM-REFERENCE.md` →
+"Virtualization status". It is the canonical copy; this section deliberately does not restate it.**
 
 **(b) If recycling — is a full sweep viable?** This is the question that actually decides the size of
 the work, and **the answer is not always no** — on a platform with short sessions a sweep may be the

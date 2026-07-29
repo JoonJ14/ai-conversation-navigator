@@ -205,22 +205,17 @@ detection has to be deliberate and periodic rather than reactive:
 document.querySelectorAll(SELECTOR_FOR_THAT_PLATFORM).length
 ```
 
-A single-digit answer on a long conversation means the list is virtualized — **but check first that
-the selector still matches every user turn you can actually see.** A drifted selector produces the
-same single-digit count, and misreading a Layer 1 break as Layer 4 sends you off to build an index
-for a bug that needed one line.
+A single-digit answer on a long conversation is the first signal — but it is only the first, and the
+full procedure has four steps, in `DOM-REFERENCE.md` → "Virtualization status". Do not shortcut it.
+Two of the steps exist because shortcutting produced wrong answers here:
 
-Then distinguish **recycling** from **lazy loading**: scroll the full length and re-run. Growing and
-staying grown is lazy loading, and a scroll sweep before scanning genuinely fixes it.
-
-Flat means recycling — **and that is all it means.** It does not by itself imply that a non-DOM
-source is required. A recycler still exposes different rows as its container moves, so *scanning at
-each step of a stepped sweep* may accumulate the complete set even though the instantaneous count
-never rises. That is a separate, third measurement: sweep in viewport steps, scan at each stop, and
-check whether the union reaches the ends of the conversation. Only when that union stays incomplete —
-or when the sweep is too slow to run on every panel open — does the problem require a source of truth
-outside the DOM. On Claude the union stayed at 3 and the sweep would have taken minutes, which is why
-Claude needed the index; do not carry that conclusion to a platform you have not measured.
+- **Validate the selector before concluding anything.** A drifted selector gives the same
+  single-digit, flat count as recycling, and this project has had drift sit unnoticed for months.
+- **A flat count proves recycling — it does not prove a sweep is futile.** The recycler exposes
+  *different* rows as the container moves, so a stepped sweep can accumulate the whole conversation
+  even though the instantaneous count never rises. Only an incomplete union, or a sweep too slow to
+  run on panel open, forces a non-DOM source. Claude failed both (union stayed at 3; ~500 steps) —
+  that conclusion is Claude's, not a general law.
 
 Per-platform status and the check procedure live in `DOM-REFERENCE.md` ("Virtualization status").
 **What to actually do when one of them flips is in `ROADMAP.md` → "Porting the Layer 4 response to
