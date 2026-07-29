@@ -91,6 +91,8 @@ came back clean, so it converged rather than being cut off.
 
 ### Results
 
+**Live-confirmed by the owner on Firefox + Tampermonkey at `3c63c86`**: every bookmark row shows
+message text, and clicking a row lands on that message. Suite:
 **515/515 across 25 platform entries**, Chromium and Firefox (from 455/455 across 23). New
 fixture knobs: `chipRows`, `shortAnswerRows`, `summaryRows`, `seedBookmarks`,
 `identicalAnswerRows`, `failFetchAfter`, `apiLatencyMs`. The uniqueness gate — the only defence

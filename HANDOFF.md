@@ -5,8 +5,8 @@ the owner's are now recovered, the panel shows message text instead of matching 
 work went through Tier 1/2/3 review plus a GitHub Codex cycle that ended in a genuine clean
 round.
 **Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-07-28_v12.0-premerge.md`.
-**Branch:** `feat/v12.1`, **PR #59 OPEN** (22 commits ahead of main), CI green.
-**NOT MERGED — the owner merges after live confirmation of HEAD** (see §E).
+**Branch:** `feat/v12.1`, **PR #59 OPEN**, CI green, **live-confirmed at `3c63c86`** (§E).
+**NOT MERGED — the owner merges, and only the owner.**
 
 ---
 
@@ -225,6 +225,17 @@ mechanically: `git diff 3c63c86 HEAD -- ai-conversation-navigator.user.js` filte
 lines is empty. It also changes one fixture string. So `3c63c86` remains a valid build to install
 and confirm; the suite and the label harness were re-run on the newer commit anyway.
 
+### ✅ LIVE-CONFIRMED — `3c63c86`, 2026-07-29, owner, Firefox + Tampermonkey
+
+The owner installed the pinned `3c63c86` build on the real site and reported: **every bookmark row
+shows message text, and clicking a row lands on that message.** That is the DEC-031 confirmation
+this release was gated on, and it names a commit rather than a release.
+
+It covers HEAD as well, but by *mechanical* extension only: every commit after `3c63c86` changes
+comments, one fixture string, and documentation, with the non-comment diff of the userscript proven
+empty. **Anything that changes a line of live code invalidates this and the rule applies again from
+scratch.**
+
 ---
 
 ## F. Files for next session
@@ -244,9 +255,8 @@ and confirm; the suite and the label harness were re-run on the newer commit any
 
 ## G. What comes next
 
-1. **Owner live-confirms `3c63c86`, then merges #59.** Specific checks: the console line
-   `[ACN bookmarks] legacy status: all records carry a uuid`; a few recovered bookmarks landing
-   on the messages they name; panel labels showing message text for both questions and answers.
+1. ~~**Owner live-confirms `3c63c86`**~~ — **done 2026-07-29** (§E). The remaining step is the
+   owner merging #59; nobody else merges it. If the branch has moved since, re-confirm first.
 2. **Summary/Export fixtures** — still the zero-execution zone (mutation-proven). Highest
    remaining value in the release.
 3. **Retry-After honoring for HTTP 429** — plumb response headers through `ciRequestJSON`.
@@ -301,11 +311,10 @@ and confirm; the suite and the label harness were re-run on the newer commit any
 
 ## J. Risk caveats
 
-- **⚠ NOT LIVE-VERIFIED AT `3c63c86`.** The owner confirmed labels and recovery at an earlier
-  commit; review fixes landed after, touching migration ordering, the panel fingerprint, icon
-  state, and the click path's proof flag. The live-data harness re-ran green on the final commit,
-  but that is Chromium page realm, not Firefox+Tampermonkey — the two contexts have disagreed
-  before, which is the whole reason DEC-031 exists.
+- ~~**⚠ NOT LIVE-VERIFIED AT `3c63c86`.**~~ **Discharged 2026-07-29** — the owner ran the live
+  test on Firefox + Tampermonkey against the pinned `3c63c86` build: bookmark rows all show message
+  text, clicks land on the named message. See §E. The caveat is kept here in struck form on purpose:
+  it was live for most of this release, and the *next* code change re-arms it.
 - **⚠ Summary, Tools and Export still have ZERO test execution** (mutation-proven, carried from
   the predecessor). Any suite number about that code is unearned.
 - **⚠ One honest test-debt item, recorded in the fixture itself:** "a harvest-bound record

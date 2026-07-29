@@ -30,7 +30,7 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.1 (legacy bookmark recovery complete, PR #59 open, 2026-07-29)
+## Current Status: v12.1 (legacy bookmark recovery complete and live-confirmed, PR #59 open, 2026-07-29)
 
 The extension supports 14 platform variants across 12 websites.
 
