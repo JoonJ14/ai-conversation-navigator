@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.1 — Legacy Bookmark Recovery] — 2026-07-29
 
-**Branch:** `feat/v12.1` | **Commit:** `f45fb69` | **PR:** #59
+**Branch:** `feat/v12.1` | **Last code commit:** `3c63c86` | **PR:** #59
 
 ### Problem
 
