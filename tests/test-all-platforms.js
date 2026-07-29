@@ -1469,6 +1469,13 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                 // panel is read here, so any assertion I can write passes by finding no
                 // icons at all — a test that cannot fail, which DEC-032 records as
                 // indistinguishable from one that passes. Left as honest test debt.
+                //
+                // ALSO NOT COVERED, same reasoning: "the click path records an exact-hash
+                // legacy match as boundBy:'proof'". Reaching that branch needs a record the
+                // text rules cannot bind whose hash DOES reproduce against a mounted row —
+                // but the harvest runs on scan and proves exactly that record first, so the
+                // click branch is unreachable here without a knob to disable the harvest.
+                // Codex #59 R5 found the missing flag by reading, not by a red test.
 
                 const shortRec = lb.find(b => b.id === 'bm_shortprev');
                 assert('Short legacy preview REFUSES to bind rather than guessing',

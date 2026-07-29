@@ -7795,9 +7795,16 @@
                     // A legacy match is exact-hash evidence — persist it. It only proves
                     // identity while this node is mounted, and the uuid is what keeps the
                     // bookmark reachable after the row recycles away.
+                    //
+                    // PROVEN, not inferred: _bmMatchesLegacy reproduced the stored hash
+                    // against this row's rendered text, which is the same oracle the harvest
+                    // uses. Omitting the flag recorded it as inference, so _bmMigrateLegacy
+                    // kept counting it in `inferred`, _bmPendingLegacy never cleared, and
+                    // every new mount set re-parsed the whole store and re-walked the path
+                    // to re-prove a record that was already proven (Codex #59 R5).
                     if (!bookmark.msgUuid) {
                         var lUuid = ciUuidForText(textOf(els[i]), els[i]);
-                        if (lUuid) _bmCommitLegacyUpgrade(bookmark, lUuid);
+                        if (lUuid) _bmCommitLegacyUpgrade(bookmark, lUuid, true);
                     }
                     break;
                 }

@@ -177,11 +177,15 @@ Unchanged from the predecessor except the bookmark subsystem:
 `feat/v12.1`, pushed, **PR #59 OPEN**, 9/9 CI green, tree clean. **Owner merges after live
 confirmation** — do not merge.
 
-**The last code-bearing commit is `f45fb69`.** The session-close docs commit sits on top of it and
-is **code-identical** — `git diff f45fb69 HEAD -- ai-conversation-navigator.user.js tests/` is
-empty, verified. So DEC-031's "live confirmation certifies one commit" is satisfied by confirming
-`f45fb69`; the docs on top do not re-open it. If anything lands after this that touches the
-userscript or the suite, that rule applies again from scratch.
+**The last code-bearing commit is the Codex R5 fix** (one argument on the bookmark click path —
+an exact-hash legacy match now records `boundBy: 'proof'` instead of `'inference'`, so
+`_bmPendingLegacy` can actually clear). `f45fb69` was the previously confirmed build; per DEC-031
+the owner's live confirmation must be taken **on HEAD**, not on `f45fb69`. The change is small and
+one-directional, and the surface it touches — recovered bookmarks landing on their messages — is
+exactly what the live check already exercises.
+
+Verified on HEAD: **515/515 both engines**, and the live-data label harness re-run in Chromium
+(8/8 uuid-keyed, 0 summary labels, 0 glyph labels).
 
 ---
 
