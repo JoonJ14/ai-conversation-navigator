@@ -4105,6 +4105,19 @@
                 // Once per index generation: bind any bookmark taken before its message
                 // had a uuid. _ciIndexGen changes on every rebuild, which is exactly when
                 // a previously-unknown uuid can become known.
+                var indexed = _ciIndex.slice();
+                _ciMergeLiveMessages(indexed);
+                indexed.sort(function (a, b) { return a.pathIndex - b.pathIndex; });
+                _ciBindMountedElements(indexed);
+                _questions = indexed;
+
+                // MIGRATION RUNS AFTER _questions IS INSTALLED. _bmDisplayOrdinal numbers a
+                // HUMAN bookmark by its position in _questions (so the badge agrees with the
+                // Navigate list), and migration refreshes the open panel — so running it
+                // before this assignment made that refresh read the PREVIOUS conversation's
+                // questions. Worse, the same refresh cached the new _ciIndexGen in
+                // _bmListFingerprint, so the correct refresh afterwards early-returned and
+                // the stale badge survived until some later index generation (Codex).
                 if (_bmMigratedGen !== _ciIndexGen) {
                     // Guarded, and the generation is stamped only on success. Unguarded, a
                     // throw here aborted the remainder of the index-backed branch for that
@@ -4132,11 +4145,6 @@
                     }
                 }
 
-                var indexed = _ciIndex.slice();
-                _ciMergeLiveMessages(indexed);
-                indexed.sort(function (a, b) { return a.pathIndex - b.pathIndex; });
-                _ciBindMountedElements(indexed);
-                _questions = indexed;
 
                 _aiResponses = Array.from(getAIMessages());
                 if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
@@ -7172,7 +7180,28 @@
                     var probe = { contentHash: b.legacyHash || b.contentHash };
                     if (!_bmInLegacySet(probe, ids)) continue;
                     var wasWrong = b.msgUuid && b.msgUuid !== uuid;
+                    var oldUuid = b.msgUuid;
                     _bmCommitLegacyUpgrade(b, uuid, true);
+                    // A CORRECTION leaves the WRONGLY-inferred row still wearing an active
+                    // flag if it is also mounted: its data-acn-bookmarked still matches, so
+                    // inject() skips it forever, and clicking it would not find the
+                    // corrected record — it would ADD a second bookmark, for the wrong
+                    // message (Codex). Clear that row too, not just the proven one.
+                    if (wasWrong && oldUuid) {
+                        try {
+                            var stale = Array.from(els);
+                            for (var sx = 0; sx < stale.length; sx++) {
+                                if (stale[sx] === el) continue;
+                                if (stale[sx].getAttribute('data-acn-bookmarked') !== oldUuid) continue;
+                                stale[sx].removeAttribute('data-acn-bookmarked');
+                                var sic = stale[sx].querySelector('[data-acn-bookmark]');
+                                if (sic) {
+                                    sic.classList.remove('acn-bm-active');
+                                    sic.setAttribute('title', 'Bookmark this message');
+                                }
+                            }
+                        } catch (e) {}
+                    }
                     if (wasWrong) {
                         console.warn('[ACN bookmarks] harvest CORRECTED ' + b.id +
                                      ': a text rule had bound it to the wrong message; ' +
