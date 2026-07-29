@@ -155,8 +155,10 @@ step 2 proves recycling — *it does not prove that a sweep is futile*. The recy
 rows** as the container moves, so scanning at each stop can accumulate the complete set even though
 the instantaneous count never rises. Only two results force a non-DOM source of truth:
 
-1. the union stays incomplete no matter how finely you step (Claude: the union stayed at **3**), or
-2. the sweep is too slow to run whenever a panel opens (Claude: ~500 steps, minutes).
+1. the union stays incomplete no matter how finely you step — **untested on Claude**; only five
+   coarse positions were sampled there, see the caveat below — or
+2. the sweep is too slow to run whenever a panel opens (Claude: ~500 steps, minutes). **This is the
+   condition Claude actually met**, and it was sufficient on its own.
 
 If neither holds, a sweep may be the entire fix. Key the accumulator on something **structural** —
 Virtuoso exposes `data-index` — never on message text, or duplicate prompts silently collapse.
@@ -170,8 +172,17 @@ gives a false negative on the other:
   you are away and return it to its original content when you come back, which reads as "no
   recycling" when the opposite is true.
 - **Detach and remount** — the row is destroyed and a new node created in its place, so the held
-  reference reads `isConnected === false` and will *never* show different text. Claude works this way,
-  and `tests/mock-pages/claude-virtualized.html` deliberately models it.
+  reference reads `isConnected === false` and will *never* show different text.
+  `tests/mock-pages/claude-virtualized.html` models this form.
+
+**Which form does Claude use? The repo asserts both, and neither claim is a live measurement.**
+`injectBookmarkIcons` guards on recorded identity *because* "React reuses the same DOM node for a
+different message" — a real guard written against an observed stale icon. Meanwhile
+`claude-virtualized.html` models destroy-and-rebuild and the suite asserts `isConnected === false`
+on a scrolled-away node. A mock is a model, not evidence about the live site, and React
+reconciliation can legitimately do either depending on keying. **Nobody has characterized the live
+behaviour, so defend against both** — which is what the code already does. Resolving it is an open
+question (ROADMAP backlog).
 
 Either one means every cached element reference in the codebase is a latent bug, though they fail
 *differently*: same-node repurposing scrolls confidently to the **wrong message**, while

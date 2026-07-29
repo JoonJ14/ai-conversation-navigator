@@ -123,12 +123,20 @@ Priority order agreed 2026-07-28, re-ranked after v12.1:
    Neither is measured against a real long Emergent session yet — do that first (DEC-027), because
    the fix depends on whether a sweep is affordable there or Emergent needs something closer to
    Claude's treatment.
-8. **Rename the `virtualScroll` platform flag.** It selects the Emergent DOM mitigation, not the
+8. **Characterize how Claude's virtualizer actually recycles.** The repo asserts both forms and
+   neither is a live measurement: `injectBookmarkIcons` guards on recorded identity because "React
+   reuses the same DOM node for a different message", while `claude-virtualized.html` models
+   destroy-and-rebuild and the suite asserts `isConnected === false`. Both guards should stay
+   regardless — the point is that documentation currently states a fact nobody established, and the
+   two forms fail differently (wrong-content jump vs silent no-op), so a future diagnosis will be
+   misled by whichever half it reads. One live probe settles it: hold a reference to a mounted row,
+   scroll far away, and check `isConnected` and `textContent` **before** scrolling back.
+9. **Rename the `virtualScroll` platform flag.** It selects the Emergent DOM mitigation, not the
    platform property, so `claude` — the most virtualized platform in the project — is
    `virtualScroll: false`. Anyone grepping it to assess Layer 4 exposure gets the exactly wrong
    answer. Something like `domSweepStrategy` states what it does. Touches 12 platform configs, so
    it needs the full acceptance matrix on both engines despite being a rename.
-9. **Debulking.** ~9,300 lines now. Known dead code: `ciResolvePathForRow`,
+10. **Debulking.** ~9,300 lines now. Known dead code: `ciResolvePathForRow`,
    `ciDataIndexToFullPath`, `ciFullPathToDataIndex`, `_bmLegacyId`; inventory/entity `msgIndex`
    fields with no consumer; `_bmLegacyIdSet`'s two unreachable dedupe guards; two dead test
    config keys making one assertion unreachable.

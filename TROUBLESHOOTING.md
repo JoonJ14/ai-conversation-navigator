@@ -16,9 +16,11 @@ now looks like it was always designed this way.
 ### Nothing broke. That is the whole problem.
 
 Claude did not ship a bug, remove an attribute, or change a class name. It shipped a **performance
-optimization**: the message list became *virtualized with recycling*. The client keeps roughly
-three to seven message rows mounted in the document and tears the rest down, reusing those same
-DOM nodes to display different messages as you scroll. On a 147-question conversation that is
+optimization**: the message list became *virtualized with recycling*. The client keeps roughly three
+to seven message rows mounted in the document and unmounts the rest. (Whether it destroys those nodes
+or keeps a pool and swaps their contents has never been characterized on the live site — the repo
+contains evidence pointing both ways. It changes how a stale reference fails; see "Why jumping had to
+be redesigned" below.) On a 147-question conversation that is
 about 3% coverage at any instant.
 
 For Claude's users this is strictly good — a long conversation stops consuming hundreds of
@@ -135,15 +137,19 @@ Pre-v12.0, "jump to question 47" meant: keep the element you found during the sc
 `scrollIntoView` on it later. Under recycling a stored element stops being a reliable handle, and
 **how** it fails depends on which kind of virtualizer you are on:
 
-- **Claude detaches and remounts.** The row is destroyed and a new node is built when that region
-  scrolls back; the stored reference is left `isConnected === false`. `scrollIntoView` on a
-  disconnected node does nothing at all — a silent no-op, no error, no movement. That is the failure
-  users actually reported here.
-- **A same-node repurposing virtualizer** keeps the node and swaps its content, so the same call
-  lands confidently on the **wrong message** and reports success.
+- **Detach and remount** — the row is destroyed, the stored reference is left `isConnected === false`,
+  and `scrollIntoView` on it does nothing at all: a silent no-op, no error, no movement.
+- **Same-node repurposing** — the node is kept and its content swapped, so the same call lands
+  confidently on the **wrong message** and reports success.
 
-Both are unacceptable and neither throws, which is why the fix could not be "check the element is
-still valid" — there is no cheap check that covers both.
+**Claude has shown evidence of both and neither has been characterized live** — the bookmark icon
+guard exists because a node was observed being reused for a different message, while the virtualizing
+mock models destroy-and-rebuild and the suite asserts `isConnected === false`. A mock is a model, not
+a measurement of the site.
+
+That ambiguity is itself an argument for the design chosen: both failure modes are unacceptable,
+neither throws, and no cheap validity check covers both. Re-identifying on arrival covers all of it
+without needing to know which the platform is doing this week.
 
 The replacement (DEC-027) inverts the order of operations: **aim, land, then resolve on arrival.**
 The jump estimates a scroll position, waits for the virtualizer to mount whatever belongs there,
