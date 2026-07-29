@@ -244,11 +244,13 @@ const PLATFORMS = [
         virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
         indexBacked: true,
         offsetUnderivable: true,
-        legacyBookmarkProbe: { upgraded: 5, unmatched: 1 },
-        mockConfig: { totalMessages: 80 },
+        legacyBookmarkProbe: { upgraded: 5, unmatched: 2 },
+
+        mockConfig: { totalMessages: 80, identicalAnswerRows: [51, 55] },
         gmFixture: {
             totalMessages: 80,
             conversationUuid: 'ee000000-0000-4000-8000-00000000eeee',
+            identicalAnswerRows: [51, 55],
             // LONGER than the preview's captured copy on purpose — the live shape. The
             // DOM header truncates the summary for display; the preview stores that
             // truncated copy doubled, while the payload carries the full text. Measured
@@ -290,6 +292,26 @@ const PLATFORMS = [
                   preview: ('Architected mock governor mechanisms balancing rate and limits for the run' +
                             'Architected mock governor mechanisms balancing rate and limits for the run').substring(0, 120),
                   msgIndex: 10, createdAt: 5, platform: 'claude.ai' },
+                // SHORT-PREVIEW WRONG-BINDING GUARD. "balancing rate" is 14 chars and
+                // appears incidentally inside row 21's activity summary. Rule C's reverse
+                // probe used want.substring(0, 40) as the needle — only 40 chars when the
+                // preview HAS 40 — so a short preview degraded it to an unbounded substring
+                // test, found that one incidental hit, passed the uniqueness gate on it and
+                // bound PERMANENTLY to a message it had no evidence of. Three independent
+                // review lenses reproduced this against the real build. The record must now
+                // stay unmatched: refusing is recoverable, a wrong binding is not.
+                // UNIQUENESS-GATE COVERAGE. The gate is the branch's only defence against a
+                // permanent silent mis-binding and had ZERO tests. This preview is the exact
+                // body text of the DUPLICATED answer seeded at rows 30 and 34, so rules A/B
+                // match two candidates and the gate must refuse rather than pick one.
+                { id: 'bm_ambig', schema: 1, entityType: 'ai-msg',
+                  contentHash: 'bb22cc33', msgUuid: null,
+                  preview: 'Identical answer text used twice so a legacy preview is ambiguous.',
+                  msgIndex: 15, createdAt: 8, platform: 'claude.ai' },
+                { id: 'bm_shortprev', schema: 1, entityType: 'ai-msg',
+                  contentHash: 'aa11bb22', msgUuid: null,
+                  preview: 'balancing rate',
+                  msgIndex: 60, createdAt: 7, platform: 'claude.ai' },
                 // HASH-ORACLE target (stage-1 harvest): the preview matches nothing, but
                 // the stored contentHash reproduces against a MOUNTED row's rendered text
                 // and rendered-era ordinal — equality is proof, harvested from the mount
@@ -718,11 +740,14 @@ function buildGmFixtureShim(cfg) {
             // both sides. Not a mismatch — it is simply below the 60-char floor
             // ciMatchRowToPath requires, so the row cannot become a local pair.
             const shortAns = (cfg.shortAnswerRows || []).indexOf(row) !== -1;
+            const identAns = (cfg.identicalAnswerRows || []).indexOf(row) !== -1;
             const apiText = (cfg.toolShapedRow === row)
                 ? `Answer number ${turn}:`
                 : shortAns
                     ? 'Yes.'
-                    : `Answer number ${turn}: validate the input first, then branch on the result.`;
+                    : identAns
+                        ? 'Identical answer text used twice so a legacy preview is ambiguous.'
+                        : `Answer number ${turn}: validate the input first, then branch on the result.`;
             // summaryRows[row] attaches a thinking block carrying the model-generated
             // ACTIVITY SUMMARY — the collapsed-header text claude.ai renders above a
             // thinking/tool answer, and the text pre-v12.0 bookmark previews captured on
@@ -1408,6 +1433,24 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                 // An unmatched record must be MARKED, not silently left generic: that mark is
                 // what lets the UI say "recreate it" instead of "scroll toward it", which is
                 // advice that cannot work for a record with no uuid.
+                // The gate must REFUSE an ambiguous preview. Binding either candidate would
+                // be permanent and silent, which is precisely what it exists to prevent.
+                const ambigRec = lb.find(b => b.id === 'bm_ambig');
+                assert('Uniqueness gate refuses an ambiguous legacy preview',
+                    !!ambigRec && !ambigRec.msgUuid && ambigRec.unresolved === 'ambiguous',
+                    ambigRec ? `uuid=${ambigRec.msgUuid || 'none'} unresolved=${ambigRec.unresolved}` : 'record missing');
+
+                // NOT COVERED, deliberately: "a harvest-bound record renders an ACTIVE
+                // flag". The fix is in place (the sweep clears data-acn-bookmarked and
+                // activates the icon), but the bound row is not reliably mounted when the
+                // panel is read here, so any assertion I can write passes by finding no
+                // icons at all — a test that cannot fail, which DEC-032 records as
+                // indistinguishable from one that passes. Left as honest test debt.
+
+                const shortRec = lb.find(b => b.id === 'bm_shortprev');
+                assert('Short legacy preview REFUSES to bind rather than guessing',
+                    !!shortRec && !shortRec.msgUuid && shortRec.schema !== 2,
+                    shortRec ? `schema=${shortRec.schema} uuid=${shortRec.msgUuid || 'none'}` : 'record missing');
                 assert('Unmatchable legacy bookmark is marked, not left generic',
                     unmatched === want.unmatched,
                     `${unmatched} marked unmatched (expected ${want.unmatched})`);

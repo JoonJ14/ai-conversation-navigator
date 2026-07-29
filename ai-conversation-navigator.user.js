@@ -1421,7 +1421,13 @@
             var b = content[i];
             if (b.type !== 'thinking') continue;
             var arr = b.summaries;
-            if (arr && arr.length) {
+            // Array.isArray, not truthy-with-length: a STRING has .length, so a payload
+            // shape change to `summaries: "..."` would iterate per CHARACTER — inflating
+            // the diagnostic's summaries= count into a false confirmation of the very
+            // hypothesis that line exists to falsify, and re-creating the ~145k-regex
+            // blowup the memo removed. Rule C would still be safe (the floor rejects
+            // 1-char entries), so the failure would be entirely silent.
+            if (Array.isArray(arr) && arr.length) {
                 for (var j = 0; j < arr.length; j++) {
                     var e = arr[j];
                     var t = e && (typeof e === 'string' ? e : (e.summary || e.text));
@@ -3522,7 +3528,13 @@
         _bmDiagnosed        = {};
         _bmStatusPrinted    = false;   // per-conversation, like _bmDiagnosed
         _bmPendingLegacy    = true;    // unknown until the next migration pass counts it
+        _bmHarvestSeen      = '';      // new conversation, new mount set
         _bmNormGen          = -1;      // drop the normalization memo for the old path
+        _bmNormRows         = null;    // ...and RELEASE it. Resetting only the stamp kept a
+                                       // full normalized copy of the conversation just left
+                                       // alive until some later conversation happened to
+                                       // rebuild it — in the very function whose stated job
+                                       // is releasing the multi-megabyte path on a switch.
         _ciRefreshFailed    = '';
         _sseThinkAtIndex    = 0;
         _ciConversationId = null;
@@ -4094,9 +4106,30 @@
                 // had a uuid. _ciIndexGen changes on every rebuild, which is exactly when
                 // a previously-unknown uuid can become known.
                 if (_bmMigratedGen !== _ciIndexGen) {
-                    _bmMigratedGen = _ciIndexGen;
-                    _bmMigrateProvisional();
-                    _bmMigrateLegacy();
+                    // Guarded, and the generation is stamped only on success. Unguarded, a
+                    // throw here aborted the remainder of the index-backed branch for that
+                    // batch — _ciMergeLiveMessages, _ciBindMountedElements, _questions,
+                    // injectBookmarkIcons and orbOnScanComplete all skipped — while having
+                    // already marked the generation migrated, so it was never retried and
+                    // nothing was logged. Bookmark recovery must not be able to take the
+                    // navigation path down with it.
+                    try {
+                        _bmMigrateProvisional();
+                        // PROOF BEFORE INFERENCE. The harvest reproduces a stored hash
+                        // against mounted text — equality is identity. The text rules are
+                        // inference. Running inference first let a guess bind (and, before
+                        // the oracle was preserved, destroy the evidence) for a record the
+                        // proof channel could have settled in the same scan. Forced past
+                        // the mount-set gate because a new index generation is itself new
+                        // evidence, even if nothing scrolled.
+                        _bmHarvestSeen = '';
+                        _bmHarvestLegacyFromMounted();
+                        _bmMigrateLegacy();
+                        _bmMigratedGen = _ciIndexGen;
+                    } catch (e) {
+                        console.warn('[ACN bookmarks] migration pass failed; will retry ' +
+                                     'on the next index generation:', e);
+                    }
                 }
 
                 var indexed = _ciIndex.slice();
@@ -6839,12 +6872,24 @@
     // index knows the true position, so derive it and fall back only when it cannot.
     function _bmDisplayOrdinal(bm) {
         if (bm && bm.msgUuid && ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
-            var sender = (bm.entityType === 'ai-msg') ? 'assistant' : 'human';
-            var ord = 0;
-            for (var i = 0; i < _ciFullPath.length; i++) {
-                if (_ciFullPath[i].sender !== sender) continue;
-                if (_ciFullPath[i].uuid === bm.msgUuid) return ord;
-                ord++;
+            // HUMAN: number exactly as the Navigate panel does — its Q# is a position in
+            // _questions, which drops human turns with no extractable text (~10% of turns:
+            // large pastes become attachments). Counting raw path entries instead made the
+            // badge disagree with the list it is meant to help you find.
+            if (bm.entityType !== 'ai-msg') {
+                for (var q = 0; q < _questions.length; q++) {
+                    if (_questions[q].uuid === bm.msgUuid) return q;
+                }
+            } else {
+                // ASSISTANT: count only entries that RENDER a row. Non-rendering entries
+                // (interrupted generations, no stop_reason) are invisible on screen, so
+                // counting them inflates A# past anything the user can see.
+                var ord = 0;
+                for (var i = 0; i < _ciFullPath.length; i++) {
+                    if (_ciFullPath[i].sender !== 'assistant') continue;
+                    if (_ciFullPath[i].uuid === bm.msgUuid) return ord;
+                    if (ciEntryRenders(_ciFullPath[i])) ord++;
+                }
             }
         }
         return bm ? (bm.msgIndex || 0) : 0;
@@ -6893,6 +6938,13 @@
     // store each time just to discover there was nothing to do. The migration pass already
     // walks the list once per index generation, so it can answer this for free.
     var _bmPendingLegacy = true;
+    var _bmHarvestBroken = false;   // set once if the harvest throws; see its catch
+    // Mount-set fingerprint of the last harvest sweep. A permanently unmatchable record
+    // pins _bmPendingLegacy true, so without this the harvest ran its full body — a
+    // JSON.parse of the whole bookmark store, plus ciUuidForText and a path walk per
+    // mounted row — on every 500ms mutation batch for the life of the tab. Only a change
+    // in what is MOUNTED can newly reproduce a hash, so nothing is lost by skipping.
+    var _bmHarvestSeen = '';
 
     // Occurrence identity for a provisional bookmark: the 0-based ordinal of its message
     // among turns OF ITS OWN SENDER. _questions is exactly that list for human turns, in
@@ -7042,7 +7094,15 @@
     // rules, the summary rule, or an exact-hash reproduction (harvest / click). Persisting
     // is the point: every route only proves identity at a moment when the evidence happens
     // to be available, and the uuid is what makes that proof durable.
-    function _bmCommitLegacyUpgrade(b, uuid) {
+    function _bmCommitLegacyUpgrade(b, uuid, proven) {
+        // PRESERVE THE ORACLE. The schema-1 contentHash is the only PROOF-grade evidence a
+        // legacy record carries: it reproduces exactly against rendered text, so equality
+        // is identity rather than inference. Overwriting it with the uuid destroyed that
+        // evidence — and because most records are bound by the TEXT rules, which are
+        // inference, a wrong guess became permanent AND unverifiable. Keeping the hash lets
+        // the proof channel re-examine an inferred binding later and correct it.
+        if (!b.legacyHash && b.schema !== 2 && b.contentHash) b.legacyHash = b.contentHash;
+        b.boundBy          = proven ? 'proof' : 'inference';
         b.schema           = 2;
         b.contentHash      = uuid;
         b.msgUuid          = uuid;
@@ -7064,14 +7124,26 @@
     // today's path ordinal counts non-rendering entries too. One interrupted turn early
     // in a conversation would silently shift every later ordinal and zero the harvest.
     function _bmHarvestLegacyFromMounted() {
+        if (_bmHarvestBroken) return;
         if (!_bmPendingLegacy) return;   // nothing un-uuid'd — skip the store read entirely
         if (!(ciIsClaudeChat() && ciIsReady() && _ciFullPath)) return;
+        // Cheap first: the mounted set is the only new evidence a sweep can act on.
+        var mountKey = '';
+        try {
+            var mrows = ciMountedRows();
+            for (var mi = 0; mi < mrows.length; mi++) mountKey += mrows[mi].dataIndex + ',';
+        } catch (e) { mountKey = String(Date.now()); }   // unknown -> do not skip
+        if (mountKey === _bmHarvestSeen) return;
+        _bmHarvestSeen = mountKey;
         var list = getConversationBookmarks();
         var pending = [];
         for (var i = 0; i < list.length; i++) {
-            if (!list[i].msgUuid && list[i].schema !== 2 && !list[i].pendingHash) {
-                pending.push(list[i]);
-            }
+            var c = list[i];
+            if (c.pendingHash) continue;                       // provisional migrator owns it
+            // Unbound records, AND records bound by INFERENCE that still carry their
+            // oracle: proof outranks a guess, so the harvest keeps the right to correct one.
+            if (!c.msgUuid && c.schema !== 2) pending.push(c);
+            else if (c.boundBy === 'inference' && c.legacyHash) pending.push(c);
         }
         if (!pending.length) { _bmPendingLegacy = false; return; }
         var changed = false;
@@ -7095,10 +7167,33 @@
                 for (j = pending.length - 1; j >= 0; j--) {
                     var b = pending[j];
                     if (b.entityType !== type) continue;
-                    if (!_bmInLegacySet(b, ids)) continue;
-                    _bmCommitLegacyUpgrade(b, uuid);
-                    console.log('[ACN bookmarks] harvest: ' + b.id +
-                                ' bound by exact hash to a mounted message');
+                    // Test the ORACLE — the preserved schema-1 hash for an
+                    // inference-bound record, or the live contentHash for an unbound one.
+                    var probe = { contentHash: b.legacyHash || b.contentHash };
+                    if (!_bmInLegacySet(probe, ids)) continue;
+                    var wasWrong = b.msgUuid && b.msgUuid !== uuid;
+                    _bmCommitLegacyUpgrade(b, uuid, true);
+                    if (wasWrong) {
+                        console.warn('[ACN bookmarks] harvest CORRECTED ' + b.id +
+                                     ': a text rule had bound it to the wrong message; ' +
+                                     'the stored hash proves this one.');
+                    } else {
+                        console.log('[ACN bookmarks] harvest: ' + b.id +
+                                    ' bound by exact hash to a mounted message');
+                    }
+                    // The icon for this row was built EARLIER in this same
+                    // injectBookmarkIcons pass, while the record still carried its legacy
+                    // hash — so it rendered INACTIVE, and inject()'s identity early-return
+                    // meant it never recomputed. Clicking that flag would have called
+                    // toggleBookmark and DELETED the record the harvest just recovered.
+                    try {
+                        el.removeAttribute('data-acn-bookmarked');
+                        var ic = el.querySelector('[data-acn-bookmark]');
+                        if (ic) {
+                            ic.classList.add('acn-bm-active');
+                            ic.setAttribute('title', 'Remove bookmark');
+                        }
+                    } catch (e) {}
                     pending.splice(j, 1);
                     changed = true;
                 }
@@ -7177,7 +7272,9 @@
             if (full) {
                 // RULE A — prefix. `preview` is 120 chars of rendered text, so in the
                 // clean case it is a prefix of the full message.
-                ok = full.substring(0, want.length) === want;
+                // Floored for the same reason as rule C: a very short `want` makes this a
+                // near-tautology on any message that happens to start with those words.
+                ok = want.length >= BM_SUMMARY_FLOOR && full.substring(0, want.length) === want;
                 // RULE B — the message's opening appears ANYWHERE in the preview: a
                 // summary-then-body capture has the body after the header rather than at
                 // position 0. Requiring BM_LEGACY_PROBE chars keeps it specific.
@@ -7207,6 +7304,16 @@
                     // whole-prefix matching in either direction fails on 3 of the 6
                     // live shapes. The probe binds all 6, each uniquely. Uniqueness is
                     // still the gate that makes 40 chars safe.
+                    // BOTH sides floored. The reverse probe's needle is
+                    // want.substring(0, 40) — which is only 40 chars when `want` HAS 40.
+                    // A short preview ("balancing rate", 14 chars) degraded it to an
+                    // unbounded substring test that found incidental overlap inside one
+                    // summary, passed the uniqueness gate on that single hit, and bound
+                    // permanently to a message it had no evidence of. Three independent
+                    // review lenses reproduced it. The comment here used to assert
+                    // "uniqueness is the gate that makes 40 chars safe" while the code
+                    // was not using 40 chars — the claim and the behaviour disagreed.
+                    if (want.length < BM_LEGACY_PROBE) continue;
                     ok = want.indexOf(ns.substring(0, BM_LEGACY_PROBE)) !== -1 ||
                          ns.indexOf(want.substring(0, BM_LEGACY_PROBE)) !== -1;
                 }
@@ -7253,7 +7360,8 @@
             while (n < want.length && n < full.length && want.charAt(n) === full.charAt(n)) n++;
             if (n > bestLen) { bestLen = n; best = { i: i, full: full }; }
         }
-        console.log('[ACN bookmarks] UNMATCHED ' + b.id +
+        console.log('[ACN bookmarks] ' + (b.legacyUnresolved === 'ambiguous'
+                        ? 'AMBIGUOUS ' : 'UNMATCHED ') + b.id +
                     ' type=' + b.entityType +
                     ' previewLen=' + (b.preview || '').length +
                     ' normLen=' + want.length +
@@ -7309,7 +7417,13 @@
         }
         // The migration walk already knows whether anything is still un-uuid'd; hand that
         // to the harvest so it can no-op without touching storage.
-        _bmPendingLegacy = (stats.ambiguous + stats.unmatched) > 0;
+        // Still pending if anything is unresolved OR still only inference-bound (the
+        // harvest retains the right to correct those, and only proof retires them).
+        var inferred = 0;
+        for (var pi = 0; pi < list.length; pi++) {
+            if (list[pi].boundBy === 'inference' && list[pi].legacyHash) inferred++;
+        }
+        _bmPendingLegacy = (stats.ambiguous + stats.unmatched + inferred) > 0;
         _bmPrintLegacyStatus(list);
         if (changed) {
             console.log('[ACN bookmarks] legacy migration: ' + stats.upgraded + ' upgraded, ' +
@@ -7556,7 +7670,18 @@
         });
         // Opportunistic legacy harvest over the same mounted set this scan just walked.
         // Guarded inside: exits immediately when no un-uuid'd records remain.
-        try { _bmHarvestLegacyFromMounted(); } catch (e) {}
+        try { _bmHarvestLegacyFromMounted(); } catch (e) {
+            // Never silent. This runs every scan, so without the guard one bad node would
+            // re-throw and re-swallow forever with nothing in the console and nothing in
+            // the UI — a feature degrading invisibly, which this project treats as a
+            // defect in its own right. Logged once, then the channel is disabled rather
+            // than left thrashing.
+            if (!_bmHarvestBroken) {
+                _bmHarvestBroken = true;
+                console.warn('[ACN bookmarks] legacy harvest disabled after an error; ' +
+                             'recovery by hash is off for this session:', e);
+            }
+        }
     }
 
     function orbScrollToMessage(el) {
@@ -7704,9 +7829,20 @@
         // post-migration refresh a no-op: the rendered card kept its pre-migration
         // object and still could not use the uuid jump bridge once its row recycled
         // away — the exact failure the migration exists to fix (Codex).
+        // The fingerprint has to cover EVERY input the row derives from, and since
+        // _bmDisplayText/_bmDisplayOrdinal read the INDEX, storage alone is not enough.
+        // A panel rendered before ciIsReady() (trivially reachable on load, and guaranteed
+        // on a same-tab conversation switch since Claude is spa:false and the panel is
+        // never torn down) rendered the raw preview and the stale badge, and then every
+        // later refresh early-returned because storage had not changed — so the derived
+        // label was silently absent for the rest of the session. Verified by review.
+        // Navigate and Search already carry _ciIndexGen for exactly this reason.
+        // legacyUnresolved is included too: it drives which toast _bmFailToast shows, and
+        // a card closed over a pre-migration object fell back to the generic one.
         var bfp = bookmarks.map(function (b) {
-            return b.id + ':' + (b.msgUuid || '') + ':' + (b.contentHash || '');
-        }).join('|');
+            return b.id + ':' + (b.msgUuid || '') + ':' + (b.contentHash || '') +
+                   ':' + (b.legacyUnresolved || '');
+        }).join('|') + '||g' + _ciIndexGen + '|r' + (ciIsReady() ? 1 : 0);
         if (bfp === _bmListFingerprint && panel.children.length > 1) return;
         _bmListFingerprint = bfp;
 
@@ -9913,7 +10049,11 @@
             if (typeof showToast === 'function') showToast('No bookmarks in this conversation');
             return;
         }
-        bookmarks.sort(function (a, b) { return (a.msgIndex || 0) - (b.msgIndex || 0); });
+        // Sort by the SAME ordinal the headings use. Sorting on the stale stored msgIndex
+        // while labelling with the derived one produced markdown whose own Q#/A# numbers
+        // did not ascend — the last consumer still trusting a value the rest of the branch
+        // stopped trusting.
+        bookmarks.sort(function (a, b) { return _bmDisplayOrdinal(a) - _bmDisplayOrdinal(b); });
         var typeIcons  = { 'user-msg': '\uD83D\uDCCC', 'ai-msg': '\uD83D\uDCCC', 'code': '\uD83D\uDCBB', 'file': '\uD83D\uDCC4' };
         var typeLabels = { 'user-msg': 'Your Question', 'ai-msg': 'AI Response', 'code': 'Code Block', 'file': 'File' };
         var platformTitle = (typeof platform !== 'undefined' && platform && platform.title)

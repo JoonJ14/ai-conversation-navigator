@@ -181,6 +181,12 @@
     // 3b's one-sided adjacent cover and leaves the by-construction extreme path as the
     // only route — the live shape the mock never modelled.
     var SHORT_ANS = CFG.shortAnswerRows || [];
+    // IDENT_ANS rows render the SAME long answer text, so a legacy preview of it has
+    // two candidates and must hit the uniqueness gate. The duplicateRows knob only
+    // duplicates QUESTIONS, and its text is 24 chars — below the matching floor — so
+    // it cannot reach the gate at all.
+    var IDENT_ANS = CFG.identicalAnswerRows || [];
+    var IDENT_TEXT = 'Identical answer text used twice so a legacy preview is ambiguous.';
     var MESSAGES = [];
     for (var i = 0; i < TOTAL_MESSAGES; i++) {
         var turn = Math.floor(i / 2) + 1;
@@ -194,8 +200,10 @@
         } else {
             MESSAGES.push({ sender: 'ai', text: SHORT_ANS.indexOf(i) !== -1
                   ? 'Yes.'
-                  : 'Answer number ' + turn +
-                    ': validate the input first, then branch on the result.' });
+                  : IDENT_ANS.indexOf(i) !== -1
+                    ? IDENT_TEXT
+                    : 'Answer number ' + turn +
+                      ': validate the input first, then branch on the result.' });
         }
     }
     // One giant row (>=15,000px) exercises intra-row scrolling with no remount.
