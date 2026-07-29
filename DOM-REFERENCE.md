@@ -116,8 +116,11 @@ time.
 ```js
 // STEP 0 — Is the selector still good? Do this FIRST.
 //   Count what the selector matches, then count the user turns you can SEE on screen.
-//   If they disagree, you have a Layer 1 selector drift, not virtualization. A drifted
-//   selector produces the same single-digit, flat count as recycling.
+//   FEWER matches than visible turns => Layer 1 selector drift, not virtualization.
+//   (A drifted selector produces the same single-digit, flat count as recycling.)
+//   MORE matches than visible is NORMAL and is not drift: virtualizers mount overscan
+//   rows above/below the viewport and often pin the first or last row permanently —
+//   our own claude-virtualized mock mounts a 6-row window PLUS a pinned tail.
 
 // STEP 1 — How much of the conversation is in the DOM?
 document.querySelectorAll('<the user-message selector for this platform>').length
@@ -160,8 +163,10 @@ gives a false negative on the other:
   reference reads `isConnected === false` and will *never* show different text. Claude works this way,
   and `tests/mock-pages/claude-virtualized.html` deliberately models it.
 
-Either one means every cached element reference in the codebase is a latent wrong-answer bug. Test
-for both: `node.isConnected === false` **or** the node's text changed.
+Either one means every cached element reference in the codebase is a latent bug, though they fail
+*differently*: same-node repurposing scrolls confidently to the **wrong message**, while
+detach-and-remount usually produces a silent **no-op** on a disconnected node. Test for both:
+`node.isConnected === false` **or** the node's text changed.
 
 **If a platform is recycling, do not start with selectors.** The response is scoped in
 `ROADMAP.md` → "Porting the Layer 4 response to another platform".

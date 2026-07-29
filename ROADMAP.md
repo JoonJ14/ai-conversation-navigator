@@ -473,8 +473,15 @@ The value carried over is the **design** — which failure modes to refuse rathe
 in what order to resolve evidence. That is most of the thinking and none of the plumbing.
 
 The single most transferable idea is the one that is easiest to skip: **a held element reference is
-not an identity.** Any code that stores a node and uses it later is wrong on a recycling platform,
-and it will fail by scrolling confidently to the wrong message rather than by throwing.
+not an identity.** Any code that stores a node and uses it later is wrong on a recycling platform —
+and it will not throw. Audit for **both** failure modes, because checking for one hides the other:
+
+- **Same-node repurposing** — the node is reused for another message, so the code scrolls
+  confidently to the **wrong content** and reports success.
+- **Detach-and-remount** — the node is destroyed, so the reference is disconnected and the action is
+  a silent **no-op**: nothing moves, nothing errors. Claude works this way.
+
+A search for "does this stored element still show the right text?" only finds the first.
 
 ### Step 4 — Do not forget the data users already saved
 

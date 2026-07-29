@@ -50,7 +50,7 @@ Claude virtualizes its message list with recycling — only ~3–5 user turns ar
 
 If one of the other 12 flips, do **not** start from selectors. The order of operations is in `ROADMAP.md` → "Porting the Layer 4 response to another platform". Note what that section says about scope: the index loader, the jump bridge and the bookmark identity paths are all gated behind `ciIsClaudeChat()` (37 occurrences in the file), so resolve-on-arrival and identity-keyed bookmarks are **proven designs to extract and parameterize, not machinery to call**. What transfers is the reasoning about which failure modes to refuse rather than guess at. The reasoning behind the whole architecture — why a repair was impossible and why it took two releases — is in `TROUBLESHOOTING.md` → "Why v12.0 and v12.1 Exist".
 
-**The single most transferable rule: a held element reference is not an identity.** On a recycling platform the browser reuses that node for a different message, so cached references fail by scrolling confidently to the wrong content rather than by throwing.
+**The single most transferable rule: a held element reference is not an identity.** Neither form of recycling throws: with same-node repurposing the browser reuses that node for another message and the code scrolls confidently to the **wrong content**; with detach-and-remount (Claude's form) the node is destroyed and the stored reference is disconnected, so the action is a silent **no-op**. Audit for both — checking only that a stored element still shows the right text misses the second.
 
 | Function | Role |
 |---|---|
