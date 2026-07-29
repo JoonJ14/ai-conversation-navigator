@@ -4,6 +4,99 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.1 — Legacy Bookmark Recovery] — 2026-07-29
+
+**Branch:** `feat/v12.1` | **Commit:** `f45fb69` | **PR:** #59
+
+### Problem
+
+v12.0 gave Navigate, Search and Export the whole conversation through the API index. Bookmarks
+did not follow. A pre-v12.0 record keys to a content hash with no uuid, and only a uuid lets
+`orbScrollToBookmark` enter the jump bridge that pages the virtualizer to an unmounted message —
+so those bookmarks resolved **only while their message happened to be on screen**. With ~3–7 of
+147 turns mounted, that is never. Silently dead, in a released version, and the first bug report
+after any Greasy Fork or Reddit push.
+
+### Fix — an evidence ladder (DEC-034)
+
+Four channels, all sender-scoped:
+
+| Channel | Class | Rule |
+|---|---|---|
+| A | inference | preview is a prefix of the message text |
+| B | inference | the message's first 40 chars appear anywhere in the preview |
+| C | inference | preview matches a thinking-block **activity summary** (40-char bidirectional probe) |
+| Harvest | **proof** | the stored `contentHash` reproduces against mounted rendered text |
+
+A/B/C are uniqueness-gated and floored; the harvest cannot guess, so it is exempt. Refusing is
+recoverable, a wrong binding is not — every gate resolves that way.
+
+### The measurement that made it work
+
+The first attempt recovered **7 of 16** — the ones whose preview began with our own `⚑` glyph
+(pre-v12.0 previews predate the `_cleanText` strip). The other 9 were Claude's collapsed
+**activity summary**, which describes the message rather than quoting it. Those were called
+unrecoverable. That was wrong: the preview is a faithful capture of a *different field*, and
+that field rides in the payload's thinking blocks — which `ciBuildIndex` already walked for
+`thinkingChars` and discarded.
+
+Rather than guess a third time, the real 297-message conversation was fetched through Chromium
+with the userscript's own URL parameters. **61 thinking blocks, 55 carrying
+`summaries:[{summary}]`** — hypothesis confirmed. And the DOM header **truncates** the summary
+for display, so the captured preview holds a truncated (usually doubled) copy while the payload
+holds the full text: whole-string prefix matching fails in both directions on 3 of the 6 live
+shapes. A 40-char bidirectional probe binds all 6, each uniquely. Live result: **16/16**.
+
+### Label vs key
+
+Owner feedback after recovery: a summary-labelled row identifies the record to the code but not
+to the human. The stored preview now stays as matching evidence and is never rewritten, while
+the panel and the bookmarks export derive their label — and the Q#/A# badge — from the index by
+uuid at render time. A migrated record had been rendering **"A#91" in an 8-message
+conversation**; human ordinals now count `_questions` so the badge agrees with the Navigate list.
+
+### Review — 36 raw findings, 21 verified, then 3 Codex rounds to a clean round
+
+Two CRITICALs. **Rule C's reverse probe had no floor on the preview** — the needle is
+`want.substring(0, 40)`, which is only 40 chars when the preview *has* 40, so a short preview
+degraded it to an unbounded substring test and bound permanently on incidental overlap; the
+comment asserted "uniqueness is the gate that makes 40 chars safe" while the code was not using
+40 chars. And **inference committed before proof and destroyed it** (DEC-035):
+`_bmCommitLegacyUpgrade` overwrote the `contentHash` the proof channel needs, so a wrong guess
+became permanent and unverifiable. The hash is now preserved as `legacyHash`, records carry
+`boundBy: proof|inference`, and the harvest may correct an inference binding.
+
+Also fixed: a harvest-bound record rendered an *inactive* flag, so clicking it deleted the record
+just recovered; the panel fingerprint omitted every index-derived input, freezing labels for a
+session; the export sorted by the stale ordinal while labelling with the derived one;
+`ciInvalidate` dropped the normalization memo's stamp but not its payload; a string-valued
+`summaries` would have iterated per character; a bare catch hid a permanent failure; a throw in
+migration aborted the rest of the scan and was never retried.
+
+The Codex cycle then caught migration running before `_questions = indexed` (human ordinals read
+the previous conversation), a correction leaving the wrong row's flag active (clicking it would
+add a *second* bookmark for the wrong message), the diagnostic mislabelling ambiguous records,
+and `ACN_VERSION` still reading `12.0`. It also aimed **DEC-032 at this release's own chip
+fixture** — the bounds tolerated a range, so the knob could go vacuous again. It now asserts the
+modelled property and is mutation-verified.
+
+### Results
+
+**515/515 across 25 platform entries**, Chromium and Firefox (from 455/455 across 23). New
+fixture knobs: `chipRows`, `shortAnswerRows`, `summaryRows`, `seedBookmarks`,
+`identicalAnswerRows`, `failFetchAfter`, `apiLatencyMs`. The uniqueness gate — the only defence
+against a permanent silent mis-binding — went from zero coverage to asserted.
+
+### Known limitations
+
+Summary, Tools and Export still have **zero test execution** (mutation-proven). "A harvest-bound
+record renders an ACTIVE flag" is deliberately unasserted and recorded as such in the fixture:
+the bound row is not reliably mounted when the panel is read, so every available assertion passes
+by finding no icons. Rule C's payload shape is measured on n=1 conversation; the diagnostic's
+`summaries=` count is the regression signal.
+
+---
+
 ## [12.0 — API-Backed Conversation Index: Claude Virtualized Its Message List] — 2026-07-26
 
 **Branch:** `feat/v12.0-conversation-index`

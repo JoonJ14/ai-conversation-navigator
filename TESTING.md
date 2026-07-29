@@ -459,7 +459,37 @@ strongest form of the DEC-027 gate. When adding fixtures, record which are ances
 and which are only mutant-gated — they are not equally strong evidence.
 
 Fixture knobs available per entry: `apiLatencyMs` (default 5), `toolShapedRow`,
-`refetchProbeMs`, `markdownText`, `conversationUuid`, `totalMessages`.
+`refetchProbeMs`, `markdownText`, `conversationUuid`, `totalMessages`, `failFetchAfter`,
+`summaryRows`, `seedBookmarks`, plus the mock-page knobs `chipRows`, `shortAnswerRows` and
+`identicalAnswerRows` (query params on `claude-virtualized.html`).
+
+**Every knob must be proven to change the output (DEC-032).** `chipRows` shipped vacuous —
+`CHIP_ROWS.indexOf(i)` inside `buildRow(index)` — and two A/B experiments ran against a fixture
+that could not fail, appearing to disconfirm the correct hypothesis. Assert the property the knob
+models (for `chipRows`: that the named row has **no** `[data-testid="user-message"]` descendant,
+read after `scrollToFraction(0)` so the row is actually mounted), and mutation-verify by flipping
+the knob off and watching the assertion fail.
+
+### The legacy-bookmark entry — the uniqueness gate had zero coverage
+
+`Claude (legacy schema-1 bookmarks)` seeds pre-v12.0 records through the GM shim with
+`seedBookmarks`, hashing their text with a replica of the old FNV function (`legacyContentHash`),
+and asserts the migration outcome via `legacyBookmarkProbe: { upgraded: 5, unmatched: 2 }`.
+
+What it is really there to protect is the **refusal** path — the only defence against a permanent,
+silent mis-binding, and previously untested:
+
+| Assertion | Seeded record | Refusal it proves |
+|---|---|---|
+| Uniqueness gate refuses an ambiguous legacy preview | `bm_ambig` against `identicalAnswerRows` | two candidates → `legacyUnresolved: 'ambiguous'`, no binding |
+| Short legacy preview REFUSES to bind | `bm_shortprev` (14 chars) | rule C's reverse probe is floored, not an unbounded substring test |
+| Unmatchable record is marked, not silently generic | `bm_legacy6` | the record survives with a specific failure message |
+| Summary-preview bookmark displays the message text | `bm_legacy4` + `summaryRows` | the panel label is derived from the index, not the stored preview |
+
+**Recorded test debt, deliberately unasserted:** "a harvest-bound record renders an ACTIVE flag."
+The bound row is not reliably mounted when the panel is read, so every available form of that
+assertion passes by finding no icons at all — a vacuous pass, which is the exact failure DEC-032
+exists to prevent. It is written into the fixture as a comment rather than shipped green.
 
 ### A green "question #1" result does NOT mean the settle loop works
 

@@ -1402,3 +1402,58 @@ rewritten, so the evidence chain stays intact.
 - **Candidate-reconstruction hashing** (rebuild the 200-char hash input from summary + body
   and test) — sound in principle (also oracle-class) but fragile to rendering-vs-markdown
   divergence; deferred unless the shipped channels leave a residue worth chasing.
+
+---
+
+## DEC-035: Proof Outranks Inference, and Inference Must Never Destroy Proof (v12.1)
+**Date:** 2026-07-29 | **Stage:** v12.1
+
+### Decision
+When a record can be identified by more than one class of evidence, the **proof-grade** channel
+runs first and may **correct** a binding made by an inference channel. Inference may never
+overwrite the evidence proof depends on.
+
+### Context
+Legacy bookmark recovery has four channels (DEC-034): three text rules — inference — and the
+hash oracle, where the stored `contentHash` reproduces exactly against mounted rendered text so
+equality *is* identity (~2⁻³²).
+
+`_bmCommitLegacyUpgrade` wrote `b.contentHash = uuid`. That hash was the only proof-grade
+evidence the record carried, and the text rules ran first in the scan. So the guess channel
+destroyed the proof channel's input **before it ever ran** — and because the record then looked
+bound, no channel re-examined it. A wrong inference became permanent *and* unverifiable.
+
+Reproduced by review: a record whose hash proves "Answer number 3" but whose preview is a
+summary-then-body capture of "Answer number 9" binds to 9; with rule B disabled it binds to 3.
+Both runs green — nothing could tell the difference. Rules B and C exist *precisely because*
+the preview does not contain the message text, so preview-and-hash disagreeing is the normal
+operating regime for them, not a contrived case.
+
+### Alternatives considered
+- **Order the channels but still overwrite the hash.** Rejected: proof would win the first
+  race, but a record bound by inference in an earlier session or before the message ever
+  mounted could never be corrected — the evidence is gone.
+- **Never let inference bind at all; require proof.** Rejected: proof needs the message mounted,
+  and the whole problem is that ~3–7 of 147 turns are. Most records would stay dead.
+- **Re-derive the hash from the index.** Rejected: the hash covers the *rendered* text at
+  bookmark time, including the collapsed activity header. It is not reconstructible from the API.
+
+### Rationale
+Evidence classes are not interchangeable, and the cheap one usually runs first because it is
+cheap. Without an explicit precedence rule that is exactly backwards: the weakest evidence
+commits, and the strongest never gets asked.
+
+### Key properties
+- `legacyHash` preserves the oracle; `boundBy: 'proof' | 'inference'` records provenance.
+- The harvest re-examines inference-bound records and **corrects** them, logging loudly.
+- Proof runs before inference within a scan, forced past the mount-set gate on a new index
+  generation (a new generation is itself new evidence).
+- **Generalisation for this codebase:** any future channel added to a resolution ladder must
+  declare its evidence class, and a lower class must not mutate a higher class's inputs.
+
+### Postscript to DEC-032 (same session)
+The vacuous-knob rule was violated in the very fixture written to demonstrate it: the chip
+fixture's bounds tolerated a range, so `chipRows` could stop suppressing the testid and stay
+green. Now asserts the modelled property directly (row mounted, no `user-message` node) and is
+**mutation-verified** — forcing `isChip=false` fails it. Writing a rule is not applying it; the
+first place to check is your own newest work.
