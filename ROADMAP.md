@@ -95,12 +95,13 @@ Priority order agreed 2026-07-28, re-ranked after v12.1:
 7. **Emergent: re-examine it as a Layer 4 platform** (surfaced by Codex review of PR #60,
    2026-07-29). It recycles via Virtuoso and predates the Layer 4 category, so it was never
    audited against what that category now teaches. Open questions, none of them yet measured:
-   does the scroll-through sweep still complete on a *long* session, or does it degrade the way
-   Claude's would? Are Emergent bookmarks keyed to anything positional — an accumulated-list index
-   that shifts when the sweep collects in a different order would be the same identity-vs-position
-   bug v12.1 spent a release recovering from, on a platform nobody has checked. Its DOM inspection
-   is also from **Feb 15, 2026**. Investigate before assuming it is fine; it has been quietly
-   correct for months, which is not the same as verified.
+   how much of a *long* Emergent session does passive accumulation actually reach, and **would a
+   stepped sweep — which does not exist yet — be affordable there?** (Design question, not a
+   validation of existing code; see defect 1 below.) Are Emergent bookmarks keyed to anything
+   positional — an accumulated-list index that shifts with collection order would be the same
+   identity-vs-position bug v12.1 spent a release recovering from, on a platform nobody has checked.
+   Its DOM inspection is also from **Feb 15, 2026**. Investigate before assuming it is fine; it has
+   been quietly *unexamined* for months, which is not the same as correct.
 
    **Two defects are already confirmed by reading the code, no measurement needed** (both found by
    Codex during review of PR #60):
