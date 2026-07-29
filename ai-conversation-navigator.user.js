@@ -6830,6 +6830,23 @@
     // index holds the real message, so the label derives from it at RENDER time; storage
     // is never rewritten, non-indexed contexts fall back to the preview, and a future
     // bookmark on a tool-heavy answer gets a readable label automatically.
+    // Q#/A# ordinal for a bookmark row. Same reasoning as _bmDisplayText: the STORED
+    // msgIndex is the ordinal at bookmark time and goes stale — a migrated legacy record
+    // rendered "A#91" in an 8-message conversation (measured 2026-07-29). With a uuid the
+    // index knows the true position, so derive it and fall back only when it cannot.
+    function _bmDisplayOrdinal(bm) {
+        if (bm && bm.msgUuid && ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
+            var sender = (bm.entityType === 'ai-msg') ? 'assistant' : 'human';
+            var ord = 0;
+            for (var i = 0; i < _ciFullPath.length; i++) {
+                if (_ciFullPath[i].sender !== sender) continue;
+                if (_ciFullPath[i].uuid === bm.msgUuid) return ord;
+                ord++;
+            }
+        }
+        return bm ? (bm.msgIndex || 0) : 0;
+    }
+
     function _bmDisplayText(bm) {
         if (bm && bm.msgUuid && ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
             for (var i = 0; i < _ciFullPath.length; i++) {
@@ -7676,8 +7693,8 @@
 
         sorted.forEach(function (bm) {
             var labelText = bm.entityType === 'user-msg'
-                ? 'Q#' + (bm.msgIndex + 1)
-                : 'A#' + (bm.msgIndex + 1);
+                ? 'Q#' + (_bmDisplayOrdinal(bm) + 1)
+                : 'A#' + (_bmDisplayOrdinal(bm) + 1);
 
             var typeEl = createElement('div', {
                 className: 'acn-bk-type',
@@ -9875,8 +9892,8 @@
             var icon   = typeIcons[bm.entityType]  || '\uD83D\uDCCC';
             var label  = typeLabels[bm.entityType] || 'Item';
             var prefix = (bm.entityType === 'user-msg')
-                ? 'Q#' + ((bm.msgIndex || 0) + 1)
-                : 'A#' + ((bm.msgIndex || 0) + 1);
+                ? 'Q#' + (_bmDisplayOrdinal(bm) + 1)
+                : 'A#' + (_bmDisplayOrdinal(bm) + 1);
             lines.push('');
             lines.push('## ' + icon + ' ' + prefix + ' \u2014 ' + label);
             lines.push('');
