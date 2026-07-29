@@ -211,7 +211,8 @@ source will.
 
 Per-platform status and the check procedure live in `DOM-REFERENCE.md` ("Virtualization status").
 **What to actually do when one of them flips is in `ROADMAP.md` → "Porting the Layer 4 response to
-another platform"** — what is already generic, what is Claude-specific, and the order to do it in.
+another platform"** — the order of operations, and an honest accounting of scope: the existing
+mechanisms are Claude-gated, so they are designs to extract rather than machinery to call.
 
 And note what could *not* have caught this: the Playwright suite was green throughout, because
 every mock page mounts all of its turns permanently. **A suite of static mocks structurally cannot

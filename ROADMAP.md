@@ -62,7 +62,7 @@ DEC-029 stop signal). Suite **515/515 across 25 entries**, both engines. Also fi
 attachment-headed Q#1 that shipped in v12.0, whose reproduction was blocked by a **vacuous fixture
 knob** (**DEC-032**).
 
-### Next: v12.2 / remaining v12.1 backlog (PR #59 open, awaiting owner live confirmation)
+### Next: v12.2 backlog (v12.1 merged 2026-07-29; nothing in flight)
 
 Priority order agreed 2026-07-28, re-ranked after v12.1:
 
@@ -392,8 +392,15 @@ in the DOM: sweep the scroller on panel open, accumulate across the sweep, re-re
 at click time. Claude cannot be handled that way — a measured sweep never accumulated past 3 unique
 turns, and at 372,642 px of scroll height a viewport-step sweep would take minutes per conversation.
 
-Estimate before choosing: `scrollHeight / clientHeight` steps at ~250 ms. Seconds means copy the
-Emergent pattern and stop here. Minutes — or a sweep that does not accumulate — means Steps 1–6.
+Estimate before choosing: `scrollHeight / clientHeight` steps at ~250 ms. Seconds means a sweep is
+affordable and may be the whole fix. Minutes — or a sweep that does not accumulate — means Steps 1–6.
+
+**There is no in-repo sweep to copy.** Emergent recycles and has only *passive accumulation* —
+`scanConversation` keeps what the user already scrolled past. `DOM-REFERENCE.md` described a
+panel-open sweep for five months; that code never existed (backlog item 7). So a sweep would be new
+work here, and it inherits two requirements the accumulator gets wrong: key the accumulator on
+something **structural** (Virtuoso exposes `data-index`), never on message text, and prove the
+traversal actually reaches the ends rather than assuming it.
 
 **Do not use the `virtualScroll` platform flag to answer this.** It selects the Emergent DOM
 mitigation, not the platform property, so Claude is `virtualScroll: false`. The
@@ -439,7 +446,7 @@ declaration. Two consequences that are easy to miss:
 - The privacy statement in README lists exactly which hosts are read. A new host makes that list
   wrong until it is updated.
 
-### Step 3 — Reuse the generic machinery; only the source is platform-specific
+### Step 3 — Extract and parameterize the patterns; almost nothing is callable as-is
 
 Most of v12.0/v12.1 is not Claude-specific, and the port should not re-derive it:
 

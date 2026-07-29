@@ -337,10 +337,10 @@ Paste this as the opening message.
 > message). Commits after it are comments and documentation only. The GitHub Codex loop is finished
 > — 8 findings across 7 rounds, zero false positives, provenance 4 pre-existing / 4 cycle-introduced.
 >
-> **First thing:** check whether I have merged #59 (`gh pr view 59 --json state`). If it is still
-> open, that is mine to do — do not merge it, and do not restart the Codex loop on the current code.
-> If anything has since changed a line of live code, DEC-031 re-arms: say so and ask me to re-confirm
-> before that change ships.
+> **Nothing is in flight.** #59 is merged, v12.1 is tagged as a GitHub release, and the Codex loop on
+> it is finished — do not restart it. I merge every PR myself, and a live confirmation certifies one
+> commit (DEC-031), so if you change a line of live code, say so and ask me to re-confirm before it
+> ships.
 >
 > **Then, in order:**
 > 1. **Summary/Export fixtures** — mutation testing proves those surfaces have *zero* test
