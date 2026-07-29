@@ -75,22 +75,21 @@ release, and zero improvement. (There *was* a genuine selector drift underneath,
 same investigation, and the fallback chains had been silently absorbing it. Fixing it changed
 nothing about coverage.)
 
-**"Scroll the conversation to load everything, then scan."** This one deserves care, because **it
-is not universally wrong — this project already does exactly that on another platform.** Emergent
-also uses a Virtuoso recycling scroller, and it is handled by sweeping the scroller on panel open,
-accumulating messages across the sweep, and re-resolving stale element references at click time.
-That works there.
+**"Scroll the conversation to load everything, then scan."** On Claude this fails for two measured
+reasons. First, a sweep across 0/25/50/75/100% of a 96-turn conversation kept the identical three
+turns mounted at every stop — cumulative unique total **3**, no accumulation at all. Second, even a
+sweep that did accumulate would be prohibitive: the scroll container measured 372,642 px against a
+746 px viewport, so a viewport-step sweep at ~250 ms is roughly 500 steps — minutes before the panel
+can be drawn, on every conversation.
 
-It does not work on Claude, for two measured reasons. First, a sweep across 0/25/50/75/100% of a
-96-turn conversation kept the identical three turns mounted at every stop — cumulative unique total
-**3**, no accumulation at all. Second, even a sweep that did accumulate would be prohibitive: the
-scroll container measured 372,642 px against a 746 px viewport, so a viewport-step sweep at the
-250 ms Emergent uses is roughly 500 steps — minutes of scrolling before the panel can be drawn, on
-every conversation.
-
-So the question is not "does it virtualize" but **"does it virtualize, and is a sweep viable here?"**
-Emergent answers yes/yes and gets a DOM strategy. Claude answers yes/no and needs a source of truth
-outside the DOM. The comparison table is in `DOM-REFERENCE.md` → "Two questions, not one".
+It is worth stating what this does *not* prove, because an early draft of this section got it wrong.
+It does not establish that sweeping is a bad idea in general — on a platform with short sessions a
+sweep may be the entire fix, and the question is properly **"does it virtualize, *and* is a sweep
+viable here?"** (comparison table: `DOM-REFERENCE.md` → "Two questions, not one"). What made the
+draft wrong was citing Emergent as the working counterexample. Emergent recycles, but it has **no
+sweep** — the panel-open traversal its documentation described for five months was never built, so
+its real coverage is only what the user has already scrolled past. A claim inherited from a document
+rather than checked against the code; see backlog item 7 in `ROADMAP.md`.
 
 **"Cache what we see as the user scrolls."** This produces a partial, stale, order-unknown record
 that depends on where the user happened to look — and it fails the moment they open a conversation
@@ -191,8 +190,11 @@ software is part of the world and is easy to leave out of it.
 Virtualization is not a Claude quirk. It is the standard answer to "our chat page gets slow on long
 conversations", and every platform this userscript supports will eventually have that conversation
 internally. **Claude was not even the first here** — Emergent has used a Virtuoso recycling scroller
-since before this was recognised as a category, and is handled by a DOM sweep (see the previous
-section). ChatGPT, Grok and Gemini still render long threads the naive way Claude used to.
+since before this was recognised as a category, and is *not* adequately handled (backlog item 7).
+Gemini's status is contested: two docs say it virtualizes, the registry says it does not, and nobody
+has measured it. As of the last inspection (February 2026, before anyone was looking for this)
+ChatGPT, Grok and Gemini rendered long threads the naive way Claude used to — treat that as the last
+observation, not as current fact.
 
 **When one of them does it, the tool will not report an error.** It will quietly start describing
 a fraction of the conversation, exactly as it did here, and the test suite will stay green. So the
@@ -1754,7 +1756,8 @@ Four related issues on Emergent:
 3. **Reverted opacity band-aid** (previous session had bumped to 0.75 / 14px width) back to standard 0.35 / 8px since actual root cause is now fixed
 4. **Removed broad fallback selectors 3-7** (rounded-br-none, items-end, text-wrap, etc.) that were matching AI agent content
 5. **Added accumulative scanning** for virtual scroll platforms — messages collected across scans without clearing, deduplication by text key
-6. **Added scroll-through collection on panel open** — programmatically scrolls the virtuoso container from top to bottom in 250ms steps, scanning at each position, then restores original scroll position
+6. ~~**Added scroll-through collection on panel open** — programmatically scrolls the virtuoso container from top to bottom in 250ms steps, scanning at each position, then restores original scroll position~~
+   **❌ NOT IN THE SHIPPED CODE** (verified 2026-07-29, found via Codex review of PR #60). No such traversal exists: enumerating every scroll mutation in the userscript finds only Claude's jump machinery and click handlers, with no stepped loop, and it is absent from `modules/` with no removal in git history. Whether it was written and reverted before this entry was published, or only ever planned, is unknown — what is certain is that **it has not been running**, so Emergent's coverage is item 5 alone: whatever the user has already scrolled past. Left struck rather than deleted because two separate documents recorded this as shipped for five months, and that is the actual lesson. Tracked as `ROADMAP.md` backlog item 7.
 7. **Stale DOM reference handling** — checks `msg.isConnected` before scrolling; re-searches DOM for matching text if the element was recycled by virtuoso
 8. **Fixed ID vs class selector** — changed `.ai-nav-empty` to `getElementById('ai-nav-empty')`
 

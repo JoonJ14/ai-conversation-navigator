@@ -1043,7 +1043,7 @@ Below is the exact mapping between what the userscript looks for and what each m
 </div>
 ```
 
-**Why it works:** The `^=` (starts-with) selector matches `data-testid="user-message-user-task-1"` but not `data-testid="assistant-message-1"`. Emergent uses virtuoso virtual scrolling — only visible DOM elements exist — so the script uses accumulative scanning and scroll-through collection (see CHANGELOG v7.7).
+**Why it works:** The `^=` (starts-with) selector matches `data-testid="user-message-user-task-1"` but not `data-testid="assistant-message-1"`. Emergent uses virtuoso virtual scrolling — only visible DOM elements exist — so the script uses accumulative scanning: `scanConversation` keeps messages across scans instead of clearing. (CHANGELOG v7.7 and DOM-REFERENCE also described a "scroll-through collection" pass; **that was never implemented** — see `ROADMAP.md` backlog item 7.)
 
 ---
 

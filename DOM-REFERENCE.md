@@ -41,7 +41,8 @@ follow — virtualization is the standard fix for a slow chat page, not a Claude
 |---|---|---|---|
 | **Claude** (`claude.ai/chat`) | **YES — Virtuoso-style recycling**, ~3–7 of N turns mounted | Jul 26, 2026 | **API-backed conversation index** (DEC-021). DOM is the labelled fallback. |
 | **Emergent** (`app.emergent.sh`) | **YES — Virtuoso recycling**, `[data-testid="virtuoso-scroller"]` | Feb 15, 2026 | **Accumulation only** — scans keep messages the user has already scrolled past, plus click-time re-resolution of stale references. **Nothing sweeps.** See the ⚠️ below. |
-| ChatGPT · Grok · Gemini · Perplexity | not observed | Feb 18, 2026 | DOM |
+| **Gemini** | ⚠️ **CONTESTED — unresolved** | Feb 16, 2026 | DOM. `docs/CONTEXT-TRACKING.md` and `docs/BOOKMARKS.md` both state Gemini virtualizes ("only viewport messages exist in DOM"); the registry sets `virtualScroll: false` and its DOM-REFERENCE section says nothing about it. **Nobody has measured it.** Resolve this before trusting any Gemini count. |
+| ChatGPT · Grok · Perplexity | not observed | Feb 18, 2026 | DOM |
 | Claude Code Web · Codex Web | not observed | Feb 18, 2026 | DOM |
 | Bolt · Lovable · Replit · V0 · Base44 · Firebase Studio | not observed | Feb 18, 2026 | DOM |
 
@@ -59,8 +60,8 @@ claude:   { virtualScroll: false, ... }   // the MOST virtualized platform in th
 emergent: { virtualScroll: true,  ... }   // the only `true` in the file
 ```
 
-The flag selects the **Emergent-style DOM mitigation** (accumulative scanning + scroll-through
-collection), not the platform property. Claude is `false` because it does not use that strategy — it
+The flag selects **accumulative scanning** (keep messages across scans instead of clearing), not the
+platform property. Claude is `false` because it does not use that strategy — it
 uses the index instead. So grepping `virtualScroll` to find virtualized platforms returns exactly the
 wrong answer, and the name invites that mistake. **This table, not the flag, is the record of which
 platforms virtualize.** A rename is on the backlog; it touches 12 platform configs and so needs the

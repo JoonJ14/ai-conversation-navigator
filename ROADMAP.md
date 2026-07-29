@@ -373,8 +373,10 @@ Layer 4 is also the clearest ceiling yet on DOM augmentation as a strategy. Laye
 
 **Assume this is a when, not an if.** Virtualization is the standard answer to "our chat page gets
 slow on long conversations", and Claude's flip between February and July 2026 came with no
-announcement, no error, and a green test suite. ChatGPT, Grok and Gemini render long threads the
-same naive way Claude used to. Detection procedure and per-platform status live in
+announcement, no error, and a green test suite. As of the last inspection — **February 2026, before
+anyone knew to look for this** — ChatGPT, Grok and Gemini rendered long threads the same naive way
+Claude used to. That is the last observation, not a current fact, and Gemini's is actively contested
+(see the status table). Detection procedure and per-platform status live in
 `DOM-REFERENCE.md` → "Virtualization status"; the full narrative of why the Claude response took
 the shape it did is in `TROUBLESHOOTING.md` → "Why v12.0 and v12.1 Exist". This section is the
 **order of operations** for the next one.
@@ -387,10 +389,10 @@ every cached element reference in the codebase becomes a latent wrong-answer bug
 commands, in `DOM-REFERENCE.md`.
 
 **(b) If recycling — is a full sweep viable?** This is the question that actually decides the size of
-the work, and **the answer is not always no.** Emergent recycles via Virtuoso and is handled entirely
-in the DOM: sweep the scroller on panel open, accumulate across the sweep, re-resolve stale references
-at click time. Claude cannot be handled that way — a measured sweep never accumulated past 3 unique
-turns, and at 372,642 px of scroll height a viewport-step sweep would take minutes per conversation.
+the work, and **the answer is not always no** — on a platform with short sessions a sweep may be the
+entire fix. Claude is the clear negative case: a measured sweep never accumulated past 3 unique turns,
+and at 372,642 px of scroll height a viewport-step sweep would take minutes per conversation. There is
+no positive case in this repo yet (see below).
 
 Estimate before choosing: `scrollHeight / clientHeight` steps at ~250 ms. Seconds means a sweep is
 affordable and may be the whole fix. Minutes — or a sweep that does not accumulate — means Steps 1–6.
