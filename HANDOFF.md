@@ -220,6 +220,11 @@ override, so re-confirm rather than reason.
 Verified on `3c63c86`: **515/515 both engines**, and the live-data label harness re-run in
 Chromium (8/8 uuid-keyed, 0 summary labels, 0 glyph labels). Codex round 7 clean on this commit.
 
+A later commit (`5a6bda0`) touches the userscript again, but **only inside comments** — verified
+mechanically: `git diff 3c63c86 HEAD -- ai-conversation-navigator.user.js` filtered to non-comment
+lines is empty. It also changes one fixture string. So `3c63c86` remains a valid build to install
+and confirm; the suite and the label harness were re-run on the newer commit anyway.
+
 ---
 
 ## F. Files for next session
