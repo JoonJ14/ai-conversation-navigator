@@ -6948,9 +6948,16 @@
     // markdown flattened (_mdVisible) and compared as a PREFIX at the preview's own length.
     // Uniqueness across the whole path is required, same rule as DEC-030: binding wrongly is
     // permanent and silent, refusing is recoverable.
+    // Probe length for rule B. Long enough to be specific inside a 120-char preview,
+    // short enough to survive a summary header eating most of it.
+    var BM_LEGACY_PROBE = 40;
+
     function _bmLegacyPathIndexFor(preview, entityType) {
         if (!_ciFullPath || !preview) return -1;
-        var want = _normalizeFull(_mdVisible(preview));
+        // Strip OUR OWN injected bookmark glyph. Pre-v12.0 previews were captured before
+        // _cleanText learned to remove it, so many begin with U+2691 — which guarantees a
+        // prefix match fails at character 0. Measured live: 6 of 16 unmatched records.
+        var want = _normalizeFull(_mdVisible(String(preview).replace(/[\u2690\u2691]/g, ' ')));
         if (!want) return -1;
         // SENDER-SCOPED. Without this a bookmark on YOUR message could bind to an assistant
         // message that merely opens with the same words — a prefix match makes that far more
@@ -6961,10 +6968,20 @@
             if (_ciFullPath[i].sender !== wantSender) continue;
             var full = _normalizeFull(_mdVisible(_ciFullPath[i].text || ''));
             if (!full) continue;
-            // PREFIX at the preview's length: `preview` was truncated to 120 chars of
-            // rendered text, so it can only ever be a prefix of the full message.
-            if (full.substring(0, want.length) !== want) continue;
-            if (hit !== -1) return -2;   // ambiguous — two messages share that opening
+            // RULE A — prefix. `preview` is 120 chars of rendered text, so in the clean
+            // case it is a prefix of the full message.
+            var ok = full.substring(0, want.length) === want;
+            // RULE B — the message's opening appears ANYWHERE in the preview. Claude renders
+            // a collapsed activity summary ("Architected layered governor mechanisms…") ABOVE
+            // a tool-bearing response, and _cleanText captured that first — so the preview is
+            // summary-then-body and the body is not at position 0. Measured live: this is why
+            // the remaining unmatched records failed. Requiring BM_LEGACY_PROBE chars of the
+            // real message keeps it specific, and uniqueness below still gates it.
+            if (!ok && full.length >= BM_LEGACY_PROBE) {
+                ok = want.indexOf(full.substring(0, BM_LEGACY_PROBE)) !== -1;
+            }
+            if (!ok) continue;
+            if (hit !== -1) return -2;   // ambiguous — two messages match this preview
             hit = i;
         }
         return hit;
@@ -6980,7 +6997,7 @@
     //   no candidates at all   -> index text empty for that sender (attachment-only turns)
     function _bmLegacyDiagnose(b) {
         if (!_ciFullPath) return;
-        var want = _normalizeFull(_mdVisible(b.preview || ''));
+        var want = _normalizeFull(_mdVisible(String(b.preview || '').replace(/[\u2690\u2691]/g, ' ')));
         var wantSender = (b.entityType === 'ai-msg') ? 'assistant' : 'human';
         var best = null, bestLen = -1, considered = 0, emptyText = 0;
         for (var i = 0; i < _ciFullPath.length; i++) {

@@ -244,7 +244,7 @@ const PLATFORMS = [
         virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
         indexBacked: true,
         offsetUnderivable: true,
-        legacyBookmarkProbe: { uniquePreview: 'Question number 33', upgraded: 1, unmatched: 1 },
+        legacyBookmarkProbe: { upgraded: 3, unmatched: 1 },
         mockConfig: { totalMessages: 80 },
         gmFixture: {
             totalMessages: 80,
@@ -258,6 +258,22 @@ const PLATFORMS = [
                   contentHash: 'feedface', msgUuid: null,
                   preview: 'A question that was edited away and no longer exists anywhere',
                   msgIndex: 5, createdAt: 2, platform: 'claude.ai' },
+                // GLYPH CONTAMINATION — the live shape. Pre-v12.0 previews were captured
+                // before _cleanText stripped our own U+2691 bookmark icon, so they begin
+                // with it and a prefix match fails at character 0. Six of the owner's
+                // sixteen unmatched records looked exactly like this.
+                { id: 'bm_legacy3', schema: 1, entityType: 'ai-msg',
+                  contentHash: 'cafebabe', msgUuid: null,
+                  preview: '\u2691Answer number 21: validate the input first, then branch',
+                  msgIndex: 20, createdAt: 3, platform: 'claude.ai' },
+                // SUMMARY-HEADER CONTAMINATION — also the live shape. Claude renders a
+                // collapsed activity summary ABOVE a tool-bearing response, and _cleanText
+                // captured that first, so the real message text sits AFTER it in the preview
+                // rather than at position 0. Rule B (probe-anywhere) is what recovers these.
+                { id: 'bm_legacy4', schema: 1, entityType: 'ai-msg',
+                  contentHash: 'deadc0de', msgUuid: null,
+                  preview: 'Architected layered governor mechanismsAnswer number 9: validate the input first, then branch on the result.',
+                  msgIndex: 8, createdAt: 4, platform: 'claude.ai' },
             ],
         },
     },
