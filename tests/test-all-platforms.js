@@ -1259,8 +1259,14 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
             }
             assert('Mock recycles turns (set changes, node detaches)',
                 recycling.ok &&
-                recycling.counts.every(c => c === recycling.userWindowSize ||
-                                            c >= recycling.userWindowSize - chipSlack) &&
+                // BOUNDED ON BOTH SIDES. `chipSlack` exists because a chip row has no
+                // user-message testid and so counts one short — it is a floor allowance,
+                // not permission to exceed the window. Written as a bare `>=` this
+                // accepted ANY larger count, so a mock that stopped unmounting would have
+                // sailed through the recycling check that exists to catch exactly that
+                // (Codex #59 R6). The DOM-coverage assertion below already bounds both ends.
+                recycling.counts.every(c => c >= recycling.userWindowSize - chipSlack &&
+                                            c <= recycling.userWindowSize) &&
                 recycling.cumulativeUnique > recycling.userWindowSize &&
                 recycling.cumulativeUnique < recycling.totalTurns &&
                 recycling.detachedProven,
