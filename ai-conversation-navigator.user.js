@@ -6970,6 +6970,40 @@
         return hit;
     }
 
+    // WHY a legacy record failed to match — printed for each one, because guessing at the
+    // cause is exactly what wasted three attempts on the Q#1 hunt. Shows the normalized
+    // preview against the closest same-sender candidate and where the two diverge, which
+    // distinguishes the plausible causes at a glance:
+    //   divergence at 0        -> leading contamination in the old preview
+    //                             (pre-v12.0 previews predate the "You said:" strip)
+    //   divergence mid-string  -> rendered DOM text vs raw markdown differ there
+    //   no candidates at all   -> index text empty for that sender (attachment-only turns)
+    function _bmLegacyDiagnose(b) {
+        if (!_ciFullPath) return;
+        var want = _normalizeFull(_mdVisible(b.preview || ''));
+        var wantSender = (b.entityType === 'ai-msg') ? 'assistant' : 'human';
+        var best = null, bestLen = -1, considered = 0, emptyText = 0;
+        for (var i = 0; i < _ciFullPath.length; i++) {
+            if (_ciFullPath[i].sender !== wantSender) continue;
+            considered++;
+            var full = _normalizeFull(_mdVisible(_ciFullPath[i].text || ''));
+            if (!full) { emptyText++; continue; }
+            var n = 0;
+            while (n < want.length && n < full.length && want.charAt(n) === full.charAt(n)) n++;
+            if (n > bestLen) { bestLen = n; best = { i: i, full: full }; }
+        }
+        console.log('[ACN bookmarks] UNMATCHED ' + b.id +
+                    ' type=' + b.entityType +
+                    ' previewLen=' + (b.preview || '').length +
+                    ' normLen=' + want.length +
+                    ' candidates=' + considered + ' (emptyText=' + emptyText + ')' +
+                    ' bestCommonPrefix=' + bestLen);
+        console.log('   want: ' + JSON.stringify(want.substring(0, 80)));
+        if (best) {
+            console.log('   best: [' + best.i + '] ' + JSON.stringify(best.full.substring(0, 80)));
+        }
+    }
+
     // Runs once per index generation alongside the provisional migration. Returns a
     // {upgraded, ambiguous, unmatched} tally so the rate can be reported rather than assumed.
     function _bmMigrateLegacy() {
@@ -6982,6 +7016,7 @@
             if (b.msgUuid || b.schema === 2) { stats.alreadyKeyed++; continue; }
             if (b.pendingHash) continue;          // provisional — the other migrator owns it
             var p = _bmLegacyPathIndexFor(b.preview, b.entityType);
+            if (p < 0) _bmLegacyDiagnose(b);
             if (p === -2) { b.legacyUnresolved = 'ambiguous'; stats.ambiguous++; saveBookmark(b); changed = true; continue; }
             if (p < 0 || !_ciFullPath[p] || !_ciFullPath[p].uuid) {
                 b.legacyUnresolved = 'unmatched'; stats.unmatched++; saveBookmark(b); changed = true; continue;
