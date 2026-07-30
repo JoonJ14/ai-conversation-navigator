@@ -73,16 +73,20 @@ Priority order agreed 2026-07-28, re-ranked after v12.1:
    "harvest-bound record renders an ACTIVE flag" assertion is deliberately **not** written — the
    bound row is not reliably mounted when the panel is read, so every available form of it passes
    vacuously. It is recorded in the fixture as test debt, not silently skipped.
-2. **Fixture batch, starting with the Summary/Export dead zone.** Mutation testing proved those
-   surfaces have **zero test execution**: replacing their function bodies with `throw` leaves the
-   suite green. Then the carried-over batch (localized unmatchable-cluster, unmatchable-HEAD,
-   assistant-TAIL, GM-shim backoff classes, summary-click-after-recycling). Label each
-   ancestor-gated vs mutant-gated. **Rides with this batch (added v12.2): the Gemini AI selector
-   re-chain** — `div.model-response-text` is dead on live Gemini (class moved to a
-   `structured-content-container` element; measured Jul 30, 2026) and the chain survives on
-   `.response-content`, which over-captures the response footer. Deferred from the v12.2 PR
-   because nothing asserts AI text until this batch exists (DEC-032); details in
-   `DOM-REFERENCE.md` → Gemini.
+2. **Fixture batch, starting with the Summary/Export dead zone.** ~~Mutation testing proved those
+   surfaces have **zero test execution**~~ **Dead zone closed in v12.3**: S1–S4/E1–E3 fixtures,
+   each of the four mutation targets individually re-verified red against them
+   (`ciIndexStamp`, `_sumBuildTimeline`, `_sumScrollToElement`, `_exportFromIndex`).
+   Summary-click-after-recycling from the carried-over list is covered by S2. **Still open from
+   this item:** the rest of the carried-over batch (localized unmatchable-cluster,
+   unmatchable-HEAD, assistant-TAIL, GM-shim backoff classes incl. malformed JSON) — split to a
+   follow-up PR for review size; and the recorded debts: `exportBookmarks()` + Tools
+   gallery/commands still unexecuted. **The Gemini AI selector re-chain is CLOSED-BY-MEASUREMENT
+   for now** (Jul 30, 2026): all 12 live conversations on the test account have text-empty
+   response-footers, so the fallback's only over-capture is the "Gemini said" h2 that v12.2
+   already strips — no measured data can make an assertion distinguish the selectors (DEC-032:
+   unprovable change). Re-opens if a text-bearing footer (e.g. search-grounded sources-list) is
+   ever observed; that observation is also what would make it ancestor-gatable.
 3. **Retry-After honoring for HTTP 429** — plumb response headers through `ciRequestJSON`.
 4. **Reassess, don't build: §4.2 offset cache / §4.3 height learning.** Measure a live repeat
    jump first; if sub-400ms, close as satisfied-by-redesign. One live datapoint already exists

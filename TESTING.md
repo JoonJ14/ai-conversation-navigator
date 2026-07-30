@@ -662,6 +662,41 @@ first time these ran.
 
 ---
 
+## Summary/Export fixtures (v12.3) — how the dead zone was closed
+
+Until v12.3, replacing `_sumBuildTimeline`, `_sumScrollToElement`, `_exportFromIndex` or
+`ciIndexStamp` with an unconditional `throw` left the whole suite green — measured at
+**516/516 on the parent commit with all four throwing at once**. The fixtures that closed
+this are gated by two platform-config flags:
+
+- `summaryExportTests: true` (on *Claude (virtualized + index)*) runs **S1–S4, E1, E3**:
+  whole-conversation stats (exact 81/40/41 against ~3 mounted turns), segment click through
+  the jump bridge to an unmounted row, mounted-target resolution, the stale-stamp refusal
+  after a `pushState` conversation switch, and the two index-complete export captures.
+- `degradedExportTest: true` (on *Claude (virtualized)*) runs **E2**: the export must carry
+  the DEGRADED source label and a header count that equals its own section count, bounded
+  4..12 on both sides — a mock that stopped unmounting would blow the upper bound.
+
+All seven are **mutant-gated**, per function and individually verified: `ciIndexStamp` and
+`_sumBuildTimeline` kill generation (S1 + cascade), `_sumScrollToElement` kills exactly the
+three click fixtures, `_exportFromIndex` kills exactly E1.
+
+**Download capture:** exports are asserted by content via `DOWNLOAD_SHIM`, which patches
+`URL.createObjectURL` and the anchor-click in-page and records `{filename, blob}` into
+`window.__acnTestDownloads`. Read with `(await dl.blob.text())` inside `page.evaluate`.
+
+**What is deliberately not asserted:** `busySeen` (whether a 110ms poll observed the busy
+flag) is reported in failure details but never part of a pass condition — it flipped between
+two identical local runs, the DEC-025 machine-speed shape. Route identity ("did the click
+use the bridge?") is asserted structurally instead: a target proven unmounted at click time
+that ends resolved at row 0 cannot have gotten there any other way.
+
+**Recorded debt:** `exportBookmarks()` and the Tools gallery/commands sections remain
+unexecuted; E1 carries one announced retry for the scan-tick race after S4's conversation
+switch (degradation-when-unready has its own dedicated test, E2).
+
+---
+
 ## Platform Configuration — The PLATFORMS Array
 
 The `PLATFORMS` array in `test-all-platforms.js` is the **central configuration** for all tests. Each entry defines one platform variant.

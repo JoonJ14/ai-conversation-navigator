@@ -233,6 +233,16 @@ data-acn-jump-resolved="N"              -> On the ZONE: the data-index a complet
                                            resolved. Durable — the resolved ELEMENT is detached by
                                            the re-render scrollIntoView triggers, so marking only
                                            the element is unreadable by the time a test looks.
+                                           Stamped by BOTH routes (orbMarkJumpTarget): it names the
+                                           resolution, never the route taken.
+data-acn-role="sum-generate"            -> Summary panel generate button (v12.3)
+data-acn-role="sum-results"             -> Summary results container (v12.3)
+data-acn-role="sum-stats"               -> Stats section, with data-acn-sum-total / -user / -ai
+                                           machine-readable counts (v12.3)
+data-acn-role="sum-segment"             -> Conversation-map segment, with data-acn-sum-start / -end
+                                           timeline span (v12.3)
+data-acn-role="tool-export"             -> Tools export option, with data-acn-export="full|bookmarks|summary" (v12.3)
+data-acn-role="toast"                   -> The transient #acn-toast message (v12.3)
 ```
 
 Never remove or rename these attributes — tests depend on them.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.2
+// @version      12.3
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -40,7 +40,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.2';
+    var ACN_VERSION = '12.3';
 
     // ============================================================
     // i18n — internationalization string table
@@ -10186,7 +10186,11 @@
             lines.push('');
             lines.push('## Conversation Map');
             summary.map.forEach(function (seg) {
-                var range = 'Q' + ((seg.startIdx || 0) + 1) + '\u2013Q' + ((seg.endIdx || 0) + 1);
+                // startIdx/endIdx are positions in the COMBINED user+AI timeline,
+                // not question numbers \u2014 the old 'Q1\u2013Q81' label claimed 81 questions
+                // for a 40-question conversation (v12.3 review). 'msgs X\u2013Y' is the
+                // same convention the panel's segment meta line uses.
+                var range = 'msgs ' + ((seg.startIdx || 0) + 1) + '\u2013' + ((seg.endIdx || 0) + 1);
                 lines.push('- **' + seg.label + '** (' + range + ')');
                 if (Array.isArray(seg.entities)) {
                     seg.entities.forEach(function (ent) {
@@ -10769,7 +10773,17 @@
             var opt     = createElement('div', { className: 'acn-exp-opt' }, [iconEl, titleEl, descEl]);
             opt.setAttribute('data-acn-role', 'tool-export');       // test contract (v12.3)
             opt.setAttribute('data-acn-export', tool.id);
-            opt.addEventListener('click', function () { tool.action(); });
+            // Guarded like exportFullConversation's own body: without this, a throw
+            // in exportSummary/exportBookmarks escaped as an uncaught page error
+            // with no file and no feedback, while the same failure in the full
+            // export produced a toast (v12.3 review).
+            opt.addEventListener('click', function () {
+                try { tool.action(); }
+                catch (e) {
+                    console.error('[ACN] export "' + tool.id + '" failed:', e);
+                    if (typeof showToast === 'function') showToast('Export failed — see console');
+                }
+            });
             exportSection.appendChild(opt);
         });
         scroll.appendChild(exportSection);

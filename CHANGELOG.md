@@ -4,6 +4,61 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.3 — Summary/Export Fixtures: the Dead Zone Gets Executed] — 2026-07-30
+
+**Branch:** `feat/summary-export-fixtures`
+
+### Problem
+
+Mutation testing had proven — and DEC-029 recorded — that the Summary, Export and Tools
+surfaces had **zero test execution**: replacing `_sumBuildTimeline`, `_sumScrollToElement`,
+`_exportFromIndex` or `ciIndexStamp` with an unconditional `throw` left the suite green.
+Re-measured on this release's parent commit: **516/516 green with all four throwing at once**
+(Chromium, 2026-07-30). Roughly 1,000 lines of v12.0's release — written during a review loop
+whose only verification was the next round reading it — carried an entirely unearned suite
+number.
+
+### Fix
+
+- **Test-contract attributes (additive, live code):** `sum-generate`, `sum-results`,
+  `sum-stats` (+ machine-readable `data-acn-sum-total/user/ai`), `sum-segment`
+  (+ `data-acn-sum-start/end` timeline span), `tool-export` (+ `data-acn-export` id),
+  `toast`.
+- **Harness download capture:** patches `URL.createObjectURL` + anchor `click` in-page to
+  capture `{filename, blob}` from `downloadFile()` — engine-agnostic, no Playwright
+  download machinery.
+- **Seven fixtures**, all **mutant-gated** (no live bug was being fixed): S1 summary stats
+  cover the whole conversation (81/40/41 from 3 mounted turns); S2 a segment click reaches
+  an UNMOUNTED target through the jump bridge (the carried-over
+  summary-click-after-recycling case); S3 a mounted target resolves without refusing;
+  S4 the stale-stamp guard refuses with the regenerate toast after the index moves to
+  another conversation; E1 the full export is index-complete AND self-consistent (header
+  count == its own section count == fixture); E2 the degraded export says so, bounded on
+  both sides; E3 the summary export carries index-complete stats.
+
+### Verification
+
+Each of the four functions was mutated **individually** against the committed fixtures:
+`ciIndexStamp` and `_sumBuildTimeline` kill generation (S1 + cascade), `_sumScrollToElement`
+kills exactly the three click fixtures, `_exportFromIndex` kills exactly E1. All runs
+restored; final suite green on both engines. `busySeen` is reported but never asserted —
+it raced the poll cadence between two identical local runs (the DEC-025 shape).
+
+### Deliberately not done, with reasons on the record
+
+- **Gemini AI selector re-chain — deferred by measurement.** All 12 live conversations on
+  the test account have text-empty response-footers, so the only over-capture vs
+  `.model-response-text` is the "Gemini said" h2 that v12.2 already strips. No assertion
+  grounded in measured data can distinguish the selectors (DEC-032: unprovable), and
+  inventing footer text for the mock would manufacture evidence. Re-opens the day a
+  text-bearing footer is observed.
+- **Known-remaining debt, recorded in the fixture comment:** `exportBookmarks()` and the
+  Tools gallery/commands sections are still unexecuted.
+- **Carried-over jump/backoff fixture batch** (unmatchable-cluster/HEAD, assistant-TAIL,
+  GM-shim backoff classes) — split to a follow-up to keep this PR reviewable.
+
+---
+
 ## [12.2 — Gemini: Strip Angular's Hidden Sender Labels] — 2026-07-30
 
 **Branch:** `fix/gemini-hidden-labels`
