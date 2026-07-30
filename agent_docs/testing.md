@@ -88,6 +88,15 @@ the Ubuntu and macOS runners, so an assertion that races the virtualizer passes 
 and fails on the third. Treat a Windows-only failure as a real finding about the assertion,
 not as runner flakiness. Do not add `--single-process` to the Chromium launcher — it removes
 crash isolation and reports one renderer fault as every-platform-after-it failing (DEC-026).
+
+**webkit-on-macos is the one exception with a known environment signature.** A job running
+40+ minutes (healthy: 6–10) with `got null` acceptance jumps pinned at ~4.3–5.4s each while
+sibling entries stay exact at ~300ms is a degraded macOS runner episode, not code — verified
+2026-07-30 on identical commits green minutes apart. Check `vis=`/`raf10=` on the failure
+lines (~160ms rAF sample = healthy; seconds = throttled; -1 = stopped) and the per-entry
+wall clocks, then re-run the job once. Full signature and procedure:
+`TESTING.md` → "CI: reading a webkit-on-macos failure or hang". The job `timeout-minutes: 20`
+exists for this; do not raise assertion budgets to make a sick runner green.
 - **claude.yml:** Claude Code integration for automated issue/PR responses
 - **claude-code-review.yml:** Automated code review
 

@@ -11,6 +11,13 @@ jobs:
   test:
     name: "${{ matrix.browser }} on ${{ matrix.os }}"
     runs-on: ${{ matrix.os }}
+    # Healthy jobs run 5m41s-9m47s (observed across the 9-job matrix). Without
+    # a limit, GitHub lets a job run 6 HOURS - and a degraded macos runner
+    # burned 40+ minutes twice on 2026-07-30 (webkit/macos: same code, same
+    # image, same Playwright build as green runs minutes earlier). 20 minutes
+    # is 2x the slowest healthy job; a sick host now fails fast and visibly
+    # instead of blocking the PR for an hour. Queue time does not count.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:

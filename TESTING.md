@@ -1220,6 +1220,36 @@ To test just one platform, temporarily comment out the others in the `PLATFORMS`
 for (const platform of PLATFORMS.filter(p => p.name === 'Bolt.new')) {
 ```
 
+### CI: reading a webkit-on-macos failure or hang (2026-07-30 incident signature)
+
+Healthy CI jobs run **5m41s–9m47s**. Twice on 2026-07-30, `webkit on macos-latest` ran
+**40–75+ minutes** on code that had passed the identical check minutes earlier — same commit
+content, same `macos-26-arm64` image, same Playwright WebKit build (26.5 / v2336) — failing one
+acceptance entry with `got null` jumps pinned at the product's give-up ceiling (settle cap ×
+iteration cap ≈ 4.3–5.4s each), **consecutive in visit order**, while sibling acceptance entries
+on the same run stayed exact at ~300ms. That signature is a **degraded runner episode**, not a
+code regression. The mac WebKit port is the only Cocoa WebKit in the matrix — Linux and Windows
+run GTK/WPE builds — so a mac-port/host pathology shows up on exactly one job.
+
+How to respond:
+
+1. **Check the per-entry wall clocks** in the log (printed since this incident: `PASS (…, 13.0s)`
+   live and `(13.0s)` in the detailed report). A stuck job's streaming log ends at
+   `Testing <entry>...` — that names where the time went.
+2. **Check `vis=` / `raf10=` on the failure lines.** `raf10` is wall-clock ms for 10
+   `requestAnimationFrame` frames sampled at failure time: **~160ms is healthy**; seconds means
+   the engine was throttling rAF (which starves the mock's render loop and makes the product's
+   jump give up honestly); `-1` means rAF stopped outright.
+3. **Re-run the job once** (`gh run rerun <run-id> --failed`). A fresh runner has consistently
+   come back green in ~6 minutes on the same commit.
+4. If it fails again with healthy `raf10` numbers and exact-but-wrong rows rather than nulls,
+   it is NOT this signature — treat it as a real finding (the Windows rule below applies:
+   a runner-specific failure is usually a real statement about an assertion).
+
+The workflow's `timeout-minutes: 20` (2× the slowest healthy job) makes a wedged runner fail
+fast instead of blocking the check for up to GitHub's 6-hour default. Queue time doesn't count
+against it.
+
 ---
 
 ## Limitations and Caveats
