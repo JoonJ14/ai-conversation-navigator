@@ -164,6 +164,7 @@ const PLATFORMS = [
         expectedAccent: '#d97706',
         expectedMode: 'orbital',
         virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
+        degradedExportTest: true,   // E2: the export must SAY it is window-sized (v12.3)
     },
     {
         // Same virtualizing mock, but WITH a GM_xmlhttpRequest fixture so the
@@ -180,6 +181,7 @@ const PLATFORMS = [
         expectedMode: 'orbital',
         virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
         indexBacked: true,
+        summaryExportTests: true,   // S1-S4/E1/E3: the v12.3 dead-zone fixtures
         gmFixture: {
             totalMessages: 80,
             conversationUuid: '22222222-2222-4222-8222-222222222222',
@@ -881,6 +883,40 @@ function buildGmFixtureShim(cfg) {
 </script>`;
 }
 
+// ── Download capture shim ─────────────────────────────────────────────────────
+// Export tests need the CONTENT of the file the userscript "downloads".
+// downloadFile() builds a Blob, mints an object URL, and clicks a hidden
+// <a download>. Both steps are patchable from the page: capture the Blob at
+// createObjectURL time, then record {filename, blob} when an anchor carrying a
+// download attribute is clicked — and swallow that click, so nothing navigates.
+// The userscript revokes the URL 100ms later; irrelevant, because the capture
+// holds the Blob object itself, not the URL. Read from a test with
+//   page.evaluate(() => window.__acnTestDownloads[0].blob.text())
+// Identical behaviour on all three engines; no Playwright download machinery.
+const DOWNLOAD_SHIM = `<script>
+(function () {
+    var blobByUrl = {};
+    var origCreate = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = function (obj) {
+        var url = origCreate(obj);
+        blobByUrl[url] = obj;
+        return url;
+    };
+    var origClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+        if (this.hasAttribute('download')) {
+            window.__acnTestDownloads = window.__acnTestDownloads || [];
+            window.__acnTestDownloads.push({
+                filename: this.getAttribute('download'),
+                blob: blobByUrl[this.href] || null
+            });
+            return;
+        }
+        return origClick.apply(this, arguments);
+    };
+}());
+</script>`;
+
 // Build a test page with mock DOM + userscript embedded
 function buildTestPage(platform, scriptContent) {
     const mockHTML = fs.readFileSync(path.join(MOCK_DIR, platform.mockFile), 'utf8');
@@ -910,6 +946,7 @@ ${process.env.ACN_JUMP_TRACE ? `
 try { localStorage.setItem('acnJumpDebug', '1'); } catch (e) {}
 ` : ''}</script>
 ${gmShim}
+${DOWNLOAD_SHIM}
 <script>
 ${scriptContent}
 </script>
@@ -1717,6 +1754,335 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                     assert('ACCEPTANCE: typical jump within budget',
                         done > 0 && (sumMs / done) <= 1500 && maxMs <= 6500,
                         `avg ${Math.round(sumMs / done)}ms (<=1500), max ${maxMs}ms (<=6500)`);
+                }
+
+                // ── SUMMARY + EXPORT EXECUTION (v12.3) ─────────────────────────────
+                // Until this block existed these surfaces had ZERO test execution:
+                // replacing _sumBuildTimeline, _sumScrollToElement, _exportFromIndex
+                // and ciIndexStamp with unconditional throws left the suite green —
+                // 516/516, measured 2026-07-30 against exactly that 4-mutant build
+                // on the parent commit. Every assertion below states which mutants
+                // re-prove it (mutant-gated) — there is no live bug being fixed, so
+                // none are ancestor-gated.
+                //
+                // Known-remaining debt, on the record: exportBookmarks() and the
+                // Tools panel's gallery/commands sections are still unexecuted here.
+                if (platform.summaryExportTests) {
+                    // S1 — MUTANT-GATED on _sumBuildTimeline AND ciIndexStamp (both
+                    // are called inside generateFullSummary; a throw in either lands
+                    // in the genBtn handler's catch, which renders "No data to
+                    // display." and the stats attributes never appear).
+                    // The +1 is the fixture's interrupted lead assistant entry;
+                    // insert arrays extend the path the same way (none on this entry).
+                    const gmf = platform.gmFixture;
+                    const expPath = gmf.totalMessages + 1 +
+                        (gmf.insertInterruptedBeforeRow || []).length +
+                        (gmf.insertBlindBeforeRow || []).length;
+                    const expUser = gmf.totalMessages / 2;
+                    const expAi   = expPath - expUser;
+
+                    const sum = await page.evaluate(async () => {
+                        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+                        const dot = document.querySelector('[data-acn-dot="summary"]');
+                        if (!dot) return { err: 'no summary dot' };
+                        dot.click();
+                        await sleep(350);
+                        const gen = document.querySelector('[data-acn-open="true"] [data-acn-role="sum-generate"]');
+                        if (!gen) return { err: 'summary panel did not open with a generate control' };
+                        gen.click();
+                        let stats = null;
+                        for (let t = 0; t < 30 && !stats; t++) {
+                            await sleep(100);
+                            stats = document.querySelector('[data-acn-role="sum-stats"]');
+                        }
+                        if (!stats) return { err: 'stats never rendered (generateFullSummary failed?)' };
+                        return {
+                            total: +stats.getAttribute('data-acn-sum-total'),
+                            user:  +stats.getAttribute('data-acn-sum-user'),
+                            ai:    +stats.getAttribute('data-acn-sum-ai'),
+                            segments: document.querySelectorAll('[data-acn-role="sum-segment"]').length,
+                            mounted: window.__mockVirtualization.mountedCount()
+                        };
+                    });
+                    assert('SUMMARY stats cover the whole conversation, not the mounted window',
+                        !sum.err && sum.total === expPath && sum.user === expUser &&
+                        sum.ai === expAi && sum.mounted < expUser && sum.segments > 0,
+                        sum.err || `total=${sum.total} (${sum.user}u/${sum.ai}ai), expected ` +
+                                   `${expPath} (${expUser}u/${expAi}ai); ${sum.segments} segments; ` +
+                                   `${sum.mounted} turns mounted`);
+
+                    // S2 — MUTANT-GATED on _sumScrollToElement, and covers the
+                    // carried-over "summary-click-after-recycling" case: with the
+                    // head target UNMOUNTED, a segment click must route through the
+                    // jump bridge and land exactly on row 0. Segment 0's first
+                    // timeline entry is the interrupted lead (pathIdx null), so this
+                    // also exercises _sumFirstJumpable falling forward to Q1.
+                    const segJump = await page.evaluate(async () => {
+                        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+                        window.__mockVirtualization.scrollToFraction(1);
+                        await sleep(700);
+                        const headMounted = !!document.querySelector('[data-index="0"]');
+                        const z = document.querySelector('[data-acn-role="zone"]');
+                        z.removeAttribute('data-acn-jump-resolved');
+                        const seg = document.querySelector('[data-acn-role="sum-segment"][data-acn-sum-start="0"]');
+                        if (!seg) return { err: 'no segment starting at timeline index 0' };
+                        seg.click();
+                        let busySeen = false, resolved = null;
+                        const t0 = Date.now();
+                        for (;;) {
+                            await sleep(110);
+                            const busy = !!document.querySelector('[data-acn-jumping="true"]');
+                            if (busy) busySeen = true;
+                            const raw = z.getAttribute('data-acn-jump-resolved');
+                            if (raw !== null && !busy) { resolved = +raw; break; }
+                            if (Date.now() - t0 > 6500) break;
+                        }
+                        return { headMounted, busySeen, resolved,
+                                 rowText: resolved !== null ? window.__mockVirtualization.rowText(resolved) : null };
+                    });
+                    // busySeen is reported but NOT asserted: whether a 110ms poll
+                    // catches the busy flag races machine speed (it flipped between
+                    // two identical local runs — the DEC-025 shape). The load-bearing
+                    // facts are race-free: the target was provably unmounted at click
+                    // time, and the implementation resolved exactly row 0 — which is
+                    // unreachable without the bridge.
+                    assert('SUMMARY segment click reaches an unmounted target via the jump bridge',
+                        !segJump.err && segJump.headMounted === false &&
+                        segJump.resolved === 0 && /Question number 1\b/.test(segJump.rowText || ''),
+                        segJump.err || `headMounted=${segJump.headMounted} busySeen=${segJump.busySeen} ` +
+                                       `resolved=${segJump.resolved} "${(segJump.rowText || '').slice(0, 40)}"`);
+
+                    // S3 — the mounted direct path: we are AT the head now, so the
+                    // same segment resolves against a mounted row and must NOT engage
+                    // the jump machinery or refuse. BOTH routes stamp
+                    // data-acn-jump-resolved (orbMarkJumpTarget records the durable
+                    // row identity regardless of route), so the discriminator is
+                    // busySeen — only the bridge iterates with the busy flag — and
+                    // the stamp must still name row 0.
+                    const segDirect = await page.evaluate(async () => {
+                        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+                        if (!document.querySelector('[data-index="0"]')) {
+                            window.__mockVirtualization.scrollToFraction(0);
+                            await sleep(700);
+                        }
+                        const z = document.querySelector('[data-acn-role="zone"]');
+                        z.removeAttribute('data-acn-jump-resolved');
+                        const t = document.querySelector('[data-acn-role="toast"]');
+                        if (t) t.remove();
+                        const seg3 = document.querySelector('[data-acn-role="sum-segment"][data-acn-sum-start="0"]');
+                        if (!seg3) return { busySeen: false, resolved: null, toast: 'HARNESS: no segment to click' };
+                        seg3.click();
+                        let busySeen = false;
+                        for (let i = 0; i < 8; i++) {
+                            await sleep(100);
+                            if (document.querySelector('[data-acn-jumping="true"]')) busySeen = true;
+                        }
+                        const toast = document.querySelector('[data-acn-role="toast"]');
+                        return { busySeen,
+                                 resolved: z.getAttribute('data-acn-jump-resolved'),
+                                 toast: toast ? toast.textContent : null };
+                    });
+                    // The route itself is not race-free assertable (both routes stamp
+                    // the same resolution, and busy-flag observation races the poll
+                    // cadence) — what IS assertable: the click resolved row 0 and did
+                    // not refuse. busySeen is reported as context only.
+                    assert('SUMMARY segment click on a mounted target resolves without refusing',
+                        segDirect.resolved === '0' && !segDirect.toast,
+                        `busySeen=${segDirect.busySeen} resolved=${JSON.stringify(segDirect.resolved)} ` +
+                        `toast=${JSON.stringify(segDirect.toast)}`);
+
+                    // S4 — MUTANT-GATED on ciIndexStamp (its OTHER consumer): the
+                    // stale-summary guard. pushState to a different conversation
+                    // uuid; the next scan rebuilds the index for the new id (the GM
+                    // shim serves any uuid under the fixture org); the open panel's
+                    // stamp no longer matches, and a click must REFUSE with the
+                    // regenerate toast instead of jumping on stale indices.
+                    const stale = await page.evaluate(async () => {
+                        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+                        const origPath = window.location.pathname;
+                        history.pushState({}, '', '/chat/dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+                        // Wait for the rebuild: the scan interval is ~500ms and the
+                        // fixture API answers in 5ms; 3s is comfortable, and we poll
+                        // the stamp's observable effect (the refusal) rather than
+                        // internals.
+                        await sleep(3000);
+                        const t0 = document.querySelector('[data-acn-role="toast"]');
+                        if (t0) t0.remove();
+                        const z = document.querySelector('[data-acn-role="zone"]');
+                        z.removeAttribute('data-acn-jump-resolved');
+                        const seg4 = document.querySelector('[data-acn-role="sum-segment"][data-acn-sum-start="0"]');
+                        if (!seg4) {
+                            history.pushState({}, '', origPath);
+                            return { toastText: 'HARNESS: no segment to click', jumped: false };
+                        }
+                        seg4.click();
+                        let toastText = null;
+                        for (let t = 0; t < 15 && !toastText; t++) {
+                            await sleep(100);
+                            const toast = document.querySelector('[data-acn-role="toast"]');
+                            if (toast) toastText = toast.textContent;
+                        }
+                        const out = { toastText,
+                                      jumped: z.getAttribute('data-acn-jump-resolved') !== null };
+                        // Restore the original conversation for any later assertions.
+                        history.pushState({}, '', origPath);
+                        return out;
+                    });
+                    assert('SUMMARY refuses a click once the index moved to another conversation',
+                        /out of date/i.test(stale.toastText || '') && stale.jumped === false,
+                        `toast=${JSON.stringify(stale.toastText)} jumped=${stale.jumped}`);
+
+                    // E1 — MUTANT-GATED on _exportFromIndex (a throw is caught by
+                    // exportFullConversation, which toasts "Export failed" and never
+                    // reaches downloadFile — so no download is captured and every
+                    // assertion here goes red). The export must be index-complete:
+                    // the header count must match BOTH the fixture and the file's own
+                    // section count — the v12.0 failure was an authoritative-looking
+                    // header over 3% of the data.
+                    const exp = await page.evaluate(async (expUserN) => {
+                        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+                        // S4 rebuilt the index for another conversation and switched
+                        // back; wait for READINESS, not for the nav count — the count
+                        // stays populated straight through a reload, so it reported
+                        // ready while ciIsReady() was false and the export honestly
+                        // degraded (observed locally). The contract signal is
+                        // data-acn-index-status on the zone: present while loading or
+                        // degraded, ABSENT when the index is healthy.
+                        const z = document.querySelector('[data-acn-role="zone"]');
+                        for (let t = 0; t < 60; t++) {
+                            if (!z.hasAttribute('data-acn-index-status')) break;
+                            await sleep(150);
+                        }
+                        window.__acnTestDownloads = [];
+                        const dot = document.querySelector('[data-acn-dot="tools"]');
+                        if (!dot) return { err: 'no tools dot' };
+                        dot.click();
+                        await sleep(350);
+                        const btn = document.querySelector(
+                            '[data-acn-open="true"] [data-acn-role="tool-export"][data-acn-export="full"]');
+                        if (!btn) return { err: 'tools panel did not open with a full-export control' };
+                        btn.click();
+                        let dl = null;
+                        for (let t = 0; t < 30 && !dl; t++) {
+                            await sleep(100);
+                            if (window.__acnTestDownloads.length) dl = window.__acnTestDownloads[0];
+                        }
+                        if (!dl) return { err: 'no download captured (export failed?)' };
+                        if (!dl.blob) return { err: 'download captured without a blob' };
+                        return { filename: dl.filename, text: await dl.blob.text() };
+                    }, expUser);
+                    // One announced retry if the capture raced a reload tick: the
+                    // readiness probe and the click are separated by one scan
+                    // interval, and an index reload starting in that gap degrades
+                    // the export legitimately. Degradation-when-unready has its own
+                    // dedicated test (E2); this one is about the COMPLETE path, so
+                    // a single retry — announced, never silent — is the same
+                    // convention as the cold-start goto retry above.
+                    let expFinal = exp;
+                    if (!exp.err && exp.text.indexOf('DEGRADED') !== -1) {
+                        process.stderr.write(`\n  [retry] ${platform.name}: export raced an index reload, retrying once\n`);
+                        expFinal = await page.evaluate(async () => {
+                            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+                            const z = document.querySelector('[data-acn-role="zone"]');
+                            for (let t = 0; t < 60; t++) {
+                                if (!z.hasAttribute('data-acn-index-status')) break;
+                                await sleep(150);
+                            }
+                            await sleep(400);
+                            window.__acnTestDownloads = [];
+                            const btn = document.querySelector(
+                                '[data-acn-open="true"] [data-acn-role="tool-export"][data-acn-export="full"]');
+                            if (!btn) return { err: 'full-export control gone on retry' };
+                            btn.click();
+                            let dl = null;
+                            for (let t = 0; t < 30 && !dl; t++) {
+                                await sleep(100);
+                                if (window.__acnTestDownloads.length) dl = window.__acnTestDownloads[0];
+                            }
+                            if (!dl || !dl.blob) return { err: 'no download captured on retry' };
+                            return { filename: dl.filename, text: await dl.blob.text() };
+                        });
+                    }
+                    const exp2 = expFinal;
+                    let expOk = false, expDetail = exp2.err;
+                    if (!exp2.err) {
+                        const userSections = (exp2.text.match(/^## User \(Q#\d+\)$/gm) || []).length;
+                        const aiSections   = (exp2.text.match(/^## Assistant \(A#\d+\)$/gm) || []).length;
+                        const headerRe = new RegExp('\\*\\*Messages:\\*\\* ' + expPath +
+                                                    ' \\(' + expUser + ' user, ' + expAi + ' AI\\)');
+                        const deepBody = exp2.text.indexOf('Question number ' + (expUser / 2)) !== -1;
+                        expOk = headerRe.test(exp2.text) &&
+                                exp2.text.indexOf('**Source:** complete conversation history (API)') !== -1 &&
+                                userSections === expUser && aiSections === expAi &&
+                                deepBody &&
+                                exp2.filename === 'conversation-export.md';
+                        expDetail = `header ${headerRe.test(exp2.text)}, sections ${userSections}u/${aiSections}ai ` +
+                                    `(want ${expUser}/${expAi}), deep unmounted body present=${deepBody}`;
+                    }
+                    assert('EXPORT full conversation is index-complete and self-consistent', expOk, expDetail);
+
+                    // E3 — the summary export runs generateFullSummary through
+                    // getSummaryForExport: index-complete stats must reach the file.
+                    const expSum = await page.evaluate(async () => {
+                        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+                        window.__acnTestDownloads = [];
+                        const btn = document.querySelector(
+                            '[data-acn-open="true"] [data-acn-role="tool-export"][data-acn-export="summary"]');
+                        if (!btn) return { err: 'no summary-export control (tools panel closed?)' };
+                        btn.click();
+                        let dl = null;
+                        for (let t = 0; t < 30 && !dl; t++) {
+                            await sleep(100);
+                            if (window.__acnTestDownloads.length) dl = window.__acnTestDownloads[0];
+                        }
+                        if (!dl || !dl.blob) return { err: 'no summary export captured' };
+                        return { text: await dl.blob.text() };
+                    });
+                    assert('EXPORT summary is index-complete',
+                        !expSum.err && new RegExp('^' + expPath + ' messages \\(' + expUser +
+                                                  ' user, ' + expAi + ' AI\\)', 'm').test(expSum.text),
+                        expSum.err || `expected "${expPath} messages (${expUser} user, ${expAi} AI)" ` +
+                                      `in the summary export's Stats section`);
+                }
+
+                // E2 — the DEGRADED export path (the entry with no GM shim, where the
+                // index can never build): the file must SAY it is incomplete, and its
+                // header count must match its own body — bounded on BOTH sides,
+                // because a mock that stopped unmounting would inflate the count to
+                // conversation size and silently pass any >= check (the chipSlack
+                // lesson, HANDOFF v12.1 R6).
+                if (platform.degradedExportTest) {
+                    const dexp = await page.evaluate(async () => {
+                        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+                        window.__acnTestDownloads = [];
+                        const dot = document.querySelector('[data-acn-dot="tools"]');
+                        if (!dot) return { err: 'no tools dot' };
+                        dot.click();
+                        await sleep(350);
+                        const btn = document.querySelector(
+                            '[data-acn-open="true"] [data-acn-role="tool-export"][data-acn-export="full"]');
+                        if (!btn) return { err: 'tools panel did not open with a full-export control' };
+                        btn.click();
+                        let dl = null;
+                        for (let t = 0; t < 30 && !dl; t++) {
+                            await sleep(100);
+                            if (window.__acnTestDownloads.length) dl = window.__acnTestDownloads[0];
+                        }
+                        if (!dl || !dl.blob) return { err: 'no download captured' };
+                        return { text: await dl.blob.text() };
+                    });
+                    let dOk = false, dDetail = dexp.err;
+                    if (!dexp.err) {
+                        const m = dexp.text.match(/\*\*Messages:\*\* (\d+)/);
+                        const headerN = m ? +m[1] : -1;
+                        const sections = (dexp.text.match(/^## (User|Assistant) /gm) || []).length;
+                        dOk = dexp.text.indexOf('on-screen messages only — DEGRADED') !== -1 &&
+                              dexp.text.indexOf('This export is incomplete') !== -1 &&
+                              headerN === sections && headerN >= 4 && headerN <= 12;
+                        dDetail = `header=${headerN} sections=${sections} (window-sized bounds 4..12), ` +
+                                  `degraded label=${dexp.text.indexOf('DEGRADED') !== -1}`;
+                    }
+                    assert('EXPORT degrades visibly when the index cannot build', dOk, dDetail);
                 }
 
                 // TESTS 23-25 assert a SUCCESSFUL jump, which presupposes a derivable

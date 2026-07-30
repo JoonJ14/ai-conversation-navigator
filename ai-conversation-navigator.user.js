@@ -993,6 +993,7 @@
                    'pointer-events:none;opacity:1;transition:opacity 0.4s;',
             textContent: message
         });
+        toast.setAttribute('data-acn-role', 'toast');   // test contract (v12.3)
         document.body.appendChild(toast);
         setTimeout(function () { toast.style.opacity = '0'; }, 2000);
         setTimeout(function () { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 2500);
@@ -9143,6 +9144,11 @@
 
             var segEl = document.createElement('div');
             segEl.className = 'acn-seg-d2';
+            // Test contract (v12.3): segments are addressable by their timeline span,
+            // so a fixture can click the segment covering a KNOWN-unmounted entry.
+            segEl.setAttribute('data-acn-role', 'sum-segment');
+            segEl.setAttribute('data-acn-sum-start', String(seg.startIdx));
+            segEl.setAttribute('data-acn-sum-end',   String(seg.endIdx));
             segEl.appendChild(bracket);
             segEl.appendChild(inner);
 
@@ -9262,6 +9268,13 @@
 
     function _sumRenderStats(stats) {
         var body = document.createElement('div');
+        // Machine-readable counts for the test contract (v12.3): the suite asserts
+        // the summary covers the WHOLE conversation, not the mounted window — the
+        // Layer 4 failure shape — without parsing display text.
+        body.setAttribute('data-acn-role', 'sum-stats');
+        body.setAttribute('data-acn-sum-total', String(stats.totalMessages));
+        body.setAttribute('data-acn-sum-user',  String(stats.userMessages));
+        body.setAttribute('data-acn-sum-ai',    String(stats.aiMessages));
         var lines = [
             'Total turns: ' + stats.totalMessages + ' (' + stats.userMessages + ' user, ' + stats.aiMessages + ' AI)',
             'User: ' + stats.userChars.toLocaleString() + ' chars (avg ' + stats.avgUserLen + '/msg)',
@@ -9349,6 +9362,7 @@
             className:   'acn-gen-btn',
             textContent: i18n('generateSummary') || 'Generate Summary'
         });
+        genBtn.setAttribute('data-acn-role', 'sum-generate');   // test contract (v12.3)
 
         var disclaimer = createElement('div', {
             className:   'acn-sum-disclaimer',
@@ -9360,6 +9374,7 @@
         scroll.appendChild(genWrap);
 
         var resultsContainer = createElement('div', { className: 'acn-sum-results' });
+        resultsContainer.setAttribute('data-acn-role', 'sum-results');   // test contract (v12.3)
         scroll.appendChild(resultsContainer);
 
         genBtn.addEventListener('click', function () {
@@ -10743,15 +10758,17 @@
         exportHeader.textContent = '\uD83D\uDCCB Exports';
         exportSection.appendChild(exportHeader);
         var TOOLS_EXPORT = [
-            { icon: '\uD83D\uDCC4', title: 'Full Conversation',  desc: 'Markdown with all messages and code blocks.', action: exportFullConversation },
-            { icon: '\uD83D\uDCCC', title: 'Bookmarks Only',     desc: 'Pinned messages as structured document.',     action: exportBookmarks },
-            { icon: '\u03A3',       title: 'Summary',            desc: 'Topics, decisions, and action items.',        action: exportSummary }
+            { id: 'full',      icon: '\uD83D\uDCC4', title: 'Full Conversation',  desc: 'Markdown with all messages and code blocks.', action: exportFullConversation },
+            { id: 'bookmarks', icon: '\uD83D\uDCCC', title: 'Bookmarks Only',     desc: 'Pinned messages as structured document.',     action: exportBookmarks },
+            { id: 'summary',   icon: '\u03A3',       title: 'Summary',            desc: 'Topics, decisions, and action items.',        action: exportSummary }
         ];
         TOOLS_EXPORT.forEach(function (tool) {
             var iconEl  = createElement('div', { className: 'acn-exp-icon',  textContent: tool.icon });
             var titleEl = createElement('div', { className: 'acn-exp-title', textContent: tool.title });
             var descEl  = createElement('div', { className: 'acn-exp-desc',  textContent: tool.desc });
             var opt     = createElement('div', { className: 'acn-exp-opt' }, [iconEl, titleEl, descEl]);
+            opt.setAttribute('data-acn-role', 'tool-export');       // test contract (v12.3)
+            opt.setAttribute('data-acn-export', tool.id);
             opt.addEventListener('click', function () { tool.action(); });
             exportSection.appendChild(opt);
         });
