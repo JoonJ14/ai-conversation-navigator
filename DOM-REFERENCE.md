@@ -24,9 +24,176 @@ Last updated: Jul 29, 2026 (v12.1 — Probe E added: the conversation payload's 
 13. [Emergent](#emergent)
 14. [Firebase Studio](#firebase-studio)
 
+Before using any selector below: [Virtualization status](#virtualization-status--check-this-before-trusting-any-selector-count) — the DOM is only a complete record on platforms that do not virtualize.
+
 Live probes (measurement context stated in each): [Probe D — no native scroll-to-index](#probe-d--no-native-scroll-to-index-2026-07-27-chromium-page-realm-live-claudeai) · [Probe E — conversation payload thinking-block shape](#probe-e--conversation-payload-thinking-block-shape-2026-07-29-chromium-page-realm-live-claudeai)
 
 ---
+
+## Virtualization status — check this before trusting any selector count
+
+**Every selector in this document describes what is in the DOM. On a virtualizing platform that is
+not the same thing as what is in the conversation.** Claude proved that the hard way (see
+`TROUBLESHOOTING.md` → "Why v12.0 and v12.1 Exist"), and there is no reason the others will not
+follow — virtualization is the standard fix for a slow chat page, not a Claude quirk.
+
+| Platform | Virtualizes? | Last checked | Strategy in use |
+|---|---|---|---|
+| **Claude** (`claude.ai/chat`) | **YES — Virtuoso-style recycling**, ~3–7 of N turns mounted | Jul 26, 2026 | **API-backed conversation index** (DEC-021). DOM is the labelled fallback. |
+| **Emergent** (`app.emergent.sh`) | **YES — Virtuoso recycling**, `[data-testid="virtuoso-scroller"]` | Feb 15, 2026 | **Accumulation only** — scans keep messages the user has already scrolled past, plus click-time re-resolution of stale references. **Nothing sweeps.** See the ⚠️ below. |
+| **Gemini** | ⚠️ **CONTESTED — unresolved** | Feb 16, 2026 | DOM. `docs/CONTEXT-TRACKING.md` and `docs/BOOKMARKS.md` both state Gemini virtualizes ("only viewport messages exist in DOM"); the registry sets `virtualScroll: false` and its DOM-REFERENCE section says nothing about it. **Nobody has measured it.** Resolve this before trusting any Gemini count. |
+| ChatGPT · Grok · Perplexity | not observed | Feb 18, 2026 | DOM |
+| Claude Code Web · Codex Web | not observed | Feb 18, 2026 | DOM |
+| Bolt · Lovable · Replit · V0 · Base44 · Firebase Studio | not observed | Feb 18, 2026 | DOM |
+
+> ⚠️ **"Not observed" is not "verified absent."** Those twelve were checked in February, *before anyone
+> knew to look for this failure mode*, and a short test conversation cannot distinguish a virtualized
+> list from a complete one. Claude's own answer flipped between February and July with no
+> announcement, no error, and a green test suite.
+
+### ⚠️ The `virtualScroll` platform flag does NOT mean "this platform virtualizes"
+
+Read this before using the flag to assess anything. In the platform registry:
+
+```js
+claude:   { virtualScroll: false, ... }   // the MOST virtualized platform in the project
+emergent: { virtualScroll: true,  ... }   // the only `true` in the file
+```
+
+The flag selects **accumulative scanning** (keep messages across scans instead of clearing), not the
+platform property. Claude is `false` because it does not use that strategy — it
+uses the index instead. So grepping `virtualScroll` to find virtualized platforms returns exactly the
+wrong answer, and the name invites that mistake. **This table, not the flag, is the record of which
+platforms virtualize.** A rename is on the backlog; it touches 12 platform configs and so needs the
+full acceptance matrix.
+
+### Two questions, not one
+
+"Does it virtualize?" only opens the decision. The second question decides the whole response, and
+this project has a worked example of each answer:
+
+| | **Sweep may be viable** | **Sweep is not viable** |
+|---|---|---|
+| Candidate | short sessions — estimate the cost before assuming | **Claude** — 147+ turns, ~372,000 px of scroll height, and a measured sweep across 0/25/50/75/100% never accumulated past 3 unique turns |
+| Strategy | scroll the container in viewport steps, accumulate, re-resolve stale references at click time | non-DOM source of truth (API index) + resolve-on-arrival jumping |
+| Cost | modest, but **nobody here has built one yet** | a release, plus a second one for persisted data |
+
+Estimate the sweep cost before choosing: `scrollHeight / clientHeight` viewport steps at ~250 ms each.
+Claude's would be roughly **500 steps — minutes on every panel open**, which rules it out on cost
+alone.
+
+**Be careful what the Claude coverage measurement actually supports.** It sampled five positions
+(0/25/50/75/100%) and found the same 3 turns at each, cumulative unique 3. That is strong evidence
+against a *coarse* sweep and it is **not** evidence that a viewport-step sweep would stay incomplete —
+intermediate positions were never sampled and could expose different rows. Nobody has run the
+fine-grained test on Claude, because the cost argument settled it first. If you are tempted to cite
+this measurement for another platform, cite what it measured.
+
+> ⚠️ **Emergent is NOT a worked example of the sweep strategy. It has no sweep.**
+> This entry previously said otherwise, and the Emergent section below still claimed a
+> "scroll-through collection ... on panel open (250 ms per viewport step)". **That code does not
+> exist** — verified by enumerating every scroll mutation in the userscript: the only container
+> scroll is Claude's jump machinery, the rest are `scrollIntoView` click handlers, and there is no
+> stepped loop anywhere. It is not in `modules/` either, and git history shows no removal. It
+> appears to have been documented as designed and never built.
+>
+> What Emergent *actually* has is **accumulation**: `scanConversation` keeps messages across scans
+> instead of clearing, so the Navigate list holds whatever the user has scrolled past **and nothing
+> else**. Open a long Emergent session, click Navigate without scrolling, and the panel shows the
+> mounted window — the Claude v12.0 failure mode, unmitigated, on a platform the docs described as
+> handled.
+>
+> Compounding it: accumulation dedupes on **normalized message text** (`_vsAccumulatedKeys`), so
+> two identical prompts — "continue", "yes", "fix it", routine in an app-builder session — collapse
+> into one entry even where coverage is complete. Virtuoso's `data-index` is read three lines later
+> and would key it structurally.
+>
+> Neither issue is measured against a real long Emergent session yet. Both are legible in the code.
+> Tracked in `ROADMAP.md` backlog item 7.
+
+### The check, in full
+
+Run on a conversation you **know** is long (100+ turns). A short conversation cannot distinguish a
+virtualized list from a complete one — that ambiguity is exactly what hid the Claude break.
+
+**This block is the canonical procedure.** `TROUBLESHOOTING.md` and `ROADMAP.md` point here rather
+than restating it — earlier revisions of this PR kept three drifting copies and fixed them one at a
+time.
+
+```js
+// STEP 0 — Is the selector still good? Do this FIRST.
+//   Count what the selector matches, then count the user turns you can SEE on screen.
+//   FEWER matches than visible turns => Layer 1 selector drift, not virtualization.
+//   (A drifted selector produces the same single-digit, flat count as recycling.)
+//   MORE matches than visible is not automatically drift — virtualizers mount overscan
+//   rows above/below the viewport and often pin the first or last row permanently (our
+//   own claude-virtualized mock mounts a 6-row window PLUS a pinned tail). But do not
+//   accept the surplus blindly: a selector that has drifted BROAD matches assistant
+//   turns, status rows and other chrome, which also inflates the count. Spot-check that
+//   the extra matches are user turns before carrying the number into step 1.
+
+// STEP 1 — How much of the conversation is in the DOM?
+document.querySelectorAll('<the user-message selector for this platform>').length
+// Single digit on a conversation you KNOW is long => virtualized. Continue.
+
+// STEP 2 — Recycling or lazy loading? Scroll the full length, then re-run step 1.
+//   Count grows and STAYS grown  -> lazy loading
+//   Count stays flat             -> recycling
+
+// STEP 3 — (recycling only) Does a STEPPED SWEEP accumulate the whole conversation?
+//   Scroll in viewport-sized steps; at each stop, add the matches to a Set keyed on
+//   something structural. Then ask: does the union reach BOTH ends of the conversation,
+//   and how long did the sweep take?
+```
+
+**Step 2's two outcomes:**
+
+- **Lazy loading** — nodes accumulate. A sweep before scanning fixes it and the DOM stays a valid
+  source. Cheap.
+- **Recycling** — the client serves a fixed-size window. Held element references stop being
+  trustworthy, which is the expensive part regardless of what else you decide.
+
+**Step 3 is the one that actually decides the architecture, and it is easy to skip.** A flat count in
+step 2 proves recycling — *it does not prove that a sweep is futile*. The recycler exposes **different
+rows** as the container moves, so scanning at each stop can accumulate the complete set even though
+the instantaneous count never rises. Only two results force a non-DOM source of truth:
+
+1. the union stays incomplete no matter how finely you step — **untested on Claude**; only five
+   coarse positions were sampled there, see the caveat below — or
+2. the sweep is too slow to run whenever a panel opens (Claude: ~500 steps, minutes). **This is the
+   condition Claude actually met**, and it was sufficient on its own.
+
+If neither holds, a sweep may be the entire fix. Key the accumulator on something **structural** —
+Virtuoso exposes `data-index` — never on message text, or duplicate prompts silently collapse.
+
+**Confirming recycling — accept either form.** Virtualizers come in two flavours and a test for one
+gives a false negative on the other:
+
+- **Same-node repurposing** — hold a reference to a mounted row, scroll far away, and inspect the
+  reference **while the original row is still off-screen**: the same `Node` now shows *different
+  text*. Do not scroll back before looking. A fixed node pool may hand that node to another row while
+  you are away and return it to its original content when you come back, which reads as "no
+  recycling" when the opposite is true.
+- **Detach and remount** — the row is destroyed and a new node created in its place, so the held
+  reference reads `isConnected === false` and will *never* show different text.
+  `tests/mock-pages/claude-virtualized.html` models this form.
+
+**Which form does Claude use? The repo asserts both, and neither claim is a live measurement.**
+`injectBookmarkIcons` guards on recorded identity *because* "React reuses the same DOM node for a
+different message" — a real guard written against an observed stale icon. Meanwhile
+`claude-virtualized.html` models destroy-and-rebuild and the suite asserts `isConnected === false`
+on a scrolled-away node. A mock is a model, not evidence about the live site, and React
+reconciliation can legitimately do either depending on keying. **Nobody has characterized the live
+behaviour, so defend against both** — which is what the code already does. Resolving it is an open
+question (ROADMAP backlog).
+
+Either one means every cached element reference in the codebase is a latent bug, though they fail
+*differently*: same-node repurposing scrolls confidently to the **wrong message**, while
+detach-and-remount usually produces a silent **no-op** on a disconnected node. Test for both:
+`node.isConnected === false` **or** the node's text changed.
+
+**If a platform is recycling, do not start with selectors.** The response is scoped in
+`ROADMAP.md` → "Porting the Layer 4 response to another platform".
 
 ## Claude
 
@@ -653,7 +820,8 @@ div.relative.flex-1.w-full.h-full.overflow-hidden  (chat panel — flex child)
 - User message bubbles have `rounded-br-none` (bottom-right corner sharp), AI bubbles have `rounded-bl-none`
 - Virtual scrolling means DOM elements are recycled — messages scrolled far out of view may not be in the DOM
 - **Accumulative scanning**: Because of virtuoso, `scanConversation` uses accumulation mode for Emergent — it adds new messages to the list without clearing existing ones. This prevents the list from changing as the user scrolls. The Refresh button does a full reset.
-- **Scroll-through collection**: On panel open, script programmatically scrolls through the entire virtuoso container (250ms per viewport step) to force-render and collect all user messages, then restores scroll position.
+- ~~**Scroll-through collection**: On panel open, script programmatically scrolls through the entire virtuoso container (250ms per viewport step) to force-render and collect all user messages, then restores scroll position.~~
+  **❌ THIS IS NOT TRUE AND APPEARS NEVER TO HAVE BEEN** (corrected 2026-07-29, found by Codex review of PR #60). No such traversal exists in the userscript: enumerating every `scrollTop=` / `scrollTo(` / `scrollBy(` / `scrollIntoView(` call finds only Claude's jump machinery and click handlers, with no stepped loop; it is absent from `modules/` and git history shows no removal. Coverage on Emergent is therefore **only what the user has scrolled past**, retained by the accumulation below. This entry is struck rather than deleted because a doc that described an unbuilt mitigation as shipped is exactly why the gap survived — see `ROADMAP.md` backlog item 7.
 - **Stale DOM references**: When clicking a nav item, the original DOM element may have been recycled. The click handler re-searches the DOM for a matching element at click time using `isConnected` check.
 - **Broad fallbacks removed**: Fallbacks 3-7 (rounded-br-none, items-end, text-wrap, etc.) were matching AI agent status messages when user messages scrolled out of view. Only the primary selector and user-task ID fallback remain.
 

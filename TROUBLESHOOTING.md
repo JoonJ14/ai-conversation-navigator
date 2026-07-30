@@ -6,6 +6,261 @@ If you run into a problem, check here first — you might find we've already sol
 
 ---
 
+## Why v12.0 and v12.1 Exist — Claude Changed How It Renders a Conversation
+
+**Read this before the two entries below.** They document *what broke and how it was fixed*.
+This documents *why the fix had to be an architectural change rather than a repair*, and why it
+took two releases. It is the piece that is hardest to reconstruct from the code, because the code
+now looks like it was always designed this way.
+
+### Nothing broke. That is the whole problem.
+
+Claude did not ship a bug, remove an attribute, or change a class name. It shipped a **performance
+optimization**: the message list became *virtualized with recycling*. The client keeps roughly three
+to seven message rows mounted in the document and unmounts the rest. (Whether it destroys those nodes
+or keeps a pool and swaps their contents has never been characterized on the live site — the repo
+contains evidence pointing both ways. It changes how a stale reference fails; see "Why jumping had to
+be redesigned" below.) On a 147-question conversation that is
+about 3% coverage at any instant.
+
+For Claude's users this is strictly good — a long conversation stops consuming hundreds of
+megabytes and scrolls smoothly. Nothing about the page is wrong. The conversation is all still
+there, in memory, in the client's own store.
+
+It just isn't in the DOM any more.
+
+### The assumption that quietly became false
+
+Every version of this userscript before v12.0 rested on one unstated premise:
+
+> **The DOM is the conversation.** If you want to know what the user asked, query the page.
+
+That premise held on twelve of the fourteen platforms, and the architecture was built on it as
+though it held everywhere: `getUserMessages()` is a `querySelectorAll` call, and the entire feature
+set — navigation, search, summary, export, bookmarks, context tracking — is different views over one
+DOM scan.
+
+**It was already false on Emergent before Claude broke it.** Emergent has recycled rows via Virtuoso
+since it was added in v7.7, so its Navigate list has only ever held the mounted window plus whatever
+the user scrolled past. That was mitigated with accumulation and *documented* as also having a
+panel-open sweep — a sweep that was never built (see the previous section). So the premise did not
+fail for the first time in July 2026; it failed quietly in 2026 on a low-traffic platform, was
+half-fixed, and the docs recorded it as solved. Claude is where the same failure hit a platform
+enough people used to notice.
+
+Virtualization did not make that premise *fail*. It made it **partially true**, which is far
+worse. `querySelectorAll('[data-testid="user-message"]')` still returned results. Every result was
+still a real user message. Every selector still matched. There were simply three of them instead
+of 147, and nothing in the browser reports that as an error.
+
+So the tool reported success on 3% of the data:
+
+| Feature | What the user saw | What was actually happening |
+|---|---|---|
+| Navigate | a short list that *changed while scrolling* | it was listing the viewport, not the conversation |
+| Search | "no results" for text they clearly remembered writing | it could only search the mounted window |
+| Summary | a segment map of the last few turns | it segmented 3% and presented it as the whole |
+| Export | a markdown file missing almost everything | **with an authoritative `**Messages:** 8` header** |
+| Context bar | implausibly low percentage | measuring `innerText` of a container holding 3 turns |
+| Bookmarks | a jump to the **wrong message**, highlighted as correct | the position fallback resolved to whatever was mounted |
+
+The export line is the one to sit with. A truncated file is recoverable. A truncated file that
+*states its own completeness* is a data-loss bug that the user has no way to detect.
+
+This failure mode was distinct enough from anything previously seen that it was given its own
+category in the project's risk model — **Layer 4: state breaks** (DEC-022). Layers 1–3 either
+degrade visibly or crash something. Layer 4 is the only one that **reports success on a fraction
+of the data**, which is precisely why it went unnoticed for a full release cycle: a four-question
+panel on a 147-question conversation looks exactly like a short conversation.
+
+### Why the obvious repairs do not work
+
+Three fixes suggest themselves immediately. All three are dead ends, and knowing *why* is what
+justifies the size of the change that was actually made.
+
+**"Update the selectors."** There is nothing to select. The nodes do not exist in the document.
+This is the reflex response to a broken integration and it is exactly wrong here — the selectors
+were never the problem, and a selector refresh would have produced a green diff, a shipped
+release, and zero improvement. (There *was* a genuine selector drift underneath, found during the
+same investigation, and the fallback chains had been silently absorbing it. Fixing it changed
+nothing about coverage.)
+
+**"Scroll the conversation to load everything, then scan."** On Claude this fails for two measured
+reasons. First, a sweep across 0/25/50/75/100% of a 96-turn conversation kept the identical three
+turns mounted at every stop — cumulative unique total **3**, no accumulation at all. Second, even a
+sweep that did accumulate would be prohibitive: the scroll container measured 372,642 px against a
+746 px viewport, so a viewport-step sweep at ~250 ms is roughly 500 steps — minutes before the panel
+can be drawn, on every conversation.
+
+It is worth stating what this does *not* prove, because an early draft of this section got it wrong.
+It does not establish that sweeping is a bad idea in general — on a platform with short sessions a
+sweep may be the entire fix, and the question is properly **"does it virtualize, *and* is a sweep
+viable here?"** (comparison table: `DOM-REFERENCE.md` → "Two questions, not one"). What made the
+draft wrong was citing Emergent as the working counterexample. Emergent recycles, but it has **no
+sweep** — the panel-open traversal its documentation described for five months was never built, so
+its real coverage is only what the user has already scrolled past. A claim inherited from a document
+rather than checked against the code; see backlog item 7 in `ROADMAP.md`.
+
+**"Cache what we see as the user scrolls."** This produces a partial, stale, order-unknown record
+that depends on where the user happened to look — and it fails the moment they open a conversation
+and use the panel without scrolling, which is the normal case. It also cannot answer the question
+the panel exists to answer: *how many questions are there?*
+
+### What the fix actually required
+
+If the DOM is no longer a complete record, the tool needs a source that is. The conversation is
+already in the browser — Claude's own client downloads the whole thing on page load and *chooses*
+to render a window of it. So v12.0 reads that same conversation JSON directly and builds an
+**API-backed conversation index** (DEC-021), with the DOM scan demoted to a fallback.
+
+Three constraints shaped how, and each one is a scar from an earlier incident:
+
+1. **It is an ordinary outbound request, not fetch interception.** v11.6 taught this the hard way:
+   replacing `window.fetch` from the Tampermonkey sandbox crashed claude.ai to a black screen on
+   Firefox when a vendor bundle called `.bind()` on it (DEC-019/DEC-020 — a Layer 3 *execution*
+   break, where our code kills the host page rather than degrading our own features). The index
+   uses `GM_xmlhttpRequest`, which touches no page globals.
+2. **It walks the message tree from the current leaf**, so questions the user edited or
+   regenerated away do not reappear as if they were still part of the conversation. A flat list of
+   all messages would be wrong in a different direction.
+3. **When the read fails, the panel says so.** A degraded state is labelled in the UI and exports
+   taken in that state carry the caveat in their header. The v12.0 bug was silence about
+   incompleteness; a fix that reintroduced silent incompleteness on the error path would have been
+   the same bug wearing a different hat.
+
+### Why jumping had to be redesigned too
+
+Reading the conversation solves *listing* it. Clicking a row is a separate problem, and it is the
+one that makes recycling genuinely hard.
+
+Pre-v12.0, "jump to question 47" meant: keep the element you found during the scan, call
+`scrollIntoView` on it later. Under recycling a stored element stops being a reliable handle, and
+**how** it fails depends on which kind of virtualizer you are on:
+
+- **Detach and remount** — the row is destroyed, the stored reference is left `isConnected === false`,
+  and `scrollIntoView` on it does nothing at all: a silent no-op, no error, no movement.
+- **Same-node repurposing** — the node is kept and its content swapped, so the same call lands
+  confidently on the **wrong message** and reports success.
+
+**Claude has shown evidence of both and neither has been characterized live** — the bookmark icon
+guard exists because a node was observed being reused for a different message, while the virtualizing
+mock models destroy-and-rebuild and the suite asserts `isConnected === false`. A mock is a model, not
+a measurement of the site.
+
+That ambiguity is itself an argument for the design chosen: both failure modes are unacceptable,
+neither throws, and no cheap validity check covers both. Re-identifying on arrival covers all of it
+without needing to know which the platform is doing this week.
+
+The replacement (DEC-027) inverts the order of operations: **aim, land, then resolve on arrival.**
+The jump estimates a scroll position, waits for the virtualizer to mount whatever belongs there,
+and only then identifies the target among the rows actually present — by the message's own text
+first, then by structural position. If it cannot identify the target after arriving, it **refuses
+and says so** rather than scrolling somewhere plausible.
+
+That refusal is a deliberate product decision, not a limitation. On a virtualized list a
+navigation tool has exactly two possible failure modes, and only one of them is acceptable:
+landing on the wrong message *silently*, or admitting it could not find the right one. The second
+is annoying; the first destroys the user's trust in every jump that came before it.
+
+### Why bookmarks needed a whole second release
+
+v12.0 fixed listing and jumping. Bookmarks looked fine — new ones worked — so they were not
+obviously part of the same problem. They were, and the reason is a distinction worth internalising:
+
+> **A bookmark stores an identity. Pre-v12.0 it was storing a position.**
+
+Old records key to a hash of *(message text + its index in the DOM enumeration)*. Under a static
+DOM that index is stable, so a position behaves like an identity and the difference never shows.
+Under recycling the index means nothing, and worse, a hash keyed to it can *collide with a
+different message* that now happens to sit at the same position. That is how a bookmark jumps
+somewhere wrong and highlights it as correct.
+
+v12.0 re-keyed bookmarks to message UUIDs and deleted the positional fallback. But that only
+helped bookmarks created *after* the change. Every pre-existing record still carried a hash and no
+UUID — and without a UUID a click cannot enter the jump bridge that pages the virtualizer to an
+unmounted message. Those bookmarks resolved **only while their message happened to be on screen**,
+which on a long conversation is never.
+
+So they were silently dead, in a released version, for every existing user. v12.1 exists to
+recover them, and the design principle it settled on generalises beyond bookmarks:
+
+> **You cannot rewrite a stored record into a new identity scheme. You have to *earn* the new
+> identity from evidence the old record already carries, and refuse when the evidence is
+> insufficient.**
+
+That produced the evidence ladder (DEC-034): several matching channels of differing strength, all
+uniqueness-gated, plus one **proof-grade** channel that reproduces the stored hash against
+currently rendered text — where equality is identity rather than inference. And it produced the
+rule that a proof channel must never have its inputs destroyed by an inference channel that ran
+first (DEC-035), which was a real bug: the migration was overwriting the very hash the proof
+channel needed, making a wrong guess permanent *and* unverifiable.
+
+### Why it took two releases instead of one
+
+Honestly: because the second problem was invisible while the first one was being fixed. Bookmarks
+kept working throughout v12.0 development — the ones being created during testing were new, and
+new ones carry UUIDs. Nothing in the test suite modelled a record created by an older version of
+the software, and no amount of reviewing v12.0's diff would have surfaced it. It took the owner
+installing the release and clicking a bookmark made months earlier.
+
+That is the generalisable lesson, and it is the reason `DEC-031` (a live confirmation certifies
+one commit) and `DEC-028` (a fixture's defaults are part of the finding) both exist: **a test
+suite models the world you thought to model.** Data written by previous versions of your own
+software is part of the world and is easy to leave out of it.
+
+### This will happen to the other platforms
+
+Virtualization is not a Claude quirk. It is the standard answer to "our chat page gets slow on long
+conversations", and every platform this userscript supports will eventually have that conversation
+internally. **Claude was not even the first here** — Emergent has used a Virtuoso recycling scroller
+since before this was recognised as a category, and is *not* adequately handled (backlog item 7).
+Gemini's status is contested: two docs say it virtualizes, the registry says it does not, and nobody
+has measured it. As of the last inspection (February 2026, before anyone was looking for this)
+ChatGPT, Grok and Gemini rendered long threads the naive way Claude used to — treat that as the last
+observation, not as current fact.
+
+**When one of them does it, the tool will not report an error.** It will quietly start describing
+a fraction of the conversation, exactly as it did here, and the test suite will stay green. So the
+detection has to be deliberate and periodic rather than reactive:
+
+```js
+// Run on a conversation you KNOW is long, on each platform:
+document.querySelectorAll(SELECTOR_FOR_THAT_PLATFORM).length
+```
+
+A single-digit answer on a long conversation is the first signal — but it is only the first, and the
+full procedure has four steps, in `DOM-REFERENCE.md` → "Virtualization status". Do not shortcut it.
+Two of the steps exist because shortcutting produced wrong answers here:
+
+- **Validate the selector before concluding anything.** A drifted selector gives the same
+  single-digit, flat count as recycling, and this project has had drift sit unnoticed for months.
+- **A flat count proves recycling — it does not prove a sweep is futile.** The recycler exposes
+  *different* rows as the container moves, so a stepped sweep can accumulate the whole conversation
+  even though the instantaneous count never rises. Only an incomplete union, or a sweep too slow to
+  run on panel open, forces a non-DOM source. Claude was ruled out **on cost** (~500 steps, minutes
+  per panel open); its coarse five-position sweep never accumulated past 3, but the fine-grained
+  union was never measured. Cite that precisely — it is Claude's result at Claude's resolution, not
+  a general law.
+
+Per-platform status and the check procedure live in `DOM-REFERENCE.md` ("Virtualization status").
+**What to actually do when one of them flips is in `ROADMAP.md` → "Porting the Layer 4 response to
+another platform"** — the order of operations, and an honest accounting of scope: the existing
+mechanisms are Claude-gated, so they are designs to extract rather than machinery to call.
+
+And note what could *not* have caught this: the Playwright suite was green throughout, because
+every mock page mounts all of its turns permanently. **A suite of static mocks structurally cannot
+fail on a Layer 4 break.** `tests/mock-pages/claude-virtualized.html` exists for exactly that
+reason — 40 turns, 3 mounted, the rest genuinely removed from the document rather than hidden with
+`display: none`, which does not reproduce the failure. Any new virtualizing platform needs a mock
+of that kind before its fix can be called verified.
+
+**Further reading:** DEC-021 (the index and the tree walk) · DEC-022 (the Layer 4 category) ·
+DEC-027 (resolve-on-arrival) · DEC-034 (the evidence ladder) · DEC-035 (proof outranks inference) ·
+`ROADMAP.md` "Platform Risk Model" for all four break layers · the two entries below for the
+symptom-level detail.
+
+---
+
 ## v12.1 — Every Pre-v12.0 Bookmark Was Dead, and the Preview Was Not Quoting the Message (2026-07-29)
 
 **Status:** RESOLVED (16/16 recovered on the owner's live conversation) | **Severity:** High —
@@ -1532,7 +1787,8 @@ Four related issues on Emergent:
 3. **Reverted opacity band-aid** (previous session had bumped to 0.75 / 14px width) back to standard 0.35 / 8px since actual root cause is now fixed
 4. **Removed broad fallback selectors 3-7** (rounded-br-none, items-end, text-wrap, etc.) that were matching AI agent content
 5. **Added accumulative scanning** for virtual scroll platforms — messages collected across scans without clearing, deduplication by text key
-6. **Added scroll-through collection on panel open** — programmatically scrolls the virtuoso container from top to bottom in 250ms steps, scanning at each position, then restores original scroll position
+6. ~~**Added scroll-through collection on panel open** — programmatically scrolls the virtuoso container from top to bottom in 250ms steps, scanning at each position, then restores original scroll position~~
+   **❌ NOT IN THE SHIPPED CODE** (verified 2026-07-29, found via Codex review of PR #60). No such traversal exists: enumerating every scroll mutation in the userscript finds only Claude's jump machinery and click handlers, with no stepped loop, and it is absent from `modules/` with no removal in git history. Whether it was written and reverted before this entry was published, or only ever planned, is unknown — what is certain is that **it has not been running**, so Emergent's coverage is item 5 alone: whatever the user has already scrolled past. Left struck rather than deleted because two separate documents recorded this as shipped for five months, and that is the actual lesson. Tracked as `ROADMAP.md` backlog item 7.
 7. **Stale DOM reference handling** — checks `msg.isConnected` before scrolling; re-searches DOM for matching text if the element was recycled by virtuoso
 8. **Fixed ID vs class selector** — changed `.ai-nav-empty` to `getElementById('ai-nav-empty')`
 

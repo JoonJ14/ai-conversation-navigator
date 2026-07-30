@@ -30,7 +30,7 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.1 (legacy bookmark recovery complete and live-confirmed, PR #59 open, 2026-07-29)
+## Current Status: v12.1 — MERGED and live-confirmed (2026-07-29)
 
 The extension supports 14 platform variants across 12 websites.
 
@@ -62,7 +62,7 @@ DEC-029 stop signal). Suite **515/515 across 25 entries**, both engines. Also fi
 attachment-headed Q#1 that shipped in v12.0, whose reproduction was blocked by a **vacuous fixture
 knob** (**DEC-032**).
 
-### Next: v12.2 / remaining v12.1 backlog (PR #59 open, awaiting owner live confirmation)
+### Next: v12.2 backlog (v12.1 merged 2026-07-29; nothing in flight)
 
 Priority order agreed 2026-07-28, re-ranked after v12.1:
 
@@ -92,7 +92,51 @@ Priority order agreed 2026-07-28, re-ranked after v12.1:
    lived in the DOM (`[data-testid="user-message"]` absence) and this would not have caught
    it. A DOM-structure capture is a separate, unbuilt piece. Never let "generated from real
    payloads" be read as "models the real site".
-7. **Debulking.** ~9,300 lines now. Known dead code: `ciResolvePathForRow`,
+7. **Emergent: re-examine it as a Layer 4 platform** (surfaced by Codex review of PR #60,
+   2026-07-29). It recycles via Virtuoso and predates the Layer 4 category, so it was never
+   audited against what that category now teaches. Open questions, none of them yet measured:
+   how much of a *long* Emergent session does passive accumulation actually reach, and **would a
+   stepped sweep — which does not exist yet — be affordable there?** (Design question, not a
+   validation of existing code; see defect 1 below.) Are Emergent bookmarks keyed to anything
+   positional — an accumulated-list index that shifts with collection order would be the same
+   identity-vs-position bug v12.1 spent a release recovering from, on a platform nobody has checked.
+   Its DOM inspection is also from **Feb 15, 2026**. Investigate before assuming it is fine; it has
+   been quietly *unexamined* for months, which is not the same as correct.
+
+   **Two defects are already confirmed by reading the code, no measurement needed** (both found by
+   Codex during review of PR #60):
+
+   1. **There is no sweep.** `DOM-REFERENCE.md` claimed a "scroll-through collection ... on panel
+      open (250 ms per viewport step)" since v7.7. That code does not exist — every scroll mutation
+      in the userscript is Claude's jump machinery or a click handler, there is no stepped loop, it
+      is not in `modules/`, and git history shows no removal. **Emergent's coverage is only what the
+      user has scrolled past.** Open a long session, click Navigate without scrolling, and you get
+      the mounted window: the Claude v12.0 failure mode, unmitigated, on a platform the
+      documentation described as handled for five months. This is the "a comment describing
+      behaviour is not evidence the behaviour exists" rule, applied to a doc.
+   2. **Accumulation dedupes on normalized text.** `_vsAccumulatedKeys` keys on message text, so two
+      identical prompts — "continue", "yes", "fix it", routine here — collapse into one Navigate
+      entry even where coverage is complete. Virtuoso's `data-index` is read three lines later and
+      would key it structurally. Small fix, same identity-by-content family as the bug v12.1 spent
+      a release on.
+
+   Neither is measured against a real long Emergent session yet — do that first (DEC-027), because
+   the fix depends on whether a sweep is affordable there or Emergent needs something closer to
+   Claude's treatment.
+8. **Characterize how Claude's virtualizer actually recycles.** The repo asserts both forms and
+   neither is a live measurement: `injectBookmarkIcons` guards on recorded identity because "React
+   reuses the same DOM node for a different message", while `claude-virtualized.html` models
+   destroy-and-rebuild and the suite asserts `isConnected === false`. Both guards should stay
+   regardless — the point is that documentation currently states a fact nobody established, and the
+   two forms fail differently (wrong-content jump vs silent no-op), so a future diagnosis will be
+   misled by whichever half it reads. One live probe settles it: hold a reference to a mounted row,
+   scroll far away, and check `isConnected` and `textContent` **before** scrolling back.
+9. **Rename the `virtualScroll` platform flag.** It selects the Emergent DOM mitigation, not the
+   platform property, so `claude` — the most virtualized platform in the project — is
+   `virtualScroll: false`. Anyone grepping it to assess Layer 4 exposure gets the exactly wrong
+   answer. Something like `domSweepStrategy` states what it does. Touches 12 platform configs, so
+   it needs the full acceptance matrix on both engines despite being a rename.
+10. **Debulking.** ~9,300 lines now. Known dead code: `ciResolvePathForRow`,
    `ciDataIndexToFullPath`, `ciFullPathToDataIndex`, `_bmLegacyId`; inventory/entity `msgIndex`
    fields with no consumer; `_bmLegacyIdSet`'s two unreachable dedupe guards; two dead test
    config keys making one assertion unreachable.
@@ -331,6 +375,152 @@ A 4-question panel on a 147-question conversation is indistinguishable from a sh
 The key insight: **DOM validation is necessary but not sufficient.** A project that only watches for selector changes will be blindsided by execution breaks *and* by state breaks. Live-site smoke testing catches Layer 3. Layer 4 needs something different again — a source of truth outside the DOM to compare against, because the failure mode is not "no data" but "confidently incomplete data."
 
 Layer 4 is also the clearest ceiling yet on DOM augmentation as a strategy. Layers 1–3 are hazards to engineer around; Layer 4 says the DOM may stop being a complete record whenever a platform decides rendering performance matters more than document completeness. It is the strongest argument so far for the API-first direction of the extension transition.
+
+---
+
+## Porting the Layer 4 response to another platform
+
+**Assume this is a when, not an if.** Virtualization is the standard answer to "our chat page gets
+slow on long conversations", and Claude's flip between February and July 2026 came with no
+announcement, no error, and a green test suite. As of the last inspection — **February 2026, before
+anyone knew to look for this** — ChatGPT, Grok and Gemini rendered long threads the same naive way
+Claude used to. That is the last observation, not a current fact, and Gemini's is actively contested
+(see the status table). Detection procedure and per-platform status live in
+`DOM-REFERENCE.md` → "Virtualization status"; the full narrative of why the Claude response took
+the shape it did is in `TROUBLESHOOTING.md` → "Why v12.0 and v12.1 Exist". This section is the
+**order of operations** for the next one.
+
+### Step 0 — Two questions, not one
+
+**(a) Recycling or lazy loading?** Lazy loading accumulates nodes, so a scroll sweep before scanning
+fixes it and the DOM stays a valid source. Recycling serves a fixed-size window, so every cached
+element reference in the codebase becomes a latent wrong-answer bug. **Full procedure — four steps,
+including selector validation and the two forms of recycling — is in `DOM-REFERENCE.md` →
+"Virtualization status". It is the canonical copy; this section deliberately does not restate it.**
+
+**(b) If recycling — is a full sweep viable?** This is the question that actually decides the size of
+the work, and **the answer is not always no** — on a platform with short sessions a sweep may be the
+entire fix. Claude is the clear negative case, but note *which* evidence settles it: a coarse sweep
+(five positions) never accumulated past 3 unique turns, and at 372,642 px of scroll height a
+viewport-step sweep would take minutes on every panel open. **The cost is what rules it out** — the
+fine-grained coverage question was never measured there. There is
+no positive case in this repo yet (see below).
+
+Estimate before choosing: `scrollHeight / clientHeight` steps at ~250 ms. Seconds means a sweep is
+affordable and may be the whole fix. Minutes — or a sweep that does not accumulate — means Steps 1–6.
+
+**There is no in-repo sweep to copy.** Emergent recycles and has only *passive accumulation* —
+`scanConversation` keeps what the user already scrolled past. `DOM-REFERENCE.md` described a
+panel-open sweep for five months; that code never existed (backlog item 7). So a sweep would be new
+work here, and it inherits two requirements the accumulator gets wrong: key the accumulator on
+something **structural** (Virtuoso exposes `data-index`), never on message text, and prove the
+traversal actually reaches the ends rather than assuming it.
+
+**Do not use the `virtualScroll` platform flag to answer this.** It selects the Emergent DOM
+mitigation, not the platform property, so Claude is `virtualScroll: false`. The
+`DOM-REFERENCE.md` table is the record.
+
+### Step 1 — Find out whether an independent source exists, and do not assume the answer
+
+The entire v12.0 approach rests on one fact about Claude: **the client already downloads the whole
+conversation and chooses to render a window of it**, so a plain authenticated GET returns
+everything. Whether the same is true of any other platform is **unverified** — do not plan around
+it until it is measured. What to establish, in this order:
+
+1. Does an endpoint return the full conversation for the open thread? (DevTools → Network on a
+   page load, then look for the conversation payload.)
+2. What authenticates it — a cookie, a bearer token in memory, a CSRF header? A token that only
+   exists inside the page's JS is a much harder problem than a cookie, and may rule the approach
+   out entirely under the constraint in Step 2.
+3. Does the payload contain the message *text*, or only metadata? Claude's top-level `text` field
+   is empty on every message and the content lives in `content[]` blocks — a shape that would have
+   rendered 147 blank rows if it had not been checked.
+4. Does it expose branch structure (edits, regenerations)? If so, the walk must follow the active
+   branch, or edited-away questions reappear as if current.
+
+**If no such source exists, the honest outcome is reduced functionality on that platform, clearly
+labelled in the UI.** That is a legitimate result. Silent partial data is not.
+
+### Step 2 — Respect the Layer 3 constraint, and declare the host
+
+Read it with `GM_xmlhttpRequest`. **Do not intercept `fetch` and do not patch page globals**
+(DEC-019/DEC-020). v11.6 crashed claude.ai to a black screen on Firefox because a vendor bundle
+called `.bind()` on our replaced `fetch`. A Layer 4 fix that reintroduces a Layer 3 hazard has made
+the product worse: Layer 4 degrades our features, Layer 3 kills the host page.
+
+**Then add the endpoint host to `@connect` in the userscript metadata.** The header currently
+declares `@connect claude.ai` and nothing else, so an otherwise finished ChatGPT/Grok/Gemini port
+will be blocked or will prompt for an undeclared permission, depending on the userscript manager —
+a failure that appears at the very end and looks like a broken request rather than a missing
+declaration. Two consequences that are easy to miss:
+
+- **Adding a `@connect` host changes what the script is permitted to talk to**, so it is a
+  user-visible permission change. Tampermonkey re-prompts on update. Update the README's
+  permissions section in the same commit — it enumerates the grants deliberately.
+- The privacy statement in README lists exactly which hosts are read. A new host makes that list
+  wrong until it is updated.
+
+### Step 3 — Extract and parameterize the patterns; almost nothing is callable as-is
+
+Most of v12.0/v12.1 is not Claude-specific, and the port should not re-derive it:
+
+**None of it is callable cross-platform today — budget for extraction.** Every one of these
+mechanisms is currently gated to Claude: `ciLoadIndex` early-returns unless `ciIsClaudeChat()`, the
+jump bridge is behind the same guard at its call sites, and the bookmark identity and migration
+paths carry it too (37 occurrences of that guard in the file). These are **proven patterns to
+extract and parameterize**, not machinery to wire up. Treating them as ready-made is the single
+easiest way to underestimate this work by an order of magnitude.
+
+| Pattern to extract (design is settled) | Must be built per platform |
+|---|---|
+| Index-backed enumeration with a DOM fallback and a **visible** degraded state | the fetch, the auth, the payload walk |
+| Resolve-on-arrival jumping — aim, land, re-identify, refuse rather than guess (DEC-027) | the scroll container and row-identity attributes |
+| Bookmarks keyed to message identity, never position | the platform's message id field |
+| The legacy-record evidence ladder and its proof/inference split (DEC-034/035) | whatever the old records happen to carry |
+| Staleness/refetch detection and its backoff | the "conversation changed" signal |
+
+The value carried over is the **design** — which failure modes to refuse rather than guess at, and
+in what order to resolve evidence. That is most of the thinking and none of the plumbing.
+
+The single most transferable idea is the one that is easiest to skip: **a held element reference is
+not an identity.** Any code that stores a node and uses it later is wrong on a recycling platform —
+and it will not throw. Audit for **both** failure modes, because checking for one hides the other:
+
+- **Same-node repurposing** — the node is reused for another message, so the code scrolls
+  confidently to the **wrong content** and reports success.
+- **Detach-and-remount** — the node is destroyed, so the reference is disconnected and the action is
+  a silent **no-op**: nothing moves, nothing errors.
+
+Which form Claude uses has **never been measured live** — this repo asserts both (backlog item 8), so
+audit for both rather than picking one.
+
+A search for "does this stored element still show the right text?" only finds the first.
+
+### Step 4 — Do not forget the data users already saved
+
+This is what turned one release into two. Bookmarks, and anything else persisted, may be keyed to
+something that only behaved like an identity because the DOM was static — a position, an index, a
+hash containing one. Those records keep working right up until the platform virtualizes, and then
+they fail silently for existing users only, which is a class of bug that no amount of reviewing the
+current diff will surface. Check for it **in the same release**, and recover by *earning* the new
+identity from evidence the old record carries, refusing when the evidence is insufficient
+(DEC-034/DEC-035).
+
+### Step 5 — Ship a mock that genuinely unmounts
+
+A static mock **cannot** fail on a Layer 4 break; the suite will be green through the entire
+incident. `tests/mock-pages/claude-virtualized.html` is the reference: 40 turns, 3 mounted, the
+rest removed from the document. Hiding rows with `display: none` does not reproduce the failure.
+Until such a mock exists for the new platform, its fix is unverified regardless of the test count.
+
+### Step 6 — Anything derived from a DOM count is now suspect on that platform
+
+Sweep for it rather than waiting for reports. On Claude these were all separately broken and none
+of them announced it: context-tracking percentages measured from container `innerText`; export
+headers stating a message count; any `nInDOM / total` coverage ratio (which was always exactly 1.0
+because both sides came from the same truncated scan); and message ordering via
+`compareDocumentPosition`, which returns 0 for unmounted nodes and silently degrades a sort to
+arbitrary order.
 
 ---
 
