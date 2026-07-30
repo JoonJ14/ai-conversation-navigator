@@ -623,9 +623,15 @@ SPA frameworks (React, Angular) may destroy and recreate message DOM nodes durin
 
 The bookmark data in `GM_setValue` is the source of truth — DOM icons are just a visual reflection. If they disappear due to re-render, they get re-injected on the next observer cycle.
 
-### Virtual Scroll (Gemini, Emergent)
+### Virtual Scroll (Emergent; Gemini contradicted at small scale)
 
 Messages that scroll out of the viewport get removed from DOM, then recreated when scrolled back. Same as re-render: icons re-injected when the element reappears. Content hash matching ensures the correct active/inactive state is restored.
+
+**Correction (Jul 30, 2026):** this section originally named Gemini alongside Emergent. A live
+measurement (Chromium, 10-turn conversation, every scroll position) found **no removal at n≤10** —
+all turns stay mounted and held references stay connected. The original claim was never backed by
+a recorded measurement. Unresolved at 100+ turns (`<infinite-scroller>` scroller); the canonical
+status is `DOM-REFERENCE.md` → "Virtualization status".
 
 ### Streaming Messages
 

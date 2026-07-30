@@ -564,6 +564,12 @@ const PLATFORMS = [
         expectedMessages: 3,
         expectedAccent: '#4285f4',
         expectedMode: 'orbital',
+        // The mock's div.query-text contains Gemini's hidden
+        // "You said" label (cdk-visually-hidden, measured live 2026-07-30).
+        // This assertion is what makes the label-leak reproducible: without
+        // the strip, nav-item-text reads "You said How do neural networks
+        // learn?" and equality fails. Mutation-verified — see PR.
+        expectedFirstQuestion: 'How do neural networks learn?',
     },
     {
         name: 'Bolt.new',
@@ -1116,6 +1122,37 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
         });
         assert('All items have display text', allHaveText,
             allHaveText ? 'All nav-item-text non-empty' : 'Some item texts are empty');
+
+        // ── TEST 10b: First question text is EXACTLY the message (opt-in) ──
+        // "Non-empty" cannot catch text contamination: a platform's hidden
+        // screen-reader label ("You said" on Gemini, cdk-visually-hidden)
+        // leaking into the read still yields non-empty text. Platforms whose
+        // mock reproduces such a label opt in via expectedFirstQuestion, and
+        // the displayed text must equal the question with nothing prepended
+        // or appended. Whitespace-normalized: mock indentation produces
+        // whitespace text nodes that real framework-rendered DOM does not.
+        //
+        // MUTATION COVERAGE (verified 2026-07-30): breaking _CDK_HIDDEN_RE
+        // (the slow-path excluder) flips this red. Breaking _cleanText's
+        // FAST-path selector does NOT — by panel-read time the injected
+        // bookmark icon already routes every read down the slow path. The
+        // fast-path half is therefore NOT independently fixtured: it is
+        // required by the two-paths-must-agree invariant documented at the
+        // selector (a pre-injection read would otherwise leak), and a fixture
+        // for it would have to race icon injection — the machine-speed-
+        // dependent assertion shape DEC-025 bans. Recorded as test debt, not
+        // coverage.
+        if (platform.expectedFirstQuestion) {
+            const firstText = await page.evaluate(() => {
+                const el = document.querySelector('[data-acn-role="nav-item-text"]');
+                return el ? el.textContent.replace(/\s+/g, ' ').trim() : null;
+            });
+            assert('First question text is clean',
+                firstText === platform.expectedFirstQuestion,
+                firstText === platform.expectedFirstQuestion
+                    ? `"${firstText}"`
+                    : `Expected "${platform.expectedFirstQuestion}", got "${firstText}"`);
+        }
 
         // ── SCREENSHOT: Panel open with question list ──────────────────────
         if (screenshotOpts) {

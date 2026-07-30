@@ -65,7 +65,7 @@ The current `orbUpdateContextBar()` function (line ~1522) uses a **scroll-contai
 | Issue | Impact |
 |-------|--------|
 | **Noise from UI chrome** | `innerText` on the scroll container captures timestamps, button labels, typing indicators, sidebar bleed-through — inflating the count |
-| **Virtual scroll** | Gemini and Emergent virtualize their message lists. Only viewport messages exist in DOM |
+| **Virtual scroll** | Emergent virtualizes its message list (Virtuoso recycling — only mounted messages exist in DOM). Gemini was long asserted here to do the same; a live measurement (Jul 30, 2026, Chromium, 10-turn conversation) found **no recycling at n≤10** — all turns stay mounted at every scroll position. Unresolved beyond that scale (its scroller is an `<infinite-scroller>`). See `DOM-REFERENCE.md` → "Virtualization status" for the canonical record |
 | **Performance** | `innerText` forces a layout reflow. On a 200-message conversation this causes UI hitches |
 | **Fallback is crude** | The `× 3` multiplier when walk-up fails has no empirical basis |
 | **No AI message awareness** | The code doesn't explicitly identify AI responses |

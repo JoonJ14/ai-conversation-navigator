@@ -4,6 +4,51 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.2 — Gemini: Strip Angular's Hidden Sender Labels] — 2026-07-30
+
+**Branch:** `fix/gemini-hidden-labels`
+
+### Problem
+
+Every question in the Navigate panel on gemini.google.com was prefixed *"You said"*, reported
+by the owner and reproduced the same day. Root cause: Gemini added hidden screen-reader sender
+labels between Feb and Jul 2026 — `span.cdk-visually-hidden.screen-reader-user-query-label`
+("You said") as the **first child of `div.query-text`**, our primary selector target, and an
+`h2` "Gemini said" equivalent inside `.response-content`. `_cleanText()` strips hidden labels
+by class but only knew `sr-only`; Angular CDK's `cdk-visually-hidden` passed through every
+reader — Navigate, Search, Export, Summary, and bookmark hash inputs.
+
+### Fix
+
+`_isSrOnlyClassList` now also matches `cdk-visually-hidden` (whole-token regex; the same
+predicate serves `_cleanText` and the export walker, so one change covers every surface), and
+`_cleanText`'s fast-path selector gained `.cdk-visually-hidden` to keep the two paths agreeing.
+Firebase Studio — the other Angular platform — gets the same protection.
+
+### Verification
+
+- Mock rebuilt from the Jul 30 live measurement (labels at their real positions, AI turn
+  restructure, whitespace-free label/text adjacency). New opt-in `expectedFirstQuestion`
+  assertion: **red on the unfixed code with exactly the live symptom**
+  (`"You saidHow do neural networks learn?"`), green with the fix, mutation-verified against
+  the slow-path regex. Fast-path half recorded in the fixture as test debt (proving it means
+  racing icon injection — the DEC-025 shape).
+- Bookmark ripple covered by existing machinery: `_bmLegacyIdSet`'s `_textAsLegacy` candidate
+  reproduces the label-included read, so leak-era Gemini bookmarks keep matching. No migration.
+
+### Also measured, documented, deliberately not fixed here
+
+The AI primary selector `div.model-response-text` is dead on live Gemini (class moved to a
+`structured-content-container` element); the chain survives on `.response-content`, which
+over-captures the label announcer (now stripped) and the response footer (visible, not
+stripped — unmeasured). Re-chain deferred to the Summary/Export fixture batch where AI text
+gains its first assertions (DEC-032: an unassertable fix is unprovable). Also: **no Gemini
+virtualization at n≤10** — measured live at every scroll position with held references; the
+"CONTESTED" entry in `DOM-REFERENCE.md`'s status table is resolved at that scale and remains
+open beyond it (the scroller is an `<infinite-scroller>`).
+
+---
+
 ## [12.1 — Legacy Bookmark Recovery] — 2026-07-29
 
 **Branch:** `feat/v12.1` | **Last code commit:** `3c63c86` | **PR:** #59
