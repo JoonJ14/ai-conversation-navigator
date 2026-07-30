@@ -1660,10 +1660,39 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                                     if (!busy && Date.now() - t0 > 1400) break;
                                     if (Date.now() - t0 > 6500) break;
                                 }
-                                out.push({ k, resolved, busySeen,
+                                // Jump duration BEFORE the forensics probe: the rAF
+                                // sample below costs ~160ms healthy and up to 3s
+                                // throttled, and it must not inflate the duration it
+                                // annotates — ms feeds the failure line AND the budget
+                                // assertion's avg/max (Codex P2 on this PR).
+                                const ms = Date.now() - t0;
+                                // Environment forensics, failed jumps only. A null here
+                                // is usually the product's own honest give-up (settle cap
+                                // x iteration cap), and on a degraded CI host that means
+                                // the mock's rAF-driven render loop was starved (webkit/
+                                // macos, 2026-07-30: 10 CONSECUTIVE nulls at the cap
+                                // ceiling on one entry while three sibling entries ran
+                                // exact at ~300ms). raf10 = wall-clock ms for 10 rAF
+                                // frames (~170ms healthy; seconds when throttled;
+                                // -1 = rAF never delivered 10 frames in 3s).
+                                let vis = null, raf10 = null;
+                                if (resolved === null) {
+                                    vis = document.visibilityState;
+                                    raf10 = await new Promise(res => {
+                                        let n = 0;
+                                        const t = performance.now();
+                                        const step = () => {
+                                            if (++n >= 10) return res(Math.round(performance.now() - t));
+                                            requestAnimationFrame(step);
+                                        };
+                                        requestAnimationFrame(step);
+                                        setTimeout(() => res(-1), 3000);
+                                    });
+                                }
+                                out.push({ k, resolved, busySeen, vis, raf10,
                                            itemText: (item.textContent || '').slice(0, 30),
                                            idxStatus: z.getAttribute('data-acn-index-status'),
-                                           ms: Date.now() - t0 });
+                                           ms });
                             }
                             return out;
                         }, [from, to, stepQ, totalQ]);
@@ -1674,7 +1703,9 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                             if (r.err || r.resolved !== expect) {
                                 failures.push(`Q${r.k + 1}: expected row ${expect}, got ` +
                                               `${r.err || r.resolved} busySeen=${r.busySeen} idx=${r.idxStatus} ` +
-                                              `"${r.itemText}" (${r.ms}ms)`);
+                                              `"${r.itemText}" (${r.ms}ms` +
+                                              (r.vis !== null && r.vis !== undefined
+                                                  ? `, vis=${r.vis}, raf10=${r.raf10}ms` : '') + `)`);
                             }
                         }
                     }
@@ -2066,15 +2097,23 @@ async function runTestsOnEngine(engineKey, scriptContent, captureScreenshots) {
 
     const allResults = [];
     for (const platform of selected) {
+        // The "Testing X..." write flushes BEFORE the entry runs, so on a
+        // streaming CI log a wedged job's tail names the entry it is stuck in.
+        // Per-entry wall clock decomposes a slow job from its log alone: the
+        // 2026-07-30 webkit/macos incident burned 40 minutes against a
+        // 6-minute green with nothing in the log saying where.
         process.stdout.write(`  Testing ${platform.name}... `);
+        const entryT0 = Date.now();
         const result = await testPlatform(page, platform, scriptContent, screenshotOpts);
+        result.elapsedMs = Date.now() - entryT0;
         allResults.push(result);
 
+        const secs = (result.elapsedMs / 1000).toFixed(1) + 's';
         const failCount = result.tests.filter(t => t.status === 'FAIL').length;
         if (failCount === 0) {
-            console.log(`PASS (${result.tests.length}/${result.tests.length} tests)`);
+            console.log(`PASS (${result.tests.length}/${result.tests.length} tests, ${secs})`);
         } else {
-            console.log(`FAIL (${failCount} failed)`);
+            console.log(`FAIL (${failCount} failed, ${secs})`);
         }
     }
 
@@ -2135,8 +2174,10 @@ async function main() {
 
         for (const result of engineResult.results) {
             const icon = result.passed ? '\u2705' : '\u274C';
+            const entrySecs = result.elapsedMs != null
+                ? ` (${(result.elapsedMs / 1000).toFixed(1)}s)` : '';
             console.log('');
-            console.log(`  ${icon} ${result.name}`);
+            console.log(`  ${icon} ${result.name}${entrySecs}`);
             console.log('    ' + '-'.repeat(38));
 
             for (const test of result.tests) {
