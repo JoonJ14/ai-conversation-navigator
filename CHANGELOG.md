@@ -27,22 +27,40 @@ number.
 - **Harness download capture:** patches `URL.createObjectURL` + anchor `click` in-page to
   capture `{filename, blob}` from `downloadFile()` — engine-agnostic, no Playwright
   download machinery.
-- **Seven fixtures**, all **mutant-gated** (no live bug was being fixed): S1 summary stats
-  cover the whole conversation (81/40/41 from 3 mounted turns); S2 a segment click reaches
-  an UNMOUNTED target through the jump bridge (the carried-over
-  summary-click-after-recycling case); S3 a mounted target resolves without refusing;
-  S4 the stale-stamp guard refuses with the regenerate toast after the index moves to
-  another conversation; E1 the full export is index-complete AND self-consistent (header
-  count == its own section count == fixture); E2 the degraded export says so, bounded on
-  both sides; E3 the summary export carries index-complete stats.
+- **Eight assertions across seven fixtures**, all **mutant-gated** (no live bug was being
+  fixed): S1 summary stats cover the whole conversation (81/40/41 from 3 mounted turns,
+  furthest segment end pinned to the last timeline entry) plus the regenerate gate (the
+  panel auto-generates on open, so only a node-replacing second click proves the
+  `sum-generate` attribute is on the live button); S2 a segment click reaches an UNMOUNTED
+  target through the jump bridge (the carried-over summary-click-after-recycling case);
+  S3 a mounted target resolves without refusing; S4 the stale-stamp guard refuses against
+  a REAL, **uuid-observed** conversation switch (claude is `spa:false` — the switch has to
+  be scroll-nudged into existence; the shim records the requested conversation uuid because
+  the bare fetch counter is uuid-blind, and the switch-back is asserted separately);
+  E1 the full export is index-complete AND self-consistent; E2 the degraded export says
+  so with a header total EXACTLY equal to the derived window size (`2·userWindowSize+1` —
+  round 2 proved every looser bound vacuous on this deterministic mock); E3 the summary
+  export carries index-complete stats. A **FIXTURE PRESENCE** check makes any of these
+  silently not running a hard failure.
 
-### Verification
+### Verification — including a Tier 3 round that mattered
 
-Each of the four functions was mutated **individually** against the committed fixtures:
-`ciIndexStamp` and `_sumBuildTimeline` kill generation (S1 + cascade), `_sumScrollToElement`
-kills exactly the three click fixtures, `_exportFromIndex` kills exactly E1. All runs
-restored; final suite green on both engines. `busySeen` is reported but never asserted —
-it raced the poll cadence between two identical local runs (the DEC-025 shape).
+The local pipeline's five-lens opus round (skeptic-verified) found **2 CRITICALs in the
+first version of this batch**: E2 was nested where its only entry could never reach it —
+unreachable, green, and claimed as coverage — and the harness served pages without a
+charset, so every literal non-ASCII character in the inlined userscript was windows-1252
+mojibake (E2 would have been the first assertion ever to compare one). Also fixed from
+that round: a readiness probe polling an attribute on the wrong element (0ms no-op), the
+unreal S4 switch above, a vacuous self-consistency check, hardcoded bounds, panel-toggle
+races, and an `orbPanel` freeze that quietly stopped the nav list re-rendering for the
+pre-existing tests downstream. Full detail: `reviews/review-2026-07-30-0a63780.md`.
+
+Each of the four dead-zone functions was then mutated **individually against the committed
+state**: `ciIndexStamp` and `_sumBuildTimeline` kill generation (S1 + cascade),
+`_sumScrollToElement` kills exactly the three click fixtures, `_exportFromIndex` kills
+exactly E1. The regenerate gate and presence check were mutation-verified separately.
+`busySeen` is reported but never asserted — it raced the poll cadence between two
+identical local runs (the DEC-025 shape).
 
 ### Deliberately not done, with reasons on the record
 

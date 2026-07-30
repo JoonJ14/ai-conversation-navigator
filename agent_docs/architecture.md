@@ -228,6 +228,10 @@ data-acn-count="N"                      -> Number of detected questions (on nav-
 data-acn-index-status="degraded|loading|ready-with-notes"
                                         -> Conversation-index banner state (Claude only, v12.0+).
                                            Absent when the index is healthy with nothing to report.
+                                           LOCATION: on the banner INSIDE the nav panel's list —
+                                           never on the zone — and only refreshed while Navigate
+                                           is the open panel. Not a readiness signal otherwise
+                                           (a zone-scoped probe was a 0ms no-op; Tier 3 v12.3).
 data-acn-jumping="true"                 -> On any panel with a jump in flight. Also blocks clicks via CSS.
 data-acn-jump-resolved="N"              -> On the ZONE: the data-index a completed jump actually
                                            resolved. Durable — the resolved ELEMENT is detached by

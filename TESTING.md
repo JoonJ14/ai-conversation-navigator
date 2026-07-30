@@ -669,31 +669,71 @@ Until v12.3, replacing `_sumBuildTimeline`, `_sumScrollToElement`, `_exportFromI
 **516/516 on the parent commit with all four throwing at once**. The fixtures that closed
 this are gated by two platform-config flags:
 
-- `summaryExportTests: true` (on *Claude (virtualized + index)*) runs **S1–S4, E1, E3**:
-  whole-conversation stats (exact 81/40/41 against ~3 mounted turns), segment click through
-  the jump bridge to an unmounted row, mounted-target resolution, the stale-stamp refusal
-  after a `pushState` conversation switch, and the two index-complete export captures.
+- `summaryExportTests: true` (on *Claude (virtualized + index)*) runs **S1–S4, E1, E3** (9
+  assertions): whole-conversation stats (exact 81/40/41 against ~3 mounted turns; the
+  furthest `data-acn-sum-end` is reported as info only — every construction path ends the
+  last segment at `timeline.length-1`, so gating on it would just re-assert the total),
+  the regenerate gate (the panel auto-generates on open, so only a replacement of the
+  stats node by a click on a RE-ENABLED `sum-generate` button proves the attribute is
+  live — the handler disables the button synchronously, and a click on a disabled button
+  dispatches nothing), segment click through the jump bridge to an unmounted row,
+  mounted-target resolution, the stale-stamp refusal against a REAL conversation switch,
+  a separate **uuid-observed** switch/restore assertion (the shim records the requested
+  conversation uuid in `__convLastUuid`; `__convFetches` alone is uuid-blind and a
+  same-conversation resync would satisfy it — claude is `spa:false`, so the switch is
+  scroll-nudged into existence), and the two index-complete export captures.
 - `degradedExportTest: true` (on *Claude (virtualized)*) runs **E2**: the export must carry
-  the DEGRADED source label and a header count that equals its own section count, bounded
-  4..12 on both sides — a mock that stopped unmounting would blow the upper bound.
+  the DEGRADED source label and a header total EXACTLY equal to the derived window size
+  (`2·userWindowSize + 1`; deterministic on this mock — measured 7 every run). Round 2
+  proved every looser form vacuous: bounds 4..12 bounded nothing, and header-vs-parenthetical
+  is an identity in this code path (a degraded DOM scan cannot produce falsy elements, so
+  `buildTimeline` drops nothing) — that comparison is kept as a cross-check but is NOT
+  load-bearing, and a fixture where the two can genuinely diverge is recorded debt.
 
-All seven are **mutant-gated**, per function and individually verified: `ciIndexStamp` and
-`_sumBuildTimeline` kill generation (S1 + cascade), `_sumScrollToElement` kills exactly the
-three click fixtures, `_exportFromIndex` kills exactly E1.
+All are **mutant-gated**, per function and individually verified against the committed
+state: `ciIndexStamp` and `_sumBuildTimeline` kill generation (S1 + cascade),
+`_sumScrollToElement` kills exactly the three click fixtures, `_exportFromIndex` kills
+exactly E1. The regenerate gate and the FIXTURE PRESENCE check were additionally
+mutation-verified (attribute moved off the button → red; E2 re-nested → presence red).
 
-**Download capture:** exports are asserted by content via `DOWNLOAD_SHIM`, which patches
-`URL.createObjectURL` and the anchor-click in-page and records `{filename, blob}` into
-`window.__acnTestDownloads`. Read with `(await dl.blob.text())` inside `page.evaluate`.
+**FIXTURE PRESENCE check:** each opt-in flag declares the assertion titles it must
+produce; an entry finishing without them fails hard. This exists because the first E2 was
+nested where its entry could never reach it — unreachable, green, and claimed as coverage
+in three docs (Tier 3 CRITICAL). Silent non-execution is now a failure class the harness
+itself detects.
+
+**Download capture:** exports are asserted by content via `DOWNLOAD_SHIM` (gated to the
+two export entries), which patches `URL.createObjectURL`/`revokeObjectURL` and the
+anchor-click in-page and records `{filename, blob}` into `window.__acnTestDownloads`.
+**Scope, on the record:** the harness inlines the userscript into the page realm, so this
+capture is page-realm-scoped — it structurally cannot detect an export break caused by
+cross-compartment Blob/anchor handling in the real Tampermonkey sandbox (the DEC-019/020
+context split). Live confirmation remains the only evidence for that realm.
+
+**The charset lesson:** the harness now serves `<meta charset="utf-8">` + a charset'd
+Content-Type. Without them the browser decoded the inlined userscript as windows-1252 and
+every literal non-ASCII character was mojibake in-page — invisible until E2 became the
+first assertion to compare one ('— DEGRADED' never matched). If an assertion on a literal
+non-ASCII string inexplicably fails, check `document.characterSet` first.
 
 **What is deliberately not asserted:** `busySeen` (whether a 110ms poll observed the busy
 flag) is reported in failure details but never part of a pass condition — it flipped between
 two identical local runs, the DEC-025 machine-speed shape. Route identity ("did the click
 use the bridge?") is asserted structurally instead: a target proven unmounted at click time
-that ends resolved at row 0 cannot have gotten there any other way.
+that ends resolved at row 0 cannot have gotten there any other way. Likewise the
+conversation-id HALF of `ciIndexStamp` is defense-in-depth S4 cannot isolate (every rebuild
+also bumps the global generation) — recorded in the fixture, not faked. And because the
+shim serves an identical payload for every uuid, S4 proves the refusal FIRES but cannot
+distinguish a correct refusal from a false-positive one, and no content assertion downstream
+could detect a missed restore — the uuid observable is the whole restore gate. The
+post-block panel restore is correct but currently not load-bearing (ablation-verified green
+without it); it guards the real `orbPanel`-gated re-render mechanism for future fixtures.
 
-**Recorded debt:** `exportBookmarks()` and the Tools gallery/commands sections remain
-unexecuted; E1 carries one announced retry for the scan-tick race after S4's conversation
-switch (degradation-when-unready has its own dedicated test, E2).
+**Recorded debt:** `exportBookmarks()`, the Tools gallery/commands sections, and the
+degraded-session summary paths (`_sumElKey` staleness branch, sub-segment and inventory
+click handlers) remain unexecuted; the fixture produces a single map segment, so
+multi-segment segmentation is unexercised; E1 carries one announced retry for the
+scan-tick race after S4's switch (degradation-when-unready has its own dedicated test, E2).
 
 ---
 
