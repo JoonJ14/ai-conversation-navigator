@@ -261,6 +261,73 @@ symptom-level detail.
 
 ---
 
+## v12.2 — Every Gemini Question Was Prefixed "You said" (2026-07-30)
+
+**Status:** RESOLVED | **Severity:** Medium — every text surface on Gemini contaminated, no
+data loss | **Found by:** owner live observation (Firefox + Tampermonkey), root-caused same day
+by live DOM probe (Chromium, page realm, owner's account)
+
+### Symptom
+
+Every row in the Navigate panel on gemini.google.com read *"You said …"* in front of the
+question. Counts were right, clicks worked — only the text was wrong. Less visibly, the same
+prefix reached Search matching, exports, and Summary input; assistant text carried a matching
+*"Gemini said"* prefix (unnoticed live because assistant text has fewer visible surfaces).
+
+### Diagnosis
+
+Gemini added hidden screen-reader sender labels to its turn DOM sometime between the Feb 16
+2026 inspection and Jul 30 2026:
+
+- `span.cdk-visually-hidden.screen-reader-user-query-label` → "You said" — **inside
+  `div.query-text`**, the primary user selector target, as its first child
+- `h2.cdk-visually-hidden.screen-reader-model-response-label` → "Gemini said" — inside
+  `.response-content`, which is the AI selector chain's live match
+
+`_cleanText()` structurally strips hidden labels by class — but it only knew `sr-only`
+(ChatGPT/Claude's convention). Gemini is Angular; Angular CDK's hidden-content class is
+`cdk-visually-hidden`, which sailed through every reader. One predicate
+(`_isSrOnlyClassList`) serves both `_cleanText` and the export walker's `isUIChrome`, so a
+single gap contaminated every surface at once.
+
+### Fix (v12.2)
+
+`_isSrOnlyClassList` also matches `cdk-visually-hidden` (plain whole-token regex — Angular
+never variant-prefixes it), and `_cleanText`'s fast-path selector gained
+`.cdk-visually-hidden` so the two paths keep agreeing. The Gemini mock reproduces both labels
+at their measured positions, and an opt-in `expectedFirstQuestion` assertion pins the exact
+text — red on the unfixed code with precisely the live symptom
+(`"You saidHow do neural networks learn?"`), green with the fix, and mutation-verified against
+the slow-path regex. The fast-path half is recorded in the fixture as test debt: proving it
+independently would require racing icon injection (the DEC-025 assertion shape).
+
+### Bookmark ripple — handled by existing machinery
+
+Gemini bookmarks created while the label leaked have "You said" baked into their content
+hash. `_bmLegacyIdSet` already tries a `_textAsLegacy` candidate — raw text minus our icon,
+which **is** the label-included read — so those records keep matching after the fix. Records
+from before Gemini's DOM change and records created after the fix both hash label-free text
+and match via the current form. No migration needed.
+
+### What was NOT fixed here, and why
+
+The probe also found the AI primary selector dead (`div.model-response-text` — the class
+moved onto a `structured-content-container` element) with the chain surviving on
+`.response-content`, which over-captures the label announcer and the response footer. The
+re-chain is deferred: nothing in the suite asserts AI text today, so the change would be
+unprovable (DEC-032). It lands with the Summary/Export fixture batch, which gives AI text
+its first assertions. Details in `DOM-REFERENCE.md` → Gemini.
+
+### The general lesson
+
+`sr-only` is a convention, not a standard. Every UI framework family has its own hidden-text
+idiom (Tailwind `sr-only`, Angular CDK `cdk-visually-hidden`, Bootstrap `visually-hidden`),
+and a strip list built from the platforms already handled says nothing about the next
+platform — or the next redesign of a handled one. When question text grows an unexplained
+prefix, diff the platform's hidden-label classes against `_isSrOnlyClassList` first.
+
+---
+
 ## v12.1 — Every Pre-v12.0 Bookmark Was Dead, and the Preview Was Not Quoting the Message (2026-07-29)
 
 **Status:** RESOLVED (16/16 recovered on the owner's live conversation) | **Severity:** High —

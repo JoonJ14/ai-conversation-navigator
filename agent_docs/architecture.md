@@ -135,10 +135,15 @@ There is deliberately no pinned-tail constant: the extra cluster is not a stable
 ### Text extraction
 
 `_cleanText()` is the single path for reading message text. It removes our own injected
-bookmark icon (`[data-acn-bookmark]`) and the platform's `.sr-only` labels — ChatGPT's
-"You said:", Claude's "Claude responded:" and "Load earlier messages". Both leaked into
-`textContent` and both caused real defects: the icon broke index↔DOM matching for short
-messages, and the sr-only labels reached Search, Export and exported markdown.
+bookmark icon (`[data-acn-bookmark]`) and the platform's hidden screen-reader labels —
+`.sr-only` (ChatGPT's "You said:", Claude's "Claude responded:" and "Load earlier messages")
+and, since v12.2, Angular CDK's `.cdk-visually-hidden` (Gemini's "You said" / "Gemini said").
+All of it leaked into `textContent` and caused real defects: the icon broke index↔DOM
+matching for short messages, the sr-only labels reached Search, Export and exported markdown,
+and the cdk labels prefixed every Gemini surface. The hidden-label idiom is per-framework
+(`sr-only`, `cdk-visually-hidden`, Bootstrap's `visually-hidden`), so a new platform — or a
+redesign of a handled one — can reintroduce this class of leak; the predicate to extend is
+`_isSrOnlyClassList`, which also serves the export walker.
 
 `_readMessageText()` (user) and `_readAIText()` (assistant) both route through it. There is
 no longer a `"You said:"` regex — a regex cannot distinguish the platform's label from a

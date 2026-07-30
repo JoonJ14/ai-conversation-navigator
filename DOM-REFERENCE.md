@@ -41,7 +41,7 @@ follow — virtualization is the standard fix for a slow chat page, not a Claude
 |---|---|---|---|
 | **Claude** (`claude.ai/chat`) | **YES — Virtuoso-style recycling**, ~3–7 of N turns mounted | Jul 26, 2026 | **API-backed conversation index** (DEC-021). DOM is the labelled fallback. |
 | **Emergent** (`app.emergent.sh`) | **YES — Virtuoso recycling**, `[data-testid="virtuoso-scroller"]` | Feb 15, 2026 | **Accumulation only** — scans keep messages the user has already scrolled past, plus click-time re-resolution of stale references. **Nothing sweeps.** See the ⚠️ below. |
-| **Gemini** | ⚠️ **CONTESTED — unresolved** | Feb 16, 2026 | DOM. `docs/CONTEXT-TRACKING.md` and `docs/BOOKMARKS.md` both state Gemini virtualizes ("only viewport messages exist in DOM"); the registry sets `virtualScroll: false` and its DOM-REFERENCE section says nothing about it. **Nobody has measured it.** Resolve this before trusting any Gemini count. |
+| **Gemini** | **NO recycling at n≤10 — measured**; unresolved at 100+ | Jul 30, 2026 | DOM. Measured live (Chromium, page realm, owner's account, visible tab, 10-turn conversation — the longest available): all 10 turns mounted at top/middle/bottom scroll positions, held references stayed `isConnected` with text intact; zero `cdk-virtual-scroll-viewport` nodes. Owner's Firefox observation at n≈10–20 corroborates. `docs/CONTEXT-TRACKING.md` / `docs/BOOKMARKS.md` claims that "only viewport messages exist in DOM" are **contradicted at this scale** — but the scroller is literally `<infinite-scroller class="chat-history">`, so lazy-loading at 100+ turns remains possible and unmeasured. No conversation that long exists on the test account. |
 | ChatGPT · Grok · Perplexity | not observed | Feb 18, 2026 | DOM |
 | Claude Code Web · Codex Web | not observed | Feb 18, 2026 | DOM |
 | Bolt · Lovable · Replit · V0 · Base44 · Firebase Studio | not observed | Feb 18, 2026 | DOM |
@@ -423,37 +423,77 @@ AI messages use `items-start` on element B, no `user` class on the bubble, `roun
 
 ## Gemini
 
-**Inspected:** Feb 16, 2026 (live site)
+**Inspected:** Feb 16, 2026 (live site); turn internals re-measured **Jul 30, 2026** (Chromium,
+page realm, live site, owner's account, visible tab — ACN installed in the measurement browser,
+version unknown; probes read raw DOM and the findings below are Gemini's own nodes)
 **Selector:** `div.query-text`
 
-### Real DOM Structure (A→L nesting)
+### Real DOM Structure (A→L nesting, Jul 30 2026)
 
 ```
-A: user-query[_ngcontent-ng-c3204442485]  (Angular custom element)
-  B: span.user-query-container[_ngcontent-ng-c3204442485]
-    C: user-query-content.user-query-container[_ngcontent-ng-c1555545138][style="--max-lines-for-collapse-count: 5;"]
-      D: div.user-query-container[_ngcontent-ng-c1555545138]
-        E: div.file-preview-container.ng-star-inserted[_ngcontent-ng-c1555545138]
-        F: div#user-query-content-N.query-content.ng-star-inserted[_ngcontent-ng-c1555545138][data-turn="user"]
-          G: div.ng-star-inserted[_ngcontent-ng-c1555545138]
-          H: span.user-query-bubble-with-background.ng-star-inserted[_ngcontent-ng-c1555545138]  (bubble)
-            I: span.horizontal-container[_ngcontent-ng-c1555545138]
+A: user-query[_ngcontent-ng-c…]  (Angular custom element — NOTE: no longer carries class "user-query")
+  B: span.user-query-container[_ngcontent-ng-c…]
+    C: user-query-content.user-query-container.enable-luminous-prompt-bubble.enable-luminous-fast-follows
+      D: div.user-query-container[_ngcontent-ng-c…]
+        E: div.file-preview-container.ng-star-inserted[_ngcontent-ng-c…]
+        F: div#user-query-content-N.query-content.ng-star-inserted[data-turn="user"]
+          G: div.ng-star-inserted[_ngcontent-ng-c…]
+          H: span.user-query-bubble-with-background.ng-star-inserted  (bubble)
+            I: span.horizontal-container[_ngcontent-ng-c…]
               J: div.query-text.gds-body-l.query-text-animated[role="heading"][aria-level="5"]  (OUR TARGET)
-                K: text content
+                K0: span.cdk-visually-hidden.screen-reader-user-query-label  → "You said"  ⚠ INSIDE the target
+                K:  p.query-text-line.ng-star-inserted  → the question text (bare text node in Feb)
               L: button.mdc-icon-button[aria-label="Expand text"]  (expand button)
 ```
 
-AI messages use `<model-response>` custom element with `response-container` / `model-response-text` classes — no `div.query-text`.
+**⚠ K0 is the "You said" leak** (v12.2): a hidden screen-reader label inside the primary selector
+target. Every raw text read of J includes it. `_cleanText` strips `cdk-visually-hidden` since
+v12.2 (it previously knew only `sr-only`). Not present in the Feb 2026 record — added by Gemini
+between Feb and Jul 2026, or missed by the Feb inspection.
+
+### AI messages (re-measured Jul 30, 2026)
+
+```
+model-response  (custom element)
+  div.response-container.response-container-with-gpi
+    div.presented-response-container
+      div.response-container-content
+        div.response-content
+          thinking-overlay  (when present)
+          div.model-response-label-announcer
+            h2.cdk-visually-hidden.screen-reader-model-response-label  → "Gemini said"  ⚠
+          structured-content-container.model-response-text  (the response body)
+          div.response-footer
+```
+
+**⚠ `div.model-response-text` no longer exists** — the class moved to the
+`structured-content-container` custom element, so the registry's tag-qualified primary AI
+selector (`div.model-response-text`) matches nothing and the chain survives on the
+`.response-content` fallback. That fallback over-captures: it includes the announcer (the
+"Gemini said" h2 — stripped since v12.2 because it is `cdk-visually-hidden`) and
+`div.response-footer` (visible content, NOT stripped — footer text contamination of AI reads
+is possible and unmeasured). **Registry re-chain deliberately deferred** until AI text has
+suite assertions (nothing asserts AI text today, so a selector change would be unprovable —
+DEC-032); scheduled with the Summary/Export fixture batch.
 
 ### Notes
 - Angular app with `_ngcontent-ng-c*` hash attributes (change per build)
-- `<user-query>` custom element wraps each query
-- `.user-query-bubble-with-background` is the bubble span
-- `.query-text` lives deep inside (element J) — very reliable, only on user queries
-- Multiple fallbacks: `.query-text-line`, `p.query-text-line`, `[data-query-text]`, `.user-query`
+- `<user-query>` custom element wraps each query, but the `.user-query` **class** is gone —
+  fallback 5 (`.user-query`) now matches nothing (verified Jul 30, 2026)
+- `[data-query-text]` (fallback 4) also matches nothing (verified Jul 30, 2026)
+- `.query-text` lives deep inside (element J) — still reliable, only on user queries, 1 per turn
+- `.query-text-line` / `p.query-text-line` (fallbacks 2–3) now match K, 1 per turn — they were
+  designed for older Gemini builds and work again by coincidence of the Jul 2026 structure
+- Virtualization: **none observed at n=10** (see the status table at the top of this file for
+  the full measurement and its context); scroller is `<infinite-scroller class="chat-history">`
 
 ### Debugging History
 - v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Real structure uses Angular custom elements (user-query, user-query-content, model-response), deep nesting with ngcontent hash attributes, horizontal-container spans, and Material Design icon buttons.
+- v12.2 (Jul 30, 2026): Live probe found the hidden `cdk-visually-hidden` sender labels ("You
+  said" / "Gemini said") leaking into every text read — the owner reported the prefix on every
+  Navigate row. Same probe: AI primary selector dead (class moved off `div`), `.user-query` and
+  `[data-query-text]` fallbacks dead, no recycling at n=10. Mock rebuilt to the measured
+  structure; `_cleanText` extended to strip `cdk-visually-hidden`.
 
 ---
 

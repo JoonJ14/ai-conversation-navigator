@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.1
+// @version      12.2
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -40,7 +40,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.1';
+    var ACN_VERSION = '12.2';
 
     // ============================================================
     // i18n — internationalization string table
@@ -3650,6 +3650,15 @@
     //                        a regex in one caller — so Claude's assistant prefix
     //                        still reached Search, Export and Summary.
     //
+    //   .cdk-visually-hidden the Angular CDK equivalent of sr-only. Gemini's user
+    //                        bubble carries "You said" (screen-reader-user-query-label)
+    //                        as the FIRST CHILD of div.query-text — inside the primary
+    //                        selector target — and its responses carry "Gemini said"
+    //                        (screen-reader-model-response-label). Both measured on
+    //                        live gemini.google.com 2026-07-30; neither exists in the
+    //                        Feb 2026 DOM record. Firebase Studio is the other Angular
+    //                        platform and gets the same protection for free.
+    //
     // Fixed here, in the shared extractor, rather than per-caller: every consumer
     // reads through this path, so a per-caller strip is guaranteed to miss one.
     // Matches sr-only as a whole class token, INCLUDING Tailwind responsive variants
@@ -3661,9 +3670,16 @@
     // but it must NOT swallow a preceding '-', or `not-sr-only` would match.
     var _SR_ONLY_RE = /(^|\s)(?:[^\s-]|[^\s]-[^\s])*?[:\]]sr-only(\s|$)|(^|\s)sr-only(\s|$)/i;
 
+    // Plain whole-token match: Angular emits the class bare, never variant-prefixed,
+    // and there is no `not-cdk-visually-hidden` to avoid.
+    var _CDK_HIDDEN_RE = /(^|\s)cdk-visually-hidden(\s|$)/i;
+
+    // Despite the name this covers BOTH hidden-label conventions (sr-only and
+    // cdk-visually-hidden); kept as-is because callers reference it by name in
+    // load-bearing comments (extractMarkdownContent's isUIChrome).
     function _isSrOnlyClassList(cls) {
         cls = (typeof cls === 'string' ? cls : (cls && cls.baseVal) || '');
-        return _SR_ONLY_RE.test(cls);
+        return _SR_ONLY_RE.test(cls) || _CDK_HIDDEN_RE.test(cls);
     }
 
     function _isExcludedFromText(n) {
@@ -3679,7 +3695,7 @@
         // (sm:sr-only) that the slow path's regex excludes — otherwise the two paths
         // disagree and a variant label survives into the text.
         if (!el.querySelector ||
-            !el.querySelector('[data-acn-bookmark], .sr-only, [class*="sr-only"]')) {
+            !el.querySelector('[data-acn-bookmark], .sr-only, [class*="sr-only"], .cdk-visually-hidden')) {
             return el.textContent || el.innerText || '';
         }
         var out = '';

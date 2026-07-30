@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <html><head><title>Gemini Mock</title></head>
 <body>
-<!-- Gemini (gemini.google.com): Real DOM structure from live DevTools inspection, Feb 2026.
+<!-- Gemini (gemini.google.com): Real DOM structure from live DevTools inspection, Feb 2026;
+     user-turn and model-turn internals re-measured Jul 30, 2026 (Chromium, page realm, live site).
      Gemini is an Angular application using custom elements and _ngcontent-ng-c* hash attributes.
      The hash suffix (e.g. 3204442485, 1555545138) changes per build but structure is stable.
 
@@ -16,23 +17,40 @@
                  H: span.user-query-bubble-with-background.ng-star-inserted[_ngcontent-ng-c1555545138]  (bubble)
                    I: span.horizontal-container[_ngcontent-ng-c1555545138]
                      J: div.query-text.gds-body-l.query-text-animated[role="heading"][aria-level="5"][dir="ltr"]  (*** PRIMARY SELECTOR TARGET ***)
-                       K: text content
+                       K0: span.cdk-visually-hidden.screen-reader-user-query-label  → "You said"  (added between Feb and Jul 2026)
+                       K:  p.query-text-line.ng-star-inserted  → the question text (was a bare text node in Feb)
                      L: button.mdc-icon-button[aria-label="Expand text"]  (expand button)
 
-     AI (model) messages use a completely different structure:
-       - model-response[_ngcontent-ng-c3204442485] custom element
-       - Contains response-container with message-content inside
-       - Does NOT have div.query-text (so our selector correctly skips these)
+     The K0 label is INSIDE the primary selector target, so every text read of J includes
+     "You said" unless the reader strips cdk-visually-hidden nodes. That leak is what this
+     mock exists to reproduce (measured live 2026-07-30; the fix strips the class in _cleanText).
+
+     AI (model) messages, re-measured Jul 30, 2026:
+       model-response custom element
+         div.response-container
+           div.response-content
+             div.model-response-label-announcer
+               h2.cdk-visually-hidden.screen-reader-model-response-label  → "Gemini said"
+             structured-content-container.model-response-text  (custom element — the response body)
+             div.response-footer  (actions; structure modelled empty, text not measured)
+       NOTE: div.model-response-text no longer exists on live Gemini — the class moved to the
+       structured-content-container element, so the registry's tag-qualified primary AI selector
+       matches nothing and the chain survives on the .response-content fallback, which includes
+       the announcer label. Registry re-chain deferred until AI text has assertions (see PR).
 
      Script selectors (in priority order):
        1. div.query-text              ← primary, matches element J above
-       2. .query-text-line            ← fallback (older Gemini builds)
-       3. p.query-text-line           ← fallback
-       4. [data-query-text]           ← fallback
-       5. .user-query                 ← fallback (matches element A, less precise)
+       2. .query-text-line            ← fallback (matches K since Jul 2026)
+       3. p.query-text-line           ← fallback (same)
+       4. [data-query-text]           ← fallback (matches nothing on live as of Jul 30, 2026)
+       5. .user-query                 ← fallback (matches NOTHING on live as of Jul 30, 2026 —
+                                        the class is no longer on the user-query element)
 
      The page also has a left sidebar for conversation history.
-     The main chat area scrolls vertically with the conversation-container.
+     The main chat area scrolls vertically inside <infinite-scroller class="chat-history">.
+     Virtualization: none observed at n=10 turns (all turns stay mounted at every scroll
+     position, held references stay connected — measured live 2026-07-30). Static mock is
+     therefore faithful at this scale.
 -->
 
 <style>
@@ -150,6 +168,23 @@
     color: #e3e3e3;
     word-break: break-word;
   }
+  .query-text-line {
+    margin: 0;
+  }
+  /* Angular CDK's a11y hidden-content class, as computed on live Gemini
+     (position:absolute 1x1px clip) — NOT display:none, so the text IS in
+     both textContent and innerText. */
+  .cdk-visually-hidden {
+    border: 0;
+    clip: rect(0 0 0 0);
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    padding: 0;
+    position: absolute;
+    width: 1px;
+    white-space: nowrap;
+  }
   .mdc-icon-button {
     display: none; /* expand button hidden by default */
     width: 24px;
@@ -222,7 +257,7 @@
                 <div class="ng-star-inserted" _ngcontent-ng-c1555545138></div>
                 <span class="user-query-bubble-with-background ng-star-inserted" _ngcontent-ng-c1555545138>
                   <span class="horizontal-container" _ngcontent-ng-c1555545138>
-                    <div class="query-text gds-body-l query-text-animated" _ngcontent-ng-c1555545138 role="heading" aria-level="5" dir="ltr" style="transition: background-color 0.3s;">How do neural networks learn?</div>
+                    <div class="query-text gds-body-l query-text-animated" _ngcontent-ng-c1555545138 role="heading" aria-level="5" dir="ltr" style="transition: background-color 0.3s;"><span class="cdk-visually-hidden screen-reader-user-query-label" _ngcontent-ng-c1555545138>You said</span><p class="query-text-line ng-star-inserted" _ngcontent-ng-c1555545138>How do neural networks learn?</p></div>
                     <button class="mdc-icon-button" _ngcontent-ng-c1555545138 aria-label="Expand text"></button>
                   </span>
                 </span>
@@ -235,8 +270,12 @@
       <!-- ===== AI Response 1 ===== -->
       <model-response _ngcontent-ng-c3204442485>
         <div class="response-container" _ngcontent-ng-c2871063490>
-          <div class="model-response-text" _ngcontent-ng-c2871063490>
-            <p>Neural networks learn through a process called backpropagation. During training, the network makes predictions, calculates the error (loss) between predictions and actual values, then propagates this error backward through the network to adjust weights and biases using gradient descent.</p>
+          <div class="response-content" _ngcontent-ng-c2871063490>
+            <div class="model-response-label-announcer" _ngcontent-ng-c2871063490><h2 class="cdk-visually-hidden screen-reader-model-response-label ng-star-inserted" _ngcontent-ng-c2871063490>Gemini said</h2></div>
+            <structured-content-container class="model-response-text" _ngcontent-ng-c2871063490>
+              <p>Neural networks learn through a process called backpropagation. During training, the network makes predictions, calculates the error (loss) between predictions and actual values, then propagates this error backward through the network to adjust weights and biases using gradient descent.</p>
+            </structured-content-container>
+            <div class="response-footer" _ngcontent-ng-c2871063490></div>
           </div>
         </div>
       </model-response>
@@ -251,7 +290,7 @@
                 <div class="ng-star-inserted" _ngcontent-ng-c1555545138></div>
                 <span class="user-query-bubble-with-background ng-star-inserted" _ngcontent-ng-c1555545138>
                   <span class="horizontal-container" _ngcontent-ng-c1555545138>
-                    <div class="query-text gds-body-l query-text-animated" _ngcontent-ng-c1555545138 role="heading" aria-level="5" dir="ltr" style="transition: background-color 0.3s;">What is the vanishing gradient problem?</div>
+                    <div class="query-text gds-body-l query-text-animated" _ngcontent-ng-c1555545138 role="heading" aria-level="5" dir="ltr" style="transition: background-color 0.3s;"><span class="cdk-visually-hidden screen-reader-user-query-label" _ngcontent-ng-c1555545138>You said</span><p class="query-text-line ng-star-inserted" _ngcontent-ng-c1555545138>What is the vanishing gradient problem?</p></div>
                     <button class="mdc-icon-button" _ngcontent-ng-c1555545138 aria-label="Expand text"></button>
                   </span>
                 </span>
@@ -264,8 +303,12 @@
       <!-- ===== AI Response 2 ===== -->
       <model-response _ngcontent-ng-c3204442485>
         <div class="response-container" _ngcontent-ng-c2871063490>
-          <div class="model-response-text" _ngcontent-ng-c2871063490>
-            <p>The vanishing gradient problem occurs when gradients become extremely small as they are propagated back through many layers during training. This causes the earlier layers to learn very slowly or stop learning entirely, making it difficult to train deep networks effectively.</p>
+          <div class="response-content" _ngcontent-ng-c2871063490>
+            <div class="model-response-label-announcer" _ngcontent-ng-c2871063490><h2 class="cdk-visually-hidden screen-reader-model-response-label ng-star-inserted" _ngcontent-ng-c2871063490>Gemini said</h2></div>
+            <structured-content-container class="model-response-text" _ngcontent-ng-c2871063490>
+              <p>The vanishing gradient problem occurs when gradients become extremely small as they are propagated back through many layers during training. This causes the earlier layers to learn very slowly or stop learning entirely, making it difficult to train deep networks effectively.</p>
+            </structured-content-container>
+            <div class="response-footer" _ngcontent-ng-c2871063490></div>
           </div>
         </div>
       </model-response>
@@ -280,7 +323,7 @@
                 <div class="ng-star-inserted" _ngcontent-ng-c1555545138></div>
                 <span class="user-query-bubble-with-background ng-star-inserted" _ngcontent-ng-c1555545138>
                   <span class="horizontal-container" _ngcontent-ng-c1555545138>
-                    <div class="query-text gds-body-l query-text-animated" _ngcontent-ng-c1555545138 role="heading" aria-level="5" dir="ltr" style="transition: background-color 0.3s;">How do transformers differ from RNNs?</div>
+                    <div class="query-text gds-body-l query-text-animated" _ngcontent-ng-c1555545138 role="heading" aria-level="5" dir="ltr" style="transition: background-color 0.3s;"><span class="cdk-visually-hidden screen-reader-user-query-label" _ngcontent-ng-c1555545138>You said</span><p class="query-text-line ng-star-inserted" _ngcontent-ng-c1555545138>How do transformers differ from RNNs?</p></div>
                     <button class="mdc-icon-button" _ngcontent-ng-c1555545138 aria-label="Expand text"></button>
                   </span>
                 </span>

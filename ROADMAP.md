@@ -77,7 +77,12 @@ Priority order agreed 2026-07-28, re-ranked after v12.1:
    surfaces have **zero test execution**: replacing their function bodies with `throw` leaves the
    suite green. Then the carried-over batch (localized unmatchable-cluster, unmatchable-HEAD,
    assistant-TAIL, GM-shim backoff classes, summary-click-after-recycling). Label each
-   ancestor-gated vs mutant-gated.
+   ancestor-gated vs mutant-gated. **Rides with this batch (added v12.2): the Gemini AI selector
+   re-chain** — `div.model-response-text` is dead on live Gemini (class moved to a
+   `structured-content-container` element; measured Jul 30, 2026) and the chain survives on
+   `.response-content`, which over-captures the response footer. Deferred from the v12.2 PR
+   because nothing asserts AI text until this batch exists (DEC-032); details in
+   `DOM-REFERENCE.md` → Gemini.
 3. **Retry-After honoring for HTTP 429** — plumb response headers through `ciRequestJSON`.
 4. **Reassess, don't build: §4.2 offset cache / §4.3 height learning.** Measure a live repeat
    jump first; if sub-400ms, close as satisfied-by-redesign. One live datapoint already exists
@@ -383,9 +388,12 @@ Layer 4 is also the clearest ceiling yet on DOM augmentation as a strategy. Laye
 **Assume this is a when, not an if.** Virtualization is the standard answer to "our chat page gets
 slow on long conversations", and Claude's flip between February and July 2026 came with no
 announcement, no error, and a green test suite. As of the last inspection — **February 2026, before
-anyone knew to look for this** — ChatGPT, Grok and Gemini rendered long threads the same naive way
-Claude used to. That is the last observation, not a current fact, and Gemini's is actively contested
-(see the status table). Detection procedure and per-platform status live in
+anyone knew to look for this** — ChatGPT and Grok rendered long threads the same naive way Claude
+used to; that is the last observation, not a current fact. Gemini's formerly-contested status was
+**measured on Jul 30, 2026: no recycling at n≤10** (all turns mounted at every scroll position,
+held references stay connected), resolved at that scale and open beyond it — its scroller is an
+`<infinite-scroller>`, so lazy loading on genuinely long threads remains possible (see the status
+table for the full context). Detection procedure and per-platform status live in
 `DOM-REFERENCE.md` → "Virtualization status"; the full narrative of why the Claude response took
 the shape it did is in `TROUBLESHOOTING.md` → "Why v12.0 and v12.1 Exist". This section is the
 **order of operations** for the next one.
