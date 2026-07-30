@@ -1660,6 +1660,12 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                                     if (!busy && Date.now() - t0 > 1400) break;
                                     if (Date.now() - t0 > 6500) break;
                                 }
+                                // Jump duration BEFORE the forensics probe: the rAF
+                                // sample below costs ~160ms healthy and up to 3s
+                                // throttled, and it must not inflate the duration it
+                                // annotates — ms feeds the failure line AND the budget
+                                // assertion's avg/max (Codex P2 on this PR).
+                                const ms = Date.now() - t0;
                                 // Environment forensics, failed jumps only. A null here
                                 // is usually the product's own honest give-up (settle cap
                                 // x iteration cap), and on a degraded CI host that means
@@ -1686,7 +1692,7 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                                 out.push({ k, resolved, busySeen, vis, raf10,
                                            itemText: (item.textContent || '').slice(0, 30),
                                            idxStatus: z.getAttribute('data-acn-index-status'),
-                                           ms: Date.now() - t0 });
+                                           ms });
                             }
                             return out;
                         }, [from, to, stepQ, totalQ]);
