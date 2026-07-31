@@ -40,7 +40,10 @@ Reading the output: `phase.*` are the five top-level phases of
 `keyPoints.dedup`, `map.subSegments`, …) are inclusive attributions;
 `render`/`post-turn gap` lines cover the DOM side. Firefox's 1ms timer
 granularity makes inner ms-sums statistical estimates — the phase-level numbers
-are exact enough at these magnitudes.
+are exact enough at these magnitudes. On v12.4+ builds the probe also logs the
+`export cache:` line (both sides of the reuse key) — `run#3` appearing at all
+means the export recomputed, and that line says why (stamp moved vs qLen moved
+vs cold cache).
 
 ## Path B — synthetic measurement (any machine)
 

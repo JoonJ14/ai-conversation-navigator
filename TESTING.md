@@ -669,7 +669,7 @@ Until v12.3, replacing `_sumBuildTimeline`, `_sumScrollToElement`, `_exportFromI
 **516/516 on the parent commit with all four throwing at once**. The fixtures that closed
 this are gated by two platform-config flags:
 
-- `summaryExportTests: true` (on *Claude (virtualized + index)*) runs **S1–S4, E1, E3** (9
+- `summaryExportTests: true` (on *Claude (virtualized + index)*) runs **S1–S5, E1, E3** (11
   assertions): whole-conversation stats (exact 81/40/41 against ~3 mounted turns; the
   furthest `data-acn-sum-end` is reported as info only — every construction path ends the
   last segment at `timeline.length-1`, so gating on it would just re-assert the total),
@@ -682,6 +682,16 @@ this are gated by two platform-config flags:
   conversation uuid in `__convLastUuid`; `__convFetches` alone is uuid-blind and a
   same-conversation resync would satisfy it — claude is `spa:false`, so the switch is
   scroll-nudged into existence), and the two index-complete export captures.
+  **S5 (v12.4)** adds the compute-cache gates, delta-based on the
+  `data-acn-sum-computes` zone attribute (stamped by every FULL computation): a second
+  summary export must NOT move the counter (reuse — killing mutation: delete the cache
+  read in `getSummaryForExport`; the v12.3 parent is that mutant, red there), and a
+  regenerate click MUST move it by exactly one (killing mutation: serve
+  `_sumComputeCache` from `generateFullSummary`). The reuse gate is vacuity-guarded by
+  requiring the index-complete file content — a failed export would also leave the
+  counter unmoved. Sequencing matters and is asserted implicitly: S4's switch/restore
+  re-mints the stamp, so E3's export correctly REFUSES the panel-era cache and
+  recomputes; S5's export is what proves the refreshed cache is then reused.
 - `degradedExportTest: true` (on *Claude (virtualized)*) runs **E2**: the export must carry
   the DEGRADED source label and a header total EXACTLY equal to the derived window size
   (`2·userWindowSize + 1`; deterministic on this mock — measured 7 every run). Round 2
@@ -734,6 +744,13 @@ degraded-session summary paths (`_sumElKey` staleness branch, sub-segment and in
 click handlers) remain unexecuted; the fixture produces a single map segment, so
 multi-segment segmentation is unexercised; E1 carries one announced retry for the
 scan-tick race after S4's switch (degradation-when-unready has its own dedicated test, E2).
+**v12.4 adds:** the fixture's shim texts contain no `KEY_POINT_PATTERNS` matches, so key
+points are always `[]` here and the dedup early-stop (`_sumDeduplicatePoints` cap) has no
+fixture that could catch a wrong result — any assertion on it today would be vacuous
+(DEC-032). It is covered by the append-only equivalence argument in the code comment plus
+an empirical check: the probes harness (key-point-rich payload) exported byte-identical
+Key Points before/after the change. A key-point-bearing shim knob belongs to the
+carried-over fixture batch.
 
 ---
 

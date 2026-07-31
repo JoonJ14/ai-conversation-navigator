@@ -4,6 +4,60 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.4 — Summary Performance: the Freeze Measured, then Removed] — 2026-07-31
+
+**Branch:** `fix/summary-perf-v12.4` (measurement: `probe/summary-perf-measurement`, PR #65)
+
+### Problem
+
+On the owner's ~147-question conversation (Firefox + Tampermonkey), Summary → Generate and
+Tools → Summary export near-froze the tab — Firefox's "This page is slowing down Firefox"
+banner — then completed correctly. Consistent since v12.0, which is when the summarizer
+started receiving the whole conversation instead of ~3 mounted turns.
+
+### Root cause (measured first — PR #65, synthetic contexts, both engines)
+
+Two mechanisms, confirmed by per-phase instrumentation (`probes/`):
+
+1. **`_sumDeduplicatePoints` was O(points²) ahead of a cap of 10.** Key-point candidates
+   grow linearly with conversation length (the patterns match ordinary assistant prose);
+   the dedup compared every kept pair via `_sumWordOverlap`, each comparison re-tokenized
+   BOTH texts, and only then did `.slice(0, cap≤10)` apply. At ~1MB of conversation text:
+   3,504 candidates → 838k pairwise overlaps → 1.68M tokenizations over 202M chars —
+   **9.1s of an 11.5s synchronous Firefox block**, to keep ten points.
+2. **The export re-ran the entire analysis.** `exportSummary → getSummaryForExport →
+   generateFullSummary()` fresh every time — panel-generate then export paid the full
+   price twice (confirmed numerically at every size: the export run ≈ the generate run).
+
+### Approach
+
+The smallest change that kills each mechanism, chosen over a pipeline refactor per the
+owner's version policy (small fix → v12.4; refactor → v13):
+
+- `_sumDeduplicatePoints(points, cap)` stops scanning once `cap` unique points are kept.
+  Output-identical to dedup-then-slice: kept is append-only and each keep/drop decision
+  reads only already-kept points, so the first `cap` appends cannot be changed by any
+  later candidate. Cost drops from O(points²) to O(points × cap).
+- `generateFullSummary` caches its result keyed by `{ciIndexStamp(), _questions.length}`;
+  `getSummaryForExport` reuses it only when both still match and the stamp is non-null
+  (degraded/non-indexed sessions never reuse — nothing validates the cache there). The
+  export consumes text/labels/stats, never element bindings, so a cached result stays
+  correct after the virtualizer recycles rows. The panel's generate path never reads the
+  cache — regenerate must rebind mounted elements. `qLen` closes the provisional-turn
+  window the stamp cannot see.
+
+### Verification
+
+- New contract attribute `data-acn-sum-computes` (zone) counts full computations; S5's two
+  delta-based assertions gate both directions (export must not move it; regenerate must
+  move it by exactly one), each with its killing mutation named in-line and verified red.
+- Suite green both engines; the fixture-shim texts carry no key-point matches, so the
+  early-stop is additionally covered by an empirical output diff on the key-point-rich
+  probes payload (recorded in TESTING.md with the rest of the S5 semantics).
+- Before/after on the same machine/payload (Firefox, q=147): recorded in the
+  TROUBLESHOOTING entry alongside the numbers that motivated the fix.
+- Live confirmation on the real conversation: pending (DEC-031 — gates the merge).
+
 ## [12.3 — Summary/Export Fixtures: the Dead Zone Gets Executed] — 2026-07-30
 
 **Branch:** `feat/summary-export-fixtures`

@@ -172,9 +172,14 @@ Numbering below is stable (items keep their historical numbers):
    scaling q=25..200 + a real-payload-scale sensitivity run): the quadratic term is
    `_sumDeduplicatePoints` (O(points²) with per-pair re-tokenization, capped to ≤10 only
    AFTERWARD — 9.1s of an 11.5s Firefox block at ~1MB text), the export double-run is confirmed
-   numerically, render is negligible. Full table in the TROUBLESHOOTING OPEN entry. Remaining
-   gate: the owner's live Firefox+Tampermonkey run (`probes/README.md` Path A), then the
-   v12.4-vs-v13 call.
+   numerically, render is negligible. Full table in the TROUBLESHOOTING OPEN entry.
+   **Status 2026-07-31: v12.4 FIX SHIPPED** (owner authorized proceeding on the synthetic
+   measurement): dedup stops at the cap (output-identical, verified by byte-identical export
+   diff), export reuses the panel's computation keyed by `{ciIndexStamp(), qLen}`. Measured
+   before/after (same contexts): boosted generate 11.7s → 2.4s; keyPoints 9.0s → 0.05s;
+   export full-re-run → reuse (or one ~2s recompute when a resync re-mints the stamp).
+   Remaining: the owner's live confirmation (DEC-031, gates the merge); the ~2s linear map
+   term at ~1MB text is the v13 lever if live numbers still show pain.
 
 **v12.0 Accomplishments (2026-07-26):**
 - **API-Backed Conversation Index (DEC-021):** Claude virtualized its message list with recycling — only ~3 of 147 user turns are mounted at any moment (~3% coverage), so `document.querySelectorAll()` stopped being a complete record of the conversation. Navigate, Search, Summary and Export were all operating on a fraction of the data, and Export was silently writing truncated files under an authoritative-looking message count. Fixed by reading Claude's own conversation JSON endpoint via `GM_xmlhttpRequest` and walking the message tree from `current_leaf_message_uuid` to isolate the active branch. This is an ordinary outbound request, not fetch interception — no Firefox cross-compartment exposure (DEC-019/DEC-020).

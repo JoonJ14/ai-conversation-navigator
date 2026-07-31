@@ -92,6 +92,17 @@ const BLOCK = `
     getSummaryForExport = (function (orig) {
         return function () {
             __acnPerf.exportCalls++;
+            // Make the v12.4 cache decision observable: log both sides of the
+            // key so a HIT/MISS can be attributed (stamp moved? qLen moved?).
+            // Guarded — the cache does not exist in pre-v12.4 builds.
+            try {
+                var cur = ciIndexStamp();
+                var c = (typeof _sumComputeCache !== 'undefined') ? _sumComputeCache : undefined;
+                console.log('[ACN-PERF] export cache: cached=' +
+                    (c === undefined ? 'N/A (pre-v12.4)' : c === null ? 'null'
+                        : '{stamp:' + c.stamp + ', qLen:' + c.qLen + '}') +
+                    ' current={stamp:' + cur + ', qLen:' + _questions.length + '}');
+            } catch (e) {}
             return orig.apply(this, arguments);
         };
     }(getSummaryForExport));

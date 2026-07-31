@@ -264,9 +264,10 @@ symptom-level detail.
 ## OPEN — Summary Generate/Export Freezes Firefox on Long Conversations (since v12.0)
 
 **Severity:** Medium-High — features complete correctly, but the tab near-freezes |
-**Status:** OPEN — mechanism measured in synthetic contexts (2026-07-30, below); the live
-Firefox + Tampermonkey run (`probes/README.md` Path A) is the remaining gate before the
-v12.4 (small fix) vs v13 (refactor) decision | **Reported:** 2026-07-30
+**Status:** FIX SHIPPED in v12.4 (`fix/summary-perf-v12.4`) pending the owner's live
+confirmation (DEC-031) — mechanism measured 2026-07-30 (below), fix measured 2026-07-31
+(bottom of entry). The owner authorized proceeding straight to the small fix after the
+synthetic measurement identified the mechanism | **Reported:** 2026-07-30
 
 ### Symptom
 
@@ -331,6 +332,34 @@ Implication (for the decision, not a change made): the dominant term dies with d
 memoization/early-termination at the cap, and the double-run with memoize-per-`ciIndexStamp`
 reuse — small-fix shaped. **The decision stays gated on the live run** (probes/README.md
 Path A: instrumented probe build + one-shot owner procedure), per the owner's framing.
+
+### Fix measured 2026-07-31 — v12.4, same synthetic contexts (Firefox 146, q=147, seeded payload)
+
+The owner authorized proceeding to the small fix on the synthetic measurement. v12.4 =
+`_sumDeduplicatePoints` stops at the cap (output-identical: append-only kept list, so the
+first `cap` appends cannot be changed by later candidates) + `getSummaryForExport` reuses
+the panel's computation keyed by `{ciIndexStamp(), question count}`. Before/after on the
+same machine, payload and interactions:
+
+| Config | v12.3 generate | v12.4 generate | v12.3 keyPoints | v12.4 keyPoints | v12.3 export | v12.4 export |
+|---|---|---|---|---|---|---|
+| q=147 baseline (~363KB text) | 1,920–1,990ms | **767–826ms** | 1,188–1,195ms | **21–26ms** | 2,179ms (full re-run) | **cache reuse — no recompute at all** |
+| q=147 boosted (~1MB text) | 11,229–11,751ms | **2,180–2,605ms** | 8,932–9,018ms | **49–58ms** | 11,336ms (full re-run) | 2,164–2,379ms (recompute — see below) |
+
+- **Output equivalence verified empirically**, not just argued: the exported summary files
+  (key-point-rich probes payload, both scales) are byte-identical between v12.3 and v12.4
+  builds except the date line — Key Points sections included.
+- **The boosted export recomputed CORRECTLY, and the cause was measured, not guessed:**
+  the probe logs both sides of the cache key; it showed `cached stamp …|g1` vs
+  `current …|g2` — the larger payload's second index build re-mints the generation
+  between the panel's generate and the export, and the cache must refuse a moved stamp
+  (that refusal is the same guard `_sumScrollToElement` relies on). On the base payload
+  the rebuild lands before the panel opens and the export reuses (`exportRecomputed=false`,
+  zero additional cost). Either way the worst case is now one ~2s recompute, not an ~11s
+  double-payment.
+- Remaining cost is the map (~2s at ~1MB: per-segment re-tokenization + sub-segment
+  rebuilds) — linear, and the v13 lever if the live numbers still show pain.
+- S5 fixture gates both cache directions with named killing mutations (TESTING.md).
 
 ---
 
