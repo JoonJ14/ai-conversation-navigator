@@ -16,3 +16,7 @@ tests/screenshots/
 
 # Playwright output directory
 test-results/
+
+# Probe build artifacts and measurement records (probes/ commits only sources)
+probes/acn-perf-probe.user.js
+probes/results/
