@@ -264,7 +264,9 @@ symptom-level detail.
 ## OPEN — Summary Generate/Export Freezes Firefox on Long Conversations (since v12.0)
 
 **Severity:** Medium-High — features complete correctly, but the tab near-freezes |
-**Status:** OPEN — measure first, then v12.4 (small fix) or v13 (refactor) | **Reported:** 2026-07-30
+**Status:** OPEN — mechanism measured in synthetic contexts (2026-07-30, below); the live
+Firefox + Tampermonkey run (`probes/README.md` Path A) is the remaining gate before the
+v12.4 (small fix) vs v13 (refactor) decision | **Reported:** 2026-07-30
 
 ### Symptom
 
@@ -294,6 +296,41 @@ and run on the live 147-question conversation, Firefox, visible tab. Deliverable
 total ms, and the double-run confirmation for export. Only then choose:
 **v12.4** if memoize-per-index-generation + reuse-for-export + chunking suffices;
 **v13** if the pipeline needs restructuring (owner's explicit framing, 2026-07-30).
+
+### Measured 2026-07-30 — synthetic contexts (probes/; live Firefox+Tampermonkey run still pending)
+
+**Context of every number below:** Playwright Chromium 145 and Firefox 146 on the Linux DGX,
+page realm (no Tampermonkey sandbox), `claude-virtualized.html` + GM shim serving a seeded
+paragraph-scale payload (`probes/perf-payload.js`; avgUser≈305, avgAi≈2,200 chars/message —
+the committed harness fixture's ~70-char messages measure the wrong environment). Headless
+and headed (visible window) produced the same numbers; both engines agree on attribution.
+Firefox `performance.now` granularity is 1ms (probe-reported), so inner sub-ms sums are
+statistical estimates; phase-level numbers are exact enough at these magnitudes.
+
+1. **The quadratic term — and the freeze mechanism — is `_sumDeduplicatePoints`.** Key-point
+   candidates grow linearly with conversation length (q=25→90 points, q=147→673, q=200→943),
+   the dedup compares every kept pair via `_sumWordOverlap`, and **every comparison re-tokenizes
+   both texts** — at q=147 baseline: 111k overlap calls, 224k `_sumTokenize` calls, ~1.2s of the
+   ~1.9s Firefox total. All of it feeds `.slice(0, cap)` with cap ≤ 10: the O(p²) pass runs
+   BEFORE the cap. (`_sumExtractKeyPoints` at 8277, `_sumDeduplicatePoints` at 8266.)
+2. **Freeze magnitude reproduced by scaling text to the real payload's size.** With
+   `PARA_BOOST=3 KP_RATE=2` (avgAi≈6.5KB, ~1MB total text — the live payload is multi-MB
+   JSON): **11.5s synchronous block per generate in Firefox, 9.1s of it in dedup** (3,504
+   points → 838k overlap calls → 1.68M tokenize calls over 202M chars). Panel-open +
+   export ≈ 23s of blocked main thread — "slowing down Firefox" banner territory.
+3. **The export double-run is confirmed numerically at every size and in both engines:**
+   run#3 (`exportSummary` → fresh `generateFullSummary`) costs ≈ the preceding generate run.
+4. **The second phase is the map** (~2s at 1MB text): `_sumBuildSubSegments` re-runs on every
+   post-merge rebuild, and per-segment `_sumExtractTopicsFromText` re-tokenizes joined segment
+   text (869 calls / 2.15M chars at q=147 baseline). `mergeExcess` appears only at q≥147
+   (~0.1–0.5s). Roughly linear in text volume with a large constant.
+5. **The freeze is analysis, not DOM:** render ≤50ms, post-turn layout gap ≤135ms, topics
+   ≤300ms, stats+inventory ≈0 in every run.
+
+Implication (for the decision, not a change made): the dominant term dies with dedup-side
+memoization/early-termination at the cap, and the double-run with memoize-per-`ciIndexStamp`
+reuse — small-fix shaped. **The decision stays gated on the live run** (probes/README.md
+Path A: instrumented probe build + one-shot owner procedure), per the owner's framing.
 
 ---
 
