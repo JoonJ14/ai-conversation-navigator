@@ -338,7 +338,9 @@ Path A: instrumented probe build + one-shot owner procedure), per the owner's fr
 The owner authorized proceeding to the small fix on the synthetic measurement. v12.4 =
 `_sumDeduplicatePoints` stops at the cap (output-identical: append-only kept list, so the
 first `cap` appends cannot be changed by later candidates) + `getSummaryForExport` reuses
-the panel's computation keyed by `{ciIndexStamp(), question count}`. Before/after on the
+the panel's computation keyed by `{ciIndexStamp(), provisional-set signature}` (content
+identity, not count — a Tier 3 skeptic proved count-membership swaps under a frozen
+stamp are a steady state during retained-degrade backoff). Before/after on the
 same machine, payload and interactions:
 
 | Config | v12.3 generate | v12.4 generate | v12.3 keyPoints | v12.4 keyPoints | v12.3 export | v12.4 export |
@@ -348,7 +350,12 @@ same machine, payload and interactions:
 
 - **Output equivalence verified empirically**, not just argued: the exported summary files
   (key-point-rich probes payload, both scales) are byte-identical between v12.3 and v12.4
-  builds except the date line — Key Points sections included.
+  builds except the date line — Key Points sections included. **Scope (Tier 3 skeptic):
+  this measurement exercises only the API-text derivation branch** — the probe never
+  scrolls between generate and export and its mock renders no `pre`/`img`/`a` — so it
+  proves the dedup change and structurally cannot see the mounted-window
+  entities/inventory nuance, which is a separate, documented cache property (see the
+  `getSummaryForExport` comment and TESTING.md).
 - **The boosted export recomputed CORRECTLY, and the cause was measured, not guessed:**
   the probe logs both sides of the cache key; it showed `cached stamp …|g1` vs
   `current …|g2` — the larger payload's second index build re-mints the generation

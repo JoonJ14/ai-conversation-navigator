@@ -3538,6 +3538,10 @@
                                        // alive until some later conversation happened to
                                        // rebuild it — in the very function whose stated job
                                        // is releasing the multi-megabyte path on a switch.
+        _sumComputeCache    = null;    // same class of payload: the cached summary holds
+                                       // every message's text plus compute-time DOM nodes.
+                                       // A stale stamp already refuses reuse, so this is
+                                       // purely the release (Tier 3, all five lenses).
         _ciRefreshFailed    = '';
         _sseThinkAtIndex    = 0;
         _ciConversationId = null;
@@ -8796,6 +8800,22 @@
     var _sumComputeCache = null;
     var _sumComputeCount = 0;
 
+    // Identity of the CURRENT provisional set, by content. Provisionals are the one
+    // component of _questions that can change under a fixed index stamp (the index
+    // half is immutable per generation), so this signature is the second half of
+    // the compute-cache key. Normalized the same way bookmark matching normalizes
+    // text; the \\u0001 separator keeps adjacent texts from concatenating into a
+    // colliding signature.
+    function _sumProvSig() {
+        var sig = '';
+        for (var i = 0; i < _questions.length; i++) {
+            if (_questions[i] && _questions[i].provisional) {
+                sig += '\u0001' + _normalizeCompare(_questions[i].text || '');
+            }
+        }
+        return sig;
+    }
+
     function generateFullSummary() {
         // Index-backed when available: only the timeline used the index, so topics,
         // key points, stats and inventory ran on the 3-5 MOUNTED assistant responses
@@ -8856,10 +8876,23 @@
             inventory:  _sumInventoryCodeAndFiles(aiMsgs),
             indexStamp: genStamp
         };
-        // qLen: a provisional turn arriving between this computation and a later
-        // export lives only in _questions (no index resync yet, so the stamp is
-        // unchanged) — the count mismatch is what makes the cache refuse it.
-        _sumComputeCache = { stamp: genStamp, qLen: _questions.length, data: result };
+        // provSig, not a count: provisional turns live only in _questions (no index
+        // resync yet, so the stamp is unchanged), and their set is rebuilt each scan
+        // from the MOUNTED rows — so a count can return to a previous value with
+        // different membership (send Q149 and its row evicts Q148's from the ~3-row
+        // window: still one provisional, different question; and a retained-degrade
+        // backoff can freeze the stamp for up to 30 minutes, making that a steady
+        // state, not a race — Tier 3 skeptic). Content identity is what the reuse
+        // guard needs. The index half of _questions needs no signature: _ciIndex is
+        // assigned only at ciBuildIndex's commit point, which bumps the generation,
+        // so at a fixed stamp it is immutable.
+        // Written ONLY with a non-null stamp: the read guard requires one, so a
+        // null-stamp entry (non-indexed platform, degraded session) could never be
+        // read back and would just pin the whole result — text plus compute-time
+        // DOM nodes — until the next compute (Tier 3).
+        if (genStamp !== null) {
+            _sumComputeCache = { stamp: genStamp, provSig: _sumProvSig(), data: result };
+        }
         // Test contract (v12.4): every COMPLETED computation stamps a running count
         // on the zone — the observable that lets a fixture distinguish "export
         // reused the cache" from "export silently re-ran the whole analysis".
@@ -9441,19 +9474,29 @@
     // ============================================================
 
     function getSummaryForExport() {
-        // Reuse the panel's computation when it provably describes the current
-        // conversation state: same non-null index stamp (conversation id + index
+        // Reuse the panel's computation when the conversation TEXT is provably
+        // unchanged: same non-null index stamp (conversation id + index
         // generation — bumped on every resync and never torn down by Claude's
-        // spa:false switches) and same question count. A null stamp (degraded
-        // session, non-indexed platform) never reuses — there is nothing to
-        // validate the cache against, and a stale summary would export silently.
-        // This is what stops Tools → Summary export from re-running the entire
-        // analysis seconds after the panel already ran it (measured: the
-        // double-run doubled an ~11.5s Firefox block at ~1MB of text).
+        // spa:false switches) and same provisional-set signature (see _sumProvSig
+        // — a COUNT can return to a previous value with different membership).
+        // A null stamp (degraded session, non-indexed platform) never reuses —
+        // there is nothing to validate the cache against. This is what stops
+        // Tools → Summary export from re-running the entire analysis seconds
+        // after the panel already ran it (measured: the double-run doubled an
+        // ~11.5s Firefox block at ~1MB of text).
+        // Known, accepted bound (Tier 3 + skeptic): the key cannot see the
+        // MOUNTED-ROW set. inventory derives from the DOM for the ~3-5 mounted
+        // rows and from API text for the rest, so a cache hit exports the
+        // generate-time counts — which are exactly the numbers the open panel is
+        // showing (same object), where a v12.3 recompute could silently disagree
+        // with the panel. entities (export-only, never rendered in the panel)
+        // likewise freeze at the generate-time window. Keying on mount state
+        // instead would forfeit the cache on every scroll/jump for a ≤5-row
+        // derivation nuance.
         if (_sumComputeCache &&
             _sumComputeCache.stamp !== null &&
             _sumComputeCache.stamp === ciIndexStamp() &&
-            _sumComputeCache.qLen === _questions.length) {
+            _sumComputeCache.provSig === _sumProvSig()) {
             return _sumComputeCache.data;
         }
         if (typeof generateFullSummary === 'function') return generateFullSummary();
@@ -11095,6 +11138,12 @@
         zone.setAttribute('data-acn-accent',   orbTheme.bg);   // platform hex color
         zone.setAttribute('data-acn-version',  ACN_VERSION);
         zone.setAttribute('data-acn-platform', platform.id);   // for platform-specific CSS rules
+        // The compute counter outlives the zone element (SPA rip-outs re-inject a
+        // fresh zone via startMessageObserver) — re-stamp it so a delta reader
+        // straddling a re-injection sees a continuous count, not absent→N (Tier 3).
+        if (_sumComputeCount > 0) {
+            zone.setAttribute('data-acn-sum-computes', String(_sumComputeCount));
+        }
 
         // Set CSS variables for platform theming on :root so panels (which are
         // document.body siblings of zone, not zone descendants) can also inherit them

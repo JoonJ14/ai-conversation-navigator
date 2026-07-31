@@ -2186,6 +2186,26 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                             settled = (window.__convFetches || 0) === n;
                         }
                         if (!settled) return { err: 'index still reloading after 7.2s (E3)' };
+                        // Compute-count delta across THIS export (v12.4). S4's
+                        // switch/restore re-minted the index stamp, so this export
+                        // must REFUSE the panel-era cache and recompute. Two
+                        // REDUNDANT defenses make that true — the key comparison
+                        // in getSummaryForExport AND ciInvalidate's cache release
+                        // on the switch — so the named killing mutation is their
+                        // JOINT failure: bare `if (_sumComputeCache) return ...`
+                        // PLUS the release removed (measured red, computes 3->3;
+                        // the bare key alone stays green because the release
+                        // already emptied the cache). The stale serve this guards
+                        // against is invisible to every content assertion: the
+                        // shim serves one payload for every uuid. Recorded debt:
+                        // a SAME-conversation stamp bump (edit-resync, no switch,
+                        // so no release) is ungated here — staging one needs a
+                        // forced-refetch shim knob (fixture batch).
+                        const zc = () => {
+                            const z = document.querySelector('[data-acn-role="zone"]');
+                            return z ? +(z.getAttribute('data-acn-sum-computes') || NaN) : NaN;
+                        };
+                        const before = zc();
                         window.__acnTestDownloads = [];
                         if (!document.querySelector('[data-acn-open="true"] [data-acn-role="tool-export"]')) {
                             const dot = document.querySelector('[data-acn-dot="tools"]');
@@ -2201,39 +2221,99 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                             if (window.__acnTestDownloads.length) dl = window.__acnTestDownloads[0];
                         }
                         if (!dl || !dl.blob) return { err: 'no summary export captured' };
-                        return { text: await dl.blob.text() };
+                        return { text: await dl.blob.text(), before, after: zc() };
                     });
                     assert('EXPORT summary is index-complete',
                         !expSum.err && new RegExp('^' + expPath + ' messages \\(' + expUser +
                                                   ' user, ' + expAi + ' AI\\)', 'm').test(expSum.text),
                         expSum.err || `expected "${expPath} messages (${expUser} user, ${expAi} AI)" ` +
                                       `in the summary export's Stats section`);
+                    assert('EXPORT summary recomputes when the index generation has moved',
+                        !expSum.err && expSum.after === expSum.before + 1,
+                        expSum.err || `computes ${expSum.before} -> ${expSum.after} across the ` +
+                                      `post-switch export (expected exactly +1: S4 re-minted the ` +
+                                      `stamp, so this export must refuse the panel-era cache)`);
 
-                    // S5 — the export must REUSE the panel's computation, and
-                    // regenerate must NOT (v12.4). Delta-based on the
-                    // data-acn-sum-computes contract attribute (stamped by every
-                    // FULL computation), so the counts earlier fixtures
-                    // accumulated don't matter. Named killing mutations
-                    // (DEC-032/037):
+                    // S5 — the export must reuse the PANEL's computation, and
+                    // regenerate must never be served from the cache (v12.4).
+                    // Delta-based on the data-acn-sum-computes contract attribute
+                    // (stamped by every COMPLETED computation), so the counts
+                    // earlier fixtures accumulated don't matter.
+                    //
+                    // ORDER IS LOAD-BEARING (Tier 3 CRITICAL, mutation-proven —
+                    // and re-proven when the reorder was DOCUMENTED before it was
+                    // APPLIED and mutant C sailed through the old order): the
+                    // regenerate leg runs FIRST so the cache under test was
+                    // written by the PANEL path. With the legs reversed, the
+                    // export merely reused E3's export-time computation, and a
+                    // build whose panel computations leave nothing reusable — the
+                    // exact scenario v12.4 exists for — stayed green.
+                    // Named killing mutations (DEC-032/037):
                     //   reuse gate — delete the cache read in getSummaryForExport:
-                    //     the export below re-runs the analysis, delta=1, red.
-                    //     (The v12.3 parent IS this mutant — the attribute doesn't
-                    //     exist there either, so the delta reads NaN: same red.)
+                    //     the export re-runs the analysis, delta=1, red. (The
+                    //     v12.3 parent has no attribute at all: NaN delta, same
+                    //     red.)
+                    //   panel-provenance — `_sumComputeCache = null;` at the end
+                    //     of the genBtn handler: the export recomputes, delta=1,
+                    //     red. This is the gate the leg order buys.
                     //   recompute gate — serve _sumComputeCache from
                     //     generateFullSummary: regenerate returns the cache,
                     //     delta=0, red.
                     // Vacuity guard: the reuse gate also requires the export to
                     // have produced the index-complete file — an export that
                     // failed outright would show delta=0 too.
-                    // Sequencing note: E3's export above ran against a stamp S4's
-                    // switch/restore had re-minted, so E3 recomputed (correct
-                    // refusal of the panel-era cache) and left the cache CURRENT —
-                    // which is exactly the state this export must reuse.
+                    // Both legs settle __convFetches first (E1/E3's guard): an
+                    // index reload re-mints the stamp, the cache then CORRECTLY
+                    // refuses, and the "no recompute" gate reds on correct code
+                    // (Tier 3, 4 of 5 lenses). The zone is re-queried per read —
+                    // a re-injected zone would otherwise satisfy delta-0 through
+                    // a detached node (Tier 3).
                     const reuse = await page.evaluate(async () => {
                         const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-                        const zone = document.querySelector('[data-acn-role="zone"]');
-                        if (!zone) return { err: 'no zone (S5)' };
-                        const computes = () => +(zone.getAttribute('data-acn-sum-computes') || NaN);
+                        const computes = () => {
+                            const z = document.querySelector('[data-acn-role="zone"]');
+                            return z ? +(z.getAttribute('data-acn-sum-computes') || NaN) : NaN;
+                        };
+                        const settle = async () => {
+                            for (let t = 0; t < 12; t++) {
+                                const n = window.__convFetches || 0;
+                                await sleep(600);
+                                if ((window.__convFetches || 0) === n) return true;
+                            }
+                            return false;
+                        };
+
+                        // Leg 1 — regenerate: an explicit panel click must run a
+                        // full computation (+1), and it is THAT computation the
+                        // export below must reuse. No auto-generate interferes:
+                        // dataset.generated has been 'true' since S1, and the
+                        // panel-open auto-click is guarded on it.
+                        if (!document.querySelector('[data-acn-open="true"] [data-acn-role="sum-generate"]')) {
+                            const sdot = document.querySelector('[data-acn-dot="summary"]');
+                            if (sdot) { sdot.click(); await sleep(350); }
+                        }
+                        const gen = document.querySelector('[data-acn-open="true"] [data-acn-role="sum-generate"]');
+                        if (!gen) return { err: 'summary panel did not open (S5)' };
+                        let enabled = false;
+                        for (let t = 0; t < 20 && !enabled; t++) {
+                            await sleep(100);
+                            enabled = !gen.disabled;
+                        }
+                        if (!enabled) return { err: 'generate button never re-enabled (S5)' };
+                        if (!(await settle())) return { err: 'index still reloading before regenerate (S5)' };
+                        const beforeRegen = computes();
+                        gen.click();
+                        let afterRegen = beforeRegen;
+                        for (let t = 0; t < 30 && afterRegen === beforeRegen; t++) {
+                            await sleep(100);
+                            afterRegen = computes();
+                        }
+
+                        // Leg 2 — export: must reuse leg 1's computation. Settle
+                        // again — the gap above included real work, and a reload
+                        // landing in it would re-mint the stamp and turn a
+                        // correct refusal into a spurious red.
+                        if (!(await settle())) return { err: 'index still reloading before export (S5)' };
                         const before = computes();
                         window.__acnTestDownloads = [];
                         if (!document.querySelector('[data-acn-open="true"] [data-acn-role="tool-export"]')) {
@@ -2252,29 +2332,6 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                         if (!dl || !dl.blob) return { err: 'no summary export captured (S5)' };
                         const text = await dl.blob.text();
                         const after = computes();
-                        // Regenerate leg: summary panel, explicit click, must compute.
-                        // No auto-generate interferes: dataset.generated has been
-                        // 'true' since S1, and the panel-open auto-click is guarded
-                        // on it.
-                        if (!document.querySelector('[data-acn-open="true"] [data-acn-role="sum-generate"]')) {
-                            const sdot = document.querySelector('[data-acn-dot="summary"]');
-                            if (sdot) { sdot.click(); await sleep(350); }
-                        }
-                        const gen = document.querySelector('[data-acn-open="true"] [data-acn-role="sum-generate"]');
-                        if (!gen) return { err: 'summary panel did not open (S5)' };
-                        let enabled = false;
-                        for (let t = 0; t < 20 && !enabled; t++) {
-                            await sleep(100);
-                            enabled = !gen.disabled;
-                        }
-                        if (!enabled) return { err: 'generate button never re-enabled (S5)' };
-                        const beforeRegen = computes();
-                        gen.click();
-                        let afterRegen = beforeRegen;
-                        for (let t = 0; t < 30 && afterRegen === beforeRegen; t++) {
-                            await sleep(100);
-                            afterRegen = computes();
-                        }
                         return { before, after, beforeRegen, afterRegen, text };
                     });
                     assert('EXPORT summary reuses the panel computation (no recompute)',
@@ -2681,6 +2738,7 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
             'SUMMARY conversation switch and restore are uuid-observed',
             'EXPORT full conversation is index-complete and self-consistent',
             'EXPORT summary is index-complete',
+            'EXPORT summary recomputes when the index generation has moved',
             'EXPORT summary reuses the panel computation (no recompute)',
             'SUMMARY regenerate recomputes (cache never serves the panel)');
         if (platform.degradedExportTest) mustHave.push(

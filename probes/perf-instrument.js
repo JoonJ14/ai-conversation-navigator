@@ -97,11 +97,13 @@ const BLOCK = `
             // Guarded — the cache does not exist in pre-v12.4 builds.
             try {
                 var cur = ciIndexStamp();
+                var curSig = (typeof _sumProvSig === 'function') ? _sumProvSig() : '';
                 var c = (typeof _sumComputeCache !== 'undefined') ? _sumComputeCache : undefined;
                 console.log('[ACN-PERF] export cache: cached=' +
                     (c === undefined ? 'N/A (pre-v12.4)' : c === null ? 'null'
-                        : '{stamp:' + c.stamp + ', qLen:' + c.qLen + '}') +
-                    ' current={stamp:' + cur + ', qLen:' + _questions.length + '}');
+                        : '{stamp:' + c.stamp + ', provSig.len:' + String(c.provSig || '').length + '}') +
+                    ' current={stamp:' + cur + ', provSig.len:' + curSig.length + '}' +
+                    (c ? ' -> ' + ((c.stamp !== null && c.stamp === cur && c.provSig === curSig) ? 'HIT' : 'MISS') : ''));
             } catch (e) {}
             return orig.apply(this, arguments);
         };
@@ -175,9 +177,17 @@ const BLOCK = `
                 var dt = performance.now() - t0;
                 __acnPerf.trigger = 'generate';
                 var last = __acnPerf.runs[__acnPerf.runs.length - 1];
-                if (last && last.trigger === 'export') last.exportTotalMs = dt;
-                try { console.log('[ACN-PERF] exportSummary total ' + dt.toFixed(1) +
-                    'ms (contains the fresh generate run reported above)'); } catch (e) {}
+                var recomputed = !!(last && last.trigger === 'export');
+                if (recomputed) last.exportTotalMs = dt;
+                // Recorded unconditionally: on a v12.4 cache HIT no generate run
+                // exists to attach to, and the hit path is exactly the one the
+                // fix creates — losing its wall-clock would blind the probe to
+                // the improvement it exists to measure (Tier 3).
+                __acnPerf.exportTotals = __acnPerf.exportTotals || [];
+                __acnPerf.exportTotals.push(dt);
+                try { console.log('[ACN-PERF] exportSummary total ' + dt.toFixed(1) + 'ms ' +
+                    (recomputed ? '(contains the fresh generate run reported above)'
+                                : '(cache hit — no generate run inside this export)')); } catch (e) {}
                 __acnPerfPublish();
             }
         };

@@ -175,7 +175,8 @@ Numbering below is stable (items keep their historical numbers):
    numerically, render is negligible. Full table in the TROUBLESHOOTING OPEN entry.
    **Status 2026-07-31: v12.4 FIX SHIPPED** (owner authorized proceeding on the synthetic
    measurement): dedup stops at the cap (output-identical, verified by byte-identical export
-   diff), export reuses the panel's computation keyed by `{ciIndexStamp(), qLen}`. Measured
+   diff), export reuses the panel's computation keyed by `{ciIndexStamp(),
+   provisional-set signature}` (content identity, not count — Tier 3 skeptic). Measured
    before/after (same contexts): boosted generate 11.7s → 2.4s; keyPoints 9.0s → 0.05s;
    export full-re-run → reuse (or one ~2s recompute when a resync re-mints the stamp).
    Remaining: the owner's live confirmation (DEC-031, gates the merge); the ~2s linear map

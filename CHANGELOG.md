@@ -38,19 +38,33 @@ owner's version policy (small fix → v12.4; refactor → v13):
   Output-identical to dedup-then-slice: kept is append-only and each keep/drop decision
   reads only already-kept points, so the first `cap` appends cannot be changed by any
   later candidate. Cost drops from O(points²) to O(points × cap).
-- `generateFullSummary` caches its result keyed by `{ciIndexStamp(), _questions.length}`;
-  `getSummaryForExport` reuses it only when both still match and the stamp is non-null
-  (degraded/non-indexed sessions never reuse — nothing validates the cache there). The
-  export consumes text/labels/stats, never element bindings, so a cached result stays
-  correct after the virtualizer recycles rows. The panel's generate path never reads the
-  cache — regenerate must rebind mounted elements. `qLen` closes the provisional-turn
-  window the stamp cannot see.
+- `generateFullSummary` caches its result keyed by `{ciIndexStamp(), provisional-set
+  signature}`; `getSummaryForExport` reuses it only when both still match and the stamp
+  is non-null (degraded/non-indexed sessions never reuse — nothing validates the cache
+  there; those computations are not cached at all, and `ciInvalidate` releases the cache
+  on every conversation switch). The signature is by provisional CONTENT, not count —
+  Tier 3's skeptic proved a count can return to a previous value with different
+  membership while a retained-degrade backoff freezes the stamp for up to 30 minutes.
+  The panel's generate path never reads the cache — regenerate must rebind mounted
+  elements. Accepted, documented bound: the key cannot see the mounted-row set, so a
+  cache-hit export carries the generate-time entities/inventory snapshot — the same
+  numbers the open panel shows (same object), where a v12.3 recompute could silently
+  disagree with the panel.
 
 ### Verification
 
-- New contract attribute `data-acn-sum-computes` (zone) counts full computations; S5's two
-  delta-based assertions gate both directions (export must not move it; regenerate must
-  move it by exactly one), each with its killing mutation named in-line and verified red.
+- New contract attribute `data-acn-sum-computes` (zone) counts completed computations;
+  three delta-based gates (E3: a post-switch export must recompute exactly once; S5: an
+  export after a panel regenerate must not move the counter, and the regenerate itself
+  must move it by exactly one), each with its killing mutation named in-line and
+  verified red against the committed state. The E3 gate guards two REDUNDANT defenses
+  (the cache-key comparison and `ciInvalidate`'s release), so its killing mutation is
+  their joint failure — the bare-key mutant alone is absorbed by the release. S5 runs
+  its regenerate leg FIRST so the reused cache is the PANEL's computation — the leg
+  order is load-bearing and was mutation-proven twice: once by Tier 3 (with the legs
+  reversed, a build whose panel computations left nothing reusable stayed green), and
+  once in-loop when the reorder had been documented before it was applied and the same
+  mutant sailed through — the battery caught the pipeline's own unapplied fix.
 - Suite green both engines; the fixture-shim texts carry no key-point matches, so the
   early-stop is additionally covered by an empirical output diff on the key-point-rich
   probes payload (recorded in TESTING.md with the rest of the S5 semantics).

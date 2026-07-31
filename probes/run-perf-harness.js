@@ -193,6 +193,10 @@ async function driveOnce(page, q) {
         const btn = document.querySelector(
             '[data-acn-open="true"] [data-acn-role="tool-export"][data-acn-export="summary"]');
         if (!btn) return { err: 'no summary-export control', ...out };
+        // Baseline measured at the click, not assumed: hardcoding "two runs so
+        // far" would invert the exportRecomputed verdict if any interaction ever
+        // adds a third pre-export run (Tier 3).
+        const preRuns = runs.length;
         btn.click();
         // v12.4+: a cache-hitting export produces the file WITHOUT a third
         // generate run — the download is the completion signal, and the run
@@ -208,7 +212,7 @@ async function driveOnce(page, q) {
 
         return {
             runs,
-            exportGenRan: runs.length > 2,
+            exportGenRan: runs.length > preRuns,
             exportText: dl && dl.blob ? await dl.blob.text() : null,
             exportCaptured: !!(dl && dl.blob),
             convFetches: window.__convFetches || 0,
