@@ -210,8 +210,11 @@ async function driveOnce(page, q) {
         await sleep(300);   // let a possible run 3 + post-turn gap probes land
         try { runs = JSON.parse(window.__acnPerfJson || '[]'); } catch (e) {}
 
+        let exportTotals = [];
+        try { exportTotals = JSON.parse(window.__acnPerfExportTotalsJson || '[]'); } catch (e) {}
         return {
             runs,
+            exportTotals,
             exportGenRan: runs.length > preRuns,
             exportText: dl && dl.blob ? await dl.blob.text() : null,
             exportCaptured: !!(dl && dl.blob),

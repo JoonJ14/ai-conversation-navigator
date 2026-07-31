@@ -8810,13 +8810,16 @@
     // serving the PREVIOUS prompt's summary — the analyzers run on raw text, so
     // texts that normalize equal still summarize differently). Two GitHub Codex
     // rounds walked this exact ladder: 200-char truncation, then normalization
-    // collisions. The \u0001 separator keeps adjacent texts from
-    // concatenating into a colliding signature.
+    // collisions, then delimiter ambiguity. Length-prefix framing is what makes
+    // the encoding injective: a delimiter can be forged by text that contains
+    // it, but 'len:text' cannot — no two distinct text arrays serialize equal.
     function _sumProvSig() {
         var sig = '';
+        var t;
         for (var i = 0; i < _questions.length; i++) {
             if (_questions[i] && _questions[i].provisional) {
-                sig += '\u0001' + (_questions[i].text || '');
+                t = _questions[i].text || '';
+                sig += t.length + ':' + t;
             }
         }
         return sig;

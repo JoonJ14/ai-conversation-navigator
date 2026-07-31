@@ -32,6 +32,11 @@ const BLOCK = `
             // JSON string, not an object: primitives cross realm boundaries safely
             // (DEC-019/020 class — never hand a sandbox object to the page realm).
             w.__acnPerfJson = JSON.stringify(__acnPerf.runs);
+            // Separate field, same shape contract as before: a cache-hit export
+            // creates NO run to carry exportTotalMs, so the runs array alone
+            // loses the optimized path's timing when results are collected via
+            // the JSON route instead of the console lines (GitHub Codex).
+            w.__acnPerfExportTotalsJson = JSON.stringify(__acnPerf.exportTotals || []);
         } catch (e) {}
     }
 
