@@ -8803,17 +8803,20 @@
     // Identity of the CURRENT provisional set, by content. Provisionals are the one
     // component of _questions that can change under a fixed index stamp (the index
     // half is immutable per generation), so this signature is the second half of
-    // the compute-cache key. FULL-length normalization, not _normalizeCompare: the
-    // 200-char cap makes two long prompts sharing an opening compare equal, which
-    // under a frozen stamp would serve one prompt's summary for the other — the
-    // same truncation hazard _sumElKey already had to fix (GitHub Codex). The
-    // \u0001 separator keeps adjacent texts from concatenating into a colliding
-    // signature.
+    // the compute-cache key. RAW text, deliberately unnormalized: every normalizer
+    // here is lossy (200-char cap; case/whitespace folding; _mdFlatten strips
+    // brackets and parens), and a lossy identity key trades a harmless spurious
+    // MISS (one ~2s recompute) for a harmful collision (a frozen-stamp export
+    // serving the PREVIOUS prompt's summary — the analyzers run on raw text, so
+    // texts that normalize equal still summarize differently). Two GitHub Codex
+    // rounds walked this exact ladder: 200-char truncation, then normalization
+    // collisions. The \u0001 separator keeps adjacent texts from
+    // concatenating into a colliding signature.
     function _sumProvSig() {
         var sig = '';
         for (var i = 0; i < _questions.length; i++) {
             if (_questions[i] && _questions[i].provisional) {
-                sig += '\u0001' + _normalizeCompareFull(_questions[i].text || '');
+                sig += '\u0001' + (_questions[i].text || '');
             }
         }
         return sig;
