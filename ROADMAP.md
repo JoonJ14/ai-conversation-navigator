@@ -62,9 +62,16 @@ DEC-029 stop signal). Suite **515/515 across 25 entries**, both engines. Also fi
 attachment-headed Q#1 that shipped in v12.0, whose reproduction was blocked by a **vacuous fixture
 knob** (**DEC-032**).
 
-### Next: v12.2 backlog (v12.1 merged 2026-07-29; nothing in flight)
+### Next: post-v12.3 backlog (v12.2 + v12.3 merged 2026-07-30; nothing in flight)
 
-Priority order agreed 2026-07-28, re-ranked after v12.1:
+**Priority order re-ranked 2026-07-30 with the owner: item 11 (Summary performance) first, then
+the remainder of item 2 (carried-over fixture batch), then 3 onward. Item 7 (Emergent) is
+explicitly deprioritized by the owner ("almost no one uses it").**
+
+**Version policy for item 11 (owner, 2026-07-30): measure first; a small fix ships as v12.4; a
+real refactor becomes v13. Do not start a refactor on a hypothesis.**
+
+Numbering below is stable (items keep their historical numbers):
 
 1. ~~**Live-test and fine-tune the provisional bookmark mechanism** (DEC-030).~~ **Done in v12.1**
    — and it went considerably further than fine-tuning: the legacy path is now four channels with a
@@ -149,6 +156,18 @@ Priority order agreed 2026-07-28, re-ranked after v12.1:
    `ciDataIndexToFullPath`, `ciFullPathToDataIndex`, `_bmLegacyId`; inventory/entity `msgIndex`
    fields with no consumer; `_bmLegacyIdSet`'s two unreachable dedupe guards; two dead test
    config keys making one assertion unreachable.
+11. **Summary performance on long conversations (OPEN — priority 1, added 2026-07-30).** Live
+   finding on the owner's ~147-question conversation (Firefox + Tampermonkey, v12.3): Summary →
+   Generate and Tools → Summary export near-freeze the tab (Firefox's "slowing down" banner),
+   then complete correctly. Consistent **since v12.0** — which is when the summarizer started
+   receiving the whole conversation instead of ~3 mounted turns. Known from code, NOT yet
+   measured: `exportSummary` re-runs `generateFullSummary()` from scratch (no memoization — the
+   export pays the full analysis price even seconds after the panel generated), and the whole
+   pipeline (word-overlap segmentation, topics, key points, entities, inventory) is one
+   synchronous main-thread block whose cost scales with total characters. **Measure first**
+   (per-phase instrumentation on the live conversation — plan in `TROUBLESHOOTING.md` → the OPEN
+   entry), then: small fix (memoize per `ciIndexStamp()` generation, reuse for export, chunk the
+   analysis) → **v12.4**; pipeline restructuring → **v13**.
 
 **v12.0 Accomplishments (2026-07-26):**
 - **API-Backed Conversation Index (DEC-021):** Claude virtualized its message list with recycling — only ~3 of 147 user turns are mounted at any moment (~3% coverage), so `document.querySelectorAll()` stopped being a complete record of the conversation. Navigate, Search, Summary and Export were all operating on a fraction of the data, and Export was silently writing truncated files under an authoritative-looking message count. Fixed by reading Claude's own conversation JSON endpoint via `GM_xmlhttpRequest` and walking the message tree from `current_leaf_message_uuid` to isolate the active branch. This is an ordinary outbound request, not fetch interception — no Firefox cross-compartment exposure (DEC-019/DEC-020).

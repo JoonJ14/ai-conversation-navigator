@@ -261,6 +261,42 @@ symptom-level detail.
 
 ---
 
+## OPEN — Summary Generate/Export Freezes Firefox on Long Conversations (since v12.0)
+
+**Severity:** Medium-High — features complete correctly, but the tab near-freezes |
+**Status:** OPEN — measure first, then v12.4 (small fix) or v13 (refactor) | **Reported:** 2026-07-30
+
+### Symptom
+
+On a ~147-question conversation (Firefox + Tampermonkey, v12.3), clicking Summary → Generate or
+Tools → Summary export locks the tab long enough that Firefox shows its **"This page is slowing
+down Firefox"** banner. The operation eventually completes and the output is correct. The owner
+reports this has been consistent **since v12**, not new to v12.3 — which fits: v12.0 is when the
+summarizer started receiving the whole conversation instead of the ~3 mounted turns.
+
+### What is known from the code (read, NOT yet measured — do not fix from this list)
+
+1. **The summary export pays full price twice.** `exportSummary` → `getSummaryForExport()` →
+   `generateFullSummary()` — a complete fresh analysis, even seconds after the panel generated.
+   Nothing memoizes on `ciIndexStamp()`.
+2. **The entire pipeline is one synchronous main-thread block.** `_sumBuildConversationMap`'s
+   word-overlap segmentation (per-message `split(/\s+/)` against a rolling window), topics, key
+   points, `_sumScanEntities`, `_sumBuildSubSegments`, inventory — then render. The genBtn
+   handler's 40ms `setTimeout` delays the freeze; it does not chunk it.
+3. **Cost scales with total characters.** The mock's messages are ~70 chars; real messages are
+   paragraphs. A green, fast suite says nothing about this (fixture defaults are claims about the
+   environment — DEC-028).
+
+### Measurement plan (next session's priority 1)
+
+Instrument the phases of `generateFullSummary` (`console.time` per sub-function in a probe build)
+and run on the live 147-question conversation, Firefox, visible tab. Deliverables: per-phase ms,
+total ms, and the double-run confirmation for export. Only then choose:
+**v12.4** if memoize-per-index-generation + reuse-for-export + chunking suffices;
+**v13** if the pipeline needs restructuring (owner's explicit framing, 2026-07-30).
+
+---
+
 ## v12.2 — Every Gemini Question Was Prefixed "You said" (2026-07-30)
 
 **Status:** RESOLVED | **Severity:** Medium — every text surface on Gemini contaminated, no

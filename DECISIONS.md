@@ -1457,3 +1457,92 @@ fixture's bounds tolerated a range, so `chipRows` could stop suppressing the tes
 green. Now asserts the modelled property directly (row mounted, no `user-message` node) and is
 **mutation-verified** — forcing `isChip=false` fails it. Writing a rule is not applying it; the
 first place to check is your own newest work.
+
+---
+
+## DEC-036: Degraded-Runner CI Episodes Are an Environment Class — Timeout, Forensics, Requeue-Once, Never Loosen Budgets (v12.2/CI)
+**Date:** 2026-07-30 | **Stage:** post-v12.2
+
+### Decision
+A CI job on a degraded shared runner is handled by POLICY, not by per-incident debugging:
+`timeout-minutes: 20` caps the cost (2× the slowest healthy job), per-entry wall-clock in the
+suite output and `vis=`/`raf10=` forensics on failed jumps make the log self-diagnosing, and the
+response to the signature is **requeue once**. Assertion budgets and the product's settle caps are
+never loosened to make a sick host green.
+
+### Context
+Five webkit-on-macos episodes in a single day: jobs at 40–75+ minutes against a healthy 5m41s–9m47s
+range, acceptance jumps returning null at the product's give-up ceiling **consecutively in visit
+order**, sibling entries on the same run exact at ~300ms — on commits that passed identically on
+fresh runners minutes before or after. Same `macos-26-arm64` image, same Playwright WebKit build,
+across green and red runs: not a rollout, not a version, host variance. One red had already slipped
+onto `main` unnoticed at the #60 merge; another had to be killed by hand at 75 minutes. The mac
+WebKit port is the only Cocoa WebKit in the matrix (Linux/Windows run GTK/WPE), so a mac-host
+pathology shows on exactly one job — which is also why it reads, wrongly, like a flaky test.
+
+### Alternatives considered
+- **Loosen the jump budgets / raise caps.** Rejected: hides real slowdowns everywhere to
+  accommodate a sick machine somewhere. The budgets are measured product claims.
+- **Auto-retry the job in the workflow.** Rejected for now: a silent retry converts an environment
+  signal into invisible cost. Requeue is deliberate and human-visible; revisit only if frequency
+  stays high for weeks.
+- **Ignore (treat as flakiness).** Rejected: it cost an unnoticed red on `main` and an hour-long
+  hang, and "flaky" is exactly the label that stops diagnosis. The Windows rule (a runner-specific
+  failure is usually a REAL finding about an assertion) still holds — this class is distinguished
+  from it by its signature, not by hand-waving.
+
+### Key properties
+- The signature, in full, lives in `TESTING.md` → "CI: reading a webkit-on-macos failure or hang" —
+  including when a red is NOT this class (healthy `raf10` + wrong rows = real finding).
+- The forensics were themselves reviewed: the rAF probe must not pollute the duration it annotates
+  (Codex P2 — capture `ms` before probing).
+- The per-entry live print (`Testing X...` flushed before the entry runs) is load-bearing: a wedged
+  job's streaming log names the entry it is stuck in.
+
+---
+
+## DEC-037: Silent Non-Execution Is a Detectable Failure Class — Presence Checks, and Commit-Before-Mutating (v12.3)
+**Date:** 2026-07-30 | **Stage:** v12.3
+
+### Decision
+Two harness disciplines, both purchased with this session's mistakes:
+
+1. **Opt-in fixture blocks declare the assertion titles they must produce, and the harness
+   hard-fails when a declared title never ran** (the FIXTURE PRESENCE check). A fixture that
+   silently never executes is indistinguishable from one that passes — same green, opposite
+   meaning — and no count-based signal catches it because nothing checks per-entry counts.
+2. **Mutation-verification runs against a COMMIT, never against uncommitted work.** Restore
+   between mutants is `git checkout --`, which resets to HEAD; if the fixtures being verified are
+   uncommitted, the first restore destroys them and every subsequent mutant run is measuring the
+   wrong code.
+
+### Context
+v12.3's first version nested E2 (the degraded-export fixture) inside `if (platform.indexBacked)`
+while its only entry is deliberately NOT index-backed. Unreachable, green, and **claimed as
+coverage in three documents** — caught by all five Tier 3 lenses, verified by running the entry
+and observing the assertion absent from the output. This is DEC-032's vacuous-knob failure one
+level up: not an assertion that cannot fail, but a block that cannot RUN.
+
+The commit rule was learned twice in one session: a `git checkout` between mutants first wiped the
+uncommitted contract attributes (making three of four mutant results red-for-the-wrong-reason),
+then — after the rule had been stated — wiped the uncommitted Tier 2/3 fixes and invalidated a
+second 4-mutant run. Both recoveries were full re-applications from conversation context.
+
+### Alternatives considered
+- **Expected-assertion-count per entry.** Rejected: a count moves for legitimate reasons (new
+  tests) and fails opaquely; titles name exactly what is missing.
+- **Presence via coverage tooling.** Rejected: nothing in this ES5/userscript/Playwright stack
+  offers it cheaply, and the title check is 20 lines.
+- **Stash instead of commit before mutating.** Workable but rejected as policy: a commit is
+  self-documenting, survives crashes, and the mutation results then cite a hash.
+
+### Key properties
+- Scope honestly recorded IN the check's comment: presence catches condition-skips, not
+  throw-aborts (a throw rejects the evaluate and lands in the outer catch as `No runtime errors` —
+  red, but without presence evidence; keep evaluates throw-free via guards + `{err}` returns).
+- The companion lesson from the same arc: **a replacement for a vacuous check can be vacuous in a
+  new shape** (section-count → parts-sum; segments>0 → segEndMax — both re-proven tautological by
+  round 2). The only acceptance test for an assertion is naming the mutation that flips it red.
+- Charset corollary, recorded here because it hid for a release: harness pages must declare UTF-8;
+  without it every LITERAL non-ASCII character in the inlined userscript decodes as windows-1252,
+  and only `\uXXXX` escapes survive — invisible until the first assertion compares one.
