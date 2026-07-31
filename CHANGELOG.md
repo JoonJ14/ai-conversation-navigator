@@ -75,6 +75,16 @@ identical local runs (the DEC-025 shape).
 - **Carried-over jump/backoff fixture batch** (unmatchable-cluster/HEAD, assistant-TAIL,
   GM-shim backoff classes) — split to a follow-up to keep this PR reviewable.
 
+### Post-merge (2026-07-30)
+
+Merged as PR #63 after the owner's live confirmation at `6e24eea` — all seven checklist items,
+including the one the harness structurally cannot test (a real export download through the
+Tampermonkey sandbox on Firefox). GitHub Codex needed **zero fix rounds** (auto 👍 + explicit
+"no major issues"; v12.0 took 24 rounds, v12.1 took 7) — the first data point for the Tier 3
+backend experiment, recorded in `reviews/review-2026-07-30-0a63780.md`. The same live test
+surfaced an OPEN finding: Summary generate/export near-freezes Firefox on long conversations,
+consistent since v12.0 — see `TROUBLESHOOTING.md` (OPEN entry) and ROADMAP item 11.
+
 ---
 
 ## [12.2 — Gemini: Strip Angular's Hidden Sender Labels] — 2026-07-30

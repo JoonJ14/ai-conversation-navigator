@@ -57,4 +57,24 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 
 ## Lessons Learned
 
-(This section will grow over time as issues are encountered and codified.)
+> **Issue:** During mutation-verification, `git checkout -- <file>` was used to restore between
+> mutants while the fixtures being verified were still UNCOMMITTED — twice in one session. The
+> restore resets to HEAD, so it silently destroyed the uncommitted work; three of four mutant
+> results measured the wrong code the first time, and a full re-application from conversation
+> context was needed both times.
+> **Correct approach:** COMMIT the code under test before running any mutate → test → restore
+> loop. The restore is then provably returning to the intended state, and the mutation results
+> cite a hash.
+> **Why:** a mutant run against the wrong baseline produces confident, wrong verdicts — red for
+> the wrong reason is indistinguishable from red for the right one in the summary line. (DEC-037.)
+
+> **Issue:** The test harness served mock pages with no charset declaration for an entire
+> release. Browsers decoded them as windows-1252, so every LITERAL non-ASCII character in the
+> inlined userscript was mojibake in-page ('—' → 'â€”'); only `\uXXXX` escapes survived. It was
+> caught only when a new assertion compared a literal em-dash.
+> **Correct approach:** `<meta charset="utf-8">` in generated test pages AND
+> `contentType: 'text/html; charset=utf-8'` on route fulfillment. If an assertion on a literal
+> non-ASCII string fails inexplicably, check `document.characterSet` first.
+> **Why:** the mojibake is invisible to every ASCII assertion, so a green suite says nothing
+> about it — it is a context mismatch between the file's encoding and the page's decoding.
+> (DEC-037 corollary.)
