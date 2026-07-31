@@ -4,6 +4,79 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.3 — Summary/Export Fixtures: the Dead Zone Gets Executed] — 2026-07-30
+
+**Branch:** `feat/summary-export-fixtures`
+
+### Problem
+
+Mutation testing had proven — and DEC-029 recorded — that the Summary, Export and Tools
+surfaces had **zero test execution**: replacing `_sumBuildTimeline`, `_sumScrollToElement`,
+`_exportFromIndex` or `ciIndexStamp` with an unconditional `throw` left the suite green.
+Re-measured on this release's parent commit: **516/516 green with all four throwing at once**
+(Chromium, 2026-07-30). Roughly 1,000 lines of v12.0's release — written during a review loop
+whose only verification was the next round reading it — carried an entirely unearned suite
+number.
+
+### Fix
+
+- **Test-contract attributes (additive, live code):** `sum-generate`, `sum-results`,
+  `sum-stats` (+ machine-readable `data-acn-sum-total/user/ai`), `sum-segment`
+  (+ `data-acn-sum-start/end` timeline span), `tool-export` (+ `data-acn-export` id),
+  `toast`.
+- **Harness download capture:** patches `URL.createObjectURL` + anchor `click` in-page to
+  capture `{filename, blob}` from `downloadFile()` — engine-agnostic, no Playwright
+  download machinery.
+- **Eight assertions across seven fixtures**, all **mutant-gated** (no live bug was being
+  fixed): S1 summary stats cover the whole conversation (81/40/41 from 3 mounted turns,
+  furthest segment end pinned to the last timeline entry) plus the regenerate gate (the
+  panel auto-generates on open, so only a node-replacing second click proves the
+  `sum-generate` attribute is on the live button); S2 a segment click reaches an UNMOUNTED
+  target through the jump bridge (the carried-over summary-click-after-recycling case);
+  S3 a mounted target resolves without refusing; S4 the stale-stamp guard refuses against
+  a REAL, **uuid-observed** conversation switch (claude is `spa:false` — the switch has to
+  be scroll-nudged into existence; the shim records the requested conversation uuid because
+  the bare fetch counter is uuid-blind, and the switch-back is asserted separately);
+  E1 the full export is index-complete AND self-consistent; E2 the degraded export says
+  so with a header total EXACTLY equal to the derived window size (`2·userWindowSize+1` —
+  round 2 proved every looser bound vacuous on this deterministic mock); E3 the summary
+  export carries index-complete stats. A **FIXTURE PRESENCE** check makes any of these
+  silently not running a hard failure.
+
+### Verification — including a Tier 3 round that mattered
+
+The local pipeline's five-lens opus round (skeptic-verified) found **2 CRITICALs in the
+first version of this batch**: E2 was nested where its only entry could never reach it —
+unreachable, green, and claimed as coverage — and the harness served pages without a
+charset, so every literal non-ASCII character in the inlined userscript was windows-1252
+mojibake (E2 would have been the first assertion ever to compare one). Also fixed from
+that round: a readiness probe polling an attribute on the wrong element (0ms no-op), the
+unreal S4 switch above, a vacuous self-consistency check, hardcoded bounds, panel-toggle
+races, and an `orbPanel` freeze that quietly stopped the nav list re-rendering for the
+pre-existing tests downstream. Full detail: `reviews/review-2026-07-30-0a63780.md`.
+
+Each of the four dead-zone functions was then mutated **individually against the committed
+state**: `ciIndexStamp` and `_sumBuildTimeline` kill generation (S1 + cascade),
+`_sumScrollToElement` kills exactly the three click fixtures, `_exportFromIndex` kills
+exactly E1. The regenerate gate and presence check were mutation-verified separately.
+`busySeen` is reported but never asserted — it raced the poll cadence between two
+identical local runs (the DEC-025 shape).
+
+### Deliberately not done, with reasons on the record
+
+- **Gemini AI selector re-chain — deferred by measurement.** All 12 live conversations on
+  the test account have text-empty response-footers, so the only over-capture vs
+  `.model-response-text` is the "Gemini said" h2 that v12.2 already strips. No assertion
+  grounded in measured data can distinguish the selectors (DEC-032: unprovable), and
+  inventing footer text for the mock would manufacture evidence. Re-opens the day a
+  text-bearing footer is observed.
+- **Known-remaining debt, recorded in the fixture comment:** `exportBookmarks()` and the
+  Tools gallery/commands sections are still unexecuted.
+- **Carried-over jump/backoff fixture batch** (unmatchable-cluster/HEAD, assistant-TAIL,
+  GM-shim backoff classes) — split to a follow-up to keep this PR reviewable.
+
+---
+
 ## [12.2 — Gemini: Strip Angular's Hidden Sender Labels] — 2026-07-30
 
 **Branch:** `fix/gemini-hidden-labels`

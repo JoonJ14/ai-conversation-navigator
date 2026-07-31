@@ -58,9 +58,15 @@ The test suite queries only stable `data-acn-*` attributes — never internal CS
 | `data-acn-dot="nav|search|…"` | On each orbital dot | Feature ID (orbital only) |
 | `data-acn-open="true"` | On nav-panel | Panel open state |
 | `data-acn-count="N"` | On nav-stat | Question count |
-| `data-acn-index-status="degraded\|loading\|ready-with-notes"` | On zone | Conversation-index banner state (Claude, v12.0+) |
+| `data-acn-index-status="degraded\|loading\|ready-with-notes"` | **On the index BANNER inside the nav panel** — NOT the zone (this row said "On zone" for a release; a readiness probe built on that claim was a 0ms no-op, Tier 3 v12.3). Only refreshed while the Navigate panel is the open one, so it is NOT a readiness signal when other panels are open — use the GM shim's `__convFetches` counter in tests instead | Conversation-index banner state (Claude, v12.0+) |
 | `data-acn-jumping="true"` | On panel | A jump is in flight |
-| `data-acn-jump-resolved="N"` | On zone | The `data-index` a completed jump actually resolved — durable, because the resolved element is detached by the re-render `scrollIntoView` triggers |
+| `data-acn-jump-resolved="N"` | On zone | The `data-index` a completed jump actually resolved — durable, because the resolved element is detached by the re-render `scrollIntoView` triggers. Stamped by BOTH jump routes (`orbMarkJumpTarget`), so it identifies the resolution, not the route |
+| `data-acn-role="sum-generate"` | Summary generate button | Click target (v12.3) |
+| `data-acn-role="sum-results"` | Summary results container | Render target (v12.3) |
+| `data-acn-role="sum-stats"` + `data-acn-sum-total/user/ai` | Stats section | Machine-readable whole-conversation counts (v12.3) |
+| `data-acn-role="sum-segment"` + `data-acn-sum-start/end` | Conversation-map segment | Addressable by timeline span, so a fixture can click the segment covering a known-unmounted entry (v12.3) |
+| `data-acn-role="tool-export"` + `data-acn-export="full\|bookmarks\|summary"` | Tools export options | Click targets (v12.3) |
+| `data-acn-role="toast"` | `#acn-toast` | Transient message text, e.g. the stale-summary refusal (v12.3) |
 
 **Two rules for virtualized assertions** (both learned the hard way — see DEC-025):
 assert on what the implementation *resolved* via `data-acn-jump-resolved`, never on

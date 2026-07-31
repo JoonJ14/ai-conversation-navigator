@@ -469,12 +469,18 @@ model-response  (custom element)
 **⚠ `div.model-response-text` no longer exists** — the class moved to the
 `structured-content-container` custom element, so the registry's tag-qualified primary AI
 selector (`div.model-response-text`) matches nothing and the chain survives on the
-`.response-content` fallback. That fallback over-captures: it includes the announcer (the
-"Gemini said" h2 — stripped since v12.2 because it is `cdk-visually-hidden`) and
-`div.response-footer` (visible content, NOT stripped — footer text contamination of AI reads
-is possible and unmeasured). **Registry re-chain deliberately deferred** until AI text has
-suite assertions (nothing asserts AI text today, so a selector change would be unprovable —
-DEC-032); scheduled with the Summary/Export fixture batch.
+`.response-content` fallback. That fallback over-captures the announcer (the "Gemini said"
+h2 — stripped since v12.2 because it is `cdk-visually-hidden`) and `div.response-footer`.
+
+**Footer measured Jul 30, 2026 (v12.3 close-out): text-empty on all 12 conversations on the
+test account.** Its children (`sources-list`, `election-info-disclaimer`) carried no
+textContent anywhere, and the total `.response-content` vs `.model-response-text` text delta
+was exactly the stripped h2 (12 chars). **The re-chain is therefore closed-by-measurement:**
+no assertion grounded in measured data can distinguish the selectors (DEC-032 — an
+unprovable change), and inventing footer text for the mock would manufacture the evidence.
+Re-opens the day a text-bearing footer is observed — a search-grounded response with a
+populated sources-list is the expected shape — and that same observation makes the fix
+ancestor-gatable.
 
 ### Notes
 - Angular app with `_ngcontent-ng-c*` hash attributes (change per build)

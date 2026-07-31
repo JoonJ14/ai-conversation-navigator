@@ -795,7 +795,9 @@ function exportSummary() {
         lines.push('');
         lines.push('## Conversation Map');
         summary.map.forEach(function (seg) {
-            var range = 'Q' + ((seg.startIdx || 0) + 1) + '\u2013Q' + ((seg.endIdx || 0) + 1);
+            // Kept in sync with the userscript (v12.3): startIdx/endIdx are
+            // combined-timeline positions, not question numbers.
+            var range = 'msgs ' + ((seg.startIdx || 0) + 1) + '\u2013' + ((seg.endIdx || 0) + 1);
             lines.push('- **' + seg.label + '** (' + range + ')');
             if (Array.isArray(seg.entities)) {
                 seg.entities.forEach(function (ent) {

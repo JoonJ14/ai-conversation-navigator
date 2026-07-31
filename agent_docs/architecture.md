@@ -228,11 +228,25 @@ data-acn-count="N"                      -> Number of detected questions (on nav-
 data-acn-index-status="degraded|loading|ready-with-notes"
                                         -> Conversation-index banner state (Claude only, v12.0+).
                                            Absent when the index is healthy with nothing to report.
+                                           LOCATION: on the banner INSIDE the nav panel's list —
+                                           never on the zone — and only refreshed while Navigate
+                                           is the open panel. Not a readiness signal otherwise
+                                           (a zone-scoped probe was a 0ms no-op; Tier 3 v12.3).
 data-acn-jumping="true"                 -> On any panel with a jump in flight. Also blocks clicks via CSS.
 data-acn-jump-resolved="N"              -> On the ZONE: the data-index a completed jump actually
                                            resolved. Durable — the resolved ELEMENT is detached by
                                            the re-render scrollIntoView triggers, so marking only
                                            the element is unreadable by the time a test looks.
+                                           Stamped by BOTH routes (orbMarkJumpTarget): it names the
+                                           resolution, never the route taken.
+data-acn-role="sum-generate"            -> Summary panel generate button (v12.3)
+data-acn-role="sum-results"             -> Summary results container (v12.3)
+data-acn-role="sum-stats"               -> Stats section, with data-acn-sum-total / -user / -ai
+                                           machine-readable counts (v12.3)
+data-acn-role="sum-segment"             -> Conversation-map segment, with data-acn-sum-start / -end
+                                           timeline span (v12.3)
+data-acn-role="tool-export"             -> Tools export option, with data-acn-export="full|bookmarks|summary" (v12.3)
+data-acn-role="toast"                   -> The transient #acn-toast message (v12.3)
 ```
 
 Never remove or rename these attributes — tests depend on them.
