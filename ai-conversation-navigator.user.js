@@ -8808,15 +8808,6 @@
         // indices somewhere the user can click.
         var genStamp = ciIndexStamp();
 
-        // Test contract (v12.4): every FULL computation stamps a running count on the
-        // zone, which is what lets a fixture distinguish "export reused the cache"
-        // from "export silently re-ran the whole analysis".
-        _sumComputeCount++;
-        try {
-            var czone = document.getElementById('acn-zone');
-            if (czone) czone.setAttribute('data-acn-sum-computes', String(_sumComputeCount));
-        } catch (e) {}
-
         var aiMsgs;
         if (ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
             // Bind mounted elements by row identity so DOM-dependent analyzers keep
@@ -8869,6 +8860,15 @@
         // export lives only in _questions (no index resync yet, so the stamp is
         // unchanged) — the count mismatch is what makes the cache refuse it.
         _sumComputeCache = { stamp: genStamp, qLen: _questions.length, data: result };
+        // Test contract (v12.4): every COMPLETED computation stamps a running count
+        // on the zone — the observable that lets a fixture distinguish "export
+        // reused the cache" from "export silently re-ran the whole analysis".
+        // Placed with the cache write so an aborted computation counts as neither.
+        _sumComputeCount++;
+        try {
+            var czone = document.getElementById('acn-zone');
+            if (czone) czone.setAttribute('data-acn-sum-computes', String(_sumComputeCount));
+        } catch (e) {}
         return result;
     }
 
