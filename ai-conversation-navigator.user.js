@@ -1610,6 +1610,12 @@
         _ciJumpToken++;
         _ciTextToUuid       = null;   // rebuilt lazily against the new path
         _ciIndexGen++;
+        // The gen bump makes any cached summary permanently unreadable (its stamp
+        // can never match again), so RELEASE it — a same-conversation rebuild
+        // (send/edit/regenerate resync) does not pass through ciInvalidate, and
+        // the dead entry would otherwise pin the previous summary's full text and
+        // compute-time DOM nodes until the next generate (GitHub Codex round 5).
+        _sumComputeCache    = null;
         return turns;
     }
 

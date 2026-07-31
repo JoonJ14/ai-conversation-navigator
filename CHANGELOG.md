@@ -41,8 +41,11 @@ owner's version policy (small fix → v12.4; refactor → v13):
 - `generateFullSummary` caches its result keyed by `{ciIndexStamp(), provisional-set
   signature}`; `getSummaryForExport` reuses it only when both still match and the stamp
   is non-null (degraded/non-indexed sessions never reuse — nothing validates the cache
-  there; those computations are not cached at all, and `ciInvalidate` releases the cache
-  on every conversation switch). The signature is by provisional CONTENT, not count —
+  there; those computations are not cached at all, and the cache is released at BOTH
+  points where it becomes permanently unreadable: `ciInvalidate` on a conversation
+  switch, and `ciBuildIndex`'s commit on a same-conversation rebuild — a gen bump means
+  the stamp can never match again, so an unreleased entry is a pinned dead copy of the
+  conversation, not a cache). The signature is by provisional CONTENT, not count —
   Tier 3's skeptic proved a count can return to a previous value with different
   membership while a retained-degrade backoff freezes the stamp for up to 30 minutes.
   The panel's generate path never reads the cache — regenerate must rebind mounted
