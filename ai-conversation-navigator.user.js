@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.3
+// @version      12.4
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -40,7 +40,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.3';
+    var ACN_VERSION = '12.4';
 
     // ============================================================
     // i18n — internationalization string table
@@ -8263,14 +8263,24 @@
         return merged.slice(0, 6);
     }
 
-    function _sumDeduplicatePoints(points) {
+    // cap: stop scanning once that many unique points are kept. Output-identical
+    // to deduplicating everything and slicing afterwards: kept is append-only and
+    // each keep/drop decision reads only the points already kept, so the first
+    // `cap` appends cannot be changed by anything scanned later. Without the stop
+    // this pass was O(points²) pairwise overlaps — each one re-tokenizing both
+    // texts — spent almost entirely on candidates the cap then discarded
+    // (measured: 9.1s of an 11.5s Firefox block at ~1MB of conversation text,
+    // 3,504 candidates kept to 10; TROUBLESHOOTING → Summary perf OPEN entry).
+    function _sumDeduplicatePoints(points, cap) {
         var kept = [];
-        points.forEach(function (pt) {
+        for (var i = 0; i < points.length; i++) {
+            if (typeof cap === 'number' && kept.length >= cap) break;
+            var pt = points[i];
             var isDup = kept.some(function (k) {
                 return _sumWordOverlap(k.text, pt.text) > 0.6;
             });
             if (!isDup) kept.push(pt);
-        });
+        }
         return kept;
     }
 
@@ -8299,7 +8309,7 @@
 
         // Scale cap with conversation length: short convos get fewer key points
         var cap = Math.max(1, Math.min(10, Math.floor((questions.length + aiResponses.length) / 4)));
-        return _sumDeduplicatePoints(points).slice(0, cap);
+        return _sumDeduplicatePoints(points, cap);
     }
 
     function _sumGenerateStats(questions, aiResponses) {
@@ -8776,6 +8786,16 @@
     // the panel now points somewhere else. See ciIndexStamp().
     var _sumIndexStamp = null;
 
+    // Last full computation, keyed by what proves it still describes the live
+    // conversation: the index stamp AND the question count (provisional turns live
+    // only in _questions — sent after the snapshot, so the stamp alone misses them).
+    // Read ONLY by getSummaryForExport: the export consumes text, labels and stats,
+    // never element bindings, so a cached result stays correct there even after the
+    // virtualizer has recycled every row. The panel's generate path never reads it —
+    // regenerate must rebind mounted elements.
+    var _sumComputeCache = null;
+    var _sumComputeCount = 0;
+
     function generateFullSummary() {
         // Index-backed when available: only the timeline used the index, so topics,
         // key points, stats and inventory ran on the 3-5 MOUNTED assistant responses
@@ -8787,6 +8807,15 @@
         // renderSummaryResults is what commits it, because only a render puts these
         // indices somewhere the user can click.
         var genStamp = ciIndexStamp();
+
+        // Test contract (v12.4): every FULL computation stamps a running count on the
+        // zone, which is what lets a fixture distinguish "export reused the cache"
+        // from "export silently re-ran the whole analysis".
+        _sumComputeCount++;
+        try {
+            var czone = document.getElementById('acn-zone');
+            if (czone) czone.setAttribute('data-acn-sum-computes', String(_sumComputeCount));
+        } catch (e) {}
 
         var aiMsgs;
         if (ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
@@ -8828,7 +8857,7 @@
             });
         }
 
-        return {
+        var result = {
             map:        _sumBuildConversationMap(_questions, aiMsgs),
             topics:     _sumExtractTopics(_questions, aiMsgs),
             keyPoints:  _sumExtractKeyPoints(_questions, aiMsgs),
@@ -8836,6 +8865,11 @@
             inventory:  _sumInventoryCodeAndFiles(aiMsgs),
             indexStamp: genStamp
         };
+        // qLen: a provisional turn arriving between this computation and a later
+        // export lives only in _questions (no index resync yet, so the stamp is
+        // unchanged) — the count mismatch is what makes the cache refuse it.
+        _sumComputeCache = { stamp: genStamp, qLen: _questions.length, data: result };
+        return result;
     }
 
     // Normalize a message's text length to an approximate line count (capped at 15).
@@ -9407,6 +9441,21 @@
     // ============================================================
 
     function getSummaryForExport() {
+        // Reuse the panel's computation when it provably describes the current
+        // conversation state: same non-null index stamp (conversation id + index
+        // generation — bumped on every resync and never torn down by Claude's
+        // spa:false switches) and same question count. A null stamp (degraded
+        // session, non-indexed platform) never reuses — there is nothing to
+        // validate the cache against, and a stale summary would export silently.
+        // This is what stops Tools → Summary export from re-running the entire
+        // analysis seconds after the panel already ran it (measured: the
+        // double-run doubled an ~11.5s Firefox block at ~1MB of text).
+        if (_sumComputeCache &&
+            _sumComputeCache.stamp !== null &&
+            _sumComputeCache.stamp === ciIndexStamp() &&
+            _sumComputeCache.qLen === _questions.length) {
+            return _sumComputeCache.data;
+        }
         if (typeof generateFullSummary === 'function') return generateFullSummary();
         return null;
     }

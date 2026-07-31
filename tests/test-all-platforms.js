@@ -2209,6 +2209,85 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                         expSum.err || `expected "${expPath} messages (${expUser} user, ${expAi} AI)" ` +
                                       `in the summary export's Stats section`);
 
+                    // S5 — the export must REUSE the panel's computation, and
+                    // regenerate must NOT (v12.4). Delta-based on the
+                    // data-acn-sum-computes contract attribute (stamped by every
+                    // FULL computation), so the counts earlier fixtures
+                    // accumulated don't matter. Named killing mutations
+                    // (DEC-032/037):
+                    //   reuse gate — delete the cache read in getSummaryForExport:
+                    //     the export below re-runs the analysis, delta=1, red.
+                    //     (The v12.3 parent IS this mutant — the attribute doesn't
+                    //     exist there either, so the delta reads NaN: same red.)
+                    //   recompute gate — serve _sumComputeCache from
+                    //     generateFullSummary: regenerate returns the cache,
+                    //     delta=0, red.
+                    // Vacuity guard: the reuse gate also requires the export to
+                    // have produced the index-complete file — an export that
+                    // failed outright would show delta=0 too.
+                    // Sequencing note: E3's export above ran against a stamp S4's
+                    // switch/restore had re-minted, so E3 recomputed (correct
+                    // refusal of the panel-era cache) and left the cache CURRENT —
+                    // which is exactly the state this export must reuse.
+                    const reuse = await page.evaluate(async () => {
+                        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+                        const zone = document.querySelector('[data-acn-role="zone"]');
+                        if (!zone) return { err: 'no zone (S5)' };
+                        const computes = () => +(zone.getAttribute('data-acn-sum-computes') || NaN);
+                        const before = computes();
+                        window.__acnTestDownloads = [];
+                        if (!document.querySelector('[data-acn-open="true"] [data-acn-role="tool-export"]')) {
+                            const dot = document.querySelector('[data-acn-dot="tools"]');
+                            if (dot) { dot.click(); await sleep(350); }
+                        }
+                        const btn = document.querySelector(
+                            '[data-acn-open="true"] [data-acn-role="tool-export"][data-acn-export="summary"]');
+                        if (!btn) return { err: 'no summary-export control (S5)' };
+                        btn.click();
+                        let dl = null;
+                        for (let t = 0; t < 30 && !dl; t++) {
+                            await sleep(100);
+                            if (window.__acnTestDownloads.length) dl = window.__acnTestDownloads[0];
+                        }
+                        if (!dl || !dl.blob) return { err: 'no summary export captured (S5)' };
+                        const text = await dl.blob.text();
+                        const after = computes();
+                        // Regenerate leg: summary panel, explicit click, must compute.
+                        // No auto-generate interferes: dataset.generated has been
+                        // 'true' since S1, and the panel-open auto-click is guarded
+                        // on it.
+                        if (!document.querySelector('[data-acn-open="true"] [data-acn-role="sum-generate"]')) {
+                            const sdot = document.querySelector('[data-acn-dot="summary"]');
+                            if (sdot) { sdot.click(); await sleep(350); }
+                        }
+                        const gen = document.querySelector('[data-acn-open="true"] [data-acn-role="sum-generate"]');
+                        if (!gen) return { err: 'summary panel did not open (S5)' };
+                        let enabled = false;
+                        for (let t = 0; t < 20 && !enabled; t++) {
+                            await sleep(100);
+                            enabled = !gen.disabled;
+                        }
+                        if (!enabled) return { err: 'generate button never re-enabled (S5)' };
+                        const beforeRegen = computes();
+                        gen.click();
+                        let afterRegen = beforeRegen;
+                        for (let t = 0; t < 30 && afterRegen === beforeRegen; t++) {
+                            await sleep(100);
+                            afterRegen = computes();
+                        }
+                        return { before, after, beforeRegen, afterRegen, text };
+                    });
+                    assert('EXPORT summary reuses the panel computation (no recompute)',
+                        !reuse.err && reuse.after === reuse.before &&
+                        new RegExp('^' + expPath + ' messages \\(' + expUser +
+                                   ' user, ' + expAi + ' AI\\)', 'm').test(reuse.text),
+                        reuse.err || `computes ${reuse.before} -> ${reuse.after} across an ` +
+                                     `index-complete export (expected no change)`);
+                    assert('SUMMARY regenerate recomputes (cache never serves the panel)',
+                        !reuse.err && reuse.afterRegen === reuse.beforeRegen + 1,
+                        reuse.err || `computes ${reuse.beforeRegen} -> ${reuse.afterRegen} across ` +
+                                     `a regenerate click (expected +1)`);
+
                     // Restore the pre-block panel state. orbOnScanComplete only
                     // re-renders the nav list while the Navigate panel is the open
                     // one; leaving Tools open froze that list for the pre-existing
@@ -2601,7 +2680,9 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
             'SUMMARY refuses a click once the index moved to another conversation',
             'SUMMARY conversation switch and restore are uuid-observed',
             'EXPORT full conversation is index-complete and self-consistent',
-            'EXPORT summary is index-complete');
+            'EXPORT summary is index-complete',
+            'EXPORT summary reuses the panel computation (no recompute)',
+            'SUMMARY regenerate recomputes (cache never serves the panel)');
         if (platform.degradedExportTest) mustHave.push(
             'EXPORT degrades visibly when the index cannot build');
         for (const title of mustHave) {
