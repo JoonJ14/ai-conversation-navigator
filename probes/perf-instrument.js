@@ -170,15 +170,21 @@ const BLOCK = `
     exportSummary = (function (orig) {
         return function () {
             __acnPerf.trigger = 'export';
+            // Recomputation is detected by THIS export's run delta, not by the
+            // last run's tag: after any recomputing export, the newest run stays
+            // trigger='export' forever, so a later cache-hit export would both
+            // log "contains the fresh generate run" and overwrite the OLD export
+            // run's exportTotalMs with the hit's duration (GitHub Codex).
+            var runsBefore = __acnPerf.runs.length;
             var t0 = performance.now();
             try {
                 return orig.apply(this, arguments);
             } finally {
                 var dt = performance.now() - t0;
                 __acnPerf.trigger = 'generate';
+                var recomputed = __acnPerf.runs.length > runsBefore;
                 var last = __acnPerf.runs[__acnPerf.runs.length - 1];
-                var recomputed = !!(last && last.trigger === 'export');
-                if (recomputed) last.exportTotalMs = dt;
+                if (recomputed && last) last.exportTotalMs = dt;
                 // Recorded unconditionally: on a v12.4 cache HIT no generate run
                 // exists to attach to, and the hit path is exactly the one the
                 // fix creates — losing its wall-clock would blind the probe to
