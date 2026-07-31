@@ -179,8 +179,16 @@ Numbering below is stable (items keep their historical numbers):
    provisional-set signature}` (content identity, not count — Tier 3 skeptic). Measured
    before/after (same contexts): boosted generate 11.7s → 2.4s; keyPoints 9.0s → 0.05s;
    export full-re-run → reuse (or one ~2s recompute when a resync re-mints the stamp).
-   Remaining: the owner's live confirmation (DEC-031, gates the merge); the ~2s linear map
-   term at ~1MB text is the v13 lever if live numbers still show pain.
+   **Status 2026-07-31 (later): LIVE-CONFIRMED by the owner** (Firefox + Tampermonkey,
+   real conversation): banner gone, dedup 1ms/1,135 candidates, export cache HIT at
+   11ms. **Residual follow-up lever (v12.5-or-v13 decision for the owner):** generate
+   still costs ~7.7–8.5s live — ~93% in the map's segment-merge churn (431
+   `subSegments` rebuilds, 3,895 `topicsFromText` extractions over 27.1M chars in ONE
+   generate; `mergeExcess` alone 5.2–5.7s). Real vocabulary makes many initial
+   segments; every merge re-tokenizes whole segments. Candidate small fix: memoize
+   per-message token sets for the map loops (needs the fence-spanning-join edge case
+   checked); real restructuring of the merge loops is v13 territory. Live numbers +
+   contexts in the TROUBLESHOOTING entry.
 
 **v12.0 Accomplishments (2026-07-26):**
 - **API-Backed Conversation Index (DEC-021):** Claude virtualized its message list with recycling — only ~3 of 147 user turns are mounted at any moment (~3% coverage), so `document.querySelectorAll()` stopped being a complete record of the conversation. Navigate, Search, Summary and Export were all operating on a fraction of the data, and Export was silently writing truncated files under an authoritative-looking message count. Fixed by reading Claude's own conversation JSON endpoint via `GM_xmlhttpRequest` and walking the message tree from `current_leaf_message_uuid` to isolate the active branch. This is an ordinary outbound request, not fetch interception — no Firefox cross-compartment exposure (DEC-019/DEC-020).

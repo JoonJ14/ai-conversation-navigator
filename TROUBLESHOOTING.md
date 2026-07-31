@@ -264,10 +264,12 @@ symptom-level detail.
 ## OPEN — Summary Generate/Export Freezes Firefox on Long Conversations (since v12.0)
 
 **Severity:** Medium-High — features complete correctly, but the tab near-freezes |
-**Status:** FIX SHIPPED in v12.4 (`fix/summary-perf-v12.4`) pending the owner's live
-confirmation (DEC-031) — mechanism measured 2026-07-30 (below), fix measured 2026-07-31
-(bottom of entry). The owner authorized proceeding straight to the small fix after the
-synthetic measurement identified the mechanism | **Reported:** 2026-07-30
+**Status:** FIX LIVE-CONFIRMED 2026-07-31 (owner, Firefox + Tampermonkey, the real
+~147-question conversation, probe build 12.4-perf1 over the PR #66 head): no
+"slowing down Firefox" banner, export = cache HIT at 11ms with no second computation,
+dedup 1ms over 1,135 candidates. Residual: generate still costs ~7.7–8.5s live, ~93%
+in the map's segment-merge churn — recorded as the follow-up lever in ROADMAP item 11
+(live numbers at the bottom of this entry) | **Reported:** 2026-07-30
 
 ### Symptom
 
@@ -367,6 +369,26 @@ same machine, payload and interactions:
 - Remaining cost is the map (~2s at ~1MB: per-segment re-tokenization + sub-segment
   rebuilds) — linear, and the v13 lever if the live numbers still show pain.
 - S5 fixture gates both cache directions with named killing mutations (TESTING.md).
+
+### LIVE-CONFIRMED 2026-07-31 — owner, Firefox + Tampermonkey (GM-sandbox), visible tab, real ~147-question conversation, probe 12.4-perf1 over the PR #66 head, perf.now granularity ~1ms
+
+- **Symptom resolved:** no "slowing down Firefox" banner; owner reports "significantly
+  faster" against an accidental same-day v12.3 control run (they had been testing 12.3
+  believing it was 12.4 — an inadvertent A/B on the same conversation).
+- **Both fix mechanisms confirmed in the target realm:** `keyPoints` 89/81ms with
+  `dedup` at **1ms over 1,135 candidates** (the term that cost ~9s at this scale
+  pre-fix), and the export a **cache HIT at 11ms, no second computation**
+  (`export cache: …|g2 == …|g2, provSig.len:0 -> HIT`).
+- **Residual, measured (both results kept per the contexts rule):** generate totalled
+  **8,545ms / 7,659ms** — far above the synthetic ~2s at ~1MB. The gap is the map's
+  segment-merge churn, which the seeded payload's topic-block structure
+  underrepresents: live, ONE generate ran `_sumBuildSubSegments` **431×** (6.2–6.9s
+  inclusive) and `_sumExtractTopicsFromText` **3,895×** over 27.1M chars (5.5–6.1s
+  inclusive), with `_sumMergeExcessSegments` alone at 5.2–5.7s — real vocabulary
+  produces many initial segments, and every merge re-tokenizes whole segments.
+  Render 66/67ms; post-turn gap ~220ms. This is a lesser, banner-free cost, recorded
+  as ROADMAP item 11's follow-up lever (per-message token memoization / merge-loop
+  restructuring), not a v12.4 blocker.
 
 ---
 

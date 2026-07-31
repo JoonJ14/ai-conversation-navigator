@@ -70,7 +70,13 @@ owner's version policy (small fix → v12.4; refactor → v13):
   probes payload (recorded in TESTING.md with the rest of the S5 semantics).
 - Before/after on the same machine/payload (Firefox, q=147): recorded in the
   TROUBLESHOOTING entry alongside the numbers that motivated the fix.
-- Live confirmation on the real conversation: pending (DEC-031 — gates the merge).
+- Live confirmation on the real conversation: **PASSED 2026-07-31** (owner, Firefox +
+  Tampermonkey, GM-sandbox realm, probe 12.4-perf1 over the PR #66 head): banner gone,
+  dedup 1ms over 1,135 candidates, export cache HIT at 11ms with no second
+  computation. Residual live cost — ~7.7–8.5s generate, ~93% in the map's
+  segment-merge churn (431 sub-segment rebuilds / 3,895 topic extractions per
+  generate) — recorded in ROADMAP item 11 as the follow-up lever, with numbers and
+  contexts in TROUBLESHOOTING.
 
 ## [12.3 — Summary/Export Fixtures: the Dead Zone Gets Executed] — 2026-07-30
 
