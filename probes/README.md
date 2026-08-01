@@ -73,8 +73,12 @@ node probes/run-map-harness.js \
     --browser chromium,firefox --sizes 2,3,25,147 --vocab 1,4 --para 1,3 --baseline /tmp/fp.json
 ```
 
-`--baseline` exits non-zero on any difference — including a requested configuration the
-baseline never covered, which was never compared and so must not be reported as clean. Each
+`--baseline` exits non-zero on any difference, on a build that disagrees with ITSELF across
+repeats (and then it refuses to write a `--save` file), on a requested configuration the
+baseline never covered, and on any baseline configuration the sweep did not exercise — a
+chromium-only run must not report equivalence for a chromium+firefox baseline. Add
+`--partial` when narrowing the sweep on purpose (checking one mutant, one config): it
+acknowledges the missing coverage in the verdict and never suppresses a real difference. Each
 line reports the initial → final segment count, the sub-segment rebuild count, and which
 construction model that count matches (`eager` = `2 × initial − final`, pre-v12.5;
 `deferred` = `final`, v12.5+; `either` when nothing merged, because both formulas then give

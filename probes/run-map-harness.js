@@ -17,8 +17,11 @@
 // Usage:
 //   node probes/run-map-harness.js [--browser chromium,firefox] [--sizes 147]
 //                                  [--vocab 1,2,4,8] [--repeat 3]
-//                                  [--save fp.json] [--baseline fp.json]
-//   --baseline exits non-zero on ANY fingerprint difference (equivalence gate).
+//                                  [--save fp.json] [--baseline fp.json] [--partial]
+//   --baseline exits non-zero on ANY fingerprint difference, on a build that
+//   disagrees with ITSELF across repeats, and on any baseline configuration the
+//   sweep did not exercise. --partial acknowledges that last case (for iterating
+//   on one config) — it never suppresses a real difference.
 
 'use strict';
 
@@ -141,6 +144,7 @@ function n(calls, key, field) {
     const seed = 20260730;
     const savePath = parseArg('save', null);
     const baselinePath = parseArg('baseline', null);
+    const allowPartial = process.argv.includes('--partial');
     const baseline = baselinePath ? JSON.parse(fs.readFileSync(baselinePath, 'utf8')) : null;
 
     fs.mkdirSync(OUTDIR, { recursive: true });
@@ -282,10 +286,28 @@ function n(calls, key, field) {
     if (repeatMismatches) {
         console.log(`\nDETERMINISM: ${repeatMismatches} configuration(s) differed between repeats.`);
     }
+    let uncovered = [];
     if (baseline) {
+        // Coverage is half of the verdict. A sweep NARROWER than the baseline
+        // compares only what it ran, so "every fingerprint identical to baseline"
+        // would be true of a chromium-only run against a chromium+firefox baseline
+        // — an equivalence claim covering configurations that were never exercised
+        // (Codex). Narrow sweeps are legitimate while iterating (that is how a
+        // single mutant gets checked), so they are allowed, but only with --partial
+        // saying so out loud; otherwise missing coverage fails like a mismatch.
+        uncovered = Object.keys(baseline).filter((k) => !(k in fingerprints));
+        const total = Object.keys(baseline).length;
+        const scope = `${total - uncovered.length}/${total} baseline configurations exercised`;
+        if (uncovered.length) {
+            console.log(`\nCOVERAGE: ${scope}; NOT run: ${uncovered.join(', ')}`);
+        }
         console.log(baselineMismatches === 0
-            ? '\nEQUIVALENCE: every fingerprint identical to baseline.'
-            : `\nEQUIVALENCE: ${baselineMismatches} mismatch(es).`);
+            ? `\nEQUIVALENCE${uncovered.length ? ' (PARTIAL)' : ''}: every fingerprint ` +
+              `exercised is identical to baseline — ${scope}.`
+            : `\nEQUIVALENCE: ${baselineMismatches} mismatch(es) — ${scope}.`);
+        if (uncovered.length && allowPartial) {
+            console.log('(--partial: the uncovered configurations are acknowledged, not verified.)');
+        }
     }
-    if (repeatMismatches || baselineMismatches) process.exit(1);
+    if (repeatMismatches || baselineMismatches || (uncovered.length && !allowPartial)) process.exit(1);
 })().catch((e) => { console.error(e); process.exit(1); });
