@@ -8835,16 +8835,20 @@
             }
         }
 
-        // Bound the ROW COUNT the way the top level does (_sumMergeExcessSegments):
-        // repeatedly merge the most topically similar ADJACENT pair until the count
-        // fits. The containment test above improves WHERE boundaries land; it cannot
-        // bound HOW MANY, and there is a measured regime where it does not try to —
-        // short messages drawn from a wide vocabulary (PARA_BOOST=1/VOCAB_MULT=4)
-        // repeat few words, so same-topic follow-ups score below any fixed threshold
-        // and the segment still fragments (46 rows, measured). Merging by topic
-        // similarity rather than by position means the boundaries that SURVIVE are
-        // the least similar joints. Topic lists are merged, not recomputed, so this
-        // costs no tokenization (DEC-040).
+        // Bound the ROW COUNT: while there are more runs than SUB_MAX, repeatedly merge
+        // the SMALLEST run into its smaller neighbour (the loop below states why size,
+        // not similarity, decides). _sumCohesionCuts above chooses WHERE boundaries
+        // fall; it does not bound HOW MANY, and a segment whose vocabulary genuinely
+        // turns over many times will produce many.
+        //
+        // A safety net, not the mechanism — verified rather than assumed: with the cap
+        // disabled the output is identical on three of four scored payloads, and on the
+        // fourth it only absorbs two 6-message fragments (DEC-040). If it starts doing
+        // real work, that is a signal about the cut pass, not a reason to retune SUB_MAX.
+        //
+        // Topic lists are merged, never recomputed, so this costs no tokenization —
+        // deliberate, since topic extraction over growing text is the map's hot loop
+        // (v12.5).
         var SUB_MAX = Math.max(2, Math.min(8, Math.round(messages.length / 20)));
         while (subs.length > SUB_MAX) {
             // Merge the SMALLEST sub-segment into its more topically similar neighbour
