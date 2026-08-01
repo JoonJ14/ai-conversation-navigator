@@ -80,6 +80,27 @@ on a hypothesis.**
 
 Numbering below is stable (items keep their historical numbers):
 
+0. **Conversation-map sub-segmentation is not content-driven (OPEN — priority 1, added
+   2026-08-01 from the owner's live v12.5 pass).** Every sub-segment is exactly 3 messages with
+   near-identical labels, because `SUB_THRESHOLD = 0.42` is unreachable — `_sumWordOverlap`
+   divides by `max(|A|,|B|)`, so one message against a 4-message window peaks near 0.04. Every
+   message splits and the absorb-fragments pass produces fixed 3-message chunks. Reproduced
+   synthetically (92 sub-segments, 90 of them size 3). **The same broken comparison sits at the
+   top level** (0.15, also unreachable → ~218 initial segments live) and is hidden only by the
+   merge-to-5 cap: the top level is accidentally good, not correct. Fix direction and the full
+   diagnosis are in the TROUBLESHOOTING OPEN entry. Owner's framing: sub-segments should behave
+   like the big ones — stay together until the topic actually changes.
+   **Open question for the owner, deliberately not pre-decided:** how many sub-rows a
+   180-message segment should have. That is taste, and it gets settled against real output.
+
+0b. **"290 messages" vs "147 questions" reads as a discrepancy (owner, 2026-08-01 — parked by
+   the owner, "I need to think about that").** The map counts timeline ENTRIES (questions and
+   answers), which is correct and deliberate — the back-and-forth is what makes a segment
+   meaningful — but a panel that says `msgs 262–280` next to a conversation the owner thinks of
+   as 147 questions invites a double-take. Options if it is picked up: label the unit
+   explicitly (`msgs` → `msgs (Q+A)`), show turn numbers instead of entry indices, or show both.
+   No change made; recorded so the question is not re-derived.
+
 1. ~~**Live-test and fine-tune the provisional bookmark mechanism** (DEC-030).~~ **Done in v12.1**
    — and it went considerably further than fine-tuning: the legacy path is now four channels with a
    proof/inference split, live-verified at 16/16, and fixtured (`Claude (legacy schema-1 bookmarks)`,

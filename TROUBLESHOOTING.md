@@ -445,11 +445,78 @@ absorb. The initial segmentation scan plus the per-commit topic/entity work is t
 ~300ms, and `mergeExcess` is ~1ms. So the next lever, if one is wanted, is that absorb loop —
 and unlike v12.5 it changes a loop whose output matters, so it needs the same fingerprint gate.
 
+**LIVE-CONFIRMED 2026-08-01** (owner, Firefox + Tampermonkey, plain v12.5 build pinned at
+`9d535a9`, real ~147-question conversation): generate AND regenerate "really fast… roughly a
+second or two" (from 7.7–8.8s), no banner; the map renders its sub-segments; a sub-segment click
+jumps to that child's first message, first shot; `msgs N–M` present on every sub-row; Tools →
+Summary export "works really fast also compared to how it was before", file correct; **no console
+errors**. DEC-031 satisfied for v12.5. The probe was deliberately NOT used — the timing question
+was already settled, so the live pass was scoped to function, not measurement.
+
+**Found by that same pass (pre-existing, NOT introduced by v12.5): sub-segments are all minimum
+size.** See the "sub-segmentation is not content-driven" entry below.
+
 **Scope of these numbers (contexts rule):** Playwright Firefox/Chromium, PAGE realm, synthetic
 payload, `element:null` messages (so `_sumScanEntities` returns `[]` — the unmounted shape,
 which is all but ~3 messages live, but not the mounted one). The decision-grade context is
 still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is outstanding**
 (expect generate ≈1.5–2.5s; the pre-fix live figure was 7.7–8.8s).
+
+---
+
+## OPEN — Conversation-map sub-segmentation is not content-driven (found live 2026-08-01)
+
+**Status:** OPEN | **Severity:** Medium — the map's second level is noise, no data loss |
+**Found by:** owner, live v12.5 pass on the real ~147-question conversation | **Age:** pre-existing,
+unrelated to v12.4/v12.5 (those changed WHEN sub-segments are built, never HOW)
+
+### Symptom
+
+Every sub-segment covers exactly three messages — `msgs 1–3`, `4–6`, `7–9`, … — and their labels
+are near-identical variants of one topic ("sweep / edge", "edge", "edge / space", "edge / real").
+The owner's words: *"the subsegments only lasting two messages per each… the list is getting a
+little too long… those are almost identical messages and concepts, but our sub-segments separate
+all of them."* Top-level segments, by contrast, behave correctly (live: 8, 20, 181, 80, 81
+messages) — they stay together until the topic actually moves.
+
+### Reproduced synthetically before any fix
+
+From the committed fingerprints (`probes/run-map-harness.js`, Firefox, q=147, `VOCAB_MULT=4
+PARA_BOOST=3`): **92 sub-segments, of which 90 are exactly 3 messages** (histogram
+`{3: 90, 4: 2}`); at `PARA_BOOST=1`, `{3: 91, 4: 1, 5: 1}`. Sample labels from one segment:
+`Cookieing / Sessioners [0-2] | Providerally / Providering [3-5] | Tokening / Sessioners [6-8] |
+Loginally / Grant [9-11]` — the live pattern exactly.
+
+### Root cause
+
+`_sumBuildSubSegments` splits when `_sumWordOverlap(msg.text, last-4-messages-joined) <
+SUB_THRESHOLD (0.42)`. `_sumWordOverlap` normalizes by **`max(|A|,|B|)`**, so a single message
+(~30 unique content words) compared against a four-message window (~700) has a **ceiling near
+0.04**. The threshold is unreachable, so *every* message splits, and 100% of the visible structure
+comes from the post-pass that absorbs fragments smaller than three messages — which stops at
+exactly three. The result is fixed-size chunking wearing a topical label.
+
+Two things follow, and both matter more than the symptom:
+
+1. **The function's comment claims behaviour the code does not have** ("Detects genuine topic
+   shifts… Purely content-driven — no count-based caps"). This is the comment-versus-code class
+   CLAUDE.md warns about, and it is why the defect survived: the code reads as if it works.
+2. **The top level has the same broken comparison** — 0.15 is also unreachable against a
+   four-message window, which is why the live conversation produced ~218 initial segments from
+   ~294 messages (DEC-039). The top level only *looks* right because `_sumMergeExcessSegments`
+   collapses it to ≤5. The sub level has no equivalent cap, so its degeneracy is visible.
+   **The top level is accidentally good, not correct** — worth knowing before anyone "fixes" it.
+
+### Fix direction (not yet built)
+
+Scoped to the sub level, since the owner reports the top level as satisfactory: (a) make the split
+decision reachable by comparing like with like — a containment-style measure
+(`|A∩B| / min(|A|,|B|)`, "how much of THIS message's vocabulary already appeared in the window")
+rather than the size-asymmetric `max`; and (b) a merge-to-cap pass mirroring
+`_sumMergeExcessSegments`, so a pathological case degrades to a few rows instead of ninety.
+Density is a taste call and must be settled with the owner against real output, not chosen in the
+abstract. The equivalence harness changes role here — this change SHOULD alter the fingerprint, so
+the gate becomes a diff to read rather than a green to confirm.
 
 ---
 
