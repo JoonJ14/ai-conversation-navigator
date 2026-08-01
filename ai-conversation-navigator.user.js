@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.3
+// @version      12.4
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -40,7 +40,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.3';
+    var ACN_VERSION = '12.4';
 
     // ============================================================
     // i18n — internationalization string table
@@ -1610,6 +1610,12 @@
         _ciJumpToken++;
         _ciTextToUuid       = null;   // rebuilt lazily against the new path
         _ciIndexGen++;
+        // The gen bump makes any cached summary permanently unreadable (its stamp
+        // can never match again), so RELEASE it — a same-conversation rebuild
+        // (send/edit/regenerate resync) does not pass through ciInvalidate, and
+        // the dead entry would otherwise pin the previous summary's full text and
+        // compute-time DOM nodes until the next generate (GitHub Codex round 5).
+        _sumComputeCache    = null;
         return turns;
     }
 
@@ -3538,6 +3544,10 @@
                                        // alive until some later conversation happened to
                                        // rebuild it — in the very function whose stated job
                                        // is releasing the multi-megabyte path on a switch.
+        _sumComputeCache    = null;    // same class of payload: the cached summary holds
+                                       // every message's text plus compute-time DOM nodes.
+                                       // A stale stamp already refuses reuse, so this is
+                                       // purely the release (Tier 3, all five lenses).
         _ciRefreshFailed    = '';
         _sseThinkAtIndex    = 0;
         _ciConversationId = null;
@@ -8263,14 +8273,24 @@
         return merged.slice(0, 6);
     }
 
-    function _sumDeduplicatePoints(points) {
+    // cap: stop scanning once that many unique points are kept. Output-identical
+    // to deduplicating everything and slicing afterwards: kept is append-only and
+    // each keep/drop decision reads only the points already kept, so the first
+    // `cap` appends cannot be changed by anything scanned later. Without the stop
+    // this pass was O(points²) pairwise overlaps — each one re-tokenizing both
+    // texts — spent almost entirely on candidates the cap then discarded
+    // (measured: 9.1s of an 11.5s Firefox block at ~1MB of conversation text,
+    // 3,504 candidates kept to 10; TROUBLESHOOTING → Summary perf OPEN entry).
+    function _sumDeduplicatePoints(points, cap) {
         var kept = [];
-        points.forEach(function (pt) {
+        for (var i = 0; i < points.length; i++) {
+            if (typeof cap === 'number' && kept.length >= cap) break;
+            var pt = points[i];
             var isDup = kept.some(function (k) {
                 return _sumWordOverlap(k.text, pt.text) > 0.6;
             });
             if (!isDup) kept.push(pt);
-        });
+        }
         return kept;
     }
 
@@ -8299,7 +8319,7 @@
 
         // Scale cap with conversation length: short convos get fewer key points
         var cap = Math.max(1, Math.min(10, Math.floor((questions.length + aiResponses.length) / 4)));
-        return _sumDeduplicatePoints(points).slice(0, cap);
+        return _sumDeduplicatePoints(points, cap);
     }
 
     function _sumGenerateStats(questions, aiResponses) {
@@ -8776,6 +8796,41 @@
     // the panel now points somewhere else. See ciIndexStamp().
     var _sumIndexStamp = null;
 
+    // Last full computation, keyed by what proves it still describes the live
+    // conversation: the index stamp AND the question count (provisional turns live
+    // only in _questions — sent after the snapshot, so the stamp alone misses them).
+    // Read ONLY by getSummaryForExport: the export consumes text, labels and stats,
+    // never element bindings, so a cached result stays correct there even after the
+    // virtualizer has recycled every row. The panel's generate path never reads it —
+    // regenerate must rebind mounted elements.
+    var _sumComputeCache = null;
+    var _sumComputeCount = 0;
+
+    // Identity of the CURRENT provisional set, by content. Provisionals are the one
+    // component of _questions that can change under a fixed index stamp (the index
+    // half is immutable per generation), so this signature is the second half of
+    // the compute-cache key. RAW text, deliberately unnormalized: every normalizer
+    // here is lossy (200-char cap; case/whitespace folding; _mdFlatten strips
+    // brackets and parens), and a lossy identity key trades a harmless spurious
+    // MISS (one ~2s recompute) for a harmful collision (a frozen-stamp export
+    // serving the PREVIOUS prompt's summary — the analyzers run on raw text, so
+    // texts that normalize equal still summarize differently). Two GitHub Codex
+    // rounds walked this exact ladder: 200-char truncation, then normalization
+    // collisions, then delimiter ambiguity. Length-prefix framing is what makes
+    // the encoding injective: a delimiter can be forged by text that contains
+    // it, but 'len:text' cannot — no two distinct text arrays serialize equal.
+    function _sumProvSig() {
+        var sig = '';
+        var t;
+        for (var i = 0; i < _questions.length; i++) {
+            if (_questions[i] && _questions[i].provisional) {
+                t = _questions[i].text || '';
+                sig += t.length + ':' + t;
+            }
+        }
+        return sig;
+    }
+
     function generateFullSummary() {
         // Index-backed when available: only the timeline used the index, so topics,
         // key points, stats and inventory ran on the 3-5 MOUNTED assistant responses
@@ -8828,7 +8883,7 @@
             });
         }
 
-        return {
+        var result = {
             map:        _sumBuildConversationMap(_questions, aiMsgs),
             topics:     _sumExtractTopics(_questions, aiMsgs),
             keyPoints:  _sumExtractKeyPoints(_questions, aiMsgs),
@@ -8836,6 +8891,33 @@
             inventory:  _sumInventoryCodeAndFiles(aiMsgs),
             indexStamp: genStamp
         };
+        // provSig, not a count: provisional turns live only in _questions (no index
+        // resync yet, so the stamp is unchanged), and their set is rebuilt each scan
+        // from the MOUNTED rows — so a count can return to a previous value with
+        // different membership (send Q149 and its row evicts Q148's from the ~3-row
+        // window: still one provisional, different question; and a retained-degrade
+        // backoff can freeze the stamp for up to 30 minutes, making that a steady
+        // state, not a race — Tier 3 skeptic). Content identity is what the reuse
+        // guard needs. The index half of _questions needs no signature: _ciIndex is
+        // assigned only at ciBuildIndex's commit point, which bumps the generation,
+        // so at a fixed stamp it is immutable.
+        // Written ONLY with a non-null stamp: the read guard requires one, so a
+        // null-stamp entry (non-indexed platform, degraded session) could never be
+        // read back and would just pin the whole result — text plus compute-time
+        // DOM nodes — until the next compute (Tier 3).
+        if (genStamp !== null) {
+            _sumComputeCache = { stamp: genStamp, provSig: _sumProvSig(), data: result };
+        }
+        // Test contract (v12.4): every COMPLETED computation stamps a running count
+        // on the zone — the observable that lets a fixture distinguish "export
+        // reused the cache" from "export silently re-ran the whole analysis".
+        // Placed with the cache write so an aborted computation counts as neither.
+        _sumComputeCount++;
+        try {
+            var czone = document.getElementById('acn-zone');
+            if (czone) czone.setAttribute('data-acn-sum-computes', String(_sumComputeCount));
+        } catch (e) {}
+        return result;
     }
 
     // Normalize a message's text length to an approximate line count (capped at 15).
@@ -9407,6 +9489,31 @@
     // ============================================================
 
     function getSummaryForExport() {
+        // Reuse the panel's computation when the conversation TEXT is provably
+        // unchanged: same non-null index stamp (conversation id + index
+        // generation — bumped on every resync and never torn down by Claude's
+        // spa:false switches) and same provisional-set signature (see _sumProvSig
+        // — a COUNT can return to a previous value with different membership).
+        // A null stamp (degraded session, non-indexed platform) never reuses —
+        // there is nothing to validate the cache against. This is what stops
+        // Tools → Summary export from re-running the entire analysis seconds
+        // after the panel already ran it (measured: the double-run doubled an
+        // ~11.5s Firefox block at ~1MB of text).
+        // Known, accepted bound (Tier 3 + skeptic): the key cannot see the
+        // MOUNTED-ROW set. inventory derives from the DOM for the ~3-5 mounted
+        // rows and from API text for the rest, so a cache hit exports the
+        // generate-time counts — which are exactly the numbers the open panel is
+        // showing (same object), where a v12.3 recompute could silently disagree
+        // with the panel. entities (export-only, never rendered in the panel)
+        // likewise freeze at the generate-time window. Keying on mount state
+        // instead would forfeit the cache on every scroll/jump for a ≤5-row
+        // derivation nuance.
+        if (_sumComputeCache &&
+            _sumComputeCache.stamp !== null &&
+            _sumComputeCache.stamp === ciIndexStamp() &&
+            _sumComputeCache.provSig === _sumProvSig()) {
+            return _sumComputeCache.data;
+        }
         if (typeof generateFullSummary === 'function') return generateFullSummary();
         return null;
     }
@@ -11046,6 +11153,12 @@
         zone.setAttribute('data-acn-accent',   orbTheme.bg);   // platform hex color
         zone.setAttribute('data-acn-version',  ACN_VERSION);
         zone.setAttribute('data-acn-platform', platform.id);   // for platform-specific CSS rules
+        // The compute counter outlives the zone element (SPA rip-outs re-inject a
+        // fresh zone via startMessageObserver) — re-stamp it so a delta reader
+        // straddling a re-injection sees a continuous count, not absent→N (Tier 3).
+        if (_sumComputeCount > 0) {
+            zone.setAttribute('data-acn-sum-computes', String(_sumComputeCount));
+        }
 
         // Set CSS variables for platform theming on :root so panels (which are
         // document.body siblings of zone, not zone descendants) can also inherit them

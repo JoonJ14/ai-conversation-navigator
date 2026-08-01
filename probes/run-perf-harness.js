@@ -193,20 +193,30 @@ async function driveOnce(page, q) {
         const btn = document.querySelector(
             '[data-acn-open="true"] [data-acn-role="tool-export"][data-acn-export="summary"]');
         if (!btn) return { err: 'no summary-export control', ...out };
+        // Baseline measured at the click, not assumed: hardcoding "two runs so
+        // far" would invert the exportRecomputed verdict if any interaction ever
+        // adds a third pre-export run (Tier 3).
+        const preRuns = runs.length;
         btn.click();
+        // v12.4+: a cache-hitting export produces the file WITHOUT a third
+        // generate run — the download is the completion signal, and the run
+        // count tells which path was taken (2 = reused, 3 = recomputed).
         let dl = null;
-        for (let t = 0; t < 1200; t++) {
+        for (let t = 0; t < 1200 && !dl; t++) {
             await sleep(200);
             if ((window.__acnTestDownloads || []).length) dl = window.__acnTestDownloads[0];
-            try { runs = JSON.parse(window.__acnPerfJson || '[]'); } catch (e) {}
-            if (dl && runs.length >= 3) break;
         }
-        if (runs.length < 3) return { err: 'run 3 (export) never completed', ...out };
-        await sleep(300);   // let post-turn gap probes land
+        if (!dl) return { err: 'export download never captured', ...out };
+        await sleep(300);   // let a possible run 3 + post-turn gap probes land
         try { runs = JSON.parse(window.__acnPerfJson || '[]'); } catch (e) {}
 
+        let exportTotals = [];
+        try { exportTotals = JSON.parse(window.__acnPerfExportTotalsJson || '[]'); } catch (e) {}
         return {
             runs,
+            exportTotals,
+            exportGenRan: runs.length > preRuns,
+            exportText: dl && dl.blob ? await dl.blob.text() : null,
             exportCaptured: !!(dl && dl.blob),
             convFetches: window.__convFetches || 0,
             visibility: document.visibilityState,
@@ -231,7 +241,11 @@ function fmtRun(r) {
     const seed = 20260730;
 
     fs.mkdirSync(OUTDIR, { recursive: true });
-    const rawScript = fs.readFileSync(path.join(REPO, 'ai-conversation-navigator.user.js'), 'utf8');
+    // ACN_SCRIPT: measure a DIFFERENT build of the userscript (e.g. a pre-fix
+    // baseline extracted from git) against the same payload and interactions.
+    const scriptPath = process.env.ACN_SCRIPT || path.join(REPO, 'ai-conversation-navigator.user.js');
+    console.log(`userscript under measurement: ${scriptPath}`);
+    const rawScript = fs.readFileSync(scriptPath, 'utf8');
     const probeScript = instrument(rawScript, 'perf1');
 
     const all = [];
@@ -271,7 +285,8 @@ function fmtRun(r) {
             } else {
                 console.log(`  q=${q} (${Math.round(stats.totalChars / 1024)}KB text, ` +
                     `avgUser=${stats.avgUserLen} avgAi=${stats.avgAiLen}, vis=${res.visibility}, ` +
-                    `mounted=${res.mounted}, fetches=${res.convFetches}, export=${res.exportCaptured})`);
+                    `mounted=${res.mounted}, fetches=${res.convFetches}, export=${res.exportCaptured}, ` +
+                    `exportRecomputed=${res.exportGenRan})`);
                 for (const r of res.runs) console.log('    ' + fmtRun(r));
             }
             await context.close();

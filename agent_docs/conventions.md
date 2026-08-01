@@ -78,3 +78,26 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 > **Why:** the mojibake is invisible to every ASCII assertion, so a green suite says nothing
 > about it — it is a context mismatch between the file's encoding and the page's decoding.
 > (DEC-037 corollary.)
+
+> **Issue:** A cache-key signature was built from normalized text — three separate review
+> rounds each found a collision class: a 200-char truncation cap, case/whitespace folding plus
+> markdown flattening (`array[x]` vs `arrayx`), and a bare join delimiter forgeable by text
+> containing it (`a␁b` vs `a`,`b`).
+> **Correct approach:** identity keys use RAW data with length-prefix framing (`len:text` —
+> injective). Normalizers (`_normalizeCompare`, `_normalizeFull`, `_mdFlatten`) are for
+> MATCHING two differently-formatted views of the same thing, never for identity. And release
+> the cache at every point where its key dies (`ciInvalidate`, `ciBuildIndex` commit) — an
+> unreleased dead entry pins the conversation, it doesn't cache it.
+> **Why:** a lossy identity key trades a harmless false miss (one recompute) for a harmful
+> false hit (serving the previous prompt's data under a frozen stamp). (DEC-038.)
+
+> **Issue:** A fixture fix (the S5 leg reorder) was documented in TESTING.md, CHANGELOG and the
+> review artifact before it had actually been applied to the harness — the docs described a
+> gate the suite could not fail on. The post-commit mutant battery caught it: the mutant the
+> reorder exists to kill sailed through green.
+> **Correct approach:** after documenting any fix, run the named killing mutation against the
+> COMMIT before trusting the docs. And when a fix adds a REDUNDANT defense (e.g. a release that
+> empties a cache a key-check also guards), re-derive every killing mutation — the single-
+> defense mutant may now be absorbed and the honest mutation becomes the compound.
+> **Why:** DEC-037's silent-non-execution class, self-inflicted mid-review; docs claiming
+> untestable coverage are how dead zones are born. (DEC-038.)

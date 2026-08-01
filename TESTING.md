@@ -669,7 +669,7 @@ Until v12.3, replacing `_sumBuildTimeline`, `_sumScrollToElement`, `_exportFromI
 **516/516 on the parent commit with all four throwing at once**. The fixtures that closed
 this are gated by two platform-config flags:
 
-- `summaryExportTests: true` (on *Claude (virtualized + index)*) runs **S1–S4, E1, E3** (9
+- `summaryExportTests: true` (on *Claude (virtualized + index)*) runs **S1–S5, E1, E3** (11
   assertions): whole-conversation stats (exact 81/40/41 against ~3 mounted turns; the
   furthest `data-acn-sum-end` is reported as info only — every construction path ends the
   last segment at `timeline.length-1`, so gating on it would just re-assert the total),
@@ -682,6 +682,38 @@ this are gated by two platform-config flags:
   conversation uuid in `__convLastUuid`; `__convFetches` alone is uuid-blind and a
   same-conversation resync would satisfy it — claude is `spa:false`, so the switch is
   scroll-nudged into existence), and the two index-complete export captures.
+  **S5 + the E3 delta (v12.4)** add the compute-cache gates, delta-based on the
+  `data-acn-sum-computes` zone attribute (stamped by every COMPLETED computation).
+  Three gates, each with its named killing mutation:
+  (1) *E3's export must recompute, exactly +1* — S4's switch/restore re-minted the
+  stamp, so the export must REFUSE the panel-era cache. Two REDUNDANT defenses make
+  that true (the key comparison, and `ciInvalidate`'s cache release on the switch), so
+  the named killing mutation is their JOINT failure: bare `if (_sumComputeCache)` PLUS
+  the release removed — measured red at exactly this gate (computes 3→3), while the
+  bare key alone stays green *because the release already emptied the cache*. The
+  stale serve is invisible to every content assertion (the shim serves identical
+  payloads per uuid). Recorded debt: a SAME-conversation stamp bump (edit-resync — no
+  switch, so no release) is ungated; staging one needs a forced-refetch shim knob
+  (carried-over fixture batch), and the provSig half of the key is likewise unstaged
+  (no provisional-turn knob in the shim).
+  (2) *S5's export must NOT move the counter* — and S5 runs its REGENERATE leg FIRST,
+  so the cache being reused is the PANEL's computation. Order is load-bearing (Tier 3
+  CRITICAL, measured): with the legs reversed the export merely reused E3's
+  export-time computation, and a mutant clearing `_sumComputeCache` at the end of the
+  genBtn handler — a build where the exact scenario v12.4 exists for still
+  double-computes — stayed green. Killing mutations: delete the cache read in
+  `getSummaryForExport` (delta 1), or clear the cache in the genBtn handler (delta 1).
+  The v12.3 parent has no attribute at all: NaN delta, same red. Vacuity guard: the
+  gate also requires the index-complete file content — a failed export would leave the
+  counter unmoved too.
+  (3) *a regenerate click must move the counter by exactly one* (killing mutation:
+  serve `_sumComputeCache` from `generateFullSummary`).
+  Both S5 legs are preceded by the same `__convFetches` settle wait E1/E3 use — an
+  index reload re-mints the stamp mid-block, the cache then CORRECTLY refuses, and
+  the "no recompute" gate would red on correct code (Tier 3, four of five lenses;
+  the E1 retry exists for the same race). The zone is re-queried per read, never
+  cached across the block — a re-injected zone would otherwise satisfy delta-0
+  vacuously through a detached node.
 - `degradedExportTest: true` (on *Claude (virtualized)*) runs **E2**: the export must carry
   the DEGRADED source label and a header total EXACTLY equal to the derived window size
   (`2·userWindowSize + 1`; deterministic on this mock — measured 7 every run). Round 2
@@ -734,6 +766,26 @@ degraded-session summary paths (`_sumElKey` staleness branch, sub-segment and in
 click handlers) remain unexecuted; the fixture produces a single map segment, so
 multi-segment segmentation is unexercised; E1 carries one announced retry for the
 scan-tick race after S4's switch (degradation-when-unready has its own dedicated test, E2).
+**v12.4 adds:** the fixture's shim texts contain no `KEY_POINT_PATTERNS` matches, so key
+points are always `[]` here and the dedup early-stop (`_sumDeduplicatePoints` cap) has no
+fixture that could catch a wrong result — any assertion on it today would be vacuous
+(DEC-032). It is covered by the append-only equivalence argument in the code comment plus
+an empirical check: the probes harness (key-point-rich payload) exported byte-identical
+Key Points before/after the change. **Scope of that byte-identity (Tier 3 skeptic):** the
+probe drives generate→export with no scroll between them and its mock renders no
+`pre`/`img`/`a[href]`, so only the API-text derivation branch executes — the check proves
+the dedup change, and structurally cannot see mount-window divergence in
+entities/inventory (the DEC-028 shape: a fixture whose two sides always agree). That
+divergence is a *documented, accepted* cache property (see the `getSummaryForExport`
+comment), pre-existing in mechanism: tool/artifact answers render more than their API
+text carries, so the mounted-DOM and text branches of `_sumInventoryCodeAndFiles`
+disagree by construction on those answers. Follow-up recorded: thread the index's
+existing `toolBlocks` extraction into the summary's unmounted inventory branch, which
+shrinks the divergence at its source. Also recorded, pre-existing: a throw inside
+`renderSummaryResults` would strand the generate button on "Analyzing…" (the try/catch
+covers only `generateFullSummary`), which S5's regenerate leg would report as
+'generate button never re-enabled'. A key-point-bearing shim knob belongs to the
+carried-over fixture batch.
 
 ---
 

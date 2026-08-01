@@ -4,6 +4,91 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.4 — Summary Performance: the Freeze Measured, then Removed] — 2026-07-31
+
+**Branch:** `fix/summary-perf-v12.4` (measurement: `probe/summary-perf-measurement`, PR #65)
+
+### Problem
+
+On the owner's ~147-question conversation (Firefox + Tampermonkey), Summary → Generate and
+Tools → Summary export near-froze the tab — Firefox's "This page is slowing down Firefox"
+banner — then completed correctly. Consistent since v12.0, which is when the summarizer
+started receiving the whole conversation instead of ~3 mounted turns.
+
+### Root cause (measured first — PR #65, synthetic contexts, both engines)
+
+Two mechanisms, confirmed by per-phase instrumentation (`probes/`):
+
+1. **`_sumDeduplicatePoints` was O(points²) ahead of a cap of 10.** Key-point candidates
+   grow linearly with conversation length (the patterns match ordinary assistant prose);
+   the dedup compared every kept pair via `_sumWordOverlap`, each comparison re-tokenized
+   BOTH texts, and only then did `.slice(0, cap≤10)` apply. At ~1MB of conversation text:
+   3,504 candidates → 838k pairwise overlaps → 1.68M tokenizations over 202M chars —
+   **9.1s of an 11.5s synchronous Firefox block**, to keep ten points.
+2. **The export re-ran the entire analysis.** `exportSummary → getSummaryForExport →
+   generateFullSummary()` fresh every time — panel-generate then export paid the full
+   price twice (confirmed numerically at every size: the export run ≈ the generate run).
+
+### Approach
+
+The smallest change that kills each mechanism, chosen over a pipeline refactor per the
+owner's version policy (small fix → v12.4; refactor → v13):
+
+- `_sumDeduplicatePoints(points, cap)` stops scanning once `cap` unique points are kept.
+  Output-identical to dedup-then-slice: kept is append-only and each keep/drop decision
+  reads only already-kept points, so the first `cap` appends cannot be changed by any
+  later candidate. Cost drops from O(points²) to O(points × cap).
+- `generateFullSummary` caches its result keyed by `{ciIndexStamp(), provisional-set
+  signature}`; `getSummaryForExport` reuses it only when both still match and the stamp
+  is non-null (degraded/non-indexed sessions never reuse — nothing validates the cache
+  there; those computations are not cached at all, and the cache is released at BOTH
+  points where it becomes permanently unreadable: `ciInvalidate` on a conversation
+  switch, and `ciBuildIndex`'s commit on a same-conversation rebuild — a gen bump means
+  the stamp can never match again, so an unreleased entry is a pinned dead copy of the
+  conversation, not a cache). The signature is by provisional CONTENT, not count —
+  Tier 3's skeptic proved a count can return to a previous value with different
+  membership while a retained-degrade backoff freezes the stamp for up to 30 minutes.
+  The panel's generate path never reads the cache — regenerate must rebind mounted
+  elements. Accepted, documented bound: the key cannot see the mounted-row set, so a
+  cache-hit export carries the generate-time entities/inventory snapshot — the same
+  numbers the open panel shows (same object), where a v12.3 recompute could silently
+  disagree with the panel.
+
+### Verification
+
+- New contract attribute `data-acn-sum-computes` (zone) counts completed computations;
+  three delta-based gates (E3: a post-switch export must recompute exactly once; S5: an
+  export after a panel regenerate must not move the counter, and the regenerate itself
+  must move it by exactly one), each with its killing mutation named in-line and
+  verified red against the committed state. The E3 gate guards two REDUNDANT defenses
+  (the cache-key comparison and `ciInvalidate`'s release), so its killing mutation is
+  their joint failure — the bare-key mutant alone is absorbed by the release. S5 runs
+  its regenerate leg FIRST so the reused cache is the PANEL's computation — the leg
+  order is load-bearing and was mutation-proven twice: once by Tier 3 (with the legs
+  reversed, a build whose panel computations left nothing reusable stayed green), and
+  once in-loop when the reorder had been documented before it was applied and the same
+  mutant sailed through — the battery caught the pipeline's own unapplied fix.
+- Suite green both engines; the fixture-shim texts carry no key-point matches, so the
+  early-stop is additionally covered by an empirical output diff on the key-point-rich
+  probes payload (recorded in TESTING.md with the rest of the S5 semantics).
+- Before/after on the same machine/payload (Firefox, q=147): recorded in the
+  TROUBLESHOOTING entry alongside the numbers that motivated the fix.
+- Live confirmation on the real conversation: **PASSED 2026-07-31 — twice** (owner,
+  Firefox + Tampermonkey, GM-sandbox realm, probe builds over the exact heads): first
+  pass — banner gone, dedup 1ms over 1,135 candidates, export cache HIT at 11ms with no
+  second computation; second pass (after the round-5 release) — HIT at 3ms, and after a
+  live send the index rebuilt g2→g4 with the export's cache line reading `cached=null`,
+  the release observed directly, followed by exactly one recompute. Residual live cost —
+  ~7.7–8.8s generate, ~93% in the map's segment-merge churn (431 sub-segment rebuilds /
+  3,895 topic extractions per generate) — recorded in ROADMAP item 11 as the follow-up
+  lever, with numbers and contexts in TROUBLESHOOTING.
+- Review arc, full tally: Tiers 1–2 inline (1 WARN fixed), Tier 3 opus (5 lenses + 2
+  skeptics: 19 findings, 0 false positives, 1 CRITICAL — the S5 panel-provenance hole),
+  then **five GitHub Codex rounds: 5 findings, 0 false positives, all in arc-written
+  code, zero in the v12.4 core** (the identity-key ladder ×3, a probe mis-attribution,
+  the same-conversation release point). DEC-038 distills the standing rules. Artifact:
+  `reviews/review-2026-07-31-v12.4-perf.md`.
+
 ## [12.3 — Summary/Export Fixtures: the Dead Zone Gets Executed] — 2026-07-30
 
 **Branch:** `feat/summary-export-fixtures`

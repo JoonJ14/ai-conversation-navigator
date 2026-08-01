@@ -264,9 +264,12 @@ symptom-level detail.
 ## OPEN — Summary Generate/Export Freezes Firefox on Long Conversations (since v12.0)
 
 **Severity:** Medium-High — features complete correctly, but the tab near-freezes |
-**Status:** OPEN — mechanism measured in synthetic contexts (2026-07-30, below); the live
-Firefox + Tampermonkey run (`probes/README.md` Path A) is the remaining gate before the
-v12.4 (small fix) vs v13 (refactor) decision | **Reported:** 2026-07-30
+**Status:** FIX LIVE-CONFIRMED 2026-07-31 (owner, Firefox + Tampermonkey, the real
+~147-question conversation, probe build 12.4-perf1 over the PR #66 head): no
+"slowing down Firefox" banner, export = cache HIT at 11ms with no second computation,
+dedup 1ms over 1,135 candidates. Residual: generate still costs ~7.7–8.5s live, ~93%
+in the map's segment-merge churn — recorded as the follow-up lever in ROADMAP item 11
+(live numbers at the bottom of this entry) | **Reported:** 2026-07-30
 
 ### Symptom
 
@@ -331,6 +334,68 @@ Implication (for the decision, not a change made): the dominant term dies with d
 memoization/early-termination at the cap, and the double-run with memoize-per-`ciIndexStamp`
 reuse — small-fix shaped. **The decision stays gated on the live run** (probes/README.md
 Path A: instrumented probe build + one-shot owner procedure), per the owner's framing.
+
+### Fix measured 2026-07-31 — v12.4, same synthetic contexts (Firefox 146, q=147, seeded payload)
+
+The owner authorized proceeding to the small fix on the synthetic measurement. v12.4 =
+`_sumDeduplicatePoints` stops at the cap (output-identical: append-only kept list, so the
+first `cap` appends cannot be changed by later candidates) + `getSummaryForExport` reuses
+the panel's computation keyed by `{ciIndexStamp(), provisional-set signature}` (content
+identity, not count — a Tier 3 skeptic proved count-membership swaps under a frozen
+stamp are a steady state during retained-degrade backoff). Before/after on the
+same machine, payload and interactions:
+
+| Config | v12.3 generate | v12.4 generate | v12.3 keyPoints | v12.4 keyPoints | v12.3 export | v12.4 export |
+|---|---|---|---|---|---|---|
+| q=147 baseline (~363KB text) | 1,920–1,990ms | **767–826ms** | 1,188–1,195ms | **21–26ms** | 2,179ms (full re-run) | **cache reuse — no recompute at all** |
+| q=147 boosted (~1MB text) | 11,229–11,751ms | **2,180–2,605ms** | 8,932–9,018ms | **49–58ms** | 11,336ms (full re-run) | 2,164–2,379ms (recompute — see below) |
+
+- **Output equivalence verified empirically**, not just argued: the exported summary files
+  (key-point-rich probes payload, both scales) are byte-identical between v12.3 and v12.4
+  builds except the date line — Key Points sections included. **Scope (Tier 3 skeptic):
+  this measurement exercises only the API-text derivation branch** — the probe never
+  scrolls between generate and export and its mock renders no `pre`/`img`/`a` — so it
+  proves the dedup change and structurally cannot see the mounted-window
+  entities/inventory nuance, which is a separate, documented cache property (see the
+  `getSummaryForExport` comment and TESTING.md).
+- **The boosted export recomputed CORRECTLY, and the cause was measured, not guessed:**
+  the probe logs both sides of the cache key; it showed `cached stamp …|g1` vs
+  `current …|g2` — the larger payload's second index build re-mints the generation
+  between the panel's generate and the export, and the cache must refuse a moved stamp
+  (that refusal is the same guard `_sumScrollToElement` relies on). On the base payload
+  the rebuild lands before the panel opens and the export reuses (`exportRecomputed=false`,
+  zero additional cost). Either way the worst case is now one ~2s recompute, not an ~11s
+  double-payment.
+- Remaining cost is the map (~2s at ~1MB: per-segment re-tokenization + sub-segment
+  rebuilds) — linear, and the v13 lever if the live numbers still show pain.
+- S5 fixture gates both cache directions with named killing mutations (TESTING.md).
+
+### LIVE-CONFIRMED 2026-07-31 — owner, Firefox + Tampermonkey (GM-sandbox), visible tab, real ~147-question conversation, probe 12.4-perf1 over the PR #66 head, perf.now granularity ~1ms
+
+- **Symptom resolved:** no "slowing down Firefox" banner; owner reports "significantly
+  faster" against an accidental same-day v12.3 control run (they had been testing 12.3
+  believing it was 12.4 — an inadvertent A/B on the same conversation).
+- **Both fix mechanisms confirmed in the target realm:** `keyPoints` 89/81ms with
+  `dedup` at **1ms over 1,135 candidates** (the term that cost ~9s at this scale
+  pre-fix), and the export a **cache HIT at 11ms, no second computation**
+  (`export cache: …|g2 == …|g2, provSig.len:0 -> HIT`).
+- **Residual, measured (both results kept per the contexts rule):** generate totalled
+  **8,545ms / 7,659ms** — far above the synthetic ~2s at ~1MB. The gap is the map's
+  segment-merge churn, which the seeded payload's topic-block structure
+  underrepresents: live, ONE generate ran `_sumBuildSubSegments` **431×** (6.2–6.9s
+  inclusive) and `_sumExtractTopicsFromText` **3,895×** over 27.1M chars (5.5–6.1s
+  inclusive), with `_sumMergeExcessSegments` alone at 5.2–5.7s — real vocabulary
+  produces many initial segments, and every merge re-tokenizes whole segments.
+  Render 66/67ms; post-turn gap ~220ms. This is a lesser, banner-free cost, recorded
+  as ROADMAP item 11's follow-up lever (per-message token memoization / merge-loop
+  restructuring), not a v12.4 blocker.
+- **Re-confirmed same day on the round-5 head `ce26aa6`** (cache release at
+  `ciBuildIndex` commit): immediate export `HIT` at 3ms; after a live send the index
+  rebuilt g2→g4 and the export's cache line read **`cached=null`** — the release
+  observed directly (a pre-round-5 build would have shown the stale g2 entry still
+  pinned, refused by stamp) — then one recompute and a correct file. Also observed,
+  pre-existing: the renderable-entry predicate off-by-2 diagnostic (predicted 294 vs
+  aria-setsize 296) with its measured-anchor fallback holding; jumps landed correctly.
 
 ---
 

@@ -1546,3 +1546,70 @@ second 4-mutant run. Both recoveries were full re-applications from conversation
 - Charset corollary, recorded here because it hid for a release: harness pages must declare UTF-8;
   without it every LITERAL non-ASCII character in the inlined userscript decodes as windows-1252,
   and only `\uXXXX` escapes survive — invisible until the first assertion compares one.
+
+---
+
+## DEC-038: The Summary Compute Cache — Lossless Identity Keys, Release Where the Key Dies, and Redundant-Defense Mutations (v12.4)
+**Date:** 2026-07-31 | **Stage:** v12.4
+
+### Decision
+The Summary compute cache (`_sumComputeCache`, read ONLY by `getSummaryForExport`) is governed
+by three invariants that generalize beyond this cache:
+
+1. **Identity keys are lossless.** The key is `{ciIndexStamp(), provSig}` where `provSig` is
+   the RAW text of every provisional turn, length-prefix framed (`len:text` — injective by
+   construction). Every lossy alternative was tried and each produced a false-HIT class, found
+   across three separate review rounds: a 200-char truncation cap (long prompts sharing an
+   opening collide), case/whitespace folding + markdown flattening (`array[x]` vs `arrayx`
+   collide), and a bare join delimiter (text containing the delimiter forges the set boundary:
+   one provisional `a␁b` vs two provisionals `a`,`b`). A lossy identity key trades a HARMLESS
+   false miss (one recompute) for a HARMFUL false hit (a frozen-stamp export serving the
+   previous prompt's summary — the analyzers run on raw text, so texts that normalize equal
+   still summarize differently). Normalizers are for MATCHING (DOM-vs-API comparison), never
+   for identity.
+2. **A cache is released at every point where its key dies.** The stamp dies at
+   `ciInvalidate()` (conversation switch) and at `ciBuildIndex()`'s commit (same-conversation
+   rebuild bumps the generation) — both now null the cache. A null-stamp computation
+   (non-indexed platform, degraded session) is never cached at all: the read guard requires a
+   non-null stamp, so the entry could never be read back and would just pin the conversation's
+   text plus compute-time DOM nodes. An unreleased dead entry is not a cache, it is a leak
+   with a lookup table attached. Verified live: the export's cache line read `cached=null`
+   after a g2→g4 rebuild — the release observed directly.
+3. **Adding a redundant defense re-derives every killing mutation.** After release-on-switch
+   landed, the bare-key mutant (`if (_sumComputeCache) return ...`) was ABSORBED — the release
+   had already emptied the cache before the gate could see a stale serve. The E3 delta gate's
+   honest killing mutation is now the COMPOUND (bare key + release removed), measured red
+   exactly there. When a fix adds a second line of defense, the mutation battery must be
+   re-run and the named mutations updated, or the docs claim gates the harness cannot fail.
+
+### Context
+v12.4 fixed the measured Summary freeze (O(points²) dedup ahead of a ≤10 cap; the export
+re-running the whole analysis). The dedup early-stop is output-identical by an append-only
+prefix argument plus an empirical byte-diff. The cache eliminated the double-run: panel path
+never reads it; export reuses only on exact key match. Five GitHub Codex rounds and an opus
+Tier 3 round shaped the key and the release points; the identity-key ladder above is their
+distilled result. Full arc: `reviews/review-2026-07-31-v12.4-perf.md`.
+
+### Alternatives considered
+- **Refuse reuse whenever provisionals exist** (my first fix for the membership-swap hole):
+  correct but blunt — disables the cache for the most common flow (send → generate → export)
+  and for up to 30 minutes under retained-degrade backoff. The skeptic's content-identity
+  signature strictly dominates it. Rejected.
+- **Key on the mounted-row set too** (entities/inventory derive differently for the ~3-5
+  mounted rows): rejected — forfeits the cache on every scroll/jump for a ≤7%-of-messages
+  derivation nuance, and a cache-hit export matches the open panel EXACTLY (same object),
+  which v12.3's always-recompute could silently contradict. Accepted + documented instead.
+- **Hash the provisional texts** instead of embedding them: rejected as unnecessary — the
+  signature is compared, never stored beyond one entry, and raw text avoids hash-collision
+  reasoning entirely at negligible size.
+
+### Key properties
+- The in-loop process lesson travels with this DEC: the S5 leg-order fix was documented in
+  three docs before it was applied to the harness; only the post-commit mutant battery
+  noticed (mutant C green → gap found → applied → red). DEC-037's failure class,
+  self-inflicted mid-review. Run the battery against the COMMIT even when the fix
+  "obviously" landed.
+- Gates: E3 delta (+1 across the post-switch export; compound killing mutation), S5 reuse
+  (delta-0, panel-provenance via regenerate-first leg order), S5 regenerate (+1). Recorded
+  debt: same-conversation stamp-bump refusal and the provSig half are live-verified but
+  unstaged in the harness (forced-refetch + provisional shim knobs, fixture batch).
