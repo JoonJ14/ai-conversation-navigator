@@ -111,21 +111,22 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
 
     console.log(`\n=== _sumBuildSubSegments unit checks (${engine}) ===`);
 
-    // 1. The SMALLEST segment the function accepts (2*BLOCK + MIN_RUN = 14), split
-    //    cleanly down the middle. This is the case Codex proved impossible under the
-    //    old mean + 2.5*sd cutoff: 7 gaps cap the achievable standardized distance at
-    //    sqrt(6) ≈ 2.449, so no depth could ever clear it. If the entry condition and
-    //    the cutoff ever disagree again, this check is what says so.
+    // 1. The SMALLEST segment the function accepts — 2*max(BLOCK, MIN_RUN) = 12 —
+    //    split cleanly down the middle. This is precisely the case Codex proved
+    //    impossible under the old mean + 2.5*sd cutoff (7 gaps cap the achievable
+    //    standardized distance at sqrt(6) ≈ 2.449), and then proved excluded again by
+    //    an over-strict derived guard. If the entry condition and the cutoff ever
+    //    disagree once more, this check is what says so.
     const smallest = [];
-    for (let i = 0; i < 7; i++) smallest.push(msg(A, i));
-    for (let i = 0; i < 7; i++) smallest.push(msg(B, i + 40));
+    for (let i = 0; i < 6; i++) smallest.push(msg(A, i));
+    for (let i = 0; i < 6; i++) smallest.push(msg(B, i + 40));
     const r1 = await run(smallest);
-    check('smallest accepted segment (14) with two disjoint halves splits at 7',
-        r1.length === 2 && r1[0].n === 7 && r1[1].n === 7,
+    check('smallest accepted segment (12) with two disjoint halves splits at 6',
+        r1.length === 2 && r1[0].n === 6 && r1[1].n === 6,
         r1.length ? r1.map(s => `${s.n}@${s.startIdx}`).join(' ') : 'no cuts');
 
     // 1b. One message below the accepted size must be refused, not half-handled.
-    const tooSmall = smallest.slice(0, 13);
+    const tooSmall = smallest.slice(0, 11);
     const r1b = await run(tooSmall);
     check('one message below the accepted size yields no sub-segments', r1b.length === 0,
         `${r1b.length} sub-segments`);

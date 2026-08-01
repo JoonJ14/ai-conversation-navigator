@@ -8675,7 +8675,7 @@
 
     function _sumCohesionCuts(messages, blockSize, minRun, depthShare) {
         var n = messages.length;
-        if (n < blockSize * 2 + minRun) return [];
+        if (n < 2 * Math.max(blockSize, minRun)) return [];   // see the caller's note
         var vocabs = _sumMessageVocabs(messages);
 
         // Cohesion at each gap: how much vocabulary the block before it shares with
@@ -8781,12 +8781,14 @@
         var MIN_RUN     = 6;
         var DEPTH_SHARE = 0.5;
 
-        // The entry condition is DERIVED from the mechanism rather than asserted next
-        // to it. A hardcoded "12" is how the previous version came to advertise a split
-        // its own arithmetic forbade (GitHub Codex); computing the requirement means the
-        // promise cannot drift from what the code can actually do when BLOCK or MIN_RUN
-        // is retuned.
-        if (messages.length < 2 * BLOCK + MIN_RUN) return [];
+        // The entry condition is DERIVED from the mechanism rather than asserted next to
+        // it, so it cannot drift when BLOCK or MIN_RUN is retuned. A gap at position p
+        // is usable when it can be COMPUTED (BLOCK ≤ p ≤ n − BLOCK) and SELECTED
+        // (p ≥ MIN_RUN and n − p ≥ MIN_RUN); those two constraints OVERLAP rather than
+        // add, so one usable gap exists from n = 2 × max(BLOCK, MIN_RUN). Writing the
+        // sum instead cost 12- and 13-message segments their split (GitHub Codex round
+        // 3) — deriving a bound is only worth anything if the derivation is right.
+        if (messages.length < 2 * Math.max(BLOCK, MIN_RUN)) return [];
         var subs       = [];
         var cuts       = _sumCohesionCuts(messages, BLOCK, MIN_RUN, DEPTH_SHARE);
         if (!cuts.length) return [];

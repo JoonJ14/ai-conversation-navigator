@@ -106,6 +106,25 @@ Numbering below is stable (items keep their historical numbers):
    **Open question for the owner, deliberately not pre-decided:** how many sub-rows a
    180-message segment should have. That is taste, and it gets settled against real output.
 
+0a. **The Summary's tokenizer discards every non-ASCII language (OPEN — raised by GitHub
+   Codex on PR #68, 2026-08-01; PRE-EXISTING, not introduced by v12.5/v12.6).**
+   `_sumTokenize` strips `[^a-z0-9\s]`, so **Korean and Russian text produce ZERO tokens**
+   (verified) and accented Latin is mangled (`café` → `caf`, `était` → `tait`). Everything
+   content-derived in the Summary is therefore dead or meaningless for those conversations:
+   topics, key points, dedup, top-level segmentation, and — since v12.6 — sub-segments, which
+   now correctly return nothing rather than inventing fixed-size rows. **The product ships
+   Korean UI strings**, so this is a supported language with an unsupported feature.
+   *Deliberately NOT folded into PR #68:* the tokenizer feeds every content feature in the
+   Summary, and widening it changes output for any text containing accents, smart quotes or
+   emoji — that needs its own measurement pass and a live check, not a last-minute edit to a
+   PR already through three review rounds. **Fix sketch (ES5, no `\p{...}` — the `u` flag is
+   ES2018):** keep the strip but whitelist script ranges —
+   `[^a-z0-9\u00c0-\u024f\u0370-\u03ff\u0400-\u04ff\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af\s]`.
+   **Known limit of that sketch:** Korean, Cyrillic, Greek and accented Latin are
+   space-separated so whitespace tokenization works; Chinese and Japanese are not, and would
+   collapse to one token per sentence — they need segmentation, not a character class. Say
+   which languages are fixed rather than claiming "Unicode support".
+
 0b. **"290 messages" vs "147 questions" reads as a discrepancy (owner, 2026-08-01 — parked by
    the owner, "I need to think about that").** The map counts timeline ENTRIES (questions and
    answers), which is correct and deliberate — the back-and-forth is what makes a segment
