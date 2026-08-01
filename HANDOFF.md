@@ -1,207 +1,191 @@
-# Session Handoff — 2026-07-30 (v12.2 + v12.3: Gemini labels, CI hardening, the dead zone closed)
+# Session Handoff — 2026-07-31 (v12.4: the Summary freeze measured, killed, and live-confirmed twice)
 
-**Scope:** one long session, three merged PRs: **#61** (v12.2 — Gemini's hidden `cdk-visually-hidden`
-sender labels stripped), **#62** (CI hardening against degraded macOS runners), **#63** (v12.3 —
-the Summary/Export zero-execution zone finally has fixtures, after a review arc that found two
-CRITICALs in the fixtures' own first version). One **new open problem** was found live and is the
-next session's likely priority: Summary generation/export freezes Firefox on long conversations.
-**Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-07-29_v12.1-legacy-bookmarks.md`.
-**Status:** all three PRs MERGED by the owner; `main` @ `99b950b`, version **12.3**, CI 9/9.
-v12.3 live-confirmed at `6e24eea` (code head `3ef6239`) — see §E.
+**Scope:** one continuous arc across two calendar days: measure the Summary freeze (PR #65),
+build the v12.4 fix (PR #66), run the full local review pipeline plus five GitHub Codex rounds
+on it, and live-confirm it twice — the second time specifically for a post-confirmation
+one-liner. #64 (predecessor handoff docs) and #65 were merged mid-session with the owner's
+per-PR authorization; **#66 merges at the close of this session** with these handoff docs
+aboard. **Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-07-30_v12.2-v12.3-dead-zone.md`.
+**Status at close:** version **12.4**, suite **528/528 both engines**, CI 9/9 on every head,
+Codex clean, DEC-031 satisfied on the exact merge candidate.
 
 ---
 
 ## A. State in one paragraph
 
-v12.3 is on main and live-confirmed: the Summary/Export/Tools surfaces that shipped through v12.0's
-24-round review loop with **zero test execution** (mutation-proven: all four core functions replaced
-with `throw` left the suite green at 516/516) now have nine mutant-gated assertions plus a FIXTURE
-PRESENCE check, and the full matrix is **1050/1050 on both engines**. Getting there took a
-three-round local review arc that caught the fixtures' own defects — including an E2 block that was
-structurally unreachable while three docs claimed it as coverage, and a harness charset bug that had
-been silently mangling every literal non-ASCII character in the injected userscript for a release.
-The GitHub Codex cycle then needed **zero fix rounds** (v12.0 needed 24, v12.1 needed 7) — the
-first data point for the Tier 3 backend experiment, and a strong one. Separately: Gemini grew hidden
-"You said"/"Gemini said" labels that leaked into every text surface (fixed, v12.2), five degraded
-macOS-runner episodes hit CI in one day (hardened, #62), and the owner's live test surfaced a real
-performance problem in Summary that has probably existed since v12.0.
+The "this page is slowing down Firefox" freeze on the owner's ~147-question conversation is
+dead, and it died the right way: measured first (probes/, PR #65 — the quadratic was
+`_sumDeduplicatePoints` doing O(points²) pairwise overlaps with per-pair re-tokenization
+*ahead of* a ≤10 cap, 9.1s of an 11.5s block at ~1MB text; the export then paid the whole
+analysis again), then fixed with the two smallest possible changes (early-stop at the cap —
+output-identical, byte-diffed; and a compute cache keyed `{ciIndexStamp(), provisional-set
+signature}` that only the export reads), then verified at every layer: 528/528 both engines,
+a five-mutant battery, a 5-lens + 2-skeptic opus Tier 3 round (19 findings, 0 false
+positives, 1 CRITICAL), five GitHub Codex rounds (5 findings, 0 false positives, all in
+arc-written code, zero in the v12.4 core), and two owner live confirmations — the second
+observing the round-5 cache release directly (`cached=null` after a g2→g4 rebuild). The
+honest residual, measured live: generate still costs ~7.7–8.8s (banner-free) and ~93% of it
+is the conversation-map's segment-merge churn — **that is the next arc**.
 
 ---
 
 ## B. What was accomplished
 
-### 1. v12.2 (PR #61, merged) — Gemini's hidden sender labels stripped
+### 1. Measurement arc (PR #65, merged) — the freeze mechanism found before any fix
 
-**What.** `_isSrOnlyClassList` now also matches `cdk-visually-hidden`; `_cleanText`'s fast-path
-selector gained the class. Gemini mock rebuilt to the measured live DOM (label spans, restructured
-AI turns). New opt-in `expectedFirstQuestion` suite assertion.
+**What.** New `probes/` tooling: `perf-instrument.js` (wraps the Summary pipeline's functions
+by reassignment at one insertion anchor — no function bodies edited), `build-perf-probe.js`
+(emits an installable instrumented build, git-ignored), `perf-payload.js` (deterministic
+paragraph-scale conversation generator; the committed fixture's ~70-char messages measure
+the wrong environment), `run-perf-harness.js` (Playwright: generate → regenerate → export).
 
-**Why.** The owner saw every Navigate row on Gemini prefixed *"You said"*. Live probe found
-`span.cdk-visually-hidden.screen-reader-user-query-label` as the **first child of
-`div.query-text`** — inside the primary selector target — plus a mirror `h2` "Gemini said" on the
-assistant side. Our hidden-label strip only knew `sr-only` (ChatGPT/Claude's idiom); Angular CDK's
-idiom sailed through into Navigate, Search, Export, Summary, and bookmark hash inputs.
+**Why.** The owner's version policy demanded measurement before any fix (small fix → v12.4;
+refactor → v13). The prior session's hypotheses (export double-run; synchronous block) were
+code-read, not measured.
 
-**Alternatives.** Re-chaining the AI selector to dodge the assistant label was considered and
-**closed by measurement** instead: all 12 live conversations on the test account have text-empty
-response footers, so the fallback's only over-capture is the label the strip now removes — no
-assertion grounded in measured data could distinguish the selectors (DEC-032: unprovable change).
-Re-opens if a text-bearing footer (e.g. search-grounded sources-list) is ever observed.
+**Findings (synthetic contexts, Chromium 145 + Firefox 146, headless AND headed identical,
+q=25..200 + a PARA_BOOST=3/KP_RATE=2 sensitivity run).** `_sumDeduplicatePoints` was the
+quadratic: candidates grow linearly (q=147 → 673; owner's real conversation → 1,135), pairs
+quadratically, every pair re-tokenized both texts, and only then did `.slice(0, cap≤10)`
+apply — at ~1MB text: 3,504 candidates → 838k overlap calls → 1.68M tokenizations → 202M
+chars → **9.1s of an 11.5s Firefox block**, with the export paying it all again (run#3 ≈
+run#2 at every size). Render ≤50ms — the freeze was analysis, not DOM.
 
-**Verification.** Mock+assertion first, red on parent code with the exact live symptom
-(`"You saidHow do neural networks learn?"`), green with the fix, mutation-verified both paths
-(slow-path regex red; fast-path recorded as test debt — proving it would race icon injection).
-Bookmark ripple handled by existing `_bmLegacyIdSet`/`_textAsLegacy` machinery — leak-era hashes
-keep matching. Live-confirmed by the owner; merged same day.
+**Verification.** The double-run confirmed numerically, both engines; the boosted-scale
+export recompute anomaly chased to a measured cause (`cached g1` vs `current g2` — a second
+index build re-minting the generation mid-run) rather than guessed.
 
-**Also measured (live, Chromium, owner's account, 2026-07-30):** Gemini does **not** recycle at
-n≤10 (all turns mounted at every scroll position, held refs stay connected) — the long-contested
-DOM-REFERENCE table row is resolved at that scale, open beyond it (`<infinite-scroller>` scroller).
-And `div.model-response-text` no longer exists on live Gemini (class moved to a
-`structured-content-container` element); the chain survives on `.response-content`. Both recorded
-in DOM-REFERENCE with contexts.
+### 2. v12.4 (PR #66) — two smallest-possible changes
 
-### 2. PR #62 (merged) — CI hardened against degraded macOS runners
+**What.** (a) `_sumDeduplicatePoints(points, cap)` stops scanning once `cap` unique points
+are kept. (b) `generateFullSummary` caches `{stamp, provSig, data}`; `getSummaryForExport`
+reuses on exact match (stamp non-null); the panel path NEVER reads the cache. Plus the
+`data-acn-sum-computes` zone attribute (counts completed computations — the test observable)
+and version 12.3 → 12.4.
 
-**What.** `timeout-minutes: 20` on the CI job; per-entry wall-clock in suite output (live and in
-the detailed report); `vis=`/`raf10=` forensics on failed acceptance jumps; the reading-the-signature
-procedure in TESTING.md + agent_docs/testing.md.
+**Why output-identity holds for (a).** The dedup is streaming and append-only: each keep/drop
+decision reads only already-kept points, so the first `cap` appends are determined by an
+input prefix — `dedup(all).slice(0,cap)` ≡ stop-at-cap. Proven by argument AND an empirical
+byte-diff of exported files on a key-point-rich payload (scope-annotated: the diff exercises
+the text-derivation branch only).
 
-**Why.** **Five** webkit-on-macos episodes in one day: jobs running 40–75+ minutes (healthy:
-5m41s–9m47s) with acceptance jumps failing at the product's give-up ceiling, on code that passed
-identically minutes before/after on fresh runners. Same image, same Playwright build — degraded
-shared-runner hosts. One red had already slipped onto main unnoticed at the #60 merge.
+**Why the cache key is what it is.** `ciIndexStamp()` (conversation-id + monotonic index
+generation) covers everything the index knows; `provSig` covers the one thing it doesn't —
+provisional turns, which can change under a frozen stamp. provSig went through a
+three-rung correctness ladder (see §B.4) and ended as **raw text with length-prefix framing**
+(`len:text`) — injective, no normalization, no delimiter to forge. The cache is RELEASED at
+both points where the key dies: `ciInvalidate()` (conversation switch) and `ciBuildIndex()`'s
+commit (same-conversation rebuild — the round-5 finding); null-stamp computations are never
+cached at all.
 
-**Verification.** The hardening proved itself in-flight twice: episodes 4 and 5 hit PRs #62 and
-#63's own CI, self-terminated at ~20m, and the per-entry timings decomposed them from the log alone
-(healthy 6–28s entries degrading to 720s on a 13-second entry). Requeue-once recovered green every
-time. Codex found one real P2 in the PR (jump duration captured after the rAF probe — the
-instrument polluting its own measurement); fixed and verified by the probe-cost delta.
+**Measured effect** (before → after, same machine/payload/interactions): boosted generate
+11.7s → **2.4s**; keyPoints 9.0s → **0.05s**; export full-re-run → reuse. Live (owner):
+generate 8.5s with **no banner**, dedup **1ms**, export **HIT at 3–11ms**.
 
-### 3. v12.3 (PR #63, merged) — the Summary/Export dead zone closed
+### 3. The local review arc — Tier 1/2 inline + Tier 3 (opus, 5 lenses + 2 skeptics)
 
-**What.** Contract attributes (`sum-generate`, `sum-results`, `sum-stats`+counts,
-`sum-segment`+span, `tool-export`+id, `toast`); an in-page download-capture shim (gated, revoke-
-mirrored); UTF-8 charset on harness pages; a `__convLastUuid` observable in the GM shim; nine
-mutant-gated assertions (S1–S4, E1–E3 + regenerate + uuid-observed switch); the FIXTURE PRESENCE
-check; two small live-code fixes (`tool.action()` failure toast; `exportSummary` range label
-`msgs X–Y`). Suite 516→**525 assertions/engine**, 1050/1050 both engines.
+**19 findings, 0 false positives, 1 CRITICAL** (artifact:
+`reviews/review-2026-07-31-v12.4-perf.md`). The ones that changed the shipped code:
 
-**Why.** DEC-029's exit condition — "fixture the untested surface first in the next version" —
-was this batch. The baseline was re-proven on the parent commit: all four functions
-(`_sumBuildTimeline`, `_sumScrollToElement`, `_exportFromIndex`, `ciIndexStamp`) throwing
-simultaneously, suite green.
+- **CRITICAL (test-integrity lens, who ran its own mutants):** S5 as first written proved
+  *export→export* reuse, not *panel→export* — E3's recompute had refreshed the cache, so a
+  build whose panel computations left nothing reusable (the exact scenario the fix exists
+  for) stayed green. Fixed by running S5's regenerate leg FIRST; the leg order is
+  load-bearing and mutation-proven. **In-loop lesson, on the record:** the reorder was
+  documented in three docs before it had actually been applied, and the post-commit mutant
+  battery caught the gap — run the mutants even when the fix "obviously" landed (DEC-038).
+- The cache KEY had no killing mutation (a bare `if (_sumComputeCache)` shipped green) →
+  the E3 computes-delta gate (+1 across the post-switch export). After the retention fix,
+  the key check and the invalidate release became REDUNDANT defenses — the honest killing
+  mutation is their compound failure, measured red exactly there.
+- The qLen guard was replaced by provSig after a skeptic proved count-membership swaps are a
+  *steady state* under retained-degrade stamp freezes (one 429 → up to 30 min frozen), and
+  the skeptic's fix (content identity) strictly dominated mine (refuse-on-any-provisional).
+- Cache retention: released in `ciInvalidate`; never written with a null stamp (13 platforms
+  + degraded sessions would pin an unreadable copy of the conversation).
+- S5 settle guards (4 of 5 lenses): an index reload mid-block re-mints the stamp and turns a
+  correct refusal into a spurious red in the one assertion measuring the *absence* of work.
+- The probes/README live procedure would have halted the owner at the DEC-027 identity guard
+  against the fix build (expected `v12.3`; promised a run#3 the cache-hit removes) — fixed
+  to be version-explicit and to document the healthy no-run#3 outcome.
+- Mount-window snapshot (entities/inventory freeze at generate-time on a hit): skeptic-
+  bounded (≤7% of messages; entities describe only the ~3-5 mounted turns in EITHER build),
+  judged *better* than v12.3 on the only user-visible axis (exported counts match the open
+  panel exactly — same object), accepted + documented rather than keyed-on-mount.
 
-**The review arc is the story** (full artifact: `reviews/review-2026-07-30-0a63780.md`). Local
-Tier 1/2, then two Tier 3 opus rounds (5 lenses + 3 validation lenses), 29 verified findings,
-**zero false positives**:
+### 4. Five GitHub Codex rounds — 5 findings, 0 false positives, all in arc-written code
 
-- **Round 1, CRITICAL ×2, both in the fixtures' own first version:** E2 (the degraded-export test)
-  was nested inside `if (platform.indexBacked)` while its only entry is deliberately NOT
-  index-backed — unreachable, green, and claimed as coverage in three docs. And the harness served
-  test pages with no charset, so the browser decoded the inlined userscript as windows-1252 and
-  every literal non-ASCII character was mojibake in-page — invisible for a release because \uXXXX
-  escapes are unaffected, surfaced only because E2 would have been the first assertion to compare
-  one. Also round 1: a readiness probe polling an attribute on the wrong element (0ms no-op — the
-  contract doc's "On zone" row was wrong and got made load-bearing), an S4 conversation switch that
-  measurably never happened (claude is `spa:false`; `__convFetches` stayed flat), and an `orbPanel`
-  freeze that quietly stopped nav re-renders for downstream tests.
-- **Round 2 (validation on the fixes): 12 findings, 100% loop-introduced** — including my
-  replacement E2 check being *also* tautological (mutation-verified unfailable) and the fetch
-  counter being uuid-blind (ablation-verified: deleting the restore entirely stayed green). Fixed
-  with exact/observable forms: derived exact expectations, uuid-observed switch, post-regenerate
-  single-render reads. **Stopped on provenance (DEC-029)** — the loop had flipped to reviewing
-  its own edits.
-- **GitHub Codex: 0 fix rounds.** Auto-review 👍 + explicit re-review "Didn't find any major
-  issues" on the exact head. v12.0: 24 rounds; v12.1: 7. Recorded as the Tier 3 backend
-  experiment's first decisive data point (opus backend fully pre-empted the downstream loop).
+Round 1: provSig's 200-char truncation (the `_sumElKey` lesson recurring) + the probe's
+recompute tag-vs-delta mis-attribution. Round 2: normalization collisions (`array[x]` vs
+`arrayx`) → raw text. Round 3: **explicit clean**. Round 4 (drawn by a docs push; owner
+dispositioned as minor, fixed anyway): probe JSON lost cache-hit export totals; U+0001
+delimiter forgery → length-prefix framing. Round 5 (post-live-confirm, owner authorized +
+re-confirmed): release the cache at `ciBuildIndex`'s commit — a same-conversation rebuild
+made the cache permanently unreadable without releasing it. **The identity-key ladder
+(truncation → lossy normalization → delimiter ambiguity) is DEC-038's core lesson.**
+Zero findings ever landed in the v12.4 core or anything Tier 3 had passed — the v12.3
+pattern (local Tier 3 pre-empts the loop on frozen code) held.
 
-**Verification.** Every mutant re-verified individually against the committed state with clean
-isolation; the new gates (regenerate, presence) mutation-verified themselves; 1050/1050 both
-engines; live-confirmed 7/7 (§E).
+### 5. Two live confirmations (owner, Firefox + Tampermonkey, GM-sandbox, visible tab)
 
-### 4. NEW OPEN PROBLEM — Summary generate/export freezes Firefox on long conversations
+**First** (pre-round-5 build): banner gone; dedup 1ms over 1,135 candidates; export HIT
+11ms; an inadvertent same-day v12.3 control run (owner had been testing 12.3 believing it
+was 12.4) made the contrast unambiguous. **Second** (round-5 head `ce26aa6`, full 7-point
+checklist): HIT at 3ms; after a live send the index rebuilt g2→g4 and the export line read
+**`cached=null`** — the round-5 release observed directly; one recompute (8.2s) and a
+correct file; jumps landed (row 0 direct; row 178 via 3 bridge iterations). Also observed,
+pre-existing: the renderable-entry predicate off-by-2 diagnostic (predicted 294 vs
+aria-setsize 296) with its measured-anchor fallback holding.
 
-**What was observed (live, Firefox + Tampermonkey, ~147-question conversation, v12.3, owner):**
-clicking Summary→Generate, and Tools→Summary export, near-freezes the tab — Firefox shows its
-"this page is slowing down Firefox" banner — then completes correctly. The owner reports this has
-been **consistent since v12**, not new to v12.3.
-
-**Known code facts (read, not yet measured):** (a) `exportSummary` → `getSummaryForExport()` →
-`generateFullSummary()` runs the ENTIRE analysis fresh — no memoization, so panel-generate then
-export pays full price twice; (b) the whole pipeline (segmentation word-overlap across the
-timeline, topics, key points, entities, inventory) is one synchronous main-thread block; cost
-scales with total characters, and real messages are paragraphs where the mock's are ~70 chars;
-(c) v12.0 is when the summarizer started receiving the whole conversation instead of ~3 mounted
-turns — consistent with "since v12".
-
-**Owner's decision on scope:** measure first. If it's a small fix (e.g. memoize per index
-generation, reuse the panel's summary for export, chunk the analysis) → **v12.4**. If it needs a
-real refactor → **v13**. Do not start the refactor without the measurement.
-
-### 5. Process findings that changed how this repo works (see §D)
-
-Commit-before-mutating (learned twice, expensively), the FIXTURE PRESENCE class, the charset
-lesson, and a corrected contract-doc row — details in §D and DECISIONS DEC-036/037.
+**The honest residual, measured live twice:** generate 7.7–8.8s, ~93% in `phase.map` —
+**431 `_sumBuildSubSegments` rebuilds and 3,895 `_sumExtractTopicsFromText` extractions over
+27.1M chars in ONE generate** (`_sumMergeExcessSegments` alone 5.2–6.0s). The synthetic
+payload's topic-block structure produces few segments and structurally underrepresents this.
 
 ---
 
 ## C. Architecture snapshot
 
-Unchanged in structure from v12.1's handoff except:
-
-- **Summary/Export/Tools are now inside the tested perimeter** (the fixtures above). Still outside
-  it: `exportBookmarks()`, Tools gallery/commands, degraded-session summary paths (`_sumElKey`
-  staleness branch, sub-segment + inventory click handlers), multi-segment segmentation — all
-  recorded debt in the fixture comments and TESTING.md.
-- **Harness capabilities grew:** download capture (page-realm scoped — cannot see sandbox-realm
-  export breaks, DEC-019/020 split; live confirmation remains the only evidence for that realm),
-  `__convLastUuid`, per-entry wall-clock, FIXTURE PRESENCE.
-- `_isSrOnlyClassList` is the single hidden-label predicate (sr-only + cdk-visually-hidden),
-  serving `_cleanText` AND the export walker.
+Unchanged except: **the Summary compute cache** (`_sumComputeCache` + `_sumProvSig` +
+`data-acn-sum-computes`; design + invariants in DEC-038) and **`probes/`** as a permanent
+measurement surface (instrumented-build generator + payload generator + Playwright runner;
+build artifacts and results git-ignored; owner's installable copy lives on the Desktop as
+`probeE-summary-perf-v12.4.user.js` and must be REBUILT whenever a different build is being
+measured — DEC-027's wrong-build trap fired once this session and was caught by the
+identity line).
 
 ---
 
 ## D. Key principles established
 
-- **Commit before mutating.** `git checkout --` during mutation-verification restores HEAD and
-  silently destroys uncommitted fixes. This bit TWICE in one session (invalidating a 4-mutant run
-  the second time). The rule is now in commit history, DEC-037, and conventions.md.
-- **Silent non-execution is a detectable failure class.** A fixture block that never runs is
-  indistinguishable from passing — unless the harness declares expected assertion titles per
-  opt-in flag and hard-fails on absence (FIXTURE PRESENCE, DEC-037). Scope limit: it catches
-  condition-skips, not throw-aborts.
-- **A replacement for a vacuous check can be vacuous in a new way.** Twice this session a
-  tautological assertion was replaced with a differently-shaped tautology (section-count →
-  parts-sum; segments>0 → segEndMax). The test is always: state the mutation that flips it red.
-- **Every literal non-ASCII character in the harness was mojibake for a release.** No charset on
-  the served page → windows-1252 decode. If an assertion on a literal non-ASCII string fails
-  inexplicably, check `document.characterSet` first.
-- **The doc row was wrong and became load-bearing.** `data-acn-index-status` lives on the nav
-  banner, not the zone; the contract table said "On zone" and a readiness probe built on it was a
-  0ms no-op. A doc claim used as a build spec is a measurement taken from a document.
-- **Codex 👍-reaction = clean review with no text.** Silence + reaction is a PASS signal, not
-  a pending review.
-- **Runner-flake policy (DEC-036):** a webkit-macos job at 20m with per-entry timings degrading
-  and no real assertion failure = sick host; requeue once; never loosen budgets for it.
+- **Identity keys must be lossless** (DEC-038): truncation, case/whitespace folding,
+  markdown flattening, and bare delimiters each traded a harmless false-miss for a harmful
+  false-hit, found across three separate review rounds. Length-prefix framing ends the
+  ladder. Corollary: a cache must be *released* wherever its key dies, or it is a pinned
+  copy wearing a cache's name.
+- **A redundant defense changes the killing mutation** (DEC-038): after the invalidate
+  release landed, the bare-key mutant was absorbed — the gate's honest mutation became the
+  compound. Re-derive killing mutations after every fix that adds a second defense.
+- **Documenting a fix is not applying it**: the S5 reorder existed in three docs before it
+  existed in the harness; only the mutant battery noticed. DEC-037's class, self-inflicted
+  mid-review, caught by running mutants against the commit.
+- **The probe identifies itself or the measurement is void**: build tag + version + realm +
+  granularity in the first console line; the owner's wrong-build run was caught by its
+  absence.
+- **Owner process update:** plan-first was explicitly relaxed to *execute-and-narrate*
+  ("I am okay with you just executing, as long as you tell me"); merge delegation is per-PR
+  and explicit; DEC-029's diminishing-returns stop was exercised by the owner mid-cycle
+  ("if they're pretty minor, no need for the next round").
 
 ---
 
 ## E. Git state
 
-`main` @ `99b950b` (merge of #63), version **12.3**, CI 9/9. All of #61, #62, #63 merged by the
-owner. No open PRs, nothing in flight (this handoff branch excepted).
-
-### ✅ LIVE-CONFIRMED — `6e24eea`, 2026-07-30, owner, Firefox + Tampermonkey, ~147-question conversation
-
-All seven checklist items passed: **(1)** real export download through the Tampermonkey sandbox —
-the realm the harness structurally cannot test — with complete count, API source line, and
-unmounted-message bodies present; **(2)** summary generated over the whole conversation;
-**(3)** segment click paged the virtualizer to a far-away message (and mounted re-click direct);
-**(4)** summary export with the corrected `msgs X–Y` labels; **(5)** bookmarks-only export;
-**(6)** navigate jump exact; **(7)** bookmark click exact. The code head Codex passed twice
-(`3ef6239`) is byte-identical to the confirmed build (`6e24eea` adds only a reviews/ paragraph).
-The same test surfaced the §B.4 performance problem — a finding, not a failure of the gate.
+`main` @ `3a1ef00` pre-merge (v12.3 + probes + docs). **PR #66 (`fix/summary-perf-v12.4`)
+carries v12.4 and merges at the close of this session** — CI 9/9 on every head including the
+final one, Codex clean, DEC-031 satisfied twice (the merge candidate's userscript is the
+byte content the owner re-confirmed; commits after `ce26aa6` are docs-only). #61–#65 all
+merged. After the merge, `main` serves v12.4 and the owner's raw `main` link is current.
 
 ---
 
@@ -210,77 +194,77 @@ The same test surfaced the §B.4 performance problem — a finding, not a failur
 | Path | Why |
 |---|---|
 | `HANDOFF.md` | this file |
-| `reviews/review-2026-07-30-0a63780.md` | the full two-round Tier 3 arc + backend experiment record |
-| `TESTING.md` → "Summary/Export fixtures (v12.3)" | fixture semantics, gates, debts, charset lesson |
-| `TESTING.md` → "CI: reading a webkit-on-macos failure or hang" | the runner-flake procedure |
-| `DECISIONS.md` DEC-036, DEC-037 | this session's standing decisions |
-| `TROUBLESHOOTING.md` → v12.x Summary performance entry (OPEN) | the freeze finding + measurement plan |
-| `ROADMAP.md` backlog | re-ranked: perf first, carried-over fixtures second |
-| `docs/handoffs/SESSION_HANDOFF_2026-07-29_v12.1-legacy-bookmarks.md` | predecessor |
+| `reviews/review-2026-07-31-v12.4-perf.md` | the full review arc: Tier 1/2/3, 5 Codex rounds, both live confirmations |
+| `TROUBLESHOOTING.md` → Summary-freeze entry | the complete measurement record: synthetic + live, before + after, both contexts |
+| `DECISIONS.md` DEC-038 | the compute-cache design + identity-key rules |
+| `ROADMAP.md` item 11 | the residual map-churn lever with live numbers |
+| `TESTING.md` → Summary/Export fixtures | S5/E3 gate semantics + the recorded debts |
+| `probes/README.md` | both measurement paths; Path A is the live procedure |
 
 ---
 
 ## G. What comes next
 
-1. **Measure the Summary performance problem, then decide v12.4 vs v13** (owner's framing).
-   Specific questions queued: where does the time actually go on the live 147-question
-   conversation (segmentation word-overlap? topics? entities? render?) — instrument the phases of
-   `generateFullSummary` and measure in Firefox on the real conversation (visible tab; the usual
-   context rules). Confirm the double-run (`exportSummary` re-running the full analysis) with
-   numbers. Then: if memoize-per-index-generation + reuse-for-export + chunking gets it under the
-   jank threshold → v12.4; if the pipeline needs restructuring → v13 planning.
-2. **Carried-over fixture batch** (ROADMAP item 2 residue): localized unmatchable-cluster,
-   unmatchable-HEAD, assistant-TAIL, GM-shim backoff classes incl. malformed JSON. Plus the
-   recorded debts if cheap: exportBookmarks fixture (must assert toast/file, not pageerror — the
-   new catch changed the failure mode), multi-segment summary fixture.
-3. **Backlog unchanged behind those:** Retry-After for HTTP 429; §4.2 offset-cache reassessment
-   (measure a live repeat jump — the existing datapoint is about precision, not speed); peek pane;
-   mock-fidelity payload generator; debulking; Emergent (deprioritized by owner — "almost no one
-   uses it"); Gemini re-chain re-opens only on a text-bearing footer observation.
+1. **The map's segment-merge churn** (ROADMAP item 11 residual — v12.5-vs-v13 is the owner's
+   call). Live: 431 sub-segment rebuilds + 3,895 topic extractions over 27.1M chars per
+   generate; `mergeExcess` alone 5.2–6.0s. Specific questions queued: (a) how many initial
+   segments does the live conversation produce pre-merge (instrument the segment count — one
+   probe counter)? (b) does per-message token memoization preserve output exactly? The known
+   edge: `tokenize(join(a,b)) ≠ union(tokenize(a),tokenize(b))` when an unterminated code
+   fence spans a join — measure whether that occurs in practice before choosing the lever.
+   (c) is the win sufficient without restructuring the merge loops (O(S²)-flavored
+   agglomerative pass)? Target: generate under ~2s live.
+2. **Carried-over fixture batch, now grown:** unmatchable-cluster/HEAD, assistant-TAIL,
+   GM-shim backoff (incl. malformed JSON), exportBookmarks (failure mode is toast now) — plus
+   this session's additions: a **forced-refetch shim knob** (gates the ungated
+   same-conversation stamp-bump refusal), a **provisional-turn knob** (stages the provSig
+   half of the cache key), a key-point-bearing payload knob (the dedup early-stop has no
+   fixture that could catch a wrong result — currently equivalence-argument + byte-diff).
+3. **Smaller recorded items:** thread the index's existing `toolBlocks` extraction into the
+   summary's unmounted inventory branch (shrinks the mount-window divergence at its source);
+   the renderable-entry predicate off-by-2 (live-observed, fallback holding — revisit the
+   stop_reason predicate when touching that area); `renderSummaryResults` throw strands the
+   generate button (pre-existing, one try/finally away).
+4. **Backlog unchanged behind those** (Retry-After 429, §4.2 offset-cache reassessment, peek
+   pane, mock-fidelity generator, debulking, Emergent deprioritized, Gemini re-chain closed).
 
 ---
 
 ## H. Operational context + owner rules (standing + this session)
 
-- **Version policy for the perf work (owner, this session):** small fix → v12.4; full refactor →
-  v13. Measure before choosing; don't start a refactor on a hypothesis.
-- **Review-cycle policy (owner, this session):** run Codex cycles long while findings are
-  substantive; stop at diminishing returns (nitpicks/minuscule edge cases) — the owner's phrasing
-  of DEC-029's provenance rule. The owner wants all debugging done BEFORE their live test so they
-  test once; fixes after a live test invalidate it (DEC-031).
-- **Merge authority is the owner's alone**, gated on live confirmation of the exact final commit
-  (DEC-031). Unchanged.
-- The owner tests on **Firefox + Tampermonkey**; the DGX's Chromium is a different context (and
-  has the userscript installed — strip `[data-acn-*]`/`acn-bm-icon` artifacts in any probe;
-  binary is `chromium`, not `chromium-browser`).
-- Explicit `git add` paths, never `-A`; review agents must work in scratchpad copies (violated
-  again this session by a lens — caught and removed).
-- **Commit before mutating** (new, hard rule — see §D).
+- **Execute-and-narrate** replaces plan-first (owner, this session): act autonomously,
+  report every significant action clearly. Formal gates unchanged: DEC-031 (live-code
+  merges need live confirmation of the exact head — exercised TWICE this session, including
+  for a one-line memory-only change), owner merge authority unless explicitly delegated
+  per-PR (as with #64/#65/#66).
+- **Review-cycle stop is the owner's, on provenance** (DEC-029, exercised live): when
+  remaining findings are minor and loop-era, fix cheap ones without triggering another
+  round.
+- The owner tests on **Firefox + Tampermonkey**; probe builds must be regenerated per
+  measured build and live on the Desktop (`probeE-…`); the raw `main` link serves the
+  installed script post-merge.
+- Explicit `git add` paths, never `-A`; commit-before-mutating; suite before push.
 
 ## I. Deferred / future work
 
-- All of §G items 2–3 (each entry self-contained in ROADMAP).
-- exportBookmarks / gallery / commands / degraded-session summary paths / multi-segment
-  segmentation: recorded test debt (fixture comments + TESTING.md).
-- Stage-2 legacy-bookmark sweep (unchanged from v12.1: build only if a real user reports residual
-  unmatched records).
-- The `overflow-anchor: none` mock assumption remains unverified directly (carried).
+All of §G items 2–4 (each self-contained in ROADMAP/TESTING). Stage-2 legacy-bookmark sweep
+unchanged. The `overflow-anchor: none` mock assumption remains unverified (carried).
 
 ## J. Risk caveats / known limitations
 
-- **⚠ Summary/Export perf on long conversations (OPEN)** — §B.4. Features work; UX degrades
-  severely on ~147-question conversations in Firefox. Priority 1 next session.
-- **The download capture is page-realm scoped.** A sandbox-realm export break (DEC-019/020 class)
-  is invisible to CI; the owner's live export test is the only evidence for that realm. It passed
-  on 2026-07-30; re-arm this concern whenever export/Blob/anchor code changes.
-- **S4's stale-guard fixture cannot distinguish a correct refusal from a false-positive refusal**
-  (the shim serves identical payloads per uuid), and the stamp's conversation-id half is
-  defense-in-depth no fixture isolates (generation counter is globally monotonic). Recorded in the
-  fixture comments.
-- **Rule C (bookmarks) still rests on an n=1 payload shape** (carried from v12.1); `summaries=`
-  telemetry is the regression signal.
-- **webkit-on-macos runner episodes will recur** — five in one day. The procedure (TESTING.md) is
-  requeue-once; the 20-minute timeout caps the cost. Do not loosen budgets to make sick hosts green.
+- **Mount-window snapshot on cache hits** (documented, accepted): a cache-hit export carries
+  generate-time entities/inventory — identical to what the open panel shows, but not the
+  export-time window. Bounded ≤7% of messages; pre-existing in mechanism (tool/artifact
+  answers render more than their API text). `toolBlocks` threading shrinks it (§G.3).
+- **The same-conversation stamp-bump refusal is ungated** in the harness (needs the
+  forced-refetch knob) and **provSig is unstaged** (needs the provisional knob) — both
+  behaviors verified live instead this session (`cached=null` at g2→g4; provSig.len visible
+  in the cache line), but live verification is per-run, not regression protection.
+- **The byte-identical export diff is text-branch-scoped** — it cannot see mount-window
+  divergence (mock renders no pre/img/a; no scroll between generate and export). Recorded
+  in TESTING.md; do not re-cite it as a general equivalence proof.
+- **webkit-on-macos runner episodes** (DEC-036) had ZERO occurrences across ~6 CI runs this
+  session — the healthy signature throughout; the requeue-once procedure remains armed.
 
 ---
 

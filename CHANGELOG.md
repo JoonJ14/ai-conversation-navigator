@@ -73,13 +73,21 @@ owner's version policy (small fix → v12.4; refactor → v13):
   probes payload (recorded in TESTING.md with the rest of the S5 semantics).
 - Before/after on the same machine/payload (Firefox, q=147): recorded in the
   TROUBLESHOOTING entry alongside the numbers that motivated the fix.
-- Live confirmation on the real conversation: **PASSED 2026-07-31** (owner, Firefox +
-  Tampermonkey, GM-sandbox realm, probe 12.4-perf1 over the PR #66 head): banner gone,
-  dedup 1ms over 1,135 candidates, export cache HIT at 11ms with no second
-  computation. Residual live cost — ~7.7–8.5s generate, ~93% in the map's
-  segment-merge churn (431 sub-segment rebuilds / 3,895 topic extractions per
-  generate) — recorded in ROADMAP item 11 as the follow-up lever, with numbers and
-  contexts in TROUBLESHOOTING.
+- Live confirmation on the real conversation: **PASSED 2026-07-31 — twice** (owner,
+  Firefox + Tampermonkey, GM-sandbox realm, probe builds over the exact heads): first
+  pass — banner gone, dedup 1ms over 1,135 candidates, export cache HIT at 11ms with no
+  second computation; second pass (after the round-5 release) — HIT at 3ms, and after a
+  live send the index rebuilt g2→g4 with the export's cache line reading `cached=null`,
+  the release observed directly, followed by exactly one recompute. Residual live cost —
+  ~7.7–8.8s generate, ~93% in the map's segment-merge churn (431 sub-segment rebuilds /
+  3,895 topic extractions per generate) — recorded in ROADMAP item 11 as the follow-up
+  lever, with numbers and contexts in TROUBLESHOOTING.
+- Review arc, full tally: Tiers 1–2 inline (1 WARN fixed), Tier 3 opus (5 lenses + 2
+  skeptics: 19 findings, 0 false positives, 1 CRITICAL — the S5 panel-provenance hole),
+  then **five GitHub Codex rounds: 5 findings, 0 false positives, all in arc-written
+  code, zero in the v12.4 core** (the identity-key ladder ×3, a probe mis-attribution,
+  the same-conversation release point). DEC-038 distills the standing rules. Artifact:
+  `reviews/review-2026-07-31-v12.4-perf.md`.
 
 ## [12.3 — Summary/Export Fixtures: the Dead Zone Gets Executed] — 2026-07-30
 
