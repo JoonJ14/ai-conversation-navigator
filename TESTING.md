@@ -1419,11 +1419,16 @@ What rules the code out, and it is worth stating in this order:
    ~65 minutes after the first. `githubstatus.com` reported Actions fully operational
    throughout, so "no incident posted" is not evidence of a healthy pool.
 
+**How it ended, recorded because the prediction was testable:** the next run — a docs-only push
+~12 minutes after the last wedge — came back **green at 6m04s** on the same suite and the same
+userscript. The episode lasted roughly 65 minutes (04:05–05:11 UTC) and then simply stopped.
+That is the environmental read confirmed, not merely assumed.
+
 Response when this variant appears: do **not** keep requeuing (three attempts is already past
 useful), and do not read it as a code finding — but do not silently discount it either. Record
 the pass/wedge pairs with their commits, note that a required check is red for environmental
-reasons, and hand the merge decision to the owner: a later requeue once the pool recovers, or
-an explicit admin merge with this record attached.
+reasons, and hand the merge decision to the owner: a later requeue once the pool recovers (which
+is what worked here), or an explicit admin merge with this record attached.
 
 ---
 

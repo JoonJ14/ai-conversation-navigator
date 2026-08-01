@@ -1510,7 +1510,10 @@ pathology shows on exactly one job — which is also why it reads, wrongly, like
   "which test?" but "did the tested bytes change?" — a pass and a fail on identical input is a
   complete refutation of any code hypothesis, and it takes one `git diff` to establish.** Also:
   `githubstatus.com` showed Actions fully operational the whole time, so an absent incident report
-  is not evidence of a healthy runner pool. Full record in TESTING.md.
+  is not evidence of a healthy runner pool. **Resolution, recorded because it tested the read:**
+  the next run — a docs-only push ~12 minutes after the last wedge — came back green at 6m04s on
+  the same suite and userscript, ending a ~65-minute episode (04:05–05:11 UTC). Full record in
+  TESTING.md.
 
 ---
 
