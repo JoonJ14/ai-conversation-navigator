@@ -67,7 +67,12 @@ function buildTimeline(q, seed, vocabMult, paraBoost) {
         m.text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
             .forEach((w) => { if (w.length > 2) words.add(w); });
     });
-    return { msgs, stats: { messages: msgs.length, chars, distinctWords: words.size } };
+    return {
+        msgs,
+        topicBoundaries: conv.topicBoundaries,
+        stats: { messages: msgs.length, chars, distinctWords: words.size,
+                 topicBlocks: conv.stats.topicBlocks },
+    };
 }
 
 // Minimal page: the mock body (so the userscript detects claude.ai and reaches
@@ -135,6 +140,28 @@ function n(calls, key, field) {
     return calls[key] ? calls[key][field] : 0;
 }
 
+// Scores DETECTED boundaries against the payload's KNOWN topic changes, so a
+// segmentation threshold is chosen on evidence instead of on which histogram
+// looks tidier. A detected boundary counts as a hit if it lands within TOL
+// messages of a true one (the segmenter needs a message or two of divergent
+// vocabulary before it can react, so exact-index matching would understate a
+// correct segmenter).
+//
+// Scope, and it is a real limit: this scores against a SYNTHETIC generator whose
+// topic blocks are lexically disjoint by construction. Real conversations drift,
+// revisit and interleave, so a good score here means "the mechanism works", not
+// "this threshold is right for the owner's conversation" — that stays a live check.
+function scoreBoundaries(detected, truth, tol) {
+    const unmatched = truth.slice();
+    let hits = 0;
+    detected.forEach((d) => {
+        const i = unmatched.findIndex((t) => Math.abs(t - d) <= tol);
+        if (i !== -1) { hits++; unmatched.splice(i, 1); }
+    });
+    return { hits, missed: unmatched.length, spurious: detected.length - hits,
+             truth: truth.length, detected: detected.length };
+}
+
 (async () => {
     const browsers = parseArg('browser', 'chromium').split(',');
     const sizes = parseArg('sizes', '147').split(',').map(Number);
@@ -186,7 +213,7 @@ function n(calls, key, field) {
         for (const q of sizes) {
             for (const para of paras) {
                 for (const vocab of vocabs) {
-                    const { msgs, stats } = buildTimeline(q, seed, vocab, para);
+                    const { msgs, stats, topicBoundaries } = buildTimeline(q, seed, vocab, para);
                     const key = `${engine}/q=${q}/para=${para}/vocab=${vocab}`;
                     const runs = [];
                     let fp = null;
@@ -215,8 +242,32 @@ function n(calls, key, field) {
                     const deferred = subs === finals;
                     const model = eager && deferred ? 'either — no merges, formulas coincide'
                                 : eager ? 'eager' : deferred ? 'deferred' : 'UNKNOWN';
+                    // Sub-segment SHAPE, not just count: the 2026-08-01 defect was
+                    // 90-of-92 children at exactly the absorb pass's 3-message minimum,
+                    // which a total would have hidden completely (92 children of 3 and 92
+                    // of varied size print the same number).
+                    const segsFp = JSON.parse(fp);
+                    const subSizes = {};
+                    let subTotal = 0;
+                    segsFp.forEach((s) => s.children.forEach((c) => {
+                        subSizes[c.n] = (subSizes[c.n] || 0) + 1; subTotal++;
+                    }));
+                    const subKeys = Object.keys(subSizes).map(Number).sort((a, b) => a - b);
+                    // Every boundary the map draws, at BOTH levels: a segment start and
+                    // every child start (except the very first, which is not a decision).
+                    const detected = [];
+                    segsFp.forEach((s, si) => {
+                        if (si > 0) detected.push(s.startIdx);
+                        s.children.forEach((c, ci) => { if (ci > 0) detected.push(c.startIdx); });
+                    });
+                    detected.sort((a, b) => a - b);
+                    const score = scoreBoundaries(detected, topicBoundaries, 2);
                     const rec = {
                         engine, q, para, vocab, payload: stats,
+                        subSegments: subTotal,
+                        subSizeHistogram: subSizes,
+                        segmentSizes: segsFp.map((s) => s.msgIdx.length),
+                        boundaryScore: score,
                         ms: runs.map((r) => +r.ms.toFixed(1)),
                         segmentsInitial: segs, segmentsFinal: finals,
                         subSegmentCalls: subs,
@@ -237,7 +288,12 @@ function n(calls, key, field) {
                         `      topicsFromText ${rec.topicsCalls}x over ${(rec.topicsChars / 1e6).toFixed(1)}M chars, ` +
                         `tokenize ${rec.tokenizeCalls}x over ${(rec.tokenizeChars / 1e6).toFixed(1)}M chars\n` +
                         `      map ${rec.ms.join(' / ')} ms  (subSegments ${rec.subSegmentsMs}ms, ` +
-                        `mergeExcess ${rec.mergeExcessMs}ms)`);
+                        `mergeExcess ${rec.mergeExcessMs}ms)\n` +
+                        `      segment sizes [${rec.segmentSizes.join(', ')}]; ` +
+                        `${subTotal} sub-segments, sizes ` +
+                        (subTotal ? subKeys.map((k) => `${k}x${subSizes[k]}`).join(' ') : '(none)') + '\n' +
+                        `      boundaries: ${score.hits}/${score.truth} true topic changes found ` +
+                        `(+-2 msgs), ${score.spurious} spurious of ${score.detected} drawn`);
                     if (baseline) {
                         // A requested config the baseline never covered was never
                         // compared — counting it clean would let a narrower baseline

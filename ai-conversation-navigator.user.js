@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.5
+// @version      12.6
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -40,7 +40,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.5';
+    var ACN_VERSION = '12.6';
 
     // ============================================================
     // i18n — internationalization string table
@@ -8624,14 +8624,44 @@
         return PIVOT_PHRASES.test(text);
     }
 
-    // Secondary segmentation pass for large segments (8+ messages).
-    // Detects genuine topic shifts within a long segment using a high overlap threshold.
-    // Purely content-driven — no count-based caps. A post-merge pass absorbs tiny
-    // fragments (< 3 messages) that form when a single off-topic exchange slips through.
+    // How much of the SMALLER vocabulary the two texts share — |A∩B| / min(|A|,|B|),
+    // the overlap (Szymkiewicz–Simpson) coefficient. Distinct from _sumWordOverlap,
+    // which divides by max() and is therefore dominated by the size difference: one
+    // message (~30 unique content words) against a four-message window (~700) cannot
+    // exceed ~0.04 under max(), so ANY threshold above that splits unconditionally.
+    // That is exactly what happened to sub-segmentation — see the TROUBLESHOOTING
+    // entry and DEC-040. Reading here: "how much of this message's vocabulary was
+    // already on the table", which is the question a topic-continuity test is asking.
+    // _sumWordOverlap is deliberately left alone — key-point dedup and the top-level
+    // segmentation are calibrated against its behaviour.
+    function _sumVocabContainment(textA, textB) {
+        var wordsA = new Set(_sumTokenize(textA));
+        var wordsB = new Set(_sumTokenize(textB));
+        if (wordsA.size === 0 || wordsB.size === 0) return 0;
+        var intersection = 0;
+        wordsA.forEach(function (w) { if (wordsB.has(w)) intersection++; });
+        return intersection / Math.min(wordsA.size, wordsB.size);
+    }
+
+    // Secondary segmentation pass for large segments (12+ messages).
+    // Splits where a message's vocabulary stops overlapping the recent context —
+    // a real topic-continuity test since v12.6; before that the threshold was
+    // unreachable and every message split, so the visible structure was fixed
+    // 3-message chunks emitted by the absorb pass below (DEC-040).
+    // A post-merge pass absorbs tiny fragments (< 3 messages) that form when a
+    // single off-topic exchange slips through.
     // Returns an array of sub-segments (children), or [] if no meaningful split found.
     function _sumBuildSubSegments(messages) {
         if (messages.length < 12) return [];
-        var SUB_THRESHOLD = 0.42;  // split on meaningful vocabulary divergence within a segment
+        // Fraction of the smaller vocabulary shared with the recent context. Chosen by
+        // scoring detected boundaries against the probe payload's KNOWN topic changes
+        // (probes/run-map-harness.js prints the score), not by eye: recall saturates at
+        // 7/8 from 0.65 and stays there, while spurious boundaries start climbing past
+        // 0.70 and 3-message fragments reappear at 0.75+. 0.65 is the least aggressive
+        // value that reaches full recall. Scope: the probe's topic blocks are lexically
+        // disjoint by construction, so this validates the MECHANISM; the exact number is
+        // a live judgement (DEC-040).
+        var SUB_THRESHOLD = 0.65;
         var CONTEXT       = 4;
         var subs          = [];
         var cur           = [messages[0]];
@@ -8640,7 +8670,7 @@
             var msg     = messages[i];
             var win     = cur.slice(-CONTEXT);
             var winText = win.map(function (m) { return m.text; }).join(' ');
-            var overlap = _sumWordOverlap(msg.text, winText);
+            var overlap = _sumVocabContainment(msg.text, winText);
             if (overlap >= SUB_THRESHOLD) {
                 cur.push(msg);
             } else {
@@ -8648,6 +8678,7 @@
                 var topics  = _sumExtractTopicsFromText(segText, 3);
                 subs.push({
                     label:    _sumGenerateSegmentLabel({ topics: topics }),
+                    topics:   topics,          // kept for the merge passes below
                     startIdx: cur[0].globalIdx,
                     endIdx:   cur[cur.length - 1].globalIdx,
                     messages: cur
@@ -8660,6 +8691,7 @@
             var lastTopics = _sumExtractTopicsFromText(lastText, 3);
             subs.push({
                 label:    _sumGenerateSegmentLabel({ topics: lastTopics }),
+                topics:   lastTopics,
                 startIdx: cur[0].globalIdx,
                 endIdx:   cur[cur.length - 1].globalIdx,
                 messages: cur
@@ -8682,6 +8714,7 @@
                     var combinedTopics = _sumExtractTopicsFromText(combinedText, 3);
                     subs.splice(lo, 2, {
                         label:    _sumGenerateSegmentLabel({ topics: combinedTopics }),
+                        topics:   combinedTopics,
                         startIdx: combinedStart,
                         endIdx:   combinedMsgs[combinedMsgs.length - 1].globalIdx,
                         messages: combinedMsgs
@@ -8690,6 +8723,53 @@
                     break;
                 }
             }
+        }
+
+        // Bound the ROW COUNT the way the top level does (_sumMergeExcessSegments):
+        // repeatedly merge the most topically similar ADJACENT pair until the count
+        // fits. The containment test above improves WHERE boundaries land; it cannot
+        // bound HOW MANY, and there is a measured regime where it does not try to —
+        // short messages drawn from a wide vocabulary (PARA_BOOST=1/VOCAB_MULT=4)
+        // repeat few words, so same-topic follow-ups score below any fixed threshold
+        // and the segment still fragments (46 rows, measured). Merging by topic
+        // similarity rather than by position means the boundaries that SURVIVE are
+        // the least similar joints. Topic lists are merged, not recomputed, so this
+        // costs no tokenization (DEC-040).
+        var SUB_MAX = Math.max(2, Math.min(8, Math.round(messages.length / 20)));
+        while (subs.length > SUB_MAX) {
+            // Merge the SMALLEST sub-segment into its more topically similar neighbour
+            // — the same shape as the fragment-absorb pass above, just with a count
+            // target instead of a size floor.
+            //
+            // NOT "merge the most similar adjacent PAIR", which is what the top level
+            // does: a merged sub's topics are a union capped at six terms, so it
+            // overlaps with everything and keeps winning the similarity contest. That
+            // was measured, not theorised — it produced one 221-message row beside six
+            // 3-message rows and dropped boundary recall from 8/8 to 2/8 on the same
+            // payload. Smallest-first cannot run away, because merging a sub makes it
+            // LESS likely to be chosen next. (The top level shows the same pathology
+            // live — segments of 8, 20, 181, 80, 81 — but it is out of scope here and
+            // recorded in ROADMAP instead of changed unasked.)
+            var smallest = 0;
+            for (var m = 1; m < subs.length; m++) {
+                if (subs[m].messages.length < subs[smallest].messages.length) smallest = m;
+            }
+            var prevOv = smallest > 0
+                ? _sumTopicOverlap(subs[smallest].topics || [], subs[smallest - 1].topics || []) : -1;
+            var nextOv = smallest < subs.length - 1
+                ? _sumTopicOverlap(subs[smallest].topics || [], subs[smallest + 1].topics || []) : -1;
+            var tgt = prevOv >= nextOv ? smallest - 1 : smallest + 1;
+            var slo = Math.min(smallest, tgt);
+            var shi = Math.max(smallest, tgt);
+            var mergedTopics = _sumMergeTopics(subs[slo].topics || [], subs[shi].topics || []);
+            var mergedSubMsgs = subs[slo].messages.concat(subs[shi].messages);
+            subs.splice(slo, 2, {
+                label:    _sumGenerateSegmentLabel({ topics: mergedTopics }),
+                topics:   mergedTopics,
+                startIdx: subs[slo].startIdx,
+                endIdx:   mergedSubMsgs[mergedSubMsgs.length - 1].globalIdx,
+                messages: mergedSubMsgs
+            });
         }
 
         return subs.length > 1 ? subs : [];

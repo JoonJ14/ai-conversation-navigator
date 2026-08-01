@@ -4,6 +4,72 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.6 — The Map's Second Level Actually Reads the Conversation] — 2026-08-01
+
+**Branch:** `fix/map-subsegments-v12.6`
+
+### Problem
+
+Found by the owner during the v12.5 live pass: every sub-segment covered exactly three
+messages — `msgs 1–3`, `4–6`, `7–9` — with near-identical labels ("sweep / edge", "edge",
+"edge / space"). Their words: *"the list is getting a little too long… those are almost
+identical concepts, but our sub-segments separate all of them."* Top-level segments behaved
+correctly by comparison, staying together until the topic actually moved.
+
+### Root cause
+
+`_sumBuildSubSegments` split when `_sumWordOverlap(message, recent-window) < 0.42`.
+`_sumWordOverlap` divides by **`max(|A|,|B|)`**, so one message (~30 unique content words)
+against a four-message window (~700) has a **ceiling near 0.04**. The threshold was
+unreachable: every message split, and 100% of the visible structure came from the pass that
+absorbs fragments smaller than three messages — which stops at exactly three. The map's
+second level was fixed-size chunking wearing a topical label, and the function's comment
+claimed the opposite ("Detects genuine topic shifts… Purely content-driven — no count-based
+caps"), which is why it survived this long.
+
+### Approach
+
+Two mechanisms, each chosen against a measurement rather than by eye. The probe payload
+knows where its topic blocks change, so it now emits that ground truth and the harness scores
+detected boundaries against it:
+
+1. **`_sumVocabContainment` — `|A∩B| / min(|A|,|B|)`** — for the sub-split only, reading as
+   "how much of this message's vocabulary was already on the table". `_sumWordOverlap` is left
+   untouched; key-point dedup and top-level segmentation are calibrated to it.
+   `SUB_THRESHOLD = 0.65`, the least aggressive value that reaches full boundary recall.
+2. **A count cap** (`clamp(size / 20, 2, 8)`) that merges the **smallest** sub-segment into its
+   more similar neighbour. Containment fixes where boundaries fall; it cannot bound how many.
+
+### Result
+
+Measured, Firefox, q=147 at the live-calibrated payload:
+
+| | sub-segments | true topic changes found | spurious |
+|---|---|---|---|
+| v12.5 | 92 (90 of size 3) | 7/8 | **86 of 93 drawn** |
+| v12.6 | **7 (28–40 msgs)** | 7/8 | **3 of 10** |
+
+The pre-fix 7/8 was an artefact of drawing a boundary every three messages — precision 7.5%.
+The v12.6 children on that payload are its actual topic blocks, in order: auth → database →
+frontend → deployment → performance → testing → networking. Two other configs score 8/8 and
+7/8 with **zero** spurious boundaries. The test mock's own map went from 27 sub-rows to 4.
+
+**Honest limit, measured and documented:** in a short-message + wide-vocabulary regime, same-topic
+follow-ups repeat too few words for any fixed threshold, and recall there is 2/8 — the cap keeps
+the panel readable (46 rows → 12) without making those boundaries topical. The regimes matching
+the owner's real conversation by text volume are the 7/8–8/8 ones.
+
+Cost is unchanged: the same tokenization as before, and the cap merges topic lists rather than
+recomputing them (v12.5's hot loop is untouched).
+
+Rejected — and measured before rejecting: capping by merging the most similar adjacent *pair*,
+which is what the top level does. A merged sub's six-term topic union overlaps with everything
+and runs away, producing one **221-message row** beside six 3-message rows and dropping recall to
+2/8. The top level still uses that rule, and the owner's live map shows its signature (segments
+of 8, 20, 181, 80, 81); it is recorded in ROADMAP rather than changed unasked. See DEC-040.
+
+---
+
 ## [12.5 — The Map's Segment-Merge Churn: 431 Sub-Segment Rebuilds per Generate → 5] — 2026-07-31
 
 **Branch:** `perf/summary-map-v12.5`

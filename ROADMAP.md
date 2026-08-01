@@ -80,8 +80,19 @@ on a hypothesis.**
 
 Numbering below is stable (items keep their historical numbers):
 
-0. **Conversation-map sub-segmentation is not content-driven (OPEN — priority 1, added
-   2026-08-01 from the owner's live v12.5 pass).** Every sub-segment is exactly 3 messages with
+0. **Conversation-map sub-segmentation is not content-driven — FIXED in v12.6 (DEC-040),
+   awaiting live confirmation.** Containment (`min`) replaces max-normalization for the
+   sub-split at `SUB_THRESHOLD = 0.65`, plus a smallest-first count cap. Measured on the
+   live-calibrated payload: **92 sub-segments (90 of size 3, 86 spurious boundaries) → 7 of
+   28–40 messages, 3 spurious**, and the children come out as the payload's actual topic
+   blocks in order. **Two things stay open out of this:**
+   (i) a short-message + wide-vocabulary regime still scores 2/8 on boundary recall — the cap
+   bounds the row count there without making the boundaries topical (measured, documented);
+   (ii) **the TOP level still merges by most-similar-pair**, the rule measured to run away at
+   the sub level (one 221-message row, recall 8/8 → 2/8). The owner's live map shows that
+   signature — segments of 8, 20, 181, 80, 81. Left unchanged because the owner reports the
+   top level as satisfactory; the fix, if wanted, is the same smallest-first merge.
+   *Original diagnosis, kept:* Every sub-segment is exactly 3 messages with
    near-identical labels, because `SUB_THRESHOLD = 0.42` is unreachable — `_sumWordOverlap`
    divides by `max(|A|,|B|)`, so one message against a 4-message window peaks near 0.04. Every
    message splits and the absorb-fragments pass produces fixed 3-message chunks. Reproduced

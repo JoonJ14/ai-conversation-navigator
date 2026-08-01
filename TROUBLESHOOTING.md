@@ -464,9 +464,9 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ---
 
-## OPEN — Conversation-map sub-segmentation is not content-driven (found live 2026-08-01)
+## v12.6 — Conversation-map sub-segmentation was not content-driven (found live 2026-08-01)
 
-**Status:** OPEN | **Severity:** Medium — the map's second level is noise, no data loss |
+**Status:** FIXED in v12.6, awaiting live confirmation | **Severity:** Medium — the map's second level was noise, no data loss |
 **Found by:** owner, live v12.5 pass on the real ~147-question conversation | **Age:** pre-existing,
 unrelated to v12.4/v12.5 (those changed WHEN sub-segments are built, never HOW)
 
@@ -507,16 +507,36 @@ Two things follow, and both matter more than the symptom:
    collapses it to ≤5. The sub level has no equivalent cap, so its degeneracy is visible.
    **The top level is accidentally good, not correct** — worth knowing before anyone "fixes" it.
 
-### Fix direction (not yet built)
+### Fix (v12.6, DEC-040)
 
-Scoped to the sub level, since the owner reports the top level as satisfactory: (a) make the split
-decision reachable by comparing like with like — a containment-style measure
-(`|A∩B| / min(|A|,|B|)`, "how much of THIS message's vocabulary already appeared in the window")
-rather than the size-asymmetric `max`; and (b) a merge-to-cap pass mirroring
-`_sumMergeExcessSegments`, so a pathological case degrades to a few rows instead of ninety.
-Density is a taste call and must be settled with the owner against real output, not chosen in the
-abstract. The equivalence harness changes role here — this change SHOULD alter the fingerprint, so
-the gate becomes a diff to read rather than a green to confirm.
+`_sumVocabContainment` (`|A∩B| / min(|A|,|B|)`) for the sub-split only, at `SUB_THRESHOLD = 0.65`,
+plus a count cap that merges the SMALLEST sub into its more similar neighbour
+(`clamp(size/20, 2, 8)`). `_sumWordOverlap` is untouched — key-point dedup and the top level are
+calibrated to it.
+
+**The threshold was scored, not eyeballed.** `probes/perf-payload.js` now emits the timeline
+indices where its topic blocks change, and the harness reports how many of those a build actually
+finds (±2 messages) and how many boundaries it invents:
+
+| build | sub-segments | true topic changes found | spurious |
+|---|---|---|---|
+| pre-fix (`max`, 0.42) | 92 (90 of size 3) | 7/8 | **86 of 93 drawn** |
+| v12.6 (containment 0.65 + cap) | **7 (28–40 msgs)** | 7/8 | **3 of 10** |
+
+The pre-fix 7/8 was an artefact of drawing a boundary every three messages — precision 7.5%. On
+this payload the v12.6 children are its actual topic blocks in order (auth → database → frontend →
+deployment → performance → testing → networking); two other configs score 8/8 and 7/8 with ZERO
+spurious. The test mock's map went from 27 sub-rows to 4.
+
+**Measured limit, kept in the record:** at `PARA_BOOST=1 VOCAB_MULT=4` (short messages, wide
+vocabulary) same-topic follow-ups repeat too few words for any fixed threshold; recall is 2/8 and
+the cap only keeps the panel readable (46 rows → 12, evenly sized) without making those boundaries
+topical. The configs matching the owner's conversation by text volume are the 7/8–8/8 ones. A large
+improvement, not a solved problem.
+
+**Rejected after measuring:** capping by merging the most similar adjacent PAIR — the top level's
+rule. A merged sub's six-term topic union overlaps with everything and runs away: one 221-message
+row beside six 3-message rows, recall 8/8 → 2/8. Smallest-first cannot run away.
 
 ---
 
