@@ -1498,6 +1498,19 @@ pathology shows on exactly one job — which is also why it reads, wrongly, like
   (Codex P2 — capture `ms` before probing).
 - The per-entry live print (`Testing X...` flushed before the entry runs) is load-bearing: a wedged
   job's streaming log names the entry it is stuck in.
+- **A second variant, 2026-08-01 (v12.5 branch): the SILENT wedge, and requeue-once did not clear
+  it.** Four attempts across three heads hit the 20-minute cap having printed no assertion output
+  at all — healthy per-entry times, then silence mid-entry. What ruled the code out was not
+  plausibility but an identity: `ai-conversation-navigator.user.js`, `tests/` and `.github/` are
+  byte-identical between the two heads that PASSED this job (6m01s, 5m54s) and the three that
+  wedged — the diffs touch only `probes/` and `reviews/`, which the suite never reads. Same input,
+  both outcomes; webkit-on-ubuntu and webkit-on-windows green throughout; the wedge point moved
+  between attempts (two different entries), always in the window after the heaviest virtualized
+  entry. **The generalizable rule: when a flaky-looking red appears, the first question is not
+  "which test?" but "did the tested bytes change?" — a pass and a fail on identical input is a
+  complete refutation of any code hypothesis, and it takes one `git diff` to establish.** Also:
+  `githubstatus.com` showed Actions fully operational the whole time, so an absent incident report
+  is not evidence of a healthy runner pool. Full record in TESTING.md.
 
 ---
 
