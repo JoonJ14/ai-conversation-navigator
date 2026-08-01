@@ -31,6 +31,13 @@ function msg(words, seed, type) {
 const A = 'authentication session cookie token refresh oauth credential identity provider scope grant redirect expiry login logout'.split(' ');
 const B = 'postgres migration schema replica vacuum partition shard constraint sequence rollback transaction index cluster tablespace analyze'.split(' ');
 const C = 'kubernetes rollout container registry ingress helm probe liveness autoscale sidecar namespace manifest daemonset taint toleration'.split(' ');
+// Wider pools for the edge-valley case, whose interior boundary strength must sit
+// BETWEEN the two candidate cutoffs. The 15-word pools quantize depth too coarsely to
+// land there, and a check straddling its own threshold proves nothing (CLAUDE.md:
+// prefer a discrete metric over one continuous near a threshold).
+const P = 'alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu anchor beacon cipher dagger'.split(' ');
+const Q = 'falcon grizzly heron ibex jaguar koala lynx marmot narwhal ocelot puffin quail raven seal tapir urchin vulture walrus xerus yak zebu badger condor dingo egret ferret gibbon impala jackal kestrel'.split(' ');
+const R = 'quartz basalt gneiss marble obsidian pumice shale slate granite gabbro chert flint jasper opal topaz beryl garnet zircon olivine augite biotite calcite dolomite feldspar halite ilmenite kaolin lazurite magnetite nepheline'.split(' ');
 
 function buildPage(scriptContent) {
     const mockHTML = fs.readFileSync(path.join(REPO, 'tests/mock-pages/claude-virtualized.html'), 'utf8');
@@ -137,6 +144,29 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
     check('60 messages in disjoint runs do not pool into one oversized row',
         r2.length > 1 && biggest <= pools.length / 2,
         `sizes [${sizes.join(', ')}]`);
+
+    // 2b. A strong drop too close to the edge to be SELECTABLE must not set the bar
+    //     for the boundaries that are. Codex: maxDepth was taken over every gap
+    //     including those the MIN_RUN filter later discards, so a short opening aside
+    //     could inflate the cutoff above every valid interior boundary and the segment
+    //     came back with no sub-segments at all.
+    // Four opening messages on an unrelated topic put the DEEPEST valley at gap 4,
+    // which MIN_RUN makes unselectable; the real boundary at 17 is a gentler shift.
+    // An edge valley is one-sided, so its depth is roughly the drop itself while an
+    // interior valley's is twice the drop — suppression therefore needs an interior
+    // boundary weaker than half the edge's, which is exactly a mild topic transition
+    // after an unrelated opening exchange. Measured depths for this exact input:
+    // gap 4 = 1.000 (unselectable), gap 17 = 0.367. A bar taken over ALL gaps is 0.500
+    // and loses the real boundary; over SELECTABLE gaps it is 0.183 and finds it. Both
+    // margins are wide, so this check does not sit on its own threshold.
+    const edge = [];
+    for (let i = 0; i < 4; i++)  edge.push(msg(R, i));            // ineligible: pos 4 < MIN_RUN
+    for (let i = 0; i < 13; i++) edge.push(msg(P, i + 10));
+    for (let i = 0; i < 13; i++) edge.push(msg(P.slice(0, 22).concat(Q.slice(0, 8)), i + 30));
+    const r2b = await run(edge);
+    check('an unselectable edge valley does not suppress a valid interior boundary',
+        r2b.length >= 2 && r2b.some(x => Math.abs(x.startIdx - 17) <= 2),
+        r2b.length ? r2b.map(s => `${s.n}@${s.startIdx}`).join(' ') : 'no cuts');
 
     // 3. A uniform conversation has no topic changes — finding none is correct.
     const uniform = [];

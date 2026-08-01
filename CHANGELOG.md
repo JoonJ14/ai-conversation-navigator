@@ -40,8 +40,9 @@ So the question changed from *"is this pair below X?"* to *"is this one of the w
 **this** segment?"*:
 
 1. Tokenize each message **once**; a block's vocabulary is the union of its messages'.
-2. Measure **cohesion at every gap** — vocabulary shared between the 3 messages before it and
-   the 3 after.
+2. Measure **cohesion at every gap** — vocabulary shared between the **4** messages before it
+   and the 4 after. (At 3 a single off-topic message contaminates every gap it touches and
+   becomes a boundary on its own; measured both ways.)
 3. Score each gap by **valley depth** — how far it sits below the nearest local peak on either
    side. Depth is what separates a topic change from gradual drift, and it is why a brief aside
    no longer cuts a run: an aside dips and recovers, so its depth is small.

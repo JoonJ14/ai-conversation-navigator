@@ -8720,8 +8720,20 @@
         // uniform conversation still yields nothing. It is an absolute number, but on a
         // DROP measure (0…2) rather than a similarity level, which is what made a
         // similarity threshold untransferable between conversations.
+        // ONLY over gaps that could actually be chosen. A valley inside the first or
+        // last MIN_RUN messages is discarded by the selection loop below, so letting it
+        // set the bar lets an unselectable candidate veto every selectable one: an
+        // unrelated opening exchange (depth 1.000 at gap 4, measured) raised the bar to
+        // 0.500 and suppressed a genuine interior boundary at 0.367, returning NO
+        // sub-segments (GitHub Codex; reproduced in probes/check-subsegments.js before
+        // fixing). The bar must come from the candidate set it is applied to.
+        function eligible(gapPos) {
+            return gapPos >= minRun && n - gapPos >= minRun;
+        }
         var maxDepth = 0;
-        for (i = 0; i < depth.length; i++) if (depth[i] > maxDepth) maxDepth = depth[i];
+        for (i = 0; i < depth.length; i++) {
+            if (eligible(at[i]) && depth[i] > maxDepth) maxDepth = depth[i];
+        }
         if (maxDepth < MIN_DEPTH) return [];
         var cutoff = Math.max(MIN_DEPTH, depthShare * maxDepth);
 
@@ -8730,14 +8742,13 @@
         // too close together, the STRONGER topic change survives.
         var order = [];
         for (i = 0; i < depth.length; i++) {
-            if (depth[i] >= cutoff && depth[i] > 0) order.push(i);
+            if (eligible(at[i]) && depth[i] >= cutoff && depth[i] > 0) order.push(i);
         }
         order.sort(function (a, b) { return depth[b] - depth[a]; });
 
         var cuts = [];
         for (i = 0; i < order.length; i++) {
-            var pos = at[order[i]];
-            if (pos < minRun || n - pos < minRun) continue;
+            var pos = at[order[i]];          // already filtered by eligible() above
             var ok = true;
             for (k = 0; k < cuts.length; k++) {
                 if (Math.abs(cuts[k] - pos) < minRun) { ok = false; break; }

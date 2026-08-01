@@ -1724,8 +1724,9 @@ The conversation map's second level places boundaries with a **lexical-cohesion 
 1. Every message's vocabulary is tokenized **once**; block vocabularies are unions of those
    sets (O(N), and an unterminated code fence in one message cannot swallow the next one's
    words).
-2. **Cohesion** is measured at every gap — how much vocabulary the 3-message block before it
-   shares with the 3 after.
+2. **Cohesion** is measured at every gap — how much vocabulary the **4**-message block before it
+   shares with the 4 after (`BLOCK = 4`; the rationale and the derived minimum below both depend
+   on this number, so it is stated once here and once in the code).
 3. Each gap gets a **valley depth**: how far it sits below the nearest local peak on either
    side. Depth, not height, is what distinguishes a topic change from gradual drift, and it
    is why a brief aside no longer cuts a run — an aside dips and recovers, so its depth is small.
@@ -1810,6 +1811,12 @@ could not handle at all (short messages, wide vocabulary) this goes 2/8 → **8/
   uniform conversation. It is a veto, not the decision.
 
 ### Key properties
+- **The bar must be derived from the candidate set it is applied to.** `maxDepth` was first
+  taken over every gap, including those the `MIN_RUN` filter discards — so an unselectable
+  valley could veto every selectable one. Measured on a constructed case: an unrelated opening
+  exchange put depth 1.000 at gap 4, raising the bar to 0.500 and suppressing a genuine interior
+  boundary at 0.367, returning NO sub-segments (GitHub Codex round 2). Same shape as the two
+  failures above — a statistic drawn from the wrong population.
 - **Unit surface, added because neither edge case was reachable end to end:**
   `probes/check-subsegments.js` drives `_sumBuildSubSegments` directly through the map probe and
   checks the smallest accepted segment, one message below it, many disjoint runs, a uniform
