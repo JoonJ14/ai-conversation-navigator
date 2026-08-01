@@ -82,7 +82,11 @@ Numbering below is stable (items keep their historical numbers):
 
 0. **Conversation-map sub-segmentation is not content-driven — FIXED in v12.6 (DEC-040),
    awaiting live confirmation.** Boundaries come from **lexical-cohesion valleys** judged
-   against each segment's own depth distribution (`mean + 2.5·sd`), not from a similarity
+   against each segment's own depth distribution — `max(MIN_DEPTH, 0.5 × the deepest valley in
+   that segment)`, a share of the strongest signal rather than a z-score, because a mean+sd bar
+   is computed from a sample containing the valleys it is looking for and so can see neither a
+   lone outlier in a small sample nor many outliers at all (both measured; DEC-040) — not from a
+   similarity
    threshold — a threshold cannot work here regardless of its value, because adjacent-message
    similarity scales with message length and vocabulary breadth (measured: the same constant
    scored 7/8 on one payload and 2/8 on another differing only in message length). Summed over
