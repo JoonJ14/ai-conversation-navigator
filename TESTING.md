@@ -714,6 +714,22 @@ this are gated by two platform-config flags:
   the E1 retry exists for the same race). The zone is re-queried per read, never
   cached across the block — a re-injected zone would otherwise satisfy delta-0
   vacuously through a detached node.
+  **S1b, the sub-segment gate (v12.5)** covers the deferred sub-segment attachment (DEC-039):
+  `children` is now built once per SURVIVING segment instead of at every commit and merge,
+  and *nothing else in the rendered panel showed whether that attach ran at all* — so
+  dropping it would have been an invisible regression. The gate counts
+  `[data-acn-role="sum-subsegment"]` nodes rendered INSIDE a `sum-segment` (27 on this mock;
+  counting them document-wide would also accept children attached to a segment that was
+  later merged away). Killing mutation: remove `_sumAttachSubSegments` from
+  `_sumBuildConversationMap`'s main return — measured red, 27 → 0. **Not gated here, by
+  construction:** the ≤6-message return path (a 6-entry timeline can never reach
+  `_sumBuildSubSegments`' 12-message minimum, so its attach is a no-op no fixture could
+  distinguish), and attach ORDER relative to `_sumMergeExcessSegments` — every mock produces
+  ONE segment, so merging never happens here. Order is gated instead by the map harness
+  (`probes/run-map-harness.js --baseline`), and only at a configuration where `mergeExcess`
+  actually merges: the mutation is genuinely equivalent when the min-size pass has already
+  reduced the set to ≤5, so it passes at q=25/vocab=4 and dies at q=147/vocab=1.
+
 - `degradedExportTest: true` (on *Claude (virtualized)*) runs **E2**: the export must carry
   the DEGRADED source label and a header total EXACTLY equal to the derived window size
   (`2·userWindowSize + 1`; deterministic on this mock — measured 7 every run). Round 2
@@ -1376,6 +1392,43 @@ How to respond:
 The workflow's `timeout-minutes: 20` (2× the slowest healthy job) makes a wedged runner fail
 fast instead of blocking the check for up to GitHub's 6-hour default. Queue time doesn't count
 against it.
+
+#### A second variant, observed 2026-08-01 (v12.5 branch): the SILENT wedge
+
+Same job, different shape — and it matters because step 4 above ("if it fails again, treat it
+as a real finding") would misfile it. Four attempts across three heads of
+`perf/summary-map-v12.5` hit `timeout-minutes: 20` having printed **no assertion output at
+all**: the streaming log runs healthy (`8.1s`, `44.2s`, `28.3s`, `56.2s` — normal for those
+entries), then stops mid-entry and emits nothing until the cap. There are no `got null` lines,
+no `raf10` numbers, nothing to read — the process simply stops producing output.
+
+What rules the code out, and it is worth stating in this order:
+
+1. **The tested bytes were identical across passes and wedges.** `ai-conversation-navigator.user.js`,
+   `tests/` and `.github/` are byte-identical between `b1bad36` (**pass, 6m01s**), `41e70d6`
+   (**pass, 5m54s**) and the three wedging heads — the diffs between them touch only `probes/`
+   and `reviews/`, which the suite never reads. Same input, both outcomes.
+2. **The other two WebKit jobs stayed green throughout** (ubuntu 6m19s, windows 5m53s), so it
+   is not a WebKit-engine interaction — consistent with the mac port being the only Cocoa
+   WebKit in the matrix.
+3. **The wedge point moved between attempts** — `80 rows, Q#1 is a file chip` twice and
+   `120 rows, hostile` twice — so it is not one entry hanging. Every wedge did land in the
+   window immediately after the heaviest virtualized entry (`294 rows, N=10 unrendered`, ~56s),
+   which reads like host resource exhaustion rather than a hang in any particular assertion.
+4. **Requeue-once did not clear it** (the documented response); a second requeue also wedged,
+   ~65 minutes after the first. `githubstatus.com` reported Actions fully operational
+   throughout, so "no incident posted" is not evidence of a healthy pool.
+
+**How it ended, recorded because the prediction was testable:** the next run — a docs-only push
+~12 minutes after the last wedge — came back **green at 6m04s** on the same suite and the same
+userscript. The episode lasted roughly 65 minutes (04:05–05:11 UTC) and then simply stopped.
+That is the environmental read confirmed, not merely assumed.
+
+Response when this variant appears: do **not** keep requeuing (three attempts is already past
+useful), and do not read it as a code finding — but do not silently discount it either. Record
+the pass/wedge pairs with their commits, note that a required check is red for environmental
+reasons, and hand the merge decision to the owner: a later requeue once the pool recovers (which
+is what worked here), or an explicit admin merge with this record attached.
 
 ---
 

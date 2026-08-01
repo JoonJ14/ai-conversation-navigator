@@ -10,8 +10,10 @@ records it must say which.
 |---|---|
 | `perf-instrument.js` | Inserts timing/count wrappers around the Summary pipeline into a copy of the userscript. One insertion point (before the "Inject now" init block); wrapped names are reassigned bindings, no function bodies edited. |
 | `build-perf-probe.js` | Writes `acn-perf-probe.user.js` (git-ignored) — the installable instrumented build for the LIVE measurement. |
-| `perf-payload.js` | Deterministic paragraph-scale conversation generator (seeded LCG, topic blocks so segmentation does real work). Env knobs: `PARA_BOOST`, `KP_RATE`. |
+| `perf-payload.js` | Deterministic paragraph-scale conversation generator (seeded LCG, topic blocks so segmentation does real work). Env knobs: `PARA_BOOST`, `KP_RATE`, `VOCAB_MULT` (all default to the original baseline). |
 | `run-perf-harness.js` | Playwright runner for the SYNTHETIC measurement: claude-virtualized mock + GM shim + instrumented build; drives generate → regenerate → export; writes JSON to `results/` (git-ignored). |
+| `map-instrument.js` | Adds a direct driver for `_sumBuildConversationMap` on top of the perf instrumentation (replaces the timeline SOURCE only) plus a structural fingerprint of the produced map. |
+| `run-map-harness.js` | Playwright runner for the MAP measurement: sweeps size/vocabulary/paragraph configs in one page load, and gates map-output equivalence with `--baseline`. |
 
 ## Path A — live measurement (owner; the decision-grade context)
 
@@ -53,6 +55,57 @@ are exact enough at these magnitudes. On v12.4+ builds the probe also logs the
 `export cache:` line (both sides of the reuse key) — `run#3` appearing at all
 means the export recomputed, and that line says why (stamp moved vs qLen moved
 vs cold cache).
+
+## Path C — the conversation map (fast, and the equivalence gate for map changes)
+
+`map-instrument.js` + `run-map-harness.js` drive the REAL `_sumBuildConversationMap` over a
+supplied message list (only the timeline SOURCE is replaced), so one page load measures many
+configurations instead of one. Every run also emits a structural fingerprint of the map —
+labels, spans, membership, child lists — which is what makes "this refactor changes nothing"
+a measurement rather than a claim.
+
+```
+# Baseline from an EXPLICIT pre-change ref — never HEAD. Once the candidate is
+# committed, HEAD names the candidate, and a baseline extracted from it compares
+# the build with itself: guaranteed green, proving nothing (Codex).
+git show origin/main:ai-conversation-navigator.user.js > /tmp/base.user.js   # or $(git merge-base HEAD origin/main)
+ACN_SCRIPT=/tmp/base.user.js node probes/run-map-harness.js \
+    --browser chromium,firefox --sizes 2,3,25,147 --vocab 1,4 --para 1,3 --save /tmp/fp.json
+node probes/run-map-harness.js \
+    --browser chromium,firefox --sizes 2,3,25,147 --vocab 1,4 --para 1,3 --baseline /tmp/fp.json
+```
+
+Confirm the baseline build is the one you meant before trusting a green:
+`git show <ref>:ai-conversation-navigator.user.js | diff -q - /tmp/base.user.js`. A baseline
+and a candidate that are the same bytes cannot disagree.
+
+The fingerprint covers each segment's label, span, topics, entity count and message
+membership, **and the same for every child** — a sub-segment click resolves through
+`_sumFirstJumpable(child.messages)`, so child membership is part of the behaviour, not a
+detail of it.
+
+`--baseline` exits non-zero on any difference, on a build that disagrees with ITSELF across
+repeats (and then it refuses to write a `--save` file), on a requested configuration the
+baseline never covered, and on any baseline configuration the sweep did not exercise — a
+chromium-only run must not report equivalence for a chromium+firefox baseline. Add
+`--partial` when narrowing the sweep on purpose (checking one mutant, one config): it
+acknowledges the missing coverage in the verdict and never suppresses a real difference. Each
+line reports the initial → final segment count, the sub-segment rebuild count, and which
+construction model that count matches (`eager` = `2 × initial − final`, pre-v12.5;
+`deferred` = `final`, v12.5+; `either` when nothing merged, because both formulas then give
+the same number and the count cannot distinguish the two).
+
+**Choosing a configuration — vocabulary, not volume.** Segmentation splits on
+`_sumWordOverlap`, which divides by `max(|A|,|B|)`, so the initial segment count is set by
+DISTINCT VOCABULARY. `PARA_BOOST` grows characters and barely moves segments; `VOCAB_MULT`
+moves them directly. `--vocab 4 --para 3 --sizes 147` reproduces the owner's live shape (263
+segments / 521 rebuilds / 36.4M chars vs live 218 / 431 / 27.1M). `--vocab 8` is past live,
+on the steep part of the curve, and is useful as a stress case.
+
+**A mutation is only refuted in a configuration that can see it** (DEC-039): attaching
+sub-segments before `_sumMergeExcessSegments` is *equivalent* whenever the min-size pass has
+already reduced the set to ≤5 (e.g. `--sizes 25 --vocab 4 --para 3`), and only shows up where
+`mergeExcess` actually merges (e.g. `--sizes 147 --vocab 1 --para 1`, 8 → 5).
 
 ## Path B — synthetic measurement (any machine)
 

@@ -397,6 +397,60 @@ same machine, payload and interactions:
   pre-existing: the renderable-entry predicate off-by-2 diagnostic (predicted 294 vs
   aria-setsize 296) with its measured-anchor fallback holding; jumps landed correctly.
 
+### Residual resolved 2026-07-31 — v12.5, the map's segment-merge churn
+
+**The live counts identified the mechanism without a new live probe.** Sub-segments were
+built at every segment commit and again at every merge, so the rebuild count is an identity:
+`subSegments = commits + merges = 2 × initialSegments − finalSegments`. The map harness
+reproduced that identity EXACTLY at every synthetic configuration (11 = 2·8−5;
+369 = 2·187−5; 521 = 2·263−5), so the live **431 rebuilds ⇒ ≈218 initial segments from ~294
+messages** (exactly 218 if the live map ended at the 5-segment cap, 217 if the min-size
+pass had already taken it to 3 — the fragmentation reading is the same either way) — near-total fragmentation, every merge re-deriving sub-segments for a segment
+about to be merged again. Nothing during construction ever reads `children`; the renderer is
+the only consumer.
+
+**Why every earlier synthetic run underrepresented it (fidelity finding, worth carrying):**
+`_sumWordOverlap` divides the intersection by `max(|A|,|B|)`, so the initial segment count is
+driven by DISTINCT VOCABULARY, not by text volume. The seeded payload's ~115-word pool let a
+long assistant answer cover nearly every word a user message could draw, overlap stayed above
+the 0.15 split threshold, and q=147 produced **8** segments where the real conversation
+produces ~218. `PARA_BOOST` (the "make it bigger and more realistic" knob) moves chars and
+barely moves segments; `VOCAB_MULT` (added in v12.5) is the axis that matters.
+`VOCAB_MULT=4 PARA_BOOST=3` at q=147 reproduces the live shape: 263 segments, 521 rebuilds,
+36.4M chars (live: 218 / 431 / 27.1M).
+
+**Fix (DEC-039):** `children: null` during construction, `_sumAttachSubSegments` builds them
+once per SURVIVING segment at both return points of `_sumBuildConversationMap`.
+Output-identical by construction — `children` is a pure function of `messages`, no merge
+decision reads it, and `messages` arrays are never mutated after a segment is built.
+
+| Context | rebuilds | topicsFromText | tokenized | map |
+|---|---|---|---|---|
+| v12.4, Firefox 146 page realm, q=147, VOCAB_MULT=4 PARA_BOOST=3 | 521 | 4,998× / 36.4M | 63.9M | 7,803 / 7,585 ms |
+| v12.5, same machine/payload/engine | 5 | 727× / 4.8M | 10.3M | **1,260 / 1,144 ms** |
+| v12.4 → v12.5, same but VOCAB_MULT=4 PARA_BOOST=1 | 369 → 5 | 4,914 → 658 | 22.9M → 3.9M | 3,076/2,551 → 509/568 ms |
+
+(Two repeats per cell, in order; the first is JIT-cold. Counts and character totals are exact —
+they are counters, not timings — and identical across repeats.)
+
+`_sumMergeExcessSegments` fell from 3,238ms to ~1ms. Equivalence gate: the map's structural
+fingerprint is identical across **32/32** config/engine combinations (chromium + firefox,
+q ∈ {2,3,25,147} × PARA_BOOST ∈ {1,3} × VOCAB_MULT ∈ {1,4}) —
+`node probes/run-map-harness.js --baseline <fp.json>`.
+
+**Where the residual now sits (measured, same contexts):** of the post-fix 1,144–1,260ms,
+**827ms is the five surviving `_sumBuildSubSegments` calls** — their fragment-absorb loop
+re-extracts topics over ever-growing combined text and restarts from index 0 after each
+absorb. The initial segmentation scan plus the per-commit topic/entity work is the remaining
+~300ms, and `mergeExcess` is ~1ms. So the next lever, if one is wanted, is that absorb loop —
+and unlike v12.5 it changes a loop whose output matters, so it needs the same fingerprint gate.
+
+**Scope of these numbers (contexts rule):** Playwright Firefox/Chromium, PAGE realm, synthetic
+payload, `element:null` messages (so `_sumScanEntities` returns `[]` — the unmounted shape,
+which is all but ~3 messages live, but not the mounted one). The decision-grade context is
+still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is outstanding**
+(expect generate ≈1.5–2.5s; the pre-fix live figure was 7.7–8.8s).
+
 ---
 
 ## v12.2 — Every Gemini Question Was Prefixed "You said" (2026-07-30)

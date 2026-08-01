@@ -64,12 +64,19 @@ knob** (**DEC-032**).
 
 ### Next: post-v12.3 backlog (v12.2 + v12.3 merged 2026-07-30; nothing in flight)
 
-**Priority order re-ranked 2026-07-30 with the owner: item 11 (Summary performance) first, then
-the remainder of item 2 (carried-over fixture batch), then 3 onward. Item 7 (Emergent) is
-explicitly deprioritized by the owner ("almost no one uses it").**
+**Priority order re-ranked 2026-08-01 with the owner: item 11 (Summary performance) is CLOSED —
+v12.4 killed the freeze, v12.5 took generate to ~1.2s, and the owner declined the remaining
+lever. Priority is now item 2 (carried-over fixture batch) and the recorded small items, then 3
+onward. Item 7 (Emergent) stays deprioritized ("almost no one uses it").**
 
-**Version policy for item 11 (owner, 2026-07-30): measure first; a small fix ships as v12.4; a
-real refactor becomes v13. Do not start a refactor on a hypothesis.**
+**Standing priority, owner 2026-08-01: correctness over further optimization** — "making sure
+our core functions and features are useful and functioning is more important to me than making
+1.2 secs into 0.5 secs." Read that as a ranking rule for future work, not just a verdict on
+item 11: when a performance idea and a coverage/correctness gap compete, the gap wins.
+
+**Version policy as exercised (owner, 2026-07-30, honoured through v12.5): measure first; a small
+fix ships as a point release (v12.4, v12.5); a real refactor becomes v13. Do not start a refactor
+on a hypothesis.**
 
 Numbering below is stable (items keep their historical numbers):
 
@@ -189,6 +196,36 @@ Numbering below is stable (items keep their historical numbers):
    per-message token sets for the map loops (needs the fence-spanning-join edge case
    checked); real restructuring of the merge loops is v13 territory. Live numbers +
    contexts in the TROUBLESHOOTING entry.
+   **Status 2026-07-31 (v12.5, SHIPPED — awaiting live confirmation): the residual is
+   the churn itself, not the tokenizing.** The rebuild count is an identity
+   (`2 × initialSegments − finalSegments`, reproduced exactly at every synthetic
+   config), so the live 431 means **≈218 initial segments from ~294 messages**. Nothing
+   during construction reads a segment's `children`, yet every commit and every merge
+   rebuilt them. v12.5 attaches sub-segments once per SURVIVING segment
+   (`_sumAttachSubSegments`, DEC-039) — output-identical, 32/32 fingerprints unchanged.
+   Measured at the live-calibrated payload (Firefox, q=147, `VOCAB_MULT=4 PARA_BOOST=3`):
+   map **7.6–7.8s → 1.1–1.3s**, rebuilds 521 → 5, `mergeExcess` 3,238ms → ~1ms.
+   Neither queued lever was needed: token memoization would have made throwaway work
+   cheaper (and carried the fence-spanning-join edge), and merge-loop restructuring
+   targets a term that is negligible once the loops stop rebuilding sub-segments.
+   **Fidelity note for any future map measurement:** segmentation is driven by DISTINCT
+   VOCABULARY (`_sumWordOverlap` divides by `max(|A|,|B|)`), not text volume —
+   `PARA_BOOST` is the wrong axis, `VOCAB_MULT` is the right one.
+   **CLOSED 2026-08-01 by owner decision — ~1.2s is good enough, and correctness outranks
+   the next 700ms.** ("I am fine with 1.2 secs, no need to push further. Making sure our core
+   functions and features are useful and functioning is more important to me than making 1.2
+   secs into 0.5 secs.") The remaining lever is recorded here so nobody re-derives it:
+   of the post-fix 1,144–1,260ms, **827ms is the five surviving `_sumBuildSubSegments`
+   calls** — specifically their fragment-absorb loop, which re-extracts topics over
+   ever-growing combined text and restarts its scan from index 0 after each absorb; the
+   merge loops and the initial scan are ~300ms together. Unlike v12.5, taking that on would
+   be a real algorithmic change to a loop whose OUTPUT matters, so it would need the
+   fingerprint gate to prove equivalence — which is precisely why it is not worth it at this
+   margin. Do not reopen on performance grounds alone; reopen only if a conversation
+   materially larger than ~294 messages puts the map back into banner territory.
+   **Still expected:** the plain-build live pass (DEC-031) on the v12.5 head — a functional
+   check (map renders sub-segments, segment and SUB-segment clicks land, export correct), not
+   a measurement. The probe is not needed for it.
 
 **v12.0 Accomplishments (2026-07-26):**
 - **API-Backed Conversation Index (DEC-021):** Claude virtualized its message list with recycling — only ~3 of 147 user turns are mounted at any moment (~3% coverage), so `document.querySelectorAll()` stopped being a complete record of the conversation. Navigate, Search, Summary and Export were all operating on a fraction of the data, and Export was silently writing truncated files under an authoritative-looking message count. Fixed by reading Claude's own conversation JSON endpoint via `GM_xmlhttpRequest` and walking the message tree from `current_leaf_message_uuid` to isolate the active branch. This is an ordinary outbound request, not fetch interception — no Firefox cross-compartment exposure (DEC-019/DEC-020).
