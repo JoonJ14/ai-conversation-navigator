@@ -389,6 +389,13 @@ same machine, payload and interactions:
   Render 66/67ms; post-turn gap ~220ms. This is a lesser, banner-free cost, recorded
   as ROADMAP item 11's follow-up lever (per-message token memoization / merge-loop
   restructuring), not a v12.4 blocker.
+- **Re-confirmed same day on the round-5 head `ce26aa6`** (cache release at
+  `ciBuildIndex` commit): immediate export `HIT` at 3ms; after a live send the index
+  rebuilt g2→g4 and the export's cache line read **`cached=null`** — the release
+  observed directly (a pre-round-5 build would have shown the stale g2 entry still
+  pinned, refused by stamp) — then one recompute and a correct file. Also observed,
+  pre-existing: the renderable-entry predicate off-by-2 diagnostic (predicted 294 vs
+  aria-setsize 296) with its measured-anchor fallback holding; jumps landed correctly.
 
 ---
 
