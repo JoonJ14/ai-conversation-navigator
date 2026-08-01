@@ -1613,3 +1613,82 @@ distilled result. Full arc: `reviews/review-2026-07-31-v12.4-perf.md`.
   (delta-0, panel-provenance via regenerate-first leg order), S5 regenerate (+1). Recorded
   debt: same-conversation stamp-bump refusal and the provSig half are live-verified but
   unstaged in the harness (forced-refetch + provisional shim knobs, fixture batch).
+
+---
+
+## DEC-039: Sub-Segments Are Attached to the Final Segments, Not Rebuilt at Every Merge (v12.5)
+**Date:** 2026-07-31 | **Stage:** v12.5
+
+### Decision
+`_sumBuildConversationMap` no longer computes a segment's `children` while it is building and
+merging segments. Segments carry `children: null` throughout construction, and
+`_sumAttachSubSegments` runs `_sumBuildSubSegments` ONCE per surviving segment at each of the
+builder's two return points. Rebuilds per generate drop from `2 × initialSegments −
+finalSegments` to `finalSegments` (live: **431 → ≤5**).
+
+The change is output-identical by construction, not by argument-and-hope: `children` is a pure
+function of a segment's `messages` array; no merge decision reads `children` (merges read
+`topics`, `messages`, `entities` only); and a segment's `messages` array is never mutated after
+the segment is built — every merge allocates a fresh `concat`. So the final segments' children
+are computed from byte-identical inputs, one build later. Verified empirically across 32
+config/engine combinations (below), not just reasoned.
+
+### Context
+v12.4 killed the Summary freeze but left a measured residual: generate 7.7–8.8s live, ~93% of
+it in `phase.map`, with `_sumBuildSubSegments` called **431×** per generate (6.2–6.9s) and
+`_sumExtractTopicsFromText` **3,895×** over 27.1M chars (TROUBLESHOOTING, live 2026-07-31).
+
+The count itself identified the mechanism before any new live probe was needed. Children were
+built at every commit and again at every merge, so `subSegments = commits + merges =
+2 × initialSegments − finalSegments`. The harness confirmed that identity exactly at every
+synthetic config (11 = 2·8−5; 369 = 2·187−5; 521 = 2·263−5), so the live 431 means the owner's
+conversation produced **≈218 initial segments from ~294 messages** — near-total fragmentation,
+where every merge re-derived sub-segments for a segment that was about to be merged again.
+
+**Why the seeded payload had hidden this** (the fidelity finding, and the reason it is recorded
+here): `_sumWordOverlap` divides the intersection by `max(|A|,|B|)`, so segmentation is driven
+by DISTINCT VOCABULARY, not by text volume. The payload's ~115-word pool meant a long assistant
+answer covered nearly every word a user message could draw, overlap stayed above the 0.15 split
+threshold, and q=147 produced 8 segments where real prose produces ~218. `PARA_BOOST` — the
+knob reached for when "bigger, more realistic" was wanted — was the wrong axis entirely.
+`VOCAB_MULT` (perf-payload.js) is the right one, and `VOCAB_MULT=4, PARA_BOOST=3` reproduces
+the live shape (263 segments / 521 rebuilds / 36.4M chars vs live 218 / 431 / 27.1M).
+
+### Alternatives considered
+- **Per-message token memoization** (the lever queued in the v12.4 handoff): rejected, and
+  worth naming why — it would have made the throwaway work cheaper instead of removing it, and
+  it carried a real correctness edge (`tokenize(join(a,b)) ≠ union` when an unterminated code
+  fence spans a join, because the ``` stripping is applied to the joined string). Deferring
+  needs no change to tokenization semantics at all. The edge case never had to be resolved.
+- **Restructuring the merge loops** (the v13 option): unnecessary. The loops' own cost —
+  `_sumTopicOverlap` over ≤6-term arrays, splices, concats — is negligible once they stop
+  calling `_sumBuildSubSegments`; measured `mergeExcess` fell from 3,238ms to ~1ms at the
+  live-calibrated config. Restructuring would have been a large change aimed at a small term.
+- **Keeping children and merging them** (merge two children lists instead of rebuilding):
+  rejected — a merged segment's sub-split is genuinely different from the concatenation of its
+  parts' sub-splits (the scan window crosses the boundary), so this would have changed output.
+
+### Key properties
+- **Measured, Firefox 146, page realm, q=147 / PARA_BOOST=3 / VOCAB_MULT=4** (the config
+  calibrated to live): map **7,803/7,585ms → 1,260/1,144ms**; rebuilds 521 → 5; topic
+  extractions 4,998 → 727; characters tokenized 63.9M → 10.3M. Same machine, same payload,
+  same engine, back to back. Chromium and every smaller config move the same way.
+- **Equivalence gate:** `probes/run-map-harness.js --baseline` compares a structural
+  fingerprint (labels, spans, membership, per-segment child list) of every map. 32/32
+  identical, chromium + firefox, q ∈ {2,3,25,147} × PARA_BOOST ∈ {1,3} × VOCAB_MULT ∈ {1,4}.
+- **Killing mutations, each measured red in the config that can see it:**
+  (A) attach dropped from the main return → SUITE red (S1: 27 sub-segments → 0).
+  (B) attach placed BEFORE `_sumMergeExcessSegments` → HARNESS red — but only at a config
+  where `mergeExcess` actually merges. At q=25/VOCAB_MULT=4 the min-size pass already reduces
+  to 5 segments, `mergeExcess` merges nothing, and mutant B is *equivalent*: it passed there.
+  It dies at q=147/VOCAB_MULT=1 (8 → 5 segments). **A mutation battery is only as honest as
+  the config it runs in** — the DEC-038 lesson (re-derive killing mutations) with a new axis:
+  re-derive the *input* too, not only the code path.
+  (C) the ≤6-message return path is structurally unfalsifiable: `timeline.length ≤ 6 < 12`, so
+  `_sumBuildSubSegments` returns `[]` immediately there and the attach only normalizes `null`
+  → `[]`. Stated rather than gated, because no fixture could ever tell the two apart.
+- `children: null` (not `[]`) during construction is deliberate: a future reader that consults
+  children mid-merge throws instead of silently seeing "no children".
+- New test contract: `data-acn-role="sum-subsegment"` with `data-acn-sub-start` /
+  `data-acn-sub-end`. Before it, nothing in the rendered panel revealed whether children had
+  been attached at all — mutation A would have been an invisible regression.

@@ -714,6 +714,22 @@ this are gated by two platform-config flags:
   the E1 retry exists for the same race). The zone is re-queried per read, never
   cached across the block — a re-injected zone would otherwise satisfy delta-0
   vacuously through a detached node.
+  **S1b, the sub-segment gate (v12.5)** covers the deferred sub-segment attachment (DEC-039):
+  `children` is now built once per SURVIVING segment instead of at every commit and merge,
+  and *nothing else in the rendered panel showed whether that attach ran at all* — so
+  dropping it would have been an invisible regression. The gate counts
+  `[data-acn-role="sum-subsegment"]` nodes rendered INSIDE a `sum-segment` (27 on this mock;
+  counting them document-wide would also accept children attached to a segment that was
+  later merged away). Killing mutation: remove `_sumAttachSubSegments` from
+  `_sumBuildConversationMap`'s main return — measured red, 27 → 0. **Not gated here, by
+  construction:** the ≤6-message return path (a 6-entry timeline can never reach
+  `_sumBuildSubSegments`' 12-message minimum, so its attach is a no-op no fixture could
+  distinguish), and attach ORDER relative to `_sumMergeExcessSegments` — every mock produces
+  ONE segment, so merging never happens here. Order is gated instead by the map harness
+  (`probes/run-map-harness.js --baseline`), and only at a configuration where `mergeExcess`
+  actually merges: the mutation is genuinely equivalent when the min-size pass has already
+  reduced the set to ≤5, so it passes at q=25/vocab=4 and dies at q=147/vocab=1.
+
 - `degradedExportTest: true` (on *Claude (virtualized)*) runs **E2**: the export must carry
   the DEGRADED source label and a header total EXACTLY equal to the derived window size
   (`2·userWindowSize + 1`; deterministic on this mock — measured 7 every run). Round 2

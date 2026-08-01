@@ -1869,11 +1869,23 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                             const e = +s.getAttribute('data-acn-sum-end');
                             if (e > segEndMax) segEndMax = e;
                         });
+                        // Sub-segments are attached to the FINAL segments only
+                        // (v12.5/DEC-039 — they used to be rebuilt at every commit
+                        // and every merge, 431 rebuilds live). subInside counts the
+                        // ones that landed inside a rendered segment, so a child
+                        // list attached to a segment that was later merged away
+                        // could not satisfy it.
+                        let subInside = 0;
+                        document.querySelectorAll('[data-acn-role="sum-segment"]').forEach(s => {
+                            subInside += s.querySelectorAll('[data-acn-role="sum-subsegment"]').length;
+                        });
                         return {
                             total: +stats.getAttribute('data-acn-sum-total'),
                             user:  +stats.getAttribute('data-acn-sum-user'),
                             ai:    +stats.getAttribute('data-acn-sum-ai'),
                             segments: document.querySelectorAll('[data-acn-role="sum-segment"]').length,
+                            subsegments: document.querySelectorAll('[data-acn-role="sum-subsegment"]').length,
+                            subInside,
                             segEndMax,
                             mounted: window.__mockVirtualization.mountedCount()
                         };
@@ -1883,7 +1895,17 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                         sum.ai === expAi && sum.mounted < expUser && sum.segments > 0,
                         sum.err || `total=${sum.total} (${sum.user}u/${sum.ai}ai), expected ` +
                                    `${expPath} (${expUser}u/${expAi}ai); ${sum.segments} segments, ` +
+                                   `${sum.subsegments} sub (${sum.subInside} inside), ` +
                                    `segEndMax=${sum.segEndMax} (info); ${sum.mounted} turns mounted`);
+                    // S1b (v12.5) — sub-segments are attached ONCE, to the segments
+                    // that survive merging (DEC-039). Killing mutation: drop
+                    // _sumAttachSubSegments from _sumBuildConversationMap's main
+                    // return — measured red here, 27 -> 0, while every other
+                    // assertion in the suite stays green.
+                    assert('SUMMARY sub-segments are attached to the surviving segments',
+                        !sum.err && sum.subInside > 0 && sum.subInside === sum.subsegments,
+                        sum.err || `${sum.subsegments} sub-segments rendered, ${sum.subInside} of ` +
+                                   `them inside a [data-acn-role="sum-segment"]`);
                     assert('SUMMARY regenerate control is live',
                         !sum.err,
                         sum.err || 'a re-enabled click on [data-acn-role="sum-generate"] replaced the stats node');

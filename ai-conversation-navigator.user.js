@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.4
+// @version      12.5
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -40,7 +40,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.4';
+    var ACN_VERSION = '12.5';
 
     // ============================================================
     // i18n — internationalization string table
@@ -8573,6 +8573,24 @@
         return cap(topics[0]) + ' / ' + cap(topics[1]);
     }
 
+    // Sub-segments are a PURE function of a segment's `messages` array, and the
+    // ONLY reader is the renderer — no merge decision looks at them. Every merge
+    // discarded both sides' children and rebuilt from the concatenation, so
+    // building them during construction cost (2 * initialSegments - finalSegments)
+    // rebuilds to keep at most 5: live, 431 rebuilds and 6.2-6.9s of an ~8s
+    // Summary generate (TROUBLESHOOTING 2026-07-31). Attaching them to the FINAL
+    // segments instead is output-identical — same function, same `messages`
+    // arrays, which are never mutated once a segment is built (every merge
+    // allocates a fresh concat). Segments carry children:null until this runs, so
+    // a mid-construction reader throws instead of silently seeing "no children".
+    // See DEC-039.
+    function _sumAttachSubSegments(segments) {
+        for (var i = 0; i < segments.length; i++) {
+            segments[i].children = _sumBuildSubSegments(segments[i].messages);
+        }
+        return segments;
+    }
+
     function _sumMergeExcessSegments(segments) {
         while (segments.length > 5) {
             var maxOverlap = -1;
@@ -8593,7 +8611,7 @@
                 messages:  mergedMsgs,
                 topics:    _sumMergeTopics(a.topics, b.topics),
                 entities:  a.entities.concat(b.entities),
-                children:  _sumBuildSubSegments(mergedMsgs),
+                children:  null,          // attached after all merging — _sumAttachSubSegments
                 label:     ''
             };
             merged.label = _sumGenerateSegmentLabel(merged);
@@ -8690,11 +8708,11 @@
                 messages: timeline,
                 topics:   _sumExtractTopicsFromText(combined, 5),
                 entities: _sumScanEntities(timeline),
-                children: _sumBuildSubSegments(timeline),
+                children: null,
                 label:    ''
             };
             seg.label = _sumGenerateSegmentLabel(seg);
-            return [seg];
+            return _sumAttachSubSegments([seg]);
         }
 
         // Content-aware segmentation: compare each message against the recent
@@ -8725,7 +8743,7 @@
                     messages: currentMsgs,
                     topics:   _sumExtractTopicsFromText(segText, 5),
                     entities: _sumScanEntities(currentMsgs),
-                    children: _sumBuildSubSegments(currentMsgs),
+                    children: null,
                     label:    ''
                 };
                 newSeg.label = _sumGenerateSegmentLabel(newSeg);
@@ -8743,7 +8761,7 @@
                 messages: currentMsgs,
                 topics:   _sumExtractTopicsFromText(lastText, 5),
                 entities: _sumScanEntities(currentMsgs),
-                children: _sumBuildSubSegments(currentMsgs),
+                children: null,
                 label:    ''
             };
             lastSeg.label = _sumGenerateSegmentLabel(lastSeg);
@@ -8777,7 +8795,7 @@
                         messages: mergedMsgs,
                         topics:   _sumMergeTopics(ma.topics, mb.topics),
                         entities: ma.entities.concat(mb.entities),
-                        children: _sumBuildSubSegments(mergedMsgs),
+                        children: null,
                         label:    ''
                     };
                     merged.label = _sumGenerateSegmentLabel(merged);
@@ -8788,7 +8806,7 @@
             }
         }
 
-        return _sumMergeExcessSegments(segments);
+        return _sumAttachSubSegments(_sumMergeExcessSegments(segments));
     }
 
     // Index identity the currently-rendered summary was built from, or null when it was
@@ -9204,6 +9222,13 @@
 
                     var subEl = document.createElement('div');
                     subEl.className = 'acn-seg-d2-sub';
+                    // Test contract (v12.5): sub-segments are attached to the FINAL
+                    // segments only (DEC-039). Nothing else in the rendered panel
+                    // shows whether that attach ran, so dropping it would have been
+                    // an invisible regression — this makes children countable.
+                    subEl.setAttribute('data-acn-role', 'sum-subsegment');
+                    subEl.setAttribute('data-acn-sub-start', String(child.startIdx));
+                    subEl.setAttribute('data-acn-sub-end', String(child.endIdx));
                     // Proportional sizing in expanded mode
                     subEl.style.flexGrow = String(childLineCount || 1);
                     subEl.appendChild(subBracket);

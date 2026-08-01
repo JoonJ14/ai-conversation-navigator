@@ -245,6 +245,8 @@ data-acn-role="sum-stats"               -> Stats section, with data-acn-sum-tota
                                            machine-readable counts (v12.3)
 data-acn-role="sum-segment"             -> Conversation-map segment, with data-acn-sum-start / -end
                                            timeline span (v12.3)
+data-acn-role="sum-subsegment"          -> Sub-segment (child) inside a segment, with
+                                           data-acn-sub-start / -end timeline span (v12.5)
 data-acn-role="tool-export"             -> Tools export option, with data-acn-export="full|bookmarks|summary" (v12.3)
 data-acn-role="toast"                   -> The transient #acn-toast message (v12.3)
 ```

@@ -4,6 +4,82 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.5 — The Map's Segment-Merge Churn: 431 Sub-Segment Rebuilds per Generate → 5] — 2026-07-31
+
+**Branch:** `perf/summary-map-v12.5`
+
+### Problem
+
+v12.4 removed the Summary freeze (the banner is gone, key-point dedup is 1ms, the export
+reuses the panel's computation), but the owner's live measurement left an honest residual:
+**generate still cost 7.7–8.8s**, and ~93% of it was `phase.map`. Inside it,
+`_sumBuildSubSegments` ran **431 times** per generate (6.2–6.9s) and
+`_sumExtractTopicsFromText` **3,895 times over 27.1M characters** — for a map that ends up
+showing five segments.
+
+### Root cause (read out of the live counts, then confirmed synthetically)
+
+Sub-segments were computed as part of building a segment — at every commit AND again at
+every merge — while nothing during construction ever reads them. Every merge threw away
+both sides' `children` and rebuilt from the concatenation. That makes the rebuild count an
+identity, `2 × initialSegments − finalSegments`, which the harness reproduced exactly at
+every configuration; the live 431 therefore means **≈218 initial segments from ~294
+messages**. Near-total fragmentation, each merge re-deriving sub-segments for a segment
+about to be merged again.
+
+The seeded probe payload had hidden this because `_sumWordOverlap` divides by
+`max(|A|,|B|)`: segmentation is driven by DISTINCT VOCABULARY, not text volume. With a
+~115-word pool a long answer covered nearly every word a question could use, overlap stayed
+above the 0.15 split threshold, and q=147 produced 8 segments instead of ~218.
+
+### Approach
+
+`children` is a pure function of a segment's `messages`, and `messages` arrays are never
+mutated once built (every merge allocates a fresh `concat`). So the segments carry
+`children: null` through construction and `_sumAttachSubSegments` builds them once per
+SURVIVING segment, at both return points of `_sumBuildConversationMap`. Same function, same
+inputs, one build later — output-identical by construction, and verified as such.
+
+Rejected: per-message token memoization (the lever queued in the v12.4 handoff — it would
+have made throwaway work cheaper rather than removing it, and carried a real edge case:
+`tokenize(join(a,b)) ≠ union` when an unterminated code fence spans a join), and merge-loop
+restructuring (v13-shaped, aimed at a term that turns out to be negligible once the loops
+stop rebuilding sub-segments).
+
+### Result
+
+Measured Firefox 146, page realm, q=147 at the live-calibrated payload
+(`VOCAB_MULT=4 PARA_BOOST=3` → 263 segments / 521 rebuilds / 36.4M chars, bracketing live's
+218 / 431 / 27.1M):
+
+| | rebuilds | topic extractions | chars tokenized | map |
+|---|---|---|---|---|
+| v12.4 | 521 | 4,998 / 36.4M chars | 63.9M | 7,803 / 7,585 ms |
+| v12.5 | 5 | 727 / 4.8M chars | 10.3M | **1,260 / 1,144 ms** |
+
+`_sumMergeExcessSegments` fell from 3,238ms to ~1ms. Equivalence: the map's structural
+fingerprint (labels, spans, membership, child lists) is **identical across all 32
+config/engine combinations** measured — chromium + firefox, q ∈ {2,3,25,147} ×
+PARA_BOOST ∈ {1,3} × VOCAB_MULT ∈ {1,4}.
+
+### Also in this release
+
+- **New test contract `data-acn-role="sum-subsegment"`** (+ `data-acn-sub-start` /
+  `data-acn-sub-end`). Nothing in the rendered panel previously revealed whether children
+  had been attached, so dropping the attach would have been an invisible regression; S1 now
+  gates on sub-segments rendered INSIDE a surviving segment (27 on the mock, 0 under the
+  mutation).
+- **`probes/` gains the map path:** `map-instrument.js` (drives the real
+  `_sumBuildConversationMap` over supplied messages and fingerprints its output),
+  `run-map-harness.js` (sweeps configs, checks which construction model the rebuild count
+  matches, `--baseline` gates equivalence), and `perf-payload.js`'s `VOCAB_MULT` knob
+  (default 1 reproduces every earlier measurement byte-for-byte).
+
+See DEC-039 for the invariants, the alternatives, and the mutation battery — including the
+one that survived at a configuration where `mergeExcess` had nothing to merge.
+
+---
+
 ## [12.4 — Summary Performance: the Freeze Measured, then Removed] — 2026-07-31
 
 **Branch:** `fix/summary-perf-v12.4` (measurement: `probe/summary-perf-measurement`, PR #65)

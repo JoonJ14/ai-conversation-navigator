@@ -202,16 +202,21 @@ function n(calls, key, field) {
                         tokenizeChars: n(c, 'inner.tokenize', 'units'),
                         mergeExcessMs: +n(c, 'map.mergeExcess', 'ms').toFixed(1),
                         subSegmentsMs: +n(c, 'map.subSegments', 'ms').toFixed(1),
-                        // The identity the live 431 was read through: one rebuild per
-                        // commit plus one per merge, merging down to the final count.
-                        identityHolds: subs === segs + (segs - finals),
+                        // Which construction model the rebuild count matches.
+                        // "eager": children built at every commit AND every merge —
+                        //   subs = commits + merges = 2*initial - final. This is the
+                        //   identity the live 431 was read through (=> 218 initial).
+                        // "deferred": children attached once per surviving segment
+                        //   (v12.5, DEC-039) — subs = final.
+                        model: subs === segs + (segs - finals) ? 'eager'
+                             : subs === finals ? 'deferred' : 'UNKNOWN',
                     };
                     records.push(rec);
                     fingerprints[key] = fp;
                     console.log(
                         `  ${key}: ${Math.round(stats.chars / 1024)}KB, ${stats.distinctWords} distinct words\n` +
                         `      segments ${segs} -> ${finals} (${(segs / stats.messages).toFixed(2)} per msg), ` +
-                        `subSegment rebuilds ${subs}${rec.identityHolds ? ' [identity ok]' : ' [IDENTITY BROKEN]'}\n` +
+                        `subSegment rebuilds ${subs} [${rec.model}]\n` +
                         `      topicsFromText ${rec.topicsCalls}x over ${(rec.topicsChars / 1e6).toFixed(1)}M chars, ` +
                         `tokenize ${rec.tokenizeCalls}x over ${(rec.tokenizeChars / 1e6).toFixed(1)}M chars\n` +
                         `      map ${rec.ms.join(' / ')} ms  (subSegments ${rec.subSegmentsMs}ms, ` +

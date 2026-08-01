@@ -65,6 +65,7 @@ The test suite queries only stable `data-acn-*` attributes — never internal CS
 | `data-acn-role="sum-results"` | Summary results container | Render target (v12.3) |
 | `data-acn-role="sum-stats"` + `data-acn-sum-total/user/ai` | Stats section | Machine-readable whole-conversation counts (v12.3) |
 | `data-acn-role="sum-segment"` + `data-acn-sum-start/end` | Conversation-map segment | Addressable by timeline span, so a fixture can click the segment covering a known-unmounted entry (v12.3) |
+| `data-acn-role="sum-subsegment"` + `data-acn-sub-start/end` | Sub-segment inside a segment | The only surface showing that sub-segments were attached at all — they are built once per surviving segment (v12.5, DEC-039) |
 | `data-acn-role="tool-export"` + `data-acn-export="full\|bookmarks\|summary"` | Tools export options | Click targets (v12.3) |
 | `data-acn-role="toast"` | `#acn-toast` | Transient message text, e.g. the stale-summary refusal (v12.3) |
 

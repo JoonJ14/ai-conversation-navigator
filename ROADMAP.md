@@ -189,6 +189,29 @@ Numbering below is stable (items keep their historical numbers):
    per-message token sets for the map loops (needs the fence-spanning-join edge case
    checked); real restructuring of the merge loops is v13 territory. Live numbers +
    contexts in the TROUBLESHOOTING entry.
+   **Status 2026-07-31 (v12.5, SHIPPED — awaiting live confirmation): the residual is
+   the churn itself, not the tokenizing.** The rebuild count is an identity
+   (`2 × initialSegments − finalSegments`, reproduced exactly at every synthetic
+   config), so the live 431 means **≈218 initial segments from ~294 messages**. Nothing
+   during construction reads a segment's `children`, yet every commit and every merge
+   rebuilt them. v12.5 attaches sub-segments once per SURVIVING segment
+   (`_sumAttachSubSegments`, DEC-039) — output-identical, 32/32 fingerprints unchanged.
+   Measured at the live-calibrated payload (Firefox, q=147, `VOCAB_MULT=4 PARA_BOOST=3`):
+   map **7.6–7.8s → 1.1–1.3s**, rebuilds 521 → 5, `mergeExcess` 3,238ms → ~1ms.
+   Neither queued lever was needed: token memoization would have made throwaway work
+   cheaper (and carried the fence-spanning-join edge), and merge-loop restructuring
+   targets a term that is negligible once the loops stop rebuilding sub-segments.
+   **Fidelity note for any future map measurement:** segmentation is driven by DISTINCT
+   VOCABULARY (`_sumWordOverlap` divides by `max(|A|,|B|)`), not text volume —
+   `PARA_BOOST` is the wrong axis, `VOCAB_MULT` is the right one.
+   **Open after v12.5:** the live re-measure (owner, Path A with the v12.5 probe on the
+   Desktop) — expect generate ≈1.5–2.5s. **Where the remaining map cost now sits, measured:**
+   of the post-fix 1,144–1,260ms, **827ms is the five surviving `_sumBuildSubSegments`
+   calls** — specifically their fragment-absorb loop, which re-extracts topics over
+   ever-growing combined text and restarts its scan from index 0 after each absorb. That,
+   not the merge loops and not the initial scan (~300ms for both), is the next lever if the
+   owner wants more; unlike v12.5 it would be a real algorithmic change to a loop whose
+   output matters, so it needs the same fingerprint gate.
 
 **v12.0 Accomplishments (2026-07-26):**
 - **API-Backed Conversation Index (DEC-021):** Claude virtualized its message list with recycling — only ~3 of 147 user turns are mounted at any moment (~3% coverage), so `document.querySelectorAll()` stopped being a complete record of the conversation. Navigate, Search, Summary and Export were all operating on a fraction of the data, and Export was silently writing truncated files under an authoritative-looking message count. Fixed by reading Claude's own conversation JSON endpoint via `GM_xmlhttpRequest` and walking the message tree from `current_leaf_message_uuid` to isolate the active branch. This is an ordinary outbound request, not fetch interception — no Firefox cross-compartment exposure (DEC-019/DEC-020).
