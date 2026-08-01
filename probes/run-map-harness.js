@@ -151,7 +151,14 @@ function n(calls, key, field) {
 
     const fingerprints = {};
     const records = [];
-    let mismatches = 0;
+    // Two distinct failure classes, kept apart because they mean different things:
+    // repeatMismatches = the SAME build disagreed with itself across repeats (the
+    // measurement is unusable, and a --save from such a run must not be written);
+    // baselineMismatches = this build differs from the recorded one (the equivalence
+    // verdict). Either one exits non-zero — the exit used to live inside the
+    // --baseline block, so a nondeterministic --save run reported it and exited 0 (Codex).
+    let repeatMismatches = 0;
+    let baselineMismatches = 0;
 
     for (const engine of browsers) {
         const launchArgs = engine === 'chromium'
@@ -184,7 +191,7 @@ function n(calls, key, field) {
                             (json) => window.__acnMapRun(json), JSON.stringify(msgs)));
                         const thisFp = JSON.stringify(out.map);
                         if (fp === null) fp = thisFp;
-                        else if (fp !== thisFp) { console.log(`  !! ${key}: map differs BETWEEN REPEATS`); mismatches++; }
+                        else if (fp !== thisFp) { console.log(`  !! ${key}: map differs BETWEEN REPEATS`); repeatMismatches++; }
                         runs.push(out);
                     }
                     const c = runs[0].calls;
@@ -233,11 +240,11 @@ function n(calls, key, field) {
                         // (e.g. chromium-only) false-pass the gate for every config it
                         // omits (Codex). An uncompared config is a gate failure.
                         if (!(key in baseline)) {
-                            mismatches++;
+                            baselineMismatches++;
                             console.log(`      !! baseline has NO ENTRY for ${key} — not compared`);
                         }
                         else if (baseline[key] !== fp) {
-                            mismatches++;
+                            baselineMismatches++;
                             console.log(`      !! FINGERPRINT MISMATCH vs baseline`);
                             const a = JSON.parse(baseline[key]), b = JSON.parse(fp);
                             if (a.length !== b.length) console.log(`         segment count ${a.length} -> ${b.length}`);
@@ -259,16 +266,26 @@ function n(calls, key, field) {
     }
 
     if (savePath) {
-        fs.writeFileSync(savePath, JSON.stringify(fingerprints, null, 2));
-        console.log(`\nFingerprints: ${savePath}`);
+        if (repeatMismatches) {
+            // A fingerprint file from a run that disagreed with ITSELF would become the
+            // reference every later change is judged against — refuse to write it.
+            console.log(`\nNOT writing ${savePath} — ${repeatMismatches} configuration(s) ` +
+                        `produced different maps across repeats; that is not a baseline.`);
+        } else {
+            fs.writeFileSync(savePath, JSON.stringify(fingerprints, null, 2));
+            console.log(`\nFingerprints: ${savePath}`);
+        }
     }
     const outPath = path.join(OUTDIR, `map-${process.env.RUN_TAG || 'run'}.json`);
     fs.writeFileSync(outPath, JSON.stringify(records, null, 2));
     console.log(`Full records: ${outPath}`);
-    if (baseline) {
-        console.log(mismatches === 0
-            ? '\nEQUIVALENCE: every fingerprint identical to baseline.'
-            : `\nEQUIVALENCE: ${mismatches} mismatch(es).`);
-        if (mismatches) process.exit(1);
+    if (repeatMismatches) {
+        console.log(`\nDETERMINISM: ${repeatMismatches} configuration(s) differed between repeats.`);
     }
+    if (baseline) {
+        console.log(baselineMismatches === 0
+            ? '\nEQUIVALENCE: every fingerprint identical to baseline.'
+            : `\nEQUIVALENCE: ${baselineMismatches} mismatch(es).`);
+    }
+    if (repeatMismatches || baselineMismatches) process.exit(1);
 })().catch((e) => { console.error(e); process.exit(1); });
