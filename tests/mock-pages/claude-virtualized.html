@@ -187,6 +187,28 @@
     // it cannot reach the gate at all.
     var IDENT_ANS = CFG.identicalAnswerRows || [];
     var IDENT_TEXT = 'Identical answer text used twice so a legacy preview is ambiguous.';
+    // TOPIC_BLOCKS: three vocabularies across the conversation, so the fixture has
+    // real topic CHANGES for the conversation map's second level to find. Without it
+    // every message reads the same and a segmenter can only invent boundaries or find
+    // none — which is exactly why a broken sub-segmenter looked fine here for so long.
+    // Off by default: the existing entries' texts are load-bearing elsewhere (legacy
+    // bookmark previews and hashes). The API fixture applies the SAME rule so DOM and
+    // API text stay byte-identical for row-to-path matching.
+    var TOPIC_BLOCKS = !!CFG.topicBlocks;
+    function topicQ(turn) {
+        return turn <= 13
+            ? ' The oauth session token keeps expiring before the refresh cookie renews.'
+            : turn <= 27
+                ? ' The postgres migration locks the index while the replica rebuilds its schema.'
+                : ' The kubernetes rollout leaves the container probe failing inside the registry.';
+    }
+    function topicA(turn) {
+        return turn <= 13
+            ? ' Check the oauth refresh flow, then rotate the session cookie and its token.'
+            : turn <= 27
+                ? ' Check the migration order, then vacuum the index and resync the replica.'
+                : ' Check the rollout probe, then repull the container image from the registry.';
+    }
     var MESSAGES = [];
     for (var i = 0; i < TOTAL_MESSAGES; i++) {
         var turn = Math.floor(i / 2) + 1;
@@ -195,7 +217,8 @@
             if (DUP_ROWS.indexOf(i) !== -1)      qt = 'here is the full report.';
             else if (ATT_ROWS.indexOf(i) !== -1) qt = '[Pasted text #' + turn + ']';
             else qt = 'Question number ' + turn +
-                      ': how do I handle case ' + turn + ' when the input is unusual?';
+                      ': how do I handle case ' + turn + ' when the input is unusual?' +
+                      (TOPIC_BLOCKS ? topicQ(turn) : '');
             MESSAGES.push({ sender: 'user', text: qt });
         } else {
             MESSAGES.push({ sender: 'ai', text: SHORT_ANS.indexOf(i) !== -1
@@ -203,7 +226,8 @@
                   : IDENT_ANS.indexOf(i) !== -1
                     ? IDENT_TEXT
                     : 'Answer number ' + turn +
-                      ': validate the input first, then branch on the result.' });
+                      ': validate the input first, then branch on the result.' +
+                      (TOPIC_BLOCKS ? topicA(turn) : '') });
         }
     }
     // One giant row (>=15,000px) exercises intra-row scrolling with no remount.

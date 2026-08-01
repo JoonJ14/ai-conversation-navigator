@@ -1714,73 +1714,95 @@ the live shape (263 segments / 521 rebuilds / 36.4M chars vs live 218 / 431 / 27
 
 ---
 
-## DEC-040: Sub-Segmentation Is Scored, Not Eyeballed — Containment Over Max-Normalization, and Smallest-First Capping (v12.6)
+## DEC-040: Sub-Segmentation Asks "Is This One of the Weakest Joints in THIS Segment?" — Relative Cohesion Valleys, Not a Similarity Threshold (v12.6)
 **Date:** 2026-08-01 | **Stage:** v12.6
 
 ### Decision
-The conversation map's second level uses two mechanisms, each chosen against a measurement:
+The conversation map's second level places boundaries with a **lexical-cohesion valley** pass
+(TextTiling-shaped), not with a similarity threshold:
 
-1. **`_sumVocabContainment` (`|A∩B| / min(|A|,|B|)`) replaces `_sumWordOverlap` for the
-   sub-split decision.** `_sumWordOverlap` divides by `max(|A|,|B|)`, so a single message
-   (~30 unique content words) against a four-message window (~700) cannot exceed ~0.04 and
-   `SUB_THRESHOLD = 0.42` was unreachable: EVERY message split, and 100% of the visible
-   structure came from the absorb-fragments pass, which stops at three. Live, that produced
-   dozens of 3-message rows with near-identical labels. `_sumWordOverlap` is deliberately
-   left untouched — key-point dedup and the top-level segmentation are calibrated to it.
-2. **A count cap that merges the SMALLEST sub-segment into its more similar neighbour**,
-   `SUB_MAX = clamp(round(size / 20), 2, 8)`. Containment fixes WHERE boundaries fall; it
-   cannot bound HOW MANY, and there is a measured regime where it does not try to.
+1. Every message's vocabulary is tokenized **once**; block vocabularies are unions of those
+   sets (O(N), and an unterminated code fence in one message cannot swallow the next one's
+   words).
+2. **Cohesion** is measured at every gap — how much vocabulary the 3-message block before it
+   shares with the 3 after.
+3. Each gap gets a **valley depth**: how far it sits below the nearest local peak on either
+   side. Depth, not height, is what distinguishes a topic change from gradual drift, and it
+   is why a brief aside no longer cuts a run — an aside dips and recovers, so its depth is small.
+4. Cuts are taken **deepest-first** where depth exceeds `mean + 2.5 × sd` **of that segment's
+   own depth distribution**, keeping runs at least 6 messages long.
 
-### Context — the threshold was chosen by scoring, and that is the transferable part
-The probe payload knows where its topic blocks change, so `probes/perf-payload.js` now emits
-`topicBoundaries` and the harness scores detected boundaries against them (±2 messages).
-That converts "which histogram looks tidier" into a measurement:
+No absolute similarity constant survives into the decision. `_sumWordOverlap` is untouched —
+key-point dedup and the top-level segmentation are calibrated to it.
 
-| build | sub-segments | true boundaries found | spurious |
-|---|---|---|---|
-| pre-fix (max, 0.42) | 92 (90 of size 3) | 7/8 | **86 of 93 drawn** |
-| containment 0.42 | 2 | 2/8 | 3 of 5 |
-| containment 0.50 | 5 | 5/8 | 3 of 8 |
-| **containment 0.65** | **7 (28–40 msgs)** | **7/8** | **3 of 10** |
-| containment 0.75 | 8 | 7/8 | 4 of 11 (3-msg fragments return) |
+### Context — why a threshold could not be fixed by choosing a better number
+The shipped rule split when `_sumWordOverlap(message, window) < 0.42`, and that function
+divides by `max(|A|,|B|)`: one message (~30 unique content words) against a four-message window
+(~700) has a **ceiling near 0.04**. Every message split; the visible structure was the
+absorb-fragments pass emitting fixed 3-message chunks. Live, that was dozens of near-identical
+rows (`msgs 1–3`, `4–6`, `7–9`).
 
-The pre-fix build's 7/8 recall was **an artefact of drawing a boundary every three messages** —
-precision 7.5%. Recall saturates at 0.65 and spurious boundaries climb past 0.70, so 0.65 is the
-least aggressive value reaching full recall. On the closest-to-live config the resulting children
-are the payload's actual topic blocks in order (auth → database → frontend → deployment →
-performance → testing → networking), which is the real evidence that the mechanism works.
+The first fix swapped the normalization (`min` instead of `max`, threshold 0.65) and was
+**measured to be insufficient, which is the load-bearing part of this record**: how similar two
+adjacent messages LOOK depends on how long they are and how wide the vocabulary is. The same
+0.65 scored **7/8 boundaries on one payload and 2/8 on another**, differing only in message
+length. A constant is therefore right for one conversation and wrong for the next — the owner's
+objection ("you're just going with another number") was correct, and the numbers agreed with him.
+
+Scored against the probe payload's known topic changes (`probes/perf-payload.js` emits them;
+the harness reports found/spurious per build), summed over four payload shapes:
+
+| build | true topic changes found (of 32) | spurious |
+|---|---|---|
+| pre-fix (`max`, 0.42) | 31/32 | **346** — it drew a boundary every 3 messages |
+| containment threshold 0.65 + cap | 24/32 | 14 |
+| **cohesion valleys, `mean + 2.5·sd`** | **31/32** | **10** |
+
+Note what the first row means: the broken build matched the new one on RECALL (31/32) — because
+a rule that cuts every three messages hits everything by accident. It drew **346 boundaries that
+were not topic changes**; the new rule draws 10. The decisive property, though, is not the totals
+but that **one setting of the relative cutoff works across all four shapes**, while no single
+similarity threshold did. On the config a constant
+could not handle at all (short messages, wide vocabulary) this goes 2/8 → **8/8**.
 
 ### Alternatives considered
-- **Cap by merging the most similar ADJACENT PAIR** (what `_sumMergeExcessSegments` does at the
-  top level): **measured and rejected.** A merged sub's topics are a union capped at six terms,
-  so it overlaps with everything, keeps winning the similarity contest, and swallows its
-  neighbours — one **221-message row beside six 3-message rows**, with boundary recall dropping
-  from 8/8 to 2/8. Smallest-first cannot run away: merging a sub makes it less likely to be
-  chosen next. **The top level still has this rule, and the owner's live map shows its
-  signature — segments of 8, 20, 181, 80, 81.** Left unchanged and recorded (ROADMAP) rather
-  than fixed unasked, because the owner reports the top level as satisfactory.
-- **Lowering `SUB_THRESHOLD` under the old metric:** cannot work. The ceiling is ~0.04; any
-  threshold above it splits unconditionally and any threshold below it never splits. The
-  normalization was the bug, not the number.
-- **Recomputing topics when capping** (instead of merging topic lists): rejected on the v12.5
-  measurement — topic extraction over growing text is the map's remaining hot loop. Merging
-  lists costs no tokenization.
+- **Containment threshold (`|A∩B| / min(|A|,|B|)` at 0.65) + count cap:** built, measured,
+  superseded. Better than the shipped `max` rule (24/32 vs a brute-force 30/32-with-345-spurious)
+  but it moved the constant rather than removing it, and it collapsed on the short-message
+  regime. Kept in this record because the failure is the reason the current design exists.
+- **Cap by merging the most similar adjacent PAIR** (the top level's rule): measured and
+  rejected. A merged sub's topics are a six-term union, so it overlaps with everything, keeps
+  winning the similarity contest and swallows its neighbours — one **221-message row beside six
+  3-message rows**, recall 8/8 → 2/8. The retained cap merges the **smallest** sub instead,
+  which cannot run away. **The top level still uses the most-similar-pair rule and the owner's
+  live map shows its signature — segments of 8, 20, 181, 80, 81.** Left unchanged because the
+  owner reports the top level as satisfactory; recorded in ROADMAP.
+- **Absolute depth cutoff** instead of one derived from the segment: rejected for the same
+  reason the similarity threshold was — depth magnitudes scale with vocabulary density.
 
 ### Key properties
-- **Honest scope, measured not assumed:** in a short-message + wide-vocabulary regime
-  (`PARA_BOOST=1 VOCAB_MULT=4`) same-topic follow-ups repeat few words, containment stays below
-  any fixed threshold, and boundary recall is **2/8** — the cap keeps the panel readable
-  (46 rows → 12, evenly sized) but does not make those boundaries topical. The regimes matching
-  the owner's real conversation by text volume score 7/8–8/8 with 0–3 spurious. This is a large
-  improvement, not a solved problem, and the docs say so.
-- The synthetic ground truth is lexically disjoint by construction; real conversations drift and
-  revisit. A good score here means "the mechanism works", never "this threshold is right for a
-  real conversation" — that stays a live judgement, which is why v12.6 ships to a live check.
-- Cost is unchanged: the containment function tokenizes exactly what the old comparison did, and
-  the cap merges topic lists rather than recomputing them.
-- **The class of defect worth remembering:** this survived because a comment described behaviour
-  the code did not have ("Detects genuine topic shifts… Purely content-driven — no count-based
-  caps") and no gate could see it. Six Codex rounds and a full mutation battery on v12.5 asked
-  only "does the map still produce what it produced before?" — equivalence to a defective
-  baseline is still equivalence. It took a human reading the rendered panel. When a metric is
-  introduced, ask what value it can actually take.
+- **The count cap is not doing the work, and that was checked rather than assumed.** With the
+  cap disabled the results are identical on three of four configs; on the fourth it removes two
+  6-message fragments (spurious 4 → 2). It is a safety net, not the mechanism.
+- Cost is unchanged in the shape that matters: tokenization is now **once per message** instead
+  of once per comparison, so the cohesion pass is cheaper than the loop it replaces despite
+  measuring every gap. v12.5's hot loop is untouched.
+- **Scope, stated because a good score here is not a guarantee there:** the probe's topic blocks
+  are lexically disjoint by construction. Real conversations drift, revisit and interleave. This
+  validates the MECHANISM and the *relative* cutoff's transferability across text shapes; whether
+  0.6/2.5/6 are right for a real conversation is a live judgement.
+- **A fixture with no structure cannot gate a structure-finding feature.** The suite's
+  virtualized fixture repeated one sentence 40 times, so a conversation with no topic changes
+  could not distinguish a segmenter that correctly finds none from one that invents dozens —
+  which is how fixed 3-message chunking survived v12.5's entire review. The indexed entry's
+  fixture now carries three topic blocks (identical rule on the mock DOM and the API payload,
+  so row-to-path matching stays byte-exact), the map recovers them exactly (`starts [0, 27, 55]`
+  against true changes at 27 and 55), and S1b asserts those POSITIONS. The shipped defect is now
+  measured red against it. Generalize this before adding the next content-derived feature: ask
+  what the fixture would have to contain for the feature to be wrong in a visible way.
+- **The class of defect worth remembering:** the original survived because a comment described
+  behaviour the code did not have ("Detects genuine topic shifts… Purely content-driven — no
+  count-based caps") and no gate could see it. Six Codex rounds and a full mutation battery on
+  v12.5 asked only "does the map still produce what it produced before?" — equivalence to a
+  defective baseline is still equivalence. It took a human reading the panel. **When a metric is
+  introduced, ask what values it can actually take.**

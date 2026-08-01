@@ -81,14 +81,16 @@ on a hypothesis.**
 Numbering below is stable (items keep their historical numbers):
 
 0. **Conversation-map sub-segmentation is not content-driven — FIXED in v12.6 (DEC-040),
-   awaiting live confirmation.** Containment (`min`) replaces max-normalization for the
-   sub-split at `SUB_THRESHOLD = 0.65`, plus a smallest-first count cap. Measured on the
-   live-calibrated payload: **92 sub-segments (90 of size 3, 86 spurious boundaries) → 7 of
-   28–40 messages, 3 spurious**, and the children come out as the payload's actual topic
-   blocks in order. **Two things stay open out of this:**
-   (i) a short-message + wide-vocabulary regime still scores 2/8 on boundary recall — the cap
-   bounds the row count there without making the boundaries topical (measured, documented);
-   (ii) **the TOP level still merges by most-similar-pair**, the rule measured to run away at
+   awaiting live confirmation.** Boundaries come from **lexical-cohesion valleys** judged
+   against each segment's own depth distribution (`mean + 2.5·sd`), not from a similarity
+   threshold — a threshold cannot work here regardless of its value, because adjacent-message
+   similarity scales with message length and vocabulary breadth (measured: the same constant
+   scored 7/8 on one payload and 2/8 on another differing only in message length). Summed over
+   four payload shapes: **31/32 true topic changes found with 10 spurious**, versus 31/32 with
+   **346** before (it cut every three messages) and 24/32 with 14 for the intermediate
+   threshold attempt. Sub-segments are 9–41 messages instead of uniformly 3.
+   **One thing stays open out of this:**
+   **the TOP level still merges by most-similar-pair**, the rule measured to run away at
    the sub level (one 221-message row, recall 8/8 → 2/8). The owner's live map shows that
    signature — segments of 8, 20, 181, 80, 81. Left unchanged because the owner reports the
    top level as satisfactory; the fix, if wanted, is the same smallest-first merge.

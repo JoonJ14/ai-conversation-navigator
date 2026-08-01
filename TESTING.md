@@ -714,21 +714,28 @@ this are gated by two platform-config flags:
   the E1 retry exists for the same race). The zone is re-queried per read, never
   cached across the block — a re-injected zone would otherwise satisfy delta-0
   vacuously through a detached node.
-  **S1b, the sub-segment gate (v12.5)** covers the deferred sub-segment attachment (DEC-039):
-  `children` is now built once per SURVIVING segment instead of at every commit and merge,
-  and *nothing else in the rendered panel showed whether that attach ran at all* — so
-  dropping it would have been an invisible regression. The gate counts
-  `[data-acn-role="sum-subsegment"]` nodes rendered INSIDE a `sum-segment` (27 on this mock;
-  counting them document-wide would also accept children attached to a segment that was
-  later merged away). Killing mutation: remove `_sumAttachSubSegments` from
-  `_sumBuildConversationMap`'s main return — measured red, 27 → 0. **Not gated here, by
-  construction:** the ≤6-message return path (a 6-entry timeline can never reach
-  `_sumBuildSubSegments`' 12-message minimum, so its attach is a no-op no fixture could
-  distinguish), and attach ORDER relative to `_sumMergeExcessSegments` — every mock produces
-  ONE segment, so merging never happens here. Order is gated instead by the map harness
-  (`probes/run-map-harness.js --baseline`), and only at a configuration where `mergeExcess`
-  actually merges: the mutation is genuinely equivalent when the min-size pass has already
-  reduced the set to ≤5, so it passes at q=25/vocab=4 and dies at q=147/vocab=1.
+  **S1b — the sub-segment gate (v12.5 attach + v12.6 segmentation).** Two properties in one
+  observable, because the second is what makes the first worth asserting. The entry's fixture
+  now carries **three topic blocks** (`topicBlocks: true`, applied identically to the mock DOM
+  and the API payload so row-to-path matching stays byte-exact), changing at turns 14 and 28 —
+  timeline entries 27 and 55. S1b asserts the rendered sub-segments start at exactly
+  `[0, 27, 55]`, i.e. that the map **recovers the fixture's real topic structure**, not merely
+  that children exist.
+  Killing mutations, both measured red against the final commit:
+  (a) delete `_sumAttachSubSegments` from `_sumBuildConversationMap`'s return → `starts []`
+  (the v12.5 regression); (b) replace the cohesion pass with mechanical 3-message chunking —
+  *the defect that actually shipped* → `starts [0, 69, 72, 75]`.
+  **Why the fixture needed changing at all, and why that is not weakening a gate:** with the
+  old uniform filler text (`Answer number N: validate the input first…` ×40) the conversation
+  has no topic changes, so a correct segmenter finds none and a broken one invents dozens. The
+  suite could not tell those apart — which is exactly how a sub-segmenter that emitted fixed
+  3-message chunks stayed green through v12.5's entire review. A fixture with no structure
+  cannot gate a structure-finding feature. The topic knob is OFF for every other entry: the
+  legacy-bookmark entry's previews and content hashes depend on the old strings byte-for-byte.
+  **Recorded gap:** the ≤6-message map path is still structurally unfalsifiable (6 < 12, so
+  `_sumBuildSubSegments` returns `[]` there regardless), and attach ORDER relative to
+  `_sumMergeExcessSegments` is gated by the map harness rather than here, since every mock
+  produces one top-level segment and never merges.
 
 - `degradedExportTest: true` (on *Claude (virtualized)*) runs **E2**: the export must carry
   the DEGRADED source label and a header total EXACTLY equal to the derived window size

@@ -182,9 +182,15 @@ const PLATFORMS = [
         virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
         indexBacked: true,
         summaryExportTests: true,   // S1-S4/E1/E3: the v12.3 dead-zone fixtures
+        // Three topic blocks across the 40 turns, applied identically to the mock DOM
+        // and the API payload. S1b needs a conversation that HAS topic changes: with
+        // uniform text the map correctly finds none, and a gate on "sub-segments
+        // exist" would be asserting that a segmenter invents boundaries (v12.6).
+        mockConfig: { totalMessages: 80, topicBlocks: true },
         gmFixture: {
             totalMessages: 80,
             conversationUuid: '22222222-2222-4222-8222-222222222222',
+            topicBlocks: true,
         },
     },
     {
@@ -712,6 +718,21 @@ function buildGmFixtureShim(cfg) {
     const dupRows  = cfg.duplicateRows || [];
     const attRows  = cfg.attachmentRows || [];
 
+    // Mirrors the mock's TOPIC_BLOCKS rule EXACTLY — the two texts must stay
+    // byte-identical or row-to-path matching degrades (see the mock for why this knob
+    // exists at all). Off by default; the existing texts are load-bearing in the
+    // legacy-bookmark entry's previews and hashes.
+    const topicQ = (turn) => !cfg.topicBlocks ? '' : (turn <= 13
+        ? ' The oauth session token keeps expiring before the refresh cookie renews.'
+        : turn <= 27
+            ? ' The postgres migration locks the index while the replica rebuilds its schema.'
+            : ' The kubernetes rollout leaves the container probe failing inside the registry.');
+    const topicA = (turn) => !cfg.topicBlocks ? '' : (turn <= 13
+        ? ' Check the oauth refresh flow, then rotate the session cookie and its token.'
+        : turn <= 27
+            ? ' Check the migration order, then vacuum the index and resync the replica.'
+            : ' Check the rollout probe, then repull the container image from the registry.');
+
     const messages = [];
     let seq = 0;
     const uuidFor = (i) => `aaaaaaaa-0000-4000-8000-${String(i).padStart(12, '0')}`;
@@ -755,7 +776,7 @@ function buildGmFixtureShim(cfg) {
                     ? 'Yes.'
                     : identAns
                         ? 'Identical answer text used twice so a legacy preview is ambiguous.'
-                        : `Answer number ${turn}: validate the input first, then branch on the result.`;
+                        : `Answer number ${turn}: validate the input first, then branch on the result.${topicA(turn)}`;
             // summaryRows[row] attaches a thinking block carrying the model-generated
             // ACTIVITY SUMMARY — the collapsed-header text claude.ai renders above a
             // thinking/tool answer, and the text pre-v12.0 bookmark previews captured on
@@ -782,7 +803,7 @@ function buildGmFixtureShim(cfg) {
             ? 'here is the full report.'
             : (cfg.markdownText
                 ? `**Question number ${turn}**: how do I handle \`case ${turn}\` when the input is unusual?`
-                : `Question number ${turn}: how do I handle case ${turn} when the input is unusual?`);
+                : `Question number ${turn}: how do I handle case ${turn} when the input is unusual?${topicQ(turn)}`);
         push({ sender: 'human', text: '',
                content: [{ type: 'text', text: qt + ' VISIBLE-NOT-SR-ONLY' }] });
     }
@@ -1879,6 +1900,10 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                         document.querySelectorAll('[data-acn-role="sum-segment"]').forEach(s => {
                             subInside += s.querySelectorAll('[data-acn-role="sum-subsegment"]').length;
                         });
+                        const subStarts = Array.from(
+                            document.querySelectorAll('[data-acn-role="sum-subsegment"]'))
+                            .map(e => +e.getAttribute('data-acn-sub-start'))
+                            .sort((a, b) => a - b);
                         return {
                             total: +stats.getAttribute('data-acn-sum-total'),
                             user:  +stats.getAttribute('data-acn-sum-user'),
@@ -1886,6 +1911,7 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                             segments: document.querySelectorAll('[data-acn-role="sum-segment"]').length,
                             subsegments: document.querySelectorAll('[data-acn-role="sum-subsegment"]').length,
                             subInside,
+                            subStarts,
                             segEndMax,
                             mounted: window.__mockVirtualization.mountedCount()
                         };
@@ -1897,15 +1923,29 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                                    `${expPath} (${expUser}u/${expAi}ai); ${sum.segments} segments, ` +
                                    `${sum.subsegments} sub (${sum.subInside} inside), ` +
                                    `segEndMax=${sum.segEndMax} (info); ${sum.mounted} turns mounted`);
-                    // S1b (v12.5) — sub-segments are attached ONCE, to the segments
-                    // that survive merging (DEC-039). Killing mutation: drop
-                    // _sumAttachSubSegments from _sumBuildConversationMap's main
-                    // return — measured red here, 27 -> 0, while every other
-                    // assertion in the suite stays green.
-                    assert('SUMMARY sub-segments are attached to the surviving segments',
-                        !sum.err && sum.subInside > 0 && sum.subInside === sum.subsegments,
+                    // S1b — two properties in one observable, because the second is
+                    // what makes the first meaningful:
+                    //   (v12.5) sub-segments are attached ONCE, to the segments that
+                    //     survive merging (DEC-039);
+                    //   (v12.6) and they land on the fixture's ACTUAL topic structure —
+                    //     three blocks changing at turns 14 and 28, i.e. timeline
+                    //     entries 27 and 55 (the mock and the API payload both apply the
+                    //     topicBlocks rule, so this is ground truth, not a snapshot).
+                    // Asserting POSITIONS rather than "some children exist" is the
+                    // difference between a segmentation gate and an attachment gate. It
+                    // still catches the v12.5 mutation: drop _sumAttachSubSegments and
+                    // there are no children at all.
+                    // If a future change to segmentation moves these, that is a real
+                    // signal — re-derive the expected boundaries from the fixture's
+                    // topic rule, do not widen the assertion.
+                    const SUB_EXPECTED = [0, 27, 55];
+                    assert('SUMMARY sub-segments recover the fixture\'s three topic blocks',
+                        !sum.err && sum.subInside === sum.subsegments &&
+                        JSON.stringify(sum.subStarts) === JSON.stringify(SUB_EXPECTED),
                         sum.err || `${sum.subsegments} sub-segments rendered, ${sum.subInside} of ` +
-                                   `them inside a [data-acn-role="sum-segment"]`);
+                                   `them inside a [data-acn-role="sum-segment"]; starts ` +
+                                   `[${(sum.subStarts || []).join(', ')}], expected ` +
+                                   `[${SUB_EXPECTED.join(', ')}]`);
                     assert('SUMMARY regenerate control is live',
                         !sum.err,
                         sum.err || 'a re-enabled click on [data-acn-role="sum-generate"] replaced the stats node');

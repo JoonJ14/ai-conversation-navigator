@@ -8624,23 +8624,109 @@
         return PIVOT_PHRASES.test(text);
     }
 
-    // How much of the SMALLER vocabulary the two texts share — |A∩B| / min(|A|,|B|),
-    // the overlap (Szymkiewicz–Simpson) coefficient. Distinct from _sumWordOverlap,
-    // which divides by max() and is therefore dominated by the size difference: one
-    // message (~30 unique content words) against a four-message window (~700) cannot
-    // exceed ~0.04 under max(), so ANY threshold above that splits unconditionally.
-    // That is exactly what happened to sub-segmentation — see the TROUBLESHOOTING
-    // entry and DEC-040. Reading here: "how much of this message's vocabulary was
-    // already on the table", which is the question a topic-continuity test is asking.
-    // _sumWordOverlap is deliberately left alone — key-point dedup and the top-level
-    // segmentation are calibrated against its behaviour.
-    function _sumVocabContainment(textA, textB) {
-        var wordsA = new Set(_sumTokenize(textA));
-        var wordsB = new Set(_sumTokenize(textB));
-        if (wordsA.size === 0 || wordsB.size === 0) return 0;
-        var intersection = 0;
-        wordsA.forEach(function (w) { if (wordsB.has(w)) intersection++; });
-        return intersection / Math.min(wordsA.size, wordsB.size);
+    // ── Lexical-cohesion segmentation (sub-segments) ─────────────────────────────
+    // A fixed similarity threshold cannot work here, and not because the number was
+    // wrong: how similar two adjacent messages LOOK depends on how long they are and
+    // how wide the vocabulary is. Terse exchanges over a broad vocabulary score low
+    // everywhere; verbose ones over a narrow vocabulary score high everywhere. Any
+    // constant is therefore right for one conversation and wrong for the next — which
+    // is what measurement showed (a constant that scored 7/8 on one payload scored 2/8
+    // on another, purely from message length). See DEC-040.
+    //
+    // So the question asked is not "is this pair below X?" but "is this one of the
+    // weakest joints in THIS segment?" — cohesion is measured across every gap, and
+    // cuts are placed at genuine valleys, judged against the segment's own
+    // distribution. Scale-free by construction.
+    //
+    // Per-message vocabularies, computed once. Block vocabularies are UNIONS of these
+    // rather than a tokenization of the joined text: O(N) instead of O(N × blockSize),
+    // and the more defensible reading anyway — an unterminated code fence in one
+    // message should not swallow the next one's words.
+    function _sumMessageVocabs(messages) {
+        var vocabs = [];
+        for (var i = 0; i < messages.length; i++) {
+            vocabs.push(new Set(_sumTokenize(messages[i].text)));
+        }
+        return vocabs;
+    }
+
+    function _sumBlockVocab(vocabs, from, to) {          // [from, to)
+        var out = new Set();
+        for (var i = from; i < to; i++) {
+            vocabs[i].forEach(function (w) { out.add(w); });
+        }
+        return out;
+    }
+
+    function _sumSetOverlap(a, b) {
+        if (!a.size || !b.size) return 0;
+        var hits = 0;
+        a.forEach(function (w) { if (b.has(w)) hits++; });
+        return hits / Math.min(a.size, b.size);
+    }
+
+    // Indices at which `messages` should be cut. Returns [] when the segment has no
+    // structure worth cutting — a long uniform debugging run correctly yields nothing.
+    function _sumCohesionCuts(messages, blockSize, minRun, depthCoef) {
+        var n = messages.length;
+        if (n < blockSize * 2 + minRun) return [];
+        var vocabs = _sumMessageVocabs(messages);
+
+        // Cohesion at each gap: how much vocabulary the block before it shares with
+        // the block after it. A long run about one thing holds a high plateau; a real
+        // topic change is a trough between two plateaus.
+        var at = [], score = [], i;
+        for (i = blockSize; i <= n - blockSize; i++) {
+            at.push(i);
+            score.push(_sumSetOverlap(_sumBlockVocab(vocabs, i - blockSize, i),
+                                      _sumBlockVocab(vocabs, i, i + blockSize)));
+        }
+        if (score.length < 3) return [];
+
+        // Valley DEPTH, not absolute height: how far this gap sits below the nearest
+        // local peak on either side. This is what separates a topic change from a
+        // gradual drift, and it is why a brief aside does not cut — an aside dips and
+        // recovers within one or two messages, so the run around it stays one run.
+        var depth = [], k, leftPeak, rightPeak;
+        for (i = 0; i < score.length; i++) {
+            leftPeak = score[i];
+            for (k = i - 1; k >= 0 && score[k] >= score[k + 1]; k--) leftPeak = score[k];
+            rightPeak = score[i];
+            for (k = i + 1; k < score.length && score[k] >= score[k - 1]; k++) rightPeak = score[k];
+            depth.push((leftPeak - score[i]) + (rightPeak - score[i]));
+        }
+
+        // The cutoff comes from the segment's OWN depth distribution (the TextTiling
+        // rule), so no absolute constant survives into the decision.
+        var sum = 0;
+        for (i = 0; i < depth.length; i++) sum += depth[i];
+        var mean = sum / depth.length;
+        var varsum = 0;
+        for (i = 0; i < depth.length; i++) varsum += (depth[i] - mean) * (depth[i] - mean);
+        var sd = Math.sqrt(varsum / depth.length);
+        var cutoff = mean + depthCoef * sd;
+
+        // Deepest valleys first, keeping runs at least minRun long. Taking them in
+        // depth order rather than left-to-right means that when two candidate cuts are
+        // too close together, the STRONGER topic change survives.
+        var order = [];
+        for (i = 0; i < depth.length; i++) {
+            if (depth[i] > cutoff && depth[i] > 0) order.push(i);
+        }
+        order.sort(function (a, b) { return depth[b] - depth[a]; });
+
+        var cuts = [];
+        for (i = 0; i < order.length; i++) {
+            var pos = at[order[i]];
+            if (pos < minRun || n - pos < minRun) continue;
+            var ok = true;
+            for (k = 0; k < cuts.length; k++) {
+                if (Math.abs(cuts[k] - pos) < minRun) { ok = false; break; }
+            }
+            if (ok) cuts.push(pos);
+        }
+        cuts.sort(function (a, b) { return a - b; });
+        return cuts;
     }
 
     // Secondary segmentation pass for large segments (12+ messages).
@@ -8653,48 +8739,33 @@
     // Returns an array of sub-segments (children), or [] if no meaningful split found.
     function _sumBuildSubSegments(messages) {
         if (messages.length < 12) return [];
-        // Fraction of the smaller vocabulary shared with the recent context. Chosen by
-        // scoring detected boundaries against the probe payload's KNOWN topic changes
-        // (probes/run-map-harness.js prints the score), not by eye: recall saturates at
-        // 7/8 from 0.65 and stays there, while spurious boundaries start climbing past
-        // 0.70 and 3-message fragments reappear at 0.75+. 0.65 is the least aggressive
-        // value that reaches full recall. Scope: the probe's topic blocks are lexically
-        // disjoint by construction, so this validates the MECHANISM; the exact number is
-        // a live judgement (DEC-040).
-        var SUB_THRESHOLD = 0.65;
-        var CONTEXT       = 4;
-        var subs          = [];
-        var cur           = [messages[0]];
+        // BLOCK: messages compared on each side of a gap. 3 ≈ one and a half exchanges,
+        // enough vocabulary to be meaningful without smearing across a real boundary.
+        // MIN_RUN: shortest run a topic may occupy. This is what makes a brief aside
+        // stay inside its run instead of cutting it in three, and it replaces the old
+        // "absorb anything under 3 messages" patch with a stated intent.
+        // DEPTH_COEF: how far above the segment's mean valley depth a trough must sit,
+        // in standard deviations of that same segment. RELATIVE, so it does not care
+        // whether the conversation is terse or verbose (DEC-040).
+        var BLOCK      = 3;
+        var MIN_RUN    = 6;
+        var DEPTH_COEF = 2.5;
+        var subs       = [];
+        var cuts       = _sumCohesionCuts(messages, BLOCK, MIN_RUN, DEPTH_COEF);
+        if (!cuts.length) return [];
 
-        for (var i = 1; i < messages.length; i++) {
-            var msg     = messages[i];
-            var win     = cur.slice(-CONTEXT);
-            var winText = win.map(function (m) { return m.text; }).join(' ');
-            var overlap = _sumVocabContainment(msg.text, winText);
-            if (overlap >= SUB_THRESHOLD) {
-                cur.push(msg);
-            } else {
-                var segText = cur.map(function (m) { return m.text; }).join(' ');
-                var topics  = _sumExtractTopicsFromText(segText, 3);
-                subs.push({
-                    label:    _sumGenerateSegmentLabel({ topics: topics }),
-                    topics:   topics,          // kept for the merge passes below
-                    startIdx: cur[0].globalIdx,
-                    endIdx:   cur[cur.length - 1].globalIdx,
-                    messages: cur
-                });
-                cur = [msg];
-            }
-        }
-        if (cur.length) {
-            var lastText   = cur.map(function (m) { return m.text; }).join(' ');
-            var lastTopics = _sumExtractTopicsFromText(lastText, 3);
+        var bounds = [0].concat(cuts, [messages.length]);
+        for (var b = 0; b < bounds.length - 1; b++) {
+            var run     = messages.slice(bounds[b], bounds[b + 1]);
+            if (!run.length) continue;
+            var runText = run.map(function (m) { return m.text; }).join(' ');
+            var topics  = _sumExtractTopicsFromText(runText, 3);
             subs.push({
-                label:    _sumGenerateSegmentLabel({ topics: lastTopics }),
-                topics:   lastTopics,
-                startIdx: cur[0].globalIdx,
-                endIdx:   cur[cur.length - 1].globalIdx,
-                messages: cur
+                label:    _sumGenerateSegmentLabel({ topics: topics }),
+                topics:   topics,
+                startIdx: run[0].globalIdx,
+                endIdx:   run[run.length - 1].globalIdx,
+                messages: run
             });
         }
 

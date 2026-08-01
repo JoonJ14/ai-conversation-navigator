@@ -509,30 +509,35 @@ Two things follow, and both matter more than the symptom:
 
 ### Fix (v12.6, DEC-040)
 
-`_sumVocabContainment` (`|A∩B| / min(|A|,|B|)`) for the sub-split only, at `SUB_THRESHOLD = 0.65`,
-plus a count cap that merges the SMALLEST sub into its more similar neighbour
-(`clamp(size/20, 2, 8)`). `_sumWordOverlap` is untouched — key-point dedup and the top level are
-calibrated to it.
+Boundaries now come from a **lexical-cohesion valley** pass, not a similarity threshold. Cohesion
+is measured at every gap (3 messages either side, vocabularies unioned from per-message token
+sets), each gap is scored by **valley depth** — how far below the nearest local peak on each side
+— and cuts are taken deepest-first where depth exceeds `mean + 2.5 × sd` **of that segment's own
+depth distribution**, keeping runs ≥ 6 messages.
 
-**The threshold was scored, not eyeballed.** `probes/perf-payload.js` now emits the timeline
-indices where its topic blocks change, and the harness reports how many of those a build actually
-finds (±2 messages) and how many boundaries it invents:
+**A threshold could not be rescued by choosing a better number, and that was measured, not
+assumed.** The first attempt fixed the normalization (`min` instead of `max`) and used 0.65; it
+scored **7/8 boundaries on one payload and 2/8 on another** that differed only in message length.
+How similar two adjacent messages look depends on how long they are and how wide the vocabulary
+is, so any constant is right for one conversation and wrong for the next. Depth relative to the
+segment's own distribution has no such dependence.
 
-| build | sub-segments | true topic changes found | spurious |
-|---|---|---|---|
-| pre-fix (`max`, 0.42) | 92 (90 of size 3) | 7/8 | **86 of 93 drawn** |
-| v12.6 (containment 0.65 + cap) | **7 (28–40 msgs)** | 7/8 | **3 of 10** |
+Scored against the payload's known topic changes, summed over four payload shapes:
 
-The pre-fix 7/8 was an artefact of drawing a boundary every three messages — precision 7.5%. On
-this payload the v12.6 children are its actual topic blocks in order (auth → database → frontend →
-deployment → performance → testing → networking); two other configs score 8/8 and 7/8 with ZERO
-spurious. The test mock's map went from 27 sub-rows to 4.
+| build | true topic changes found (of 32) | spurious |
+|---|---|---|
+| pre-fix (`max`, 0.42) | 31/32 | **346** |
+| containment threshold 0.65 + cap | 24/32 | 14 |
+| **v12.6 — cohesion valleys** | **31/32** | **10** |
 
-**Measured limit, kept in the record:** at `PARA_BOOST=1 VOCAB_MULT=4` (short messages, wide
-vocabulary) same-topic follow-ups repeat too few words for any fixed threshold; recall is 2/8 and
-the cap only keeps the panel readable (46 rows → 12, evenly sized) without making those boundaries
-topical. The configs matching the owner's conversation by text volume are the 7/8–8/8 ones. A large
-improvement, not a solved problem.
+The pre-fix build matched on recall only because a boundary every three messages hits everything
+by accident. The property that matters is that **one setting of the relative cutoff works across
+all four shapes** where no similarity threshold did — including the short-message/wide-vocabulary
+config that a constant could not handle at all (**2/8 → 8/8**). Sub-segments are 9–41 messages
+instead of uniformly 3; the test mock's map went from 27 sub-rows to 4.
+
+**The count cap is a safety net, not the mechanism** — verified by disabling it: identical results
+on three of four configs, and on the fourth it only removes two 6-message fragments.
 
 **Rejected after measuring:** capping by merging the most similar adjacent PAIR — the top level's
 rule. A merged sub's six-term topic union overlaps with everything and runs away: one 221-message
