@@ -53,9 +53,9 @@ The bar is a share of the strongest signal present rather than a z-score, becaus
 cutoff is computed over a sample containing the very valleys it is meant to find — it cannot see
 a single outlier in a small sample (7 gaps cap the achievable distance at `sqrt(6) ≈ 2.449`, below
 a 2.5·sd bar) and it cannot see many outliers at all (nine equal valleys inflate sd until the bar
-sits above them). Both were measured. The entry condition is likewise *derived*
-(`2 × BLOCK + MIN_RUN`) instead of a hardcoded 12, so it cannot promise a split the arithmetic
-forbids.
+sits above them). Both were measured. The entry condition is likewise *derived* —
+`2 × max(BLOCK, MIN_RUN)`, because the computable-gap and selectable-gap constraints overlap
+rather than add — instead of a hardcoded 12, so it cannot promise a split the arithmetic forbids.
 
 No absolute similarity constant survives into the decision. `_sumWordOverlap` is untouched —
 key-point dedup and top-level segmentation are calibrated to it.

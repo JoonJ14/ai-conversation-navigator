@@ -8864,24 +8864,30 @@
             for (var m = 1; m < subs.length; m++) {
                 if (subs[m].messages.length < subs[smallest].messages.length) smallest = m;
             }
-            var prevOv = smallest > 0
-                ? _sumTopicOverlap(subs[smallest].topics || [], subs[smallest - 1].topics || []) : -1;
-            var nextOv = smallest < subs.length - 1
-                ? _sumTopicOverlap(subs[smallest].topics || [], subs[smallest + 1].topics || []) : -1;
+            // Target the SMALLER neighbour; topic overlap only breaks size ties.
+            //
+            // Choosing by overlap first is what runs away, and it took three attempts to
+            // see the whole shape. Once a block has absorbed two topics its merged topic
+            // list (a union, capped at six terms) overlaps with EVERYTHING, so it wins
+            // the similarity contest against every later run on merit — not merely on
+            // ties. It is never `smallest` itself, so nothing stops it: simulating the
+            // loop on ten alternating six-message runs gives [48, 6, 6] (GitHub Codex
+            // round 4; reproduced step by step). An earlier tie-break-only fix handled
+            // the zero-overlap case (round 1, [54, 3, 3]) and left this one standing.
+            // Size-first cannot run away: merging a block makes it a LESS attractive
+            // target, not a more attractive one. Similarity still decides between
+            // equal-sized neighbours, which is the common case before anything has grown.
+            var prevLen = smallest > 0 ? subs[smallest - 1].messages.length : Infinity;
+            var nextLen = smallest < subs.length - 1 ? subs[smallest + 1].messages.length : Infinity;
             var tgt;
-            if (prevOv > nextOv)      tgt = smallest - 1;
-            else if (nextOv > prevOv) tgt = smallest + 1;
+            if (prevLen < nextLen)      tgt = smallest - 1;
+            else if (nextLen < prevLen) tgt = smallest + 1;
             else {
-                // Equal overlap, which is COMMON and usually zero — neighbouring runs
-                // that share no topic terms all tie at 0. Preferring `prev` on a tie
-                // sends every later fragment into the same already-merged block, and it
-                // never becomes `smallest` itself, so it just keeps growing: twenty
-                // disjoint fragments collapse to [54, 3, 3] (GitHub Codex). That is the
-                // runaway this cap exists to prevent, arriving by another route. Break
-                // ties toward the SMALLER neighbour so merges spread instead of pooling.
-                var prevLen = smallest > 0 ? subs[smallest - 1].messages.length : Infinity;
-                var nextLen = smallest < subs.length - 1 ? subs[smallest + 1].messages.length : Infinity;
-                tgt = prevLen <= nextLen ? smallest - 1 : smallest + 1;
+                var prevOv = smallest > 0
+                    ? _sumTopicOverlap(subs[smallest].topics || [], subs[smallest - 1].topics || []) : -1;
+                var nextOv = smallest < subs.length - 1
+                    ? _sumTopicOverlap(subs[smallest].topics || [], subs[smallest + 1].topics || []) : -1;
+                tgt = prevOv >= nextOv ? smallest - 1 : smallest + 1;
             }
             var slo = Math.min(smallest, tgt);
             var shi = Math.max(smallest, tgt);

@@ -146,6 +146,27 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
         r2.length > 1 && biggest <= pools.length / 2,
         `sizes [${sizes.join(', ')}]`);
 
+    // 2c. Codex round 4's sharper form of the same runaway: with only TWO alternating
+    //     vocabularies the first merge produces an A+B block that has POSITIVE overlap
+    //     with every later run, so it wins the similarity contest on merit and keeps
+    //     absorbing — [48, 6, 6] rather than balanced thirds. A tie-break alone cannot
+    //     see this, because the overlaps are not tied.
+    //     Each run repeats the SAME text for its vocabulary, so every A-run extracts an
+    //     identical topic list and every B-run another — which is what makes the
+    //     overlaps asymmetric (merged A+B overlaps both, A never overlaps B) instead of
+    //     tying. With varied per-run text the overlaps tie and the tie-break alone
+    //     masks the defect, so this input is deliberately uniform within a run.
+    const alternating = [];
+    for (let blk = 0; blk < 10; blk++) {
+        for (let i = 0; i < 6; i++) alternating.push(msg(blk % 2 ? B : A, blk % 2 ? 11 : 7));
+    }
+    const r2c = await run(alternating);
+    const altSizes = r2c.map(x => x.n);
+    const altBiggest = Math.max.apply(null, altSizes.concat([0]));
+    check('alternating disjoint runs do not collapse into one absorbing block',
+        r2c.length > 1 && altBiggest <= alternating.length / 2,
+        `sizes [${altSizes.join(', ')}]`);
+
     // 2b. A strong drop too close to the edge to be SELECTABLE must not set the bar
     //     for the boundaries that are. Codex: maxDepth was taken over every gap
     //     including those the MIN_RUN filter later discards, so a short opening aside

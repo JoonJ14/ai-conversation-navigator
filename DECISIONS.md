@@ -1752,9 +1752,13 @@ made a similarity threshold untransferable between conversations.
 Two further parameters, both measured rather than assumed: **BLOCK = 4** messages either side of a
 gap (at 3, a single off-topic message contaminates every gap it touches and becomes a boundary on
 its own; at 4 it is diluted while a real change still separates the blocks completely), and the
-**entry condition is DERIVED** — `messages.length < 2 × BLOCK + MIN_RUN` — rather than a hardcoded
-12. A hardcoded minimum is exactly how the previous version came to advertise a split its own
-arithmetic forbade; computing it means the promise cannot drift when BLOCK or MIN_RUN is retuned.
+**entry condition is DERIVED** — `messages.length < 2 × max(BLOCK, MIN_RUN)` — rather than a
+hardcoded 12. A gap is usable when it can be COMPUTED (`BLOCK ≤ p ≤ n − BLOCK`) and SELECTED
+(`p ≥ MIN_RUN`, `n − p ≥ MIN_RUN`); those constraints OVERLAP rather than add. Writing the sum
+instead — `2 × BLOCK + MIN_RUN` = 14 — silently excluded 12- and 13-message segments that split
+perfectly well, replacing a hardcoded 12 that was accidentally right with a computed 14 that was
+wrong (GitHub Codex round 3). **Deriving a bound only helps if the derivation is checked**; the
+unit check now pins the true minimum at 12.
 
 No absolute similarity constant survives into the decision. `_sumWordOverlap` is untouched —
 key-point dedup and the top-level segmentation are calibrated to it.
@@ -1811,6 +1815,16 @@ could not handle at all (short messages, wide vocabulary) this goes 2/8 → **8/
   uniform conversation. It is a veto, not the decision.
 
 ### Key properties
+- **"Merge into the most similar neighbour" runs away, and it took three rounds to see the whole
+  shape.** Once a block absorbs two topics its merged topic list (a six-term union) overlaps with
+  everything, so it wins the similarity contest on MERIT against every later run, not merely on
+  ties — and it is never `smallest` itself, so nothing stops it. Simulating the loop on ten
+  alternating six-message runs gives **[48, 6, 6]**; the tie-break-only fix from round 1 had
+  handled the zero-overlap variant (**[54, 3, 3]**) and left this standing. The rule is now
+  size-first, with similarity breaking size ties: merging a block makes it a LESS attractive
+  target. The regression check needed uniform text WITHIN each run to be discriminating — with
+  varied text the overlaps tie and the tie-break masks the defect, so a check written the obvious
+  way passes under both rules.
 - **The bar must be derived from the candidate set it is applied to.** `maxDepth` was first
   taken over every gap, including those the `MIN_RUN` filter discards — so an unselectable
   valley could veto every selectable one. Measured on a constructed case: an unrelated opening
