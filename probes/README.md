@@ -65,13 +65,24 @@ labels, spans, membership, child lists — which is what makes "this refactor ch
 a measurement rather than a claim.
 
 ```
-# baseline from another build, then gate the working tree against it
-git show HEAD:ai-conversation-navigator.user.js > /tmp/base.user.js
+# Baseline from an EXPLICIT pre-change ref — never HEAD. Once the candidate is
+# committed, HEAD names the candidate, and a baseline extracted from it compares
+# the build with itself: guaranteed green, proving nothing (Codex).
+git show origin/main:ai-conversation-navigator.user.js > /tmp/base.user.js   # or $(git merge-base HEAD origin/main)
 ACN_SCRIPT=/tmp/base.user.js node probes/run-map-harness.js \
     --browser chromium,firefox --sizes 2,3,25,147 --vocab 1,4 --para 1,3 --save /tmp/fp.json
 node probes/run-map-harness.js \
     --browser chromium,firefox --sizes 2,3,25,147 --vocab 1,4 --para 1,3 --baseline /tmp/fp.json
 ```
+
+Confirm the baseline build is the one you meant before trusting a green:
+`git show <ref>:ai-conversation-navigator.user.js | diff -q - /tmp/base.user.js`. A baseline
+and a candidate that are the same bytes cannot disagree.
+
+The fingerprint covers each segment's label, span, topics, entity count and message
+membership, **and the same for every child** — a sub-segment click resolves through
+`_sumFirstJumpable(child.messages)`, so child membership is part of the behaviour, not a
+detail of it.
 
 `--baseline` exits non-zero on any difference, on a build that disagrees with ITSELF across
 repeats (and then it refuses to write a `--save` file), on a requested configuration the

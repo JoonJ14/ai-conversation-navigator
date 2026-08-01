@@ -1690,7 +1690,10 @@ the live shape (263 segments / 521 rebuilds / 36.4M chars vs live 218 / 431 / 27
   extractions 4,998 → 727; characters tokenized 63.9M → 10.3M. Same machine, same payload,
   same engine, back to back. Chromium and every smaller config move the same way.
 - **Equivalence gate:** `probes/run-map-harness.js --baseline` compares a structural
-  fingerprint (labels, spans, membership, per-segment child list) of every map. 32/32
+  fingerprint of every map — each segment's label, span, topics, entity count and message
+  membership, AND the same membership for every child, because a sub-segment click resolves
+  through `_sumFirstJumpable(child.messages)` (Codex: label+span+count alone would let a
+  membership change through). 32/32
   identical, chromium + firefox, q ∈ {2,3,25,147} × PARA_BOOST ∈ {1,3} × VOCAB_MULT ∈ {1,4}.
 - **Killing mutations, each measured red in the config that can see it:**
   (A) attach dropped from the main return → SUITE red (S1: 27 sub-segments → 0).

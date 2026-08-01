@@ -58,7 +58,8 @@ Measured Firefox 146, page realm, q=147 at the live-calibrated payload
 | v12.5 | 5 | 727 / 4.8M chars | 10.3M | **1,260 / 1,144 ms** |
 
 `_sumMergeExcessSegments` fell from 3,238ms to ~1ms. Equivalence: the map's structural
-fingerprint (labels, spans, membership, child lists) is **identical across all 32
+fingerprint — segment labels, spans, topics, entity counts and message membership, plus each
+child's own membership — is **identical across all 32
 config/engine combinations** measured — chromium + firefox, q ∈ {2,3,25,147} ×
 PARA_BOOST ∈ {1,3} × VOCAB_MULT ∈ {1,4}.
 

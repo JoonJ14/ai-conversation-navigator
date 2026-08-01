@@ -56,8 +56,15 @@ const BLOCK = `
             var kids = [];
             for (var c = 0; c < (s.children || []).length; c++) {
                 var k = s.children[c];
+                // A child's MEMBERSHIP is recorded, not just its label/range/count:
+                // the renderer hands k.messages to _sumFirstJumpable, so two children
+                // with the same span and size but different (or reordered) messages
+                // send a click to different rows — invisible to a label+range+count
+                // fingerprint (Codex).
+                var kidIdx = [];
+                for (var km = 0; km < k.messages.length; km++) kidIdx.push(k.messages[km].globalIdx);
                 kids.push({ label: k.label, startIdx: k.startIdx, endIdx: k.endIdx,
-                            n: k.messages.length });
+                            n: k.messages.length, msgIdx: kidIdx });
             }
             var idxs = [];
             for (var m = 0; m < s.messages.length; m++) idxs.push(s.messages[m].globalIdx);
