@@ -8667,7 +8667,13 @@
 
     // Indices at which `messages` should be cut. Returns [] when the segment has no
     // structure worth cutting — a long uniform debugging run correctly yields nothing.
-    function _sumCohesionCuts(messages, blockSize, minRun, depthCoef) {
+    // Smallest drop that counts as a topic change at all. Depth is a CHANGE measure
+    // bounded by 0…2 (a valley falling to zero between two perfectly cohesive runs),
+    // so unlike a similarity level it means the same thing in a terse conversation and
+    // a verbose one. Below this, the segment is uniform and gets no children.
+    var MIN_DEPTH = 0.15;
+
+    function _sumCohesionCuts(messages, blockSize, minRun, depthShare) {
         var n = messages.length;
         if (n < blockSize * 2 + minRun) return [];
         var vocabs = _sumMessageVocabs(messages);
@@ -8696,22 +8702,35 @@
             depth.push((leftPeak - score[i]) + (rightPeak - score[i]));
         }
 
-        // The cutoff comes from the segment's OWN depth distribution (the TextTiling
-        // rule), so no absolute constant survives into the decision.
-        var sum = 0;
-        for (i = 0; i < depth.length; i++) sum += depth[i];
-        var mean = sum / depth.length;
-        var varsum = 0;
-        for (i = 0; i < depth.length; i++) varsum += (depth[i] - mean) * (depth[i] - mean);
-        var sd = Math.sqrt(varsum / depth.length);
-        var cutoff = mean + depthCoef * sd;
+        // The bar is set against the DEEPEST valley in this segment, plus an absolute
+        // floor — not against the mean and standard deviation of the depths.
+        //
+        // A mean+sd cutoff is computed over a sample that CONTAINS the very valleys it
+        // is meant to find, and that breaks in two directions, both measured:
+        //   - too few values: with 7 gaps (a 12-message segment, the smallest accepted)
+        //     the largest achievable standardized distance is sqrt(6) ≈ 2.449, so a
+        //     2.5·sd bar was mathematically unclearable and the split promised by the
+        //     entry condition could never happen (GitHub Codex);
+        //   - too many real boundaries: ten disjoint runs give nine equally deep
+        //     valleys, which inflate sd until the bar (2.175) sits ABOVE the valleys
+        //     themselves (2.0) and every real boundary goes undetected.
+        // Sharing with the maximum has neither failure: it does not care how many
+        // boundaries there are, nor how many gaps were sampled. MIN_DEPTH then answers
+        // the separate question "is the strongest candidate a real drop at all?", so a
+        // uniform conversation still yields nothing. It is an absolute number, but on a
+        // DROP measure (0…2) rather than a similarity level, which is what made a
+        // similarity threshold untransferable between conversations.
+        var maxDepth = 0;
+        for (i = 0; i < depth.length; i++) if (depth[i] > maxDepth) maxDepth = depth[i];
+        if (maxDepth < MIN_DEPTH) return [];
+        var cutoff = Math.max(MIN_DEPTH, depthShare * maxDepth);
 
         // Deepest valleys first, keeping runs at least minRun long. Taking them in
         // depth order rather than left-to-right means that when two candidate cuts are
         // too close together, the STRONGER topic change survives.
         var order = [];
         for (i = 0; i < depth.length; i++) {
-            if (depth[i] > cutoff && depth[i] > 0) order.push(i);
+            if (depth[i] >= cutoff && depth[i] > 0) order.push(i);
         }
         order.sort(function (a, b) { return depth[b] - depth[a]; });
 
@@ -8738,20 +8757,27 @@
     // single off-topic exchange slips through.
     // Returns an array of sub-segments (children), or [] if no meaningful split found.
     function _sumBuildSubSegments(messages) {
-        if (messages.length < 12) return [];
-        // BLOCK: messages compared on each side of a gap. 3 ≈ one and a half exchanges,
-        // enough vocabulary to be meaningful without smearing across a real boundary.
-        // MIN_RUN: shortest run a topic may occupy. This is what makes a brief aside
-        // stay inside its run instead of cutting it in three, and it replaces the old
-        // "absorb anything under 3 messages" patch with a stated intent.
-        // DEPTH_COEF: how far above the segment's mean valley depth a trough must sit,
-        // in standard deviations of that same segment. RELATIVE, so it does not care
-        // whether the conversation is terse or verbose (DEC-040).
-        var BLOCK      = 3;
-        var MIN_RUN    = 6;
-        var DEPTH_COEF = 2.5;
+        // BLOCK: messages compared on each side of a gap. At 3 a single off-topic
+        // message contaminates every gap it touches and becomes a boundary on its own;
+        // at 4 it is diluted while a real topic change still separates the blocks
+        // completely. Measured both ways against the aside case (probes/check-subsegments.js).
+        // MIN_RUN: shortest run a topic may occupy.
+        // DEPTH_SHARE: how deep a trough must be relative to the DEEPEST trough in
+        // this same segment. Relative to the strongest signal present, so it does not
+        // care whether the conversation is terse or verbose, how many boundaries there
+        // are, or how many gaps were sampled (DEC-040).
+        var BLOCK       = 4;
+        var MIN_RUN     = 6;
+        var DEPTH_SHARE = 0.5;
+
+        // The entry condition is DERIVED from the mechanism rather than asserted next
+        // to it. A hardcoded "12" is how the previous version came to advertise a split
+        // its own arithmetic forbade (GitHub Codex); computing the requirement means the
+        // promise cannot drift from what the code can actually do when BLOCK or MIN_RUN
+        // is retuned.
+        if (messages.length < 2 * BLOCK + MIN_RUN) return [];
         var subs       = [];
-        var cuts       = _sumCohesionCuts(messages, BLOCK, MIN_RUN, DEPTH_COEF);
+        var cuts       = _sumCohesionCuts(messages, BLOCK, MIN_RUN, DEPTH_SHARE);
         if (!cuts.length) return [];
 
         var bounds = [0].concat(cuts, [messages.length]);
@@ -8829,7 +8855,21 @@
                 ? _sumTopicOverlap(subs[smallest].topics || [], subs[smallest - 1].topics || []) : -1;
             var nextOv = smallest < subs.length - 1
                 ? _sumTopicOverlap(subs[smallest].topics || [], subs[smallest + 1].topics || []) : -1;
-            var tgt = prevOv >= nextOv ? smallest - 1 : smallest + 1;
+            var tgt;
+            if (prevOv > nextOv)      tgt = smallest - 1;
+            else if (nextOv > prevOv) tgt = smallest + 1;
+            else {
+                // Equal overlap, which is COMMON and usually zero — neighbouring runs
+                // that share no topic terms all tie at 0. Preferring `prev` on a tie
+                // sends every later fragment into the same already-merged block, and it
+                // never becomes `smallest` itself, so it just keeps growing: twenty
+                // disjoint fragments collapse to [54, 3, 3] (GitHub Codex). That is the
+                // runaway this cap exists to prevent, arriving by another route. Break
+                // ties toward the SMALLER neighbour so merges spread instead of pooling.
+                var prevLen = smallest > 0 ? subs[smallest - 1].messages.length : Infinity;
+                var nextLen = smallest < subs.length - 1 ? subs[smallest + 1].messages.length : Infinity;
+                tgt = prevLen <= nextLen ? smallest - 1 : smallest + 1;
+            }
             var slo = Math.min(smallest, tgt);
             var shi = Math.max(smallest, tgt);
             var mergedTopics = _sumMergeTopics(subs[slo].topics || [], subs[shi].topics || []);

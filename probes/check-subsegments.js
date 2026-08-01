@@ -1,0 +1,161 @@
+// Unit checks for _sumBuildSubSegments on segment shapes the end-to-end map harness
+// cannot produce. Added 2026-08-01 after GitHub Codex found two defects that lived
+// exactly there: a cutoff no 12-message segment could ever clear, and a merge tie-break
+// that pooled every fragment into one growing block.
+//
+// Run: node probes/check-subsegments.js [--browser firefox]
+// Exits non-zero on any failed expectation.
+
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const { instrument } = require('./perf-instrument');
+const { instrumentMap } = require('./map-instrument');
+
+const REPO = path.join(__dirname, '..');
+let playwright;
+try { playwright = require(path.join(REPO, 'node_modules', 'playwright')); }
+catch (e) { playwright = require('playwright'); }
+
+const CONV_UUID = '77777777-7777-4777-8777-777777777777';
+const ORG = '99999999-9999-4999-8999-999999999999';
+
+// Deterministic prose from a given word pool. Long enough to clear the tokenizer's
+// stop-word filtering and produce a vocabulary worth comparing.
+function msg(words, seed, type) {
+    const out = [];
+    for (let i = 0; i < 26; i++) out.push(words[(seed * 7 + i * 3) % words.length]);
+    return { text: out.join(' ') + '.', type: type || (seed % 2 ? 'ai' : 'user') };
+}
+const A = 'authentication session cookie token refresh oauth credential identity provider scope grant redirect expiry login logout'.split(' ');
+const B = 'postgres migration schema replica vacuum partition shard constraint sequence rollback transaction index cluster tablespace analyze'.split(' ');
+const C = 'kubernetes rollout container registry ingress helm probe liveness autoscale sidecar namespace manifest daemonset taint toleration'.split(' ');
+
+function buildPage(scriptContent) {
+    const mockHTML = fs.readFileSync(path.join(REPO, 'tests/mock-pages/claude-virtualized.html'), 'utf8');
+    const bodyMatch = mockHTML.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+    const tiny = {
+        uuid: CONV_UUID, name: 'Sub-segment unit checks',
+        current_leaf_message_uuid: 'aaaaaaaa-0000-4000-8000-000000000001',
+        chat_messages: [
+            { uuid: 'aaaaaaaa-0000-4000-8000-000000000000', parent_message_uuid: '00000000-0000-4000-8000-000000000000',
+              index: 0, sender: 'human', text: '', created_at: '2026-07-01T00:00:00Z', attachments: [], files: [],
+              content: [{ type: 'text', text: 'Probe question one.' }] },
+            { uuid: 'aaaaaaaa-0000-4000-8000-000000000001', parent_message_uuid: 'aaaaaaaa-0000-4000-8000-000000000000',
+              index: 1, sender: 'assistant', text: '', stop_reason: 'end_turn', created_at: '2026-07-01T00:00:00Z',
+              attachments: [], files: [], content: [{ type: 'text', text: 'Probe answer one.' }] },
+        ],
+    };
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>sub-seg checks</title></head><body>
+<script>window.__MOCK_CONFIG = {"totalMessages":2};</script>
+${bodyMatch ? bodyMatch[1] : mockHTML}
+<script>delete window._aiNavAlreadyLoaded;</script>
+<script>
+(function () {
+    var PAYLOAD = ${JSON.stringify(tiny)};
+    window.GM_xmlhttpRequest = function (opts) {
+        var url = opts.url || '';
+        function respond(status, body) { setTimeout(function () {
+            if (status === 200 && opts.onload) opts.onload({ status: 200, responseText: body });
+            else if (opts.onerror) opts.onerror({ status: status }); }, 10); }
+        if (/\\/api\\/organizations$/.test(url)) { respond(200, JSON.stringify([{ uuid: ${JSON.stringify(ORG)}, name: 'Fixture Org', capabilities: ['chat'] }])); return; }
+        if (url.indexOf('/chat_conversations/') !== -1) { respond(200, JSON.stringify(PAYLOAD)); return; }
+        respond(404, '');
+    };
+    var _s = {};
+    window.GM_getValue = function (k, d) { return _s.hasOwnProperty(k) ? _s[k] : d; };
+    window.GM_setValue = function (k, v) { _s[k] = v; };
+    try { document.cookie = 'lastActiveOrg=' + ${JSON.stringify(ORG)} + '; path=/'; } catch (e) {}
+}());
+</script>
+<script>${scriptContent}</script></body></html>`;
+}
+
+(async () => {
+    const engine = (process.argv.indexOf('--browser') !== -1
+        ? process.argv[process.argv.indexOf('--browser') + 1] : 'firefox');
+    const raw = fs.readFileSync(process.env.ACN_SCRIPT || path.join(REPO, 'ai-conversation-navigator.user.js'), 'utf8');
+    const probeScript = instrumentMap(instrument(raw, 'unit1'));
+    const browser = await playwright[engine].launch({
+        headless: true,
+        args: engine === 'chromium' ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--disable-dev-shm-usage'] : [],
+    });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const targetURL = `https://claude.ai/chat/${CONV_UUID}`;
+    const html = buildPage(probeScript);
+    await page.route('**/*', (route) => {
+        const u = route.request().url();
+        if (u === targetURL || u === targetURL + '/') route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
+        else route.abort();
+    });
+    await page.goto(targetURL, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await page.waitForFunction('typeof window.__acnSubSegRun === "function"', null, { timeout: 30000 });
+
+    const run = async (msgs) => JSON.parse(await page.evaluate(
+        (j) => window.__acnSubSegRun(j), JSON.stringify(msgs)));
+
+    let failures = 0;
+    const check = (name, ok, detail) => {
+        console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`);
+        if (!ok) failures++;
+    };
+
+    console.log(`\n=== _sumBuildSubSegments unit checks (${engine}) ===`);
+
+    // 1. The SMALLEST segment the function accepts (2*BLOCK + MIN_RUN = 14), split
+    //    cleanly down the middle. This is the case Codex proved impossible under the
+    //    old mean + 2.5*sd cutoff: 7 gaps cap the achievable standardized distance at
+    //    sqrt(6) ≈ 2.449, so no depth could ever clear it. If the entry condition and
+    //    the cutoff ever disagree again, this check is what says so.
+    const smallest = [];
+    for (let i = 0; i < 7; i++) smallest.push(msg(A, i));
+    for (let i = 0; i < 7; i++) smallest.push(msg(B, i + 40));
+    const r1 = await run(smallest);
+    check('smallest accepted segment (14) with two disjoint halves splits at 7',
+        r1.length === 2 && r1[0].n === 7 && r1[1].n === 7,
+        r1.length ? r1.map(s => `${s.n}@${s.startIdx}`).join(' ') : 'no cuts');
+
+    // 1b. One message below the accepted size must be refused, not half-handled.
+    const tooSmall = smallest.slice(0, 13);
+    const r1b = await run(tooSmall);
+    check('one message below the accepted size yields no sub-segments', r1b.length === 0,
+        `${r1b.length} sub-segments`);
+
+    // 2. Many mutually disjoint runs must not pool into one oversized block.
+    //    Codex: a `prevOv >= nextOv` tie-break sent every fragment into the same
+    //    growing neighbour — twenty fragments collapsing to [54, 3, 3].
+    const pools = [];
+    const vocabs = [A, B, C];
+    for (let blk = 0; blk < 10; blk++) {
+        for (let i = 0; i < 6; i++) pools.push(msg(vocabs[blk % 3], blk * 13 + i));
+    }
+    const r2 = await run(pools);
+    const sizes = r2.map(s => s.n);
+    const biggest = Math.max.apply(null, sizes.concat([0]));
+    check('60 messages in disjoint runs do not pool into one oversized row',
+        r2.length > 1 && biggest <= pools.length / 2,
+        `sizes [${sizes.join(', ')}]`);
+
+    // 3. A uniform conversation has no topic changes — finding none is correct.
+    const uniform = [];
+    for (let i = 0; i < 40; i++) uniform.push(msg(A, i));
+    const r3 = await run(uniform);
+    check('uniform conversation yields no sub-segments', r3.length === 0,
+        `${r3.length} sub-segments`);
+
+    // 4. A brief aside must not cut the run around it (the owner's "come back" case).
+    const aside = [];
+    for (let i = 0; i < 12; i++) aside.push(msg(A, i));
+    aside.push(msg(C, 99));                       // one off-topic message
+    for (let i = 0; i < 12; i++) aside.push(msg(A, i + 12));
+    const r4 = await run(aside);
+    check('a one-message aside does not split a coherent run', r4.length === 0,
+        r4.length ? r4.map(s => `${s.n}@${s.startIdx}`).join(' ') : 'no cuts');
+
+    await context.close();
+    await browser.close();
+    console.log(failures ? `\n${failures} check(s) FAILED` : '\nall checks passed');
+    process.exit(failures ? 1 : 0);
+})().catch((e) => { console.error(e); process.exit(1); });

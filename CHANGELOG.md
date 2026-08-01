@@ -45,8 +45,16 @@ So the question changed from *"is this pair below X?"* to *"is this one of the w
 3. Score each gap by **valley depth** — how far it sits below the nearest local peak on either
    side. Depth is what separates a topic change from gradual drift, and it is why a brief aside
    no longer cuts a run: an aside dips and recovers, so its depth is small.
-4. Cut **deepest-first**, where depth exceeds `mean + 2.5 × sd` **of that segment's own depth
-   distribution**, keeping runs at least 6 messages long.
+4. Cut **deepest-first**, where depth reaches `max(0.15, half the deepest valley in this same
+   segment)`, keeping runs at least 6 messages long.
+
+The bar is a share of the strongest signal present rather than a z-score, because a mean+sd
+cutoff is computed over a sample containing the very valleys it is meant to find — it cannot see
+a single outlier in a small sample (7 gaps cap the achievable distance at `sqrt(6) ≈ 2.449`, below
+a 2.5·sd bar) and it cannot see many outliers at all (nine equal valleys inflate sd until the bar
+sits above them). Both were measured. The entry condition is likewise *derived*
+(`2 × BLOCK + MIN_RUN`) instead of a hardcoded 12, so it cannot promise a split the arithmetic
+forbids.
 
 No absolute similarity constant survives into the decision. `_sumWordOverlap` is untouched —
 key-point dedup and top-level segmentation are calibrated to it.
@@ -59,7 +67,7 @@ Scored against the probe payload's known topic changes, summed over four payload
 |---|---|---|
 | before | 31/32 | **346** |
 | containment threshold 0.65 | 24/32 | 14 |
-| **v12.6 — cohesion valleys** | **31/32** | **10** |
+| **v12.6 — cohesion valleys** | **31/32** | **9** |
 
 The old build matched on recall only because cutting every three messages hits everything by
 accident — it drew 346 boundaries that were not topic changes. The new rule draws 10. And the

@@ -14,6 +14,7 @@ records it must say which.
 | `run-perf-harness.js` | Playwright runner for the SYNTHETIC measurement: claude-virtualized mock + GM shim + instrumented build; drives generate → regenerate → export; writes JSON to `results/` (git-ignored). |
 | `map-instrument.js` | Adds a direct driver for `_sumBuildConversationMap` on top of the perf instrumentation (replaces the timeline SOURCE only) plus a structural fingerprint of the produced map. |
 | `run-map-harness.js` | Playwright runner for the MAP measurement: sweeps size/vocabulary/paragraph configs in one page load, and gates map-output equivalence with `--baseline`. |
+| `check-subsegments.js` | Unit checks for `_sumBuildSubSegments` on segment shapes the end-to-end harness cannot produce — the smallest accepted segment, one below it, many disjoint runs, a uniform conversation, a one-message aside. Exits non-zero on failure. |
 
 ## Path A — live measurement (owner; the decision-grade context)
 

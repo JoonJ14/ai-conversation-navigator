@@ -510,10 +510,13 @@ Two things follow, and both matter more than the symptom:
 ### Fix (v12.6, DEC-040)
 
 Boundaries now come from a **lexical-cohesion valley** pass, not a similarity threshold. Cohesion
-is measured at every gap (3 messages either side, vocabularies unioned from per-message token
+is measured at every gap (4 messages either side, vocabularies unioned from per-message token
 sets), each gap is scored by **valley depth** — how far below the nearest local peak on each side
-— and cuts are taken deepest-first where depth exceeds `mean + 2.5 × sd` **of that segment's own
-depth distribution**, keeping runs ≥ 6 messages.
+— and cuts are taken deepest-first where depth reaches `max(0.15, half the deepest valley in that
+segment)`, keeping runs ≥ 6 messages. The bar is a share of the strongest signal present rather
+than a z-score: a mean+sd cutoff is computed from a sample containing the valleys it is looking
+for, so it can see neither a lone outlier in a small sample nor many outliers at all (both
+measured — see DEC-040).
 
 **A threshold could not be rescued by choosing a better number, and that was measured, not
 assumed.** The first attempt fixed the normalization (`min` instead of `max`) and used 0.65; it
@@ -528,7 +531,7 @@ Scored against the payload's known topic changes, summed over four payload shape
 |---|---|---|
 | pre-fix (`max`, 0.42) | 31/32 | **346** |
 | containment threshold 0.65 + cap | 24/32 | 14 |
-| **v12.6 — cohesion valleys** | **31/32** | **10** |
+| **v12.6 — cohesion valleys** | **31/32** | **9** |
 
 The pre-fix build matched on recall only because a boundary every three messages hits everything
 by accident. The property that matters is that **one setting of the relative cutoff works across

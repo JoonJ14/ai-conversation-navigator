@@ -1729,8 +1729,31 @@ The conversation map's second level places boundaries with a **lexical-cohesion 
 3. Each gap gets a **valley depth**: how far it sits below the nearest local peak on either
    side. Depth, not height, is what distinguishes a topic change from gradual drift, and it
    is why a brief aside no longer cuts a run — an aside dips and recovers, so its depth is small.
-4. Cuts are taken **deepest-first** where depth exceeds `mean + 2.5 × sd` **of that segment's
-   own depth distribution**, keeping runs at least 6 messages long.
+4. Cuts are taken **deepest-first** where depth reaches `max(MIN_DEPTH, 0.5 × the deepest
+   valley in this segment)`, keeping runs at least 6 messages long.
+
+The bar is a share of the **strongest signal present**, not a z-score. A mean+sd cutoff is
+computed over a sample that *contains the very valleys it is meant to find*, and that breaks in
+both directions — measured, both found in review:
+- **too few values:** 7 gaps (a 12-message segment) cap the achievable standardized distance at
+  `sqrt(6) ≈ 2.449`, so a 2.5·sd bar was mathematically unclearable and the split the entry
+  condition advertised could never happen (GitHub Codex);
+- **too many real boundaries:** ten disjoint runs give nine equally deep valleys, which inflate
+  sd until the bar (2.175) sits *above the valleys themselves* (2.0) and every boundary goes
+  undetected (found by the unit checks written for the first finding).
+
+Sharing with the maximum has neither failure — it is indifferent to how many boundaries exist and
+to how many gaps were sampled. `MIN_DEPTH = 0.15` then answers the separate question "is the
+strongest candidate a real drop at all?", so a uniform conversation still yields nothing. It is an
+absolute number, but on a **drop** measure (0…2) rather than a similarity **level**, which is what
+made a similarity threshold untransferable between conversations.
+
+Two further parameters, both measured rather than assumed: **BLOCK = 4** messages either side of a
+gap (at 3, a single off-topic message contaminates every gap it touches and becomes a boundary on
+its own; at 4 it is diluted while a real change still separates the blocks completely), and the
+**entry condition is DERIVED** — `messages.length < 2 × BLOCK + MIN_RUN` — rather than a hardcoded
+12. A hardcoded minimum is exactly how the previous version came to advertise a split its own
+arithmetic forbade; computing it means the promise cannot drift when BLOCK or MIN_RUN is retuned.
 
 No absolute similarity constant survives into the decision. `_sumWordOverlap` is untouched —
 key-point dedup and the top-level segmentation are calibrated to it.
@@ -1756,7 +1779,7 @@ the harness reports found/spurious per build), summed over four payload shapes:
 |---|---|---|
 | pre-fix (`max`, 0.42) | 31/32 | **346** — it drew a boundary every 3 messages |
 | containment threshold 0.65 + cap | 24/32 | 14 |
-| **cohesion valleys, `mean + 2.5·sd`** | **31/32** | **10** |
+| **cohesion valleys, share-of-maximum** | **31/32** | **9** |
 
 Note what the first row means: the broken build matched the new one on RECALL (31/32) — because
 a rule that cuts every three messages hits everything by accident. It drew **346 boundaries that
@@ -1777,10 +1800,21 @@ could not handle at all (short messages, wide vocabulary) this goes 2/8 → **8/
   which cannot run away. **The top level still uses the most-similar-pair rule and the owner's
   live map shows its signature — segments of 8, 20, 181, 80, 81.** Left unchanged because the
   owner reports the top level as satisfactory; recorded in ROADMAP.
-- **Absolute depth cutoff** instead of one derived from the segment: rejected for the same
-  reason the similarity threshold was — depth magnitudes scale with vocabulary density.
+- **A z-score cutoff on depth** (`mean + k·sd`), the classic TextTiling formulation: built,
+  measured, and replaced. It scored well on the four scoring payloads but failed both edge shapes
+  above, because the statistic it compares against is computed from the sample that includes the
+  outliers. Kept in this record because the two failures are a general trap, not a quirk of this
+  code: **when a rule flags outliers against a spread computed from the same data, the bar moves
+  with the thing being measured.**
+- **A purely absolute depth cutoff:** rejected — the floor alone would cut the deepest notch in a
+  uniform conversation. It is a veto, not the decision.
 
 ### Key properties
+- **Unit surface, added because neither edge case was reachable end to end:**
+  `probes/check-subsegments.js` drives `_sumBuildSubSegments` directly through the map probe and
+  checks the smallest accepted segment, one message below it, many disjoint runs, a uniform
+  conversation, and a one-message aside. The map harness drives whole conversations, so segment
+  shapes it never happens to produce are exactly where defects hid.
 - **The count cap is not doing the work, and that was checked rather than assumed.** With the
   cap disabled the results are identical on three of four configs; on the fourth it removes two
   6-message fragments (spurious 4 → 2). It is a safety net, not the mechanism.

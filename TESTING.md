@@ -732,6 +732,11 @@ this are gated by two platform-config flags:
   3-message chunks stayed green through v12.5's entire review. A fixture with no structure
   cannot gate a structure-finding feature. The topic knob is OFF for every other entry: the
   legacy-bookmark entry's previews and content hashes depend on the old strings byte-for-byte.
+  **Unit-level companion:** `node probes/check-subsegments.js` drives `_sumBuildSubSegments`
+  directly (via the map probe's `__acnSubSegRun`) on shapes no fixture produces — the smallest
+  accepted segment, one message below it, many mutually disjoint runs, a uniform conversation, a
+  one-message aside. Two GitHub Codex findings and one self-found defect all lived in exactly
+  those shapes; run it alongside the suite when touching segmentation.
   **Recorded gap:** the ≤6-message map path is still structurally unfalsifiable (6 < 12, so
   `_sumBuildSubSegments` returns `[]` there regardless), and attach ORDER relative to
   `_sumMergeExcessSegments` is gated by the map harness rather than here, since every mock
