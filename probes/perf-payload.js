@@ -21,11 +21,31 @@ function lcg(seed) {
     };
 }
 
-const COMMON = ('system value result process data function module handler request response state ' +
+// VOCAB_MULT — multiplies the DISTINCT vocabulary by appending morphological
+// variants of every base word. Vocabulary size is what drives the initial
+// segment count: _sumWordOverlap divides by max(|A|,|B|), so a message that
+// re-uses a small shared pool scores high overlap and never splits. The default
+// pool (~115 distinct words per topic block) keeps overlap above the 0.15 split
+// threshold, which is why the seeded payload produced ~10 segments while the
+// owner's real conversation produced ~218 (TROUBLESHOOTING live entry).
+// VOCAB_MULT=1 reproduces every earlier measurement byte-for-byte.
+const VOCAB_MULT = Math.max(1, Math.round(+(process.env.VOCAB_MULT || 1)));
+const SUFFIXES = ['ing', 'ers', 'ally', 'ised', 'ment', 'ance', 'ility', 'ative', 'ology', 'esque'];
+
+function expandVocab(words) {
+    if (VOCAB_MULT <= 1) return words;
+    const out = words.slice();
+    for (let k = 0; k < VOCAB_MULT - 1; k++) {
+        for (const w of words) out.push(w + SUFFIXES[k % SUFFIXES.length]);
+    }
+    return out;
+}
+
+const COMMON = expandVocab(('system value result process data function module handler request response state ' +
     'update change logic method object array string number index buffer cache queue event ' +
     'listener callback promise thread worker branch merge commit release version test case ' +
     'error warning message log output input option setting config field record entry table ' +
-    'row column query filter sort group batch chunk stream parse build render layout style').split(' ');
+    'row column query filter sort group batch chunk stream parse build render layout style').split(' '));
 
 const TOPICS = [
     'authentication login session token cookie password oauth refresh expiry credential scope identity provider redirect grant'.split(' '),
@@ -36,7 +56,7 @@ const TOPICS = [
     'testing playwright fixture assertion mock selector harness coverage mutation flake retry timeout headless engine viewport'.split(' '),
     'networking websocket http header proxy timeout retry backoff dns certificate handshake payload compression keepalive multiplex'.split(' '),
     'analytics dashboard metric aggregation funnel cohort retention churn segment export visualization drilldown anomaly forecast'.split(' '),
-];
+].map(expandVocab);
 
 const KEYPOINT_TEMPLATES = [
     'It turns out the {A} {B} was holding the {C} open longer than the {D} allowed in practice.',
@@ -82,6 +102,7 @@ function questionText(rnd, vocab, turn) {
 // Env knobs for sensitivity runs (defaults reproduce the baseline):
 //   PARA_BOOST — multiplies paragraphs per answer (text volume)
 //   KP_RATE    — multiplies the key-point-sentence density
+//   VOCAB_MULT — multiplies distinct vocabulary (drives the segment count; see above)
 const PARA_BOOST = +(process.env.PARA_BOOST || 1);
 const KP_RATE = +(process.env.KP_RATE || 1);
 
