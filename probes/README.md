@@ -73,9 +73,12 @@ node probes/run-map-harness.js \
     --browser chromium,firefox --sizes 2,3,25,147 --vocab 1,4 --para 1,3 --baseline /tmp/fp.json
 ```
 
-`--baseline` exits non-zero on any difference. Each line reports the initial → final segment
-count, the sub-segment rebuild count, and which construction model that count matches
-(`eager` = `2 × initial − final`, pre-v12.5; `deferred` = `final`, v12.5+).
+`--baseline` exits non-zero on any difference — including a requested configuration the
+baseline never covered, which was never compared and so must not be reported as clean. Each
+line reports the initial → final segment count, the sub-segment rebuild count, and which
+construction model that count matches (`eager` = `2 × initial − final`, pre-v12.5;
+`deferred` = `final`, v12.5+; `either` when nothing merged, because both formulas then give
+the same number and the count cannot distinguish the two).
 
 **Choosing a configuration — vocabulary, not volume.** Segmentation splits on
 `_sumWordOverlap`, which divides by `max(|A|,|B|)`, so the initial segment count is set by

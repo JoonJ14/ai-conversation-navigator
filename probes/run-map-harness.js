@@ -191,6 +191,19 @@ function n(calls, key, field) {
                     const segs = n(c, 'map.entities', 'n');          // one scanEntities per committed segment
                     const subs = n(c, 'map.subSegments', 'n');
                     const finals = JSON.parse(fp).length;
+                    // Which construction model the rebuild count matches.
+                    // "eager": children built at every commit AND every merge —
+                    //   subs = commits + merges = 2*initial - final. This is the
+                    //   identity the live 431 was read through (=> ~218 initial).
+                    // "deferred": children attached once per surviving segment
+                    //   (v12.5, DEC-039) — subs = final.
+                    // When NOTHING merged (initial === final) both formulas reduce to
+                    // the same number and the count cannot tell the models apart —
+                    // saying "eager" there would misreport a deferred build (Codex).
+                    const eager = subs === segs + (segs - finals);
+                    const deferred = subs === finals;
+                    const model = eager && deferred ? 'either — no merges, formulas coincide'
+                                : eager ? 'eager' : deferred ? 'deferred' : 'UNKNOWN';
                     const rec = {
                         engine, q, para, vocab, payload: stats,
                         ms: runs.map((r) => +r.ms.toFixed(1)),
@@ -202,14 +215,7 @@ function n(calls, key, field) {
                         tokenizeChars: n(c, 'inner.tokenize', 'units'),
                         mergeExcessMs: +n(c, 'map.mergeExcess', 'ms').toFixed(1),
                         subSegmentsMs: +n(c, 'map.subSegments', 'ms').toFixed(1),
-                        // Which construction model the rebuild count matches.
-                        // "eager": children built at every commit AND every merge —
-                        //   subs = commits + merges = 2*initial - final. This is the
-                        //   identity the live 431 was read through (=> 218 initial).
-                        // "deferred": children attached once per surviving segment
-                        //   (v12.5, DEC-039) — subs = final.
-                        model: subs === segs + (segs - finals) ? 'eager'
-                             : subs === finals ? 'deferred' : 'UNKNOWN',
+                        model,
                     };
                     records.push(rec);
                     fingerprints[key] = fp;
@@ -222,7 +228,14 @@ function n(calls, key, field) {
                         `      map ${rec.ms.join(' / ')} ms  (subSegments ${rec.subSegmentsMs}ms, ` +
                         `mergeExcess ${rec.mergeExcessMs}ms)`);
                     if (baseline) {
-                        if (!(key in baseline)) console.log(`      baseline: no entry for ${key}`);
+                        // A requested config the baseline never covered was never
+                        // compared — counting it clean would let a narrower baseline
+                        // (e.g. chromium-only) false-pass the gate for every config it
+                        // omits (Codex). An uncompared config is a gate failure.
+                        if (!(key in baseline)) {
+                            mismatches++;
+                            console.log(`      !! baseline has NO ENTRY for ${key} — not compared`);
+                        }
                         else if (baseline[key] !== fp) {
                             mismatches++;
                             console.log(`      !! FINGERPRINT MISMATCH vs baseline`);
