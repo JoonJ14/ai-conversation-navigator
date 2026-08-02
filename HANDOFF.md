@@ -1,13 +1,20 @@
-# Session Handoff — 2026-08-02 (v12.7: the Summary tokenizer can read Korean)
+# Session Handoff — 2026-08-02 (v12.7: the Summary reads Korean — tokenizer, then the panels)
 
-**Scope:** one arc, the item the last session scheduled. `_sumTokenize` stripped
+**Scope:** two arcs, the second discovered by live-testing the first. (1) `_sumTokenize` stripped
 `[^a-z0-9\s]`, so a conversation written in **Korean** produced zero tokens and every
-content-derived Summary feature was silently empty — for the product's only translated
-language. **Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-08-01_v12.5-v12.6-map.md`.
-**Status at close:** version **12.7**, PR open, pure-ASCII English output byte-identical at
-32/32 map fingerprints (accented English changes by design — that is the fix), Korean
-boundary recovery 12/32 → 28/32, suite green both engines with a new non-English fixture. **Live confirmation on a Korean conversation is still outstanding
-(DEC-031) — see §G.1.**
+content-derived Summary feature was silently empty — for the product's only translated language.
+(2) The live check then found the **Tools and Plan usage panels never called `i18n()` at all**:
+thirteen Korean strings existed in the table and none was ever read.
+**Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-08-01_v12.5-v12.6-map.md`.
+
+**Status at close:**
+- **v12.7 — MERGED** (PR #70 → `06a079f`) and **LIVE-CONFIRMED** by the owner the same day.
+  Pure-ASCII English byte-identical at 32/32 map fingerprints (accented English changes by
+  design — that is the fix); Korean boundary recovery 12/32 → 28/32; suite green both engines
+  with the repo's first non-English fixture.
+- **v12.7a — PR #71**, CI 9/9, Codex clean, **authorized to merge by the owner**.
+- **The live check settled the one open question**: the owner could not find the particle
+  artefact §G.1 asked about (세션이 vs 세션), so **no display-only normalizer is wanted**.
 
 ---
 
@@ -189,6 +196,40 @@ red.
 
 ---
 
+### 6. v12.7a — the Tools and Plan usage panels never called i18n() (PR #71)
+
+**What.** Found by the owner live-testing v12.7: with the language set to Korean, the Tools panel
+was still entirely English. **The cause was not missing translations — thirteen Korean strings
+existed in `I18N.ko` with ZERO call sites.** `buildToolsPanel` and `renderUsageBars` rendered
+English literals unconditionally. Only one word had to be authored: `exports` → **파일 내보내기**,
+supplied by the owner.
+
+**Why nothing caught it.** A dead i18n key is invisible from every angle at once: the table is
+correct in isolation, the render code is correct in isolation, the suite asserts on English
+fixtures and so cannot distinguish a translated panel from an untranslated one, and there is no
+type system to flag an unreferenced key. It took a native speaker opening the panel. The audit
+that finds them is now one command in `agent_docs/conventions.md`.
+
+**The part that was not a wiring fix.** `formatResetTime` built its output by concatenation —
+`'resets ' + day + ' ' + time + ' ' + ampm`. Korean puts the meridiem BEFORE the time (오후 3:05),
+so **no substitution of translated fragments can fix it**: concatenation hard-codes word order.
+The phrases became `{placeholder}` templates through `i18n(key, replacements)`, a capability the
+helper has had since it was written with exactly one prior user.
+
+**Verification.** English byte-identical, measured not argued: `formatResetTime` extracted from
+both builds and run over **58 cases** — every minute-bucket boundary and every weekday × hour
+reaching the date branch — **0 differences**. Suite 1120/1120 both engines. Key parity 78/78.
+
+**Also fixed:** three `|| 'fallback'` branches that were unreachable AND disagreed with the table
+value that renders, so the code claimed a wording it could never produce; and a typo that had
+never been displayed (더 많은 도구가 **곳** 추가됩니다 — 곳 is "place", should be 곧 "soon").
+
+**Owner decisions recorded in DEC-042:** `/Commands` stays English ("slash command" reads better
+untranslated); and the mixed-language state between a language switch and a refresh is accepted —
+*"that is a limitation i am willing to accept since we already warn about it anyway."*
+
+---
+
 ## C. Architecture snapshot
 
 Unchanged apart from `_sumTokenize` and the two redundant filters. `_sumWordOverlap`,
@@ -228,6 +269,14 @@ changed what those functions *see*, never what they do. `probes/` gained
   answered in 35 minutes, and wrote that into three durable surfaces. It answered at 90 with the
   two most valuable findings of the release. Budget opus lenses at 90+ minutes on a large diff,
   spawn them first and collect last — and never report an absence with less care than a presence.
+- **A translation that is never called is not a translation.** Thirteen Korean strings sat in the
+  table, complete and correct, rendering nothing — and every gate in the repo was blind to it
+  because both halves were individually right. Verify the WIRING, not the presence of the value.
+  Generalises past i18n: any two-part mechanism where each part is independently valid can fail
+  at the join with no symptom.
+- **Never assemble a translated sentence by concatenation.** Word order is part of what a
+  translation changes, and concatenation hard-codes it in the source. Korean's meridiem-before-
+  time made this concrete: no reordering of fragments could produce a correct string.
 - **A gate that cannot fail on the change it was written for is not a gate.** The Korean fixture
   was built specifically to prove the tokenizer fix, and it passes on a build with that fix
   reverted. What saved it was mutation-testing the gate itself, which is the only way to find
@@ -243,7 +292,12 @@ changed what those functions *see*, never what they do. `probes/` gained
 
 ## E. Git state
 
-`main` @ `2ad8dc1` (v12.6). This session's work is on `fix/tokenizer-korean-v12.7`, PR open.
+`main` @ `06a079f` — PR #70 (v12.7, `fix/tokenizer-korean-v12.7`) merged by the owner
+2026-08-02 17:45 UTC. **PR #71** (`fix/tools-i18n`, the panel i18n follow-up) is open against
+that merged main, CI 9/9, Codex clean, and merges at the close of this session with explicit
+owner authorization. Note the ordering trap this created: the i18n commit was authored while
+#70 was still open and had to be cherry-picked onto the merged main — "fold it into #70" was no
+longer possible by the time the work was done.
 
 ---
 
@@ -263,27 +317,29 @@ changed what those functions *see*, never what they do. `probes/` gained
 
 ## G. What comes next
 
-1. **LIVE CHECK — the gate on this release (DEC-031).** Everything above is synthetic. The
-   owner should open a **Korean** conversation on claude.ai (Firefox + Tampermonkey, visible
-   tab) and look at Summary → Generate. Three specific questions, because the third is a
-   judgement only they can make:
-   - Do **topics** and the **map** now have content at all?
-   - Do the segment groups read like real topic groups, as the English ones do since v12.6?
-   - **Do the Korean labels read acceptably?** They will carry particles — 세션이 rather than
-     세션 — because the tokens feeding labels are the matching tokens. A **display-only**
-     normalizer would fix the reading without touching any measure; it is deliberately not
-     bundled, and this is the right instrument for deciding whether it is wanted.
-2. **Key points are still unavailable in Korean**, for a different mechanism this arc does
+1. ~~**LIVE CHECK — the gate on this release (DEC-031).**~~ **DONE 2026-08-02.** The owner
+   live-tested a Korean conversation: topics, bookmarks, search and the map all read correctly.
+   **The particle question is settled by their answer**: they could not find the 세션이/세션
+   artefact at all, so **no display-only normalizer is wanted** — do not build one on the
+   strength of the synthetic observation alone. The same check surfaced the panel-i18n defect
+   (§B.6), which is the shape to expect from live checks generally: they find the thing you did
+   not think to measure, not the thing you did.
+2. **Five i18n keys are still never called** (ROADMAP 0c): `questionPrefix`, `noQuestions`,
+   `summaryLanguageNote`, `noBookmarksToExport`, `usageUnavailable`. Each renders English to a
+   Korean user today; each is a one-line wiring fix. Found by the v12.7a audit, deliberately
+   out of scope there because that change was bounded to the two panels the owner reported.
+   **Not to be confused with the nine `/Commands` keys, which are dead on purpose.**
+3. **Key points are still unavailable in Korean**, for a different mechanism this arc does
    not reach: `KEY_POINT_PATTERNS` is a set of English regexes. Recorded in ROADMAP 0a, not
    fixed here. It needs its own Korean pattern set and its own measurement.
-3. **The top level's merge rule — THEORETICAL, not scheduled** (ROADMAP item 0). Unchanged
+4. **The top level's merge rule — THEORETICAL, not scheduled** (ROADMAP item 0). Unchanged
    from the last handoff, including that the evidence once cited for it was a misreading and
    is retracted. Do not open it on that evidence.
-4. **Carried-over fixture batch** — unmatchable-cluster/HEAD, assistant-TAIL, GM-shim backoff
+5. **Carried-over fixture batch** — unmatchable-cluster/HEAD, assistant-TAIL, GM-shim backoff
    (incl. malformed JSON), exportBookmarks, forced-refetch knob, provisional-turn knob,
    key-point payload knob — plus the recorded small items (toolBlocks into the unmounted
    inventory, renderable-predicate off-by-2, `renderSummaryResults` try/finally).
-5. **Backlog unchanged behind those** (Retry-After 429, §4.2 offset-cache reassessment, peek
+6. **Backlog unchanged behind those** (Retry-After 429, §4.2 offset-cache reassessment, peek
    pane, mock-fidelity generator, debulking; Emergent deprioritized).
 
 ---
@@ -311,10 +367,17 @@ All of §G items 2–5. The `overflow-anchor: none` mock assumption remains unve
 
 ## J. Risk caveats / known limitations
 
-- **No live confirmation yet.** Every number in this handoff is synthetic, from a generator
-  whose topic blocks are lexically disjoint by construction. Real conversations drift,
-  revisit and interleave. What is established is the MECHANISM and that English is
-  bit-for-bit unaffected; whether Korean segmentation *reads* right is §G.1.
+- ~~**No live confirmation yet.**~~ **Live-confirmed 2026-08-02** — the owner reports topics,
+  bookmarks, search and the map all reading correctly in Korean. The synthetic caveat still
+  applies to the NUMBERS: the generator's topic blocks are lexically disjoint by construction,
+  while real conversations drift, revisit and interleave. What the live check establishes is
+  that the feature works and reads acceptably, not that 28/32 transfers.
+- **A language switch leaves Tools mixed until refresh** — the gallery header re-renders on
+  panel open, the exports section is built at injection. Owner-accepted (DEC-042), and the
+  `languageChanged` toast already says "refresh to apply". Do not "fix" it without re-opening
+  that decision.
+- **Five i18n keys still render English to a Korean user** (ROADMAP 0c). Known, scoped out, not
+  forgotten.
 - **The Korean payload is generated, not real.** Its particle distribution is modelled
   (받침-correct), but its sentences are vocabulary-driven word salad, exactly like the English
   payload. A real Korean conversation mixes English technical terms far more heavily.

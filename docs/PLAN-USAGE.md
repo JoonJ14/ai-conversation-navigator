@@ -1,5 +1,15 @@
 # Claude Plan Usage Tracker — Implementation Spec
 
+> **v12.7a update (2026-08-02) — this panel is now i18n-wired, and its reset phrases are
+> TEMPLATED.** `formatResetTime` used to build output by concatenation
+> (`'resets ' + day + ' ' + time + ' ' + ampm`), which cannot be translated into Korean at all:
+> Korean puts the meridiem BEFORE the time (오후 3:05), and concatenation hard-codes the order.
+> They are now `{placeholder}` templates resolved through `i18n(key, replacements)` — keys
+> `usageResetDay` / `usageResetHM` / `usageResetH` / `usageResetMin` / `usageResetSoon`, plus
+> `weekdayShort` and `am`/`pm`. English output is byte-identical (verified over 58 cases).
+> See DEC-042. `usageUnavailable` still has no call site — ROADMAP item 0c.
+
+
 Display the user's Claude subscription usage (session limit, weekly limits) as bars in the sidebar, right below the context window monitor. Claude-only feature — hidden on all other platforms.
 
 **Last updated:** 2026-02-23  

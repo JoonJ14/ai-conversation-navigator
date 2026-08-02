@@ -38,6 +38,61 @@ The userscript must remain **ES5 compatible**. This means:
 | `'acn-ctx-cache'` | Claude context window cache |
 | `'acn-zone-positions'` | Orbital zone Y position per platform (fraction of viewport height, added v10.10) |
 
+## i18n Conventions
+
+The product ships **English (default) and Korean** (`I18N.ko`). Korean is the only translation
+and was added for one specific user.
+
+**A key that is never called is not a translation.** v12.7a found **thirteen** Korean strings in
+`I18N.ko` with **zero call sites** — the Tools and Plan usage panels rendered English literals
+unconditionally, so a Korean user got an English panel while the table looked complete. Nothing
+detected it: the table is correct in isolation, the render code is correct in isolation, the
+suite asserts on English fixtures and cannot distinguish a translated panel from an untranslated
+one, and there is no type system to flag an unreferenced key.
+
+**Run this whenever you add a key, or touch a panel:**
+
+```bash
+# every en key with no call site
+node -e "
+const s=require('fs').readFileSync('ai-conversation-navigator.user.js','utf8');
+const en=s.slice(s.indexOf('        en: {'), s.indexOf('        ko: {'));
+const keys=[...en.matchAll(/^\s{12}(\w+):/gm)].map(m=>m[1]);
+const dead=keys.filter(k=>!new RegExp(\"i18n\\\\('\"+k+\"'\").test(s));
+console.log(dead.length? 'DEAD: '+dead.join(', ') : 'every key is called');"
+```
+
+**Current state of that audit (2026-08-02), so a hit is not mistaken for a regression:**
+14 keys have no call site. **Nine are the `/Commands` section and are deliberately English**
+(see below). The other five are genuinely unwired and are open work — `questionPrefix`,
+`noQuestions`, `summaryLanguageNote`, `noBookmarksToExport`, `usageUnavailable`. They render
+English to a Korean user today. Tracked in ROADMAP; not fixed in v12.7a because that change was
+scoped to the two panels the owner reported.
+
+**Never assemble a translated sentence by concatenation.** Word ORDER is part of what a
+translation changes. `'resets ' + day + ' ' + time + ' ' + ampm` cannot be translated into Korean
+at all, because Korean puts the meridiem *before* the time (오후 3:05) and the concatenation order
+is fixed in the code. Use `{placeholder}` templates through `i18n(key, replacements)` — the helper
+has supported this since it was written. Any sentence built from more than one variable is a
+translation defect waiting to happen.
+
+**Every `i18n()` call needs an English fallback** (`i18n('key') || 'English'`), and the fallback
+must match the `en` table value. A fallback that differs is unreachable *and* misleading: the
+`||` fires only when the key is ABSENT, so a differing fallback makes the code claim a wording
+it can never render.
+
+**Not everything should be translated.** `/Commands` stays English by owner decision — "slash
+command" functions as its own noun in Korean developer usage, and a translated form would be
+less recognisable, not more. Ask before translating domain jargon.
+
+**Language changes require a refresh**, by design. The switch handler updates only dot labels and
+panel headers; anything built at injection keeps its old language until reload, and the
+`languageChanged` toast says so. Consequence to expect, not to fix: a panel can be mixed-language
+between switch and refresh.
+
+Functional non-ASCII must use `\uXXXX` escapes (see Language Constraints above); comments may
+use literal characters.
+
 ## Design Principles
 
 - **Fallback chains** — platform selectors should always have fallbacks since host sites change their DOM frequently

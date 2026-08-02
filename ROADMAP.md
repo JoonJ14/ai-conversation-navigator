@@ -30,9 +30,9 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.7 — the Summary tokenizer can read Korean (2026-08-02)
+## Current Status: v12.7 — MERGED and LIVE-CONFIRMED (2026-08-02)
 
-**v12.7 (PR pending)** — `_sumTokenize` stripped `[^a-z0-9\s]`, so a **Korean** conversation
+**v12.7 (PR #70, merged `06a079f`; live-confirmed by the owner the same day)** — `_sumTokenize` stripped `[^a-z0-9\s]`, so a **Korean** conversation
 produced zero tokens and every content-derived Summary feature was silently empty for the
 product's only translated language. The character class is widened to ASCII + diacritic Latin +
 Hangul, and the minimum token length becomes script-aware (2 for Hangul, 3 otherwise) because
@@ -41,6 +41,18 @@ boundaries with spurious cuts 36 → **11**; English output is **byte-identical*
 fingerprints). Two more elaborate variants — a Korean stop list, and particle normalization —
 were built and measured; the rejection of particle normalization is NOT measurement-supported and the live check decides (DEC-041). New CI gate: the suite's first non-English
 fixture. See item 0a below.
+
+**Live-confirmed 2026-08-02** — the owner opened a Korean conversation and reported topics,
+bookmarks, search and the map all reading correctly. The one thing they could NOT find was the
+particle artefact §G.1 asked about (세션이 vs 세션), which settles that question: **no
+display-only normalizer is wanted.**
+
+**v12.7a — the Tools and Plan usage panels (PR #71).** The same live check surfaced a second,
+unrelated defect: those two panels never called `i18n()` at all. **Thirteen Korean strings
+existed in `I18N.ko` and none was ever read** — they rendered English literals regardless of
+the language setting. Now wired, plus a new `exports` key (파일 내보내기, the owner's wording)
+and the Plan usage panel's reset phrases, which needed `{placeholder}` templating because
+Korean puts the meridiem before the time. `/Commands` stays English by owner instruction.
 
 **Earlier: v12.5 (PR #67) + v12.6 (PR #68), both merged and live-confirmed** — Summary generate
 went 7.7–8.8s → ~1–2s live, and the conversation map's second level went from fixed 3-message
@@ -183,6 +195,15 @@ Numbering below is stable (items keep their historical numbers):
    collapse to one token per sentence — they need segmentation, not a character class. Say
    which languages are fixed rather than claiming "Unicode support".
 
+0c. **Five i18n keys are still never called (OPEN — found by the v12.7a audit, 2026-08-02).**
+   `questionPrefix`, `noQuestions`, `summaryLanguageNote`, `noBookmarksToExport`,
+   `usageUnavailable` all have Korean values and **zero call sites**, so those surfaces render
+   English to a Korean user exactly as the Tools panel did before v12.7a. Not fixed there because
+   that change was scoped to the two panels the owner reported live. Each is a one-line wiring
+   fix; the audit command that finds them is in `agent_docs/conventions.md` → i18n Conventions.
+   **Not to be confused with the nine `/Commands` keys**, which are dead ON PURPOSE — the owner
+   decided "slash command" reads better untranslated (DEC-042).
+
 0b. **"290 messages" vs "147 questions" reads as a discrepancy (owner, 2026-08-01 — parked by
    the owner, "I need to think about that").** The map counts timeline ENTRIES (questions and
    answers), which is correct and deliberate — the back-and-forth is what makes a segment
@@ -307,7 +328,8 @@ Numbering below is stable (items keep their historical numbers):
    per-message token sets for the map loops (needs the fence-spanning-join edge case
    checked); real restructuring of the merge loops is v13 territory. Live numbers +
    contexts in the TROUBLESHOOTING entry.
-   **Status 2026-07-31 (v12.5, SHIPPED — awaiting live confirmation): the residual is
+   **Status 2026-07-31 (v12.5, SHIPPED — ✅ LIVE-CONFIRMED 2026-08-01, "really fast… roughly
+   a second or two"): the residual is
    the churn itself, not the tokenizing.** The rebuild count is an identity
    (`2 × initialSegments − finalSegments`, reproduced exactly at every synthetic
    config), so the live 431 means **≈218 initial segments from ~294 messages**. Nothing

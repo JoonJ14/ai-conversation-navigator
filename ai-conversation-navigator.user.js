@@ -71,6 +71,7 @@
             keyPoints: 'Key Points',
             stats: 'Stats',
             summaryLanguageNote: '',
+            exports: 'Exports',
             imageGallery: 'Image Gallery',
             noImages: 'No images in this conversation',
             goToMessage: 'Go to message',
@@ -100,7 +101,19 @@
             resetConfirm: 'Reset all settings to defaults?',
             resetComplete: 'Settings reset to defaults',
             languageChanged: 'Language updated \u2014 refresh to apply',
-            session: 'Session',
+            planUsage: 'Plan usage',
+            planUsageLoading: 'Plan usage loading\u2026',
+            usageSession: 'Session (5h)',
+            usageSonnet: 'Sonnet (7d)',
+            usagePctUsed: '{pct}% used',
+            usageResetSoon: 'resetting soon',
+            usageResetMin: 'resets in {n} min',
+            usageResetH: 'resets in {h}h',
+            usageResetHM: 'resets in {h}h {m}m',
+            usageResetDay: 'resets {day} {time} {ampm}',
+            weekdayShort: 'Sun,Mon,Tue,Wed,Thu,Fri,Sat',
+            am: 'AM',
+            pm: 'PM',
             weekly: 'Weekly',
             usageUnavailable: 'Usage data unavailable',
             commands: 'Commands',
@@ -138,6 +151,7 @@
             keyPoints: '\uc8fc\uc694 \ud3ec\uc778\ud2b8',
             stats: '\ud1b5\uacc4',
             summaryLanguageNote: '\u2139\ufe0f \uc694\uc57d \ubd84\uc11d\uc740 \uc601\uc5b4 \ub300\ud654\uc5d0\uc11c \uac00\uc7a5 \uc798 \uc791\ub3d9\ud569\ub2c8\ub2e4.',
+            exports: '\ud30c\uc77c \ub0b4\ubcf4\ub0b4\uae30',
             imageGallery: '\uc774\ubbf8\uc9c0 \uac24\ub7ec\ub9ac',
             noImages: '\uc774 \ub300\ud654\uc5d0 \uc774\ubbf8\uc9c0\uac00 \uc5c6\uc2b5\ub2c8\ub2e4',
             goToMessage: '\uba54\uc2dc\uc9c0\ub85c \uc774\ub3d9',
@@ -151,7 +165,7 @@
             exportSummary: '\uc694\uc57d',
             exportSummaryDesc: '\uc8fc\uc81c, \uc9c0\ub3c4, \uc8fc\uc694 \ud3ec\uc778\ud2b8',
             noBookmarksToExport: '\uc774 \ub300\ud654\uc5d0 \ubd81\ub9c8\ud06c\uac00 \uc5c6\uc2b5\ub2c8\ub2e4',
-            moreToolsSoon: '\ub354 \ub9ce\uc740 \ub3c4\uad6c\uac00 \uacf3 \ucd94\uac00\ub429\ub2c8\ub2e4.\n\uc544\uc774\ub514\uc5b4\uac00 \uc788\uc73c\uc2dc\uba74 GitHub\uc5d0\uc11c \uc774\uc288\ub97c \uc5f4\uc5b4\uc8fc\uc138\uc694!',
+            moreToolsSoon: '\ub354 \ub9ce\uc740 \ub3c4\uad6c\uac00 \uace7 \ucd94\uac00\ub429\ub2c8\ub2e4.\n\uc544\uc774\ub514\uc5b4\uac00 \uc788\uc73c\uc2dc\uba74 GitHub\uc5d0\uc11c \uc774\uc288\ub97c \uc5f4\uc5b4\uc8fc\uc138\uc694!',
             display: '\ub514\uc2a4\ud50c\ub808\uc774',
             orbitalMode: '\uc624\ube44\ud0c8 \ubaa8\ub4dc',
             scrollDirection: '\uc2a4\ud06c\ub864 \ubc29\ud5a5',
@@ -167,7 +181,19 @@
             resetConfirm: '\ubaa8\ub4e0 \uc124\uc815\uc744 \uae30\ubcf8\uac12\uc73c\ub85c \ucd08\uae30\ud654\ud558\uc2dc\uac4c\uc2b5\ub2c8\uae4c?',
             resetComplete: '\uc124\uc815\uc774 \uae30\ubcf8\uac12\uc73c\ub85c \ucd08\uae30\ud654\ub418\uc5c8\uc2b5\ub2c8\ub2e4',
             languageChanged: '\uc5b8\uc5b4\uac00 \ubcc0\uacbd\ub428 \u2014 \uc0c8\ub85c\uace0\uce68\ud558\uc5ec \uc801\uc6a9',
-            session: '\uc138\uc158',
+            planUsage: '\ud50c\ub79c \uc0ac\uc6a9\ub7c9',
+            planUsageLoading: '\ud50c\ub79c \uc0ac\uc6a9\ub7c9 \ubd88\ub7ec\uc624\ub294 \uc911\u2026',
+            usageSession: '\uc138\uc158 (5\uc2dc\uac04)',
+            usageSonnet: 'Sonnet (7\uc77c)',
+            usagePctUsed: '{pct}% \uc0ac\uc6a9',
+            usageResetSoon: '\uace7 \ucd08\uae30\ud654',
+            usageResetMin: '{n}\ubd84 \ud6c4 \ucd08\uae30\ud654',
+            usageResetH: '{h}\uc2dc\uac04 \ud6c4 \ucd08\uae30\ud654',
+            usageResetHM: '{h}\uc2dc\uac04 {m}\ubd84 \ud6c4 \ucd08\uae30\ud654',
+            usageResetDay: '{day} {ampm} {time} \ucd08\uae30\ud654',
+            weekdayShort: '\uc77c,\uc6d4,\ud654,\uc218,\ubaa9,\uae08,\ud1a0',
+            am: '\uc624\uc804',
+            pm: '\uc624\ud6c4',
             weekly: '\uc8fc\uac04',
             usageUnavailable: '\uc0ac\uc6a9\ub7c9 \ub370\uc774\ud130\ub97c \ubd88\ub7ec\uc62c \uc218 \uc5c6\uc2b5\ub2c8\ub2e4',
             commands: '\ucee4\ub9e8\ub4dc',
@@ -4936,20 +4962,20 @@
         if (!data) {
             var ph = document.createElement('div');
             ph.style.cssText = 'font-size:10px;color:#555;padding:2px 0';
-            ph.textContent   = 'Plan usage loading\u2026';
+            ph.textContent   = i18n('planUsageLoading') || 'Plan usage loading\u2026';
             container.appendChild(ph);
             return;
         }
 
         var title = document.createElement('div');
         title.className   = 'acn-usage-title';
-        title.textContent = 'Plan usage';
+        title.textContent = i18n('planUsage') || 'Plan usage';
         container.appendChild(title);
 
         var bars = [
-            { label: 'Session (5h)',  tier: data.fiveHour },
-            { label: 'Weekly',        tier: data.sevenDay },
-            { label: 'Sonnet (7d)',   tier: data.sevenDaySonnet }
+            { label: i18n('usageSession') || 'Session (5h)', tier: data.fiveHour },
+            { label: i18n('weekly')       || 'Weekly',       tier: data.sevenDay },
+            { label: i18n('usageSonnet')  || 'Sonnet (7d)',  tier: data.sevenDaySonnet }
         ];
 
         for (var i = 0; i < bars.length; i++) {
@@ -4965,7 +4991,7 @@
             labelLeft.textContent = bar.label;
 
             var labelRight = document.createElement('span');
-            labelRight.textContent = pct + '% used' +
+            labelRight.textContent = (i18n('usagePctUsed', { pct: pct }) || pct + '% used') +
                                      (reset ? ' \u00b7 ' + reset : '');
 
             var labelRow = document.createElement('div');
@@ -5018,13 +5044,13 @@
         var now    = Date.now();
         var diffMs = target.getTime() - now;
 
-        if (diffMs <= 0) return 'resetting soon';
+        if (diffMs <= 0) return i18n('usageResetSoon') || 'resetting soon';
 
         var diffMin  = Math.round(diffMs / 60000);
         var diffHour = diffMin / 60;
 
         if (diffMin < 60) {
-            return 'resets in ' + diffMin + ' min';
+            return i18n('usageResetMin', { n: diffMin }) || 'resets in ' + diffMin + ' min';
         }
 
         var h = Math.floor(diffHour);
@@ -5033,17 +5059,20 @@
         var todayEnd = new Date();
         todayEnd.setHours(23, 59, 59, 999);
         if (target <= todayEnd) {
-            return 'resets in ' + h + 'h' + (m > 0 ? ' ' + m + 'm' : '');
+            return m > 0 ? i18n('usageResetHM', { h: h, m: m })
+                         : i18n('usageResetH',  { h: h });
         }
 
-        var days    = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        var days    = (i18n('weekdayShort') || 'Sun,Mon,Tue,Wed,Thu,Fri,Sat').split(',');
         var dayName = days[target.getDay()];
         var hr      = target.getHours();
         var min     = target.getMinutes();
-        var ampm    = hr >= 12 ? 'PM' : 'AM';
+        var ampm    = hr >= 12 ? (i18n('pm') || 'PM') : (i18n('am') || 'AM');
         var hr12    = hr % 12 || 12;
         var minStr  = min < 10 ? '0' + min : String(min);
-        return 'resets ' + dayName + ' ' + hr12 + ':' + minStr + ' ' + ampm;
+        // Templated, not concatenated: Korean puts the am/pm marker BEFORE the time
+        // (오후 3:05), so the pieces cannot simply be joined in English order.
+        return i18n('usageResetDay', { day: dayName, time: hr12 + ':' + minStr, ampm: ampm });
     }
 
     // ============================================================
@@ -10070,11 +10099,12 @@
                     document.body.removeChild(link);
                     URL.revokeObjectURL(blobUrl);
                 }, 100);
-                if (typeof showToast === 'function') showToast('Image downloaded');
+                if (typeof showToast === 'function') showToast(i18n('imageDownloaded') || 'Image downloaded');
             })
             .catch(function () {
                 window.open(src, '_blank');
-                if (typeof showToast === 'function') showToast('Opened in new tab — right-click to save');
+                if (typeof showToast === 'function') showToast(i18n('openedInNewTab') ||
+                    'Opened in new tab \u2014 right-click to save');
             });
     }
 
@@ -10083,12 +10113,13 @@
         var images = getConversationImages();
         var header = document.createElement('div');
         header.className = 'acn-tool-section-header';
-        header.textContent = '\uD83D\uDDBC\uFE0F Image Gallery (' + images.length + ')';
+        header.textContent = '\uD83D\uDDBC\uFE0F ' + (i18n('imageGallery') || 'Image Gallery') +
+                             ' (' + images.length + ')';
         container.appendChild(header);
         if (images.length === 0) {
             var empty = document.createElement('div');
             empty.className = 'acn-gallery-empty';
-            empty.textContent = 'No images in this conversation';
+            empty.textContent = i18n('noImages') || 'No images in this conversation';
             container.appendChild(empty);
             return;
         }
@@ -10125,7 +10156,7 @@
             var navBtn = document.createElement('span');
             navBtn.className   = 'acn-gallery-btn';
             navBtn.textContent = '\u2197';
-            navBtn.title       = 'Go to message';
+            navBtn.title       = i18n('goToMessage') || 'Go to message';
             if (imgData.msgIndex === -1 && platform.imagesOrphaned) {
                 // Images are in a hidden container (e.g. Claude files panel) — no usable scroll target
                 navBtn.style.opacity = '0.3';
@@ -10146,7 +10177,7 @@
             var dlBtn = document.createElement('span');
             dlBtn.className   = 'acn-gallery-btn';
             dlBtn.textContent = '\u2B07';
-            dlBtn.title       = 'Download image';
+            dlBtn.title       = i18n('downloadImage') || 'Download image';
             dlBtn.addEventListener('click', (function (data, idx) {
                 return function (e) {
                     e.stopPropagation();
@@ -11227,12 +11258,21 @@
         exportSection.className = 'acn-tool-section';
         var exportHeader = document.createElement('div');
         exportHeader.className   = 'acn-tool-section-header';
-        exportHeader.textContent = '\uD83D\uDCCB Exports';
+        exportHeader.textContent = '\uD83D\uDCCB ' + (i18n('exports') || 'Exports');
         exportSection.appendChild(exportHeader);
         var TOOLS_EXPORT = [
-            { id: 'full',      icon: '\uD83D\uDCC4', title: 'Full Conversation',  desc: 'Markdown with all messages and code blocks.', action: exportFullConversation },
-            { id: 'bookmarks', icon: '\uD83D\uDCCC', title: 'Bookmarks Only',     desc: 'Pinned messages as structured document.',     action: exportBookmarks },
-            { id: 'summary',   icon: '\u03A3',       title: 'Summary',            desc: 'Topics, decisions, and action items.',        action: exportSummary }
+            { id: 'full',      icon: '\uD83D\uDCC4',
+              title: i18n('exportFull')      || 'Full Conversation',
+              desc:  i18n('exportFullDesc')  || 'Markdown with all messages',
+              action: exportFullConversation },
+            { id: 'bookmarks', icon: '\uD83D\uDCCC',
+              title: i18n('exportBookmarks')     || 'Bookmarks Only',
+              desc:  i18n('exportBookmarksDesc') || 'Pinned messages as document',
+              action: exportBookmarks },
+            { id: 'summary',   icon: '\u03A3',
+              title: i18n('exportSummary')     || 'Summary',
+              desc:  i18n('exportSummaryDesc') || 'Topics, map, key points',
+              action: exportSummary }
         ];
         TOOLS_EXPORT.forEach(function (tool) {
             var iconEl  = createElement('div', { className: 'acn-exp-icon',  textContent: tool.icon });
@@ -11262,7 +11302,8 @@
         // 4. Footer
         var footer = createElement('div', {
             style: 'padding:12px 14px;font-size:10px;color:#444;line-height:1.6;border-top:1px solid rgba(255,255,255,.05)',
-            textContent: 'More tools coming soon. Got ideas? Open an issue on GitHub!'
+            textContent: i18n('moreToolsSoon') ||
+                         'More tools coming soon. Got ideas? Open an issue on GitHub!'
         });
         scroll.appendChild(footer);
 
