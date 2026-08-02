@@ -8186,9 +8186,12 @@
     // Deliberately NOT here: Greek, Cyrillic, kana and Han. Not an oversight and
     // not a to-do — see DEC-041. Adding a script this tokenizer cannot actually
     // segment is worse than leaving it out: Japanese and Chinese are not
-    // space-separated, so a character class turns a whole sentence into one or two
-    // pseudo-tokens, and the map would draw structure out of noise rather than
-    // correctly finding none. Say which languages are fixed; never call this
+    // space-separated, so a character class WOULD turn a whole sentence into one or two
+    // pseudo-tokens, and the map would draw structure out of noise rather than correctly
+    // finding none. Note the tense: that is the COUNTERFACTUAL, not what ships. Shipped,
+    // Japanese yields ZERO tokens, because kana and Han are outside the class entirely —
+    // measured, and asserted by check-tokenizer.js T8 as `=== 0` (an earlier `<= 4` bound
+    // could not fail, since the regression it guards also produces 1). Say which languages are fixed; never call this
     // "Unicode support".
     // \u escapes rather than literal characters, matching the I18N.ko table and the
     // rest of the file: every functional non-ASCII string in this userscript is
@@ -8256,7 +8259,20 @@
         maxTopics = maxTopics || 8;
         var words   = _sumTokenize(text);
         var bigrams = _sumExtractBigrams(words);
-        var freq    = {};
+        // Object.create(null), not {}: these maps are keyed by CONVERSATION WORDS, and
+        // `constructor` is a word this product's users type constantly. On a plain
+        // object `freq['constructor']` reads Object.prototype.constructor BEFORE
+        // assignment, so `(freq[w] || 0) + 1` concatenates onto a function and the
+        // comparator `freq[b] - freq[a]` then returns NaN for every pair involving that
+        // key — making the sort order of the WHOLE topic list implementation-defined.
+        // Measured: adding the single word "constructor" to a text changed both the set
+        // and the order of the chosen topics. `freq[term] < 1` also fails to skip it
+        // (NaN < 1 is false), and a truthy `coveredWords['constructor']` means the
+        // unigram can never be chosen at any frequency. PRE-EXISTING, found in Tier 3
+        // review of v12.7 (PR #70); `constructor` is the only reachable prototype key —
+        // hasOwnProperty/toString lowercase to non-matching forms and `__proto__` loses
+        // its underscores to the character class.
+        var freq    = Object.create(null);
 
         // No length re-check here: _sumTokenize already applied the minimum, and it
         // applies the SCRIPT-AWARE one. Re-testing `< 3` was a second copy of the
@@ -8280,7 +8296,7 @@
 
         var sorted = Object.keys(freq).sort(function (a, b) { return freq[b] - freq[a]; });
         var chosen = [];
-        var coveredWords = {};
+        var coveredWords = Object.create(null);          // see the note above
 
         for (var i = 0; i < sorted.length && chosen.length < maxTopics; i++) {
             var term = sorted[i];
@@ -8295,12 +8311,12 @@
     }
 
     function _sumExtractTopics(questions, aiResponses) {
-        var freq = {};
+        var freq = Object.create(null);                     // see _sumExtractTopicsFromText
 
         function addTerms(text, weight) {
             var words   = _sumTokenize(text);
             var bigrams = _sumExtractBigrams(words);
-            var local   = {};
+            var local   = Object.create(null);               // see _sumExtractTopicsFromText
 
             // Same as _sumExtractTopicsFromText: no length re-check. _sumTokenize
             // already applied the script-aware minimum, and repeating the English
@@ -8318,7 +8334,7 @@
 
         var sorted = Object.keys(freq).sort(function (a, b) { return freq[b] - freq[a]; });
         var result = [];
-        var coveredWords = {};
+        var coveredWords = Object.create(null);          // see _sumExtractTopicsFromText
 
         for (var i = 0; i < sorted.length && result.length < 8; i++) {
             var term = sorted[i];
@@ -8352,7 +8368,7 @@
     }
 
     function _sumMergeTopics(topicsA, topicsB) {
-        var seen = {};
+        var seen = Object.create(null);                     // see _sumExtractTopicsFromText
         var merged = [];
         topicsA.concat(topicsB).forEach(function (t) {
             if (!seen[t]) { seen[t] = true; merged.push(t); }
@@ -8653,8 +8669,21 @@
     function _sumGenerateSegmentLabel(segment) {
         var topics = segment.topics || [];
         if (!topics.length) return 'Discussion';
+        // Capitalise the first letter of each SPACE-SEPARATED word, not each `\b\w`.
+        // `\w` and `\b` are ASCII-only without the `u` flag, so a diacritic counts as a
+        // non-word character and OPENS a spurious word boundary — every letter after one
+        // got upper-cased mid-word: naive/resume/deja-vu with their accents came out as
+        // `NaïVe`, `RéSumé`, `DéJà Vu`. Before v12.7 those tokens could not exist (the
+        // ASCII-only class turned an accented `resume` into `sum`), so widening the class
+        // is what made this reachable — found in Tier 3 review of v12.7 (PR #70).
+        // Splitting on whitespace has no character-class opinion at all, so it is correct
+        // for accented Latin and a no-op for Hangul, which has no case.
+        // These labels are user-visible in every segment and sub-segment row AND in the
+        // exported markdown.
         function cap(str) {
-            return str.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+            return str.split(' ').map(function (word) {
+                return word ? word.charAt(0).toUpperCase() + word.slice(1) : word;
+            }).join(' ');
         }
         if (topics.length === 1) return cap(topics[0]);
         return cap(topics[0]) + ' / ' + cap(topics[1]);

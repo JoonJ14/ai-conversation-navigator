@@ -1882,6 +1882,12 @@ Two things this deliberately is NOT:
   and Chinese are not space-separated, so widening the class for them turns a whole sentence
   into one or two pseudo-tokens — and a map fed pseudo-tokens draws structure out of noise
   rather than correctly finding none, which is **worse than the current empty result**.
+  **Tense matters here and four documents got it wrong:** that is what WOULD happen if kana
+  and Han were admitted. What SHIPS yields **zero** tokens for Japanese, because those
+  scripts are outside the class entirely. `check-tokenizer.js` T8 asserts `=== 0` for that
+  reason — its first form, `<= 4`, passed both on the shipped build (0) and on the very
+  regression it exists to prevent (kana admitted → the space-less sample becomes 1 token).
+  A bound on the wrong side of the thing it protects is not a gate (Tier 3, PR #70).
   Say which languages are fixed. `probes/check-tokenizer.js` T8 pins this limit as an
   assertion so it cannot quietly be re-described later.
 - **Not a stemmer.** See the rejected alternatives.
@@ -2002,6 +2008,27 @@ four payload shapes on both engines (`probes/build-tokenizer-variants.js`):
   2x and cover their own words, so they outrank unigrams in both languages; this makes a
   frequent short word *eligible*, it does not change the ranking. The 32/32 identical map
   fingerprints are the empirical proof that the removal is a no-op for English.
+- **The gate that could not see the fix, and why it is gated in the probes instead.** Two
+  mutants of the shipped build pass the Korean Playwright fixture **31/31**: the widened class
+  with the English `w.length > 2` filter restored (i.e. `v1-charclass`, the rejected variant),
+  and both downstream re-checks restored (byte-identical topic list). All eight rendered topics
+  are bigrams of the fixture's constant base sentence, which repeats 40 times and outranks
+  everything from the topic blocks — so nothing depending on 2-syllable nouns reaches an
+  assertion. Distorting the fixture until a unigram could outrank a 40x bigram would make it
+  stop resembling a conversation, so the properties are gated where they can be gated directly:
+  `check-tokenizer.js` **T4** (the tokenizer keeps them) and **T12** (they reach the topic
+  list) — and **the probes now run in CI**, which they never did before. Found by Tier 3 lens 3
+  (PR #70) with both mutants built and measured; ten GitHub Codex rounds did not surface it.
+- **Two defects that only v12.7 made reachable, both found in the same round:**
+  `cap()` in `_sumGenerateSegmentLabel` upper-cased on `/\b\w/`, which is ASCII-only, so a
+  diacritic opened a spurious word boundary and every accented label came out mangled —
+  `naïve` → `NaïVe`, `résumé` → `RéSumé`. Before this release those tokens could not exist.
+  It now splits on whitespace, which has no character-class opinion. And the topic frequency
+  maps were plain objects, so the word **`constructor`** — which users of an AI *coding*
+  assistant type constantly — read `Object.prototype.constructor`, concatenated onto a
+  function, and made the sort comparator return `NaN` for every pair involving it, leaving the
+  order of the WHOLE topic list implementation-defined. `Object.create(null)` on all five maps.
+  Pre-existing, but the first is newly *triggered* by widening the class.
 - **Not fixed, and not silently:** key points are still unavailable in Korean, because
   `KEY_POINT_PATTERNS` is a set of English regexes — a different mechanism, recorded in
   ROADMAP rather than folded in here.

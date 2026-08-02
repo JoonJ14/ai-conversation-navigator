@@ -769,6 +769,23 @@ this are gated by two platform-config flags:
   the fixture's preamble.
   **K1c** asserts the Summary still covers the full 81-entry index with <40 turns mounted, so a
   Korean user is not quietly on the Layer 4 degraded path.
+  **WHAT K1a AND K1b DO *NOT* GATE — measured, and the reason the probes now run in CI.**
+  Two mutants of the shipped build pass this entry **31/31** (Tier 3 lens 3, PR #70):
+  (a) the widened character class with the filter reverted to `w.length > 2` — i.e.
+  `v1-charclass`, the variant v12.7 explicitly rejected; and (b) both downstream length
+  re-checks restored, which renders a **byte-identical** topic list.
+  **Mechanism:** all eight rendered topics are BIGRAMS drawn from the fixture's constant
+  base sentence, which is identical across all 40 turns and so outranks everything from
+  the three topic blocks. Nothing that depends on 2-syllable Korean nouns ever reaches an
+  assertion here. K1a gates exactly one property — *Hangul survives the character class* —
+  and K1b likewise (`[]` pre-v12.7, `[0, 27, 55]` on both mutants).
+  **This is not a hole to paper over in the fixture**: making a 2-syllable unigram outrank
+  a 40x-repeated bigram would mean distorting the fixture until it stops resembling a
+  conversation. The properties are gated where they can be gated directly — `check-tokenizer.js`
+  **T4** (tokenizer keeps them) and **T12** (they reach the topic list) — and those probes
+  now run in CI (`.github/workflows/cross-platform-tests.yml`, ubuntu+chromium). T4 kills
+  mutant (a); T12 kills both. Verified: both mutants exit 1.
+
   **Killing mutation, MEASURED (not asserted) 2026-08-02:** run this entry with
   `ACN_SCRIPT=<pre-v12.7 build>` and K1a reports `0 topics: []` while K1b reports `starts []`
   against the expected `[0, 27, 55]` — 2 of 31 red. **K1c stays green under that mutation, and

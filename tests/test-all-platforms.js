@@ -1095,6 +1095,29 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
     // page.evaluate, where a RegExp cannot be passed as an argument.
     // Only the Korean entry sets lang; every other fixture takes the English branch
     // and its patterns are byte-identical to what they were before v12.7.
+    // Restore the pre-block panel state. orbOnScanComplete only re-renders the nav list
+    // while the Navigate panel is the open one, so ANY block that leaves another panel
+    // open freezes that list for the later TESTS 23-27, which then assert against a
+    // render captured before the block ran (Tier 3, measured: 40/40 stamped nodes still
+    // present at TEST 26).
+    // It is a FUNCTION rather than an inline block in one place because keying it to a
+    // platform flag is what let it regress: it lived inside `if (summaryExportTests)`,
+    // and the Korean entry — which sets `koreanSummaryTest` and opens the Summary panel —
+    // silently got no restore at all (three independent Tier 3 lenses, PR #70). The
+    // condition that matters is "this block opened a non-nav panel", not which flag
+    // selected the block.
+    async function restoreNavPanel() {
+        await page.evaluate(async () => {
+            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+            const close = document.querySelector('[data-acn-open="true"] [data-acn-role="panel-close"]');
+            if (close) { close.click(); await sleep(250); }
+            const nav = document.querySelector('[data-acn-role="nav-trigger"]');
+            if (nav && !document.querySelector('[data-acn-role="nav-panel"][data-acn-open="true"]')) {
+                nav.click(); await sleep(350);
+            }
+        });
+    }
+
     const isKoFixture = !!(platform.gmFixture && platform.gmFixture.lang === 'ko');
     const qPat    = (n) => isKoFixture ? `질문 ${n}\\.` : `Question number ${n}\\b`;
     const qAnyPat = isKoFixture ? '질문 \\d+\\.' : 'Question number \\d+';
@@ -1942,6 +1965,10 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                     assert('SUMMARY on a Korean conversation covers the full index',
                         !ko.err && ko.total === 81 && ko.mounted < 40,
                         ko.err || `total=${ko.total} (expected 81), ${ko.mounted} turns mounted`);
+
+                    // This block opened the Summary panel; TESTS 23-27 below read the nav
+                    // list, which stops re-rendering while a non-nav panel is open.
+                    await restoreNavPanel();
                 }
 
                 // ── SUMMARY + EXPORT EXECUTION (v12.3) ─────────────────────────────
@@ -2555,15 +2582,7 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                     // TESTS 23-27 below, which then asserted against a render
                     // captured before this block ran (Tier 3, measured: 40/40
                     // stamped nodes still present at TEST 26).
-                    await page.evaluate(async () => {
-                        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-                        const close = document.querySelector('[data-acn-open="true"] [data-acn-role="panel-close"]');
-                        if (close) { close.click(); await sleep(250); }
-                        const nav = document.querySelector('[data-acn-role="nav-trigger"]');
-                        if (nav && !document.querySelector('[data-acn-role="nav-panel"][data-acn-open="true"]')) {
-                            nav.click(); await sleep(350);
-                        }
-                    });
+                    await restoreNavPanel();
                 }
 
                 // TESTS 23-25 assert a SUCCESSFUL jump, which presupposes a derivable

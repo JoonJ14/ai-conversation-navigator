@@ -41,3 +41,23 @@ jobs:
 
       - name: Run tests
         run: node tests/test-all-platforms.js --browser ${{ matrix.browser }}
+
+      # The probe assertions gate properties the Playwright suite structurally cannot
+      # see. Measured, not assumed (Tier 3 lens 3, PR #70): a build with the widened
+      # character class but the English `length > 2` filter restored — i.e. the variant
+      # v12.7 explicitly rejected — passes the Korean fixture 31/31, and so does a build
+      # with the two downstream length re-checks put back. The fixture's topic list is
+      # entirely bigrams drawn from its constant base text, so nothing that depends on
+      # 2-syllable Korean nouns ever reaches an assertion there. check-tokenizer T4 and
+      # T12 are what fail on those two builds.
+      #
+      # ONE job only (ubuntu + chromium). These probes assert pure string behaviour, which
+      # does not vary by runner or engine — the browser is used solely to execute the
+      # shipped function in situ. Running them in all 9 jobs would buy no coverage and add
+      # 9x the flake surface, on a matrix that already has two documented webkit-on-macos
+      # failure modes (DEC-036) and a page.goto race on Windows.
+      - name: Run probe assertions
+        if: matrix.os == 'ubuntu-latest' && matrix.browser == 'chromium'
+        run: |
+          node probes/check-tokenizer.js --browser chromium
+          node probes/check-subsegments.js --browser chromium

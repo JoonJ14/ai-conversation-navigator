@@ -109,6 +109,20 @@ const FILES = ['config.js', 'pipeline.py', 'schema.sql', 'report.csv', 'index.ht
 // (café, naïve, smart quotes, em dashes).
 // ---------------------------------------------------------------------------
 const LANG = String(process.env.PAYLOAD_LANG || 'en').toLowerCase();
+// Reject anything unrecognised instead of falling through to the English path. An
+// unknown value used to render ENGLISH text while `stats.lang` recorded the unknown
+// name — and that name reaches the fingerprint key — so a typo or a leftover
+// `PAYLOAD_LANG=ru` reported English numbers under another language's label. `ru` is
+// exactly the value at risk here: it was a probe string in this arc and is explicitly
+// NOT a supported language (Tier 3 lens 4, PR #70).
+const KNOWN_LANGS = ['en', 'ko', 'lat'];
+if (KNOWN_LANGS.indexOf(LANG) === -1) {
+    throw new Error(
+        'perf-payload: PAYLOAD_LANG="' + LANG + '" is not a language this generator has.\n' +
+        '  known: ' + KNOWN_LANGS.join(', ') + '\n' +
+        '  (en = default, ko = the product\'s only translation, lat = accented English —\n' +
+        '   NOT a language, a probe for what the widened character class does to English)');
+}
 
 // The language actually being RENDERED right now. Normally LANG, but the schedule pass
 // below forces 'en' — see computeSchedule(). Module-level rather than threaded through
@@ -133,11 +147,6 @@ const KO_TOPICS = [
 // content words are commonly two syllables, which is exactly the population the
 // shipped `w.length > 2` filter discards — so the payload has to contain them
 // for that filter's effect to be measurable rather than assumed.
-const KO_COMMON = ('시스템 결과 처리 데이터 함수 모듈 핸들러 요청 응답 상태 변경 논리 방법 객체 배열 ' +
-    '문자열 숫자 인덱스 버퍼 캐시 대기열 이벤트 리스너 콜백 프로미스 스레드 작업자 브랜치 병합 커밋 ' +
-    '릴리스 버전 오류 경고 메시지 기록 출력 입력 옵션 설정 필드 레코드 항목 테이블 조회 필터 정렬 ' +
-    '그룹 배치 청크 스트림 파싱 빌드 렌더 구조 정책 계층 기능 방식 관리 구현 동작 조건 결정').split(' ');
-
 // Korean compounding for VOCAB_MULT: real Korean widens vocabulary by forming
 // compounds (인증 → 인증처리, 인증정책), not by suffixing English morphemes.
 const KO_SUFFIXES = ['처리', '관리', '설정', '방식', '구조', '정책', '계층', '기능', '로직', '규칙'];
@@ -150,6 +159,20 @@ function expandVocabKo(words) {
     }
     return out;
 }
+
+// expandVocabKo, exactly as COMMON goes through expandVocab: without it VOCAB_MULT
+// grew the English non-topic pool 4x while Korean's stayed at 64 words, so at vocab=4
+// Korean repeated common words ~4x more often and scored systematically higher cohesion
+// for a reason that is not the language — while the fingerprint key and the score tables
+// treat vocab=4 as ONE configuration across both (Tier 3 lenses 1 and 4, PR #70).
+// expandVocabKo and KO_SUFFIXES are declared ABOVE this on purpose: the function
+// hoists but the `const` it closes over does not, so calling it here with
+// KO_SUFFIXES below threw a TDZ ReferenceError — and only at VOCAB_MULT>1, since
+// the function early-returns at 1. Order matters, hoisting does not save it.
+const KO_COMMON = expandVocabKo(('시스템 결과 처리 데이터 함수 모듈 핸들러 요청 응답 상태 변경 논리 방법 객체 배열 ' +
+    '문자열 숫자 인덱스 버퍼 캐시 대기열 이벤트 리스너 콜백 프로미스 스레드 작업자 브랜치 병합 커밋 ' +
+    '릴리스 버전 오류 경고 메시지 기록 출력 입력 옵션 설정 필드 레코드 항목 테이블 조회 필터 정렬 ' +
+    '그룹 배치 청크 스트림 파싱 빌드 렌더 구조 정책 계층 기능 방식 관리 구현 동작 조건 결정').split(' '));
 
 // Korean particle selection depends on whether the preceding syllable ends in a
 // final consonant (받침). Getting this right matters for the measurement, not

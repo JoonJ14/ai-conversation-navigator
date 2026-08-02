@@ -117,15 +117,31 @@ const LAT = 'The café cache was naïve about résumé parsing — don’t rely 
 // Pure ASCII English, the regression anchor. Whatever changes, this must not.
 const EN = 'The authentication session token expired before the refresh handler could renew it.';
 
-// Japanese: present ONLY to pin the limit. Japanese is not space-separated, so a
-// character class yields roughly one token per run of kana/kanji between
-// punctuation — the feature is NOT fixed for it, and this check exists so that
-// is a recorded measurement rather than an omission somebody later reads as support.
+// Japanese: present ONLY to pin the limit, and the assertion is `=== 0`, not `<= N`.
+// `<= 4` was the first form and it could not fail in the direction it exists to guard:
+// the regression it pins is someone ADDING kana/Han to the class, and because this
+// sample has NO SPACES that regression yields exactly ONE token for the whole sentence
+// — which satisfies `<= 4` and passes. The old bound failed only if real Japanese word
+// segmentation were implemented, i.e. it failed on the fix and passed on the regression
+// (three Tier 3 lenses, PR #70). `=== 0` is the value the exclusion actually implies.
+//
+// Consequence worth stating, because four documents got it wrong: shipped behaviour for
+// Japanese is ZERO tokens, not "roughly one pseudo-token per sentence" — that phrase
+// describes the COUNTERFACTUAL where kana/Han were admitted.
 const JA = 'データベースの移行中に外部キー制約のためロールバックが発生します。';
 
 // Things that must NOT become tokens, in any build: emoji, smart quotes as
 // standalone tokens, and the contents of fenced code (already stripped today).
-const NOISE = 'Looks good 🙂👍 — see `inline_code` and:\n```js\nconst zzzuniquefence = 1;\n```\nDone.';
+// Three of T7's four subjects were unfalsifiable in the first version: `inline_code`
+// can never appear because `_` is outside every candidate class and becomes a space
+// BEFORE tokenizing (verified by deleting the backtick strip — the clause still held);
+// the emoji are astral and outside every candidate class; and the sample contained NO
+// character in U+2018-U+201D at all, so the "smart quotes" clause was matched against a
+// string that could not contain one — its only non-ASCII besides the emoji was an em
+// dash (Tier 3 lens 3, PR #70). A real smart quote is now present, and the fenced-code
+// subject uses a token that WOULD survive if the strip were removed.
+const NOISE = 'Looks good 🙂👍 — that\u2019s ‘quoted’ and “fancy”, see `inlinecodeword` and:' +
+              '\n```js\nconst zzzuniquefence = 1;\n```\nDone.';
 
 // U+00D7 MULTIPLICATION SIGN and U+00F7 DIVISION SIGN are the ONLY non-letters
 // inside U+00C0-U+024F. A range written as a single À-ɏ span therefore
@@ -135,6 +151,18 @@ const NOISE = 'Looks good 🙂👍 — see `inline_code` and:\n```js\nconst zzzu
 // sample is the regression gate for that — a future "simplification" back to one
 // span reintroduces it silently, because no other check contains these characters.
 const MULDIV = 'Render at 1920×1080 and divide 12÷4 evenly.';
+
+// A 2-syllable Korean noun repeated with VARIED neighbours, so no bigram repeats and
+// the unigram outranks every bigram on frequency. This is the only shape that reaches
+// the downstream topic filters: `_sumTokenize` keeping a 2-syllable token is necessary
+// but NOT sufficient — `_sumExtractTopicsFromText` and `_sumExtractTopics` each used to
+// re-apply the English `length > 2` rule to the ALREADY-tokenized words, silently
+// dropping it again. Removing those two re-checks is invisible to every other check
+// here and to the whole Playwright suite, because the Korean fixture's topic list is
+// entirely bigrams (Tier 3 lens 3: a mutant restoring both re-checks passes 31/31 with
+// a byte-identical topic list). This sample is the only thing that gates them.
+const KO_UNIGRAM = '인증 로그인 인증 세션관리 인증 토큰교체 인증 권한설정 인증 만료시간 ' +
+                   '인증 자격증명 인증 리다이렉트 인증 비밀번호';
 
 // NFD forms of two samples above. Neither the DOM nor the API guarantees a
 // normalization form, and macOS produces NFD for Korean input. In NFD the
@@ -181,8 +209,8 @@ const LAT_NFD = 'The café was naïve about résumé parsing.'.normalize('NFD');
     console.log(`\n=== _sumTokenize checks (${engine}) ===`);
     console.log(`userscript under measurement: ${scriptPath}`);
 
-    const r = await tok([KO_SAME_A, KO_SAME_B, KO_DIFF, KO_PURE, KO_SHORT, KO_PARTICLES, LAT, EN, JA, NOISE, MULDIV, KO_NFD, LAT_NFD]);
-    const [koA, koB, koD, koPure, koShort, koPart, lat, en, ja, noise, muldiv, koNfd, latNfd] = r;
+    const r = await tok([KO_SAME_A, KO_SAME_B, KO_DIFF, KO_PURE, KO_SHORT, KO_PARTICLES, LAT, EN, JA, NOISE, MULDIV, KO_NFD, LAT_NFD, KO_UNIGRAM]);
+    const [koA, koB, koD, koPure, koShort, koPart, lat, en, ja, noise, muldiv, koNfd, latNfd, koUni] = r;
 
     if (!quiet) {
         const rows = [
@@ -254,27 +282,36 @@ const LAT_NFD = 'The café was naïve about résumé parsing.'.normalize('NFD');
     // Hardcoded from the pre-change build. Pure-ASCII English must tokenize
     // IDENTICALLY: a widened character class can only PRESERVE characters it used
     // to drop, so any change here means the strip was widened past its intent.
+    // The COUNT is asserted alongside the list: comparing only `slice(0, 7)` was blind to
+    // a build that lowered the minimum length for ALL tokens, because the extra short
+    // words land after the 7th and `it` is a stop word either way (Tier 3 lens 3).
     const EN_EXPECTED = ['authentication', 'session', 'token', 'expired', 'refresh', 'handler', 'renew'];
     check('T6  pure-ASCII English tokenizes exactly as before',
-        JSON.stringify(en.sample.slice(0, EN_EXPECTED.length)) === JSON.stringify(EN_EXPECTED),
-        `[${en.sample.join(' ')}]`);
+        JSON.stringify(en.sample.slice(0, EN_EXPECTED.length)) === JSON.stringify(EN_EXPECTED) &&
+        en.tokens === EN_EXPECTED.length && en.distinct === EN_EXPECTED.length,
+        `${en.tokens} tokens / ${en.distinct} distinct (expected ${EN_EXPECTED.length}) [${en.sample.join(' ')}]`);
 
     // --- Noise must stay out --------------------------------------------------
     const noiseJoined = noise.sample.join(' ');
+    // Every clause below is now falsifiable by some reachable build: the fenced-code and
+    // inline-code subjects use tokens that survive the character class, so deleting
+    // either strip turns them up; the smart quotes are genuinely present in the input;
+    // and `that's` must appear as `thats` rather than splitting on the apostrophe.
     check('T7  emoji, smart quotes and fenced code produce no tokens',
-        !/[\u{1F300}-\u{1FAFF}‘-”]/u.test(noiseJoined) &&
+        !/[\u{1F300}-\u{1FAFF}]/u.test(noiseJoined) &&
+        !/[\u2018-\u201d]/.test(noiseJoined) &&
         noiseJoined.indexOf('zzzuniquefence') === -1 &&
-        noiseJoined.indexOf('inline_code') === -1,
+        noiseJoined.indexOf('inlinecodeword') === -1,
         `[${noiseJoined}]`);
 
     // --- The limit, pinned on purpose ----------------------------------------
     // Japanese has no spaces, so whitespace tokenization cannot segment it however
     // wide the character class gets. Asserting the LIMIT (not the fix) is what
     // stops "Korean works" from being written up as "Unicode support" later.
-    check('T8  LIMIT: Japanese stays coarse — few tokens for a whole sentence',
-        ja.distinct <= 4,
-        `${ja.distinct} distinct token(s) for ${ja.chars} chars — not space-separated, ` +
-        `needs segmentation rather than a character class`);
+    check('T8  LIMIT: Japanese produces NO tokens (kana/Han are not in the class)',
+        ja.distinct === 0,
+        `${ja.distinct} distinct token(s) for ${ja.chars} chars — expected 0; kana and Han ` +
+        `are excluded on purpose, because without spaces a character class cannot segment them`);
 
     // --- The Tier 3 finding, gated ------------------------------------------
     // Asserts the SPLIT, not merely that the characters are absent: the defect was
@@ -301,6 +338,15 @@ const LAT_NFD = 'The café was naïve about résumé parsing.'.normalize('NFD');
         ['sume', 'nai', 'caf'].every((bad) => latNfd.sample.indexOf(bad) === -1),
         `missing [${LAT_REQUIRED.filter((w) => latNfd.sample.indexOf(w) === -1).join(', ') || 'none'}] ` +
         `in [${latNfd.sample.join(' ')}]`);
+
+    // --- The downstream re-filters, gated (Tier 3 lens 3) ----------------------
+    // Asserts the 2-syllable noun reaches the TOPIC LIST, not merely the token stream.
+    // T4 already covers the tokenizer; this covers everything between the tokenizer and
+    // what a user reads. Both must hold, and only this one fails when the downstream
+    // re-checks come back.
+    check('T12 a 2-syllable Korean noun can become a topic, not just a token',
+        koUni.topics.indexOf('인증') !== -1,
+        `topics [${koUni.topics.join(', ')}]`);
 
     console.log(`\n${failures ? failures + ' FAILED' : 'all checks passed'}\n`);
     await context.close();
