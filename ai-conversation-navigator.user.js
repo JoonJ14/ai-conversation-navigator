@@ -8224,10 +8224,17 @@
                 // function words (of, to, is). In Korean the most common content
                 // words are exactly two syllables - injeung (auth), sesyeon
                 // (session), token, gwonhan (permission) - so the English rule
-                // discards the core vocabulary of the language. Measured: 0 of 10 such nouns
-                // survived at `> 2`, 10 of 10 at this rule, and the map's boundary
-                // recall over four payload shapes went 31/34 to 32/34 with spurious
-                // cuts 10 to 7 (DEC-041).
+                // discards the core vocabulary of the language. Measured: 0 of 10 such
+                // nouns survived at `> 2`, 10 of 10 at this rule.
+                // DELIBERATELY NO BOUNDARY SCORE HERE. An earlier version of this comment
+                // quoted one, from a sweep later found to be measuring the wrong thing
+                // three separate ways (DEC-041). The corrected numbers put this variant
+                // at 28/32 with 11 spurious, BEHIND particle normalization on recall —
+                // so a score quoted beside the rule would argue against the rule it
+                // annotates. What justifies this design is in DEC-041 and is not the
+                // score: it keeps Korean in the segment-count regime English is
+                // calibrated and live-confirmed in, and it adds no hand-maintained word
+                // list. Read DEC-041 before changing this; do not re-add a number here.
                 // Non-Hangul tokens keep the >= 3 rule exactly, so pure-ASCII
                 // English tokenizes byte-identically to before.
                 var min = HANGUL_RE.test(w) ? 2 : 3;
