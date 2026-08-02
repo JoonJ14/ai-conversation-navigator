@@ -195,14 +195,19 @@ Numbering below is stable (items keep their historical numbers):
    collapse to one token per sentence — they need segmentation, not a character class. Say
    which languages are fixed rather than claiming "Unicode support".
 
-0c. **Five i18n keys are still never called (OPEN — found by the v12.7a audit, 2026-08-02).**
+0c. **Five i18n keys are never called — a REVIEW list, not a defect list (owner, 2026-08-02).**
    `questionPrefix`, `noQuestions`, `summaryLanguageNote`, `noBookmarksToExport`,
-   `usageUnavailable` all have Korean values and **zero call sites**, so those surfaces render
-   English to a Korean user exactly as the Tools panel did before v12.7a. Not fixed there because
-   that change was scoped to the two panels the owner reported live. Each is a one-line wiring
-   fix; the audit command that finds them is in `agent_docs/conventions.md` → i18n Conventions.
-   **Not to be confused with the nine `/Commands` keys**, which are dead ON PURPOSE — the owner
-   decided "slash command" reads better untranslated (DEC-042).
+   `usageUnavailable` have Korean values and **zero call sites**, so those surfaces render
+   English in Korean mode. Found by the v12.7a audit.
+   **The owner reviewed Korean mode live and is satisfied with it as-is:** *"some things are
+   actually better to stay in english than force translation to korean when they can understand
+   some english… i am fine with how the korean mode looks."* So these are **not defects** — they
+   are a preference the owner may revisit, and the decision is **per string**: does Korean help
+   that particular label, or does the English read better? Do NOT mass-translate to drive the
+   audit count to zero; the audit's value is making the choice visible, not making it zero.
+   Each is a one-line wiring fix **if** a given string is judged worth translating. The audit
+   command is in `agent_docs/conventions.md` → i18n Conventions. The nine `/Commands` keys are a
+   settled case of the same principle — deliberately English (DEC-042).
 
 0b. **"290 messages" vs "147 questions" reads as a discrepancy (owner, 2026-08-01 — parked by
    the owner, "I need to think about that").** The map counts timeline ENTRIES (questions and
