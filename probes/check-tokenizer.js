@@ -136,6 +136,16 @@ const NOISE = 'Looks good 🙂👍 — see `inline_code` and:\n```js\nconst zzzu
 // span reintroduces it silently, because no other check contains these characters.
 const MULDIV = 'Render at 1920×1080 and divide 12÷4 evenly.';
 
+// NFD forms of two samples above. Neither the DOM nor the API guarantees a
+// normalization form, and macOS produces NFD for Korean input. In NFD the
+// character whitelist is defeated the same way the ASCII-only class was:
+// decomposed Korean is U+1100-series Jamo (not the syllable block) and yields
+// NOTHING, while decomposed Latin is CORRUPTED rather than dropped — the
+// combining mark is stripped and `résumé` becomes `sume`. Found by GitHub Codex
+// on PR #70; the fix is `.normalize('NFC')` as the tokenizer's first step.
+const KO_NFD  = KO_PURE.normalize('NFD');
+const LAT_NFD = 'The café was naïve about résumé parsing.'.normalize('NFD');
+
 (async () => {
     const engine = (process.argv.indexOf('--browser') !== -1
         ? process.argv[process.argv.indexOf('--browser') + 1] : 'firefox');
@@ -171,8 +181,8 @@ const MULDIV = 'Render at 1920×1080 and divide 12÷4 evenly.';
     console.log(`\n=== _sumTokenize checks (${engine}) ===`);
     console.log(`userscript under measurement: ${scriptPath}`);
 
-    const r = await tok([KO_SAME_A, KO_SAME_B, KO_DIFF, KO_PURE, KO_SHORT, KO_PARTICLES, LAT, EN, JA, NOISE, MULDIV]);
-    const [koA, koB, koD, koPure, koShort, koPart, lat, en, ja, noise, muldiv] = r;
+    const r = await tok([KO_SAME_A, KO_SAME_B, KO_DIFF, KO_PURE, KO_SHORT, KO_PARTICLES, LAT, EN, JA, NOISE, MULDIV, KO_NFD, LAT_NFD]);
+    const [koA, koB, koD, koPure, koShort, koPart, lat, en, ja, noise, muldiv, koNfd, latNfd] = r;
 
     if (!quiet) {
         const rows = [
@@ -182,6 +192,7 @@ const MULDIV = 'Render at 1920×1080 and divide 12÷4 evenly.';
             ['accented English', lat], ['plain English', en],
             ['japanese (limit probe)', ja], ['emoji/quotes/code', noise],
             ['multiplication/division', muldiv],
+            ['ko NFD (decomposed)', koNfd], ['accented NFD (decomposed)', latNfd],
         ];
         console.log('\n  sample                      chars  tokens  distinct  first tokens');
         rows.forEach(([name, x]) => {
@@ -266,6 +277,19 @@ const MULDIV = 'Render at 1920×1080 and divide 12÷4 evenly.';
         muldiv.sample.indexOf('1920') !== -1 && muldiv.sample.indexOf('1080') !== -1 &&
         !muldiv.sample.join(' ').match(/[\u00d7\u00f7]/),
         `[${muldiv.sample.join(' ')}]`);
+
+    // --- Normalization form, the second Codex finding, gated ------------------
+    // Asserts EQUALITY WITH THE NFC RESULT, not merely "non-empty": the failure
+    // mode for Latin was corruption (`résumé` -> `sume`), which a non-empty check
+    // would have passed. Korean's failure mode was emptiness. One assertion covers
+    // both because canonically equivalent text must tokenize identically, full stop.
+    check('T10 decomposed (NFD) Korean tokenizes identically to composed (NFC)',
+        JSON.stringify(koNfd.sample) === JSON.stringify(koPure.sample) && koNfd.tokens > 0,
+        `NFD [${koNfd.sample.join(' ')}] vs NFC [${koPure.sample.join(' ')}]`);
+    check('T11 decomposed (NFD) accented English is not corrupted into other words',
+        latNfd.sample.indexOf('résumé') !== -1 && latNfd.sample.indexOf('sume') === -1 &&
+        latNfd.sample.indexOf('café') !== -1 && latNfd.sample.indexOf('nai') === -1,
+        `[${latNfd.sample.join(' ')}]`);
 
     console.log(`\n${failures ? failures + ' FAILED' : 'all checks passed'}\n`);
     await context.close();

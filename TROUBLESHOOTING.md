@@ -523,12 +523,23 @@ shapes × two engines (`probes/build-tokenizer-variants.js` + `probes/run-map-ha
 | + wider character class | 31 | 10 |
 | **+ script-aware length (SHIPPED)** | **32** | **7** |
 | + Korean stop-word list | 31 | 8 |
-| + particle normalization + stop list | 29 | 12 |
-| + particle normalization, no stop list | 30 | 13 |
+| + particle normalization + stop list | 30 | 10 |
+| + particle normalization, no stop list | 31 | 11 |
 
 Note the first row: the broken build was **not** scoring zero. A realistic Korean technical
 conversation contains some ASCII — filenames, turn numbers, code — so the old tokenizer found 12
 boundaries out of that residue. Structure drawn from noise looks exactly like structure.
+
+**These numbers are the CORRECTED sweep, and the correction is worth recording.** The first
+sweep patched only `_sumTokenize` in each variant, leaving the pre-v12.7 `< 3` and `> 2` guards
+in `_sumExtractTopicsFromText` and `_sumExtractTopics` — so every variant was scored against a
+downstream that differed from the shipped build, and those topic lists feed both labelling and
+the merge's `_sumTopicOverlap`. Found by GitHub Codex on PR #70. Re-run with all variants
+carrying the same downstream as the shipped build, **two rows moved**: particle-normalization
+went 29→30 found / 12→10 spurious with the stop list, and 30→31 / 13→11 without it. The other
+four rows were unchanged, and **the ranking is unchanged** — v2 still wins on both recall and
+precision. The finding was material (it improved the rejected option, which is the direction
+that could have overturned the decision) and the conclusion survived it.
 
 **The reversal is the part worth carrying.** At ONE configuration, particle normalization scored
 9/9 against the chosen fix's 8/9 and was ahead on every available intuition: same-topic overlap

@@ -784,13 +784,18 @@ this are gated by two platform-config flags:
   re-expressing them in Korean would gate the same jump and export machinery twice while
   gating the tokenizer once.
   **Unit-level companion:** `node probes/check-tokenizer.js` drives `_sumTokenize` directly
-  (via the map probe's `__acnTokenizeRun`) — 9 checks, two of which are there to stop a claim
+  (via the map probe's `__acnTokenizeRun`) — 11 checks, several of which exist to stop a claim
   drifting rather than to catch a bug: **T8** asserts the LIMIT that Japanese stays coarse, so
   "Korean works" cannot later be re-described as "Unicode support"; **T9** asserts that × and ÷
   SPLIT tokens rather than glue them, gating the Tier 3 finding that those two characters are
   the only non-letters inside `\u00c0-\u024f` and that writing the range as one span makes
   `1920×1080` a single token. T9 checks the split, not the absence of the characters — a build
   that dropped the whole run would pass the weaker form.
+  **T10/T11** assert that decomposed (NFD) text tokenizes **identically to composed (NFC)** text,
+  in Korean and in accented English. Both assert EQUALITY with the NFC result rather than
+  non-emptiness: NFD Korean's failure mode was emptiness, but NFD Latin's was *corruption*
+  (`résumé` → `sume`), and a non-empty check would have passed that. macOS emits NFD for Korean
+  input, so this is a real input shape rather than a theoretical one (GitHub Codex, PR #70).
 
 - `degradedExportTest: true` (on *Claude (virtualized)*) runs **E2**: the export must carry
   the DEGRADED source label and a header total EXACTLY equal to the derived window size

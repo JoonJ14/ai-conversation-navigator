@@ -52,7 +52,28 @@ const ORIGINAL = `    function _sumTokenize(text) {
 
 // Shared prelude of every variant: the strip is widened from "ASCII only" to
 // "ASCII + Latin letters with diacritics + Hangul".
-const WIDE_STRIP = `.replace(/[^a-z0-9\\u00c0-\\u024f\\uac00-\\ud7a3\\s]/g, ' ')`;
+const WIDE_STRIP = `.replace(/[^a-z0-9\\u00c0-\\u00d6\\u00d8-\\u00f6\\u00f8-\\u024f\\uac00-\\ud7a3\\s]/g, ' ')`;
+
+// The English length rule is written THREE times: once in _sumTokenize and once each
+// in _sumExtractTopicsFromText and _sumExtractTopics. Patching only _sumTokenize left
+// every variant still discarding 2-syllable Korean unigram topics, so the sweep was
+// scoring builds that differ from the shipped pipeline — and the map harness reads
+// those topic lists for labelling AND for the merge's _sumTopicOverlap, so the
+// difference can move boundary scores and therefore the RANKING between variants.
+// Found by GitHub Codex on PR #70. Every variant from v1 on now gets the same two
+// removals the shipped build has, so the comparison is between tokenizers rather
+// than between tokenizers-plus-an-inconsistent-downstream.
+const DOWNSTREAM_FIXES = [
+    [`        words.forEach(function (w) {
+            if (w.length < 3) return;
+            freq[w] = (freq[w] || 0) + 1;
+        });`,
+     `        words.forEach(function (w) {
+            freq[w] = (freq[w] || 0) + 1;
+        });`],
+    [`            words.forEach(function (w)   { if (w.length > 2) local[w]  = (local[w]  || 0) + 1; });`,
+     `            words.forEach(function (w)   { local[w]  = (local[w]  || 0) + 1; });`],
+];
 
 const VARIANTS = {
 
@@ -210,14 +231,26 @@ function main() {
     }
     fs.mkdirSync(outDir, { recursive: true });
     Object.keys(VARIANTS).forEach((name) => {
-        const out = src.replace(ORIGINAL, VARIANTS[name]);
+        let out = src.replace(ORIGINAL, VARIANTS[name]);
         if (out === src) { console.error(`FATAL: ${name} produced no change`); process.exit(1); }
+        // Apply the downstream removals too, so each variant differs from the shipped
+        // build ONLY in its tokenizer. Asserted rather than attempted: a silently
+        // unapplied patch would reintroduce exactly the inconsistency this fixes.
+        DOWNSTREAM_FIXES.forEach(([from, to], i) => {
+            if (out.indexOf(from) === -1) {
+                console.error(`FATAL: ${name} — downstream guard #${i + 1} not found in the base build.`);
+                process.exit(1);
+            }
+            out = out.replace(from, to);
+        });
         const file = path.join(outDir, name + '.user.js');
         fs.writeFileSync(file, out);
         console.log(`  ${file}`);
     });
     // The unmodified baseline, written alongside so a sweep names its control
-    // explicitly instead of relying on "whatever is in the working tree".
+    // explicitly instead of relying on "whatever is in the working tree". This one
+    // keeps the downstream guards: it is the PRE-CHANGE build, and removing them
+    // would make the control something that never shipped.
     fs.writeFileSync(path.join(outDir, 'v0-baseline.user.js'), src);
     console.log(`  ${path.join(outDir, 'v0-baseline.user.js')} (unmodified control)`);
 }

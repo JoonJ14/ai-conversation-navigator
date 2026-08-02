@@ -43,6 +43,24 @@ first once removed). Found while self-reviewing the first version of this change
 cover their own words, so they outrank unigrams in *both* languages. The removal makes a
 frequent short word eligible; it does not change the ranking rule.
 
+### 1b. Two Codex findings, both real, both about measuring the wrong thing
+
+**Normalization form.** Neither the DOM nor the API guarantees one, and **macOS emits NFD for
+Korean input** — the platform the target user may be on. In NFD the whitelist is defeated exactly
+as the ASCII-only class was (decomposed Korean is U+1100 Jamo, not the syllable block → zero
+tokens), and decomposed Latin is *corrupted* rather than dropped (`résumé` → `sume`). Fixed with
+`.normalize('NFC')` first in the pipeline; gated by T10/T11, which assert **equality with the NFC
+result** because a non-empty check would have passed the Latin corruption.
+
+**The variant sweep was not measuring the shipped pipeline.** The builder patched only
+`_sumTokenize` and left the downstream guards in place. Re-run with every variant carrying the
+shipped downstream: two rows moved (particle normalization improved), four identical, **ranking
+unchanged**. The finding was material — it improved the *rejected* option, the direction that
+could have overturned the decision — and the conclusion survived it.
+
+Both share one shape: **the thing measured was not the thing shipped** — once in the input's
+encoding, once in the build under test.
+
 ### 2. Five variants, scored — and a conclusion that reversed twice
 
 `probes/build-tokenizer-variants.js` writes cumulative candidate builds; the map harness
@@ -55,8 +73,8 @@ two engines (Firefox and Chromium agreed on every cell).
 | + wider character class | 31 | 10 |
 | **+ script-aware length (SHIPPED)** | **32** | **7** |
 | + Korean stop-word list | 31 | 8 |
-| + particle normalization + stop list | 29 | 12 |
-| + particle normalization, no stop list | 30 | 13 |
+| + particle normalization + stop list | 30 | 10 |
+| + particle normalization, no stop list | 31 | 11 |
 
 **The reversal is the part worth carrying.** At ONE configuration, particle (josa)
 normalization beat the shipped fix 9/9 to 8/9, and led on every available intuition:
@@ -135,6 +153,12 @@ changed what those functions *see*, never what they do. `probes/` gained
   so a tokenizer returning `[]` for an entire language was invisible to CI.
 - **Name the languages you fixed.** "Unicode support" would have been false the moment
   someone opened a Japanese conversation.
+- **"The same text" is not the same bytes.** Canonically equivalent Unicode has multiple
+  encodings, and the platform decides which one you get. A character-class whitelist is a claim
+  about bytes, so it must be preceded by a claim about normalization — otherwise it is correct
+  only for the form you happened to test with.
+- **A variant sweep must vary ONE thing.** Five builds that each differ from the shipped code in
+  a second, uncontrolled way measure something other than the question asked.
 
 ---
 

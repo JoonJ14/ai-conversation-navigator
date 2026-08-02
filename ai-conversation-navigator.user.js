@@ -8197,6 +8197,21 @@
 
     function _sumTokenize(text) {
         return text
+            // NFC FIRST, before anything looks at a character. Neither the DOM nor the
+            // API guarantees a normalization form, and in NFD the whitelist below is
+            // defeated exactly the way the ASCII-only class was: decomposed Korean is
+            // U+1100-series Jamo, which is not in the Hangul SYLLABLE range, so a
+            // decomposed Korean conversation tokenizes to NOTHING - the same bug in a
+            // different encoding. Decomposed Latin is worse than dropped, it is
+            // corrupted: the combining mark is stripped and `resume` with acutes
+            // becomes `sume`, `naive` with a diaeresis becomes `nai`. Measured, both
+            // forms, before and after (GitHub Codex, PR #70).
+            // This matters in practice rather than in theory: macOS produces NFD for
+            // Korean input, which is precisely the platform the one Korean-speaking
+            // user this translation exists for may be typing on.
+            // ES2015 built-in, like the `Set` this file already relies on; the ES5
+            // constraint in CLAUDE.md is on SYNTAX, not on built-ins.
+            .normalize('NFC')
             .toLowerCase()
             .replace(/```[\s\S]*?```/g, ' ')
             .replace(/`[^`]+`/g, ' ')

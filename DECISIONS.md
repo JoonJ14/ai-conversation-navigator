@@ -1916,8 +1916,19 @@ four payload shapes on both engines (`probes/build-tokenizer-variants.js`):
 | wider class only | 31 | 10 |
 | **+ script-aware length (chosen)** | **32** | **7** |
 | + Korean stop-word list | 31 | 8 |
-| + particle normalization + stop list | 29 | 12 |
-| + particle normalization, no stop list | 30 | 13 |
+| + particle normalization + stop list | 30 | 10 |
+| + particle normalization, no stop list | 31 | 11 |
+
+**These numbers are the CORRECTED sweep, and the correction is worth recording.** The first
+sweep patched only `_sumTokenize` in each variant, leaving the pre-v12.7 `< 3` and `> 2` guards
+in `_sumExtractTopicsFromText` and `_sumExtractTopics` — so every variant was scored against a
+downstream that differed from the shipped build, and those topic lists feed both labelling and
+the merge's `_sumTopicOverlap`. Found by GitHub Codex on PR #70. Re-run with all variants
+carrying the same downstream as the shipped build, **two rows moved**: particle-normalization
+went 29→30 found / 12→10 spurious with the stop list, and 30→31 / 13→11 without it. The other
+four rows were unchanged, and **the ranking is unchanged** — v2 still wins on both recall and
+precision. The finding was material (it improved the rejected option, which is the direction
+that could have overturned the decision) and the conclusion survived it.
 
 - **A Korean stop-word list:** built, measured, rejected. It made the score slightly *worse*
   (32→31 found, 7→8 spurious). Fifty hand-picked words that nobody can maintain and that

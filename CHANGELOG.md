@@ -68,8 +68,8 @@ separately:
 | + wider character class | 31 | 10 |
 | **+ script-aware length (shipped)** | **32** | **7** |
 | + Korean stop-word list | 31 | 8 |
-| + particle normalization, with stop list | 29 | 12 |
-| + particle normalization, no stop list | 30 | 13 |
+| + particle normalization, with stop list | 30 | 10 |
+| + particle normalization, no stop list | 31 | 11 |
 
 Both of the "more thorough" layers were **measured and rejected** — see DEC-041 for why
 particle stripping tripled same-topic overlap and still made segmentation worse.
@@ -97,6 +97,21 @@ particle stripping tripled same-topic overlap and still made segmentation worse.
   is byte-identical with the knob absent.
 
 ### Found in review, before merge
+
+**Normalization form (GitHub Codex, PR #70).** Neither the DOM nor the API guarantees a
+normalization form, and **macOS produces NFD for Korean input** — the platform the one
+Korean-speaking user may well be typing on. In NFD the whitelist is defeated exactly as the
+ASCII-only class was: decomposed Korean is U+1100-series Jamo, not the syllable block, so it
+tokenizes to **nothing**; decomposed Latin is *corrupted* rather than dropped — `résumé` → `sume`,
+`naïve` → `nai`. Fixed with `.normalize('NFC')` as the tokenizer's first step (an ES2015 built-in,
+like the `Set` this file already uses — the ES5 rule is about syntax). Gated by T10/T11, which
+assert **equality with the NFC result** rather than non-emptiness, because the Latin failure mode
+was corruption and a non-empty check would have passed it.
+
+**The variant sweep was re-run (GitHub Codex, PR #70).** The builder patched only `_sumTokenize`,
+leaving the pre-v12.7 downstream guards in place, so the variants were scored against a
+downstream that differed from the shipped build. Corrected and re-measured: two rows moved
+(particle normalization improved), four were identical, and the ranking held.
 
 `À-ɏ` is very nearly "Latin letters with diacritics" — but `×` (×) and `÷` (÷) sit inside it
 and are the only two non-letters there. Written as a single span they were kept, and since the
