@@ -81,6 +81,37 @@ depend on the score. See §2.
 All three Codex findings share one shape: **the thing measured was not the thing shipped** —
 once in the input's encoding, once in the build under test, once in the yardstick itself.
 
+### 1d. The Tier 3 round — two CRITICALs that thirteen Codex rounds did not find
+
+The five opus lenses plus a focused verifier delivered **~90 minutes after spawn**, long after
+I had closed the round, opened the PR and run twelve Codex rounds. **I had already written
+"Tier 3 delivered nothing" into the review artifact, `active.conf` and project memory. That was
+wrong and is corrected in all three** — the lesson is mine: I set a 35-minute deadline, treated
+silence at it as a result, and published the absence. *"No answer yet" is not "no answer."*
+
+What the latency cost is the point:
+
+- **The Korean CI fixture could not distinguish the shipped tokenizer from the variant this
+  release rejected.** Built and measured: the widened class with the filter reverted to
+  `w.length > 2` — `v1-charclass` — passes the entry **31/31**.
+- **The two downstream re-check removals were ungated by every gate in the repo.** A mutant
+  restoring both passes 31/31 *and* renders a byte-identical topic list; no probe caught it.
+
+Mechanism for both: all eight rendered topics are BIGRAMS of the fixture's constant base
+sentence, which repeats across 40 turns and outranks everything from the topic blocks. K1a gates
+exactly one property — *Hangul survives the character class*.
+
+**Fixed outside the fixture, deliberately.** Making a unigram outrank a 40×-repeated bigram
+would mean distorting the fixture until it stops resembling a conversation. The properties are
+gated where they can be: `check-tokenizer.js` T4 and a new T12 (which covers **both** topic
+extractors — Codex then caught that my first T12 only drove one of them), and **the probes now
+run in CI, which they never did**. Four mutants, all exit 1.
+
+Two more defects only this release made reachable: `cap()` upper-cased on `/\b\w/`, ASCII-only,
+so `naïve` → `NaïVe` in every label and the export; and the topic frequency maps were plain
+objects, so the word **`constructor`** made the sort comparator return `NaN` and left the whole
+topic list's order implementation-defined.
+
 ### 2. Five variants, scored — and a conclusion that reversed twice
 
 `probes/build-tokenizer-variants.js` writes cumulative candidate builds; the map harness
@@ -193,6 +224,14 @@ changed what those functions *see*, never what they do. `probes/` gained
   so a tokenizer returning `[]` for an entire language was invisible to CI.
 - **Name the languages you fixed.** "Unicode support" would have been false the moment
   someone opened a Japanese conversation.
+- **A deadline is not a measurement.** I declared a review tier empty because it had not
+  answered in 35 minutes, and wrote that into three durable surfaces. It answered at 90 with the
+  two most valuable findings of the release. Budget opus lenses at 90+ minutes on a large diff,
+  spawn them first and collect last — and never report an absence with less care than a presence.
+- **A gate that cannot fail on the change it was written for is not a gate.** The Korean fixture
+  was built specifically to prove the tokenizer fix, and it passes on a build with that fix
+  reverted. What saved it was mutation-testing the gate itself, which is the only way to find
+  this class.
 - **"The same text" is not the same bytes.** Canonically equivalent Unicode has multiple
   encodings, and the platform decides which one you get. A character-class whitelist is a claim
   about bytes, so it must be preceded by a claim about normalization — otherwise it is correct
