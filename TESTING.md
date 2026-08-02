@@ -1497,6 +1497,20 @@ What rules the code out, and it is worth stating in this order:
 userscript. The episode lasted roughly 65 minutes (04:05–05:11 UTC) and then simply stopped.
 That is the environmental read confirmed, not merely assumed.
 
+**Second occurrence, 2026-08-02 (PR #70, v12.7)** — same signature, and this time a
+**single re-run cleared it**, which the first episode's "requeue does not help" note should
+not be read as contradicting: that note was about requeuing *during* a 65-minute episode.
+Log shape was identical — healthy per-entry times through `Claude (294 rows, N=10
+unrendered)` PASS at 07:43:55, then **16.5 minutes of complete silence**, then
+`##[error]The operation was canceled` at 08:00:18 with **no assertion output at all** and
+`Terminate orphan process: pid (…) (Playwright)` in cleanup. What ruled out the code, before
+any re-run: **webkit passed on ubuntu-latest (6m26s) and windows-latest (6m12s) on the same
+commit**, all six chromium/firefox jobs passed, and the local suite was 1120/1120 on both
+engines. Same engine, same code, one OS — the runner is the variable.
+**Diagnostic order that worked, worth reusing:** read the log SHAPE first (wedge vs
+assertion), then check the same engine on the other two OSes, and only then re-run. Re-running
+first tells you nothing about which of the three it was.
+
 Response when this variant appears: do **not** keep requeuing (three attempts is already past
 useful), and do not read it as a code finding — but do not silently discount it either. Record
 the pass/wedge pairs with their commits, note that a required check is red for environmental
