@@ -71,7 +71,9 @@ a measurement rather than a claim.
 # Baseline from an EXPLICIT pre-change ref — never HEAD. Once the candidate is
 # committed, HEAD names the candidate, and a baseline extracted from it compares
 # the build with itself: guaranteed green, proving nothing (Codex).
-git show origin/main:ai-conversation-navigator.user.js > /tmp/base.user.js   # or $(git merge-base HEAD origin/main)
+# origin/main is only the pre-change build while the candidate is UNMERGED. After it
+# merges, origin/main IS the candidate — prefer the merge-base, or a pinned sha.
+git show $(git merge-base HEAD origin/main):ai-conversation-navigator.user.js > /tmp/base.user.js
 ACN_SCRIPT=/tmp/base.user.js node probes/run-map-harness.js \
     --browser chromium,firefox --sizes 2,3,25,147 --vocab 1,4 --para 1,3 --save /tmp/fp.json
 node probes/run-map-harness.js \
@@ -131,8 +133,14 @@ for V in v0-baseline v1-charclass v2-length v3-stopwords v4-particles v5-nostop;
     node probes/run-map-harness.js --browser chromium,firefox --sizes 147 --vocab 1,4 --para 1,3
 done
 
-# The no-regression gate for English, from an EXPLICIT pre-change ref
-git show origin/main:ai-conversation-navigator.user.js > /tmp/base.user.js
+# The no-regression gate for English, from a PINNED pre-change ref.
+# NOT origin/main: once v12.7 is merged that names the CHANGED build, so the baseline
+# and the candidate are the same bytes and the gate reports byte-identical fingerprints
+# no matter what the change did — guaranteed green, proving nothing (Codex, PR #70;
+# the same trap Path C above already warns about, reintroduced here by copying its
+# command without its caveat).
+git show 2ad8dc1:ai-conversation-navigator.user.js > /tmp/base.user.js
+git show 2ad8dc1:ai-conversation-navigator.user.js | diff -q - /tmp/base.user.js   # confirm the ref
 ACN_SCRIPT=/tmp/base.user.js node probes/run-map-harness.js \
     --browser chromium,firefox --sizes 2,3,25,147 --vocab 1,4 --para 1,3 --save /tmp/fp-en.json
 node probes/run-map-harness.js \
