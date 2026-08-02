@@ -796,6 +796,12 @@ this are gated by two platform-config flags:
   non-emptiness: NFD Korean's failure mode was emptiness, but NFD Latin's was *corruption*
   (`résumé` → `sume`), and a non-empty check would have passed that. macOS emits NFD for Korean
   input, so this is a real input shape rather than a theoretical one (GitHub Codex, PR #70).
+  **T5 and T11 require every accented word they NAME** (`café`, `naïve`, `résumé`), not just the
+  first. Asserting only `café` let a narrowed Latin range that kept `é` but dropped `ï` pass a
+  check advertising all three — and `naïve` fails by *vanishing* (both fragments land under the
+  length floor), so an absence-of-the-broken-form check cannot see it either. Mutation-verified:
+  narrowing the range to `\u00d8-\u00ee` turns both red with `missing [naïve]`, and passed both
+  before the fix (GitHub Codex, PR #70).
 
 - `degradedExportTest: true` (on *Claude (virtualized)*) runs **E2**: the export must carry
   the DEGRADED source label and a header total EXACTLY equal to the derived window size

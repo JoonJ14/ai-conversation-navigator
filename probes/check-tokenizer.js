@@ -238,10 +238,17 @@ const LAT_NFD = 'The café was naïve about résumé parsing.'.normalize('NFD');
         `[${koPart.sample.join(' ')}]`);
 
     // --- Accented Latin ------------------------------------------------------
+    // Requires EVERY word it names, not just the first. Asserting only `café` let a
+    // narrowed Latin range that preserved é but dropped ï pass a check advertising all
+    // three — and `naïve` fails by VANISHING (both fragments land under the length
+    // floor), so an "absence of the broken form" check cannot see it either. Presence of
+    // each whole word is the only form that covers what the name claims (Codex, PR #70).
+    const LAT_REQUIRED = ['café', 'naïve', 'résumé'];
+    const latAll = lat.sample.concat(lat.topics).join(' ');
     check('T5  accented English words stay whole (café, naïve, résumé)',
-        lat.sample.concat(lat.topics).join(' ').indexOf('café') !== -1 &&
-        lat.sample.concat(lat.topics).join(' ').indexOf('caf ') === -1,
-        `[${lat.sample.join(' ')}]`);
+        LAT_REQUIRED.every((w) => lat.sample.indexOf(w) !== -1) && latAll.indexOf('caf ') === -1,
+        `missing [${LAT_REQUIRED.filter((w) => lat.sample.indexOf(w) === -1).join(', ') || 'none'}] ` +
+        `in [${lat.sample.join(' ')}]`);
 
     // --- The ASCII regression anchor -----------------------------------------
     // Hardcoded from the pre-change build. Pure-ASCII English must tokenize
@@ -286,10 +293,14 @@ const LAT_NFD = 'The café was naïve about résumé parsing.'.normalize('NFD');
     check('T10 decomposed (NFD) Korean tokenizes identically to composed (NFC)',
         JSON.stringify(koNfd.sample) === JSON.stringify(koPure.sample) && koNfd.tokens > 0,
         `NFD [${koNfd.sample.join(' ')}] vs NFC [${koPure.sample.join(' ')}]`);
+    // Same completeness rule as T5: require all three whole words. The corruption forms
+    // (`sume`, `nai`) are asserted absent as well, but absence alone is satisfied by a
+    // build that drops the word entirely — which is precisely how `naïve` fails.
     check('T11 decomposed (NFD) accented English is not corrupted into other words',
-        latNfd.sample.indexOf('résumé') !== -1 && latNfd.sample.indexOf('sume') === -1 &&
-        latNfd.sample.indexOf('café') !== -1 && latNfd.sample.indexOf('nai') === -1,
-        `[${latNfd.sample.join(' ')}]`);
+        LAT_REQUIRED.every((w) => latNfd.sample.indexOf(w) !== -1) &&
+        ['sume', 'nai', 'caf'].every((bad) => latNfd.sample.indexOf(bad) === -1),
+        `missing [${LAT_REQUIRED.filter((w) => latNfd.sample.indexOf(w) === -1).join(', ') || 'none'}] ` +
+        `in [${latNfd.sample.join(' ')}]`);
 
     console.log(`\n${failures ? failures + ' FAILED' : 'all checks passed'}\n`);
     await context.close();
