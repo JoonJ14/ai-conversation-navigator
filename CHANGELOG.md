@@ -62,17 +62,35 @@ topic changes, over four payload shapes on both engines (`probes/build-tokenizer
 + `probes/run-map-harness.js`). Layers were added cumulatively so each had to earn its place
 separately:
 
-| variant | true topic changes found (of 34) | spurious |
+| variant | true topic changes found (of 32) | spurious |
 |---|---|---|
 | shipped (ASCII only) | **12** — and only from incidental filenames/digits | **36** |
-| + wider character class | 31 | 10 |
-| **+ script-aware length (shipped)** | **32** | **7** |
-| + Korean stop-word list | 31 | 8 |
+| + wider character class | 28 | 12 |
+| **+ script-aware length (shipped)** | **28** | **11** |
+| + Korean stop-word list | 27 | 11 |
 | + particle normalization, with stop list | 30 | 10 |
-| + particle normalization, no stop list | 31 | 11 |
+| + particle normalization, no stop list | **31** | 13 |
 
-Both of the "more thorough" layers were **measured and rejected** — see DEC-041 for why
-particle stripping tripled same-topic overlap and still made segmentation worse.
+> **RETRACTION, and it is the most important line here.** An earlier version of this table
+> reported particle normalization as *worse*, and the decision to reject it was written on
+> that basis. **That comparison was invalid**: the payload generator drew topic-block lengths
+> from the same LCG as the text, and Korean sentences consume a different number of draws, so
+> Korean was scored against a **different ground truth** than English — 9 boundaries in
+> different places rather than 8 (GitHub Codex, PR #70). With the schedule made
+> language-independent and every variant re-run, the ordering **reverses**: particle
+> normalization leads on recall (31/32 vs 28/32).
+>
+> **The rejection is therefore NOT supported by measurement and is no longer claimed to be.**
+> v2 ships on two grounds independent of the score: it keeps Korean in the same segment-count
+> regime English is calibrated and live-confirmed in (~278 initial segments, versus ~22–85
+> under particle stripping — a regime nothing here has been validated against), and it adds no
+> hand-maintained particle list that can over-strip and merge distinct words. **This metric has
+> reversed three times, once per measurement defect corrected**, so it is not what should settle
+> the question. The live check on a real Korean conversation is, and it is already the merge
+> gate (DEC-031).
+
+See DEC-041 for the full record, including why particle stripping tripled same-topic
+overlap, what that does and does not tell us, and both rejected alternatives.
 
 ### Verification
 
@@ -85,7 +103,7 @@ particle stripping tripled same-topic overlap and still made segmentation worse.
   corruption being fixed, not a regression. The map fingerprint covers segmentation, labels
   and topics; global topics and key-point dedup sit outside it but read the same token stream,
   so they are unchanged by the same construction.
-- **Korean is fixed**: 12/34 → 32/34 boundaries found, 36 → 7 spurious. Same-topic overlap
+- **Korean is fixed**: 12/32 → 28/32 boundaries found, 36 → 11 spurious. Same-topic overlap
   0.000 → 0.227 while cross-topic stays 0.000; 2-syllable nouns 0/10 → 10/10.
 - **New CI gate**: a `Claude (Korean conversation + index)` fixture, the suite's only
   non-English entry. It asserts that topics are *Hangul* (not the incidental ASCII digits

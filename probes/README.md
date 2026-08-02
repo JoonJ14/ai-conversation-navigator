@@ -71,9 +71,13 @@ a measurement rather than a claim.
 # Baseline from an EXPLICIT pre-change ref — never HEAD. Once the candidate is
 # committed, HEAD names the candidate, and a baseline extracted from it compares
 # the build with itself: guaranteed green, proving nothing (Codex).
-# origin/main is only the pre-change build while the candidate is UNMERGED. After it
-# merges, origin/main IS the candidate — prefer the merge-base, or a pinned sha.
-git show $(git merge-base HEAD origin/main):ai-conversation-navigator.user.js > /tmp/base.user.js
+# Use a PINNED sha. Neither origin/main nor $(git merge-base HEAD origin/main) is safe:
+# after the candidate merges, HEAD and origin/main name the merged revision and the
+# merge-base of a commit with itself is that commit — so the "baseline" is the build
+# under test and the gate is guaranteed green (Codex, PR #70, second pass; the first
+# fix here swapped one self-comparing form for another).
+git show <pre-change-sha>:ai-conversation-navigator.user.js > /tmp/base.user.js
+git show <pre-change-sha>:ai-conversation-navigator.user.js | diff -q - /tmp/base.user.js  # confirm
 ACN_SCRIPT=/tmp/base.user.js node probes/run-map-harness.js \
     --browser chromium,firefox --sizes 2,3,25,147 --vocab 1,4 --para 1,3 --save /tmp/fp.json
 node probes/run-map-harness.js \
@@ -154,11 +158,16 @@ The payload LANGUAGE is part of the fingerprint key (`chromium/lang=ko/q=147/...
 that, an English baseline and a Korean run collide on one key and the gate reports a language
 difference as a regression.
 
-**What this path established, and the shape of the mistake it avoided (2026-08-02):** at ONE
-configuration, particle normalization beat the shipped fix 9/9 to 8/9 and was ahead on every
-intuition — higher same-topic overlap, cleaner tokens, 10x fewer initial segments. Across four
-payload shapes it lost, 30/34 to 32/34. **Run the matrix before concluding**; one configuration
-is not a measurement, and this arc reversed twice before the matrix existed.
+**What this path established, and the shape of the mistake it kept making (2026-08-02):** the
+comparison between tokenizer variants **reversed three times**, once per measurement defect
+corrected — first when a single configuration was replaced by a four-shape matrix, then when the
+variants were made to carry the shipped downstream, and finally when the payload's topic schedule
+was made language-independent. Only the last version is sound, and under it particle
+normalization LEADS on recall (31/32 vs 28/32) rather than trailing.
+**The lesson is not "run the matrix"** — that was the first fix and it was not enough. It is:
+before comparing two builds, check that the ONLY difference between them is the thing under test,
+and that the yardstick is the same for both. Two of the three defects were a yardstick that
+differed between the things being measured.
 
 ## Path B — synthetic measurement (any machine)
 

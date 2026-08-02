@@ -6,7 +6,7 @@ content-derived Summary feature was silently empty — for the product's only tr
 language. **Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-08-01_v12.5-v12.6-map.md`.
 **Status at close:** version **12.7**, PR open, pure-ASCII English output byte-identical at
 32/32 map fingerprints (accented English changes by design — that is the fix), Korean
-boundary recovery 12/34 → 32/34, suite green both engines with a new non-English fixture. **Live confirmation on a Korean conversation is still outstanding
+boundary recovery 12/32 → 28/32, suite green both engines with a new non-English fixture. **Live confirmation on a Korean conversation is still outstanding
 (DEC-031) — see §G.1.**
 
 ---
@@ -21,7 +21,9 @@ levels of the conversation map finding nothing. The character class was the know
 2-letter English words are function words, while Korean's commonest **content** words are
 exactly two syllables (인증, 세션, 토큰, 권한). Fixing only the character class still threw
 those away, 10 of 10. Both are fixed; five candidate designs were built and scored, and the
-two more elaborate ones were **measured and rejected**.
+two more elaborate ones were built and measured. **The rejection of particle normalization
+did NOT survive review** — the comparison that produced it was invalid (see §1b) — so v2 ships
+on grounds independent of the score, and the live check decides.
 
 ---
 
@@ -58,8 +60,25 @@ shipped downstream: two rows moved (particle normalization improved), four ident
 unchanged**. The finding was material — it improved the *rejected* option, the direction that
 could have overturned the decision — and the conclusion survived it.
 
-Both share one shape: **the thing measured was not the thing shipped** — once in the input's
-encoding, once in the build under test.
+### 1c. Codex round 3 — the finding that overturned a conclusion
+
+**The payload's ground truth was language-dependent.** Topic-block lengths were drawn from the
+same LCG as the text, and `koSentence` consumes extra draws (connectives, particle agreement),
+so Korean got **9 boundaries in different places** where English had 8. Every cross-language
+statement in the first draft of this arc was therefore meaningless, and — worse — the *variant
+ranking* was computed against it.
+
+Fixed by deriving the schedule from a throwaway ENGLISH render in every language
+(`computeSchedule`), which makes the ground truth language-independent **without changing the
+English payload by one byte** — verified byte-identical at all four knob settings, and guarded
+by `assertEnglishScheduleUnchanged()` at require time against a recorded prior measurement.
+
+**Re-run, the ranking reversed.** Particle normalization now leads on recall (31/32 vs 28/32).
+The rejection recorded in the first draft is retracted; v2 still ships, on grounds that do not
+depend on the score. See §2.
+
+All three Codex findings share one shape: **the thing measured was not the thing shipped** —
+once in the input's encoding, once in the build under test, once in the yardstick itself.
 
 ### 2. Five variants, scored — and a conclusion that reversed twice
 
@@ -67,14 +86,28 @@ encoding, once in the build under test.
 scores each against the payload generator's **known** topic changes, four payload shapes ×
 two engines (Firefox and Chromium agreed on every cell).
 
-| build | found (of 34) | spurious |
+| build | found (of 32) | spurious |
 |---|---|---|
 | shipped, ASCII-only | 12 — *and only from incidental filenames/turn numbers* | 36 |
-| + wider character class | 31 | 10 |
-| **+ script-aware length (SHIPPED)** | **32** | **7** |
-| + Korean stop-word list | 31 | 8 |
+| + wider character class | 28 | 12 |
+| **+ script-aware length (SHIPPED)** | **28** | **11** |
+| + Korean stop-word list | 27 | 11 |
 | + particle normalization + stop list | 30 | 10 |
-| + particle normalization, no stop list | 31 | 11 |
+| + particle normalization, no stop list | **31** | 13 |
+
+> **RETRACTION.** An earlier version of this table reported particle normalization as
+> *worse*, and the rejection was written on that basis. **That comparison was invalid**: the
+> payload generator drew topic-block lengths from the same LCG as the text, and Korean
+> sentences consume a different number of draws, so Korean was scored against a **different
+> ground truth** than English — 9 boundaries in different places rather than 8 (GitHub Codex,
+> PR #70). With the schedule made language-independent and every variant re-run, the ordering
+> **reverses**: particle normalization leads on recall (31/32 vs 28/32).
+>
+> **The rejection is NOT supported by measurement and is no longer claimed to be.** v2 ships
+> on grounds independent of the score — it keeps Korean in the segment-count regime English is
+> calibrated and live-confirmed in (~278 initial segments vs ~22–85), and it adds no
+> hand-maintained particle list that can merge distinct words. This metric has reversed three
+> times, once per measurement defect corrected. The live check is the arbiter (DEC-031).
 
 **The reversal is the part worth carrying.** At ONE configuration, particle (josa)
 normalization beat the shipped fix 9/9 to 8/9, and led on every available intuition:
@@ -136,9 +169,15 @@ changed what those functions *see*, never what they do. `probes/` gained
 
 ## D. Key principles established
 
-- **One configuration is not a measurement — and the trap is sharpest when the loser is
-  intuitively better.** Particle normalization won at one config and led on every proxy
-  metric. It lost across four shapes. Run the matrix before concluding.
+- **"Run the matrix" was not enough — the comparison reversed THREE times.** Once when a
+  single configuration became four; once when the variants were made to carry the shipped
+  downstream; once when the payload's ground truth was made language-independent. The real
+  rule is narrower and harder: **before comparing two builds, check that the only difference
+  between them is the thing under test, and that the yardstick is identical for both.** Two of
+  the three defects were a yardstick that differed between the things being compared.
+- **A conclusion that survived three corrections of its own evidence should be held loosely.**
+  The particle-normalization rejection did not survive; it is retracted. What ships now rests
+  on properties that do not depend on the score at all.
 - **A metric can improve while the thing it serves gets worse.** Same-topic overlap doubled
   and segmentation got worse, because segmentation reads contrast, not cohesion. Ask what the
   downstream consumer actually reads.

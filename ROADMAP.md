@@ -36,10 +36,10 @@ This document tracks features and platform expansions we're considering but have
 produced zero tokens and every content-derived Summary feature was silently empty for the
 product's only translated language. The character class is widened to ASCII + diacritic Latin +
 Hangul, and the minimum token length becomes script-aware (2 for Hangul, 3 otherwise) because
-Korean's commonest content words are two syllables. Measured 12/34 → **32/34** true topic
+Korean's commonest content words are two syllables. Measured 12/32 → **28/32** true topic
 boundaries with spurious cuts 36 → **7**; English output is **byte-identical** (32/32 map
 fingerprints). Two more elaborate variants — a Korean stop list, and particle normalization —
-were built, measured and **rejected** (DEC-041). New CI gate: the suite's first non-English
+were built and measured; the rejection of particle normalization is NOT measurement-supported and the live check decides (DEC-041). New CI gate: the suite's first non-English
 fixture. See item 0a below.
 
 **Earlier: v12.5 (PR #67) + v12.6 (PR #68), both merged and live-confirmed** — Summary generate
@@ -138,11 +138,16 @@ Numbering below is stable (items keep their historical numbers):
    (2 for Hangul, 3 otherwise), because the length filter turned out to be a second, unnoticed
    English assumption: Korean's commonest content words are exactly two syllables, so fixing
    only the character class still discarded 10 of 10 of them. Measured over four payload shapes
-   on both engines: **12/34 → 32/34** true topic changes found, spurious **36 → 7**; English
+   on both engines: **12/32 → 28/32** true topic changes found, spurious **36 → 11**; English
    output byte-identical at 32/32 map fingerprints. A Korean stop-word list and particle (josa)
-   normalization were both built, measured and **rejected** — particle stripping tripled
-   same-topic overlap and still segmented worse, because segmentation reads contrast, not
-   cohesion (DEC-041). New CI gate: `Claude (Korean conversation + index)`, the suite's first
+   normalization were both built and measured; **v2 ships, but the rejection of particle
+   normalization is NOT supported by measurement and is not claimed to be.** An earlier
+   comparison that showed it worse was invalid — the payload's topic-block lengths were drawn
+   from the same RNG as the text, so Korean was scored against a different ground truth than
+   English (GitHub Codex, PR #70). Corrected and re-run, particle normalization leads on
+   recall (31/32 vs 28/32). v2 ships because it keeps Korean in the segment-count regime
+   English is calibrated in and adds no hand-maintained word list — and because this metric
+   has reversed three times. **The live check decides (DEC-031); see DEC-041.** New CI gate: `Claude (Korean conversation + index)`, the suite's first
    non-English fixture, asserting Hangul topics and the same `[0, 27, 55]` block positions the
    English fixture asserts.
    **Still open out of this, and deliberately separate:** key points are unavailable in Korean

@@ -78,6 +78,13 @@ const FILES = ['config.js', 'pipeline.py', 'schema.sql', 'report.csv', 'index.ht
 // the SAME generator with the same topic blocks and the same boundary indices,
 // only the words change. Nothing else about the shape moves.
 //
+// "The same boundary indices" is enforced by computeSchedule(), not assumed: the
+// block lengths are drawn from the same LCG as the text, so a language whose
+// sentences consume a different number of rnd() values would otherwise get a
+// DIFFERENT ground truth. That is exactly what happened in the first version of
+// this knob (Korean got 9 boundaries where English had 8, in different places),
+// which silently made the documented cross-language comparison meaningless.
+//
 // 'en' is the default and reproduces every earlier measurement byte-for-byte:
 // the English path below is untouched and is not routed through any of this.
 //
@@ -88,6 +95,12 @@ const FILES = ['config.js', 'pipeline.py', 'schema.sql', 'report.csv', 'index.ht
 // (café, naïve, smart quotes, em dashes).
 // ---------------------------------------------------------------------------
 const LANG = String(process.env.PAYLOAD_LANG || 'en').toLowerCase();
+
+// The language actually being RENDERED right now. Normally LANG, but the schedule pass
+// below forces 'en' — see computeSchedule(). Module-level rather than threaded through
+// every builder because the builders are called from four places and the alternative is
+// a parameter that exists only to serve one caller.
+let activeLang = LANG;
 
 // Korean topic pools, block-for-block parallel to TOPICS above so the ground
 // truth (`topicBoundaries`) means the same thing in both languages.
@@ -187,7 +200,7 @@ const KO_KEYPOINT_TEMPLATES = [
 function pick(rnd, arr) { return arr[Math.floor(rnd() * arr.length)]; }
 
 function sentence(rnd, vocab, words, terminal) {
-    if (LANG === 'ko') return koSentence(rnd, vocab, words, terminal);
+    if (activeLang === 'ko') return koSentence(rnd, vocab, words, terminal);
     const parts = [];
     for (let i = 0; i < words; i++) {
         const pool = rnd() < 0.55 ? vocab : COMMON;
@@ -195,7 +208,7 @@ function sentence(rnd, vocab, words, terminal) {
     }
     let s = parts.join(' ');
     s = s.charAt(0).toUpperCase() + s.slice(1);
-    if (LANG === 'lat') s = accentize(s);
+    if (activeLang === 'lat') s = accentize(s);
     return s + (terminal || '.');
 }
 
@@ -215,7 +228,7 @@ function accentize(s) {
 }
 
 function fillTemplate(rnd, vocab, tpl) {
-    return tpl.replace(/\{[A-D]\}/g, () => pick(rnd, rnd() < 0.6 ? vocab : (LANG === 'ko' ? KO_COMMON : COMMON)));
+    return tpl.replace(/\{[A-D]\}/g, () => pick(rnd, rnd() < 0.6 ? vocab : (activeLang === 'ko' ? KO_COMMON : COMMON)));
 }
 
 // A user question: 2-4 sentences, ends in a question. ~200-450 chars.
@@ -224,7 +237,7 @@ function questionText(rnd, vocab, turn) {
     const ss = [];
     for (let i = 0; i < n - 1; i++) ss.push(sentence(rnd, vocab, 10 + Math.floor(rnd() * 8)));
     ss.push(sentence(rnd, vocab, 9 + Math.floor(rnd() * 7), '?'));
-    const prefix = LANG === 'ko' ? '질문 ' + turn + '. ' : 'Turn ' + turn + ': ';
+    const prefix = activeLang === 'ko' ? '질문 ' + turn + '. ' : 'Turn ' + turn + ': ';
     return prefix + ss.join(' ');
 }
 
@@ -248,9 +261,9 @@ function answerText(rnd, vocab, turn) {
         for (let i = 0; i < ns; i++) {
             if (rnd() < 0.18 * KP_RATE) {
                 ss.push(fillTemplate(rnd, vocab,
-                    pick(rnd, LANG === 'ko' ? KO_KEYPOINT_TEMPLATES : KEYPOINT_TEMPLATES)));
+                    pick(rnd, activeLang === 'ko' ? KO_KEYPOINT_TEMPLATES : KEYPOINT_TEMPLATES)));
             } else if (rnd() < 0.08) {
-                ss.push(LANG === 'ko'
+                ss.push(activeLang === 'ko'
                     ? ('이 변경은 기존 ' + pick(rnd, vocab) + ' ' + pick(rnd, KO_COMMON) +
                        ' 옆에 있는 ' + pick(rnd, FILES) + ' 에 들어가야 합니다.')
                     : ('The change belongs in ' + pick(rnd, FILES) + ' next to the existing ' +
@@ -261,7 +274,7 @@ function answerText(rnd, vocab, turn) {
         }
         paras.push(ss.join(' '));
     }
-    let text = (LANG === 'ko' ? '답변 ' + turn + '. ' : 'Answer ' + turn + ': ') + paras.join('\n\n');
+    let text = (activeLang === 'ko' ? '답변 ' + turn + '. ' : 'Answer ' + turn + ': ') + paras.join('\n\n');
     if (turn % 3 === 0) {
         // Kept in every language: a real Korean technical conversation contains
         // ASCII code too, and the fenced block is what the tokenizer strips
@@ -274,6 +287,60 @@ function answerText(rnd, vocab, turn) {
                 '    return transform(input, { retries: ' + (turn % 5) + ' });\n}\n```';
     }
     return text;
+}
+
+// GROUND TRUTH for segmentation accuracy: the timeline index of the first message of
+// every topic block after the first, plus which block each turn belongs to. Timeline
+// layout: index 0 is the leading interrupted entry, then turn t occupies 2t-1 (user)
+// and 2t (assistant) — so a topic change at turn t starts at index 2t-1.
+//
+// IT IS COMPUTED FROM THE ENGLISH RENDER, IN EVERY LANGUAGE. The block lengths are
+// drawn from the same LCG the text is drawn from, so anything that changes how many
+// rnd() values a sentence consumes also moves the topic boundaries. `koSentence` draws
+// extra values (connectives, particle choice), so Korean silently got a DIFFERENT
+// ground truth from English — measured at q=147/seed 20260730:
+//     en  29,57,87,119,159,199,239,279            (8 boundaries)
+//     ko  29,57,83,117,157,187,217,251,287        (9 boundaries)
+// which made the documented "directly comparable across languages" claim false: the
+// two payloads did not merely say different words, they had a different number of
+// topic changes in different places (GitHub Codex, PR #70).
+//
+// Deriving the schedule from a throwaway ENGLISH pass fixes that without changing the
+// English payload by even one byte — English still consumes its own stream in its own
+// order, so every measurement recorded before this change stays reproducible. The cost
+// is one extra generation pass (~100ms) for non-English languages only.
+function computeSchedule(q, seed) {
+    const prev = activeLang;
+    activeLang = 'en';
+    try {
+        // Same stream, same starting point as the render loop: the leading interrupted
+        // entry consumes no draws, so the first value here is the same first value the
+        // render loop takes. Verified by assertEnglishScheduleUnchanged() below rather
+        // than asserted in a comment.
+        return scheduleFrom(q, lcg(seed));
+    } finally {
+        activeLang = prev;
+    }
+}
+
+// The draw sequence the ENGLISH render performs, with the text discarded. It must stay a
+// mirror of the render loop in buildConversation; assertEnglishScheduleUnchanged() is what
+// catches it if one drifts from the other.
+function scheduleFrom(q, rnd) {
+    let topicIdx = 0, turnsLeftInTopic = 12 + Math.floor(rnd() * 9);
+    const boundaries = [], topicByTurn = [];
+    for (let turn = 1; turn <= q; turn++) {
+        if (turnsLeftInTopic-- <= 0) {
+            topicIdx = (topicIdx + 1) % TOPICS.length;
+            turnsLeftInTopic = 12 + Math.floor(rnd() * 9);
+            boundaries.push(2 * turn - 1);
+        }
+        topicByTurn.push(topicIdx);
+        const vocab = TOPICS[topicIdx];
+        questionText(rnd, vocab, turn);
+        answerText(rnd, vocab, turn);
+    }
+    return { boundaries, topicByTurn };
 }
 
 // Builds the claude.ai-shaped payload: q user turns => 2q alternating messages,
@@ -298,27 +365,24 @@ function buildConversation(q, seed, conversationUuid) {
     push({ sender: 'assistant', text: '',
            content: [{ type: 'text', text: LANG === 'ko' ? '대화를 시작합니다.' : 'Conversation started.' }] });
 
-    // Topic pools for the selected script. The BLOCK STRUCTURE is identical in
-    // every language — same seed, same rotation, same boundary indices — so a
-    // score on one language is directly comparable to a score on another.
+    // Topic pools for the selected script.
     const TOPIC_POOL = LANG === 'ko' ? KO_TOPICS.map(expandVocabKo) : TOPICS;
 
+    // THE SCHEDULE IS DERIVED FROM THE ENGLISH RENDER, ALWAYS — see computeSchedule().
+    const schedule = computeSchedule(q, seed);
+    const topicBoundaries = schedule.boundaries;
+
     let userChars = 0, aiChars = 0;
-    let topicIdx = 0, turnsLeftInTopic = 12 + Math.floor(rnd() * 9);
-    // GROUND TRUTH for segmentation accuracy: the timeline index of the first
-    // message of every topic block after the first. The generator knows exactly
-    // where the topic changes, so a segmenter can be SCORED instead of eyeballed
-    // (added 2026-08-01 with the sub-segmentation fix). Timeline layout: index 0
-    // is the leading interrupted entry, then turn t occupies 2t-1 (user) and 2t
-    // (assistant) — so a topic change at turn t starts at index 2t-1.
-    const topicBoundaries = [];
+    // The block-length draws stay HERE, consuming the render stream exactly as they did
+    // before the schedule was factored out. Their VALUES are now ignored — the topic for
+    // each turn comes from the language-independent schedule above — but the DRAWS must
+    // remain, or every subsequent text draw shifts and the English payload stops being
+    // byte-identical to every measurement recorded against it. For English the two agree
+    // exactly; for other languages the schedule is what makes the ground truth shared.
+    let turnsLeftInTopic = 12 + Math.floor(rnd() * 9);
     for (let turn = 1; turn <= q; turn++) {
-        if (turnsLeftInTopic-- <= 0) {
-            topicIdx = (topicIdx + 1) % TOPIC_POOL.length;
-            turnsLeftInTopic = 12 + Math.floor(rnd() * 9);
-            topicBoundaries.push(2 * turn - 1);
-        }
-        const vocab = TOPIC_POOL[topicIdx];
+        if (turnsLeftInTopic-- <= 0) turnsLeftInTopic = 12 + Math.floor(rnd() * 9);
+        const vocab = TOPIC_POOL[schedule.topicByTurn[turn - 1]];
         const qt = questionText(rnd, vocab, turn);
         userChars += qt.length;
         push({ sender: 'human', text: '', content: [{ type: 'text', text: qt }] });
@@ -350,5 +414,32 @@ function buildConversation(q, seed, conversationUuid) {
         },
     };
 }
+
+// Self-check, run at require() time because a WRONG ground truth does not throw — it
+// silently rescores every variant in the sweep. These are the English boundaries this
+// generator produced before the schedule was factored out (q=147, seed 20260730), so the
+// assertion is against a recorded prior measurement, not against the code's own output.
+// If a future change to the payload legitimately moves them, update this list IN THE SAME
+// COMMIT and say why: the point is that it cannot move silently.
+const EN_SCHEDULE_147 = [29, 57, 87, 119, 159, 199, 239, 279];
+function assertEnglishScheduleUnchanged() {
+    // Only at the DEFAULT knobs. PARA_BOOST and VOCAB_MULT change how many rnd() values
+    // a message consumes, so they move the block lengths — that is pre-existing and
+    // correct behaviour (the boundaries have always come from the same stream as the
+    // text), and the recorded list above is the default-knob measurement. Asserting it
+    // under boosted knobs would fire on a legitimate configuration, which is a check
+    // that cries wolf rather than a check that works.
+    if (VOCAB_MULT !== 1 || PARA_BOOST !== 1) return;
+    const got = computeSchedule(147, 20260730).boundaries;
+    if (JSON.stringify(got) !== JSON.stringify(EN_SCHEDULE_147)) {
+        throw new Error(
+            'perf-payload: the English topic schedule moved.\n' +
+            '  expected ' + JSON.stringify(EN_SCHEDULE_147) + '\n' +
+            '  got      ' + JSON.stringify(got) + '\n' +
+            'Every recorded measurement is scored against these boundaries. If the change ' +
+            'is intended, update EN_SCHEDULE_147 in the same commit and say why.');
+    }
+}
+assertEnglishScheduleUnchanged();
 
 module.exports = { buildConversation };

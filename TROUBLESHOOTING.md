@@ -517,14 +517,28 @@ Five cumulative variants scored against the payload generator's KNOWN topic chan
 shapes × two engines (`probes/build-tokenizer-variants.js` + `probes/run-map-harness.js`,
 `PAYLOAD_LANG=ko`). Firefox and Chromium agreed on every cell.
 
-| build | found (of 34) | spurious |
+| build | found (of 32) | spurious |
 |---|---|---|
-| shipped, ASCII-only | 12 — and only from incidental filenames/turn numbers | 36 |
-| + wider character class | 31 | 10 |
-| **+ script-aware length (SHIPPED)** | **32** | **7** |
-| + Korean stop-word list | 31 | 8 |
+| shipped, ASCII-only | 12 — *and only from incidental filenames/turn numbers* | 36 |
+| + wider character class | 28 | 12 |
+| **+ script-aware length (SHIPPED)** | **28** | **11** |
+| + Korean stop-word list | 27 | 11 |
 | + particle normalization + stop list | 30 | 10 |
-| + particle normalization, no stop list | 31 | 11 |
+| + particle normalization, no stop list | **31** | 13 |
+
+> **RETRACTION.** An earlier version of this table reported particle normalization as
+> *worse*, and the rejection was written on that basis. **That comparison was invalid**: the
+> payload generator drew topic-block lengths from the same LCG as the text, and Korean
+> sentences consume a different number of draws, so Korean was scored against a **different
+> ground truth** than English — 9 boundaries in different places rather than 8 (GitHub Codex,
+> PR #70). With the schedule made language-independent and every variant re-run, the ordering
+> **reverses**: particle normalization leads on recall (31/32 vs 28/32).
+>
+> **The rejection is NOT supported by measurement and is no longer claimed to be.** v2 ships
+> on grounds independent of the score — it keeps Korean in the segment-count regime English is
+> calibrated and live-confirmed in (~278 initial segments vs ~22–85), and it adds no
+> hand-maintained particle list that can merge distinct words. This metric has reversed three
+> times, once per measurement defect corrected. The live check is the arbiter (DEC-031).
 
 Note the first row: the broken build was **not** scoring zero. A realistic Korean technical
 conversation contains some ASCII — filenames, turn numbers, code — so the old tokenizer found 12
