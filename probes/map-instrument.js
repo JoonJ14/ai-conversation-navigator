@@ -92,6 +92,32 @@ const BLOCK = `
             __acnMapFixed = null;
             return JSON.stringify({ ms: ms, calls: calls, map: __acnMapSerialize(map) });
         };
+        // Direct access to the TOKENIZER, the input every content-derived Summary
+        // feature is built on. Added 2026-08-02 for the tokenizer arc (ROADMAP 0a):
+        // the claim under test is "Korean produces zero tokens", and a claim about a
+        // specific function should be measured on that function rather than inferred
+        // from a pipeline that has several other reasons to produce nothing.
+        // Returns tokens for each supplied text, plus the shipped word-overlap score
+        // between consecutive texts (the similarity every segmentation level reads).
+        w.__acnTokenizeRun = function (textsJson) {
+            var texts = JSON.parse(textsJson);
+            var out = [];
+            for (var i = 0; i < texts.length; i++) {
+                var toks = _sumTokenize(texts[i]);
+                var uniq = {}, u = 0, j;
+                for (j = 0; j < toks.length; j++) { if (!uniq[toks[j]]) { uniq[toks[j]] = 1; u++; } }
+                out.push({
+                    chars: texts[i].length,
+                    tokens: toks.length,
+                    distinct: u,
+                    sample: toks.slice(0, 12),
+                    overlapWithPrev: i > 0 ? _sumWordOverlap(texts[i - 1], texts[i]) : null,
+                    topics: _sumExtractTopicsFromText(texts[i], 5)
+                });
+            }
+            return JSON.stringify(out);
+        };
+
         // Direct access to the sub-segment builder. The map harness drives whole
         // conversations, so segment shapes it never happens to produce — a bare
         // 12-message segment, a run of mutually disjoint fragments — are unreachable

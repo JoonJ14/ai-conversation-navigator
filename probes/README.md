@@ -10,10 +10,12 @@ records it must say which.
 |---|---|
 | `perf-instrument.js` | Inserts timing/count wrappers around the Summary pipeline into a copy of the userscript. One insertion point (before the "Inject now" init block); wrapped names are reassigned bindings, no function bodies edited. |
 | `build-perf-probe.js` | Writes `acn-perf-probe.user.js` (git-ignored) — the installable instrumented build for the LIVE measurement. |
-| `perf-payload.js` | Deterministic paragraph-scale conversation generator (seeded LCG, topic blocks so segmentation does real work). Env knobs: `PARA_BOOST`, `KP_RATE`, `VOCAB_MULT` (all default to the original baseline). |
+| `perf-payload.js` | Deterministic paragraph-scale conversation generator (seeded LCG, topic blocks so segmentation does real work). Env knobs: `PARA_BOOST`, `KP_RATE`, `VOCAB_MULT`, `PAYLOAD_LANG` (all default to the original baseline). |
 | `run-perf-harness.js` | Playwright runner for the SYNTHETIC measurement: claude-virtualized mock + GM shim + instrumented build; drives generate → regenerate → export; writes JSON to `results/` (git-ignored). |
 | `map-instrument.js` | Adds a direct driver for `_sumBuildConversationMap` on top of the perf instrumentation (replaces the timeline SOURCE only) plus a structural fingerprint of the produced map. |
 | `run-map-harness.js` | Playwright runner for the MAP measurement: sweeps size/vocabulary/paragraph configs in one page load, and gates map-output equivalence with `--baseline`. |
+| `check-tokenizer.js` | Measurement + 9 unit checks for `_sumTokenize` — the input every content-derived Summary feature reads. Drives the REAL shipped function through the map probe's `__acnTokenizeRun` hook. Includes T8, which pins the LIMIT (Japanese stays coarse) as an assertion so "Korean works" is never re-described as "Unicode support", and T9, which gates the Tier 3 finding that `×`/`÷` inside `\u00c0-\u024f` glue tokens. Exits non-zero on failure. |
+| `build-tokenizer-variants.js` | Writes candidate `_sumTokenize` builds (cumulative layers) so a tokenizer design is chosen by scoring each layer separately rather than by adopting the most thorough-sounding one. **Needs `ACN_SCRIPT` pointed at a pre-v12.7 ref** — it patches the old body, and it FATALs rather than emit five copies of one build as five measurements. |
 | `check-subsegments.js` | Unit checks for `_sumBuildSubSegments` on segment shapes the end-to-end harness cannot produce — the smallest accepted segment, one below it, many disjoint runs, a uniform conversation, a one-message aside. Exits non-zero on failure. |
 
 ## Path A — live measurement (owner; the decision-grade context)
@@ -107,6 +109,48 @@ on the steep part of the curve, and is useful as a stress case.
 sub-segments before `_sumMergeExcessSegments` is *equivalent* whenever the min-size pass has
 already reduced the set to ≤5 (e.g. `--sizes 25 --vocab 4 --para 3`), and only shows up where
 `mergeExcess` actually merges (e.g. `--sizes 147 --vocab 1 --para 1`, 8 → 5).
+
+## Path D — the tokenizer (v12.7, and the template for any language work)
+
+`PAYLOAD_LANG=ko` regenerates the SAME conversation — same seed, same topic rotation, same
+`topicBoundaries` — in Korean, so a score on one language is directly comparable to a score on
+another. `PAYLOAD_LANG=lat` is accented/punctuated English (not a language: a probe for what a
+widened character class does to text English users actually type). Unset, or `en`, reproduces
+every earlier measurement byte-for-byte — verified by hashing the generated texts against the
+pre-change generator at four configurations.
+
+```
+# Layer-by-layer: which parts of a tokenizer design actually earn their place?
+# ACN_SCRIPT is required: the variants patch the PRE-v12.7 tokenizer body, which the
+# working tree no longer has. Without it the script FATALs rather than writing five
+# copies of one build and reporting them as five measurements.
+git show 2ad8dc1:ai-conversation-navigator.user.js > /tmp/pre-v12.7.user.js
+ACN_SCRIPT=/tmp/pre-v12.7.user.js node probes/build-tokenizer-variants.js /tmp/variants
+for V in v0-baseline v1-charclass v2-length v3-stopwords v4-particles v5-nostop; do
+  PAYLOAD_LANG=ko ACN_SCRIPT=/tmp/variants/$V.user.js \
+    node probes/run-map-harness.js --browser chromium,firefox --sizes 147 --vocab 1,4 --para 1,3
+done
+
+# The no-regression gate for English, from an EXPLICIT pre-change ref
+git show origin/main:ai-conversation-navigator.user.js > /tmp/base.user.js
+ACN_SCRIPT=/tmp/base.user.js node probes/run-map-harness.js \
+    --browser chromium,firefox --sizes 2,3,25,147 --vocab 1,4 --para 1,3 --save /tmp/fp-en.json
+node probes/run-map-harness.js \
+    --browser chromium,firefox --sizes 2,3,25,147 --vocab 1,4 --para 1,3 --baseline /tmp/fp-en.json
+
+# The function-level surface
+node probes/check-tokenizer.js --browser firefox
+```
+
+The payload LANGUAGE is part of the fingerprint key (`chromium/lang=ko/q=147/...`). Without
+that, an English baseline and a Korean run collide on one key and the gate reports a language
+difference as a regression.
+
+**What this path established, and the shape of the mistake it avoided (2026-08-02):** at ONE
+configuration, particle normalization beat the shipped fix 9/9 to 8/9 and was ahead on every
+intuition — higher same-topic overlap, cleaner tokens, 10x fewer initial segments. Across four
+payload shapes it lost, 30/34 to 32/34. **Run the matrix before concluding**; one configuration
+is not a measurement, and this arc reversed twice before the matrix existed.
 
 ## Path B — synthetic measurement (any machine)
 

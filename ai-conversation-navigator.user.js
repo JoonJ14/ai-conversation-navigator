@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.6
+// @version      12.7
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -40,7 +40,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.6';
+    var ACN_VERSION = '12.7';
 
     // ============================================================
     // i18n — internationalization string table
@@ -8159,15 +8159,65 @@
 
     var FILE_EXTENSION_RE = /\b[\w\-]+\.(js|ts|jsx|tsx|css|html|py|rb|go|rs|java|c|cpp|h|json|yaml|yml|md|sh|bash|env|txt|csv|sql|graphql|vue|svelte)\b/gi;
 
+    // Scripts the tokenizer keeps, and the reason each is here (DEC-041):
+    //   a-z0-9          English, the default language.
+    //   \u00c0-\u024f   Latin letters carrying diacritics, MINUS \u00d7 and \u00f7.
+    //   (less d7,f7)   Those two are the only NON-LETTERS in the block - the
+    //                   multiplication and division signs - and keeping them glued
+    //                   tokens together that the old class split: `1920x1080` with a
+    //                   real multiplication sign tokenized as ONE token instead of
+    //                   two. Measured, not assumed. NOT another language -
+    //                   English text contains them (cafe/naive/resume with accents),
+    //                   and the ASCII-only strip did not merely drop them, it
+    //                   CORRUPTED words: an accented `resume` became `sum`, an
+    //                   unrelated English word that then competed for a topic slot;
+    //                   an accented `naive` vanished entirely.
+    //   \uac00-\ud7a3   Hangul syllables. Korean is the product's only translation
+    //                   (I18N.ko), and an ASCII-only strip left a Korean
+    //                   conversation with ZERO tokens — every content-derived
+    //                   Summary feature silently empty.
+    //                   Ends at \ud7a3, the last ASSIGNED syllable, NOT at the
+    //                   \ud7af the ROADMAP sketch proposed: \ud7a4-\ud7af is
+    //                   unassigned and would only admit garbage.
+    //                   Standalone Hangul JAMO (\u3131-\u318e) are excluded on
+    //                   purpose - in practice they are chat emoticons rather than
+    //                   words (laughing, crying), so dropping them removes noise
+    //                   exactly as the emoji strip does. Verified at the boundary.
+    // Deliberately NOT here: Greek, Cyrillic, kana and Han. Not an oversight and
+    // not a to-do — see DEC-041. Adding a script this tokenizer cannot actually
+    // segment is worse than leaving it out: Japanese and Chinese are not
+    // space-separated, so a character class turns a whole sentence into one or two
+    // pseudo-tokens, and the map would draw structure out of noise rather than
+    // correctly finding none. Say which languages are fixed; never call this
+    // "Unicode support".
+    // \u escapes rather than literal characters, matching the I18N.ko table and the
+    // rest of the file: every functional non-ASCII string in this userscript is
+    // escaped, so the script cannot be broken by an encoding change in transit.
+    var HANGUL_RE = /[\uac00-\ud7a3]/;
+
     function _sumTokenize(text) {
         return text
             .toLowerCase()
             .replace(/```[\s\S]*?```/g, ' ')
             .replace(/`[^`]+`/g, ' ')
             .replace(/https?:\/\/\S+/g, ' ')
-            .replace(/[^a-z0-9\s]/g, ' ')
+            .replace(/[^a-z0-9\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u024f\uac00-\ud7a3\s]/g, ' ')
             .split(/\s+/)
-            .filter(function (w) { return w.length > 2 && !SUMMARY_STOP_WORDS.has(w); });
+            .filter(function (w) {
+                // The minimum length is a claim about MORPHOLOGY, not about
+                // characters. `> 2` is an English rule: 2-letter English words are
+                // function words (of, to, is). In Korean the most common content
+                // words are exactly two syllables - injeung (auth), sesyeon
+                // (session), token, gwonhan (permission) - so the English rule
+                // discards the core vocabulary of the language. Measured: 0 of 10 such nouns
+                // survived at `> 2`, 10 of 10 at this rule, and the map's boundary
+                // recall over four payload shapes went 31/34 to 32/34 with spurious
+                // cuts 10 to 7 (DEC-041).
+                // Non-Hangul tokens keep the >= 3 rule exactly, so pure-ASCII
+                // English tokenizes byte-identically to before.
+                var min = HANGUL_RE.test(w) ? 2 : 3;
+                return w.length >= min && !SUMMARY_STOP_WORDS.has(w);
+            });
     }
 
     function _sumExtractBigrams(words) {
@@ -8186,8 +8236,20 @@
         var bigrams = _sumExtractBigrams(words);
         var freq    = {};
 
+        // No length re-check here: _sumTokenize already applied the minimum, and it
+        // applies the SCRIPT-AWARE one. Re-testing `< 3` was a second copy of the
+        // English rule, and it discarded every 2-syllable Korean word the tokenizer
+        // had just correctly kept — so no 2-syllable Korean noun could be a topic at
+        // any frequency (measured: a term appearing 8 times, more often than any
+        // bigram, was still absent; DEC-041).
+        // Scope of the effect, stated because it is smaller than it sounds: bigrams
+        // are weighted 2x and cover their own words, so they outrank unigrams in
+        // BOTH languages. This makes a frequent short word ELIGIBLE; the existing
+        // weighting still decides whether it wins.
+        // Equivalent for English by construction — every token _sumTokenize returns
+        // for non-Hangul text is already >= 3 — and confirmed empirically by 32/32
+        // identical map fingerprints.
         words.forEach(function (w) {
-            if (w.length < 3) return;
             freq[w] = (freq[w] || 0) + 1;
         });
         bigrams.forEach(function (b) {
@@ -8218,7 +8280,10 @@
             var bigrams = _sumExtractBigrams(words);
             var local   = {};
 
-            words.forEach(function (w)   { if (w.length > 2) local[w]  = (local[w]  || 0) + 1; });
+            // Same as _sumExtractTopicsFromText: no length re-check. _sumTokenize
+            // already applied the script-aware minimum, and repeating the English
+            // `> 2` here dropped every 2-syllable Korean word (v12.7, DEC-041).
+            words.forEach(function (w)   { local[w]  = (local[w]  || 0) + 1; });
             bigrams.forEach(function (b) { local[b] = (local[b] || 0) + 2; });
 
             Object.keys(local).forEach(function (term) {
@@ -9562,7 +9627,13 @@
         }
         var pills = createElement('div', { className: 'acn-topic-pills' });
         topics.forEach(function (t) {
-            pills.appendChild(createElement('span', { className: 'acn-topic-pill', textContent: t }));
+            // Test contract (v12.7): topics are the most direct observable for
+            // "the tokenizer produced usable terms". The Korean fixture asserts
+            // these are Hangul rather than incidental ASCII, which is what makes it
+            // able to fail on the pre-v12.7 tokenizer (DEC-041).
+            var pill = createElement('span', { className: 'acn-topic-pill', textContent: t });
+            pill.setAttribute('data-acn-role', 'sum-topic');
+            pills.appendChild(pill);
         });
         body.appendChild(pills);
         return _sumMakeCollapsibleSection(i18n('topics') || 'Topics', body);

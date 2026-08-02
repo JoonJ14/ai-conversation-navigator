@@ -195,7 +195,21 @@
     // bookmark previews and hashes). The API fixture applies the SAME rule so DOM and
     // API text stay byte-identical for row-to-path matching.
     var TOPIC_BLOCKS = !!CFG.topicBlocks;
+    // CFG.lang === 'ko' switches the WHOLE message to Korean, base text included.
+    // Leaving the base text English would leave English tokens in every message,
+    // and the fixture could not go red on the pre-v12.7 tokenizer — the same
+    // "structurally cannot fail" shape TOPIC_BLOCKS itself was added to fix.
+    // Korean is the product's only translation (I18N.ko); this gates the tokenizer
+    // that made every content-derived Summary feature empty for it (DEC-041).
+    var KO = CFG.lang === 'ko';
     function topicQ(turn) {
+        if (KO) {
+            return turn <= 13
+                ? ' 인증 세션 토큰이 갱신 쿠키보다 먼저 만료되어 로그인이 자주 풀립니다.'
+                : turn <= 27
+                    ? ' 데이터베이스 마이그레이션이 복제본을 다시 만드는 동안 색인을 계속 잠급니다.'
+                    : ' 배포 롤아웃에서 컨테이너 프로브가 레지스트리 안에서 반복해서 실패합니다.';
+        }
         return turn <= 13
             ? ' The oauth session token keeps expiring before the refresh cookie renews.'
             : turn <= 27
@@ -203,11 +217,30 @@
                 : ' The kubernetes rollout leaves the container probe failing inside the registry.';
     }
     function topicA(turn) {
+        if (KO) {
+            return turn <= 13
+                ? ' 인증 갱신 흐름을 확인하고 세션 쿠키와 토큰을 함께 교체하세요.'
+                : turn <= 27
+                    ? ' 마이그레이션 순서를 확인하고 색인을 정리한 뒤 복제본을 동기화하세요.'
+                    : ' 롤아웃 프로브를 확인하고 레지스트리에서 컨테이너 이미지를 다시 받으세요.';
+        }
         return turn <= 13
             ? ' Check the oauth refresh flow, then rotate the session cookie and its token.'
             : turn <= 27
                 ? ' Check the migration order, then vacuum the index and resync the replica.'
                 : ' Check the rollout probe, then repull the container image from the registry.';
+    }
+    // Base texts, kept beside the topic text so the two languages cannot drift apart.
+    // Both are comfortably above ciMatchRowToPath's 60-character matching floor.
+    function baseQ(turn) {
+        return KO
+            ? '질문 ' + turn + '. 입력 값이 예상과 다르게 들어오는 ' + turn + '번 상황에서는 어떤 방식으로 처리하는 것이 좋을까요?'
+            : 'Question number ' + turn + ': how do I handle case ' + turn + ' when the input is unusual?';
+    }
+    function baseA(turn) {
+        return KO
+            ? '답변 ' + turn + '. 먼저 입력 값을 검증한 다음 그 결과에 따라 분기하는 방식을 권장합니다.'
+            : 'Answer number ' + turn + ': validate the input first, then branch on the result.';
     }
     var MESSAGES = [];
     for (var i = 0; i < TOTAL_MESSAGES; i++) {
@@ -216,18 +249,14 @@
             var qt;
             if (DUP_ROWS.indexOf(i) !== -1)      qt = 'here is the full report.';
             else if (ATT_ROWS.indexOf(i) !== -1) qt = '[Pasted text #' + turn + ']';
-            else qt = 'Question number ' + turn +
-                      ': how do I handle case ' + turn + ' when the input is unusual?' +
-                      (TOPIC_BLOCKS ? topicQ(turn) : '');
+            else qt = baseQ(turn) + (TOPIC_BLOCKS ? topicQ(turn) : '');
             MESSAGES.push({ sender: 'user', text: qt });
         } else {
             MESSAGES.push({ sender: 'ai', text: SHORT_ANS.indexOf(i) !== -1
                   ? 'Yes.'
                   : IDENT_ANS.indexOf(i) !== -1
                     ? IDENT_TEXT
-                    : 'Answer number ' + turn +
-                      ': validate the input first, then branch on the result.' +
-                      (TOPIC_BLOCKS ? topicA(turn) : '') });
+                    : baseA(turn) + (TOPIC_BLOCKS ? topicA(turn) : '') });
         }
     }
     // One giant row (>=15,000px) exercises intra-row scrolling with no remount.
