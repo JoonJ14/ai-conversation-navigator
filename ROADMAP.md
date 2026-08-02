@@ -87,18 +87,20 @@ on a hypothesis.**
 Numbering below is stable (items keep their historical numbers):
 
 0. **Conversation-map sub-segmentation is not content-driven — FIXED in v12.6 (DEC-040),
-   awaiting live confirmation.** Boundaries come from **lexical-cohesion valleys** judged
-   against each segment's own depth distribution — `max(MIN_DEPTH, 0.5 × the deepest valley in
-   that segment)`, a share of the strongest signal rather than a z-score, because a mean+sd bar
-   is computed from a sample containing the valleys it is looking for and so can see neither a
-   lone outlier in a small sample nor many outliers at all (both measured; DEC-040) — not from a
-   similarity
-   threshold — a threshold cannot work here regardless of its value, because adjacent-message
-   similarity scales with message length and vocabulary breadth (measured: the same constant
-   scored 7/8 on one payload and 2/8 on another differing only in message length). Summed over
-   four payload shapes: **31/32 true topic changes found with 10 spurious**, versus 31/32 with
-   **346** before (it cut every three messages) and 24/32 with 14 for the intermediate
-   threshold attempt. Sub-segments are 9–41 messages instead of uniformly 3.
+   LIVE-CONFIRMED 2026-08-02.** Boundaries come from **lexical-cohesion valleys** judged against
+   each segment's own depth distribution: `max(MIN_DEPTH, 0.5 × the deepest valley in that
+   segment)`. That is a share of the strongest signal present rather than a z-score, because a
+   mean+sd bar is computed from a sample containing the valleys it is looking for and so can see
+   neither a lone outlier in a small sample nor many outliers at all (both measured; DEC-040).
+   It is not a similarity threshold either — no threshold can work here regardless of its value,
+   because adjacent-message similarity scales with message length and vocabulary breadth
+   (measured: one constant scored 7/8 on one payload and 2/8 on another differing only in
+   message length). Summed over four payload shapes: **31/32 true topic changes found with 9
+   spurious**, versus 31/32 with **346** before (it cut every three messages) and 24/32 with 14
+   for the intermediate threshold attempt. Sub-segments are 9–41 messages instead of uniformly 3.
+   **Live:** *"a lot more healthy… some of them are about 10 messages, some 30, some 60 — this is
+   exactly how we do this, like a group of similar topics"*; fits roughly one page; the top level
+   confirmed correct too. No density retune requested.
    **One thing stays open out of this:**
    **the TOP level still merges by most-similar-pair**, the rule measured to run away at
    the sub level (one 221-message row; and in a direct loop simulation, [48, 6, 6]).
