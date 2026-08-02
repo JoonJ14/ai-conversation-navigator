@@ -1,5 +1,15 @@
 # Tools Panel — Implementation Spec
 
+> **v12.7a update (2026-08-02) — this panel is now i18n-wired.**
+> Every user-visible string in the Tools panel goes through `i18n()`. It previously rendered
+> English literals unconditionally even though thirteen Korean translations already existed in
+> `I18N.ko` — see TROUBLESHOOTING "v12.7a" and DEC-042. Section headers are `imageGallery` and
+> `exports` (파일 내보내기); the export options are `exportFull` / `exportBookmarks` /
+> `exportSummary` plus their `*Desc` keys. **`/Commands` is deliberately left in English.**
+> When adding a string here, add the key to BOTH `en` and `ko` AND call `i18n()` — a key with no
+> call site is invisible to every gate in this repo (`agent_docs/conventions.md` → i18n).
+
+
 Rename the "Export" orbital feature to "Tools" and replace the placeholder panel with working utility functions. The panel is intentionally designed to be extensible — ship with solid core tools, add more based on community feedback and real-world usage.
 
 **Last updated:** 2026-02-22  

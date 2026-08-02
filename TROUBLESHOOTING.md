@@ -464,6 +464,82 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ---
 
+## v12.7a — Thirteen Korean translations existed and none was ever read (found live 2026-08-02)
+
+**Status:** FIXED in v12.7a (PR #71) | **Severity:** Medium — a translated product rendering
+English to the one user it was translated for | **Found by:** owner, live-testing v12.7 |
+**Age:** pre-existing; the keys and the panel were written at different times and never joined
+
+### Symptom
+
+With the interface language set to Korean, the **Tools panel was entirely English** — Image
+Gallery, Exports, and the three export options. Everything else the owner checked (topics,
+bookmarks, search, the orbital labels) was correctly translated, which is what made it look
+like a gap in the translation table rather than a wiring fault.
+
+### Root cause — the translations were already there
+
+`grep -c "i18n('<key>'"` over every key in the `en` table:
+
+```
+imageGallery  0    exportFull           0    exportSummary      0
+noImages      0    exportFullDesc       0    exportSummaryDesc  0
+goToMessage   0    exportBookmarks      0    moreToolsSoon      0
+downloadImage 0    exportBookmarksDesc  0    imageDownloaded    0
+                                                openedInNewTab  0
+```
+
+**Thirteen keys, thirteen Korean values, zero call sites.** `buildToolsPanel` and
+`renderUsageBars` rendered English string literals unconditionally. Only one string in the whole
+change had to be authored (`exports` → 파일 내보내기); the rest was connecting what existed.
+
+**Why nothing caught it.** A dead i18n key is invisible from every angle: the table is correct
+in isolation, the render code is correct in isolation, the suite asserts on English fixtures and
+so cannot tell a translated panel from an untranslated one, and there is no type system to
+notice an unreferenced key. It took a native speaker opening the panel.
+
+### The part that was not a wiring fix
+
+`formatResetTime` built its output by concatenation:
+
+```js
+'resets ' + dayName + ' ' + hr12 + ':' + minStr + ' ' + ampm
+```
+
+Korean puts the meridiem BEFORE the time (오후 3:05). **Concatenation hard-codes word order**, so
+no substitution of translated fragments can fix it — the phrase had to become a template
+(`'{day} {ampm} {time} 초기화'`) resolved through `i18n(key, replacements)`. That capability had
+existed since the helper was written, with one prior user.
+
+### Verification
+
+- **English byte-identical, measured:** `formatResetTime` extracted from both builds and run over
+  **58 cases** — every minute-bucket boundary and every weekday × hour reaching the date branch.
+  **0 differences.**
+- Tools panel rendered and read in both languages from a real page: 이미지 갤러리 / 파일 내보내기 /
+  전체 대화 / 북마크만 / 요약; Plan usage renders `수 오후 3:05 초기화`.
+- Suite 1120/1120 both engines; en↔ko key parity 66/66 → **79/79**.
+
+### Fixed alongside
+
+- **Three unreachable fallbacks that disagreed with what renders.** `|| '<English>'` fires only
+  when a key is ABSENT; these keys exist, so the branch was dead — and its text differed from the
+  table value that actually renders, meaning the code claimed the old English wording was
+  preserved when it was not.
+- **A typo that had never been displayed:** 더 많은 도구가 **곳** 추가됩니다 — 곳 is "place", should
+  be 곧 "soon". It sat in the table unrendered since the string was written.
+
+### Accepted limitation (owner-confirmed)
+
+Switching language **without reloading** leaves Tools mixed: the gallery header re-renders on
+panel open and updates immediately; the exports section is built at injection and does not. This
+is the existing "refresh to apply" contract — the switch handler updates only dot labels and
+panel headers, and the toast says so. The owner: *"that is a limitation i am willing to accept
+since we already warn about it anyway."* Rebuilding the panel on switch was rejected as larger
+than the contract warrants.
+
+---
+
 ## v12.7 — The Summary tokenizer discarded Korean entirely (raised in review 2026-08-01)
 
 **Status:** FIXED in v12.7, awaiting live confirmation | **Severity:** High for the affected user —

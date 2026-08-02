@@ -2036,3 +2036,67 @@ four payload shapes on both engines (`probes/build-tokenizer-variants.js`):
   because the tokens feeding label generation are the matching tokens. A display-only
   normalizer would fix the reading without touching any measure; it is deliberately not
   bundled, and the live check is the right instrument for deciding whether it is wanted.
+
+---
+
+## DEC-042: A Translation That Is Never Called Is Not a Translation — Wire the Panel, and Template What Cannot Be Concatenated (v12.7a)
+**Date:** 2026-08-02 | **Stage:** v12.7a
+
+### Decision
+The Tools and Plan usage panels call `i18n()` for every user-visible string. Reset phrases in the
+Plan usage panel use `{placeholder}` templates through `i18n(key, replacements)` rather than
+string concatenation. The `/Commands` section stays in **English**, by owner instruction.
+
+### Context — the defect was not missing translations
+The owner live-tested v12.7 with the interface set to Korean and reported the Tools panel still
+entirely English. The cause was not a gap in `I18N.ko`: **thirteen Korean strings already existed
+there and not one was ever read.** `buildToolsPanel` and `renderUsageBars` rendered English
+literals unconditionally. Someone had written the translations and never connected them, and
+nothing detected it — a dead key is invisible to the suite, to the type system (there isn't one)
+and to review, because the code and the table are both individually correct.
+
+Only one word had to be authored: `exports` → **파일 내보내기**, supplied by the owner.
+
+### Why templating, not concatenation — the load-bearing part
+The reset phrase was built as:
+
+```js
+'resets ' + dayName + ' ' + hr12 + ':' + minStr + ' ' + ampm
+```
+
+Korean places the meridiem **before** the time — 오후 3:05, not 3:05 오후. **No reordering of
+concatenated fragments can produce correct Korean**, because the concatenation order is fixed in
+the code and the correct order differs per language. The strings became templates
+(`'{day} {ampm} {time} 초기화'`) fed through `i18n(key, replacements)` — a capability the helper
+has had since it was written and which had exactly one prior user (`searchResults: '{count} matches'`).
+
+**Generalise this before adding the next user-facing string:** any sentence assembled from more
+than one variable is a translation defect waiting to happen. Word ORDER is part of what a
+translation changes, and concatenation hard-codes it.
+
+### Alternatives considered
+- **Translate `/Commands`:** rejected by the owner, and the reasoning is worth keeping — "slash
+  command" functions as its own noun in Korean developer usage, and a translated form would be
+  *less* recognisable than the English. Not every string benefits from translation.
+- **Rebuild the Tools panel on language switch:** rejected. The product's contract is
+  "refresh to apply" and the toast says so; the switch handler deliberately updates only dot
+  labels and panel headers. Accepted consequence, owner-confirmed: switching language without
+  reloading leaves Tools mixed — the gallery header re-renders on panel open, the exports section
+  is built at injection and does not. The owner's words: *"that is a limitation i am willing to
+  accept since we already warn about it anyway."*
+- **Leave the English descriptions as the inline literals:** rejected. Three `|| 'fallback'`
+  branches were unreachable (the `||` fires only when a key is ABSENT, and these keys exist) AND
+  disagreed with the table value that actually renders, so the code claimed the old English was
+  preserved when it was not.
+
+### Key properties
+- **English is byte-identical, measured rather than argued.** `formatResetTime` was extracted from
+  both the pre-change and post-change builds and run over **58 cases** — every minute-bucket
+  boundary (-5, 0, 1, 17, 59, 60, 61, 90, 180, 1439, 1440, …) and every weekday × hour combination
+  reaching the date branch. **0 differences.**
+- **The audit that found the rest:** `grep -c "i18n('<key>'"` over every key in the `en` table.
+  Thirteen scored zero. That one-line check is worth running whenever a key is added — a key with
+  no call site is a translation that does not exist.
+- **Key parity is now 79/79** between `en` and `ko`.
+- **A typo the wiring exposed:** the footer read 더 많은 도구가 **곳** 추가됩니다 — 곳 is "place";
+  it should be 곧, "soon". It had been in the table, unrendered, since the string was written.

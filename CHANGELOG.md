@@ -4,6 +4,69 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.7a — The Tools and Plan Usage Panels Were Never Wired to i18n] — 2026-08-02
+
+**Branch:** `fix/tools-i18n` | **PR:** #71
+
+### Problem
+
+Found by the owner live-testing v12.7. With the interface language set to Korean, the **Tools
+panel was entirely English** — Image Gallery, Exports, and the three export options. Everything
+else they checked was correctly translated, which made it look like a gap in the translation
+table.
+
+### Root cause — the translations were already there
+
+**Thirteen keys in `I18N.ko` had Korean values and ZERO call sites.** `buildToolsPanel` and
+`renderUsageBars` rendered English string literals unconditionally, regardless of the language
+setting. Someone wrote the translations and never connected them.
+
+A dead i18n key is invisible from every angle simultaneously: the table is correct in isolation,
+the render code is correct in isolation, the suite asserts on English fixtures so it cannot tell
+a translated panel from an untranslated one, and there is no type system to flag an unreferenced
+key. Only one word in this whole change had to be authored — `exports` → **파일 내보내기**.
+
+### The part that was not a wiring fix
+
+`formatResetTime` built its output by concatenation:
+
+```js
+'resets ' + dayName + ' ' + hr12 + ':' + minStr + ' ' + ampm
+```
+
+Korean puts the meridiem **before** the time — 오후 3:05. **Concatenation hard-codes word order**,
+so no substitution of translated fragments can produce correct Korean. These became
+`{placeholder}` templates resolved through `i18n(key, replacements)` — a capability the helper has
+had since it was written, with exactly one prior user.
+
+### Verification
+
+- **English byte-identical, measured:** `formatResetTime` extracted from the pre- and post-change
+  builds and run over **58 cases** — every minute-bucket boundary and every weekday × hour
+  combination reaching the date branch — **0 differences**.
+- Tools panel rendered and read in both languages from a real page.
+- Suite **1120/1120** both engines; key parity **78/78**.
+
+### Also fixed
+
+Three `|| 'fallback'` branches that were **unreachable and disagreed** with the table value that
+renders, so the code claimed a wording it could never produce. And a typo that had never been
+displayed: 더 많은 도구가 **곳** 추가됩니다 — 곳 is "place"; it should be 곧, "soon".
+
+### Decisions (DEC-042)
+
+`/Commands` stays **English** — "slash command" reads better untranslated. And the mixed-language
+state between a language switch and a refresh is **accepted**: the switch handler updates only
+dot labels and panel headers, and the toast already says "refresh to apply".
+
+### Known, tracked
+
+Five keys remain unwired — `questionPrefix`, `noQuestions`, `summaryLanguageNote`,
+`noBookmarksToExport`, `usageUnavailable` (ROADMAP 0c). Distinct from the nine `/Commands` keys,
+which are dead on purpose.
+
+---
+
 ## [12.7 — The Summary Tokenizer Can Read Korean] — 2026-08-02
 
 **Branch:** `fix/tokenizer-korean-v12.7`
