@@ -37,7 +37,7 @@ produced zero tokens and every content-derived Summary feature was silently empt
 product's only translated language. The character class is widened to ASCII + diacritic Latin +
 Hangul, and the minimum token length becomes script-aware (2 for Hangul, 3 otherwise) because
 Korean's commonest content words are two syllables. Measured 12/32 → **28/32** true topic
-boundaries with spurious cuts 36 → **7**; English output is **byte-identical** (32/32 map
+boundaries with spurious cuts 36 → **11**; English output is **byte-identical** (32/32 map
 fingerprints). Two more elaborate variants — a Korean stop list, and particle normalization —
 were built and measured; the rejection of particle normalization is NOT measurement-supported and the live check decides (DEC-041). New CI gate: the suite's first non-English
 fixture. See item 0a below.

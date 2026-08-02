@@ -118,9 +118,17 @@ already reduced the set to ≤5 (e.g. `--sizes 25 --vocab 4 --para 3`), and only
 
 ## Path D — the tokenizer (v12.7, and the template for any language work)
 
-`PAYLOAD_LANG=ko` regenerates the SAME conversation — same seed, same topic rotation, same
-`topicBoundaries` — in Korean, so a score on one language is directly comparable to a score on
-another. `PAYLOAD_LANG=lat` is accented/punctuated English (not a language: a probe for what a
+`PAYLOAD_LANG=ko` regenerates the conversation in Korean with the SAME `topicBoundaries`:
+`computeSchedule()` derives the topic schedule from a throwaway English render, so every
+language is scored against the same answer key.
+**What that does and does not buy you.** Scores are comparable **between builds within a
+language** — which is what the variant sweep does, and what every conclusion in this arc rests
+on. They are **not** a like-for-like comparison **between languages**: Korean sentences consume
+extra `rnd()` draws, which shifts the paragraph- and sentence-count draws, so the Korean payload
+has differently shaped messages (first answer 3 paragraphs vs English's 5; 232KB vs 371KB at
+q=147). Equalising that would need a structural plan from an independent RNG, which would change
+the English payload and break its byte-identity with every measurement recorded against it. Do
+not read a Korean total against an English total (GitHub Codex, PR #70). `PAYLOAD_LANG=lat` is accented/punctuated English (not a language: a probe for what a
 widened character class does to text English users actually type). Unset, or `en`, reproduces
 every earlier measurement byte-for-byte — verified by hashing the generated texts against the
 pre-change generator at four configurations.

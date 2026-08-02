@@ -74,19 +74,33 @@ const FILES = ['config.js', 'pipeline.py', 'schema.sql', 'report.csv', 'index.ht
 // for the tokenizer arc (ROADMAP 0a): `_sumTokenize` strips [^a-z0-9\s], so a
 // Korean conversation yields zero tokens and every content-derived Summary
 // feature is dead for it. Scoring that claim, and any fix for it, needs a
-// payload the harness's ground-truth machinery already understands — so this is
-// the SAME generator with the same topic blocks and the same boundary indices,
-// only the words change. Nothing else about the shape moves.
+// payload the harness's ground-truth machinery already understands.
 //
-// "The same boundary indices" is enforced by computeSchedule(), not assumed: the
-// block lengths are drawn from the same LCG as the text, so a language whose
-// sentences consume a different number of rnd() values would otherwise get a
-// DIFFERENT ground truth. That is exactly what happened in the first version of
-// this knob (Korean got 9 boundaries where English had 8, in different places),
-// which silently made the documented cross-language comparison meaningless.
+// WHAT IS AND IS NOT COMPARABLE — read this before quoting a number across languages.
+// Every language gets the SAME topic-block boundaries: computeSchedule() derives them
+// from a throwaway English render, so ground truth is language-independent and a
+// segmenter is scored against the same answer key whichever language it reads. That
+// much is enforced, not assumed — the first version of this knob drew block lengths
+// from the same LCG as the text, and Korean (whose sentences consume extra rnd()
+// values) ended up with 9 boundaries where English had 8, in different places.
+//
+// The MESSAGE SHAPES still differ. Those same extra draws shift the paragraph- and
+// sentence-count draws, so at the default knobs the first English answer has 5
+// paragraphs where the Korean one has 3, and the payloads differ in total volume
+// (371KB vs 232KB at q=147). Making that identical would require a full structural
+// plan drawn from an independent RNG, which would change the English payload and
+// break its byte-identity with every measurement recorded against it.
+//
+// So: scores are comparable BETWEEN BUILDS WITHIN a language — which is what the
+// variant sweep does and all this arc's conclusions rest on — and are NOT a
+// like-for-like comparison BETWEEN languages. Do not read "Korean scores 28/32 and
+// English scores 30/32" as Korean segmenting worse; the two ran on differently
+// shaped conversations (GitHub Codex, PR #70).
 //
 // 'en' is the default and reproduces every earlier measurement byte-for-byte:
-// the English path below is untouched and is not routed through any of this.
+// the English path below is untouched and is not routed through any of this. That
+// property is deliberately protected over cross-language shape equivalence — see the
+// comparability note above.
 //
 // Language scope (owner, 2026-08-02): the product ships English (default) and
 // Korean — Korean is the ONLY translation. 'lat' is not a supported language;
@@ -305,10 +319,15 @@ function answerText(rnd, vocab, turn) {
 // two payloads did not merely say different words, they had a different number of
 // topic changes in different places (GitHub Codex, PR #70).
 //
-// Deriving the schedule from a throwaway ENGLISH pass fixes that without changing the
-// English payload by even one byte — English still consumes its own stream in its own
-// order, so every measurement recorded before this change stays reproducible. The cost
-// is one extra generation pass (~100ms) for non-English languages only.
+// Deriving the schedule from a throwaway ENGLISH pass fixes THE ANSWER KEY without
+// changing the English payload by even one byte — English still consumes its own stream
+// in its own order, so every measurement recorded before this change stays reproducible.
+// The cost is one extra generation pass (~100ms) for non-English languages only.
+//
+// It does NOT make the two payloads structurally equivalent — the same extra draws still
+// shift paragraph and sentence counts, so the messages differ in shape and volume. See
+// the comparability note at the top of this section: within-language build comparisons
+// are sound, cross-language totals are not.
 function computeSchedule(q, seed) {
     const prev = activeLang;
     activeLang = 'en';
