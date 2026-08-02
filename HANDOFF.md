@@ -1,191 +1,162 @@
-# Session Handoff — 2026-07-31 (v12.4: the Summary freeze measured, killed, and live-confirmed twice)
+# Session Handoff — 2026-08-01 (v12.5 + v12.6: the map made fast, then made correct)
 
-**Scope:** one continuous arc across two calendar days: measure the Summary freeze (PR #65),
-build the v12.4 fix (PR #66), run the full local review pipeline plus five GitHub Codex rounds
-on it, and live-confirm it twice — the second time specifically for a post-confirmation
-one-liner. #64 (predecessor handoff docs) and #65 were merged mid-session with the owner's
-per-PR authorization; **#66 merges at the close of this session** with these handoff docs
-aboard. **Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-07-30_v12.2-v12.3-dead-zone.md`.
-**Status at close:** version **12.4**, suite **528/528 both engines**, CI 9/9 on every head,
-Codex clean, DEC-031 satisfied on the exact merge candidate.
+**Scope:** one arc in two halves. First the residual the last session measured and left behind —
+the conversation map's segment-merge churn (v12.5, PR #67, **merged**). Then a defect the owner
+found while live-confirming that fix: the map's second level was not reading the conversation at
+all (v12.6, PR #68, **merges at the close of this session**). **Prior handoff:**
+`docs/handoffs/SESSION_HANDOFF_2026-07-31_v12.4-summary-perf.md`.
+**Status at close:** version **12.6**, suite **1058/1058 both engines**, CI 9/9, Codex clean
+after six rounds, v12.5 live-confirmed, v12.6 awaiting its live look.
 
 ---
 
 ## A. State in one paragraph
 
-The "this page is slowing down Firefox" freeze on the owner's ~147-question conversation is
-dead, and it died the right way: measured first (probes/, PR #65 — the quadratic was
-`_sumDeduplicatePoints` doing O(points²) pairwise overlaps with per-pair re-tokenization
-*ahead of* a ≤10 cap, 9.1s of an 11.5s block at ~1MB text; the export then paid the whole
-analysis again), then fixed with the two smallest possible changes (early-stop at the cap —
-output-identical, byte-diffed; and a compute cache keyed `{ciIndexStamp(), provisional-set
-signature}` that only the export reads), then verified at every layer: 528/528 both engines,
-a five-mutant battery, a 5-lens + 2-skeptic opus Tier 3 round (19 findings, 0 false
-positives, 1 CRITICAL), five GitHub Codex rounds (5 findings, 0 false positives, all in
-arc-written code, zero in the v12.4 core), and two owner live confirmations — the second
-observing the round-5 cache release directly (`cached=null` after a g2→g4 rebuild). The
-honest residual, measured live: generate still costs ~7.7–8.8s (banner-free) and ~93% of it
-is the conversation-map's segment-merge churn — **that is the next arc**.
+Summary generate went from 7.7–8.8s to ~1–2s live, and its conversation map went from decorative
+to actually structural. v12.5 was pure removal: sub-segments were being rebuilt at every commit
+and every merge while nothing during construction reads them — 431 rebuilds per generate to keep
+at most five — so they are now attached once, to the segments that survive. Output-identical,
+32/32 fingerprints. The owner live-confirmed it, and in the same pass noticed that every
+sub-segment was exactly three messages with near-duplicate labels. That turned out to be a rule
+that could never fire: the split test divided by `max(|A|,|B|)`, comparing one message against a
+four-message window, so its ceiling was ~0.04 against a threshold of 0.42. Every message split;
+the visible structure was the leftovers of a fragment-absorb pass. v12.6 replaces it with
+lexical-cohesion valleys judged against each segment's own depth distribution. **The owner
+rejected the first fix as "just picking another number" and was right** — measurements agreed,
+and the redesign that followed is the substance of this session.
 
 ---
 
 ## B. What was accomplished
 
-### 1. Measurement arc (PR #65, merged) — the freeze mechanism found before any fix
+### 1. v12.5 — the map's segment-merge churn (PR #67, merged `eacb24a`)
 
-**What.** New `probes/` tooling: `perf-instrument.js` (wraps the Summary pipeline's functions
-by reassignment at one insertion anchor — no function bodies edited), `build-perf-probe.js`
-(emits an installable instrumented build, git-ignored), `perf-payload.js` (deterministic
-paragraph-scale conversation generator; the committed fixture's ~70-char messages measure
-the wrong environment), `run-perf-harness.js` (Playwright: generate → regenerate → export).
+**What.** `_sumAttachSubSegments`: segments carry `children: null` through construction, and
+sub-segments are built once per surviving segment at both return points of
+`_sumBuildConversationMap`.
 
-**Why.** The owner's version policy demanded measurement before any fix (small fix → v12.4;
-refactor → v13). The prior session's hypotheses (export double-run; synchronous block) were
-code-read, not measured.
+**Why.** The live counts identified the mechanism without a new probe. Children were built at
+every commit AND every merge, which makes the rebuild count an identity —
+`2 × initialSegments − finalSegments` — reproduced exactly at every synthetic config
+(11 = 2·8−5, 369 = 2·187−5, 521 = 2·263−5). The live 431 therefore meant **≈218 initial segments
+from ~294 messages**: near-total fragmentation, every merge re-deriving sub-segments for a
+segment about to be merged again.
 
-**Findings (synthetic contexts, Chromium 145 + Firefox 146, headless AND headed identical,
-q=25..200 + a PARA_BOOST=3/KP_RATE=2 sensitivity run).** `_sumDeduplicatePoints` was the
-quadratic: candidates grow linearly (q=147 → 673; owner's real conversation → 1,135), pairs
-quadratically, every pair re-tokenized both texts, and only then did `.slice(0, cap≤10)`
-apply — at ~1MB text: 3,504 candidates → 838k overlap calls → 1.68M tokenizations → 202M
-chars → **9.1s of an 11.5s Firefox block**, with the export paying it all again (run#3 ≈
-run#2 at every size). Render ≤50ms — the freeze was analysis, not DOM.
+**Alternatives.** Per-message token memoization (the lever this session inherited) would have made
+throwaway work cheaper rather than removing it, and carried a real edge case
+(`tokenize(join(a,b)) ≠ union` when an unterminated code fence spans a join) — it never had to be
+resolved. Merge-loop restructuring (the v13 option) targets a term that is negligible once the
+rebuilds are gone: `mergeExcess` fell from 3,238ms to ~1ms.
 
-**Verification.** The double-run confirmed numerically, both engines; the boosted-scale
-export recompute anomaly chased to a measured cause (`cached g1` vs `current g2` — a second
-index build re-minting the generation mid-run) rather than guessed.
+**Verification.** Map **7,803/7,585ms → 1,260/1,144ms** at the live-calibrated payload; rebuilds
+521 → 5; characters tokenized 63.9M → 10.3M. Structural fingerprints identical across **32/32**
+config/engine combinations. Live: generate and regenerate "really fast… roughly a second or two",
+export fast and correct, no console errors.
 
-### 2. v12.4 (PR #66) — two smallest-possible changes
+**New tooling.** `probes/map-instrument.js` + `probes/run-map-harness.js` (per-config sweeps and a
+fingerprint equivalence gate), and `perf-payload.js`'s `VOCAB_MULT`. **The fidelity finding worth
+carrying:** segmentation is driven by DISTINCT VOCABULARY, not text volume — `PARA_BOOST` moves
+characters and barely moves segments.
 
-**What.** (a) `_sumDeduplicatePoints(points, cap)` stops scanning once `cap` unique points
-are kept. (b) `generateFullSummary` caches `{stamp, provSig, data}`; `getSummaryForExport`
-reuses on exact match (stamp non-null); the panel path NEVER reads the cache. Plus the
-`data-acn-sum-computes` zone attribute (counts completed computations — the test observable)
-and version 12.3 → 12.4.
+### 2. v12.6 — the map's second level (PR #68)
 
-**Why output-identity holds for (a).** The dedup is streaming and append-only: each keep/drop
-decision reads only already-kept points, so the first `cap` appends are determined by an
-input prefix — `dedup(all).slice(0,cap)` ≡ stop-at-cap. Proven by argument AND an empirical
-byte-diff of exported files on a key-point-rich payload (scope-annotated: the diff exercises
-the text-derivation branch only).
+**What.** Boundaries come from cohesion valleys: tokenize each message once, measure cohesion at
+every gap (4 messages either side, vocabularies unioned), score each gap by **valley depth**
+relative to the nearest local peak on each side, and cut deepest-first where depth reaches
+`max(MIN_DEPTH, 0.5 × the deepest valley in that segment)`, keeping runs ≥ 6 messages. A count cap
+merges the smallest run into its smaller neighbour.
 
-**Why the cache key is what it is.** `ciIndexStamp()` (conversation-id + monotonic index
-generation) covers everything the index knows; `provSig` covers the one thing it doesn't —
-provisional turns, which can change under a frozen stamp. provSig went through a
-three-rung correctness ladder (see §B.4) and ended as **raw text with length-prefix framing**
-(`len:text`) — injective, no normalization, no delimiter to forge. The cache is RELEASED at
-both points where the key dies: `ciInvalidate()` (conversation switch) and `ciBuildIndex()`'s
-commit (same-conversation rebuild — the round-5 finding); null-stamp computations are never
-cached at all.
+**Why the first attempt was not enough, which is the load-bearing part.** Fixing the
+normalization (`min` instead of `max`) and picking 0.65 scored **7/8 boundaries on one payload and
+2/8 on another differing only in message length**. How similar two adjacent messages look depends
+on how long they are and how wide the vocabulary is, so no constant transfers. The owner said the
+same thing independently before seeing those numbers.
 
-**Measured effect** (before → after, same machine/payload/interactions): boosted generate
-11.7s → **2.4s**; keyPoints 9.0s → **0.05s**; export full-re-run → reuse. Live (owner):
-generate 8.5s with **no banner**, dedup **1ms**, export **HIT at 3–11ms**.
+**How the threshold was chosen.** `probes/perf-payload.js` now emits the timeline indices where
+its topic blocks change, and the harness scores each build against that ground truth. Summed over
+four payload shapes: **31/32 true topic changes found with 9 spurious**, versus 31/32 with **346**
+before (a boundary every three messages hits everything by accident) and 24/32 with 14 for the
+threshold attempt. The decisive property is that **one setting works across all four shapes**.
 
-### 3. The local review arc — Tier 1/2 inline + Tier 3 (opus, 5 lenses + 2 skeptics)
+**Verification.** Sub-segments are 9–41 messages instead of uniformly 3; on the live-calibrated
+payload the children come out as its actual topic blocks in order. Suite 1058/1058. Seven unit
+checks (`probes/check-subsegments.js`). The count cap was verified **not** to be doing the work.
 
-**19 findings, 0 false positives, 1 CRITICAL** (artifact:
-`reviews/review-2026-07-31-v12.4-perf.md`). The ones that changed the shipped code:
+### 3. The fixture that could not have caught it
 
-- **CRITICAL (test-integrity lens, who ran its own mutants):** S5 as first written proved
-  *export→export* reuse, not *panel→export* — E3's recompute had refreshed the cache, so a
-  build whose panel computations left nothing reusable (the exact scenario the fix exists
-  for) stayed green. Fixed by running S5's regenerate leg FIRST; the leg order is
-  load-bearing and mutation-proven. **In-loop lesson, on the record:** the reorder was
-  documented in three docs before it had actually been applied, and the post-commit mutant
-  battery caught the gap — run the mutants even when the fix "obviously" landed (DEC-038).
-- The cache KEY had no killing mutation (a bare `if (_sumComputeCache)` shipped green) →
-  the E3 computes-delta gate (+1 across the post-switch export). After the retention fix,
-  the key check and the invalidate release became REDUNDANT defenses — the honest killing
-  mutation is their compound failure, measured red exactly there.
-- The qLen guard was replaced by provSig after a skeptic proved count-membership swaps are a
-  *steady state* under retained-degrade stamp freezes (one 429 → up to 30 min frozen), and
-  the skeptic's fix (content identity) strictly dominated mine (refuse-on-any-provisional).
-- Cache retention: released in `ciInvalidate`; never written with a null stamp (13 platforms
-  + degraded sessions would pin an unreadable copy of the conversation).
-- S5 settle guards (4 of 5 lenses): an index reload mid-block re-mints the stamp and turns a
-  correct refusal into a spurious red in the one assertion measuring the *absence* of work.
-- The probes/README live procedure would have halted the owner at the DEC-027 identity guard
-  against the fix build (expected `v12.3`; promised a run#3 the cache-hit removes) — fixed
-  to be version-explicit and to document the healthy no-run#3 outcome.
-- Mount-window snapshot (entities/inventory freeze at generate-time on a hit): skeptic-
-  bounded (≤7% of messages; entities describe only the ~3-5 mounted turns in EITHER build),
-  judged *better* than v12.3 on the only user-visible axis (exported counts match the open
-  panel exactly — same object), accepted + documented rather than keyed-on-mount.
+The virtualized fixture repeated one sentence 40 times. A conversation with no topic changes
+cannot distinguish a segmenter that correctly finds none from one that invents dozens — **which is
+how fixed 3-message chunking survived v12.5's entire review, six Codex rounds included.** The
+indexed entry's fixture now carries three topic blocks, applied identically to the mock DOM and
+the API payload so row-to-path matching stays byte-exact. The map recovers them exactly
+(`starts [0, 27, 55]` against true changes at 27 and 55) and **S1b asserts those positions**, so
+it gates segmentation quality rather than mere attachment. The shipped defect is measured red
+against it.
 
-### 4. Five GitHub Codex rounds — 5 findings, 0 false positives, all in arc-written code
+### 4. Six Codex rounds — every finding real, one deferred by decision
 
-Round 1: provSig's 200-char truncation (the `_sumElKey` lesson recurring) + the probe's
-recompute tag-vs-delta mis-attribution. Round 2: normalization collisions (`array[x]` vs
-`arrayx`) → raw text. Round 3: **explicit clean**. Round 4 (drawn by a docs push; owner
-dispositioned as minor, fixed anyway): probe JSON lost cache-hit export totals; U+0001
-delimiter forgery → length-prefix framing. Round 5 (post-live-confirm, owner authorized +
-re-confirmed): release the cache at `ciBuildIndex`'s commit — a same-conversation rebuild
-made the cache permanently unreadable without releasing it. **The identity-key ladder
-(truncation → lossy normalization → delimiter ambiguity) is DEC-038's core lesson.**
-Zero findings ever landed in the v12.4 core or anything Tier 3 had passed — the v12.3
-pattern (local Tier 3 pre-empts the loop on frozen code) held.
+Rounds 1–6 produced 10 findings (P2/P3 only, no majors), round 7 clean. Three deserve to outlive
+the PR:
 
-### 5. Two live confirmations (owner, Firefox + Tampermonkey, GM-sandbox, visible tab)
+- **A cutoff no segment could clear.** For g depth values the largest achievable standardized
+  distance is `sqrt(g−1)`; a 12-message segment yields 7 gaps, so `mean + 2.5·sd` was
+  unclearable and the split the entry condition advertised was impossible. Verified numerically.
+- **The same statistic failing the other way.** Ten disjoint runs give nine equally deep valleys
+  which inflate `sd` until the bar sits *above* them. Both failures are one shape: **a rule that
+  flags outliers against a spread computed from the same data moves its bar with the thing it is
+  measuring.** The z-score is gone.
+- **"Merge into the most similar neighbour" runs away.** A merged block's topic list is a union
+  that overlaps with everything, so it wins on merit against every later run and is never
+  `smallest` itself: `[48, 6, 6]`. Now size-first. **The top level still uses the pair rule and
+  the owner's live map shows its signature — segments of 8, 20, 181, 80, 81.**
 
-**First** (pre-round-5 build): banner gone; dedup 1ms over 1,135 candidates; export HIT
-11ms; an inadvertent same-day v12.3 control run (owner had been testing 12.3 believing it
-was 12.4) made the contrast unambiguous. **Second** (round-5 head `ce26aa6`, full 7-point
-checklist): HIT at 3ms; after a live send the index rebuilt g2→g4 and the export line read
-**`cached=null`** — the round-5 release observed directly; one recompute (8.2s) and a
-correct file; jumps landed (row 0 direct; row 178 via 3 bridge iterations). Also observed,
-pre-existing: the renderable-entry predicate off-by-2 diagnostic (predicted 294 vs
-aria-setsize 296) with its measured-anchor fallback holding.
+**Deferred by owner decision (see §G.1):** `_sumTokenize` strips `[^a-z0-9\s]`, so Korean and
+Russian conversations produce **zero tokens** and accented Latin is mangled.
 
-**The honest residual, measured live twice:** generate 7.7–8.8s, ~93% in `phase.map` —
-**431 `_sumBuildSubSegments` rebuilds and 3,895 `_sumExtractTopicsFromText` extractions over
-27.1M chars in ONE generate** (`_sumMergeExcessSegments` alone 5.2–6.0s). The synthetic
-payload's topic-block structure produces few segments and structurally underrepresents this.
+### 5. A second CI variant, documented
+
+`webkit on macos-latest` wedged four times across three heads: healthy per-entry times, then
+silence, **no assertion output at all** — a different shape from DEC-036's `got null` episodes,
+and requeue-once did not clear it. What ruled out the code was an identity, not an argument: the
+userscript, `tests/` and `.github/` are byte-identical between the two heads that PASSED this job
+and the three that wedged. It resolved on its own after ~65 minutes.
 
 ---
 
 ## C. Architecture snapshot
 
-Unchanged except: **the Summary compute cache** (`_sumComputeCache` + `_sumProvSig` +
-`data-acn-sum-computes`; design + invariants in DEC-038) and **`probes/`** as a permanent
-measurement surface (instrumented-build generator + payload generator + Playwright runner;
-build artifacts and results git-ignored; owner's installable copy lives on the Desktop as
-`probeE-summary-perf-v12.4.user.js` and must be REBUILT whenever a different build is being
-measured — DEC-027's wrong-build trap fired once this session and was caught by the
-identity line).
+Unchanged except the conversation map's second level, which is now a real segmentation stage
+rather than fixed-size chunking: `_sumMessageVocabs` / `_sumBlockVocab` / `_sumSetOverlap` /
+`_sumCohesionCuts` feed `_sumBuildSubSegments`, and `_sumAttachSubSegments` attaches the result
+once per surviving segment. `_sumWordOverlap` is deliberately untouched — key-point dedup and the
+TOP-level segmentation are calibrated to it, and the top level is the owner's call to change.
+`probes/` gained a map harness and a unit-check surface.
 
 ---
 
 ## D. Key principles established
 
-- **Identity keys must be lossless** (DEC-038): truncation, case/whitespace folding,
-  markdown flattening, and bare delimiters each traded a harmless false-miss for a harmful
-  false-hit, found across three separate review rounds. Length-prefix framing ends the
-  ladder. Corollary: a cache must be *released* wherever its key dies, or it is a pinned
-  copy wearing a cache's name.
-- **A redundant defense changes the killing mutation** (DEC-038): after the invalidate
-  release landed, the bare-key mutant was absorbed — the gate's honest mutation became the
-  compound. Re-derive killing mutations after every fix that adds a second defense.
-- **Documenting a fix is not applying it**: the S5 reorder existed in three docs before it
-  existed in the harness; only the mutant battery noticed. DEC-037's class, self-inflicted
-  mid-review, caught by running mutants against the commit.
-- **The probe identifies itself or the measurement is void**: build tag + version + realm +
-  granularity in the first console line; the owner's wrong-build run was caught by its
-  absence.
-- **Owner process update:** plan-first was explicitly relaxed to *execute-and-narrate*
-  ("I am okay with you just executing, as long as you tell me"); merge delegation is per-PR
-  and explicit; DEC-029's diminishing-returns stop was exercised by the owner mid-cycle
-  ("if they're pretty minor, no need for the next round").
+- **A statistic must be drawn from the population it is applied to.** Three defects in one
+  function were this shape: too few samples hid a lone outlier, too many outliers hid each other,
+  and ineligible candidates set a bar they could never meet. When introducing a metric, ask what
+  values it can actually take.
+- **A fixture with no structure cannot gate a structure-finding feature.** Ask what the fixture
+  would have to contain for the feature to be *wrong in a visible way*.
+- **Deriving a bound only helps if the derivation is checked.** A hardcoded 12 that was
+  accidentally right was replaced with a computed 14 that was wrong.
+- **A check that straddles its own threshold proves nothing.** The edge-valley repro passed twice
+  — once because edge valleys are structurally shallower, once by a margin of 0.033 — before the
+  depth curve was dumped and a decisive case constructed.
+- **The owner's read of a fix can outrank its measurements.** "You're just picking another number"
+  preceded the evidence that the number could not transfer.
 
 ---
 
 ## E. Git state
 
-`main` @ `3a1ef00` pre-merge (v12.3 + probes + docs). **PR #66 (`fix/summary-perf-v12.4`)
-carries v12.4 and merges at the close of this session** — CI 9/9 on every head including the
-final one, Codex clean, DEC-031 satisfied twice (the merge candidate's userscript is the
-byte content the owner re-confirmed; commits after `ce26aa6` are docs-only). #61–#65 all
-merged. After the merge, `main` serves v12.4 and the owner's raw `main` link is current.
+`main` @ `eacb24a` (v12.5, PR #67 merged by the owner). **PR #68 (`fix/map-subsegments-v12.6`)
+carries v12.6 and merges at the close of this session** — 15 commits, CI 9/9, Codex clean, synced
+with main (content-identical merge; the branch was BEHIND only in graph topology).
 
 ---
 
@@ -194,80 +165,75 @@ merged. After the merge, `main` serves v12.4 and the owner's raw `main` link is 
 | Path | Why |
 |---|---|
 | `HANDOFF.md` | this file |
-| `reviews/review-2026-07-31-v12.4-perf.md` | the full review arc: Tier 1/2/3, 5 Codex rounds, both live confirmations |
-| `TROUBLESHOOTING.md` → Summary-freeze entry | the complete measurement record: synthetic + live, before + after, both contexts |
-| `DECISIONS.md` DEC-038 | the compute-cache design + identity-key rules |
-| `ROADMAP.md` item 11 | the residual map-churn lever with live numbers |
-| `TESTING.md` → Summary/Export fixtures | S5/E3 gate semantics + the recorded debts |
-| `probes/README.md` | both measurement paths; Path A is the live procedure |
+| `DECISIONS.md` DEC-039, DEC-040 | the deferred attach, and the cohesion-valley design with every rejected alternative |
+| `TROUBLESHOOTING.md` → the two map entries | measurement records, synthetic + live, before + after |
+| `ROADMAP.md` items 0, 0a, 0b, 11 | what is open, what is closed, and the owner's ranking rule |
+| `probes/check-subsegments.js` | seven unit checks on shapes no fixture produces |
+| `probes/README.md` Path C | the map harness and its equivalence gate |
+| `reviews/review-2026-08-01-v12.5-map.md` | the v12.5 review arc |
 
 ---
 
 ## G. What comes next
 
-1. **The map's segment-merge churn** (ROADMAP item 11 residual — v12.5-vs-v13 is the owner's
-   call). Live: 431 sub-segment rebuilds + 3,895 topic extractions over 27.1M chars per
-   generate; `mergeExcess` alone 5.2–6.0s. Specific questions queued: (a) how many initial
-   segments does the live conversation produce pre-merge (instrument the segment count — one
-   probe counter)? (b) does per-message token memoization preserve output exactly? The known
-   edge: `tokenize(join(a,b)) ≠ union(tokenize(a),tokenize(b))` when an unterminated code
-   fence spans a join — measure whether that occurs in practice before choosing the lever.
-   (c) is the win sufficient without restructuring the merge loops (O(S²)-flavored
-   agglomerative pass)? Target: generate under ~2s live.
-2. **Carried-over fixture batch, now grown:** unmatchable-cluster/HEAD, assistant-TAIL,
-   GM-shim backoff (incl. malformed JSON), exportBookmarks (failure mode is toast now) — plus
-   this session's additions: a **forced-refetch shim knob** (gates the ungated
-   same-conversation stamp-bump refusal), a **provisional-turn knob** (stages the provSig
-   half of the cache key), a key-point-bearing payload knob (the dedup early-stop has no
-   fixture that could catch a wrong result — currently equivalence-argument + byte-diff).
-3. **Smaller recorded items:** thread the index's existing `toolBlocks` extraction into the
-   summary's unmounted inventory branch (shrinks the mount-window divergence at its source);
-   the renderable-entry predicate off-by-2 (live-observed, fallback holding — revisit the
-   stop_reason predicate when touching that area); `renderSummaryResults` throw strands the
-   generate button (pre-existing, one try/finally away).
-4. **Backlog unchanged behind those** (Retry-After 429, §4.2 offset-cache reassessment, peek
-   pane, mock-fidelity generator, debulking, Emergent deprioritized, Gemini re-chain closed).
+1. **The tokenizer (v12.7 — owner-scheduled this session).** `_sumTokenize` strips
+   `[^a-z0-9\s]`: **Korean and Russian produce zero tokens** (verified), accented Latin is
+   mangled (`café` → `caf`). Every content-derived Summary feature is dead for those
+   conversations, and the product ships Korean UI strings. ES5 fix sketch and its real limit
+   (CJK is not space-separated, so a character class is not enough) are in ROADMAP 0a. **Own arc,
+   with measurement and a live check** — it changes topics, key points and dedup for every user.
+2. **v12.6's live look.** Do the sub-rows read as distinct topics, and is ~7 rows for a
+   180-message segment the right density? `SUB_MAX` is the density knob, `DEPTH_SHARE` the
+   sensitivity one; both one-liners.
+3. **The top level's runaway merge** (ROADMAP item 0). Same pair-merge rule that produced
+   `[48, 6, 6]` at the sub level; the owner's live map shows `8, 20, 181, 80, 81`. The fix is the
+   same smallest-first change. Owner reports the top level as satisfactory, so this is their call.
+4. **Carried-over fixture batch** — unmatchable-cluster/HEAD, assistant-TAIL, GM-shim backoff
+   (incl. malformed JSON), exportBookmarks, forced-refetch knob, provisional-turn knob, key-point
+   payload knob — plus the recorded small items (toolBlocks into the unmounted inventory,
+   renderable-predicate off-by-2, `renderSummaryResults` try/finally).
+5. **Backlog unchanged behind those** (Retry-After 429, §4.2 offset-cache reassessment, peek pane,
+   mock-fidelity generator, debulking; Emergent deprioritized).
 
 ---
 
-## H. Operational context + owner rules (standing + this session)
+## H. Operational context + owner rules
 
-- **Execute-and-narrate** replaces plan-first (owner, this session): act autonomously,
-  report every significant action clearly. Formal gates unchanged: DEC-031 (live-code
-  merges need live confirmation of the exact head — exercised TWICE this session, including
-  for a one-line memory-only change), owner merge authority unless explicitly delegated
-  per-PR (as with #64/#65/#66).
-- **Review-cycle stop is the owner's, on provenance** (DEC-029, exercised live): when
-  remaining findings are minor and loop-era, fix cheap ones without triggering another
-  round.
-- The owner tests on **Firefox + Tampermonkey**; probe builds must be regenerated per
-  measured build and live on the Desktop (`probeE-…`); the raw `main` link serves the
-  installed script post-merge.
-- Explicit `git add` paths, never `-A`; commit-before-mutating; suite before push.
+- **Correctness outranks further optimization** (owner, this session, now a standing ranking rule
+  in ROADMAP): *"making sure our core functions and features are useful and functioning is more
+  important to me than making 1.2 secs into 0.5 secs."* When a performance idea competes with a
+  coverage or correctness gap, the gap wins.
+- **Item 11 is closed at ~1.2s by owner decision.** The unspent lever (827ms in the five surviving
+  `_sumBuildSubSegments` calls) is recorded with the only condition that should reopen it: a
+  conversation large enough to put the banner back — not a wish for a smaller number.
+- **Execute-and-narrate** stands. Merge authority is per-PR and explicit (#67 merged by the owner;
+  #68 authorized this session). DEC-031 live-confirm gates live-code merges.
+- **Stop review loops on provenance** (DEC-029) — with the exception exercised this session: a
+  loop-era finding that *weakens the evidence for the shipped change* earns another round.
+- The owner tests on **Firefox + Tampermonkey**; probe builds are per-measured-build (DEC-027).
+- Explicit `git add` paths, never `-A`; commit before mutating; suite both engines before push.
+
+---
 
 ## I. Deferred / future work
 
-All of §G items 2–4 (each self-contained in ROADMAP/TESTING). Stage-2 legacy-bookmark sweep
-unchanged. The `overflow-anchor: none` mock assumption remains unverified (carried).
-
-## J. Risk caveats / known limitations
-
-- **Mount-window snapshot on cache hits** (documented, accepted): a cache-hit export carries
-  generate-time entities/inventory — identical to what the open panel shows, but not the
-  export-time window. Bounded ≤7% of messages; pre-existing in mechanism (tool/artifact
-  answers render more than their API text). `toolBlocks` threading shrinks it (§G.3).
-- **The same-conversation stamp-bump refusal is ungated** in the harness (needs the
-  forced-refetch knob) and **provSig is unstaged** (needs the provisional knob) — both
-  behaviors verified live instead this session (`cached=null` at g2→g4; provSig.len visible
-  in the cache line), but live verification is per-run, not regression protection.
-- **The byte-identical export diff is text-branch-scoped** — it cannot see mount-window
-  divergence (mock renders no pre/img/a; no scroll between generate and export). Recorded
-  in TESTING.md; do not re-cite it as a general equivalence proof.
-- **webkit-on-macos runner episodes** (DEC-036) had ZERO occurrences across ~6 CI runs this
-  session — the healthy signature throughout; the requeue-once procedure remains armed.
+All of §G items 3–5. The tokenizer (§G.1) is scheduled, not deferred. The `overflow-anchor: none`
+mock assumption remains unverified (carried).
 
 ---
 
+## J. Risk caveats / known limitations
+
+- **The v12.6 thresholds are validated on synthetic ground truth**, whose topic blocks are
+  lexically disjoint by construction. Real conversations drift, revisit and interleave. What is
+  established is the MECHANISM and that the *relative* cutoff transfers across text shapes; the
+  exact values are a live judgement, which is why §G.2 exists.
+- **Non-ASCII conversations get no map second level at all** — correctly, since cohesion is zero
+  everywhere, but the feature is unavailable rather than degraded (§G.1).
+- **The top level shares the sub level's old merge pathology** and is unchanged (§G.3).
+- **webkit-on-macos has two documented failure variants now** (DEC-036 + the silent wedge in
+  TESTING.md). Requeue-once clears the first; the second cleared itself after ~65 minutes.
+
 ## K. Kickoff prompt for the next session
 
-(maintained in the final summary of the baton-handoff run; paste-ready copy lives there)
+(maintained in the final summary of this baton-handoff run; paste-ready copy lives there)

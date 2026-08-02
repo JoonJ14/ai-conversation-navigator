@@ -30,7 +30,13 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.1 — MERGED and live-confirmed (2026-07-29)
+## Current Status: v12.6 — the map made fast, then made correct (2026-08-01)
+
+**v12.5 (PR #67, merged) + v12.6 (PR #68)** — Summary generate went 7.7–8.8s → ~1–2s live, and the
+conversation map's second level went from fixed 3-message chunking to real topic detection. See
+`HANDOFF.md`, DEC-039/DEC-040, and items 0 / 0a / 11 below. Suite 1058/1058 both engines.
+
+### Earlier: v12.1 — MERGED and live-confirmed (2026-07-29)
 
 The extension supports 14 platform variants across 12 websites.
 
