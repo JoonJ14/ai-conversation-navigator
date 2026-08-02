@@ -139,6 +139,29 @@ old class replaced them with a space, keeping them **glued tokens that used to s
 `1920×1080` tokenized as one token instead of two. The shipped class uses three sub-ranges
 (`À-ÖØ-öø-ɏ`) and `probes/check-tokenizer.js` T9 gates it.
 
+### Also in this release — the Tools and Plan usage panels were never translated
+
+Found during the owner's live check. **Thirteen Korean strings existed in `I18N.ko` and none
+was ever read**: the Tools panel rendered English literals regardless of the language setting,
+so Image Gallery, Exports and the three export options stayed English for a Korean user whose
+interface was otherwise fully translated. All are now wired through `i18n()`, plus a new
+`exports` key — **파일 내보내기**, the owner's wording.
+
+The **Plan usage** panel had the same defect and is done too. Its reset phrase was built by
+concatenation (`'resets ' + day + ' ' + time + ' ' + ampm`), which cannot produce correct
+Korean because the meridiem goes BEFORE the time (오후 3:05). It now uses `{placeholder}`
+templates through `i18n(key, replacements)` — a capability the helper always had.
+
+English is unchanged: `formatResetTime` was run over **58 cases** — every minute-bucket
+boundary and every weekday × hour combination reaching the date branch — against the
+pre-change build, with **0 differences**.
+
+Left English **by owner instruction**: the `/Commands` section. "Slash command" reads as its
+own noun and translating it would confuse rather than help.
+
+Also fixed: an existing Korean string said *더 많은 도구가 **곳** 추가됩니다* — 곳 is "place";
+it should be 곧, "soon".
+
 ### Known limit, stated on purpose
 
 Fixed for **English and Korean**. Japanese and Chinese are *not* space-separated, so no
