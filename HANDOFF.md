@@ -257,6 +257,13 @@ changed what those functions *see*, never what they do. `probes/` gained
 - **A filter repeated downstream is a second place for the same assumption to be wrong.**
   The English length rule was written three times; fixing the tokenizer alone still left two
   copies deciding that no 2-syllable Korean noun could be a topic at any frequency.
+- **Correcting a claim means grepping for every restatement of it — this bit four times in one
+  session.** The tokenizer score survived in the code comment beside the rule it contradicted;
+  "Tier 3 delivered nothing" survived in an experiment-log row below its own retraction; the key
+  count survived in the two DURABLE surfaces after I fixed the two narrative ones; and the
+  "five keys to fix" framing survived in HANDOFF §G — the first thing a new session reads —
+  after I corrected ROADMAP, conventions and DEC-042. Every one was caught by review, none by me.
+  The habit to build: after changing a number or a framing, grep the phrase, not the paragraph.
 - **State an effect's real size, especially your own fix's.** Removing those copies makes a
   frequent short word *eligible*; bigram weighting still decides whether it wins. The first
   draft of this handoff said Korean topics were "all bigrams" because of the filters — they
@@ -324,11 +331,15 @@ longer possible by the time the work was done.
    strength of the synthetic observation alone. The same check surfaced the panel-i18n defect
    (§B.6), which is the shape to expect from live checks generally: they find the thing you did
    not think to measure, not the thing you did.
-2. **Five i18n keys are still never called** (ROADMAP 0c): `questionPrefix`, `noQuestions`,
-   `summaryLanguageNote`, `noBookmarksToExport`, `usageUnavailable`. Each renders English to a
-   Korean user today; each is a one-line wiring fix. Found by the v12.7a audit, deliberately
-   out of scope there because that change was bounded to the two panels the owner reported.
-   **Not to be confused with the nine `/Commands` keys, which are dead on purpose.**
+2. **Five i18n keys are never called — and that is a QUESTION, not a work item** (ROADMAP 0c):
+   `questionPrefix`, `noQuestions`, `summaryLanguageNote`, `noBookmarksToExport`,
+   `usageUnavailable`. They render English in Korean mode. **The owner reviewed Korean mode live
+   and is satisfied with it:** *"some things are actually better to stay in english than force
+   translation to korean when they can understand some english… i am fine with how the korean
+   mode looks."* So do **not** pick this up as a batch. If it is picked up at all, it is a
+   per-string judgement — does Korean help *that* label? — and driving the dead-key audit to
+   zero is explicitly not the goal. The nine `/Commands` keys are the settled case of the same
+   principle.
 3. **Key points are still unavailable in Korean**, for a different mechanism this arc does
    not reach: `KEY_POINT_PATTERNS` is a set of English regexes. Recorded in ROADMAP 0a, not
    fixed here. It needs its own Korean pattern set and its own measurement.
@@ -376,8 +387,8 @@ All of §G items 2–5. The `overflow-anchor: none` mock assumption remains unve
   panel open, the exports section is built at injection. Owner-accepted (DEC-042), and the
   `languageChanged` toast already says "refresh to apply". Do not "fix" it without re-opening
   that decision.
-- **Five i18n keys still render English to a Korean user** (ROADMAP 0c). Known, scoped out, not
-  forgotten.
+- **Five i18n keys render English in Korean mode** (ROADMAP 0c) — known, and **accepted by the
+  owner**, not merely deferred. Partial English in Korean mode is a preference, not a defect.
 - **The Korean payload is generated, not real.** Its particle distribution is modelled
   (받침-correct), but its sentences are vocabulary-driven word salad, exactly like the English
   payload. A real Korean conversation mixes English technical terms far more heavily.
