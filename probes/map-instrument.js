@@ -115,7 +115,15 @@ const BLOCK = `
                     topics: _sumExtractTopicsFromText(texts[i], 5)
                 });
             }
-            return JSON.stringify(out);
+            // The AGGREGATE extractor as well, not just the per-text one. They are
+            // separate functions with separately-written length rules, so a check that
+            // drives only _sumExtractTopicsFromText leaves _sumExtractTopics ungated —
+            // a mutant restoring the length guard in just that one would pass
+            // (GitHub Codex, PR #70). Shaped as the real caller shapes it: questions
+            // weighted 1.5, assistant responses 1.0.
+            var globalTopics = _sumExtractTopics(
+                texts.map(function (t) { return { text: t }; }), []);
+            return JSON.stringify({ perText: out, globalTopics: globalTopics });
         };
 
         // Direct access to the sub-segment builder. The map harness drives whole

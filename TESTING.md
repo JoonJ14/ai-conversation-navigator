@@ -782,9 +782,12 @@ this are gated by two platform-config flags:
   **This is not a hole to paper over in the fixture**: making a 2-syllable unigram outrank
   a 40x-repeated bigram would mean distorting the fixture until it stops resembling a
   conversation. The properties are gated where they can be gated directly — `check-tokenizer.js`
-  **T4** (tokenizer keeps them) and **T12** (they reach the topic list) — and those probes
-  now run in CI (`.github/workflows/cross-platform-tests.yml`, ubuntu+chromium). T4 kills
-  mutant (a); T12 kills both. Verified: both mutants exit 1.
+  **T4** (tokenizer keeps them) and **T12** (they reach the topic list, in **both**
+  extractors — `_sumExtractTopicsFromText` feeds segment labels, `_sumExtractTopics` feeds
+  the Summary's overall Topics list, and each carried its own copy of the English length
+  rule, so asserting one leaves the other ungated) — and those probes now run in CI (`.github/workflows/cross-platform-tests.yml`, ubuntu+chromium). T4 kills
+  mutant (a); T12 kills both, and also kills each HALF-mutant that restores the guard in
+  only one extractor. Verified: all four mutants exit 1.
 
   **Killing mutation, MEASURED (not asserted) 2026-08-02:** run this entry with
   `ACN_SCRIPT=<pre-v12.7 build>` and K1a reports `0 topics: []` while K1b reports `starts []`

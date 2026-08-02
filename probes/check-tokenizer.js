@@ -197,8 +197,9 @@ const LAT_NFD = 'The café was naïve about résumé parsing.'.normalize('NFD');
     await page.goto(targetURL, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await page.waitForFunction('typeof window.__acnTokenizeRun === "function"', null, { timeout: 30000 });
 
-    const tok = async (texts) => JSON.parse(await page.evaluate(
+    const tokRaw = async (texts) => JSON.parse(await page.evaluate(
         (j) => window.__acnTokenizeRun(j), JSON.stringify(texts)));
+    const tok = async (texts) => (await tokRaw(texts)).perText;
 
     let failures = 0;
     const check = (name, ok, detail) => {
@@ -344,9 +345,16 @@ const LAT_NFD = 'The café was naïve about résumé parsing.'.normalize('NFD');
     // T4 already covers the tokenizer; this covers everything between the tokenizer and
     // what a user reads. Both must hold, and only this one fails when the downstream
     // re-checks come back.
-    check('T12 a 2-syllable Korean noun can become a topic, not just a token',
-        koUni.topics.indexOf('인증') !== -1,
-        `topics [${koUni.topics.join(', ')}]`);
+    // BOTH extractors. They are separate functions that each carried their own copy of
+    // the English length rule, so asserting one leaves the other ungated — a mutant
+    // restoring the guard in only `_sumExtractTopics` passed the first form of this
+    // check (GitHub Codex, PR #70). `_sumExtractTopicsFromText` feeds segment and
+    // sub-segment LABELS; `_sumExtractTopics` feeds the Summary's overall Topics list.
+    // A user would see the regression in either.
+    const koUniGlobal = (await tokRaw([KO_UNIGRAM])).globalTopics;
+    check('T12 a 2-syllable Korean noun becomes a topic in BOTH extractors',
+        koUni.topics.indexOf('인증') !== -1 && koUniGlobal.indexOf('인증') !== -1,
+        `perText [${koUni.topics.join(', ')}] | global [${koUniGlobal.join(', ')}]`);
 
     console.log(`\n${failures ? failures + ' FAILED' : 'all checks passed'}\n`);
     await context.close();
