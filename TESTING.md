@@ -355,15 +355,17 @@ it is at least two. Orbital platforms run 14 tests each; legacy platforms 13 eac
 
 **Test 14** catches rendering failures in the orbital cluster — if any dot fails to build, the entire cluster is broken for that platform.
 
-### The two virtualized Claude entries
+### The core virtualized Claude entries
 
-Both use `claude-virtualized.html`. They differ in one thing: whether a `GM_xmlhttpRequest`
-fixture is injected.
+All use `claude-virtualized.html`. The first two differ in one thing: whether a
+`GM_xmlhttpRequest` fixture is injected. The third differs only in the LANGUAGE of the
+fixture text (v12.7).
 
 | Entry | Fixture | Index builds? | Panel shows | Proves |
 |---|---|---|---|---|
 | `Claude (virtualized)` | none | no — degrades | 3 (mounted window) | the fallback is visible, not silent |
 | `Claude (virtualized + index)` | yes | **yes** | **40** (whole conversation) | the primary path works end to end |
+| `Claude (Korean conversation + index)` | yes | **yes** | **40**, in Korean | the tokenizer reads the product's only translated language (v12.7) |
 
 The fixture entry is what makes the v12.0 feature testable at all. Before it, the harness
 had no GM APIs, so org resolution, `ciBuildIndex`, active-path branch filtering, index-backed
@@ -741,6 +743,54 @@ this are gated by two platform-config flags:
   `_sumBuildSubSegments` returns `[]` there regardless), and attach ORDER relative to
   `_sumMergeExcessSegments` is gated by the map harness rather than here, since every mock
   produces one top-level segment and never merges.
+
+- `koreanSummaryTest: true` (on *Claude (Korean conversation + index)*) runs **K1a-K1c** — the
+  suite's only non-English entry, added in v12.7 with the tokenizer fix (DEC-041).
+  **Why it exists:** `_sumTokenize` stripped `[^a-z0-9\s]`, so a Korean conversation produced
+  ZERO tokens and every content-derived Summary feature was silently empty for the product's
+  only translated language. Every fixture in the suite was written in English, so nothing in CI
+  could see it — the same "structurally cannot fail" shape as the pre-v12.6 sub-segmenter.
+  The entry mirrors *Claude (virtualized + index)* exactly: `lang: 'ko'` on both `mockConfig`
+  and `gmFixture`, same 80 messages, same three topic blocks at the same turns.
+  **K1a** asserts topics exist AND every one **contains Hangul**. The second half is the
+  load-bearing one: the fixture also contains ASCII turn numbers, so a tokenizer that picked up
+  only those would render a non-empty topic list made entirely of noise and a
+  "topics are non-empty" gate would pass on a broken build.
+  **K1b** asserts sub-segment starts at `[0, 27, 55]` — the SAME positions, from the same topic
+  rule, that S1b asserts in English. That makes it a gate on segmentation *quality* in Korean
+  rather than on mere presence.
+  *Expect K1a's reported topics to be BOILERPLATE, e.g. `질문 입력`, `입력 값이`.* Every fixture
+  question shares one base sentence, so its words are the highest-frequency terms in the
+  conversation and they dominate the global topic list. That is a property of the fixture, not
+  of the tokenizer, and it is symmetric — the English entries produce `question number` and
+  `handle case` for the same reason. K1a is deliberately a check on *what script the terms are
+  in*, not on whether they are interesting; K1b is what gates whether the topic BLOCKS were
+  actually found. Do not "fix" K1a by asserting specific topic words: they would be asserting
+  the fixture's preamble.
+  **K1c** asserts the Summary still covers the full 81-entry index with <40 turns mounted, so a
+  Korean user is not quietly on the Layer 4 degraded path.
+  **Killing mutation, MEASURED (not asserted) 2026-08-02:** run this entry with
+  `ACN_SCRIPT=<pre-v12.7 build>` and K1a reports `0 topics: []` while K1b reports `starts []`
+  against the expected `[0, 27, 55]` — 2 of 31 red. **K1c stays green under that mutation, and
+  that is correct:** it gates Layer 4 index coverage, which no tokenizer change touches. Only
+  K1a and K1b are tokenizer-gated; stating all three would overclaim the gate.
+  **Why the BASE text is Korean too, not just the topic sentence:** built on the English base
+  text (`Question number N: how do I handle...`), every message would still hand the old
+  tokenizer English tokens, and the fixture could not have gone red. Three generic Claude
+  assertions that identify a resolved row by its question text are parameterized on the
+  fixture language for the same reason (`qPat`/`qAnyPat` in `testPlatform`); every English
+  entry takes the unchanged branch.
+  **Deliberately NOT the full S1-S4/E1/E3 battery:** those assert on English fixture text, and
+  re-expressing them in Korean would gate the same jump and export machinery twice while
+  gating the tokenizer once.
+  **Unit-level companion:** `node probes/check-tokenizer.js` drives `_sumTokenize` directly
+  (via the map probe's `__acnTokenizeRun`) — 9 checks, two of which are there to stop a claim
+  drifting rather than to catch a bug: **T8** asserts the LIMIT that Japanese stays coarse, so
+  "Korean works" cannot later be re-described as "Unicode support"; **T9** asserts that × and ÷
+  SPLIT tokens rather than glue them, gating the Tier 3 finding that those two characters are
+  the only non-letters inside `\u00c0-\u024f` and that writing the range as one span makes
+  `1920×1080` a single token. T9 checks the split, not the absence of the characters — a build
+  that dropped the whole run would pass the weaker form.
 
 - `degradedExportTest: true` (on *Claude (virtualized)*) runs **E2**: the export must carry
   the DEGRADED source label and a header total EXACTLY equal to the derived window size

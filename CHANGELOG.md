@@ -4,6 +4,119 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.7 — The Summary Tokenizer Can Read Korean] — 2026-08-02
+
+**Branch:** `fix/tokenizer-korean-v12.7`
+
+### Problem
+
+Raised by GitHub Codex during PR #68 review, pre-existing since the Summary was built:
+`_sumTokenize` stripped `[^a-z0-9\s]`, so a conversation written in **Korean produced ZERO
+tokens**. Korean is the product's only translation (`I18N.ko`, added for one specific user) —
+that user got a fully translated interface wrapped around a Summary in which *every*
+content-derived feature was silently empty: topics, key points, deduplication, and both
+levels of the conversation map. Nothing errored; the panel simply had nothing in it.
+
+The same strip also damaged **English**, which was documented as `café` → `caf` but measured
+worse than that:
+
+| written | tokenized as | |
+|---|---|---|
+| `café` | `caf` | truncated |
+| `naïve` | — | **vanished** (both fragments below the length floor) |
+| `résumé` | `sum` | **became a different, real English word** |
+| `déjà vu` | — | vanished |
+
+`résumé` → `sum` is the one that matters most: it is not data loss but data *corruption* — a
+word that was never written enters the topic list and competes for a slot.
+
+### Root cause
+
+Two separate English assumptions, only the first of which was on the roadmap.
+
+1. **The character class.** `[^a-z0-9\s]` is a whitelist of ASCII. Hangul, and every Latin
+   letter carrying a diacritic, was replaced with a space.
+2. **The length filter.** `w.length > 2` encodes "2-letter words are function words", which
+   is true of English (*of, to, is*) and false of Korean, where the most common **content**
+   words are exactly two syllables — 인증 (auth), 세션 (session), 토큰 (token), 권한
+   (permission). Fixing only the character class left the core vocabulary of the language
+   being discarded: **0 of 10** such nouns survived.
+
+### Approach
+
+Widen the class to `[^a-z0-9À-ɏ가-힣\s]` (ASCII + diacritic Latin +
+Hangul), and make the minimum token length a claim about morphology rather than characters:
+2 for tokens containing Hangul, unchanged at 3 for everything else.
+
+The same English length rule turned out to be written **three** times: `_sumExtractTopicsFromText`
+and `_sumExtractTopics` each re-tested it on words `_sumTokenize` had already filtered. For
+English those were exact no-ops; for Korean they discarded the 2-syllable words the tokenizer
+had just correctly kept, so no such noun could be a topic *at any frequency* — measured, a term
+occurring 8 times, more often than any bigram in the same text, was still absent, and ranks
+first once the re-check is gone. Both removed. Its scope, stated because it is narrower than it
+sounds: bigrams are weighted 2× and cover their own words, so they outrank unigrams in both
+languages; this makes a frequent short word *eligible*, it does not change the ranking.
+
+Five candidate tokenizers were built and scored against the payload generator's **known**
+topic changes, over four payload shapes on both engines (`probes/build-tokenizer-variants.js`
++ `probes/run-map-harness.js`). Layers were added cumulatively so each had to earn its place
+separately:
+
+| variant | true topic changes found (of 34) | spurious |
+|---|---|---|
+| shipped (ASCII only) | **12** — and only from incidental filenames/digits | **36** |
+| + wider character class | 31 | 10 |
+| **+ script-aware length (shipped)** | **32** | **7** |
+| + Korean stop-word list | 31 | 8 |
+| + particle normalization, with stop list | 29 | 12 |
+| + particle normalization, no stop list | 30 | 13 |
+
+Both of the "more thorough" layers were **measured and rejected** — see DEC-041 for why
+particle stripping tripled same-topic overlap and still made segmentation worse.
+
+### Verification
+
+- **Pure-ASCII English is provably unchanged**: 32/32 map fingerprints byte-identical
+  against an explicit pre-change ref, both engines, sizes 2/3/25/147 × vocab 1,4 × para 1,3.
+  The widened class can only *preserve* characters the old one dropped, and non-Hangul tokens
+  keep the old length rule exactly (`>= 3` is the same set as `> 2`), so a pure-ASCII token
+  stream is identical by construction — the fingerprints are the empirical confirmation.
+  **English containing accents deliberately DOES change**: that is the `résumé` → `sum`
+  corruption being fixed, not a regression. The map fingerprint covers segmentation, labels
+  and topics; global topics and key-point dedup sit outside it but read the same token stream,
+  so they are unchanged by the same construction.
+- **Korean is fixed**: 12/34 → 32/34 boundaries found, 36 → 7 spurious. Same-topic overlap
+  0.000 → 0.227 while cross-topic stays 0.000; 2-syllable nouns 0/10 → 10/10.
+- **New CI gate**: a `Claude (Korean conversation + index)` fixture, the suite's only
+  non-English entry. It asserts that topics are *Hangul* (not the incidental ASCII digits
+  the fixture also contains) and that the map recovers the fixture's three topic blocks at
+  the **same** entries the English fixture asserts — `[0, 27, 55]`. Measured red against the
+  pre-v12.7 tokenizer.
+- **New probe surfaces**: `probes/check-tokenizer.js` (8 checks incl. an explicit
+  limit-pinning one) and a `PAYLOAD_LANG` knob on the payload generator; the English payload
+  is byte-identical with the knob absent.
+
+### Found in review, before merge
+
+`À-ɏ` is very nearly "Latin letters with diacritics" — but `×` (×) and `÷` (÷) sit inside it
+and are the only two non-letters there. Written as a single span they were kept, and since the
+old class replaced them with a space, keeping them **glued tokens that used to split**:
+`1920×1080` tokenized as one token instead of two. The shipped class uses three sub-ranges
+(`À-ÖØ-öø-ɏ`) and `probes/check-tokenizer.js` T9 gates it.
+
+### Known limit, stated on purpose
+
+Fixed for **English and Korean**. Japanese and Chinese are *not* space-separated, so no
+character class can segment them — they would collapse to roughly one pseudo-token per
+sentence, and the map would draw structure out of noise instead of correctly finding none.
+Greek, Cyrillic, kana and Han are therefore deliberately excluded. This is not "Unicode
+support" and must not be described as such (DEC-041).
+
+Key points remain unavailable in Korean for a *different* reason this release does not touch:
+`KEY_POINT_PATTERNS` is a set of English regexes. Recorded in ROADMAP, not fixed here.
+
+---
+
 ## [12.6 — The Map's Second Level Actually Reads the Conversation] — 2026-08-01
 
 **Branch:** `fix/map-subsegments-v12.6`

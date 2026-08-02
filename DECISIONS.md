@@ -1864,3 +1864,134 @@ could not handle at all (short messages, wide vocabulary) this goes 2/8 → **8/
   v12.5 asked only "does the map still produce what it produced before?" — equivalence to a
   defective baseline is still equivalence. It took a human reading the panel. **When a metric is
   introduced, ask what values it can actually take.**
+
+---
+
+## DEC-041: The Tokenizer Keeps English and Korean — Two Languages Named, Not "Unicode Support" (v12.7)
+**Date:** 2026-08-02 | **Stage:** v12.7
+
+### Decision
+`_sumTokenize` keeps `a-z0-9`, Latin letters carrying diacritics (`À-ɏ`) and Hangul
+syllables (`가-힣`), and its minimum token length is **2 for tokens containing Hangul,
+3 for everything else**. Nothing else about the function changes.
+
+Two things this deliberately is NOT:
+
+- **Not a general Unicode fix.** Greek, Cyrillic, kana and Han are excluded on purpose. A
+  character class only produces tokens; whitespace has to produce the *boundaries*. Japanese
+  and Chinese are not space-separated, so widening the class for them turns a whole sentence
+  into one or two pseudo-tokens — and a map fed pseudo-tokens draws structure out of noise
+  rather than correctly finding none, which is **worse than the current empty result**.
+  Say which languages are fixed. `probes/check-tokenizer.js` T8 pins this limit as an
+  assertion so it cannot quietly be re-described later.
+- **Not a stemmer.** See the rejected alternatives.
+
+Scope is the product's, not an abstraction: the userscript ships **English (default) and
+Korean** (`I18N.ko`, added for one specific user). Diacritic Latin is in because *English*
+contains it, not because another language is being added.
+
+### Context — what was actually broken
+Korean produced **zero tokens**, so every content-derived Summary feature was empty for a
+Korean conversation: topics, key points, dedup, and both segmentation levels. The interface
+around it was fully translated, which is what made it look like a working feature with nothing
+to say rather than a broken one.
+
+The same strip damaged English more than the roadmap recorded. `café` → `caf` was known;
+measured, `naïve` and `déjà vu` **vanish entirely** (every fragment lands below the length
+floor) and `résumé` → **`sum`** — not truncation but substitution by an unrelated real English
+word, which then competes for a topic slot.
+
+**The length filter was the half nobody had noticed.** `w.length > 2` is an English rule:
+2-letter English words are function words. Korean's most common *content* words are exactly
+two syllables — 인증, 세션, 토큰, 권한 — so fixing only the character class still discarded the
+core vocabulary of the language (measured: 0 of 10 such nouns survived; 10 of 10 after).
+
+### Alternatives considered
+Five cumulative variants, each scored against the payload generator's KNOWN topic changes over
+four payload shapes on both engines (`probes/build-tokenizer-variants.js`):
+
+| build | found (of 34) | spurious |
+|---|---|---|
+| shipped ASCII-only | 12 | 36 |
+| wider class only | 31 | 10 |
+| **+ script-aware length (chosen)** | **32** | **7** |
+| + Korean stop-word list | 31 | 8 |
+| + particle normalization + stop list | 29 | 12 |
+| + particle normalization, no stop list | 30 | 13 |
+
+- **A Korean stop-word list:** built, measured, rejected. It made the score slightly *worse*
+  (32→31 found, 7→8 spurious). Fifty hand-picked words that nobody can maintain and that
+  bought nothing is strictly negative value.
+- **Particle (josa) normalization — the interesting rejection.** Korean attaches particles
+  directly to the noun, so one word appears as many strings (토큰이 / 토큰을 / 토큰은 / 토큰의).
+  Stripping them worked exactly as intended on its own terms: six surface forms collapsed to
+  one, and same-topic overlap went **0.227 → 0.450** while cross-topic stayed 0.000. It still
+  scored **worse** at the job the tokenizer exists for.
+  **Mechanism, because the counter-intuitive result is the point:** segmentation reads the
+  CONTRAST between adjacent blocks, not absolute cohesion. Collapsing surface forms raises
+  overlap *everywhere*, including between unrelated blocks that share ordinary words, so the
+  valleys the segmenter cuts on get shallower relative to the floor. It also moved the initial
+  segment count from ~278 to ~22 — putting Korean alone into a segment-count regime **nothing
+  in this project has ever been calibrated in**, while the chosen fix leaves Korean in the
+  same regime as English, which the owner has live-confirmed. Recorded rather than deleted:
+  the next person to look at Korean quality will think of this first.
+
+### Key properties
+- **PURE-ASCII English is provably unchanged, and that is a measurement rather than an
+  argument.** 32/32 map fingerprints byte-identical against an explicit pre-change ref, both
+  engines, four sizes × two vocabularies × two paragraph scales. The reasoning that predicts
+  it: a widened class can only *preserve* characters the old one dropped, and the length rule
+  for non-Hangul tokens is `>= 3`, the same set as `> 2`. Both halves were checked.
+  **Scope it precisely, because the unqualified claim is false:** English text containing
+  accents DOES change — that is the `résumé` → `sum` corruption being fixed. And the map
+  fingerprint covers segmentation, labels and topics only; global topics (`_sumExtractTopics`)
+  and key-point dedup (`_sumDeduplicatePoints` via `_sumWordOverlap`) sit outside it. They
+  read the same token stream, so the construction argument covers them — but the fingerprint
+  alone does not, and saying it does would overstate the evidence.
+- **A single configuration is not a measurement — demonstrated twice in this arc.** Particle
+  normalization scored 9/9 against 8/9 for the chosen fix at ONE configuration, and was
+  ahead on every intuition available (higher overlap, cleaner tokens, 10× fewer initial
+  segments, better-looking labels). Across four payload shapes it lost. The conclusion
+  reversed twice before the full matrix existed. This is the same trap DEC-040 recorded from
+  the other side.
+- **A fixture that can fail.** The suite had no non-English entry, so nothing in CI could see
+  a tokenizer that returned `[]` for an entire language — the same "structurally cannot fail"
+  shape that let fixed 3-message chunking survive v12.5's whole review (DEC-040). The new
+  `Claude (Korean conversation + index)` fixture asserts that topics contain **Hangul**, not
+  merely that topics exist: the fixture also contains ASCII turn numbers, and a tokenizer
+  that picked up only those would produce a non-empty list made entirely of noise. It asserts
+  sub-segment starts at `[0, 27, 55]` — the same positions, from the same rule, as the
+  English fixture — so it gates segmentation QUALITY in Korean rather than mere presence.
+- **The base text had to change, not just the topic sentence.** A Korean fixture built on the
+  English base text ("Question number N: how do I handle…") would still hand the old
+  tokenizer English tokens in every message and could not have gone red.
+- **The kept Latin range is three sub-ranges, not one, and that is load-bearing.**
+  `\u00c0-\u024f` looks like "Latin letters with diacritics" and very nearly is — but
+  `\u00d7` (MULTIPLICATION SIGN) and `\u00f7` (DIVISION SIGN) sit inside it and are the only
+  two non-letters there. Written as one span they are KEPT, and because the old ASCII-only
+  class replaced them with a space, keeping them silently **glues tokens that used to
+  split**: `1920x1080` written with a real multiplication sign tokenized as ONE token
+  instead of two, and `3x4` became a token where there had been none. Found in Tier 3
+  review before merge, by asking what the range actually CONTAINS rather than what it is
+  named for — the shipped class is `\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u024f`.
+  `probes/check-tokenizer.js` T9 gates it, and gates the SPLIT rather than the absence of
+  the characters: a build that dropped the whole run would also produce no `x`, and would
+  pass a weaker check. A future "simplification" back to one span reintroduces the defect,
+  which is exactly why the check exists.
+- **The same assumption was written down three times, and fixing one was not enough.**
+  `_sumExtractTopicsFromText` and `_sumExtractTopics` each re-tested the English length rule
+  (`< 3` / `> 2`) on words `_sumTokenize` had already filtered. For English those were exact
+  no-ops; for Korean they discarded the 2-syllable words the tokenizer had just correctly
+  kept, so no such noun could be a topic **at any frequency** — measured, a term occurring 8
+  times, more often than any bigram in the same text, was still absent, and ranks first once
+  the re-check is gone. Both are removed. **Stated with its real scope:** bigrams are weighted
+  2x and cover their own words, so they outrank unigrams in both languages; this makes a
+  frequent short word *eligible*, it does not change the ranking. The 32/32 identical map
+  fingerprints are the empirical proof that the removal is a no-op for English.
+- **Not fixed, and not silently:** key points are still unavailable in Korean, because
+  `KEY_POINT_PATTERNS` is a set of English regexes — a different mechanism, recorded in
+  ROADMAP rather than folded in here.
+- **Sub-segment labels in Korean carry particle-attached forms** (세션이 rather than 세션),
+  because the tokens feeding label generation are the matching tokens. A display-only
+  normalizer would fix the reading without touching any measure; it is deliberately not
+  bundled, and the live check is the right instrument for deciding whether it is wanted.

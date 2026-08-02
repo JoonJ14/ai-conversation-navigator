@@ -11,7 +11,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-12.6-blue)
+![Version](https://img.shields.io/badge/version-12.7-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -166,7 +166,7 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 - **🛡️ SPA-Resilient** — DOM Guardian, SPA navigation hooks, and periodic health checks keep the UI alive through aggressive re-rendering (Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Firebase Studio, Perplexity)
 - **📊 Context Window Bar** — Claude: exact token count via SSE interception, labeled `(exact)` or `(last known)`. Non-Claude: turn dots and compaction prediction
 - **💬 /Commands** — Typing `/commandname` in the chat input opens the command palette pre-filtered; updates live as you type
-- **🌐 i18n** — Korean language support; all labels update live on language switch without page reload
+- **🌐 i18n** — Korean language support; all labels update live on language switch without page reload. Since **v12.7** the Summary's analysis reads Korean too — before that its tokenizer kept only `a-z0-9`, so a Korean conversation produced zero tokens and topics, key points and the conversation map were all silently empty. (Fixed for English and Korean specifically; Japanese and Chinese are not space-separated and would need word segmentation, not a wider character class.)
 - **📈 Plan Usage** — Fetches Claude plan utilization (session/weekly) and displays as progress bars in the Navigate panel
 
 
