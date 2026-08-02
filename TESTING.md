@@ -1511,6 +1511,26 @@ engines. Same engine, same code, one OS — the runner is the variable.
 assertion), then check the same engine on the other two OSes, and only then re-run. Re-running
 first tells you nothing about which of the three it was.
 
+**A THIRD, DIFFERENT flake shape, same PR (2026-08-02) — `firefox on windows-latest`.** Worth
+separating from the two wedge variants because it looks like a real failure and is not one:
+
+```
+✗ No runtime errors: page.goto: Navigation to "https://claude.ai/chat/test" is
+  interrupted by another navigation to "https://claude.ai/chat/test"
+```
+
+Three CONSECUTIVE platform entries failed within 0.1s of each other, all with that message and
+**no userscript assertion among them** — the harness reuses one `page` object across platform
+entries, so on a contended runner one entry's `page.goto` can be interrupted by the next
+entry's. It reports as `No runtime errors` because that is the assertion the thrown navigation
+error lands in, which makes it read like a code defect.
+
+**Tell it apart from a real failure by the message, not the assertion name:** a Playwright
+`page.goto ... interrupted by another navigation` string is harness plumbing; a real failure
+names fixture content (row indices, question text, counts). Same evidence pattern applied —
+firefox passed on macos and ubuntu on the identical commit, and the immediately preceding run
+of the same code was 9/9 — and a single re-run cleared it.
+
 Response when this variant appears: do **not** keep requeuing (three attempts is already past
 useful), and do not read it as a code finding — but do not silently discount it either. Record
 the pass/wedge pairs with their commits, note that a required check is red for environmental
