@@ -92,6 +92,25 @@ const BLOCK = `
             __acnMapFixed = null;
             return JSON.stringify({ ms: ms, calls: calls, map: __acnMapSerialize(map) });
         };
+        // Direct access to the sub-segment builder. The map harness drives whole
+        // conversations, so segment shapes it never happens to produce — a bare
+        // 12-message segment, a run of mutually disjoint fragments — are unreachable
+        // end to end. Both were exactly where GitHub Codex found defects (2026-08-01),
+        // so the unit surface exists to make those cases checkable.
+        w.__acnSubSegRun = function (msgsJson) {
+            var msgs = JSON.parse(msgsJson);
+            for (var i = 0; i < msgs.length; i++) {
+                if (msgs[i].globalIdx === undefined) msgs[i].globalIdx = i;
+            }
+            var subs = _sumBuildSubSegments(msgs);
+            var out = [];
+            for (var s = 0; s < subs.length; s++) {
+                out.push({ label: subs[s].label, startIdx: subs[s].startIdx,
+                           endIdx: subs[s].endIdx, n: subs[s].messages.length });
+            }
+            return JSON.stringify(out);
+        };
+
         try {
             console.log('[ACN-MAP] map driver over ACN v' + ACN_VERSION +
                 '; visibility=' + document.visibilityState +

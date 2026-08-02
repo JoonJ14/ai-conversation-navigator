@@ -158,10 +158,18 @@ function buildConversation(q, seed, conversationUuid) {
 
     let userChars = 0, aiChars = 0;
     let topicIdx = 0, turnsLeftInTopic = 12 + Math.floor(rnd() * 9);
+    // GROUND TRUTH for segmentation accuracy: the timeline index of the first
+    // message of every topic block after the first. The generator knows exactly
+    // where the topic changes, so a segmenter can be SCORED instead of eyeballed
+    // (added 2026-08-01 with the sub-segmentation fix). Timeline layout: index 0
+    // is the leading interrupted entry, then turn t occupies 2t-1 (user) and 2t
+    // (assistant) — so a topic change at turn t starts at index 2t-1.
+    const topicBoundaries = [];
     for (let turn = 1; turn <= q; turn++) {
         if (turnsLeftInTopic-- <= 0) {
             topicIdx = (topicIdx + 1) % TOPICS.length;
             turnsLeftInTopic = 12 + Math.floor(rnd() * 9);
+            topicBoundaries.push(2 * turn - 1);
         }
         const vocab = TOPICS[topicIdx];
         const qt = questionText(rnd, vocab, turn);
@@ -181,9 +189,11 @@ function buildConversation(q, seed, conversationUuid) {
     };
     return {
         payload,
+        topicBoundaries,
         stats: {
             questions: q,
             totalMessages: 2 * q,
+            topicBlocks: topicBoundaries.length + 1,
             userChars,
             aiChars,
             totalChars: userChars + aiChars,

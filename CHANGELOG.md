@@ -4,6 +4,111 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.6 — The Map's Second Level Actually Reads the Conversation] — 2026-08-01
+
+**Branch:** `fix/map-subsegments-v12.6`
+
+### Problem
+
+Found by the owner during the v12.5 live pass: every sub-segment covered exactly three
+messages — `msgs 1–3`, `4–6`, `7–9` — with near-identical labels ("sweep / edge", "edge",
+"edge / space"). Their words: *"the list is getting a little too long… those are almost
+identical concepts, but our sub-segments separate all of them."* Top-level segments behaved
+correctly by comparison, staying together until the topic actually moved.
+
+### Root cause
+
+`_sumBuildSubSegments` split when `_sumWordOverlap(message, recent-window) < 0.42`.
+`_sumWordOverlap` divides by **`max(|A|,|B|)`**, so one message (~30 unique content words)
+against a four-message window (~700) has a **ceiling near 0.04**. The threshold was
+unreachable: every message split, and 100% of the visible structure came from the pass that
+absorbs fragments smaller than three messages — which stops at exactly three. The map's
+second level was fixed-size chunking wearing a topical label, and the function's comment
+claimed the opposite ("Detects genuine topic shifts… Purely content-driven — no count-based
+caps"), which is why it survived this long.
+
+### Approach
+
+The first attempt swapped the normalization (`min` instead of `max`) and picked a reachable
+threshold. **Measurement said that was not enough, and the owner said the same thing
+independently:** how similar two adjacent messages *look* depends on how long they are and how
+wide the vocabulary is, so the same 0.65 scored **7/8 boundaries on one payload and 2/8 on
+another** that differed only in message length. A constant is right for one conversation and
+wrong for the next.
+
+So the question changed from *"is this pair below X?"* to *"is this one of the weakest joints in
+**this** segment?"*:
+
+1. Tokenize each message **once**; a block's vocabulary is the union of its messages'.
+2. Measure **cohesion at every gap** — vocabulary shared between the **4** messages before it
+   and the 4 after. (At 3 a single off-topic message contaminates every gap it touches and
+   becomes a boundary on its own; measured both ways.)
+3. Score each gap by **valley depth** — how far it sits below the nearest local peak on either
+   side. Depth is what separates a topic change from gradual drift, and it is why a brief aside
+   no longer cuts a run: an aside dips and recovers, so its depth is small.
+4. Cut **deepest-first**, where depth reaches `max(0.15, half the deepest valley in this same
+   segment)`, keeping runs at least 6 messages long.
+
+The bar is a share of the strongest signal present rather than a z-score, because a mean+sd
+cutoff is computed over a sample containing the very valleys it is meant to find — it cannot see
+a single outlier in a small sample (7 gaps cap the achievable distance at `sqrt(6) ≈ 2.449`, below
+a 2.5·sd bar) and it cannot see many outliers at all (nine equal valleys inflate sd until the bar
+sits above them). Both were measured. The entry condition is likewise *derived* —
+`2 × max(BLOCK, MIN_RUN)`, because the computable-gap and selectable-gap constraints overlap
+rather than add — instead of a hardcoded 12, so it cannot promise a split the arithmetic forbids.
+
+No absolute similarity constant survives into the decision. `_sumWordOverlap` is untouched —
+key-point dedup and top-level segmentation are calibrated to it.
+
+### Result
+
+Scored against the probe payload's known topic changes, summed over four payload shapes:
+
+| build | true topic changes found (of 32) | spurious |
+|---|---|---|
+| before | 31/32 | **346** |
+| containment threshold 0.65 | 24/32 | 14 |
+| **v12.6 — cohesion valleys** | **31/32** | **9** |
+
+The old build matched on recall only because cutting every three messages hits everything by
+accident — it drew 346 boundaries that were not topic changes. The new rule draws 10. And the
+property that matters is that **one setting works across all four shapes**, where no similarity
+threshold did: on the config a constant could not handle at all (short messages, wide
+vocabulary) this goes **2/8 → 8/8**.
+
+Sub-segments are now 9–41 messages instead of uniformly 3, and the test mock's own map went from
+27 sub-rows to 4. The count cap was verified **not** to be doing the work: disabling it changes
+nothing on three of four configs, and on the fourth it only removes two 6-message fragments.
+
+Cost is unchanged in the shape that matters — tokenization is now once per message rather than
+once per comparison, so measuring every gap is cheaper than the loop it replaced. v12.5's hot
+loop is untouched.
+
+Rejected after measuring: capping by merging the most similar adjacent *pair*, which is what the
+top level does. A merged sub's six-term topic union overlaps with everything and runs away —
+one **221-message row** beside six 3-message rows, recall 8/8 → 2/8. The kept cap merges the
+**smallest** sub instead. The top level still uses the pair rule and the owner's live map shows
+its signature (segments of 8, 20, 181, 80, 81); recorded in ROADMAP rather than changed unasked.
+
+### The fixture could not have caught this, and now can
+
+The suite's virtualized fixture repeated one sentence 40 times (`Answer number N: validate the
+input first…`). A conversation with no topic changes cannot distinguish a segmenter that finds
+none from one that invents dozens — which is precisely how a sub-segmenter emitting fixed
+3-message chunks stayed green through v12.5's entire review, six Codex rounds included.
+
+The indexed entry's fixture now carries **three topic blocks** (turns 1–13 / 14–27 / 28–40),
+applied identically to the mock DOM and the API payload so row-to-path matching stays exact.
+The map recovers them precisely: sub-segments start at `[0, 27, 55]` against true changes at
+27 and 55. **S1b asserts those positions**, so it now gates segmentation quality rather than
+mere attachment — and the defect that shipped is measured red against it (`[0, 69, 72, 75]`).
+The knob is off for every other entry; the legacy-bookmark fixtures depend on the old strings
+byte-for-byte.
+
+See DEC-040.
+
+---
+
 ## [12.5 — The Map's Segment-Merge Churn: 431 Sub-Segment Rebuilds per Generate → 5] — 2026-07-31
 
 **Branch:** `perf/summary-map-v12.5`

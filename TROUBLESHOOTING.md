@@ -445,11 +445,106 @@ absorb. The initial segmentation scan plus the per-commit topic/entity work is t
 ~300ms, and `mergeExcess` is ~1ms. So the next lever, if one is wanted, is that absorb loop —
 and unlike v12.5 it changes a loop whose output matters, so it needs the same fingerprint gate.
 
+**LIVE-CONFIRMED 2026-08-01** (owner, Firefox + Tampermonkey, plain v12.5 build pinned at
+`9d535a9`, real ~147-question conversation): generate AND regenerate "really fast… roughly a
+second or two" (from 7.7–8.8s), no banner; the map renders its sub-segments; a sub-segment click
+jumps to that child's first message, first shot; `msgs N–M` present on every sub-row; Tools →
+Summary export "works really fast also compared to how it was before", file correct; **no console
+errors**. DEC-031 satisfied for v12.5. The probe was deliberately NOT used — the timing question
+was already settled, so the live pass was scoped to function, not measurement.
+
+**Found by that same pass (pre-existing, NOT introduced by v12.5): sub-segments are all minimum
+size.** See the "sub-segmentation is not content-driven" entry below.
+
 **Scope of these numbers (contexts rule):** Playwright Firefox/Chromium, PAGE realm, synthetic
 payload, `element:null` messages (so `_sumScanEntities` returns `[]` — the unmounted shape,
 which is all but ~3 messages live, but not the mounted one). The decision-grade context is
 still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is outstanding**
 (expect generate ≈1.5–2.5s; the pre-fix live figure was 7.7–8.8s).
+
+---
+
+## v12.6 — Conversation-map sub-segmentation was not content-driven (found live 2026-08-01)
+
+**Status:** FIXED in v12.6, awaiting live confirmation | **Severity:** Medium — the map's second level was noise, no data loss |
+**Found by:** owner, live v12.5 pass on the real ~147-question conversation | **Age:** pre-existing,
+unrelated to v12.4/v12.5 (those changed WHEN sub-segments are built, never HOW)
+
+### Symptom
+
+Every sub-segment covers exactly three messages — `msgs 1–3`, `4–6`, `7–9`, … — and their labels
+are near-identical variants of one topic ("sweep / edge", "edge", "edge / space", "edge / real").
+The owner's words: *"the subsegments only lasting two messages per each… the list is getting a
+little too long… those are almost identical messages and concepts, but our sub-segments separate
+all of them."* Top-level segments, by contrast, behave correctly (live: 8, 20, 181, 80, 81
+messages) — they stay together until the topic actually moves.
+
+### Reproduced synthetically before any fix
+
+From the committed fingerprints (`probes/run-map-harness.js`, Firefox, q=147, `VOCAB_MULT=4
+PARA_BOOST=3`): **92 sub-segments, of which 90 are exactly 3 messages** (histogram
+`{3: 90, 4: 2}`); at `PARA_BOOST=1`, `{3: 91, 4: 1, 5: 1}`. Sample labels from one segment:
+`Cookieing / Sessioners [0-2] | Providerally / Providering [3-5] | Tokening / Sessioners [6-8] |
+Loginally / Grant [9-11]` — the live pattern exactly.
+
+### Root cause
+
+`_sumBuildSubSegments` splits when `_sumWordOverlap(msg.text, last-4-messages-joined) <
+SUB_THRESHOLD (0.42)`. `_sumWordOverlap` normalizes by **`max(|A|,|B|)`**, so a single message
+(~30 unique content words) compared against a four-message window (~700) has a **ceiling near
+0.04**. The threshold is unreachable, so *every* message splits, and 100% of the visible structure
+comes from the post-pass that absorbs fragments smaller than three messages — which stops at
+exactly three. The result is fixed-size chunking wearing a topical label.
+
+Two things follow, and both matter more than the symptom:
+
+1. **The function's comment claims behaviour the code does not have** ("Detects genuine topic
+   shifts… Purely content-driven — no count-based caps"). This is the comment-versus-code class
+   CLAUDE.md warns about, and it is why the defect survived: the code reads as if it works.
+2. **The top level has the same broken comparison** — 0.15 is also unreachable against a
+   four-message window, which is why the live conversation produced ~218 initial segments from
+   ~294 messages (DEC-039). The top level only *looks* right because `_sumMergeExcessSegments`
+   collapses it to ≤5. The sub level has no equivalent cap, so its degeneracy is visible.
+   **The top level is accidentally good, not correct** — worth knowing before anyone "fixes" it.
+
+### Fix (v12.6, DEC-040)
+
+Boundaries now come from a **lexical-cohesion valley** pass, not a similarity threshold. Cohesion
+is measured at every gap (4 messages either side, vocabularies unioned from per-message token
+sets), each gap is scored by **valley depth** — how far below the nearest local peak on each side
+— and cuts are taken deepest-first where depth reaches `max(0.15, half the deepest valley in that
+segment)`, keeping runs ≥ 6 messages. The bar is a share of the strongest signal present rather
+than a z-score: a mean+sd cutoff is computed from a sample containing the valleys it is looking
+for, so it can see neither a lone outlier in a small sample nor many outliers at all (both
+measured — see DEC-040).
+
+**A threshold could not be rescued by choosing a better number, and that was measured, not
+assumed.** The first attempt fixed the normalization (`min` instead of `max`) and used 0.65; it
+scored **7/8 boundaries on one payload and 2/8 on another** that differed only in message length.
+How similar two adjacent messages look depends on how long they are and how wide the vocabulary
+is, so any constant is right for one conversation and wrong for the next. Depth relative to the
+segment's own distribution has no such dependence.
+
+Scored against the payload's known topic changes, summed over four payload shapes:
+
+| build | true topic changes found (of 32) | spurious |
+|---|---|---|
+| pre-fix (`max`, 0.42) | 31/32 | **346** |
+| containment threshold 0.65 + cap | 24/32 | 14 |
+| **v12.6 — cohesion valleys** | **31/32** | **9** |
+
+The pre-fix build matched on recall only because a boundary every three messages hits everything
+by accident. The property that matters is that **one setting of the relative cutoff works across
+all four shapes** where no similarity threshold did — including the short-message/wide-vocabulary
+config that a constant could not handle at all (**2/8 → 8/8**). Sub-segments are 9–41 messages
+instead of uniformly 3; the test mock's map went from 27 sub-rows to 4.
+
+**The count cap is a safety net, not the mechanism** — verified by disabling it: identical results
+on three of four configs, and on the fourth it only removes two 6-message fragments.
+
+**Rejected after measuring:** capping by merging the most similar adjacent PAIR — the top level's
+rule. A merged sub's six-term topic union overlaps with everything and runs away: one 221-message
+row beside six 3-message rows, recall 8/8 → 2/8. Smallest-first cannot run away.
 
 ---
 
