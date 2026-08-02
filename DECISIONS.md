@@ -1802,9 +1802,12 @@ could not handle at all (short messages, wide vocabulary) this goes 2/8 → **8/
   rejected. A merged sub's topics are a six-term union, so it overlaps with everything, keeps
   winning the similarity contest and swallows its neighbours — one **221-message row beside six
   3-message rows**, recall 8/8 → 2/8. The retained cap merges the **smallest** sub instead,
-  which cannot run away. **The top level still uses the most-similar-pair rule and the owner's
-  live map shows its signature — segments of 8, 20, 181, 80, 81.** Left unchanged because the
-  owner reports the top level as satisfactory; recorded in ROADMAP.
+  which cannot run away. **The top level still uses the most-similar-pair rule**, so the same
+  dynamic is possible there in principle — but **that is theoretical, and an earlier claim of
+  live evidence is RETRACTED (2026-08-02)**: the numbers cited as top-level segment sizes were
+  the owner's report of sub-segment message RANGES (`msgs 8–10`, `20–22`, …), i.e. the 2–3
+  message spans this decision fixes. The owner reports the top level as correct both before and
+  after v12.6. Recorded in ROADMAP as theoretical; not scheduled.
 - **A z-score cutoff on depth** (`mean + k·sd`), the classic TextTiling formulation: built,
   measured, and replaced. It scored well on the four scoring payloads but failed both edge shapes
   above, because the statistic it compares against is computed from the sample that includes the

@@ -476,8 +476,9 @@ Every sub-segment covers exactly three messages — `msgs 1–3`, `4–6`, `7–
 are near-identical variants of one topic ("sweep / edge", "edge", "edge / space", "edge / real").
 The owner's words: *"the subsegments only lasting two messages per each… the list is getting a
 little too long… those are almost identical messages and concepts, but our sub-segments separate
-all of them."* Top-level segments, by contrast, behave correctly (live: 8, 20, 181, 80, 81
-messages) — they stay together until the topic actually moves.
+all of them."* The reported spans were `msgs 8–10`, `20–22`, `181–183`, `80–81` — every row two
+or three messages wide. Top-level segments behaved correctly throughout, and the owner confirms
+they still do after the fix.
 
 ### Reproduced synthetically before any fix
 
@@ -541,6 +542,24 @@ instead of uniformly 3; the test mock's map went from 27 sub-rows to 4.
 
 **The count cap is a safety net, not the mechanism** — verified by disabling it: identical results
 on three of four configs, and on the fourth it only removes two 6-message fragments.
+
+### LIVE-CONFIRMED 2026-08-02 (owner, Firefox + Tampermonkey, real ~147-question conversation)
+
+Status moves to **RESOLVED**. The owner's words on the v12.6 map: *"this looks a lot more healthy…
+some of them are about 10 messages, some of them are 30 messages, some of them are 60 messages.
+This is exactly how we do this — like a group of similar topics."* Two further observations worth
+keeping:
+
+- **The row count is now navigable:** *"it should technically fit within one page, or maybe just a
+  little bit of scroll"* — against dozens of 2–3 message rows before.
+- **Rows correspond to topics, not to arbitrary spans:** *"I probably wouldn't have 147 different
+  topics in a 147-question conversation"* — which is the whole point of the change, and the
+  clearest statement of what the old behaviour got wrong.
+- **The top level is correct and was never the problem:** *"even the big topics also seem to be
+  working perfectly."*
+
+DEC-031 satisfied for v12.6. No density retune requested — `SUB_MAX` and `DEPTH_SHARE` stay where
+the measurement put them.
 
 **Rejected after measuring:** capping by merging the most similar adjacent PAIR — the top level's
 rule. A merged sub's six-term topic union overlaps with everything and runs away: one 221-message

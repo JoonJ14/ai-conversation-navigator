@@ -6,7 +6,8 @@ found while live-confirming that fix: the map's second level was not reading the
 all (v12.6, PR #68, **merges at the close of this session**). **Prior handoff:**
 `docs/handoffs/SESSION_HANDOFF_2026-07-31_v12.4-summary-perf.md`.
 **Status at close:** version **12.6**, suite **1058/1058 both engines**, CI 9/9, Codex clean
-after six rounds, v12.5 live-confirmed, v12.6 awaiting its live look.
+after six rounds, **both v12.5 and v12.6 live-confirmed** (v12.6 on 2026-08-02: "a lot more
+healthy… chunks of about 10, 30, 60 messages… this is exactly how we do this").
 
 ---
 
@@ -107,11 +108,15 @@ the PR:
   measuring.** The z-score is gone.
 - **"Merge into the most similar neighbour" runs away.** A merged block's topic list is a union
   that overlaps with everything, so it wins on merit against every later run and is never
-  `smallest` itself: `[48, 6, 6]`. Now size-first. **The top level still uses the pair rule and
-  the owner's live map shows its signature — segments of 8, 20, 181, 80, 81.**
+  `smallest` itself: `[48, 6, 6]`. Now size-first. **The top level still uses the pair rule, so
+  the same dynamic is possible there in principle — theoretical only; see §G.3 for a claim of
+  live evidence that was retracted.**
 
 **Deferred by owner decision (see §G.1):** `_sumTokenize` strips `[^a-z0-9\s]`, so Korean and
-Russian conversations produce **zero tokens** and accented Latin is mangled.
+conversations written in Korean produce **zero tokens** and accented Latin is mangled.
+  (Korean is the product's only translation — English is the default. Russian appears in the
+  verification notes solely as a second probe string showing the failure is general to non-ASCII
+  scripts; it is not supported and no support for it is implied.)
 
 ### 5. A second CI variant, documented
 
@@ -177,17 +182,23 @@ with main (content-identical merge; the branch was BEHIND only in graph topology
 ## G. What comes next
 
 1. **The tokenizer (v12.7 — owner-scheduled this session).** `_sumTokenize` strips
-   `[^a-z0-9\s]`: **Korean and Russian produce zero tokens** (verified), accented Latin is
-   mangled (`café` → `caf`). Every content-derived Summary feature is dead for those
-   conversations, and the product ships Korean UI strings. ES5 fix sketch and its real limit
+   `[^a-z0-9\s]`: **Korean produces zero tokens** (verified), accented Latin is mangled
+   (`café` → `caf`). Every content-derived Summary feature is dead for such a conversation.
+   **Scope (owner, 2026-08-02): English is the default and Korean is the ONLY translation** —
+   added for one specific user. Russian was only a second probe string demonstrating the failure
+   is general to non-ASCII scripts; it is not supported. ES5 fix sketch and its real limit
    (CJK is not space-separated, so a character class is not enough) are in ROADMAP 0a. **Own arc,
    with measurement and a live check** — it changes topics, key points and dedup for every user.
-2. **v12.6's live look.** Do the sub-rows read as distinct topics, and is ~7 rows for a
-   180-message segment the right density? `SUB_MAX` is the density knob, `DEPTH_SHARE` the
-   sensitivity one; both one-liners.
-3. **The top level's runaway merge** (ROADMAP item 0). Same pair-merge rule that produced
-   `[48, 6, 6]` at the sub level; the owner's live map shows `8, 20, 181, 80, 81`. The fix is the
-   same smallest-first change. Owner reports the top level as satisfactory, so this is their call.
+2. ~~**v12.6's live look.**~~ **DONE 2026-08-02** — the owner confirms the map reads as real
+   topic groups (runs of ~10 / ~30 / ~60 messages), fits roughly one page, and the top level is
+   correct too. No density retune requested; `SUB_MAX` and `DEPTH_SHARE` stay as measured.
+3. **The top level's merge rule — THEORETICAL, not scheduled** (ROADMAP item 0). It still uses
+   the pair-merge that produced `[48, 6, 6]` at the sub level in simulation, so the same dynamic
+   is possible in principle. **A claim that the owner's live map showed this was WRONG and is
+   retracted (2026-08-02):** the numbers were sub-segment message RANGES (`msgs 8–10`, `20–22`,
+   `181–183`, `80–81` — the 2–3 message spans v12.6 fixed), misread as segment sizes. The owner
+   reports the top level working correctly before and after v12.6. Do not open this on the
+   strength of the retracted evidence; open it only if live output ever shows lopsided segments.
 4. **Carried-over fixture batch** — unmatchable-cluster/HEAD, assistant-TAIL, GM-shim backoff
    (incl. malformed JSON), exportBookmarks, forced-refetch knob, provisional-turn knob, key-point
    payload knob — plus the recorded small items (toolBlocks into the unmounted inventory,
@@ -230,7 +241,9 @@ mock assumption remains unverified (carried).
   exact values are a live judgement, which is why §G.2 exists.
 - **Non-ASCII conversations get no map second level at all** — correctly, since cohesion is zero
   everywhere, but the feature is unavailable rather than degraded (§G.1).
-- **The top level shares the sub level's old merge pathology** and is unchanged (§G.3).
+- **The top level shares the sub level's old merge RULE** and is unchanged — a theoretical
+  concern with no live evidence; the evidence once cited for it was a misreading and is retracted
+  (§G.3).
 - **webkit-on-macos has two documented failure variants now** (DEC-036 + the silent wedge in
   TESTING.md). Requeue-once clears the first; the second cleared itself after ~65 minutes.
 

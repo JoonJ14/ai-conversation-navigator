@@ -87,8 +87,10 @@ loop is untouched.
 Rejected after measuring: capping by merging the most similar adjacent *pair*, which is what the
 top level does. A merged sub's six-term topic union overlaps with everything and runs away —
 one **221-message row** beside six 3-message rows, recall 8/8 → 2/8. The kept cap merges the
-**smallest** sub instead. The top level still uses the pair rule and the owner's live map shows
-its signature (segments of 8, 20, 181, 80, 81); recorded in ROADMAP rather than changed unasked.
+**smallest** sub instead. The top level still uses the pair rule, so the same dynamic is possible
+there in principle; recorded in ROADMAP as THEORETICAL and not scheduled. An earlier claim of live
+evidence for it was retracted on 2026-08-02 — the cited numbers were sub-segment message RANGES
+(`msgs 8–10`, `20–22`, …), not segment sizes, and the owner reports the top level as correct.
 
 ### The fixture could not have caught this, and now can
 
