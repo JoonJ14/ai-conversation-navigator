@@ -2097,6 +2097,9 @@ translation changes, and concatenation hard-codes it.
 - **The audit that found the rest:** `grep -c "i18n('<key>'"` over every key in the `en` table.
   Thirteen scored zero. That one-line check is worth running whenever a key is added — a key with
   no call site is a translation that does not exist.
-- **Key parity is now 79/79** between `en` and `ko`.
+- **Key parity is now 78/78** between `en` and `ko`. Thirteen keys were added and one removed:
+  `session` was superseded by `usageSession` (which carries the duration, so the Korean reads
+  세션 (5시간) rather than mixing an English unit into it) and was left with no call site by this
+  very change — leaving it would have reproduced the defect this decision exists to fix.
 - **A typo the wiring exposed:** the footer read 더 많은 도구가 **곳** 추가됩니다 — 곳 is "place";
   it should be 곧, "soon". It had been in the table, unrendered, since the string was written.

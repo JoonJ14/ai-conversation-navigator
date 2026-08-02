@@ -518,7 +518,8 @@ existed since the helper was written, with one prior user.
   **0 differences.**
 - Tools panel rendered and read in both languages from a real page: 이미지 갤러리 / 파일 내보내기 /
   전체 대화 / 북마크만 / 요약; Plan usage renders `수 오후 3:05 초기화`.
-- Suite 1120/1120 both engines; en↔ko key parity 66/66 → **79/79**.
+- Suite 1120/1120 both engines; en↔ko key parity 66/66 → **78/78** (the wiring added 13 keys and
+  removed one — `session`, which `usageSession` superseded and which this change itself orphaned).
 
 ### Fixed alongside
 
