@@ -20,3 +20,8 @@ test-results/
 # Probe build artifacts and measurement records (probes/ commits only sources)
 probes/acn-perf-probe.user.js
 probes/results/
+
+# Generated tokenizer variant builds (probes/build-tokenizer-variants.js). Six ~640KB
+# near-copies of the userscript; the documented invocation writes to /tmp, but the
+# script defaults to this path, so a no-arg run must not litter the repo (Tier 3, PR #70).
+probes/variants/

@@ -30,11 +30,21 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.6 — the map made fast, then made correct (2026-08-01)
+## Current Status: v12.7 — the Summary tokenizer can read Korean (2026-08-02)
 
-**v12.5 (PR #67, merged) + v12.6 (PR #68)** — Summary generate went 7.7–8.8s → ~1–2s live, and the
-conversation map's second level went from fixed 3-message chunking to real topic detection. See
-`HANDOFF.md`, DEC-039/DEC-040, and items 0 / 0a / 11 below. Suite 1058/1058 both engines.
+**v12.7 (PR pending)** — `_sumTokenize` stripped `[^a-z0-9\s]`, so a **Korean** conversation
+produced zero tokens and every content-derived Summary feature was silently empty for the
+product's only translated language. The character class is widened to ASCII + diacritic Latin +
+Hangul, and the minimum token length becomes script-aware (2 for Hangul, 3 otherwise) because
+Korean's commonest content words are two syllables. Measured 12/32 → **28/32** true topic
+boundaries with spurious cuts 36 → **11**; English output is **byte-identical** (32/32 map
+fingerprints). Two more elaborate variants — a Korean stop list, and particle normalization —
+were built and measured; the rejection of particle normalization is NOT measurement-supported and the live check decides (DEC-041). New CI gate: the suite's first non-English
+fixture. See item 0a below.
+
+**Earlier: v12.5 (PR #67) + v12.6 (PR #68), both merged and live-confirmed** — Summary generate
+went 7.7–8.8s → ~1–2s live, and the conversation map's second level went from fixed 3-message
+chunking to real topic detection. See `HANDOFF.md`, DEC-039/DEC-040, and items 0 / 11 below.
 
 ### Earlier: v12.1 — MERGED and live-confirmed (2026-07-29)
 
@@ -122,8 +132,35 @@ Numbering below is stable (items keep their historical numbers):
    **Open question for the owner, deliberately not pre-decided:** how many sub-rows a
    180-message segment should have. That is taste, and it gets settled against real output.
 
-0a. **The Summary's tokenizer discards every non-ASCII language (OPEN — raised by GitHub
-   Codex on PR #68, 2026-08-01; PRE-EXISTING, not introduced by v12.5/v12.6).**
+0a. ~~**The Summary's tokenizer discards every non-ASCII language**~~ **FIXED in v12.7
+   (2026-08-02) for the two languages the product ships — English and Korean.** The character
+   class is now ASCII + diacritic Latin + Hangul, and the minimum token length is script-aware
+   (2 for Hangul, 3 otherwise), because the length filter turned out to be a second, unnoticed
+   English assumption: Korean's commonest content words are exactly two syllables, so fixing
+   only the character class still discarded 10 of 10 of them. Measured over four payload shapes
+   on both engines: **12/32 → 28/32** true topic changes found, spurious **36 → 11**; English
+   output byte-identical at 32/32 map fingerprints. A Korean stop-word list and particle (josa)
+   normalization were both built and measured; **v2 ships, but the rejection of particle
+   normalization is NOT supported by measurement and is not claimed to be.** An earlier
+   comparison that showed it worse was invalid — the payload's topic-block lengths were drawn
+   from the same RNG as the text, so Korean was scored against a different ground truth than
+   English (GitHub Codex, PR #70). Corrected and re-run, particle normalization leads on
+   recall (31/32 vs 28/32). v2 ships because it keeps Korean in the segment-count regime
+   English is calibrated in and adds no hand-maintained word list — and because this metric
+   has reversed three times. **The live check decides (DEC-031); see DEC-041.** New CI gate: `Claude (Korean conversation + index)`, the suite's first
+   non-English fixture, asserting Hangul topics and the same `[0, 27, 55]` block positions the
+   English fixture asserts.
+   **Still open out of this, and deliberately separate:** key points are unavailable in Korean
+   for a different reason — `KEY_POINT_PATTERNS` is a set of English regexes, so no tokenizer
+   change can reach it. And sub-segment LABELS in Korean read with particles attached
+   (세션이 rather than 세션); a display-only normalizer would fix the reading without touching
+   any measure, and the live check is what should decide whether it is wanted.
+   **The limit that must not be re-described:** this is fixed for English and Korean, NOT
+   "Unicode support". Japanese and Chinese are not space-separated and are excluded on purpose
+   (`probes/check-tokenizer.js` T8 pins that as an assertion).
+
+   *Original entry, kept for the diagnosis:*
+   **(raised by GitHub Codex on PR #68, 2026-08-01; PRE-EXISTING, not introduced by v12.5/v12.6).**
    `_sumTokenize` strips `[^a-z0-9\s]`, so **Korean text produces ZERO tokens**
    (verified) and accented Latin is mangled (`café` → `caf`, `était` → `tait`). Everything
    content-derived in the Summary is therefore dead or meaningless for those conversations:

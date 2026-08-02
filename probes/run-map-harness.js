@@ -60,18 +60,23 @@ function buildTimeline(q, seed, vocabMult, paraBoost) {
         text: (m.content && m.content[0] && m.content[0].text) || '',
         type: m.sender === 'human' ? 'user' : 'ai',
     }));
+    // Distinct words of the PAYLOAD, which is a property of the text and must not
+    // be computed with the tokenizer's own character class: doing that reported
+    // "0 distinct words" for a Korean payload, describing the tokenizer under
+    // measurement rather than the input handed to it (tokenizer arc, 2026-08-02).
+    // \p{L}\p{N} with the u flag is fine here — this is Node, not the ES5 userscript.
     const words = new Set();
     let chars = 0;
     msgs.forEach((m) => {
         chars += m.text.length;
-        m.text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
-            .forEach((w) => { if (w.length > 2) words.add(w); });
+        m.text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/)
+            .forEach((w) => { if (w.length > 1) words.add(w); });
     });
     return {
         msgs,
         topicBoundaries: conv.topicBoundaries,
         stats: { messages: msgs.length, chars, distinctWords: words.size,
-                 topicBlocks: conv.stats.topicBlocks },
+                 topicBlocks: conv.stats.topicBlocks, lang: conv.stats.lang },
     };
 }
 
@@ -214,7 +219,11 @@ function scoreBoundaries(detected, truth, tol) {
             for (const para of paras) {
                 for (const vocab of vocabs) {
                     const { msgs, stats, topicBoundaries } = buildTimeline(q, seed, vocab, para);
-                    const key = `${engine}/q=${q}/para=${para}/vocab=${vocab}`;
+                    // The payload LANGUAGE is part of the configuration identity. Without
+                    // it an English baseline and a Korean run collide on the same key and
+                    // the gate reports a language difference as a regression — or worse,
+                    // a matching key hides that nothing comparable was compared.
+                    const key = `${engine}/lang=${stats.lang}/q=${q}/para=${para}/vocab=${vocab}`;
                     const runs = [];
                     let fp = null;
                     for (let r = 0; r < repeat; r++) {
@@ -263,7 +272,7 @@ function scoreBoundaries(detected, truth, tol) {
                     detected.sort((a, b) => a - b);
                     const score = scoreBoundaries(detected, topicBoundaries, 2);
                     const rec = {
-                        engine, q, para, vocab, payload: stats,
+                        engine, lang: stats.lang, q, para, vocab, payload: stats,
                         subSegments: subTotal,
                         subSizeHistogram: subSizes,
                         segmentSizes: segsFp.map((s) => s.msgIdx.length),

@@ -194,6 +194,39 @@ const PLATFORMS = [
         },
     },
     {
+        // KOREAN conversation, same structure as the entry above. Korean is the
+        // product's only translation (I18N.ko) and this is the ONLY fixture whose
+        // messages are not English.
+        //
+        // WHY IT EXISTS: until v12.7 `_sumTokenize` stripped [^a-z0-9\s], so a
+        // Korean conversation produced ZERO tokens and every content-derived Summary
+        // feature — topics, key points, dedup, both segmentation levels — was
+        // silently empty. Nothing in the suite could see that, because every other
+        // fixture is written in English. This entry is measured RED against the
+        // pre-v12.7 tokenizer (no topics, no sub-segments) and green after (DEC-041).
+        //
+        // It asserts the SAME topic-block positions as the English entry, from the
+        // same rule at the same turns — so it gates segmentation QUALITY in Korean,
+        // not merely "something was produced".
+        name: 'Claude (Korean conversation + index)',
+        mockFile: 'claude-virtualized.html',
+        hostname: 'claude.ai',
+        pathname: '/chat/2a2a2a2a-2a2a-4a2a-8a2a-2a2a2a2a2a2a',
+        expectedMessages: 40,
+        expectedAccent: '#d97706',
+        expectedMode: 'orbital',
+        virtualized: { totalTurns: 40, totalMessages: 80, userWindowSize: 3 },
+        indexBacked: true,
+        koreanSummaryTest: true,
+        mockConfig: { totalMessages: 80, topicBlocks: true, lang: 'ko' },
+        gmFixture: {
+            totalMessages: 80,
+            conversationUuid: '2a2a2a2a-2a2a-4a2a-8a2a-2a2a2a2a2a2a',
+            topicBlocks: true,
+            lang: 'ko',
+        },
+    },
+    {
         // THIRD Claude entry: the index builds correctly, but the API text is raw
         // MARKDOWN while the DOM holds RENDERED text — so ciDeriveRowOffset() can find
         // no matching row and returns null.
@@ -722,16 +755,38 @@ function buildGmFixtureShim(cfg) {
     // byte-identical or row-to-path matching degrades (see the mock for why this knob
     // exists at all). Off by default; the existing texts are load-bearing in the
     // legacy-bookmark entry's previews and hashes.
-    const topicQ = (turn) => !cfg.topicBlocks ? '' : (turn <= 13
-        ? ' The oauth session token keeps expiring before the refresh cookie renews.'
-        : turn <= 27
-            ? ' The postgres migration locks the index while the replica rebuilds its schema.'
-            : ' The kubernetes rollout leaves the container probe failing inside the registry.');
-    const topicA = (turn) => !cfg.topicBlocks ? '' : (turn <= 13
-        ? ' Check the oauth refresh flow, then rotate the session cookie and its token.'
-        : turn <= 27
-            ? ' Check the migration order, then vacuum the index and resync the replica.'
-            : ' Check the rollout probe, then repull the container image from the registry.');
+    // cfg.lang === 'ko' switches the whole message to Korean, base text included —
+    // the mock applies the SAME rule, so the two sides stay byte-identical (see the
+    // mock for why the base text has to change too, not only the topic sentence).
+    const KO = cfg.lang === 'ko';
+    const topicQ = (turn) => !cfg.topicBlocks ? '' : (KO
+        ? (turn <= 13
+            ? ' 인증 세션 토큰이 갱신 쿠키보다 먼저 만료되어 로그인이 자주 풀립니다.'
+            : turn <= 27
+                ? ' 데이터베이스 마이그레이션이 복제본을 다시 만드는 동안 색인을 계속 잠급니다.'
+                : ' 배포 롤아웃에서 컨테이너 프로브가 레지스트리 안에서 반복해서 실패합니다.')
+        : (turn <= 13
+            ? ' The oauth session token keeps expiring before the refresh cookie renews.'
+            : turn <= 27
+                ? ' The postgres migration locks the index while the replica rebuilds its schema.'
+                : ' The kubernetes rollout leaves the container probe failing inside the registry.'));
+    const topicA = (turn) => !cfg.topicBlocks ? '' : (KO
+        ? (turn <= 13
+            ? ' 인증 갱신 흐름을 확인하고 세션 쿠키와 토큰을 함께 교체하세요.'
+            : turn <= 27
+                ? ' 마이그레이션 순서를 확인하고 색인을 정리한 뒤 복제본을 동기화하세요.'
+                : ' 롤아웃 프로브를 확인하고 레지스트리에서 컨테이너 이미지를 다시 받으세요.')
+        : (turn <= 13
+            ? ' Check the oauth refresh flow, then rotate the session cookie and its token.'
+            : turn <= 27
+                ? ' Check the migration order, then vacuum the index and resync the replica.'
+                : ' Check the rollout probe, then repull the container image from the registry.'));
+    const baseQ = (turn) => KO
+        ? `질문 ${turn}. 입력 값이 예상과 다르게 들어오는 ${turn}번 상황에서는 어떤 방식으로 처리하는 것이 좋을까요?`
+        : `Question number ${turn}: how do I handle case ${turn} when the input is unusual?`;
+    const baseA = (turn) => KO
+        ? `답변 ${turn}. 먼저 입력 값을 검증한 다음 그 결과에 따라 분기하는 방식을 권장합니다.`
+        : `Answer number ${turn}: validate the input first, then branch on the result.`;
 
     const messages = [];
     let seq = 0;
@@ -776,7 +831,7 @@ function buildGmFixtureShim(cfg) {
                     ? 'Yes.'
                     : identAns
                         ? 'Identical answer text used twice so a legacy preview is ambiguous.'
-                        : `Answer number ${turn}: validate the input first, then branch on the result.${topicA(turn)}`;
+                        : `${baseA(turn)}${topicA(turn)}`;
             // summaryRows[row] attaches a thinking block carrying the model-generated
             // ACTIVITY SUMMARY — the collapsed-header text claude.ai renders above a
             // thinking/tool answer, and the text pre-v12.0 bookmark previews captured on
@@ -803,7 +858,7 @@ function buildGmFixtureShim(cfg) {
             ? 'here is the full report.'
             : (cfg.markdownText
                 ? `**Question number ${turn}**: how do I handle \`case ${turn}\` when the input is unusual?`
-                : `Question number ${turn}: how do I handle case ${turn} when the input is unusual?${topicQ(turn)}`);
+                : `${baseQ(turn)}${topicQ(turn)}`);
         push({ sender: 'human', text: '',
                content: [{ type: 'text', text: qt + ' VISIBLE-NOT-SR-ONLY' }] });
     }
@@ -1032,6 +1087,40 @@ async function setupRouteForPlatform(page, platform, scriptContent) {
 
 async function testPlatform(page, platform, scriptContent, screenshotOpts) {
     const results = { name: platform.name, tests: [], passed: true, screenshots: [] };
+
+    // Several assertions identify a RESOLVED ROW by its question text, so they have
+    // to read the language the fixture was actually written in. buildGmFixtureShim's
+    // baseQ() decides that from gmFixture.lang; these patterns mirror it. Kept as
+    // pattern SOURCES rather than RegExp objects because they cross into
+    // page.evaluate, where a RegExp cannot be passed as an argument.
+    // Only the Korean entry sets lang; every other fixture takes the English branch
+    // and its patterns are byte-identical to what they were before v12.7.
+    // Restore the pre-block panel state. orbOnScanComplete only re-renders the nav list
+    // while the Navigate panel is the open one, so ANY block that leaves another panel
+    // open freezes that list for the later TESTS 23-27, which then assert against a
+    // render captured before the block ran (Tier 3, measured: 40/40 stamped nodes still
+    // present at TEST 26).
+    // It is a FUNCTION rather than an inline block in one place because keying it to a
+    // platform flag is what let it regress: it lived inside `if (summaryExportTests)`,
+    // and the Korean entry — which sets `koreanSummaryTest` and opens the Summary panel —
+    // silently got no restore at all (three independent Tier 3 lenses, PR #70). The
+    // condition that matters is "this block opened a non-nav panel", not which flag
+    // selected the block.
+    async function restoreNavPanel() {
+        await page.evaluate(async () => {
+            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+            const close = document.querySelector('[data-acn-open="true"] [data-acn-role="panel-close"]');
+            if (close) { close.click(); await sleep(250); }
+            const nav = document.querySelector('[data-acn-role="nav-trigger"]');
+            if (nav && !document.querySelector('[data-acn-role="nav-panel"][data-acn-open="true"]')) {
+                nav.click(); await sleep(350);
+            }
+        });
+    }
+
+    const isKoFixture = !!(platform.gmFixture && platform.gmFixture.lang === 'ko');
+    const qPat    = (n) => isKoFixture ? `질문 ${n}\\.` : `Question number ${n}\\b`;
+    const qAnyPat = isKoFixture ? '질문 \\d+\\.' : 'Question number \\d+';
 
     function assert(testName, condition, detail) {
         const status = condition ? 'PASS' : 'FAIL';
@@ -1802,6 +1891,86 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                         `avg ${Math.round(sumMs / done)}ms (<=1500), max ${maxMs}ms (<=6500)`);
                 }
 
+                // ── KOREAN SUMMARY GATE (v12.7) ─────────────────────────────────────
+                // Deliberately NOT the full S1-S4/E1/E3 battery below: those assert on
+                // English fixture text ("Question number 1"), and re-expressing all of
+                // them in Korean would gate the same jump and export machinery twice
+                // while gating the tokenizer once. This asserts only what is
+                // language-specific, which is exactly what v12.7 changed.
+                if (platform.koreanSummaryTest) {
+                    const ko = await page.evaluate(async () => {
+                        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+                        const dot = document.querySelector('[data-acn-dot="summary"]');
+                        if (!dot) return { err: 'no summary dot' };
+                        dot.click();
+                        await sleep(350);
+                        const gen = document.querySelector('[data-acn-open="true"] [data-acn-role="sum-generate"]');
+                        if (!gen) return { err: 'summary panel did not open with a generate control' };
+                        // Opening the panel AUTO-generates 50ms later, so this click may be
+                        // swallowed by a still-disabled button and the poll below may observe
+                        // the AUTO run's stats rather than this click's. That is harmless
+                        // HERE and the simpler form is deliberate: K1 asserts on the CONTENT
+                        // of whichever summary rendered, and both runs analyse the same
+                        // conversation. S1 needs the re-enable wait because it asserts node
+                        // REPLACEMENT, which a swallowed click would fake. Do not copy S1's
+                        // wait into here expecting it to strengthen anything.
+                        gen.click();
+                        let stats = null;
+                        for (let t = 0; t < 30 && !stats; t++) {
+                            await sleep(100);
+                            stats = document.querySelector(
+                                '[data-acn-role="sum-results"] [data-acn-role="sum-stats"]');
+                        }
+                        if (!stats) return { err: 'stats never rendered (generateFullSummary failed?)' };
+                        const topics = Array.from(document.querySelectorAll('[data-acn-role="sum-topic"]'))
+                            .map(e => e.textContent || '');
+                        const subStarts = Array.from(
+                            document.querySelectorAll('[data-acn-role="sum-subsegment"]'))
+                            .map(e => +e.getAttribute('data-acn-sub-start'))
+                            .sort((a, b) => a - b);
+                        return {
+                            total: +stats.getAttribute('data-acn-sum-total'),
+                            segments: document.querySelectorAll('[data-acn-role="sum-segment"]').length,
+                            topics,
+                            subStarts,
+                            mounted: window.__mockVirtualization.mountedCount(),
+                        };
+                    });
+
+                    // K1a — content-derived features are ALIVE. The pre-v12.7 tokenizer
+                    // returned [] for every Korean message, so topics rendered "No topics
+                    // detected." and this list was empty. Requiring the terms to CONTAIN
+                    // HANGUL is the load-bearing half: the fixture also contains ASCII
+                    // digits (turn numbers), and a tokenizer that only picked those up
+                    // would produce a non-empty topic list made entirely of noise.
+                    const hangul = /[가-힣]/;
+                    assert('SUMMARY topics on a Korean conversation are Korean terms',
+                        !ko.err && ko.topics.length >= 3 && ko.topics.every(t => hangul.test(t)),
+                        ko.err || `${(ko.topics || []).length} topics: [${(ko.topics || []).join(', ')}]`);
+
+                    // K1b — the map's second level recovers the fixture's three topic
+                    // blocks, at the SAME entries the English fixture asserts (turns 14
+                    // and 28 => timeline entries 27 and 55). Same rule, same positions,
+                    // different language: if Korean segmentation were merely "not empty"
+                    // this would still be red.
+                    const SUB_EXPECTED_KO = [0, 27, 55];
+                    assert('SUMMARY sub-segments recover the Korean fixture\'s three topic blocks',
+                        !ko.err && JSON.stringify(ko.subStarts) === JSON.stringify(SUB_EXPECTED_KO),
+                        ko.err || `starts [${(ko.subStarts || []).join(', ')}], expected ` +
+                                  `[${SUB_EXPECTED_KO.join(', ')}]; ${ko.segments} segments`);
+
+                    // K1c — and it still covers the WHOLE conversation from the index,
+                    // not the mounted window, so a Korean user is not quietly on the
+                    // degraded path (Layer 4).
+                    assert('SUMMARY on a Korean conversation covers the full index',
+                        !ko.err && ko.total === 81 && ko.mounted < 40,
+                        ko.err || `total=${ko.total} (expected 81), ${ko.mounted} turns mounted`);
+
+                    // This block opened the Summary panel; TESTS 23-27 below read the nav
+                    // list, which stops re-rendering while a non-nav panel is open.
+                    await restoreNavPanel();
+                }
+
                 // ── SUMMARY + EXPORT EXECUTION (v12.3) ─────────────────────────────
                 // Until this block existed these surfaces had ZERO test execution:
                 // replacing _sumBuildTimeline, _sumScrollToElement, _exportFromIndex
@@ -2413,15 +2582,7 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                     // TESTS 23-27 below, which then asserted against a render
                     // captured before this block ran (Tier 3, measured: 40/40
                     // stamped nodes still present at TEST 26).
-                    await page.evaluate(async () => {
-                        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-                        const close = document.querySelector('[data-acn-open="true"] [data-acn-role="panel-close"]');
-                        if (close) { close.click(); await sleep(250); }
-                        const nav = document.querySelector('[data-acn-role="nav-trigger"]');
-                        if (nav && !document.querySelector('[data-acn-role="nav-panel"][data-acn-open="true"]')) {
-                            nav.click(); await sleep(350);
-                        }
-                    });
+                    await restoreNavPanel();
                 }
 
                 // TESTS 23-25 assert a SUCCESSFUL jump, which presupposes a derivable
@@ -2433,7 +2594,7 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                 // Asserts the target was unmounted at click time AND that the landed
                 // row is the RIGHT message — not merely that something mounted. With
                 // ciDeriveRowOffset hardcoded to 0 this must fail.
-                const firstJump = await page.evaluate(async () => {
+                const firstJump = await page.evaluate(async (Q1_PAT) => {
                     const v = window.__mockVirtualization;
                     // Distance from the CENTRE of the final mount window to the target
                     // row. Restores the check lost when the text lookup moved to backing
@@ -2501,15 +2662,15 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                     return { ok: true, elapsedMs: Date.now() - t0,
                              targetWasMountedAtClick: before.indexOf(0) !== -1,
                              resolvedAnything: resolvedIdx !== null,
-                             resolvedIsQuestion1: !!resolvedText && /Question number 1\b/.test(resolvedText),
+                             resolvedIsQuestion1: !!resolvedText && new RegExp(Q1_PAT).test(resolvedText),
                              // Q1 is row 0. Any other row means the navigator resolved
                              // a different message, however close it landed.
                              resolvedDataIndex: resolvedIdx,
-                             navTextWasQuestion1: /Question number 1\b/.test(wantText),
+                             navTextWasQuestion1: new RegExp(Q1_PAT).test(wantText),
                              stillBusy: !!document.querySelector('[data-acn-jumping="true"]'),
                              mountedNow: v.mountedIndexes(),
                              landingDrift: driftRows(v.mountedIndexes(), 0) };
-                });
+                }, qPat(1));
                 assert('Jump RESOLVES question #1 from the bottom (not a neighbour)',
                     firstJump.ok && !firstJump.targetWasMountedAtClick &&
                     firstJump.resolvedAnything && firstJump.resolvedIsQuestion1 &&
@@ -2528,7 +2689,7 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                 // Deliberately NOT the last question: the last one maps adjacent to the
                 // pinned tail, so an off-by-one lands on an always-mounted row and looks
                 // like success. A middle target has no such escape hatch.
-                const midJump = await page.evaluate(async () => {
+                const midJump = await page.evaluate(async (Q_PAT_TPL) => {
                     const v = window.__mockVirtualization;
                     // Distance from the CENTRE of the final mount window to the target
                     // row. Restores the check lost when the text lookup moved to backing
@@ -2592,11 +2753,11 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                              resolvedAnything: resolvedIdx !== null,
                              resolvedDataIndex: resolvedIdx,
                              correctMessage: !!resolvedText &&
-                                 new RegExp('Question number ' + targetOrdinal + '\\b').test(resolvedText),
+                                 new RegExp(Q_PAT_TPL.replace('%N%', String(targetOrdinal))).test(resolvedText),
                              stillBusy: !!document.querySelector('[data-acn-jumping="true"]'),
                              rows: v.mountedIndexes(),
                              landingDrift: driftRows(v.mountedIndexes(), expectRow) };
-                });
+                }, qPat('%N%'));
                 assert('Jump RESOLVES a mid-conversation question (not a neighbour)',
                     midJump.ok && !midJump.wasMountedAtClick && midJump.resolvedAnything &&
                     midJump.correctMessage &&
@@ -2666,15 +2827,15 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                 // message (measured: 0 of 192 non-empty) and the fixture mirrors that,
                 // so if ciExtractText were "simplified" to read msg.text the index would
                 // be empty and every jump would fail — silently, with no error anywhere.
-                const contentSource = await page.evaluate(() => {
+                const contentSource = await page.evaluate((Q_ANY_PAT) => {
                     const items = Array.from(document.querySelectorAll('[data-acn-role="nav-item-text"]'))
                         .map(i => i.textContent.trim());
                     return {
                         count: items.length,
                         nonEmpty: items.filter(t => t.length > 0).length,
-                        matchesFixture: items.filter(t => /Question number \d+/.test(t)).length,
+                        matchesFixture: items.filter(t => new RegExp(Q_ANY_PAT).test(t)).length,
                     };
-                });
+                }, qAnyPat);
                 // Duplicate/attachment fixtures (and a provisional row born from an
                 // attachment mismatch) legitimately carry non-pattern text.
                 // exempt counts real non-pattern items (duplicates, attachment rows)
@@ -2791,6 +2952,10 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
         // 'No runtime errors', and never reaches this loop — that path is red,
         // but with no presence evidence; keep evaluates throw-free (guard, err).
         const mustHave = [];
+        if (platform.koreanSummaryTest) mustHave.push(
+            'SUMMARY topics on a Korean conversation are Korean terms',
+            'SUMMARY sub-segments recover the Korean fixture\'s three topic blocks',
+            'SUMMARY on a Korean conversation covers the full index');
         if (platform.summaryExportTests) mustHave.push(
             'SUMMARY stats cover the whole conversation, not the mounted window',
             'SUMMARY regenerate control is live',

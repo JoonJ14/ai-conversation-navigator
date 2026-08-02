@@ -464,6 +464,201 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ---
 
+## v12.7 — The Summary tokenizer discarded Korean entirely (raised in review 2026-08-01)
+
+**Status:** FIXED in v12.7, awaiting live confirmation | **Severity:** High for the affected user —
+every content-derived Summary feature silently empty | **Found by:** GitHub Codex, reviewing PR #68 |
+**Age:** pre-existing since the Summary was built; not introduced by v12.5/v12.6
+
+### Symptom
+
+Nothing visibly fails. On a conversation written in Korean, the Summary panel generates, reports
+correct message counts, and shows **"No topics detected."** with no key points and a conversation
+map that finds no structure. Korean is the product's only translation (`I18N.ko`, added for one
+specific user), so that user sees a fully translated interface wrapped around an analysis that has
+nothing to say — which reads as "this conversation had no topics", not as a defect.
+
+### Measured before any fix — the function itself, not the pipeline
+
+Context: Playwright Firefox 146 **and** Chromium (identical results), page realm, the REAL shipped
+`_sumTokenize` driven through `probes/check-tokenizer.js`. Pure string work with no host-object or
+cross-compartment surface, which is why the page realm is adequate here and is not adequate for
+`fetch` (DEC-019).
+
+| input | tokens | note |
+|---|---|---|
+| pure Korean sentence (24 chars) | **0** | the whole claim, on the function it is about |
+| Korean same-topic pair | overlap **0.000** | every segmentation level reads this |
+| Korean cross-topic pair | overlap 0.000 | indistinguishable from the above |
+| ten 2-syllable Korean nouns | **0 of 10 kept** | the second, unnoticed cause |
+
+**And English was damaged more than the roadmap recorded.** `café` → `caf` was known. Measured:
+
+| written | tokenized as | |
+|---|---|---|
+| `café` | `caf` | truncated |
+| `naïve` | — | vanished (all fragments below the length floor) |
+| `résumé` | **`sum`** | replaced by an unrelated real English word |
+| `était` | `tait` | |
+| `déjà vu` | — | vanished |
+
+`résumé` → `sum` is corruption rather than loss: a word nobody wrote enters the topic list.
+
+### Root cause — two English assumptions, one of them not on the roadmap
+
+1. `[^a-z0-9\s]` is an ASCII whitelist. Hangul and diacritic Latin were replaced with spaces.
+2. `w.length > 2` encodes "2-letter words are function words", true of English (*of, to, is*) and
+   false of Korean, whose commonest **content** words are exactly two syllables — 인증 (auth),
+   세션 (session), 토큰 (token), 권한 (permission). Fixing only (1) still discarded them.
+
+### The whole-pipeline measurement, and a conclusion that reversed twice
+
+Five cumulative variants scored against the payload generator's KNOWN topic changes, four payload
+shapes × two engines (`probes/build-tokenizer-variants.js` + `probes/run-map-harness.js`,
+`PAYLOAD_LANG=ko`). Firefox and Chromium agreed on every cell.
+
+| build | found (of 32) | spurious |
+|---|---|---|
+| shipped, ASCII-only | 12 — *and only from incidental filenames/turn numbers* | 36 |
+| + wider character class | 28 | 12 |
+| **+ script-aware length (SHIPPED)** | **28** | **11** |
+| + Korean stop-word list | 27 | 11 |
+| + particle normalization + stop list | 30 | 10 |
+| + particle normalization, no stop list | **31** | 13 |
+
+> **RETRACTION.** An earlier version of this table reported particle normalization as
+> *worse*, and the rejection was written on that basis. **That comparison was invalid**: the
+> payload generator drew topic-block lengths from the same LCG as the text, and Korean
+> sentences consume a different number of draws, so Korean was scored against a **different
+> ground truth** than English — 9 boundaries in different places rather than 8 (GitHub Codex,
+> PR #70). With the schedule made language-independent and every variant re-run, the ordering
+> **reverses**: particle normalization leads on recall (31/32 vs 28/32).
+>
+> **The rejection is NOT supported by measurement and is no longer claimed to be.** v2 ships
+> on grounds independent of the score — it keeps Korean in the segment-count regime English is
+> calibrated and live-confirmed in (~278 initial segments vs ~22–85), and it adds no
+> hand-maintained particle list that can merge distinct words. This metric has reversed three
+> times, once per measurement defect corrected. The live check is the arbiter (DEC-031).
+
+Note the first row: the broken build was **not** scoring zero. A realistic Korean technical
+conversation contains some ASCII — filenames, turn numbers, code — so the old tokenizer found 12
+boundaries out of that residue. Structure drawn from noise looks exactly like structure.
+
+**These numbers are the CORRECTED sweep, and the correction is worth recording.** The first
+sweep patched only `_sumTokenize` in each variant, leaving the pre-v12.7 `< 3` and `> 2` guards
+in `_sumExtractTopicsFromText` and `_sumExtractTopics` — so every variant was scored against a
+downstream that differed from the shipped build, and those topic lists feed both labelling and
+the merge's `_sumTopicOverlap`. Found by GitHub Codex on PR #70. **Then a third defect: the
+payload's ground truth was itself language-dependent** — block lengths were drawn from the same
+LCG as the text, and Korean sentences consume extra draws, so Korean was scored against 9
+boundaries where English had 8, in different places. Fixed by deriving the schedule from a
+throwaway English render (`computeSchedule`), which leaves the English payload byte-identical.
+
+**The corrected sweep is the table above, and it REVERSES the earlier ranking.** v2 does not win
+on both axes: particle normalization reaches 30/32 with 10 spurious and 31/32 with 13, against
+v2's 28/32 with 11. The rejection of particle normalization was written on the invalid
+comparison and is **retracted** — see the block above the table.
+
+**What ships, and why it is not the score.** v2, on two grounds that do not depend on the
+measurement at all:
+- it keeps Korean in the segment-count regime English is calibrated and live-confirmed in
+  (~278 initial segments, versus ~22–85 under particle stripping — a regime nothing in this
+  project has been validated against); and
+- it adds no hand-maintained particle list, which can over-strip and merge genuinely distinct
+  words (the ≥2-syllable stem guard bounds that risk but does not remove it).
+
+**The mechanism that made particle stripping *look* wrong is still worth knowing**, because it is
+about the segmenter rather than about Korean: segmentation reads the CONTRAST between adjacent
+blocks, not absolute cohesion. Collapsing surface forms raises overlap everywhere, including
+between unrelated blocks that share ordinary words. That predicts a *precision* cost, and the
+corrected numbers do show particle-without-stop-list drawing the most spurious cuts (13). What it
+does not support is the recall claim that was made.
+
+**Four corrections to one comparison.** Single config → four shapes; variants → shipped
+downstream; per-language ground truth → shared answer key; and finally the cross-language claim
+scoped to within-language only (message SHAPES still differ: 5 paragraphs vs 3, 371KB vs 232KB).
+Each correction narrowed what the metric was allowed to say. **A number that has been wrong four
+times should not decide a design question** — which is why the live check is the gate here
+(DEC-031), and why what ships rests on regime and maintainability rather than on the score.
+
+### Fix
+
+Character class → `[^a-z0-9\u00c0-\u024f\uac00-\ud7a3\s]`; minimum token length → 2 when the
+token contains Hangul, 3 otherwise. Nothing else in the function changes.
+
+**English is byte-identical**, measured rather than argued: 32/32 map fingerprints against an
+explicit pre-change ref, both engines, sizes 2/3/25/147 × vocab 1,4 × para 1,3.
+
+### Cost of the change, and a measurement that reversed itself
+
+The new filter runs one extra regex test (`HANGUL_RE.test(w)`) **per token**, inside a pipeline
+that has a documented history of freezing the tab. Measured rather than waved away.
+
+**Invariant first:** tokenize CALL COUNTS and CHARACTERS TOKENIZED are identical to baseline at
+every configuration — 902x/2.8M, 1065x/2.6M, 908x/7.6M, 1136x/6.6M (firefox, q=147). The same
+work is being done on the same input; only the per-token predicate changed.
+
+**Microbenchmark of the predicate itself** (Node, 1.53MB of English text, medians of 12
+interleaved runs after warming BOTH implementations): old 40.9ms, new 43.9ms — **+7.4%** on the
+tokenize term. At the largest synthetic config the whole map is ~600ms with ~270ms of
+tokenizing, so this is roughly +20ms against a live generate of ~1.2s. Immaterial, and the
+owner's standing rule is correctness over optimization regardless.
+
+**The reversal, recorded because it is the project's own rule catching the project:** the FIRST
+run of that benchmark reported the new tokenizer **68% FASTER**, which is impossible for strictly
+added work. Cause: old was benched first and new second, so V8 had JIT-warmed the shared code
+path by the time the second ran. Warming both implementations first and then interleaving
+A/B/B/A gave +7.4%. **A microbenchmark that runs A then B measures the order as much as the
+code.** Wall-clock map times were NOT used for this conclusion: this machine was running a
+full two-engine Playwright suite concurrently, and timing taken under contention is not a
+measurement (CLAUDE.md).
+
+### Blast-radius checks that came back clean (recorded so they are not re-derived)
+
+The tokenizer runs on ~1MB+ of **attacker-influenceable** text (an AI conversation can contain
+anything) inside one synchronous main-thread block, so the widened class was checked for
+regex-denial-of-service and for new cost paths. All clean, measured:
+
+- **No catastrophic backtracking.** The lazy fence pattern ` ```[\s\S]*?``` ` on 60,000
+  unterminated backticks: 2.0ms. Inline-code and URL patterns: sub-millisecond. Scaling is
+  linear across n = 1k/5k/20k/60k.
+- **The widened class is not more expensive** — character classes are linear regardless of how
+  many sub-ranges they carry. On 200,000 adversarial characters: old class 96.4ms, new class
+  64.5ms.
+- **Korean does not create a new O(n²) term.** `_sumDeduplicatePoints` is the historic quadratic
+  (fixed in v12.4 by stopping at the cap), and it is fed by `KEY_POINT_PATTERNS`, which are
+  ENGLISH regexes — a Korean conversation matches none, so it yields zero candidates and the
+  dedup pass does strictly less work than in English, not more.
+- **Layer 3 clean:** the change touches no page global, no `unsafeWindow`, no `fetch`/`history`
+  patching. Every caller reaching `_sumTokenize` passes a string (`_sumBuildTimeline` guards
+  every `text` with `|| ''`), so the unguarded `.toLowerCase()` is unreachable with a non-string
+  — and that is pre-existing shape, not something this change introduced.
+
+### Why CI could not have caught this, and what now can
+
+Every fixture in the suite was written in English, so a tokenizer returning `[]` for an entire
+language was invisible — the same "structurally cannot fail" shape that let fixed 3-message
+chunking survive v12.5's whole review. The new `Claude (Korean conversation + index)` entry is the
+suite's first non-English fixture. It asserts topics contain **Hangul** rather than merely existing
+(the fixture also holds ASCII turn numbers, and a tokenizer picking up only those would produce a
+non-empty list of pure noise), and asserts sub-segment starts at `[0, 27, 55]` — the same positions,
+from the same topic rule, as the English fixture. The base message text had to become Korean too:
+built on the English base text, the fixture would still have handed the old tokenizer English
+tokens in every message and could not have gone red.
+
+### Limits, stated so they are not re-described later
+
+- Fixed for **English and Korean**. NOT "Unicode support". Japanese and Chinese are not
+  space-separated, so no character class can segment them; they are excluded on purpose, and
+  `probes/check-tokenizer.js` T8 pins that limit as an assertion.
+- **Key points are still unavailable in Korean** — `KEY_POINT_PATTERNS` is a set of English
+  regexes, a different mechanism no tokenizer change reaches.
+- **Korean sub-segment labels carry particles** (세션이 rather than 세션). A display-only
+  normalizer would fix the reading without touching any measure; not bundled, and the live check
+  is the right instrument for deciding whether it is wanted.
+
+---
+
 ## v12.6 — Conversation-map sub-segmentation was not content-driven (found live 2026-08-01)
 
 **Status:** FIXED in v12.6, awaiting live confirmation | **Severity:** Medium — the map's second level was noise, no data loss |

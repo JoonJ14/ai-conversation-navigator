@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.6
+// @version      12.7
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -40,7 +40,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.6';
+    var ACN_VERSION = '12.7';
 
     // ============================================================
     // i18n — internationalization string table
@@ -8159,15 +8159,90 @@
 
     var FILE_EXTENSION_RE = /\b[\w\-]+\.(js|ts|jsx|tsx|css|html|py|rb|go|rs|java|c|cpp|h|json|yaml|yml|md|sh|bash|env|txt|csv|sql|graphql|vue|svelte)\b/gi;
 
+    // Scripts the tokenizer keeps, and the reason each is here (DEC-041):
+    //   a-z0-9          English, the default language.
+    //   \u00c0-\u024f   Latin letters carrying diacritics, MINUS \u00d7 and \u00f7.
+    //   (less d7,f7)   Those two are the only NON-LETTERS in the block - the
+    //                   multiplication and division signs - and keeping them glued
+    //                   tokens together that the old class split: `1920x1080` with a
+    //                   real multiplication sign tokenized as ONE token instead of
+    //                   two. Measured, not assumed. NOT another language -
+    //                   English text contains them (cafe/naive/resume with accents),
+    //                   and the ASCII-only strip did not merely drop them, it
+    //                   CORRUPTED words: an accented `resume` became `sum`, an
+    //                   unrelated English word that then competed for a topic slot;
+    //                   an accented `naive` vanished entirely.
+    //   \uac00-\ud7a3   Hangul syllables. Korean is the product's only translation
+    //                   (I18N.ko), and an ASCII-only strip left a Korean
+    //                   conversation with ZERO tokens — every content-derived
+    //                   Summary feature silently empty.
+    //                   Ends at \ud7a3, the last ASSIGNED syllable, NOT at the
+    //                   \ud7af the ROADMAP sketch proposed: \ud7a4-\ud7af is
+    //                   unassigned and would only admit garbage.
+    //                   Standalone Hangul JAMO (\u3131-\u318e) are excluded on
+    //                   purpose - in practice they are chat emoticons rather than
+    //                   words (laughing, crying), so dropping them removes noise
+    //                   exactly as the emoji strip does. Verified at the boundary.
+    // Deliberately NOT here: Greek, Cyrillic, kana and Han. Not an oversight and
+    // not a to-do — see DEC-041. Adding a script this tokenizer cannot actually
+    // segment is worse than leaving it out: Japanese and Chinese are not
+    // space-separated, so a character class WOULD turn a whole sentence into one or two
+    // pseudo-tokens, and the map would draw structure out of noise rather than correctly
+    // finding none. Note the tense: that is the COUNTERFACTUAL, not what ships. Shipped,
+    // Japanese yields ZERO tokens, because kana and Han are outside the class entirely —
+    // measured, and asserted by check-tokenizer.js T8 as `=== 0` (an earlier `<= 4` bound
+    // could not fail, since the regression it guards also produces 1). Say which languages are fixed; never call this
+    // "Unicode support".
+    // \u escapes rather than literal characters, matching the I18N.ko table and the
+    // rest of the file: every functional non-ASCII string in this userscript is
+    // escaped, so the script cannot be broken by an encoding change in transit.
+    var HANGUL_RE = /[\uac00-\ud7a3]/;
+
     function _sumTokenize(text) {
         return text
+            // NFC FIRST, before anything looks at a character. Neither the DOM nor the
+            // API guarantees a normalization form, and in NFD the whitelist below is
+            // defeated exactly the way the ASCII-only class was: decomposed Korean is
+            // U+1100-series Jamo, which is not in the Hangul SYLLABLE range, so a
+            // decomposed Korean conversation tokenizes to NOTHING - the same bug in a
+            // different encoding. Decomposed Latin is worse than dropped, it is
+            // corrupted: the combining mark is stripped and `resume` with acutes
+            // becomes `sume`, `naive` with a diaeresis becomes `nai`. Measured, both
+            // forms, before and after (GitHub Codex, PR #70).
+            // This matters in practice rather than in theory: macOS produces NFD for
+            // Korean input, which is precisely the platform the one Korean-speaking
+            // user this translation exists for may be typing on.
+            // ES2015 built-in, like the `Set` this file already relies on; the ES5
+            // constraint in CLAUDE.md is on SYNTAX, not on built-ins.
+            .normalize('NFC')
             .toLowerCase()
             .replace(/```[\s\S]*?```/g, ' ')
             .replace(/`[^`]+`/g, ' ')
             .replace(/https?:\/\/\S+/g, ' ')
-            .replace(/[^a-z0-9\s]/g, ' ')
+            .replace(/[^a-z0-9\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u024f\uac00-\ud7a3\s]/g, ' ')
             .split(/\s+/)
-            .filter(function (w) { return w.length > 2 && !SUMMARY_STOP_WORDS.has(w); });
+            .filter(function (w) {
+                // The minimum length is a claim about MORPHOLOGY, not about
+                // characters. `> 2` is an English rule: 2-letter English words are
+                // function words (of, to, is). In Korean the most common content
+                // words are exactly two syllables - injeung (auth), sesyeon
+                // (session), token, gwonhan (permission) - so the English rule
+                // discards the core vocabulary of the language. Measured: 0 of 10 such
+                // nouns survived at `> 2`, 10 of 10 at this rule.
+                // DELIBERATELY NO BOUNDARY SCORE HERE. An earlier version of this comment
+                // quoted one, from a sweep later found to be measuring the wrong thing
+                // three separate ways (DEC-041). The corrected numbers put this variant
+                // at 28/32 with 11 spurious, BEHIND particle normalization on recall —
+                // so a score quoted beside the rule would argue against the rule it
+                // annotates. What justifies this design is in DEC-041 and is not the
+                // score: it keeps Korean in the segment-count regime English is
+                // calibrated and live-confirmed in, and it adds no hand-maintained word
+                // list. Read DEC-041 before changing this; do not re-add a number here.
+                // Non-Hangul tokens keep the >= 3 rule exactly, so pure-ASCII
+                // English tokenizes byte-identically to before.
+                var min = HANGUL_RE.test(w) ? 2 : 3;
+                return w.length >= min && !SUMMARY_STOP_WORDS.has(w);
+            });
     }
 
     function _sumExtractBigrams(words) {
@@ -8184,10 +8259,35 @@
         maxTopics = maxTopics || 8;
         var words   = _sumTokenize(text);
         var bigrams = _sumExtractBigrams(words);
-        var freq    = {};
+        // Object.create(null), not {}: these maps are keyed by CONVERSATION WORDS, and
+        // `constructor` is a word this product's users type constantly. On a plain
+        // object `freq['constructor']` reads Object.prototype.constructor BEFORE
+        // assignment, so `(freq[w] || 0) + 1` concatenates onto a function and the
+        // comparator `freq[b] - freq[a]` then returns NaN for every pair involving that
+        // key — making the sort order of the WHOLE topic list implementation-defined.
+        // Measured: adding the single word "constructor" to a text changed both the set
+        // and the order of the chosen topics. `freq[term] < 1` also fails to skip it
+        // (NaN < 1 is false), and a truthy `coveredWords['constructor']` means the
+        // unigram can never be chosen at any frequency. PRE-EXISTING, found in Tier 3
+        // review of v12.7 (PR #70); `constructor` is the only reachable prototype key —
+        // hasOwnProperty/toString lowercase to non-matching forms and `__proto__` loses
+        // its underscores to the character class.
+        var freq    = Object.create(null);
 
+        // No length re-check here: _sumTokenize already applied the minimum, and it
+        // applies the SCRIPT-AWARE one. Re-testing `< 3` was a second copy of the
+        // English rule, and it discarded every 2-syllable Korean word the tokenizer
+        // had just correctly kept — so no 2-syllable Korean noun could be a topic at
+        // any frequency (measured: a term appearing 8 times, more often than any
+        // bigram, was still absent; DEC-041).
+        // Scope of the effect, stated because it is smaller than it sounds: bigrams
+        // are weighted 2x and cover their own words, so they outrank unigrams in
+        // BOTH languages. This makes a frequent short word ELIGIBLE; the existing
+        // weighting still decides whether it wins.
+        // Equivalent for English by construction — every token _sumTokenize returns
+        // for non-Hangul text is already >= 3 — and confirmed empirically by 32/32
+        // identical map fingerprints.
         words.forEach(function (w) {
-            if (w.length < 3) return;
             freq[w] = (freq[w] || 0) + 1;
         });
         bigrams.forEach(function (b) {
@@ -8196,7 +8296,7 @@
 
         var sorted = Object.keys(freq).sort(function (a, b) { return freq[b] - freq[a]; });
         var chosen = [];
-        var coveredWords = {};
+        var coveredWords = Object.create(null);          // see the note above
 
         for (var i = 0; i < sorted.length && chosen.length < maxTopics; i++) {
             var term = sorted[i];
@@ -8211,14 +8311,17 @@
     }
 
     function _sumExtractTopics(questions, aiResponses) {
-        var freq = {};
+        var freq = Object.create(null);                     // see _sumExtractTopicsFromText
 
         function addTerms(text, weight) {
             var words   = _sumTokenize(text);
             var bigrams = _sumExtractBigrams(words);
-            var local   = {};
+            var local   = Object.create(null);               // see _sumExtractTopicsFromText
 
-            words.forEach(function (w)   { if (w.length > 2) local[w]  = (local[w]  || 0) + 1; });
+            // Same as _sumExtractTopicsFromText: no length re-check. _sumTokenize
+            // already applied the script-aware minimum, and repeating the English
+            // `> 2` here dropped every 2-syllable Korean word (v12.7, DEC-041).
+            words.forEach(function (w)   { local[w]  = (local[w]  || 0) + 1; });
             bigrams.forEach(function (b) { local[b] = (local[b] || 0) + 2; });
 
             Object.keys(local).forEach(function (term) {
@@ -8231,7 +8334,7 @@
 
         var sorted = Object.keys(freq).sort(function (a, b) { return freq[b] - freq[a]; });
         var result = [];
-        var coveredWords = {};
+        var coveredWords = Object.create(null);          // see _sumExtractTopicsFromText
 
         for (var i = 0; i < sorted.length && result.length < 8; i++) {
             var term = sorted[i];
@@ -8265,7 +8368,7 @@
     }
 
     function _sumMergeTopics(topicsA, topicsB) {
-        var seen = {};
+        var seen = Object.create(null);                     // see _sumExtractTopicsFromText
         var merged = [];
         topicsA.concat(topicsB).forEach(function (t) {
             if (!seen[t]) { seen[t] = true; merged.push(t); }
@@ -8566,8 +8669,21 @@
     function _sumGenerateSegmentLabel(segment) {
         var topics = segment.topics || [];
         if (!topics.length) return 'Discussion';
+        // Capitalise the first letter of each SPACE-SEPARATED word, not each `\b\w`.
+        // `\w` and `\b` are ASCII-only without the `u` flag, so a diacritic counts as a
+        // non-word character and OPENS a spurious word boundary — every letter after one
+        // got upper-cased mid-word: naive/resume/deja-vu with their accents came out as
+        // `NaïVe`, `RéSumé`, `DéJà Vu`. Before v12.7 those tokens could not exist (the
+        // ASCII-only class turned an accented `resume` into `sum`), so widening the class
+        // is what made this reachable — found in Tier 3 review of v12.7 (PR #70).
+        // Splitting on whitespace has no character-class opinion at all, so it is correct
+        // for accented Latin and a no-op for Hangul, which has no case.
+        // These labels are user-visible in every segment and sub-segment row AND in the
+        // exported markdown.
         function cap(str) {
-            return str.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+            return str.split(' ').map(function (word) {
+                return word ? word.charAt(0).toUpperCase() + word.slice(1) : word;
+            }).join(' ');
         }
         if (topics.length === 1) return cap(topics[0]);
         return cap(topics[0]) + ' / ' + cap(topics[1]);
@@ -9562,7 +9678,13 @@
         }
         var pills = createElement('div', { className: 'acn-topic-pills' });
         topics.forEach(function (t) {
-            pills.appendChild(createElement('span', { className: 'acn-topic-pill', textContent: t }));
+            // Test contract (v12.7): topics are the most direct observable for
+            // "the tokenizer produced usable terms". The Korean fixture asserts
+            // these are Hangul rather than incidental ASCII, which is what makes it
+            // able to fail on the pre-v12.7 tokenizer (DEC-041).
+            var pill = createElement('span', { className: 'acn-topic-pill', textContent: t });
+            pill.setAttribute('data-acn-role', 'sum-topic');
+            pills.appendChild(pill);
         });
         body.appendChild(pills);
         return _sumMakeCollapsibleSection(i18n('topics') || 'Topics', body);
