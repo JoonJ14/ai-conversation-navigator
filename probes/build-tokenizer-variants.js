@@ -52,6 +52,15 @@ const ORIGINAL = `    function _sumTokenize(text) {
 
 // Shared prelude of every variant: the strip is widened from "ASCII only" to
 // "ASCII + Latin letters with diacritics + Hangul".
+//
+// Every variant also carries the shipped tokenizer's `.normalize('NFC')` first step.
+// Without it a generated `v2-length` is NOT the shipped v2 — decomposed Korean is
+// stripped and decomposed accented Latin is corrupted — so it fails T10/T11 in
+// check-tokenizer.js, and any future particle or label experiment would be scored on
+// builds carrying a defect the shipped code does not have (GitHub Codex, PR #70).
+// NOTE the ORIGINAL template above must NOT gain it: that string has to keep matching
+// the PRE-v12.7 body it is used to find. The v0 control likewise stays unmodified —
+// it is the pre-change build by definition.
 const WIDE_STRIP = `.replace(/[^a-z0-9\\u00c0-\\u00d6\\u00d8-\\u00f6\\u00f8-\\u024f\\uac00-\\ud7a3\\s]/g, ' ')`;
 
 // The English length rule is written THREE times: once in _sumTokenize and once each
@@ -81,6 +90,7 @@ const VARIANTS = {
 // only: everything downstream still assumes English-shaped words.
 'v1-charclass': `    function _sumTokenize(text) {
         return text
+            .normalize('NFC')
             .toLowerCase()
             .replace(/\`\`\`[\\s\\S]*?\`\`\`/g, ' ')
             .replace(/\`[^\`]+\`/g, ' ')
@@ -95,6 +105,7 @@ const VARIANTS = {
 'v2-length': `    var HANGUL_RE = /[\\uac00-\\ud7a3]/;
     function _sumTokenize(text) {
         return text
+            .normalize('NFC')
             .toLowerCase()
             .replace(/\`\`\`[\\s\\S]*?\`\`\`/g, ' ')
             .replace(/\`[^\`]+\`/g, ' ')
@@ -116,6 +127,7 @@ const VARIANTS = {
         '수도','정도','같은','다른','모든','매우','아주','조금','바로','다시','아직','이미'];
     function _sumTokenize(text) {
         return text
+            .normalize('NFC')
             .toLowerCase()
             .replace(/\`\`\`[\\s\\S]*?\`\`\`/g, ' ')
             .replace(/\`[^\`]+\`/g, ' ')
@@ -155,6 +167,7 @@ const VARIANTS = {
     }
     function _sumTokenize(text) {
         var raw = text
+            .normalize('NFC')
             .toLowerCase()
             .replace(/\`\`\`[\\s\\S]*?\`\`\`/g, ' ')
             .replace(/\`[^\`]+\`/g, ' ')
@@ -196,6 +209,7 @@ const VARIANTS = {
     }
     function _sumTokenize(text) {
         var raw = text
+            .normalize('NFC')
             .toLowerCase()
             .replace(/\`\`\`[\\s\\S]*?\`\`\`/g, ' ')
             .replace(/\`[^\`]+\`/g, ' ')
