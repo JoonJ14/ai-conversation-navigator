@@ -423,13 +423,19 @@ function buildConversation(q, seed, conversationUuid) {
 // COMMIT and say why: the point is that it cannot move silently.
 const EN_SCHEDULE_147 = [29, 57, 87, 119, 159, 199, 239, 279];
 function assertEnglishScheduleUnchanged() {
-    // Only at the DEFAULT knobs. PARA_BOOST and VOCAB_MULT change how many rnd() values
-    // a message consumes, so they move the block lengths — that is pre-existing and
-    // correct behaviour (the boundaries have always come from the same stream as the
-    // text), and the recorded list above is the default-knob measurement. Asserting it
-    // under boosted knobs would fire on a legitimate configuration, which is a check
-    // that cries wolf rather than a check that works.
-    if (VOCAB_MULT !== 1 || PARA_BOOST !== 1) return;
+    // Only at the DEFAULT knobs — ALL THREE of them. Every knob that changes how many
+    // rnd() values a message consumes also moves the block lengths, because the
+    // boundaries have always come from the same stream as the text. That is pre-existing
+    // and correct; the recorded list above is the default-knob measurement.
+    // KP_RATE belongs here for a less obvious reason than the other two: it does not add
+    // text, it changes which BRANCH answerText takes (`rnd() < 0.18 * KP_RATE` picks the
+    // template instead of a sentence), and the two branches draw different numbers of
+    // values. Omitting it made a standalone `KP_RATE=2` run abort at module load —
+    // for the recorded seed it yields [29,65,105,135,177,205,247,287] — while the
+    // documented `PARA_BOOST=3 KP_RATE=2` sensitivity run survived only because
+    // PARA_BOOST happened to bypass the check first (GitHub Codex, PR #70).
+    // A guard that fires on a legitimate configuration is a guard people switch off.
+    if (VOCAB_MULT !== 1 || PARA_BOOST !== 1 || KP_RATE !== 1) return;
     const got = computeSchedule(147, 20260730).boundaries;
     if (JSON.stringify(got) !== JSON.stringify(EN_SCHEDULE_147)) {
         throw new Error(
