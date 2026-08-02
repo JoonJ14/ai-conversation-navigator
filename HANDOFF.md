@@ -58,7 +58,8 @@ result** because a non-empty check would have passed the Latin corruption.
 `_sumTokenize` and left the downstream guards in place. Re-run with every variant carrying the
 shipped downstream: two rows moved (particle normalization improved), four identical, **ranking
 unchanged**. The finding was material — it improved the *rejected* option, the direction that
-could have overturned the decision — and the conclusion survived it.
+could have overturned the decision. **It did overturn it one round later**, once the third
+defect in the same comparison (per-language ground truth) was fixed — see §1c.
 
 ### 1c. Codex round 3 — the finding that overturned a conclusion
 

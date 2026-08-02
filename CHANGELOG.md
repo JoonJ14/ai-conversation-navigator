@@ -129,7 +129,9 @@ was corruption and a non-empty check would have passed it.
 **The variant sweep was re-run (GitHub Codex, PR #70).** The builder patched only `_sumTokenize`,
 leaving the pre-v12.7 downstream guards in place, so the variants were scored against a
 downstream that differed from the shipped build. Corrected and re-measured: two rows moved
-(particle normalization improved), four were identical, and the ranking held.
+(particle normalization improved), four were identical. **That looked like the ranking holding;
+it did not hold** — a third defect in the same comparison, found the next round, reversed it. See
+the retraction above.
 
 `À-ɏ` is very nearly "Latin letters with diacritics" — but `×` (×) and `÷` (÷) sit inside it
 and are the only two non-letters there. Written as a single span they were kept, and since the

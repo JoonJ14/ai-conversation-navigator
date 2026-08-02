@@ -548,25 +548,38 @@ boundaries out of that residue. Structure drawn from noise looks exactly like st
 sweep patched only `_sumTokenize` in each variant, leaving the pre-v12.7 `< 3` and `> 2` guards
 in `_sumExtractTopicsFromText` and `_sumExtractTopics` — so every variant was scored against a
 downstream that differed from the shipped build, and those topic lists feed both labelling and
-the merge's `_sumTopicOverlap`. Found by GitHub Codex on PR #70. Re-run with all variants
-carrying the same downstream as the shipped build, **two rows moved**: particle-normalization
-went 29→30 found / 12→10 spurious with the stop list, and 30→31 / 13→11 without it. The other
-four rows were unchanged, and **the ranking is unchanged** — v2 still wins on both recall and
-precision. The finding was material (it improved the rejected option, which is the direction
-that could have overturned the decision) and the conclusion survived it.
+the merge's `_sumTopicOverlap`. Found by GitHub Codex on PR #70. **Then a third defect: the
+payload's ground truth was itself language-dependent** — block lengths were drawn from the same
+LCG as the text, and Korean sentences consume extra draws, so Korean was scored against 9
+boundaries where English had 8, in different places. Fixed by deriving the schedule from a
+throwaway English render (`computeSchedule`), which leaves the English payload byte-identical.
 
-**The reversal is the part worth carrying.** At ONE configuration, particle normalization scored
-9/9 against the chosen fix's 8/9 and was ahead on every available intuition: same-topic overlap
-0.227 → 0.450, six surface forms of one noun collapsing to one token, 10× fewer initial segments,
-and visibly cleaner labels. Across four shapes it lost. The conclusion flipped twice before the
-full matrix existed — the same trap DEC-040 recorded, hit from the other direction.
+**The corrected sweep is the table above, and it REVERSES the earlier ranking.** v2 does not win
+on both axes: particle normalization reaches 30/32 with 10 spurious and 31/32 with 13, against
+v2's 28/32 with 11. The rejection of particle normalization was written on the invalid
+comparison and is **retracted** — see the block above the table.
 
-**Why it loses, mechanically:** segmentation reads the CONTRAST between adjacent blocks, not
-absolute cohesion. Collapsing surface forms raises overlap everywhere, including between unrelated
-blocks that share ordinary words, so the valleys the segmenter cuts on get shallower relative to
-the floor. It also moved the initial segment count from ~278 to ~22, putting Korean alone into a
-regime nothing in this project has been calibrated in, while the shipped fix keeps Korean in the
-same regime as English — the one the owner has live-confirmed.
+**What ships, and why it is not the score.** v2, on two grounds that do not depend on the
+measurement at all:
+- it keeps Korean in the segment-count regime English is calibrated and live-confirmed in
+  (~278 initial segments, versus ~22–85 under particle stripping — a regime nothing in this
+  project has been validated against); and
+- it adds no hand-maintained particle list, which can over-strip and merge genuinely distinct
+  words (the ≥2-syllable stem guard bounds that risk but does not remove it).
+
+**The mechanism that made particle stripping *look* wrong is still worth knowing**, because it is
+about the segmenter rather than about Korean: segmentation reads the CONTRAST between adjacent
+blocks, not absolute cohesion. Collapsing surface forms raises overlap everywhere, including
+between unrelated blocks that share ordinary words. That predicts a *precision* cost, and the
+corrected numbers do show particle-without-stop-list drawing the most spurious cuts (13). What it
+does not support is the recall claim that was made.
+
+**Four corrections to one comparison.** Single config → four shapes; variants → shipped
+downstream; per-language ground truth → shared answer key; and finally the cross-language claim
+scoped to within-language only (message SHAPES still differ: 5 paragraphs vs 3, 371KB vs 232KB).
+Each correction narrowed what the metric was allowed to say. **A number that has been wrong four
+times should not decide a design question** — which is why the live check is the gate here
+(DEC-031), and why what ships rests on regime and maintainability rather than on the score.
 
 ### Fix
 
