@@ -1531,6 +1531,19 @@ engines. Same engine, same code, one OS — the runner is the variable.
 assertion), then check the same engine on the other two OSes, and only then re-run. Re-running
 first tells you nothing about which of the three it was.
 
+**Third and fourth wedge on the same PR head (2026-08-02), and requeue did NOT clear them.**
+Matches the FIRST episode's behaviour, not the second: one re-run cleared the earlier wedge in
+this PR, two consecutive runs on head `dbd1c54` did not. Wedge points differed across the three
+(`Claude (294 rows, N=10 unrendered)` once, `Claude (120 rows, hostile)` twice), so it is not
+entry-specific.
+**What ruled out the new code specifically**, beyond the usual cross-OS check: the
+`Claude (Korean conversation + index)` entry added by this PR **PASSED on that very job**
+(31/31, 10.6s) and the wedge came four entries later, on `Claude (150 rows, N=3 unrendered)` —
+an entry this PR does not touch. Ask "did the new thing already run?" before "is the new thing
+guilty?"; the log answers it directly and costs nothing.
+Per the response rule above, re-running was stopped at two. A required check is red for
+environmental reasons on a head whose local suite is 1120/1120 on both engines.
+
 **A THIRD, DIFFERENT flake shape, same PR (2026-08-02) — `firefox on windows-latest`.** Worth
 separating from the two wedge variants because it looks like a real failure and is not one:
 
