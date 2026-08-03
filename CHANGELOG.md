@@ -62,8 +62,15 @@ dot labels and panel headers, and the toast already says "refresh to apply".
 ### Known, tracked
 
 Five keys remain unwired — `questionPrefix`, `noQuestions`, `summaryLanguageNote`,
-`noBookmarksToExport`, `usageUnavailable` (ROADMAP 0c). Distinct from the nine `/Commands` keys,
-which are dead on purpose.
+`noBookmarksToExport`, `usageUnavailable` (ROADMAP 0c).
+
+**Amended after the owner reviewed Korean mode live (2026-08-02).** This entry originally read
+"distinct from the nine `/Commands` keys, which are dead on purpose" — implying the five were
+*not* on purpose, i.e. defects awaiting a fix. The owner's position makes them the same kind of
+thing: *"some things are actually better to stay in english than force translation to korean when
+they can understand some english… i am fine with how the korean mode looks."* So all fourteen
+unwired keys are now a per-string judgement; the `/Commands` nine are simply the ones already
+decided. Original wording preserved in this note rather than silently replaced.
 
 ---
 
