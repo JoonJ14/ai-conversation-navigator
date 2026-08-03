@@ -336,9 +336,12 @@ longer possible by the time the work was done.
    strength of the synthetic observation alone. The same check surfaced the panel-i18n defect
    (§B.6), which is the shape to expect from live checks generally: they find the thing you did
    not think to measure, not the thing you did.
-2. **Five i18n keys are never called — and that is a QUESTION, not a work item** (ROADMAP 0c):
-   `questionPrefix`, `noQuestions`, `summaryLanguageNote`, `noBookmarksToExport`,
-   `usageUnavailable`. They render English in Korean mode. **The owner reviewed Korean mode live
+2. **Four i18n keys are never called — and that is a QUESTION, not a work item** (ROADMAP 0c):
+   `questionPrefix`, `noQuestions`, `noBookmarksToExport`, `usageUnavailable`. They render
+   English in Korean mode. **A fifth, `summaryLanguageNote`, is a DIFFERENT problem that needs
+   your decision** — its English value is empty and its Korean value is a disclaimer that has
+   never rendered, while `docs/SETTINGS.md` says it does; and v12.7 made that disclaimer's text
+   substantially untrue. Do not wire it as-is. Three options are laid out in ROADMAP 0c. **The owner reviewed Korean mode live
    and is satisfied with it:** *"some things are actually better to stay in english than force
    translation to korean when they can understand some english… i am fine with how the korean
    mode looks."* So do **not** pick this up as a batch. If it is picked up at all, it is a
@@ -381,7 +384,7 @@ longer possible by the time the work was done.
 fixture batch, and the backlog behind them. The `overflow-anchor: none` mock assumption remains
 unverified (carried).
 
-**§G item 2 is deliberately NOT in this rollup.** The five unwired i18n keys are an owner
+**§G item 2 is deliberately NOT in this rollup.** The four unwired i18n keys are an owner
 PREFERENCE, not deferred work: Korean mode was reviewed live and accepted as-is. Listing them
 here would put them back in the schedulable pile, which is exactly the reading this session
 corrected. If they are ever picked up it is per-string, by the owner's judgement, not as a batch.
@@ -399,8 +402,11 @@ corrected. If they are ever picked up it is per-string, by the owner's judgement
   panel open, the exports section is built at injection. Owner-accepted (DEC-042), and the
   `languageChanged` toast already says "refresh to apply". Do not "fix" it without re-opening
   that decision.
-- **Five i18n keys render English in Korean mode** (ROADMAP 0c) — known, and **accepted by the
+- **Four i18n keys render English in Korean mode** (ROADMAP 0c) — known, and **accepted by the
   owner**, not merely deferred. Partial English in Korean mode is a preference, not a defect.
+- **`summaryLanguageNote` is a real open question, not a preference.** A Korean-only disclaimer
+  that has never rendered, promised by `docs/SETTINGS.md`, whose text v12.7 made substantially
+  untrue. Needs an owner decision (ROADMAP 0c); do not wire the current string.
 - **The Korean payload is generated, not real.** Its particle distribution is modelled
   (받침-correct), but its sentences are vocabulary-driven word salad, exactly like the English
   payload. A real Korean conversation mixes English technical terms far more heavily.

@@ -176,6 +176,12 @@ What stays in English (content analysis):
 - Key point signal phrases (English regex patterns)
 - Conversation map segment labels (derived from English topic extraction)
 
+> **⚠ This notice has never actually rendered (found 2026-08-03).** `summaryLanguageNote` has
+> zero call sites — the section below describes intended behaviour, not shipped behaviour.
+> **And v12.7 made its text substantially untrue:** topics and the conversation map now read
+> Korean; only key points do not. Do not wire the existing string. See ROADMAP 0c for the three
+> options and the owner decision it needs.
+
 ### Disclaimer for non-English users
 
 When language is set to non-English, the Summary panel shows a note:

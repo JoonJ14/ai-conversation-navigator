@@ -64,12 +64,16 @@ console.log(dead.length? 'DEAD: '+dead.join(', ') : 'every key is called');"
 
 **Current state of that audit (2026-08-02), so a hit is not mistaken for a regression:**
 14 keys have no call site — and **a dead key is not automatically a defect.** Nine are the
-`/Commands` section, deliberately English. The other five (`questionPrefix`, `noQuestions`,
-`summaryLanguageNote`, `noBookmarksToExport`, `usageUnavailable`) render English in Korean mode
-and are a **review list, not a fix list** (ROADMAP 0c) — the owner reviewed Korean mode live and
-is satisfied with it, so each is a per-string judgement about whether Korean helps that label.
+`/Commands` section, deliberately English. Four (`questionPrefix`, `noQuestions`,
+`noBookmarksToExport`, `usageUnavailable`) render English in Korean mode and are a **review list,
+not a fix list** (ROADMAP 0c) — the owner reviewed Korean mode live and is satisfied with it, so
+each is a per-string judgement about whether Korean helps that label.
 **Do not mass-translate to drive this count to zero.** The audit exists to make the choice
 visible, not to make the number zero.
+**One of the fourteen is a different animal:** `summaryLanguageNote` has an EMPTY English value
+and a Korean-only disclaimer, so it cannot "stay English" — it is a notice that has never
+rendered while `docs/SETTINGS.md` says it does, and v12.7 made its text substantially untrue.
+It needs an owner decision, not wiring (ROADMAP 0c).
 
 **Never assemble a translated sentence by concatenation.** Word ORDER is part of what a
 translation changes. `'resets ' + day + ' ' + time + ' ' + ampm` cannot be translated into Korean

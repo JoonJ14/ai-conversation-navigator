@@ -195,10 +195,26 @@ Numbering below is stable (items keep their historical numbers):
    collapse to one token per sentence — they need segmentation, not a character class. Say
    which languages are fixed rather than claiming "Unicode support".
 
-0c. **Five i18n keys are never called — a REVIEW list, not a defect list (owner, 2026-08-02).**
-   `questionPrefix`, `noQuestions`, `summaryLanguageNote`, `noBookmarksToExport`,
-   `usageUnavailable` have Korean values and **zero call sites**, so those surfaces render
-   English in Korean mode. Found by the v12.7a audit.
+0c. **Four i18n keys are never called — a REVIEW list, not a defect list (owner, 2026-08-02).**
+   `questionPrefix`, `noQuestions`, `noBookmarksToExport`, `usageUnavailable` have Korean values
+   and **zero call sites**, so those surfaces render English in Korean mode. Found by the v12.7a
+   audit.
+
+   **`summaryLanguageNote` was originally listed here and does NOT belong — it is a different
+   problem and needs an owner decision (GitHub Codex, PR #72).** Its ENGLISH value is the empty
+   string and its Korean value is a disclaimer — *"ℹ️ 요약 분석은 영어 대화에서 가장 잘
+   작동합니다"* ("Summary analysis works best with English conversations"). So "renders English
+   in Korean mode" is meaningless for it: there is no English text. It is a Korean-only notice
+   that **has never rendered**, while `docs/SETTINGS.md` §"Disclaimer for non-English users"
+   states that it does.
+   **And v12.7 changed whether it is even true.** Topics and the conversation map now read
+   Korean; only key points do not. So the disclaimer as written now overstates the limitation.
+   Three ways out, none of them obvious enough to pick without the owner:
+   (a) wire it with corrected text naming only key points; (b) drop the key and amend
+   SETTINGS.md to record that the notice was removed because v12.7 made it obsolete; or
+   (c) leave both as-is and accept that a spec doc describes a notice that does not exist.
+   **Do not simply wire the current text** — it would tell a Korean user the Summary works
+   poorly for them, which v12.7 made substantially false.
    **The owner reviewed Korean mode live and is satisfied with it as-is:** *"some things are
    actually better to stay in english than force translation to korean when they can understand
    some english… i am fine with how the korean mode looks."* So these are **not defects** — they

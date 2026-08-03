@@ -68,9 +68,11 @@ Five keys remain unwired — `questionPrefix`, `noQuestions`, `summaryLanguageNo
 "distinct from the nine `/Commands` keys, which are dead on purpose" — implying the five were
 *not* on purpose, i.e. defects awaiting a fix. The owner's position makes them the same kind of
 thing: *"some things are actually better to stay in english than force translation to korean when
-they can understand some english… i am fine with how the korean mode looks."* So all fourteen
-unwired keys are now a per-string judgement; the `/Commands` nine are simply the ones already
+they can understand some english… i am fine with how the korean mode looks."* So thirteen of the
+fourteen unwired keys are a per-string judgement; the `/Commands` nine are simply the ones already
 decided. Original wording preserved in this note rather than silently replaced.
+**The fourteenth is different**: `summaryLanguageNote` has an empty English value and a
+Korean-only disclaimer that has never rendered — see ROADMAP 0c.
 
 ---
 
