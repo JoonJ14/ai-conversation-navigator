@@ -2075,9 +2075,14 @@ than one variable is a translation defect waiting to happen. Word ORDER is part 
 translation changes, and concatenation hard-codes it.
 
 ### Alternatives considered
-- **Translate `/Commands`:** rejected by the owner, and the reasoning is worth keeping — "slash
+- **Translate `/Commands`:** rejected by the owner, and the reasoning generalises — "slash
   command" functions as its own noun in Korean developer usage, and a translated form would be
-  *less* recognisable than the English. Not every string benefits from translation.
+  *less* recognisable than the English. **The owner later stated this as a standing position**
+  rather than a one-off call, having reviewed Korean mode live: *"some things are actually better
+  to stay in english than force translation to korean when they can understand some english… i am
+  fine with how the korean mode looks."* Consequence for future work: an unwired i18n key is a
+  QUESTION (does Korean help this label?), not a defect. ROADMAP 0c is a review list on that
+  basis, and driving the dead-key audit to zero is explicitly not the goal.
 - **Rebuild the Tools panel on language switch:** rejected. The product's contract is
   "refresh to apply" and the toast says so; the switch handler deliberately updates only dot
   labels and panel headers. Accepted consequence, owner-confirmed: switching language without

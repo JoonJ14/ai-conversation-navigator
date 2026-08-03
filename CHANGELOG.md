@@ -62,8 +62,31 @@ dot labels and panel headers, and the toast already says "refresh to apply".
 ### Known, tracked
 
 Five keys remain unwired — `questionPrefix`, `noQuestions`, `summaryLanguageNote`,
-`noBookmarksToExport`, `usageUnavailable` (ROADMAP 0c). Distinct from the nine `/Commands` keys,
-which are dead on purpose.
+`noBookmarksToExport`, `usageUnavailable` (ROADMAP 0c).
+
+**Amended after the owner reviewed Korean mode live (2026-08-02).** This entry originally read
+"distinct from the nine `/Commands` keys, which are dead on purpose" — implying the five were
+*not* on purpose, i.e. defects awaiting a fix. The owner's position makes them the same kind of
+thing: *"some things are actually better to stay in english than force translation to korean when
+they can understand some english… i am fine with how the korean mode looks."* Original wording
+preserved in this note rather than silently replaced.
+
+**The unwired keys fall into three groups** (named rather than tallied — an earlier version of
+this note said "thirteen of the fourteen" and double-counted, applying the owner's "fine with
+it" to all of them and then excluding two without lowering the total; GitHub Codex, PR #72):
+
+- **The `/Commands` keys** — deliberately English, already decided (DEC-042)
+- **`questionPrefix`, `noQuestions`, `noBookmarksToExport`** — English in Korean mode by owner
+  preference, a per-string judgement if ever revisited (ROADMAP 0c). `questionPrefix` is a
+  degenerate member: its English and Korean values are *both* `'Q#'`, so wiring it changes
+  nothing on screen
+- **`summaryLanguageNote` and `usageUnavailable`** — **missing behaviour, not translation
+  preferences.** An empty English value with a Korean-only disclaimer that has never rendered,
+  and a failed usage fetch that leaves "Plan usage loading…" on screen forever in both
+  languages
+
+Run the audit in `agent_docs/conventions.md` for the current membership of each group rather
+than trusting a count recorded here.
 
 ---
 

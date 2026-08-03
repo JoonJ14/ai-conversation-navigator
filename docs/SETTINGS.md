@@ -164,6 +164,72 @@ langSel.addEventListener('change', function () {
 
 ### Scope of translation
 
+> **⚠ This list was inverted in BOTH directions and is corrected below (2026-08-03).** It
+> claimed every UI string was translated while all content analysis stayed English. v12.7 made
+> content analysis read Korean, and the v12.7a audit found UI strings that were never wired.
+> Original text preserved at the end of this section.
+
+**None of the bullets below is a blanket claim, and none of them carries a tally.** Coverage is
+**partial on every UI surface**. Two things were learned the hard way writing this section
+(PR #72, four review rounds):
+
+1. **Every blanket claim here was wrong**, in a way no maintainer could see without grepping.
+   So the bullets name *specific* surfaces.
+2. **Every tally here was also wrong** — "21 of 31" toasts, "9 vs 5" tooltips, "13 of 14" keys.
+   Each was miscounted by including or excluding the wrong population: a `title:` field in a
+   config object or a data object is not a DOM tooltip, and a regex with a length cap silently
+   drops long call sites out of the denominator rather than misclassifying them.
+   **So this section names members instead of counting them.** A named surface can be checked
+   against the code in one grep; a tally can only be re-derived, and a stale tally looks
+   authoritative while being wrong.
+
+To get current numbers, run the audit — `agent_docs/conventions.md` → i18n Conventions. Do not
+transcribe its output back into this file.
+
+What gets translated (UI strings) — **partially, on every line**:
+- Orbital feature labels (Navigate, Search, Bookmarks, Summary, Tools, Settings)
+- Panel headers and section titles
+- **Some** button labels and tooltips — **not all**. Hardcoded English remains on
+  `Clear all bookmarks`, on the `Remove bookmark` / `Bookmark this message` tooltip, and on the
+  Navigate row's `No message link available`. The `/Commands` panel's Execute/Edit/Delete
+  tooltips are hardcoded **deliberately** (DEC-042).
+  **When auditing tooltips, match only real DOM attributes** — `.title =`,
+  `setAttribute('title', …)`, and `title:` in a `createElement` *options* object. A `title:`
+  key in the `PLATFORMS` registry is a platform display name, and a `title:` key in the
+  `TOOLS_EXPORT` data objects is a visible label rendered via `textContent`. Neither is a
+  tooltip; both were wrongly swept into this population once each.
+- **Some** toasts — **most are hardcoded English**, including the export progress and success
+  messages, "Summary exported" and "All bookmarks cleared". Not an exception list anyone
+  decided; just unwired. **Note when auditing:** at least one call site passes a *conditional*
+  whose branches are both English literals, so a scan that only matches a leading quote will
+  miss it.
+- The Tools panel — Image Gallery, 파일 내보내기 and its export options (wired in **v12.7a**;
+  the translations existed from the start but were never read)
+- The Plan usage panel, including reset phrases, which are `{placeholder}` templates because
+  Korean orders the meridiem before the time
+
+What stays in English **on purpose**:
+- `/Commands` — "slash command" reads better untranslated (DEC-042)
+- **Three** surfaces by owner preference, not oversight: question-list prefixes, the
+  no-questions empty state, the no-bookmarks-to-export message (ROADMAP 0c).
+  **Partial English in Korean mode is accepted** — do not treat those three as defects.
+- **Not in this category: `usageUnavailable`.** It was listed here as a fourth preference and
+  that was wrong — the message never renders in *either* language, so there is no English
+  surface to prefer. It is an open bug (permanent "Plan usage loading…"), tracked in ROADMAP
+  0c. Nor is `summaryLanguageNote`, which needs an owner decision — see the notice below.
+
+What reads Korean **since v12.7** (content analysis):
+- **Topic extraction** — the tokenizer keeps Hangul and uses a script-aware minimum length
+- **The conversation map**, both levels, including segment labels
+- Deduplication and word-overlap, which read the same token stream
+
+What still does NOT read Korean:
+- **Key points** — `KEY_POINT_PATTERNS` is a set of English phrase regexes, a mechanism no
+  tokenizer change reaches. This is the one real remaining gap (ROADMAP 0a).
+
+<details><summary>Original list, preserved</summary>
+
+```
 What gets translated (UI strings):
 - All orbital feature labels (Navigate, Search, Bookmarks, Summary, Tools, Settings)
 - All panel headers, section titles, button labels
@@ -175,6 +241,14 @@ What stays in English (content analysis):
 - Topic extraction (English stop words, English tokenization)
 - Key point signal phrases (English regex patterns)
 - Conversation map segment labels (derived from English topic extraction)
+```
+</details>
+
+> **⚠ This notice has never actually rendered (found 2026-08-03).** `summaryLanguageNote` has
+> zero call sites — the section below describes intended behaviour, not shipped behaviour.
+> **And v12.7 made its text substantially untrue:** topics and the conversation map now read
+> Korean; only key points do not. Do not wire the existing string. See ROADMAP 0c for the three
+> options and the owner decision it needs.
 
 ### Disclaimer for non-English users
 

@@ -63,11 +63,20 @@ console.log(dead.length? 'DEAD: '+dead.join(', ') : 'every key is called');"
 ```
 
 **Current state of that audit (2026-08-02), so a hit is not mistaken for a regression:**
-14 keys have no call site. **Nine are the `/Commands` section and are deliberately English**
-(see below). The other five are genuinely unwired and are open work — `questionPrefix`,
-`noQuestions`, `summaryLanguageNote`, `noBookmarksToExport`, `usageUnavailable`. They render
-English to a Korean user today. Tracked in ROADMAP; not fixed in v12.7a because that change was
-scoped to the two panels the owner reported.
+14 keys have no call site — and **a dead key is not automatically a defect.** Nine are the
+`/Commands` section, deliberately English. Three (`questionPrefix`, `noQuestions`,
+`noBookmarksToExport`) render English in Korean mode and are a **review list, not a fix list**
+(ROADMAP 0c) — the owner reviewed Korean mode live and is satisfied with it, so
+each is a per-string judgement about whether Korean helps that label.
+**Do not mass-translate to drive this count to zero.** The audit exists to make the choice
+visible, not to make the number zero.
+**Two of the fourteen are a different animal — missing BEHAVIOUR, not translation preferences.**
+`summaryLanguageNote` has an EMPTY English value and a Korean-only disclaimer, so it cannot "stay
+English" — it is a notice that has never rendered while `docs/SETTINGS.md` says it does, and
+v12.7 made its text substantially untrue. `usageUnavailable` never renders in either language: a
+failed usage fetch leaves the panel showing "Plan usage loading…" forever. **A dead key is not
+automatically a preference either** — check whether the surface has a working behaviour without
+it before filing it as one (ROADMAP 0c).
 
 **Never assemble a translated sentence by concatenation.** Word ORDER is part of what a
 translation changes. `'resets ' + day + ' ' + time + ' ' + ampm` cannot be translated into Korean
@@ -81,9 +90,13 @@ must match the `en` table value. A fallback that differs is unreachable *and* mi
 `||` fires only when the key is ABSENT, so a differing fallback makes the code claim a wording
 it can never render.
 
-**Not everything should be translated.** `/Commands` stays English by owner decision — "slash
-command" functions as its own noun in Korean developer usage, and a translated form would be
-less recognisable, not more. Ask before translating domain jargon.
+**Not everything should be translated — this is the owner's standing position, not a one-off.**
+Verbatim (2026-08-02, after reviewing Korean mode live): *"some things are actually better to
+stay in english than force translation to korean when they can understand some english."*
+`/Commands` is the settled case — "slash command" functions as its own noun in Korean developer
+usage, and a translated form would be less recognisable, not more. **Partial English in Korean
+mode is acceptable.** Ask before translating domain jargon, and treat "this key has no call
+site" as a question, not a bug report.
 
 **Language changes require a refresh**, by design. The switch handler updates only dot labels and
 panel headers; anything built at injection keeps its old language until reload, and the

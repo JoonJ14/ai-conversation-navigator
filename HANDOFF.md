@@ -257,6 +257,18 @@ changed what those functions *see*, never what they do. `probes/` gained
 - **A filter repeated downstream is a second place for the same assumption to be wrong.**
   The English length rule was written three times; fixing the tokenizer alone still left two
   copies deciding that no 2-syllable Korean noun could be a topic at any frequency.
+- **Correcting a claim means grepping for every restatement of it — this bit four times in one
+  session.** The tokenizer score survived in the code comment beside the rule it contradicted;
+  "Tier 3 delivered nothing" survived in an experiment-log row below its own retraction; the key
+  count survived in the two DURABLE surfaces after I fixed the two narrative ones; and the
+  "five keys to fix" framing survived in HANDOFF §G — the first thing a new session reads —
+  after I corrected ROADMAP, conventions and DEC-042. Every one was caught by review, none by me.
+  And a FIFTH: after reframing §G item 2, §I's "all of §G items 2–5" rollup swept it straight
+  back into deferred work. **Rollups and cross-references are restatements too** — an index that
+  says "items N–M" re-asserts every claim in that range, so it must be re-read whenever any item
+  in it changes meaning.
+  The habit to build: after changing a number or a framing, grep the phrase, not the paragraph —
+  and check what AGGREGATES over it.
 - **State an effect's real size, especially your own fix's.** Removing those copies makes a
   frequent short word *eligible*; bigram weighting still decides whether it wins. The first
   draft of this handoff said Korean topics were "all bigrams" because of the filters — they
@@ -324,11 +336,32 @@ longer possible by the time the work was done.
    strength of the synthetic observation alone. The same check surfaced the panel-i18n defect
    (§B.6), which is the shape to expect from live checks generally: they find the thing you did
    not think to measure, not the thing you did.
-2. **Five i18n keys are still never called** (ROADMAP 0c): `questionPrefix`, `noQuestions`,
-   `summaryLanguageNote`, `noBookmarksToExport`, `usageUnavailable`. Each renders English to a
-   Korean user today; each is a one-line wiring fix. Found by the v12.7a audit, deliberately
-   out of scope there because that change was bounded to the two panels the owner reported.
-   **Not to be confused with the nine `/Commands` keys, which are dead on purpose.**
+2. **Three i18n keys are never called — and that is a QUESTION, not a work item** (ROADMAP 0c):
+   `questionPrefix`, `noQuestions`, `noBookmarksToExport`. They render English in Korean mode and
+   the owner accepts that. **The owner reviewed Korean mode live and is satisfied with it:**
+   *"some things are actually better to stay in english than force translation to korean when
+   they can understand some english… i am fine with how the korean mode looks."* So do **not**
+   pick those three up as a batch. If any is picked up at all, it is a per-string judgement —
+   does Korean help *that* label? — and driving the dead-key audit to zero is explicitly not the
+   goal. The nine `/Commands` keys are the settled case of the same principle.
+
+2a. **TWO keys were originally filed with the three above and are NOT preferences — they are
+   missing behaviour. The owner's "I'm fine with it" does not cover them**, because nothing
+   renders in either language for them to be fine with. Both are real work:
+   - `usageUnavailable` — **an open bug.** A failed usage fetch leaves the panel showing
+     "Plan usage loading…" **forever**; the unavailable message never appears in either
+     language. Pre-existing and user-visible. **The bug is that the panel reports an in-flight
+     fetch that already failed** — wrong under any design, so it does not wait on the question
+     below.
+     **The REMEDY is an owner decision, and the repo currently asserts both answers:**
+     `docs/PLAN-USAGE.md` §"Fetch fails" specifies rendering *nothing* on failure, while the
+     existence of `usageUnavailable` in both language tables implies a *message* was intended.
+     Pick one and make the other doc agree — ROADMAP 0c has both options written out. Either
+     way it is a code change on a network path, so it is live-confirm gated (DEC-031).
+   - `summaryLanguageNote` — **needs an owner decision, not a wiring fix.** An empty English
+     value and a Korean-only disclaimer that has never rendered, while `docs/SETTINGS.md` says
+     it does. v12.7 made its text substantially untrue, so **do not wire it as-is**. Three
+     options in ROADMAP 0c.
 3. **Key points are still unavailable in Korean**, for a different mechanism this arc does
    not reach: `KEY_POINT_PATTERNS` is a set of English regexes. Recorded in ROADMAP 0a, not
    fixed here. It needs its own Korean pattern set and its own measurement.
@@ -361,7 +394,20 @@ longer possible by the time the work was done.
 
 ## I. Deferred / future work
 
-All of §G items 2–5. The `overflow-anchor: none` mock assumption remains unverified (carried).
+§G items **2a** and **3–6** — the two missing-behaviour keys, key points in Korean, the
+theoretical top-level merge rule, the carried-over fixture batch, and the backlog behind them.
+The `overflow-anchor: none` mock assumption remains unverified (carried).
+
+Of those, **§G item 2a is the only one that is a user-visible bug rather than a backlog item**:
+`usageUnavailable` leaves the usage panel permanently claiming to be loading after a failed
+fetch. `summaryLanguageNote` in the same item is blocked on an owner decision, not on work.
+
+**§G item 2 is deliberately NOT in this rollup.** The three unwired i18n keys are an owner
+PREFERENCE, not deferred work: Korean mode was reviewed live and accepted as-is. Listing them
+here would put them back in the schedulable pile, which is exactly the reading this session
+corrected. If they are ever picked up it is per-string, by the owner's judgement, not as a batch.
+**Item 2a is a different thing and IS deferred work** — do not let the exclusion of item 2 pull
+it out of the pile too.
 
 ---
 
@@ -376,8 +422,22 @@ All of §G items 2–5. The `overflow-anchor: none` mock assumption remains unve
   panel open, the exports section is built at injection. Owner-accepted (DEC-042), and the
   `languageChanged` toast already says "refresh to apply". Do not "fix" it without re-opening
   that decision.
-- **Five i18n keys still render English to a Korean user** (ROADMAP 0c). Known, scoped out, not
-  forgotten.
+- **Three i18n keys render English in Korean mode** (ROADMAP 0c) — known, and **accepted by the
+  owner**, not merely deferred. Partial English in Korean mode is a preference, not a defect.
+- **Two dead keys are NOT preferences — they are missing behaviour** (ROADMAP 0c).
+  `usageUnavailable`: a failed usage fetch shows "Plan usage loading…" forever, in both
+  languages. `summaryLanguageNote`: a Korean-only disclaimer that has never rendered, promised
+  by `docs/SETTINGS.md`, whose text v12.7 made substantially untrue.
+  **The lesson underneath both:** a key with no call site is not automatically a translation
+  question — check first whether the surface behaves correctly without it. Two of the fourteen
+  did not.
+- **Most toasts are hardcoded English** — the export progress/success messages, "Summary
+  exported", "All bookmarks cleared" and others. Not a decision anyone made; simply unwired.
+  **Deliberately not stated as a ratio here.** This handoff and `docs/SETTINGS.md` both carried
+  a "21 of 31" that was wrong in the *denominator* — the counting script capped call sites at
+  120 characters, so a multi-line conditional fell out of the population rather than being
+  classified. Every tally written during PR #72 was wrong at least once. Name the surfaces;
+  re-derive numbers with the audit in `agent_docs/conventions.md` when you actually need them.
 - **The Korean payload is generated, not real.** Its particle distribution is modelled
   (받침-correct), but its sentences are vocabulary-driven word salad, exactly like the English
   payload. A real Korean conversation mixes English technical terms far more heavily.
