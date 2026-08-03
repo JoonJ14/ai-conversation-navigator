@@ -71,8 +71,10 @@ thing: *"some things are actually better to stay in english than force translati
 they can understand some english… i am fine with how the korean mode looks."* So thirteen of the
 fourteen unwired keys are a per-string judgement; the `/Commands` nine are simply the ones already
 decided. Original wording preserved in this note rather than silently replaced.
-**The fourteenth is different**: `summaryLanguageNote` has an empty English value and a
-Korean-only disclaimer that has never rendered — see ROADMAP 0c.
+**Two of the fourteen are different** — missing behaviour rather than translation preferences:
+`summaryLanguageNote` (empty English value, Korean-only disclaimer that has never rendered) and
+`usageUnavailable` (a failed usage fetch leaves "Plan usage loading…" on screen forever, in both
+languages). See ROADMAP 0c.
 
 ---
 

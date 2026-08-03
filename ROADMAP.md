@@ -195,10 +195,19 @@ Numbering below is stable (items keep their historical numbers):
    collapse to one token per sentence — they need segmentation, not a character class. Say
    which languages are fixed rather than claiming "Unicode support".
 
-0c. **Four i18n keys are never called — a REVIEW list, not a defect list (owner, 2026-08-02).**
-   `questionPrefix`, `noQuestions`, `noBookmarksToExport`, `usageUnavailable` have Korean values
-   and **zero call sites**, so those surfaces render English in Korean mode. Found by the v12.7a
-   audit.
+0c. **Three i18n keys are never called — a REVIEW list, not a defect list (owner, 2026-08-02).**
+   `questionPrefix`, `noQuestions`, `noBookmarksToExport` have Korean values and **zero call
+   sites**, so those surfaces render English in Korean mode. Found by the v12.7a audit.
+
+   **TWO keys were originally filed here and do not belong — both are missing BEHAVIOUR, not
+   translation preferences** (GitHub Codex, PR #72). Filing them as "English on purpose" would
+   have buried two real gaps:
+   - **`usageUnavailable`** — when the Claude usage request fails or returns no recognised
+     tiers, `fetchClaudeUsage` hands `null` to `renderUsageBars`, which renders
+     `planUsageLoading` **indefinitely**. The panel says "Plan usage loading…" forever and the
+     unavailable message never appears in EITHER language. That is a missing failure state
+     (~`ai-conversation-navigator.user.js:4962`), and it predates v12.7a.
+   - **`summaryLanguageNote`** — see below.
 
    **`summaryLanguageNote` was originally listed here and does NOT belong — it is a different
    problem and needs an owner decision (GitHub Codex, PR #72).** Its ENGLISH value is the empty

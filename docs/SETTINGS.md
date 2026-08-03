@@ -172,7 +172,10 @@ langSel.addEventListener('change', function () {
 What gets translated (UI strings):
 - Orbital feature labels (Navigate, Search, Bookmarks, Summary, Tools, Settings)
 - Panel headers, section titles, button labels
-- Toast messages, tooltips
+- Tooltips, and **some** toasts — but **most toasts are hardcoded English**: 21 of 31
+  `showToast` call sites pass a literal rather than `i18n(...)`, including the export
+  progress/success messages and "Summary exported". Not an exception list anyone decided; just
+  unwired. Counted 2026-08-03
 - The Tools panel — Image Gallery, 파일 내보내기 and its export options (wired in **v12.7a**;
   the translations existed from the start but were never read)
 - The Plan usage panel, including reset phrases, which are `{placeholder}` templates because
