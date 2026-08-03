@@ -490,7 +490,16 @@ If a field is `null` (e.g., `seven_day_opus: null`), don't show a bar for it. On
 > **"Plan usage loading…" indefinitely**, claiming a fetch is still in flight when it has
 > already failed. `usageUnavailable` exists in both language tables and has **no call site**,
 > so the unavailable message never appears in English or Korean. This is an open bug, not a
-> translation preference — tracked in ROADMAP 0c. The paragraph below is the intended design.
+> translation preference — tracked in ROADMAP 0c.
+>
+> **The paragraph below is the intended design, and it is NOT yet reconciled with that key.**
+> "Silently skip" and "show `usageUnavailable`" are mutually exclusive, and the repo currently
+> asserts both — this spec says silent, while the string exists in both language tables. The
+> **bug is real under either**: a failed fetch must not keep claiming to be loading. The
+> **remedy is an owner decision** (ROADMAP 0c lists the two options). If silent wins, delete
+> `usageUnavailable` from both tables and this section stands as written. If explicit wins,
+> this section and the "handled silently" checklist item below must both be rewritten. Do not
+> implement one and leave the other doc asserting the other.
 
 If `GM_xmlhttpRequest` fails (network error, auth cookie expired, page structure changed), silently skip — no usage bars shown. The context bar still works independently. No error messages; usage display is informational, not critical.
 
@@ -551,8 +560,10 @@ usageUnavailable: '사용량 데이터를 불러올 수 없습니다',
 - [ ] Usage JSON parsed correctly from HTML/RSC response
 - [ ] `five_hour`, `seven_day`, `seven_day_sonnet` fields extracted
 - [ ] Null fields handled (no bar rendered for null entries)
-- [ ] Fetch failure handled silently (no errors, no broken UI) — **currently FAILS: the panel
-      shows "Plan usage loading…" forever. See "Fetch fails" above and ROADMAP 0c**
+- [ ] Fetch failure does not leave the panel claiming to still be loading — **currently FAILS:
+      it shows "Plan usage loading…" forever.** Whether the correct end state is *nothing* or
+      *`usageUnavailable`* is an open decision; this checkbox deliberately asserts only the part
+      that holds either way. See "Fetch fails" above and ROADMAP 0c
 - [ ] Cache in `GM_setValue` prevents redundant fetches within 5 minutes
 
 ### Display

@@ -205,9 +205,25 @@ Numbering below is stable (items keep their historical numbers):
    — they are a preference the owner may revisit, and the decision is **per string**: does
    Korean help that particular label, or does the English read better? Do NOT mass-translate to
    drive the audit count to zero; the audit's value is making the choice visible, not making it
-   zero. Each is a one-line wiring fix **if** a given string is judged worth translating. The
-   audit command is in `agent_docs/conventions.md` → i18n Conventions. The nine `/Commands`
-   keys are a settled case of the same principle — deliberately English (DEC-042).
+   zero. The audit command is in `agent_docs/conventions.md` → i18n Conventions. The nine
+   `/Commands` keys are a settled case of the same principle — deliberately English (DEC-042).
+
+   **An earlier version of this item called each of the three "a one-line wiring fix". Checked
+   against the live surfaces, that is true of exactly one of them** (GitHub Codex, PR #72).
+   If any is ever picked up, this is what it actually costs:
+   - **`noBookmarksToExport`** — one line. The live literal
+     (`showToast('No bookmarks in this conversation')`, ~`:10625`) is character-identical to the
+     English value, so swapping in `i18n(...)` is a true substitution.
+   - **`noQuestions`** — **not** a substitution; it needs a content decision first. The live
+     empty state is TWO paragraphs — *"No questions detected yet.\n\nStart a conversation —
+     questions and prompts will appear here."* (~`:5782`) — while neither language's
+     `noQuestions` value carries that second, guidance paragraph. Wiring the key as-is would
+     silently delete the guidance. Either extend both values or add a second key.
+   - **`questionPrefix`** — wiring it is a **visible no-op**: the English and Korean values are
+     *both* `'Q#'` (~`:56`, `:136`), so there is no Korean text to reveal. It has ~5 literal
+     call sites (~`:5797`, `:6451`, `:7972`, `:10143`, `:10649`), and a sixth surface renders a
+     different string entirely — `'Question #'` (~`:11950`) — which this key would not match.
+     Treat it as a dead key to delete or redefine, not as a translation question.
 
    ---
 
@@ -223,8 +239,21 @@ Numbering below is stable (items keep their historical numbers):
      "Plan usage loading…" forever and the unavailable message never appears in EITHER
      language (~`ai-conversation-navigator.user.js:4962`, `:5030`). There is no English surface
      for the owner to prefer. Predates v12.7a; user-visible; **not fixed.**
-     **Action:** render `usageUnavailable` on the null/failure path so the panel stops claiming
-     it is still loading. Live-confirm gated (DEC-031) — it is a code change to a network path.
+     **The defect is that the panel LIES** — it reports an in-flight fetch that has already
+     failed. That is wrong under either possible design, so the bug does not depend on
+     resolving the contract question below.
+     **The remedy does, and it is an owner decision — do not pick one silently.** The two
+     candidates are mutually exclusive, and the repo currently asserts both:
+     (a) **Silent** — remove the placeholder so a failed fetch renders nothing, which is what
+     `docs/PLAN-USAGE.md` §"Fetch fails" specifies ("no usage bars shown… no error messages;
+     usage display is informational, not critical"). Under (a) `usageUnavailable` is dead
+     weight and should be **deleted** from both language tables.
+     (b) **Explicit** — render `usageUnavailable`, which is what the *existence* of that key in
+     both tables implies someone intended. Under (b) `docs/PLAN-USAGE.md`'s "Fetch fails"
+     section and its "handled silently" acceptance checkbox must both be rewritten.
+     An earlier draft of this item prescribed (b) as "the action" without noticing it
+     contradicted the spec (GitHub Codex, PR #72). Whichever is chosen, it is a code change on
+     a network path and is live-confirm gated (DEC-031).
 
    - **`summaryLanguageNote` — needs an owner DECISION, not a wiring fix.** Its ENGLISH value
      is the empty string and its Korean value is a disclaimer — *"ℹ️ 요약 분석은 영어 대화에서

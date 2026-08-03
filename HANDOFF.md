@@ -350,9 +350,14 @@ longer possible by the time the work was done.
    renders in either language for them to be fine with. Both are real work:
    - `usageUnavailable` — **an open bug.** A failed usage fetch leaves the panel showing
      "Plan usage loading…" **forever**; the unavailable message never appears in either
-     language. Pre-existing, user-visible, and it contradicts `docs/PLAN-USAGE.md`'s own
-     "handled silently (no broken UI)" checklist item. Fixing it is a code change on a network
-     path, so it is live-confirm gated (DEC-031).
+     language. Pre-existing and user-visible. **The bug is that the panel reports an in-flight
+     fetch that already failed** — wrong under any design, so it does not wait on the question
+     below.
+     **The REMEDY is an owner decision, and the repo currently asserts both answers:**
+     `docs/PLAN-USAGE.md` §"Fetch fails" specifies rendering *nothing* on failure, while the
+     existence of `usageUnavailable` in both language tables implies a *message* was intended.
+     Pick one and make the other doc agree — ROADMAP 0c has both options written out. Either
+     way it is a code change on a network path, so it is live-confirm gated (DEC-031).
    - `summaryLanguageNote` — **needs an owner decision, not a wiring fix.** An empty English
      value and a Korean-only disclaimer that has never rendered, while `docs/SETTINGS.md` says
      it does. v12.7 made its text substantially untrue, so **do not wire it as-is**. Three
