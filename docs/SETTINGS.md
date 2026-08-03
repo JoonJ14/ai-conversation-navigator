@@ -178,12 +178,18 @@ rather than trusting these numbers after any i18n work; the audit command is in
 What gets translated (UI strings) — **partially, on every line**:
 - Orbital feature labels (Navigate, Search, Bookmarks, Summary, Tools, Settings)
 - Panel headers and section titles
-- **Some** button labels and tooltips. Hardcoded English remains in the **Bookmarks** panel —
-  `Clear all bookmarks` (~`:8022`), the `Remove bookmark` / `Bookmark this message` tooltip
-  (5 sites: ~`:7258`, `:7281`, `:7618`, `:7626`, `:7983`) — and on the Navigate row's
-  `No message link available` tooltip (~`:10164`). Excluded from that count: platform names
-  (Claude, ChatGPT, Grok…), which are proper nouns, and the `/Commands` panel's
-  Execute/Edit/Delete tooltips, which are deliberately English (DEC-042). Counted 2026-08-03
+- **Some** button labels and tooltips. Measured over DOM tooltip sites (`title:` in a
+  `createElement` options object, `.title =`, and `setAttribute('title', …)`): **9 hardcoded
+  English vs 5 wired through `i18n()`**. Three of the nine are the `/Commands` panel's
+  Execute/Edit/Delete (~`:11122`–`:11132`), deliberately English (DEC-042). The other **six
+  are not deliberate** — the `Remove bookmark` / `Bookmark this message` pair (5 sites:
+  ~`:7258`, `:7281`, `:7618`, `:7626`, `:7983`) and the Navigate row's
+  `No message link available` (~`:10164`). Button labels have the same shape:
+  `Clear all bookmarks` (~`:8022`) is a plain literal.
+  **The PLATFORMS registry's twelve `title:` entries are NOT in this count** — that field is a
+  platform display name (`title: 'Claude'`, ~`:269`), not a DOM attribute. A first draft of
+  this line counted them as tooltips and then "excluded them as proper nouns", which measured
+  the wrong population twice over; corrected 2026-08-03. Counted 2026-08-03
 - **Some** toasts — **most are hardcoded English**: 21 of 31 `showToast` call sites pass a
   literal rather than `i18n(...)`, including the export progress/success messages and
   "Summary exported". Not an exception list anyone decided; just unwired. Counted 2026-08-03
