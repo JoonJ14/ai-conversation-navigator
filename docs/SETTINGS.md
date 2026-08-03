@@ -169,37 +169,40 @@ langSel.addEventListener('change', function () {
 > content analysis read Korean, and the v12.7a audit found UI strings that were never wired.
 > Original text preserved at the end of this section.
 
-**None of the bullets below is a blanket claim.** Every earlier version of this list was one,
-and each one was wrong in a way a maintainer could not see without grepping. Coverage is
-**partial on every UI surface**, so each bullet states what was counted and when. Re-count
-rather than trusting these numbers after any i18n work; the audit command is in
-`agent_docs/conventions.md` → i18n Conventions.
+**None of the bullets below is a blanket claim, and none of them carries a tally.** Coverage is
+**partial on every UI surface**. Two things were learned the hard way writing this section
+(PR #72, four review rounds):
+
+1. **Every blanket claim here was wrong**, in a way no maintainer could see without grepping.
+   So the bullets name *specific* surfaces.
+2. **Every tally here was also wrong** — "21 of 31" toasts, "9 vs 5" tooltips, "13 of 14" keys.
+   Each was miscounted by including or excluding the wrong population: a `title:` field in a
+   config object or a data object is not a DOM tooltip, and a regex with a length cap silently
+   drops long call sites out of the denominator rather than misclassifying them.
+   **So this section names members instead of counting them.** A named surface can be checked
+   against the code in one grep; a tally can only be re-derived, and a stale tally looks
+   authoritative while being wrong.
+
+To get current numbers, run the audit — `agent_docs/conventions.md` → i18n Conventions. Do not
+transcribe its output back into this file.
 
 What gets translated (UI strings) — **partially, on every line**:
 - Orbital feature labels (Navigate, Search, Bookmarks, Summary, Tools, Settings)
 - Panel headers and section titles
-- **Some** button labels and tooltips. Measured over DOM tooltip sites (`title:` in a
-  `createElement` options object, `.title =`, and `setAttribute('title', …)`): **9 hardcoded
-  English vs 5 wired through `i18n()`**. Three of the nine are the `/Commands` panel's
-  Execute/Edit/Delete (~`:11122`–`:11132`), deliberately English (DEC-042). The other **six
-  are not deliberate** — the `Remove bookmark` / `Bookmark this message` pair (5 sites:
-  ~`:7258`, `:7281`, `:7618`, `:7626`, `:7983`) and the Navigate row's
-  `No message link available` (~`:10164`). Button labels have the same shape:
-  `Clear all bookmarks` (~`:8022`) is a plain literal.
-  **The PLATFORMS registry's twelve `title:` entries are NOT in this count** — that field is a
-  platform display name (`title: 'Claude'`, ~`:269`), not a DOM attribute. A first draft of
-  this line counted them as tooltips and then "excluded them as proper nouns", which measured
-  the wrong population twice over; corrected 2026-08-03. Counted 2026-08-03
-- **Some** toasts — **most are hardcoded English**: **22 of 32** `showToast` call sites render
-  English regardless of language — 21 pass a plain string literal, and one (~`:7807`) passes a
-  conditional whose *both* branches are English literals. 10 go through `i18n(...)`. Includes
-  the export progress/success messages and "Summary exported". Not an exception list anyone
-  decided; just unwired. Counted 2026-08-03.
-  **An earlier version of this line said "21 of 31", and the discrepancy is worth keeping:**
-  the counting script capped each call site at 120 characters, so the multi-line conditional at
-  `:7807` fell out of the *population* rather than being classified — it was neither counted as
-  literal nor as `i18n`. The total was wrong, not just the numerator (GitHub Codex, PR #72).
-  When re-counting, verify the parts sum to the total before trusting either.
+- **Some** button labels and tooltips — **not all**. Hardcoded English remains on
+  `Clear all bookmarks`, on the `Remove bookmark` / `Bookmark this message` tooltip, and on the
+  Navigate row's `No message link available`. The `/Commands` panel's Execute/Edit/Delete
+  tooltips are hardcoded **deliberately** (DEC-042).
+  **When auditing tooltips, match only real DOM attributes** — `.title =`,
+  `setAttribute('title', …)`, and `title:` in a `createElement` *options* object. A `title:`
+  key in the `PLATFORMS` registry is a platform display name, and a `title:` key in the
+  `TOOLS_EXPORT` data objects is a visible label rendered via `textContent`. Neither is a
+  tooltip; both were wrongly swept into this population once each.
+- **Some** toasts — **most are hardcoded English**, including the export progress and success
+  messages, "Summary exported" and "All bookmarks cleared". Not an exception list anyone
+  decided; just unwired. **Note when auditing:** at least one call site passes a *conditional*
+  whose branches are both English literals, so a scan that only matches a leading quote will
+  miss it.
 - The Tools panel — Image Gallery, 파일 내보내기 and its export options (wired in **v12.7a**;
   the translations existed from the start but were never read)
 - The Plan usage panel, including reset phrases, which are `{placeholder}` templates because

@@ -71,20 +71,22 @@ thing: *"some things are actually better to stay in english than force translati
 they can understand some english… i am fine with how the korean mode looks."* Original wording
 preserved in this note rather than silently replaced.
 
-**The fourteen unwired keys break down 9 + 3 + 2** (counted 2026-08-03 by matching each `en:`
-key against `i18n('<key>')` call sites):
-- **9** — the `/Commands` keys, deliberately English and already decided (DEC-042)
-- **3** — `questionPrefix`, `noQuestions`, `noBookmarksToExport`: English in Korean mode by
-  owner preference, a per-string judgement if ever revisited (ROADMAP 0c)
-- **2** — `summaryLanguageNote` (empty English value, Korean-only disclaimer that has never
-  rendered) and `usageUnavailable` (a failed usage fetch leaves "Plan usage loading…" on screen
-  forever, in both languages). These are **missing behaviour, not translation preferences**
+**The unwired keys fall into three groups** (named rather than tallied — an earlier version of
+this note said "thirteen of the fourteen" and double-counted, applying the owner's "fine with
+it" to all of them and then excluding two without lowering the total; GitHub Codex, PR #72):
 
-So **twelve** of the fourteen sit in the preference/judgement category, not thirteen. An
-earlier version of this note said thirteen, which double-counted: it applied the owner's
-"fine with it" to all fourteen and then excluded two, without lowering the total (GitHub Codex,
-PR #72). See ROADMAP 0c, which also records that `questionPrefix` is a degenerate member of
-the middle group — its English and Korean values are both `'Q#'`, so wiring it changes nothing.
+- **The `/Commands` keys** — deliberately English, already decided (DEC-042)
+- **`questionPrefix`, `noQuestions`, `noBookmarksToExport`** — English in Korean mode by owner
+  preference, a per-string judgement if ever revisited (ROADMAP 0c). `questionPrefix` is a
+  degenerate member: its English and Korean values are *both* `'Q#'`, so wiring it changes
+  nothing on screen
+- **`summaryLanguageNote` and `usageUnavailable`** — **missing behaviour, not translation
+  preferences.** An empty English value with a Korean-only disclaimer that has never rendered,
+  and a failed usage fetch that leaves "Plan usage loading…" on screen forever in both
+  languages
+
+Run the audit in `agent_docs/conventions.md` for the current membership of each group rather
+than trusting a count recorded here.
 
 ---
 

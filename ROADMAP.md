@@ -220,10 +220,14 @@ Numbering below is stable (items keep their historical numbers):
      `noQuestions` value carries that second, guidance paragraph. Wiring the key as-is would
      silently delete the guidance. Either extend both values or add a second key.
    - **`questionPrefix`** — wiring it is a **visible no-op**: the English and Korean values are
-     *both* `'Q#'` (~`:56`, `:136`), so there is no Korean text to reveal. It has ~5 literal
-     call sites (~`:5797`, `:6451`, `:7972`, `:10143`, `:10649`), and a sixth surface renders a
-     different string entirely — `'Question #'` (~`:11950`) — which this key would not match.
-     Treat it as a dead key to delete or redefine, not as a translation question.
+     *both* `'Q#'` (~`:56`, `:136`), so there is no Korean text to reveal. Treat it as a dead
+     key to delete or redefine, not as a translation question.
+     **If it is ever redefined, do not work from a list in this file.** An earlier draft named
+     five call sites; a repo-wide search finds more, including the orphaned-image label and the
+     full-conversation export path, and one surface renders `'Question #'` rather than `'Q#'`
+     so the key would not match it at all. Enumerate with `grep -n "Q#" ` and
+     `grep -n "Question #"` at the time of the change — exported headings and a gallery state
+     are easy to miss, and a stale inventory here would produce a partial rename.
 
    ---
 
@@ -531,7 +535,7 @@ Numbering below is stable (items keep their historical numbers):
 - **Image Gallery:** Scans conversation for image attachments, displays in Tools panel with count. Lazy-renders on panel open (no injection-time render).
 - **Plan Usage Bar:** Fetches Claude plan utilization (session/weekly/7-day) and displays as progress bars in Navigate panel. Auto-refreshes after generation completes.
 - **Summary Auto-Generation:** Summary panel auto-generates content on open if empty.
-- **i18n:** Korean language support. **Dot labels and panel headers update live on a language switch; everything built at injection applies after a refresh** — the `languageChanged` toast says so. This line previously claimed *all* labels update live; that was never true (the handler only touches dots and panel headers) and it is corrected here rather than left as a promise the code does not keep. A few surfaces stay English deliberately (`/Commands`, and the **three** preference labels named at the top of ROADMAP 0c — not the two missing-behaviour keys recorded below them there).
+- **i18n:** Korean language support, with **partial** coverage. **Dot labels and panel headers update live on a language switch; strings that are wired through `i18n()` and built at injection apply after a refresh** — the `languageChanged` toast says so. **Strings that were never wired never change, on any refresh**, and there are a fair number of them (most toasts, several Bookmarks controls); `docs/SETTINGS.md` §"Scope of translation" names them. This line has over-promised twice: it first claimed *all* labels update live (never true — the handler only touches dots and panel headers), then that *everything else* applies after a refresh (also false, for anything unwired). Some surfaces stay English deliberately — `/Commands`, and the preference labels named at the top of ROADMAP 0c, which are distinct from the two missing-behaviour keys recorded below them there.
 - **Context Window Estimation — Extended Thinking Correction:** Path B estimation now corrects for Claude's invisible overhead: system prompt (+15K tokens) and extended thinking blocks (count × 600 tokens). Combined with virtual-scroll coverage-ratio correction. See `docs/claude_specific_context_tracking_calculation.md` for full methodology.
 - **Hover Stability:** Fingerprint guards on Search (`_searchListFingerprint`) and Bookmarks (`_bmListFingerprint`) panels prevent DOM teardown on MutationObserver cycles. Navigate panel guard was already present.
 - **Bookmark Icon Visibility:** Fixed two distinct hover visibility bugs — active icon losing orange on hover (CSS specificity), and non-active icon camouflaging against light backgrounds (wrong hover background color).
