@@ -263,7 +263,12 @@ changed what those functions *see*, never what they do. `probes/` gained
   count survived in the two DURABLE surfaces after I fixed the two narrative ones; and the
   "five keys to fix" framing survived in HANDOFF §G — the first thing a new session reads —
   after I corrected ROADMAP, conventions and DEC-042. Every one was caught by review, none by me.
-  The habit to build: after changing a number or a framing, grep the phrase, not the paragraph.
+  And a FIFTH: after reframing §G item 2, §I's "all of §G items 2–5" rollup swept it straight
+  back into deferred work. **Rollups and cross-references are restatements too** — an index that
+  says "items N–M" re-asserts every claim in that range, so it must be re-read whenever any item
+  in it changes meaning.
+  The habit to build: after changing a number or a framing, grep the phrase, not the paragraph —
+  and check what AGGREGATES over it.
 - **State an effect's real size, especially your own fix's.** Removing those copies makes a
   frequent short word *eligible*; bigram weighting still decides whether it wins. The first
   draft of this handoff said Korean topics were "all bigrams" because of the filters — they
@@ -372,7 +377,14 @@ longer possible by the time the work was done.
 
 ## I. Deferred / future work
 
-All of §G items 2–5. The `overflow-anchor: none` mock assumption remains unverified (carried).
+§G items **3–6** — key points in Korean, the theoretical top-level merge rule, the carried-over
+fixture batch, and the backlog behind them. The `overflow-anchor: none` mock assumption remains
+unverified (carried).
+
+**§G item 2 is deliberately NOT in this rollup.** The five unwired i18n keys are an owner
+PREFERENCE, not deferred work: Korean mode was reviewed live and accepted as-is. Listing them
+here would put them back in the schedulable pile, which is exactly the reading this session
+corrected. If they are ever picked up it is per-string, by the owner's judgement, not as a batch.
 
 ---
 
