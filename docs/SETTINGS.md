@@ -169,13 +169,24 @@ langSel.addEventListener('change', function () {
 > content analysis read Korean, and the v12.7a audit found UI strings that were never wired.
 > Original text preserved at the end of this section.
 
-What gets translated (UI strings):
+**None of the bullets below is a blanket claim.** Every earlier version of this list was one,
+and each one was wrong in a way a maintainer could not see without grepping. Coverage is
+**partial on every UI surface**, so each bullet states what was counted and when. Re-count
+rather than trusting these numbers after any i18n work; the audit command is in
+`agent_docs/conventions.md` → i18n Conventions.
+
+What gets translated (UI strings) — **partially, on every line**:
 - Orbital feature labels (Navigate, Search, Bookmarks, Summary, Tools, Settings)
-- Panel headers, section titles, button labels
-- Tooltips, and **some** toasts — but **most toasts are hardcoded English**: 21 of 31
-  `showToast` call sites pass a literal rather than `i18n(...)`, including the export
-  progress/success messages and "Summary exported". Not an exception list anyone decided; just
-  unwired. Counted 2026-08-03
+- Panel headers and section titles
+- **Some** button labels and tooltips. Hardcoded English remains in the **Bookmarks** panel —
+  `Clear all bookmarks` (~`:8022`), the `Remove bookmark` / `Bookmark this message` tooltip
+  (5 sites: ~`:7258`, `:7281`, `:7618`, `:7626`, `:7983`) — and on the Navigate row's
+  `No message link available` tooltip (~`:10164`). Excluded from that count: platform names
+  (Claude, ChatGPT, Grok…), which are proper nouns, and the `/Commands` panel's
+  Execute/Edit/Delete tooltips, which are deliberately English (DEC-042). Counted 2026-08-03
+- **Some** toasts — **most are hardcoded English**: 21 of 31 `showToast` call sites pass a
+  literal rather than `i18n(...)`, including the export progress/success messages and
+  "Summary exported". Not an exception list anyone decided; just unwired. Counted 2026-08-03
 - The Tools panel — Image Gallery, 파일 내보내기 and its export options (wired in **v12.7a**;
   the translations existed from the start but were never read)
 - The Plan usage panel, including reset phrases, which are `{placeholder}` templates because
@@ -183,9 +194,13 @@ What gets translated (UI strings):
 
 What stays in English **on purpose**:
 - `/Commands` — "slash command" reads better untranslated (DEC-042)
-- Four surfaces by owner preference, not oversight: question-list prefixes, the no-questions
-  empty state, the no-bookmarks-to-export message, the usage-unavailable message (ROADMAP 0c).
-  **Partial English in Korean mode is accepted** — do not treat these as defects.
+- **Three** surfaces by owner preference, not oversight: question-list prefixes, the
+  no-questions empty state, the no-bookmarks-to-export message (ROADMAP 0c).
+  **Partial English in Korean mode is accepted** — do not treat those three as defects.
+- **Not in this category: `usageUnavailable`.** It was listed here as a fourth preference and
+  that was wrong — the message never renders in *either* language, so there is no English
+  surface to prefer. It is an open bug (permanent "Plan usage loading…"), tracked in ROADMAP
+  0c. Nor is `summaryLanguageNote`, which needs an owner decision — see the notice below.
 
 What reads Korean **since v12.7** (content analysis):
 - **Topic extraction** — the tokenizer keeps Hangul and uses a script-aware minimum length

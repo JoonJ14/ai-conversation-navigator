@@ -197,42 +197,49 @@ Numbering below is stable (items keep their historical numbers):
 
 0c. **Three i18n keys are never called — a REVIEW list, not a defect list (owner, 2026-08-02).**
    `questionPrefix`, `noQuestions`, `noBookmarksToExport` have Korean values and **zero call
-   sites**, so those surfaces render English in Korean mode. Found by the v12.7a audit.
+   sites**, so those three surfaces render English in Korean mode. Found by the v12.7a audit.
 
-   **TWO keys were originally filed here and do not belong — both are missing BEHAVIOUR, not
-   translation preferences** (GitHub Codex, PR #72). Filing them as "English on purpose" would
-   have buried two real gaps:
-   - **`usageUnavailable`** — when the Claude usage request fails or returns no recognised
-     tiers, `fetchClaudeUsage` hands `null` to `renderUsageBars`, which renders
-     `planUsageLoading` **indefinitely**. The panel says "Plan usage loading…" forever and the
-     unavailable message never appears in EITHER language. That is a missing failure state
-     (~`ai-conversation-navigator.user.js:4962`), and it predates v12.7a.
-   - **`summaryLanguageNote`** — see below.
-
-   **`summaryLanguageNote` was originally listed here and does NOT belong — it is a different
-   problem and needs an owner decision (GitHub Codex, PR #72).** Its ENGLISH value is the empty
-   string and its Korean value is a disclaimer — *"ℹ️ 요약 분석은 영어 대화에서 가장 잘
-   작동합니다"* ("Summary analysis works best with English conversations"). So "renders English
-   in Korean mode" is meaningless for it: there is no English text. It is a Korean-only notice
-   that **has never rendered**, while `docs/SETTINGS.md` §"Disclaimer for non-English users"
-   states that it does.
-   **And v12.7 changed whether it is even true.** Topics and the conversation map now read
-   Korean; only key points do not. So the disclaimer as written now overstates the limitation.
-   Three ways out, none of them obvious enough to pick without the owner:
-   (a) wire it with corrected text naming only key points; (b) drop the key and amend
-   SETTINGS.md to record that the notice was removed because v12.7 made it obsolete; or
-   (c) leave both as-is and accept that a spec doc describes a notice that does not exist.
-   **Do not simply wire the current text** — it would tell a Korean user the Summary works
-   poorly for them, which v12.7 made substantially false.
    **The owner reviewed Korean mode live and is satisfied with it as-is:** *"some things are
    actually better to stay in english than force translation to korean when they can understand
-   some english… i am fine with how the korean mode looks."* So these are **not defects** — they
-   are a preference the owner may revisit, and the decision is **per string**: does Korean help
-   that particular label, or does the English read better? Do NOT mass-translate to drive the
-   audit count to zero; the audit's value is making the choice visible, not making it zero.
-   Each is a one-line wiring fix **if** a given string is judged worth translating. The audit
-   command is in `agent_docs/conventions.md` → i18n Conventions. The nine `/Commands` keys are a
-   settled case of the same principle — deliberately English (DEC-042).
+   some english… i am fine with how the korean mode looks."* So **those three are not defects**
+   — they are a preference the owner may revisit, and the decision is **per string**: does
+   Korean help that particular label, or does the English read better? Do NOT mass-translate to
+   drive the audit count to zero; the audit's value is making the choice visible, not making it
+   zero. Each is a one-line wiring fix **if** a given string is judged worth translating. The
+   audit command is in `agent_docs/conventions.md` → i18n Conventions. The nine `/Commands`
+   keys are a settled case of the same principle — deliberately English (DEC-042).
+
+   ---
+
+   **TWO further keys were originally filed under 0c and do NOT belong there. The preference
+   conclusion above does not reach them** (GitHub Codex, PR #72). Both are missing
+   **behaviour**, and a preference presupposes something rendering to have a preference about —
+   in both cases nothing renders in either language. **Both stay actionable.** They are
+   recorded here only because the audit is what found them; they are not translation work.
+
+   - **`usageUnavailable` — OPEN BUG (not a preference, not a translation).** When the Claude
+     usage request fails or returns no recognised tiers, `fetchClaudeUsage` hands `null` to
+     `renderUsageBars`, which renders `planUsageLoading` **indefinitely** — the panel reads
+     "Plan usage loading…" forever and the unavailable message never appears in EITHER
+     language (~`ai-conversation-navigator.user.js:4962`, `:5030`). There is no English surface
+     for the owner to prefer. Predates v12.7a; user-visible; **not fixed.**
+     **Action:** render `usageUnavailable` on the null/failure path so the panel stops claiming
+     it is still loading. Live-confirm gated (DEC-031) — it is a code change to a network path.
+
+   - **`summaryLanguageNote` — needs an owner DECISION, not a wiring fix.** Its ENGLISH value
+     is the empty string and its Korean value is a disclaimer — *"ℹ️ 요약 분석은 영어 대화에서
+     가장 잘 작동합니다"* ("Summary analysis works best with English conversations"). So
+     "renders English in Korean mode" is meaningless for it: there is no English text. It is a
+     Korean-only notice that **has never rendered**, while `docs/SETTINGS.md` §"Disclaimer for
+     non-English users" states that it does.
+     **And v12.7 changed whether it is even true.** Topics and the conversation map now read
+     Korean; only key points do not, so the disclaimer as written now overstates the
+     limitation. Three ways out, none obvious enough to pick without the owner:
+     (a) wire it with corrected text naming only key points; (b) drop the key and amend
+     SETTINGS.md to record that the notice was removed because v12.7 made it obsolete; or
+     (c) leave both as-is and accept that a spec doc describes a notice that does not exist.
+     **Do not simply wire the current text** — it would tell a Korean user the Summary works
+     poorly for them, which v12.7 made substantially false.
 
 0b. **"290 messages" vs "147 questions" reads as a discrepancy (owner, 2026-08-01 — parked by
    the owner, "I need to think about that").** The map counts timeline ENTRIES (questions and
@@ -495,7 +502,7 @@ Numbering below is stable (items keep their historical numbers):
 - **Image Gallery:** Scans conversation for image attachments, displays in Tools panel with count. Lazy-renders on panel open (no injection-time render).
 - **Plan Usage Bar:** Fetches Claude plan utilization (session/weekly/7-day) and displays as progress bars in Navigate panel. Auto-refreshes after generation completes.
 - **Summary Auto-Generation:** Summary panel auto-generates content on open if empty.
-- **i18n:** Korean language support. **Dot labels and panel headers update live on a language switch; everything built at injection applies after a refresh** — the `languageChanged` toast says so. This line previously claimed *all* labels update live; that was never true (the handler only touches dots and panel headers) and it is corrected here rather than left as a promise the code does not keep. A few surfaces stay English deliberately (`/Commands`, and the ROADMAP 0c set by owner preference).
+- **i18n:** Korean language support. **Dot labels and panel headers update live on a language switch; everything built at injection applies after a refresh** — the `languageChanged` toast says so. This line previously claimed *all* labels update live; that was never true (the handler only touches dots and panel headers) and it is corrected here rather than left as a promise the code does not keep. A few surfaces stay English deliberately (`/Commands`, and the **three** preference labels named at the top of ROADMAP 0c — not the two missing-behaviour keys recorded below them there).
 - **Context Window Estimation — Extended Thinking Correction:** Path B estimation now corrects for Claude's invisible overhead: system prompt (+15K tokens) and extended thinking blocks (count × 600 tokens). Combined with virtual-scroll coverage-ratio correction. See `docs/claude_specific_context_tracking_calculation.md` for full methodology.
 - **Hover Stability:** Fingerprint guards on Search (`_searchListFingerprint`) and Bookmarks (`_bmListFingerprint`) panels prevent DOM teardown on MutationObserver cycles. Navigate panel guard was already present.
 - **Bookmark Icon Visibility:** Fixed two distinct hover visibility bugs — active icon losing orange on hover (CSS specificity), and non-active icon camouflaging against light backgrounds (wrong hover background color).

@@ -338,20 +338,25 @@ longer possible by the time the work was done.
    not think to measure, not the thing you did.
 2. **Three i18n keys are never called — and that is a QUESTION, not a work item** (ROADMAP 0c):
    `questionPrefix`, `noQuestions`, `noBookmarksToExport`. They render English in Korean mode and
-   the owner accepts that.
-   **TWO more were originally filed with them and are NOT preferences — they are missing
-   behaviour, and both need your attention rather than a translation decision:**
-   - `usageUnavailable` — a failed usage fetch leaves the panel showing "Plan usage loading…"
-     **forever**; the unavailable message never appears in either language. Pre-existing.
-   - `summaryLanguageNote` — an empty English value and a Korean-only disclaimer that has never
-     rendered, while `docs/SETTINGS.md` says it does. v12.7 made its text substantially untrue,
-     so **do not wire it as-is**. Three options in ROADMAP 0c. **The owner reviewed Korean mode live
-   and is satisfied with it:** *"some things are actually better to stay in english than force
-   translation to korean when they can understand some english… i am fine with how the korean
-   mode looks."* So do **not** pick this up as a batch. If it is picked up at all, it is a
-   per-string judgement — does Korean help *that* label? — and driving the dead-key audit to
-   zero is explicitly not the goal. The nine `/Commands` keys are the settled case of the same
-   principle.
+   the owner accepts that. **The owner reviewed Korean mode live and is satisfied with it:**
+   *"some things are actually better to stay in english than force translation to korean when
+   they can understand some english… i am fine with how the korean mode looks."* So do **not**
+   pick those three up as a batch. If any is picked up at all, it is a per-string judgement —
+   does Korean help *that* label? — and driving the dead-key audit to zero is explicitly not the
+   goal. The nine `/Commands` keys are the settled case of the same principle.
+
+2a. **TWO keys were originally filed with the three above and are NOT preferences — they are
+   missing behaviour. The owner's "I'm fine with it" does not cover them**, because nothing
+   renders in either language for them to be fine with. Both are real work:
+   - `usageUnavailable` — **an open bug.** A failed usage fetch leaves the panel showing
+     "Plan usage loading…" **forever**; the unavailable message never appears in either
+     language. Pre-existing, user-visible, and it contradicts `docs/PLAN-USAGE.md`'s own
+     "handled silently (no broken UI)" checklist item. Fixing it is a code change on a network
+     path, so it is live-confirm gated (DEC-031).
+   - `summaryLanguageNote` — **needs an owner decision, not a wiring fix.** An empty English
+     value and a Korean-only disclaimer that has never rendered, while `docs/SETTINGS.md` says
+     it does. v12.7 made its text substantially untrue, so **do not wire it as-is**. Three
+     options in ROADMAP 0c.
 3. **Key points are still unavailable in Korean**, for a different mechanism this arc does
    not reach: `KEY_POINT_PATTERNS` is a set of English regexes. Recorded in ROADMAP 0a, not
    fixed here. It needs its own Korean pattern set and its own measurement.
@@ -384,14 +389,20 @@ longer possible by the time the work was done.
 
 ## I. Deferred / future work
 
-§G items **3–6** — key points in Korean, the theoretical top-level merge rule, the carried-over
-fixture batch, and the backlog behind them. The `overflow-anchor: none` mock assumption remains
-unverified (carried).
+§G items **2a** and **3–6** — the two missing-behaviour keys, key points in Korean, the
+theoretical top-level merge rule, the carried-over fixture batch, and the backlog behind them.
+The `overflow-anchor: none` mock assumption remains unverified (carried).
+
+Of those, **§G item 2a is the only one that is a user-visible bug rather than a backlog item**:
+`usageUnavailable` leaves the usage panel permanently claiming to be loading after a failed
+fetch. `summaryLanguageNote` in the same item is blocked on an owner decision, not on work.
 
 **§G item 2 is deliberately NOT in this rollup.** The three unwired i18n keys are an owner
 PREFERENCE, not deferred work: Korean mode was reviewed live and accepted as-is. Listing them
 here would put them back in the schedulable pile, which is exactly the reading this session
 corrected. If they are ever picked up it is per-string, by the owner's judgement, not as a batch.
+**Item 2a is a different thing and IS deferred work** — do not let the exclusion of item 2 pull
+it out of the pile too.
 
 ---
 

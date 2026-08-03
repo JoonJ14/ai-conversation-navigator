@@ -7,7 +7,9 @@
 > They are now `{placeholder}` templates resolved through `i18n(key, replacements)` — keys
 > `usageResetDay` / `usageResetHM` / `usageResetH` / `usageResetMin` / `usageResetSoon`, plus
 > `weekdayShort` and `am`/`pm`. English output is byte-identical (verified over 58 cases).
-> See DEC-042. `usageUnavailable` still has no call site — ROADMAP item 0c.
+> See DEC-042. **`usageUnavailable` still has no call site, and that is an open BUG, not a
+> translation gap** — a failed usage fetch leaves the panel reading "Plan usage loading…"
+> forever, in both languages. See "Fetch fails" below and ROADMAP item 0c.
 
 
 Display the user's Claude subscription usage (session limit, weekly limits) as bars in the sidebar, right below the context window monitor. Claude-only feature — hidden on all other platforms.
@@ -481,6 +483,15 @@ If a field is `null` (e.g., `seven_day_opus: null`), don't show a bar for it. On
 
 ### Fetch fails
 
+> **⚠ SPEC, NOT SHIPPED BEHAVIOUR — the code does something worse (verified 2026-08-03).**
+> `fetchClaudeUsage` hands `null` to `renderUsageBars` on failure, and that function's `!data`
+> branch renders `planUsageLoading` and returns (`ai-conversation-navigator.user.js:4962`,
+> `:5030`). So a failed fetch does **not** "silently skip" — the panel displays
+> **"Plan usage loading…" indefinitely**, claiming a fetch is still in flight when it has
+> already failed. `usageUnavailable` exists in both language tables and has **no call site**,
+> so the unavailable message never appears in English or Korean. This is an open bug, not a
+> translation preference — tracked in ROADMAP 0c. The paragraph below is the intended design.
+
 If `GM_xmlhttpRequest` fails (network error, auth cookie expired, page structure changed), silently skip — no usage bars shown. The context bar still works independently. No error messages; usage display is informational, not critical.
 
 ### User not logged in / session expired
@@ -540,7 +551,8 @@ usageUnavailable: '사용량 데이터를 불러올 수 없습니다',
 - [ ] Usage JSON parsed correctly from HTML/RSC response
 - [ ] `five_hour`, `seven_day`, `seven_day_sonnet` fields extracted
 - [ ] Null fields handled (no bar rendered for null entries)
-- [ ] Fetch failure handled silently (no errors, no broken UI)
+- [ ] Fetch failure handled silently (no errors, no broken UI) — **currently FAILS: the panel
+      shows "Plan usage loading…" forever. See "Fetch fails" above and ROADMAP 0c**
 - [ ] Cache in `GM_setValue` prevents redundant fetches within 5 minutes
 
 ### Display
