@@ -68,13 +68,23 @@ Five keys remain unwired — `questionPrefix`, `noQuestions`, `summaryLanguageNo
 "distinct from the nine `/Commands` keys, which are dead on purpose" — implying the five were
 *not* on purpose, i.e. defects awaiting a fix. The owner's position makes them the same kind of
 thing: *"some things are actually better to stay in english than force translation to korean when
-they can understand some english… i am fine with how the korean mode looks."* So thirteen of the
-fourteen unwired keys are a per-string judgement; the `/Commands` nine are simply the ones already
-decided. Original wording preserved in this note rather than silently replaced.
-**Two of the fourteen are different** — missing behaviour rather than translation preferences:
-`summaryLanguageNote` (empty English value, Korean-only disclaimer that has never rendered) and
-`usageUnavailable` (a failed usage fetch leaves "Plan usage loading…" on screen forever, in both
-languages). See ROADMAP 0c.
+they can understand some english… i am fine with how the korean mode looks."* Original wording
+preserved in this note rather than silently replaced.
+
+**The fourteen unwired keys break down 9 + 3 + 2** (counted 2026-08-03 by matching each `en:`
+key against `i18n('<key>')` call sites):
+- **9** — the `/Commands` keys, deliberately English and already decided (DEC-042)
+- **3** — `questionPrefix`, `noQuestions`, `noBookmarksToExport`: English in Korean mode by
+  owner preference, a per-string judgement if ever revisited (ROADMAP 0c)
+- **2** — `summaryLanguageNote` (empty English value, Korean-only disclaimer that has never
+  rendered) and `usageUnavailable` (a failed usage fetch leaves "Plan usage loading…" on screen
+  forever, in both languages). These are **missing behaviour, not translation preferences**
+
+So **twelve** of the fourteen sit in the preference/judgement category, not thirteen. An
+earlier version of this note said thirteen, which double-counted: it applied the owner's
+"fine with it" to all fourteen and then excluded two, without lowering the total (GitHub Codex,
+PR #72). See ROADMAP 0c, which also records that `questionPrefix` is a degenerate member of
+the middle group — its English and Korean values are both `'Q#'`, so wiring it changes nothing.
 
 ---
 

@@ -431,8 +431,12 @@ it out of the pile too.
   **The lesson underneath both:** a key with no call site is not automatically a translation
   question — check first whether the surface behaves correctly without it. Two of the fourteen
   did not.
-- **Most toasts are hardcoded English** — 21 of 31 `showToast` call sites pass a literal rather
-  than `i18n(...)`. Not a decision anyone made; simply unwired. Counted 2026-08-03.
+- **Most toasts are hardcoded English** — **22 of 32** `showToast` call sites render English
+  regardless of language (21 plain literals, plus one conditional at ~`:7807` whose both
+  branches are English); 10 go through `i18n(...)`. Not a decision anyone made; simply unwired.
+  Counted 2026-08-03. An earlier pass here said "21 of 31" because the counting script capped
+  call sites at 120 chars and dropped the multi-line conditional from the population entirely —
+  check that the parts sum to the total before trusting a count like this.
 - **The Korean payload is generated, not real.** Its particle distribution is modelled
   (받침-correct), but its sentences are vocabulary-driven word salad, exactly like the English
   payload. A real Korean conversation mixes English technical terms far more heavily.

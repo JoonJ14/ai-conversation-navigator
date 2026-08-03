@@ -190,9 +190,16 @@ What gets translated (UI strings) — **partially, on every line**:
   platform display name (`title: 'Claude'`, ~`:269`), not a DOM attribute. A first draft of
   this line counted them as tooltips and then "excluded them as proper nouns", which measured
   the wrong population twice over; corrected 2026-08-03. Counted 2026-08-03
-- **Some** toasts — **most are hardcoded English**: 21 of 31 `showToast` call sites pass a
-  literal rather than `i18n(...)`, including the export progress/success messages and
-  "Summary exported". Not an exception list anyone decided; just unwired. Counted 2026-08-03
+- **Some** toasts — **most are hardcoded English**: **22 of 32** `showToast` call sites render
+  English regardless of language — 21 pass a plain string literal, and one (~`:7807`) passes a
+  conditional whose *both* branches are English literals. 10 go through `i18n(...)`. Includes
+  the export progress/success messages and "Summary exported". Not an exception list anyone
+  decided; just unwired. Counted 2026-08-03.
+  **An earlier version of this line said "21 of 31", and the discrepancy is worth keeping:**
+  the counting script capped each call site at 120 characters, so the multi-line conditional at
+  `:7807` fell out of the *population* rather than being classified — it was neither counted as
+  literal nor as `i18n`. The total was wrong, not just the numerator (GitHub Codex, PR #72).
+  When re-counting, verify the parts sum to the total before trusting either.
 - The Tools panel — Image Gallery, 파일 내보내기 and its export options (wired in **v12.7a**;
   the translations existed from the start but were never read)
 - The Plan usage panel, including reset phrases, which are `{placeholder}` templates because
