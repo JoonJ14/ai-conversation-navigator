@@ -164,6 +164,38 @@ langSel.addEventListener('change', function () {
 
 ### Scope of translation
 
+> **⚠ This list was inverted in BOTH directions and is corrected below (2026-08-03).** It
+> claimed every UI string was translated while all content analysis stayed English. v12.7 made
+> content analysis read Korean, and the v12.7a audit found UI strings that were never wired.
+> Original text preserved at the end of this section.
+
+What gets translated (UI strings):
+- Orbital feature labels (Navigate, Search, Bookmarks, Summary, Tools, Settings)
+- Panel headers, section titles, button labels
+- Toast messages, tooltips
+- The Tools panel — Image Gallery, 파일 내보내기 and its export options (wired in **v12.7a**;
+  the translations existed from the start but were never read)
+- The Plan usage panel, including reset phrases, which are `{placeholder}` templates because
+  Korean orders the meridiem before the time
+
+What stays in English **on purpose**:
+- `/Commands` — "slash command" reads better untranslated (DEC-042)
+- Four surfaces by owner preference, not oversight: question-list prefixes, the no-questions
+  empty state, the no-bookmarks-to-export message, the usage-unavailable message (ROADMAP 0c).
+  **Partial English in Korean mode is accepted** — do not treat these as defects.
+
+What reads Korean **since v12.7** (content analysis):
+- **Topic extraction** — the tokenizer keeps Hangul and uses a script-aware minimum length
+- **The conversation map**, both levels, including segment labels
+- Deduplication and word-overlap, which read the same token stream
+
+What still does NOT read Korean:
+- **Key points** — `KEY_POINT_PATTERNS` is a set of English phrase regexes, a mechanism no
+  tokenizer change reaches. This is the one real remaining gap (ROADMAP 0a).
+
+<details><summary>Original list, preserved</summary>
+
+```
 What gets translated (UI strings):
 - All orbital feature labels (Navigate, Search, Bookmarks, Summary, Tools, Settings)
 - All panel headers, section titles, button labels
@@ -175,6 +207,8 @@ What stays in English (content analysis):
 - Topic extraction (English stop words, English tokenization)
 - Key point signal phrases (English regex patterns)
 - Conversation map segment labels (derived from English topic extraction)
+```
+</details>
 
 > **⚠ This notice has never actually rendered (found 2026-08-03).** `summaryLanguageNote` has
 > zero call sites — the section below describes intended behaviour, not shipped behaviour.
