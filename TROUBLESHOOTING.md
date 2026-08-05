@@ -552,7 +552,7 @@ worse lie than the one this entry is about.
 
 ### Results & verification
 
-New probe `probes/check-usage-state.js` — 8 checks, wired into CI (ubuntu+chromium) and
+New probe `probes/check-usage-state.js` — 10 checks, wired into CI (ubuntu+chromium) and
 `npm run test:probes`. It drives the **real UI** by opening the Navigate panel and reading the
 DOM; no instrumentation hook. Suite **1120/1120** both engines.
 
@@ -560,10 +560,12 @@ DOM; no instrumentation hook. Suite **1120/1120** both engines.
 
 | Build | Result |
 |---|---|
-| Pre-fix | **6 of 8 fail** |
-| Fix minus generation token | **U8 fails** — `bars=0`, late failure erased a newer success |
-| Fix minus repaint | **all pass — that fix is NOT gated** |
-| Fixed | all 8 pass |
+| **Pre-fix** | **6 of 10 fail** |
+| **No supersession guard** | **U8** — a late failure erases a newer success |
+| **Drop every superseded response** | **U9** — a late success is discarded |
+| **`_usageData` truthiness** | **U10** — a stale org's bars block a valid newer response |
+| **Minus repaint** | **all pass — NOT gated** |
+| **Fixed** | all 10 pass |
 
 Two scope notes, stated because the raw numbers mislead without them:
 

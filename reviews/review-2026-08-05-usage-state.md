@@ -75,10 +75,12 @@ specific fix removed.
 
 | Build | Result |
 |---|---|
-| **Pre-fix** (`main`'s userscript) | **6 of 8 fail** — U1, U2, U4, U6, U7, U8 |
-| **Fix minus generation token** (WARN 1 reverted) | **U8 fails** — `bars=0`, the late failure erased the newer success |
-| **Fix minus repaint** (WARN 2 reverted) | **all pass — NOT GATED.** See below |
-| **Fixed** | all 8 pass |
+| **Pre-fix** | **6 of 10 fail** |
+| **No supersession guard** | **U8** — a late failure erases a newer success |
+| **Drop every superseded response** | **U9** — a late success is discarded |
+| **`_usageData` truthiness** | **U10** — a stale org's bars block a valid newer response |
+| **Minus repaint** | **all pass — NOT gated** |
+| **Fixed** | all 10 pass |
 
 **The repaint fix (WARN 2) is not covered by any check, and an earlier version of this document
 said it was.** That claim came from a run in which the no-repaint mutant failed U7 — but U7 was

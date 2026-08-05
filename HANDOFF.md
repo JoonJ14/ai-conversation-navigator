@@ -11,8 +11,8 @@ loading…" **forever** — which shipped as **v12.8**.
 for any tokenizer or i18n detail this doc summarises).
 
 **Status at close:**
-- **PR #73 — OPEN, CI 9/9, Codex clean, NOT merged.** The owner merges after reading this.
-  Head `d83191b`. Contains both arcs: the session record and the v12.8 fix.
+- **PR #73 — OPEN, CI green, Codex clean, NOT merged.** The owner merges after reading this.
+  Head `5dbce77`. Contains both arcs: the session record and the v12.8 fix.
 - **v12.8 shipped in that PR** — `ACN_VERSION` and `@version` both bumped from 12.7.
 - **Everything before it is merged:** #70 (`06a079f`, v12.7), #71 (`980aa68`, v12.7a),
   #72 (`fac7d50`, docs reframing).
@@ -88,7 +88,7 @@ spec was rewritten to match, with its superseded wording preserved rather than d
   callback had just recorded.
 - **Each request carries a generation token** (`_usageReqSeq`) — see §B.3.
 
-**Verification.** New probe `probes/check-usage-state.js`, 8 checks, wired into CI
+**Verification.** New probe `probes/check-usage-state.js`, 10 checks, wired into CI
 (ubuntu+chromium) and `npm run test:probes`. It drives the **real UI** by opening the Navigate
 panel — no instrumentation hook. Suite **1120/1120** both engines. **Live confirm still owed.**
 
@@ -104,6 +104,9 @@ Both verified by reading the cited lines before acting:
   makes it reachable. A slow failure landing after a fast success erased good data. Fixed with a
   per-request generation token, **which also closes the pre-existing half of that race** (it
   applied to `_usageData` before this change existed).
+  **That guard then needed two more corrections, both found in later review** (§B.6) — see the
+  final rule in §C. Each wrong form is now gated by its own check, which is the only reason the
+  third one was caught rather than shipped.
 - **Setting a flag is not repainting.** `orbPopulateNavigate` early-returns on an unchanged
   question-list fingerprint (`:5800`) *before* it reaches `maybeRefreshUsage`, so on a settled
   page nothing would redraw and a retry would keep showing "unavailable" while a request was
@@ -128,10 +131,12 @@ check that cannot fail is not a gate:
 
 | Build | Result |
 |---|---|
-| Pre-fix | **6 of 8 fail** |
-| Fix minus generation token | **U8 fails** — `bars=0`, late failure erased a newer success |
-| Fix minus repaint | **all pass — NOT GATED** |
-| Fixed | all 8 pass |
+| **Pre-fix** | **6 of 10 fail** |
+| **No supersession guard** | **U8** — a late failure erases a newer success |
+| **Drop every superseded response** | **U9** — a late success is discarded |
+| **`_usageData` truthiness** | **U10** — a stale org's bars block a valid newer response |
+| **Minus repaint** | **all pass — NOT gated** |
+| **Fixed** | all 10 pass |
 
 **Two honest scope notes, stated because the raw numbers would mislead:**
 - **U4 fails on the pre-fix build only because that build has no `data-acn-usage-state` attribute
@@ -160,14 +165,36 @@ Also self-inflicted: a backtick inside a comment **inside a template literal** s
 terminated the string — the exact failure `CLAUDE.md` already records from `map-instrument.js`.
 That is three strikes, and it is noted in the file.
 
-### 6. `/babysit-pr-cycle` — 2 rounds, 1 fix, clean
+### 6. `/babysit-pr-cycle` — 5 rounds, 5 fixes, clean at the end
 
-Codex's single finding was sharp: **`§B.7` transcribed the dead-key baseline as "9+3+2" inside
-the same paragraph stating the rule against transcribing it** out of `agent_docs/conventions.md`.
-Worse than Codex could see — the number was *already stale*, because v12.8 had wired
-`usageUnavailable` one commit earlier, making it 9+3+1. **The failure mode DEC-043 predicts
-arrived inside the document that predicted it, in under two days.** Dropped the number, kept the
-pointer, recorded what happened. Round 2: *"Didn't find any major issues."*
+Every round found something real; none was a restatement of a previous one. Recorded in order
+because the *shape* of the sequence is the lesson:
+
+1. **`HANDOFF §B.7` transcribed the dead-key baseline** as "9+3+2" inside the same paragraph
+   forbidding transcription — and the number was *already* stale, since v12.8 had wired
+   `usageUnavailable` one commit earlier. **The failure mode DEC-043 predicts arrived inside the
+   document that predicted it, in under two days.**
+2. **P1 — the retry probe closed the panel it needed open.** Claude's config has `spa: false`, so
+   the dispatched `popstate` did nothing, and `orbOpenPanel` toggles: the second click *closed*
+   the panel. The real trigger is the MutationObserver scan noticing the uuid change →
+   `ciInvalidate()` → `orbOnScanComplete()` → `orbPopulateNavigate()` **only if the panel is
+   open**. The click was disarming the mechanism the checks depend on; they passed only because
+   the ~500ms scan happened to fire first.
+3. **P2 — `pushState` alone schedules no scan.** The mock is static, so the retry depended on a
+   scan that happened to be pending. **Proved by experiment**: with a 3s settle and no forced
+   mutation, U7 times out; with one, it passes. Now forces an observer batch deliberately.
+4. **P2 — supersession is ASYMMETRIC and my guard was not.** Dropping every superseded response
+   discarded a valid older success while the panel showed "unavailable". Added **U9**.
+5. **P2 — "newer data landed" is a generation, not truthiness.** `ciInvalidate()` leaves
+   `_usageData` populated, so for a multi-org user another org's stale bars satisfied the test
+   and blocked a valid response. Added **U10** and `_usageDataSeq`.
+
+**The pattern worth carrying:** three of the five were in machinery I wrote to *verify* the fix,
+not in the fix. The v12.8 behaviour has been correct since `67f866d`. What kept needing
+correction was the concurrency guard around it and the probe around that — and in every case the
+thing passed while being wrong, which is why "check that the fixture did the thing" is in §D.
+
+Full record: `reviews/review-2026-08-05-usage-state.md`.
 
 ---
 
@@ -185,7 +212,27 @@ explicit three-state machine**, where it previously conflated two of them.
 `fetchClaudeUsage` has exactly **one** caller (`maybeRefreshUsage`), reached from two entry
 points — `orbPopulateNavigate:5838` and the SSE debounce at `:4758`. That single-caller property
 is what makes the flag invariant hold, so preserve it: a second caller that does not clear the
-flag and take a generation token would reintroduce both races.
+flag and take a generation token would reintroduce every race below.
+
+**Supersession is ASYMMETRIC.** A late response's *emptiness* is stale; its *content* never is,
+because usage is org-scoped and every request reaching the callback is for the same org. The rule
+took three attempts under review, and each wrong form is now gated by its own check:
+
+| Superseded response | Action | Wrong form → check that catches it |
+|---|---|---|
+| Empty | **drop** | no guard at all → **U8** |
+| Carries data, no NEWER generation produced data | **use it** | drop-everything → **U9** |
+| Carries data, a newer generation already produced data | **drop** | `_usageData` truthiness → **U10** |
+
+"Newer generation produced data" is `_usageDataSeq`, **not** `_usageData` truthiness:
+`ciInvalidate()` zeroes the cooldown but leaves `_usageData` populated, so for a multi-org user
+truthiness can be satisfied by a previous org's bars.
+
+**Known residual, deliberately not fixed here:** `ciInvalidate()` does not clear `_usageData`, so
+on switching to a different org's chat the panel keeps showing the previous org's quota until a
+fetch returns. Predates all of this. Clearing it would make the panel flash to "loading" on every
+conversation switch — a visible behaviour change that needs its own live check, so it is recorded
+rather than folded in.
 
 ---
 
@@ -221,6 +268,11 @@ Codex clean, MERGEABLE — not merged.**
 | `77d8f35` | the PR #72 session record: §B.7, DEC-043, reviews/…-i18n-docs.md, 4 stale claims |
 | `67f866d` | **v12.8** — the usage fix, DEC-044, new probe, CI wiring, CHANGELOG/ROADMAP/spec updates |
 | `d83191b` | Codex round 1: HANDOFF transcribed the one tally it told you not to |
+| `e49131a` | baton handoff: archived the v12.7 doc, added the v12.8 TROUBLESHOOTING entry, fixed two stale OPEN headlines |
+| `1c0a050` | Codex P1: the retry probe closed the panel it needed open |
+| `e3effc5` | Codex P2: force a scan after the route change instead of hoping for one |
+| `5eee8ac` | Codex P2: supersession is asymmetric — keep a superseded SUCCESS (U9) |
+| `5dbce77` | Codex P2: "newer data landed" is a generation, not truthiness (U10) |
 
 Merged earlier in this arc: #70 → `06a079f`, #71 → `980aa68`, #72 → `fac7d50`.
 
@@ -247,7 +299,7 @@ those. All five left in place rather than force-deleted.
 | `DECISIONS.md` **DEC-044** | the usage fix: why explicit, and the two ordering rules |
 | `DECISIONS.md` **DEC-043** | name members not tallies; pre-commit the stopping criterion |
 | `docs/PLAN-USAGE.md` → "Fetch fails" | the rewritten failure contract + the three-state table |
-| `probes/check-usage-state.js` | 8 checks; the mutation matrix is in its header |
+| `probes/check-usage-state.js` | 10 checks; the mutation matrix is in its header |
 | `agent_docs/conventions.md` → i18n Conventions | the **one** tally the project keeps, and why |
 | `ROADMAP.md` item **0c** | the three preference keys + the one remaining behaviour gap |
 | `reviews/review-2026-08-05-usage-state.md` | the 3-tier pipeline record, incl. what is NOT gated |

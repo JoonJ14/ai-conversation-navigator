@@ -1,5 +1,12 @@
 # Session Handoff — 2026-08-02/03 (v12.7: the Summary reads Korean — tokenizer, then the panels, then the docs)
 
+> **ARCHIVED 2026-08-05 — superseded by `HANDOFF.md` (2026-08-05).** This doc remains
+> authoritative for the **v12.7 / v12.7a / PR #72** arcs, which are its subject. Its **§B.8 is
+> NOT current**: it describes v12.8 as it stood the day it was written, before four further
+> Codex rounds changed the supersession rule and grew the probe from 8 checks to 10. For
+> anything about v12.8, read `HANDOFF.md` §B.2/§B.3/§B.6 and §C. Preserved unedited as a
+> point-in-time record rather than rewritten.
+
 **Scope:** three arcs, each discovered by checking the one before it. (1) `_sumTokenize` stripped
 `[^a-z0-9\s]`, so a conversation written in **Korean** produced zero tokens and every
 content-derived Summary feature was silently empty — for the product's only translated language.

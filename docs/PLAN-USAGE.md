@@ -523,7 +523,7 @@ Two ordering rules that are load-bearing, not incidental:
   `ciInvalidate()` leaves the previous value in place, so for a multi-org user truthiness can
   be satisfied by another org's stale bars.
 
-Gated by `probes/check-usage-state.js` (8 checks, in CI on ubuntu+chromium). It drives the real
+Gated by `probes/check-usage-state.js` (10 checks, in CI on ubuntu+chromium). It drives the real
 UI rather than a hook, and each fix was mutation-tested against a build with that fix removed.
 
 <details><summary>Superseded wording, preserved</summary>

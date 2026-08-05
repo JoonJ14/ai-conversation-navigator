@@ -53,14 +53,24 @@ automatically a preference: check whether the surface behaves correctly without 
 
 ### Verification
 
-New probe `probes/check-usage-state.js` — 8 checks, in CI (ubuntu+chromium). It drives the real
+New probe `probes/check-usage-state.js` — 10 checks, in CI (ubuntu+chromium). It drives the real
 UI by opening the Navigate panel and reading the DOM, with no instrumentation hook.
 
-**Mutation-tested**, because a check that cannot fail is not a gate: pre-fix **6 of 8 fail**,
-and removing only the generation token fails U8. **Removing only the repaint fails nothing** —
-that fix rests on reading the early return at `:5800`, not on a check, and it is recorded that
-way rather than claimed as covered. The shipped build passes all 8. Suite **1120/1120** both
-engines.
+**Mutation-tested**, because a check that cannot fail is not a gate. The supersession guard went
+through three wrong forms under review and **each one now fails a distinct check**:
+
+| Build | Result |
+|---|---|
+| **Pre-fix** | **6 of 10 fail** |
+| **No supersession guard** | **U8** — a late failure erases a newer success |
+| **Drop every superseded response** | **U9** — a late success is discarded |
+| **`_usageData` truthiness** | **U10** — a stale org's bars block a valid newer response |
+| **Minus repaint** | **all pass — NOT gated** |
+| **Fixed** | all 10 pass |
+
+**Removing only the repaint fails nothing** — that fix rests on reading the early return at
+`:5800`, not on a check, and it is recorded that way rather than claimed as covered. Suite
+**1120/1120** both engines.
 
 **Still owed: a live confirm (DEC-031)** — no mock reproduces a real 5xx from claude.ai.
 
