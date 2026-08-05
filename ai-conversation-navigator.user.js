@@ -5070,8 +5070,19 @@
         }
 
         fetchClaudeUsage(function (data) {
-            // Ignore a response that a later request has already superseded.
-            if (seq !== _usageReqSeq) return;
+            // Supersession is ASYMMETRIC: a late response's EMPTINESS is stale, but its
+            // CONTENT never is. Usage is org-scoped and every request reaching here is for
+            // the same org, so quota numbers from an older request are still true for the
+            // new chat.
+            //   - superseded and EMPTY  -> drop. This is the race the token exists for: a
+            //     slow failure must not erase a newer success.
+            //   - superseded and CARRIES DATA, and nothing newer has produced any -> USE it.
+            //     Discarding good quota to keep showing "unavailable" would be strictly
+            //     worse, and it is reachable: switch chats while the first fetch is in
+            //     flight, and the second one hangs or fails (Codex, PR #73).
+            //   - superseded and CARRIES DATA, but newer data already landed -> drop; the
+            //     newer answer wins.
+            if (seq !== _usageReqSeq && (!data || _usageData)) return;
             _usageData = data;
             // Every FAILURE in fetchClaudeUsage funnels through callback(null): no
             // GM_xmlhttpRequest, transport error, unparseable body, no org resolved,

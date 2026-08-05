@@ -511,10 +511,14 @@ Two ordering rules that are load-bearing, not incidental:
 - The flag is cleared **before** `fetchClaudeUsage` is called, because the
   missing-`GM_xmlhttpRequest` path invokes the callback **synchronously** — clearing afterwards
   would erase the failure the callback had just recorded.
-- Each request carries a **generation token** (`_usageReqSeq`). The stale-response guard inside
-  `fetchClaudeUsage` keys on the *org uuid*, which cannot separate two overlapping requests for
-  the **same** org — and `ciInvalidate()` zeroes the cooldown while a request may still be
-  pending. Without the token, a slow failure landing after a fast success erases good data.
+- Each request carries a **generation token** (`_usageReqSeq`), and supersession is
+  **asymmetric**. The stale-response guard inside `fetchClaudeUsage` keys on the *org uuid*,
+  which cannot separate two overlapping requests for the **same** org — and `ciInvalidate()`
+  zeroes the cooldown while a request may still be pending. A late response's **emptiness** is
+  stale, but its **content** never is (usage is org-scoped, and every request here is for the
+  same org), so: a superseded EMPTY response is dropped — that is what stops a slow failure
+  erasing a newer success — while a superseded response that CARRIES DATA is used when nothing
+  newer has produced any, and dropped when newer data already landed.
 
 Gated by `probes/check-usage-state.js` (8 checks, in CI on ubuntu+chromium). It drives the real
 UI rather than a hook, and each fix was mutation-tested against a build with that fix removed.

@@ -2248,12 +2248,19 @@ preserved rather than deleted.
 - **Clear the flag BEFORE calling `fetchClaudeUsage`.** The missing-`GM_xmlhttpRequest` path
   invokes its callback **synchronously**; clearing afterwards would erase the failure the
   callback had just recorded.
-- **Each request carries a generation token** (`_usageReqSeq`). The stale-response guard inside
-  `fetchClaudeUsage` keys on the *org uuid*, which cannot separate two overlapping requests for
-  the **same** org — and `ciInvalidate()` zeroes the usage cooldown while a request may still be
-  pending, which makes that reachable. Without the token a slow failure landing after a fast
-  success erases good data. This also fixes the **pre-existing** half of the same race, which
-  applied to `_usageData` before this change existed.
+- **Each request carries a generation token** (`_usageReqSeq`), and supersession is
+  **ASYMMETRIC**. The stale-response guard inside `fetchClaudeUsage` keys on the *org uuid*,
+  which cannot separate two overlapping requests for the **same** org — and `ciInvalidate()`
+  zeroes the usage cooldown while a request may still be pending, which makes that reachable.
+  Without the token a slow failure landing after a fast success erases good data; that also
+  fixes the **pre-existing** half of the race, which applied to `_usageData` before this change.
+  **But dropping every superseded response was too aggressive** (Codex, PR #73): switch chats
+  while the first fetch is in flight and let the second one hang or fail, and a perfectly good
+  older success was discarded while the panel showed "unavailable". The rule that holds is that
+  a late response's **emptiness** is stale and its **content** is not — usage is org-scoped and
+  all these requests are same-org. So a superseded EMPTY response is dropped, a superseded
+  response CARRYING DATA is used when nothing newer produced any, and dropped when it did.
+  Both directions are gated: U8 fails without the token, U9 fails with the too-aggressive form.
 - **Setting a flag is not repainting.** `orbPopulateNavigate` early-returns on an unchanged
   question-list fingerprint *before* it reaches `maybeRefreshUsage`, so on a settled page nothing
   would redraw and a retry would keep showing "unavailable" while a request was genuinely in

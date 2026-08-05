@@ -315,14 +315,12 @@ async function openNavigate(page) {
     // inside fetchClaudeUsage keys on the org uuid, which is identical here, so it cannot
     // separate them — without a per-request generation the late failure lands last and
     // erases the good data (Codex Tier 3 WARN). Ends with bars if the guard works.
-    async function outOfOrderScenario() {
+    async function outOfOrderScenario(respScript) {
         const context = await browser.newContext();
         const page = await context.newPage();
         const targetURL = `https://claude.ai/chat/${CONV_UUID}`;
         const otherURL  = `https://claude.ai/chat/88888888-8888-4888-8888-888888888888`;
-        // Request #0: slow FAILURE. Request #1: fast SUCCESS. So #1 lands first.
-        const html = buildPage(raw, 'ok', 'en',
-            [{ mode: 'error', delay: 1500 }, { mode: 'ok', delay: 10 }]);
+        const html = buildPage(raw, 'ok', 'en', respScript);
         await page.route('**/*', (route) => {
             const u = route.request().url();
             if (u === targetURL || u === targetURL + '/' || u === otherURL) {
@@ -411,10 +409,21 @@ async function openNavigate(page) {
     // U8 — two overlapping SAME-ORG requests completing out of order. The slow first
     // request fails; the fast second succeeds. Without a per-request generation the
     // late failure lands last and wipes the good bars.
-    const u8 = await outOfOrderScenario();
+    const u8 = await outOfOrderScenario([{ mode: 'error', delay: 1500 }, { mode: 'ok', delay: 10 }]);
     check('U8', 'a superseded late FAILURE does not erase a newer success',
         sound(u8) && u8.state === null && u8.bars > 0,
         'state=' + u8.state + ' bars=' + u8.bars + ' requests=' + u8.requests + ' ' + why(u8));
+
+    // U9 — the MIRROR of U8, and the case a too-aggressive supersession guard breaks.
+    // Request #0 is slow and SUCCEEDS; request #1 is fast and FAILS. The failure lands
+    // first, so the panel goes unavailable — then the older SUCCESS arrives. Usage is
+    // org-scoped and both requests are the same org, so that data is still valid and must
+    // be used rather than discarded for being late. A build that drops every superseded
+    // response leaves the panel reading "Usage data unavailable" while holding usable quota.
+    const u9 = await outOfOrderScenario([{ mode: 'ok', delay: 1500 }, { mode: 'error', delay: 10 }]);
+    check('U9', 'a superseded late SUCCESS is used when nothing newer produced data',
+        sound(u9) && u9.state === null && u9.bars > 0,
+        'state=' + u9.state + ' bars=' + u9.bars + ' requests=' + u9.requests + ' ' + why(u9));
 
     await browser.close();
     console.log(failures ? '\n' + failures + ' check(s) FAILED' : '\nall checks passed');
