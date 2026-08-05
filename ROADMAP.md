@@ -359,7 +359,7 @@ Numbering below is stable (items keep their historical numbers):
    `ciDataIndexToFullPath`, `ciFullPathToDataIndex`, `_bmLegacyId`; inventory/entity `msgIndex`
    fields with no consumer; `_bmLegacyIdSet`'s two unreachable dedupe guards; two dead test
    config keys making one assertion unreachable.
-11. **Summary performance on long conversations (OPEN — priority 1, added 2026-07-30).** Live
+11. ~~**Summary performance on long conversations**~~ — **CLOSED 2026-08-01 by owner decision** (added 2026-07-30; see the CLOSED note in this item's body, and the re-ranking at the top of this file). Do **not** reopen it on the text below, which describes the state as first reported. Live
    finding on the owner's ~147-question conversation (Firefox + Tampermonkey, v12.3): Summary →
    Generate and Tools → Summary export near-freeze the tab (Firefox's "slowing down" banner),
    then complete correctly. Consistent **since v12.0** — which is when the summarizer started

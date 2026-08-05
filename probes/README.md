@@ -1,7 +1,8 @@
 # probes/ — measurement instrumentation (not shipped code)
 
 Tools for **measuring** the userscript, never installed by users. First occupant:
-the Summary performance probe (ROADMAP item 11, TROUBLESHOOTING OPEN entry).
+the Summary performance probe (ROADMAP item 11 — now CLOSED; the TROUBLESHOOTING entry it
+came from is RESOLVED).
 Everything here follows the CLAUDE.md measurement-context rule: every number a
 probe produces is scoped to the context it was taken in, and the file that
 records it must say which.
