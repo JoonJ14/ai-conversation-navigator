@@ -70,6 +70,14 @@ console.log(dead.length? 'DEAD: '+dead.join(', ') : 'every key is called');"
 each is a per-string judgement about whether Korean helps that label.
 **Do not mass-translate to drive this count to zero.** The audit exists to make the choice
 visible, not to make the number zero.
+
+**This 9 + 3 + 2 baseline is the ONE tally the project keeps, deliberately** (DEC-043). It is
+load-bearing — it is what lets a later run tell a regression from the known state — and every
+member of every group is named beside it, so it can be checked rather than merely believed.
+**Do not add coverage tallies elsewhere.** Every other one written during PR #72 ("21 of 31"
+toasts, "9 vs 5" tooltips, "13 of 14" keys) was wrong, usually twice; docs name surfaces
+instead. If you re-run this audit, update the named membership here — do **not** transcribe
+counts into `docs/SETTINGS.md`, `README.md` or `HANDOFF.md`.
 **Two of the fourteen are a different animal — missing BEHAVIOUR, not translation preferences.**
 `summaryLanguageNote` has an EMPTY English value and a Korean-only disclaimer, so it cannot "stay
 English" — it is a notice that has never rendered while `docs/SETTINGS.md` says it does, and

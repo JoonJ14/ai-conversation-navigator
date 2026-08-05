@@ -2108,3 +2108,100 @@ translation changes, and concatenation hard-codes it.
   very change — leaving it would have reproduced the defect this decision exists to fix.
 - **A typo the wiring exposed:** the footer read 더 많은 도구가 **곳** 추가됩니다 — 곳 is "place";
   it should be 곧, "soon". It had been in the table, unrendered, since the string was written.
+
+---
+
+## DEC-043: Documentation Names Its Members Instead of Counting Them — and a Review Loop Needs a Pre-Committed Stopping Criterion (PR #72)
+**Date:** 2026-08-03 | **Stage:** post-v12.7a, docs only
+
+### Decision
+Coverage claims in project documentation **name the specific surfaces involved** rather than
+stating a ratio. Tallies are permitted in exactly one place — `agent_docs/conventions.md`'s dead-key
+audit baseline — because there the number is load-bearing (it lets a later run distinguish a
+regression from the known state) and every member of every group is named alongside it.
+
+Separately: when a review loop is run to convergence, the criterion for stopping is
+**written down before the round runs**, not judged after seeing the findings.
+
+### Context — ten findings, and a perfectly clean split
+PR #72 began as a small reframing: the owner had reviewed Korean mode live and accepted partial
+English, so ROADMAP 0c had to stop reading as a defect list. Four GitHub Codex rounds produced ten
+findings. The split by *kind of claim* was total:
+
+| Claim type | Outcome |
+|---|---|
+| **Qualitative** — "a dead key is a question, not a defect"; "these two are missing behaviour, not preferences"; "two docs assert incompatible failure contracts" | **Every one survived** four adversarial rounds untouched |
+| **Quantified** — "13 of 14" keys, "21 of 31" toasts, "9 vs 5" tooltips, "~5 questionPrefix sites", "everything else applies after a refresh" | **Every one was wrong**, most of them twice |
+
+By provenance, all ten were errors introduced *by this PR*; none existed on `main`. That is normally
+the signal to stop immediately (DEC-029). The reason it was not read that way for two further rounds
+is recorded below.
+
+### Why the tallies failed — three distinct mechanisms, none of them carelessness
+1. **A `title:` key is not a tooltip.** The tooltip audit matched `\btitle:\s*` and swept in the
+   `PLATFORMS` registry's platform *display names*. Caught, corrected — and then the corrected line
+   made the **same error again** with the `TOOLS_EXPORT` data objects, whose `title:` fields are
+   visible labels rendered via `textContent`. The second instance was written inside the sentence
+   documenting the first.
+2. **A length-capped regex corrupts the DENOMINATOR, not the numerator.** The toast count
+   ("21 of 31") capped each call site at 120 characters, so a multi-line conditional fell out of the
+   *population* entirely — classified as neither literal nor `i18n`. The total was wrong, which is
+   far harder to notice than a misclassification: the parts still looked self-consistent.
+3. **Arithmetic that double-counts a category.** "Thirteen of the fourteen unwired keys are a
+   per-string judgement" applied the owner's acceptance to all fourteen, then excluded two, without
+   lowering the total. The correct breakdown is 9 (`/Commands`) + 3 (preference) + 2 (missing
+   behaviour).
+
+### Why naming beats counting
+**A named surface can be checked against the code in one grep. A tally can only be re-derived.**
+And a stale tally is worse than no tally, because it reads as authoritative while being wrong —
+it is precisely the shape that survives review, since a reviewer must reconstruct the whole
+measurement to falsify it. Every number in this PR was also a future staleness bug: correct on the
+day it was written, wrong the next time anyone touched a string.
+
+This is the same family as the three v12.6 defects (see the statistic-over-the-wrong-population
+note in the v12.6 record) and the measurement-context rule in `CLAUDE.md`. The new part is the
+**remedy**: do not compute the statistic more carefully — stop putting it in the document.
+
+What the docs record instead is the **audit traps**, which are what actually cost the time: match
+only real DOM attributes when counting tooltips; beware a length cap silently shrinking the
+population; verify the parts sum to the total before trusting either.
+
+### The stopping criterion — and why it was needed
+DEC-029 says end a loop on finding *provenance*: once most findings are the loop's own fixes, stop.
+By round 2 that condition was already met and the loop still ran twice more. The failure was that
+"is this still converging?" was being judged **after** each round, against evidence that always
+admitted an optimistic reading ("yes, but these are smaller than last time").
+
+The fix was to write the criterion down first: *one more round; if it returns any new finding in
+prose I wrote, stop regardless of how small it is.* Round 4 returned three, including mechanism (1)
+above — and the pre-commitment made that unarguable, where a post-hoc judgement would have found
+"but they're only P3 recounts" available again.
+
+**Generalise:** a stopping rule evaluated after seeing the results is not a stopping rule. This
+matches the project's existing preference for pre-committed criteria and for discrete metrics over
+continuous ones near a threshold.
+
+### Alternatives considered
+- **Correct the counts a fifth time.** Rejected on evidence: four rounds, four different tallies,
+  every one wrong at least once. The demonstrated failure rate was ~100%, and each fix was itself a
+  new hand-written number with the same exposure.
+- **Keep the counts but add "verified <date>" stamps.** Rejected — the numbers were already dated.
+  Dating a wrong number does not make it right, and dating a right number does not stop it going
+  stale; it only shifts the reader's burden from "is this true?" to "is this current?", which they
+  cannot answer without recounting anyway.
+- **Drop the coverage section entirely.** Rejected — the qualitative content was the part that
+  survived review, and it is genuinely useful: a maintainer needs to know that `Clear all bookmarks`
+  and the bookmark tooltips are hardcoded. Only the arithmetic was load-free.
+
+### Also settled by this PR
+- **`usageUnavailable` is an open BUG, not a translation preference** — a failed usage fetch leaves
+  the panel reading "Plan usage loading…" indefinitely, in both languages, because
+  `fetchClaudeUsage` hands `null` to `renderUsageBars` and its `!data` branch renders
+  `planUsageLoading`. **The remedy is an owner decision**: `docs/PLAN-USAGE.md` specifies rendering
+  nothing on failure, while the existence of the `usageUnavailable` string implies a message was
+  intended. The repo asserted *both*; it now records the choice as open. The bug holds under either.
+- **`summaryLanguageNote` needs an owner decision, not wiring** — empty English value, Korean-only
+  disclaimer, never rendered, and v12.7 made its text substantially untrue.
+- **A dead key is not automatically a preference.** Check whether the surface behaves correctly
+  without it before filing it as one. Two of the fourteen did not.

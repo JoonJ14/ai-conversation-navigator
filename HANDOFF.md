@@ -1,20 +1,34 @@
-# Session Handoff — 2026-08-02 (v12.7: the Summary reads Korean — tokenizer, then the panels)
+# Session Handoff — 2026-08-02/03 (v12.7: the Summary reads Korean — tokenizer, then the panels, then the docs)
 
-**Scope:** two arcs, the second discovered by live-testing the first. (1) `_sumTokenize` stripped
+**Scope:** three arcs, each discovered by checking the one before it. (1) `_sumTokenize` stripped
 `[^a-z0-9\s]`, so a conversation written in **Korean** produced zero tokens and every
 content-derived Summary feature was silently empty — for the product's only translated language.
 (2) The live check then found the **Tools and Plan usage panels never called `i18n()` at all**:
-thirteen Korean strings existed in the table and none was ever read.
+thirteen Korean strings existed in the table and none was ever read. (3) Reframing the leftover
+dead keys as owner preference then exposed **two of them as missing behaviour**, one a live bug.
 **Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-08-01_v12.5-v12.6-map.md`.
 
-**Status at close:**
+**Status at close — everything merged, nothing open:**
 - **v12.7 — MERGED** (PR #70 → `06a079f`) and **LIVE-CONFIRMED** by the owner the same day.
   Pure-ASCII English byte-identical at 32/32 map fingerprints (accented English changes by
   design — that is the fix); Korean boundary recovery 12/32 → 28/32; suite green both engines
   with the repo's first non-English fixture.
-- **v12.7a — PR #71**, CI 9/9, Codex clean, **authorized to merge by the owner**.
+- **v12.7a — MERGED** (PR #71 → `980aa68`). The Tools and Plan usage panels now call `i18n()`;
+  reset phrases became `{placeholder}` templates because Korean orders the meridiem before the
+  time. English output byte-identical over 58 cases.
+- **Docs reframing — MERGED** (PR #72 → `fac7d50`), docs only, CI 9/9. Four Codex rounds, ten
+  findings. See §B.7 — the durable outcome is **DEC-043**, and it exposed the `usageUnavailable`
+  bug in §G.2a.
 - **The live check settled the one open question**: the owner could not find the particle
   artefact §G.1 asked about (세션이 vs 세션), so **no display-only normalizer is wanted**.
+- **Owner position on Korean mode, standing:** *"some things are actually better to stay in
+  english than force translation to korean… i am fine with how the korean mode looks."* Partial
+  English is accepted. Do not mass-translate to drive the dead-key audit to zero.
+
+> **The one thing that is NOT done:** `usageUnavailable` — a failed Claude usage fetch leaves the
+> panel reading "Plan usage loading…" **forever**, in both languages. Real, user-visible,
+> pre-existing. Deliberately not fixed here: it is a code change on a network path (version bump
+> + DEC-031 live confirm), and **the remedy itself needs an owner decision** — see §G.2a.
 
 ---
 
@@ -228,6 +242,53 @@ never been displayed (더 많은 도구가 **곳** 추가됩니다 — 곳 is "p
 untranslated); and the mixed-language state between a language switch and a refresh is accepted —
 *"that is a limitation i am willing to accept since we already warn about it anyway."*
 
+### 7. The docs reframing — and what it exposed (PR #72 → `fac7d50`, docs only)
+
+**Why it existed.** After the live review the owner stated a *standing* position, not a one-off
+call about `/Commands`: partial English in Korean mode is fine. ROADMAP 0c was still written as
+five defects awaiting a fix — a framing that would push a future session to mass-translate toward
+a zero dead-key count, which is the opposite of what is wanted.
+
+**What it found underneath.** Reclassifying the five keys as preference immediately broke on two
+of them, because **a preference presupposes something rendering to have a preference about**:
+- **`usageUnavailable`** — nothing renders in *either* language. A failed usage fetch leaves the
+  panel claiming to still be loading, forever. A real bug, pre-existing, still open (§G.2a).
+- **`summaryLanguageNote`** — empty English value, Korean-only disclaimer, never rendered, and
+  v12.7 made its text substantially untrue. Needs an owner decision, not wiring.
+
+The generalisation is now in `agent_docs/conventions.md`: **a dead key is not automatically a
+preference** — check whether the surface behaves correctly without it before filing it as one.
+
+**Four Codex rounds, ten findings, and a clean split.** All ten were errors this PR introduced;
+none existed on `main`. Sorted by *kind of claim*, the result was total:
+
+| Claim type | Outcome |
+|---|---|
+| **Qualitative** — the reframing; the two behaviour gaps; "two docs assert incompatible failure contracts" | **Every one survived** four adversarial rounds untouched |
+| **Quantified** — "13 of 14" keys, "21 of 31" toasts, "9 vs 5" tooltips, "~5 sites", "everything else" | **Every one was wrong**, most twice |
+
+**The finding that ended it.** The tooltip audit's "5 wired" counted three `TOOLS_EXPORT`
+*data-object* `title:` fields — visible labels rendered via `textContent` — as DOM tooltips. That
+is the identical population error caught one round earlier with the `PLATFORMS` registry,
+committed again **inside the sentence documenting it**.
+
+**Resolution: the counts were removed, not corrected a fifth time.** Docs now name members instead
+of tallying them — a named surface is checkable in one grep; a tally can only be re-derived, and a
+stale one reads as authoritative while being wrong. What the docs keep instead are the *audit
+traps*, which is what actually cost the time: a `title:` key in a config or data object is not a
+DOM tooltip, and a length-capped regex corrupts the **denominator** rather than misclassifying.
+One tally is kept deliberately — `agent_docs/conventions.md`'s 9+3+2 dead-key baseline, because
+there the number is load-bearing and every member is named beside it. **DEC-043.**
+
+**Process lesson, also DEC-043.** By round 2 the DEC-029 provenance condition ("most findings are
+the loop's own") was already met, and the loop ran twice more — because "is this converging?" was
+judged *after* each round, against evidence that always admitted an optimistic reading. The fix
+was to pre-commit: *one more round; any new finding in prose I wrote and I stop, however small.*
+Round 4 returned three, and the pre-commitment made it unarguable. **A stopping rule evaluated
+after seeing the results is not a stopping rule.**
+
+Full cycle record: `reviews/review-2026-08-03-i18n-docs.md`.
+
 ---
 
 ## C. Architecture snapshot
@@ -269,6 +330,25 @@ changed what those functions *see*, never what they do. `probes/` gained
   in it changes meaning.
   The habit to build: after changing a number or a framing, grep the phrase, not the paragraph —
   and check what AGGREGATES over it.
+  **PR #72 added four more instances of the same pattern**, which is why the next principle
+  exists: at some point "grep harder" stops being the fix and the claim itself is the problem.
+- **Name the members; do not tally them (DEC-043).** Across PR #72's four review rounds, *every*
+  qualitative claim survived and *every* quantified one was wrong — "13 of 14" keys, "21 of 31"
+  toasts, "9 vs 5" tooltips, "~5 sites". A named surface can be checked against the code in one
+  grep; a tally can only be re-derived, and a stale tally reads as authoritative while being
+  wrong, because falsifying it means reconstructing the whole measurement. It is also a future
+  staleness bug by construction: correct the day it is written, wrong the next time anyone
+  touches a string. **The remedy is not to compute more carefully — it is to stop putting the
+  number in the document.** Keep the audit traps instead: a `title:` key in a config object or a
+  data object is not a DOM tooltip, and a length-capped regex corrupts the DENOMINATOR (a site
+  falls out of the population entirely) rather than merely misclassifying.
+- **A stopping rule evaluated after seeing the results is not a stopping rule (DEC-043).**
+  DEC-029's provenance condition was met at round 2 and the loop still ran to round 4, because
+  "is this converging?" was judged post-hoc against evidence that always admitted an optimistic
+  reading ("smaller than last time"). Writing the criterion down *before* the round — *any new
+  finding in prose I wrote and I stop, however small* — made the answer unarguable. Same family
+  as the project's existing preference for pre-committed criteria and for discrete metrics over
+  continuous ones near a threshold.
 - **State an effect's real size, especially your own fix's.** Removing those copies makes a
   frequent short word *eligible*; bigram weighting still decides whether it wins. The first
   draft of this handoff said Korean topics were "all bigrams" because of the filters — they
@@ -304,12 +384,30 @@ changed what those functions *see*, never what they do. `probes/` gained
 
 ## E. Git state
 
-`main` @ `06a079f` — PR #70 (v12.7, `fix/tokenizer-korean-v12.7`) merged by the owner
-2026-08-02 17:45 UTC. **PR #71** (`fix/tools-i18n`, the panel i18n follow-up) is open against
-that merged main, CI 9/9, Codex clean, and merges at the close of this session with explicit
-owner authorization. Note the ordering trap this created: the i18n commit was authored while
-#70 was still open and had to be cherry-picked onto the merged main — "fold it into #70" was no
-longer possible by the time the work was done.
+`main` @ **`fac7d50`** — clean tree, nothing unpushed, **no open PRs**. Three merged in order:
+
+| PR | Branch | Merge | What |
+|---|---|---|---|
+| #70 | `fix/tokenizer-korean-v12.7` | `06a079f` | v12.7 tokenizer. Live-confirmed same day |
+| #71 | `fix/tools-i18n` | `980aa68` | v12.7a panel i18n |
+| #72 | `docs/i18n-preference-not-defect` | `fac7d50` | Docs reframing (§B.7). Docs only |
+
+All three remote branches deleted. **Merge strategy on this repo is merge commits** —
+`gh pr merge --squash` fails outright ("Squash merges are not allowed").
+
+**Ordering trap worth remembering:** the v12.7a commit was authored while #70 was still open and
+had to be cherry-picked onto the merged main — "fold it into #70" was no longer possible by the
+time the work was done. The same thing happened again with #72 relative to #71.
+
+**A git-config trap, fixed:** the repo had accumulated per-branch `remote.origin.fetch` refspecs
+pointing at branches that were later merged and deleted, so `git pull` failed outright with
+`couldn't find remote ref`. Restored to the standard `+refs/heads/*:refs/remotes/origin/*`. If
+`git pull` ever fails that way again, check `git config --get-all remote.origin.fetch` first.
+
+**Five local branches have gone remotes.** Three are fully merged into `main`; two
+(`fix/firefox-fetch-skip`, `fix/tokenizer-korean-v12.7`) report UNMERGED because their content
+reached main via merge commits while the branch tips are not ancestors — `git branch -d` will
+refuse those. All five were left in place rather than force-deleted.
 
 ---
 
@@ -319,11 +417,15 @@ longer possible by the time the work was done.
 |---|---|
 | `HANDOFF.md` | this file |
 | `DECISIONS.md` DEC-041 | the design, and both rejected alternatives with their mechanism |
+| `DECISIONS.md` **DEC-043** | name members not tallies; pre-commit the review-loop stopping rule |
 | `TROUBLESHOOTING.md` → the v12.7 entry | before/after measurements with their contexts |
 | `ROADMAP.md` item 0a | closed, with the two things deliberately left open |
-| `probes/check-tokenizer.js` | 8 checks incl. T8, which pins the LIMIT as an assertion |
+| `ROADMAP.md` item **0c** | the three preference keys, and the two behaviour gaps that are NOT preferences |
+| `probes/check-tokenizer.js` | **12** checks incl. T8 (pins the LIMIT as an assertion) and T12 (both topic extractors) |
 | `probes/README.md` Path D | the variant sweep and the English equivalence gate |
 | `TESTING.md` → `koreanSummaryTest` | what K1a–K1c gate and why the base text is Korean |
+| `reviews/review-2026-08-03-i18n-docs.md` | the four-round Codex cycle, its ten findings, and the split by claim type |
+| `docs/SETTINGS.md` → "Scope of translation" | which surfaces are English, named — and the audit traps |
 
 ---
 
@@ -382,11 +484,15 @@ longer possible by the time the work was done.
 - **Correctness outranks further optimization** (standing ranking rule). Item 11 is closed at
   ~1.2s by owner decision; only a conversation large enough to put the freeze banner back
   should reopen it.
-- **Execute-and-narrate** stands. **Merge authority is per-PR and explicit** — this PR is not
-  authorized to merge by anything in this document. **DEC-031 gates live-code merges on a
-  live confirmation**, and §G.1 is that gate for v12.7.
+- **Execute-and-narrate** stands. **Merge authority is per-PR and explicit** — no PR is
+  authorized to merge by anything in this document; authorization is given per PR, in the
+  session. (All three PRs in this arc were authorized that way and are merged; §E.)
+  **DEC-031 gates live-code merges on a live confirmation**, and §G.1 was that gate for v12.7.
 - **Stop review loops on provenance** (DEC-029), with the standing exception: a loop-era
   finding that *weakens the evidence for the shipped change* earns another round.
+  **And pre-commit the criterion before the round runs** (DEC-043) — PR #72 met the provenance
+  condition at round 2 and still ran to round 4, because the judgement was made after seeing
+  each round's findings, which always admitted an optimistic reading.
 - The owner tests on **Firefox + Tampermonkey**; probe builds are per-measured-build (DEC-027).
 - Explicit `git add` paths, never `-A`; commit before mutating; suite both engines before push.
 

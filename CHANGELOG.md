@@ -88,6 +88,14 @@ it" to all of them and then excluding two without lowering the total; GitHub Cod
 Run the audit in `agent_docs/conventions.md` for the current membership of each group rather
 than trusting a count recorded here.
 
+**Follow-up (PR #72 → `fac7d50`, docs only, 2026-08-03).** Reframing these keys as owner
+preference exposed that two of them are not preferences at all but missing behaviour — a
+preference presupposes something rendering to have a preference about. `usageUnavailable` is an
+open user-visible bug (ROADMAP 0c). The same PR removed the hand-maintained coverage tallies from
+this file and four others after every one of them proved wrong under review; docs now name
+surfaces instead of counting them. **DEC-043**, and
+`reviews/review-2026-08-03-i18n-docs.md`.
+
 ---
 
 ## [12.7 — The Summary Tokenizer Can Read Korean] — 2026-08-02
