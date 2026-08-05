@@ -270,10 +270,19 @@ async function openNavigate(page) {
         // Flip the transport, then change route so the cooldown is invalidated.
         await page.evaluate("window.__acnUsageMode = 'hang'");
         const before = await page.evaluate('window.__acnUsageRequests');
-        await page.evaluate(`history.pushState({}, '', ${JSON.stringify(otherURL)});
-                             window.dispatchEvent(new Event('popstate'));`);
-        await page.waitForTimeout(300);
-        await page.evaluate("var d=document.getElementById('acn-dot-nav'); if(d) d.click();");
+        // Change the route and LEAVE THE PANEL OPEN. Do not click the dot again: Claude's
+        // platform config has spa:false so no popstate handler is installed, and
+        // orbOpenPanel toggles — a second click on an open panel CLOSES it (:5676). The
+        // refetch chain needs it open, so the click actively broke the mechanism it looked
+        // like it was driving (GitHub Codex, PR #73).
+        //
+        // What actually issues the retry: the MutationObserver scan sees the conversation
+        // uuid change, calls ciInvalidate() which zeroes _usageLastFetch, and the same scan
+        // calls orbOnScanComplete() -> orbPopulateNavigate() (guarded on orbPanel === 'nav')
+        // -> maybeRefreshUsage(). The probe passed WITH the click only because the scan
+        // happened to fire inside the 300ms before it landed; on a slower runner it would
+        // not have, and this would have timed out in CI.
+        await page.evaluate(`history.pushState({}, '', ${JSON.stringify(otherURL)});`);
         // Wait for the RETRY to actually be issued rather than for a duration. Under load
         // a fixed sleep let readStable settle on the still-correct OLD 'unavailable' state
         // before the retry had started — a stable read of the wrong moment, which failed
@@ -313,10 +322,9 @@ async function openNavigate(page) {
         await page.waitForTimeout(900);
         // Route change zeroes the usage cooldown (ciInvalidate), starting request #1
         // while #0 is still outstanding.
-        await page.evaluate(`history.pushState({}, '', ${JSON.stringify(otherURL)});
-                             window.dispatchEvent(new Event('popstate'));`);
-        await page.waitForTimeout(300);
-        await page.evaluate("var d=document.getElementById('acn-dot-nav'); if(d) d.click();");
+        // Same as U7: leave the panel OPEN. The scan-driven chain issues request #1; a
+        // second dot click would close the panel and disarm it.
+        await page.evaluate(`history.pushState({}, '', ${JSON.stringify(otherURL)});`);
         await page.waitForFunction('window.__acnUsageRequests >= 2', null, { timeout: 20000 });
         // Past the slow failure's landing time, so a build without the generation guard
         // has every chance to clobber the good data before we look.
