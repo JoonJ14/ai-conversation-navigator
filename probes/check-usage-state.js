@@ -200,6 +200,25 @@ async function readStable(page, timeoutMs, stableMs) {
     return last || { section: false, stable: false };
 }
 
+// Changes the mock route AND guarantees the userscript notices. pushState alone only
+// mutates location; Claude is registered spa:false, so the ONLY thing that observes a
+// uuid change is scanConversation(), and that runs off a MutationObserver batch on
+// document.body ({childList, subtree}, :4355). A static mock emits no further
+// mutations once it has settled, so without forcing one the probe depends on a scan
+// that happened to be pending — and if it fired before the pushState, no later scan
+// ever sees the new uuid, maybeRefreshUsage() is never reached, and the wait times out
+// (GitHub Codex, PR #73). Appending and removing a throwaway node schedules a batch on
+// purpose, which makes the retry deterministic rather than lucky.
+async function routeChangeAndForceScan(page, url) {
+    await page.evaluate((u) => {
+        history.pushState({}, '', u);
+        var probe = document.createElement('div');
+        probe.setAttribute('data-acn-probe-scan-trigger', '1');
+        document.body.appendChild(probe);
+        probe.remove();
+    }, url);
+}
+
 async function openNavigate(page) {
     // Drive the real UI: opening Navigate populates the panel, which is what calls
     // maybeRefreshUsage(). No instrumentation hook — the assertions read the user's DOM.
@@ -282,7 +301,7 @@ async function openNavigate(page) {
         // -> maybeRefreshUsage(). The probe passed WITH the click only because the scan
         // happened to fire inside the 300ms before it landed; on a slower runner it would
         // not have, and this would have timed out in CI.
-        await page.evaluate(`history.pushState({}, '', ${JSON.stringify(otherURL)});`);
+        await routeChangeAndForceScan(page, otherURL);
         // Wait for the RETRY to actually be issued rather than for a duration. Under load
         // a fixed sleep let readStable settle on the still-correct OLD 'unavailable' state
         // before the retry had started — a stable read of the wrong moment, which failed
@@ -324,7 +343,7 @@ async function openNavigate(page) {
         // while #0 is still outstanding.
         // Same as U7: leave the panel OPEN. The scan-driven chain issues request #1; a
         // second dot click would close the panel and disarm it.
-        await page.evaluate(`history.pushState({}, '', ${JSON.stringify(otherURL)});`);
+        await routeChangeAndForceScan(page, otherURL);
         await page.waitForFunction('window.__acnUsageRequests >= 2', null, { timeout: 20000 });
         // Past the slow failure's landing time, so a build without the generation guard
         // has every chance to clobber the good data before we look.
