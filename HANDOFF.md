@@ -19,16 +19,21 @@ dead keys as owner preference then exposed **two of them as missing behaviour**,
 - **Docs reframing — MERGED** (PR #72 → `fac7d50`), docs only, CI 9/9. Four Codex rounds, ten
   findings. See §B.7 — the durable outcome is **DEC-043**, and it exposed the `usageUnavailable`
   bug in §G.2a.
+- **v12.8 — the `usageUnavailable` bug, FIXED** (PR #73). A failed Claude usage fetch left the
+  panel reading "Plan usage loading…" **forever**, in both languages. The owner chose the
+  explicit remedy over the silent one. New probe, 8 checks, in CI; every fix mutation-tested.
+  See §B.8 and **DEC-044**.
 - **The live check settled the one open question**: the owner could not find the particle
   artefact §G.1 asked about (세션이 vs 세션), so **no display-only normalizer is wanted**.
 - **Owner position on Korean mode, standing:** *"some things are actually better to stay in
   english than force translation to korean… i am fine with how the korean mode looks."* Partial
   English is accepted. Do not mass-translate to drive the dead-key audit to zero.
 
-> **The one thing that is NOT done:** `usageUnavailable` — a failed Claude usage fetch leaves the
-> panel reading "Plan usage loading…" **forever**, in both languages. Real, user-visible,
-> pre-existing. Deliberately not fixed here: it is a code change on a network path (version bump
-> + DEC-031 live confirm), and **the remedy itself needs an owner decision** — see §G.2a.
+> **The one thing still owed: a LIVE CONFIRM of v12.8 (DEC-031).** No mock reproduces a real 5xx
+> from claude.ai, and a green suite is a context-scoped finding. To check it: open Claude with
+> the Navigate panel showing Plan usage, then break the request (log out in another tab, or
+> block `claude.ai/api/organizations/*/usage` in devtools) and reopen the panel. Expect
+> **"Usage data unavailable"**, not a permanent "loading…".
 
 ---
 
@@ -251,8 +256,9 @@ a zero dead-key count, which is the opposite of what is wanted.
 
 **What it found underneath.** Reclassifying the five keys as preference immediately broke on two
 of them, because **a preference presupposes something rendering to have a preference about**:
-- **`usageUnavailable`** — nothing renders in *either* language. A failed usage fetch leaves the
-  panel claiming to still be loading, forever. A real bug, pre-existing, still open (§G.2a).
+- **`usageUnavailable`** — nothing rendered in *either* language. A failed usage fetch left the
+  panel claiming to still be loading, forever. A real, pre-existing bug — **fixed in v12.8**
+  (§B.8, DEC-044).
 - **`summaryLanguageNote`** — empty English value, Korean-only disclaimer, never rendered, and
   v12.7 made its text substantially untrue. Needs an owner decision, not wiring.
 
@@ -288,6 +294,57 @@ Round 4 returned three, and the pre-commitment made it unarguable. **A stopping 
 after seeing the results is not a stopping rule.**
 
 Full cycle record: `reviews/review-2026-08-03-i18n-docs.md`.
+
+---
+
+### 8. v12.8 — the usage panel stopped lying (PR #73)
+
+**The bug.** `renderUsageBars` received `null` for two unrelated reasons — *no fetch has finished
+yet* and *a fetch finished and produced nothing* — and rendered `planUsageLoading` for both. The
+first resolves on its own; the second never does. So a failed Claude usage request left the panel
+reading **"Plan usage loading…" forever, in both languages**, telling the user to keep waiting for
+something that was never coming. `usageUnavailable` sat in both string tables, with a Korean
+translation someone had deliberately written, and had **no call site**.
+
+**Why it had been misfiled.** The v12.7a audit put it with the other dead keys as a translation
+preference. That was wrong, and the correction generalises: **a preference presupposes something
+rendering to have a preference about.** Nothing rendered here in either language, so there was no
+English surface for the owner to prefer — it was a missing failure state wearing a translation
+costume. The rule now lives in `agent_docs/conventions.md`.
+
+**The remedy needed the owner, because the repo asserted both answers.** `docs/PLAN-USAGE.md`
+specified rendering *nothing* on failure; the existence of the string implied a *message*. The
+owner chose **explicit**, and the spec was rewritten with its superseded wording preserved
+(DEC-044).
+
+**Tier 3 found two more defects in the fix**, both real and both verified at the cited lines:
+- **Overlapping same-org requests could complete out of order.** The stale-response guard keys on
+  the org uuid, which cannot separate two requests for the *same* org, and `ciInvalidate()` zeroes
+  the usage cooldown while one may still be pending. A slow failure landing after a fast success
+  erased good data. Fixed with a per-request generation token — which also fixes the
+  **pre-existing** half of that race, which applied to `_usageData` before this change existed.
+- **Setting a flag is not repainting.** `orbPopulateNavigate` early-returns on an unchanged
+  question-list fingerprint *before* reaching `maybeRefreshUsage`, so a retry could keep showing
+  "unavailable" while a request was genuinely in flight. Now repaints at fetch start — but only
+  when a placeholder is already up, since replacing real bars with "loading…" every five minutes
+  would be a worse lie than the one being fixed.
+
+**Verification, and the part worth reusing.** New probe `probes/check-usage-state.js` (8 checks,
+in CI) drives the real UI rather than a hook. **Each fix was mutation-tested** against a build
+with that fix removed, because a check that cannot fail is not a gate: pre-fix 6 of 8 fail, and
+removing only the generation token fails U8. **Removing only the repaint fails nothing — that
+one is not gated**, and rests on reading the early return at `:5800`. I twice wrote that U7
+covered it; it does not, and the second claim came from U7's own race producing the mutant's
+symptom. Suite 1120/1120 both engines.
+
+**The probe's own two bugs are the lesson.** Both drafts used a fixed sleep, and the panel
+re-renders on MutationObserver cycles — so the same scenario passed one run and failed the next
+with nothing changed. Then U8's first version route-changed mid-initialisation and issued **no
+second request at all**, reporting `requests=0`, which reads as a failure of the code under test
+rather than of the scenario. *A single run is not a measurement*, and **check that the fixture did
+the thing before believing what it says about the code.**
+
+Full cycle record: `reviews/review-2026-08-05-usage-state.md`.
 
 ---
 
@@ -450,16 +507,10 @@ refuse those. All five were left in place rather than force-deleted.
 2a. **TWO keys were originally filed with the three above and are NOT preferences — they are
    missing behaviour. The owner's "I'm fine with it" does not cover them**, because nothing
    renders in either language for them to be fine with. Both are real work:
-   - `usageUnavailable` — **an open bug.** A failed usage fetch leaves the panel showing
-     "Plan usage loading…" **forever**; the unavailable message never appears in either
-     language. Pre-existing and user-visible. **The bug is that the panel reports an in-flight
-     fetch that already failed** — wrong under any design, so it does not wait on the question
-     below.
-     **The REMEDY is an owner decision, and the repo currently asserts both answers:**
-     `docs/PLAN-USAGE.md` §"Fetch fails" specifies rendering *nothing* on failure, while the
-     existence of `usageUnavailable` in both language tables implies a *message* was intended.
-     Pick one and make the other doc agree — ROADMAP 0c has both options written out. Either
-     way it is a code change on a network path, so it is live-confirm gated (DEC-031).
+   - ~~`usageUnavailable`~~ — **FIXED in v12.8** (DEC-044, §B.8). The owner chose the explicit
+     remedy: a failed fetch now renders the unavailable message instead of claiming to still be
+     loading. `docs/PLAN-USAGE.md` was rewritten to match — it had specified the opposite, so
+     the repo was asserting both answers at once. **Live confirm still owed (DEC-031).**
    - `summaryLanguageNote` — **needs an owner decision, not a wiring fix.** An empty English
      value and a Korean-only disclaimer that has never rendered, while `docs/SETTINGS.md` says
      it does. v12.7 made its text substantially untrue, so **do not wire it as-is**. Three
@@ -504,9 +555,8 @@ refuse those. All five were left in place rather than force-deleted.
 theoretical top-level merge rule, the carried-over fixture batch, and the backlog behind them.
 The `overflow-anchor: none` mock assumption remains unverified (carried).
 
-Of those, **§G item 2a is the only one that is a user-visible bug rather than a backlog item**:
-`usageUnavailable` leaves the usage panel permanently claiming to be loading after a failed
-fetch. `summaryLanguageNote` in the same item is blocked on an owner decision, not on work.
+Of those, **§G item 2a no longer contains a shipped bug**: `usageUnavailable` was fixed in v12.8.
+What remains there is `summaryLanguageNote`, which is blocked on an owner decision, not on work.
 
 **§G item 2 is deliberately NOT in this rollup.** The three unwired i18n keys are an owner
 PREFERENCE, not deferred work: Korean mode was reviewed live and accepted as-is. Listing them
@@ -530,10 +580,12 @@ it out of the pile too.
   that decision.
 - **Three i18n keys render English in Korean mode** (ROADMAP 0c) — known, and **accepted by the
   owner**, not merely deferred. Partial English in Korean mode is a preference, not a defect.
-- **Two dead keys are NOT preferences — they are missing behaviour** (ROADMAP 0c).
-  `usageUnavailable`: a failed usage fetch shows "Plan usage loading…" forever, in both
-  languages. `summaryLanguageNote`: a Korean-only disclaimer that has never rendered, promised
-  by `docs/SETTINGS.md`, whose text v12.7 made substantially untrue.
+- **Two dead keys were NOT preferences — they were missing behaviour** (ROADMAP 0c).
+  `usageUnavailable`: a failed usage fetch showed "Plan usage loading…" forever, in both
+  languages — **fixed in v12.8** (DEC-044), live confirm still owed.
+  `summaryLanguageNote`: a Korean-only disclaimer that has never rendered, promised by
+  `docs/SETTINGS.md`, whose text v12.7 made substantially untrue — **still open**, and it needs
+  an owner decision rather than work.
   **The lesson underneath both:** a key with no call site is not automatically a translation
   question — check first whether the surface behaves correctly without it. Two of the fourteen
   did not.

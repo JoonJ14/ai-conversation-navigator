@@ -2195,13 +2195,113 @@ continuous ones near a threshold.
   and the bookmark tooltips are hardcoded. Only the arithmetic was load-free.
 
 ### Also settled by this PR
-- **`usageUnavailable` is an open BUG, not a translation preference** — a failed usage fetch leaves
+- **`usageUnavailable` is a BUG, not a translation preference** — a failed usage fetch left
   the panel reading "Plan usage loading…" indefinitely, in both languages, because
-  `fetchClaudeUsage` hands `null` to `renderUsageBars` and its `!data` branch renders
-  `planUsageLoading`. **The remedy is an owner decision**: `docs/PLAN-USAGE.md` specifies rendering
-  nothing on failure, while the existence of the `usageUnavailable` string implies a message was
-  intended. The repo asserted *both*; it now records the choice as open. The bug holds under either.
+  `fetchClaudeUsage` hands `null` to `renderUsageBars` and its `!data` branch rendered
+  `planUsageLoading`. **The remedy was an owner decision**: `docs/PLAN-USAGE.md` specified rendering
+  nothing on failure, while the existence of the `usageUnavailable` string implied a message was
+  intended. The repo asserted *both*; this PR recorded the choice as open.
+  **Resolved in v12.8 — the owner chose explicit. See DEC-044.**
 - **`summaryLanguageNote` needs an owner decision, not wiring** — empty English value, Korean-only
   disclaimer, never rendered, and v12.7 made its text substantially untrue.
 - **A dead key is not automatically a preference.** Check whether the surface behaves correctly
   without it before filing it as one. Two of the fourteen did not.
+
+---
+
+## DEC-044: A Failed Usage Fetch Says So — Explicit Over Silent, and Two States That Looked Like One (v12.8)
+**Date:** 2026-08-05 | **Stage:** v12.8
+
+### Decision
+When the Claude usage request fails, the panel renders **`usageUnavailable`** ("Usage data
+unavailable" / "사용량 데이터를 불러올 수 없습니다"). It does not keep saying "loading", and it
+does not vanish silently. The owner chose **explicit** over silent.
+
+### Context — the bug was a conflated null, not a missing string
+`renderUsageBars` received `null` for two unrelated reasons — *no fetch has finished yet* and
+*a fetch finished and produced nothing* — and rendered `planUsageLoading` for both. The first
+resolves on its own; the second never does. So a failed usage request left the panel reading
+**"Plan usage loading…" forever, in both languages**, telling the user to keep waiting for
+something that was never coming.
+
+`usageUnavailable` had existed in both string tables, with a Korean translation someone had
+deliberately written, and **had no call site**. The v12.7a audit found it and filed it with the
+other dead keys as a translation preference. That classification was wrong, and the correction is
+the transferable part: **a preference presupposes something rendering to have a preference
+about.** Nothing rendered here in either language, so there was no English surface for the owner
+to prefer — it was a missing failure state wearing a translation costume.
+
+### Why explicit, and why it needed the owner
+The repo asserted **both** answers. `docs/PLAN-USAGE.md` §"Fetch fails" specified rendering
+nothing at all ("no error messages; usage display is informational, not critical"), while the
+existence of `usageUnavailable` in both tables implied someone intended a message. Those are
+mutually exclusive, so an implementer could satisfy neither doc. The **bug** held under either
+design — a panel must not report an in-flight fetch that has already failed — but the **remedy**
+was a product call, so it was put to the owner rather than picked silently.
+
+Chosen: explicit. A Korean translation had already been written for this exact string, and a
+usage section that simply empties gives the user no way to tell "you have no limits" from
+"we could not ask". `docs/PLAN-USAGE.md` was rewritten to match, with the superseded wording
+preserved rather than deleted.
+
+### Two ordering rules that are load-bearing, both from Tier 3 review
+- **Clear the flag BEFORE calling `fetchClaudeUsage`.** The missing-`GM_xmlhttpRequest` path
+  invokes its callback **synchronously**; clearing afterwards would erase the failure the
+  callback had just recorded.
+- **Each request carries a generation token** (`_usageReqSeq`). The stale-response guard inside
+  `fetchClaudeUsage` keys on the *org uuid*, which cannot separate two overlapping requests for
+  the **same** org — and `ciInvalidate()` zeroes the usage cooldown while a request may still be
+  pending, which makes that reachable. Without the token a slow failure landing after a fast
+  success erases good data. This also fixes the **pre-existing** half of the same race, which
+  applied to `_usageData` before this change existed.
+- **Setting a flag is not repainting.** `orbPopulateNavigate` early-returns on an unchanged
+  question-list fingerprint *before* it reaches `maybeRefreshUsage`, so on a settled page nothing
+  would redraw and a retry would keep showing "unavailable" while a request was genuinely in
+  flight. The fix repaints at fetch start — but **only when a placeholder is already up**:
+  replacing real bars with "loading…" on every five-minute poll would be a worse lie than the
+  one this change exists to fix.
+
+### Alternatives considered
+- **Silent (render nothing on failure).** The spec's original answer, and defensible: usage is
+  informational. Rejected by the owner. It would also have meant deleting `usageUnavailable`
+  from both tables, discarding an existing Korean translation.
+- **Keep the bars and overlay a warning.** More informative, but the data is a quota that may be
+  minutes stale, and presenting stale numbers as current is the same class of lie.
+- **Leave it and document it.** What the previous session did. Correct at the time — it is a code
+  change on a network path, so it needed a version bump and a live confirm — but it left a
+  user-visible defect shipped.
+
+### Verification
+`probes/check-usage-state.js`, 8 checks, wired into CI (ubuntu+chromium). It drives the real UI
+by opening the Navigate panel and reading the DOM — no instrumentation hook.
+
+**Every claim was mutation-tested against a build with that specific fix removed**, because a
+check that cannot fail is not a gate:
+
+| Build | Result |
+|---|---|
+| Pre-fix | 6 of 8 fail |
+| Fix minus generation token | U8 fails — `bars=0`, late failure erased a newer success |
+| Fix minus repaint | **all pass — this fix is NOT gated** |
+| Fixed | all 8 pass |
+
+**The repaint is retained on a reading, not a test, and that is stated rather than glossed.**
+`orbPopulateNavigate`'s early return at `:5800` demonstrably precedes its `maybeRefreshUsage()`
+call, so the defect is real; but no check fails without the fix. A draft of this record claimed
+U7 gated it, on the strength of a run where the no-repaint mutant did fail U7 — U7 was racy at
+the time and its race produced the *same symptom as the mutant*. With the race fixed, the mutant
+passes. Both results are kept, per the rule that a contradiction between two measurements is
+itself the finding.
+
+Suite 1120/1120 both engines. **Still owed: a live confirm (DEC-031)** — no mock reproduces a
+real 5xx from claude.ai, and the standing rule is that a green suite is a context-scoped finding.
+
+### What this cost, recorded because it is the reusable part
+The probe's first two drafts were both **fixed sleeps sampling a transient state** — the panel
+re-renders on MutationObserver cycles, so the same scenario passed one run and failed the next
+with nothing changed. Replaced by a stable-read loop that requires two agreeing consecutive
+reads, with an explicit `stable` marker every assertion must satisfy. Then U8's first version
+route-changed while initialisation was still running and issued **no second request at all**,
+reporting `requests=0` — which reads as a failure of the code under test rather than of the
+scenario. Both are the same lesson the project already has: *a single run is not a measurement*,
+and **check that the fixture did the thing before believing what it says about the code.**

@@ -62,29 +62,32 @@ const dead=keys.filter(k=>!new RegExp(\"i18n\\\\('\"+k+\"'\").test(s));
 console.log(dead.length? 'DEAD: '+dead.join(', ') : 'every key is called');"
 ```
 
-**Current state of that audit (2026-08-02), so a hit is not mistaken for a regression:**
-14 keys have no call site — and **a dead key is not automatically a defect.** Nine are the
-`/Commands` section, deliberately English. Three (`questionPrefix`, `noQuestions`,
-`noBookmarksToExport`) render English in Korean mode and are a **review list, not a fix list**
-(ROADMAP 0c) — the owner reviewed Korean mode live and is satisfied with it, so
-each is a per-string judgement about whether Korean helps that label.
-**Do not mass-translate to drive this count to zero.** The audit exists to make the choice
-visible, not to make the number zero.
+**Current state of that audit (updated 2026-08-05 for v12.8), so a hit is not mistaken for a
+regression:** **13** keys have no call site — and **a dead key is not automatically a defect.**
+- **Nine** — the `/Commands` section, deliberately English (DEC-042).
+- **Three** — `questionPrefix`, `noQuestions`, `noBookmarksToExport`. These render English in
+  Korean mode and are a **review list, not a fix list** (ROADMAP 0c): the owner reviewed Korean
+  mode live and is satisfied with it, so each is a per-string judgement about whether Korean
+  helps that label. **Do not mass-translate to drive this count to zero.** The audit exists to
+  make the choice visible, not to make the number zero.
+- **One** — `summaryLanguageNote`. Not a preference: it has an EMPTY English value and a
+  Korean-only disclaimer, so it cannot "stay English". It is a notice that has never rendered
+  while `docs/SETTINGS.md` says it does, and v12.7 made its text substantially untrue. Needs an
+  owner decision, not wiring (ROADMAP 0c).
 
-**This 9 + 3 + 2 baseline is the ONE tally the project keeps, deliberately** (DEC-043). It is
+**Was 9 + 3 + 2 = 14 until v12.8.** `usageUnavailable` was the fourteenth and is now **wired**:
+a failed usage fetch used to leave the panel reading "Plan usage loading…" forever, in both
+languages, and now renders the unavailable message (DEC-044). **A dead key is not automatically
+a preference either** — check whether the surface has a working behaviour without it before
+filing it as one. That check is what turned this key from a translation question into a bug.
+
+**This 9 + 3 + 1 baseline is the ONE tally the project keeps, deliberately** (DEC-043). It is
 load-bearing — it is what lets a later run tell a regression from the known state — and every
 member of every group is named beside it, so it can be checked rather than merely believed.
 **Do not add coverage tallies elsewhere.** Every other one written during PR #72 ("21 of 31"
 toasts, "9 vs 5" tooltips, "13 of 14" keys) was wrong, usually twice; docs name surfaces
 instead. If you re-run this audit, update the named membership here — do **not** transcribe
 counts into `docs/SETTINGS.md`, `README.md` or `HANDOFF.md`.
-**Two of the fourteen are a different animal — missing BEHAVIOUR, not translation preferences.**
-`summaryLanguageNote` has an EMPTY English value and a Korean-only disclaimer, so it cannot "stay
-English" — it is a notice that has never rendered while `docs/SETTINGS.md` says it does, and
-v12.7 made its text substantially untrue. `usageUnavailable` never renders in either language: a
-failed usage fetch leaves the panel showing "Plan usage loading…" forever. **A dead key is not
-automatically a preference either** — check whether the surface has a working behaviour without
-it before filing it as one (ROADMAP 0c).
 
 **Never assemble a translated sentence by concatenation.** Word ORDER is part of what a
 translation changes. `'resets ' + day + ' ' + time + ' ' + ampm` cannot be translated into Korean

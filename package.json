@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "test": "node tests/test-all-platforms.js",
-    "test:probes": "node probes/check-tokenizer.js && node probes/check-subsegments.js",
+    "test:probes": "node probes/check-tokenizer.js && node probes/check-subsegments.js && node probes/check-usage-state.js",
     "test:screenshots": "node tests/test-all-platforms.js --screenshots"
   },
   "devDependencies": {
