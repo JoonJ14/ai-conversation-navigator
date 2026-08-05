@@ -283,8 +283,14 @@ of tallying them — a named surface is checkable in one grep; a tally can only 
 stale one reads as authoritative while being wrong. What the docs keep instead are the *audit
 traps*, which is what actually cost the time: a `title:` key in a config or data object is not a
 DOM tooltip, and a length-capped regex corrupts the **denominator** rather than misclassifying.
-One tally is kept deliberately — `agent_docs/conventions.md`'s 9+3+2 dead-key baseline, because
-there the number is load-bearing and every member is named beside it. **DEC-043.**
+One tally is kept deliberately — the dead-key baseline in `agent_docs/conventions.md`, because
+there the number is load-bearing and every member is named beside it. **The count itself is
+deliberately not repeated here**; read it there. **DEC-043.**
+
+> That sentence originally transcribed the baseline as "9+3+2" — breaking, inside this very
+> paragraph, the rule the paragraph exists to state (GitHub Codex, PR #73). And it had **already
+> gone stale**: v12.8 wired `usageUnavailable`, making it 9+3+1. The predicted failure mode
+> arrived in under two days, in the document that predicted it.
 
 **Process lesson, also DEC-043.** By round 2 the DEC-029 provenance condition ("most findings are
 the loop's own") was already met, and the loop ran twice more — because "is this converging?" was
