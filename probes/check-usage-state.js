@@ -112,8 +112,14 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
                 var step = script[n];
                 if (step.mode === 'hang') return;
                 setTimeout(function () {
-                    if (step.mode === 'ok' && opts.onload) opts.onload({ status: 200, responseText: JSON.stringify(USAGE) });
-                    else if (opts.onerror) opts.onerror({ status: 500 });
+                    if (step.mode === 'ok' && opts.onload) {
+                        // A step may carry its own utilization so two successful responses
+                        // are TELLABLE APART in the DOM — without that, a check cannot say
+                        // which one landed (U10).
+                        var body = JSON.parse(JSON.stringify(USAGE));
+                        if (typeof step.util === 'number') body.five_hour.utilization = step.util;
+                        opts.onload({ status: 200, responseText: JSON.stringify(body) });
+                    } else if (opts.onerror) opts.onerror({ status: 500 });
                 }, step.delay);
                 return;
             }
@@ -160,6 +166,11 @@ const READ_STATE = `(function () {
         bars:    sec.querySelectorAll('.acn-usage-bar').length,
         titles:  sec.querySelectorAll('.acn-usage-title').length,
         empty:   sec.children.length === 0,
+        // Rendered session percentage, so a check can identify WHICH response is on screen.
+        // NOTE the double backslash: READ_STATE is a template literal, and inside one a
+        // lone \d collapses to a literal 'd' — the regex silently became /(d+)% used/ and
+        // matched nothing. Same escaping family as the backtick trap above.
+        pct:     (sec.textContent.match(/(\\d+)% used/) || [])[1] || null,
         // Text regardless of the attribute, so a failure message stays informative on
         // a build that predates data-acn-usage-state (the mutation test runs one).
         anyText: sec.children.length ? sec.children[0].textContent : null,
@@ -352,6 +363,45 @@ async function openNavigate(page) {
         return out;
     }
 
+
+    // U10 — the multi-org trap. A first success lands and renders bars (stand-in for org A).
+    // Then the route changes and TWO more requests overlap: #1 slow SUCCESS carrying
+    // DIFFERENT numbers, #2 hangs. #1 is superseded, but nothing newer has produced data,
+    // so its numbers must replace the stale ones. A guard that keys "newer data landed" off
+    // _usageData truthiness drops #1 — because the OLD org's bars are still sitting there —
+    // and the panel keeps showing the wrong quota (Codex, PR #73).
+    async function staleOrgScenario() {
+        const context = await browser.newContext();
+        const page = await context.newPage();
+        const targetURL = `https://claude.ai/chat/${CONV_UUID}`;
+        const otherURL  = `https://claude.ai/chat/88888888-8888-4888-8888-888888888888`;
+        const html = buildPage(raw, 'ok', 'en', [
+            { mode: 'ok', delay: 10, util: 42 },     // #0 — lands, renders 42%
+            { mode: 'ok', delay: 1500, util: 77 },   // #1 — slow, superseded, carries 77%
+            { mode: 'hang' },                        // #2 — supersedes #1 and never answers
+        ]);
+        await page.route('**/*', (route) => {
+            const u = route.request().url();
+            if (u === targetURL || u === targetURL + '/' || u === otherURL) {
+                route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
+            } else route.abort();
+        });
+        await page.goto(targetURL, { waitUntil: 'domcontentloaded', timeout: 120000 });
+        await openNavigate(page);
+        // Wait for #0's bars to actually be on screen before disturbing anything.
+        await page.waitForFunction("/42% used/.test((document.getElementById('acn-usage-section')||{}).textContent||'')",
+            null, { timeout: 30000 });
+        await routeChangeAndForceScan(page, otherURL);
+        await page.waitForFunction('window.__acnUsageRequests >= 2', null, { timeout: 30000 });
+        await routeChangeAndForceScan(page, targetURL);
+        await page.waitForFunction('window.__acnUsageRequests >= 3', null, { timeout: 30000 });
+        await page.waitForTimeout(2200);   // past #1's landing time
+        const out = await readStable(page, 15000, 250);
+        out.requests = await page.evaluate('window.__acnUsageRequests');
+        await context.close();
+        return out;
+    }
+
     console.log('check-usage-state — engine=' + engine + ', script=' + path.basename(scriptPath));
 
     // Every assertion below is conjoined with sound(): a read that never settled, or a
@@ -424,6 +474,11 @@ async function openNavigate(page) {
     check('U9', 'a superseded late SUCCESS is used when nothing newer produced data',
         sound(u9) && u9.state === null && u9.bars > 0,
         'state=' + u9.state + ' bars=' + u9.bars + ' requests=' + u9.requests + ' ' + why(u9));
+
+    const u10 = await staleOrgScenario();
+    check('U10', 'a superseded SUCCESS replaces stale data from an older generation',
+        sound(u10) && u10.pct === '77',
+        'pct=' + u10.pct + ' bars=' + u10.bars + ' requests=' + u10.requests + ' ' + why(u10) + ' html=' + JSON.stringify(u10.html));
 
     await browser.close();
     console.log(failures ? '\n' + failures + ' check(s) FAILED' : '\nall checks passed');

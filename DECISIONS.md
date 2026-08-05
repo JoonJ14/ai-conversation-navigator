@@ -2260,7 +2260,13 @@ preserved rather than deleted.
   a late response's **emptiness** is stale and its **content** is not — usage is org-scoped and
   all these requests are same-org. So a superseded EMPTY response is dropped, a superseded
   response CARRYING DATA is used when nothing newer produced any, and dropped when it did.
-  Both directions are gated: U8 fails without the token, U9 fails with the too-aggressive form.
+  **"Newer data already landed" is measured by GENERATION (`_usageDataSeq`), not by whether
+  `_usageData` is non-empty** — a third correction, from the same review. `ciInvalidate()`
+  zeroes the cooldown but leaves `_usageData` populated, so for a multi-org user the surviving
+  value can be a PREVIOUS org's bars; keying off truthiness discarded a valid new-org response
+  and left the wrong org's quota on screen.
+  **All three wrong forms are gated, each by a distinct check:** no guard fails U8, the
+  drop-everything form fails U9, the truthiness form fails U10.
 - **Setting a flag is not repainting.** `orbPopulateNavigate` early-returns on an unchanged
   question-list fingerprint *before* it reaches `maybeRefreshUsage`, so on a settled page nothing
   would redraw and a retry would keep showing "unavailable" while a request was genuinely in

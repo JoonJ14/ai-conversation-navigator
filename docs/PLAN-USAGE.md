@@ -518,7 +518,10 @@ Two ordering rules that are load-bearing, not incidental:
   stale, but its **content** never is (usage is org-scoped, and every request here is for the
   same org), so: a superseded EMPTY response is dropped — that is what stops a slow failure
   erasing a newer success — while a superseded response that CARRIES DATA is used when nothing
-  newer has produced any, and dropped when newer data already landed.
+  newer has produced any, and dropped when newer data already landed. **"Newer data landed" is
+  tracked by generation (`_usageDataSeq`), not by `_usageData` being non-empty:**
+  `ciInvalidate()` leaves the previous value in place, so for a multi-org user truthiness can
+  be satisfied by another org's stale bars.
 
 Gated by `probes/check-usage-state.js` (8 checks, in CI on ubuntu+chromium). It drives the real
 UI rather than a hook, and each fix was mutation-tested against a build with that fix removed.

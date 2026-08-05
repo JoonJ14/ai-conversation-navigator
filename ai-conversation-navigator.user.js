@@ -3678,6 +3678,14 @@
     // (Codex Tier 3). This counter makes the callback ignore any response that is not
     // the most recent request.
     var _usageReqSeq = 0;
+    // The generation that produced the usage data currently held in _usageData. The
+    // supersession rule needs to know "has a NEWER request already produced data?", and
+    // `_usageData` truthiness is NOT that fact: ciInvalidate() zeroes the cooldown but
+    // leaves _usageData populated, so for a multi-org user the surviving value can be a
+    // PREVIOUS org's bars. Keying off truthiness therefore discarded a valid new-org
+    // response and left the wrong org's quota on screen (Codex, PR #73). Compare
+    // generations instead of asking whether anything is there.
+    var _usageDataSeq = 0;
 
     // Extracts display text from a mounted DOM node, shared by the DOM scan and
     // the index's DOM-merge path.
@@ -5080,10 +5088,12 @@
             //     Discarding good quota to keep showing "unavailable" would be strictly
             //     worse, and it is reachable: switch chats while the first fetch is in
             //     flight, and the second one hangs or fails (Codex, PR #73).
-            //   - superseded and CARRIES DATA, but newer data already landed -> drop; the
-            //     newer answer wins.
-            if (seq !== _usageReqSeq && (!data || _usageData)) return;
+            //   - superseded and CARRIES DATA, but a NEWER request already produced data
+            //     -> drop; the newer answer wins. Measured by generation, not by whether
+            //     _usageData is non-empty — see _usageDataSeq.
+            if (seq !== _usageReqSeq && (!data || _usageDataSeq > seq)) return;
             _usageData = data;
+            if (data) _usageDataSeq = seq;
             // Every FAILURE in fetchClaudeUsage funnels through callback(null): no
             // GM_xmlhttpRequest, transport error, unparseable body, no org resolved,
             // and parseUsageFromJSON finding no recognised tiers.
