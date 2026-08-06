@@ -2108,3 +2108,215 @@ translation changes, and concatenation hard-codes it.
   very change — leaving it would have reproduced the defect this decision exists to fix.
 - **A typo the wiring exposed:** the footer read 더 많은 도구가 **곳** 추가됩니다 — 곳 is "place";
   it should be 곧, "soon". It had been in the table, unrendered, since the string was written.
+
+---
+
+## DEC-043: Documentation Names Its Members Instead of Counting Them — and a Review Loop Needs a Pre-Committed Stopping Criterion (PR #72)
+**Date:** 2026-08-03 | **Stage:** post-v12.7a, docs only
+
+### Decision
+Coverage claims in project documentation **name the specific surfaces involved** rather than
+stating a ratio. Tallies are permitted in exactly one place — `agent_docs/conventions.md`'s dead-key
+audit baseline — because there the number is load-bearing (it lets a later run distinguish a
+regression from the known state) and every member of every group is named alongside it.
+
+Separately: when a review loop is run to convergence, the criterion for stopping is
+**written down before the round runs**, not judged after seeing the findings.
+
+### Context — ten findings, and a perfectly clean split
+PR #72 began as a small reframing: the owner had reviewed Korean mode live and accepted partial
+English, so ROADMAP 0c had to stop reading as a defect list. Four GitHub Codex rounds produced ten
+findings. The split by *kind of claim* was total:
+
+| Claim type | Outcome |
+|---|---|
+| **Qualitative** — "a dead key is a question, not a defect"; "these two are missing behaviour, not preferences"; "two docs assert incompatible failure contracts" | **Every one survived** four adversarial rounds untouched |
+| **Quantified** — "13 of 14" keys, "21 of 31" toasts, "9 vs 5" tooltips, "~5 questionPrefix sites", "everything else applies after a refresh" | **Every one was wrong**, most of them twice |
+
+By provenance, all ten were errors introduced *by this PR*; none existed on `main`. That is normally
+the signal to stop immediately (DEC-029). The reason it was not read that way for two further rounds
+is recorded below.
+
+### Why the tallies failed — three distinct mechanisms, none of them carelessness
+1. **A `title:` key is not a tooltip.** The tooltip audit matched `\btitle:\s*` and swept in the
+   `PLATFORMS` registry's platform *display names*. Caught, corrected — and then the corrected line
+   made the **same error again** with the `TOOLS_EXPORT` data objects, whose `title:` fields are
+   visible labels rendered via `textContent`. The second instance was written inside the sentence
+   documenting the first.
+2. **A length-capped regex corrupts the DENOMINATOR, not the numerator.** The toast count
+   ("21 of 31") capped each call site at 120 characters, so a multi-line conditional fell out of the
+   *population* entirely — classified as neither literal nor `i18n`. The total was wrong, which is
+   far harder to notice than a misclassification: the parts still looked self-consistent.
+3. **Arithmetic that double-counts a category.** "Thirteen of the fourteen unwired keys are a
+   per-string judgement" applied the owner's acceptance to all fourteen, then excluded two, without
+   lowering the total. The correct breakdown is 9 (`/Commands`) + 3 (preference) + 2 (missing
+   behaviour).
+
+### Why naming beats counting
+**A named surface can be checked against the code in one grep. A tally can only be re-derived.**
+And a stale tally is worse than no tally, because it reads as authoritative while being wrong —
+it is precisely the shape that survives review, since a reviewer must reconstruct the whole
+measurement to falsify it. Every number in this PR was also a future staleness bug: correct on the
+day it was written, wrong the next time anyone touched a string.
+
+This is the same family as the three v12.6 defects (see the statistic-over-the-wrong-population
+note in the v12.6 record) and the measurement-context rule in `CLAUDE.md`. The new part is the
+**remedy**: do not compute the statistic more carefully — stop putting it in the document.
+
+What the docs record instead is the **audit traps**, which are what actually cost the time: match
+only real DOM attributes when counting tooltips; beware a length cap silently shrinking the
+population; verify the parts sum to the total before trusting either.
+
+### The stopping criterion — and why it was needed
+DEC-029 says end a loop on finding *provenance*: once most findings are the loop's own fixes, stop.
+By round 2 that condition was already met and the loop still ran twice more. The failure was that
+"is this still converging?" was being judged **after** each round, against evidence that always
+admitted an optimistic reading ("yes, but these are smaller than last time").
+
+The fix was to write the criterion down first: *one more round; if it returns any new finding in
+prose I wrote, stop regardless of how small it is.* Round 4 returned three, including mechanism (1)
+above — and the pre-commitment made that unarguable, where a post-hoc judgement would have found
+"but they're only P3 recounts" available again.
+
+**Generalise:** a stopping rule evaluated after seeing the results is not a stopping rule. This
+matches the project's existing preference for pre-committed criteria and for discrete metrics over
+continuous ones near a threshold.
+
+### Alternatives considered
+- **Correct the counts a fifth time.** Rejected on evidence: four rounds, four different tallies,
+  every one wrong at least once. The demonstrated failure rate was ~100%, and each fix was itself a
+  new hand-written number with the same exposure.
+- **Keep the counts but add "verified <date>" stamps.** Rejected — the numbers were already dated.
+  Dating a wrong number does not make it right, and dating a right number does not stop it going
+  stale; it only shifts the reader's burden from "is this true?" to "is this current?", which they
+  cannot answer without recounting anyway.
+- **Drop the coverage section entirely.** Rejected — the qualitative content was the part that
+  survived review, and it is genuinely useful: a maintainer needs to know that `Clear all bookmarks`
+  and the bookmark tooltips are hardcoded. Only the arithmetic was load-free.
+
+### Also settled by this PR
+- **`usageUnavailable` is a BUG, not a translation preference** — a failed usage fetch left
+  the panel reading "Plan usage loading…" indefinitely, in both languages, because
+  `fetchClaudeUsage` hands `null` to `renderUsageBars` and its `!data` branch rendered
+  `planUsageLoading`. **The remedy was an owner decision**: `docs/PLAN-USAGE.md` specified rendering
+  nothing on failure, while the existence of the `usageUnavailable` string implied a message was
+  intended. The repo asserted *both*; this PR recorded the choice as open.
+  **Resolved in v12.8 — the owner chose explicit. See DEC-044.**
+- **`summaryLanguageNote` needs an owner decision, not wiring** — empty English value, Korean-only
+  disclaimer, never rendered, and v12.7 made its text substantially untrue.
+- **A dead key is not automatically a preference.** Check whether the surface behaves correctly
+  without it before filing it as one. Two of the fourteen did not.
+
+---
+
+## DEC-044: A Failed Usage Fetch Says So — Explicit Over Silent, and Two States That Looked Like One (v12.8)
+**Date:** 2026-08-05 | **Stage:** v12.8
+
+### Decision
+When the Claude usage request fails, the panel renders **`usageUnavailable`** ("Usage data
+unavailable" / "사용량 데이터를 불러올 수 없습니다"). It does not keep saying "loading", and it
+does not vanish silently. The owner chose **explicit** over silent.
+
+### Context — the bug was a conflated null, not a missing string
+`renderUsageBars` received `null` for two unrelated reasons — *no fetch has finished yet* and
+*a fetch finished and produced nothing* — and rendered `planUsageLoading` for both. The first
+resolves on its own; the second never does. So a failed usage request left the panel reading
+**"Plan usage loading…" forever, in both languages**, telling the user to keep waiting for
+something that was never coming.
+
+`usageUnavailable` had existed in both string tables, with a Korean translation someone had
+deliberately written, and **had no call site**. The v12.7a audit found it and filed it with the
+other dead keys as a translation preference. That classification was wrong, and the correction is
+the transferable part: **a preference presupposes something rendering to have a preference
+about.** Nothing rendered here in either language, so there was no English surface for the owner
+to prefer — it was a missing failure state wearing a translation costume.
+
+### Why explicit, and why it needed the owner
+The repo asserted **both** answers. `docs/PLAN-USAGE.md` §"Fetch fails" specified rendering
+nothing at all ("no error messages; usage display is informational, not critical"), while the
+existence of `usageUnavailable` in both tables implied someone intended a message. Those are
+mutually exclusive, so an implementer could satisfy neither doc. The **bug** held under either
+design — a panel must not report an in-flight fetch that has already failed — but the **remedy**
+was a product call, so it was put to the owner rather than picked silently.
+
+Chosen: explicit. A Korean translation had already been written for this exact string, and a
+usage section that simply empties gives the user no way to tell "you have no limits" from
+"we could not ask". `docs/PLAN-USAGE.md` was rewritten to match, with the superseded wording
+preserved rather than deleted.
+
+### Two ordering rules that are load-bearing, both from Tier 3 review
+- **Clear the flag BEFORE calling `fetchClaudeUsage`.** The missing-`GM_xmlhttpRequest` path
+  invokes its callback **synchronously**; clearing afterwards would erase the failure the
+  callback had just recorded.
+- **Each request carries a generation token** (`_usageReqSeq`), and supersession is
+  **ASYMMETRIC**. The stale-response guard inside `fetchClaudeUsage` keys on the *org uuid*,
+  which cannot separate two overlapping requests for the **same** org — and `ciInvalidate()`
+  zeroes the usage cooldown while a request may still be pending, which makes that reachable.
+  Without the token a slow failure landing after a fast success erases good data; that also
+  fixes the **pre-existing** half of the race, which applied to `_usageData` before this change.
+  **But dropping every superseded response was too aggressive** (Codex, PR #73): switch chats
+  while the first fetch is in flight and let the second one hang or fail, and a perfectly good
+  older success was discarded while the panel showed "unavailable". The rule that holds is that
+  a late response's **emptiness** is stale and its **content** is not — usage is org-scoped and
+  all these requests are same-org. So a superseded EMPTY response is dropped, a superseded
+  response CARRYING DATA is used when nothing newer produced any, and dropped when it did.
+  **"Newer data already landed" is measured by GENERATION (`_usageDataSeq`), not by whether
+  `_usageData` is non-empty** — a third correction, from the same review. `ciInvalidate()`
+  zeroes the cooldown but leaves `_usageData` populated, so for a multi-org user the surviving
+  value can be a PREVIOUS org's bars; keying off truthiness discarded a valid new-org response
+  and left the wrong org's quota on screen.
+  **All three wrong forms are gated, each by a distinct check:** no guard fails U8, the
+  drop-everything form fails U9, the truthiness form fails U10.
+- **Setting a flag is not repainting.** `orbPopulateNavigate` early-returns on an unchanged
+  question-list fingerprint *before* it reaches `maybeRefreshUsage`, so on a settled page nothing
+  would redraw and a retry would keep showing "unavailable" while a request was genuinely in
+  flight. The fix repaints at fetch start — but **only when a placeholder is already up**:
+  replacing real bars with "loading…" on every five-minute poll would be a worse lie than the
+  one this change exists to fix.
+
+### Alternatives considered
+- **Silent (render nothing on failure).** The spec's original answer, and defensible: usage is
+  informational. Rejected by the owner. It would also have meant deleting `usageUnavailable`
+  from both tables, discarding an existing Korean translation.
+- **Keep the bars and overlay a warning.** More informative, but the data is a quota that may be
+  minutes stale, and presenting stale numbers as current is the same class of lie.
+- **Leave it and document it.** What the previous session did. Correct at the time — it is a code
+  change on a network path, so it needed a version bump and a live confirm — but it left a
+  user-visible defect shipped.
+
+### Verification
+`probes/check-usage-state.js`, 8 checks, wired into CI (ubuntu+chromium). It drives the real UI
+by opening the Navigate panel and reading the DOM — no instrumentation hook.
+
+**Every claim was mutation-tested against a build with that specific fix removed**, because a
+check that cannot fail is not a gate:
+
+| Build | Result |
+|---|---|
+| **Pre-fix** | **6 of 10 fail** |
+| **No supersession guard** | **U8** — a late failure erases a newer success |
+| **Drop every superseded response** | **U9** — a late success is discarded |
+| **`_usageData` truthiness** | **U10** — a stale org's bars block a valid newer response |
+| **Minus repaint** | **all pass — NOT gated** |
+| **Fixed** | all 10 pass |
+
+**The repaint is retained on a reading, not a test, and that is stated rather than glossed.**
+`orbPopulateNavigate`'s early return at `:5800` demonstrably precedes its `maybeRefreshUsage()`
+call, so the defect is real; but no check fails without the fix. A draft of this record claimed
+U7 gated it, on the strength of a run where the no-repaint mutant did fail U7 — U7 was racy at
+the time and its race produced the *same symptom as the mutant*. With the race fixed, the mutant
+passes. Both results are kept, per the rule that a contradiction between two measurements is
+itself the finding.
+
+Suite 1120/1120 both engines. **Still owed: a live confirm (DEC-031)** — no mock reproduces a
+real 5xx from claude.ai, and the standing rule is that a green suite is a context-scoped finding.
+
+### What this cost, recorded because it is the reusable part
+The probe's first two drafts were both **fixed sleeps sampling a transient state** — the panel
+re-renders on MutationObserver cycles, so the same scenario passed one run and failed the next
+with nothing changed. Replaced by a stable-read loop that requires two agreeing consecutive
+reads, with an explicit `stable` marker every assertion must satisfy. Then U8's first version
+route-changed while initialisation was still running and issued **no second request at all**,
+reporting `requests=0` — which reads as a failure of the code under test rather than of the
+scenario. Both are the same lesson the project already has: *a single run is not a measurement*,
+and **check that the fixture did the thing before believing what it says about the code.**

@@ -1,315 +1,292 @@
-# Session Handoff — 2026-08-02 (v12.7: the Summary reads Korean — tokenizer, then the panels)
+# Session Handoff — 2026-08-05 (v12.8: the usage panel stopped lying, and the session record caught up)
 
-**Scope:** two arcs, the second discovered by live-testing the first. (1) `_sumTokenize` stripped
-`[^a-z0-9\s]`, so a conversation written in **Korean** produced zero tokens and every
-content-derived Summary feature was silently empty — for the product's only translated language.
-(2) The live check then found the **Tools and Plan usage panels never called `i18n()` at all**:
-thirteen Korean strings existed in the table and none was ever read.
-**Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-08-01_v12.5-v12.6-map.md`.
+**Scope:** two arcs, the first of which produced the second. (1) A state audit found that the
+previous `/baton-handoff` had run **before PR #72 existed**, so that entire arc had no session
+record and four handoff claims had gone stale. (2) Closing that gap surfaced `usageUnavailable`
+as a live, user-visible bug — a failed Claude usage fetch left the panel reading "Plan usage
+loading…" **forever** — which shipped as **v12.8**.
+
+**Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-08-02_v12.7-korean-tokenizer.md`
+(v12.7 tokenizer, v12.7a panel i18n, and the PR #72 docs reframing in its §B.7/§B.8 — read it
+for any tokenizer or i18n detail this doc summarises).
 
 **Status at close:**
-- **v12.7 — MERGED** (PR #70 → `06a079f`) and **LIVE-CONFIRMED** by the owner the same day.
-  Pure-ASCII English byte-identical at 32/32 map fingerprints (accented English changes by
-  design — that is the fix); Korean boundary recovery 12/32 → 28/32; suite green both engines
-  with the repo's first non-English fixture.
-- **v12.7a — PR #71**, CI 9/9, Codex clean, **authorized to merge by the owner**.
-- **The live check settled the one open question**: the owner could not find the particle
-  artefact §G.1 asked about (세션이 vs 세션), so **no display-only normalizer is wanted**.
+- **PR #73 — OPEN, CI green, Codex clean, NOT merged.** The owner merges after reading this.
+  Head `5dbce77`. Contains both arcs: the session record and the v12.8 fix.
+- **v12.8 shipped in that PR** — `ACN_VERSION` and `@version` both bumped from 12.7.
+- **Everything before it is merged:** #70 (`06a079f`, v12.7), #71 (`980aa68`, v12.7a),
+  #72 (`fac7d50`, docs reframing).
+
+> **The one thing owed: a LIVE CONFIRM of v12.8 (DEC-031).** No mock reproduces a real 5xx from
+> claude.ai, and the standing rule is that a green suite is a context-scoped finding. **How to
+> check:** open Claude with the Navigate panel showing Plan usage, break the usage request (log
+> out in another tab, or block `claude.ai/api/organizations/*/usage` in devtools), reopen the
+> panel. Expect **"Usage data unavailable"** — not a permanent "loading…".
 
 ---
 
 ## A. State in one paragraph
 
-Korean is the only translation this product ships (`I18N.ko`, added for one specific user).
-That user had a fully translated interface wrapped around a Summary that could not read a
-single word of their conversation: topics empty, key points empty, dedup inert, and both
-levels of the conversation map finding nothing. The character class was the known half
-(ROADMAP 0a). The half nobody had noticed was `w.length > 2` — an English rule, since
-2-letter English words are function words, while Korean's commonest **content** words are
-exactly two syllables (인증, 세션, 토큰, 권한). Fixing only the character class still threw
-those away, 10 of 10. Both are fixed; five candidate designs were built and scored, and the
-two more elaborate ones were built and measured. **The rejection of particle normalization
-did NOT survive review** — the comparison that produced it was invalid (see §1b) — so v2 ships
-on grounds independent of the score, and the live check decides.
+The Korean arc is closed and merged; what remained were its leftovers. PR #72 had reframed the
+unwired i18n keys as owner preference, and in doing so proved that **two of them were not
+preferences at all** — a preference presupposes something rendering to have a preference about,
+and for those two nothing rendered in either language. One of the two, `usageUnavailable`, was a
+shipped bug: `renderUsageBars` received `null` for two unrelated reasons (*no fetch has finished
+yet* / *a fetch finished and produced nothing*) and rendered the loading placeholder for both.
+The first resolves on its own; the second never does. That is now fixed, along with two further
+defects Tier 3 review found **in the fix** — an out-of-order response race and a missing repaint.
+The other leftover, `summaryLanguageNote`, still needs an owner decision rather than work.
 
 ---
 
 ## B. What was accomplished
 
-### 1. The fix (2 lines of behaviour, in `_sumTokenize`)
+### 1. The session-record gap — found by auditing, not by being told
 
-Character class → `[^a-z0-9À-ɏ가-힣\s]` (ASCII + diacritic Latin +
-Hangul). Minimum token length → **2 when the token contains Hangul, 3 otherwise**.
+**What.** The previous `/baton-handoff` ran on branch `fix/tools-i18n`, *before* PR #72 was
+opened. So the whole PR #72 arc — four Codex rounds, ten findings, and a real bug discovery —
+existed only as scattered edits inside the documents it corrected. Added `§B.7` to the (now
+archived) handoff, **DEC-043**, and `reviews/review-2026-08-03-i18n-docs.md`.
 
-Plus two **redundant** copies of the English length rule removed from
-`_sumExtractTopicsFromText` and `_sumExtractTopics`. They re-tested `< 3` / `> 2` on words
-`_sumTokenize` had already filtered, so for English they were no-ops — and for Korean they
-discarded exactly the 2-syllable words the tokenizer had just correctly kept, so no
-2-syllable Korean noun could become a topic **at any frequency** (measured: a term appearing
-8 times, more often than any bigram in the same text, was still absent; present and ranked
-first once removed). Found while self-reviewing the first version of this change.
-**Its effect is narrower than it sounds, and the docs say so:** bigrams are weighted 2x and
-cover their own words, so they outrank unigrams in *both* languages. The removal makes a
-frequent short word eligible; it does not change the ranking rule.
+**Four stale claims fixed at the same time**, all found by checking rather than assuming:
 
-### 1b. Two Codex findings, both real, both about measuring the wrong thing
-
-**Normalization form.** Neither the DOM nor the API guarantees one, and **macOS emits NFD for
-Korean input** — the platform the target user may be on. In NFD the whitelist is defeated exactly
-as the ASCII-only class was (decomposed Korean is U+1100 Jamo, not the syllable block → zero
-tokens), and decomposed Latin is *corrupted* rather than dropped (`résumé` → `sume`). Fixed with
-`.normalize('NFC')` first in the pipeline; gated by T10/T11, which assert **equality with the NFC
-result** because a non-empty check would have passed the Latin corruption.
-
-**The variant sweep was not measuring the shipped pipeline.** The builder patched only
-`_sumTokenize` and left the downstream guards in place. Re-run with every variant carrying the
-shipped downstream: two rows moved (particle normalization improved), four identical, **ranking
-unchanged**. The finding was material — it improved the *rejected* option, the direction that
-could have overturned the decision. **It did overturn it one round later**, once the third
-defect in the same comparison (per-language ground truth) was fixed — see §1c.
-
-### 1c. Codex round 3 — the finding that overturned a conclusion
-
-**The payload's ground truth was language-dependent.** Topic-block lengths were drawn from the
-same LCG as the text, and `koSentence` consumes extra draws (connectives, particle agreement),
-so Korean got **9 boundaries in different places** where English had 8. Every cross-language
-statement in the first draft of this arc was therefore meaningless, and — worse — the *variant
-ranking* was computed against it.
-
-Fixed by deriving the schedule from a throwaway ENGLISH render in every language
-(`computeSchedule`), which makes the ground truth language-independent **without changing the
-English payload by one byte** — verified byte-identical at all four knob settings, and guarded
-by `assertEnglishScheduleUnchanged()` at require time against a recorded prior measurement.
-
-**Re-run, the ranking reversed.** Particle normalization now leads on recall (31/32 vs 28/32).
-The rejection recorded in the first draft is retracted; v2 still ships, on grounds that do not
-depend on the score. See §2.
-
-All three Codex findings share one shape: **the thing measured was not the thing shipped** —
-once in the input's encoding, once in the build under test, once in the yardstick itself.
-
-### 1d. The Tier 3 round — two CRITICALs that thirteen Codex rounds did not find
-
-The five opus lenses plus a focused verifier delivered **~90 minutes after spawn**, long after
-I had closed the round, opened the PR and run twelve Codex rounds. **I had already written
-"Tier 3 delivered nothing" into the review artifact, `active.conf` and project memory. That was
-wrong and is corrected in all three** — the lesson is mine: I set a 35-minute deadline, treated
-silence at it as a result, and published the absence. *"No answer yet" is not "no answer."*
-
-What the latency cost is the point:
-
-- **The Korean CI fixture could not distinguish the shipped tokenizer from the variant this
-  release rejected.** Built and measured: the widened class with the filter reverted to
-  `w.length > 2` — `v1-charclass` — passes the entry **31/31**.
-- **The two downstream re-check removals were ungated by every gate in the repo.** A mutant
-  restoring both passes 31/31 *and* renders a byte-identical topic list; no probe caught it.
-
-Mechanism for both: all eight rendered topics are BIGRAMS of the fixture's constant base
-sentence, which repeats across 40 turns and outranks everything from the topic blocks. K1a gates
-exactly one property — *Hangul survives the character class*.
-
-**Fixed outside the fixture, deliberately.** Making a unigram outrank a 40×-repeated bigram
-would mean distorting the fixture until it stops resembling a conversation. The properties are
-gated where they can be: `check-tokenizer.js` T4 and a new T12 (which covers **both** topic
-extractors — Codex then caught that my first T12 only drove one of them), and **the probes now
-run in CI, which they never did**. Four mutants, all exit 1.
-
-Two more defects only this release made reachable: `cap()` upper-cased on `/\b\w/`, ASCII-only,
-so `naïve` → `NaïVe` in every label and the export; and the topic frequency maps were plain
-objects, so the word **`constructor`** made the sort comparator return `NaN` and left the whole
-topic list's order implementation-defined.
-
-### 2. Five variants, scored — and a conclusion that reversed twice
-
-`probes/build-tokenizer-variants.js` writes cumulative candidate builds; the map harness
-scores each against the payload generator's **known** topic changes, four payload shapes ×
-two engines (Firefox and Chromium agreed on every cell).
-
-| build | found (of 32) | spurious |
+| Surface | Claimed | Actual |
 |---|---|---|
-| shipped, ASCII-only | 12 — *and only from incidental filenames/turn numbers* | 36 |
-| + wider character class | 28 | 12 |
-| **+ script-aware length (SHIPPED)** | **28** | **11** |
-| + Korean stop-word list | 27 | 11 |
-| + particle normalization + stop list | 30 | 10 |
-| + particle normalization, no stop list | **31** | 13 |
+| handoff header | "v12.7a — PR #71 … authorized to merge" | both #71 and #72 merged — and this is the first thing a new session reads |
+| handoff §E | `main` @ `06a079f`, #71 open | `fac7d50`, nothing open |
+| handoff §F | `check-tokenizer.js` — 8 checks | **12** (verified by running it) |
+| handoff §J | "this PR is not authorized to merge" | referent no longer existed |
 
-> **RETRACTION.** An earlier version of this table reported particle normalization as
-> *worse*, and the rejection was written on that basis. **That comparison was invalid**: the
-> payload generator drew topic-block lengths from the same LCG as the text, and Korean
-> sentences consume a different number of draws, so Korean was scored against a **different
-> ground truth** than English — 9 boundaries in different places rather than 8 (GitHub Codex,
-> PR #70). With the schedule made language-independent and every variant re-run, the ordering
-> **reverses**: particle normalization leads on recall (31/32 vs 28/32).
->
-> **The rejection is NOT supported by measurement and is no longer claimed to be.** v2 ships
-> on grounds independent of the score — it keeps Korean in the segment-count regime English is
-> calibrated and live-confirmed in (~278 initial segments vs ~22–85), and it adds no
-> hand-maintained particle list that can merge distinct words. This metric has reversed three
-> times, once per measurement defect corrected. The live check is the arbiter (DEC-031).
+**Why it matters beyond the fix.** Two of those are the *first thing a cold session reads*. The
+lesson is in **DEC-043**'s stopping-rule half: the audit that catches this has to be run, not
+assumed, and running `/baton-handoff` at the wrong moment in a multi-PR session leaves a gap
+that nothing else closes.
 
-**The reversal is the part worth carrying.** At ONE configuration, particle (josa)
-normalization beat the shipped fix 9/9 to 8/9, and led on every available intuition:
-same-topic overlap 0.227 → **0.450**, six surface forms of one noun collapsing to one token,
-**10× fewer** initial segments, and visibly cleaner labels (세션 rather than 세션이). Across
-four shapes it lost. I had already written it up as the winner once before the matrix
-existed. **Mechanically:** segmentation reads the CONTRAST between adjacent blocks, not
-absolute cohesion — collapsing surface forms raises overlap everywhere, including between
-unrelated blocks, so valleys get shallower relative to the floor. It also moved Korean into a
-segment-count regime (~22 initial vs ~278) that **nothing in this project has been calibrated
-in**, while the shipped fix keeps Korean in the same regime as English, the one the owner has
-live-confirmed.
+### 2. v12.8 — the usage panel stopped lying (DEC-044)
 
-Note the first row: the broken build was **not** scoring zero. A realistic Korean technical
-conversation contains ASCII — filenames, turn numbers, code — so the old tokenizer drew 12
-boundaries out of that residue. Structure drawn from noise looks exactly like structure.
+**The bug.** `renderUsageBars` could not distinguish *no fetch has finished yet* from *a fetch
+finished and produced nothing*; both arrived as `null` and both rendered `planUsageLoading`. A
+failed usage request therefore left the panel claiming to still be loading **forever, in both
+languages**, while `usageUnavailable` sat in both string tables — with a Korean translation
+someone had deliberately written — and had **no call site**.
 
-### 3. Pure-ASCII English proven unchanged, rather than argued
+**Why it had been misfiled**, and the transferable part: the v12.7a audit filed it with the other
+dead keys as a translation preference. **A preference presupposes something rendering to have a
+preference about.** Nothing rendered here in either language, so there was no English surface to
+prefer. The rule now lives in `agent_docs/conventions.md`: *a dead key is not automatically a
+preference — check whether the surface behaves correctly without it before filing it as one.*
 
-32/32 map fingerprints byte-identical against an **explicit pre-change ref** (not HEAD), both
-engines, sizes 2/3/25/147 × vocab 1,4 × para 1,3. The reasoning that predicts it — a widened
-class can only preserve characters the old one dropped, and `>= 3` is the same set as `> 2`
-for non-Hangul — was checked rather than trusted, which is what caught the two redundant
-filters.
+**The remedy needed the owner, because the repo asserted both answers.** `docs/PLAN-USAGE.md`
+§"Fetch fails" specified rendering *nothing*; the existence of the string implied a *message*.
+Mutually exclusive, so an implementer could satisfy neither. **The owner chose EXPLICIT.** The
+spec was rewritten to match, with its superseded wording preserved rather than deleted.
 
-**Scope it precisely.** English *containing accents* does change: that is the `résumé` → `sum`
-fix, not a regression. And the fingerprint covers segmentation, labels and topics — global
-topics and key-point dedup are outside it, and rest on the construction argument plus the
-suite, not on the fingerprint.
+**How.** A single flag, `_usageFetchFailed`, separates the two states; the placeholder carries
+`data-acn-usage-state` so the state is assertable. Two ordering rules are load-bearing:
+- **Clear the flag BEFORE calling `fetchClaudeUsage`** — the missing-`GM_xmlhttpRequest` path
+  invokes its callback **synchronously**, so clearing afterwards would erase the failure the
+  callback had just recorded.
+- **Each request carries a generation token** (`_usageReqSeq`) — see §B.3.
 
-### 4. The English damage was worse than documented
+**Verification.** New probe `probes/check-usage-state.js`, 10 checks, wired into CI
+(ubuntu+chromium) and `npm run test:probes`. It drives the **real UI** by opening the Navigate
+panel — no instrumentation hook. Suite **1120/1120** both engines. **Live confirm still owed.**
 
-`café` → `caf` was on the roadmap. Measured on the real function: `naïve` and `déjà vu`
-**vanish entirely**, and `résumé` → **`sum`** — not truncation but substitution by an
-unrelated real English word that then competes for a topic slot. Corruption, not loss.
+**Path.** Commit `67f866d`; DEC-044; CHANGELOG 12.8.
 
-### 5. The suite's first non-English fixture
+### 3. Tier 3 found two more defects — in the fix, not in the original bug
 
-`Claude (Korean conversation + index)` mirrors `Claude (virtualized + index)` exactly, with
-`lang: 'ko'` on both the mock and the GM fixture. It asserts topics contain **Hangul** — not
-merely that topics exist, because the fixture also carries ASCII turn numbers and a tokenizer
-picking up only those would render a non-empty list of pure noise — and asserts sub-segment
-starts at `[0, 27, 55]`, the same positions from the same topic rule that S1b asserts in
-English. The **base** message text had to become Korean too; built on the English base text
-the fixture would still have handed the old tokenizer English tokens and could not have gone
-red.
+Both verified by reading the cited lines before acting:
 
----
+- **Overlapping SAME-ORG requests could complete out of order.** The stale-response guard inside
+  `fetchClaudeUsage` keys on the *org uuid*, which cannot separate two requests for the same org
+  — and `ciInvalidate()` zeroes the usage cooldown while a request may still be pending, which
+  makes it reachable. A slow failure landing after a fast success erased good data. Fixed with a
+  per-request generation token, **which also closes the pre-existing half of that race** (it
+  applied to `_usageData` before this change existed).
+  **That guard then needed two more corrections, both found in later review** (§B.6) — see the
+  final rule in §C. Each wrong form is now gated by its own check, which is the only reason the
+  third one was caught rather than shipped.
+- **Setting a flag is not repainting.** `orbPopulateNavigate` early-returns on an unchanged
+  question-list fingerprint (`:5800`) *before* it reaches `maybeRefreshUsage`, so on a settled
+  page nothing would redraw and a retry would keep showing "unavailable" while a request was
+  genuinely in flight. Now repaints at fetch start — **but only when a placeholder is already
+  up**, because replacing real bars with "loading…" on every five-minute poll would be a worse
+  lie than the one being fixed.
 
-### 6. v12.7a — the Tools and Plan usage panels never called i18n() (PR #71)
+**Alternatives considered and rejected** for the failure UI: *silent* (the spec's original
+answer — defensible, but rejected by the owner, and it would have meant deleting an existing
+Korean translation); *keep the bars and overlay a warning* (presents a possibly-stale quota as
+current — the same class of lie); *leave it documented* (what the previous session did — correct
+at the time, but it left a user-visible defect shipped).
 
-**What.** Found by the owner live-testing v12.7: with the language set to Korean, the Tools panel
-was still entirely English. **The cause was not missing translations — thirteen Korean strings
-existed in `I18N.ko` with ZERO call sites.** `buildToolsPanel` and `renderUsageBars` rendered
-English literals unconditionally. Only one word had to be authored: `exports` → **파일 내보내기**,
-supplied by the owner.
+### 4. The review pipeline, and what mutation testing actually showed
 
-**Why nothing caught it.** A dead i18n key is invisible from every angle at once: the table is
-correct in isolation, the render code is correct in isolation, the suite asserts on English
-fixtures and so cannot distinguish a translated panel from an untranslated one, and there is no
-type system to flag an unreferenced key. It took a native speaker opening the panel. The audit
-that finds them is now one command in `agent_docs/conventions.md`.
+`/review-pipeline`, all three tiers, `codex` backend → `reviews/review-2026-08-05-usage-state.md`.
+**10 findings, all verified at the cited line, 0 false positives.** Tier 3 alone produced 3 WARN
++ 2 NOTE, all fixed.
 
-**The part that was not a wiring fix.** `formatResetTime` built its output by concatenation —
-`'resets ' + day + ' ' + time + ' ' + ampm`. Korean puts the meridiem BEFORE the time (오후 3:05),
-so **no substitution of translated fragments can fix it**: concatenation hard-codes word order.
-The phrases became `{placeholder}` templates through `i18n(key, replacements)`, a capability the
-helper has had since it was written with exactly one prior user.
+**Every claim was mutation-tested** against a build with that specific fix removed, because a
+check that cannot fail is not a gate:
 
-**Verification.** English byte-identical, measured not argued: `formatResetTime` extracted from
-both builds and run over **58 cases** — every minute-bucket boundary and every weekday × hour
-reaching the date branch — **0 differences**. Suite 1120/1120 both engines. Key parity 78/78.
+| Build | Result |
+|---|---|
+| **Pre-fix** | **6 of 10 fail** |
+| **No supersession guard** | **U8** — a late failure erases a newer success |
+| **Drop every superseded response** | **U9** — a late success is discarded |
+| **`_usageData` truthiness** | **U10** — a stale org's bars block a valid newer response |
+| **Minus repaint** | **all pass — NOT gated** |
+| **Fixed** | all 10 pass |
 
-**Also fixed:** three `|| 'fallback'` branches that were unreachable AND disagreed with the table
-value that renders, so the code claimed a wording it could never produce; and a typo that had
-never been displayed (더 많은 도구가 **곳** 추가됩니다 — 곳 is "place", should be 곧 "soon").
+**Two honest scope notes, stated because the raw numbers would mislead:**
+- **U4 fails on the pre-fix build only because that build has no `data-acn-usage-state` attribute
+  at all**, not because it discriminates states there. Its power is against *future* over-eager
+  fixes. "6 checks failed" would otherwise read as six independent reproductions.
+- **Nothing gates the repaint fix, and I claimed twice that something did.** First U7 passed on
+  the no-repaint mutant (its route-change trigger rebuilt the whole panel, sidestepping the early
+  return). Then it appeared to fail on that mutant — but only because U7 was itself racy and its
+  race produced the same symptom as the mutant. With the race fixed, the mutant passes again. The
+  repaint is retained on **reading** `:5800`, not on a test. Both measurements are recorded.
 
-**Owner decisions recorded in DEC-042:** `/Commands` stays English ("slash command" reads better
-untranslated); and the mixed-language state between a language switch and a refresh is accepted —
-*"that is a limitation i am willing to accept since we already warn about it anyway."*
+### 5. The probe's own bugs — all one shape
+
+Three scenario defects, every one **a fixed sleep sampling a transient state** (the panel
+re-renders on MutationObserver cycles):
+
+1. First draft used a settle timeout — same scenario passed one run, failed the next, nothing
+   changed. Replaced with a stable-read loop requiring two agreeing consecutive reads.
+2. U8 route-changed mid-initialisation and issued **no second request at all** (`requests=0`) —
+   which reads as a failure of the code under test rather than of the scenario.
+3. U7 had the same defect and **escaped twelve consecutive clean runs**, surfacing only under
+   concurrent load (~1 in 13). Now waits for the retry request to be *issued*; verified with 10
+   consecutive loaded runs **after reproducing the failure first**.
+
+Also self-inflicted: a backtick inside a comment **inside a template literal** silently
+terminated the string — the exact failure `CLAUDE.md` already records from `map-instrument.js`.
+That is three strikes, and it is noted in the file.
+
+### 6. `/babysit-pr-cycle` — 5 rounds, 5 fixes, clean at the end
+
+Every round found something real; none was a restatement of a previous one. Recorded in order
+because the *shape* of the sequence is the lesson:
+
+1. **`HANDOFF §B.7` transcribed the dead-key baseline** as "9+3+2" inside the same paragraph
+   forbidding transcription — and the number was *already* stale, since v12.8 had wired
+   `usageUnavailable` one commit earlier. **The failure mode DEC-043 predicts arrived inside the
+   document that predicted it, in under two days.**
+2. **P1 — the retry probe closed the panel it needed open.** Claude's config has `spa: false`, so
+   the dispatched `popstate` did nothing, and `orbOpenPanel` toggles: the second click *closed*
+   the panel. The real trigger is the MutationObserver scan noticing the uuid change →
+   `ciInvalidate()` → `orbOnScanComplete()` → `orbPopulateNavigate()` **only if the panel is
+   open**. The click was disarming the mechanism the checks depend on; they passed only because
+   the ~500ms scan happened to fire first.
+3. **P2 — `pushState` alone schedules no scan.** The mock is static, so the retry depended on a
+   scan that happened to be pending. **Proved by experiment**: with a 3s settle and no forced
+   mutation, U7 times out; with one, it passes. Now forces an observer batch deliberately.
+4. **P2 — supersession is ASYMMETRIC and my guard was not.** Dropping every superseded response
+   discarded a valid older success while the panel showed "unavailable". Added **U9**.
+5. **P2 — "newer data landed" is a generation, not truthiness.** `ciInvalidate()` leaves
+   `_usageData` populated, so for a multi-org user another org's stale bars satisfied the test
+   and blocked a valid response. Added **U10** and `_usageDataSeq`.
+
+**The pattern worth carrying:** three of the five were in machinery I wrote to *verify* the fix,
+not in the fix. The v12.8 behaviour has been correct since `67f866d`. What kept needing
+correction was the concurrency guard around it and the probe around that — and in every case the
+thing passed while being wrong, which is why "check that the fixture did the thing" is in §D.
+
+Full record: `reviews/review-2026-08-05-usage-state.md`.
 
 ---
 
 ## C. Architecture snapshot
 
-Unchanged apart from `_sumTokenize` and the two redundant filters. `_sumWordOverlap`,
-`_sumCohesionCuts`, `_sumBuildSubSegments` and the merge loops are untouched — this arc
-changed what those functions *see*, never what they do. `probes/` gained
-`check-tokenizer.js` and `build-tokenizer-variants.js`; `perf-payload.js` gained
-`PAYLOAD_LANG` (default `en`, verified byte-identical to the pre-change generator).
+Unchanged from the prior handoff except for one addition: **the Plan usage panel now has an
+explicit three-state machine**, where it previously conflated two of them.
+
+| State | Condition | Rendered |
+|---|---|---|
+| Loading | `!_usageData && !_usageFetchFailed` | `planUsageLoading` + `data-acn-usage-state="loading"` |
+| Unavailable | `!_usageData && _usageFetchFailed` | `usageUnavailable` + `data-acn-usage-state="unavailable"` |
+| Rendered | `_usageData` | the bars; no placeholder, no state attribute |
+
+`fetchClaudeUsage` has exactly **one** caller (`maybeRefreshUsage`), reached from two entry
+points — `orbPopulateNavigate:5838` and the SSE debounce at `:4758`. That single-caller property
+is what makes the flag invariant hold, so preserve it: a second caller that does not clear the
+flag and take a generation token would reintroduce every race below.
+
+**Supersession is ASYMMETRIC.** A late response's *emptiness* is stale; its *content* never is,
+because usage is org-scoped and every request reaching the callback is for the same org. The rule
+took three attempts under review, and each wrong form is now gated by its own check:
+
+| Superseded response | Action | Wrong form → check that catches it |
+|---|---|---|
+| Empty | **drop** | no guard at all → **U8** |
+| Carries data, no NEWER generation produced data | **use it** | drop-everything → **U9** |
+| Carries data, a newer generation already produced data | **drop** | `_usageData` truthiness → **U10** |
+
+"Newer generation produced data" is `_usageDataSeq`, **not** `_usageData` truthiness:
+`ciInvalidate()` zeroes the cooldown but leaves `_usageData` populated, so for a multi-org user
+truthiness can be satisfied by a previous org's bars.
+
+**Known residual, deliberately not fixed here:** `ciInvalidate()` does not clear `_usageData`, so
+on switching to a different org's chat the panel keeps showing the previous org's quota until a
+fetch returns. Predates all of this. Clearing it would make the panel flash to "loading" on every
+conversation switch — a visible behaviour change that needs its own live check, so it is recorded
+rather than folded in.
 
 ---
 
 ## D. Key principles established
 
-- **"Run the matrix" was not enough — the comparison reversed THREE times.** Once when a
-  single configuration became four; once when the variants were made to carry the shipped
-  downstream; once when the payload's ground truth was made language-independent. The real
-  rule is narrower and harder: **before comparing two builds, check that the only difference
-  between them is the thing under test, and that the yardstick is identical for both.** Two of
-  the three defects were a yardstick that differed between the things being compared.
-- **A conclusion that survived three corrections of its own evidence should be held loosely.**
-  The particle-normalization rejection did not survive; it is retracted. What ships now rests
-  on properties that do not depend on the score at all.
-- **A metric can improve while the thing it serves gets worse.** Same-topic overlap doubled
-  and segmentation got worse, because segmentation reads contrast, not cohesion. Ask what the
-  downstream consumer actually reads.
-- **A filter repeated downstream is a second place for the same assumption to be wrong.**
-  The English length rule was written three times; fixing the tokenizer alone still left two
-  copies deciding that no 2-syllable Korean noun could be a topic at any frequency.
-- **Correcting a claim means grepping for every restatement of it — this bit four times in one
-  session.** The tokenizer score survived in the code comment beside the rule it contradicted;
-  "Tier 3 delivered nothing" survived in an experiment-log row below its own retraction; the key
-  count survived in the two DURABLE surfaces after I fixed the two narrative ones; and the
-  "five keys to fix" framing survived in HANDOFF §G — the first thing a new session reads —
-  after I corrected ROADMAP, conventions and DEC-042. Every one was caught by review, none by me.
-  And a FIFTH: after reframing §G item 2, §I's "all of §G items 2–5" rollup swept it straight
-  back into deferred work. **Rollups and cross-references are restatements too** — an index that
-  says "items N–M" re-asserts every claim in that range, so it must be re-read whenever any item
-  in it changes meaning.
-  The habit to build: after changing a number or a framing, grep the phrase, not the paragraph —
-  and check what AGGREGATES over it.
-- **State an effect's real size, especially your own fix's.** Removing those copies makes a
-  frequent short word *eligible*; bigram weighting still decides whether it wins. The first
-  draft of this handoff said Korean topics were "all bigrams" because of the filters — they
-  are, in English too, for an unrelated reason. Measure the isolated effect before naming it.
-- **A fixture in one language cannot gate a claim about another.** Every fixture was English,
-  so a tokenizer returning `[]` for an entire language was invisible to CI.
-- **Name the languages you fixed.** "Unicode support" would have been false the moment
-  someone opened a Japanese conversation.
-- **A deadline is not a measurement.** I declared a review tier empty because it had not
-  answered in 35 minutes, and wrote that into three durable surfaces. It answered at 90 with the
-  two most valuable findings of the release. Budget opus lenses at 90+ minutes on a large diff,
-  spawn them first and collect last — and never report an absence with less care than a presence.
-- **A translation that is never called is not a translation.** Thirteen Korean strings sat in the
-  table, complete and correct, rendering nothing — and every gate in the repo was blind to it
-  because both halves were individually right. Verify the WIRING, not the presence of the value.
-  Generalises past i18n: any two-part mechanism where each part is independently valid can fail
-  at the join with no symptom.
-- **Never assemble a translated sentence by concatenation.** Word order is part of what a
-  translation changes, and concatenation hard-codes it in the source. Korean's meridiem-before-
-  time made this concrete: no reordering of fragments could produce a correct string.
-- **A gate that cannot fail on the change it was written for is not a gate.** The Korean fixture
-  was built specifically to prove the tokenizer fix, and it passes on a build with that fix
-  reverted. What saved it was mutation-testing the gate itself, which is the only way to find
-  this class.
-- **"The same text" is not the same bytes.** Canonically equivalent Unicode has multiple
-  encodings, and the platform decides which one you get. A character-class whitelist is a claim
-  about bytes, so it must be preceded by a claim about normalization — otherwise it is correct
-  only for the form you happened to test with.
-- **A variant sweep must vary ONE thing.** Five builds that each differ from the shipped code in
-  a second, uncontrolled way measure something other than the question asked.
+- **A dead key is not automatically a preference.** Check whether the surface behaves correctly
+  *without* it before filing it as one. Applying that check turned one filed-as-preference key
+  into a shipped bug fix (DEC-044).
+- **When two docs assert incompatible contracts, the bug and the remedy are separate questions.**
+  The usage bug held under either design, so it did not wait on the contract question; the remedy
+  did, and went to the owner rather than being picked silently.
+- **A check that cannot fail is not a gate — so mutation-test each fix separately.** And report
+  the result as measured: one of the three fixes here turned out **not** to be gated, and saying
+  so is more useful than a tidy table.
+- **Name the members; do not tally them (DEC-043).** Demonstrated the hard way this session: the
+  one transcribed tally in the repo was stale within two days, in the paragraph forbidding it.
+- **A stopping rule evaluated after seeing the results is not a stopping rule (DEC-043).**
+- **Check that the fixture did the thing before believing what it says about the code.**
+  `requests=0` looked like a code failure and was a scenario failure.
+- **A flaky check is worse than no check.** The probe passed 12 consecutive runs before failing
+  once under load. Reproduce the flake, fix the cause, then re-verify under the same load —
+  don't re-run until green.
 
 ---
 
 ## E. Git state
 
-`main` @ `06a079f` — PR #70 (v12.7, `fix/tokenizer-korean-v12.7`) merged by the owner
-2026-08-02 17:45 UTC. **PR #71** (`fix/tools-i18n`, the panel i18n follow-up) is open against
-that merged main, CI 9/9, Codex clean, and merges at the close of this session with explicit
-owner authorization. Note the ordering trap this created: the i18n commit was authored while
-#70 was still open and had to be cherry-picked onto the merged main — "fold it into #70" was no
-longer possible by the time the work was done.
+`main` @ **`fac7d50`**. Working branch **`docs/session-record-pr72`** → **PR #73, OPEN, CI 9/9,
+Codex clean, MERGEABLE — not merged.**
+
+| Commit | What |
+|---|---|
+| `77d8f35` | the PR #72 session record: §B.7, DEC-043, reviews/…-i18n-docs.md, 4 stale claims |
+| `67f866d` | **v12.8** — the usage fix, DEC-044, new probe, CI wiring, CHANGELOG/ROADMAP/spec updates |
+| `d83191b` | Codex round 1: HANDOFF transcribed the one tally it told you not to |
+| `e49131a` | baton handoff: archived the v12.7 doc, added the v12.8 TROUBLESHOOTING entry, fixed two stale OPEN headlines |
+| `1c0a050` | Codex P1: the retry probe closed the panel it needed open |
+| `e3effc5` | Codex P2: force a scan after the route change instead of hoping for one |
+| `5eee8ac` | Codex P2: supersession is asymmetric — keep a superseded SUCCESS (U9) |
+| `5dbce77` | Codex P2: "newer data landed" is a generation, not truthiness (U10) |
+
+Merged earlier in this arc: #70 → `06a079f`, #71 → `980aa68`, #72 → `fac7d50`.
+
+**Merge strategy is merge commits** — `gh pr merge --squash` fails outright on this repo.
+
+**A git-config trap, fixed and worth remembering:** the repo had accumulated per-branch
+`remote.origin.fetch` refspecs pointing at merged-and-deleted branches, so `git pull` failed with
+`couldn't find remote ref`. Restored to the standard `+refs/heads/*:refs/remotes/origin/*`. If
+`git pull` fails that way again, check `git config --get-all remote.origin.fetch` first.
+
+**Five local branches have gone remotes.** Three are fully merged; two
+(`fix/firefox-fetch-skip`, `fix/tokenizer-korean-v12.7`) report UNMERGED because their content
+reached main via merge commits while the branch tips are not ancestors — `git branch -d` refuses
+those. All five left in place rather than force-deleted.
 
 ---
 
@@ -318,138 +295,160 @@ longer possible by the time the work was done.
 | Path | Why |
 |---|---|
 | `HANDOFF.md` | this file |
-| `DECISIONS.md` DEC-041 | the design, and both rejected alternatives with their mechanism |
-| `TROUBLESHOOTING.md` → the v12.7 entry | before/after measurements with their contexts |
-| `ROADMAP.md` item 0a | closed, with the two things deliberately left open |
-| `probes/check-tokenizer.js` | 8 checks incl. T8, which pins the LIMIT as an assertion |
-| `probes/README.md` Path D | the variant sweep and the English equivalence gate |
-| `TESTING.md` → `koreanSummaryTest` | what K1a–K1c gate and why the base text is Korean |
+| `docs/handoffs/SESSION_HANDOFF_2026-08-02_v12.7-korean-tokenizer.md` | the predecessor — all v12.7/v12.7a/PR-#72 detail |
+| `DECISIONS.md` **DEC-044** | the usage fix: why explicit, and the two ordering rules |
+| `DECISIONS.md` **DEC-043** | name members not tallies; pre-commit the stopping criterion |
+| `docs/PLAN-USAGE.md` → "Fetch fails" | the rewritten failure contract + the three-state table |
+| `probes/check-usage-state.js` | 10 checks; the mutation matrix is in its header |
+| `agent_docs/conventions.md` → i18n Conventions | the **one** tally the project keeps, and why |
+| `ROADMAP.md` item **0c** | the three preference keys + the one remaining behaviour gap |
+| `reviews/review-2026-08-05-usage-state.md` | the 3-tier pipeline record, incl. what is NOT gated |
 
 ---
 
 ## G. What comes next
 
-1. ~~**LIVE CHECK — the gate on this release (DEC-031).**~~ **DONE 2026-08-02.** The owner
-   live-tested a Korean conversation: topics, bookmarks, search and the map all read correctly.
-   **The particle question is settled by their answer**: they could not find the 세션이/세션
-   artefact at all, so **no display-only normalizer is wanted** — do not build one on the
-   strength of the synthetic observation alone. The same check surfaced the panel-i18n defect
-   (§B.6), which is the shape to expect from live checks generally: they find the thing you did
-   not think to measure, not the thing you did.
-2. **Three i18n keys are never called — and that is a QUESTION, not a work item** (ROADMAP 0c):
-   `questionPrefix`, `noQuestions`, `noBookmarksToExport`. They render English in Korean mode and
-   the owner accepts that. **The owner reviewed Korean mode live and is satisfied with it:**
-   *"some things are actually better to stay in english than force translation to korean when
-   they can understand some english… i am fine with how the korean mode looks."* So do **not**
-   pick those three up as a batch. If any is picked up at all, it is a per-string judgement —
-   does Korean help *that* label? — and driving the dead-key audit to zero is explicitly not the
-   goal. The nine `/Commands` keys are the settled case of the same principle.
-
-2a. **TWO keys were originally filed with the three above and are NOT preferences — they are
-   missing behaviour. The owner's "I'm fine with it" does not cover them**, because nothing
-   renders in either language for them to be fine with. Both are real work:
-   - `usageUnavailable` — **an open bug.** A failed usage fetch leaves the panel showing
-     "Plan usage loading…" **forever**; the unavailable message never appears in either
-     language. Pre-existing and user-visible. **The bug is that the panel reports an in-flight
-     fetch that already failed** — wrong under any design, so it does not wait on the question
-     below.
-     **The REMEDY is an owner decision, and the repo currently asserts both answers:**
-     `docs/PLAN-USAGE.md` §"Fetch fails" specifies rendering *nothing* on failure, while the
-     existence of `usageUnavailable` in both language tables implies a *message* was intended.
-     Pick one and make the other doc agree — ROADMAP 0c has both options written out. Either
-     way it is a code change on a network path, so it is live-confirm gated (DEC-031).
-   - `summaryLanguageNote` — **needs an owner decision, not a wiring fix.** An empty English
-     value and a Korean-only disclaimer that has never rendered, while `docs/SETTINGS.md` says
-     it does. v12.7 made its text substantially untrue, so **do not wire it as-is**. Three
-     options in ROADMAP 0c.
-3. **Key points are still unavailable in Korean**, for a different mechanism this arc does
-   not reach: `KEY_POINT_PATTERNS` is a set of English regexes. Recorded in ROADMAP 0a, not
-   fixed here. It needs its own Korean pattern set and its own measurement.
-4. **The top level's merge rule — THEORETICAL, not scheduled** (ROADMAP item 0). Unchanged
-   from the last handoff, including that the evidence once cited for it was a misreading and
-   is retracted. Do not open it on that evidence.
-5. **Carried-over fixture batch** — unmatchable-cluster/HEAD, assistant-TAIL, GM-shim backoff
+1. **LIVE CONFIRM v12.8 — the gate on this release (DEC-031).** The only outstanding item on
+   shipped code. Method is in the callout at the top of this file. Expect "Usage data
+   unavailable"; a permanent "loading…" means the fix did not take in the real environment.
+2. **`summaryLanguageNote` — needs an owner DECISION, not work** (ROADMAP 0c). Empty English
+   value, Korean-only disclaimer, never rendered, and v12.7 made its text substantially untrue.
+   Three options are written out in ROADMAP 0c. **Do not simply wire the current text** — it
+   would tell a Korean user the Summary works poorly for them, which is now largely false.
+3. **Three i18n keys are a QUESTION, not a work item** (ROADMAP 0c): `questionPrefix`,
+   `noQuestions`, `noBookmarksToExport`. The owner reviewed Korean mode live and accepts partial
+   English. Do **not** pick them up as a batch. If any is picked up it is per-string. And note
+   what they actually cost — only `noBookmarksToExport` is a one-line substitution;
+   `noQuestions`' live surface has a second guidance paragraph the key lacks, and
+   `questionPrefix`'s English and Korean values are **both** `'Q#'`, so wiring it is a visible
+   no-op.
+4. **Key points are still unavailable in Korean** — `KEY_POINT_PATTERNS` is a set of English
+   regexes, a mechanism no tokenizer change reaches (ROADMAP 0a). Needs its own pattern set and
+   its own measurement.
+5. **The top level's merge rule — THEORETICAL, not scheduled** (ROADMAP item 0). The evidence
+   once cited for it was a misreading and is retracted. Do not open it on that evidence.
+6. **Carried-over fixture batch** — unmatchable-cluster/HEAD, assistant-TAIL, GM-shim backoff
    (incl. malformed JSON), exportBookmarks, forced-refetch knob, provisional-turn knob,
-   key-point payload knob — plus the recorded small items (toolBlocks into the unmounted
-   inventory, renderable-predicate off-by-2, `renderSummaryResults` try/finally).
-6. **Backlog unchanged behind those** (Retry-After 429, §4.2 offset-cache reassessment, peek
-   pane, mock-fidelity generator, debulking; Emergent deprioritized).
+   key-point payload knob — plus toolBlocks into the unmounted inventory, the renderable-predicate
+   off-by-2, and `renderSummaryResults` try/finally.
+7. **Backlog unchanged behind those** — Retry-After 429, §4.2 offset-cache reassessment, peek
+   pane, mock-fidelity generator, debulking; Emergent deprioritized.
 
 ---
 
 ## H. Operational context + owner rules
 
-- **Correctness outranks further optimization** (standing ranking rule). Item 11 is closed at
-  ~1.2s by owner decision; only a conversation large enough to put the freeze banner back
-  should reopen it.
-- **Execute-and-narrate** stands. **Merge authority is per-PR and explicit** — this PR is not
-  authorized to merge by anything in this document. **DEC-031 gates live-code merges on a
-  live confirmation**, and §G.1 is that gate for v12.7.
-- **Stop review loops on provenance** (DEC-029), with the standing exception: a loop-era
-  finding that *weakens the evidence for the shipped change* earns another round.
+- **Merge authority is per-PR and explicit.** Nothing in this document authorizes a merge.
+  **PR #73 is explicitly authorized by the owner to merge after this handoff lands** — that is
+  the one standing exception, and it expires with this PR.
+- **DEC-031 gates live-code merges on a live confirmation.** v12.8 ships with that confirmation
+  still owed (§G.1) — the owner accepted merging first and confirming after, for this PR.
+- **The owner chose EXPLICIT over silent** for the usage failure UI (DEC-044). Recorded because
+  the metric-neutral option was the spec's existing answer, and it was overruled deliberately.
+- **Correctness outranks further optimization** (standing). ROADMAP item 11 is closed at ~1.2s;
+  only a conversation large enough to put the freeze banner back should reopen it.
+- **Partial English in Korean mode is accepted** — *"some things are actually better to stay in
+  english than force translation to korean when they can understand some english… i am fine with
+  how the korean mode looks."* Do not mass-translate to drive the dead-key audit to zero.
+- **Stop review loops on provenance** (DEC-029), **and pre-commit the criterion before the round
+  runs** (DEC-043). Standing exception: a finding that *weakens the evidence for the shipped
+  change* earns another round.
+- **Before re-triggering Codex, check whether it came back clean or is still checking** — owner
+  instruction, 2026-08-02. Do not re-trigger reflexively.
+- **Execute-and-narrate.** Explicit `git add` paths, never `-A`; commit before mutating; suite
+  both engines before push.
 - The owner tests on **Firefox + Tampermonkey**; probe builds are per-measured-build (DEC-027).
-- Explicit `git add` paths, never `-A`; commit before mutating; suite both engines before push.
 
 ---
 
 ## I. Deferred / future work
 
-§G items **2a** and **3–6** — the two missing-behaviour keys, key points in Korean, the
+§G items **2 and 4–7** — the `summaryLanguageNote` decision, key points in Korean, the
 theoretical top-level merge rule, the carried-over fixture batch, and the backlog behind them.
 The `overflow-anchor: none` mock assumption remains unverified (carried).
 
-Of those, **§G item 2a is the only one that is a user-visible bug rather than a backlog item**:
-`usageUnavailable` leaves the usage panel permanently claiming to be loading after a failed
-fetch. `summaryLanguageNote` in the same item is blocked on an owner decision, not on work.
+**§G item 1 is not deferred work — it is a gate on work already shipped.** The live confirm of
+v12.8 should happen at the next opportunity, not be queued behind the backlog.
 
-**§G item 2 is deliberately NOT in this rollup.** The three unwired i18n keys are an owner
-PREFERENCE, not deferred work: Korean mode was reviewed live and accepted as-is. Listing them
-here would put them back in the schedulable pile, which is exactly the reading this session
-corrected. If they are ever picked up it is per-string, by the owner's judgement, not as a batch.
-**Item 2a is a different thing and IS deferred work** — do not let the exclusion of item 2 pull
-it out of the pile too.
+**§G item 3 is deliberately NOT in this rollup.** The three unwired i18n keys are an owner
+PREFERENCE, not deferred work. Listing them here would put them back in the schedulable pile,
+which is the exact reading two sessions have now corrected. If they are ever picked up it is
+per-string, by the owner's judgement, not as a batch.
+
+**Not gated by any check, and therefore easy to regress:** the repaint-on-fetch-start in
+`maybeRefreshUsage`. It rests on the early return at `:5800` preceding the `maybeRefreshUsage()`
+call. If that ordering changes, the fix silently stops mattering and nothing will fail.
 
 ---
 
 ## J. Risk caveats / known limitations
 
-- ~~**No live confirmation yet.**~~ **Live-confirmed 2026-08-02** — the owner reports topics,
-  bookmarks, search and the map all reading correctly in Korean. The synthetic caveat still
-  applies to the NUMBERS: the generator's topic blocks are lexically disjoint by construction,
-  while real conversations drift, revisit and interleave. What the live check establishes is
-  that the feature works and reads acceptably, not that 28/32 transfers.
-- **A language switch leaves Tools mixed until refresh** — the gallery header re-renders on
-  panel open, the exports section is built at injection. Owner-accepted (DEC-042), and the
-  `languageChanged` toast already says "refresh to apply". Do not "fix" it without re-opening
-  that decision.
-- **Three i18n keys render English in Korean mode** (ROADMAP 0c) — known, and **accepted by the
-  owner**, not merely deferred. Partial English in Korean mode is a preference, not a defect.
-- **Two dead keys are NOT preferences — they are missing behaviour** (ROADMAP 0c).
-  `usageUnavailable`: a failed usage fetch shows "Plan usage loading…" forever, in both
-  languages. `summaryLanguageNote`: a Korean-only disclaimer that has never rendered, promised
-  by `docs/SETTINGS.md`, whose text v12.7 made substantially untrue.
-  **The lesson underneath both:** a key with no call site is not automatically a translation
-  question — check first whether the surface behaves correctly without it. Two of the fourteen
-  did not.
-- **Most toasts are hardcoded English** — the export progress/success messages, "Summary
-  exported", "All bookmarks cleared" and others. Not a decision anyone made; simply unwired.
-  **Deliberately not stated as a ratio here.** This handoff and `docs/SETTINGS.md` both carried
-  a "21 of 31" that was wrong in the *denominator* — the counting script capped call sites at
-  120 characters, so a multi-line conditional fell out of the population rather than being
-  classified. Every tally written during PR #72 was wrong at least once. Name the surfaces;
-  re-derive numbers with the audit in `agent_docs/conventions.md` when you actually need them.
-- **The Korean payload is generated, not real.** Its particle distribution is modelled
-  (받침-correct), but its sentences are vocabulary-driven word salad, exactly like the English
-  payload. A real Korean conversation mixes English technical terms far more heavily.
-- **Fixed for English and Korean only — this is NOT "Unicode support".** Japanese and Chinese
-  are not space-separated; a character class would give them roughly one pseudo-token per
-  sentence and the map would draw structure out of noise instead of correctly finding none.
-  Greek, Cyrillic and kana are excluded for the same reason. `check-tokenizer.js` T8 pins
-  this as an assertion so it cannot quietly be re-described.
-- **Korean sub-segment labels carry particles** (see §G.1, third question).
+- **v12.8 is NOT live-confirmed.** No mock reproduces a real 5xx from claude.ai; the probe
+  simulates the transport. A green suite is a context-scoped finding (CLAUDE.md).
+- **The repaint fix is ungated** (see §I). Recorded rather than papered over — two earlier drafts
+  of the review record claimed a check covered it, and both were wrong.
+- **A failed poll now clears previously-good bars.** `_usageData = data` sets null on failure, so
+  a transient failure replaces real numbers with "Usage data unavailable". Both the old and new
+  behaviour lose the bars; the new one is at least honest about why. Deliberate, not an oversight.
+- **A language switch leaves Tools mixed until refresh** — owner-accepted (DEC-042); the
+  `languageChanged` toast says "refresh to apply". Do not "fix" without reopening that decision.
+- **Three i18n keys render English in Korean mode** — accepted by the owner, not merely deferred.
+- **`summaryLanguageNote` has never rendered** while `docs/SETTINGS.md` says it does, and v12.7
+  made its text substantially untrue. Open, and blocked on a decision rather than on work.
+- **Most toasts are hardcoded English** — export progress/success, "Summary exported", "All
+  bookmarks cleared" and others. Not a decision anyone made; simply unwired. **Deliberately not
+  stated as a ratio** — every tally written during PR #72 was wrong at least once. Name the
+  surfaces; re-derive numbers with the audit in `agent_docs/conventions.md` when you need them.
+- **Fixed for English and Korean only — this is NOT "Unicode support".** Japanese and Chinese are
+  not space-separated; `check-tokenizer.js` T8 pins that limit as an assertion.
+- **The Korean payload is generated, not real** — modelled particles, but vocabulary-driven word
+  salad. A real Korean conversation mixes English technical terms far more heavily.
 - **webkit-on-macos has two documented failure variants** (DEC-036 + the silent wedge in
   TESTING.md). Requeue-once clears the first; the second cleared itself after ~65 minutes.
 
+---
+
 ## K. Kickoff prompt for the next session
 
-(maintained in the final summary of this session; paste-ready copy lives there)
+```
+Pick up AI Conversation Navigator from the handoff at HANDOFF.md
+(2026-08-05 — "v12.8: the usage panel stopped lying, and the session record caught up").
+
+Read it before touching anything, especially §G (what comes next), §H (owner rules)
+and §J (risk caveats). Its predecessor, with all v12.7/v12.7a/PR-#72 detail, is
+docs/handoffs/SESSION_HANDOFF_2026-08-02_v12.7-korean-tokenizer.md.
+
+FIRST, CHECK STATE — do not assume:
+  gh pr view 73 --json state,mergedAt    # was #73 merged?
+  git log --oneline -3 main
+If #73 merged, main carries v12.8. If not, it is still open and CI-green at d83191b.
+
+PRIORITY 1 — the live confirm of v12.8 (DEC-031), the only gate outstanding on
+shipped code. Open Claude with the Navigate panel showing Plan usage, break the
+usage request (log out in another tab, or block claude.ai/api/organizations/*/usage
+in devtools), reopen the panel. Expect "Usage data unavailable" — a permanent
+"Plan usage loading…" means the fix did not take in the real environment.
+Ask me to run this; I test on Firefox + Tampermonkey.
+
+THEN, ask me which of §G 2–7 to pick up. Do not start work until I confirm.
+
+DO NOT:
+- Mass-translate the three unwired i18n keys to drive the dead-key audit to zero.
+  Partial English in Korean mode is my accepted position, not a defect backlog.
+- Wire summaryLanguageNote with its current text. It needs my decision first;
+  ROADMAP 0c has the three options.
+- Add coverage tallies to any doc. Name the surfaces instead. The one tally the
+  project keeps is the dead-key baseline in agent_docs/conventions.md, and even
+  that one went stale within two days last session (DEC-043).
+- Reopen ROADMAP item 11 (performance). Closed by my decision; correctness
+  outranks further optimization.
+- Reopen the top-level merge rule on the old evidence — it was a misreading and
+  is retracted.
+- Re-trigger a Codex review without first checking whether it came back clean or
+  is still checking.
+
+RULES: execute-and-narrate. Merge authority is per-PR and explicit — nothing in the
+handoff authorizes a merge. Explicit `git add` paths, never -A. Suite both engines
+before push. If a fix is not gated by a check that can fail, say so plainly rather
+than implying coverage.
+```

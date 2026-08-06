@@ -4,6 +4,84 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.8 — A Failed Usage Fetch Now Says So] — 2026-08-05
+
+**Branch:** `docs/session-record-pr72` | **PR:** #73
+
+### Problem
+
+With the Claude usage request failing — expired auth cookie, network error, or an API shape we
+no longer recognise — the Plan usage panel displayed **"Plan usage loading…" indefinitely**, in
+both languages. It told the user to keep waiting for something that was never coming. Meanwhile
+`usageUnavailable` sat in both string tables, with a Korean translation someone had deliberately
+written, and **no call site at all**.
+
+### Root cause — one null meaning two different things
+
+`renderUsageBars` received `null` for two unrelated reasons and could not tell them apart:
+
+- *no fetch has finished yet* — resolves on its own
+- *a fetch finished and produced nothing* — never resolves
+
+Both rendered `planUsageLoading`. The fix is a single flag, `_usageFetchFailed`, that separates
+them; the placeholder now also carries `data-acn-usage-state` so the state is assertable.
+
+**This key had been filed as a translation preference and that was wrong.** A preference
+presupposes something rendering to have a preference about — nothing rendered here in either
+language, so there was no English surface for the owner to prefer. *A dead key is not
+automatically a preference: check whether the surface behaves correctly without it first.*
+
+### The remedy was an owner decision, because the repo asserted both answers
+
+`docs/PLAN-USAGE.md` specified rendering **nothing** on failure; the existence of
+`usageUnavailable` implied a **message** was intended. Mutually exclusive. The owner chose
+**explicit**, and the spec was rewritten to match with the superseded wording preserved. See
+**DEC-044**.
+
+### Two further defects, found by Tier 3 review of the fix
+
+- **Overlapping same-org requests could complete out of order.** The stale-response guard keys
+  on the org uuid, which cannot separate two requests for the *same* org, and `ciInvalidate()`
+  zeroes the usage cooldown while one may still be pending. A slow failure landing after a fast
+  success erased good data. Fixed with a per-request generation token — which also fixes the
+  **pre-existing** half of that race, affecting `_usageData` before this change existed.
+- **Setting the flag is not repainting.** `orbPopulateNavigate` early-returns on an unchanged
+  question-list fingerprint *before* reaching `maybeRefreshUsage`, so a retry could keep showing
+  "unavailable" while a request was genuinely in flight. Now repaints at fetch start — but only
+  when a placeholder is already up, since replacing real bars with "loading…" every five minutes
+  would be a worse lie than the one being fixed.
+
+### Verification
+
+New probe `probes/check-usage-state.js` — 10 checks, in CI (ubuntu+chromium). It drives the real
+UI by opening the Navigate panel and reading the DOM, with no instrumentation hook.
+
+**Mutation-tested**, because a check that cannot fail is not a gate. The supersession guard went
+through three wrong forms under review and **each one now fails a distinct check**:
+
+| Build | Result |
+|---|---|
+| **Pre-fix** | **6 of 10 fail** |
+| **No supersession guard** | **U8** — a late failure erases a newer success |
+| **Drop every superseded response** | **U9** — a late success is discarded |
+| **`_usageData` truthiness** | **U10** — a stale org's bars block a valid newer response |
+| **Minus repaint** | **all pass — NOT gated** |
+| **Fixed** | all 10 pass |
+
+**Removing only the repaint fails nothing** — that fix rests on reading the early return at
+`:5800`, not on a check, and it is recorded that way rather than claimed as covered. Suite
+**1120/1120** both engines.
+
+**Still owed: a live confirm (DEC-031)** — no mock reproduces a real 5xx from claude.ai.
+
+### Known, tracked
+
+The dead-key audit baseline moves **14 → 13** (9 `/Commands` + 3 preference + 1
+`summaryLanguageNote`, which still needs an owner decision). `agent_docs/conventions.md` holds
+the named membership.
+
+---
+
 ## [12.7a — The Tools and Plan Usage Panels Were Never Wired to i18n] — 2026-08-02
 
 **Branch:** `fix/tools-i18n` | **PR:** #71
@@ -87,6 +165,15 @@ it" to all of them and then excluding two without lowering the total; GitHub Cod
 
 Run the audit in `agent_docs/conventions.md` for the current membership of each group rather
 than trusting a count recorded here.
+
+**Follow-up (PR #72 → `fac7d50`, docs only, 2026-08-03).** Reframing these keys as owner
+preference exposed that two of them are not preferences at all but missing behaviour — a
+preference presupposes something rendering to have a preference about. `usageUnavailable` was a
+user-visible bug, fixed two days later in **v12.8** (DEC-044); `summaryLanguageNote` still needs
+an owner decision. The same PR removed the hand-maintained coverage tallies from
+this file and four others after every one of them proved wrong under review; docs now name
+surfaces instead of counting them. **DEC-043**, and
+`reviews/review-2026-08-03-i18n-docs.md`.
 
 ---
 

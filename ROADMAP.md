@@ -232,32 +232,26 @@ Numbering below is stable (items keep their historical numbers):
    ---
 
    **TWO further keys were originally filed under 0c and do NOT belong there. The preference
-   conclusion above does not reach them** (GitHub Codex, PR #72). Both are missing
+   conclusion above does not reach them** (GitHub Codex, PR #72). Both were missing
    **behaviour**, and a preference presupposes something rendering to have a preference about —
-   in both cases nothing renders in either language. **Both stay actionable.** They are
-   recorded here only because the audit is what found them; they are not translation work.
+   in both cases nothing rendered in either language. They are recorded here only because the
+   audit is what found them; they are not translation work.
+   **One is now fixed (`usageUnavailable`, v12.8) and one still needs an owner decision
+   (`summaryLanguageNote`).** The pattern worth carrying forward: *a dead key is not
+   automatically a preference — check whether the surface behaves correctly without it before
+   filing it as one.* Applying that check turned one of these into a shipped bug fix.
 
-   - **`usageUnavailable` — OPEN BUG (not a preference, not a translation).** When the Claude
-     usage request fails or returns no recognised tiers, `fetchClaudeUsage` hands `null` to
-     `renderUsageBars`, which renders `planUsageLoading` **indefinitely** — the panel reads
-     "Plan usage loading…" forever and the unavailable message never appears in EITHER
-     language (~`ai-conversation-navigator.user.js:4962`, `:5030`). There is no English surface
-     for the owner to prefer. Predates v12.7a; user-visible; **not fixed.**
-     **The defect is that the panel LIES** — it reports an in-flight fetch that has already
-     failed. That is wrong under either possible design, so the bug does not depend on
-     resolving the contract question below.
-     **The remedy does, and it is an owner decision — do not pick one silently.** The two
-     candidates are mutually exclusive, and the repo currently asserts both:
-     (a) **Silent** — remove the placeholder so a failed fetch renders nothing, which is what
-     `docs/PLAN-USAGE.md` §"Fetch fails" specifies ("no usage bars shown… no error messages;
-     usage display is informational, not critical"). Under (a) `usageUnavailable` is dead
-     weight and should be **deleted** from both language tables.
-     (b) **Explicit** — render `usageUnavailable`, which is what the *existence* of that key in
-     both tables implies someone intended. Under (b) `docs/PLAN-USAGE.md`'s "Fetch fails"
-     section and its "handled silently" acceptance checkbox must both be rewritten.
-     An earlier draft of this item prescribed (b) as "the action" without noticing it
-     contradicted the spec (GitHub Codex, PR #72). Whichever is chosen, it is a code change on
-     a network path and is live-confirm gated (DEC-031).
+   - ~~**`usageUnavailable` — OPEN BUG**~~ **FIXED in v12.8 (DEC-044).** When the Claude usage
+     request failed or returned no recognised tiers, `fetchClaudeUsage` handed `null` to
+     `renderUsageBars`, which rendered `planUsageLoading` **indefinitely** — the panel read
+     "Plan usage loading…" forever and the unavailable message never appeared in EITHER
+     language. There was no English surface for the owner to prefer, which is what made it a
+     bug rather than a translation preference.
+     **The owner chose the EXPLICIT remedy** over the silent one: the panel now renders
+     `usageUnavailable`, and `docs/PLAN-USAGE.md` §"Fetch fails" was rewritten to match (it had
+     specified rendering nothing, so the repo was asserting both answers at once).
+     Gated by `probes/check-usage-state.js`, in CI. **Still owed: a live confirm (DEC-031)** —
+     it is a code change on a network path, and no mock reproduces a real 5xx from claude.ai.
 
    - **`summaryLanguageNote` — needs an owner DECISION, not a wiring fix.** Its ENGLISH value
      is the empty string and its Korean value is a disclaimer — *"ℹ️ 요약 분석은 영어 대화에서
@@ -365,7 +359,7 @@ Numbering below is stable (items keep their historical numbers):
    `ciDataIndexToFullPath`, `ciFullPathToDataIndex`, `_bmLegacyId`; inventory/entity `msgIndex`
    fields with no consumer; `_bmLegacyIdSet`'s two unreachable dedupe guards; two dead test
    config keys making one assertion unreachable.
-11. **Summary performance on long conversations (OPEN — priority 1, added 2026-07-30).** Live
+11. ~~**Summary performance on long conversations**~~ — **CLOSED 2026-08-01 by owner decision** (added 2026-07-30; see the CLOSED note in this item's body, and the re-ranking at the top of this file). Do **not** reopen it on the text below, which describes the state as first reported. Live
    finding on the owner's ~147-question conversation (Firefox + Tampermonkey, v12.3): Summary →
    Generate and Tools → Summary export near-freeze the tab (Firefox's "slowing down" banner),
    then complete correctly. Consistent **since v12.0** — which is when the summarizer started

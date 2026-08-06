@@ -261,15 +261,22 @@ symptom-level detail.
 
 ---
 
-## OPEN — Summary Generate/Export Freezes Firefox on Long Conversations (since v12.0)
+## RESOLVED — Summary Generate/Export Freezes Firefox on Long Conversations (since v12.0)
 
-**Severity:** Medium-High — features complete correctly, but the tab near-freezes |
-**Status:** FIX LIVE-CONFIRMED 2026-07-31 (owner, Firefox + Tampermonkey, the real
+**Severity:** Medium-High — features completed correctly, but the tab near-froze |
+**Status:** **RESOLVED.** Fix live-confirmed 2026-07-31 (owner, Firefox + Tampermonkey, the real
 ~147-question conversation, probe build 12.4-perf1 over the PR #66 head): no
 "slowing down Firefox" banner, export = cache HIT at 11ms with no second computation,
-dedup 1ms over 1,135 candidates. Residual: generate still costs ~7.7–8.5s live, ~93%
-in the map's segment-merge churn — recorded as the follow-up lever in ROADMAP item 11
-(live numbers at the bottom of this entry) | **Reported:** 2026-07-30
+dedup 1ms over 1,135 candidates. **The residual was then resolved too** — v12.5 cut the map's
+segment-merge churn and generate now runs ~1.2s live, and **ROADMAP item 11 is CLOSED by owner
+decision** ("~1.2s is good enough, and correctness outranks further optimization"). See
+"Residual resolved 2026-07-31 — v12.5" below | **Reported:** 2026-07-30
+
+> **Heading corrected 2026-08-05.** This entry read `## OPEN` with a status line still quoting
+> the pre-v12.5 residual (~7.7–8.5s, item 11 as the open follow-up lever) — while its own body,
+> a hundred lines down, recorded that residual as resolved. A cold session reading only the
+> heading would have reopened performance work the owner had explicitly closed. The body was
+> right; the headline was two releases stale.
 
 ### Symptom
 
@@ -461,6 +468,127 @@ payload, `element:null` messages (so `_sumScanEntities` returns `[]` — the unm
 which is all but ~3 messages live, but not the mounted one). The decision-grade context is
 still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is outstanding**
 (expect generate ≈1.5–2.5s; the pre-fix live figure was 7.7–8.8s).
+
+---
+
+## v12.8 — A failed usage fetch said "loading" forever, in both languages (found by audit 2026-08-03, fixed 2026-08-05)
+
+**Status:** FIXED in v12.8 (PR #73) — **live confirm still owed (DEC-031)** | **Severity:**
+Medium — a user-visible panel that instructs the user to keep waiting for something that will
+never arrive | **Found by:** the PR #72 dead-key audit, not by a user report |
+**Age:** pre-existing, shipped since the Plan usage panel was written
+
+### Symptom
+
+With the Claude usage request failing — expired auth cookie, network error, or an API shape the
+parser no longer recognises — the Plan usage panel displays **"Plan usage loading…" indefinitely**.
+It never resolves, never errors, and never disappears. In Korean the same thing happens with
+플랜 사용량 불러오는 중…, so neither language ever learns the fetch failed.
+
+### Root cause — one null meaning two different things
+
+`renderUsageBars(container, data)` received `null` for two unrelated reasons and could not tell
+them apart:
+
+- *no fetch has finished yet* — resolves on its own
+- *a fetch finished and produced nothing* — never resolves
+
+Both took the `!data` branch and rendered `planUsageLoading`. Every failure path in
+`fetchClaudeUsage` funnels through `callback(null)` — missing `GM_xmlhttpRequest`, transport
+error, unparseable body, no org resolved, and `parseUsageFromJSON` finding no recognised tiers —
+so all of them landed in the state that claims to still be working.
+
+Meanwhile `usageUnavailable` sat in **both** language tables, with a Korean translation someone
+had deliberately written, and had **no call site anywhere in the file**.
+
+### Why it hid — it had been filed as a translation preference
+
+The v12.7a dead-key audit found the key and grouped it with the other unwired i18n keys, which
+the owner had reviewed and accepted as intentionally English. That classification is what kept it
+out of the bug pile for two releases. The correction generalises:
+
+> **A preference presupposes something RENDERING to have a preference about.** Nothing rendered
+> here in either language, so there was no English surface for the owner to prefer. It was a
+> missing failure state wearing a translation costume.
+
+`agent_docs/conventions.md` now carries that as a rule: *a dead key is not automatically a
+preference — check whether the surface behaves correctly without it before filing it as one.*
+
+### Solutions considered
+
+The repo asserted **both** answers, so this needed an owner decision rather than a pick:
+
+- **Silent** — render nothing on failure. This is what `docs/PLAN-USAGE.md` §"Fetch fails"
+  specified ("no usage bars shown… no error messages; usage display is informational, not
+  critical"). Defensible, and it would have meant **deleting** `usageUnavailable` from both
+  tables, discarding an existing Korean translation. **Rejected by the owner.**
+- **Explicit** — render `usageUnavailable`. **Chosen.** `docs/PLAN-USAGE.md` was rewritten to
+  match, with its superseded wording preserved rather than deleted.
+- **Keep the bars and overlay a warning** — rejected: the quota may be minutes stale, and
+  presenting stale numbers as current is the same class of lie as the bug.
+
+### Fix
+
+A single flag, `_usageFetchFailed`, separates the two states; the placeholder carries
+`data-acn-usage-state` so the state is assertable from the DOM. Two ordering rules are
+load-bearing and neither is incidental:
+
+- **The flag is cleared BEFORE `fetchClaudeUsage` is called.** The missing-`GM_xmlhttpRequest`
+  path invokes its callback **synchronously**, so clearing afterwards would erase the failure the
+  callback had just recorded.
+- **Each request carries a generation token** (`_usageReqSeq`). The stale-response guard inside
+  `fetchClaudeUsage` keys on the *org uuid*, which cannot separate two overlapping requests for
+  the **same** org — and `ciInvalidate()` zeroes the usage cooldown while a request may still be
+  pending, which makes that reachable. Without the token a slow failure landing after a fast
+  success erases good data. This also closes the **pre-existing** half of that race, which
+  applied to `_usageData` before this change existed.
+
+Also: `maybeRefreshUsage` now repaints at fetch start **when a placeholder is already showing**.
+`orbPopulateNavigate` early-returns on an unchanged question-list fingerprint *before* it reaches
+`maybeRefreshUsage`, so on a settled page nothing would redraw and a retry would keep showing
+"unavailable" while a request was genuinely in flight. It deliberately does **not** repaint when
+real bars are up — replacing good numbers with "loading…" on every five-minute poll would be a
+worse lie than the one this entry is about.
+
+### Results & verification
+
+New probe `probes/check-usage-state.js` — 10 checks, wired into CI (ubuntu+chromium) and
+`npm run test:probes`. It drives the **real UI** by opening the Navigate panel and reading the
+DOM; no instrumentation hook. Suite **1120/1120** both engines.
+
+**Mutation-tested, and reported as measured rather than as hoped:**
+
+| Build | Result |
+|---|---|
+| **Pre-fix** | **6 of 10 fail** |
+| **No supersession guard** | **U8** — a late failure erases a newer success |
+| **Drop every superseded response** | **U9** — a late success is discarded |
+| **`_usageData` truthiness** | **U10** — a stale org's bars block a valid newer response |
+| **Minus repaint** | **all pass — NOT gated** |
+| **Fixed** | all 10 pass |
+
+Two scope notes, stated because the raw numbers mislead without them:
+
+- **U4 fails on the pre-fix build only because that build has no `data-acn-usage-state` attribute
+  at all**, not because it discriminates the states there. Its power is against *future*
+  over-eager fixes — a build that reports failure whenever data is absent fails U4's text
+  assertion.
+- **Nothing gates the repaint**, and two drafts of the review record claimed otherwise. The
+  second claim was the worse one: the no-repaint mutant *did* fail U7, but only because U7 was
+  itself racy and its race produced the same symptom as the mutant. With the race fixed, the
+  mutant passes. The repaint is retained on **reading** the early return, not on a check.
+
+**The probe's own three bugs were all one shape — a fixed sleep sampling a transient state**,
+because the panel re-renders on MutationObserver cycles. The last one **escaped twelve
+consecutive clean runs** and surfaced only under concurrent load (~1 in 13): it waited a fixed
+500 ms after a route change, so the stable-read loop could settle on the *pre-retry* state — a
+stable read of the wrong moment. All three now wait on a condition (the request counter) rather
+than a duration. Verified with 10 consecutive loaded runs **after reproducing the failure first**.
+
+**Still owed: a live confirm (DEC-031).** No mock reproduces a real 5xx from claude.ai. To check:
+open Claude with the Navigate panel showing Plan usage, break the request (log out in another
+tab, or block `claude.ai/api/organizations/*/usage` in devtools), reopen the panel. Expect
+**"Usage data unavailable"**, not a permanent "loading…".
 
 ---
 

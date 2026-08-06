@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.7
+// @version      12.8
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -40,7 +40,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.7';
+    var ACN_VERSION = '12.8';
 
     // ============================================================
     // i18n — internationalization string table
@@ -3662,6 +3662,30 @@
     var _usageLastFetch = 0;
     var _usageOrgUuid   = null;   // org the cached usage was fetched FOR
     var _usageRefreshTimer = null; // debounce timer for maybeRefreshUsage
+    // A null _usageData means two different things and the panel used to render
+    // both as "Plan usage loading…": no fetch has finished YET, and a fetch finished
+    // and produced nothing. The second case never resolved, so a failed request left
+    // the panel claiming to still be loading forever, in both languages (ROADMAP 0c).
+    // This flag is the only thing that separates them. false = nothing has failed
+    // (either idle or genuinely in flight); true = the last completed attempt yielded
+    // no usable data.
+    var _usageFetchFailed = false;
+    // Request generation. The stale-response guard inside fetchClaudeUsage keys on the
+    // ORG uuid, which cannot separate two overlapping requests for the SAME org — and
+    // ciInvalidate() zeroes _usageLastFetch while a request may still be pending, so a
+    // second one can start immediately. Whichever response lands last then wins, even
+    // if it is the older one: an old failure can erase a newer success, and vice versa
+    // (Codex Tier 3). This counter makes the callback ignore any response that is not
+    // the most recent request.
+    var _usageReqSeq = 0;
+    // The generation that produced the usage data currently held in _usageData. The
+    // supersession rule needs to know "has a NEWER request already produced data?", and
+    // `_usageData` truthiness is NOT that fact: ciInvalidate() zeroes the cooldown but
+    // leaves _usageData populated, so for a multi-org user the surviving value can be a
+    // PREVIOUS org's bars. Keying off truthiness therefore discarded a valid new-org
+    // response and left the wrong org's quota on screen (Codex, PR #73). Compare
+    // generations instead of asking whether anything is there.
+    var _usageDataSeq = 0;
 
     // Extracts display text from a mounted DOM node, shared by the DOM scan and
     // the index's DOM-merge path.
@@ -4962,7 +4986,13 @@
         if (!data) {
             var ph = document.createElement('div');
             ph.style.cssText = 'font-size:10px;color:#555;padding:2px 0';
-            ph.textContent   = i18n('planUsageLoading') || 'Plan usage loading\u2026';
+            // Report the state we are ACTUALLY in. Rendering "loading" after a failed
+            // fetch is not a cosmetic slip: it tells the user to keep waiting for
+            // something that is never coming.
+            ph.textContent = _usageFetchFailed
+                ? (i18n('usageUnavailable') || 'Usage data unavailable')
+                : (i18n('planUsageLoading')  || 'Plan usage loading\u2026');
+            ph.setAttribute('data-acn-usage-state', _usageFetchFailed ? 'unavailable' : 'loading');
             container.appendChild(ph);
             return;
         }
@@ -5027,8 +5057,52 @@
         }
 
         _usageLastFetch = now;
+        // A request is genuinely in flight from here, so "loading" is true again even
+        // if the previous attempt failed. Cleared BEFORE the call because
+        // fetchClaudeUsage can invoke its callback synchronously (no GM_xmlhttpRequest),
+        // which would otherwise clear the failure the callback just recorded.
+        _usageFetchFailed = false;
+        var seq = ++_usageReqSeq;
+
+        // Setting the flag is not enough — something has to REDRAW. orbPopulateNavigate
+        // early-returns on an unchanged question-list fingerprint (:5800) before it ever
+        // reaches maybeRefreshUsage, so on a settled page nothing would repaint and a
+        // retry after a failure would keep showing "unavailable" while a request was
+        // genuinely in flight (Codex Tier 3).
+        // Only repaint when a PLACEHOLDER is up. If real bars are showing, leave them:
+        // replacing good numbers with "loading…" on every five-minute poll would be a
+        // worse lie than the one this whole change exists to fix.
+        if (!_usageData) {
+            var pending = document.getElementById('acn-usage-section');
+            if (pending) renderUsageBars(pending, null);
+        }
+
         fetchClaudeUsage(function (data) {
+            // Supersession is ASYMMETRIC: a late response's EMPTINESS is stale, but its
+            // CONTENT never is. Usage is org-scoped and every request reaching here is for
+            // the same org, so quota numbers from an older request are still true for the
+            // new chat.
+            //   - superseded and EMPTY  -> drop. This is the race the token exists for: a
+            //     slow failure must not erase a newer success.
+            //   - superseded and CARRIES DATA, and nothing newer has produced any -> USE it.
+            //     Discarding good quota to keep showing "unavailable" would be strictly
+            //     worse, and it is reachable: switch chats while the first fetch is in
+            //     flight, and the second one hangs or fails (Codex, PR #73).
+            //   - superseded and CARRIES DATA, but a NEWER request already produced data
+            //     -> drop; the newer answer wins. Measured by generation, not by whether
+            //     _usageData is non-empty — see _usageDataSeq.
+            if (seq !== _usageReqSeq && (!data || _usageDataSeq > seq)) return;
             _usageData = data;
+            if (data) _usageDataSeq = seq;
+            // Every FAILURE in fetchClaudeUsage funnels through callback(null): no
+            // GM_xmlhttpRequest, transport error, unparseable body, no org resolved,
+            // and parseUsageFromJSON finding no recognised tiers.
+            // The one exit that calls back NEITHER way is the stale-response drop
+            // (`_usageOrgUuid !== uuid`), and it is safe to leave the flag alone there:
+            // that response was superseded by a later fetch, and every fetch comes
+            // through maybeRefreshUsage — the sole caller — which cleared the flag on
+            // its way in and whose own callback will resolve it.
+            _usageFetchFailed = !data;
             var section = document.getElementById('acn-usage-section');
             if (section) renderUsageBars(section, _usageData);
         });

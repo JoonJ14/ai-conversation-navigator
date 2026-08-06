@@ -7,9 +7,9 @@
 > They are now `{placeholder}` templates resolved through `i18n(key, replacements)` — keys
 > `usageResetDay` / `usageResetHM` / `usageResetH` / `usageResetMin` / `usageResetSoon`, plus
 > `weekdayShort` and `am`/`pm`. English output is byte-identical (verified over 58 cases).
-> See DEC-042. **`usageUnavailable` still has no call site, and that is an open BUG, not a
-> translation gap** — a failed usage fetch leaves the panel reading "Plan usage loading…"
-> forever, in both languages. See "Fetch fails" below and ROADMAP item 0c.
+> See DEC-042. **`usageUnavailable` is wired as of v12.8 (DEC-044).** It had no call site, which
+> was an open BUG rather than a translation gap: a failed usage fetch left the panel reading
+> "Plan usage loading…" forever, in both languages. See "Fetch fails" below.
 
 
 Display the user's Claude subscription usage (session limit, weekly limits) as bars in the sidebar, right below the context window monitor. Claude-only feature — hidden on all other platforms.
@@ -483,25 +483,57 @@ If a field is `null` (e.g., `seven_day_opus: null`), don't show a bar for it. On
 
 ### Fetch fails
 
-> **⚠ SPEC, NOT SHIPPED BEHAVIOUR — the code does something worse (verified 2026-08-03).**
-> `fetchClaudeUsage` hands `null` to `renderUsageBars` on failure, and that function's `!data`
-> branch renders `planUsageLoading` and returns (`ai-conversation-navigator.user.js:4962`,
-> `:5030`). So a failed fetch does **not** "silently skip" — the panel displays
-> **"Plan usage loading…" indefinitely**, claiming a fetch is still in flight when it has
-> already failed. `usageUnavailable` exists in both language tables and has **no call site**,
-> so the unavailable message never appears in English or Korean. This is an open bug, not a
-> translation preference — tracked in ROADMAP 0c.
+> **✅ RESOLVED in v12.8 — the owner chose EXPLICIT over silent (DEC-044).** This section is
+> rewritten below; the superseded "silently skip" wording is preserved at the end of it.
 >
-> **The paragraph below is the intended design, and it is NOT yet reconciled with that key.**
-> "Silently skip" and "show `usageUnavailable`" are mutually exclusive, and the repo currently
-> asserts both — this spec says silent, while the string exists in both language tables. The
-> **bug is real under either**: a failed fetch must not keep claiming to be loading. The
-> **remedy is an owner decision** (ROADMAP 0c lists the two options). If silent wins, delete
-> `usageUnavailable` from both tables and this section stands as written. If explicit wins,
-> this section and the "handled silently" checklist item below must both be rewritten. Do not
-> implement one and leave the other doc asserting the other.
+> **The bug that forced the decision:** `fetchClaudeUsage` handed `null` to `renderUsageBars`,
+> whose `!data` branch rendered `planUsageLoading` and returned. So a failed fetch did **not**
+> "silently skip" — the panel displayed **"Plan usage loading…" indefinitely**, claiming a fetch
+> was still in flight when it had already failed, in both languages, while `usageUnavailable`
+> sat in both string tables with no call site.
 
-If `GM_xmlhttpRequest` fails (network error, auth cookie expired, page structure changed), silently skip — no usage bars shown. The context bar still works independently. No error messages; usage display is informational, not critical.
+On failure the panel shows the **`usageUnavailable`** message ("Usage data unavailable" /
+"사용량 데이터를 불러올 수 없습니다"). It does **not** keep saying "loading", and it does not
+disappear silently. The context bar still works independently; usage remains informational, so
+the message is a single small line, not an error dialog.
+
+The three states are distinguished by `_usageFetchFailed`, because `_usageData === null` means
+both "no fetch has finished yet" and "a fetch finished and produced nothing":
+
+| State | Condition | Rendered |
+|---|---|---|
+| Loading | `!_usageData && !_usageFetchFailed` | `planUsageLoading` + `data-acn-usage-state="loading"` |
+| Unavailable | `!_usageData && _usageFetchFailed` | `usageUnavailable` + `data-acn-usage-state="unavailable"` |
+| Rendered | `_usageData` | the bars; no placeholder, no state attribute |
+
+Two ordering rules that are load-bearing, not incidental:
+
+- The flag is cleared **before** `fetchClaudeUsage` is called, because the
+  missing-`GM_xmlhttpRequest` path invokes the callback **synchronously** — clearing afterwards
+  would erase the failure the callback had just recorded.
+- Each request carries a **generation token** (`_usageReqSeq`), and supersession is
+  **asymmetric**. The stale-response guard inside `fetchClaudeUsage` keys on the *org uuid*,
+  which cannot separate two overlapping requests for the **same** org — and `ciInvalidate()`
+  zeroes the cooldown while a request may still be pending. A late response's **emptiness** is
+  stale, but its **content** never is (usage is org-scoped, and every request here is for the
+  same org), so: a superseded EMPTY response is dropped — that is what stops a slow failure
+  erasing a newer success — while a superseded response that CARRIES DATA is used when nothing
+  newer has produced any, and dropped when newer data already landed. **"Newer data landed" is
+  tracked by generation (`_usageDataSeq`), not by `_usageData` being non-empty:**
+  `ciInvalidate()` leaves the previous value in place, so for a multi-org user truthiness can
+  be satisfied by another org's stale bars.
+
+Gated by `probes/check-usage-state.js` (10 checks, in CI on ubuntu+chromium). It drives the real
+UI rather than a hook, and each fix was mutation-tested against a build with that fix removed.
+
+<details><summary>Superseded wording, preserved</summary>
+
+```
+If `GM_xmlhttpRequest` fails (network error, auth cookie expired, page structure changed),
+silently skip — no usage bars shown. The context bar still works independently. No error
+messages; usage display is informational, not critical.
+```
+</details>
 
 ### User not logged in / session expired
 
@@ -560,10 +592,12 @@ usageUnavailable: '사용량 데이터를 불러올 수 없습니다',
 - [ ] Usage JSON parsed correctly from HTML/RSC response
 - [ ] `five_hour`, `seven_day`, `seven_day_sonnet` fields extracted
 - [ ] Null fields handled (no bar rendered for null entries)
-- [ ] Fetch failure does not leave the panel claiming to still be loading — **currently FAILS:
-      it shows "Plan usage loading…" forever.** Whether the correct end state is *nothing* or
-      *`usageUnavailable`* is an open decision; this checkbox deliberately asserts only the part
-      that holds either way. See "Fetch fails" above and ROADMAP 0c
+- [x] Fetch failure renders `usageUnavailable`, in both languages, and never leaves the panel
+      claiming to still be loading (v12.8, DEC-044 — gated by `probes/check-usage-state.js`
+      U1/U2/U6)
+- [x] A request still in flight renders `planUsageLoading`, so the two states are genuinely
+      distinguished rather than one string swapped for another (U4/U5)
+- [x] A superseded late failure does not erase a newer success (U8 — generation token)
 - [ ] Cache in `GM_setValue` prevents redundant fetches within 5 minutes
 
 ### Display

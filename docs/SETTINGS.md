@@ -214,9 +214,10 @@ What stays in English **on purpose**:
   no-questions empty state, the no-bookmarks-to-export message (ROADMAP 0c).
   **Partial English in Korean mode is accepted** — do not treat those three as defects.
 - **Not in this category: `usageUnavailable`.** It was listed here as a fourth preference and
-  that was wrong — the message never renders in *either* language, so there is no English
-  surface to prefer. It is an open bug (permanent "Plan usage loading…"), tracked in ROADMAP
-  0c. Nor is `summaryLanguageNote`, which needs an owner decision — see the notice below.
+  that was wrong — the message rendered in *neither* language, so there was no English surface
+  to prefer. It was a bug (permanent "Plan usage loading…" after a failed fetch), **fixed in
+  v12.8** (DEC-044). Nor is `summaryLanguageNote`, which still needs an owner decision — see the
+  notice below.
 
 What reads Korean **since v12.7** (content analysis):
 - **Topic extraction** — the tokenizer keeps Hangul and uses a script-aware minimum length
