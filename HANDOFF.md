@@ -11,11 +11,18 @@ loading…" **forever** — which shipped as **v12.8**.
 for any tokenizer or i18n detail this doc summarises).
 
 **Status at close:**
-- **PR #73 — OPEN, CI green, Codex clean, NOT merged.** The owner merges after reading this.
-  Head `5dbce77`. Contains both arcs: the session record and the v12.8 fix.
+- **PR #73 — MERGED** 2026-08-06 (`36bec2f`), CI 9/9, Codex clean. Contained both arcs: the
+  session record and the v12.8 fix. **v12.8 is on `main` and live.**
 - **v12.8 shipped in that PR** — `ACN_VERSION` and `@version` both bumped from 12.7.
 - **Everything before it is merged:** #70 (`06a079f`, v12.7), #71 (`980aa68`, v12.7a),
   #72 (`fac7d50`, docs reframing).
+
+> **A handoff written before a merge is stale the moment the merge lands.** This one said
+> "PR #73 — OPEN … NOT merged" in its first bullet, and merging made that false — the highest-
+> traffic line in the repo, wrong by construction. Corrected in the same session. **If you close
+> a session by merging, re-read the handoff's status block afterwards**; nothing else catches it,
+> because the merge is what breaks it. Same shape as the two stale `## OPEN` headlines this
+> session found sitting over resolved bodies (§B.1).
 
 > **The one thing owed: a LIVE CONFIRM of v12.8 (DEC-031).** No mock reproduces a real 5xx from
 > claude.ai, and the standing rule is that a green suite is a context-scoped finding. **How to
@@ -260,8 +267,8 @@ rather than folded in.
 
 ## E. Git state
 
-`main` @ **`fac7d50`**. Working branch **`docs/session-record-pr72`** → **PR #73, OPEN, CI 9/9,
-Codex clean, MERGEABLE — not merged.**
+`main` @ **`36bec2f`** — clean tree, nothing unpushed, **no open PRs**. PR #73
+(`docs/session-record-pr72`) merged 2026-08-06 with CI 9/9 and Codex clean; branch deleted.
 
 | Commit | What |
 |---|---|
