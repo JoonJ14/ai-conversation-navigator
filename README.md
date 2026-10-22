@@ -127,7 +127,7 @@ If you prefer not to approve each site individually, you can set the extension t
 
 1. **`@match` rules are enforced by the extension** — The script's metadata declares exactly which URLs it should run on (`claude.ai`, `chatgpt.com`, `grok.com`, `gemini.google.com`). Userscripts.app reads these `@match` patterns and *only injects the script on those matching pages*, regardless of the Safari permission level.
 2. **The script itself only activates on recognized sites** — Even if somehow injected elsewhere, the code detects which platform it's on and does nothing if the site isn't one of the supported platforms.
-3. **No data leaves your browser** — The script is purely local DOM manipulation. It doesn't make network requests, collect data, or communicate with any external server.
+3. **No data leaves your browser** — On Claude, the script reads your own conversation from claude.ai with the same `GET` requests Claude's web app makes (see the privacy FAQ below). It never sends anything to any other server, never uploads, and collects nothing.
 4. **Fully open source** — You can read every line of the script to verify all of the above.
 
 So "Allow on All Websites" effectively behaves the same as per-site permissions for this script. But per-site is still the recommended default because it's good security hygiene for *any* extension.
@@ -350,11 +350,11 @@ The script does make a small number of network requests, but **only to the site 
 | `GET claude.ai/api/organizations/{org}/usage` | Plan usage bars |
 | `GET claude.ai/api/organizations/{org}/chat_conversations/{id}` | Read the conversation you have open (v12.0+) |
 
-These are the same endpoints Claude's own web app calls, using your existing session, and the `@connect claude.ai` header restricts them to that domain. They are all `GET` requests — the script never POSTs, never uploads, and never contacts any third party. No other platform makes any network request at all.
+These are the same endpoints Claude's own web app calls, using your existing session. They go out one of two ways, both confined to claude.ai: through `GM_xmlhttpRequest`, which the `@connect claude.ai` header restricts to that domain, or — since v12.9, and first on Safari's Userscripts app, whose `GM_xmlhttpRequest` does not carry your Claude session — as an ordinary `fetch` that the script only sends when the page you are on is exactly `https://claude.ai`. They are all `GET` requests — the script never POSTs, never uploads, and never contacts any third party. On the other platforms the only request the script ever makes is one you trigger yourself: downloading an image from the Tools gallery re-fetches that image from the address the page already loaded it from.
 
 **Why does it need to read my conversation now (v12.0+)?** Claude changed its web app to keep only about 3–5 messages in the page at a time and unload the rest. Reading the page can no longer see your whole conversation, so navigation, search, and export were all silently showing a small fraction of it. The script now reads the conversation from Claude's own API — the same data Claude already downloaded into your browser — so the list is complete. It is held in memory for the open tab and is never written to disk or transmitted.
 
-You can verify all of this: the `@grant` declarations are `GM_addStyle` (CSS injection), `GM_getValue`/`GM_setValue` (bookmarks, settings, cached counts), `GM_xmlhttpRequest` (the reads above), `unsafeWindow` (SSE token counting on Claude, Chrome only), and `@connect claude.ai`.
+You can verify all of this: the `@grant` declarations are `GM_addStyle` (CSS injection), `GM_getValue`/`GM_setValue` (bookmarks, settings, cached counts), `GM_xmlhttpRequest` (the reads above), `unsafeWindow` (SSE token counting on Claude, Chrome only), and `@connect claude.ai`. The `fetch` path needs no grant, so it does not appear in that list: search the source for `ciApiGet` to see every request the conversation index makes. The script also reads `GM_info` — which managers provide without a grant — only to learn which userscript manager it is running in.
 
 **Can this script see my other browser tabs or passwords?**
 

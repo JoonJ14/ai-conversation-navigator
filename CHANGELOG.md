@@ -4,6 +4,101 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.9 — The Claude Index Works on Safari: a Second Transport, Ordered by the Userscript Manager] — 2026-10-22
+
+**Branch:** `fix/safari-transport-fallback`
+
+### Problem
+
+On Safari with the Userscripts app, the Claude conversation index **always** failed. Every org candidate
+answered 403, the failure was classified PERMANENT, the retry backed off 60s → 240s → 960s, and Navigate,
+Search, Summary and Export showed only the 1–5 turns Claude keeps mounted:
+
+```
+[ACN] index failure looks PERMANENT (no org candidate accepted the conversation: HTTP 403 (HTTP 403)) — next retry in 60s
+[ACN] conversation index unavailable — falling back to DOM scan. Reason: no org candidate accepted the conversation: HTTP 403 (HTTP 403)
+```
+
+Firefox + Tampermonkey worked. Chrome + Tampermonkey failed the same way at least once, then recovered.
+
+### Root cause — the transport, not the site
+
+The owner's probe on Safari (v12.8, same tab, same conversation) separated the two: a plain
+`fetch(…, {credentials: 'include'})` from the extension content-script world got **200** for the right
+org, while the script's `GM_xmlhttpRequest` got **403** from every org. Endpoint, org discovery and the tree
+walk were all fine. **`GM_xmlhttpRequest` is each userscript manager's own implementation**, and
+Userscripts' does not carry the claude.ai session — it sends from the extension background page, where
+WebKit withholds SameSite cookies (read from its source and WebKit bug 260676, not measured). A Layer 3
+break that varies by *manager*, not by site.
+
+### Fix (DEC-045)
+
+- **Two transports** behind `ciApiGet`: `gmxhr` (v12.8's request, byte-for-byte) and `fetch` (exactly the
+  measured call: `fetch(location.origin + path, {credentials: 'include'})` — no headers, no AbortSignal —
+  and only from the page origin `https://claude.ai`). No page global is replaced; Rule 9 does not apply.
+- **Ordered by `GM_info.scriptHandler`** — Userscripts → fetch first, everything else → gmxhr first. The
+  rule for trying the second transport is the same in either order.
+- **The second transport is tried when the first was refused** (401, 403 or 404 from every candidate it
+  asked) **or could not run** (threw, does not exist, never called back). Not on network errors, timeouts,
+  429s, 5xx or malformed bodies (an org list that parses but holds no usable org included) — those keep
+  v12.8's classification on one transport.
+- **The winner is cached** for the page session — the transport that delivered a usable index, not merely
+  a 200 (Codex Tier 3).
+- **A refusal is never PERMANENT until both transports have been tried**, and a second transport that met
+  only refusals or silence (no server error) upholds the first's refusal — so a logged-out tab still backs
+  off as it did in v12.8.
+- **One diagnostic line per request**, naming the transport — `[ACN] index: transport=fetch org=730fcd2a… status=200`
+  (8-char org prefix, a vetted `error.type`, never any content) — and every degraded reason starts with
+  `[gmxhr]` / `[fetch]`.
+
+### Also fixed on the way — each one gated by the probe
+
+- A `GM_xmlhttpRequest` that throws synchronously, a manager that never calls back, a fetch that never
+  answers, a malformed `lastActiveOrg` cookie, and an org list whose `capabilities` is not an array each
+  used to leave the index stuck at "loading" for the rest of the session. Each now ends as a visible,
+  retried degradation (the first and last reproduced on v12.8).
+- A fetch is never cancelled, so two page-wide bounds keep requests from piling up: two timed out and still
+  pending, or six open at all. At either, a new attempt reports a timeout without sending another; each
+  request frees its slots when it ends (a late answer nobody reads has its body cancelled), and one
+  lingering request blocks nothing (Codex Tier 3; DEC-045 has why these numbers, and why page-wide).
+- Greasemonkey 4 ships no `GM_xmlhttpRequest`, so v12.8's index could never load there; a missing API now
+  counts as a transport that cannot run, and fetch takes over (from GM4's documented API; not measured).
+- An org list that answers 200 with no usable org no longer inherits the cheap candidates' 403 in its
+  reason, which sent that one shape to the PERMANENT backoff (Codex Tier 3).
+- The index now runs only on the exact origin `https://claude.ai`. Platform detection is
+  `host.includes('claude.ai')` and `@match` patterns ignore ports, so on a look-alike host — or claude.ai on
+  another port — the gmxhr path could fetch the user's real conversation and render it into that page
+  (pre-existing; found in review and Codex Tier 3).
+- Three comments claimed only a 404 advances to the next org candidate; a 403 does too.
+
+### Verification
+
+New probe `probes/check-transport-ladder.js`, in CI on ubuntu × {chromium, firefox, webkit} — the one probe
+that runs on all three engines, because fetch/promise/timer behaviour is what varies by engine. v12.9 passes
+all 63 checks on chromium, firefox and webkit; v12.8 fails 52 of 63 — L1, the Safari shape, among them
+(Playwright 1.58.2, macOS arm64, page realm). 46 mutants, each removing one mechanism: 43 are caught; the
+three that are not — a single-fire latch, a diagnostic rethrow, and the fetch origin refusal the index guard
+makes unreachable — are recorded as such. DEC-045 has the matrix.
+The full suite passes 560/560 on chromium and on firefox (macOS arm64). On webkit it is 556/560 here **for both
+v12.9 and v12.8** — the same four jump-acceptance entries, `got null` with healthy `raf10`, in an A/B under
+identical load and again solo: this machine's mac WebKit, not this change (TESTING.md's webkit-on-macos
+signature). CI's webkit jobs are the reference.
+
+### Not changed, on purpose
+
+`@grant` lines, the endpoint and query string, candidate order, the tree walk, jumps — and the **Plan usage
+panel**, which still uses `GM_xmlhttpRequest` only (on Safari it should still read "Usage data unavailable";
+ROADMAP 0d).
+
+### Owed
+
+Live confirms (DEC-031): Safari on a long conversation (`transport=fetch … status=200`, full count); Firefox
+unchanged (`transport=gmxhr … status=200`); Chrome recording which transport won. Chrome's 403 stays OPEN
+until those lines exist. **Found, not fixed:** nothing persists on Safari + Userscripts (no synchronous
+`GM_getValue`/`GM_setValue` — bookmarks and settings included); ROADMAP 0d.
+
+---
+
 ## [12.8 — A Failed Usage Fetch Now Says So] — 2026-08-05
 
 **Branch:** `docs/session-record-pr72` | **PR:** #73

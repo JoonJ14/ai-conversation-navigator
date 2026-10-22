@@ -471,6 +471,101 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ---
 
+## v12.9 — Safari (Userscripts): the conversation index always fell back to the DOM scan (found 2026-10-22)
+
+**Status:** FIXED in v12.9 (branch `fix/safari-transport-fallback`) — **live confirms owed on Safari, Firefox
+and Chrome (DEC-031)** | **Severity:** High on Safari — Navigate, Search, Summary and Export see only the
+1–5 mounted turns of a long conversation | **Layer:** 3, execution — the userscript manager (CLAUDE.md
+"Layer 3 has a second face") | **Decision:** DEC-045
+
+### Symptom
+
+Safari + the Userscripts app, any Claude conversation:
+
+```
+AI Conversation Navigator.user.js @inject-into value set to 'content' due to @grant values: GM_xmlhttpRequest
+[ACN] index failure looks PERMANENT (no org candidate accepted the conversation: HTTP 403 (HTTP 403)) — next retry in 60s
+[ACN] conversation index unavailable — falling back to DOM scan. Reason: no org candidate accepted the conversation: HTTP 403 (HTTP 403)
+```
+
+The backoff escalated 60s → 240s → 960s and the index never recovered in that tab.
+
+**Read the first line as evidence, not noise.** It is Userscripts reporting which grants it honoured, and it
+lists only `GM_xmlhttpRequest` although the script declares five: Userscripts silently drops `GM_addStyle`,
+`GM_getValue`, `GM_setValue` and `unsafeWindow` (they are not in its supported list — from its source).
+
+### Measured (owner, Safari, v12.8, same tab and conversation — a 6-message conversation)
+
+| Realm / transport | `GET /api/organizations` | right org `730fcd2a…` | other org `8db273c9…` |
+|---|---|---|---|
+| page realm, `fetch(…, {credentials:'include'})` | 200 | **200** | 403 `permission_error` (expected) |
+| Userscripts content world, same `fetch`, URL from `location.origin` | 200 | **200** | 403 (expected) |
+| the script's `GM_xmlhttpRequest` (Userscripts) | not probed | **403** | 403 |
+
+The `GM_xmlhttpRequest` org-list cell was not probed directly, but the log above answers it: that reason
+string is produced only when `/api/organizations` itself fails, and its `(HTTP 403)` is that request's status.
+
+### Root cause
+
+The transport. `GM_xmlhttpRequest` is each manager's own implementation; Userscripts sends it from its
+extension background page, and the claude.ai session does not go with it. Most likely mechanism (from
+Userscripts' source and WebKit bug 260676 — **not measured**): WebKit withholds SameSite cookies from
+extension-context requests. A same-origin `fetch` from the content-script world carries them.
+
+Why it looked PERMANENT: the classifier is right that 403 from every org means "refused" — but it was judging
+one transport, and the other one would have been accepted.
+
+### Fix (v12.9, DEC-045)
+
+A transport ladder — `gmxhr` and `fetch`, ordered by `GM_info.scriptHandler` (Userscripts → fetch first),
+trying the second when every candidate refused the first (401/403/404) or it could not run, caching the
+winner for the page session, and never declaring a refusal PERMANENT until both have been tried.
+
+### Reading the new log lines — what to collect if it fails again
+
+| Line | Means |
+|---|---|
+| `[ACN] index order: fetch → gmxhr (scriptHandler: Userscripts)` | detection worked; fetch goes first |
+| `[ACN] index order: gmxhr → fetch (scriptHandler: unknown)` on Safari | no `GM_info` (Userscripts before 4.1.0, or an injection-mode change). Still works — costs one refused gmxhr walk per page load |
+| `… (this session's last winner first)` | a transport already won in this page session |
+| `[ACN] index: transport=gmxhr org=730fcd2a… status=403 error.type=permission_error` | the server refused THIS transport for that org |
+| `[ACN] index fallback: gmxhr was refused by every org candidate — trying fetch` | the Safari shape; the next lines should show `transport=fetch … status=200` |
+| `status=403` with **no** `error.type` | the body was not claude.ai's JSON error — possibly a Cloudflare challenge page (`cf-mitigated`). Check the request in the inspector |
+| `status=0 error=network error (…)` | no answer at all — not a credential problem; retried on the cooldown, no fallback |
+| `status=0 error=GM_xmlhttpRequest never called back` | the manager dropped the request (Userscripts' source shows it does this when its background page unloads); the ladder tries fetch |
+| `status=0 error=timeout (earlier requests are still unanswered)` | two earlier fetches timed out and are still pending, or six are open at once (conversations opened faster than the path answers); no new request is sent until one ends. One pending fetch never blocks — the path itself is hanging |
+| `status=0 error=fetch refused: page origin is not https://claude.ai` | should never appear: the index itself only runs on exactly `https://claude.ai`. If it does, that guard (`ciIsClaudeChat`) was loosened — the fetch refusal is its backstop |
+| `index failure looks PERMANENT ([gmxhr] … · [fetch] …)` | both transports refused: logged out, or the conversation is in none of your orgs |
+| `index failure looks PERMANENT ([gmxhr] HTTP 429)` (one transport only) | rate-limited: kept on v12.8's backoff without asking the other transport, which would only add requests |
+
+To see the gmxhr request itself on Safari: **Develop → Web Extension Background Content → Userscripts →
+Network**, and check its Cookie, Origin and Sec-Fetch-Site headers.
+
+### Open
+
+- **Chrome + Tampermonkey's one-time 403 — UNEXPLAINED.** A candidate, unverified: Tampermonkey #2782
+  (cookies received through GM_xhr stored partitioned, then overwriting the unpartitioned session cookie;
+  fixed in a TM beta). Do not theorise further without the `[ACN] index:` lines from an occurrence.
+- **Plan usage on Safari** still uses `GM_xmlhttpRequest` only — expect "Usage data unavailable" (inferred).
+- **Persistence on Safari** — Userscripts provides no synchronous `GM_getValue`/`GM_setValue`, so bookmarks,
+  settings and the org cache never persist there (from its source; every call site is try/caught, so it
+  fails silently). Separate from this fix; ROADMAP 0d.
+- **A long conversation on Safari** — the measurement above used 6 messages.
+
+### Verification
+
+`probes/check-transport-ladder.js`, in CI on ubuntu × {chromium, firefox, webkit}. v12.9 passes all 63 checks
+on chromium, firefox and webkit; v12.8 fails 52 of 63 — L1, the Safari shape, among them (Playwright 1.58.2,
+macOS arm64, page realm). 46 mutants, each removing one mechanism: 43 are caught; the three that are not — a
+single-fire latch, a diagnostic rethrow, and the fetch origin refusal the index guard makes unreachable — are
+recorded as such. DEC-045 has the matrix.
+
+To reproduce the v12.8 failure: `ACN_SCRIPT=<a v12.8 copy> node probes/check-transport-ladder.js --browser webkit`.
+Context: Playwright page realm — it proves the ladder's decisions, not which real manager's transport carries
+credentials; that is a live check on the device.
+
+---
+
 ## v12.8 — A failed usage fetch said "loading" forever, in both languages (found by audit 2026-08-03, fixed 2026-08-05)
 
 **Status:** FIXED in v12.8 (PR #73) — **live confirm still owed (DEC-031)** | **Severity:**

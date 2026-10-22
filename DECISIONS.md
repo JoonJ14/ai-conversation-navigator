@@ -659,6 +659,8 @@ Critically, this is **not** a selector break. The selectors matched correctly; t
 ### Why an API read is safe here (and why fetch interception was not)
 DEC-019 and DEC-020 established that replacing page globals — especially `fetch` — crashes Claude on Firefox, because a sandbox-compartment function taints the return pipeline the page then inspects. **That reasoning does not apply here.** This is an ordinary *outbound* request via `GM_xmlhttpRequest`: it replaces no page global, the page never sees our Promise, and nothing crosses back into the page compartment. `GM_xmlhttpRequest` was explicitly rejected in DEC-020 as a way to *intercept* existing traffic — that rejection stands. Using it to make our own request is a different thing entirely.
 
+> **v12.9 addendum (DEC-045) — the same request can now also go out through `fetch()`.** On Safari's Userscripts app `GM_xmlhttpRequest` does not carry the claude.ai session, so the index has a second transport: `fetch(location.origin + path, {credentials: 'include'})` from the script's own realm. The reasoning above still holds for it — it *calls* `fetch`, replaces no page global, and consumes its own result — with one precision: wherever the SSE interceptor has replaced the `window.fetch` that the index's bare `fetch` resolves to, the index's call passes *through* our own SSE proxy (`acnFetchProxy`, a pass-through to the bound native `fetch`). That is so in the test harness (page realm), on **Safari + Userscripts** (finding no `unsafeWindow`, the interceptor patches the content world's own `window`), and — inferred from Tampermonkey's default `raw`/MAIN-world mode, not measured — on Chrome + Tampermonkey, where the call may also pass through page-installed wrappers. Being a caller of a function is not replacing it, so DEC-019/DEC-020's failure mode (a page inspecting a sandbox-made return value) does not arise — but a change to `acnFetchProxy` is a change to the Safari index transport. On Firefox + Tampermonkey the interceptor is skipped and `fetch` is the sandbox's own (inferred, not measured); detection never puts it first there — it runs only after `gmxhr` was refused or could not run, and leads for the rest of that page session once it has won a load. A throw there is caught and becomes an ordinary failure.
+
 ### Verified endpoint behaviour
 ```
 GET /api/organizations/{org}/chat_conversations/{cid}
@@ -2320,3 +2322,241 @@ route-changed while initialisation was still running and issued **no second requ
 reporting `requests=0` — which reads as a failure of the code under test rather than of the
 scenario. Both are the same lesson the project already has: *a single run is not a measurement*,
 and **check that the fixture did the thing before believing what it says about the code.**
+
+---
+
+## DEC-045: The Conversation Index Has Two Transports, Ordered by the Userscript Manager — and a Refusal Is Never Final Until Both Have Been Tried (v12.9)
+**Date:** 2026-10-22 | **Stage:** v12.9
+
+### Decision
+The Claude conversation index can make its requests over either of two transports:
+
+- **`gmxhr`** — `GM_xmlhttpRequest`, with exactly the v12.8 request options.
+- **`fetch`** — `fetch(location.origin + path, {credentials: 'include'})` from the userscript's own realm,
+  exactly the call that measured 200 on Safari (no custom headers, no AbortSignal), and only when the
+  page origin is exactly `https://claude.ai`.
+
+`GM_info.scriptHandler` (or `GM.info.scriptHandler`, where a manager exposes only that — probe L5c) orders
+them: **Userscripts → fetch first**; Tampermonkey, Violentmonkey, Greasemonkey or unknown → **gmxhr first**.
+A load walks every org candidate on the first transport and walks them again on the second when the first
+was **refused** (401, 403 or 404 from every candidate it asked) or **could not run** (threw, does not exist,
+or never called back). The winner — the transport that
+delivered an index that validated and built, not merely a 200 — is cached for the page session. **A refusal
+is never declared PERMANENT until both transports have been tried.**
+
+### Context — the same call, different credentials
+On Safari with the Userscripts app the index ALWAYS failed: 403 from every org, classified PERMANENT,
+backing off 60s → 240s → 960s, Navigate stuck on the 1–5 mounted turns. Firefox + Tampermonkey worked.
+Chrome + Tampermonkey failed the same way at least once, then recovered with no update.
+
+Measured by the owner on Safari, v12.8, same tab and same conversation (a 6-message conversation):
+
+| Realm / transport | `GET /api/organizations` | right org `730fcd2a…` | other org `8db273c9…` |
+|---|---|---|---|
+| page realm, `fetch(…, {credentials:'include'})` | 200 | **200** | 403 `permission_error` (expected) |
+| Userscripts content world, same `fetch`, URL from `location.origin` | 200 | **200** | 403 (expected) |
+| the script's `GM_xmlhttpRequest` (Userscripts) | not probed | **403** | 403 |
+
+The `GM_xmlhttpRequest` org-list cell was not probed, but the script's own log answers it: the reason
+`no org candidate accepted the conversation: HTTP 403 (HTTP 403)` is produced only when `/api/organizations`
+itself fails, and its `(HTTP 403)` is that request's status.
+
+**Mechanism — read from Userscripts' source and public bug reports, NOT measured:** Userscripts sends
+`GM_xmlhttpRequest` from its extension background page (`safari-web-extension://…`), and WebKit withholds
+SameSite cookies from extension-context requests (WebKit bug 260676). A same-origin fetch from the
+content-script world carries them like any page request. If that is the cause, retrying `gmxhr` can never
+work on Safari — which is why fetch goes FIRST there rather than merely being available.
+
+### Why a ladder, not a swap
+- **Switching wholesale to `fetch`** — rejected. `fetch` has never been measured in the Tampermonkey
+  sandbox, while `gmxhr` is the proven Firefox path. A swap trades a measured path for an unmeasured one
+  on the platform the owner uses daily.
+- **Dropping the `GM_xmlhttpRequest` grant** — rejected. Userscripts forces `@inject-into content`
+  *because of* that grant; the grant decides the realm the script runs in.
+- **Falling back per request** (retry each 403 on the other transport) — rejected. A 403 is also how an org
+  the account is not in answers, so a multi-org user would double the requests for every wrong org, and
+  Firefox's success path would start calling `fetch` (probe L2 runs exactly that shape).
+- **Detecting the browser instead of the manager** — rejected. The variable is the manager's transport, not
+  the browser: Tampermonkey-on-Safari and Stay also send from a background page but report other names. The
+  ladder recovers those at the cost of one refused walk per page session, without sniffing.
+
+### What does and does not send the load to the other transport
+Each walk keeps a per-RESPONSE trace — `refused` (401/403/404), `threw`, `noAnswer` (network error,
+timeout), `verdict` (anything else) — because the decision is about the transport, and the walk's final
+error describes only its last step.
+
+| First transport saw | Other transport tried? | Why |
+|---|---|---|
+| only refusals: 401/403/404 (the org list included, if it was asked) | **yes** | the spec's "401/403 for every org candidate". 404 is included because the walk already treats it exactly like 403, and a 404 from one transport says nothing about the other — which may be signed in as someone else entirely. Excluding it let a 404+403 walk go PERMANENT with the other transport never asked (review, reproduced) |
+| a throw, a missing API, or (gmxhr) no callback 5s past the manager's own timeout | **yes** | the spec's "or throws": the transport cannot run here |
+| a network error or a manager-reported timeout | no | the other transport cannot fix an outage, and falling back on a blip would move Firefox onto fetch for the session (the winner is cached). Transient: retried on the cooldown |
+| 429 | no | the account is rate-limited; asking again through the other transport only adds to it. Keeps v12.8's PERMANENT backoff |
+| 5xx, malformed body — including an org list that parses but holds no usable org | no | a verdict about the server — v12.8's class (5xx transient, malformed JSON permanent, an unusable org list transient). The org-list case is counted separately because it arrives as a parsed 200 (Codex Tier 3 round 7) |
+
+The walk stops at the first non-refusal it meets, so its reason names that kind. That is why the
+guarantee holds: **a refusal can never be declared PERMANENT without the other transport having been tried.**
+Detection decides only the order; the rule is the same in either order. The order can change the
+OUTCOME only when one of the last three rows strikes the first transport and not the second — the one
+documented exception to "correctness does not depend on detection", and the reason the 429 row exists
+rather than being an oversight.
+
+### Classification once both have failed
+PERMANENT when the second transport's own verdict is permanent (v12.8's rule), **or** when the second met
+nothing that *explains* its failure — only refusals, throws or silence; no server error, rate limit or bad
+body — and the first was refused. Then nothing says the second could do better, so the first's refusal
+stands — otherwise a logged-out Firefox tab whose `fetch` merely fails to connect, or meets a wrong-org 403
+and then silence, would re-poll both refused walks every ~16s forever, where v12.8 backed off. (The first
+version of this rule required the second to have met *no* answer at all; Codex Tier 3 round 3 showed that a
+single wrong-org 403 then let the loop through — probe LM6.) A 5xx from the second **is** a server verdict,
+may clear on its own, and stays on the plain cooldown — and so is an org list that answers 200 but holds no
+usable org (LM8, LM8b: before round 7 it upheld the refusal, PERMANENT where v12.8 retried). Two transports that both could not run stay
+transient, as v12.8's "GM_xmlhttpRequest unavailable" always was: nothing reached a server, so there is
+nothing to back off from.
+
+Every degraded reason names its transport: `[gmxhr] <reason>` for one, `[gmxhr] <reason> · [fetch] <reason>`
+for both. The classifier regex is unanchored, so the prefix changes no class.
+
+### Diagnostics
+One line per request, naming the transport (the measurement-context rule — a log from a user's browser must
+say which transport failed, without a probe):
+
+    [ACN] index order: fetch → gmxhr (scriptHandler: Userscripts)
+    [ACN] index: transport=fetch org=730fcd2a… status=200
+    [ACN] index fallback: gmxhr was refused by every org candidate — trying fetch
+    [ACN] conversation index ready: 40 questions (81 messages in payload) via fetch
+
+Org uuids are cut to 8 characters. No response body is printed — only an `error.type` that passes an
+identifier check, so a hostile or unexpected body cannot put anything else in the console.
+
+### Guards added because the ladder made them reachable (found in review)
+- **A fetch is never cancelled** (no AbortSignal) — a timed-out or superseded one stays open until the
+  network gives up on it — so two **page-wide** bounds keep requests from piling up. At either, a new attempt
+  reports a timeout without sending; every request frees its slots the moment it ends — answered, rejected,
+  or answered too late, in which case its body is cancelled so the download stops with it (Codex Tier 3
+  round 9; LWg, LWh, LWc).
+  - **Two timed out and still pending** — the retries' bound: the transient retry runs every ~16s, so each
+    retry into a hanging path would leave one more behind. *Two*, because one lingering request is no
+    evidence the path is dead — a single hang, in this conversation or another, blocks nothing — and two at
+    once is.
+  - **Six open at all**, timed out or not — navigation's bound. The stall count sees a request only once its
+    45s are up, so opening conversation after conversation inside that window could open any number (Codex
+    Tier 3 round 6, after the docs had claimed navigation could not exceed the cap — it could). Six is far
+    above what real use keeps open — one load per conversation, ~2.1s for a 3.3MB payload (DEC-021, measured
+    on the reference conversation in a foreground tab) — so only a burst into a hanging path reaches it.
+
+  *Page-wide*, because a per-conversation count was tried first and needed re-keying in three review
+  rounds: a hang in chat A blocked chat B (round 3); a switch made during the first load skipped the reset in
+  `ciInvalidate` (round 4); and with the reset moved into `ciLoadIndex`, navigating A → B → A reset the
+  count, so switching could pile up uncancellable requests without bound (round 5).
+  The cost, accepted: if two requests hang and never end, the index stays degraded (with its banner) until
+  a reload. claude.ai sits behind Cloudflare, whose documented ~100s origin timeout should end a hung
+  request on its own — inferred from Cloudflare's documentation, not measured.
+  Gated from both sides: LWb-cap fails with a stall cap of three, LWd and LWe with one, LWc without the
+  release; LWf fails with no open bound or a bound of five, LWg when an answered request keeps its slot,
+  LWh when a rejected one does.
+- **The gmxhr watchdog sits 5s past the manager's own 45s timeout,** so a live but slow request always
+  reports its timeout first — a slow server, no fallback. At or before 45s it would hand every merely-slow
+  request to fetch, and cache fetch as the winner (LWi, with the manager's timeout fired at its real 45s).
+- **The index requires the exact origin `https://claude.ai`.** Claude's platform detection is
+  `host.includes('claude.ai')`, and `@match` patterns ignore ports, so on a look-alike host — or claude.ai on
+  another port — the pre-existing gmxhr path could fetch the user's real conversation from claude.ai and
+  render it into that page (review + Codex Tier 3; gated). **`fetch` also refuses any page origin but
+  `https://claude.ai`** — it carries the page's cookies. While the index guard holds, that refusal cannot
+  fire: it is defense in depth, and recorded as unreachable rather than claimed as gated.
+- **Org ranking no longer throws on an unexpected `capabilities` shape.** It runs inside a response
+  callback, where a throw abandons the walk with the in-flight marker set — the panel then read "loading"
+  for the session (pre-existing in v12.8; reproduced in review).
+
+### Also fixed, because the ladder runs through them
+- **A synchronous `GM_xmlhttpRequest` throw escaped `ciLoadIndex`** as a page error and left the in-flight
+  marker set: the index sat at "loading" for the session (reproduced on v12.8 by probe L4a).
+- **A request that never settles** now delays the index instead of wedging it: a 45s timer on fetch, and a
+  watchdog 5s past the manager's own timeout on gmxhr (Userscripts drops every callback when its background
+  page unloads — read from its source, not observed).
+- **A throw in a walk's synchronous prefix** (a malformed cookie) ends the load as an ordinary degraded
+  failure instead of escaping.
+- Greasemonkey 4 ships no `GM_xmlhttpRequest` at all, so v12.8's index could never load there; it now falls
+  through to fetch (from GM4's documented API; the fall-through is gated by probe L4d, GM4 itself not
+  measured).
+- **An org list that answers 200 with no usable org no longer inherits the cheap candidates' 403.** The
+  all-orgs walk appended that status so an unauthorized tab would back off (v12.8, Codex R23) — but a list
+  that answered 200 shows the tab IS authorized, and the stale 403 sent this one shape to the PERMANENT
+  backoff while its other two shapes retried on the cooldown. Its reason now says the list held no usable
+  org (Codex Tier 3 round 8; LM8c). The only change to a reason the walk produces.
+
+### What was deliberately NOT changed
+`@grant` lines; the endpoint and its query string; candidate order; the 403/404-advance and 401-terminal
+rules; every reason the walk produces but one (above); the tree walk; resolve-on-arrival jumps; and the
+**Plan usage panel**, which still uses `GM_xmlhttpRequest` only — on Safari it should therefore still read
+"Usage data unavailable" (inferred). Moving it is a separate change because it carries DEC-044's ordering
+rules (ROADMAP 0d).
+
+### Verification
+`probes/check-transport-ladder.js`, in CI on ubuntu for all three engines. Context: Playwright, page realm —
+it proves the ladder's DECISIONS, not which real manager's transport carries credentials.
+
+Results, measured 2026-10-22 against snapshot builds (Playwright 1.58.2 — chromium-1208, firefox-1509,
+webkit-2248 — macOS arm64, page realm): **v12.9 passes all 63 checks on chromium, firefox and webkit; v12.8
+fails 52 of 63** on chromium and firefox — the same list on both, L1 (spec fixture 1, the Safari shape)
+among them. The 11 it passes are the guards both builds must keep — the Firefox path and its byte-identical
+request (L2, L2-shape, L2b), the backoff and the network-error rule (L3, L3-backoff, L6, L6-retry), the
+sentinel (L0) — and three it passes trivially, having no fetch to misuse (L7d, LM2, LM4).
+
+Mutation matrix — one mechanism removed per build, chromium; 43 of 46 are gated, and the three that are not
+say why:
+
+| Mutant | Mechanism removed | Checks that fail |
+|---|---|---|
+| M01 | no ladder — a failed first walk is final | L1, L1-list, L1-log, L1-shape, L1b, L1c, L1-slow, L5b, L5b-cache, L1v, L4a, L4b, L4d, L3-order, L3d, L3d-retry, LM1, LM5, LM6, LM8, LM8b, LM8c, LN, L3b, L3c, L4c, LWa |
+| M02 | detection ignored — gmxhr always first | L5, L5c, L5b, L4b, L6b, LWb, LWb-cap, LWc, LWd, LWe, LWf, LWh |
+| M03 | fallback on ANY failed walk (network errors included) | LM2, LM3, LM4, LM7, LM9, L6, L6-retry, L6b, LWb, LWc, LWd, LWe, LWh, LWi |
+| M04 | both failed: classify by the first transport only | L3d, L3d-retry, LM8, LM8b, LM8c |
+| M05 | both failed: a second with no verdict no longer upholds the first's refusal | LM6, L3b, L3c |
+| M06 | the winner is never cached | L1b, L5b-cache |
+| M07 | a synchronous GM throw escapes (v12.8) | L4a, L4c |
+| M08 | gmxhr request no longer byte-identical (Cache-Control dropped) | L2-shape |
+| M09 | fetch grows a custom header | L1-shape |
+| M10 | error.type printed unvetted | L7e |
+| M11 | per-REQUEST fallback on every 403 | L1-list, L1b, L1-slow, L7f, L2, L5, L5c, L5b-cache, L4a, L4b, L4d, LM2, LM3, LM4, LM5, LM6, LM8c, LM9, LN, L3b, L3c, LWa |
+| M12 | detection unguarded — a throwing GM_info getter escapes | L1c |
+| M13 | a rejected fetch counts as "threw" (fallback-eligible) | L6b, LWh |
+| M14 | no gmxhr watchdog | LWa |
+| M15 | no fetch timeout timer | LWb, LWb-cap, LWc |
+| M16 | no try/catch around the walk prefix | L8 |
+| M17 | onerror detail not logged | L6-log |
+| M18 | no single-fire latch on finish() | **none — not gated:** insurance — every path calls `finish` once by construction; the latch makes that a guarantee |
+| M19 | a throw from a callback is swallowed, not rethrown | **none — not gated:** diagnostic only — rethrows a callback's exception on a fresh stack so it shows as a page error; no callback throws any more (`ciRankOrgs` was made total) |
+| M20 | 404 is a verdict again, not a refusal | LM1 |
+| M21 | fetch sends from any page origin | **none — not gated:** unreachable while `ciIsClaudeChat` holds — the index never runs on another origin; kept as defense in depth |
+| M22 | the index runs on any page detected as Claude | LO, LH |
+| M22b | index guard checks hostname only (any port passes) | LO |
+| M23 | no cap on timed-out fetches (the open bound stays) | LWb-cap |
+| M24 | v12.8 ranking — object `capabilities` throws in the callback | LR |
+| M25 | single-transport reasons no longer name the transport | LM3, LM9 |
+| M26 | a late answer no longer frees its stalled slot | LWc |
+| M27 | only FETCH winners are cached | L5b-cache |
+| M28 | round 2's rule: any refusal on the second walk lets the re-poll loop through | LM6 |
+| M30 | gmxhr's own timeout classed as "could not run" (fallback-eligible) | LM7, LWi |
+| M31 | stall cap of ONE — a lone hang blocks every later fetch | LWc, LWd, LWe |
+| M32 | stall cap of THREE | LWb-cap |
+| M33 | winner cached before its body is validated (round 5's position) | L1v |
+| M34 | fetch drops the query string | L1-shape |
+| M35 | no bound on OPEN fetches (only timed-out ones counted) | LWf |
+| M36 | an open fetch never frees its slot when it ends | LWe, LWg, LWh |
+| M37 | open bound of FIVE | LWf |
+| M38 | detection ignores GM.info (reads GM_info only) | L5c |
+| M39 | unparseable JSON classed as "could not run" (fallback-eligible) | LM9 |
+| M40 | an unusable org list is no verdict — first org-list path | LM8b |
+| M41 | an unusable org list is no verdict — all-orgs path | LM8, LM8c |
+| M42 | an unusable org list keeps the cheap candidates' 403 in its reason | LM8c |
+| M43 | a missing GM_xmlhttpRequest read as "no answer" (no fallback) | L4d |
+| M44 | a late answer's body is left streaming (not cancelled) | LWc |
+| M45 | a rejected fetch never frees its open slot | LWh |
+| M46 | gmxhr watchdog AT the manager's 45s timeout, not past it | LWi |
+
+### Open
+- **Chrome + Tampermonkey's 403 — unexplained.** A candidate, unverified: Tampermonkey issue #2782. The new
+  log lines are what will settle it (ROADMAP 0d).
+- **Live confirms owed (DEC-031):** Safari on a long conversation; Firefox unchanged; Chrome's transport line.
+- **Nothing persists on Safari + Userscripts** (no synchronous `GM_getValue`/`GM_setValue`, from its source):
+  bookmarks, settings and the org cache among others. Outside this change; ROADMAP 0d.

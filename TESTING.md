@@ -472,6 +472,37 @@ models (for `chipRows`: that the named row has **no** `[data-testid="user-messag
 read after `scrollToFraction(0)` so the row is actually mounted), and mutation-verify by flipping
 the knob off and watching the assertion fail.
 
+### The transport ladder is gated by a probe, not by these entries (v12.9)
+
+Since v12.9 the index can reach Claude over two transports (DEC-045), and **no suite entry can
+exercise the choice between them**:
+
+- The suite's GM shim (`buildGmFixtureShim`) delivers every non-200 through `onerror`, which the
+  userscript reads as "no answer". A real manager delivers a 403 through `onload`, with its status.
+  So no shim entry can produce the refusal that triggers the fallback — the shim entries never
+  leave `gmxhr`, which is also why the GM-only counters (`__convFetches`, `__convFetchOk`) are
+  still complete for them. Do not "fix" the shim to real semantics casually: the `failFetchAfter`
+  entry's reason would change from `network error` to `HTTP 500` (both transient, so its
+  assertions hold), and every count-based wait would need re-deriving.
+- The one entry that DOES reach `fetch` is `Claude (virtualized)` (no shim): "GM_xmlhttpRequest
+  unavailable" counts as a transport that cannot run, so the ladder tries `fetch`, which the route
+  handler aborts. It still degrades visibly — the banner now names both transports — a few
+  milliseconds later than v12.8 did, and retries every ~16s with one aborted request each time.
+
+`probes/check-transport-ladder.js` is the gate. Two harness facts it had to account for, both
+measured on all three engines:
+
+- **The userscript's own SSE proxy masks one bug shape here.** In the page realm the SSE
+  interceptor replaces `window.fetch` with `acnFetchProxy`, which attaches a `.catch` to every
+  claude.ai request — marking the raw promise handled. A transport that leaked an unhandled fetch
+  rejection would therefore pass this suite's `No uncaught page errors`. The probe's
+  Firefox-shaped scenarios stub `exportFunction` (as Firefox + Tampermonkey has it), so the
+  interceptor skips and such a leak surfaces.
+- **Every page-realm fetch leaves a resource-timing entry**, and `ciResolveOrgCandidates` harvests
+  org uuids from those — so after one fetch-leg walk, every org it touched becomes a cheap candidate
+  on the next load (chromium and firefox record aborted requests too; webkit only fulfilled ones).
+  Count requests per load, not per page.
+
 ### The legacy-bookmark entry — the uniqueness gate had zero coverage
 
 `Claude (legacy schema-1 bookmarks)` seeds pre-v12.0 records through the GM shim with
@@ -1592,6 +1623,7 @@ is what worked here), or an explicit admin merge with this record attached.
 | CSS-in-JS hash instability | Replit's Emotion classes change per deployment; our mock uses a frozen snapshot of `data-testid` attributes | The mock tests the "happy path" (data-testid exists). If Replit removes data-testid, the fallback selectors activate — test a separate mock for that path if needed |
 | SPA navigation | The test loads the page once; it doesn't simulate route changes or conversation switching | The SPA hooks (pushState/replaceState interception) are tested implicitly — they exist in the script — but their behavior on navigation isn't exercised |
 | CSP (Content Security Policy) | Some sites (Gemini) have strict CSP that blocks inline scripts; the test pages have no CSP | The userscript avoids `innerHTML` (uses `createElement` + `textContent`) specifically for CSP compliance — this was validated manually |
+| Which transport a real manager lets through (v12.9) | The harness inlines the script into the page realm; `GM_xmlhttpRequest` is a shim and `fetch` is the page's. Whether a manager's `GM_xmlhttpRequest` carries the session (Userscripts' does not) only exists in the real extension | `probes/check-transport-ladder.js` proves the ladder's *decisions*; the owner's live check on Safari, Firefox and Chrome proves the *credentials*. The `[ACN] index: transport=…` console lines are the evidence |
 | Cross-browser differences | Chromium and Playwright-Gecko are covered; WebKit is not installed locally | `npx playwright install webkit`, then `--browser webkit`. Note none of these are the Tampermonkey sandbox — see the Firefox scope note above |
 
 ### The `--single-process` flag
