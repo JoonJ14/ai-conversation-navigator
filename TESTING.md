@@ -500,7 +500,8 @@ exercise the choice between them**:
   silently not applying (DEC-037). A change to the ladder's code therefore breaks the builder on purpose:
   re-anchor the mutants it names, or retire them with their mechanism.
 - Every mutant runs through the probe on chromium (`ACN_SCRIPT=<mutant> node probes/check-transport-ladder.js
-  --browser chromium`), three runs in parallel by default (`-j N`); one run takes ~2–3 minutes. The build
+  --browser chromium`), three runs in parallel by default (`-j N`); one run takes ~2–3 minutes, and the full
+  battery took 33 minutes at `-j 4` on the owner's Mac (2026-10-23). The build
   under test runs on all three engines and must pass every check; v12.8 (`b471ddc`) runs on chromium and
   firefox as the reference from before the ladder.
 - Everything runs against a **snapshot tree**: the script copies the build, the probe and its two helpers into

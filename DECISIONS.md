@@ -1255,11 +1255,22 @@ is a live run on the commit actually being shipped.
 
 **Addendum — merged before the live confirm, on the owner's explicit call (2026-10-23).** The owner waived
 this rule twice:
-- PR #73 (v12.8), whose usage-panel confirm is still owed;
-- PR #75 (v12.9), merged as `4c72ca9` with its Safari, Firefox and Chrome confirms owed (ROADMAP 0d).
+- PR #73 (v12.8), merged before its usage-panel confirm;
+- PR #75 (v12.9), merged as `4c72ca9` before its Safari, Firefox and Chrome confirms.
 
 A waiver moves the merge, not the debt: each confirm stays owed on the merged build until it is run. Record
 every waiver here, and in the release's CHANGELOG entry.
+
+**Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
+point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
+review record. Updated 2026-10-23:
+- **v12.9 (PR #75).** Safari + Userscripts **PASS** (owner): `transport=fetch org=730fcd2a… status=200`; the
+  index ready with 144 questions (295 messages in the payload) via fetch; jumps to Q1 through Q144, the last
+  five included, all landed. Firefox + Tampermonkey (Linux) **PASS** (owner, after the merge). Chrome +
+  Tampermonkey **OWED**: record which transport won (ROADMAP, the owner's order).
+- **v12.8 (PR #73).** The usage panel on Firefox + Tampermonkey **PASS** (owner): it shows real plan usage,
+  matching Claude Code's figures exactly. That observes the rendered state. On Safari the panel is expected to
+  fail (`GM_xmlhttpRequest`); the Safari parity follow-up covers it (ROADMAP 0d), not a separate debt.
 
 ---
 
@@ -2319,8 +2330,8 @@ the time and its race produced the *same symptom as the mutant*. With the race f
 passes. Both results are kept, per the rule that a contradiction between two measurements is
 itself the finding.
 
-Suite 1120/1120 both engines. **Still owed: a live confirm (DEC-031)** — no mock reproduces a
-real 5xx from claude.ai, and the standing rule is that a green suite is a context-scoped finding.
+Suite 1120/1120 both engines. No mock reproduces a real 5xx from claude.ai, and a green suite is a
+context-scoped finding, so the release needed a live confirm. **Live confirmation status: DEC-031.**
 
 ### What this cost, recorded because it is the reusable part
 The probe's first two drafts were both **fixed sleeps sampling a transient state** — the panel
@@ -2526,13 +2537,11 @@ Results against v12.8, the mutation matrix and the CI runs are kept in ONE place
 
 ### Open
 - **Merged 2026-10-23 as `4c72ca9`, before the live confirms, on the owner's call.** That is a waiver of DEC-031,
-  recorded there. The shipped userscript is `9ee5222`'s.
+  recorded there. The shipped userscript is `9ee5222`'s. **Live confirmation status: DEC-031.**
 - **Chrome + Tampermonkey's 403 — unexplained.** A candidate, unverified: Tampermonkey issue #2782. The new
   log lines are what will settle it (ROADMAP 0d).
 - **The exact-origin guard covers the index only.** The usage panel and the SSE install are not covered (ROADMAP
   0d; found after the merge, pre-existing).
-- **Live confirms owed (DEC-031):** Safari on a long conversation, including a jump to each of its last five
-  questions (TROUBLESHOOTING, "OPEN — Local mac WebKit"); Firefox unchanged; Chrome's transport line.
 - **Nothing kept in GM storage works on Safari + Userscripts** (no synchronous `GM_getValue`/`GM_setValue`,
   from its source): bookmarks, saved commands, the language and platform toggles, the org cache. Display mode,
   scroll direction and panel width use `localStorage` and are unaffected. Outside this change; ROADMAP 0d.

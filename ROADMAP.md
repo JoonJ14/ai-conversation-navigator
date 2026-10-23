@@ -30,15 +30,28 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.9 MERGED (PR #75, `4c72ca9`, 2026-10-23) — live acceptance owed
+## Current Status: v12.9 MERGED (PR #75, `4c72ca9`) — live confirmation status: DEC-031
 
 **v12.9 (PR #75, merged 2026-10-23 as `4c72ca9` on the owner's call, before its live acceptance).** The Claude
 conversation index gets a second transport so that it can work on Safari + Userscripts (DEC-045; item 0d).
 The review pipeline approved it. GitHub Codex found nothing on any of its commits. CI went 9/9 on each commit,
 after one re-run each for two runner/harness flakes (TROUBLESHOOTING, TESTING).
-None of that is a real-browser result: the owner's live checks on Safari (a long conversation, and jumps
-to its last questions), Firefox and Chrome are what is owed. Of the PR's non-spec parts the owner
-kept all but one, the unusable-org-list retry, which is reverted (review record, "Scope against the spec").
+None of that is a real-browser result. The owner's live acceptance ran after the merge: **live confirmation
+status: DEC-031.**
+
+Of the PR's non-spec parts the owner kept all but one, the unusable-org-list retry, which is reverted (review
+record, "Scope against the spec"). PR #76 (merged as `5201937`) closed out the session: docs, the CLAUDE.md
+fixes, and the mutation tooling under `probes/`.
+
+**Next, in the owner's order (2026-10-23).** The next session opens with a new spec, which the owner gives as
+its first message; it is not in the repo. After it:
+1. **Chrome check:** v12.9 on Chrome + Tampermonkey, with Claude Code driving the owner's real Chrome profile,
+   not a fresh one (item 0d).
+2. **Gemini: does it keep older turns once loaded, or slide them out?** Not started. This is Step 0(a) of
+   "Porting the Layer 4 response to another platform" below, still open beyond n≤10.
+3. **Grok:** untested on all three browsers.
+4. **Safari parity follow-up:** the usage panel's transport and GM storage (item 0d).
+5. **Perplexity attachment image errors:** image-gallery work.
 
 **v12.8 (PR #73, merged)** — a failed usage fetch says so instead of "loading" forever (DEC-044).
 
@@ -262,8 +275,8 @@ Numbering below is stable (items keep their historical numbers):
      **The owner chose the EXPLICIT remedy** over the silent one: the panel now renders
      `usageUnavailable`, and `docs/PLAN-USAGE.md` §"Fetch fails" was rewritten to match (it had
      specified rendering nothing, so the repo was asserting both answers at once).
-     Gated by `probes/check-usage-state.js`, in CI. **Still owed: a live confirm (DEC-031)** —
-     it is a code change on a network path, and no mock reproduces a real 5xx from claude.ai.
+     Gated by `probes/check-usage-state.js`, in CI. It is a code change on a network path, and no mock
+     reproduces a real 5xx from claude.ai, so it needed a live confirm: **live confirmation status: DEC-031.**
 
    - **`summaryLanguageNote` — needs an owner DECISION, not a wiring fix.** Its ENGLISH value
      is the empty string and its Korean value is a disclaimer — *"ℹ️ 요약 분석은 영어 대화에서
@@ -307,14 +320,10 @@ Numbering below is stable (items keep their historical numbers):
      the call, asymmetric supersession — DEC-044) and the spec was index-only. Moving it onto the
      ladder is a separate, gated change: keep the silent stale-org drop on every leg, add no
      timeout shorter than the U4 window, and give its GM stub real onload-for-4xx semantics first.
-   - **Live confirms owed (DEC-031):** Safari on a LONG conversation (the Safari measurement was a
-     6-message conversation, so full-history correctness there is still unmeasured), Firefox
-     unchanged (`transport=gmxhr … status=200`), and Chrome recording which transport won.
-     **On Safari, also jump to each of the last five questions.** On the owner's Mac, Playwright's
-     WebKit (build 2248) gives up at ~1.46s on jumps near the end of a long mock conversation, on
-     v12.8 and v12.9 alike; every failure the report printed targets one of the last ~10 questions.
-     CI's mac WebKit (build 2370) passed the same entries. Whether real Safari does is unmeasured, and v12.9 is
-     what lets Safari reach those jumps at all (TROUBLESHOOTING, "OPEN — Local mac WebKit").
+   - **Live confirmation status: DEC-031.** The Chrome + Tampermonkey check is the one still to run (the
+     owner's order, above): record which transport won, with Claude Code driving the owner's real Chrome
+     profile, not a fresh one. Real Safari did NOT reproduce the local mac WebKit jump failure, so that entry
+     stays open only as a Playwright engine-build issue (TROUBLESHOOTING, "OPEN — Local mac WebKit").
    - **Nothing kept in GM storage works on Safari + Userscripts — OPEN, its own item, bigger than
      the index.** Userscripts has never provided the synchronous `GM_getValue` / `GM_setValue` (read
      from its source; corroborated by its own log line, which lists only `GM_xmlhttpRequest` among
@@ -328,7 +337,8 @@ Numbering below is stable (items keep their historical numbers):
      keeps in `localStorage` (`_acnv10`). The fix is the async `GM.getValue` / `GM.setValue` that
      Userscripts does offer, or moving the GM keys to `localStorage`; either is a design change of
      its own.
-   - **What `GM_info.scriptHandler` reports on the owner's install — unmeasured.** Its source
+   - **What `GM_info.scriptHandler` reports on the owner's install — settled: `Userscripts`** (the Safari
+     acceptance, DEC-031). Its source
      says `"Userscripts"` since v4.1.0 (2022); older installs have no `GM_info`. Detection only
      orders the ladder, so a wrong answer costs one refused gmxhr walk per page load, after which
      the cached winner goes first.
@@ -337,14 +347,10 @@ Numbering below is stable (items keep their historical numbers):
      `decodeURIComponent` throws `URIError` on bad percent-encoding, so opening Navigate raises a
      page error. The index survives the same cookie since v12.9 (probe L8, which deliberately does
      not assert page errors because of this one).
-   - **What to capture in the Safari acceptance**, so the inferred rows of `agent_docs/architecture.md`'s
-     runtime matrix become measured:
-     - the Safari and Userscripts versions, with the tab visible;
-     - the `[ACN] index order:` line (the `scriptHandler` value) and every `[ACN] index:` line;
-     - the question count on a long conversation, and a jump to each of its last five questions;
-     - the context bar's label (`(est.)` is expected);
-     - the usage panel's state;
-     - whether a bookmark or a language change survives a reload.
+   - **What the Safari acceptance did not report stays inferred** in `agent_docs/architecture.md`'s runtime
+     matrix: the Safari and Userscripts versions, the context bar's label (`(est.)` is expected), the usage
+     panel's state, and whether a bookmark or a language change survives a reload. The last three belong to
+     the Safari parity follow-up (the owner's order, above).
    - **The exact-origin guard covers only the index — OPEN, found by the close-out audit (2026-10-23),
      pre-existing, inferred from code, not reproduced.** The Plan usage panel (`fetchClaudeUsage`) and the SSE
      interceptor's install are gated only by platform detection's `host.includes('claude.ai')`. The header's
@@ -356,8 +362,8 @@ Numbering below is stable (items keep their historical numbers):
    - **On Safari the SSE interceptor and the SPA history hooks never reach the page — inferred, not
      measured.** Userscripts provides no `unsafeWindow`, so both are installed on the content world's own
      `fetch` / `history`. Expect the context bar to read `(est.)` only. The nine `spa:true` platforms would
-     miss route changes that the page makes through `history.pushState`. Confirm as part of the acceptance
-     above.
+     miss route changes that the page makes through `history.pushState`. The 2026-10-23 acceptance did not
+     cover this, so it stays inferred.
    - **Two spec gaps the owner kept, for a follow-up.** The `unexpected response shape` and `malformed message
      data` reasons carry no `[transport]` tag (spec 2.4). Probe fixture 3 (L3-backoff) asserts only the 60s
      first step, not the 60 → 240 → 960s escalation.
@@ -406,6 +412,11 @@ Numbering below is stable (items keep their historical numbers):
      post-merge `main` run, this time on `webkit on ubuntu-latest` (TROUBLESHOOTING). One re-run cleared each.
      They are inputs for the rebuild: the shared `page` object between entries, and installs that count
      against the test budget.
+   - **Two more install stalls on PR #76 (2026-10-23), both on `firefox on ubuntu-latest`.** The browser
+     installs took 14m12s and 15m35s, so the suite started late and was cut off at the 20-minute cap mid-run,
+     with no test failed. The third attempt installed in 20s and went 9/9. That makes four install stalls in
+     two days. `main`'s ruleset requires all nine checks and lets nobody bypass them, so a stalled job can
+     only be re-run (agent_docs/git-workflow.md).
 
 1. ~~**Live-test and fine-tune the provisional bookmark mechanism** (DEC-030).~~ **Done in v12.1**
    — and it went considerably further than fine-tuning: the legacy path is now four channels with a
@@ -556,6 +567,17 @@ Numbering below is stable (items keep their historical numbers):
    **Still expected:** the plain-build live pass (DEC-031) on the v12.5 head — a functional
    check (map renders sub-segments, segment and SUB-segment clicks land, export correct), not
    a measurement. The probe is not needed for it.
+12. **The context-window meter: recalibrate the limit, then the estimate — LOW PRIORITY, for later (owner,
+   2026-10-23; not in the next-session order).** The meter still assumes Claude's old ~200–250K window (the
+   userscript's `CTX_LIMITS.claude` is `200000`; `docs/CONTEXT-TRACKING.md` → "Context Window Limits
+   Reference"), so long conversations read well over 100%.
+   - **Step 1: recalibrate to the current limit** — 1M tokens, per the owner. Verify the limit per model and
+     plan first rather than hard-coding one number.
+   - **Step 2, after that: revisit the token estimation itself**, which has not been very accurate.
+   - **Linked: the long-standing "turn counter red while the context bar shows ~19% at ~50 questions"
+     mismatch** (CHANGELOG 11.1, which raised the overhead estimate; CHANGELOG 12.0, which traced most of it
+     to the virtualized DOM's ~35x undercount that PR #47 only partially addressed). The owner thinks the two
+     may share a cause, so check that link during step 2.
 
 **v12.0 Accomplishments (2026-07-26):**
 - **API-Backed Conversation Index (DEC-021):** Claude virtualized its message list with recycling — only ~3 of 147 user turns are mounted at any moment (~3% coverage), so `document.querySelectorAll()` stopped being a complete record of the conversation. Navigate, Search, Summary and Export were all operating on a fraction of the data, and Export was silently writing truncated files under an authoritative-looking message count. Fixed by reading Claude's own conversation JSON endpoint via `GM_xmlhttpRequest` and walking the message tree from `current_leaf_message_uuid` to isolate the active branch. This is an ordinary outbound request, not fetch interception — no Firefox cross-compartment exposure (DEC-019/DEC-020).
