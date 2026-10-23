@@ -11,7 +11,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-12.9-blue)
+![Version](https://img.shields.io/badge/version-12.10-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -134,7 +134,7 @@ So "Allow on All Websites" effectively behaves the same as per-site permissions 
 
 **What works differently on Safari (Userscripts):**
 
-- **Claude's full conversation list.** Userscripts' `GM_xmlhttpRequest` does not carry your claude.ai login, so since v12.9 the script reads the conversation with an ordinary `fetch` instead (see the privacy FAQ below). Before v12.9, Navigate on Safari showed only the few messages Claude keeps on screen. (Not yet confirmed on a long conversation in Safari; ROADMAP item 0d.)
+- **Claude's full conversation list.** Userscripts' `GM_xmlhttpRequest` does not carry your claude.ai login, so since v12.9 the script reads the conversation with an ordinary `fetch` instead (see the privacy FAQ below). Before v12.9, Navigate on Safari showed only the few messages Claude keeps on screen. (Live confirmation status: DEC-031.)
 - **Anything the script keeps in GM storage does not work.** Bookmarks and saved commands are never stored, and the language and platform toggles cannot be changed, so the panels stay in English. The script keeps them with `GM_setValue`/`GM_getValue`, which Userscripts does not provide (from its source and this script's code; not yet checked on Safari). Display mode, scroll direction and panel width are unaffected: they live in the page's `localStorage`. Tracked in ROADMAP item 0d.
 - **The Plan usage panel is expected to read "Usage data unavailable".** It still uses `GM_xmlhttpRequest` (ROADMAP item 0d).
 

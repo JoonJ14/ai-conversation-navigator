@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.10 — ChatGPT and Perplexity List Every Question Again: Index Adapters and October Selectors] — 2026-10-23
 
-**Branch:** `feat/chatgpt-perplexity-index-adapters` | **Commits:** `1316e65` (code, tests, CI), `5ba0feb` (docs), review fixes `363a538`–`878520e` and `c9621cb` | **PR:** #78
+**Branch:** `feat/chatgpt-perplexity-index-adapters` | **Commits:** `1316e65` (code, tests, CI), `5ba0feb` (docs), review fixes `363a538`–`878520e`, `c9621cb`, `fd89e19` and `0866597` | **PR:** #78
 
 ### Problem
 
@@ -42,8 +42,8 @@ Measured live in Chrome, page realm, on the owner's account (DOM-REFERENCE.md, D
 
 Playwright, page realm, against mocks that genuinely unmount (`probes/check-index-adapters.js`): 27 checks pass; v12.9 fails every new one. Final run on the final build `c9621cb` (macOS arm64, local, 2026-10-23): the full suite **1676/1680** on Chromium, Firefox and WebKit — the 4 failures are the known local WebKit entries (TROUBLESHOOTING, "OPEN — Local mac WebKit"; v12.9 fails them identically). Probes 14/15 runs pass; the one failure is the known `check-usage-state` U10 Firefox timeout. Review: three tiers, seven Tier 3 rounds, `reviews/review-2026-10-23-index-adapters.md`. After it, two GitHub Codex findings were fixed — the pin on an on-screen target (probe P13), and the jump's text fallback accepting a repeated question's twin (probe C8, which also gave the ChatGPT mock a `frozen` option); each probe fails before its fix and passes after it on all three engines; `npm test` 560/560 and the probes on Chromium only.
 
-**Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey is owed** (PR
-checklist); live confirmation status: DEC-031.
+**Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey ran before the
+merge** (PR checklist); the results are in DEC-031.
 
 ---
 

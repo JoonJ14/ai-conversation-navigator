@@ -1264,10 +1264,15 @@ every waiver here, and in the release's CHANGELOG entry.
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
 review record. Updated 2026-10-23:
+- **v12.10 (PR #78, head `0866597`).** Owner, real browsers, before the merge: Safari + Userscripts **PASS**,
+  Chrome + Tampermonkey **PASS**, Firefox + Tampermonkey **PASS** — ChatGPT and Perplexity list and jump. Claude
+  regression **PASS** on all three. Branch test (editing a question) **PASS** on Chrome, ChatGPT; not run on the
+  other two browsers or on Perplexity.
 - **v12.9 (PR #75).** Safari + Userscripts **PASS** (owner): `transport=fetch org=730fcd2a… status=200`; the
   index ready with 144 questions (295 messages in the payload) via fetch; jumps to Q1 through Q144, the last
   five included, all landed. Firefox + Tampermonkey (Linux) **PASS** (owner, after the merge). Chrome +
-  Tampermonkey **OWED**: record which transport won (ROADMAP, the owner's order).
+  Tampermonkey **PASS** (owner, 2026-10-23, during the v12.10 acceptance: the Claude index works); which
+  transport won was not recorded.
 - **v12.8 (PR #73).** The usage panel on Firefox + Tampermonkey **PASS** (owner): it shows real plan usage,
   matching Claude Code's figures exactly. That observes the rendered state. On Safari the panel is expected to
   fail (`GM_xmlhttpRequest`); the Safari parity follow-up covers it (ROADMAP 0d), not a separate debt.
@@ -2611,3 +2616,37 @@ Measured live in Chrome, page realm, on the owner's account (2026-10-23), agains
   are Playwright page realm. Neither is a userscript manager. Real-browser acceptance on Safari + Userscripts,
   Chrome + Tampermonkey and Firefox + Tampermonkey is the owner's (PR description; status in DEC-031 once
   run).
+
+---
+
+## DEC-047: Safari, Chrome and Firefox Are Equal Priority — Real-Browser Acceptance on All Three Before Every Merge (v12.10)
+**Date:** 2026-10-23 | **Stage:** v12.10 close-out (owner's standing rule, from the owner's planning thread)
+
+### Decision
+No browser is primary. Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey carry equal
+priority, and **real-browser acceptance on all three comes before every merge**. Where the owner works from
+day to day is a separate fact: mostly on the Mac, while traveling, so Safari is usually tested first and Chrome
+when Safari fails. That sets the order of testing, not a ranking.
+
+### Context
+Older text named one context as the one that matters: CLAUDE.md's measurement rule says "in the Tampermonkey
+sandbox, in a visible window, on Firefox", and TESTING.md said the same until this entry. v12.9 showed why a
+single context is not enough: the index worked on Firefox + Tampermonkey and always failed on Safari +
+Userscripts (DEC-045). v12.8 and v12.9 were merged before their live acceptance on the owner's call (the
+waivers in DEC-031). v12.10 (PR #78) was the first release accepted on all three before its merge.
+
+### Alternatives considered
+- **Keep Firefox as the reference context.** Rejected: it was the one runtime where v12.9's bug did not occur.
+- **Accept after merging, as in v12.8 and v12.9.** Rejected as the default: a waiver moves the merge, not the
+  debt, and the debt was then paid browser by browser over days (DEC-031).
+
+### Rationale
+Each runtime is a different execution context (CLAUDE.md, Layer 3's second face; `agent_docs/architecture.md`
+→ "Runtime matrix"). A pass in one says nothing certain about the other two.
+
+### Key properties
+- A PR lists acceptance on **all three** as the owner's, and does not merge until the owner reports it.
+- Results are recorded in DEC-031 only.
+- The owner may still waive it for a given PR; record the waiver in DEC-031, as before.
+- Agents cannot drive Safari + Userscripts; they can drive Chrome through the owner's real profile, read-only on
+  the owner's accounts.

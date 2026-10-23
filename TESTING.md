@@ -49,9 +49,9 @@ Phase 3 investigation traced back to it — programmatic scrolls appearing to do
 nothing, multi-megabyte `fetch` calls hanging forever.
 
 **Rule:** write findings as *"X, measured in \<context\>"*, and treat them as
-context-scoped until reproduced in the Tampermonkey sandbox, in a visible window,
-on Firefox. For anything that depends on a `GM_*` API, also reproduce it in each supported
-manager (v12.9). When a later measurement contradicts an earlier one, record **both**
+context-scoped until reproduced in a visible window in each supported runtime: Safari +
+Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey, equal priority (DEC-047). Anything
+that depends on a `GM_*` API is manager-specific (v12.9). When a later measurement contradicts an earlier one, record **both**
 with their contexts rather than replacing one — the contradiction is the finding.
 
 Probe scripts used for this in v12.0 are worth copying as a pattern: they abort
