@@ -164,7 +164,7 @@ const READ = `(function () {
         const answer = (transport, url, headers) => {
             const auth = headers.Authorization || headers.authorization || '';
             calls.push({ transport, url, auth });
-            const a = sc.api ? sc.api(url, auth, calls) : { kind: 'abort' };
+            const a = sc.api ? sc.api(url, auth, calls, transport) : { kind: 'abort' };
             return a.kind ? { kind: a.kind } : { status: a.status, body: typeof a.body === 'string' ? a.body : JSON.stringify(a.body) };
         };
         await page.exposeFunction('__answer', (t, u, h) => answer(t, u, h));
@@ -323,6 +323,19 @@ const READ = `(function () {
           g1.count === '10' && g1conv.length === 1 && /"Authorization":"Bearer tok-0"/.test(g1conv[0].headers) &&
           !g1.calls.some((c) => c.transport === 'fetch'), brief(g1) + ' gm=' + g1.gmCalls.length);
 
+    // [new] Tampermonkey order, gmxhr REFUSED (403 through onload, as a real manager reports
+    // it): the ladder asks fetch, which answers, and the full list appears (Tier 3, PR #78).
+    const g2conv = gptMapping({ turns: T10 });
+    const g2 = await scenario({ site: 'chatgpt', url: gptUrl, mockConfig: { turns: T10 }, expectCount: 10, gm: 'answer',
+                                scriptHandler: 'Tampermonkey',
+                                api: (url, auth, calls, transport) => {
+                                    if (transport === 'gm' && url.indexOf('/backend-api/') !== -1) return { status: 403, body: { detail: 'denied' } };
+                                    return gptApi(g2conv)(url, auth, calls);
+                                } });
+    check('G2', 'a gmxhr refusal falls back to fetch, which lists everything',
+          g2.count === '10' && g2.calls.some((c) => c.transport === 'gm' && /backend-api/.test(c.url)) &&
+          g2.calls.some((c) => c.transport === 'fetch' && /backend-api/.test(c.url)), brief(g2));
+
     // [guard] Exact origin: on a look-alike host that platform detection's host.includes()
     // accepts, no request is sent at all, on either transport.
     const o1 = await scenario({ site: 'chatgpt', url: 'https://chatgpt.com.probe.cloudworkstations.dev/c/' + GPT_CONV,
@@ -384,7 +397,7 @@ const READ = `(function () {
     check('P11', 'an API failure falls back to the mounted bubbles with the degraded banner',
           p11.count === '2' && p11.banner === 'degraded', brief(p11));
 
-    const all = [c1, c2, c3, c3b, c4, c5, c6a, c6b, g1, o1, p8, p9, p10, p10b, p11];
+    const all = [c1, c2, c3, c3b, c4, c5, c6a, c6b, g1, g2, o1, p8, p9, p10, p10b, p11];
     const pageErrors = all.reduce((n, r) => n + r.errors.length, 0);
     check('E', 'no page errors in any scenario', pageErrors === 0,
           all.filter((r) => r.errors.length).map((r) => r.errors[0]).join(' / '));

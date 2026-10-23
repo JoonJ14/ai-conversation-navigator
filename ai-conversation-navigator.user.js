@@ -2455,7 +2455,7 @@
     function ixInvalidate() {
         _ixJumpToken++;
         _ix = { pid: null, cid: null, status: 'idle', entries: null, total: 0, idIndex: null,
-                inFlightCid: null, loadGen: (_ix.loadGen || 0) + 1, indexGen: (_ix.indexGen || 0) + 1,
+                textAt: null, inFlightCid: null, loadGen: (_ix.loadGen || 0) + 1, indexGen: (_ix.indexGen || 0) + 1,
                 reason: '', retryDelayMs: 0, lastFetchAt: 0, refreshFailed: '', truncated: 0,
                 actedSig: '' };
     }
@@ -2584,11 +2584,20 @@
                 });
         }
         function conversation(tok) {
+            // The user left this conversation while the token was fetched: send nothing.
+            if (IX_ADAPTERS.chatgpt.getConversationId() !== cid) {
+                done({ reason: 'superseded', permanent: false });
+                return;
+            }
             ciLadderGet('/backend-api/conversation/' + cid,
                 { origin: origin, headers: { 'Authorization': 'Bearer ' + tok } }, logFail, function (r) {
                     // A 401 after both transports: the token expired. Refresh it once and
                     // retry once; anything still failing falls back to the DOM scan.
-                    if (!r.ok && r.kind === 'http' && r.status === 401 && !retried) {
+                    // On either transport: a refused gmxhr (401) whose fetch then threw
+                    // reports the throw, with the 401 in firstFailure (Tier 3).
+                    var expired = (r.kind === 'http' && r.status === 401) ||
+                        !!(r.firstFailure && r.firstFailure.kind === 'http' && r.firstFailure.status === 401);
+                    if (!r.ok && expired && !retried) {
                         retried = true;
                         withToken(true, function (err, t2) {
                             if (err) { done(err); return; }
@@ -2620,7 +2629,7 @@
     // entries. So every request asks from the first entry and follows the cursor.
     function ixPplxFetch(cid, done) {
         var origin = ciFetchOrigin();
-        var all = [], page = 0;
+        var all = [], page = 0, seenCursors = {};
         function fail(r) { ixLog('perplexity', r, 'thread', ' page=' + page); }
         function finish(r, capped) {
             var entries = [];
@@ -2649,8 +2658,10 @@
                 if (!r.ok) { done(ixFailure(r)); return; }
                 var j = r.json;
                 var more = !!(j && j.has_next_page === true);
+                // A cursor seen before would loop the same page to the cap (Tier 3).
                 if (!j || !Array.isArray(j.entries) ||
-                    (more && (typeof j.next_cursor !== 'string' || !j.next_cursor))) {
+                    (more && (typeof j.next_cursor !== 'string' || !j.next_cursor ||
+                              seenCursors.hasOwnProperty(j.next_cursor)))) {
                     ixLog('perplexity', r, 'thread', ' page=' + page, ' questions=0');
                     done({ reason: 'unexpected response shape', permanent: true });
                     return;
@@ -2662,7 +2673,12 @@
                     finish(r, true);
                     return;
                 }
-                if (more) { ixLog('perplexity', r, 'thread', ' page=' + page); next(j.next_cursor); return; }
+                if (more) {
+                    seenCursors[j.next_cursor] = true;
+                    ixLog('perplexity', r, 'thread', ' page=' + page);
+                    next(j.next_cursor);
+                    return;
+                }
                 finish(r, false);
             });
         }
@@ -2745,7 +2761,17 @@
                     var w = bubbles[i].closest('[data-workflow-entry]');
                     var n = w ? parseInt(w.getAttribute('data-workflow-entry'), 10) : NaN;
                     var pos = (isFinite(n) && n >= 0 && n < _ix.total) ? n : -1;
-                    out.push({ pos: pos, key: isFinite(n) ? ('e' + n) : ('#' + i), el: bubbles[i] });
+                    var key = isFinite(n) ? ('e' + n) : ('#' + i);
+                    // Same ordinal, different question (an edit or a rewrite): stale, and
+                    // keyed by its text so a later edit at that ordinal is new evidence (Tier 3).
+                    if (pos >= 0 && _ix.textAt && _ix.textAt.hasOwnProperty(pos)) {
+                        var shown = _normalizeKey(_readMessageText(bubbles[i]));
+                        if (shown && shown !== _normalizeKey(_ix.textAt[pos])) {
+                            pos = -1;
+                            key = 'e' + n + ':' + shown.slice(0, 40);
+                        }
+                    }
+                    out.push({ pos: pos, key: key, el: bubbles[i] });
                 }
                 return out;
             },
@@ -2823,8 +2849,12 @@
                 return;
             }
             if (err) { ixDegrade(err, keep); done(false); return; }
-            var idIndex = {};
-            for (var i = 0; i < res.entries.length; i++) idIndex[res.entries[i].id] = res.entries[i].position;
+            var idIndex = {}, textAt = {};
+            for (var i = 0; i < res.entries.length; i++) {
+                idIndex[res.entries[i].id] = res.entries[i].position;
+                textAt[res.entries[i].position] = res.entries[i].text;
+            }
+            _ix.textAt        = textAt;
             _ix.entries       = res.entries;
             _ix.total         = res.total;
             _ix.idIndex       = idIndex;
@@ -2943,15 +2973,46 @@
     // target by its own id on arrival, otherwise move toward it by the nearest mounted
     // entry's distance; bounded, and superseded by a newer jump. Text is a last resort,
     // and only when exactly one mounted question matches.
-    function ixJump(a, q, done) {
+    function ixJump(a, q, outerDone) {
         var token = ++_ixJumpToken;
+        // Looked up fresh: the cache trusts any connected node, and ChatGPT keeps the
+        // previous conversation's timeline connected, hidden, after a switch (Tier 3).
+        _ciScrollContainer = null;
         var container = ciFindScrollContainer();
-        if (!container) { done(false, null, 'no-container'); return; }
+        if (!container) { outerDone(false, null, 'no-container'); return; }
         var entry = { id: q.ixId, position: q.ixPosition };
         var total = Math.max(1, _ix.total);
         var cid = _ix.cid;
         var moves = 0;
+        // The user taking the scroll back ends the jump, as in ciJumpToFullPathIndex:
+        // trusted wheel, touch, scrollbar drag, or a scrolling key outside a text field.
+        // Perplexity's releaseScroll wheel is synthetic (isTrusted false), so it cannot.
+        var userScrolled = false, finished = false;
+        var SCROLL_KEYS = { PageUp: 1, PageDown: 1, Home: 1, End: 1, ArrowUp: 1, ArrowDown: 1, ' ': 1 };
+        function onUser(e) {
+            if (!e || !e.isTrusted) return;
+            if (e.type === 'keydown') {
+                var t = e.target;
+                if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+                if (!SCROLL_KEYS[e.key]) return;
+            }
+            userScrolled = true;
+        }
+        container.addEventListener('wheel', onUser, { passive: true });
+        container.addEventListener('touchstart', onUser, { passive: true });
+        container.addEventListener('mousedown', onUser, { passive: true });
+        document.addEventListener('keydown', onUser, true);
+        function done(ok, el, reason) {
+            if (finished) return;
+            finished = true;
+            container.removeEventListener('wheel', onUser);
+            container.removeEventListener('touchstart', onUser);
+            container.removeEventListener('mousedown', onUser);
+            document.removeEventListener('keydown', onUser, true);
+            outerDone(ok, el, reason);
+        }
         function arrive() {
+            if (userScrolled) { done(false, null, 'user'); return; }
             if (token !== _ixJumpToken) { done(false, null, 'superseded'); return; }
             // A thread switch before the next scan invalidates: a position from the old
             // thread must not resolve the same-numbered entry of the new one (Tier 3).
@@ -7459,7 +7520,7 @@
                         ixMarkResolved(q);
                         el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
                         orbFlashElement(el);
-                    } else if (reason !== 'superseded') {
+                    } else if (reason !== 'superseded' && reason !== 'user') {
                         showToast('That message is not currently rendered \u2014 scroll toward it and try again');
                     }
                 });
