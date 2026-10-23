@@ -4,6 +4,56 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.11 — The Turn-Counter Dots Show the Real Count] — 2026-10-23
+
+**Branch:** `fix/turn-counter-dots` | **PR:** #81
+
+### Problem
+
+On real Safari + Userscripts, Claude's turn-counter dots froze at a stale count: none, or 1–4 (the mounted
+window) instead of the conversation's real count, on conversations of 21 to 144 questions. It happened almost
+always when arriving via the sidebar, and sometimes on a hard reload (owner, v12.10). Not a v12.10 regression.
+
+### Root cause [code]
+
+- `orbOnScanComplete()` drew the panel, dots included, **before** it called `updateTurnCounter()`, so the dots
+  always showed the previous scan's count.
+- `orbPopulateNavigate()` returned early on an unchanged list, and on an empty one, without redrawing the dots.
+  So after the scan in which the index landed they were never redrawn, and a close/reopen took the same return.
+
+The full diagnosis, with its corrections, is in TROUBLESHOOTING ("Claude's turn-counter dots"). ChatGPT and
+Perplexity reach the same functions (`ixScan` → `orbOnScanComplete`) [code], so the fix should cover them too.
+That is inferred, not measured: the probe runs only Claude's mock.
+
+### Fix
+
+- The counter is updated before anything draws.
+- The empty-list return now redraws the dots and bar. The unchanged-list return redraws them when the counter
+  differs from what is drawn (an SSE event can draw the bar without the list). **Not on every scan:** the panel sits inside `document.body`, which the message observer watches, so an
+  unconditional redraw re-triggered scans on an idle page indefinitely (984 mutation records in 6 s in the
+  probe's A4, against 0).
+- **Not built:** closing the panel on a scan-detected switch. Its premise was wrong: no browser closes it on
+  Claude or ChatGPT today. Owner's decision; panel behaviour is unchanged everywhere.
+
+### Verification
+
+`probes/check-turn-counter.js` (new, 8 checks; in `npm run test:probes` and CI's ubuntu jobs on all three engines),
+measured in Playwright's page realm:
+- **A1:** index delayed, panel open first.
+- **A2:** a switch with the panel open, which no history hook can see.
+- **A2b:** a reopen after the switch.
+- **A1f, A2f:** the same two scenarios, with the dots read at the first draw that lists the questions.
+- **A5:** leaving for an empty page with the panel open.
+
+v12.10 fails all six at 3 stale dots; v12.11 passes all eight. A3 (a normal load) and A4 (no mutations while
+idle) pass on both. Mutants show each mechanism is gated except the guarded unchanged-list redraw, which only an
+SSE draw reaches (TROUBLESHOOTING). Suite and probes on the final build: in the PR.
+
+**Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey** (PR checklist):
+results in DEC-031.
+
+---
+
 ## [12.10 — ChatGPT and Perplexity List Every Question Again: Index Adapters and October Selectors] — 2026-10-23
 
 **Branch:** `feat/chatgpt-perplexity-index-adapters` | **Commits:** `1316e65` (code, tests, CI), `5ba0feb` (docs), review fixes `363a538`–`878520e`, `c9621cb`, `fd89e19` and `0866597` | **PR:** #78

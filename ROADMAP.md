@@ -41,11 +41,9 @@ for Claude; Safari's ChatGPT and Perplexity check is owed after the merge (a wai
 transport (DEC-045; item 0d).
 
 **Next, in the owner's order (2026-10-23).** The next session gets a spec from the owner; two small PRs, in order:
-1. **PR A, the turn-counter fix, all browsers.** Claude's dots freeze at a stale count (TROUBLESHOOTING,
-   "OPEN — Claude's turn-counter dots"). Update the counter before drawing; redraw the dots on every scan,
-   including the unchanged-fingerprint and empty-list returns; close the panel on a conversation change from the
-   scan path too (to reconfirm: its premise, that Chrome and Firefox already close it, was wrong). Gate: the index delayed with the panel open before it lands, plus a conversation switch with
-   the panel open; it must fail on the current build.
+1. **PR A, the turn-counter fix, all browsers: built as v12.11 (PR #81).** Claude's dots froze at a stale count
+   (TROUBLESHOOTING, "Claude's turn-counter dots", which has the fix, its gate and why closing the panel on a
+   switch was dropped). Owner acceptance: DEC-031.
 2. **PR B, Safari parity (item 0d).** The usage request onto the ladder with DEC-044's rules, plus the
    exact-origin guard for usage. A GM storage wrapper using async `GM.getValue` / `GM.setValue` with an in-memory
    copy loaded at startup, used only when the synchronous functions are missing; the Tampermonkey path stays
@@ -511,7 +509,12 @@ Numbering below is stable (items keep their historical numbers):
 10. **Debulking.** ~12,700 lines now (v12.9). Known dead code: `ciResolvePathForRow`,
    `ciDataIndexToFullPath`, `ciFullPathToDataIndex`, `_bmLegacyId`; inventory/entity `msgIndex`
    fields with no consumer; `_bmLegacyIdSet`'s two unreachable dedupe guards; two dead test
-   config keys making one assertion unreachable.
+   config keys making one assertion unreachable. Found by the PR #81 review [code]:
+   - the turn counter's compaction state has no writer: `_turnCounter.compactionCount`, `cycleLengths`,
+     `predictedCycleLength` and `lastCompactTurn`, plus `_compactionHistory` and `_compactionCount`. Only their
+     declarations and `resetTurnCounter()` assign them, so the purple dots and the compaction counts never show;
+   - `package.json`'s `"version"` still reads `11.0`. It was last bumped in v11.0, and
+     `agent_docs/git-workflow.md`'s bump list does not name it, so either bump it or drop it.
 11. ~~**Summary performance on long conversations**~~ — **CLOSED 2026-08-01 by owner decision** (added 2026-07-30; see the CLOSED note in this item's body, and the re-ranking at the top of this file). Do **not** reopen it on the text below, which describes the state as first reported. Live
    finding on the owner's ~147-question conversation (Firefox + Tampermonkey, v12.3): Summary →
    Generate and Tools → Summary export near-freeze the tab (Firefox's "slowing down" banner),
