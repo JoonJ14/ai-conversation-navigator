@@ -359,6 +359,10 @@ function findFileEntities(aiMsgEl) {
 
 Bookmarks persist across page reloads using `GM_setValue` / `GM_getValue`.
 
+> **Not on Safari + Userscripts (found in v12.9).** Userscripts does not provide the synchronous
+> `GM_setValue` / `GM_getValue` (from its source). Every call site is try/caught, so there bookmarks are
+> never stored, not even for the session, and nothing reports it. ROADMAP item 0d.
+
 ### Storage Key
 
 ```javascript

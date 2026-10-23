@@ -1681,7 +1681,9 @@
     // a second transport that met a 403 and then this upheld the first's refusal and
     // went PERMANENT, where v12.8 retried on the plain cooldown (Codex Tier 3 round 7).
     // Counting only: the walk's own path and reasons are untouched. An org list that IS
-    // usable but holds nothing untried is no verdict — the refusals stand.
+    // usable but holds nothing untried is no verdict — the refusals stand. On the all-orgs
+    // path after cheap-candidate 403s, the walk's own reason still carries that 403, so an
+    // ARRAY with no usable org ends PERMANENT there, as in v12.8 (owner's decision, PR #75).
     function ciCountUnusableOrgList(trace, r) {
         if (r.ok && !(Array.isArray(r.json) && ciRankOrgs(r.json).length)) trace.verdict++;
     }
@@ -2060,22 +2062,17 @@
                              (!r.ok && r.status ? ' (HTTP ' + r.status + ')' : '')), null);
                 return;
             }
-            var usable = ciRankOrgs(r.json);
-            var ranked = usable.filter(function (u) { return tried.indexOf(u) === -1; });
+            var ranked = ciRankOrgs(r.json).filter(function (u) { return tried.indexOf(u) === -1; });
             if (!ranked.length) {
                 // FIFTH sibling of the status-discarding family (R14/R16/R18/R19,
                 // Codex R23): every cheap candidate 403'd and the org list held
                 // nothing new — without the status this dodged the backoff and an
                 // unauthorized tab retried every 15s.
-                // ...but only when the list itself was USABLE. One that answered 200 with
-                // no usable org says nothing about authorization — the list request itself
-                // succeeded — so the cheap candidates' 403 must not make it read as an
-                // unauthorized tab: that sent an unusable list to the PERMANENT backoff,
-                // where its other two shapes ({} here, anything on the first org-list
-                // path) retry on the cooldown (Codex Tier 3 round 8).
+                // That includes an org list that answered 200 with no usable org: it keeps
+                // v12.8's reason, and so v12.8's PERMANENT backoff (owner's decision on
+                // PR #75, reverting Codex Tier 3 round 8's change to a plain retry).
                 cb(new Error('no org candidate accepted the conversation' +
-                             (!usable.length ? ' (the org list held no usable org)'
-                                             : triedStatus ? ' (HTTP ' + triedStatus + ')' : '')), null);
+                             (triedStatus ? ' (HTTP ' + triedStatus + ')' : '')), null);
                 return;
             }
             ciFetchWithOrgFallback(trace, cid, ranked, 0, cb, null);

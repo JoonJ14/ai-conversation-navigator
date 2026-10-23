@@ -48,6 +48,10 @@ Two access methods:
 
 Commands persist via `GM_setValue` — follow you across chats, across platforms, across browser restarts.
 
+> **Not on Safari + Userscripts (found in v12.9).** Userscripts does not provide the synchronous
+> `GM_setValue` / `GM_getValue` (from its source). `loadCommands` / `saveCommands` are try/caught, so
+> there commands are never stored, not even for the session, and nothing reports it. ROADMAP item 0d.
+
 ---
 
 ## Data Model
@@ -97,7 +101,7 @@ GM_setValue('acn-commands', [
 
 ### Persistence behavior
 
-- Survives: page refresh, browser restart, script updates, computer restart
+- Survives: page refresh, browser restart, script updates, computer restart (not on Safari + Userscripts — see above)
 - Follows user: same commands on Claude, ChatGPT, Gemini, Grok, Perplexity (all share GM storage)
 - Wiped only by: uninstalling Tampermonkey script, clearing all extension data
 - No sync across devices (GM_setValue is local to browser profile)

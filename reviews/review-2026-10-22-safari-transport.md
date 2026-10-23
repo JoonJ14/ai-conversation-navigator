@@ -48,7 +48,7 @@ exact `background shutdown` payload).
 |---|---|
 | `walk()` comment claimed it caught ranking throws; `ciRankOrgs` runs in a response callback, so an object `capabilities` still wedged the load at "loading" (pre-existing; reproduced on v12.8) | `ciRankOrgs` tolerates any shape (order unchanged for valid input); comment corrected; **LR** |
 | A first walk mixing 404 and 403 went PERMANENT with the other transport never asked — the exact v12.8 Safari line, and detection-dependent (spec 2.2/2.3) | 404 counts as a refusal (the walk already treats it like 403); **LM1** |
-| Single-transport summary lines did not name the transport (spec 2.4) | every degraded reason starts with `[gmxhr]`/`[fetch]`; **LM3** |
+| Single-transport summary lines did not name the transport (spec 2.4) | every reason from the org walk starts with `[gmxhr]`/`[fetch]` (two post-fetch validation reasons do not — see "Scope against the spec"); **LM3** |
 | `fetch` targeted `location.origin` while platform detection is `host.includes('claude.ai')`: a look-alike host could receive credentialed requests (new in v12.9) — and the pre-existing gmxhr path could render the user's real conversation into such a page | `fetch` refuses any origin but `https://claude.ai` (**LO**); the index requires the exact host (**LH**) |
 | README privacy claims (`@connect` restricts all reads; "no network requests" on Safari) now inaccurate | README rewritten for both transports |
 
@@ -62,7 +62,7 @@ probe/comment attributions.
 **Session NOTEs (not fixed, recorded):** (1) a timed-out fetch is ignored, not aborted — by design, since no
 AbortSignal crosses realms (and later bounded, see Tier 3 WARN 2); (2) our own fetches leave resource-timing
 entries that later loads harvest as org candidates (TESTING.md); (3) the usage panel stays GM-only on Safari
-(ROADMAP 0d); (4) Userscripts' missing synchronous storage — nothing persists on Safari (ROADMAP 0d).
+(ROADMAP 0d); (4) Userscripts' missing synchronous storage — nothing kept in GM storage works on Safari (ROADMAP 0d).
 
 ## Tier 3 — codex
 
@@ -149,7 +149,7 @@ replaced it with a page-wide cap of two — below.)
 - **WARN 4 — "the old-build and mutation proofs are not executed by CI": FALSE_POSITIVE as a defect.** The
   spec asks that the old build *demonstrably* fail fixture 1; it was run (`ACN_SCRIPT` → v12.8 from
   `git show b471ddc`) and is recorded with its context in the probe header, DEC-045, CHANGELOG and
-  TROUBLESHOOTING — how this project records every probe measurement (`probes/README.md`). The placeholders
+  TROUBLESHOOTING (consolidated into this record on 2026-10-22) — how this project records every probe measurement (`probes/README.md`). The placeholders
   Codex saw are filled from the final battery before commit. A CI job that re-runs the v12.8 baseline would
   pin CI to a historical commit; it is offered to the owner as a follow-up, not added unasked.
 
@@ -196,7 +196,9 @@ replaced it with a page-wide cap of two — below.)
   yet the stale "(HTTP 403)" sent this one shape to the PERMANENT backoff while the other two retried on the
   cooldown, contradicting what round 7 had just documented. The reason now says the list held no usable org;
   a usable list with nothing untried keeps v12.8's status. The only change to a reason the walk produces,
-  recorded in DEC-045. **LM8c**; mutant M42 fails it.
+  recorded in DEC-045. **LM8c**; mutant M42 fails it. **Reverted on the owner's decision after the PR opened
+  (2026-10-22):** the reason is v12.8's again, LM8c now holds v12.8's PERMANENT class, and M42 is now the
+  round-8 change itself.
 - **WARN — a missing `GM_xmlhttpRequest` (Greasemonkey 4) was ungated:** every scenario installed the shim.
   The shim gained an `absent` mode; **L4d** (no API, `GM.info` names Greasemonkey: gmxhr cannot run, the
   fallback line says so, fetch loads the full list, no page error). Mutant M43 (a missing API read as "no
@@ -235,12 +237,20 @@ among them. The 11 it passes are the guards both builds must keep — the Firefo
 request (L2, L2-shape, L2b), the backoff and the network-error rule (L3, L3-backoff, L6, L6-retry), the
 sentinel (L0) — and three it passes trivially, having no fetch to misuse (L7d, LM2, LM4).
 
+**Re-measured after the owner's revert of the unusable-org-list reason (2026-10-22, same context).** LM8c now
+asserts v12.8's class: "(HTTP 403)", PERMANENT. The reverted build passes all 63 checks on chromium, firefox
+and webkit, and v12.8 still fails the same 52 on chromium and firefox (LM8c among them, since v12.8 has no
+fetch). All 46 mutants were rebuilt against the reverted code. The six whose recorded failures included
+LM8c were re-run. M01, M11 and M46 are unchanged. M04 and M41 no longer fail LM8c, because the second
+transport's own "(HTTP 403)" now makes that case PERMANENT whatever they remove. M42 is redefined as the
+round-8 change itself, and LM8c catches it. The table below is updated to match; 43 of 46 are still gated.
+
 | Mutant | Mechanism removed | Checks that fail |
 |---|---|---|
 | M01 | no ladder — a failed first walk is final | L1, L1-list, L1-log, L1-shape, L1b, L1c, L1-slow, L5b, L5b-cache, L1v, L4a, L4b, L4d, L3-order, L3d, L3d-retry, LM1, LM5, LM6, LM8, LM8b, LM8c, LN, L3b, L3c, L4c, LWa |
 | M02 | detection ignored — gmxhr always first | L5, L5c, L5b, L4b, L6b, LWb, LWb-cap, LWc, LWd, LWe, LWf, LWh |
 | M03 | fallback on ANY failed walk (network errors included) | LM2, LM3, LM4, LM7, LM9, L6, L6-retry, L6b, LWb, LWc, LWd, LWe, LWh, LWi |
-| M04 | both failed: classify by the first transport only | L3d, L3d-retry, LM8, LM8b, LM8c |
+| M04 | both failed: classify by the first transport only | L3d, L3d-retry, LM8, LM8b |
 | M05 | both failed: a second with no verdict no longer upholds the first's refusal | LM6, L3b, L3c |
 | M06 | the winner is never cached | L1b, L5b-cache |
 | M07 | a synchronous GM throw escapes (v12.8) | L4a, L4c |
@@ -277,8 +287,8 @@ sentinel (L0) — and three it passes trivially, having no fetch to misuse (L7d,
 | M38 | detection ignores GM.info (reads GM_info only) | L5c |
 | M39 | unparseable JSON classed as "could not run" (fallback-eligible) | LM9 |
 | M40 | an unusable org list is no verdict — first org-list path | LM8b |
-| M41 | an unusable org list is no verdict — all-orgs path | LM8, LM8c |
-| M42 | an unusable org list keeps the cheap candidates' 403 in its reason | LM8c |
+| M41 | an unusable org list is no verdict — all-orgs path | LM8 |
+| M42 | an unusable org list drops the cheap candidates' 403 (round 8's change, reverted by the owner) | LM8c |
 | M43 | a missing GM_xmlhttpRequest read as "no answer" (no fallback) | L4d |
 | M44 | a late answer's body is left streaming (not cancelled) | LWc |
 | M45 | a rejected fetch never frees its open slot | LWh |
@@ -296,9 +306,84 @@ sentinel (L0) — and three it passes trivially, having no fetch to misuse (L7d,
 **PIPELINE APPROVED — 3 tiers passed, 44 issues found and fixed.** Tier 3 reached APPROVED on its tenth
 and last permitted round, run as the full review and the post-fix validation together.
 
-### Other measurements on the final build
-- Full suite (`tests/test-all-platforms.js`, `ACN_SCRIPT` = the final build): chromium **560/560**, firefox **560/560** (macOS arm64, `ACN_SCRIPT` = the final build). webkit **556/560 on BOTH v12.9 and v12.8** — the same four jump-acceptance entries (`got null` at ~1.46s with healthy `raf10` ≈ 150ms), identical in an A/B under the same load and again when run alone. That is this machine's mac WebKit (TESTING.md's webkit-on-macos signature), not this change; CI's webkit jobs are the reference.
-- `check-tokenizer` and `check-subsegments` pass. `check-usage-state` passes on chromium (CI's engine for it)
+### Other measurements
+- Full suite (`tests/test-all-platforms.js`, `ACN_SCRIPT` = the final build): chromium **560/560**, firefox **560/560** (macOS arm64, `ACN_SCRIPT` = the final build). webkit **556/560 on BOTH v12.9 and v12.8** — the same four jump-acceptance entries (`got null` at ~1.46s with healthy `raf10` ≈ 150ms), identical in an A/B under the same load and again when run alone — so not this change. **Corrected after the PR opened:** this line first called it TESTING.md's webkit-on-macos signature and named CI's webkit jobs the reference. Neither holds: that signature pins jumps at the 4.3–5.4s give-up ceiling on a degraded CI runner, while these give up at ~1.46s with healthy `raf10` on every run, and every printed failure targets one of the last ~10 questions of its conversation. CI's mac WebKit (build 2370) passed 560/560 on the same commit; this machine's is build 2248. Cause unknown — TROUBLESHOOTING, "OPEN — Local mac WebKit".
+- On the round-7 snapshot (the tokenizer, subsegment and usage paths are unchanged since): `check-tokenizer`
+  and `check-subsegments` pass. `check-usage-state` passes on chromium (CI's engine for it)
   on both builds, 2 of 2 each. On **firefox** its U10 times out intermittently on **both** builds: v12.8 3 of
   3 runs, v12.9 3 of 5 (macOS arm64, up to five probes in parallel). The flake predates this change and is
   left for a separate one.
+
+## After the PR opened (2026-10-22)
+
+- **GitHub Codex reviewed `ae3ada1` twice and found nothing both times:** the automatic review on PR open, and
+  a manual `@codex review`. The summary comment read `has_any_findings: false`, the receipt said "Didn't find
+  any major issues", and there were no inline comments.
+- **CI, run 39847332312.** In attempt 1, 8 of 9 jobs were green, and `firefox on ubuntu-latest` was cancelled at
+  the 20-minute cap inside the browser install (apt at ~35–55 KB/s), before any test. In attempt 2, all nine
+  re-ran and all nine were green. TROUBLESHOOTING has the entry.
+- **Correction:** the webkit line under "Other measurements" above, first written as TESTING.md's runner
+  signature.
+- **Rule 9 (spec 2.1 says "confirm that in review"):** this record had not said so. Confirmed against HEAD:
+  `ciFetchGet` calls `fetch` and assigns no page global, so `exportFunction` does not apply.
+
+## Scope against the spec (2026-10-22, owner's request)
+
+Four readers, each blind to the author's own classification, classified every change against the owner's spec,
+read-only. They covered the userscript against the spec, the userscript against v12.8, the probe and CI, and
+the docs. The author's own read agreed on every item below except two placements: the fetch bounds, which the author
+had as needed by the fix (the readers split between needed and extra), and the fallback for a missing
+`GM_xmlhttpRequest`, which the author had under the spec's "a transport that is unusable in a given runtime
+cannot break the index" (the tests reader called it extra). The readers also split among themselves on the
+unusable-org-list reason (pre-existing or extra), the `finish` latch (extra or pre-existing) and the callback
+rethrow (needed or extra).
+
+- **The fix the spec asked for:**
+  - `ciApiGet` over `gmxhr` (v12.8's request, byte for byte) and `fetch`;
+  - ordering by `GM_info.scriptHandler`;
+  - the refusal / could-not-run trigger;
+  - the winner cache;
+  - PERMANENT only after both transports have failed;
+  - per-request diagnostic lines and transport-tagged reasons;
+  - the version bump, the CLAUDE.md reasoning-flow example, and Chrome's 403 as an open item;
+  - probe checks L1–L5.
+- **Problems that already existed in v12.8, fixed on the way** (each would be valid as its own PR against v12.8):
+  - the exact-origin guard in `ciIsClaudeChat`;
+  - `ciRankOrgs` on a non-array `capabilities`;
+  - the malformed-cookie wedge (the walk's try/catch);
+  - the gmxhr never-called-back watchdog;
+  - the unusable-org-list reason, which **changed Firefox/Chrome behaviour**: cheap 403s followed by a 200 org
+    list with no usable org were PERMANENT in v12.8 and retried every ~16s in v12.9 (**reverted** on the
+    owner's decision, 2026-10-22);
+  - three comments.
+- **Added without being asked:**
+  - the page-wide fetch bounds and the body cancel (the readers split between "needed" and "extra"; the 45s
+    fetch timer itself is needed);
+  - the fetch origin refusal, which is unreachable;
+  - the `index order`, `index fallback` and `error=` log text;
+  - the `finish` latch and the callback rethrow;
+  - skipping the fallback for a conversation already left;
+  - the CI probe step;
+  - most of the docs: DEC-045, four copies of the verification record and mutation matrix (consolidated into
+    this record on 2026-10-22), the TROUBLESHOOTING
+    entry, the TESTING and architecture notes, the CLAUDE.md Layer 3 definition rewritten in place, and ROADMAP
+    findings about other features (the usage panel, persistence, `scriptHandler`, the usage-path cookie throw).
+  - The README privacy section is mixed. Disclosing the fetch path is needed. Correcting v12.8's false "no
+    network requests" claim is pre-existing.
+- **Where the code departs from the spec's wording,** for the owner to rule on:
+  - 404 counts as a refusal;
+  - a rejected fetch is a network error, so on Safari it does not fall back to gmxhr;
+  - a 429 or malformed body from the first transport goes PERMANENT without asking the second (the code
+    follows 2.2's "only when" over 2.3);
+  - the `[transport]` tag also reaches the degraded banner and Markdown exports;
+  - the "unexpected response shape" and "malformed message data" reasons carry no tag (a 2.4 gap);
+  - fixture 3 asserts the 60s first step, not the ×4 escalation (L3-backoff checks the 16s point only).
+- **Coupling, if anything is split:**
+  - the extra log lines are observation points for probe checks (L1-slow, L5c, L5b-cache, L1v, LO, LH, L4b, L4d);
+  - the pre-existing fixes are written against v12.9's structure (`walk()`, the `threw` kind, the settle latch)
+    and would need rebasing onto v12.8;
+  - the unusable-org-list count is tied to the both-failed rule;
+  - the probe's 63/52/46 counts are repeated in five docs.
+
+**Owner's decision (2026-10-22):** keep everything except the unusable-org-list reason, which is reverted. v12.8's
+PERMANENT backoff for that case is restored, and probe LM8c holds it.

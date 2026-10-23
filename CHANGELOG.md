@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.9 — The Claude Index Works on Safari: a Second Transport, Ordered by the Userscript Manager] — 2026-10-22
 
-**Branch:** `fix/safari-transport-fallback`
+**Branch:** `fix/safari-transport-fallback` | **Commits:** `74c8811` (code), `ae3ada1` (docs), then the post-PR docs update | **PR:** #75
 
 ### Problem
 
@@ -48,23 +48,22 @@ break that varies by *manager*, not by site.
   only refusals or silence (no server error) upholds the first's refusal — so a logged-out tab still backs
   off as it did in v12.8.
 - **One diagnostic line per request**, naming the transport — `[ACN] index: transport=fetch org=730fcd2a… status=200`
-  (8-char org prefix, a vetted `error.type`, never any content) — and every degraded reason starts with
-  `[gmxhr]` / `[fetch]`.
+  (8-char org prefix, a vetted `error.type`, never any content) — and every reason from the org walk starts
+  with `[gmxhr]` / `[fetch]` (two post-fetch validation reasons do not yet; review record, "Scope").
 
 ### Also fixed on the way — each one gated by the probe
 
 - A `GM_xmlhttpRequest` that throws synchronously, a manager that never calls back, a fetch that never
   answers, a malformed `lastActiveOrg` cookie, and an org list whose `capabilities` is not an array each
   used to leave the index stuck at "loading" for the rest of the session. Each now ends as a visible,
-  retried degradation (the first and last reproduced on v12.8).
+  retried degradation. The probe reproduces four of the five on v12.8 (L4a, LWa, L8, LR); the fifth, the
+  never-answering fetch, did not exist there.
 - A fetch is never cancelled, so two page-wide bounds keep requests from piling up: two timed out and still
   pending, or six open at all. At either, a new attempt reports a timeout without sending another; each
   request frees its slots when it ends (a late answer nobody reads has its body cancelled), and one
   lingering request blocks nothing (Codex Tier 3; DEC-045 has why these numbers, and why page-wide).
 - Greasemonkey 4 ships no `GM_xmlhttpRequest`, so v12.8's index could never load there; a missing API now
   counts as a transport that cannot run, and fetch takes over (from GM4's documented API; not measured).
-- An org list that answers 200 with no usable org no longer inherits the cheap candidates' 403 in its
-  reason, which sent that one shape to the PERMANENT backoff (Codex Tier 3).
 - The index now runs only on the exact origin `https://claude.ai`. Platform detection is
   `host.includes('claude.ai')` and `@match` patterns ignore ports, so on a look-alike host — or claude.ai on
   another port — the gmxhr path could fetch the user's real conversation and render it into that page
@@ -73,16 +72,17 @@ break that varies by *manager*, not by site.
 
 ### Verification
 
-New probe `probes/check-transport-ladder.js`, in CI on ubuntu × {chromium, firefox, webkit} — the one probe
-that runs on all three engines, because fetch/promise/timer behaviour is what varies by engine. v12.9 passes
-all 63 checks on chromium, firefox and webkit; v12.8 fails 52 of 63 — L1, the Safari shape, among them
-(Playwright 1.58.2, macOS arm64, page realm). 46 mutants, each removing one mechanism: 43 are caught; the
-three that are not — a single-fire latch, a diagnostic rethrow, and the fetch origin refusal the index guard
-makes unreachable — are recorded as such. DEC-045 has the matrix.
+New probe `probes/check-transport-ladder.js`, in CI on ubuntu × {chromium, firefox, webkit}. Its results
+against v12.8 and the mutation matrix are kept in one place: `reviews/review-2026-10-22-safari-transport.md`.
 The full suite passes 560/560 on chromium and on firefox (macOS arm64). On webkit it is 556/560 here **for both
 v12.9 and v12.8** — the same four jump-acceptance entries, `got null` with healthy `raf10`, in an A/B under
-identical load and again solo: this machine's mac WebKit, not this change (TESTING.md's webkit-on-macos
-signature). CI's webkit jobs are the reference.
+identical load and again solo — so this change did not cause it. **Corrected after the PR opened:** this entry
+first called it TESTING.md's webkit-on-macos signature and named CI's webkit jobs the reference. Neither holds.
+That signature is a degraded CI runner whose jumps pin at the 4.3–5.4s give-up ceiling; these give up at
+~1.46s with `raf10` 135–168ms on every run, and every failure the report prints targets one of the last ~10
+questions of its conversation. CI's mac WebKit (27.2, Playwright build 2370) passed all 560 on the same
+commit; this machine's is build 2248 (Playwright 1.58.2). Neither result is a Safari measurement — both are
+Playwright's WebKit against mock pages (the four entries use the virtualizing Claude mock). Cause unknown: TROUBLESHOOTING, "OPEN — Local mac WebKit".
 
 ### Not changed, on purpose
 
@@ -94,8 +94,32 @@ ROADMAP 0d).
 
 Live confirms (DEC-031): Safari on a long conversation (`transport=fetch … status=200`, full count); Firefox
 unchanged (`transport=gmxhr … status=200`); Chrome recording which transport won. Chrome's 403 stays OPEN
-until those lines exist. **Found, not fixed:** nothing persists on Safari + Userscripts (no synchronous
-`GM_getValue`/`GM_setValue` — bookmarks and settings included); ROADMAP 0d.
+until those lines exist. **Found, not fixed:** nothing kept in GM storage works on Safari + Userscripts (no
+synchronous `GM_getValue`/`GM_setValue`): bookmarks, saved commands, the language and platform toggles.
+Display mode, scroll direction and panel width use `localStorage` and are unaffected. ROADMAP 0d.
+
+### After the PR opened (2026-10-22)
+
+- **GitHub Codex reviewed `ae3ada1` twice and found nothing both times:** once automatically when the PR opened,
+  and once on a manual `@codex review` ("Didn't find any major issues").
+- **CI, run 39847332312.** In attempt 1, 8 of 9 jobs were green. `firefox on ubuntu-latest` spent its whole
+  20-minute cap downloading apt packages at ~35–55 KB/s and never ran a test (TROUBLESHOOTING). In attempt 2,
+  all nine re-ran on the same commit and went **9 of 9 green**, with the transport-ladder probe passing on all
+  three ubuntu jobs. This is the mock suite on Playwright's engines, not a real-browser result (ROADMAP 0e).
+- **The probe's CI cost:** it adds 2m18s (chromium) and 2m26s (webkit) to each ubuntu job. That takes them to
+  ~9 minutes, from ~6.5–7 on main's last green run (2026-08-06), under the 20-minute cap.
+- **Corrected:** the webkit paragraph under Verification above. The four local webkit failures are not the
+  documented runner signature (TROUBLESHOOTING, "OPEN — Local mac WebKit"), and that entry adds a jump to the
+  last five questions to the Safari acceptance (ROADMAP 0d).
+- **Scope audit against the spec:** the change also carries pre-existing fixes, unrequested additions and
+  departures from the spec's wording, listed by name in the review record's "Scope against the spec". The
+  owner kept them all except one: the unusable-org-list reason (Codex Tier 3 round 8), which had turned v12.8's
+  PERMANENT backoff into a ~16s retry on every browser. **Reverted** (2026-10-22): an org list that answers 200
+  with no usable org after cheap-candidate 403s keeps v12.8's "(HTTP 403)" reason and PERMANENT backoff
+  again, and probe LM8c now holds that class. On the first transport this case ends PERMANENT without the
+  other transport being asked (DEC-045).
+- **Validation record in one place:** the probe's results against v12.8 and the mutation matrix now live only
+  in the review record. DEC-045, this entry, TROUBLESHOOTING and the probe header link to it.
 
 ---
 

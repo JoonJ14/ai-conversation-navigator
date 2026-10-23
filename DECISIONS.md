@@ -2287,7 +2287,8 @@ preserved rather than deleted.
   user-visible defect shipped.
 
 ### Verification
-`probes/check-usage-state.js`, 8 checks, wired into CI (ubuntu+chromium). It drives the real UI
+`probes/check-usage-state.js`, 10 checks (U9 and U10 were added in review, `5eee8ac`), wired into CI
+(ubuntu+chromium). It drives the real UI
 by opening the Navigate panel and reading the DOM — no instrumentation hook.
 
 **Every claim was mutation-tested against a build with that specific fix removed**, because a
@@ -2391,10 +2392,13 @@ error describes only its last step.
 | a throw, a missing API, or (gmxhr) no callback 5s past the manager's own timeout | **yes** | the spec's "or throws": the transport cannot run here |
 | a network error or a manager-reported timeout | no | the other transport cannot fix an outage, and falling back on a blip would move Firefox onto fetch for the session (the winner is cached). Transient: retried on the cooldown |
 | 429 | no | the account is rate-limited; asking again through the other transport only adds to it. Keeps v12.8's PERMANENT backoff |
-| 5xx, malformed body — including an org list that parses but holds no usable org | no | a verdict about the server — v12.8's class (5xx transient, malformed JSON permanent, an unusable org list transient). The org-list case is counted separately because it arrives as a parsed 200 (Codex Tier 3 round 7) |
+| 5xx, malformed body — including an org list that parses but holds no usable org | no | a verdict about the server — v12.8's class (5xx transient, malformed JSON permanent; an unusable org list transient, except an array on the all-orgs path after cheap-candidate 403s, which keeps v12.8's PERMANENT reason — owner's decision, PR #75). The org-list case is counted separately because it arrives as a parsed 200 (Codex Tier 3 round 7) |
 
 The walk stops at the first non-refusal it meets, so its reason names that kind. That is why the
-guarantee holds: **a refusal can never be declared PERMANENT without the other transport having been tried.**
+guarantee holds: **a refusal can never be declared PERMANENT without the other transport having been tried** —
+with one exception the owner chose on PR #75. When the first transport's cheap candidates are refused and its
+org list then answers 200 with an array holding no usable org, that walk keeps v12.8's "(HTTP 403)" reason and
+ends PERMANENT without the other transport being asked (the unusable list counts as a server verdict).
 Detection decides only the order; the rule is the same in either order. The order can change the
 OUTCOME only when one of the last three rows strikes the first transport and not the second — the one
 documented exception to "correctness does not depend on detection", and the reason the 429 row exists
@@ -2413,8 +2417,11 @@ usable org (LM8, LM8b: before round 7 it upheld the refusal, PERMANENT where v12
 transient, as v12.8's "GM_xmlhttpRequest unavailable" always was: nothing reached a server, so there is
 nothing to back off from.
 
-Every degraded reason names its transport: `[gmxhr] <reason>` for one, `[gmxhr] <reason> · [fetch] <reason>`
-for both. The classifier regex is unanchored, so the prefix changes no class.
+Every reason the org walk produces names its transport: `[gmxhr] <reason>` for one,
+`[gmxhr] <reason> · [fetch] <reason>` for both. The classifier regex is unanchored, so the prefix changes no
+class. Two reasons set after a fetch succeeded — `unexpected response shape` and `malformed message data` —
+carry no prefix yet: a gap against spec 2.4, found by the post-PR scope audit (the per-request line before
+them does name the transport).
 
 ### Diagnostics
 One line per request, naming the transport (the measurement-context rule — a log from a user's browser must
@@ -2478,11 +2485,11 @@ identifier check, so a hostile or unexpected body cannot put anything else in th
 - Greasemonkey 4 ships no `GM_xmlhttpRequest` at all, so v12.8's index could never load there; it now falls
   through to fetch (from GM4's documented API; the fall-through is gated by probe L4d, GM4 itself not
   measured).
-- **An org list that answers 200 with no usable org no longer inherits the cheap candidates' 403.** The
-  all-orgs walk appended that status so an unauthorized tab would back off (v12.8, Codex R23) — but a list
-  that answered 200 shows the tab IS authorized, and the stale 403 sent this one shape to the PERMANENT
-  backoff while its other two shapes retried on the cooldown. Its reason now says the list held no usable
-  org (Codex Tier 3 round 8; LM8c). The only change to a reason the walk produces.
+- **An org list that answers 200 with no usable org keeps v12.8's reason — reverted by the owner.** Codex
+  Tier 3 round 8 had changed that reason ("the org list held no usable org") so this shape would retry on the
+  cooldown instead of inheriting the cheap candidates' 403 and backing off as PERMANENT. The owner reverted it
+  on PR #75 (2026-10-22): v12.8's PERMANENT backoff stands for this case, and LM8c holds it. Every reason the
+  walk produces is v12.8's.
 
 ### What was deliberately NOT changed
 `@grant` lines; the endpoint and its query string; candidate order; the 403/404-advance and 401-terminal
@@ -2495,68 +2502,14 @@ rules (ROADMAP 0d).
 `probes/check-transport-ladder.js`, in CI on ubuntu for all three engines. Context: Playwright, page realm —
 it proves the ladder's DECISIONS, not which real manager's transport carries credentials.
 
-Results, measured 2026-10-22 against snapshot builds (Playwright 1.58.2 — chromium-1208, firefox-1509,
-webkit-2248 — macOS arm64, page realm): **v12.9 passes all 63 checks on chromium, firefox and webkit; v12.8
-fails 52 of 63** on chromium and firefox — the same list on both, L1 (spec fixture 1, the Safari shape)
-among them. The 11 it passes are the guards both builds must keep — the Firefox path and its byte-identical
-request (L2, L2-shape, L2b), the backoff and the network-error rule (L3, L3-backoff, L6, L6-retry), the
-sentinel (L0) — and three it passes trivially, having no fetch to misuse (L7d, LM2, LM4).
-
-Mutation matrix — one mechanism removed per build, chromium; 43 of 46 are gated, and the three that are not
-say why:
-
-| Mutant | Mechanism removed | Checks that fail |
-|---|---|---|
-| M01 | no ladder — a failed first walk is final | L1, L1-list, L1-log, L1-shape, L1b, L1c, L1-slow, L5b, L5b-cache, L1v, L4a, L4b, L4d, L3-order, L3d, L3d-retry, LM1, LM5, LM6, LM8, LM8b, LM8c, LN, L3b, L3c, L4c, LWa |
-| M02 | detection ignored — gmxhr always first | L5, L5c, L5b, L4b, L6b, LWb, LWb-cap, LWc, LWd, LWe, LWf, LWh |
-| M03 | fallback on ANY failed walk (network errors included) | LM2, LM3, LM4, LM7, LM9, L6, L6-retry, L6b, LWb, LWc, LWd, LWe, LWh, LWi |
-| M04 | both failed: classify by the first transport only | L3d, L3d-retry, LM8, LM8b, LM8c |
-| M05 | both failed: a second with no verdict no longer upholds the first's refusal | LM6, L3b, L3c |
-| M06 | the winner is never cached | L1b, L5b-cache |
-| M07 | a synchronous GM throw escapes (v12.8) | L4a, L4c |
-| M08 | gmxhr request no longer byte-identical (Cache-Control dropped) | L2-shape |
-| M09 | fetch grows a custom header | L1-shape |
-| M10 | error.type printed unvetted | L7e |
-| M11 | per-REQUEST fallback on every 403 | L1-list, L1b, L1-slow, L7f, L2, L5, L5c, L5b-cache, L4a, L4b, L4d, LM2, LM3, LM4, LM5, LM6, LM8c, LM9, LN, L3b, L3c, LWa |
-| M12 | detection unguarded — a throwing GM_info getter escapes | L1c |
-| M13 | a rejected fetch counts as "threw" (fallback-eligible) | L6b, LWh |
-| M14 | no gmxhr watchdog | LWa |
-| M15 | no fetch timeout timer | LWb, LWb-cap, LWc |
-| M16 | no try/catch around the walk prefix | L8 |
-| M17 | onerror detail not logged | L6-log |
-| M18 | no single-fire latch on finish() | **none — not gated:** insurance — every path calls `finish` once by construction; the latch makes that a guarantee |
-| M19 | a throw from a callback is swallowed, not rethrown | **none — not gated:** diagnostic only — rethrows a callback's exception on a fresh stack so it shows as a page error; no callback throws any more (`ciRankOrgs` was made total) |
-| M20 | 404 is a verdict again, not a refusal | LM1 |
-| M21 | fetch sends from any page origin | **none — not gated:** unreachable while `ciIsClaudeChat` holds — the index never runs on another origin; kept as defense in depth |
-| M22 | the index runs on any page detected as Claude | LO, LH |
-| M22b | index guard checks hostname only (any port passes) | LO |
-| M23 | no cap on timed-out fetches (the open bound stays) | LWb-cap |
-| M24 | v12.8 ranking — object `capabilities` throws in the callback | LR |
-| M25 | single-transport reasons no longer name the transport | LM3, LM9 |
-| M26 | a late answer no longer frees its stalled slot | LWc |
-| M27 | only FETCH winners are cached | L5b-cache |
-| M28 | round 2's rule: any refusal on the second walk lets the re-poll loop through | LM6 |
-| M30 | gmxhr's own timeout classed as "could not run" (fallback-eligible) | LM7, LWi |
-| M31 | stall cap of ONE — a lone hang blocks every later fetch | LWc, LWd, LWe |
-| M32 | stall cap of THREE | LWb-cap |
-| M33 | winner cached before its body is validated (round 5's position) | L1v |
-| M34 | fetch drops the query string | L1-shape |
-| M35 | no bound on OPEN fetches (only timed-out ones counted) | LWf |
-| M36 | an open fetch never frees its slot when it ends | LWe, LWg, LWh |
-| M37 | open bound of FIVE | LWf |
-| M38 | detection ignores GM.info (reads GM_info only) | L5c |
-| M39 | unparseable JSON classed as "could not run" (fallback-eligible) | LM9 |
-| M40 | an unusable org list is no verdict — first org-list path | LM8b |
-| M41 | an unusable org list is no verdict — all-orgs path | LM8, LM8c |
-| M42 | an unusable org list keeps the cheap candidates' 403 in its reason | LM8c |
-| M43 | a missing GM_xmlhttpRequest read as "no answer" (no fallback) | L4d |
-| M44 | a late answer's body is left streaming (not cancelled) | LWc |
-| M45 | a rejected fetch never frees its open slot | LWh |
-| M46 | gmxhr watchdog AT the manager's 45s timeout, not past it | LWi |
+Results against v12.8, the mutation matrix and the CI runs are kept in ONE place:
+`reviews/review-2026-10-22-safari-transport.md`.
 
 ### Open
 - **Chrome + Tampermonkey's 403 — unexplained.** A candidate, unverified: Tampermonkey issue #2782. The new
   log lines are what will settle it (ROADMAP 0d).
-- **Live confirms owed (DEC-031):** Safari on a long conversation; Firefox unchanged; Chrome's transport line.
-- **Nothing persists on Safari + Userscripts** (no synchronous `GM_getValue`/`GM_setValue`, from its source):
-  bookmarks, settings and the org cache among others. Outside this change; ROADMAP 0d.
+- **Live confirms owed (DEC-031):** Safari on a long conversation, including a jump to each of its last five
+  questions (TROUBLESHOOTING, "OPEN — Local mac WebKit"); Firefox unchanged; Chrome's transport line.
+- **Nothing kept in GM storage works on Safari + Userscripts** (no synchronous `GM_getValue`/`GM_setValue`,
+  from its source): bookmarks, saved commands, the language and platform toggles, the org cache. Display mode,
+  scroll direction and panel width use `localStorage` and are unaffected. Outside this change; ROADMAP 0d.

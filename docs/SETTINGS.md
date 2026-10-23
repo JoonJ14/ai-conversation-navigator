@@ -2,6 +2,12 @@
 
 Upgrade the partially-working Settings panel with persistent platform toggles (with lockout prevention), language selector (i18n), and refined display options. All settings persist via `GM_setValue` and survive script updates.
 
+> **Not on Safari + Userscripts (found in v12.9).** Userscripts does not provide the synchronous
+> `GM_setValue` / `GM_getValue` (from its source). Everything in `acn-settings` — the language and the
+> platform toggles — is re-read from GM on every use, so there it cannot be changed at all and the UI
+> stays English (from the code; not yet checked on Safari). The display mode and scroll direction are
+> unaffected: `orbSaveSettings()` keeps them in `localStorage` (`_acnv10`). ROADMAP item 0d.
+
 **Last updated:** 2026-02-23  
 **Applies to:** v10.1+  
 **Status:** Ready for implementation  

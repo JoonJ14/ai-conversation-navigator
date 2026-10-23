@@ -15,8 +15,7 @@ npx playwright install --with-deps
 ## Running Tests
 
 ```bash
-# Run all tests on all 20 platform entries (376 total: 14 tests × orbital, 13 × legacy,
-# + virtualization and jump tests on the three Claude (virtualized) entries)
+# Run the whole suite: 26 platform entries, 560 tests as of v12.9 (2026-10-22)
 npm test
 
 # Run on specific browsers
@@ -81,14 +80,19 @@ the check pass on Linux and fail on Windows for the same correct jump.
 When modifying the userscript, ensure:
 - All `data-acn-*` attributes remain intact
 - Mock pages match the real platform DOM structure
-- Tests pass across all 20 platform entries (14 real platforms + six Claude virtualized
-  entries: degraded, index-backed, and index-backed with markdown API text whose DOM/API
-  text deliberately does NOT match)
+- Tests pass across all 26 platform entries as of v12.9 (the 14 real platforms plus the Claude
+  fixture entries — among them the virtualized degraded, index-backed, and index-backed-with-markdown
+  entries whose DOM/API text deliberately does NOT match)
 
 ## CI/CD
 
 GitHub Actions runs on push/PR to `main`:
 - **cross-platform-tests.yml:** 3 OS (Ubuntu, macOS, Windows) x 3 browsers (Chromium, Firefox, WebKit) = 9 test matrix jobs
+  - Every job runs `tests/test-all-platforms.js` on its engine.
+  - `ubuntu + chromium` also runs `check-tokenizer` and `check-subsegments` (string behaviour) and
+    `check-usage-state` (the usage panel's network states; it has an open Firefox flake, TROUBLESHOOTING).
+  - Every `ubuntu` job also runs `check-transport-ladder` on its own engine (v12.9, DEC-045). It adds about
+    2m20s per job.
 
 **Windows is the runner that catches timing assumptions.** It is materially slower than
 the Ubuntu and macOS runners, so an assertion that races the virtualizer passes on two OSes
@@ -104,6 +108,11 @@ lines (~160ms rAF sample = healthy; seconds = throttled; -1 = stopped) and the p
 wall clocks, then re-run the job once. Full signature and procedure:
 `TESTING.md` → "CI: reading a webkit-on-macos failure or hang". The job `timeout-minutes: 20`
 exists for this; do not raise assertion budgets to make a sick runner green.
+
+**A local mac WebKit failure is NOT that signature** (found 2026-10-22). On the owner's Mac, four acceptance
+entries fail on every run, on v12.8 and v12.9 alike. They give up at ~1.46s with healthy `raf10`, on jumps
+near the end of a conversation; CI's mac WebKit, a newer build, passes them. It was misfiled as the runner signature once. Match on timing,
+frequency and host, not on `got null`: TROUBLESHOOTING, "OPEN — Local mac WebKit".
 - **claude.yml:** Claude Code integration for automated issue/PR responses
 - **claude-code-review.yml:** Automated code review
 

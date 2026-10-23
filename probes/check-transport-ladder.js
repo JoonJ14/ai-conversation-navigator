@@ -28,116 +28,8 @@
 // credentials. That part is the owner's live acceptance check on Safari + Userscripts,
 // Firefox + Tampermonkey and Chrome + Tampermonkey.
 //
-// RESULTS, measured 2026-10-22 on this probe against snapshot builds (Playwright 1.58.2,
-// chromium-1208 / firefox-1509 / webkit-2248, macOS arm64, four probe runs in parallel):
-//   - v12.9: all 63 checks pass on chromium, firefox and webkit.
-//   - v12.8 (git show b471ddc): fails 52 of 63 on chromium AND firefox, the same list on both:
-//       L1 L1-list L1-log L1-shape L1b L7a L7b L7c L1c L1-slow L7f L5 L5c L5b L5b-cache L1v L4a
-//       L4b L4d L3-order L3d L3d-retry LM1 LM3 LM5 LM6 LM7 LM8 LM8b LM8c LM9 LO LH LR LN L3b
-//       L3c L4c L7e L6-log L6b L8 LWa LWb LWb-cap LWc LWd LWe LWf LWg LWh LWi
-//   - The 11 checks v12.8 PASSES are the guards that must hold on both builds — the Firefox
-//     path and its byte-identical request (L2, L2-shape, L2b), the backoff and the
-//     network-error rule (L3, L3-backoff, L6, L6-retry), the sentinel (L0) — and three it
-//     passes trivially, having no fetch to misuse: L7d, LM2, LM4. They are regression
-//     guards, not proof of the fix.
-// MUTATION MATRIX — one mechanism removed per build, chromium. A check that cannot fail
-// is not a gate, so every mechanism is listed with the checks that catch its removal —
-// or, where nothing does, says so:
-//   M01   no ladder — a failed first walk is final
-//         -> L1 L1-list L1-log L1-shape L1b L1c L1-slow L5b L5b-cache L1v L4a L4b L4d L3-order
-//         -> L3d L3d-retry LM1 LM5 LM6 LM8 LM8b LM8c LN L3b L3c L4c LWa
-//   M02   detection ignored — gmxhr always first
-//         -> L5 L5c L5b L4b L6b LWb LWb-cap LWc LWd LWe LWf LWh
-//   M03   fallback on ANY failed walk (network errors included)
-//         -> LM2 LM3 LM4 LM7 LM9 L6 L6-retry L6b LWb LWc LWd LWe LWh LWi
-//   M04   both failed: classify by the first transport only
-//         -> L3d L3d-retry LM8 LM8b LM8c
-//   M05   both failed: a second with no verdict no longer upholds the first's refusal
-//         -> LM6 L3b L3c
-//   M06   the winner is never cached
-//         -> L1b L5b-cache
-//   M07   a synchronous GM throw escapes (v12.8)
-//         -> L4a L4c
-//   M08   gmxhr request no longer byte-identical (Cache-Control dropped)
-//         -> L2-shape
-//   M09   fetch grows a custom header
-//         -> L1-shape
-//   M10   error.type printed unvetted
-//         -> L7e
-//   M11   per-REQUEST fallback on every 403
-//         -> L1-list L1b L1-slow L7f L2 L5 L5c L5b-cache L4a L4b L4d LM2 LM3 LM4 LM5 LM6 LM8c
-//         -> LM9 LN L3b L3c LWa
-//   M12   detection unguarded — a throwing GM_info getter escapes
-//         -> L1c
-//   M13   a rejected fetch counts as "threw" (fallback-eligible)
-//         -> L6b LWh
-//   M14   no gmxhr watchdog
-//         -> LWa
-//   M15   no fetch timeout timer
-//         -> LWb LWb-cap LWc
-//   M16   no try/catch around the walk prefix
-//         -> L8
-//   M17   onerror detail not logged
-//         -> L6-log
-//   M18   no single-fire latch on finish()
-//         -> NONE — not gated (insurance — every path calls finish once by construction; the latch makes that a guarantee)
-//   M19   a throw from a callback is swallowed, not rethrown
-//         -> NONE — not gated (diagnostic only — rethrows a callback's exception on a fresh stack so it shows as a page error; no callback throws any more (ciRankOrgs was made total))
-//   M20   404 is a verdict again, not a refusal
-//         -> LM1
-//   M21   fetch sends from any page origin
-//         -> NONE — not gated (unreachable while ciIsClaudeChat holds — the index never runs on another origin; kept as defense in depth)
-//   M22   the index runs on any page detected as Claude
-//         -> LO LH
-//   M22b  index guard checks hostname only (any port passes)
-//         -> LO
-//   M23   no cap on timed-out fetches (the open bound stays)
-//         -> LWb-cap
-//   M24   v12.8 ranking — object `capabilities` throws in the callback
-//         -> LR
-//   M25   single-transport reasons no longer name the transport
-//         -> LM3 LM9
-//   M26   a late answer no longer frees its stalled slot
-//         -> LWc
-//   M27   only FETCH winners are cached
-//         -> L5b-cache
-//   M28   round 2's rule: any refusal on the second walk lets the re-poll loop through
-//         -> LM6
-//   M30   gmxhr's own timeout classed as "could not run" (fallback-eligible)
-//         -> LM7 LWi
-//   M31   stall cap of ONE — a lone hang blocks every later fetch
-//         -> LWc LWd LWe
-//   M32   stall cap of THREE
-//         -> LWb-cap
-//   M33   winner cached before its body is validated (round 5's position)
-//         -> L1v
-//   M34   fetch drops the query string
-//         -> L1-shape
-//   M35   no bound on OPEN fetches (only timed-out ones counted)
-//         -> LWf
-//   M36   an open fetch never frees its slot when it ends
-//         -> LWe LWg LWh
-//   M37   open bound of FIVE
-//         -> LWf
-//   M38   detection ignores GM.info (reads GM_info only)
-//         -> L5c
-//   M39   unparseable JSON classed as "could not run" (fallback-eligible)
-//         -> LM9
-//   M40   an unusable org list is no verdict — first org-list path
-//         -> LM8b
-//   M41   an unusable org list is no verdict — all-orgs path
-//         -> LM8 LM8c
-//   M42   an unusable org list keeps the cheap candidates' 403 in its reason
-//         -> LM8c
-//   M43   a missing GM_xmlhttpRequest read as "no answer" (no fallback)
-//         -> L4d
-//   M44   a late answer's body is left streaming (not cancelled)
-//         -> LWc
-//   M45   a rejected fetch never frees its open slot
-//         -> LWh
-//   M46   gmxhr watchdog AT the manager's 45s timeout, not past it
-//         -> LWi
-// 43 of 46 mechanisms are gated. The three that are not are listed as such, with why.
+// RESULTS (v12.9 against v12.8) and the MUTATION MATRIX (which checks catch the removal of each
+// mechanism) are kept in ONE place: reviews/review-2026-10-22-safari-transport.md.
 
 'use strict';
 
@@ -915,9 +807,9 @@ async function routeChangeAndForceScan(page, url) {
     //       starts at the org list, and fetch's answers 200 with an array holding no usable
     //       org. Transient.
     //   LM8c the all-orgs path again, with an ARRAY holding no usable org, after fetch's own
-    //       wrong-org 403. That walk's reason used to carry the 403 ("(HTTP 403)"), which read
-    //       as an unauthorized tab and went PERMANENT — but the org list answered 200, so
-    //       nothing says the tab is unauthorized. Transient, like the other two shapes (round 8).
+    //       wrong-org 403. The walk's reason carries that 403 ("(HTTP 403)"), so the load is
+    //       PERMANENT: v12.8's class for this shape. Codex Tier 3 round 8 had made it
+    //       transient; the owner reverted that on PR #75, and this check now holds the v12.8 class.
     //   LM9 gmxhr's conversation answers 200 with a body that is not JSON: a verdict about the
     //       server, so fetch NOT tried; v12.8's PERMANENT "malformed JSON" class (round 7: no
     //       check produced unparseable JSON before).
@@ -984,9 +876,9 @@ async function routeChangeAndForceScan(page, url) {
         lm8b.stable && lm8b.banner === 'degraded' && fetchIdx(lm8b) > 0 && permanentLines(lm8b) === 0 &&
         degradedLines(lm8b) >= 1,
         brief(lm8b) + ' permanentLines=' + permanentLines(lm8b));
-    check('LM8c', 'the all-orgs path, an array with no usable org after a 403 -> no stale "(HTTP 403)": NOT PERMANENT',
-        lm8c.stable && lm8c.banner === 'degraded' && fetchIdx(lm8c) > 0 && permanentLines(lm8c) === 0 &&
-        lm8c.logs.some((l) => /\[fetch\] no org candidate accepted the conversation \(the org list held no usable org\)/.test(l.text)),
+    check('LM8c', 'the all-orgs path, an array with no usable org after a 403 -> v12.8\'s class kept: "(HTTP 403)", PERMANENT',
+        lm8c.stable && lm8c.banner === 'degraded' && fetchIdx(lm8c) > 0 && permanentLines(lm8c) === 1 &&
+        lm8c.logs.some((l) => /\[fetch\] no org candidate accepted the conversation \(HTTP 403\)/.test(l.text)),
         brief(lm8c) + ' permanentLines=' + permanentLines(lm8c));
     check('LM9', 'gmxhr 200 with a body that is not JSON -> a verdict: fetch NOT tried, v12.8 PERMANENT "malformed JSON"',
         lm9.stable && lm9.banner === 'degraded' && lm9.fetchCalls.length === 0 && permanentLines(lm9) === 1 &&
