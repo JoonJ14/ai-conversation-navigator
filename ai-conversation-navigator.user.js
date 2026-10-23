@@ -2771,6 +2771,10 @@
 
     function ixDegrade(err, keep) {
         var reason = (err && err.reason) || 'unknown';
+        // The load failed, so the stale signature that triggered it was NOT acted on:
+        // let the scheduled retry ask again (cooldown and backoff still gate it), as
+        // ciSetDegraded clears _ciPendingResyncSig (Codex, PR #78).
+        _ix.actedSig = '';
         if (err && err.permanent) {
             _ix.retryDelayMs = _ix.retryDelayMs ? Math.min(_ix.retryDelayMs * 4, 1800000) : 60000;
             console.warn('[ACN] index failure looks PERMANENT (' + reason + ') \u2014 ' +
@@ -7399,6 +7403,10 @@
     }
 
     function orbScrollToQuestion(q) {
+        // Every navigation request supersedes an adapter jump still settling, including
+        // one that resolves on the mounted fast path below; otherwise the older jump
+        // could scroll back to its own target after this one landed (Codex, PR #78).
+        _ixJumpToken++;
         ciPre('click q.pathIndex=' + q.pathIndex +
               ' provisional=' + (q.provisional ? 1 : 0) +
               ' claudeChat=' + (ciIsClaudeChat() ? 1 : 0) +
