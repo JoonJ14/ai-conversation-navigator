@@ -580,14 +580,26 @@ the history-hook block. Changed, none of it on Claude's path:
     the guard.
   - The percentage bar's inputs: SSE thinking and the index's text totals. These keep their own redraws, the
     two SSE events and the fingerprint's status and generation fields [code].
-- **Gate:** `probes/check-turn-counter.js`. Measured on 2026-10-23, Playwright page realm, headless with
-  `visibilityState` visible, this Mac.
+- **Gate:** `probes/check-turn-counter.js`, 8 checks. Measured on 2026-10-23, Playwright page realm, headless
+  with `visibilityState` visible, this Mac.
   - **A1** (the index delayed 3 s, Navigate opened first), **A2** (switch 8 → 144 questions with Navigate open;
     no hook installed, the switch through `History.prototype.pushState`, 0 popstates) and **A2b** (then a close
-    and reopen). These **fail on v12.10 at 3 dots** on Chromium, Firefox and WebKit, and pass on v12.11 with the
-    full 40-dot spread (28 green, 6 yellow, 6 red).
-  - **A3** (a normal load) and **A4** (idle with Navigate open: 0 mutation records in 6 s) pass on both builds.
-  - The unguarded every-scan mutant fails A4 only, with 984 records, on Chromium and Firefox.
+    and reopen) end at the full 40-dot spread (28 green, 6 yellow, 6 red).
+  - **A1f / A2f** read the dots at the first draw that lists the 144 questions: a MutationObserver on the count
+    attribute fires right after the drawing task.
+  - **A5** leaves for an empty page (`/new`) with Navigate open: the dots must be 0 from the first draw on.
+  - **A3** (a normal load) and **A4** (idle with Navigate open: 0 mutation records in 6 s) are regressions.
+  - **v12.10 fails A1, A1f, A2, A2f, A2b and A5** at 3 stale dots; A3 and A4 pass. v12.11 passes all 8.
+- **Each mechanism has a check that fails without it** (mutants of v12.11, Chromium):
+  - Counter update moved back after the draws: A1f and A2f fail. The first draw shows 3; the next scan's
+    guarded redraw corrects it about 500 ms later, which is why A1/A2 alone could not see it (Codex CLI, the
+    review pipeline's Tier 3, round 1).
+  - Empty-list redraw removed: A5 fails. The first draw keeps 40 stale dots.
+  - Unconditional redraw on the unchanged-list return: A4 fails, with 984 records.
+  - **Not gated:** removing the guarded unchanged-list redraw entirely passes all 8. With the counter updated
+    first, the counter equals `_questions.length` at every draw, and the fingerprint holds every question. So an
+    unchanged list means an unchanged counter, and that redraw is a backstop no check reaches [code]. It stays
+    because the spec asks for it; its guard is what A4 gates.
 - **Real browsers:** the owner's acceptance (DEC-031).
 
 ---

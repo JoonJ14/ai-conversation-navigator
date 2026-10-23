@@ -14,6 +14,12 @@
 //   A2  a conversation switch with Navigate open, which NO history hook can see (Claude is
 //       spa:false, so none is installed; the switch also calls History.prototype.pushState,
 //       which bypasses an instance hook if one existed). The output prints that no hook ran.
+//   A1f, A2f  the FIRST draw that lists the 144 questions already shows the full count, read by
+//       a MutationObserver on the count attribute, i.e. right after the drawing task. Without
+//       this, the guarded redraw on the next scan (~500 ms later) hid a stale first draw, so
+//       A1/A2 alone could not tell whether the counter is updated before drawing (Codex CLI review).
+//   A5  leaving the conversation for an empty page with Navigate open clears the dots, from the
+//       first draw on: the empty-list return redraws too (Codex CLI review).
 //   A3  regression: a normal load, Navigate opened after the index lands.
 //   A4  regression: an idle page with Navigate open produces NO DOM mutations. The panel sits
 //       inside document.body, which the message observer watches, so a redraw on every scan
@@ -179,6 +185,24 @@ async function waitForCount(page, n, timeoutMs) {
     } catch (e) { return false; }
 }
 
+// Records the dots at the moment the count attribute first reads `n`. A MutationObserver callback
+// runs after the task that changed the attribute, and that task also draws the dots, so this is
+// what the first draw showed.
+async function armFirstDrawRead(page, n) {
+    await page.evaluate((count) => {
+        window.__acnFirstDraw = null;
+        var stat = document.getElementById('acn-nav-stat');
+        var mo = new MutationObserver(function () {
+            if (window.__acnFirstDraw === null && stat.getAttribute('data-acn-count') === count) {
+                var d = document.getElementById('acn-ctx-dots');
+                window.__acnFirstDraw = { dots: d ? d.querySelectorAll('.acn-ctx-dot').length : 0 };
+                mo.disconnect();
+            }
+        });
+        mo.observe(stat, { attributes: true, attributeFilter: ['data-acn-count'] });
+    }, String(n));
+}
+
 const fmt = (r) => r ? ('dots=' + r.dots + ' (' + r.green + 'g/' + r.yellow + 'y/' + r.red + 'r' +
                         (r.other ? '/' + r.other + '?' : '') + ') count=' + r.count + ' open=' + r.open +
                         ' stable=' + r.stable + ' vis=' + r.vis) : 'no read';
@@ -224,15 +248,20 @@ const fullSpread = (r) => !!r && r.stable === true && r.dots === FULL_SPREAD.dot
         const lat = {}; lat[CONV_B] = 3000;
         const { context, page } = await load(CONV_B, LONG, lat);
         await openNavigate(page);
+        await armFirstDrawRead(page, LONG);
         const landedAtOpen = await page.evaluate('!!window.__acnConvAnswered[' + JSON.stringify(CONV_B) + ']');
         const atOpen = await page.evaluate(READ);
         const landed = await waitForCount(page, LONG, 20000);
+        const first = await page.evaluate('window.__acnFirstDraw');
         await page.waitForTimeout(1500);   // the landing scan and any scan it schedules
         const r = await readStable(page, 10000, 700);
         check('A1', 'Navigate opened before the index lands shows the full 40-dot spread after it lands',
             !landedAtOpen && landed && fullSpread(r),
             'at open: index landed=' + landedAtOpen + ' dots=' + atOpen.dots + ' count=' + atOpen.count +
             ' | after: ' + fmt(r));
+        check('A1f', 'the first draw that lists the 144 questions already shows 40 dots',
+            !landedAtOpen && !!first && first.dots === FULL_SPREAD.dots,
+            'first draw: ' + (first ? 'dots=' + first.dots : 'never seen'));
         await context.close();
     }
 
@@ -251,6 +280,7 @@ const fullSpread = (r) => !!r && r.stable === true && r.dots === FULL_SPREAD.dot
             ownReplaceState: Object.prototype.hasOwnProperty.call(history, 'replaceState'),
             native: history.pushState === window.__acnNativePushState,
         }));
+        await armFirstDrawRead(page, LONG);
         // The switch: the prototype's pushState (no instance hook can intercept it), then one
         // throwaway node so the message observer schedules a scan. No popstate is dispatched.
         await page.evaluate((u) => {
@@ -260,6 +290,7 @@ const fullSpread = (r) => !!r && r.stable === true && r.dots === FULL_SPREAD.dot
             n.remove();
         }, CONV_B);
         const landed = await waitForCount(page, LONG, 20000);
+        const first = await page.evaluate('window.__acnFirstDraw');
         await page.waitForTimeout(1500);
         const after = await readStable(page, 10000, 700);
         const popstates = await page.evaluate('window.__acnPopstates');
@@ -272,6 +303,8 @@ const fullSpread = (r) => !!r && r.stable === true && r.dots === FULL_SPREAD.dot
             !hooks.ownPushState && !hooks.ownReplaceState && hooks.native && popstates === 0 &&
             landed && after.open === true && fullSpread(after),
             'before: ' + fmt(before) + ' | after: ' + fmt(after));
+        check('A2f', 'the first draw that lists the new conversation already shows 40 dots',
+            !!first && first.dots === FULL_SPREAD.dots, 'first draw: ' + (first ? 'dots=' + first.dots : 'never seen'));
         // Close and reopen: the freeze also survived a reopen, since the reopen took the same
         // early return.
         await page.evaluate("document.getElementById('acn-dot-nav').click()");
@@ -279,6 +312,27 @@ const fullSpread = (r) => !!r && r.stable === true && r.dots === FULL_SPREAD.dot
         await openNavigate(page);
         const reopened = await readStable(page, 10000, 700);
         check('A2b', 'after a close and reopen, still the full count', fullSpread(reopened), fmt(reopened));
+
+        // A5 — leave for an empty page (Claude's /new) with Navigate open: the route leaves the
+        // chat path, so the scan releases the index (ciInvalidate) and lists nothing. Removing the
+        // mock's mounted rows stands in for the new page's empty feed, and is the mutation that
+        // schedules the scan. Read at the first draw too: without the empty-list redraw, the next
+        // scan's guarded redraw clears the dots ~500 ms later and hides the stale first draw.
+        await armFirstDrawRead(page, 0);
+        await page.evaluate(() => {
+            window.__acnNativePushState.call(history, {}, '', '/new');
+            var m = document.getElementById('mock-mounted');
+            while (m.firstChild) m.removeChild(m.firstChild);
+        });
+        const emptied = await waitForCount(page, 0, 20000);
+        const firstEmpty = await page.evaluate('window.__acnFirstDraw');
+        await page.waitForTimeout(1500);
+        const left = await readStable(page, 10000, 700);
+        check('A5', 'leaving for an empty page with Navigate open clears the dots',
+            reopened.dots > 0 && emptied && !!firstEmpty && firstEmpty.dots === 0 &&
+            left.stable === true && left.dots === 0 && left.count === '0',
+            'before: dots=' + reopened.dots + ' | first draw: ' + (firstEmpty ? 'dots=' + firstEmpty.dots : 'never seen') +
+            ' | after: ' + fmt(left));
         await context.close();
     }
 

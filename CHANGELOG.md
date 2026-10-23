@@ -36,11 +36,17 @@ shared, so the fix also covers ChatGPT and Perplexity, where the index also land
 
 ### Verification
 
-`probes/check-turn-counter.js` (new; in `npm run test:probes` and CI's ubuntu+chromium probe step), measured in
-Playwright's page realm. A1 (index delayed, panel open first), A2 (switch with the panel open, no history hook
-able to see it) and A2b (a reopen after it) fail on v12.10 at 3 dots on Chromium, Firefox and WebKit, and pass on
-v12.11 with the full 40-dot spread. A3 (a normal load) and A4 (no mutations while idle) pass on both. An
-unguarded every-scan redraw fails A4 only. Suite and probes on the final build: in the PR.
+`probes/check-turn-counter.js` (new, 8 checks; in `npm run test:probes` and CI's ubuntu+chromium probe step),
+measured in Playwright's page realm:
+- **A1:** index delayed, panel open first.
+- **A2:** a switch with the panel open, which no history hook can see.
+- **A2b:** a reopen after the switch.
+- **A1f, A2f:** the same two scenarios, with the dots read at the first draw that lists the questions.
+- **A5:** leaving for an empty page with the panel open.
+
+v12.10 fails all six at 3 stale dots; v12.11 passes all eight. A3 (a normal load) and A4 (no mutations while
+idle) pass on both. Mutants show each mechanism is gated, except the counter-guarded backstop
+(TROUBLESHOOTING). Suite and probes on the final build: in the PR.
 
 **Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey** (PR checklist):
 results in DEC-031.
