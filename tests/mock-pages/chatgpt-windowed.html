@@ -21,7 +21,8 @@
   Config (window.__MOCK_CONFIG):
     turns:  [{ id, text }]   the VISIBLE user turns, in order (default: 10 generated)
     window: number           mounted user turns (default 6)
-  Test hooks: window.__mockWindow.mounted() -> mounted positions; .total.
+  Test hooks: window.__mockWindow.mounted() -> mounted positions; .total; .setTurns(turns) switches
+  the conversation (a branch switch) and stays at the bottom.
 -->
 <main data-codex-history-swipe-page="true" data-app-shell-main-surface="browser">
   <div data-mcp-app-portal-target="true" data-thread-user-message-navigation-content="true">
@@ -82,10 +83,19 @@
     }
   }
   scroller.addEventListener('scroll', render, { passive: true });
+  // Test hook: replace the conversation (a branch switch), keeping the window at the bottom.
+  function setTurns(next) {
+    for (var k in mountedNodes) { mountedNodes[k].remove(); delete mountedNodes[k]; }
+    turns = next;
+    spacer.style.height = (turns.length * H) + 'px';
+    scroller.scrollTop = scroller.scrollHeight;
+    render();
+  }
   scroller.scrollTop = scroller.scrollHeight;
   render();
   window.__mockWindow = {
-    total: turns.length,
+    setTurns: setTurns,
+    get total() { return turns.length; },
     mounted: function () { return Object.keys(mountedNodes).map(Number).sort(function (a, b) { return a - b; }); }
   };
 }());

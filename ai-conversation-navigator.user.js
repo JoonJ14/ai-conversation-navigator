@@ -2901,10 +2901,20 @@
 
         if (_ix.status === 'ready' && _ix.cid === cid && _ix.entries) {
             var mounted = a.mounted();
-            var byPos = {}, stale = '';
+            var byPos = {}, stale = '', maxPos = -1;
             for (var i = 0; i < mounted.length; i++) {
-                if (mounted[i].pos >= 0) byPos[mounted[i].pos] = mounted[i].el;
-                else if (!stale) stale = mounted[i].key;
+                if (mounted[i].pos >= 0) {
+                    byPos[mounted[i].pos] = mounted[i].el;
+                    if (mounted[i].pos > maxPos) maxPos = mounted[i].pos;
+                } else if (!stale) stale = mounted[i].key;
+            }
+            // A SHORTER branch has no unknown ids: every mounted question is in the index,
+            // which still lists the abandoned follow-ups. At the bottom of the scroller the
+            // last mounted question IS the conversation's last, so an index listing more
+            // than that is stale (GitHub Codex, PR #78).
+            if (!stale && maxPos >= 0 && _ix.entries.length &&
+                maxPos < _ix.entries[_ix.entries.length - 1].position) {
+                if (ixAtBottom(mounted[0].el)) stale = 'tail:' + maxPos;
             }
             _questions = _ix.entries.map(function (e) {
                 return { element: byPos.hasOwnProperty(e.position) ? byPos[e.position] : null,
@@ -2936,6 +2946,22 @@
             ixLoad(a, cid, ixAfterLoad);
         }
         return false;
+    }
+
+    // Is the list the element sits in scrolled to its end? The nearest ancestor that
+    // actually scrolls decides; none scrolling means everything is in view. Not
+    // ciFindScrollContainer: its size guard (built for jumps) rejects a short list,
+    // which is exactly what a switch to a shorter branch leaves.
+    function ixAtBottom(el) {
+        var node = el ? el.parentElement : null;
+        while (node && node !== document.documentElement) {
+            var oy = window.getComputedStyle(node).overflowY;
+            if ((oy === 'auto' || oy === 'scroll') && node.scrollHeight > node.clientHeight) {
+                return node.scrollTop + node.clientHeight >= node.scrollHeight - 2;
+            }
+            node = node.parentElement;
+        }
+        return true;
     }
 
     function ixFingerprint() {

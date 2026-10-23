@@ -289,6 +289,26 @@ const READ = `(function () {
     check('C3b', 'a mapping with a missing parent degrades visibly instead of listing a partial path',
           c3b.count === '6' && c3b.banner === 'degraded', brief(c3b));
 
+    // [new] Branch switch to a SHORTER branch (GitHub Codex, PR #78): every mounted id is
+    // already indexed, so only the "bottom shows fewer than the index lists" signal can
+    // notice. The API then serves the 4-turn branch; the panel must follow, past the cooldown.
+    let branchBody = gptMapping({ turns: T10 });
+    const c3c = await scenario({ site: 'chatgpt', url: gptUrl, mockConfig: { turns: T10 }, expectCount: 10,
+        api: (url, auth, calls) => gptApi(branchBody)(url, auth, calls),
+        after: async (page) => {
+            branchBody = gptMapping({ turns: T10.slice(0, 4) });
+            await page.evaluate((t) => window.__mockWindow.setTurns(t), T10.slice(0, 4));
+            try {
+                await page.waitForFunction(() => {
+                    const s = document.querySelector('[data-acn-role="nav-stat"]');
+                    return s && s.getAttribute('data-acn-count') === '4';
+                }, null, { timeout: 40000 });
+            } catch (e) {}
+            return page.evaluate(() => document.querySelector('[data-acn-role="nav-stat"]').getAttribute('data-acn-count'));
+        }, timeoutMs: 20000 });
+    check('C3c', 'switching to a shorter branch rebuilds the list (10 -> 4)', c3c.count === '10' && c3c.after === '4',
+          'before=' + c3c.count + ' after=' + c3c.after);
+
     // 4 [new] A hidden user-role context node is excluded.
     const c4 = await scenario({ site: 'chatgpt', url: gptUrl, mockConfig: { turns: T10 }, expectCount: 10,
                                 api: gptApi(gptMapping({ turns: T10, hidden: true })) });
@@ -397,7 +417,7 @@ const READ = `(function () {
     check('P11', 'an API failure falls back to the mounted bubbles with the degraded banner',
           p11.count === '2' && p11.banner === 'degraded', brief(p11));
 
-    const all = [c1, c2, c3, c3b, c4, c5, c6a, c6b, g1, g2, o1, p8, p9, p10, p10b, p11];
+    const all = [c1, c2, c3, c3b, c3c, c4, c5, c6a, c6b, g1, g2, o1, p8, p9, p10, p10b, p11];
     const pageErrors = all.reduce((n, r) => n + r.errors.length, 0);
     check('E', 'no page errors in any scenario', pageErrors === 0,
           all.filter((r) => r.errors.length).map((r) => r.errors[0]).join(' / '));
