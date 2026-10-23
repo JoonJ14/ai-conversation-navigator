@@ -1641,6 +1641,12 @@ attempt 1.** The same signature:
 Firefox passed on macOS and ubuntu on the same commit, and the previous commit's byte-identical userscript was
 9/9. One `gh run rerun --failed` went 9/9, and the owner merged on that run.
 
+**Third occurrence, 2026-10-23: PR #78's docs-only commit `e390efe`; run 39989083836, attempt 1.** Same
+signature: `Claude`, `Claude Code` and `Claude (virtualized)` fail with `page.goto: Navigation to
+"https://claude.ai/chat/test" is interrupted by another navigation` (plus one `NS_BINDING_ABORTED`), on
+`firefox on windows-latest` only; the other eight jobs green. The userscript was byte-identical to the previous
+commit's. One `gh run rerun --failed` went 9/9, and PR #78 merged on that run.
+
 Response when this variant appears: do **not** keep requeuing (three attempts is already past
 useful), and do not read it as a code finding — but do not silently discount it either. Record
 the pass/wedge pairs with their commits, note that a required check is red for environmental

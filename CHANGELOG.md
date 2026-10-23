@@ -40,12 +40,33 @@ Measured live in Chrome, page realm, on the owner's account (DOM-REFERENCE.md, D
 
 ### Verification
 
-Playwright, page realm, against mocks that genuinely unmount (`probes/check-index-adapters.js`): 27 checks pass; v12.9 fails every new one. Final run on the final build `c9621cb` (macOS arm64, local, 2026-10-23): the full suite **1676/1680** on Chromium, Firefox and WebKit — the 4 failures are the known local WebKit entries (TROUBLESHOOTING, "OPEN — Local mac WebKit"; v12.9 fails them identically). Probes 14/15 runs pass; the one failure is the known `check-usage-state` U10 Firefox timeout. Review: three tiers, seven Tier 3 rounds, `reviews/review-2026-10-23-index-adapters.md`. After it, two GitHub Codex findings were fixed — the pin on an on-screen target (probe P13), and the jump's text fallback accepting a repeated question's twin (probe C8, which also gave the ChatGPT mock a `frozen` option); each probe fails before its fix and passes after it on all three engines; `npm test` 560/560 and the probes on Chromium only.
+Playwright, page realm, against mocks that genuinely unmount (`probes/check-index-adapters.js`): 26 checks pass (an earlier count of 25 before P13 and C8 was one too high; recounted from the probe's output at the session close); v12.9 fails every new one. Final run on the final build `c9621cb` (macOS arm64, local, 2026-10-23): the full suite **1676/1680** on Chromium, Firefox and WebKit — the 4 failures are the known local WebKit entries (TROUBLESHOOTING, "OPEN — Local mac WebKit"; v12.9 fails them identically). Probes 14/15 runs pass; the one failure is the known `check-usage-state` U10 Firefox timeout. Review: three tiers, seven Tier 3 rounds, `reviews/review-2026-10-23-index-adapters.md`. After it, two GitHub Codex findings were fixed — the pin on an on-screen target (probe P13), and the jump's text fallback accepting a repeated question's twin (probe C8, which also gave the ChatGPT mock a `frozen` option); each probe fails before its fix and passes after it on all three engines; `npm test` 560/560 and the probes on Chromium only.
 
 **Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey** (PR checklist):
 results and what is still owed are in DEC-031.
 
 ---
+
+
+### Close-out (PR #79, merged as `ca5cdf6`, and the session-close docs PR: docs only; no behaviour change)
+
+- **`5d29f10`, `1c8193c`:** DEC-031 records the v12.10 acceptance per browser and per site, as the owner reported
+  it. The first version on `main` (`e390efe`) overclaimed Safari and was corrected. DEC-047's v12.10 sentence was
+  corrected to match. ROADMAP's Current Status and the handoff carry the owner's next order: PR A (the
+  turn-counter fix), then PR B (Safari parity).
+- **A read-only investigation of Claude's turn-counter dots on Safari** (TROUBLESHOOTING, "OPEN — Claude's
+  turn-counter dots"). The dots are drawn before `updateTurnCounter()` runs, and `orbPopulateNavigate()`'s early
+  returns never redraw them, so they freeze at 0 or the mounted 1–4 [code]. Every function on that path is
+  byte-identical to v12.9, so it is not a v12.10 regression [code]. Why only Safari shows it is unexplained.
+- **`cdc1ea3`** (GitHub Codex, P2): the first diagnosis blamed the history hooks, but Claude is `spa: false`, so
+  they never run there. Corrected, with the wrong version kept as a correction. The PR A point that rested on it
+  (close the panel "so Safari behaves like Chrome and Firefox") is marked for the owner to reconfirm.
+- **`f920a81`** (CLAUDE.md, owner-approved): the measurement-context rule names all three runtimes, equal
+  priority (DEC-047), instead of "on Firefox".
+- **The session-close docs PR** (branch `docs/session-close-v12.10`): the runtime matrix records the usage panel as measured on all three; ROADMAP 0d notes that Claude has
+  no history hooks; `agent_docs/conventions.md` gains two lessons (read the platform's registry flags before
+  reasoning about a code path; record acceptance exactly); TESTING.md logs the Windows `page.goto` cascade's
+  third occurrence; TROUBLESHOOTING logs PR #79's stuck and slow-install CI jobs.
 
 ## [12.9 — The Claude Index Works on Safari: a Second Transport, Ordered by the Userscript Manager] — 2026-10-22
 
