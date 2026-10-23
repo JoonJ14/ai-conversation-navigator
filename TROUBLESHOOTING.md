@@ -472,11 +472,11 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ---
 
-## OPEN — Claude's turn-counter dots freeze at a stale count: 0 or the 1–4 mounted turns (found 2026-10-23)
+## RESOLVED — Claude's turn-counter dots freeze at a stale count: 0 or the 1–4 mounted turns (found 2026-10-23)
 
 **Phase:** v12.10 acceptance on Safari + Userscripts | **Severity:** Medium — a wrong indicator, no data loss |
-**Status:** Fix built in **v12.11 (PR #81)**, below. Open until the owner's acceptance on Safari, Chrome and
-Firefox (DEC-031). **Not a v12.10 regression.**
+**Status:** Fixed in **v12.11 (PR #81)**, below. Owner acceptance on Safari, Chrome and Firefox: DEC-031, the only
+place it is kept. **Not a v12.10 regression.**
 
 Labels: **[code]** read from the source; **[inferred]** reasoned from code or earlier docs, not measured;
 **[measured]** observed. Until PR #81 nothing here was reproduced in a browser by an agent; its gate

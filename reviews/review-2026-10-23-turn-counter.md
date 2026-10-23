@@ -95,4 +95,6 @@ Playwright page realm, headless with `visibilityState` visible, this Mac.
 - The compaction state with no writer came from the reviewers' clean-check notes, and is logged too.
 - **Tier 2:** 3 NOTEs on B0, all fixed. 1 NOTE on the userscript, accepted.
 
-**GitHub rounds needed afterwards:** to be recorded when PR #81's GitHub Codex review completes.
+**GitHub rounds needed afterwards:** 0. GitHub Codex reviewed `39e35c5` clean on its first review ("Code Review
+✅ Completed", no findings, 0 inline comments). The later commit is docs only: the owner's acceptance in DEC-031,
+two lessons in `agent_docs/conventions.md`, this line.

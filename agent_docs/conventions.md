@@ -228,3 +228,27 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 > "not reported" or "owed"; an unfilled template choice is not a choice. Ask about each gap, and point out any
 > contradiction with an earlier report.
 > **Why:** DEC-031 is the only place live status is kept, so an overclaim there has nothing else to catch it.
+
+> **Issue:** Building the turn-counter fix (v12.11), the spec's redraw on every scan was tried first as written.
+> The orbital panel sits inside `document.body`, which `startMessageObserver` watches (`childList`, `subtree`)
+> with a 500 ms debounced `scanConversation`. Each redraw scheduled the next scan, and that scan the next redraw.
+> An idle page with Navigate open produced 744 mutation records in 6 s, against 0 without the redraw [measured,
+> Playwright page realm, Chromium and Firefox, scratch build; the gate's A4 later counted 984].
+> **Correct approach:** any DOM write that a scan triggers anywhere inside `document.body`, our own panels
+> included, writes only when what it draws has changed. Compare with a record of the last draw (v12.11:
+> `_ctxDrawnTurns`), not a timer or a throttle. Gate it with an idle-page mutation count that fails on the
+> unguarded write (`probes/check-turn-counter.js`, A4).
+> **Why:** the loop raises no error and shows nothing. The panel looks right while the page runs a scan every
+> half second, so no functional assertion can catch it.
+
+> **Issue:** In the v12.11 work I called the guarded unchanged-list redraw unreachable [code]. Every path I had
+> read sets `_navListFingerprint` and `_ctxDrawnTurns` together. But the SSE handlers (`message_delta`,
+> `message_stop`; Chrome + Claude) call `orbUpdateContextBar()` without touching the list, so they record a drawn
+> counter the list never saw. The adversarial review's regressions lens found it and measured it with an
+> instrumented build. By then the claim was in the code comment, TROUBLESHOOTING, the probes README and the
+> CHANGELOG.
+> **Correct approach:** before calling a branch unreachable, list every writer of each piece of state its
+> condition reads, and every caller of each function that writes it. Label it unreachable [code] only once that
+> list is complete; until then write "not reached by \<the paths read\>".
+> **Why:** an "unreachable" label stops anyone from gating the branch or reasoning about it. A probe that never
+> reaches it (this one has no SSE) then passes, and the pass looks like confirmation.
