@@ -30,28 +30,27 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.9 MERGED (PR #75, `4c72ca9`) — live confirmation status: DEC-031
+## Current Status: v12.10 MERGED (PR #78) — live confirmation status: DEC-031
 
-**v12.9 (PR #75, merged 2026-10-23 as `4c72ca9` on the owner's call, before its live acceptance).** The Claude
-conversation index gets a second transport so that it can work on Safari + Userscripts (DEC-045; item 0d).
-The review pipeline approved it. GitHub Codex found nothing on any of its commits. CI went 9/9 on each commit,
-after one re-run each for two runner/harness flakes (TROUBLESHOOTING, TESTING).
-None of that is a real-browser result. The owner's live acceptance ran after the merge: **live confirmation
-status: DEC-031.**
+**v12.10 (PR #78, merged 2026-10-23 after the owner's acceptance on all three browsers).** ChatGPT and
+Perplexity list every question again: October selectors for the DOM fallback, and an index adapter per
+platform reading each site's own JSON through the v12.9 transport ladder (DEC-046; item 13). It was the first
+release accepted on Safari, Chrome and Firefox **before** its merge, which is now the rule (DEC-047). Results:
+DEC-031.
 
-Of the PR's non-spec parts the owner kept all but one, the unusable-org-list retry, which is reverted (review
-record, "Scope against the spec"). PR #76 (merged as `5201937`) closed out the session: docs, the CLAUDE.md
-fixes, and the mutation tooling under `probes/`.
+**v12.9 (PR #75, merged as `4c72ca9`)** — the Claude index works on Safari + Userscripts through a second
+transport (DEC-045; item 0d).
 
-**Next, in the owner's order (2026-10-23).** The next session opens with a new spec, which the owner gives as
-its first message; it is not in the repo. After it:
-1. **Chrome check:** v12.9 on Chrome + Tampermonkey, with Claude Code driving the owner's real Chrome profile,
-   not a fresh one (item 0d).
-2. **Gemini: does it keep older turns once loaded, or slide them out?** Not started. This is Step 0(a) of
+**Next, in the owner's order (2026-10-23).**
+1. **Cleanups.** The owner picks which. Candidates: the v12.10 follow-ups logged in item 13, the exact-origin
+   guard gap and the other open items in 0d.
+2. **Grok:** untested on all three browsers.
+3. **Gemini: does it keep older turns once loaded, or slide them out?** Not started. This is Step 0(a) of
    "Porting the Layer 4 response to another platform" below, still open beyond n≤10.
-3. **Grok:** untested on all three browsers.
 4. **Safari parity follow-up:** the usage panel's transport and GM storage (item 0d).
 5. **Perplexity attachment image errors:** image-gallery work.
+
+Also on the list: the CI rebuild (item 0e) and the context-window meter (item 12).
 
 **v12.8 (PR #73, merged)** — a failed usage fetch says so instead of "loading" forever (DEC-044).
 
@@ -115,7 +114,7 @@ DEC-029 stop signal). Suite **515/515 across 25 entries**, both engines. Also fi
 attachment-headed Q#1 that shipped in v12.0, whose reproduction was blocked by a **vacuous fixture
 knob** (**DEC-032**).
 
-### Next: backlog (v12.9 merged 2026-10-23 — items 0d and 0e carry its open work)
+### Next: backlog (v12.10 merged 2026-10-23 — items 0d, 0e and 13 carry the open work)
 
 **Priority order re-ranked 2026-08-01 with the owner: item 11 (Summary performance) is CLOSED —
 v12.4 killed the freeze, v12.5 took generate to ~1.2s, and the owner declined the remaining
@@ -320,9 +319,9 @@ Numbering below is stable (items keep their historical numbers):
      the call, asymmetric supersession — DEC-044) and the spec was index-only. Moving it onto the
      ladder is a separate, gated change: keep the silent stale-org drop on every leg, add no
      timeout shorter than the U4 window, and give its GM stub real onload-for-4xx semantics first.
-   - **Live confirmation status: DEC-031.** The Chrome + Tampermonkey check is the one still to run (the
-     owner's order, above): record which transport won, with Claude Code driving the owner's real Chrome
-     profile, not a fresh one. Real Safari did NOT reproduce the local mac WebKit jump failure, so that entry
+   - **Live confirmation status: DEC-031.** The Chrome + Tampermonkey check ran during the v12.10 acceptance
+     (2026-10-23); which transport won was not recorded, so the intermittent 403 above still has no log lines.
+     Real Safari did NOT reproduce the local mac WebKit jump failure, so that entry
      stays open only as a Playwright engine-build issue (TROUBLESHOOTING, "OPEN — Local mac WebKit").
    - **Nothing kept in GM storage works on Safari + Userscripts — OPEN, its own item, bigger than
      the index.** Userscripts has never provided the synchronous `GM_getValue` / `GM_setValue` (read
@@ -384,6 +383,11 @@ Numbering below is stable (items keep their historical numbers):
      caps could go. Measure first: `fetch(url, {credentials: 'include', signal})` in the Tampermonkey
      sandbox on Firefox and Chrome, and in Userscripts on Safari. Keep the caps as the fallback wherever
      passing a signal throws, and rework the probe's LWb-cap and LWc–LWh around abort.
+   - **v12.10 moved four mutant anchors (builder run only; the battery was not run, per the spec).** The index
+     adapters needed a per-request origin and headers on both transports (DEC-046), so
+     `probes/build-ladder-mutants.js` now stops on **M08** (gm options), **M09** (fetch headers), **M21**
+     (fetch's origin guard) and **M34** (fetch drops the query). The other 42 still build. Re-anchor these four
+     with the abort follow-up above, which reworks the same code, then re-run the battery and update the matrix.
 
 0e. **Rebuild CI around what it can and cannot show (owner, 2026-10-22).** The owner's read after
    PR #75: the CI checks are outdated. They pass builds that fail in a real browser — v12.8 was green
@@ -721,6 +725,38 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 - `TROUBLESHOOTING.md` — platform-specific diagnostic guides
 - `DECISIONS.md` — architectural decision log (DEC-001 through DEC-020)
 - `docs/claude_specific_context_tracking_calculation.md` — deep-dive on Claude context window estimation methodology
+
+
+13. **Per-platform conversation-index adapters — ACTIVE (v12.10, owner 2026-10-23).** Claude virtualized first
+    (DEC-021, whose constraints already said to build for per-platform adapters). In October 2026 ChatGPT and
+    Perplexity both shipped windowed message lists *and* new markup, so the index is now one seam with an
+    adapter per platform (DEC-046; `IX_ADAPTERS` in the userscript).
+    - **Done:** Claude (wrapped; the v12.0 index unchanged), ChatGPT and Perplexity (v12.10, PR #78; live
+      status: DEC-031).
+    - **Pending:** Grok, untested on all three browsers (HANDOFF §G); Gemini, once its virtualization is
+      measured (§G).
+    - **How to add the next one:** "Porting the Layer 4 response to another platform" below, then one
+      `IX_ADAPTERS` entry and a mock that genuinely unmounts (`probes/check-index-adapters.js` has two).
+    - **Logged from v12.10, outside its scope:**
+      - Bookmarks on ChatGPT and Perplexity are still positional (schema 1, `contentHash(text, idx)` over the
+        mounted NodeList), which windowing already breaks (Porting step 4). The ids a migration would key to
+        are now in the index: `data-turn-key` (ChatGPT) and `backend_uuid` (Perplexity).
+      - Export on these two: the header counts every indexed question, the body only the mounted ones
+        (`buildTimeline` keeps element-backed entries), and the DEGRADED stamp is Claude-only (Porting step 6).
+      - The Summary map orders mounted messages by the DOM and appends the unmounted questions after them
+        (`_sumBuildTimeline`'s non-Claude branch).
+      - Search's chronological merge reads `pathIndex`, which adapter questions do not carry (they have
+        `ixPosition`), so question hits and answer hits are not interleaved by position (Tier 3, PR #78).
+      - Perplexity's edit detection compares the API's raw `query_str` with the rendered bubble through
+        `_normalizeCompareFull`, so it is a MATCH, not an identity: an edit that changes only markdown
+        punctuation (`array[x]` → `arrayx`) is not seen as an edit. Exact comparison was tried and rejects
+        every formatted prompt instead. Accepted limit (Tier 3 post-fix round 3, PR #78); an id in the DOM
+        would remove it, and none was found there.
+      - ChatGPT's assistant selectors (`getAIMessages`) are the February 2026 ones and were not re-measured; if
+        they match nothing on the new shell, Summary, Export and Search see no answers there.
+      - The Perplexity jump releases the scroller's stick-to-bottom pin with a synthetic wheel event. Measured
+        in Chrome's page realm only; in Firefox's Tampermonkey sandbox the event crosses realms (owner
+        acceptance).
 
 ---
 

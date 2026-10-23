@@ -61,6 +61,15 @@
 </head>
 <body>
 <!--
+  UPDATED Oct 2026 (v12.10): the USER turns below are the app-shell markup measured live in
+  Chrome on 2026-10-23 (DOM-REFERENCE.md, ChatGPT): data-turn-key (= the API message id) >
+  data-content-search-turn-key > the search-unit keys > [data-user-message-bubble="true"],
+  inside the [data-app-action-timeline-scroll][role="region"] timeline. The legacy user markup
+  described in the Feb 2026 notes below is GONE from the live site, and from this mock, so the
+  legacy selectors match nothing here, as they do live. Assistant turns keep the Feb 2026 shape
+  (not re-measured). The windowing itself is modelled by chatgpt-windowed.html.
+-->
+<!--
   ChatGPT Mock Page — Real DOM Structure Reference
   =================================================
   Source: Live inspection of chatgpt.com/c/{conversation-id} (Feb 2026)
@@ -128,31 +137,22 @@
 
 <!-- Main content -->
 <div class="main-content">
-  <div class="conversation-container">
+  <div class="conversation-container" data-app-action-timeline-scroll="" role="region">
 
     <!-- Turn 1: User message -->
-    <article data-testid="conversation-turn-1" data-turn="user" data-scroll-anchor="false" data-turn-id="aaa1-bb11-cc11-dd11">
-      <h5 class="sr-only">You said:</h5>
-      <div class="text-base my-auto mx-auto pt-12" style="padding-top:48px;">
-        <div class="relative flex w-full min-w-0 flex-col" style="--thread-content-max-width:48rem;display:flex;flex-direction:column;width:100%;position:relative;" tabindex="-1">
-          <div class="flex max-w-full flex-col group" style="display:flex;flex-direction:column;max-width:100%;">
-            <div class="min-h-8 text-message relative flex w-full flex-col items-end" data-message-author-role="user" data-message-id="msg-user-001" role="user" style="display:flex;flex-direction:column;align-items:flex-end;width:100%;position:relative;min-height:32px;transition:background-color 0.3s;">
-              <div class="flex w-full flex-col gap-1 empty:hidden items-end rt:items-start" style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;width:100%;">
-                <div class="user-message-bubble-color corner-superellipse relative" style="max-width:70%;">
-                  <div class="whitespace-pre-wrap" style="white-space:pre-wrap;">
-                    <div>Explain the difference between TCP and UDP</div>
-                  </div>
-                </div>
-                <div class="z-0 flex justify-end action-buttons" style="display:flex;justify-content:flex-end;">
-                  <button class="action-btn" title="Edit">&#9998;</button>
-                </div>
+    <div data-turn-key="cccccccc-0000-4000-8000-000000000000">
+      <div data-content-search-turn-key="fallback-turn-0">
+        <div data-talvt-turn-state="complete">
+          <div data-chatgpt-search-unit-key="fallback-turn-0:0:user" data-chatgpt-search-message-ids="cccccccc-0000-4000-8000-000000000000">
+            <div data-content-search-unit-key="fallback-turn-0:0:user">
+              <div data-user-message-bubble="true" class="user-message-bubble-color" style="max-width:70%;margin-left:auto;">
+                <div class="whitespace-pre-wrap" style="white-space:pre-wrap;">Explain the difference between TCP and UDP</div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      <span class="sr-only"></span>
-    </article>
+    </div>
 
     <!-- Turn 2: Assistant message -->
     <article data-testid="conversation-turn-2" data-turn="assistant" data-scroll-anchor="false" data-turn-id="aaa2-bb22-cc22-dd22">
@@ -181,28 +181,19 @@
     </article>
 
     <!-- Turn 3: User message -->
-    <article data-testid="conversation-turn-3" data-turn="user" data-scroll-anchor="false" data-turn-id="aaa3-bb33-cc33-dd33">
-      <h5 class="sr-only">You said:</h5>
-      <div class="text-base my-auto mx-auto">
-        <div class="relative flex w-full min-w-0 flex-col" style="--thread-content-max-width:48rem;display:flex;flex-direction:column;width:100%;position:relative;" tabindex="-1">
-          <div class="flex max-w-full flex-col group" style="display:flex;flex-direction:column;max-width:100%;">
-            <div class="min-h-8 text-message relative flex w-full flex-col items-end" data-message-author-role="user" data-message-id="msg-user-002" role="user" style="display:flex;flex-direction:column;align-items:flex-end;width:100%;position:relative;min-height:32px;transition:background-color 0.3s;">
-              <div class="flex w-full flex-col gap-1 empty:hidden items-end rt:items-start" style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;width:100%;">
-                <div class="user-message-bubble-color corner-superellipse relative" style="max-width:70%;">
-                  <div class="whitespace-pre-wrap" style="white-space:pre-wrap;">
-                    <div>When would I choose UDP over TCP?</div>
-                  </div>
-                </div>
-                <div class="z-0 flex justify-end action-buttons" style="display:flex;justify-content:flex-end;">
-                  <button class="action-btn" title="Edit">&#9998;</button>
-                </div>
+    <div data-turn-key="cccccccc-0000-4000-8000-000000000001">
+      <div data-content-search-turn-key="fallback-turn-1">
+        <div data-talvt-turn-state="complete">
+          <div data-chatgpt-search-unit-key="fallback-turn-1:0:user" data-chatgpt-search-message-ids="cccccccc-0000-4000-8000-000000000001">
+            <div data-content-search-unit-key="fallback-turn-1:0:user">
+              <div data-user-message-bubble="true" class="user-message-bubble-color" style="max-width:70%;margin-left:auto;">
+                <div class="whitespace-pre-wrap" style="white-space:pre-wrap;">When would I choose UDP over TCP?</div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      <span class="sr-only"></span>
-    </article>
+    </div>
 
     <!-- Turn 4: Assistant message -->
     <article data-testid="conversation-turn-4" data-turn="assistant" data-scroll-anchor="false" data-turn-id="aaa4-bb44-cc44-dd44">
@@ -235,28 +226,19 @@
     </article>
 
     <!-- Turn 5: User message -->
-    <article data-testid="conversation-turn-5" data-turn="user" data-scroll-anchor="false" data-turn-id="aaa5-bb55-cc55-dd55">
-      <h5 class="sr-only">You said:</h5>
-      <div class="text-base my-auto mx-auto">
-        <div class="relative flex w-full min-w-0 flex-col" style="--thread-content-max-width:48rem;display:flex;flex-direction:column;width:100%;position:relative;" tabindex="-1">
-          <div class="flex max-w-full flex-col group" style="display:flex;flex-direction:column;max-width:100%;">
-            <div class="min-h-8 text-message relative flex w-full flex-col items-end" data-message-author-role="user" data-message-id="msg-user-003" role="user" style="display:flex;flex-direction:column;align-items:flex-end;width:100%;position:relative;min-height:32px;transition:background-color 0.3s;">
-              <div class="flex w-full flex-col gap-1 empty:hidden items-end rt:items-start" style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;width:100%;">
-                <div class="user-message-bubble-color corner-superellipse relative" style="max-width:70%;">
-                  <div class="whitespace-pre-wrap" style="white-space:pre-wrap;">
-                    <div>How does TCP handle packet loss?</div>
-                  </div>
-                </div>
-                <div class="z-0 flex justify-end action-buttons" style="display:flex;justify-content:flex-end;">
-                  <button class="action-btn" title="Edit">&#9998;</button>
-                </div>
+    <div data-turn-key="cccccccc-0000-4000-8000-000000000002">
+      <div data-content-search-turn-key="fallback-turn-2">
+        <div data-talvt-turn-state="complete">
+          <div data-chatgpt-search-unit-key="fallback-turn-2:0:user" data-chatgpt-search-message-ids="cccccccc-0000-4000-8000-000000000002">
+            <div data-content-search-unit-key="fallback-turn-2:0:user">
+              <div data-user-message-bubble="true" class="user-message-bubble-color" style="max-width:70%;margin-left:auto;">
+                <div class="whitespace-pre-wrap" style="white-space:pre-wrap;">How does TCP handle packet loss?</div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      <span class="sr-only"></span>
-    </article>
+    </div>
 
     <!-- Turn 6: Assistant message -->
     <article data-testid="conversation-turn-6" data-turn="assistant" data-scroll-anchor="false" data-turn-id="aaa6-bb66-cc66-dd66">
@@ -286,28 +268,19 @@
     </article>
 
     <!-- Turn 7: User message (final, no assistant response yet) -->
-    <article data-testid="conversation-turn-7" data-turn="user" data-scroll-anchor="false" data-turn-id="aaa7-bb77-cc77-dd77">
-      <h5 class="sr-only">You said:</h5>
-      <div class="text-base my-auto mx-auto">
-        <div class="relative flex w-full min-w-0 flex-col" style="--thread-content-max-width:48rem;display:flex;flex-direction:column;width:100%;position:relative;" tabindex="-1">
-          <div class="flex max-w-full flex-col group" style="display:flex;flex-direction:column;max-width:100%;">
-            <div class="min-h-8 text-message relative flex w-full flex-col items-end" data-message-author-role="user" data-message-id="msg-user-004" role="user" style="display:flex;flex-direction:column;align-items:flex-end;width:100%;position:relative;min-height:32px;transition:background-color 0.3s;">
-              <div class="flex w-full flex-col gap-1 empty:hidden items-end rt:items-start" style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;width:100%;">
-                <div class="user-message-bubble-color corner-superellipse relative" style="max-width:70%;">
-                  <div class="whitespace-pre-wrap" style="white-space:pre-wrap;">
-                    <div>What about QUIC protocol?</div>
-                  </div>
-                </div>
-                <div class="z-0 flex justify-end action-buttons" style="display:flex;justify-content:flex-end;">
-                  <button class="action-btn" title="Edit">&#9998;</button>
-                </div>
+    <div data-turn-key="cccccccc-0000-4000-8000-000000000003">
+      <div data-content-search-turn-key="fallback-turn-3">
+        <div data-talvt-turn-state="complete">
+          <div data-chatgpt-search-unit-key="fallback-turn-3:0:user" data-chatgpt-search-message-ids="cccccccc-0000-4000-8000-000000000003">
+            <div data-content-search-unit-key="fallback-turn-3:0:user">
+              <div data-user-message-bubble="true" class="user-message-bubble-color" style="max-width:70%;margin-left:auto;">
+                <div class="whitespace-pre-wrap" style="white-space:pre-wrap;">What about QUIC protocol?</div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      <span class="sr-only"></span>
-    </article>
+    </div>
 
   </div>
 

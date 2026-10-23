@@ -4,6 +4,49 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.10 — ChatGPT and Perplexity List Every Question Again: Index Adapters and October Selectors] — 2026-10-23
+
+**Branch:** `feat/chatgpt-perplexity-index-adapters` | **Commits:** `1316e65` (code, tests, CI), `5ba0feb` (docs), review fixes `363a538`–`878520e`, `c9621cb`, `fd89e19` and `0866597` | **PR:** #78
+
+### Problem
+
+On ChatGPT and on Perplexity, Navigate listed **zero** questions in Firefox, Chrome and Safari. The script
+loaded (`v12.8 loaded for ChatGPT [orbital]`) and the button cluster appeared, so detection and injection
+were fine.
+
+### Root cause — two breaks per site
+
+- **Layer 1.** ChatGPT moved to a new app shell and Perplexity changed its markup; the user-turn selectors
+  matched nothing (0 of 10 and 0 of 12 live).
+- **Layer 4.** Both sites now window their message lists: ChatGPT a sliding 4–7 user turns, Perplexity the
+  entries in view plus the latest. Correct selectors alone would still list a fraction of a long
+  conversation.
+
+Measured live in Chrome, page realm, on the owner's account (DOM-REFERENCE.md, DEC-046).
+
+### Fix (DEC-046)
+
+- **The index is a seam with one adapter per platform** (`IX_ADAPTERS`). Claude's v12.0 index is wrapped
+  unchanged; ChatGPT reads `/backend-api/conversation/<id>` (bearer token from `/api/auth/session`, active
+  branch only), Perplexity reads `/rest/thread/<id>` (paged from the first entry by cursor, capped at 40
+  pages).
+- **Every request goes through the v12.9 transport ladder** (`ciLadderGet`), from the exact origin only.
+  Claude's requests are unchanged.
+- **The DOM fallback** uses the October selectors and shows the degraded banner.
+- **The jump** pages each site's window by message id (ChatGPT) or entry index (Perplexity), releasing
+  Perplexity's stick-to-bottom scroll pin first — for a question already on screen too.
+- **Header:** `@connect chatgpt.com` and `@connect perplexity.ai`. **Tampermonkey asks you to accept the two
+  new hosts when it updates the script** — expected; they are the two sites' own APIs (README, Privacy).
+
+### Verification
+
+Playwright, page realm, against mocks that genuinely unmount (`probes/check-index-adapters.js`): 27 checks pass; v12.9 fails every new one. Final run on the final build `c9621cb` (macOS arm64, local, 2026-10-23): the full suite **1676/1680** on Chromium, Firefox and WebKit — the 4 failures are the known local WebKit entries (TROUBLESHOOTING, "OPEN — Local mac WebKit"; v12.9 fails them identically). Probes 14/15 runs pass; the one failure is the known `check-usage-state` U10 Firefox timeout. Review: three tiers, seven Tier 3 rounds, `reviews/review-2026-10-23-index-adapters.md`. After it, two GitHub Codex findings were fixed — the pin on an on-screen target (probe P13), and the jump's text fallback accepting a repeated question's twin (probe C8, which also gave the ChatGPT mock a `frozen` option); each probe fails before its fix and passes after it on all three engines; `npm test` 560/560 and the probes on Chromium only.
+
+**Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey ran before the
+merge** (PR checklist); the results are in DEC-031.
+
+---
+
 ## [12.9 — The Claude Index Works on Safari: a Second Transport, Ordered by the Userscript Manager] — 2026-10-22
 
 **Branch:** `fix/safari-transport-fallback` | **Commits:** `74c8811` (code), `ae3ada1` (docs), `9ee5222` (the owner's

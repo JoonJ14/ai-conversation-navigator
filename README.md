@@ -11,7 +11,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-12.9-blue)
+![Version](https://img.shields.io/badge/version-12.10-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -134,7 +134,7 @@ So "Allow on All Websites" effectively behaves the same as per-site permissions 
 
 **What works differently on Safari (Userscripts):**
 
-- **Claude's full conversation list.** Userscripts' `GM_xmlhttpRequest` does not carry your claude.ai login, so since v12.9 the script reads the conversation with an ordinary `fetch` instead (see the privacy FAQ below). Before v12.9, Navigate on Safari showed only the few messages Claude keeps on screen. (Not yet confirmed on a long conversation in Safari; ROADMAP item 0d.)
+- **Claude's full conversation list.** Userscripts' `GM_xmlhttpRequest` does not carry your claude.ai login, so since v12.9 the script reads the conversation with an ordinary `fetch` instead (see the privacy FAQ below). Before v12.9, Navigate on Safari showed only the few messages Claude keeps on screen. (Live confirmation status: DEC-031.)
 - **Anything the script keeps in GM storage does not work.** Bookmarks and saved commands are never stored, and the language and platform toggles cannot be changed, so the panels stay in English. The script keeps them with `GM_setValue`/`GM_getValue`, which Userscripts does not provide (from its source and this script's code; not yet checked on Safari). Display mode, scroll direction and panel width are unaffected: they live in the page's `localStorage`. Tracked in ROADMAP item 0d.
 - **The Plan usage panel is expected to read "Usage data unavailable".** It still uses `GM_xmlhttpRequest` (ROADMAP item 0d).
 
@@ -195,11 +195,11 @@ The script injects an orbital button cluster into AI chat pages. It scans the pa
 |----------|----------|
 | Claude | `[data-testid="user-message"]` + fallback chain — **plus** the conversation API, see below |
 | Claude Code | `div.bg-bg-300`/`bg-bg-200` bubbles + fallback chain |
-| ChatGPT | `[data-message-author-role="user"]` |
+| ChatGPT | `[data-user-message-bubble="true"]` (Oct 2026 app shell; the full list comes from ChatGPT's API, v12.10) |
 | Codex Web | `div.self-end.bg-token-bg-tertiary` |
 | Grok | `div.message-bubble` |
 | Gemini | `div.query-text` |
-| Perplexity | `.group\/query` (Tailwind group variant) |
+| Perplexity | `[data-message-bubble="right"]` (Oct 2026; the full list comes from Perplexity's API, v12.10) |
 | Bolt.new | `[data-message-id]` + `self-end` filter + fallback chain |
 | Lovable | `div[role="log"] .justify-end` + fallback chain |
 | Replit | `[data-cy="user-message"]` (Cypress attribute, one per message) |
@@ -356,18 +356,27 @@ The script does make a small number of network requests, but **only to the site 
 | `GET claude.ai/api/organizations/{org}/usage` | Plan usage bars |
 | `GET claude.ai/api/organizations/{org}/chat_conversations/{id}` | Read the conversation you have open (v12.0+) |
 
-These are the same endpoints Claude's own web app calls, using your existing session. They go out one of two ways, both confined to claude.ai: through `GM_xmlhttpRequest`, which the `@connect claude.ai` header restricts to that domain, or — since v12.9, and first on Safari's Userscripts app, whose `GM_xmlhttpRequest` does not carry your Claude session — as an ordinary `fetch` that the script only sends when the page you are on is exactly `https://claude.ai`. They are all `GET` requests — the script never POSTs, never uploads, and never contacts any third party. On the other platforms the only request the script ever makes is one you trigger yourself: downloading an image from the Tools gallery re-fetches that image from the address the page already loaded it from.
+On ChatGPT and Perplexity (v12.10+) they are:
 
-**Why does it need to read my conversation now (v12.0+)?** Claude changed its web app to keep only about 3–5 messages in the page at a time and unload the rest. Reading the page can no longer see your whole conversation, so navigation, search, and export were all silently showing a small fraction of it. The script now reads the conversation from Claude's own API — the same data Claude already downloaded into your browser — so the list is complete. It is held in memory for the open tab and is never written to disk or transmitted.
+| Request | Why |
+|---|---|
+| `GET chatgpt.com/api/auth/session` | Get the access token ChatGPT's own app uses for the next request. Kept in memory for the tab only; never logged or stored |
+| `GET chatgpt.com/backend-api/conversation/{id}` | Read the conversation you have open |
+| `GET www.perplexity.ai/rest/thread/{id}` | Read the thread you have open, page by page for a long one |
 
-You can verify all of this: the `@grant` declarations are `GM_addStyle` (declared, though the CSS is actually added through a `<style>` element), `GM_getValue`/`GM_setValue` (bookmarks, settings, cached counts), `GM_xmlhttpRequest` (the reads above), `unsafeWindow` (SSE token counting on Claude, Chrome only), and `@connect claude.ai`. The `fetch` path needs no grant, so it does not appear in that list: search the source for `ciApiGet` to see every request the conversation index makes. The script also reads `GM_info` — which managers provide without a grant — only to learn which userscript manager it is running in.
+These are the same endpoints each site's own web app calls, using your existing session. They go out one of two ways, both confined to the site you are on: through `GM_xmlhttpRequest`, which the `@connect` headers restrict to `claude.ai`, `chatgpt.com` and `perplexity.ai`, or — since v12.9, and first on Safari's Userscripts app, whose `GM_xmlhttpRequest` does not carry your session — as an ordinary `fetch`. Either way a request is only sent when the page you are on is exactly that site (`https://claude.ai`, `https://chatgpt.com`, or `https://www.perplexity.ai` / `https://perplexity.ai`), never from a look-alike address. They are all `GET` requests — the script never POSTs, never uploads, and never contacts any third party. On every other platform the only request the script ever makes is one you trigger yourself: downloading an image from the Tools gallery re-fetches that image from the address the page already loaded it from.
+
+**Why does it need to read my conversation now (v12.0+)?** Claude changed its web app to keep only about 3–5 messages in the page at a time and unload the rest (ChatGPT and Perplexity did the same in 2026: v12.10). Reading the page can no longer see your whole conversation, so navigation, search, and export were all silently showing a small fraction of it. The script now reads the conversation from the site's own API — the same data the site already downloaded into your browser — so the list is complete. It is held in memory for the open tab and is never written to disk or transmitted.
+
+You can verify all of this: the `@grant` declarations are `GM_addStyle` (declared, though the CSS is actually added through a `<style>` element), `GM_getValue`/`GM_setValue` (bookmarks, settings, cached counts), `GM_xmlhttpRequest` (the reads above), `unsafeWindow` (SSE token counting on Claude, Chrome only), and `@connect claude.ai`, `@connect chatgpt.com` and `@connect perplexity.ai` (v12.10: the two new hosts are the ChatGPT and Perplexity reads above; Tampermonkey shows them when you update, which is expected). The `fetch` path needs no grant, so it does not appear in that list: search the source for `ciApiGet` to see every request the conversation index makes. The script also reads `GM_info` — which managers provide without a grant — only to learn which userscript manager it is running in.
 
 **Can this script see my other browser tabs or passwords?**
 
-No. The script only runs on the specific AI chat sites listed in [Supported Platforms](#supported-platforms) and has no access to your other browser tabs, browsing history, or saved passwords. On the matched pages where it does run, the script reads two things beyond visible page text, both on Claude only and both used solely to talk to Claude's own API on your behalf:
+No. The script only runs on the specific AI chat sites listed in [Supported Platforms](#supported-platforms) and has no access to your other browser tabs, browsing history, or saved passwords. On the matched pages where it does run, the script reads these things beyond visible page text, each used solely to talk to that site's own API on your behalf:
 
-- **`lastActiveOrg` cookie** — your organization ID, needed to build the conversation API URL. Falls back to `ajs_user_id` purely as a cache key so a resolved organization isn't re-fetched on every page load.
-- **Your conversation JSON**, via the `GET` requests listed above.
+- **`lastActiveOrg` cookie** (Claude) — your organization ID, needed to build the conversation API URL. Falls back to `ajs_user_id` purely as a cache key so a resolved organization isn't re-fetched on every page load.
+- **Your conversation JSON**, via the `GET` requests listed above (Claude; ChatGPT and Perplexity since v12.10).
+- **ChatGPT's access token**, from `GET chatgpt.com/api/auth/session`, the same call ChatGPT's own app makes. It is kept in memory for the open tab, sent only to chatgpt.com, and never logged or stored.
 
 Neither leaves your browser. The script uses `localStorage` only for your display mode, scroll direction and panel width (`_acnv10`) and an opt-in debug flag (`acnJumpDebug`), and `GM_setValue` for bookmarks, the language and platform toggles, saved commands, button positions and the resolved organization ID. Search the source for `ciGetCookie` to see every cookie read; there are two, both named above.
 

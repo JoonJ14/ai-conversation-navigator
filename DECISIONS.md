@@ -1264,10 +1264,15 @@ every waiver here, and in the release's CHANGELOG entry.
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
 review record. Updated 2026-10-23:
+- **v12.10 (PR #78, head `0866597`).** Owner, real browsers, before the merge: Safari + Userscripts **PASS**,
+  Chrome + Tampermonkey **PASS**, Firefox + Tampermonkey **PASS** — ChatGPT and Perplexity list and jump. Claude
+  regression **PASS** on all three. Branch test (editing a question) **PASS** on Chrome, ChatGPT; not run on the
+  other two browsers or on Perplexity.
 - **v12.9 (PR #75).** Safari + Userscripts **PASS** (owner): `transport=fetch org=730fcd2a… status=200`; the
   index ready with 144 questions (295 messages in the payload) via fetch; jumps to Q1 through Q144, the last
   five included, all landed. Firefox + Tampermonkey (Linux) **PASS** (owner, after the merge). Chrome +
-  Tampermonkey **OWED**: record which transport won (ROADMAP, the owner's order).
+  Tampermonkey **PASS** (owner, 2026-10-23, during the v12.10 acceptance: the Claude index works); which
+  transport won was not recorded.
 - **v12.8 (PR #73).** The usage panel on Firefox + Tampermonkey **PASS** (owner): it shows real plan usage,
   matching Claude Code's figures exactly. That observes the rendered state. On Safari the panel is expected to
   fail (`GM_xmlhttpRequest`); the Safari parity follow-up covers it (ROADMAP 0d), not a separate debt.
@@ -2545,3 +2550,103 @@ Results against v12.8, the mutation matrix and the CI runs are kept in ONE place
 - **Nothing kept in GM storage works on Safari + Userscripts** (no synchronous `GM_getValue`/`GM_setValue`,
   from its source): bookmarks, saved commands, the language and platform toggles, the org cache. Display mode,
   scroll direction and panel width use `localStorage` and are unaffected. Outside this change; ROADMAP 0d.
+
+---
+
+## DEC-046: The Conversation Index Is a Seam With One Adapter per Platform — ChatGPT and Perplexity Join Claude (v12.10)
+**Date:** 2026-10-23 | **Stage:** v12.10
+
+### Decision
+The conversation index stops being a Claude special case. A platform plugs in with three functions:
+`getConversationId()`, `fetchIndex(cid, done)` (an ordered `{ id, text, position }` list of the user's
+questions on the active branch) and `locate(entry)` (the mounted node, or null). ChatGPT and Perplexity get
+adapters; Claude's v12.0 index is wrapped without changing it. Every adapter request goes through the v12.9
+transport ladder (DEC-045), only from the platform's exact origin.
+
+### Context
+In October 2026 Navigate showed **zero** questions on ChatGPT and Perplexity in all three browsers. Each site
+had two independent breaks: new markup that the selectors no longer matched (Layer 1), and a windowed message
+list (Layer 4), so even correct selectors could only ever see part of a conversation. With Claude that makes
+three windowing platforms, past DEC-021's "build for per-platform adapters" threshold.
+
+Measured live in Chrome, page realm, on the owner's account (2026-10-23), against the spec's Firefox evidence:
+- **ChatGPT.** `GET /backend-api/conversation/<id>` with the session's bearer token returns the whole `mapping`
+  in one response: 60 conversations checked, the longest 130 questions, `sectioned_conversation` and
+  `context_truncation_continuation` null in all. `data-turn-key` on each user turn equals the API node id.
+  **`data-content-search-turn-key` was window-relative while the page loaded** (`fallback-turn-0` on question
+  5) and correct afterwards, so positions come from `data-turn-key`, not from it. During a navigation the
+  page also keeps a hidden second timeline (`role="presentation"`, every bubble 0×0), so every query is
+  scoped to the `role="region"` one.
+- **Perplexity.** `GET /rest/thread/<id>`, the id being the last `/search/` path segment. Entries are
+  chronological and entry N is `[data-workflow-entry="N"]`. `query_str` is what the user sees
+  (`query_display_metadata` was null), and `background_entries` was empty. Paging: `from_first=true` starts at
+  the oldest entry, `cursor=<next_cursor>` continues, `offset` is ignored, and without `from_first` a short
+  page holds the newest entries (the site's own app asks for the newest 20). **The scroller pins itself to
+  the bottom:** a programmatic `scrollTop` reverted within 300ms every time until a wheel event arrived.
+
+### Alternatives considered
+- **Rename or restructure the ladder for general use.** Rejected: `probes/build-ladder-mutants.js` anchors its
+  46 mutants on the ladder's exact code. The adapters add an optional `{ origin, headers }` to the two
+  transports (Claude's calls pass none, and its requests stay option-for-option v12.9's: the ladder probe's
+  L2-shape) and a one-request wrapper, `ciLadderGet`. Four anchors moved (ROADMAP 0d), not re-anchored here.
+- **A new `fetch` path with an `AbortController`.** Not needed: every adapter request goes through the shared
+  transport, so it inherits v12.9's behaviour, caps included, until the abort follow-up (ROADMAP 0d).
+- **Route Claude through the generic pipeline.** Rejected: Claude's branch carries anchors, the jump bridge,
+  provisional turns and bookmark migration that this seam does not. The wrapper exposes Claude through the
+  interface; `_relocateQuestionElement` calls its `locate`.
+- **Follow Perplexity's cursor from a plain first request (the spec's wording).** Changed on measurement:
+  without `from_first` a paged thread starts at its newest page, so every request asks from the first entry.
+
+### Key properties
+- **Exact origin, per adapter** (`ixAdapter`): `https://chatgpt.com`; `https://www.perplexity.ai` and
+  `https://perplexity.ai`. A look-alike host that `host.includes()` or an `@include` glob lets in sends
+  nothing (probe O1). The fetch transport's own guard compares against the same origin.
+- **The token** (`_ixGptToken`) lives in memory for the page session, honours `expires`, and is never logged
+  or stored; a 401 after both transports refreshes it once and retries once.
+- **Failure is visible and classified as Claude's is:** the banner says the list is the on-screen window,
+  and `ciIsPermanentReason` decides the backoff. A failed refresh keeps the last good snapshot.
+- **Re-indexing** reuses Claude's triggers: the mutation-driven scan notices a conversation switch by its id,
+  and a mounted question the index does not know (new message, edit, branch switch) triggers one refetch per
+  signature, behind the cooldown.
+- **The jump** is resolve-on-arrival at this seam's size: aim at the entry's share of the scroll height,
+  identify by id on arrival, otherwise move by the nearest mounted entry's distance; twelve moves at most;
+  text only as a last resort, and only when exactly one mounted question matches. On Perplexity each move is
+  preceded by a synthetic wheel event that releases the pin.
+- **Context of every claim above:** the payload and DOM facts are Chrome page realm; the mocks and the probe
+  are Playwright page realm. Neither is a userscript manager. Real-browser acceptance on Safari + Userscripts,
+  Chrome + Tampermonkey and Firefox + Tampermonkey is the owner's (PR description; status in DEC-031 once
+  run).
+
+---
+
+## DEC-047: Safari, Chrome and Firefox Are Equal Priority — Real-Browser Acceptance on All Three Before Every Merge (v12.10)
+**Date:** 2026-10-23 | **Stage:** v12.10 close-out (owner's standing rule, from the owner's planning thread)
+
+### Decision
+No browser is primary. Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey carry equal
+priority, and **real-browser acceptance on all three comes before every merge**. Where the owner works from
+day to day is a separate fact: mostly on the Mac, while traveling, so Safari is usually tested first and Chrome
+when Safari fails. That sets the order of testing, not a ranking.
+
+### Context
+Older text named one context as the one that matters: CLAUDE.md's measurement rule says "in the Tampermonkey
+sandbox, in a visible window, on Firefox", and TESTING.md said the same until this entry. v12.9 showed why a
+single context is not enough: the index worked on Firefox + Tampermonkey and always failed on Safari +
+Userscripts (DEC-045). v12.8 and v12.9 were merged before their live acceptance on the owner's call (the
+waivers in DEC-031). v12.10 (PR #78) was the first release accepted on all three before its merge.
+
+### Alternatives considered
+- **Keep Firefox as the reference context.** Rejected: it was the one runtime where v12.9's bug did not occur.
+- **Accept after merging, as in v12.8 and v12.9.** Rejected as the default: a waiver moves the merge, not the
+  debt, and the debt was then paid browser by browser over days (DEC-031).
+
+### Rationale
+Each runtime is a different execution context (CLAUDE.md, Layer 3's second face; `agent_docs/architecture.md`
+→ "Runtime matrix"). A pass in one says nothing certain about the other two.
+
+### Key properties
+- A PR lists acceptance on **all three** as the owner's, and does not merge until the owner reports it.
+- Results are recorded in DEC-031 only.
+- The owner may still waive it for a given PR; record the waiver in DEC-031, as before.
+- Agents cannot drive Safari + Userscripts; they can drive Chrome through the owner's real profile, read-only on
+  the owner's accounts.

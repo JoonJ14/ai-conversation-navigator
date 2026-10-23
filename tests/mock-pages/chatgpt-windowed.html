@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ChatGPT (windowed) mock</title>
+<style>
+  html, body { margin: 0; height: 100%; font-family: sans-serif; }
+  main { height: 100%; }
+  [data-app-action-timeline-scroll] { position: relative; height: 600px; overflow-y: auto; }
+  .turn { position: absolute; left: 0; right: 0; height: 200px; box-sizing: border-box; padding: 8px; }
+  [data-user-message-bubble] { background: #eee; padding: 8px; margin-left: 30%; }
+</style>
+</head>
+<body>
+<!--
+  ChatGPT's app shell as of Oct 2026 (measured live in Chrome, 2026-10-23; ancestry in
+  DOM-REFERENCE.md). The message list is WINDOWED: a fixed run of WINDOW user turns is
+  mounted and the rest are REMOVED from the document, never hidden (CLAUDE.md, Layer 4).
+  Each turn is keyed by data-turn-key = the user message's id in the conversation API.
+
+  Config (window.__MOCK_CONFIG):
+    turns:  [{ id, text }]   the VISIBLE user turns, in order (default: 10 generated)
+    window: number           mounted user turns (default 6)
+    frozen: true             the window never moves when scrolled (a jump that cannot page)
+  Test hooks: window.__mockWindow.mounted() -> mounted positions; .total; .setTurns(turns) switches
+  the conversation (a branch switch) and stays at the bottom.
+-->
+<main data-codex-history-swipe-page="true" data-app-shell-main-surface="browser">
+  <div data-mcp-app-portal-target="true" data-thread-user-message-navigation-content="true">
+    <div data-app-action-timeline-scroll="" role="region" id="mock-scroller">
+      <div id="mock-spacer"></div>
+    </div>
+  </div>
+</main>
+<script>
+(function () {
+  var cfg = window.__MOCK_CONFIG || {};
+  var turns = cfg.turns;
+  if (!turns) {
+    turns = [];
+    for (var g = 0; g < 10; g++) {
+      turns.push({ id: 'aaaaaaaa-0000-4000-8000-' + ('000000000000' + g).slice(-12),
+                   text: 'Generated question number ' + (g + 1) + ' about windowed lists?' });
+    }
+  }
+  var WINDOW = cfg.window || 6;
+  var H = 200;
+  var scroller = document.getElementById('mock-scroller');
+  var spacer = document.getElementById('mock-spacer');
+  spacer.style.height = (turns.length * H) + 'px';
+  var mountedNodes = {};
+
+  function build(i) {
+    var t = turns[i];
+    var turn = document.createElement('div');
+    turn.className = 'turn';
+    turn.style.top = (i * H) + 'px';
+    turn.setAttribute('data-turn-key', t.id);
+    turn.innerHTML =
+      '<div data-content-search-turn-key="fallback-turn-' + i + '">' +
+        '<div data-talvt-turn-state="complete">' +
+          '<div data-chatgpt-search-unit-key="fallback-turn-' + i + ':0:user" data-chatgpt-search-message-ids="' + t.id + '">' +
+            '<div data-content-search-unit-key="fallback-turn-' + i + ':0:user">' +
+              '<div data-user-message-bubble="true"></div>' +
+            '</div>' +
+          '</div>' +
+          '<div data-chatgpt-search-unit-key="fallback-turn-' + i + ':1:assistant" class="answer">Answer ' + (i + 1) + '</div>' +
+        '</div>' +
+      '</div>';
+    turn.querySelector('[data-user-message-bubble]').textContent = t.text;
+    return turn;
+  }
+
+  function render() {
+    var first = Math.floor(scroller.scrollTop / H);
+    var start = Math.max(0, Math.min(first, turns.length - WINDOW));
+    var want = {};
+    for (var i = start; i < Math.min(turns.length, start + WINDOW); i++) want[i] = true;
+    for (var k in mountedNodes) {
+      if (!want[k]) { mountedNodes[k].remove(); delete mountedNodes[k]; }
+    }
+    for (var w in want) {
+      if (!mountedNodes[w]) { mountedNodes[w] = build(+w); scroller.appendChild(mountedNodes[w]); }
+    }
+  }
+  if (!cfg.frozen) scroller.addEventListener('scroll', render, { passive: true });
+  // Test hook: replace the conversation (a branch switch), keeping the window at the bottom.
+  function setTurns(next) {
+    for (var k in mountedNodes) { mountedNodes[k].remove(); delete mountedNodes[k]; }
+    turns = next;
+    spacer.style.height = (turns.length * H) + 'px';
+    scroller.scrollTop = scroller.scrollHeight;
+    render();
+  }
+  scroller.scrollTop = scroller.scrollHeight;
+  render();
+  window.__mockWindow = {
+    setTurns: setTurns,
+    get total() { return turns.length; },
+    mounted: function () { return Object.keys(mountedNodes).map(Number).sort(function (a, b) { return a - b; }); }
+  };
+}());
+</script>
+</body>
+</html>

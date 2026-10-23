@@ -42,11 +42,13 @@ follow — virtualization is the standard fix for a slow chat page, not a Claude
 | **Claude** (`claude.ai/chat`) | **YES — Virtuoso-style recycling**, ~3–7 of N turns mounted | Jul 26, 2026 | **API-backed conversation index** (DEC-021). DOM is the labelled fallback. |
 | **Emergent** (`app.emergent.sh`) | **YES — Virtuoso recycling**, `[data-testid="virtuoso-scroller"]` | Feb 15, 2026 | **Accumulation only** — scans keep messages the user has already scrolled past, plus click-time re-resolution of stale references. **Nothing sweeps.** See the ⚠️ below. |
 | **Gemini** | **NO recycling at n≤10 — measured**; unresolved at 100+ | Jul 30, 2026 | DOM. Measured live (Chromium, page realm, owner's account, visible tab, 10-turn conversation — the longest available): all 10 turns mounted at top/middle/bottom scroll positions, held references stayed `isConnected` with text intact; zero `cdk-virtual-scroll-viewport` nodes. Owner's Firefox observation at n≈10–20 corroborates. `docs/CONTEXT-TRACKING.md` / `docs/BOOKMARKS.md` claims that "only viewport messages exist in DOM" are **contradicted at this scale** — but the scroller is literally `<infinite-scroller class="chat-history">`, so lazy-loading at 100+ turns remains possible and unmeasured. No conversation that long exists on the test account. |
-| ChatGPT · Grok · Perplexity | not observed | Feb 18, 2026 | DOM |
+| **ChatGPT** (`chatgpt.com/c/<id>`) | **YES — a sliding window**, 4–7 user turns mounted, the rest removed | Oct 23, 2026 | **API-backed index adapter** (v12.10, DEC-046). DOM is the labelled fallback. Measured live (Chrome, page realm, owner's account, visible tab; 10- and 130-question conversations). |
+| **Perplexity** (`perplexity.ai/search/<id>`) | **YES — the entries in view plus the latest**, the rest removed | Oct 23, 2026 | **API-backed index adapter** (v12.10, DEC-046). DOM is the labelled fallback. Measured live (Chrome, page realm, owner's account; 12-entry thread). |
+| Grok | not observed | Feb 18, 2026 | DOM |
 | Claude Code Web · Codex Web | not observed | Feb 18, 2026 | DOM |
 | Bolt · Lovable · Replit · V0 · Base44 · Firebase Studio | not observed | Feb 18, 2026 | DOM |
 
-> ⚠️ **"Not observed" is not "verified absent."** Those twelve were checked in February, *before anyone
+> ⚠️ **"Not observed" is not "verified absent."** The rows marked "not observed" were checked in February, *before anyone
 > knew to look for this failure mode*, and a short test conversation cannot distinguish a virtualized
 > list from a complete one. Claude's own answer flipped between February and July with no
 > announcement, no error, and a green test suite.
@@ -355,6 +357,41 @@ AI messages use `items-start` (left-aligned), no `bg-bg-300`, `data-testid="assi
 
 ## ChatGPT
 
+### Current structure (Oct 2026 app shell; measured live, Chrome, page realm, 2026-10-23)
+
+**Selector (v12.10):** `[data-user-message-bubble="true"]`, then `[data-content-search-unit-key$=":user"]`,
+both **scoped to `[data-app-action-timeline-scroll][role="region"]`**. The legacy selectors below match
+nothing on the live site (0 of 10) and stay as harmless fallbacks. **The full list comes from the API**
+(`/backend-api/conversation/<id>`, DEC-046); the DOM is the fallback.
+
+User bubble, inner → outer (relevant attributes only):
+
+```
+div[data-user-message-bubble="true"]
+div[data-content-search-unit-key="fallback-turn-N:0:user"]
+div[data-chatgpt-search-unit-key="fallback-turn-N:0:user"][data-chatgpt-search-message-ids="<message-id>"]
+div[data-talvt-turn-state="complete"]                        (fragile: do not use)
+div[data-content-search-turn-key="fallback-turn-N"]
+div[data-turn-key="<message-id>"]                            = the API node id: THE identity
+div[data-chatgpt-conversation-selection-target="<conversation-id>"][data-thread-find-target="conversation"]
+div[data-mcp-app-portal-target="true"][data-thread-user-message-navigation-content="true"]
+div[data-app-action-timeline-scroll][role="region"]          THE scroller (overflow-y: auto)
+main[data-codex-history-swipe-page="true"][data-app-shell-main-surface="browser"]
+```
+
+- **`data-content-search-turn-key` is not a reliable position.** While the page loaded it was
+  window-relative (`fallback-turn-0` on question 5); after loading it equalled the 0-based position. Use
+  `data-turn-key` against the index.
+- **A hidden second timeline** (`role="presentation"`, every bubble 0×0) sits beside the real one during a
+  navigation, doubling every unscoped count. Scope to `role="region"`.
+- **Windowing:** 4–7 user turns mounted. Turn 0 mounted only after `scrollTop = 0` was set more than once,
+  because the page re-estimates heights as it goes.
+- No visible native "jump between your messages" control was found (`data-thread-user-message-navigation-content`
+  exists on one container; buttons read only Copy, Edit and Scroll to bottom). Reported, not acted on.
+- Hashed classes (`block-…`) and `data-talvt-*` are unstable; do not select on them.
+
+### Historical: Feb 2026 structure (superseded)
+
 **Inspected:** Feb 16, 2026 (live site)
 **Selector:** `[data-message-author-role]` filtered by value `=== 'user'`
 
@@ -570,6 +607,23 @@ AI messages have NO `self-end` or `bg-token-bg-tertiary`. They use `markdown pro
 ---
 
 ## Perplexity
+
+### Current structure (Oct 2026; measured live, Chrome, page realm, 2026-10-23)
+
+**Selector (v12.10):** `[data-message-bubble="right"]` (the user bubble; answers never carry it). Position:
+the nearest ancestor `[data-workflow-entry="N"]`, 0-based, equal to the API entry index. The legacy selectors
+below match nothing on the live site and stay as fallbacks. **The full list comes from the API**
+(`/rest/thread/<id>`, DEC-046); the DOM is the fallback.
+
+- **Scroller:** `div.scrollable-container` (`overflow: auto`), found by walking up from a bubble.
+  **It pins itself to the bottom:** a programmatic `scrollTop` reverted within 300ms every time until a wheel
+  event arrived; after one (even a synthetic one) it stayed put.
+- **Windowing:** the entries in view plus the latest. Bottom: entries 10–11 of 12; top: 0–4 and 11; middle:
+  4–9 and 11.
+- Long questions are clipped visually (`max-h-[144px] overflow-hidden`); the text is all in the DOM.
+- Do not use `data-renderer="lm"` (answers carry it too) or hashed classes (`_root_128yu_7`).
+
+### Historical: Feb 2026 structure (superseded)
 
 **Inspected:** Feb 16, 2026 (live site)
 **Selector:** `.group\/query` (Tailwind group variant)
