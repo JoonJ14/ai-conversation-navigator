@@ -2,12 +2,12 @@
 
 ## Project Overview
 
-AI Conversation Navigator is a single-file browser userscript (Tampermonkey/Greasemonkey) that adds an orbital button cluster to 14 AI chat platforms, letting users jump to any previous question in one click. ~6,400 lines of ES5-compatible vanilla JavaScript, no build step, no dependencies.
+AI Conversation Navigator is a single-file browser userscript (Tampermonkey/Greasemonkey; Userscripts on Safari) that adds an orbital button cluster to 14 AI chat platforms, letting users jump to any previous question in one click. ~12,700 lines of ES5-compatible vanilla JavaScript, no build step, no dependencies.
 
 ## Tech Stack
 
 - **Language:** Vanilla JavaScript (ES5 compatible) — no arrow functions, no classes, no async/await
-- **Runtime:** Tampermonkey/Greasemonkey userscript manager
+- **Runtime:** a userscript manager — Tampermonkey (Chrome, Firefox), Userscripts (Safari), Greasemonkey (untested). Each ships its own `GM_*` implementation (v12.9, Layer 3)
 - **Build:** None — single file (`ai-conversation-navigator.user.js`), deployed as-is
 - **Testing:** Playwright (Chromium/Firefox/WebKit) across 14 platform mock pages
 - **Storage:** `GM_setValue`/`GM_getValue` + `localStorage`
@@ -87,7 +87,7 @@ symptom?" before drawing from an absence.
 
 **A fourth instance, found in CI after the rule above was written.** A jump assertion passed on Linux and macOS and failed on all three Windows engines, for an identical and correct jump — it read the resolved row's text from the live DOM, and on slower runners the virtualizer had already recycled that row away. The implementation was right on every OS; only the observation raced. Runner speed belongs in the list above (DEC-025), as does anything the launcher does to the browser: `--single-process` reported one renderer fault as thirteen broken platforms (DEC-026). So does **which version of your own script is installed in the measurement browser** — the MCP browser was found running v11.8 mid-investigation (DEC-027); raw-console measurements survived only because they never invoked the userscript and stripped its DOM artifacts before matching.
 
-**Method chosen.** Record the measurement context alongside every finding, and treat the finding as **context-scoped until reproduced in the context where the code will run** — for this project that means the Tampermonkey sandbox, in a visible window, on Firefox.
+**Method chosen.** Record the measurement context alongside every finding, and treat the finding as **context-scoped until reproduced in the context where the code will run** — for this project that means the Tampermonkey sandbox, in a visible window, on Firefox; and, for anything that depends on a `GM_*` API or the index's transport ladder, each supported manager too (Safari + Userscripts, Chrome + Tampermonkey — v12.9). Where you can't drive a setup yourself (Safari + Userscripts today), list it explicitly as owner acceptance in the PR instead of reporting it as verified.
 
 In practice:
 
