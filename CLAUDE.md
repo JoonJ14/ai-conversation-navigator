@@ -9,7 +9,7 @@ AI Conversation Navigator is a single-file browser userscript (Tampermonkey/Grea
 - **Language:** Vanilla JavaScript (ES5 compatible) — no arrow functions, no classes, no async/await
 - **Runtime:** a userscript manager — Tampermonkey (Chrome, Firefox), Userscripts (Safari), Greasemonkey (untested). Each ships its own `GM_*` implementation (v12.9, Layer 3)
 - **Build:** None — single file (`ai-conversation-navigator.user.js`), deployed as-is
-- **Testing:** Playwright (Chromium/Firefox/WebKit) across 14 platforms' mock pages (15 files, including the virtualizing Claude mock)
+- **Testing:** Playwright (Chromium/Firefox/WebKit) across 14 platforms' mock pages (17 files, including the three virtualizing mocks: Claude, ChatGPT and Perplexity)
 - **Storage:** `GM_setValue`/`GM_getValue` + `localStorage`. GM storage does not exist under Safari's Userscripts, so anything that must persist there needs `localStorage` (agent_docs/architecture.md → "Runtime matrix")
 - **Browser APIs:** MutationObserver, TreeWalker, ResizeObserver
 
@@ -49,6 +49,13 @@ This project injects code into web applications we don't control. There are **fo
 
 **Why Layer 4 matters for agents:** it defeats *both* of the tools built for the other layers. DOM validation targets Layer 1 and would pass — the selectors are fine. Playwright mock tests pass too, because every static mock mounts all its turns permanently; **a suite of static mocks structurally cannot fail on a Layer 4 break.** Before trusting any count derived from `querySelectorAll`, ask whether the platform virtualizes. If you add a virtualizing platform, ship a mock that genuinely *unmounts* nodes (`tests/mock-pages/claude-virtualized.html` is the reference) — hiding them with `display:none` does not reproduce the failure. And whenever a feature falls back to DOM scanning, that degradation must be **visible in the UI**, never console-only.
 
+**Layers 1 and 4 at once, on two more sites (Oct 2026, v12.10).** Recorded as a reasoning flow:
+
+- **Problem.** On ChatGPT and Perplexity, Navigate listed **zero** questions in all three browsers, while the script loaded and the button cluster appeared.
+- **Root cause.** Two independent breaks per site. Layer 1: ChatGPT moved to a new app shell and Perplexity changed its markup, so the user-turn selectors matched nothing (0 of 10 live). Layer 4: both now window their message lists (ChatGPT a sliding 4–7 turns; Perplexity the entries in view plus the latest), so even the right selectors see only part of a conversation. Fixing either alone leaves the panel wrong.
+- **Method chosen, and why.** New selectors for the DOM fallback, and an index adapter per platform reading each site's own JSON (DEC-046), through the v12.9 transport ladder and only from the exact origin. Rejected: selectors alone (a correct partial list is the Layer 4 failure itself), and restructuring the ladder (its mutation tooling anchors on its exact code). Two things the live measurement changed: positions come from ChatGPT's `data-turn-key`, because `data-content-search-turn-key` was window-relative while the page loaded; and the Perplexity jump releases the scroller's stick-to-bottom pin with a wheel event first.
+- **Result.** In Playwright's page realm, against mocks that genuinely unmount (`probes/check-index-adapters.js`), the new build lists every question and jumps to the first from the bottom on both sites; v12.9 lists 0. Real-browser acceptance on all three browsers is the owner's; live confirmation status: DEC-031.
+
 Full risk model with examples and mitigation strategies: see ROADMAP.md "Platform Risk Model" section.
 
 ## Data Source Awareness (v12.0+)
@@ -59,6 +66,7 @@ On `claude.ai/chat/<uuid>`, `_questions` is populated from the **API-backed conv
 - `q.element` is `null` for any question outside the mounted window. Never assume it exists; use `_relocateQuestionElement(q)` and fail visibly if it returns null.
 - Never order messages with `compareDocumentPosition` across unmounted nodes — detached nodes compare as DISCONNECTED, the comparator returns 0, and the sort silently degrades to arbitrary order. Use the index order.
 - Never key persisted data to a DOM index. Use the message uuid (see the bookmarks schema-2 migration).
+- **Since v12.10 the same holds on `chatgpt.com/c/<id>` and `perplexity.ai/search/<id>`** through their index adapters (DEC-046): `q.element` is null outside the mounted window there too, and `q.ixPosition` / `q.ixId` are the identity.
 
 ## Measurement Context Is Part of the Finding (v12.0+)
 
