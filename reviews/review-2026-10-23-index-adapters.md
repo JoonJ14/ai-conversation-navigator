@@ -40,4 +40,6 @@ Context: the Codex CLI could not run Playwright in its read-only sandbox; every 
 `probes/check-index-adapters.js` (Playwright, page realm). New gate checks that FAIL on the pre-fix build:
 C3b (a broken tree listed as complete). G2 covers a gmxhr refusal falling back to fetch.
 
-GitHub rounds needed afterwards: recorded by the babysit cycle on PR #78.
+**GitHub rounds needed afterwards: 2** (the babysit cycle on PR #78, after the pipeline): one finding, a switch
+to a SHORTER ChatGPT branch left the abandoned follow-ups listed (fixed in `c9621cb`, probe C3c fails before it);
+then clean on `c9621cb`. Before the pipeline, GitHub's first round found 2 (fixed in `363a538`).
