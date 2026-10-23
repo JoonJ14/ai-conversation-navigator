@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.10 — ChatGPT and Perplexity List Every Question Again: Index Adapters and October Selectors] — 2026-10-23
 
-**Branch:** `feat/chatgpt-perplexity-index-adapters` | **Commits:** `1316e65` (code, tests, CI), `5ba0feb` (docs) | **PR:** (this PR)
+**Branch:** `feat/chatgpt-perplexity-index-adapters` | **Commits:** `1316e65` (code, tests, CI), `5ba0feb` (docs), review fixes `363a538`–`878520e` | **PR:** #78
 
 ### Problem
 
@@ -40,8 +40,7 @@ Measured live in Chrome, page realm, on the owner's account (DOM-REFERENCE.md, D
 
 ### Verification
 
-Playwright, page realm, against mocks that genuinely unmount (`probes/check-index-adapters.js`): 21 checks
-pass on the new build; v12.9 fails all 17 new ones. Final run on `1316e65` (macOS arm64, local, 2026-10-23, 30 min): the full suite **1676/1680** on Chromium, Firefox and WebKit — Chromium and Firefox clean; the 4 failures are the known local WebKit entries (TROUBLESHOOTING, "OPEN — Local mac WebKit"), which v12.9 failed identically in an A/B run alone. Probes: 14/15 runs pass, `check-index-adapters` 21/21 and `check-transport-ladder` 63/63 on all three engines; the one failure is the known `check-usage-state` U10 Firefox timeout (TROUBLESHOOTING).
+Playwright, page realm, against mocks that genuinely unmount (`probes/check-index-adapters.js`): 24 checks pass; v12.9 fails every new one. Final run on `d11da60` (macOS arm64, local, 2026-10-23): the full suite **1676/1680** on Chromium, Firefox and WebKit — the 4 failures are the known local WebKit entries (TROUBLESHOOTING, "OPEN — Local mac WebKit"; v12.9 fails them identically). Probes 14/15 runs pass; the one failure is the known `check-usage-state` U10 Firefox timeout. Review: three tiers, seven Tier 3 rounds, `reviews/review-2026-10-23-index-adapters.md`.
 
 **Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey is owed** (PR
 checklist); live confirmation status: DEC-031.
