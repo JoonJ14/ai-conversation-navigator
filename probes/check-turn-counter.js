@@ -269,8 +269,8 @@ const fullSpread = (r) => !!r && r.stable === true && r.dots === FULL_SPREAD.dot
     // one. The mock DOM holds the short conversation's 16 rows, which are also the long one's
     // first 16, so both indexes match the mounted rows and no provisional entry is added. The mock
     // still reports aria-setsize 16 after the switch, so the script logs that its renderable-entry
-    // predicate disagrees and falls back to measured anchors: expected here, and the counter does
-    // not read anchors.
+    // predicate disagrees and falls back to measured anchors. Expected here: the fallback lowers the
+    // bound for new (provisional) rows to 16, and no mounted row sits past it, so the count stays 144.
     {
         const lat = {}; lat[CONV_A] = 10; lat[CONV_B] = 2500;
         const { context, page } = await load(CONV_A, SHORT, lat);
@@ -309,8 +309,8 @@ const fullSpread = (r) => !!r && r.stable === true && r.dots === FULL_SPREAD.dot
         check('A2f', 'the first draw that lists the new conversation already shows 40 dots',
             !!first && first.dots === FULL_SPREAD.dots, 'first draw: ' + (first ? 'dots=' + first.dots : 'never seen'));
         // Close and reopen. On v12.10 the freeze survived a reopen, since the reopen took the same
-        // early return. The dots stay in the DOM while the panel is closed, so A2b records that
-        // symptom rather than gating anything A2 does not.
+        // early return. A2b also catches a close or reopen that loses the dots: the reopen takes the
+        // unchanged-list return, which redraws only when the counter differs from what was drawn.
         await page.evaluate("document.getElementById('acn-dot-nav').click()");
         await page.waitForTimeout(400);
         const closed = await page.evaluate("document.getElementById('acn-panel-nav').getAttribute('data-acn-open') !== 'true'");
