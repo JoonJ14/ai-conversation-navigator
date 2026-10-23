@@ -1264,15 +1264,23 @@ every waiver here, and in the release's CHANGELOG entry.
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
 review record. Updated 2026-10-23:
-- **v12.10 (PR #78, head `0866597`).** Owner, real browsers, before the merge: Safari + Userscripts **PASS**,
-  Chrome + Tampermonkey **PASS**, Firefox + Tampermonkey **PASS** — ChatGPT and Perplexity list and jump. Claude
-  regression **PASS** on all three. Branch test (editing a question) **PASS** on Chrome, ChatGPT; not run on the
-  other two browsers or on Perplexity.
+- **v12.10 (PR #78, merged as `166a281`).** Owner, real browsers, 2026-10-23. *Corrected the same day: an
+  earlier line here said Safari passed ChatGPT and Perplexity, listing and jumping; the owner's detailed report
+  says those are still owed on Safari.*
+  - **Chrome + Tampermonkey.** Claude **PASS**: 144 questions, plan usage, turn counter. ChatGPT and Perplexity:
+    full lists **PASS**; jumps not reported. Branch test (editing a question) **PASS** on ChatGPT.
+  - **Firefox + Tampermonkey.** Claude **PASS**. ChatGPT and Perplexity: full lists **PASS**; jumps not reported.
+  - **Safari + Userscripts.** Claude index **PASS**: 144 questions, jumps first ↔ last. Plan usage "Usage data
+    unavailable" (expected, the Safari parity item). Turn-counter dots **wrong**, intermittently: a defect that
+    predates v12.10 (TROUBLESHOOTING, "OPEN — Claude's turn-counter dots"). **ChatGPT and Perplexity: OWED**,
+    after the merge.
+  - **Waiver:** v12.10 was merged before Safari's ChatGPT and Perplexity acceptance, on the owner's call. The debt
+    stays owed on the merged build.
 - **v12.9 (PR #75).** Safari + Userscripts **PASS** (owner): `transport=fetch org=730fcd2a… status=200`; the
   index ready with 144 questions (295 messages in the payload) via fetch; jumps to Q1 through Q144, the last
   five included, all landed. Firefox + Tampermonkey (Linux) **PASS** (owner, after the merge). Chrome +
-  Tampermonkey **PASS** (owner, 2026-10-23, during the v12.10 acceptance: the Claude index works); which
-  transport won was not recorded.
+  Tampermonkey **PASS** (owner, 2026-10-23, closed by the v12.10 acceptance: Claude with 144 questions, plan
+  usage and turn counter); which transport won was not recorded.
 - **v12.8 (PR #73).** The usage panel on Firefox + Tampermonkey **PASS** (owner): it shows real plan usage,
   matching Claude Code's figures exactly. That observes the rendered state. On Safari the panel is expected to
   fail (`GM_xmlhttpRequest`); the Safari parity follow-up covers it (ROADMAP 0d), not a separate debt.
@@ -2633,7 +2641,8 @@ Older text named one context as the one that matters: CLAUDE.md's measurement ru
 sandbox, in a visible window, on Firefox", and TESTING.md said the same until this entry. v12.9 showed why a
 single context is not enough: the index worked on Firefox + Tampermonkey and always failed on Safari +
 Userscripts (DEC-045). v12.8 and v12.9 were merged before their live acceptance on the owner's call (the
-waivers in DEC-031). v12.10 (PR #78) was the first release accepted on all three before its merge.
+waivers in DEC-031). v12.10 (PR #78) was accepted on Chrome and Firefox before its merge, and on Safari for
+Claude only; Safari's ChatGPT and Perplexity check is owed after the merge (a waiver, DEC-031).
 
 ### Alternatives considered
 - **Keep Firefox as the reference context.** Rejected: it was the one runtime where v12.9's bug did not occur.

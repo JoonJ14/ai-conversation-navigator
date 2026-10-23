@@ -472,6 +472,86 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ---
 
+## OPEN — Claude's turn-counter dots freeze at a stale count: 0 or the 1–4 mounted turns (found 2026-10-23)
+
+**Phase:** v12.10 acceptance on Safari + Userscripts | **Severity:** Medium — a wrong indicator, no data loss |
+**Status:** Open. The fix is PR A of the next session (owner, 2026-10-23). **Not a v12.10 regression.**
+
+Labels: **[code]** read from the source; **[inferred]** reasoned from code or earlier docs, not measured;
+**[measured]** observed. Nothing here was reproduced in a browser by an agent; per the owner, the fix's own
+gate will measure it.
+
+### Symptom (the owner, real Safari + Userscripts, v12.10, 2026-10-23) [measured]
+
+- The Claude index is fine: 144 questions listed; jumps first ↔ last work.
+- The turn-counter dots are wrong intermittently, on many conversations (21, 33, 37 and 144 questions):
+  - arriving via the sidebar: almost always wrong, 1–4 green dots or none;
+  - hard reload: usually right (the full green → yellow → red spread on 144), but one reload showed no dots.
+    Once "no dots" persisted through a panel close/reopen and a reload; the next reload plus a reopen was right.
+- Chrome + Tampermonkey and Firefox + Tampermonkey: the dots were always right on v12.10.
+- v12.9 on Safari: one correct spread observed, too little to call either way.
+
+### What feeds the dots
+
+- The dots are `_turnCounter.turnsSinceCompact`, at most 40 (`_renderTurnDots`). With no compaction data a
+  dot's colour is its position out of 40: about 28 green, 6 yellow, 6 red. So 144 questions show the full
+  spread and 21 show 21 green [code].
+- **The only input is `_questions.length`.** `updateTurnCounter()` keeps the highest value seen; a lower count
+  resets it [code]. Once the index is ready, `_questions` is the whole list (144); before that, the DOM scan's
+  mounted turns, about 1–5 on Claude [code].
+- **SSE** gives the counter no count. `message_delta` and `message_stop` only redraw [code].
+- **`acn_ctx_cache`** feeds only the context bar's thinking tokens and its "(last known)" label [code].
+- **Updated** only in `orbOnScanComplete()`, after each scan. **Reset** by the history hooks, by
+  `ciInvalidate()` when a scan sees the conversation changed, and by the "count dropped" rule [code].
+- **Drawn** only by `orbUpdateContextBar()`. It is called at the end of `orbPopulateNavigate()` (panel open, and
+  every scan while Navigate is open) and on the two SSE events [code].
+
+### Diagnosis
+
+- **The dots are drawn one scan late.** `orbOnScanComplete()` calls `orbPopulateNavigate()`, which draws the
+  dots, **before** `updateTurnCounter()` [code].
+- **And then never redrawn.** `orbPopulateNavigate()` returns early when the list's fingerprint is unchanged and
+  the list has rows, and also on an empty list. Both returns skip `orbUpdateContextBar()` [code]. After the scan
+  in which the index lands, the fingerprint stops changing, so the dots freeze at the count from before it
+  landed: **0** right after a reset, or **1–4** after a DOM scan of the mounted turns [code].
+- **A close/reopen does not help.** `orbOpenPanel` → `orbPopulateNavigate` returns early on the same fingerprint
+  [code].
+- **Why Safari, and why mostly via the sidebar.** On Chrome and Firefox the `pushState` / `popstate` hooks call
+  `orbClosePanel()` [code], so Navigate cannot stay open across a sidebar navigation. On Safari the hooks do not
+  reach the page [inferred, as in the v12.9 handoff; not measured]. The panel stays open, the reset happens
+  inside the next scan through `ciInvalidate()` [code], and the late draw freezes at 0 or 1–4 [the mechanism is
+  code; the exact interleaving is inferred].
+- **The reload cases** need the panel opened before the index lands [inferred]. The race is not Safari-specific
+  in the code; a faster index on Chrome would make it rare [inferred, unmeasured]. Chrome also redraws the dots
+  after every streamed reply [code]; Safari gets no SSE [inferred].
+- **What is absent on Safari and does not explain it:** GM storage. Every `GM_getValue` / `GM_setValue` is inside
+  a try/catch, so nothing throws on the scan path [code]; `acn_ctx_cache` just never loads [inferred].
+
+### Not a v12.10 regression [code]
+
+Function bodies compared between `2ba7796` (v12.9) and `0866597` (PR #78's head; the merge adds docs only).
+Identical: `orbOnScanComplete`, `updateTurnCounter`, `resetTurnCounter`, `_renderTurnDots`, `_removeTurnDots`,
+`_renderTurnCompactionInfo`, `_renderCompactionInfo`, `_renderEstimatedBar`, `orbUpdateContextBar`,
+`getBarColor`, `ciInvalidate`, `ciIsClaudeChat`, `ciIsReady`, `ciLoadIndex`, `ciTotalChars`,
+`ciTotalThinkingChars`, `ciFindScrollContainer`, `_loadCachedSSEData`, `_cacheSSEData`, `_getConvId`,
+`setupClaudeSSEInterceptor`, `_estimateClaudeOverhead`, `orbOpenPanel`, `orbClosePanel`, `getUserMessages`, and
+the history-hook block. Changed, none of it on Claude's path:
+- `orbPopulateNavigate`'s fingerprint gained `'|x' + ixFingerprint()`, a constant on Claude because `_ix` is
+  never written there;
+- `orbRenderIndexBanner`'s non-chat branch calls `ixRenderBanner`, which returns at once on Claude;
+- `scanConversation` gained `if (!ciIsClaudeChat() && ixScan()) return;`, never evaluated on a Claude chat.
+
+### Fix (owner's decision, 2026-10-23): PR A, all browsers
+
+- Update the counter before drawing.
+- Redraw the dots on every scan, including the unchanged-fingerprint and empty-list returns.
+- Close the panel on a conversation change detected by the scan path too, so Safari behaves like Chrome and
+  Firefox.
+- Gate: a probe with the index delayed and the panel open before it lands, plus a conversation switch with the
+  panel open. It must fail on the current build.
+
+---
+
 ## OPEN — Local mac WebKit: jumps to a long conversation's last questions give up at ~1.46s (found 2026-10-22)
 
 **Phase:** v12.9 verification (PR #75) | **Severity:** Low — real Safari does not reproduce it (owner,
