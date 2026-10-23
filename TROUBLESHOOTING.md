@@ -475,11 +475,12 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 ## OPEN — Claude's turn-counter dots freeze at a stale count: 0 or the 1–4 mounted turns (found 2026-10-23)
 
 **Phase:** v12.10 acceptance on Safari + Userscripts | **Severity:** Medium — a wrong indicator, no data loss |
-**Status:** Open. The fix is PR A of the next session (owner, 2026-10-23). **Not a v12.10 regression.**
+**Status:** Fix built in **v12.11 (PR #81)**, below. Open until the owner's acceptance on Safari, Chrome and
+Firefox (DEC-031). **Not a v12.10 regression.**
 
 Labels: **[code]** read from the source; **[inferred]** reasoned from code or earlier docs, not measured;
-**[measured]** observed. Nothing here was reproduced in a browser by an agent; per the owner, the fix's own
-gate will measure it.
+**[measured]** observed. Until PR #81 nothing here was reproduced in a browser by an agent; its gate
+(`probes/check-turn-counter.js`) is the first reproduction, in Playwright's page realm.
 
 ### Symptom (the owner, real Safari + Userscripts, v12.10, 2026-10-23) [measured]
 
@@ -504,7 +505,7 @@ gate will measure it.
 - **Updated** only in `orbOnScanComplete()`, after each scan. **Reset** on Claude by `ciInvalidate()` when a scan
   sees the conversation changed, and by the "count dropped" rule [code]. The history hooks also reset it, but
   they are installed only on `spa: true` platforms, and Claude is `spa: false` (line 278; the block is guarded by
-  `if (platform.spa)`, line 5561) [code].
+  `if (platform.spa)`, line 5562 in v12.11) [code].
 - **Drawn** only by `orbUpdateContextBar()`. It is called at the end of `orbPopulateNavigate()` (panel open, and
   every scan while Navigate is open) and on the two SSE events [code].
 
@@ -532,6 +533,14 @@ gate will measure it.
   `popstate` hooks close the panel on Chrome and Firefox and do not reach the page on Safari, which would make
   the bug Safari-only. That was an inference from code read without checking Claude's `spa` flag: on Claude the
   hooks are never installed, so the distinction does not exist.
+- **Corrected again 2026-10-23 (PR #81).** PR A's spec still carried that first premise ("the history hooks
+  close the panel on Chrome and Firefox"). **No hook closes the panel on Claude or on ChatGPT, in any
+  browser:** both are `spa: false`, and nothing else closes it on a sidebar click [code]. So the hooks are not
+  why Chrome and Firefox showed the bug less. Among the index platforms only Perplexity is `spa: true`: its
+  hooks close the panel on navigation, and whether they reach the page under Safari's Userscripts is unmeasured
+  [inferred]. PR #81's gate reproduces the freeze on Chromium, Firefox and WebKit alike, at 3 dots, when the
+  panel is open before the index lands [measured, Playwright page realm, mock]. So in that context the mechanism
+  does not depend on the engine.
 - **What is absent on Safari and does not explain it:** GM storage. Every `GM_getValue` / `GM_setValue` is inside
   a try/catch, so nothing throws on the scan path [code]; `acn_ctx_cache` just never loads [inferred].
 
@@ -549,16 +558,37 @@ the history-hook block. Changed, none of it on Claude's path:
 - `orbRenderIndexBanner`'s non-chat branch calls `ixRenderBanner`, which returns at once on Claude;
 - `scanConversation` gained `if (!ciIsClaudeChat() && ixScan()) return;`, never evaluated on a Claude chat.
 
-### Fix (owner's decision, 2026-10-23): PR A, all browsers
+### Fix: v12.11 (PR #81), all browsers
 
-- Update the counter before drawing.
-- Redraw the dots on every scan, including the unchanged-fingerprint and empty-list returns.
-- Close the panel on a conversation change detected by the scan path too. **To reconfirm with the owner:** this
-  point was decided as "so Safari behaves like Chrome and Firefox", on the corrected premise above. Chrome and
-  Firefox do not close it either, so it would be a behaviour change on all three browsers, not a Safari parity
-  fix; with the first two points the dots are right whether or not the panel stays open [inferred].
-- Gate: a probe with the index delayed and the panel open before it lands, plus a conversation switch with the
-  panel open. It must fail on the current build.
+- **The counter is updated first.** `orbOnScanComplete()` calls `updateTurnCounter()` before anything draws.
+- **The dots are redrawn when the counter differs from what is drawn.** `orbUpdateContextBar()` records the
+  counter it drew (`_turnCounterSig()`). `orbPopulateNavigate()`'s unchanged-list return redraws only when the
+  counter differs from that record. Its empty-list return always redraws: that is a rebuild, so it runs once
+  per change. The list's own early return is unchanged.
+- **Why a guard, not "every scan" (owner, 2026-10-23).** The panel sits inside `document.body`, which the
+  message observer watches, so every redraw schedules the next scan. An unconditional redraw kept itself going
+  on an idle page: 744 mutation records in 6 s (scratch run, Chromium and Firefox), 984 in the gate's A4, against
+  0 before and after the fix [measured, Playwright page realm]. No timers, no throttling.
+- **Dropped: closing the panel on a scan-detected switch** (owner, 2026-10-23). It was asked for "so Safari
+  behaves like Chrome and Firefox", but on Claude and ChatGPT no browser closes it (above), so it would have been
+  new behaviour on all three. With the first two points the dots are right with the panel open across a switch
+  (A2 below). Panel behaviour is unchanged on every site and browser.
+- **Known limit of the guard (logged, not widened, per the owner).** The guard keys on `_turnCounter` alone.
+  Two inputs of the drawing sit outside it:
+  - `_compactionHistory`, the purple dots. It has no writer today (only its declaration and the reset assign
+    it), so it cannot differ now [code]. A future compaction detector that writes it must redraw itself or join
+    the guard.
+  - The percentage bar's inputs: SSE thinking and the index's text totals. These keep their own redraws, the
+    two SSE events and the fingerprint's status and generation fields [code].
+- **Gate:** `probes/check-turn-counter.js`. Measured on 2026-10-23, Playwright page realm, headless with
+  `visibilityState` visible, this Mac.
+  - **A1** (the index delayed 3 s, Navigate opened first), **A2** (switch 8 → 144 questions with Navigate open;
+    no hook installed, the switch through `History.prototype.pushState`, 0 popstates) and **A2b** (then a close
+    and reopen). These **fail on v12.10 at 3 dots** on Chromium, Firefox and WebKit, and pass on v12.11 with the
+    full 40-dot spread (28 green, 6 yellow, 6 red).
+  - **A3** (a normal load) and **A4** (idle with Navigate open: 0 mutation records in 6 s) pass on both builds.
+  - The unguarded every-scan mutant fails A4 only, with 984 records, on Chromium and Firefox.
+- **Real browsers:** the owner's acceptance (DEC-031).
 
 ---
 

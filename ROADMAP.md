@@ -41,11 +41,9 @@ for Claude; Safari's ChatGPT and Perplexity check is owed after the merge (a wai
 transport (DEC-045; item 0d).
 
 **Next, in the owner's order (2026-10-23).** The next session gets a spec from the owner; two small PRs, in order:
-1. **PR A, the turn-counter fix, all browsers.** Claude's dots freeze at a stale count (TROUBLESHOOTING,
-   "OPEN — Claude's turn-counter dots"). Update the counter before drawing; redraw the dots on every scan,
-   including the unchanged-fingerprint and empty-list returns; close the panel on a conversation change from the
-   scan path too (to reconfirm: its premise, that Chrome and Firefox already close it, was wrong). Gate: the index delayed with the panel open before it lands, plus a conversation switch with
-   the panel open; it must fail on the current build.
+1. **PR A, the turn-counter fix, all browsers: built as v12.11 (PR #81).** Claude's dots froze at a stale count
+   (TROUBLESHOOTING, "Claude's turn-counter dots", which has the fix, its gate and why closing the panel on a
+   switch was dropped). Owner acceptance: DEC-031.
 2. **PR B, Safari parity (item 0d).** The usage request onto the ladder with DEC-044's rules, plus the
    exact-origin guard for usage. A GM storage wrapper using async `GM.getValue` / `GM.setValue` with an in-memory
    copy loaded at startup, used only when the synchronous functions are missing; the Tampermonkey path stays

@@ -1264,6 +1264,8 @@ every waiver here, and in the release's CHANGELOG entry.
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
 review record. Updated 2026-10-23:
+- **v12.11 (PR #81, the turn-counter dots).** **OWED** on Safari + Userscripts, Chrome + Tampermonkey and Firefox
+  + Tampermonkey (checklist in the PR).
 - **v12.10 (PR #78, merged as `166a281`).** Owner, real browsers, 2026-10-23. *Corrected the same day: an
   earlier line here said Safari passed ChatGPT and Perplexity, listing and jumping; the owner's detailed report
   says those are still owed on Safari.*
