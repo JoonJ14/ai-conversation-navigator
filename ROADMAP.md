@@ -365,7 +365,9 @@ Numbering below is stable (items keep their historical numbers):
      measured.** Userscripts provides no `unsafeWindow`, so both are installed on the content world's own
      `fetch` / `history`. Expect the context bar to read `(est.)` only. The nine `spa:true` platforms would
      miss route changes that the page makes through `history.pushState`. The 2026-10-23 acceptance did not
-     cover this, so it stays inferred.
+     cover this, so it stays inferred. **Claude is `spa: false`: the hooks are never installed there, in any
+     browser**, so they explain nothing about Claude on Safari (a wrong inference to the contrary was caught
+     on PR #79; TROUBLESHOOTING, "OPEN — Claude's turn-counter dots").
    - **Two spec gaps the owner kept, for a follow-up.** The `unexpected response shape` and `malformed message
      data` reasons carry no `[transport]` tag (spec 2.4). Probe fixture 3 (L3-backoff) asserts only the 60s
      first step, not the 60 → 240 → 960s escalation.

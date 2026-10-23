@@ -718,6 +718,15 @@ just fast enough to let the suite start. Attempt 3 installed in 20s and went 9/9
 cannot skip it:** `main`'s ruleset requires all nine checks and has no bypass actors, so re-running is the only
 path (agent_docs/git-workflow.md). Four install stalls in two days (ROADMAP 0e).
 
+**A stuck job on PR #79 (2026-10-23), not diagnosed.** On run 39998467919 (`f920a81`, docs only), eight jobs
+finished green while `chromium on ubuntu-latest` stayed "pending" with no duration. It was not investigated: a
+new commit (`cdc1ea3`, a Codex fix) started a fresh run, and the stuck run was cancelled. Whether it was an
+install stall like the ones above is unknown; recorded as one more CI-rebuild input (ROADMAP 0e).
+The fresh run (40000469236, `cdc1ea3`) then hit the PR #76 shape on the same job: "Install browser engine" took
+**11m05s** (18:05:48–18:16:53 UTC), "Run tests" started with about 9 minutes of the cap left, and the job was
+cancelled at 20m17s. The other eight were green. Matched on the signature (install time against the cap). One
+`gh run rerun --failed`.
+
 ---
 
 ## v12.9 — Safari (Userscripts): the conversation index always fell back to the DOM scan (found 2026-10-22)

@@ -209,3 +209,22 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 > non-ASCII before testing.
 > **Why:** the decoded character looks right in review. The rule that functional non-ASCII must be an escape
 > exists because literal characters have broken in-page before (the charset lesson above).
+
+> **Issue:** Diagnosing Claude's frozen turn-counter dots (v12.10 close-out), the first write-up said the
+> `pushState` / `popstate` hooks close the panel on Chrome and Firefox and do not reach the page on Safari, so the
+> bug was Safari-only. The hook code was read, but not the guard around it: the block runs only
+> `if (platform.spa)`, and Claude is `spa: false`. The hooks never run on Claude in any browser. GitHub Codex
+> caught it on the docs PR (#79), after the explanation had shaped one of the owner's fix decisions.
+> **Correct approach:** before reasoning about what code does on a platform, read that platform's registry entry
+> (`spa`, `virtualScroll`, `useOrbital`, the selectors) and every guard between the entry point and the code.
+> Label an explanation [code] only once the whole path from the registry to the line is read.
+> **Why:** a mechanism that exists in the file but never runs on the platform reads exactly like the real cause.
+> And it is most persuasive when it fits the observations, as this one did.
+
+> **Issue:** A short spoken acceptance report ("it passed all the tests") was recorded in DEC-031 as Safari
+> passing ChatGPT and Perplexity, listing and jumping. The owner's detailed report the same day said those were
+> still owed on Safari. Later reports arrived as templates with unfilled choices ("[PASS / not checked]").
+> **Correct approach:** record acceptance per browser AND per site, exactly as reported. A cell nobody named is
+> "not reported" or "owed"; an unfilled template choice is not a choice. Ask about each gap, and point out any
+> contradiction with an earlier report.
+> **Why:** DEC-031 is the only place live status is kept, so an overclaim there has nothing else to catch it.

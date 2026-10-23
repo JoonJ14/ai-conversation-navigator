@@ -14,8 +14,11 @@ ladder, the runtime matrix).
 - **PR #78 — MERGED** 2026-10-23 as `166a281`, on the owner's explicit OK. Accepted before the merge on Chrome
   and Firefox, and on Safari for Claude. **Safari's ChatGPT and Perplexity acceptance is owed after the merge**
   (a waiver). **Results: DEC-031 only.**
-- **The docs-only close-out PR** (`docs/v12.10-close-out`): the corrected DEC-031 record, the turn-counter entry
-  in TROUBLESHOOTING, the owner's next order, and this handoff's update. The owner merges it.
+- **PR #79 — MERGED** 2026-10-23 as `ca5cdf6` (docs only): the corrected DEC-031 record, the turn-counter entry
+  in TROUBLESHOOTING (corrected once by GitHub Codex), the owner-approved CLAUDE.md line, the next order.
+- **The session-close docs PR** (`docs/session-close-v12.10`, docs only): the CHANGELOG close-out section, two
+  lessons in `agent_docs/conventions.md`, the CI-flake records, the runtime matrix's usage row, and this
+  handoff's final update. **Open; the owner merges it.**
 - **vibecoding-loadout PR #1** (the three side-effect skills become invocable when the owner names them) is
   **open**, the owner's to merge. It is a different repo.
 - **Next session:** PR A (the turn-counter fix), then PR B (Safari parity), from a spec the owner provides (§G).
@@ -82,7 +85,7 @@ to yes and restarted Claude Code.
 **Alternatives rejected** (DEC-046 has the full reasoning): selectors alone (a correct partial list *is* the
 Layer 4 failure), and restructuring the ladder (its mutation tooling anchors on its exact code).
 
-### 3. Phase 3: the gate, `probes/check-index-adapters.js`, now 27 checks
+### 3. Phase 3: the gate, `probes/check-index-adapters.js`, now 26 checks
 
 - Two new mocks genuinely unmount: `tests/mock-pages/chatgpt-windowed.html` (sliding window; `setTurns` for a
   branch switch; `frozen` for a jump that cannot page) and `perplexity-windowed.html` (in view + latest, with the
@@ -143,7 +146,13 @@ probe and no Chrome measurement now; PR A's gate measures it.
 
 - **An acceptance was recorded more strongly than reported.** A short spoken report ("it passed all the tests")
   was written into DEC-031 as Safari passing ChatGPT and Perplexity; the owner's detailed report said those were
-  still owed. Record exactly what was reported, per browser and per site, and ask about any blank.
+  still owed. Record exactly what was reported, per browser and per site, and ask about any blank
+  (`agent_docs/conventions.md`).
+- **A code path was blamed without reading its guard.** The first turn-counter diagnosis said the history hooks
+  close the panel on Chrome and Firefox and not on Safari. The hooks run only `if (platform.spa)`, and Claude is
+  `spa: false`, so they never run on Claude. GitHub Codex caught it on PR #79, after it had shaped one of the
+  owner's PR A decisions (now marked to reconfirm, §G). Read the platform's registry flags and every guard on
+  the path before labelling an explanation [code] (`agent_docs/conventions.md`).
 
 - **`\uXXXX` escapes decoded again** by the Write tool inside a Python script. Fixed with `chr(92)`, and checked
   for 0 non-ASCII characters in added lines. The rule is already in `agent_docs/conventions.md`; it still bites.
@@ -194,10 +203,19 @@ place.
 | `c9621cb`, `fd89e19`, `0866597` | GitHub Codex rounds |
 | `e390efe` | DEC-031 results, DEC-047, this handoff, close-out docs |
 | `166a281` | **merge of PR #78** |
-| docs PR | `docs/v12.10-close-out`: DEC-031 corrected, the turn-counter entry, the next order |
+| `5d29f10`, `1c8193c` | DEC-031 corrected per the owner's report; the turn-counter entry; the next order |
+| `f920a81` | CLAUDE.md, owner-approved: the measurement rule names all three runtimes (DEC-047) |
+| `cdc1ea3` | GitHub Codex: Claude has no history hooks, so they cannot explain the Safari-only dots |
+| `ca5cdf6` | **merge of PR #79** |
+| session-close PR | `docs/session-close-v12.10`: CHANGELOG close-out, conventions lessons, CI records, this update |
 
 - **Merges use merge commits** (`gh pr merge --merge`). `main`'s ruleset requires all nine CI checks and has no
-  bypass actors: re-run a stalled job, never override.
+  bypass actors: re-run a stalled job, never override. This session needed three re-runs, all environmental:
+  the Windows `page.goto` cascade on PR #78, then on PR #79 a stuck job and an 11-minute browser install that
+  ran the job into its 20-minute cap (TESTING.md, TROUBLESHOOTING). One `gh run rerun --failed` cleared each.
+- **Codex on GitHub:** an "Unknown error" reply can coexist with a completed, clean review of the same head.
+  Read the summary comment's state for the head commit before re-triggering. On PR #79 the error answered a
+  second `@codex review` posted right after a push.
 - **The owner's own untracked files: never `git add` them.** `.playwright-mcp/`, `docs/CONTEXT-TRACKING-AUDIT.md`,
   `docs/IMAGE-GALLERY-DOM-FIX.md`, `docs/V10.10-TASKS.md`, `docs/V10.11-TASKS.md`. `docs/d2-synced-snapshot.html`
   is excluded in `.git/info/exclude`.
@@ -218,7 +236,7 @@ place.
 | `TROUBLESHOOTING.md` → "OPEN — Claude's turn-counter dots" | **PR A's diagnosis**, labelled [code] / [inferred] |
 | `agent_docs/architecture.md` → "Runtime matrix" | what differs on Safari: GM storage, SSE (PR B) |
 | `DOM-REFERENCE.md` | ChatGPT and Perplexity October structure; the virtualization table |
-| `probes/check-index-adapters.js` | the gate, 27 checks |
+| `probes/check-index-adapters.js` | the gate, 26 checks (counted from its output) |
 | `reviews/review-2026-10-23-index-adapters.md` | the review record |
 | `docs/handoffs/SESSION_HANDOFF_2026-10-22_v12.9-safari-transport.md` | the predecessor |
 
@@ -332,8 +350,8 @@ and the spec, then wait for my go before starting work.
 FIRST, CHECK STATE — do not assume:
   git log --oneline -3 main
   gh pr list --state open
-main should include the merge of PR #78 (166a281) and, if I've merged it, the
-docs-only close-out PR.
+main should include the merges of PR #78 (166a281) and PR #79 (ca5cdf6), and, if
+I've merged it, the session-close docs PR (docs/session-close-v12.10).
 
 THIS SESSION: two small PRs, in order, each its own branch and PR:
   A. The turn-counter fix, all browsers (HANDOFF §G.1). Its gate must fail on the
