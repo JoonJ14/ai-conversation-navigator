@@ -96,6 +96,8 @@ GitHub Actions runs on push/PR to `main`:
   - Every `ubuntu` job also runs `check-index-adapters` on its own engine (v12.10, DEC-046): the ChatGPT and
     Perplexity adapters against two mocks that genuinely unmount (`chatgpt-windowed.html`,
     `perplexity-windowed.html`). Run it with `ACN_SCRIPT=<old build>` to see the new fixtures fail there.
+  - Every `ubuntu` job also runs `check-turn-counter` on its own engine (v12.11): Claude's turn-counter dots
+    when the index lands after Navigate opens, across a switch, and on an empty page.
 
 **Windows is the runner that catches timing assumptions.** It is materially slower than
 the Ubuntu and macOS runners, so an assertion that races the virtualizer passes on two OSes

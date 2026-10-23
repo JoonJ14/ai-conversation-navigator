@@ -23,8 +23,8 @@
 //   A3  regression: a normal load, Navigate opened after the index lands.
 //   A4  regression: an idle page with Navigate open produces NO DOM mutations. The panel sits
 //       inside document.body, which the message observer watches, so a redraw on every scan
-//       schedules the next scan: an unconditional redraw mutated the panel 744 times in 6 s
-//       (scratch measurement, chromium and firefox, 2026-10-23), against 0 before and after.
+//       schedules the next scan: an unconditional redraw produced 984 mutation records in A4's
+//       6 s (chromium and firefox, 2026-10-23), against 0 before and after the fix.
 //
 // Expected dots for 144 questions: 40 (the cap), coloured by position out of 40 with no
 // compaction data: 28 green, 6 yellow, 6 red (_renderTurnDots).
@@ -267,7 +267,10 @@ const fullSpread = (r) => !!r && r.stable === true && r.dots === FULL_SPREAD.dot
 
     // A2 — the sidebar switch: the 8-question conversation, Navigate open, then the 144-question
     // one. The mock DOM holds the short conversation's 16 rows, which are also the long one's
-    // first 16, so both indexes match the mounted rows.
+    // first 16, so both indexes match the mounted rows and no provisional entry is added. The mock
+    // still reports aria-setsize 16 after the switch, so the script logs that its renderable-entry
+    // predicate disagrees and falls back to measured anchors: expected here, and the counter does
+    // not read anchors.
     {
         const lat = {}; lat[CONV_A] = 10; lat[CONV_B] = 2500;
         const { context, page } = await load(CONV_A, SHORT, lat);
@@ -305,13 +308,16 @@ const fullSpread = (r) => !!r && r.stable === true && r.dots === FULL_SPREAD.dot
             'before: ' + fmt(before) + ' | after: ' + fmt(after));
         check('A2f', 'the first draw that lists the new conversation already shows 40 dots',
             !!first && first.dots === FULL_SPREAD.dots, 'first draw: ' + (first ? 'dots=' + first.dots : 'never seen'));
-        // Close and reopen: the freeze also survived a reopen, since the reopen took the same
-        // early return.
+        // Close and reopen. On v12.10 the freeze survived a reopen, since the reopen took the same
+        // early return. The dots stay in the DOM while the panel is closed, so A2b records that
+        // symptom rather than gating anything A2 does not.
         await page.evaluate("document.getElementById('acn-dot-nav').click()");
         await page.waitForTimeout(400);
+        const closed = await page.evaluate("document.getElementById('acn-panel-nav').getAttribute('data-acn-open') !== 'true'");
         await openNavigate(page);
         const reopened = await readStable(page, 10000, 700);
-        check('A2b', 'after a close and reopen, still the full count', fullSpread(reopened), fmt(reopened));
+        check('A2b', 'after a close and reopen, still the full count', closed && fullSpread(reopened),
+            'closed in between=' + closed + ' ' + fmt(reopened));
 
         // A5 — leave for an empty page (Claude's /new) with Navigate open: the route leaves the
         // chat path, so the scan releases the index (ciInvalidate) and lists nothing. Removing the
@@ -357,11 +363,17 @@ const fullSpread = (r) => !!r && r.stable === true && r.dots === FULL_SPREAD.dot
                 for (var i = 0; i < recs.length; i++) if (bar && bar.contains(recs[i].target)) inBar++;
             });
             mo.observe(document.body, { childList: true, subtree: true, characterData: true });
-            setTimeout(function () { mo.disconnect(); resolve({ records: records, inBar: inBar }); }, 6000);
+            setTimeout(function () {
+                mo.disconnect();
+                var panel = document.getElementById('acn-panel-nav');
+                resolve({ records: records, inBar: inBar,
+                          openAtEnd: !!(panel && panel.getAttribute('data-acn-open') === 'true') });
+            }, 6000);
         }));
         check('A4', 'idle with Navigate open: no self-sustaining mutations (0 in 6 s)',
-            r.open === true && idle.records === 0,
-            'records=' + idle.records + ' (in the context bar: ' + idle.inBar + ') open=' + r.open + ' vis=' + r.vis);
+            r.stable === true && r.open === true && idle.openAtEnd && idle.records === 0,
+            'records=' + idle.records + ' (in the context bar: ' + idle.inBar + ') open before=' + r.open +
+            ' open at the end=' + idle.openAtEnd + ' vis=' + r.vis);
         await context.close();
     }
 

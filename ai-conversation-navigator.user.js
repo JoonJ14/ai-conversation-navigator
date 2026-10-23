@@ -7048,11 +7048,11 @@
         var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|') +
                  '||' + _ciStatus + '|g' + _ciIndexGen + '|r' + (_ciRefreshFailed ? '1' : '0') +
                  '|x' + ixFingerprint();
-        // The list is unchanged, but the turn counter may not be: the scan after the
-        // index lands changes the count without changing the list. Redraw only when the
-        // counter differs from what is drawn. The panel sits inside document.body, so an
-        // unconditional redraw schedules the next scan, and that scan the next redraw
-        // (v12.11).
+        // The list is unchanged, but what is drawn may not match the counter: the SSE events
+        // draw the bar without the list, so a later scan or a reopen can find dots drawn for
+        // another count. Redraw only when the counter differs from what is drawn. Never
+        // unconditionally: the panel sits inside document.body, so a redraw schedules the
+        // next scan, and that scan the next redraw (v12.11).
         if (fp === _navListFingerprint && list.firstChild) {
             if (_turnCounterSig() !== _ctxDrawnTurns) orbUpdateContextBar();
             return;

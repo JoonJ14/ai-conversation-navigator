@@ -21,14 +21,15 @@ always when arriving via the sidebar, and sometimes on a hard reload (owner, v12
 - `orbPopulateNavigate()` returned early on an unchanged list, and on an empty one, without redrawing the dots.
   So after the scan in which the index landed they were never redrawn, and a close/reopen took the same return.
 
-The full diagnosis, with its corrections, is in TROUBLESHOOTING ("Claude's turn-counter dots"). The code path is
-shared, so the fix also covers ChatGPT and Perplexity, where the index also lands after the DOM scan.
+The full diagnosis, with its corrections, is in TROUBLESHOOTING ("Claude's turn-counter dots"). ChatGPT and
+Perplexity reach the same functions (`ixScan` → `orbOnScanComplete`) [code], so the fix should cover them too.
+That is inferred, not measured: the probe runs only Claude's mock.
 
 ### Fix
 
 - The counter is updated before anything draws.
-- On the list's unchanged and empty returns, the dots and bar are redrawn when the counter differs from what is
-  drawn. **Not on every scan:** the panel sits inside `document.body`, which the message observer watches, so an
+- The empty-list return now redraws the dots and bar. The unchanged-list return redraws them when the counter
+  differs from what is drawn (an SSE event can draw the bar without the list). **Not on every scan:** the panel sits inside `document.body`, which the message observer watches, so an
   unconditional redraw re-triggered scans on an idle page indefinitely (984 mutation records in 6 s in the
   probe's A4, against 0).
 - **Not built:** closing the panel on a scan-detected switch. Its premise was wrong: no browser closes it on
@@ -36,7 +37,7 @@ shared, so the fix also covers ChatGPT and Perplexity, where the index also land
 
 ### Verification
 
-`probes/check-turn-counter.js` (new, 8 checks; in `npm run test:probes` and CI's ubuntu+chromium probe step),
+`probes/check-turn-counter.js` (new, 8 checks; in `npm run test:probes` and CI's ubuntu jobs on all three engines),
 measured in Playwright's page realm:
 - **A1:** index delayed, panel open first.
 - **A2:** a switch with the panel open, which no history hook can see.
@@ -45,8 +46,8 @@ measured in Playwright's page realm:
 - **A5:** leaving for an empty page with the panel open.
 
 v12.10 fails all six at 3 stale dots; v12.11 passes all eight. A3 (a normal load) and A4 (no mutations while
-idle) pass on both. Mutants show each mechanism is gated, except the counter-guarded backstop
-(TROUBLESHOOTING). Suite and probes on the final build: in the PR.
+idle) pass on both. Mutants show each mechanism is gated except the guarded unchanged-list redraw, which only an
+SSE draw reaches (TROUBLESHOOTING). Suite and probes on the final build: in the PR.
 
 **Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey** (PR checklist):
 results in DEC-031.

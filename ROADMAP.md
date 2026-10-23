@@ -509,7 +509,12 @@ Numbering below is stable (items keep their historical numbers):
 10. **Debulking.** ~12,700 lines now (v12.9). Known dead code: `ciResolvePathForRow`,
    `ciDataIndexToFullPath`, `ciFullPathToDataIndex`, `_bmLegacyId`; inventory/entity `msgIndex`
    fields with no consumer; `_bmLegacyIdSet`'s two unreachable dedupe guards; two dead test
-   config keys making one assertion unreachable.
+   config keys making one assertion unreachable. Found by the PR #81 review [code]:
+   - the turn counter's compaction state has no writer: `_turnCounter.compactionCount`, `cycleLengths`,
+     `predictedCycleLength` and `lastCompactTurn`, plus `_compactionHistory` and `_compactionCount`. Only their
+     declarations and `resetTurnCounter()` assign them, so the purple dots and the compaction counts never show;
+   - `package.json`'s `"version"` still reads `11.0`. It was last bumped in v11.0, and
+     `agent_docs/git-workflow.md`'s bump list does not name it, so either bump it or drop it.
 11. ~~**Summary performance on long conversations**~~ — **CLOSED 2026-08-01 by owner decision** (added 2026-07-30; see the CLOSED note in this item's body, and the re-ranking at the top of this file). Do **not** reopen it on the text below, which describes the state as first reported. Live
    finding on the owner's ~147-question conversation (Firefox + Tampermonkey, v12.3): Summary →
    Generate and Tools → Summary export near-freeze the tab (Firefox's "slowing down" banner),

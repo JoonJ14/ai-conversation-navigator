@@ -506,8 +506,9 @@ Labels: **[code]** read from the source; **[inferred]** reasoned from code or ea
   sees the conversation changed, and by the "count dropped" rule [code]. The history hooks also reset it, but
   they are installed only on `spa: true` platforms, and Claude is `spa: false` (line 278; the block is guarded by
   `if (platform.spa)`, line 5562 in v12.11) [code].
-- **Drawn** only by `orbUpdateContextBar()`. It is called at the end of `orbPopulateNavigate()` (panel open, and
-  every scan while Navigate is open) and on the two SSE events [code].
+- **Drawn** only by `orbUpdateContextBar()`. In v12.10 it ran at the end of `orbPopulateNavigate()`'s rebuild
+  (the early returns skipped it) and on the two SSE events [code]. v12.11 adds the empty-list return and the
+  guarded unchanged-list return (Fix, below) [code].
 
 ### Diagnosis
 
@@ -578,8 +579,14 @@ the history-hook block. Changed, none of it on Claude's path:
   - `_compactionHistory`, the purple dots. It has no writer today (only its declaration and the reset assign
     it), so it cannot differ now [code]. A future compaction detector that writes it must redraw itself or join
     the guard.
-  - The percentage bar's inputs: SSE thinking and the index's text totals. These keep their own redraws, the
-    two SSE events and the fingerprint's status and generation fields [code].
+  - The percentage bar's inputs while the index is ready: SSE thinking and the index's text totals. These keep
+    their own redraws, the two SSE events and the fingerprint's status and generation fields [code].
+  - The bar's inputs while the index is NOT ready (loading, degraded, refused): the scroll container's text,
+    the mounted coverage and the `[aria-expanded]` thinking count. **These have no redraw of their own** on an
+    unchanged list, and on Firefox no SSE redraws the bar either. So the percentage can lag until the list or
+    the index generation changes. This predates v12.11 [code; measured by the PR #81 review: 15% held after
+    200,000 characters were appended with the index held back, 40% on a forced redraw; Playwright page realm,
+    chromium].
 - **Gate:** `probes/check-turn-counter.js`, 8 checks. Measured on 2026-10-23, Playwright page realm, headless
   with `visibilityState` visible, this Mac.
   - **A1** (the index delayed 3 s, Navigate opened first), **A2** (switch 8 → 144 questions with Navigate open;
@@ -596,10 +603,28 @@ the history-hook block. Changed, none of it on Claude's path:
     review pipeline's Tier 3, round 1).
   - Empty-list redraw removed: A5 fails. The first draw keeps 40 stale dots.
   - Unconditional redraw on the unchanged-list return: A4 fails, with 984 records.
-  - **Not gated:** removing the guarded unchanged-list redraw entirely passes all 8. With the counter updated
-    first, the counter equals `_questions.length` at every draw, and the fingerprint holds every question. So an
-    unchanged list means an unchanged counter, and that redraw is a backstop no check reaches [code]. It stays
-    because the spec asks for it; its guard is what A4 gates.
+  - **Not gated:** removing the guarded unchanged-list redraw entirely passes all 8. List draws alone cannot
+    reach it: with the counter updated first, the counter equals `_questions.length` at every draw, and the
+    fingerprint holds every question [code].
+  - **SSE draws do reach it.** The two SSE events (Chrome, Claude) also draw the bar and record the drawn counter,
+    without touching the list fingerprint. Found by the PR #81 review (instrumented build, Playwright chromium,
+    page realm, the index degraded so the DOM scan is the list), in this sequence:
+    1. Navigate is drawn with 3 dots, then closed.
+    2. A row mounts, so the counter goes to 4, and an SSE event draws 4.
+    3. The row unmounts, so the counter goes back to 3.
+    4. On reopen the fingerprint is unchanged, and only the guard corrects the 4 stale dots.
+  - The probe has no SSE, so no check covers this. *Corrected the same day: the first version of this bullet
+    called the redraw unreachable, a [code] claim that missed the SSE writer.* Its guard is what A4 gates.
+- **Logged, not fixed (outside the spec): a stale "Turn N" badge on an empty page, non-Claude sites.** Path C's
+  empty branch in `orbUpdateContextBar()` removes the dots and writes "No messages detected". It returns before
+  `_renderTurnCompactionInfo()`, the only Path C code that removes the `#acn-ctx-compact` badge. So when
+  Navigate is open on ChatGPT or Grok (both `spa: false`) and the user starts a new chat, v12.11's empty-list
+  redraw clears the dots, but the badge keeps "Turn 3" until the first question.
+  - v12.10 left the dots stale too, so this is not a regression.
+  - Claude's Paths A and B are not affected: they remove the badge through `_renderCompactionInfo()`.
+  - Measured by the PR #81 review on the Grok mock (Playwright page realm, chromium and firefox).
+  - The likely fix is one call, `_renderTurnCompactionInfo()`, before that branch's `return`. That branch is
+    unchanged code, so it is the owner's call.
 - **Real browsers:** the owner's acceptance (DEC-031).
 
 ---

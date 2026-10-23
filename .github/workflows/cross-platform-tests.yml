@@ -62,7 +62,6 @@ jobs:
           node probes/check-tokenizer.js --browser chromium
           node probes/check-subsegments.js --browser chromium
           node probes/check-usage-state.js --browser chromium
-          node probes/check-turn-counter.js --browser chromium
 
       # The transport-ladder probe is the exception to "one job only": it asserts fetch,
       # promise and timer behaviour (a synchronous throw, a rejected fetch, the backoff
@@ -81,3 +80,10 @@ jobs:
       - name: Run index-adapter probe
         if: matrix.os == 'ubuntu-latest'
         run: node probes/check-index-adapters.js --browser ${{ matrix.browser }}
+
+      # Claude's turn-counter dots probe (v12.11): placed like the two above. It asserts an order of
+      # events (index latency, the observer's 500 ms debounce, MutationObserver delivery), and the
+      # bug it gates was seen only on Safari, so webkit runs it too.
+      - name: Run turn-counter probe
+        if: matrix.os == 'ubuntu-latest'
+        run: node probes/check-turn-counter.js --browser ${{ matrix.browser }}
