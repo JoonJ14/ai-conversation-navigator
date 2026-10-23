@@ -2749,10 +2749,14 @@
                 return (m && /^[A-Za-z0-9._-]{1,200}$/.test(m[1])) ? m[1] : null;
             },
             fetchIndex: ixPplxFetch,
+            // By ordinal, then CONFIRMED by text when the entry carries it: after an edit or
+            // a rewrite the same ordinal can hold a different question (Tier 3).
             locate: function (entry) {
                 var w = document.querySelector('[data-workflow-entry="' + (entry.position | 0) + '"]');
                 if (!w) return null;
-                return w.querySelector('[data-message-bubble="right"]') || w;
+                var b = w.querySelector('[data-message-bubble="right"]');
+                if (b && entry.text && _normalizeKey(_readMessageText(b)) !== _normalizeKey(entry.text)) return null;
+                return b || w;
             },
             mounted: function () {
                 var out = [];
@@ -2980,7 +2984,7 @@
         _ciScrollContainer = null;
         var container = ciFindScrollContainer();
         if (!container) { outerDone(false, null, 'no-container'); return; }
-        var entry = { id: q.ixId, position: q.ixPosition };
+        var entry = { id: q.ixId, position: q.ixPosition, text: q.text };
         var total = Math.max(1, _ix.total);
         var cid = _ix.cid;
         var moves = 0;
@@ -7458,7 +7462,7 @@
         // never by text: null means "not mounted", and the caller pages toward it.
         if (typeof q.ixPosition === 'number') {
             var ixa = ixReadyAdapter();
-            if (ixa) return ixa.locate({ id: q.ixId, position: q.ixPosition });
+            if (ixa) return ixa.locate({ id: q.ixId, position: q.ixPosition, text: q.text });
         }
         // isConnected alone is NOT sufficient. Under recycling the virtualizer reuses
         // the same DOM node for a different message, so a still-connected node can be
