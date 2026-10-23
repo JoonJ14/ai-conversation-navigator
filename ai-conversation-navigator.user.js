@@ -3060,12 +3060,27 @@
             var el = a.locate(entry);
             if (el) { done(true, el, 'locate'); return; }
             if (moves >= IX_JUMP_MAX_MOVES) {
-                var wanted = _normalizeCompareFull(q.text), hits = [];
+                // Text stands in for identity only if no other question in the WHOLE
+                // conversation reads the same, and never for a node the adapter already
+                // knows as another entry: unique in the window is not unique (Codex, PR #78).
+                // A degrade mid-jump nulls the entries: then nothing counts as unique.
+                var wanted = _normalizeCompareFull(q.text), hits = [], same = 0, all = _ix.entries || [];
+                for (var s = 0; s < all.length; s++) {
+                    if (_normalizeCompareFull(all[s].text) === wanted) same++;
+                }
+                var known = a.mounted();
                 var cur = Array.from(getUserMessages());
                 for (var i = 0; i < cur.length; i++) {
-                    if (_normalizeCompareFull(_readMessageText(cur[i])) === wanted) hits.push(cur[i]);
+                    if (_normalizeCompareFull(_readMessageText(cur[i])) !== wanted) continue;
+                    var other = false;
+                    for (var k = 0; k < known.length; k++) {
+                        var kel = known[k].el;
+                        if (known[k].pos >= 0 && known[k].pos !== entry.position &&
+                            (kel === cur[i] || kel.contains(cur[i]) || cur[i].contains(kel))) { other = true; break; }
+                    }
+                    if (!other) hits.push(cur[i]);
                 }
-                if (hits.length === 1) { done(true, hits[0], 'text'); return; }
+                if (same === 1 && hits.length === 1) { done(true, hits[0], 'text'); return; }
                 done(false, null, 'not-found');
                 return;
             }

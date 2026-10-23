@@ -21,6 +21,7 @@
   Config (window.__MOCK_CONFIG):
     turns:  [{ id, text }]   the VISIBLE user turns, in order (default: 10 generated)
     window: number           mounted user turns (default 6)
+    frozen: true             the window never moves when scrolled (a jump that cannot page)
   Test hooks: window.__mockWindow.mounted() -> mounted positions; .total; .setTurns(turns) switches
   the conversation (a branch switch) and stays at the bottom.
 -->
@@ -82,7 +83,7 @@
       if (!mountedNodes[w]) { mountedNodes[w] = build(+w); scroller.appendChild(mountedNodes[w]); }
     }
   }
-  scroller.addEventListener('scroll', render, { passive: true });
+  if (!cfg.frozen) scroller.addEventListener('scroll', render, { passive: true });
   // Test hook: replace the conversation (a branch switch), keeping the window at the bottom.
   function setTurns(next) {
     for (var k in mountedNodes) { mountedNodes[k].remove(); delete mountedNodes[k]; }

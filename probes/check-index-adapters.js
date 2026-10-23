@@ -311,6 +311,14 @@ const READ = `(function () {
           'before=' + c3c.count + ' after=' + c3c.after);
 
     // 4 [new] A hidden user-role context node is excluded.
+    // 8 [new] The jump's text fallback never resolves a repeated question to another entry:
+    // Q1 and Q10 read the same, the window cannot page (frozen), and only Q10 is mounted.
+    const T10dup = T10.map((t, i) => (i === 0 ? { id: t.id, text: T10[9].text } : t));
+    const c8 = await scenario({ site: 'chatgpt', url: gptUrl, mockConfig: { turns: T10dup, frozen: true }, expectCount: 10,
+                                api: gptApi(gptMapping({ turns: T10dup })), after: jumpTo('data-turn-key') });
+    check('C8', 'a jump to a repeated question that cannot be mounted fails rather than landing on its twin',
+          c8.after && c8.after.resolved === null && c8.after.targetId === null, JSON.stringify(c8.after));
+
     const c4 = await scenario({ site: 'chatgpt', url: gptUrl, mockConfig: { turns: T10 }, expectCount: 10,
                                 api: gptApi(gptMapping({ turns: T10, hidden: true })) });
     check('C4', 'a hidden user-role node is not listed',
@@ -426,7 +434,7 @@ const READ = `(function () {
     check('P11', 'an API failure falls back to the mounted bubbles with the degraded banner',
           p11.count === '2' && p11.banner === 'degraded', brief(p11));
 
-    const all = [c1, c2, c3, c3b, c3c, c4, c5, c6a, c6b, g1, g2, o1, p8, p9, p13, p10, p10b, p11];
+    const all = [c1, c8, c2, c3, c3b, c3c, c4, c5, c6a, c6b, g1, g2, o1, p8, p9, p13, p10, p10b, p11];
     const pageErrors = all.reduce((n, r) => n + r.errors.length, 0);
     check('E', 'no page errors in any scenario', pageErrors === 0,
           all.filter((r) => r.errors.length).map((r) => r.errors[0]).join(' / '));

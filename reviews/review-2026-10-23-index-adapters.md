@@ -40,7 +40,7 @@ Context: the Codex CLI could not run Playwright in its read-only sandbox; every 
 `probes/check-index-adapters.js` (Playwright, page realm). New gate checks that FAIL on the pre-fix build:
 C3b (a broken tree listed as complete). G2 covers a gmxhr refusal falling back to fetch.
 
-**GitHub rounds needed afterwards: 3** (the babysit cycle on PR #78, after the pipeline): one finding, a switch
+**GitHub rounds needed afterwards: 4** (the babysit cycle on PR #78, after the pipeline): one finding, a switch
 to a SHORTER ChatGPT branch left the abandoned follow-ups listed (fixed in `c9621cb`, probe C3c fails before it);
 then clean on `c9621cb`. Before the pipeline, GitHub's first round found 2 (fixed in `363a538`). A later automatic
 review of the docs commit `8b6317b` found one more (P2): clicking an already-mounted Perplexity question took the
@@ -49,3 +49,10 @@ the pin on the fast path too; probe P13 (the penultimate entry, mounted at the b
 `released:false` and passes after it on Chromium, Firefox and WebKit. That fix got Tiers 1–2 in-session
 (12 lines; one NOTE: on a thread too short for `ciFindScrollContainer`'s size guard nothing is released, the same
 as `ixJump`). Verified locally: `npm test` 560/560 and `npm run test:probes` all pass, Chromium only.
+The review of that fix (`fd89e19`) found one more (P2): the jump's last-resort text match accepted a question
+that was unique in the mounted WINDOW, so a repeated question could resolve to its mounted twin. It now requires
+the text to be unique across the whole index and skips nodes the adapter already identifies as another entry
+(and counts nothing as unique if a degrade nulled the entries mid-jump). Probe C8 (Q1 and Q10 identical, the
+ChatGPT mock's new `frozen` window so the jump cannot page) fails before the fix (resolved 0 onto entry 9's node)
+and passes after it on Chromium, Firefox and WebKit. Tiers 1–2 in-session, no findings. `npm test` 560/560 and
+`npm run test:probes` all pass, Chromium only.
