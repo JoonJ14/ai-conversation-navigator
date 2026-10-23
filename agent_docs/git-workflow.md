@@ -4,7 +4,9 @@
 
 - `main` is protected — **never push directly to main**
 - All changes must go through pull requests
-- CI must pass before merging
+- CI must pass before merging. `main`'s ruleset requires all nine checks and has **no bypass actors**, so
+  `gh pr merge --admin` fails ("Repository rule violations found"). A job that a runner problem cancelled (the
+  ubuntu install stall, TROUBLESHOOTING) is re-run with `gh run rerun <id> --failed`; it cannot be skipped
 
 ## Feature Branches
 

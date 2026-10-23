@@ -246,6 +246,12 @@ LM8c (M01, M04, M11, M41, M42) were re-run, plus M46. M01, M11 and M46 are uncha
 transport's own "(HTTP 403)" now makes that case PERMANENT whatever they remove. M42 is redefined as the
 round-8 change itself, and LM8c catches it. The table below is updated to match; 43 of 46 are still gated.
 
+**Re-run in full with the committed tooling (2026-10-23, same machine and context).** `probes/run-ladder-mutants.sh
+-j 4` (PR #76) ran on the close-out build, `9ee5222`'s code plus comment-only edits: 51 runs in 33 minutes. The
+build passed all 63 checks on chromium, firefox and webkit, v12.8 failed 52 of 63 on chromium and firefox, and
+all 46 mutants failed exactly the checks in the table below, which until then combined the full `ae3ada1`
+battery with the post-revert re-run of six. 43 of 46 are gated, and no run was invalid.
+
 | Mutant | Mechanism removed | Checks that fail |
 |---|---|---|
 | M01 | no ladder — a failed first walk is final | L1, L1-list, L1-log, L1-shape, L1b, L1c, L1-slow, L5b, L5b-cache, L1v, L4a, L4b, L4d, L3-order, L3d, L3d-retry, LM1, LM5, LM6, LM8, LM8b, LM8c, LN, L3b, L3c, L4c, LWa |
@@ -332,6 +338,12 @@ and last permitted round, run as the full review and the post-fix validation tog
   windows-latest` to the `page.goto` harness flake (TESTING.md); one re-run went 9/9.
 - **Merged 2026-10-23 as `4c72ca9`, on the owner's call, before the live acceptance** (a DEC-031 waiver). The
   post-merge `main` run 39878964613 lost `webkit on ubuntu-latest` to an install stall; one re-run went 9/9.
+- **Live acceptance after the merge (owner, 2026-10-23).** Safari + Userscripts: PASS, with the log lines
+  `index order fetch → gmxhr (scriptHandler: Userscripts)`, `transport=fetch org=730fcd2a… status=200` and
+  `conversation index ready: 144 questions (295 messages in payload) via fetch`; jumps to Q1 through Q144, the
+  last five included, all landed. So the local mac WebKit jump failure ("Other measurements" above) did not
+  reproduce on real Safari. Firefox + Tampermonkey (Linux): PASS. Chrome + Tampermonkey: not yet checked
+  (current status: DEC-031).
 
 ## Scope against the spec (2026-10-22, owner's request)
 

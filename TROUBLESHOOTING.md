@@ -474,8 +474,9 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ## OPEN — Local mac WebKit: jumps to a long conversation's last questions give up at ~1.46s (found 2026-10-22)
 
-**Phase:** v12.9 verification (PR #75) | **Severity:** Medium — local and mock-only so far, but Safari is a mac
-WebKit | **Status:** Open — fails identically on v12.8, so v12.9 did not cause it
+**Phase:** v12.9 verification (PR #75) | **Severity:** Low — real Safari does not reproduce it (owner,
+2026-10-23) | **Status:** Open as a Playwright engine-build issue only — fails identically on v12.8, so v12.9
+did not cause it
 
 ### Symptom
 
@@ -510,7 +511,8 @@ The four runs: v12.8 and v12.9 side by side under identical load, the final buil
   attempt 1) with WebKit 27.2, Playwright build 2370, on `macos-26-arm64`. This machine runs build 2248
   (Playwright 1.58.2). Whether the build is the variable is untested.
 - **Unknown:** what ends the jump at ~1.46s, and why only near the bottom. Not investigated inside PR #75, whose spec
-  kept jumps unchanged. It is now part of the Safari acceptance (ROADMAP 0d).
+  kept jumps unchanged. Real Safari did not reproduce it in the owner's acceptance (2026-10-23), so this is a
+  Playwright engine-build question only.
 
 ### Approaches considered
 
@@ -526,12 +528,15 @@ The four runs: v12.8 and v12.9 side by side under identical load, the final buil
 ### Why it matters, and what is owed
 
 Safari is a mac WebKit, and v12.9 is what makes Safari's index — and therefore jumps to unmounted turns —
-work there at all. Whether real Safari can jump to the last questions of a long conversation is **unmeasured**.
+work there at all. **Real Safari does not reproduce it** (the owner's acceptance, 2026-10-23; DEC-031). So this
+is not a product bug on Safari;
+what remains is why Playwright's WebKit build 2248 fails where real Safari and CI's build 2370 do not.
 Owed, cheapest first:
 
-1. In the owner's Safari acceptance (ROADMAP 0d), jump to each of the last five questions of a long conversation.
+1. ~~In the owner's Safari acceptance (ROADMAP 0d), jump to each of the last five questions of a long
+   conversation.~~ **Done 2026-10-23: not reproduced on real Safari (DEC-031).**
 2. Re-run one failing entry on WebKit build 2370, to test the build-drift reading.
-3. If either reproduces, trace one failing jump to see what ends it at ~1.46s.
+3. If that reproduces, trace one failing jump to see what ends it at ~1.46s.
 
 ---
 
@@ -615,12 +620,20 @@ the mock suite on Playwright's engines, not a real-browser result (ROADMAP 0e).
 cancelled at the cap before any test ran. The response was the same: one `gh run rerun --failed`.
 Attempt 2 installed in 27s and went 9/9, with the suite and the transport probe green. Two install stalls on ubuntu runners in two days is an input for the CI rebuild (ROADMAP 0e).
 
+**Recurred twice in a row on PR #76 (2026-10-23), on `firefox on ubuntu-latest`, in a new shape.** On run
+39897445708 the install finished, but took 14m12s (attempt 1) and then 15m35s (attempt 2). "Run tests" started
+with 4–6 minutes of the cap left and was cancelled mid-run both times. No test failed, and the probe steps never
+ran. Matched on the signature (install time against the cap), not the name: the same slow apt download, only
+just fast enough to let the suite start. Attempt 3 installed in 20s and went 9/9. **`gh pr merge --admin`
+cannot skip it:** `main`'s ruleset requires all nine checks and has no bypass actors, so re-running is the only
+path (agent_docs/git-workflow.md). Four install stalls in two days (ROADMAP 0e).
+
 ---
 
 ## v12.9 — Safari (Userscripts): the conversation index always fell back to the DOM scan (found 2026-10-22)
 
 **Status:** FIXED in v12.9, merged 2026-10-23 as `4c72ca9` (PR #75) on the owner's call before the live
-acceptance. **Live confirms owed on Safari, Firefox and Chrome (DEC-031)** | **Severity:** High on Safari — Navigate, Search, Summary and Export see only the
+acceptance. **Live confirmation status: DEC-031** | **Severity:** High on Safari — Navigate, Search, Summary and Export see only the
 1–5 mounted turns of a long conversation | **Layer:** 3, execution — the userscript manager (CLAUDE.md
 "Layer 3 has a second face") | **Decision:** DEC-045
 
@@ -699,11 +712,12 @@ Network**, and check its Cookie, Origin and Sec-Fetch-Site headers.
   so nothing the script keeps in GM storage works there: bookmarks, saved commands, the language and platform
   toggles, the org cache. Every call site is try/caught, so it fails silently. Display mode, scroll direction
   and panel width use `localStorage` and are unaffected. Separate from this fix; ROADMAP 0d.
-- **A long conversation on Safari** — the measurement above used 6 messages.
-- **Jumps to the last questions on Safari — unmeasured.** On the owner's Mac, Playwright's WebKit (build 2248)
-  gives up on jumps near the end of a long mock conversation, on v12.8 and v12.9 alike; CI's mac WebKit
-  (build 2370) passed the same entries. See "OPEN — Local mac WebKit" above, and
-  include such a jump in the Safari acceptance check.
+- ~~**A long conversation on Safari** — the measurement above used 6 messages.~~ Settled by the owner's Safari
+  acceptance (DEC-031).
+- ~~**Jumps to the last questions on Safari — unmeasured.**~~ Settled by the same acceptance: real Safari did not
+  reproduce the local jump failure. Playwright's WebKit on the owner's Mac (build 2248) still gives up on jumps
+  near the end of a long mock conversation, on v12.8 and v12.9 alike, so that stays open as an engine-build
+  issue only ("OPEN — Local mac WebKit" above).
 
 ### Verification
 
@@ -719,7 +733,7 @@ credentials; that is a live check on the device.
 
 ## v12.8 — A failed usage fetch said "loading" forever, in both languages (found by audit 2026-08-03, fixed 2026-08-05)
 
-**Status:** FIXED in v12.8 (PR #73) — **live confirm still owed (DEC-031)** | **Severity:**
+**Status:** FIXED in v12.8 (PR #73) — **live confirmation status: DEC-031** | **Severity:**
 Medium — a user-visible panel that instructs the user to keep waiting for something that will
 never arrive | **Found by:** the PR #72 dead-key audit, not by a user report |
 **Age:** pre-existing, shipped since the Plan usage panel was written
@@ -831,7 +845,7 @@ consecutive clean runs** and surfaced only under concurrent load (~1 in 13): it 
 stable read of the wrong moment. All three now wait on a condition (the request counter) rather
 than a duration. Verified with 10 consecutive loaded runs **after reproducing the failure first**.
 
-**Still owed: a live confirm (DEC-031).** No mock reproduces a real 5xx from claude.ai. To check:
+**Live confirmation status: DEC-031.** No mock reproduces a real 5xx from claude.ai. The failure-state check:
 open Claude with the Navigate panel showing Plan usage, break the request (log out in another
 tab, or block `claude.ai/api/organizations/*/usage` in devtools), reopen the panel. Expect
 **"Usage data unavailable"**, not a permanent "loading…".

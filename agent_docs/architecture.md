@@ -87,18 +87,18 @@ State lives in `_ci*` module variables. `_ciIndex` holds human turns; `_ciFullPa
 
 The code is the same everywhere; what differs is what each manager provides. Labels: **[code]** = read from the
 userscript; **[US src]** = read from Userscripts' source (quoid/userscripts v4.8.6: `entry-userscripts.js`,
-`api.js`, `Functions.swift`, the background `main.js`); **[measured: who, where]**; **[inferred]**. **Nothing here
-has been measured live on v12.9.** That is the owner's acceptance, still owed (ROADMAP 0d).
+`api.js`, `Functions.swift`, the background `main.js`); **[measured: who, where]**; **[inferred]**. **Live
+confirmation status: DEC-031.** A cell measured in the owner's v12.9 acceptance says so.
 
 | Concern | Firefox + Tampermonkey | Chrome + Tampermonkey | Safari + Userscripts |
 |---|---|---|---|
 | Where the script runs | TM's sandbox; `exportFunction` exists [measured: owner, v12.0, DOM-REFERENCE.md] | the page's main world [inferred; DEC-021 addendum] | the extension's **content-script world**: any valid `@grant` makes Userscripts inject into content [US src; measured: its console line, owner, v12.8] |
 | `unsafeWindow` | provided, unused (the SSE interceptor returns first) [code] | the page window; the SSE interceptor patches `unsafeWindow.fetch` [code] | **absent** (not a supported grant) [US src] |
 | `exportFunction` | present: SSE interceptor skipped (DEC-020); SPA history hooks wrapped [code] | absent: interceptor installs; hooks assigned directly [code] | absent [inferred], so the interceptor and the SPA history hooks land on the content world's own `window.fetch` / `history`, which page code never calls [inferred, not measured] |
-| `GM_info.scriptHandler` | `Tampermonkey` [TM source] | `Tampermonkey` [inferred] | `Userscripts` since 4.1.0 [US src]; not measured on the owner's install |
-| Index transport order (`ciTransportOrder`) | gmxhr → fetch [code] | gmxhr → fetch [code] | **fetch → gmxhr** [code] |
-| `GM_xmlhttpRequest` and the claude.ai session | carries it [measured: owner, through v12.8] | carries it; failed at least once, then recovered, unexplained (ROADMAP 0d) [owner report] | **403 from every org** [measured: owner's probe, v12.8, 6-message conversation]. Sent from Userscripts' background page [US src]; why the session is missing is inferred (WebKit SameSite cookies, bug 260676) |
-| The index's `fetch` | runs only after gmxhr was refused or could not run; unmeasured in the sandbox | same; unmeasured | the primary path; **200** for the right org [measured: owner's probe, v12.8, content world]. It passes through our own `acnFetchProxy`, so a change to that proxy is a change to this transport (DEC-021 addendum) [code + US src] |
+| `GM_info.scriptHandler` | `Tampermonkey` [TM source] | `Tampermonkey` [inferred] | `Userscripts` [measured: owner's v12.9 acceptance, DEC-031; US src: since 4.1.0] |
+| Index transport order (`ciTransportOrder`) | gmxhr → fetch [code] | gmxhr → fetch [code] | **fetch → gmxhr** [code; measured: owner's v12.9 acceptance, DEC-031] |
+| `GM_xmlhttpRequest` and the claude.ai session | carries it [measured: owner, through v12.8; v12.9: DEC-031] | carries it; failed at least once, then recovered, unexplained (ROADMAP 0d) [owner report] | **403 from every org** [measured: owner's probe, v12.8, 6-message conversation]. Sent from Userscripts' background page [US src]; why the session is missing is inferred (WebKit SameSite cookies, bug 260676) |
+| The index's `fetch` | runs only after gmxhr was refused or could not run; unmeasured in the sandbox | same; unmeasured | the primary path; **200** for the right org [measured: owner's probe, v12.8, content world; and v12.9's own index in the owner's acceptance, DEC-031]. It passes through our own `acnFetchProxy`, so a change to that proxy is a change to this transport (DEC-021 addendum) [code + US src] |
 | SSE / context-window bar | interceptor skipped: the bar reads `(est.)` from index totals [code] | `(hybrid)` / `(last known)` from SSE [code] | the interceptor sees only the content world's own calls: no SSE, the bar reads `(est.)` [inferred, not measured] |
 | SPA route hooks (the nine `spa:true` platforms; Claude is `spa:false`) | wrapped with `exportFunction` [code] | assigned to the page's `history` [code] | on the content world's `history`, so page navigations are not seen [inferred, not measured] |
 | Plan usage panel | `GM_xmlhttpRequest` only (v12.8 rules, DEC-044) [code] | same | same, so expected to read "Usage data unavailable" [inferred] |

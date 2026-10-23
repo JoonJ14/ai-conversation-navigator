@@ -94,11 +94,13 @@ Playwright's WebKit against mock pages (the four entries use the virtualizing Cl
 panel**, which still uses `GM_xmlhttpRequest` only (on Safari it should still read "Usage data unavailable";
 ROADMAP 0d).
 
-### Owed
+### Live acceptance, and what is still owed
 
-Live confirms (DEC-031): Safari on a long conversation (`transport=fetch … status=200`, full count); Firefox
-unchanged (`transport=gmxhr … status=200`); Chrome recording which transport won. Chrome's 403 stays OPEN
-until those lines exist. **Found, not fixed:** nothing kept in GM storage works on Safari + Userscripts (no
+**After the merge (owner, 2026-10-23): Safari + Userscripts PASS.** The owner's log lines: `index order fetch → gmxhr (scriptHandler: Userscripts)`, `transport=fetch org=730fcd2a… status=200`,
+`conversation index ready: 144 questions (295 messages in payload) via fetch`.
+Jumps to Q1 through Q144, the last five included, all landed. **Firefox + Tampermonkey (Linux): PASS.**
+Chrome + Tampermonkey was not yet checked when this was written; **current status: DEC-031.** Chrome's 403
+stays OPEN until its log lines exist. **Found, not fixed:** nothing kept in GM storage works on Safari + Userscripts (no
 synchronous `GM_getValue`/`GM_setValue`): bookmarks, saved commands, the language and platform toggles.
 Display mode, scroll direction and panel width use `localStorage` and are unaffected. ROADMAP 0d.
 
@@ -149,6 +151,13 @@ Display mode, scroll direction and panel width use `localStorage` and are unaffe
 - **`b666ccd`:** the mutation tooling behind the review record's matrix, committed so it outlives the
   session: `probes/build-ladder-mutants.js`, `probes/run-ladder-mutants.sh` and
   `probes/ladder-mutation-matrix.js` (TESTING.md has the method).
+- **The battery's first full run from the committed scripts** (2026-10-23, macOS arm64, Playwright page realm,
+  `-j 4`, 33 minutes, on the close-out build): the build passes all 63 checks on chromium, firefox and webkit,
+  v12.8 fails 52 of 63 on chromium and firefox, and all 46 mutants fail exactly the checks the review record
+  lists (43 gated; M18, M19 and M21 not).
+- **Merged as `5201937`** after `firefox on ubuntu-latest` stalled in its browser install twice (14–15 minutes
+  each, so the tests were cut off at the cap). The third attempt installed in 20s and went 9/9, and Codex
+  found nothing on the head commit (TROUBLESHOOTING).
 
 ---
 
@@ -220,7 +229,9 @@ through three wrong forms under review and **each one now fails a distinct check
 `:5800`, not on a check, and it is recorded that way rather than claimed as covered. Suite
 **1120/1120** both engines.
 
-**Still owed: a live confirm (DEC-031)** — no mock reproduces a real 5xx from claude.ai.
+**Live confirm (owner, 2026-10-23, Firefox + Tampermonkey): the panel shows real plan usage, matching Claude
+Code's figures exactly.** No mock reproduces a real 5xx from claude.ai. On Safari the panel is expected to fail
+(`GM_xmlhttpRequest`), which the Safari parity follow-up covers (ROADMAP 0d). Status: DEC-031.
 
 ### Known, tracked
 
