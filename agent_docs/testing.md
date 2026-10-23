@@ -97,7 +97,9 @@ GitHub Actions runs on push/PR to `main`:
 **Windows is the runner that catches timing assumptions.** It is materially slower than
 the Ubuntu and macOS runners, so an assertion that races the virtualizer passes on two OSes
 and fails on the third. Treat a Windows-only failure as a real finding about the assertion,
-not as runner flakiness. Do not add `--single-process` to the Chromium launcher — it removes
+not as runner flakiness. The one documented exception is the harness's `page.goto … interrupted by another
+navigation` cascade on `firefox on windows-latest`: three Claude entries in a row, no userscript assertion
+among them, seen 2026-08-02 and 2026-10-23 (TESTING.md). A single re-run clears it. Do not add `--single-process` to the Chromium launcher — it removes
 crash isolation and reports one renderer fault as every-platform-after-it failing (DEC-026).
 
 **webkit-on-macos is the one exception with a known environment signature.** A job running

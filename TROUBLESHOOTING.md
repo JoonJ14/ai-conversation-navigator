@@ -498,7 +498,7 @@ The four runs: v12.8 and v12.9 side by side under identical load, the final buil
   shape in the side-by-side run. The index transport is not on the jump path.
 - **Not machine load.** v12.9 run alone fails like the parallel runs.
 - **Not TESTING.md's webkit-on-macos signature** — which the v12.9 CHANGELOG entry, the review record and the
-  PR #75 description first claimed (the first two since corrected). That signature is a degraded CI runner:
+  PR #75 description first claimed (all three since corrected; the PR description on 2026-10-23). That signature is a degraded CI runner:
   jumps pinned at the give-up ceiling (settle cap × iteration cap ≈ 4.3–5.4s), intermittent, cleared by a
   re-run. Here the jump gives up at ~1.46s — well short of the ceiling — on every run, on a local Mac, with
   `raf10` at 135–168ms (TESTING.md reads ~160ms as healthy; no documented runner episode recorded `raf10`).
@@ -509,8 +509,8 @@ The four runs: v12.8 and v12.9 side by side under identical load, the final buil
 - **The WebKit build differs from CI's.** `webkit on macos-latest` passed all 560 on the same commit (PR #75,
   attempt 1) with WebKit 27.2, Playwright build 2370, on `macos-26-arm64`. This machine runs build 2248
   (Playwright 1.58.2). Whether the build is the variable is untested.
-- **Unknown:** what ends the jump at ~1.46s, and why only near the bottom. Not investigated: jumps are on PR
-  #75's do-not-change list.
+- **Unknown:** what ends the jump at ~1.46s, and why only near the bottom. Not investigated inside PR #75, whose spec
+  kept jumps unchanged. It is now part of the Safari acceptance (ROADMAP 0d).
 
 ### Approaches considered
 
@@ -519,7 +519,7 @@ The four runs: v12.8 and v12.9 side by side under identical load, the final buil
 - **"The machine was loaded."** Up to three suites ran in parallel (the final build on three engines; the
   side-by-side pair was two). Tested by a solo run: same failures. Rejected.
 - **"It is the documented runner episode."** Accepted at first and written into the CHANGELOG, the review
-  record and the PR #75 description (the PR description is not yet corrected). It was matched on the symptom's *name* (`got null` on mac WebKit), not its *signature* (timing,
+  record and the PR #75 description (all three corrected; the PR description on 2026-10-23). It was matched on the symptom's *name* (`got null` on mac WebKit), not its *signature* (timing,
   frequency, host). Re-reading the signature rejected it; corrected 2026-10-22. This is the
   measurement-context rule in CLAUDE.md: a finding carries its context, or it is not a finding.
 
@@ -610,12 +610,17 @@ came down in 6s (9,186 kB/s) and the install step took 24s. The suite passed 560
 probe printed `all checks passed`. Job times were 6m14s–10m02s, all under the cap. Context: a green CI run is
 the mock suite on Playwright's engines, not a real-browser result (ROADMAP 0e).
 
+**Recurred 2026-10-23, on `webkit on ubuntu-latest`.** On the post-merge `main` run 39878964613 (`4c72ca9`),
+8 jobs were green. `webkit on ubuntu-latest` spent 00:35:14–00:55:15 UTC in "Install browser engine" and was
+cancelled at the cap before any test ran. The response was the same: one `gh run rerun --failed`.
+Attempt 2 installed in 27s and went 9/9, with the suite and the transport probe green. Two install stalls on ubuntu runners in two days is an input for the CI rebuild (ROADMAP 0e).
+
 ---
 
 ## v12.9 — Safari (Userscripts): the conversation index always fell back to the DOM scan (found 2026-10-22)
 
-**Status:** FIXED in v12.9 (branch `fix/safari-transport-fallback`) — **live confirms owed on Safari, Firefox
-and Chrome (DEC-031)** | **Severity:** High on Safari — Navigate, Search, Summary and Export see only the
+**Status:** FIXED in v12.9, merged 2026-10-23 as `4c72ca9` (PR #75) on the owner's call before the live
+acceptance. **Live confirms owed on Safari, Firefox and Chrome (DEC-031)** | **Severity:** High on Safari — Navigate, Search, Summary and Export see only the
 1–5 mounted turns of a long conversation | **Layer:** 3, execution — the userscript manager (CLAUDE.md
 "Layer 3 has a second face") | **Decision:** DEC-045
 
@@ -660,7 +665,8 @@ one transport, and the other one would have been accepted.
 
 A transport ladder — `gmxhr` and `fetch`, ordered by `GM_info.scriptHandler` (Userscripts → fetch first),
 trying the second when every candidate refused the first (401/403/404) or it could not run, caching the
-winner for the page session, and never declaring a refusal PERMANENT until both have been tried.
+winner for the page session, and never declaring a refusal PERMANENT until both have been tried, with one
+exception the owner chose: an unusable org list on the first transport (DEC-045).
 
 ### Reading the new log lines — what to collect if it fails again
 
@@ -677,6 +683,7 @@ winner for the page session, and never declaring a refusal PERMANENT until both 
 | `status=0 error=timeout (earlier requests are still unanswered)` | two earlier fetches timed out and are still pending, or six are open at once (conversations opened faster than the path answers); no new request is sent until one ends. One pending fetch never blocks — the path itself is hanging |
 | `status=0 error=fetch refused: page origin is not https://claude.ai` | should never appear: the index itself only runs on exactly `https://claude.ai`. If it does, that guard (`ciIsClaudeChat`) was loosened — the fetch refusal is its backstop |
 | `index failure looks PERMANENT ([gmxhr] … · [fetch] …)` | both transports refused: logged out, or the conversation is in none of your orgs |
+| `index failure looks PERMANENT ([gmxhr] no org candidate accepted the conversation (HTTP 403))` with **no** `index fallback:` line before it | the first transport's cheap candidates were refused and its org list answered 200 with no usable org. That is v12.8's PERMANENT class, kept by the owner (DEC-045's one exception); the other transport was not asked |
 | `index failure looks PERMANENT ([gmxhr] HTTP 429)` (one transport only) | rate-limited: kept on v12.8's backoff without asking the other transport, which would only add requests |
 
 To see the gmxhr request itself on Safari: **Develop → Web Extension Background Content → Userscripts →
@@ -3508,7 +3515,7 @@ Claude's web UI deliberately strips the `usage` field from the SSE stream before
 If you hit a problem not listed here:
 
 1. Note which **platform**, **browser** and **userscript manager** (Tampermonkey, Userscripts, …) are affected
-2. Note which **operating system** you're on (macOS, Linux distro, Windows)
+2. Note which **operating system** you're on (macOS, Linux distro, Windows), and the browser and manager versions
 3. Check system resources first (`free -h` and `htop` on Linux)
 4. Open DevTools Console (F12) and check for error messages
 5. Look for `[ACN]` lines in the console — on Claude, copy every `[ACN] index…` line, which names the

@@ -1253,6 +1253,14 @@ is a live run on the commit actually being shipped.
   cannot be made to fail in the harness, the harness — not the reasoning — is usually what is
   wrong, and the honest report is "not reproduced", never a fix asserted on plausibility.
 
+**Addendum — merged before the live confirm, on the owner's explicit call (2026-10-23).** The owner waived
+this rule twice:
+- PR #73 (v12.8), whose usage-panel confirm is still owed;
+- PR #75 (v12.9), merged as `4c72ca9` with its Safari, Firefox and Chrome confirms owed (ROADMAP 0d).
+
+A waiver moves the merge, not the debt: each confirm stays owed on the merged build until it is run. Record
+every waiver here, and in the release's CHANGELOG entry.
+
 ---
 
 ## DEC-032: A Fixture Knob Must Be Proven to Change the Output (v12.1)
@@ -2343,7 +2351,8 @@ A load walks every org candidate on the first transport and walks them again on 
 was **refused** (401, 403 or 404 from every candidate it asked) or **could not run** (threw, does not exist,
 or never called back). The winner — the transport that
 delivered an index that validated and built, not merely a 200 — is cached for the page session. **A refusal
-is never declared PERMANENT until both transports have been tried.**
+is never declared PERMANENT until both transports have been tried** — with one exception the owner chose on
+PR #75, an unusable org list on the first transport ("What does and does not send the load…", below).
 
 ### Context — the same call, different credentials
 On Safari with the Userscripts app the index ALWAYS failed: 403 from every org, classified PERMANENT,
@@ -2451,10 +2460,19 @@ identifier check, so a hostile or unexpected body cannot put anything else in th
     above what real use keeps open — one load per conversation, ~2.1s for a 3.3MB payload (DEC-021, measured
     on the reference conversation in a foreground tab) — so only a burst into a hanging path reaches it.
 
-  *Page-wide*, because a per-conversation count was tried first and needed re-keying in three review
-  rounds: a hang in chat A blocked chat B (round 3); a switch made during the first load skipped the reset in
-  `ciInvalidate` (round 4); and with the reset moved into `ciLoadIndex`, navigating A → B → A reset the
-  count, so switching could pile up uncancellable requests without bound (round 5).
+  *Page-wide, and two.* The history matters, because each step looked final at the time:
+  - **Round 1:** a page-wide cap of ONE.
+  - **Round 3:** that cap let a single hang in chat A block every fetch in chat B, so a per-conversation count
+    (an epoch bumped in `ciInvalidate`) replaced it.
+  - **Round 4:** the epoch reset had to move into `ciLoadIndex`, because a switch during the first load skipped
+    `ciInvalidate`.
+  - **Round 5:** A → a non-chat page → A kept a stale epoch, and A → B → A reset the count, so navigation could
+    pile up uncancellable requests without bound. Rather than patch the same mechanism a third time, round 5
+    replaced it with this page-wide cap of TWO, which one lone hang cannot trip.
+  - **Round 6:** added the open bound.
+  - **Round 9:** added the late-body cancel and the clean-up of rejected fetches.
+  - **Abort instead (owner, PR #75):** the alternative to all of it is to abort timed-out and superseded
+    fetches, which ROADMAP 0d records as a follow-up to measure first.
   The cost, accepted: if two requests hang and never end, the index stays degraded (with its banner) until
   a reload. claude.ai sits behind Cloudflare, whose documented ~100s origin timeout should end a hung
   request on its own — inferred from Cloudflare's documentation, not measured.
@@ -2493,7 +2511,7 @@ identifier check, so a hostile or unexpected body cannot put anything else in th
 
 ### What was deliberately NOT changed
 `@grant` lines; the endpoint and its query string; candidate order; the 403/404-advance and 401-terminal
-rules; every reason the walk produces but one (above); the tree walk; resolve-on-arrival jumps; and the
+rules; every reason the walk produces (round 8 changed one; the owner reverted it, above); the tree walk; resolve-on-arrival jumps; and the
 **Plan usage panel**, which still uses `GM_xmlhttpRequest` only — on Safari it should therefore still read
 "Usage data unavailable" (inferred). Moving it is a separate change because it carries DEC-044's ordering
 rules (ROADMAP 0d).
@@ -2503,11 +2521,16 @@ rules (ROADMAP 0d).
 it proves the ladder's DECISIONS, not which real manager's transport carries credentials.
 
 Results against v12.8, the mutation matrix and the CI runs are kept in ONE place:
-`reviews/review-2026-10-22-safari-transport.md`.
+`reviews/review-2026-10-22-safari-transport.md`. `probes/run-ladder-mutants.sh` regenerates the matrix
+(TESTING.md has the method).
 
 ### Open
+- **Merged 2026-10-23 as `4c72ca9`, before the live confirms, on the owner's call.** That is a waiver of DEC-031,
+  recorded there. The shipped userscript is `9ee5222`'s.
 - **Chrome + Tampermonkey's 403 — unexplained.** A candidate, unverified: Tampermonkey issue #2782. The new
   log lines are what will settle it (ROADMAP 0d).
+- **The exact-origin guard covers the index only.** The usage panel and the SSE install are not covered (ROADMAP
+  0d; found after the merge, pre-existing).
 - **Live confirms owed (DEC-031):** Safari on a long conversation, including a jump to each of its last five
   questions (TROUBLESHOOTING, "OPEN — Local mac WebKit"); Firefox unchanged; Chrome's transport line.
 - **Nothing kept in GM storage works on Safari + Userscripts** (no synchronous `GM_getValue`/`GM_setValue`,

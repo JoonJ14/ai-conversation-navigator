@@ -68,7 +68,7 @@ Install one of these extensions for your browser:
 
 - **Chrome/Edge**: [Tampermonkey](https://www.tampermonkey.net/) Download the first one you see for Chrome 120+
 - **Firefox**: [Tampermonkey](https://www.tampermonkey.net/) (recommended) or [Greasemonkey](https://www.greasespot.net/) (may work but untested)
-- **Safari**: [Userscripts](https://apps.apple.com/us/app/userscripts/id1463298887) (You can use tampermonkey with Safari too, but unlike Chrome and Firefox, you have to buy tampermonkey in app store for $2.99. Userscript is free and our code works with userscript, so you don't have to pay, unless you already bought it.)
+- **Safari**: [Userscripts](https://apps.apple.com/us/app/userscripts/id1463298887) (You can use tampermonkey with Safari too, but unlike Chrome and Firefox, you have to buy tampermonkey in app store for $2.99. Userscript is free and the script runs on it, with some limits listed under Step 2 → Safari, so you don't have to pay, unless you already bought it.)
 
 ### Step 2: Browser-Specific Setup
 

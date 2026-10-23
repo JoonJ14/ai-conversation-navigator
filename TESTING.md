@@ -492,8 +492,27 @@ exercise the choice between them**:
   handler aborts. It still degrades visibly — the banner now names both transports — a few
   milliseconds later than v12.8 did, and retries every ~16s with one aborted request each time.
 
-`probes/check-transport-ladder.js` is the gate. Two harness facts it had to account for, both
-measured on all three engines:
+`probes/check-transport-ladder.js` is the gate. Its results against v12.8 and its 46-mutant matrix are in
+`reviews/review-2026-10-22-safari-transport.md`. **The matrix is built by `probes/run-ladder-mutants.sh`**
+(committed in PR #76; not in CI, so run it after any change to the ladder or to the probe):
+- One mutant per mechanism (`probes/build-ladder-mutants.js`): an exact-once string replacement against a copy
+  of the build. A replacement that does not match exactly once stops the build, so no mutant can pass by
+  silently not applying (DEC-037). A change to the ladder's code therefore breaks the builder on purpose:
+  re-anchor the mutants it names, or retire them with their mechanism.
+- Every mutant runs through the probe on chromium (`ACN_SCRIPT=<mutant> node probes/check-transport-ladder.js
+  --browser chromium`), three runs in parallel by default (`-j N`); one run takes ~2–3 minutes. The build
+  under test runs on all three engines and must pass every check; v12.8 (`b471ddc`) runs on chromium and
+  firefox as the reference from before the ladder.
+- Everything runs against a **snapshot tree**: the script copies the build, the probe and its two helpers into
+  the battery directory, with symlinks to `tests/` and `node_modules/`. Two hand-run batches that read the
+  live working tree were contaminated by edits made mid-run.
+- **Stop any running battery and start a new one after every code change.** A battery testing a superseded
+  build produces confident, stale verdicts.
+- `probes/ladder-mutation-matrix.js` prints the tables for the review record. A crashed or short run prints
+  as INVALID, never as gated.
+- v12.8 ran the same way, from `git show b471ddc`.
+
+Two harness facts the probe had to account for, both measured on all three engines:
 
 - **The userscript's own SSE proxy masks one bug shape here.** In the page realm the SSE
   interceptor replaces `window.fetch` with `acnFetchProxy`, which attaches a `.catch` to every
@@ -1529,8 +1548,8 @@ On the owner's Mac, Playwright's WebKit (build 2248) fails four acceptance entri
 on v12.8 and v12.9 alike. Each failure is a `got null` jump at ~1.46s with healthy `raf10`
 (135–168ms), and every printed failure targets one of the last ~10 questions of its conversation.
 That is not this signature: no ceiling-length give-up, no CI runner, and it fails on every run. It
-was first misfiled as this signature in the v12.9 records — corrected in the repo docs; the PR #75
-description still carries it. Match on timing, frequency and host, not on `got null`. TROUBLESHOOTING,
+was first misfiled as this signature in the v12.9 records — corrected in the repo docs and, on 2026-10-23,
+in the PR #75 description. Match on timing, frequency and host, not on `got null`. TROUBLESHOOTING,
 "OPEN — Local mac WebKit".
 
 #### A second variant, observed 2026-08-01 (v12.5 branch): the SILENT wedge
@@ -1610,6 +1629,16 @@ error lands in, which makes it read like a code defect.
 names fixture content (row indices, question text, counts). Same evidence pattern applied —
 firefox passed on macos and ubuntu on the identical commit, and the immediately preceding run
 of the same code was 9/9 — and a single re-run cleared it.
+
+**Second occurrence, 2026-10-23: PR #75's last commit `9ed5182`, a CLAUDE.md-only change; run 39877202022,
+attempt 1.** The same signature:
+- the log first shows `[retry] Claude: first navigation exceeded 20s, retrying at 60s`;
+- then `Claude`, `Claude Code` and `Claude (virtualized)` fail with `page.goto … interrupted by another
+  navigation`, in 35.9s, 0.1s and 0.0s;
+- 505 passed, 3 failed, 508 total, because the three entries stopped early.
+
+Firefox passed on macOS and ubuntu on the same commit, and the previous commit's byte-identical userscript was
+9/9. One `gh run rerun --failed` went 9/9, and the owner merged on that run.
 
 Response when this variant appears: do **not** keep requeuing (three attempts is already past
 useful), and do not read it as a code finding — but do not silently discount it either. Record

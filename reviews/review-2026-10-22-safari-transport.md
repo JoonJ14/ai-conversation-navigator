@@ -1,7 +1,8 @@
 # Review — the Safari/Userscripts transport ladder, v12.9 (2026-10-22)
 
 **Branch:** `fix/safari-transport-fallback` | **Base:** `main` @ `b471ddc` (v12.8) | **Head at review:** working tree
-**Diff:** userscript +601 / −135 lines + 1 new probe (1434 lines) + CI/package wiring + docs
+**Merged:** 2026-10-23 as `4c72ca9` (head `9ed5182`); as merged, 21 files, userscript +597 / −134, probe 1326 lines
+**Diff at review:** userscript +601 / −135 lines + 1 new probe (1434 lines) + CI/package wiring + docs
 (13 files) → **all three tiers** per adaptive scaling (50+ lines, new files, 3+ files)
 **Reviewers (resolved by `resolve-reviewers.sh --host claude`):** Tier 1 `session` · Tier 2 `session` ·
 Tier 3 `cli:codex` (personal `review.conf` `[claude]`) — model `gpt-5.6-terra`, reasoning `xhigh`, read-only sandbox
@@ -240,8 +241,8 @@ sentinel (L0) — and three it passes trivially, having no fetch to misuse (L7d,
 **Re-measured after the owner's revert of the unusable-org-list reason (2026-10-22, same context).** LM8c now
 asserts v12.8's class: "(HTTP 403)", PERMANENT. The reverted build passes all 63 checks on chromium, firefox
 and webkit, and v12.8 still fails the same 52 on chromium and firefox (LM8c among them, since v12.8 has no
-fetch). All 46 mutants were rebuilt against the reverted code. The six whose recorded failures included
-LM8c were re-run. M01, M11 and M46 are unchanged. M04 and M41 no longer fail LM8c, because the second
+fetch). All 46 mutants were rebuilt against the reverted code. The five whose recorded failures included
+LM8c (M01, M04, M11, M41, M42) were re-run, plus M46. M01, M11 and M46 are unchanged. M04 and M41 no longer fail LM8c, because the second
 transport's own "(HTTP 403)" now makes that case PERMANENT whatever they remove. M42 is redefined as the
 round-8 change itself, and LM8c catches it. The table below is updated to match; 43 of 46 are still gated.
 
@@ -303,11 +304,11 @@ round-8 change itself, and LM8c catches it. The table below is updated to match;
 | Tier 3 | 23 WARN + 1 NOTE over 10 rounds | 22 | 22 | 2 | 0 |
 | **all** | **58** | **49** | **44** | **9** | **5 NOTEs** |
 
-**PIPELINE APPROVED — 3 tiers passed, 44 issues found and fixed.** Tier 3 reached APPROVED on its tenth
+**PIPELINE APPROVED — 3 tiers passed, 44 issues found and fixed** (the owner later reverted one of those fixes, round 8's reason change). Tier 3 reached APPROVED on its tenth
 and last permitted round, run as the full review and the post-fix validation together.
 
 ### Other measurements
-- Full suite (`tests/test-all-platforms.js`, `ACN_SCRIPT` = the final build): chromium **560/560**, firefox **560/560** (macOS arm64, `ACN_SCRIPT` = the final build). webkit **556/560 on BOTH v12.9 and v12.8** — the same four jump-acceptance entries (`got null` at ~1.46s with healthy `raf10` ≈ 150ms), identical in an A/B under the same load and again when run alone — so not this change. **Corrected after the PR opened:** this line first called it TESTING.md's webkit-on-macos signature and named CI's webkit jobs the reference. Neither holds: that signature pins jumps at the 4.3–5.4s give-up ceiling on a degraded CI runner, while these give up at ~1.46s with healthy `raf10` on every run, and every printed failure targets one of the last ~10 questions of its conversation. CI's mac WebKit (build 2370) passed 560/560 on the same commit; this machine's is build 2248. Cause unknown — TROUBLESHOOTING, "OPEN — Local mac WebKit".
+- Full suite (`tests/test-all-platforms.js`, `ACN_SCRIPT` = `74c8811`'s userscript, the build before the owner's #5 revert; after the revert the full suite ran only in CI): chromium **560/560**, firefox **560/560** (macOS arm64, `ACN_SCRIPT` = the final build). webkit **556/560 on BOTH v12.9 and v12.8** — the same four jump-acceptance entries (`got null` at ~1.46s with healthy `raf10` ≈ 150ms), identical in an A/B under the same load and again when run alone — so not this change. **Corrected after the PR opened:** this line first called it TESTING.md's webkit-on-macos signature and named CI's webkit jobs the reference. Neither holds: that signature pins jumps at the 4.3–5.4s give-up ceiling on a degraded CI runner, while these give up at ~1.46s with healthy `raf10` on every run, and every printed failure targets one of the last ~10 questions of its conversation. CI's mac WebKit (build 2370) passed 560/560 on the same commit; this machine's is build 2248. Cause unknown — TROUBLESHOOTING, "OPEN — Local mac WebKit".
 - On the round-7 snapshot (the tokenizer, subsegment and usage paths are unchanged since): `check-tokenizer`
   and `check-subsegments` pass. `check-usage-state` passes on chromium (CI's engine for it)
   on both builds, 2 of 2 each. On **firefox** its U10 times out intermittently on **both** builds: v12.8 3 of
@@ -326,6 +327,11 @@ and last permitted round, run as the full review and the post-fix validation tog
   signature.
 - **Rule 9 (spec 2.1 says "confirm that in review"):** this record had not said so. Confirmed against HEAD:
   `ciFetchGet` calls `fetch` and assigns no page global, so `exportFunction` does not apply.
+- **`9ee5222`** (the owner's decisions): CI run 39875539777 went 9/9, and Codex found nothing.
+- **`9ed5182`** (CLAUDE.md, owner-approved): Codex found nothing. CI run 39877202022 lost `firefox on
+  windows-latest` to the `page.goto` harness flake (TESTING.md); one re-run went 9/9.
+- **Merged 2026-10-23 as `4c72ca9`, on the owner's call, before the live acceptance** (a DEC-031 waiver). The
+  post-merge `main` run 39878964613 lost `webkit on ubuntu-latest` to an install stall; one re-run went 9/9.
 
 ## Scope against the spec (2026-10-22, owner's request)
 
@@ -370,7 +376,7 @@ rethrow (needed or extra).
     findings about other features (the usage panel, persistence, `scriptHandler`, the usage-path cookie throw).
   - The README privacy section is mixed. Disclosing the fetch path is needed. Correcting v12.8's false "no
     network requests" claim is pre-existing.
-- **Where the code departs from the spec's wording,** for the owner to rule on:
+- **Where the code departs from the spec's wording.** The owner kept all of these as they are (decision below):
   - 404 counts as a refusal;
   - a rejected fetch is a network error, so on Safari it does not fall back to gmxhr;
   - a 429 or malformed body from the first transport goes PERMANENT without asking the second (the code
@@ -383,7 +389,7 @@ rethrow (needed or extra).
   - the pre-existing fixes are written against v12.9's structure (`walk()`, the `threw` kind, the settle latch)
     and would need rebasing onto v12.8;
   - the unusable-org-list count is tied to the both-failed rule;
-  - the probe's 63/52/46 counts are repeated in five docs.
+  - the probe's 63/52/46 counts were repeated in five docs; since 2026-10-22 they are kept only in this record.
 
 **Owner's decision (2026-10-22):** keep everything except the unusable-org-list reason, which is reverted. v12.8's
 PERMANENT backoff for that case is restored, and probe LM8c holds it.
