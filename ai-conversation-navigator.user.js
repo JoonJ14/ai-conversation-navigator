@@ -2760,7 +2760,7 @@
                 var w = document.querySelector('[data-workflow-entry="' + (entry.position | 0) + '"]');
                 if (!w) return null;
                 var b = w.querySelector('[data-message-bubble="right"]');
-                if (b && entry.text && _normalizeFull(_readMessageText(b)) !== _normalizeFull(entry.text)) return null;
+                if (b && entry.text && _normalizeCompareFull(_readMessageText(b)) !== _normalizeCompareFull(entry.text)) return null;
                 return b || w;
             },
             mounted: function () {
@@ -2774,12 +2774,14 @@
                     // Same ordinal, different question (an edit or a rewrite): stale, and
                     // keyed by its text so a later edit at that ordinal is new evidence (Tier 3).
                     if (pos >= 0 && _ix.textAt && _ix.textAt.hasOwnProperty(pos)) {
-                        // FULL text: _normalizeKey stops at 200 chars, so an edit sharing that
-                        // prefix would pass as the old question (Tier 3 post-fix).
-                        var shown = _normalizeFull(_readMessageText(bubbles[i]));
-                        if (shown && shown !== _normalizeFull(_ix.textAt[pos])) {
+                        // _normalizeCompareFull: the API side is raw markdown and the DOM is
+                        // rendered, and _normalizeKey stops at 200 chars, so an edit sharing
+                        // that prefix would pass as the old question (Tier 3 post-fix). The
+                        // signature is the FULL text, so every later edit is new evidence.
+                        var shown = _normalizeCompareFull(_readMessageText(bubbles[i]));
+                        if (shown && shown !== _normalizeCompareFull(_ix.textAt[pos])) {
                             pos = -1;
-                            key = 'e' + n + ':' + shown.slice(0, 40);
+                            key = 'e' + n + ':' + shown;
                         }
                     }
                     out.push({ pos: pos, key: key, el: bubbles[i] });
@@ -3032,10 +3034,10 @@
             var el = a.locate(entry);
             if (el) { done(true, el, 'locate'); return; }
             if (moves >= IX_JUMP_MAX_MOVES) {
-                var wanted = _normalizeKey(q.text), hits = [];
+                var wanted = _normalizeCompareFull(q.text), hits = [];
                 var cur = Array.from(getUserMessages());
                 for (var i = 0; i < cur.length; i++) {
-                    if (_normalizeKey(_readMessageText(cur[i])) === wanted) hits.push(cur[i]);
+                    if (_normalizeCompareFull(_readMessageText(cur[i])) === wanted) hits.push(cur[i]);
                 }
                 if (hits.length === 1) { done(true, hits[0], 'text'); return; }
                 done(false, null, 'not-found');
