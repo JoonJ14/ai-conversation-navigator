@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.10
+// @version      12.11
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -42,7 +42,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.10';
+    var ACN_VERSION = '12.11';
 
     // ============================================================
     // i18n — internationalization string table
@@ -4813,6 +4813,7 @@
     var _questions = []; // [{ element, text, summary, vsIndex? }]
     var _vsAccumulatedKeys = new Set();
     var _navListFingerprint    = ''; // used to skip DOM rebuild when questions are unchanged
+    var _ctxDrawnTurns         = ''; // the turn counter as the context bar last drew it
     var _searchListFingerprint = ''; // same guard for search panel
     var _ciIndexGen = 0;             // bumped on every index (re)build: a same-count
                                      // branch swap must still invalidate cached search
@@ -5825,9 +5826,11 @@
 
     // ── Orbital panel update hook (called by scanConversation) ──
     function orbOnScanComplete() {
+        // Count before anything draws. After the draws, the dots always showed the
+        // previous scan's count, and froze there once the list stopped changing (v12.11).
+        updateTurnCounter();
         if (orbPanel === 'nav')    orbPopulateNavigate();
         if (orbPanel === 'search') orbPopulateSearch(orbSearchQuery);
-        updateTurnCounter();
         var bmPanel = document.getElementById('acn-panel-bookmarks');
         if (bmPanel && bmPanel.classList.contains('acn-open')) {
             orbRefreshBookmarksPanel();
@@ -6062,6 +6065,12 @@
         var added = newTotal - _turnCounter.totalTurns;
         _turnCounter.totalTurns        += added;
         _turnCounter.turnsSinceCompact += added;
+    }
+
+    function _turnCounterSig() {
+        return _turnCounter.totalTurns + '|' + _turnCounter.turnsSinceCompact + '|' +
+               _turnCounter.compactionCount + '|' + _turnCounter.predictedCycleLength + '|' +
+               _turnCounter.lastCompactTurn;
     }
 
     function resetTurnCounter() {
@@ -7039,7 +7048,15 @@
         var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|') +
                  '||' + _ciStatus + '|g' + _ciIndexGen + '|r' + (_ciRefreshFailed ? '1' : '0') +
                  '|x' + ixFingerprint();
-        if (fp === _navListFingerprint && list.firstChild) return;
+        // The list is unchanged, but the turn counter may not be: the scan after the
+        // index lands changes the count without changing the list. Redraw only when the
+        // counter differs from what is drawn. The panel sits inside document.body, so an
+        // unconditional redraw schedules the next scan, and that scan the next redraw
+        // (v12.11).
+        if (fp === _navListFingerprint && list.firstChild) {
+            if (_turnCounterSig() !== _ctxDrawnTurns) orbUpdateContextBar();
+            return;
+        }
         _navListFingerprint = fp;
 
         // Clear
@@ -7052,6 +7069,7 @@
                 ['No questions detected yet.\n\nStart a conversation — questions and prompts will appear here.']);
             list.appendChild(empty);
             if (stat) { stat.textContent = '0 questions found'; stat.setAttribute('data-acn-count', '0'); }
+            orbUpdateContextBar();
             return;
         }
 
@@ -7091,6 +7109,7 @@
         var fill = document.getElementById('acn-ctx-fill');
         var meta = document.getElementById('acn-ctx-meta');
         if (!pct || !fill) return;
+        _ctxDrawnTurns = _turnCounterSig();
 
         var limit = (typeof CTX_LIMITS !== 'undefined' && platform && CTX_LIMITS[platform.id])
                     ? CTX_LIMITS[platform.id]

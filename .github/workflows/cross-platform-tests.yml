@@ -62,6 +62,7 @@ jobs:
           node probes/check-tokenizer.js --browser chromium
           node probes/check-subsegments.js --browser chromium
           node probes/check-usage-state.js --browser chromium
+          node probes/check-turn-counter.js --browser chromium
 
       # The transport-ladder probe is the exception to "one job only": it asserts fetch,
       # promise and timer behaviour (a synchronous throw, a rejected fetch, the backoff
