@@ -119,7 +119,8 @@ Three constraints shaped how, and each one is a scar from an earlier incident:
    replacing `window.fetch` from the Tampermonkey sandbox crashed claude.ai to a black screen on
    Firefox when a vendor bundle called `.bind()` on it (DEC-019/DEC-020 — a Layer 3 *execution*
    break, where our code kills the host page rather than degrading our own features). The index
-   uses `GM_xmlhttpRequest`, which touches no page globals.
+   uses `GM_xmlhttpRequest`, which touches no page globals — and, since v12.9, a plain `fetch` as its
+   second transport, which calls `fetch` without replacing anything (DEC-045).
 2. **It walks the message tree from the current leaf**, so questions the user edited or
    regenerated away do not reappear as if they were still part of the conversation. A flat list of
    all messages would be wrong in a different direction.
@@ -468,6 +469,244 @@ payload, `element:null` messages (so `_sumScanEntities` returns `[]` — the unm
 which is all but ~3 messages live, but not the mounted one). The decision-grade context is
 still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is outstanding**
 (expect generate ≈1.5–2.5s; the pre-fix live figure was 7.7–8.8s).
+
+---
+
+## OPEN — Local mac WebKit: jumps to a long conversation's last questions give up at ~1.46s (found 2026-10-22)
+
+**Phase:** v12.9 verification (PR #75) | **Severity:** Medium — local and mock-only so far, but Safari is a mac
+WebKit | **Status:** Open — fails identically on v12.8, so v12.9 did not cause it
+
+### Symptom
+
+`node tests/test-all-platforms.js --browser webkit` on the owner's Mac (macOS arm64): **556/560**, on v12.9 and
+v12.8 alike. The same four acceptance entries fail, each on "every targeted question reaches its exact row":
+
+| Entry | Failed, across four runs | Failures the report printed (it prints five per entry) |
+|---|---|---|
+| `Claude (294 rows, N=10 unrendered)` | 8–9 of 147 | Q139, Q140, Q143, Q144, Q146, Q147 |
+| `Claude (80 rows, Q#1 is a file chip)` | 7–9 of 40 | Q32, Q34, Q35, Q36, Q38, Q39 |
+| `Claude (120 rows, hostile)` | 9–11 of 60 | Q51, Q52, Q53, Q56, Q57, Q58, Q59 |
+| `Claude (150 rows, N=3 unrendered)` | 2 of 15 | Q66, Q71 |
+
+Every failure line has one shape: `got null busySeen=true idx=null (1452–1701ms, vis=visible, raf10=135–168ms)`.
+The four runs: v12.8 and v12.9 side by side under identical load, the final build, and v12.9 alone.
+
+### Diagnosis — what is known, and what is not
+
+- **Not this change.** v12.8 (`git show b471ddc`, via `ACN_SCRIPT`) fails the same four entries with the same
+  shape in the side-by-side run. The index transport is not on the jump path.
+- **Not machine load.** v12.9 run alone fails like the parallel runs.
+- **Not TESTING.md's webkit-on-macos signature** — which the v12.9 CHANGELOG entry, the review record and the
+  PR #75 description first claimed (the first two since corrected). That signature is a degraded CI runner:
+  jumps pinned at the give-up ceiling (settle cap × iteration cap ≈ 4.3–5.4s), intermittent, cleared by a
+  re-run. Here the jump gives up at ~1.46s — well short of the ceiling — on every run, on a local Mac, with
+  `raf10` at 135–168ms (TESTING.md reads ~160ms as healthy; no documented runner episode recorded `raf10`).
+- **Positional, roughly.** Every printed failure targets one of the last ~10 questions of its conversation.
+  The unprinted ones (the report stops at five) were not seen — and `Claude (120 rows, hostile)` failed 11
+  of 60, more than its last 10 questions, so at least one failure lies earlier. "Near the end" is the
+  pattern, not "the last 10".
+- **The WebKit build differs from CI's.** `webkit on macos-latest` passed all 560 on the same commit (PR #75,
+  attempt 1) with WebKit 27.2, Playwright build 2370, on `macos-26-arm64`. This machine runs build 2248
+  (Playwright 1.58.2). Whether the build is the variable is untested.
+- **Unknown:** what ends the jump at ~1.46s, and why only near the bottom. Not investigated: jumps are on PR
+  #75's do-not-change list.
+
+### Approaches considered
+
+- **"v12.9 broke it."** The first hypothesis for any new failure on a branch. Tested by the side-by-side run
+  against v12.8: identical failures. Rejected.
+- **"The machine was loaded."** Up to three suites ran in parallel (the final build on three engines; the
+  side-by-side pair was two). Tested by a solo run: same failures. Rejected.
+- **"It is the documented runner episode."** Accepted at first and written into the CHANGELOG, the review
+  record and the PR #75 description (the PR description is not yet corrected). It was matched on the symptom's *name* (`got null` on mac WebKit), not its *signature* (timing,
+  frequency, host). Re-reading the signature rejected it; corrected 2026-10-22. This is the
+  measurement-context rule in CLAUDE.md: a finding carries its context, or it is not a finding.
+
+### Why it matters, and what is owed
+
+Safari is a mac WebKit, and v12.9 is what makes Safari's index — and therefore jumps to unmounted turns —
+work there at all. Whether real Safari can jump to the last questions of a long conversation is **unmeasured**.
+Owed, cheapest first:
+
+1. In the owner's Safari acceptance (ROADMAP 0d), jump to each of the last five questions of a long conversation.
+2. Re-run one failing entry on WebKit build 2370, to test the build-drift reading.
+3. If either reproduces, trace one failing jump to see what ends it at ~1.46s.
+
+---
+
+## OPEN — `check-usage-state` U10 times out on Firefox: every run on v12.8, intermittently on v12.9 (found 2026-10-22)
+
+**Phase:** v12.9 verification (PR #75) | **Severity:** Low — a probe flake; CI runs this probe on chromium
+only | **Status:** Open — pre-existing
+
+### Symptom
+
+`node probes/check-usage-state.js --browser firefox` (macOS arm64) passes U1–U9, then dies before U10 is
+judged:
+
+```
+page.waitForFunction: Timeout 30000ms exceeded.
+    at staleOrgScenario (probes/check-usage-state.js:397:20)
+```
+
+Line 397 waits for the scenario's third usage request (`window.__acnUsageRequests >= 3`) after it routes back
+to its first conversation. **v12.8: 3 of 3 runs. v12.9: 3 of 5** (the round-7 build — the usage path is
+untouched by this change). On chromium, CI's engine for this probe, it passed 2 of 2 on each build.
+
+### Diagnosis and approaches
+
+Pre-existing: v12.8 fails it at least as often. Every run had up to five probes running in parallel, so load
+is a live suspect, and it was not separated out. What delays or suppresses the third request on Firefox was
+not investigated — out of PR #75's scope. Nothing was tried; this entry exists so the flake is not
+rediscovered as new.
+
+### Owed
+
+Repeated solo Firefox runs of the probe before reading anything into it (a single run is not a measurement).
+
+---
+
+## RESOLVED — CI: `firefox on ubuntu-latest` hit the 20-minute cap installing the browser, before any test ran (PR #75)
+
+**Phase:** v12.9 verification (PR #75) | **Severity:** Low — CI infrastructure, no code involved | **Status:** Resolved by a re-run
+**Date resolved:** 2026-10-22
+
+### Symptom
+
+Run 39847332312, attempt 1, on `ae3ada1`: 8 of 9 jobs green, and `firefox on ubuntu-latest` shown as **fail**
+at 20m17s, with the run's conclusion **cancelled**. Its test step and transport-ladder probe step read **skipped**
+(the probe-assertion step runs on chromium only). The log ends with `##[error]The operation was canceled.` and
+`Terminate orphan process: pid (…) (npm exec playwright install --with-deps firefox)`.
+
+### Diagnosis
+
+The job never reached a test. `timeout-minutes: 20` caps the whole job, and the whole budget went to
+`npx playwright install --with-deps firefox`. `--with-deps` installs Firefox's system libraries through apt:
+46 packages, 51.6 MB (`6 upgraded, 40 newly installed`), from `azure.archive.ubuntu.com`. On that runner the
+package downloads crawled at roughly 35–55 KB/s: `fonts-wqy-zenhei` (7.5 MB) took 143s, and `libcodec2-1.2`
+(9.0 MB) about four minutes. The cap hit during package 40 of 46 (apt's `Get:41`; `Get:1` is the mirror list).
+
+The package indexes had come down at 9 MB/s seconds earlier, so the mirror was reachable, just slow for the
+package pool — a runner/mirror episode. The other two ubuntu jobs installed in 28s and 36s. Neither the code
+nor the transport-ladder step this PR added was involved: neither ran.
+
+### Approaches considered
+
+- **Re-run only the failed job** (`gh run rerun --failed`, TESTING.md's response to a runner episode). The
+  cheapest fix, and it would have cleared this.
+- **Re-run all nine.** The owner's call before merging: one complete signal from a single attempt rather than a
+  run stitched together from two. **Chosen.**
+- **Harden the step:** a per-step timeout with a retry around the install, cached browsers and apt packages, or
+  Playwright's container image, which ships the dependencies. Not done here, because CI changes are outside
+  PR #75 and the owner plans a CI rebuild (ROADMAP 0e). Recorded as input for it.
+- **Raise `timeout-minutes`.** Rejected: the 20-minute cap is deliberate. TESTING.md: it makes a wedged runner
+  fail fast instead of holding the check for up to six hours.
+
+### Results & verification
+
+Attempt 2 (same commit, 21:58–22:08 UTC): **all 9 jobs green.** On `firefox on ubuntu-latest` the same 51.6 MB
+came down in 6s (9,186 kB/s) and the install step took 24s. The suite passed 560/560 and the transport-ladder
+probe printed `all checks passed`. Job times were 6m14s–10m02s, all under the cap. Context: a green CI run is
+the mock suite on Playwright's engines, not a real-browser result (ROADMAP 0e).
+
+---
+
+## v12.9 — Safari (Userscripts): the conversation index always fell back to the DOM scan (found 2026-10-22)
+
+**Status:** FIXED in v12.9 (branch `fix/safari-transport-fallback`) — **live confirms owed on Safari, Firefox
+and Chrome (DEC-031)** | **Severity:** High on Safari — Navigate, Search, Summary and Export see only the
+1–5 mounted turns of a long conversation | **Layer:** 3, execution — the userscript manager (CLAUDE.md
+"Layer 3 has a second face") | **Decision:** DEC-045
+
+### Symptom
+
+Safari + the Userscripts app, any Claude conversation:
+
+```
+AI Conversation Navigator.user.js @inject-into value set to 'content' due to @grant values: GM_xmlhttpRequest
+[ACN] index failure looks PERMANENT (no org candidate accepted the conversation: HTTP 403 (HTTP 403)) — next retry in 60s
+[ACN] conversation index unavailable — falling back to DOM scan. Reason: no org candidate accepted the conversation: HTTP 403 (HTTP 403)
+```
+
+The backoff escalated 60s → 240s → 960s and the index never recovered in that tab.
+
+**Read the first line as evidence, not noise.** It is Userscripts reporting which grants it honoured, and it
+lists only `GM_xmlhttpRequest` although the script declares five: Userscripts silently drops `GM_addStyle`,
+`GM_getValue`, `GM_setValue` and `unsafeWindow` (they are not in its supported list — from its source).
+
+### Measured (owner, Safari, v12.8, same tab and conversation — a 6-message conversation)
+
+| Realm / transport | `GET /api/organizations` | right org `730fcd2a…` | other org `8db273c9…` |
+|---|---|---|---|
+| page realm, `fetch(…, {credentials:'include'})` | 200 | **200** | 403 `permission_error` (expected) |
+| Userscripts content world, same `fetch`, URL from `location.origin` | 200 | **200** | 403 (expected) |
+| the script's `GM_xmlhttpRequest` (Userscripts) | not probed | **403** | 403 |
+
+The `GM_xmlhttpRequest` org-list cell was not probed directly, but the log above answers it: that reason
+string is produced only when `/api/organizations` itself fails, and its `(HTTP 403)` is that request's status.
+
+### Root cause
+
+The transport. `GM_xmlhttpRequest` is each manager's own implementation; Userscripts sends it from its
+extension background page, and the claude.ai session does not go with it. Most likely mechanism (from
+Userscripts' source and WebKit bug 260676 — **not measured**): WebKit withholds SameSite cookies from
+extension-context requests. A same-origin `fetch` from the content-script world carries them.
+
+Why it looked PERMANENT: the classifier is right that 403 from every org means "refused" — but it was judging
+one transport, and the other one would have been accepted.
+
+### Fix (v12.9, DEC-045)
+
+A transport ladder — `gmxhr` and `fetch`, ordered by `GM_info.scriptHandler` (Userscripts → fetch first),
+trying the second when every candidate refused the first (401/403/404) or it could not run, caching the
+winner for the page session, and never declaring a refusal PERMANENT until both have been tried.
+
+### Reading the new log lines — what to collect if it fails again
+
+| Line | Means |
+|---|---|
+| `[ACN] index order: fetch → gmxhr (scriptHandler: Userscripts)` | detection worked; fetch goes first |
+| `[ACN] index order: gmxhr → fetch (scriptHandler: unknown)` on Safari | no `GM_info` (Userscripts before 4.1.0, or an injection-mode change). Still works — costs one refused gmxhr walk per page load |
+| `… (this session's last winner first)` | a transport already won in this page session |
+| `[ACN] index: transport=gmxhr org=730fcd2a… status=403 error.type=permission_error` | the server refused THIS transport for that org |
+| `[ACN] index fallback: gmxhr was refused by every org candidate — trying fetch` | the Safari shape; the next lines should show `transport=fetch … status=200` |
+| `status=403` with **no** `error.type` | the body was not claude.ai's JSON error — possibly a Cloudflare challenge page (`cf-mitigated`). Check the request in the inspector |
+| `status=0 error=network error (…)` | no answer at all — not a credential problem; retried on the cooldown, no fallback |
+| `status=0 error=GM_xmlhttpRequest never called back` | the manager dropped the request (Userscripts' source shows it does this when its background page unloads); the ladder tries fetch |
+| `status=0 error=timeout (earlier requests are still unanswered)` | two earlier fetches timed out and are still pending, or six are open at once (conversations opened faster than the path answers); no new request is sent until one ends. One pending fetch never blocks — the path itself is hanging |
+| `status=0 error=fetch refused: page origin is not https://claude.ai` | should never appear: the index itself only runs on exactly `https://claude.ai`. If it does, that guard (`ciIsClaudeChat`) was loosened — the fetch refusal is its backstop |
+| `index failure looks PERMANENT ([gmxhr] … · [fetch] …)` | both transports refused: logged out, or the conversation is in none of your orgs |
+| `index failure looks PERMANENT ([gmxhr] HTTP 429)` (one transport only) | rate-limited: kept on v12.8's backoff without asking the other transport, which would only add requests |
+
+To see the gmxhr request itself on Safari: **Develop → Web Extension Background Content → Userscripts →
+Network**, and check its Cookie, Origin and Sec-Fetch-Site headers.
+
+### Open
+
+- **Chrome + Tampermonkey's intermittent 403 (at least once, per the owner) — UNEXPLAINED.** A candidate, unverified: Tampermonkey #2782
+  (cookies received through GM_xhr stored partitioned, then overwriting the unpartitioned session cookie;
+  fixed in a TM beta). Do not theorise further without the `[ACN] index:` lines from an occurrence.
+- **Plan usage on Safari** still uses `GM_xmlhttpRequest` only — expect "Usage data unavailable" (inferred).
+- **GM storage on Safari** — Userscripts provides no synchronous `GM_getValue`/`GM_setValue` (from its source),
+  so nothing the script keeps in GM storage works there: bookmarks, saved commands, the language and platform
+  toggles, the org cache. Every call site is try/caught, so it fails silently. Display mode, scroll direction
+  and panel width use `localStorage` and are unaffected. Separate from this fix; ROADMAP 0d.
+- **A long conversation on Safari** — the measurement above used 6 messages.
+- **Jumps to the last questions on Safari — unmeasured.** On the owner's Mac, Playwright's WebKit (build 2248)
+  gives up on jumps near the end of a long mock conversation, on v12.8 and v12.9 alike; CI's mac WebKit
+  (build 2370) passed the same entries. See "OPEN — Local mac WebKit" above, and
+  include such a jump in the Safari acceptance check.
+
+### Verification
+
+`probes/check-transport-ladder.js`, in CI on ubuntu × {chromium, firefox, webkit}. Its results against v12.8
+and the mutation matrix: `reviews/review-2026-10-22-safari-transport.md` (kept in one place).
+
+To reproduce the v12.8 failure: `ACN_SCRIPT=<a v12.8 copy> node probes/check-transport-ladder.js --browser chromium`
+(v12.8 was measured on chromium and firefox, not on webkit).
+Context: Playwright page realm — it proves the ladder's decisions, not which real manager's transport carries
+credentials; that is a live check on the device.
 
 ---
 
@@ -3268,11 +3507,12 @@ Claude's web UI deliberately strips the `usage` field from the SSE stream before
 
 If you hit a problem not listed here:
 
-1. Note which **platform** and **browser** are affected
+1. Note which **platform**, **browser** and **userscript manager** (Tampermonkey, Userscripts, …) are affected
 2. Note which **operating system** you're on (macOS, Linux distro, Windows)
 3. Check system resources first (`free -h` and `htop` on Linux)
 4. Open DevTools Console (F12) and check for error messages
-5. Look for any `AI Nav:` prefixed log messages in the console
+5. Look for `[ACN]` lines in the console — on Claude, copy every `[ACN] index…` line, which names the
+   transport that failed (v12.9) — and any `AI Nav:` lines
 6. Include the error text when reporting
 7. Open an issue on GitHub with these details
 

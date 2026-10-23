@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.8
+// @version      12.9
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -40,7 +40,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.8';
+    var ACN_VERSION = '12.9';
 
     // ============================================================
     // i18n — internationalization string table
@@ -1198,8 +1198,16 @@
     // segment, and require a path boundary after the uuid.
     var CI_CHAT_PATH_RE = /^\/(?:project\/[0-9a-f-]{36}\/)?chat\/([0-9a-f-]{36})(?:\/|$)/i;
 
+    // The EXACT origin, not platform detection's host.includes('claude.ai'): the index sends
+    // credentialed requests and renders what comes back into the page, so no other page may
+    // run it — not a look-alike host (claude.ai.example.com, or a page an @include glob
+    // happened to match), and not claude.ai on another port or scheme, which @match patterns
+    // also accept (they ignore ports). On any of those, gmxhr would fetch the user's real
+    // conversation from https://claude.ai and render it into that page (v12.9 review +
+    // Codex Tier 3). A literal, not CI_API_ORIGIN: that var is initialised further down.
     function ciIsClaudeChat() {
         return !!(platform && platform.id === 'claude' &&
+                  window.location.origin === 'https://claude.ai' &&
                   CI_CHAT_PATH_RE.test(window.location.pathname));
     }
 
@@ -1213,45 +1221,372 @@
         return m ? decodeURIComponent(m[1]) : null;
     }
 
-    // GM_xmlhttpRequest rather than fetch: this exact transport is already proven
-    // against claude.ai in fetchClaudeUsage(), and it keeps the response entirely
-    // out of the page realm. The spec's "bare fetch returns 200" was verified in
-    // the DevTools console (page realm), NOT the Tampermonkey sandbox — so
-    // sandbox-realm fetch is treated as unverified here.
-    function ciRequestJSON(url, cb) {
+    // ── Transport ladder (v12.9) ────────────────────────────────
+    // GM_xmlhttpRequest is not ONE API. Each userscript manager ships its own
+    // implementation, and they do not all send the page's session. Measured on
+    // Safari + the Userscripts app (v12.8, same tab, same conversation): its
+    // GM_xmlhttpRequest got 403 from every org candidate (and from
+    // /api/organizations — read off v12.8's own reason line there), while
+    // fetch(..., {credentials: 'include'}) from the same extension content-script
+    // world got 200 for the right org. Firefox +
+    // Tampermonkey's GM_xmlhttpRequest gets 200. The same call carries different
+    // credentials depending on the manager and the browser, so the index can use
+    // either of two transports:
+    //
+    //   'gmxhr' — GM_xmlhttpRequest with exactly the v12.8 options. Proven on
+    //             Firefox + Tampermonkey; the response never enters the page realm.
+    //   'fetch' — fetch() from the script's own realm, credentials included, the
+    //             absolute URL built from location.origin. It CALLS fetch and
+    //             replaces no page global, so the exportFunction rule (DEC-019/020)
+    //             is not triggered. What remains on Firefox is a cross-compartment
+    //             THROW, which ciApiGet turns into an ordinary failure.
+    //
+    // The manager's own name picks which transport goes FIRST (Userscripts -> fetch,
+    // anything else -> gmxhr). The rule for trying the second is the same in either
+    // order: a REFUSAL (401/403/404 from every candidate asked) or a transport that
+    // cannot run is never final until the other transport has been tried — so a missing
+    // or unexpected name costs one refused walk, not the index. What does NOT trigger the
+    // other transport — a rate limit, a server error, a malformed body, no answer at all —
+    // is classified exactly as in v12.8, and it is the one place where the order can
+    // matter: if such a failure strikes only the first transport. See DEC-045.
+    var CI_API_ORIGIN = 'https://claude.ai';
+    var _ciTransport  = null;   // the transport that last WON a load — delivered an index
+                                // that validated and built — for this page session;
+                                // committed behind finish()'s supersession guard
+
+    // The manager's self-reported name, or '' — never throws. Read on every load
+    // rather than cached: it is cheap, and a getter that throws once (L1c) must not
+    // poison the rest of the session.
+    function ciScriptHandler() {
+        try {
+            if (typeof GM_info !== 'undefined' && GM_info && GM_info.scriptHandler) {
+                return String(GM_info.scriptHandler);
+            }
+        } catch (e) {}
+        try {
+            if (typeof GM !== 'undefined' && GM && GM.info && GM.info.scriptHandler) {
+                return String(GM.info.scriptHandler);
+            }
+        } catch (e) {}
+        return '';
+    }
+
+    // [first, second]. A transport that already won this session goes first, so later
+    // refreshes do not pay for the rejected one again.
+    function ciTransportOrder() {
+        var first = _ciTransport ||
+                    (/userscripts/i.test(ciScriptHandler()) ? 'fetch' : 'gmxhr');
+        return [first, first === 'fetch' ? 'gmxhr' : 'fetch'];
+    }
+
+    function ciFailure(kind, status, error, errorType, detail) {
+        return { ok: false, kind: kind, status: status, json: null,
+                 errorType: errorType || '', error: error, detail: detail || '' };
+    }
+
+    function ciErrorName(e) {
+        var name = (e && e.name) ? String(e.name) : 'Error';
+        return (e && e.message) ? name + ': ' + String(e.message).slice(0, 80) : name;
+    }
+
+    // The error TYPE of a JSON error body ({"type":"error","error":{"type":
+    // "permission_error",...}}), for the diagnostic line only. Kept only when it looks
+    // like an identifier, so nothing else from a response body can reach the console.
+    function ciErrorType(text) {
+        try {
+            var j = JSON.parse(text);
+            var t = (j && j.error && j.error.type) || (j && j.type !== 'error' && j.type) || '';
+            return (typeof t === 'string' && /^[A-Za-z0-9_.-]{1,64}$/.test(t)) ? t : '';
+        } catch (e) { return ''; }
+    }
+
+    // Shared by both transports, so a 200, an HTTP error and a bad body mean the same
+    // thing whichever one answered. The error strings are v12.8's, verbatim: the walk
+    // builds its degraded reasons from them and ciIsPermanentReason() reads that TEXT.
+    function ciReadResponse(status, text) {
+        if (status !== 200) {
+            // Status 0 through onload is a request that never got an HTTP answer — some
+            // managers report a refused request that way. Not a verdict from the server.
+            return ciFailure(status ? 'http' : 'network', status, 'HTTP ' + status,
+                             status ? ciErrorType(text) : '');
+        }
+        try {
+            return { ok: true, kind: 'ok', status: 200, json: JSON.parse(text),
+                     errorType: '', error: '', detail: '' };
+        } catch (e) {
+            return ciFailure('parse', 200, 'malformed JSON');
+        }
+    }
+
+    // The manager's own words for a failed request, kept short, for the diagnostic line
+    // only. Example: Tampermonkey 5.5.0 on Firefox passes {error: 'background shutdown'}
+    // when its background page unloads mid-request — read in its shipped page.js; the
+    // abort itself is Tampermonkey issue #2892, fixed in 5.5.1. Not observed here.
+    function ciGmErrorDetail(res) {
+        try {
+            var d = res && (res.error || res.statusText);
+            return d ? String(d).slice(0, 80) : '';
+        } catch (e) { return ''; }
+    }
+
+    function ciGmxhrGet(path, done) {
+        var watchdog = null;
         if (typeof GM_xmlhttpRequest !== 'function') {
-            cb(new Error('GM_xmlhttpRequest unavailable'), null, 0);
+            done(ciFailure('threw', 0, 'GM_xmlhttpRequest unavailable'));
             return;
         }
-        GM_xmlhttpRequest({
-            method: 'GET',
-            url: url,
-            timeout: CI_FETCH_TIMEOUT_MS,
-            headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
-            onload: function (res) {
-                if (res.status !== 200) {
-                    cb(new Error('HTTP ' + res.status), null, res.status);
-                    return;
+        function finish(r) {
+            if (watchdog !== null) { clearTimeout(watchdog); watchdog = null; }
+            done(r);
+        }
+        // The manager's own `timeout` (below) answers a slow server. This answers a manager
+        // that never calls back AT ALL — which Userscripts does when its non-persistent
+        // background page unloads mid-request (read from its source, not observed). That is
+        // the transport failing, not the server, hence 'threw': it qualifies for the ladder.
+        // Set past the manager's timeout so that a live request always reports first.
+        watchdog = setTimeout(function () {
+            watchdog = null;
+            done(ciFailure('threw', 0, 'GM_xmlhttpRequest never called back'));
+        }, CI_FETCH_TIMEOUT_MS + 5000);
+        try {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: CI_API_ORIGIN + path,
+                timeout: CI_FETCH_TIMEOUT_MS,
+                headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
+                onload: function (res) {
+                    var r;
+                    try { r = ciReadResponse(res.status, res.responseText); }
+                    catch (e) { r = ciFailure('threw', 0, 'GM_xmlhttpRequest threw', '', ciErrorName(e)); }
+                    finish(r);
+                },
+                onerror:   function (res) { finish(ciFailure('network', 0, 'network error', '', ciGmErrorDetail(res))); },
+                ontimeout: function () { finish(ciFailure('timeout', 0, 'timeout')); }
+            });
+        } catch (e) {
+            // v12.8 let this escape ciLoadIndex as a page error. The in-flight marker was
+            // never released, so the index sat at "loading" for the rest of the session.
+            finish(ciFailure('threw', 0, 'GM_xmlhttpRequest threw', '', ciErrorName(e)));
+        }
+    }
+
+    function ciFetchOrigin() {
+        try { return String(window.location.origin || ''); } catch (e) { return ''; }
+    }
+
+    // Two bounds on the requests this transport leaves open. With no AbortSignal (below) a
+    // fetch is never cancelled — a timed-out or superseded one stays open until the network
+    // gives up on it — so without bounds they could pile up (Codex Tier 3, v12.9):
+    //  - CI_FETCH_STALL_MAX: timed out and still pending. The transient retry runs every
+    //    ~16s, so each retry against a hanging path would leave one more behind. ONE such
+    //    request blocks nothing — a single hang, in this conversation or another, is no
+    //    evidence the path is dead. TWO at once is.
+    //  - CI_FETCH_OPEN_MAX: open at all, timed out or not. The stall count sees a request
+    //    only once its 45s are up, so opening conversation after conversation inside that
+    //    window could open any number (Codex round 6). Six is far above what real use keeps
+    //    open — one load per conversation, ~2.1s for a 3.3MB payload (DEC-021, measured in
+    //    a foreground tab) — so only a burst into a hanging path reaches it.
+    // At either bound a new attempt reports a timeout at once instead of sending, and every
+    // request frees its slots the moment it ends. Both counts are PAGE-WIDE: a
+    // per-conversation count was tried first and needed re-keying in three review rounds
+    // (a hang in chat A blocking chat B; a switch during the first load skipping the reset;
+    // A -> B -> A resetting it so that navigation could pile requests up without bound).
+    // The cost: two requests that never end keep the index degraded until a reload.
+    // claude.ai is behind Cloudflare, whose documented ~100s origin timeout should end a
+    // hung request on its own (inferred, not measured).
+    var CI_FETCH_STALL_MAX = 2;
+    var CI_FETCH_OPEN_MAX  = 6;
+    var _ciFetchStalled    = 0;
+    var _ciFetchOpen       = 0;
+
+    // EXACTLY the call that measured 200 on Safari — fetch(url, {credentials: 'include'})
+    // — and nothing more:
+    //  - no custom headers: Cache-Control would make the request non-simple, i.e. a CORS
+    //    preflight wherever the calling realm's origin is the extension's;
+    //  - no AbortSignal: one more object handed from this realm into fetch — the shape that
+    //    fails cross-compartment wherever a sandbox's fetch and AbortController come from
+    //    different realms (inferred from Firefox's sandbox model, not measured). The
+    //    timeout is a timer; _ciFetchStalled and _ciFetchOpen bound what that leaves behind.
+    // The URL is built from location.origin, as measured — and ONLY when that origin is
+    // claude.ai. The request carries the page's cookies, so on any other origin it is
+    // refused, never sent. ciIsClaudeChat already keeps the index off every other origin,
+    // so today this cannot fire; it stays so the transport is safe on its own if that
+    // guard is ever loosened (and the mutation matrix records it as unreachable, ungated).
+    function ciFetchGet(path, done) {
+        var timer = null, stalled = false, open = false;
+        var origin = ciFetchOrigin();
+        if (typeof fetch !== 'function') {
+            done(ciFailure('threw', 0, 'fetch unavailable'));
+            return;
+        }
+        if (origin !== CI_API_ORIGIN) {
+            done(ciFailure('threw', 0, 'fetch refused: page origin is not ' + CI_API_ORIGIN));
+            return;
+        }
+        if (_ciFetchStalled >= CI_FETCH_STALL_MAX || _ciFetchOpen >= CI_FETCH_OPEN_MAX) {
+            done(ciFailure('timeout', 0, 'timeout', '', 'earlier requests are still unanswered'));
+            return;
+        }
+        function finish(r) {
+            if (timer !== null) { clearTimeout(timer); timer = null; }
+            done(r);
+        }
+        // The request has ended, one way or another — or nothing will ever report its end:
+        // free the slots it took. Every path must reach this, or a slot is held for the rest
+        // of the page and counts against every later request.
+        function ended() {
+            if (open)    { open = false;    _ciFetchOpen--; }
+            if (stalled) { stalled = false; _ciFetchStalled--; }
+        }
+        // A response whose body nobody will read: cancel its stream, so the download stops
+        // rather than running on after its slot was freed — a late 3.3MB answer would
+        // otherwise keep streaming while the bounds above count it as gone (Codex Tier 3
+        // round 9). Best effort: no stream, or a cancel that throws, leaves only what the
+        // network would have done anyway.
+        function discard(res) {
+            try {
+                if (res && res.body && typeof res.body.cancel === 'function') {
+                    res.body.cancel().then(null, function () {});
                 }
-                var data;
+            } catch (e) {}
+        }
+        // Also the escape hatch for a promise that never settles either way, so an
+        // unusable transport can delay the index but never wedge it.
+        timer = setTimeout(function () {
+            timer = null;
+            stalled = true;
+            _ciFetchStalled++;
+            done(ciFailure('timeout', 0, 'timeout'));
+        }, CI_FETCH_TIMEOUT_MS);
+        try {
+            open = true;
+            _ciFetchOpen++;
+            fetch(origin + path, { credentials: 'include' }).then(function (res) {
+                var status;
+                // A late answer to a request already reported as timed out: nobody will
+                // read it, so do not download what may be megabytes of body.
+                if (stalled) { discard(res); ended(); return; }
                 try {
-                    data = JSON.parse(res.responseText);
+                    status = res.status;
+                    // text() + OUR JSON.parse, not res.json(): the same 'malformed JSON'
+                    // class as gmxhr, and the parsed object belongs to this realm.
+                    res.text().then(function (text) {
+                        ended();
+                        finish(ciReadResponse(status, text));
+                    }, function (e) {
+                        ended();
+                        finish(ciFailure('network', 0, 'network error', '', ciErrorName(e)));
+                    });
                 } catch (e) {
-                    cb(new Error('malformed JSON'), null, res.status);
-                    return;
+                    // Reading the response threw: a sandbox/compartment failure, not a
+                    // network one. Nothing will report this request's end now.
+                    discard(res);
+                    ended();
+                    finish(ciFailure('threw', 0, 'fetch threw', '', ciErrorName(e)));
                 }
-                cb(null, data, res.status);
-            },
-            onerror:   function () { cb(new Error('network error'), null, 0); },
-            ontimeout: function () { cb(new Error('timeout'), null, 0); }
+            }, function (e) {
+                ended();
+                finish(ciFailure('network', 0, 'network error', '', ciErrorName(e)));
+            });
+        } catch (e) {
+            // fetch() itself threw, or did not return a promise: nothing was sent that
+            // this code can ever see end.
+            ended();
+            finish(ciFailure('threw', 0, 'fetch threw', '', ciErrorName(e)));
+        }
+    }
+
+    // ONE request over ONE transport, normalised so nothing above it needs to know
+    // which transport answered:
+    //   { ok, kind, status, json, errorType, transport, error, detail }
+    //   kind: 'ok' | 'http' (the server answered non-200) | 'parse' (200, bad JSON)
+    //       | 'network' (no HTTP answer) | 'timeout' | 'threw' (the transport itself
+    //         threw, or does not exist here)
+    // `cb` fires exactly once. If cb itself throws, the exception is rethrown on a
+    // fresh stack — inside a promise chain it would otherwise vanish, or be reported
+    // as a transport failure that never happened.
+    function ciApiGet(transport, path, cb) {
+        var settled = false;
+        function settle(r) {
+            if (settled) return;
+            settled = true;
+            r.transport = transport;
+            try { cb(r); } catch (e) { setTimeout(function () { throw e; }, 0); }
+        }
+        if (transport === 'fetch') ciFetchGet(path, settle);
+        else ciGmxhrGet(path, settle);
+    }
+
+    // What ONE transport's org walk saw, counted per RESPONSE rather than read off the
+    // walk's final error — the ladder's questions are about the transport, and the final
+    // error describes only the last step:
+    //   refused  — 401, 403 or 404: the answers the walk itself reads as "this org will
+    //              not serve this conversation to THIS transport" (403/404 advance to
+    //              the next candidate; 401 ends the walk)
+    //   threw    — the transport itself threw, does not exist here, or never called back
+    //   noAnswer — a network error or timeout: no verdict from the server at all
+    //   verdict  — any other answer (429, 5xx, a malformed body) — and an org list that
+    //              parsed but holds no usable org (ciCountUnusableOrgList)
+    function ciNewTrace(transport) {
+        return { transport: transport, refused: 0, threw: 0, noAnswer: 0, verdict: 0 };
+    }
+
+    // Try the other transport when every failed answer was a refusal (spec: "401/403 for
+    // every org candidate") or the transport could not run ("or throws"). 404 counts as a
+    // refusal because the walk treats it exactly like 403: a 404 from one transport says
+    // nothing about the other, which may be signed in as someone else entirely — that is
+    // this whole bug class. Excluding it let a walk that met one 404 and one 403 go
+    // PERMANENT with the other transport never tried (v12.9 review, reproduced).
+    // Deliberately NOT on:
+    //   - network errors and timeouts: the other transport cannot fix an outage, and
+    //     falling back on a blip would move Firefox onto fetch for the rest of the page
+    //     session (the winner is cached). These are transient — retried, never PERMANENT.
+    //   - 429: the account is rate-limited; asking again through the other transport only
+    //     adds to it. Keeps v12.8's backoff.
+    //   - 5xx, a malformed body, an org list with no usable org: a verdict about the
+    //     server; transient / v12.8's class.
+    // The walk stops at the first of these, so the reason it ends with names that kind —
+    // which is why a REFUSAL can never be declared PERMANENT here without the other
+    // transport having been tried.
+    function ciTraceWantsFallback(trace) {
+        return trace.noAnswer === 0 && trace.verdict === 0 && (trace.refused + trace.threw) > 0;
+    }
+
+    // One compact line per request. Every status line names the transport that
+    // produced it, so a failure log from a user's browser explains itself without a
+    // probe (measurement-context rule). Org uuids are cut to 8 characters, and no
+    // response body is ever printed — only a vetted error type.
+    function ciLogAttempt(r, org) {
+        console.log('[ACN] index: transport=' + r.transport +
+                    ' org=' + (org ? String(org).slice(0, 8) + '\u2026' : 'list') +
+                    ' status=' + r.status +
+                    (r.errorType ? ' error.type=' + r.errorType : '') +
+                    (!r.ok && r.kind !== 'http'
+                        ? ' error=' + r.error + (r.detail ? ' (' + r.detail + ')' : '') : ''));
+    }
+
+    // One request inside a walk: issue it on the walk's transport, count it, log it.
+    function ciApiStep(trace, path, org, cb) {
+        ciApiGet(trace.transport, path, function (r) {
+            if (!r.ok) {
+                if (r.kind === 'http' && (r.status === 401 || r.status === 403 || r.status === 404)) {
+                    trace.refused++;
+                }
+                else if (r.kind === 'threw') trace.threw++;
+                else if (r.kind === 'network' || r.kind === 'timeout') trace.noAnswer++;
+                else trace.verdict++;
+            }
+            ciLogAttempt(r, org);
+            cb(r);
         });
     }
 
     // ── Org UUID resolution ─────────────────────────────────────
     // The conversation uuid is in the URL; the org uuid is not. Resolution is
     // ordered by reliability, and the caller VALIDATES the choice by using it —
-    // a wrong org returns 404 on the conversation fetch, which triggers the next
-    // candidate. We never probe speculatively: the conversation fetch is needed
+    // a wrong org returns 404 or 403 on the conversation fetch (403 is what an org
+    // the account is not in answers), which triggers the next candidate.
+    // We never probe speculatively: the conversation fetch is needed
     // anyway, so making it the validator costs nothing extra.
     function ciAccountKey() {
         return ciGetCookie('ajs_user_id') || ciGetCookie('lastActiveOrg') || 'default';
@@ -1275,7 +1610,8 @@
     }
 
     // Returns an ordered candidate list via callback. Cheapest, most-likely first.
-    function ciResolveOrgCandidates(cb) {
+    // `trace` carries the transport this walk runs on (see ciNewTrace).
+    function ciResolveOrgCandidates(trace, cb) {
         var candidates = [];
         function add(u) {
             if (u && candidates.indexOf(u) === -1) candidates.push(u);
@@ -1294,11 +1630,12 @@
         } catch (e) {}
 
         // If the cheap sources produced anything, use them; the caller falls back
-        // to the full org list only when every candidate 404s.
+        // to the full org list only when every candidate 404s or 403s.
         if (candidates.length) { cb(candidates); return; }
 
-        ciRequestJSON('https://claude.ai/api/organizations', function (err, orgs, status) {
-            if (err || !Array.isArray(orgs)) {
+        ciApiStep(trace, '/api/organizations', null, function (r) {
+            ciCountUnusableOrgList(trace, r);
+            if (!r.ok || !Array.isArray(r.json)) {
                 // Carry the HTTP status: discarding it made every logged-out or
                 // rate-limited session degrade with a generic reason that dodged the
                 // backoff classes, retrying /api/organizations every 15s
@@ -1310,30 +1647,51 @@
                 // none of ciSetDegraded's permanent-failure patterns, so the backoff
                 // stayed at zero and the failing endpoint was polled every cooldown
                 // forever. The classifier keys on the reason TEXT, so it has to survive.
-                cb(candidates, err && status ? status : null, err ? err.message : null);
+                cb(candidates, (!r.ok && r.status) ? r.status : null, !r.ok ? r.error : null);
                 return;
             }
-            cb(ciRankOrgs(orgs));
+            cb(ciRankOrgs(r.json));
         });
     }
 
     // Orgs that can hold chats advertise the 'chat' capability. Ranking by it
     // replaces the old orgs[0] positional guess, which silently picked the wrong
     // org for anyone belonging to more than one.
+    // Must not throw on ANY shape: it runs inside a response callback, where a throw
+    // abandons the walk mid-flight — the load never finishes and the in-flight marker
+    // stays set, so the panel reads "Loading full conversation history" for the rest of
+    // the session. `capabilities` arriving as an object ({chat: true}) did exactly that
+    // (v12.9 review, reproduced on v12.8). The order for well-formed input is unchanged.
     function ciRankOrgs(orgs) {
         var chatOrgs = [], others = [];
         for (var i = 0; i < orgs.length; i++) {
             var o = orgs[i];
             if (!o || !o.uuid) continue;
-            var caps = o.capabilities || [];
+            var caps = Array.isArray(o.capabilities) ? o.capabilities : [];
             if (caps.indexOf('chat') !== -1) chatOrgs.push(o.uuid);
             else others.push(o.uuid);
         }
         return chatOrgs.concat(others);
     }
 
-    function ciConversationUrl(org, cid) {
-        return 'https://claude.ai/api/organizations/' + org + '/chat_conversations/' + cid +
+    // An org list that answered 200 and parsed, yet holds no usable org — not an array, or
+    // no entry with a uuid — is the server answering, just not with an org list: for the
+    // ladder a VERDICT, like a malformed body. It explains the failure, so it neither
+    // sends the load to the other transport nor upholds the other's refusal. Uncounted,
+    // a second transport that met a 403 and then this upheld the first's refusal and
+    // went PERMANENT, where v12.8 retried on the plain cooldown (Codex Tier 3 round 7).
+    // Counting only: the walk's own path and reasons are untouched. An org list that IS
+    // usable but holds nothing untried is no verdict — the refusals stand. On the all-orgs
+    // path after cheap-candidate 403s, the walk's own reason still carries that 403, so an
+    // ARRAY with no usable org ends PERMANENT there, as in v12.8 (owner's decision, PR #75).
+    function ciCountUnusableOrgList(trace, r) {
+        if (r.ok && !(Array.isArray(r.json) && ciRankOrgs(r.json).length)) trace.verdict++;
+    }
+
+    // A PATH, not a URL: each transport supplies its own origin (ciGmxhrGet keeps
+    // v12.8's https://claude.ai; ciFetchGet uses location.origin).
+    function ciConversationPath(org, cid) {
+        return '/api/organizations/' + org + '/chat_conversations/' + cid +
                '?tree=True&rendering_mode=messages&render_all_tools=true&consistency=strong';
     }
 
@@ -1646,9 +2004,11 @@
     }
 
     // ── Fetch orchestration ─────────────────────────────────────
-    // Tries candidate orgs in order. A 404 means "wrong org" and advances to the
-    // next; any other failure is terminal and drops us to degraded mode.
-    function ciFetchWithOrgFallback(cid, candidates, idx, cb, exhaustedCb, lastStatus) {
+    // Tries candidate orgs in order. A 404 or 403 means "wrong org" and advances to
+    // the next; any other failure is terminal and drops us to degraded mode.
+    // Everything below runs on ONE transport — the one `trace` names. The ladder in
+    // ciLoadIndex decides whether a failed walk is repeated on the other one.
+    function ciFetchWithOrgFallback(trace, cid, candidates, idx, cb, exhaustedCb, lastStatus) {
         if (idx >= candidates.length) {
             // Every cheap candidate was rejected. A stale cached org (account
             // switched, org migrated) would otherwise dead-end here permanently,
@@ -1663,29 +2023,30 @@
             return;
         }
         var org = candidates[idx];
-        ciRequestJSON(ciConversationUrl(org, cid), function (err, data, status) {
-            if (!err) {
+        ciApiStep(trace, ciConversationPath(org, cid), org, function (r) {
+            if (r.ok) {
                 // NO commit here. A stale org-A request completing after org-B's ran
                 // these writes BEFORE finish() rejected the stale generation, so B's
                 // validated org cache was overwritten with A — wrong usage quota and
                 // wrong org for every later load (Codex R10 :1521). The successful org
                 // rides to the generation-guarded completion path, which commits it
                 // only after the guard passes.
-                cb(null, data, org);
+                cb(null, r.json, org);
                 return;
             }
-            if (status === 404 || status === 403) {
-                ciFetchWithOrgFallback(cid, candidates, idx + 1, cb, exhaustedCb, status);
+            if (r.status === 404 || r.status === 403) {
+                ciFetchWithOrgFallback(trace, cid, candidates, idx + 1, cb, exhaustedCb, r.status);
                 return;
             }
-            cb(err, null);
+            cb(new Error(r.error), null);
         });
     }
 
     // Full org list, used only after the cheap candidates have all been rejected.
-    function ciFetchFromAllOrgs(cid, tried, cb, triedStatus) {
-        ciRequestJSON('https://claude.ai/api/organizations', function (err, orgs, status) {
-            if (err || !Array.isArray(orgs)) {
+    function ciFetchFromAllOrgs(trace, cid, tried, cb, triedStatus) {
+        ciApiStep(trace, '/api/organizations', null, function (r) {
+            ciCountUnusableOrgList(trace, r);
+            if (!r.ok || !Array.isArray(r.json)) {
                 // Status rides the error so the backoff can classify it — the FOURTH
                 // entry point of the same hole (R14, R16, R18): this fallback runs when
                 // cheap candidates existed but were all rejected, and a 401/403/429
@@ -1697,21 +2058,49 @@
                 // conversation requests on the short cooldown instead of backing off. Same
                 // defect as the initial org-resolution path, at the fallback (Codex).
                 cb(new Error('no org candidate accepted the conversation' +
-                             (err && err.message ? ': ' + err.message : '') +
-                             (err && status ? ' (HTTP ' + status + ')' : '')), null);
+                             (!r.ok && r.error ? ': ' + r.error : '') +
+                             (!r.ok && r.status ? ' (HTTP ' + r.status + ')' : '')), null);
                 return;
             }
-            var ranked = ciRankOrgs(orgs).filter(function (u) { return tried.indexOf(u) === -1; });
+            var ranked = ciRankOrgs(r.json).filter(function (u) { return tried.indexOf(u) === -1; });
             if (!ranked.length) {
                 // FIFTH sibling of the status-discarding family (R14/R16/R18/R19,
                 // Codex R23): every cheap candidate 403'd and the org list held
                 // nothing new — without the status this dodged the backoff and an
                 // unauthorized tab retried every 15s.
+                // That includes an org list that answered 200 with no usable org: it keeps
+                // v12.8's reason, and so v12.8's PERMANENT backoff (owner's decision on
+                // PR #75, reverting Codex Tier 3 round 8's change to a plain retry).
                 cb(new Error('no org candidate accepted the conversation' +
                              (triedStatus ? ' (HTTP ' + triedStatus + ')' : '')), null);
                 return;
             }
-            ciFetchWithOrgFallback(cid, ranked, 0, cb, null);
+            ciFetchWithOrgFallback(trace, cid, ranked, 0, cb, null);
+        });
+    }
+
+    // One complete org walk on ONE transport — v12.8's walk, unchanged in order and in
+    // every reason it produces: cheap candidates, then the org list. Reports
+    // { trace, err, data, org, noOrg }; noOrg marks the "could not even resolve an org"
+    // exit, which v12.8 handled on its own path (see finish() in ciLoadIndex).
+    function ciWalkOrgs(transport, cid, cb) {
+        var trace = ciNewTrace(transport);
+        ciResolveOrgCandidates(trace, function (candidates, orgStatus, orgReason) {
+            if (!candidates.length) {
+                // orgReason is included so a schema/parse failure reaches the
+                // permanent-failure classifier, which matches on the reason text.
+                cb({ trace: trace, noOrg: true,
+                     err: new Error('could not resolve organization UUID' +
+                                    (orgReason ? ': ' + orgReason : '') +
+                                    (orgStatus ? ' (HTTP ' + orgStatus + ')' : '')) });
+                return;
+            }
+            function walked(err, data, org) {
+                cb({ trace: trace, err: err, data: data, org: org });
+            }
+            ciFetchWithOrgFallback(trace, cid, candidates, 0, walked, function (st) {
+                ciFetchFromAllOrgs(trace, cid, candidates, walked, st);
+            });
         });
     }
 
@@ -1734,7 +2123,24 @@
                                // re-download and re-parse the 3.3MB payload every 15s
                                // indefinitely — hundreds of MB per hour on an open
                                // tab (Codex R12 :3564).
-    function ciSetDegraded(cid, reason) {
+
+    // Backoff classes (Codex R12 :3564, R14 :1566), read off the reason TEXT — which is
+    // why every entry point carries its status and message into the reason:
+    //  - schema/data failures: an API change makes every retry identical
+    //  - HTTP 401/403: a logged-out or unauthorized tab polls forever
+    //  - HTTP 429: retrying every cooldown actively worsens the rate limit
+    // One function, so the ladder in ciLoadIndex judges each transport's outcome by
+    // exactly the rule ciSetDegraded applies.
+    function ciIsPermanentReason(reason) {
+        return /unexpected response shape|malformed message data|malformed JSON|HTTP (401|403|429)/
+            .test(reason || '');
+    }
+
+    // `permanent` is optional. Omitted, the reason text decides (every v12.8 caller).
+    // The transport ladder passes it explicitly once BOTH transports have failed,
+    // because its combined reason names both outcomes and its text alone would not say
+    // which one decides the class.
+    function ciSetDegraded(cid, reason, permanent) {
         // Captured BEFORE the status changes. The retention branch below tests it, and an
         // earlier version tested _ciStatus directly — which this very line had already set
         // to 'degraded', so the branch could never run and the snapshot was destroyed
@@ -1744,12 +2150,7 @@
 
         _ciStatus         = 'degraded';
         _ciDegradedReason = reason;
-        // Backoff classes (Codex R12 :3564, R14 :1566):
-        //  - schema/data failures: an API change makes every retry identical
-        //  - HTTP 401/403: a logged-out or unauthorized tab polls forever
-        //  - HTTP 429: retrying every cooldown actively worsens the rate limit
-        var permanent = /unexpected response shape|malformed message data|malformed JSON|HTTP (401|403|429)/
-            .test(reason || '');
+        if (typeof permanent !== 'boolean') permanent = ciIsPermanentReason(reason);
         if (permanent) {
             _ciRetryDelayMs = _ciRetryDelayMs ? Math.min(_ciRetryDelayMs * 4, 1800000)
                                               : 60000;
@@ -1832,85 +2233,147 @@
             _ciStatus = 'loading';
         }
 
-        ciResolveOrgCandidates(function (candidates, orgStatus, orgReason) {
-            if (!candidates.length) {
-                if (_ciInFlightCid === cid && _ciInFlightGen === myGen) _ciInFlightCid = null;
-                if (myGen !== _ciLoadGen || ciGetConversationUuid() !== cid) { if (done) done(false); return; }
-                // orgReason is included so a schema/parse failure reaches the
-                // permanent-failure classifier, which matches on the reason text.
-                ciSetDegraded(cid, 'could not resolve organization UUID' +
-                                   (orgReason ? ': ' + orgReason : '') +
-                                   (orgStatus ? ' (HTTP ' + orgStatus + ')' : ''));
+        // res: one walk's report (ciWalkOrgs). `permanent` is passed only by the ladder,
+        // once both transports have failed; otherwise the reason text decides, as in v12.8.
+        // Runs at most once per load — `done` arms a rescan and a timer, so a second
+        // call would double both. Every path below calls it once by construction; the
+        // latch makes that a guarantee rather than a property of the call graph.
+        var finished = false;
+        function finish(res, permanent) {
+            if (finished) return;
+            finished = true;
+            // SUPERSESSION GUARD (Codex R4): conversation scoping lets a NEW load
+            // start while the OLD request is still pending — but the old callback
+            // still fires. Without this check, an old request failing AFTER the
+            // new one succeeded called ciSetDegraded() over the fresh ready index,
+            // and clearing the in-flight marker unconditionally could clobber the
+            // NEW load's marker. A stale callback must touch nothing.
+            // Release OUR OWN marker first — ownership is the generation pair, so
+            // this cannot clobber a newer request's marker, and a request whose
+            // conversation the user left no longer wedges future loads of it.
+            if (_ciInFlightCid === cid && _ciInFlightGen === myGen) _ciInFlightCid = null;
+            if (myGen !== _ciLoadGen || ciGetConversationUuid() !== cid) {
+                // v12.8 had two exits here and they differed: the could-not-resolve-an-org
+                // exit still reported done(false) when superseded, while a completed walk
+                // touched nothing. Both are kept exactly as they were.
+                if (res.noOrg && done) done(false);
+                return;
+            }
+            var err = res.err, data = res.data, org = res.org;
+            if (org) {                 // guard passed: THIS load owns the state
+                _ciOrgUuid = org;
+                ciWriteCachedOrg(org);
+                // Usage fetched against a guessed org (multi-org user opened the
+                // panel before validation) stays cached for up to 5 minutes showing
+                // the WRONG org's quota (Codex R12 :4204). Validating a different
+                // org invalidates it.
+                if (_usageOrgUuid && _usageOrgUuid !== org) _usageLastFetch = 0;
+            }
+            if (err) {
+                ciSetDegraded(cid, err.message, permanent);
                 if (done) done(false);
                 return;
             }
-            function finish(err, data, org) {
-                // SUPERSESSION GUARD (Codex R4): conversation scoping lets a NEW load
-                // start while the OLD request is still pending — but the old callback
-                // still fires. Without this check, an old request failing AFTER the
-                // new one succeeded called ciSetDegraded() over the fresh ready index,
-                // and clearing the in-flight marker unconditionally could clobber the
-                // NEW load's marker. A stale callback must touch nothing.
-                // Release OUR OWN marker first — ownership is the generation pair, so
-                // this cannot clobber a newer request's marker, and a request whose
-                // conversation the user left no longer wedges future loads of it.
-                if (_ciInFlightCid === cid && _ciInFlightGen === myGen) _ciInFlightCid = null;
-                if (myGen !== _ciLoadGen || ciGetConversationUuid() !== cid) return;
-                if (org) {                 // guard passed: THIS load owns the state
-                    _ciOrgUuid = org;
-                    ciWriteCachedOrg(org);
-                    // Usage fetched against a guessed org (multi-org user opened the
-                    // panel before validation) stays cached for up to 5 minutes showing
-                    // the WRONG org's quota (Codex R12 :4204). Validating a different
-                    // org invalidates it.
-                    if (_usageOrgUuid && _usageOrgUuid !== org) _usageLastFetch = 0;
-                }
-                if (err) {
-                    ciSetDegraded(cid, err.message);
-                    if (done) done(false);
-                    return;
-                }
-                if (!ciValidateShape(data)) {
-                    ciSetDegraded(cid, 'unexpected response shape');
-                    if (done) done(false);
-                    return;
-                }
-                try {
-                    _ciIndex = ciBuildIndex(data);
-                } catch (buildErr) {
-                    // Shape validation only inspects chat_messages[0]; a malformed
-                    // record further in would throw here. Without this catch the
-                    // exception escaped after _ciInFlight was already cleared,
-                    // stranding _ciStatus at 'loading' — which is neither 'idle'
-                    // nor 'degraded', so no retry ever fired and no banner showed.
-                    ciSetDegraded(cid, 'malformed message data: ' + buildErr.message);
-                    if (done) done(false);
-                    return;
-                }
-                _ciConversationId = cid;
-                _ciStatus         = 'ready';
-                _ciDegradedReason = '';
-                _ciRetryDelayMs   = 0;
-                _ciRefreshFailed  = '';
-                // Baseline for the thinking reconciliation: everything SSE has observed so
-                // far is now also in the index, so only growth beyond this point is extra.
-                _sseThinkAtIndex = (typeof _sseTokenData !== 'undefined' && _sseTokenData)
-                    ? (_sseTokenData.cumulativeThinkingChars || 0) : 0;
-                // The rebuild landed: the evidence that triggered it has now been acted
-                // on, so suppress it. A mismatch a refetch cannot fix (rendered tool
-                // output) is thereby resynced exactly once.
-                if (_ciPendingResyncSig) {
-                    _ciAwaitingResyncSig = _ciPendingResyncSig;
-                    _ciPendingResyncSig  = '';
-                }
-                console.log('[ACN] conversation index ready: ' + _ciIndex.length +
-                            ' questions (' + (data.chat_messages || []).length +
-                            ' messages in payload)');
-                if (done) done(true);
+            if (!ciValidateShape(data)) {
+                ciSetDegraded(cid, 'unexpected response shape');
+                if (done) done(false);
+                return;
             }
+            try {
+                _ciIndex = ciBuildIndex(data);
+            } catch (buildErr) {
+                // Shape validation only inspects chat_messages[0]; a malformed
+                // record further in would throw here. Without this catch the
+                // exception escaped after _ciInFlight was already cleared,
+                // stranding _ciStatus at 'loading' — which is neither 'idle'
+                // nor 'degraded', so no retry ever fired and no banner showed.
+                ciSetDegraded(cid, 'malformed message data: ' + buildErr.message);
+                if (done) done(false);
+                return;
+            }
+            _ciConversationId = cid;
+            _ciStatus         = 'ready';
+            _ciDegradedReason = '';
+            _ciRetryDelayMs   = 0;
+            _ciRefreshFailed  = '';
+            // The transport that delivered a USABLE index goes first from now on, so a
+            // refresh does not pay for the rejected one again (page session only). Only
+            // here: a 200 whose body then failed validation is no win — cached, that
+            // transport would lead every later load, and its next 200 would end each walk
+            // before the other transport was ever asked (Codex Tier 3 round 6).
+            _ciTransport = res.trace.transport;
+            // Baseline for the thinking reconciliation: everything SSE has observed so
+            // far is now also in the index, so only growth beyond this point is extra.
+            _sseThinkAtIndex = (typeof _sseTokenData !== 'undefined' && _sseTokenData)
+                ? (_sseTokenData.cumulativeThinkingChars || 0) : 0;
+            // The rebuild landed: the evidence that triggered it has now been acted
+            // on, so suppress it. A mismatch a refetch cannot fix (rendered tool
+            // output) is thereby resynced exactly once.
+            if (_ciPendingResyncSig) {
+                _ciAwaitingResyncSig = _ciPendingResyncSig;
+                _ciPendingResyncSig  = '';
+            }
+            console.log('[ACN] conversation index ready: ' + _ciIndex.length +
+                        ' questions (' + (data.chat_messages || []).length +
+                        ' messages in payload) via ' + res.trace.transport);
+            if (done) done(true);
+        }
 
-            ciFetchWithOrgFallback(cid, candidates, 0, finish, function (st) {
-                ciFetchFromAllOrgs(cid, candidates, finish, st);
+        // A walk whose SYNCHRONOUS prefix throws — reading the candidates before any
+        // request exists (a malformed lastActiveOrg cookie makes decodeURIComponent throw).
+        // Not a transport failure, and the other transport would hit the same throw, so it
+        // ends the load: degraded and retried on the cooldown, instead of escaping with the
+        // in-flight marker set, which left the index at "loading" for the session.
+        // ONLY the synchronous prefix: a throw inside a response callback is caught by
+        // ciApiGet and rethrown on a fresh stack, and that walk never reports back — so
+        // every walk continuation must be total (see ciRankOrgs).
+        function walk(transport, cb) {
+            try {
+                ciWalkOrgs(transport, cid, cb);
+            } catch (e) {
+                finish({ trace: ciNewTrace(transport),
+                         err: new Error('[' + transport + '] org walk threw: ' + ciErrorName(e)) });
+            }
+        }
+
+        // THE LADDER. Walk every org candidate on the first transport; only if that
+        // walk was refused outright (ciTraceWantsFallback) walk them again on the
+        // second. A failure that does not qualify keeps v12.8's exact classification.
+        var order = ciTransportOrder();
+        console.log('[ACN] index order: ' + order[0] + ' \u2192 ' + order[1] +
+                    (_ciTransport ? ' (this session\'s last winner first)'
+                                  : ' (scriptHandler: ' + (ciScriptHandler() || 'unknown') + ')'));
+        walk(order[0], function (first) {
+            if (!first.err || !ciTraceWantsFallback(first.trace) ||
+                myGen !== _ciLoadGen || ciGetConversationUuid() !== cid) {
+                // Every summary line names the transport that produced it (spec 2.4).
+                // ciIsPermanentReason is unanchored, so the prefix changes no class.
+                if (first.err) first.err = new Error('[' + order[0] + '] ' + first.err.message);
+                finish(first);
+                return;
+            }
+            console.log('[ACN] index fallback: ' + order[0] + ' ' +
+                        (first.trace.threw ? 'could not run here'
+                                           : 'was refused by every org candidate') +
+                        ' \u2014 trying ' + order[1]);
+            walk(order[1], function (second) {
+                if (!second.err) { finish(second); return; }
+                // Both failed. PERMANENT when the second transport's own verdict is
+                // (v12.8's rule), or when the second met nothing that EXPLAINS its failure —
+                // only refusals, throws or silence; no server error, rate limit or bad body —
+                // and the first was refused: then nothing says the second could do better,
+                // so the first's refusal stands. Without that, a logged-out tab whose fetch
+                // merely fails to connect (or meets a wrong-org 403 and then silence)
+                // re-polled both refused walks every ~16s forever, where v12.8 backed off
+                // (Codex Tier 3 round 3). A 5xx from the second IS a server verdict — it may
+                // clear on its own — so that stays on the plain cooldown.
+                var t = second.trace;
+                var secondUpholdsRefusal = t.verdict === 0;
+                finish({ trace: t, noOrg: second.noOrg,
+                         err: new Error('[' + order[0] + '] ' + first.err.message +
+                                        ' \u00b7 [' + order[1] + '] ' + second.err.message) },
+                       ciIsPermanentReason(second.err.message) ||
+                       (secondUpholdsRefusal && ciIsPermanentReason(first.err.message)));
             });
         });
     }

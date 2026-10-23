@@ -16,7 +16,9 @@
 ├── tests/
 │   ├── test-all-platforms.js           # Playwright test suite
 │   ├── run-tests.sh                    # Convenience shell wrapper
-│   └── mock-pages/                     # 14 mock HTML files matching real platform DOMs
+│   └── mock-pages/                     # 15 mock HTML files matching real platform DOMs
+├── probes/                             # Standalone probes; CI runs them (see probes/README.md)
+├── reviews/                            # Review-pipeline records, one per reviewed change
 ├── docs/                               # Feature specs, design docs, agent plans
 ├── assets/                             # Demo GIFs for README
 ├── .github/workflows/                  # CI: cross-platform tests, Claude Code integration
@@ -34,7 +36,7 @@ The main file is organized into logical phases within a single IIFE:
 
 1. **Initialization (~lines 1-250):** Duplicate guard, i18n strings, settings, version constant
 2. **Platform Registry (~lines 251-950):** `PLATFORMS` object with 14 entries, each defining hostname matching, selectors, theme colors, and message extraction functions
-3. **Conversation Index (~lines 1100-1600):** `ci*` functions — API-backed message enumeration for Claude (see below)
+3. **Conversation Index (from ~line 1150 in v12.9; search `function ci`, some helpers sit far below):** `ci*` functions — API-backed message enumeration for Claude (see below)
 4. **Orbital UI System (~lines 1600-5600):** Zone construction, panel builders (Navigate, Search, Bookmarks, Summary, Tools, Settings), rendering modes
 5. **Helpers & Utilities (~lines 5600+):** Scroll handling, SSE interception, context estimation, bookmark persistence
 
@@ -55,7 +57,10 @@ If one of the other 12 flips, do **not** start from selectors. The order of oper
 | Function | Role |
 |---|---|
 | `ciIsClaudeChat()` | Guard — true only on `claude.ai/chat/<uuid>` |
-| `ciLoadIndex(force, done)` | Resolves org, fetches, builds. Idempotent; `_ciInFlight` blocks concurrency |
+| `ciLoadIndex(force, done)` | Resolves org, fetches, builds. Idempotent; `_ciInFlight` blocks concurrency. Runs the **transport ladder** (v12.9, DEC-045) |
+| `ciApiGet(transport, path, cb)` | ONE request over ONE transport (`'gmxhr'` or `'fetch'`), normalised to `{ok, kind, status, json, errorType, transport, error}`; never throws, calls back exactly once |
+| `ciWalkOrgs(transport, cid, cb)` | v12.8's org walk (cheap candidates → org list), run on one transport; reports a per-response `trace` the ladder decides from |
+| `ciTransportOrder()` | `[first, second]` — this session's last winner, else `GM_info.scriptHandler` (Userscripts → fetch first). **Orders only**: the rule for trying the second transport is the same in either order |
 | `ciResolveActivePath(data)` | Walks `current_leaf_message_uuid` → root, excluding abandoned branches |
 | `ciExtractText(msg)` | `content[]` text blocks → attachment `extracted_content` → file names |
 | `ciIsReady()` | **Check this before reading the index.** False on other platforms and while degraded |
@@ -64,6 +69,15 @@ If one of the other 12 flips, do **not** start from selectors. The order of oper
 | `ciTotalChars()` / `ciTotalThinkingChars()` | Whole-conversation counts for context tracking |
 
 State lives in `_ci*` module variables. `_ciIndex` holds human turns; `_ciFullPath` holds the full ordered path (human + assistant) and is what Export reads.
+
+**Two transports, because `GM_xmlhttpRequest` is not one API (v12.9, DEC-045).** Each userscript manager implements it, and Safari's Userscripts app does not send the claude.ai session with it — 403 from every org — while a plain `fetch` from the same content-script world does. So the index can use either. The rules that matter when touching it:
+
+- **The second transport is tried when every candidate *refused* the first (401, 403 or 404 — what the walk itself reads as "this org will not serve it") or the first could not run** (threw, does not exist, or — gmxhr only — never called back within 50s, past the manager's own 45s timeout). **Not** on network errors, manager-reported timeouts, 429s, 5xx or malformed bodies — an org list that parses but holds no usable org counts as one (`ciCountUnusableOrgList`): those are verdicts about the network, the account or the server, and falling back on a blip would move Firefox onto `fetch` for the rest of the session (the winner — the transport that delivered a usable index — is cached). They keep v12.8's classification on one transport — the one case where the order can matter.
+- **The gmxhr request is byte-for-byte v12.8's** — Firefox + Tampermonkey is the proven path. `probes/check-transport-ladder.js` L2-shape compares every option.
+- **The fetch request is exactly the measured one**: `fetch(location.origin + path, {credentials: 'include'})`, and only when the page origin is exactly `https://claude.ai`. No custom headers (Cache-Control would make it a non-simple, preflighted request) and no AbortSignal (an object crossing realms). The timeout is a timer plus a single-fire latch. A fetch is never cancelled, so two page-wide bounds apply before new attempts fail fast: two timed out and still pending (`CI_FETCH_STALL_MAX`) or six open at all (`CI_FETCH_OPEN_MAX`) — never a per-conversation count (DEC-045). Every path out of `ciFetchGet` must reach `ended()`, or a slot is held for the rest of the page; a response nobody will read goes through `discard()` first, which cancels its body.
+- **A refusal is never declared PERMANENT until both transports have failed**, and a second transport that met nothing explaining its failure — only refusals, throws or silence; no 5xx, 429 or bad body — upholds the first's refusal (otherwise a logged-out tab re-polls every ~16s). A 429 or a malformed body on one transport still gets v12.8's PERMANENT backoff without the other being tried — deliberately. `ciIsPermanentReason()` is the one classifier; the ladder passes its decision to `ciSetDegraded` explicitly.
+- **Every request logs one line naming its transport** (`[ACN] index: transport=… org=<8 chars>… status=…`), and every reason from the org walk starts with `[gmxhr]`/`[fetch]` (the two post-fetch validation reasons, `unexpected response shape` and `malformed message data`, carry none yet). Keep it that way: on a user's machine those lines are the only evidence of which transport failed.
+- **The index runs only on the exact origin `https://claude.ai`** (`ciIsClaudeChat`), not wherever platform detection's `host.includes('claude.ai')` matches, and not on claude.ai at another port (`@match` patterns ignore ports) — it sends credentialed requests and renders the answer into the page.
 
 ### Jump-to-message (Phase 3)
 

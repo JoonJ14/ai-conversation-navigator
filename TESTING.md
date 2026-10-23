@@ -41,6 +41,7 @@ later disproved — each was correct where measured and false where it mattered.
 | Chrome vs **Firefox** | compartment strictness (DEC-019, DEC-020) | Firefox first — it is where this project's execution failures happen |
 | Visible vs **hidden tab** | rAF and timers throttle; a virtualizer stops running entirely | assert `document.visibilityState === 'visible'` before measuring |
 | Mock page vs live site | no vendor bundles, no CSP, no virtualization | mocks cannot catch Layer 3 or Layer 4 breaks |
+| **Userscript manager** (Tampermonkey vs Safari's Userscripts) | each ships its own `GM_*`: Userscripts' `GM_xmlhttpRequest` lacks the claude.ai session, and it has no synchronous `GM_getValue`/`GM_setValue` (v12.9, DEC-045) | any finding about a `GM_*` API holds only for the manager it was measured in, so check it in each supported manager |
 
 A hidden tab is the nastiest of these: it does not fail loudly, it returns
 plausible, stable, wrong numbers. Every early measurement failure in the v12.0
@@ -49,7 +50,8 @@ nothing, multi-megabyte `fetch` calls hanging forever.
 
 **Rule:** write findings as *"X, measured in \<context\>"*, and treat them as
 context-scoped until reproduced in the Tampermonkey sandbox, in a visible window,
-on Firefox. When a later measurement contradicts an earlier one, record **both**
+on Firefox. For anything that depends on a `GM_*` API, also reproduce it in each supported
+manager (v12.9). When a later measurement contradicts an earlier one, record **both**
 with their contexts rather than replacing one — the contradiction is the finding.
 
 Probe scripts used for this in v12.0 are worth copying as a pattern: they abort
@@ -307,8 +309,9 @@ This is more stable than creating a new context per test (which crashed on the o
 
 Tests query only `data-acn-role` and `data-acn-*` contract attributes — no internal CSS class names or element IDs. This means the UI can be completely rebuilt in any future version without breaking the test suite, as long as the contract attributes are maintained on the correct elements.
 
-**Total: 267 tests across 16 platform entries**, green on Chromium and on Playwright's
-Gecko build (`--browser firefox`; not in the local default).
+**Total: 560 tests across 26 platform entries as of v12.9 (2026-10-22)** — 267 across 16 when this section
+was written; the Current Platforms table still lists those 16. Green on Chromium and on Playwright's Gecko
+build (`--browser firefox`; not in the local default).
 
 **Be precise about what the Firefox run covers.** Playwright launches its own Firefox
 binary and the harness injects the userscript as a plain `<script>` tag in the page realm.
@@ -472,6 +475,37 @@ models (for `chipRows`: that the named row has **no** `[data-testid="user-messag
 read after `scrollToFraction(0)` so the row is actually mounted), and mutation-verify by flipping
 the knob off and watching the assertion fail.
 
+### The transport ladder is gated by a probe, not by these entries (v12.9)
+
+Since v12.9 the index can reach Claude over two transports (DEC-045), and **no suite entry can
+exercise the choice between them**:
+
+- The suite's GM shim (`buildGmFixtureShim`) delivers every non-200 through `onerror`, which the
+  userscript reads as "no answer". A real manager delivers a 403 through `onload`, with its status.
+  So no shim entry can produce the refusal that triggers the fallback — the shim entries never
+  leave `gmxhr`, which is also why the GM-only counters (`__convFetches`, `__convFetchOk`) are
+  still complete for them. Do not "fix" the shim to real semantics casually: the `failFetchAfter`
+  entry's reason would change from `network error` to `HTTP 500` (both transient, so its
+  assertions hold), and every count-based wait would need re-deriving.
+- The one entry that DOES reach `fetch` is `Claude (virtualized)` (no shim): "GM_xmlhttpRequest
+  unavailable" counts as a transport that cannot run, so the ladder tries `fetch`, which the route
+  handler aborts. It still degrades visibly — the banner now names both transports — a few
+  milliseconds later than v12.8 did, and retries every ~16s with one aborted request each time.
+
+`probes/check-transport-ladder.js` is the gate. Two harness facts it had to account for, both
+measured on all three engines:
+
+- **The userscript's own SSE proxy masks one bug shape here.** In the page realm the SSE
+  interceptor replaces `window.fetch` with `acnFetchProxy`, which attaches a `.catch` to every
+  claude.ai request — marking the raw promise handled. A transport that leaked an unhandled fetch
+  rejection would therefore pass this suite's `No uncaught page errors`. The probe's
+  Firefox-shaped scenarios stub `exportFunction` (as Firefox + Tampermonkey has it), so the
+  interceptor skips and such a leak surfaces.
+- **Every page-realm fetch leaves a resource-timing entry**, and `ciResolveOrgCandidates` harvests
+  org uuids from those — so after one fetch-leg walk, every org it touched becomes a cheap candidate
+  on the next load (chromium and firefox record aborted requests too; webkit only fulfilled ones).
+  Count requests per load, not per page.
+
 ### The legacy-bookmark entry — the uniqueness gate had zero coverage
 
 `Claude (legacy schema-1 bookmarks)` seeds pre-v12.0 records through the GM shim with
@@ -633,7 +667,7 @@ These exist because of a structural blind spot: **every mock page except `claude
 
 - **Test 15** guards the mock itself. If it stopped recycling, tests 16–17 would prove nothing.
 - **Test 16** asserts the DOM is incomplete *on purpose*, so a future change that appears to fix the count without an index gets caught.
-- **Test 17** asserts degraded mode is visible. The harness provides no `GM_xmlhttpRequest`, so the API fetch always fails there and the fallback banner must appear. Silent degradation is what let the original bug hide.
+- **Test 17** asserts degraded mode is visible. The harness provides no `GM_xmlhttpRequest`, and since v12.9 its route handler aborts the `fetch` the ladder then tries, so the API request always fails there and the fallback banner must appear. Silent degradation is what let the original bug hide.
 
 Both virtualized entries use real-shaped conversation uuids in their pathnames
 (`/chat/11111111-…` and `/chat/22222222-…`) because `ciIsClaudeChat()` gates on that
@@ -1458,7 +1492,8 @@ for (const platform of PLATFORMS.filter(p => p.name === 'Bolt.new')) {
 
 ### CI: reading a webkit-on-macos failure or hang (2026-07-30 incident signature)
 
-Healthy CI jobs run **5m41s–9m47s**. Twice on 2026-07-30, `webkit on macos-latest` ran
+Healthy CI jobs run **5m41s–9m47s** (up to 10m02s on PR #75, 2026-10-22, where the transport-ladder probe
+takes the ubuntu jobs to ~9 min). Twice on 2026-07-30, `webkit on macos-latest` ran
 **40–75+ minutes** on code that had passed the identical check minutes earlier — same commit
 content, same `macos-26-arm64` image, same Playwright WebKit build (26.5 / v2336) — failing one
 acceptance entry with `got null` jumps pinned at the product's give-up ceiling (settle cap ×
@@ -1484,7 +1519,19 @@ How to respond:
 
 The workflow's `timeout-minutes: 20` (2× the slowest healthy job) makes a wedged runner fail
 fast instead of blocking the check for up to GitHub's 6-hour default. Queue time doesn't count
-against it.
+against it. The cap covers the whole job, installs included. On PR #75 a `firefox on ubuntu-latest`
+job spent all 20 minutes in `npx playwright install --with-deps` on a slow apt mirror and never ran
+a test. Read which STEP was cancelled before reading anything into the job (TROUBLESHOOTING has
+the entry).
+
+**Not to be confused with a local failure that matches this one only by name (found 2026-10-22).**
+On the owner's Mac, Playwright's WebKit (build 2248) fails four acceptance entries on every run,
+on v12.8 and v12.9 alike. Each failure is a `got null` jump at ~1.46s with healthy `raf10`
+(135–168ms), and every printed failure targets one of the last ~10 questions of its conversation.
+That is not this signature: no ceiling-length give-up, no CI runner, and it fails on every run. It
+was first misfiled as this signature in the v12.9 records — corrected in the repo docs; the PR #75
+description still carries it. Match on timing, frequency and host, not on `got null`. TROUBLESHOOTING,
+"OPEN — Local mac WebKit".
 
 #### A second variant, observed 2026-08-01 (v12.5 branch): the SILENT wedge
 
@@ -1592,7 +1639,8 @@ is what worked here), or an explicit admin merge with this record attached.
 | CSS-in-JS hash instability | Replit's Emotion classes change per deployment; our mock uses a frozen snapshot of `data-testid` attributes | The mock tests the "happy path" (data-testid exists). If Replit removes data-testid, the fallback selectors activate — test a separate mock for that path if needed |
 | SPA navigation | The test loads the page once; it doesn't simulate route changes or conversation switching | The SPA hooks (pushState/replaceState interception) are tested implicitly — they exist in the script — but their behavior on navigation isn't exercised |
 | CSP (Content Security Policy) | Some sites (Gemini) have strict CSP that blocks inline scripts; the test pages have no CSP | The userscript avoids `innerHTML` (uses `createElement` + `textContent`) specifically for CSP compliance — this was validated manually |
-| Cross-browser differences | Chromium and Playwright-Gecko are covered; WebKit is not installed locally | `npx playwright install webkit`, then `--browser webkit`. Note none of these are the Tampermonkey sandbox — see the Firefox scope note above |
+| Which transport a real manager lets through (v12.9) | The harness inlines the script into the page realm; `GM_xmlhttpRequest` is a shim and `fetch` is the page's. Whether a manager's `GM_xmlhttpRequest` carries the session (Userscripts' does not) only exists in the real extension | `probes/check-transport-ladder.js` proves the ladder's *decisions*; the owner's live check on Safari, Firefox and Chrome proves the *credentials*. The `[ACN] index: transport=…` console lines are the evidence |
+| Cross-browser differences | Chromium, Playwright-Gecko and Playwright-WebKit are all run, locally and in CI (WebKit locally since 2026-10-22) | `npx playwright install webkit`, then `--browser webkit`. Note none of these are the Tampermonkey sandbox — see the Firefox scope note above |
 
 ### The `--single-process` flag
 

@@ -62,3 +62,13 @@ jobs:
           node probes/check-tokenizer.js --browser chromium
           node probes/check-subsegments.js --browser chromium
           node probes/check-usage-state.js --browser chromium
+
+      # The transport-ladder probe is the exception to "one job only": it asserts fetch,
+      # promise and timer behaviour (a synchronous throw, a rejected fetch, the backoff
+      # schedule), and that is exactly what DOES vary by engine — webkit is the Safari
+      # engine the v12.9 fix exists for. So it runs on all three engines, on ubuntu only:
+      # the runner OS adds nothing to an engine question, and Windows/macOS carry the
+      # documented flake modes above. (v12.9, DEC-045)
+      - name: Run transport-ladder probe
+        if: matrix.os == 'ubuntu-latest'
+        run: node probes/check-transport-ladder.js --browser ${{ matrix.browser }}

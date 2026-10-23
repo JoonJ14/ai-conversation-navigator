@@ -11,7 +11,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-12.7-blue)
+![Version](https://img.shields.io/badge/version-12.9-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -127,10 +127,16 @@ If you prefer not to approve each site individually, you can set the extension t
 
 1. **`@match` rules are enforced by the extension** — The script's metadata declares exactly which URLs it should run on (`claude.ai`, `chatgpt.com`, `grok.com`, `gemini.google.com`). Userscripts.app reads these `@match` patterns and *only injects the script on those matching pages*, regardless of the Safari permission level.
 2. **The script itself only activates on recognized sites** — Even if somehow injected elsewhere, the code detects which platform it's on and does nothing if the site isn't one of the supported platforms.
-3. **No data leaves your browser** — The script is purely local DOM manipulation. It doesn't make network requests, collect data, or communicate with any external server.
+3. **No data leaves your browser** — On Claude, the script reads your own conversation from claude.ai with the same `GET` requests Claude's web app makes (see the privacy FAQ below). It never sends anything to any other server, never uploads, and collects nothing.
 4. **Fully open source** — You can read every line of the script to verify all of the above.
 
 So "Allow on All Websites" effectively behaves the same as per-site permissions for this script. But per-site is still the recommended default because it's good security hygiene for *any* extension.
+
+**What works differently on Safari (Userscripts):**
+
+- **Claude's full conversation list.** Userscripts' `GM_xmlhttpRequest` does not carry your claude.ai login, so since v12.9 the script reads the conversation with an ordinary `fetch` instead (see the privacy FAQ below). Before v12.9, Navigate on Safari showed only the few messages Claude keeps on screen. (Not yet confirmed on a long conversation in Safari; ROADMAP item 0d.)
+- **Anything the script keeps in GM storage does not work.** Bookmarks and saved commands are never stored, and the language and platform toggles cannot be changed, so the panels stay in English. The script keeps them with `GM_setValue`/`GM_getValue`, which Userscripts does not provide (from its source and this script's code; not yet checked on Safari). Display mode, scroll direction and panel width are unaffected: they live in the page's `localStorage`. Tracked in ROADMAP item 0d.
+- **The Plan usage panel is expected to read "Usage data unavailable".** It still uses `GM_xmlhttpRequest` (ROADMAP item 0d).
 
 **Important quirk:** Unlike Tampermonkey, Userscripts.app does not auto-detect external file changes. If you manually edit or update the `.user.js` file outside of Safari, you must **open the Userscripts extension popup once** for the changes to take effect.
 
@@ -154,7 +160,7 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 - **3 Display Modes** — Switch between **Show All** (all six dots at equal brightness), **Arc** (polygon arc with scroll-driven focus), and **Wheel** (conveyor belt with Navigate always highlighted). Mode preference is saved across sessions.
 - **🎯 Navigate Panel** — Lists all your questions in the conversation with smart summaries. Click any entry to scroll directly to it and briefly highlight it.
 - **🔍 Search Panel** — Type a keyword to filter your questions instantly. Narrows the question list in real time.
-- **🔖 Bookmarks Panel** — Bookmark specific messages for quick return. Bookmarks persist across page reloads and script updates via GM storage.
+- **🔖 Bookmarks Panel** — Bookmark specific messages for quick return. Bookmarks persist across page reloads and script updates via GM storage (not on Safari's Userscripts app — see the Safari setup notes).
 - **Σ Summary Panel** — Auto-generates a summary of the conversation on panel open.
 - **↗ Tools Panel** — Image Gallery of uploaded images, full Markdown export, and `/commands` palette. The Image Gallery detects uploaded images inline in the conversation.
 
@@ -350,11 +356,11 @@ The script does make a small number of network requests, but **only to the site 
 | `GET claude.ai/api/organizations/{org}/usage` | Plan usage bars |
 | `GET claude.ai/api/organizations/{org}/chat_conversations/{id}` | Read the conversation you have open (v12.0+) |
 
-These are the same endpoints Claude's own web app calls, using your existing session, and the `@connect claude.ai` header restricts them to that domain. They are all `GET` requests — the script never POSTs, never uploads, and never contacts any third party. No other platform makes any network request at all.
+These are the same endpoints Claude's own web app calls, using your existing session. They go out one of two ways, both confined to claude.ai: through `GM_xmlhttpRequest`, which the `@connect claude.ai` header restricts to that domain, or — since v12.9, and first on Safari's Userscripts app, whose `GM_xmlhttpRequest` does not carry your Claude session — as an ordinary `fetch` that the script only sends when the page you are on is exactly `https://claude.ai`. They are all `GET` requests — the script never POSTs, never uploads, and never contacts any third party. On the other platforms the only request the script ever makes is one you trigger yourself: downloading an image from the Tools gallery re-fetches that image from the address the page already loaded it from.
 
 **Why does it need to read my conversation now (v12.0+)?** Claude changed its web app to keep only about 3–5 messages in the page at a time and unload the rest. Reading the page can no longer see your whole conversation, so navigation, search, and export were all silently showing a small fraction of it. The script now reads the conversation from Claude's own API — the same data Claude already downloaded into your browser — so the list is complete. It is held in memory for the open tab and is never written to disk or transmitted.
 
-You can verify all of this: the `@grant` declarations are `GM_addStyle` (CSS injection), `GM_getValue`/`GM_setValue` (bookmarks, settings, cached counts), `GM_xmlhttpRequest` (the reads above), `unsafeWindow` (SSE token counting on Claude, Chrome only), and `@connect claude.ai`.
+You can verify all of this: the `@grant` declarations are `GM_addStyle` (declared, though the CSS is actually added through a `<style>` element), `GM_getValue`/`GM_setValue` (bookmarks, settings, cached counts), `GM_xmlhttpRequest` (the reads above), `unsafeWindow` (SSE token counting on Claude, Chrome only), and `@connect claude.ai`. The `fetch` path needs no grant, so it does not appear in that list: search the source for `ciApiGet` to see every request the conversation index makes. The script also reads `GM_info` — which managers provide without a grant — only to learn which userscript manager it is running in.
 
 **Can this script see my other browser tabs or passwords?**
 
@@ -363,7 +369,7 @@ No. The script only runs on the specific AI chat sites listed in [Supported Plat
 - **`lastActiveOrg` cookie** — your organization ID, needed to build the conversation API URL. Falls back to `ajs_user_id` purely as a cache key so a resolved organization isn't re-fetched on every page load.
 - **Your conversation JSON**, via the `GET` requests listed above.
 
-Neither leaves your browser. The script uses `localStorage` only for your panel-width preference (`_acnv10`), and `GM_setValue` for bookmarks, settings, and the resolved organization ID. Search the source for `ciGetCookie` to see every cookie read; there are two, both named above.
+Neither leaves your browser. The script uses `localStorage` only for your display mode, scroll direction and panel width (`_acnv10`) and an opt-in debug flag (`acnJumpDebug`), and `GM_setValue` for bookmarks, the language and platform toggles, saved commands, button positions and the resolved organization ID. Search the source for `ciGetCookie` to see every cookie read; there are two, both named above.
 
 **One exception, stated precisely:** a bookmark record stores a **120-character preview** of the message you bookmarked, because the Bookmarks panel has to label the entry with something recognisable. That preview is the only message content written to disk, it exists only for messages you explicitly bookmark, and it goes away when you delete the bookmark. Everything else a bookmark stores is identity, not content: a message UUID, or a hash. (An earlier draft of this section claimed no conversation content was ever stored; that was wrong about the preview, and is corrected here.)
 

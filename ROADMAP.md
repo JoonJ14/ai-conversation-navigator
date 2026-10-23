@@ -30,7 +30,18 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.7 — MERGED and LIVE-CONFIRMED (2026-08-02)
+## Current Status: v12.9 in review (PR #75); v12.8 merged (PR #73)
+
+**v12.9 (PR #75, branch `fix/safari-transport-fallback`; open, NOT merged; live confirms owed).** The Claude
+conversation index gets a second transport so that it can work on Safari + Userscripts (DEC-045; item 0d).
+The review pipeline approved it, GitHub Codex found nothing twice, and CI went 9/9 green on `ae3ada1`.
+None of that is a real-browser result: the owner's live checks on Safari (a long conversation, and jumps
+to its last questions), Firefox and Chrome are what is owed. Of the PR's non-spec parts the owner
+kept all but one, the unusable-org-list retry, which is reverted (review record, "Scope against the spec").
+
+**v12.8 (PR #73, merged)** — a failed usage fetch says so instead of "loading" forever (DEC-044).
+
+**Earlier:**
 
 **v12.7 (PR #70, merged `06a079f`; live-confirmed by the owner the same day)** — `_sumTokenize` stripped `[^a-z0-9\s]`, so a **Korean** conversation
 produced zero tokens and every content-derived Summary feature was silently empty for the
@@ -90,7 +101,7 @@ DEC-029 stop signal). Suite **515/515 across 25 entries**, both engines. Also fi
 attachment-headed Q#1 that shipped in v12.0, whose reproduction was blocked by a **vacuous fixture
 knob** (**DEC-032**).
 
-### Next: post-v12.3 backlog (v12.2 + v12.3 merged 2026-07-30; nothing in flight)
+### Next: backlog (v12.8 merged; v12.9 in flight as PR #75 — see items 0d and 0e)
 
 **Priority order re-ranked 2026-08-01 with the owner: item 11 (Summary performance) is CLOSED —
 v12.4 killed the freeze, v12.5 took generate to ~1.2s, and the owner declined the remaining
@@ -212,11 +223,11 @@ Numbering below is stable (items keep their historical numbers):
    against the live surfaces, that is true of exactly one of them** (GitHub Codex, PR #72).
    If any is ever picked up, this is what it actually costs:
    - **`noBookmarksToExport`** — one line. The live literal
-     (`showToast('No bookmarks in this conversation')`, ~`:10625`) is character-identical to the
+     (`showToast('No bookmarks in this conversation')`, ~`:11165` in v12.9) is character-identical to the
      English value, so swapping in `i18n(...)` is a true substitution.
    - **`noQuestions`** — **not** a substitution; it needs a content decision first. The live
      empty state is TWO paragraphs — *"No questions detected yet.\n\nStart a conversation —
-     questions and prompts will appear here."* (~`:5782`) — while neither language's
+     questions and prompts will appear here."* (~`:6322` in v12.9) — while neither language's
      `noQuestions` value carries that second, guidance paragraph. Wiring the key as-is would
      silently delete the guidance. Either extend both values or add a second key.
    - **`questionPrefix`** — wiring it is a **visible no-op**: the English and Korean values are
@@ -276,6 +287,91 @@ Numbering below is stable (items keep their historical numbers):
    explicitly (`msgs` → `msgs (Q+A)`), show turn numbers instead of entry indices, or show both.
    No change made; recorded so the question is not re-derived.
 
+0d. **Safari + Userscripts: what v12.9 fixed, and what it deliberately left open (DEC-045).**
+   v12.9 gave the conversation index a second transport (`fetch`) because Userscripts'
+   `GM_xmlhttpRequest` does not carry the claude.ai session. Left open, each on purpose:
+   - **Chrome + Tampermonkey's intermittent 403 — OPEN, UNEXPLAINED, waiting on evidence.** Per
+     the owner, Chrome failed the same way as Safari at least once, then recovered with no update.
+     Nothing in the repo explains it. One candidate, **unverified**: Tampermonkey issue #2782
+     (cookies received through GM_xhr stored partitioned and then sent instead of the session
+     cookie; fixed in a Tampermonkey beta). v12.9 makes the next occurrence self-explaining: every
+     index request logs `[ACN] index: transport=<gmxhr|fetch> org=<8 chars>… status=<n>`, and
+     every reason from the org walk starts with the transport. **If it recurs, collect those lines before
+     theorising** — they say which transport was refused and whether the ladder rescued the load.
+   - **The Plan usage panel on Safari — almost certainly still unavailable (inferred, NOT
+     measured).** `fetchClaudeUsage` still makes both of its requests through
+     `GM_xmlhttpRequest` only, so on Safari it should 403 like every other GM request there and
+     the panel should read "Usage data unavailable" (v12.8's honest failure state). Kept out of
+     v12.9 because the usage path carries v12.8's ordering rules (one caller, flag cleared before
+     the call, asymmetric supersession — DEC-044) and the spec was index-only. Moving it onto the
+     ladder is a separate, gated change: keep the silent stale-org drop on every leg, add no
+     timeout shorter than the U4 window, and give its GM stub real onload-for-4xx semantics first.
+   - **Live confirms owed (DEC-031):** Safari on a LONG conversation (the Safari measurement was a
+     6-message conversation, so full-history correctness there is still unmeasured), Firefox
+     unchanged (`transport=gmxhr … status=200`), and Chrome recording which transport won.
+     **On Safari, also jump to each of the last five questions.** On the owner's Mac, Playwright's
+     WebKit (build 2248) gives up at ~1.46s on jumps near the end of a long mock conversation, on
+     v12.8 and v12.9 alike; every failure the report printed targets one of the last ~10 questions.
+     CI's mac WebKit (build 2370) passed the same entries. Whether real Safari does is unmeasured, and v12.9 is
+     what lets Safari reach those jumps at all (TROUBLESHOOTING, "OPEN — Local mac WebKit").
+   - **Nothing kept in GM storage works on Safari + Userscripts — OPEN, its own item, bigger than
+     the index.** Userscripts has never provided the synchronous `GM_getValue` / `GM_setValue` (read
+     from its source; corroborated by its own log line, which lists only `GM_xmlhttpRequest` among
+     the grants it honoured). Every call site in this script is try/caught, so each one fails
+     silently (read from the code; not yet checked on Safari): **bookmarks** and saved
+     **/commands** (never stored, not even for the session), the **language and platform
+     toggles** (`acn-settings`, re-read from GM on every use, so they cannot be changed at all and
+     the panels stay English), **zone positions**, the **SSE context cache**, and the index's
+     **org cache** — that last one only costs requests (each load re-walks the candidates: slower,
+     not wrong). **Unaffected:** display mode, scroll direction and panel width, which the script
+     keeps in `localStorage` (`_acnv10`). The fix is the async `GM.getValue` / `GM.setValue` that
+     Userscripts does offer, or moving the GM keys to `localStorage`; either is a design change of
+     its own.
+   - **What `GM_info.scriptHandler` reports on the owner's install — unmeasured.** Its source
+     says `"Userscripts"` since v4.1.0 (2022); older installs have no `GM_info`. Detection only
+     orders the ladder, so a wrong answer costs one refused gmxhr walk per page load, after which
+     the cached winner goes first.
+   - **A malformed `lastActiveOrg` cookie throws in the usage path — pre-existing.**
+     `fetchClaudeUsage` reads the cookie through `ciGetCookie` with no guard, and
+     `decodeURIComponent` throws `URIError` on bad percent-encoding, so opening Navigate raises a
+     page error. The index survives the same cookie since v12.9 (probe L8, which deliberately does
+     not assert page errors because of this one).
+   - **Abort timed-out fetches instead of capping them — follow-up (owner, 2026-10-22).** v12.9's fetch
+     transport passes no `AbortSignal`, so a timed-out request keeps running. The page-wide caps (two
+     timed out, six open) and the late-body cancel exist only because of that. The signal was left out on
+     an inference that was never measured: that in the Tampermonkey sandbox on Firefox, `fetch` and
+     `AbortController` can come from different compartments, so passing a signal could throw. Also, the
+     spec defined the transport as exactly the measured call. In Safari's Userscripts content world both
+     come from the same realm, so abort is expected to work there (not measured either). Aborting on
+     timeout would make the stall cap and the late-body cancel unnecessary. Aborting the previous
+     conversation's request when a newer load starts would cover the bursts the open cap guards, so both
+     caps could go. Measure first: `fetch(url, {credentials: 'include', signal})` in the Tampermonkey
+     sandbox on Firefox and Chrome, and in Userscripts on Safari. Keep the caps as the fallback wherever
+     passing a signal throws, and rework the probe's LWb-cap and LWc–LWh around abort.
+
+0e. **Rebuild CI around what it can and cannot show (owner, 2026-10-22).** The owner's read after
+   PR #75: the CI checks are outdated. They pass builds that fail in a real browser — v12.8 was green
+   in CI while its index failed on Safari — so a green run says nothing about what breaks there. Nothing in the harness has a userscript manager: it inlines the
+   script into the page realm with a `GM_xmlhttpRequest` shim (TESTING.md). Not started — scope it as
+   its own change. Inputs collected on PR #75:
+   - **Engine drift.** The workflow installs Playwright at run time (`npm install playwright`). On
+     2026-10-22 that meant WebKit build 2370 on CI and 2248 on the owner's Mac, so the "same" suite
+     was not measuring the same engine (TROUBLESHOOTING, "OPEN — Local mac WebKit").
+   - **Install stalls spend the test budget.** In PR #75's attempt 1, `firefox on ubuntu-latest` spent
+     its whole 20-minute `timeout-minutes` inside `npx playwright install --with-deps firefox`. It was
+     downloading 51.6 MB of apt packages from the Azure Ubuntu mirror at tens of KB/s, and no test
+     ran. The other ubuntu jobs installed in 28–36s (TROUBLESHOOTING has the entry).
+   - **The transport-ladder probe adds ~2m20s per ubuntu job** (2m18s chromium, 2m26s webkit). That
+     takes those jobs to ~9 min, from ~6.5–7 min on main's last green run (2026-08-06). It is still
+     under the cap; the probe is slow because its watchdog scenarios wait out the real 45s fetch and 50s gmxhr timeouts.
+     It runs on all three engines on the premise that engines can differ on fetch, promise and
+     timer behaviour. Its results have been identical on all three so far, while the workflow's own
+     comment still states that variance as fact.
+   - **Keeping the "old build fails" proof re-runnable.** Codex raised this in the review pipeline's
+     Tier 3 round 5, before PR #75 opened, and it was left as the owner's call. A CI job would run the transport-ladder probe against v12.8
+     and expect L1 (the Safari shape) to fail. The cost is that CI gets pinned to a historical
+     commit.
+
 1. ~~**Live-test and fine-tune the provisional bookmark mechanism** (DEC-030).~~ **Done in v12.1**
    — and it went considerably further than fine-tuning: the legacy path is now four channels with a
    proof/inference split, live-verified at 16/16, and fixtured (`Claude (legacy schema-1 bookmarks)`,
@@ -297,7 +393,9 @@ Numbering below is stable (items keep their historical numbers):
    already strips — no measured data can make an assertion distinguish the selectors (DEC-032:
    unprovable change). Re-opens if a text-bearing footer (e.g. search-grounded sources-list) is
    ever observed; that observation is also what would make it ancestor-gatable.
-3. **Retry-After honoring for HTTP 429** — plumb response headers through `ciRequestJSON`.
+3. **Retry-After honoring for HTTP 429** — plumb response headers through `ciApiGet` (v12.9
+   replaced `ciRequestJSON`). Both transports need it: gmxhr exposes `responseHeaders` as one
+   string, fetch exposes `res.headers`.
 4. **Reassess, don't build: §4.2 offset cache / §4.3 height learning.** Measure a live repeat
    jump first; if sub-400ms, close as satisfied-by-redesign. One live datapoint already exists
    and it is about **precision, not speed**: a second jump to the same bookmark landed near the
@@ -599,6 +697,8 @@ This project lives inside other companies' web applications. We don't control th
 
 **First occurrence:** v11.6 (2026-03-14). Claude shipped a new vendor bundle (Visualizer feature) that called `.bind()` on `fetch` during React initialization. Our `unsafeWindow.fetch` replacement was a Tampermonkey sandbox-compartment function. Firefox blocks cross-compartment `.bind()` — Claude's entire frontend crashed to a black screen. Chrome was unaffected due to its more permissive cross-compartment model. See TROUBLESHOOTING.md and DEC-019 for full technical details.
 
+**Second occurrence, and a second face:** v12.9 (2026-10-22). Nothing crashed, and nothing is known to have changed: the index had simply never been measured under Safari's Userscripts app, where it could not work. There `GM_xmlhttpRequest` does not carry the claude.ai session, so the conversation index got 403 from every org and fell back to the mounted 1–5 turns; a plain `fetch` from the same content-script world got 200. The userscript manager is part of the execution context: the same `GM_*` call carries different credentials depending on which manager runs it and in which browser. Fixed with a transport ladder rather than a transport swap, so Firefox's proven path is untouched (DEC-045, CLAUDE.md "Layer 3 has a second face").
+
 **Why this will happen again:** Anthropic disclosed in February 2026 that Chinese AI labs (DeepSeek, Moonshot, MiniMax) ran industrial-scale distillation attacks against Claude using 24,000 fraudulent accounts and 16 million exchanges via proxy services. Anthropic is now actively hardening security — tightening CSP headers, updating vendor bundles, adding integrity checks. From a security perspective, our userscript's injection pattern (replacing `window.fetch`, patching `history.pushState`) looks identical to what proxy services do. Other platforms will likely follow similar security hardening trends as the AI industry matures.
 
 **Detection:** Cannot be caught by DOM validation — the DOM never renders. Requires actual browser testing with the script loaded against live sites. Playwright tests against mock pages won't catch this because mocks don't have real vendor bundles or CSP headers.
@@ -625,7 +725,9 @@ This project lives inside other companies' web applications. We don't control th
 
 - Layer 1 announces itself: zero results
 - Layer 2 announces itself: a visible competing feature
-- Layer 3 announces itself violently: a dead page
+- Layer 3 announces itself violently: a dead page — or, in its quiet face (v12.9), a feature
+  that fails in one userscript manager/browser and works in the others, with the page fine
+  (it still announces itself: a degraded banner and an error status, just not a dead page)
 - Layer 4 returns a plausible, non-empty, entirely wrong answer
 
 A 4-question panel on a 147-question conversation is indistinguishable from a short conversation. That is precisely why it survived undetected.
@@ -652,7 +754,7 @@ A 4-question panel on a 147-question conversation is indistinguishable from a sh
 |-------|------------|----------|-----------|--------------------------|
 | DOM breaks | Our features degrade | Medium | High (monthly) | Yes — planned DOM validation framework |
 | Feature breaks | Our features become redundant | Low | Low (quarterly) | No — requires human monitoring |
-| Execution breaks | Host page crashes entirely | **Critical** | Low but increasing | No — requires live browser testing with real vendor bundles |
+| Execution breaks | Host page crashes entirely — or (quiet face, v12.9) one runtime withholds what our code needs, e.g. the session on a `GM_xmlhttpRequest` | **Critical** | Low but increasing | No — requires live browser testing with real vendor bundles, in **each** supported userscript manager |
 | State breaks | Our features silently operate on a fraction of the data | **Critical** | Unknown — first seen v12.0 | Only by cross-checking DOM counts against an independent source; static mocks cannot catch it |
 
 The key insight: **DOM validation is necessary but not sufficient.** A project that only watches for selector changes will be blindsided by execution breaks *and* by state breaks. Live-site smoke testing catches Layer 3. Layer 4 needs something different again — a source of truth outside the DOM to compare against, because the failure mode is not "no data" but "confidently incomplete data."
@@ -729,7 +831,9 @@ labelled in the UI.** That is a legitimate result. Silent partial data is not.
 
 ### Step 2 — Respect the Layer 3 constraint, and declare the host
 
-Read it with `GM_xmlhttpRequest`. **Do not intercept `fetch` and do not patch page globals**
+Read it through the index's transport ladder (`ciApiGet`: `GM_xmlhttpRequest`, with a plain `fetch` as the
+second transport — DEC-045). `GM_xmlhttpRequest` alone was the v12.8 Safari break: Userscripts' implementation
+does not carry the session. **Do not intercept `fetch` and do not patch page globals**
 (DEC-019/DEC-020). v11.6 crashed claude.ai to a black screen on Firefox because a vendor bundle
 called `.bind()` on our replaced `fetch`. A Layer 4 fix that reintroduces a Layer 3 hazard has made
 the product worse: Layer 4 degrades our features, Layer 3 kills the host page.

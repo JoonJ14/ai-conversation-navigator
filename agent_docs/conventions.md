@@ -22,21 +22,27 @@ The userscript must remain **ES5 compatible**. This means:
 
 ## CSS Conventions
 
-- All styles injected via single `GM_addStyle()` call
+- All styles injected through one `<style id="acn-style">` element (`orbInjectCSS`). `GM_addStyle` is granted but never called.
 - CSS classes prefixed with `acn-` to avoid conflicts with host pages
 - Theme colors via CSS variables: `var(--acn-accent)`
 - ID namespace: `#acn-zone` for the main container
 
 ## Storage Keys
 
-| Key | Purpose |
-|-----|---------|
-| `'acn-settings'` | General settings (mode, language, scroll direction) |
-| `'acn-bookmarks-v1'` | Message bookmarks per conversation |
-| `'acn-commands-v1'` | Saved /commands |
-| `'_acnv10'` | localStorage for panel width |
-| `'acn-ctx-cache'` | Claude context window cache |
-| `'acn-zone-positions'` | Orbital zone Y position per platform (fraction of viewport height, added v10.10) |
+Checked against the code in v12.9. **Which store a key uses matters:** under Safari + Userscripts the
+synchronous `GM_getValue`/`GM_setValue` do not exist (from Userscripts' source), so every GM key below
+fails silently there. The `localStorage` keys are unaffected (ROADMAP item 0d).
+
+| Key | Store | Purpose |
+|-----|-------|---------|
+| `'acn-settings'` | GM | Language and platform toggles. Re-read on every `i18n()` call and platform check |
+| `'acn-bookmarks-v1'` | GM | Message bookmarks per conversation (`BOOKMARK_KEY`) |
+| `'acn-commands'` | GM | Saved /commands (`COMMANDS_KEY`) |
+| `'acn_ctx_cache'` | GM | Claude context window cache |
+| `'acn-zone-positions'` | GM | Orbital zone Y position per platform (fraction of viewport height, added v10.10) |
+| `'acn-claude-org-v1'` | GM | The conversation index's validated org uuid (`CI_ORG_CACHE_KEY`) |
+| `'_acnv10'` | localStorage | Display mode, scroll direction (`natural`) and panel width (`orbSaveSettings`) |
+| `'acnJumpDebug'` | localStorage | Opt-in jump-trace flag: set it to `'1'` by hand; the script only reads it |
 
 ## i18n Conventions
 
@@ -180,3 +186,24 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 > defense mutant may now be absorbed and the honest mutation becomes the compound.
 > **Why:** DEC-037's silent-non-execution class, self-inflicted mid-review; docs claiming
 > untestable coverage are how dead zones are born. (DEC-038.)
+
+> **Issue:** On PR #75 (v12.9), four WebKit jump-acceptance entries that failed on the owner's Mac were filed
+> as TESTING.md's documented webkit-on-macos runner episode, because both read `got null` on mac WebKit. That
+> claim went into the CHANGELOG, the review record and the PR description. The signatures differed on every
+> axis. The documented episode gives up at the ~4.3–5.4s ceiling, intermittently, on a degraded CI runner.
+> These gave up at ~1.46s with a healthy frame rate (`raf10` 135–168ms), on every run, on a local machine —
+> and CI's newer WebKit passed them.
+> **Correct approach:** match a known failure by its SIGNATURE — timing, frame rate (`raf10`), frequency,
+> host — not by its name or its error text. Before citing a documented signature, compare each element and
+> write down which ones match.
+> **Why:** a name match explains a failure away. The real cause stays open, and the wrong explanation spreads
+> into every doc that quotes it (TROUBLESHOOTING, "OPEN — Local mac WebKit").
+
+> **Issue:** The Edit tool and inline Bash commands turn `\uXXXX` escapes into the literal character. In
+> v12.9 four functional `\u2026`/`\u2192`-style escapes written through Edit landed in the userscript as
+> literal characters, and an inline `node -e` script broke when `\u0027` became `'`.
+> **Correct approach:** write code that needs `\uXXXX` escapes through a SCRIPT FILE that builds the
+> backslash itself (for example with `String.fromCharCode(92)`), then grep the added non-comment lines for
+> non-ASCII before testing.
+> **Why:** the decoded character looks right in review. The rule that functional non-ASCII must be an escape
+> exists because literal characters have broken in-page before (the charset lesson above).

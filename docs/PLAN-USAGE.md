@@ -555,6 +555,13 @@ If `extra_usage` is present in the data (user has overage enabled), show an addi
 
 Add `@grant GM_xmlhttpRequest` to the userscript header if not already present. This is required for cross-page fetching.
 
+> **Safari + Userscripts (found in v12.9).** For the conversation index, the script's `GM_xmlhttpRequest`
+> got 403 from every org on Safari while a content-world `fetch` got 200 (the owner's probe, v12.8 —
+> DEC-045). The likely mechanism, read from Userscripts' source and not measured: it sends from the
+> extension's background page, without the claude.ai session. So this panel's requests are expected to
+> fail there, and the panel to read "Usage data unavailable" (inferred, not measured). v12.9 gave the index a `fetch` fallback and did not touch this panel. Moving the
+> panel onto that fallback is a separate change: it carries DEC-044's ordering rules (ROADMAP item 0d).
+
 ### File section
 
 All plan usage code goes in the same section as the context bar — the monitoring/status area. This keeps related UI together and means one agent (Group B) handles the entire monitoring stack.
