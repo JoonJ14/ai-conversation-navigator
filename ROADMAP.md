@@ -30,11 +30,12 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.9 in review (PR #75); v12.8 merged (PR #73)
+## Current Status: v12.9 MERGED (PR #75, `4c72ca9`, 2026-10-23) — live acceptance owed
 
-**v12.9 (PR #75, branch `fix/safari-transport-fallback`; open, NOT merged; live confirms owed).** The Claude
+**v12.9 (PR #75, merged 2026-10-23 as `4c72ca9` on the owner's call, before its live acceptance).** The Claude
 conversation index gets a second transport so that it can work on Safari + Userscripts (DEC-045; item 0d).
-The review pipeline approved it, GitHub Codex found nothing twice, and CI went 9/9 green on `ae3ada1`.
+The review pipeline approved it. GitHub Codex found nothing on any of its commits. CI went 9/9 on each commit,
+after one re-run each for two runner/harness flakes (TROUBLESHOOTING, TESTING).
 None of that is a real-browser result: the owner's live checks on Safari (a long conversation, and jumps
 to its last questions), Firefox and Chrome are what is owed. Of the PR's non-spec parts the owner
 kept all but one, the unusable-org-list retry, which is reverted (review record, "Scope against the spec").
@@ -101,7 +102,7 @@ DEC-029 stop signal). Suite **515/515 across 25 entries**, both engines. Also fi
 attachment-headed Q#1 that shipped in v12.0, whose reproduction was blocked by a **vacuous fixture
 knob** (**DEC-032**).
 
-### Next: backlog (v12.8 merged; v12.9 in flight as PR #75 — see items 0d and 0e)
+### Next: backlog (v12.9 merged 2026-10-23 — items 0d and 0e carry its open work)
 
 **Priority order re-ranked 2026-08-01 with the owner: item 11 (Summary performance) is CLOSED —
 v12.4 killed the freeze, v12.5 took generate to ~1.2s, and the owner declined the remaining
@@ -336,6 +337,34 @@ Numbering below is stable (items keep their historical numbers):
      `decodeURIComponent` throws `URIError` on bad percent-encoding, so opening Navigate raises a
      page error. The index survives the same cookie since v12.9 (probe L8, which deliberately does
      not assert page errors because of this one).
+   - **What to capture in the Safari acceptance**, so the inferred rows of `agent_docs/architecture.md`'s
+     runtime matrix become measured:
+     - the Safari and Userscripts versions, with the tab visible;
+     - the `[ACN] index order:` line (the `scriptHandler` value) and every `[ACN] index:` line;
+     - the question count on a long conversation, and a jump to each of its last five questions;
+     - the context bar's label (`(est.)` is expected);
+     - the usage panel's state;
+     - whether a bookmark or a language change survives a reload.
+   - **The exact-origin guard covers only the index — OPEN, found by the close-out audit (2026-10-23),
+     pre-existing, inferred from code, not reproduced.** The Plan usage panel (`fetchClaudeUsage`) and the SSE
+     interceptor's install are gated only by platform detection's `host.includes('claude.ai')`. The header's
+     `@include https://*cloudworkstations.dev/*` glob also matches registrable hosts whose name contains
+     `claude.ai`. On such a page the usage panel would request the user's plan usage with their session
+     (`GM_xmlhttpRequest`, `@connect claude.ai`) and render it into that page, and on Chrome the interceptor
+     would patch that page's `fetch`. Fix: apply `ciIsClaudeChat`'s exact-origin check, or an equivalent, at
+     both call sites. Security-relevant; take it before new Claude features.
+   - **On Safari the SSE interceptor and the SPA history hooks never reach the page — inferred, not
+     measured.** Userscripts provides no `unsafeWindow`, so both are installed on the content world's own
+     `fetch` / `history`. Expect the context bar to read `(est.)` only. The nine `spa:true` platforms would
+     miss route changes that the page makes through `history.pushState`. Confirm as part of the acceptance
+     above.
+   - **Two spec gaps the owner kept, for a follow-up.** The `unexpected response shape` and `malformed message
+     data` reasons carry no `[transport]` tag (spec 2.4). Probe fixture 3 (L3-backoff) asserts only the 60s
+     first step, not the 60 → 240 → 960s escalation.
+   - **The transport-ladder mutation tooling is not in the repo.** The 46-mutant matrix in the review record was
+     built with session-local scripts: one exact-once string replacement per mechanism, run against a
+     snapshot copy (TESTING.md has the method). Re-create and commit them under `probes/` before the abort
+     follow-up reworks the LW checks.
    - **Abort timed-out fetches instead of capping them — follow-up (owner, 2026-10-22).** v12.9's fetch
      transport passes no `AbortSignal`, so a timed-out request keeps running. The page-wide caps (two
      timed out, six open) and the late-body cancel exist only because of that. The signal was left out on
@@ -371,6 +400,11 @@ Numbering below is stable (items keep their historical numbers):
      Tier 3 round 5, before PR #75 opened, and it was left as the owner's call. A CI job would run the transport-ladder probe against v12.8
      and expect L1 (the Safari shape) to fail. The cost is that CI gets pinned to a historical
      commit.
+   - **Two more flakes, on 2026-10-23.** TESTING.md's Windows Firefox `page.goto … interrupted by another
+     navigation` harness flake recurred on PR #75's last commit. The ubuntu install stall recurred on the
+     post-merge `main` run, this time on `webkit on ubuntu-latest` (TROUBLESHOOTING). One re-run cleared each.
+     They are inputs for the rebuild: the shared `page` object between entries, and installs that count
+     against the test budget.
 
 1. ~~**Live-test and fine-tune the provisional bookmark mechanism** (DEC-030).~~ **Done in v12.1**
    — and it went considerably further than fine-tuning: the legacy path is now four channels with a
@@ -453,7 +487,7 @@ Numbering below is stable (items keep their historical numbers):
    `virtualScroll: false`. Anyone grepping it to assess Layer 4 exposure gets the exactly wrong
    answer. Something like `domSweepStrategy` states what it does. Touches 12 platform configs, so
    it needs the full acceptance matrix on both engines despite being a rename.
-10. **Debulking.** ~9,300 lines now. Known dead code: `ciResolvePathForRow`,
+10. **Debulking.** ~12,700 lines now (v12.9). Known dead code: `ciResolvePathForRow`,
    `ciDataIndexToFullPath`, `ciFullPathToDataIndex`, `_bmLegacyId`; inventory/entity `msgIndex`
    fields with no consumer; `_bmLegacyIdSet`'s two unreachable dedupe guards; two dead test
    config keys making one assertion unreachable.

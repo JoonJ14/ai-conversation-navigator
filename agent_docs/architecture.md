@@ -34,11 +34,15 @@
 
 The main file is organized into logical phases within a single IIFE:
 
-1. **Initialization (~lines 1-250):** Duplicate guard, i18n strings, settings, version constant
-2. **Platform Registry (~lines 251-950):** `PLATFORMS` object with 14 entries, each defining hostname matching, selectors, theme colors, and message extraction functions
-3. **Conversation Index (from ~line 1150 in v12.9; search `function ci`, some helpers sit far below):** `ci*` functions — API-backed message enumeration for Claude (see below)
-4. **Orbital UI System (~lines 1600-5600):** Zone construction, panel builders (Navigate, Search, Bookmarks, Summary, Tools, Settings), rendering modes
-5. **Helpers & Utilities (~lines 5600+):** Scroll handling, SSE interception, context estimation, bookmark persistence
+Line numbers are v12.9's and drift with every release. Search the `// ====` section banners instead; they
+move less.
+
+1. **Initialization (~1–265):** duplicate guard, version, i18n strings, settings storage
+2. **Platform registry and detection (~265–1130):** `var PLATFORMS` (14 entries: hostname matching, selectors, theme colors, message extraction), detection, the DOM/toast helpers, chat-boundary detection
+3. **Conversation Index (~1131–4060):** `ci*` functions. The API index and the v12.9 transport ladder (~1131–2440), the virtualizer bridge and row map (~2444–3050), and the jump settle loop (~3050–4060) — see below
+4. **Detection, observer, init, SSE, usage (~4062–5616):** question detection, the message observer, initialization, the SSE interceptor (~5111), turn counters, the Plan usage panel (~5356)
+5. **Orbital UI (~5617–12340):** CSS injection, the render engine, panels (Navigate ~6289, Search ~6922, Bookmarks ~7378, Summary ~8605, Tools ~10416), the zone builder, main injection (~12296)
+6. **Legacy ghost-notch and late handlers (~12341–end):** app-builder platforms, slash commands, panel resize, keyboard
 
 ## Conversation Index (v12.0)
 
@@ -56,8 +60,8 @@ If one of the other 12 flips, do **not** start from selectors. The order of oper
 
 | Function | Role |
 |---|---|
-| `ciIsClaudeChat()` | Guard — true only on `claude.ai/chat/<uuid>` |
-| `ciLoadIndex(force, done)` | Resolves org, fetches, builds. Idempotent; `_ciInFlight` blocks concurrency. Runs the **transport ladder** (v12.9, DEC-045) |
+| `ciIsClaudeChat()` | Guard — true only when the page origin is exactly `https://claude.ai` and the path is `/chat/<uuid>` (or `/project/<uuid>/chat/<uuid>`). The origin check is v12.9's |
+| `ciLoadIndex(force, done)` | Resolves org, fetches, builds. Idempotent; `_ciInFlightCid` + `_ciInFlightGen` block concurrency. Runs the **transport ladder** (v12.9, DEC-045) |
 | `ciApiGet(transport, path, cb)` | ONE request over ONE transport (`'gmxhr'` or `'fetch'`), normalised to `{ok, kind, status, json, errorType, transport, error}`; never throws, calls back exactly once |
 | `ciWalkOrgs(transport, cid, cb)` | v12.8's org walk (cheap candidates → org list), run on one transport; reports a per-response `trace` the ladder decides from |
 | `ciTransportOrder()` | `[first, second]` — this session's last winner, else `GM_info.scriptHandler` (Userscripts → fetch first). **Orders only**: the rule for trying the second transport is the same in either order |
@@ -75,9 +79,38 @@ State lives in `_ci*` module variables. `_ciIndex` holds human turns; `_ciFullPa
 - **The second transport is tried when every candidate *refused* the first (401, 403 or 404 — what the walk itself reads as "this org will not serve it") or the first could not run** (threw, does not exist, or — gmxhr only — never called back within 50s, past the manager's own 45s timeout). **Not** on network errors, manager-reported timeouts, 429s, 5xx or malformed bodies — an org list that parses but holds no usable org counts as one (`ciCountUnusableOrgList`): those are verdicts about the network, the account or the server, and falling back on a blip would move Firefox onto `fetch` for the rest of the session (the winner — the transport that delivered a usable index — is cached). They keep v12.8's classification on one transport — the one case where the order can matter.
 - **The gmxhr request is byte-for-byte v12.8's** — Firefox + Tampermonkey is the proven path. `probes/check-transport-ladder.js` L2-shape compares every option.
 - **The fetch request is exactly the measured one**: `fetch(location.origin + path, {credentials: 'include'})`, and only when the page origin is exactly `https://claude.ai`. No custom headers (Cache-Control would make it a non-simple, preflighted request) and no AbortSignal (an object crossing realms). The timeout is a timer plus a single-fire latch. A fetch is never cancelled, so two page-wide bounds apply before new attempts fail fast: two timed out and still pending (`CI_FETCH_STALL_MAX`) or six open at all (`CI_FETCH_OPEN_MAX`) — never a per-conversation count (DEC-045). Every path out of `ciFetchGet` must reach `ended()`, or a slot is held for the rest of the page; a response nobody will read goes through `discard()` first, which cancels its body.
-- **A refusal is never declared PERMANENT until both transports have failed**, and a second transport that met nothing explaining its failure — only refusals, throws or silence; no 5xx, 429 or bad body — upholds the first's refusal (otherwise a logged-out tab re-polls every ~16s). A 429 or a malformed body on one transport still gets v12.8's PERMANENT backoff without the other being tried — deliberately. `ciIsPermanentReason()` is the one classifier; the ladder passes its decision to `ciSetDegraded` explicitly.
+- **A refusal is never declared PERMANENT until both transports have failed** (one owner-chosen exception: if the FIRST transport's cheap candidates are refused and its org list answers 200 with an array holding no usable org, that walk keeps v12.8's "(HTTP 403)" reason and ends PERMANENT alone — DEC-045), and a second transport that met nothing explaining its failure — only refusals, throws or silence; no 5xx, 429 or bad body — upholds the first's refusal (otherwise a logged-out tab re-polls every ~16s). A 429 or a malformed body on one transport still gets v12.8's PERMANENT backoff without the other being tried — deliberately. `ciIsPermanentReason()` is the one classifier; the ladder passes its decision to `ciSetDegraded` explicitly.
 - **Every request logs one line naming its transport** (`[ACN] index: transport=… org=<8 chars>… status=…`), and every reason from the org walk starts with `[gmxhr]`/`[fetch]` (the two post-fetch validation reasons, `unexpected response shape` and `malformed message data`, carry none yet). Keep it that way: on a user's machine those lines are the only evidence of which transport failed.
 - **The index runs only on the exact origin `https://claude.ai`** (`ciIsClaudeChat`), not wherever platform detection's `host.includes('claude.ai')` matches, and not on claude.ai at another port (`@match` patterns ignore ports) — it sends credentialed requests and renders the answer into the page.
+
+### Runtime matrix — what differs by userscript manager (v12.9)
+
+The code is the same everywhere; what differs is what each manager provides. Labels: **[code]** = read from the
+userscript; **[US src]** = read from Userscripts' source (quoid/userscripts v4.8.6: `entry-userscripts.js`,
+`api.js`, `Functions.swift`, the background `main.js`); **[measured: who, where]**; **[inferred]**. **Nothing here
+has been measured live on v12.9.** That is the owner's acceptance, still owed (ROADMAP 0d).
+
+| Concern | Firefox + Tampermonkey | Chrome + Tampermonkey | Safari + Userscripts |
+|---|---|---|---|
+| Where the script runs | TM's sandbox; `exportFunction` exists [measured: owner, v12.0, DOM-REFERENCE.md] | the page's main world [inferred; DEC-021 addendum] | the extension's **content-script world**: any valid `@grant` makes Userscripts inject into content [US src; measured: its console line, owner, v12.8] |
+| `unsafeWindow` | provided, unused (the SSE interceptor returns first) [code] | the page window; the SSE interceptor patches `unsafeWindow.fetch` [code] | **absent** (not a supported grant) [US src] |
+| `exportFunction` | present: SSE interceptor skipped (DEC-020); SPA history hooks wrapped [code] | absent: interceptor installs; hooks assigned directly [code] | absent [inferred], so the interceptor and the SPA history hooks land on the content world's own `window.fetch` / `history`, which page code never calls [inferred, not measured] |
+| `GM_info.scriptHandler` | `Tampermonkey` [TM source] | `Tampermonkey` [inferred] | `Userscripts` since 4.1.0 [US src]; not measured on the owner's install |
+| Index transport order (`ciTransportOrder`) | gmxhr → fetch [code] | gmxhr → fetch [code] | **fetch → gmxhr** [code] |
+| `GM_xmlhttpRequest` and the claude.ai session | carries it [measured: owner, through v12.8] | carries it; failed at least once, then recovered, unexplained (ROADMAP 0d) [owner report] | **403 from every org** [measured: owner's probe, v12.8, 6-message conversation]. Sent from Userscripts' background page [US src]; why the session is missing is inferred (WebKit SameSite cookies, bug 260676) |
+| The index's `fetch` | runs only after gmxhr was refused or could not run; unmeasured in the sandbox | same; unmeasured | the primary path; **200** for the right org [measured: owner's probe, v12.8, content world]. It passes through our own `acnFetchProxy`, so a change to that proxy is a change to this transport (DEC-021 addendum) [code + US src] |
+| SSE / context-window bar | interceptor skipped: the bar reads `(est.)` from index totals [code] | `(hybrid)` / `(last known)` from SSE [code] | the interceptor sees only the content world's own calls: no SSE, the bar reads `(est.)` [inferred, not measured] |
+| SPA route hooks (the nine `spa:true` platforms; Claude is `spa:false`) | wrapped with `exportFunction` [code] | assigned to the page's `history` [code] | on the content world's `history`, so page navigations are not seen [inferred, not measured] |
+| Plan usage panel | `GM_xmlhttpRequest` only (v12.8 rules, DEC-044) [code] | same | same, so expected to read "Usage data unavailable" [inferred] |
+| GM storage: `acn-settings` (language, platform toggles), bookmarks, `acn-commands`, `acn-zone-positions`, `acn_ctx_cache`, the org cache | works | works | **absent**: Userscripts has no synchronous `GM_getValue`/`GM_setValue` [US src]. Every call site is try/caught, so it fails silently: bookmarks and commands are never stored, and the language and platform toggles can't change, since they are re-read from GM on every use [code] |
+| `localStorage` (`_acnv10`: mode, scroll direction, panel width) | works | works | works [inferred: the page's storage is shared across worlds] |
+| Exact-origin guard | covers the **index only** (`ciIsClaudeChat`). The usage panel and the SSE install are gated by platform detection's `host.includes('claude.ai')` alone. OPEN, ROADMAP 0d [code] | same | same |
+
+**Design rules that follow, for any new feature:**
+1. **Credentialed claude.ai requests** go through `ciApiGet`'s ladder and the exact-origin guard. `GM_xmlhttpRequest` alone is refused on Safari.
+2. **Anything that must persist on Safari** needs `localStorage`, or the async `GM.getValue` / `GM.setValue` with an in-memory copy loaded at startup. Synchronous GM storage does not exist there (agent_docs/conventions.md → Storage Keys).
+3. **Replacing a page global does nothing on Safari** (no `unsafeWindow`). The SSE tap and the SPA history hooks do not reach the page there.
+4. **No Playwright engine is any of these runtimes.** The harness inlines the script into the page realm (TESTING.md). A claim that depends on the runtime stays owner acceptance until it is measured on the device (CLAUDE.md, measurement context).
 
 ### Jump-to-message (Phase 3)
 
@@ -101,7 +134,7 @@ again from that real anchor.
 | `_textAsLegacy()` | reproduces v11.8's exact bookmark-hash input (our glyph removed, sr-only kept) |
 
 Constants are measured, not guessed: `CI_JUMP_SETTLE_CAP_MS` 800 (median settle 309 ms,
-max 668), `CI_JUMP_TOLERANCE_ROWS` 5 (window is 3–10 rows), `CI_JUMP_MAX_ITERATIONS` 8.
+max 668), `CI_JUMP_TOLERANCE_ROWS` 5 (window is 3–10 rows), `CI_JUMP_MAX_ITERATIONS` 24 (raised from 8 in `5f2a8be`, resolve-on-arrival).
 There is deliberately no pinned-tail constant: the extra cluster is not a stable size
 (one probe run showed none at all, another showed one at every sample).
 
@@ -170,7 +203,7 @@ user message that begins with those words.
 - **Never order messages with `compareDocumentPosition` across unmounted nodes.** Detached nodes return `DOCUMENT_POSITION_DISCONNECTED`, matching neither FOLLOWING nor PRECEDING, so the comparator returns 0 and the sort silently degrades to arbitrary order.
 - **Never key persisted data to a DOM index.** Use the message uuid (bookmarks schema 2).
 - **Degradation must be visible.** `orbRenderIndexBanner()` renders `data-acn-index-status`. Silent fallback is what hid this bug.
-- **Never refetch without the cooldown.** `_ciInFlight` prevents only *concurrent* fetches; `CI_REFETCH_COOLDOWN_MS` prevents a sequential loop of 3.3 MB downloads.
+- **Never refetch without the cooldown.** `_ciInFlightCid` prevents only *concurrent* fetches; `CI_REFETCH_COOLDOWN_MS` prevents a sequential loop of 3.3 MB downloads.
 
 ## Platform Registry Pattern
 

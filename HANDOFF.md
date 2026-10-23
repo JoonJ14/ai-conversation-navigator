@@ -1,15 +1,28 @@
 # Session Handoff — 2026-08-05 (v12.8: the usage panel stopped lying, and the session record caught up)
 
-> **Superseded for the current state (2026-10-22).** v12.9 came after this handoff: PR #75 (branch
-> `fix/safari-transport-fallback`, open, not merged) gives the Claude index a second transport for Safari +
-> Userscripts (DEC-045). Until `/baton-handoff` writes the next handoff, take the current state from these:
-> - the 12.9 entry in CHANGELOG.md;
-> - ROADMAP items 0d and 0e;
-> - TROUBLESHOOTING's v12.9 entry and the three entries above it (the local mac WebKit failure, the
->   `check-usage-state` U10 flake, the CI Firefox install that hit the cap);
-> - `reviews/review-2026-10-22-safari-transport.md`.
+> **Superseded for the current state: v12.9 is MERGED (2026-10-23).** PR #75 (`fix/safari-transport-fallback`)
+> merged as `4c72ca9` on the owner's call, **before** the live acceptance (an owner waiver of DEC-031, recorded
+> there). It gives the Claude index a second transport so it can work on Safari + Userscripts (DEC-045). The
+> shipped userscript is `9ee5222`'s; the later commits are docs only.
 >
-> Everything below is the v12.8 session's record.
+> **Owed on that build (DEC-031):**
+> - Safari + Userscripts on a long conversation: `transport=fetch … status=200`, the full count, and a jump to
+>   each of its last five questions.
+> - Firefox + Tampermonkey unchanged: `transport=gmxhr … status=200`.
+> - Chrome + Tampermonkey: which transport won.
+> - v12.8's usage-panel confirm (§G.1 below), now run on this build.
+>
+> **Read these until `/baton-handoff` writes the next handoff:**
+> - `agent_docs/architecture.md` → "Runtime matrix": how Safari + Userscripts, Firefox + Tampermonkey and
+>   Chrome + Tampermonkey now differ (transport order, GM storage, SSE, usage panel);
+> - DEC-045, DEC-021's v12.9 addendum, and CLAUDE.md "Layer 3 has a second face";
+> - the 12.9 entry in CHANGELOG.md, including "After the PR opened";
+> - ROADMAP item 0d (v12.9's open items and follow-ups) and item 0e (the CI rebuild);
+> - TROUBLESHOOTING's v12.9 entry and the three entries above it;
+> - `reviews/review-2026-10-22-safari-transport.md` (the validation record and the mutation matrix).
+>
+> **Branch new work from `origin/main`** (`4c72ca9` or later). Everything below is the v12.8 session's record: its
+> §E git state, §G order and §K kickoff prompt are out of date. Do not run §K as written.
 
 **Scope:** two arcs, the first of which produced the second. (1) A state audit found that the
 previous `/baton-handoff` had run **before PR #72 existed**, so that entire arc had no session

@@ -7,7 +7,9 @@ The userscript must remain **ES5 compatible**. This means:
 - **NO** classes — use constructor functions or plain objects
 - **NO** `async`/`await` — use callbacks or Promises with `.then()`
 - **NO** template literals — use string concatenation
-- **NO** `let`/`const` in the main userscript — use `var` (note: `const PLATFORMS` exists as a legacy exception)
+- **NO** `let`/`const` in the main userscript — use `var` (`PLATFORMS` is `var` too)
+- **Functional non-ASCII must be a `\uXXXX` escape** in code strings. Comments may hold literal characters. See the
+  charset lesson under Lessons Learned, and write such code through a script file (the tool lesson there)
 - **NO** destructuring, spread operators, default parameters, or other ES6+ features
 - **NO** external dependencies at runtime
 

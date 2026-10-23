@@ -1239,7 +1239,12 @@
     //             absolute URL built from location.origin. It CALLS fetch and
     //             replaces no page global, so the exportFunction rule (DEC-019/020)
     //             is not triggered. What remains on Firefox is a cross-compartment
-    //             THROW, which ciApiGet turns into an ordinary failure.
+    //             THROW, which ciFetchGet catches and reports as an ordinary
+    //             failure ('threw'). On Safari + Userscripts (no unsafeWindow) the
+    //             SSE interceptor patches the content world's own window.fetch, so
+    //             this bare fetch IS acnFetchProxy there: a change to that proxy is
+    //             a change to Safari's index transport (DEC-021 addendum).
+    // Per-runtime behaviour: agent_docs/architecture.md, "Runtime matrix".
     //
     // The manager's own name picks which transport goes FIRST (Userscripts -> fetch,
     // anything else -> gmxhr). The rule for trying the second is the same in either
@@ -1387,10 +1392,12 @@
     //    open — one load per conversation, ~2.1s for a 3.3MB payload (DEC-021, measured in
     //    a foreground tab) — so only a burst into a hanging path reaches it.
     // At either bound a new attempt reports a timeout at once instead of sending, and every
-    // request frees its slots the moment it ends. Both counts are PAGE-WIDE: a
-    // per-conversation count was tried first and needed re-keying in three review rounds
-    // (a hang in chat A blocking chat B; a switch during the first load skipping the reset;
-    // A -> B -> A resetting it so that navigation could pile requests up without bound).
+    // request frees its slots the moment it ends. Both counts are PAGE-WIDE. History
+    // (DEC-045): a page-wide cap of ONE came first, and a single hang in chat A then
+    // blocked chat B (Codex round 3); a per-conversation count replaced it and needed
+    // re-keying twice (a switch during the first load, round 4; A -> non-chat -> A and
+    // A -> B -> A, round 5); round 5 replaced it with this cap of TWO, which a lone hang
+    // cannot trip; round 6 added the open bound.
     // The cost: two requests that never end keep the index degraded until a reload.
     // claude.ai is behind Cloudflare, whose documented ~100s origin timeout should end a
     // hung request on its own (inferred, not measured).
@@ -1407,6 +1414,8 @@
     //    fails cross-compartment wherever a sandbox's fetch and AbortController come from
     //    different realms (inferred from Firefox's sandbox model, not measured). The
     //    timeout is a timer; _ciFetchStalled and _ciFetchOpen bound what that leaves behind.
+    //    Aborting timed-out and superseded fetches instead (which would make both caps
+    //    unnecessary) is a follow-up to MEASURE first: ROADMAP 0d.
     // The URL is built from location.origin, as measured — and ONLY when that origin is
     // claude.ai. The request carries the page's cookies, so on any other origin it is
     // refused, never sent. ciIsClaudeChat already keeps the index off every other origin,
@@ -1547,7 +1556,10 @@
     //     server; transient / v12.8's class.
     // The walk stops at the first of these, so the reason it ends with names that kind —
     // which is why a REFUSAL can never be declared PERMANENT here without the other
-    // transport having been tried.
+    // transport having been tried. One exception, the owner's (PR #75): cheap candidates
+    // refused, then an org list that answers 200 with no usable org. That counts as a
+    // verdict (no fallback), and its reason keeps v12.8's "(HTTP 403)", so the load ends
+    // PERMANENT on the first transport alone (ciFetchFromAllOrgs; DEC-045).
     function ciTraceWantsFallback(trace) {
         return trace.noAnswer === 0 && trace.verdict === 0 && (trace.refused + trace.threw) > 0;
     }
@@ -5121,6 +5133,10 @@
 
         // Tampermonkey sandbox: `window` is a wrapper, not the real page window.
         // Claude.ai's JS uses the real window.fetch — we must patch that one.
+        // Safari + Userscripts provides no unsafeWindow, so `pw` is the CONTENT world's
+        // window: the page's own streams never pass through here (no SSE on Safari —
+        // inferred, not measured), but the index's fetch transport does, so this proxy
+        // must stay a transparent pass-through for non-SSE requests (DEC-021 addendum).
         var pw = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 
         if (typeof pw.fetch !== 'function') return;
@@ -5528,7 +5544,7 @@
         var seq = ++_usageReqSeq;
 
         // Setting the flag is not enough — something has to REDRAW. orbPopulateNavigate
-        // early-returns on an unchanged question-list fingerprint (:5800) before it ever
+        // early-returns on an unchanged question-list fingerprint (its first check) before it ever
         // reaches maybeRefreshUsage, so on a settled page nothing would repaint and a
         // retry after a failure would keep showing "unavailable" while a request was
         // genuinely in flight (Codex Tier 3).

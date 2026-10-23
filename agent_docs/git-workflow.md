@@ -16,7 +16,11 @@
 
 - All changes go through PRs with clear descriptions
 - PRs are reviewed via CI (cross-platform tests) and Claude Code automated review
-- Ensure all 14 platform tests pass before requesting merge
+- Ensure the full suite (`npm test`) and the probes (`npm run test:probes`) pass before requesting merge
+- **List anything you cannot test yourself as owner acceptance in the PR** (today: Safari + Userscripts). Never
+  report it as verified (CLAUDE.md, measurement context)
+- **Merging is the owner's call, per PR.** This repo merges with merge commits (`gh pr merge --merge`); auto-merge
+  is disabled. A merge before a release's live confirm is an owner waiver of DEC-031: record it there
 
 ## Version Bumping
 
