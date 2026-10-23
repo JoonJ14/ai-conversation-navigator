@@ -7593,7 +7593,17 @@
         // Q2...) reported 147/147 failures while every jump was actually correct,
         // because each next target sat inside the mount window and resolved here.
         orbMarkJumpTarget(target);
-        if (typeof q.ixPosition === 'number') ixMarkResolved(q);
+        if (typeof q.ixPosition === 'number') {
+            ixMarkResolved(q);
+            // A mounted target needs the scroll pin released too: Perplexity's stick-to-bottom
+            // reverts scrollIntoView as it does a scrollTop write (Codex, PR #78).
+            var ixFast = ixReadyAdapter();
+            if (ixFast && ixFast.releaseScroll) {
+                _ciScrollContainer = null;
+                var fastContainer = ciFindScrollContainer();
+                if (fastContainer) ixFast.releaseScroll(fastContainer);
+            }
+        }
 
         if (isLeftChat) {
             // Close panel first so it doesn't obscure the chat

@@ -210,13 +210,13 @@ const READ = `(function () {
 
     // Click Navigate's row `idx` and report what the jump resolved: the zone's
     // data-acn-jump-resolved and the identity of the element marked as the target.
-    const jumpTo = (idAttr) => async (page) => {
+    const jumpTo = (idAttr, rowIndex) => async (page) => {
         // No rows at all (the old build on these mocks) is a failed jump, reported, not a crash.
-        const clicked = await page.evaluate(() => {
-            const row = document.querySelectorAll('[data-acn-role="nav-item"]')[0];
+        const clicked = await page.evaluate((i) => {
+            const row = document.querySelectorAll('[data-acn-role="nav-item"]')[i];
             if (row) row.click();
             return !!row;
-        });
+        }, rowIndex || 0);
         if (!clicked) return { resolved: null, targetId: null, mounted: null, noRows: true };
         try {
             await page.waitForFunction(() => document.getElementById('acn-zone').getAttribute('data-acn-jump-resolved') !== null,
@@ -227,7 +227,8 @@ const READ = `(function () {
             const host = t && t.closest('[' + attr + ']');
             return { resolved: document.getElementById('acn-zone').getAttribute('data-acn-jump-resolved'),
                      targetId: host ? host.getAttribute(attr) : null,
-                     mounted: window.__mockWindow.mounted() };
+                     mounted: window.__mockWindow.mounted(),
+                     released: window.__mockWindow.released };
         }, idAttr);
     };
 
@@ -389,6 +390,14 @@ const READ = `(function () {
     check('P12', 'jump to Q1 from the bottom resolves entry 0 via data-workflow-entry',
           p9.after && p9.after.resolved === '0' && p9.after.targetId === '0', JSON.stringify(p9.after));
 
+    // 13 [new] A MOUNTED target (the penultimate entry, at the bottom) takes the fast path,
+    // which must release the stick-to-bottom pin too, or the pin reverts scrollIntoView.
+    const p13 = await scenario({ site: 'perplexity', url: pplxUrl, mockConfig: { entries: texts(E12) }, expectCount: 12,
+                                 api: pplxApi(E12), after: jumpTo('data-workflow-entry', 10) });
+    check('P13', 'a mounted-target jump resolves entry 10 and releases the scroll pin',
+          p13.after && p13.after.resolved === '10' && p13.after.targetId === '10' && p13.after.released === true,
+          JSON.stringify(p13.after));
+
     // 10 [new] Many pages: 120 entries arrive 50 + 50 + 20, merged in order, every request
     // asking from the first entry.
     const E120 = pplxEntries(120);
@@ -417,7 +426,7 @@ const READ = `(function () {
     check('P11', 'an API failure falls back to the mounted bubbles with the degraded banner',
           p11.count === '2' && p11.banner === 'degraded', brief(p11));
 
-    const all = [c1, c2, c3, c3b, c3c, c4, c5, c6a, c6b, g1, g2, o1, p8, p9, p10, p10b, p11];
+    const all = [c1, c2, c3, c3b, c3c, c4, c5, c6a, c6b, g1, g2, o1, p8, p9, p13, p10, p10b, p11];
     const pageErrors = all.reduce((n, r) => n + r.errors.length, 0);
     check('E', 'no page errors in any scenario', pageErrors === 0,
           all.filter((r) => r.errors.length).map((r) => r.errors[0]).join(' / '));

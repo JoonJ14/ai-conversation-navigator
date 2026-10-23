@@ -34,13 +34,13 @@ Measured live in Chrome, page realm, on the owner's account (DOM-REFERENCE.md, D
   Claude's requests are unchanged.
 - **The DOM fallback** uses the October selectors and shows the degraded banner.
 - **The jump** pages each site's window by message id (ChatGPT) or entry index (Perplexity), releasing
-  Perplexity's stick-to-bottom scroll pin first.
+  Perplexity's stick-to-bottom scroll pin first — for a question already on screen too.
 - **Header:** `@connect chatgpt.com` and `@connect perplexity.ai`. **Tampermonkey asks you to accept the two
   new hosts when it updates the script** — expected; they are the two sites' own APIs (README, Privacy).
 
 ### Verification
 
-Playwright, page realm, against mocks that genuinely unmount (`probes/check-index-adapters.js`): 25 checks pass; v12.9 fails every new one. Final run on the final build `c9621cb` (macOS arm64, local, 2026-10-23): the full suite **1676/1680** on Chromium, Firefox and WebKit — the 4 failures are the known local WebKit entries (TROUBLESHOOTING, "OPEN — Local mac WebKit"; v12.9 fails them identically). Probes 14/15 runs pass; the one failure is the known `check-usage-state` U10 Firefox timeout. Review: three tiers, seven Tier 3 rounds, `reviews/review-2026-10-23-index-adapters.md`.
+Playwright, page realm, against mocks that genuinely unmount (`probes/check-index-adapters.js`): 26 checks pass; v12.9 fails every new one. Final run on the final build `c9621cb` (macOS arm64, local, 2026-10-23): the full suite **1676/1680** on Chromium, Firefox and WebKit — the 4 failures are the known local WebKit entries (TROUBLESHOOTING, "OPEN — Local mac WebKit"; v12.9 fails them identically). Probes 14/15 runs pass; the one failure is the known `check-usage-state` U10 Firefox timeout. Review: three tiers, seven Tier 3 rounds, `reviews/review-2026-10-23-index-adapters.md`. After it, a GitHub Codex finding (the pin on an on-screen target) was fixed: probe P13 fails before the fix and passes after it on all three engines; `npm test` 560/560 and the probes on Chromium only.
 
 **Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey is owed** (PR
 checklist); live confirmation status: DEC-031.
