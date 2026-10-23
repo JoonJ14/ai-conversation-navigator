@@ -30,27 +30,30 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.10 MERGED (PR #78) — live confirmation status: DEC-031
+## Current Status: v12.10 MERGED (PR #78, `166a281`) — live confirmation status: DEC-031
 
-**v12.10 (PR #78, merged 2026-10-23 after the owner's acceptance on all three browsers).** ChatGPT and
-Perplexity list every question again: October selectors for the DOM fallback, and an index adapter per
-platform reading each site's own JSON through the v12.9 transport ladder (DEC-046; item 13). It was the first
-release accepted on Safari, Chrome and Firefox **before** its merge, which is now the rule (DEC-047). Results:
-DEC-031.
+**v12.10 (PR #78, merged 2026-10-23 as `166a281`).** ChatGPT and Perplexity list every question again: October
+selectors for the DOM fallback, and an index adapter per platform reading each site's own JSON through the v12.9
+transport ladder (DEC-046; item 13). The owner accepted it before the merge on Chrome and Firefox, and on Safari
+for Claude; Safari's ChatGPT and Perplexity check is owed after the merge (a waiver). Results: DEC-031.
 
 **v12.9 (PR #75, merged as `4c72ca9`)** — the Claude index works on Safari + Userscripts through a second
 transport (DEC-045; item 0d).
 
-**Next, in the owner's order (2026-10-23).**
-1. **Cleanups.** The owner picks which. Candidates: the v12.10 follow-ups logged in item 13, the exact-origin
-   guard gap and the other open items in 0d.
-2. **Grok:** untested on all three browsers.
-3. **Gemini: does it keep older turns once loaded, or slide them out?** Not started. This is Step 0(a) of
-   "Porting the Layer 4 response to another platform" below, still open beyond n≤10.
-4. **Safari parity follow-up:** the usage panel's transport and GM storage (item 0d).
-5. **Perplexity attachment image errors:** image-gallery work.
+**Next, in the owner's order (2026-10-23).** The next session gets a spec from the owner; two small PRs, in order:
+1. **PR A, the turn-counter fix, all browsers.** Claude's dots freeze at a stale count (TROUBLESHOOTING,
+   "OPEN — Claude's turn-counter dots"). Update the counter before drawing; redraw the dots on every scan,
+   including the unchanged-fingerprint and empty-list returns; close the panel on a conversation change from the
+   scan path too (to reconfirm: its premise, that Chrome and Firefox already close it, was wrong). Gate: the index delayed with the panel open before it lands, plus a conversation switch with
+   the panel open; it must fail on the current build.
+2. **PR B, Safari parity (item 0d).** The usage request onto the ladder with DEC-044's rules, plus the
+   exact-origin guard for usage. A GM storage wrapper using async `GM.getValue` / `GM.setValue` with an in-memory
+   copy loaded at startup, used only when the synchronous functions are missing; the Tampermonkey path stays
+   unchanged. SSE on Safari stays out of scope.
 
-Also on the list: the CI rebuild (item 0e) and the context-window meter (item 12).
+Then: Grok and Gemini (the owner decides the order), Perplexity attachment images, the CI rebuild (item 0e),
+the context-window meter (item 12) and the v12.10 follow-ups (item 13). Owed meanwhile: Safari's ChatGPT and
+Perplexity acceptance (DEC-031).
 
 **v12.8 (PR #73, merged)** — a failed usage fetch says so instead of "loading" forever (DEC-044).
 
@@ -733,8 +736,8 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
     adapter per platform (DEC-046; `IX_ADAPTERS` in the userscript).
     - **Done:** Claude (wrapped; the v12.0 index unchanged), ChatGPT and Perplexity (v12.10, PR #78; live
       status: DEC-031).
-    - **Pending:** Grok, untested on all three browsers (HANDOFF §G); Gemini, once its virtualization is
-      measured (§G).
+    - **Pending:** Grok, untested on all three browsers; Gemini, once its virtualization is measured. The
+      owner decides their order, after PRs A and B (HANDOFF §G).
     - **How to add the next one:** "Porting the Layer 4 response to another platform" below, then one
       `IX_ADAPTERS` entry and a mock that genuinely unmounts (`probes/check-index-adapters.js` has two).
     - **Logged from v12.10, outside its scope:**
