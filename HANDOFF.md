@@ -3,7 +3,8 @@
 > **Superseded for the current state: v12.9 is MERGED (2026-10-23).** PR #75 (`fix/safari-transport-fallback`)
 > merged as `4c72ca9` on the owner's call, **before** the live acceptance (an owner waiver of DEC-031, recorded
 > there). It gives the Claude index a second transport so it can work on Safari + Userscripts (DEC-045). The
-> shipped userscript is `9ee5222`'s; the later commits are docs only.
+> shipped code is `9ee5222`'s. The later commits (PR #76) change only docs, probe tooling and userscript
+> comments: no behaviour change, no version bump.
 >
 > **Owed on that build (DEC-031):**
 > - Safari + Userscripts on a long conversation: `transport=fetch … status=200`, the full count, and a jump to
@@ -19,7 +20,8 @@
 > - the 12.9 entry in CHANGELOG.md, including "After the PR opened";
 > - ROADMAP item 0d (v12.9's open items and follow-ups) and item 0e (the CI rebuild);
 > - TROUBLESHOOTING's v12.9 entry and the three entries above it;
-> - `reviews/review-2026-10-22-safari-transport.md` (the validation record and the mutation matrix).
+> - `reviews/review-2026-10-22-safari-transport.md` (the validation record and the mutation matrix;
+>   `probes/run-ladder-mutants.sh` regenerates the matrix).
 >
 > **Branch new work from `origin/main`** (`4c72ca9` or later). Everything below is the v12.8 session's record: its
 > §E git state, §G order and §K kickoff prompt are out of date. Do not run §K as written.

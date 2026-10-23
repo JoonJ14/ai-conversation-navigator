@@ -136,6 +136,20 @@ Display mode, scroll direction and panel width use `localStorage` and are unaffe
   lost `webkit on ubuntu-latest` to a second ubuntu install stall (TROUBLESHOOTING). One re-run of that job went 9/9: the install took 27s, and the suite and the transport
   probe passed.
 
+### Close-out (PR #76: docs, probe tooling and userscript comments; no behaviour change)
+
+- **`5e69c60`, `abd57c8`:** `agent_docs/architecture.md` gains a "Runtime matrix" (what differs between
+  Firefox + Tampermonkey, Chrome + Tampermonkey and Safari + Userscripts), and its line map moves to v12.9.
+  The userscript edits are comments only (a comments-stripped diff is empty; no version bump). The other docs
+  record the merged state, the post-merge CI and Codex runs, and the open items the close-out audit found
+  (ROADMAP 0d).
+- **`460a9fb`** (CLAUDE.md, owner-approved): Safari's missing GM storage, Rule 4 naming the userscript-manager
+  (`GM_*`) and standard browser APIs, Rule 7 adding `npm run test:probes`, the guarantee's one exception in
+  the Layer 3 method, and the suite's size (15 mock files for 14 platforms).
+- **`b666ccd`:** the mutation tooling behind the review record's matrix, committed so it outlives the
+  session: `probes/build-ladder-mutants.js`, `probes/run-ladder-mutants.sh` and
+  `probes/ladder-mutation-matrix.js` (TESTING.md has the method).
+
 ---
 
 ## [12.8 — A Failed Usage Fetch Now Says So] — 2026-08-05

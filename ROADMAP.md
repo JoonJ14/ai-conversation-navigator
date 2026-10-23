@@ -361,10 +361,11 @@ Numbering below is stable (items keep their historical numbers):
    - **Two spec gaps the owner kept, for a follow-up.** The `unexpected response shape` and `malformed message
      data` reasons carry no `[transport]` tag (spec 2.4). Probe fixture 3 (L3-backoff) asserts only the 60s
      first step, not the 60 → 240 → 960s escalation.
-   - **The transport-ladder mutation tooling is not in the repo.** The 46-mutant matrix in the review record was
-     built with session-local scripts: one exact-once string replacement per mechanism, run against a
-     snapshot copy (TESTING.md has the method). Re-create and commit them under `probes/` before the abort
-     follow-up reworks the LW checks.
+   - **DONE (PR #76): the transport-ladder mutation tooling is in the repo.** `probes/run-ladder-mutants.sh`
+     builds the 46 mutants, runs the probe on each against a snapshot, and prints the matrix (TESTING.md has
+     the method). Its builder reproduces the session's 46 mutants byte-for-byte. Re-run it when the abort
+     follow-up below reworks the LW checks: the builder stops on every mutant whose anchor the rework
+     changes, by design.
    - **Abort timed-out fetches instead of capping them — follow-up (owner, 2026-10-22).** v12.9's fetch
      transport passes no `AbortSignal`, so a timed-out request keeps running. The page-wide caps (two
      timed out, six open) and the late-body cancel exist only because of that. The signal was left out on

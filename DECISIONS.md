@@ -2521,7 +2521,8 @@ rules (ROADMAP 0d).
 it proves the ladder's DECISIONS, not which real manager's transport carries credentials.
 
 Results against v12.8, the mutation matrix and the CI runs are kept in ONE place:
-`reviews/review-2026-10-22-safari-transport.md`.
+`reviews/review-2026-10-22-safari-transport.md`. `probes/run-ladder-mutants.sh` regenerates the matrix
+(TESTING.md has the method).
 
 ### Open
 - **Merged 2026-10-23 as `4c72ca9`, before the live confirms, on the owner's call.** That is a waiver of DEC-031,

@@ -493,16 +493,23 @@ exercise the choice between them**:
   milliseconds later than v12.8 did, and retries every ~16s with one aborted request each time.
 
 `probes/check-transport-ladder.js` is the gate. Its results against v12.8 and its 46-mutant matrix are in
-`reviews/review-2026-10-22-safari-transport.md`. **How the matrix was built** (session-local tooling, not in the
-repo; ROADMAP 0d):
-- One mutant per mechanism: an exact-once string replacement against a copy of the build. A replacement that
-  does not match exactly once aborts the build, so no mutant can pass by silently not applying (DEC-037).
-- Every mutant runs through the probe with `ACN_SCRIPT=<mutant> node probes/check-transport-ladder.js --browser
-  chromium`, three to four runs in parallel.
-- Everything runs against a **snapshot tree**: a copy of the build and the probe, plus symlinks to `tests/` and
-  `node_modules/`. Two batches that read the live working tree were contaminated by edits made mid-run.
-- **Rebuild the snapshot and stop any running batch after every code change.** A batch testing a superseded
+`reviews/review-2026-10-22-safari-transport.md`. **The matrix is built by `probes/run-ladder-mutants.sh`**
+(committed in PR #76; not in CI, so run it after any change to the ladder or to the probe):
+- One mutant per mechanism (`probes/build-ladder-mutants.js`): an exact-once string replacement against a copy
+  of the build. A replacement that does not match exactly once stops the build, so no mutant can pass by
+  silently not applying (DEC-037). A change to the ladder's code therefore breaks the builder on purpose:
+  re-anchor the mutants it names, or retire them with their mechanism.
+- Every mutant runs through the probe on chromium (`ACN_SCRIPT=<mutant> node probes/check-transport-ladder.js
+  --browser chromium`), three runs in parallel by default (`-j N`); one run takes ~2–3 minutes. The build
+  under test runs on all three engines and must pass every check; v12.8 (`b471ddc`) runs on chromium and
+  firefox as the reference from before the ladder.
+- Everything runs against a **snapshot tree**: the script copies the build, the probe and its two helpers into
+  the battery directory, with symlinks to `tests/` and `node_modules/`. Two hand-run batches that read the
+  live working tree were contaminated by edits made mid-run.
+- **Stop any running battery and start a new one after every code change.** A battery testing a superseded
   build produces confident, stale verdicts.
+- `probes/ladder-mutation-matrix.js` prints the tables for the review record. A crashed or short run prints
+  as INVALID, never as gated.
 - v12.8 ran the same way, from `git show b471ddc`.
 
 Two harness facts the probe had to account for, both measured on all three engines:
