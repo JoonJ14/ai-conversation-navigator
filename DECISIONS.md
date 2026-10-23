@@ -1268,8 +1268,9 @@ review record. Updated 2026-10-23:
   earlier line here said Safari passed ChatGPT and Perplexity, listing and jumping; the owner's detailed report
   says those are still owed on Safari.*
   - **Chrome + Tampermonkey.** Claude **PASS**: 144 questions, plan usage, turn counter. ChatGPT and Perplexity:
-    full lists **PASS**; jumps not reported. Branch test (editing a question) **PASS** on ChatGPT.
-  - **Firefox + Tampermonkey.** Claude **PASS**. ChatGPT and Perplexity: full lists **PASS**; jumps not reported.
+    full lists **PASS**; jumps **PASS** (checked right after each list). Branch test (editing a question)
+    **PASS** on ChatGPT.
+  - **Firefox + Tampermonkey.** Claude **PASS**. ChatGPT and Perplexity: full lists **PASS**; jumps **PASS**.
   - **Safari + Userscripts.** Claude index **PASS**: 144 questions, jumps first ↔ last. Plan usage "Usage data
     unavailable" (expected, the Safari parity item). Turn-counter dots **wrong**, intermittently: a defect that
     predates v12.10 (TROUBLESHOOTING, "OPEN — Claude's turn-counter dots"). **ChatGPT and Perplexity: OWED**,

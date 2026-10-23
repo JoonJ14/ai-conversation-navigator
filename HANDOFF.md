@@ -296,8 +296,7 @@ Not queued; the owner's order (§G) comes first.
   message or none. The ids to migrate to now exist.
 - **Claude's turn-counter dots freeze at a stale count** (Safari mostly; the reload race exists everywhere in the
   code). PR A fixes it.
-- **Safari's ChatGPT and Perplexity acceptance of v12.10 is owed**, and ChatGPT and Perplexity jumps were not
-  reported on Chrome or Firefox (DEC-031).
+- **Safari's ChatGPT and Perplexity acceptance of v12.10 is owed** (DEC-031).
 - **The branch test ran on Chrome, ChatGPT only.** Not on Safari or Firefox, and not on Perplexity (DEC-031).
 - **Chrome's v12.9 check did not record which transport won,** so its old intermittent 403 still has no log
   lines (TROUBLESHOOTING).
