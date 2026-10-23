@@ -384,6 +384,11 @@ Numbering below is stable (items keep their historical numbers):
      caps could go. Measure first: `fetch(url, {credentials: 'include', signal})` in the Tampermonkey
      sandbox on Firefox and Chrome, and in Userscripts on Safari. Keep the caps as the fallback wherever
      passing a signal throws, and rework the probe's LWb-cap and LWc–LWh around abort.
+   - **v12.10 moved four mutant anchors (builder run only; the battery was not run, per the spec).** The index
+     adapters needed a per-request origin and headers on both transports (DEC-046), so
+     `probes/build-ladder-mutants.js` now stops on **M08** (gm options), **M09** (fetch headers), **M21**
+     (fetch's origin guard) and **M34** (fetch drops the query). The other 42 still build. Re-anchor these four
+     with the abort follow-up above, which reworks the same code, then re-run the battery and update the matrix.
 
 0e. **Rebuild CI around what it can and cannot show (owner, 2026-10-22).** The owner's read after
    PR #75: the CI checks are outdated. They pass builds that fail in a real browser — v12.8 was green
@@ -721,6 +726,29 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 - `TROUBLESHOOTING.md` — platform-specific diagnostic guides
 - `DECISIONS.md` — architectural decision log (DEC-001 through DEC-020)
 - `docs/claude_specific_context_tracking_calculation.md` — deep-dive on Claude context window estimation methodology
+
+
+13. **Per-platform conversation-index adapters — ACTIVE (v12.10, owner 2026-10-23).** Claude virtualized first
+    (DEC-021, whose constraints already said to build for per-platform adapters). In October 2026 ChatGPT and
+    Perplexity both shipped windowed message lists *and* new markup, so the index is now one seam with an
+    adapter per platform (DEC-046; `IX_ADAPTERS` in the userscript).
+    - **Done:** Claude (wrapped; the v12.0 index unchanged), ChatGPT and Perplexity (this PR).
+    - **Pending:** Gemini, once its virtualization is measured (HANDOFF §G item 2); Grok, untested (§G item 3).
+    - **How to add the next one:** "Porting the Layer 4 response to another platform" below, then one
+      `IX_ADAPTERS` entry and a mock that genuinely unmounts (`probes/check-index-adapters.js` has two).
+    - **Logged from v12.10, outside its scope:**
+      - Bookmarks on ChatGPT and Perplexity are still positional (schema 1, `contentHash(text, idx)` over the
+        mounted NodeList), which windowing already breaks (Porting step 4). The ids a migration would key to
+        are now in the index: `data-turn-key` (ChatGPT) and `backend_uuid` (Perplexity).
+      - Export on these two: the header counts every indexed question, the body only the mounted ones
+        (`buildTimeline` keeps element-backed entries), and the DEGRADED stamp is Claude-only (Porting step 6).
+      - The Summary map orders mounted messages by the DOM and appends the unmounted questions after them
+        (`_sumBuildTimeline`'s non-Claude branch).
+      - ChatGPT's assistant selectors (`getAIMessages`) are the February 2026 ones and were not re-measured; if
+        they match nothing on the new shell, Summary, Export and Search see no answers there.
+      - The Perplexity jump releases the scroller's stick-to-bottom pin with a synthetic wheel event. Measured
+        in Chrome's page realm only; in Firefox's Tampermonkey sandbox the event crosses realms (owner
+        acceptance).
 
 ---
 

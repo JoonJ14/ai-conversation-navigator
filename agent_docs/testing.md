@@ -93,6 +93,9 @@ GitHub Actions runs on push/PR to `main`:
     `check-usage-state` (the usage panel's network states; it has an open Firefox flake, TROUBLESHOOTING).
   - Every `ubuntu` job also runs `check-transport-ladder` on its own engine (v12.9, DEC-045). It adds about
     2m20s per job.
+  - Every `ubuntu` job also runs `check-index-adapters` on its own engine (v12.10, DEC-046): the ChatGPT and
+    Perplexity adapters against two mocks that genuinely unmount (`chatgpt-windowed.html`,
+    `perplexity-windowed.html`). Run it with `ACN_SCRIPT=<old build>` to see the new fixtures fail there.
 
 **Windows is the runner that catches timing assumptions.** It is materially slower than
 the Ubuntu and macOS runners, so an assertion that races the virtualizer passes on two OSes
