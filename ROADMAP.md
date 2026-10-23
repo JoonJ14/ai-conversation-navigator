@@ -44,7 +44,7 @@ transport (DEC-045; item 0d).
 1. **PR A, the turn-counter fix, all browsers.** Claude's dots freeze at a stale count (TROUBLESHOOTING,
    "OPEN — Claude's turn-counter dots"). Update the counter before drawing; redraw the dots on every scan,
    including the unchanged-fingerprint and empty-list returns; close the panel on a conversation change from the
-   scan path too. Gate: the index delayed with the panel open before it lands, plus a conversation switch with
+   scan path too (to reconfirm: its premise, that Chrome and Firefox already close it, was wrong). Gate: the index delayed with the panel open before it lands, plus a conversation switch with
    the panel open; it must fail on the current build.
 2. **PR B, Safari parity (item 0d).** The usage request onto the ladder with DEC-044's rules, plus the
    exact-origin guard for usage. A GM storage wrapper using async `GM.getValue` / `GM.setValue` with an in-memory

@@ -129,9 +129,11 @@ labelled [code] or [inferred], is in TROUBLESHOOTING, "OPEN — Claude's turn-co
 so the dots show the previous scan's count. `orbPopulateNavigate()` then returns early on an unchanged
 fingerprint (and on an empty list) without redrawing them, so they freeze at 0 or at the mounted 1–4.
 
-**Why Safari [inferred].** On Chrome and Firefox the history hooks close the panel on navigation, so it cannot
-stay open across a sidebar switch; on Safari the hooks don't reach the page, so it does. The reload race exists
-in the code on every browser.
+**Why Safari: unexplained.** The mechanism is the same on every browser [code]: Claude is `spa: false`, so the
+history hooks are never installed and nothing closes the panel on navigation anywhere. The first version of this
+handoff said the hooks close it on Chrome and Firefox; GitHub Codex caught that on PR #79, and TROUBLESHOOTING
+records both. Candidates for the Safari difference (timing of the index's arrival, injection timing) are
+unmeasured.
 
 **Not a v12.10 regression [code]:** every function on the counter path is byte-identical between v12.9 and
 PR #78's head; the three that changed are not on Claude's path. **Fix:** PR A (§G). Per the owner, no scratch
@@ -214,7 +216,7 @@ place.
 | `ROADMAP.md` item **13** | the adapters, how to add one, and the logged v12.10 follow-ups (cleanup candidates) |
 | `ROADMAP.md` items **0d**, **0e**, **12** | Safari parity and the exact-origin gap; CI rebuild; context meter |
 | `TROUBLESHOOTING.md` → "OPEN — Claude's turn-counter dots" | **PR A's diagnosis**, labelled [code] / [inferred] |
-| `agent_docs/architecture.md` → "Runtime matrix" | what differs on Safari: GM storage, SSE, history hooks (PR B) |
+| `agent_docs/architecture.md` → "Runtime matrix" | what differs on Safari: GM storage, SSE (PR B) |
 | `DOM-REFERENCE.md` | ChatGPT and Perplexity October structure; the virtualization table |
 | `probes/check-index-adapters.js` | the gate, 27 checks |
 | `reviews/review-2026-10-23-index-adapters.md` | the review record |
@@ -231,8 +233,9 @@ small PRs, in this order:
    - Update the counter before drawing (`orbOnScanComplete`).
    - Redraw the dots on every scan, including `orbPopulateNavigate`'s unchanged-fingerprint and empty-list
      returns.
-   - Close the panel on a conversation change detected by the scan path too, so Safari behaves like Chrome and
-     Firefox.
+   - Close the panel on a conversation change detected by the scan path too. **Reconfirm with the owner first:**
+     it was decided "so Safari behaves like Chrome and Firefox", but Chrome and Firefox don't close it either
+     (corrected premise, TROUBLESHOOTING). It would be a behaviour change on all three browsers.
    - **Gate:** a probe with the index delayed and the panel open before it lands, plus a conversation switch with
      the panel open. It must fail on the current build.
 2. **PR B: Safari parity** (ROADMAP 0d).
@@ -294,8 +297,8 @@ Not queued; the owner's order (§G) comes first.
   code: the Plan usage panel and the SSE interceptor are gated by `host.includes('claude.ai')` (ROADMAP 0d).
 - **Bookmarks on ChatGPT and Perplexity are positional** over a windowed list, so they can point at the wrong
   message or none. The ids to migrate to now exist.
-- **Claude's turn-counter dots freeze at a stale count** (Safari mostly; the reload race exists everywhere in the
-  code). PR A fixes it.
+- **Claude's turn-counter dots freeze at a stale count.** Seen on Safari; the mechanism exists on every browser
+  in the code, and why only Safari showed it is unexplained. PR A fixes the mechanism.
 - **Safari's ChatGPT and Perplexity acceptance of v12.10 is owed** (DEC-031).
 - **The branch test ran on Chrome, ChatGPT only.** Not on Safari or Firefox, and not on Perplexity (DEC-031).
 - **Chrome's v12.9 check did not record which transport won,** so its old intermittent 403 still has no log

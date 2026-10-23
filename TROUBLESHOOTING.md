@@ -501,8 +501,10 @@ gate will measure it.
   mounted turns, about 1–5 on Claude [code].
 - **SSE** gives the counter no count. `message_delta` and `message_stop` only redraw [code].
 - **`acn_ctx_cache`** feeds only the context bar's thinking tokens and its "(last known)" label [code].
-- **Updated** only in `orbOnScanComplete()`, after each scan. **Reset** by the history hooks, by
-  `ciInvalidate()` when a scan sees the conversation changed, and by the "count dropped" rule [code].
+- **Updated** only in `orbOnScanComplete()`, after each scan. **Reset** on Claude by `ciInvalidate()` when a scan
+  sees the conversation changed, and by the "count dropped" rule [code]. The history hooks also reset it, but
+  they are installed only on `spa: true` platforms, and Claude is `spa: false` (line 278; the block is guarded by
+  `if (platform.spa)`, line 5561) [code].
 - **Drawn** only by `orbUpdateContextBar()`. It is called at the end of `orbPopulateNavigate()` (panel open, and
   every scan while Navigate is open) and on the two SSE events [code].
 
@@ -516,14 +518,20 @@ gate will measure it.
   landed: **0** right after a reset, or **1–4** after a DOM scan of the mounted turns [code].
 - **A close/reopen does not help.** `orbOpenPanel` → `orbPopulateNavigate` returns early on the same fingerprint
   [code].
-- **Why Safari, and why mostly via the sidebar.** On Chrome and Firefox the `pushState` / `popstate` hooks call
-  `orbClosePanel()` [code], so Navigate cannot stay open across a sidebar navigation. On Safari the hooks do not
-  reach the page [inferred, as in the v12.9 handoff; not measured]. The panel stays open, the reset happens
-  inside the next scan through `ciInvalidate()` [code], and the late draw freezes at 0 or 1–4 [the mechanism is
-  code; the exact interleaving is inferred].
-- **The reload cases** need the panel opened before the index lands [inferred]. The race is not Safari-specific
-  in the code; a faster index on Chrome would make it rare [inferred, unmeasured]. Chrome also redraws the dots
-  after every streamed reply [code]; Safari gets no SSE [inferred].
+- **The mechanism is the same on every browser [code].** On Claude nothing closes the panel on navigation in
+  any browser: the history hooks are not installed (`spa: false`), and the only other `orbClosePanel()` callers
+  are the drag handler and explicit panel actions. So in every browser the panel can stay open across a sidebar
+  switch, the reset happens inside the next scan through `ciInvalidate()`, and the late draw can freeze at 0 or
+  1–4. The reload cases need the panel opened before the index lands [inferred].
+- **Why it shows on Safari and not on Chrome or Firefox is UNEXPLAINED.** Candidates, none measured: the timing
+  of the index's arrival relative to scans and to the panel being opened (Safari's index goes through `fetch`
+  first; Userscripts' injection timing differs) [inferred]; Chrome also redraws the dots after every streamed
+  reply [code], but Firefox gets no SSE either, so that cannot explain Firefox [inferred]. PR A's gate and the
+  owner's acceptance on all three browsers will show whether the fix covers it.
+- **Corrected 2026-10-23 (GitHub Codex, PR #79).** The first version of this entry said the `pushState` /
+  `popstate` hooks close the panel on Chrome and Firefox and do not reach the page on Safari, which would make
+  the bug Safari-only. That was an inference from code read without checking Claude's `spa` flag: on Claude the
+  hooks are never installed, so the distinction does not exist.
 - **What is absent on Safari and does not explain it:** GM storage. Every `GM_getValue` / `GM_setValue` is inside
   a try/catch, so nothing throws on the scan path [code]; `acn_ctx_cache` just never loads [inferred].
 
@@ -545,8 +553,10 @@ the history-hook block. Changed, none of it on Claude's path:
 
 - Update the counter before drawing.
 - Redraw the dots on every scan, including the unchanged-fingerprint and empty-list returns.
-- Close the panel on a conversation change detected by the scan path too, so Safari behaves like Chrome and
-  Firefox.
+- Close the panel on a conversation change detected by the scan path too. **To reconfirm with the owner:** this
+  point was decided as "so Safari behaves like Chrome and Firefox", on the corrected premise above. Chrome and
+  Firefox do not close it either, so it would be a behaviour change on all three browsers, not a Safari parity
+  fix; with the first two points the dots are right whether or not the panel stays open [inferred].
 - Gate: a probe with the index delayed and the panel open before it lands, plus a conversation switch with the
   panel open. It must fail on the current build.
 
