@@ -6,7 +6,8 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.9 — The Claude Index Works on Safari: a Second Transport, Ordered by the Userscript Manager] — 2026-10-22
 
-**Branch:** `fix/safari-transport-fallback` | **Commits:** `74c8811` (code), `ae3ada1` (docs), then the post-PR docs update | **PR:** #75
+**Branch:** `fix/safari-transport-fallback` | **Commits:** `74c8811` (code), `ae3ada1` (docs), `9ee5222` (the owner's
+revert of #5, plus docs), `9ed5182` (CLAUDE.md) | **PR:** #75, merged 2026-10-23 as `4c72ca9`
 
 ### Problem
 
@@ -44,7 +45,8 @@ break that varies by *manager*, not by site.
   v12.8's classification on one transport.
 - **The winner is cached** for the page session — the transport that delivered a usable index, not merely
   a 200 (Codex Tier 3).
-- **A refusal is never PERMANENT until both transports have been tried**, and a second transport that met
+- **A refusal is never PERMANENT until both transports have been tried** (one owner-chosen exception: an
+  unusable org list on the first transport — DEC-045), and a second transport that met
   only refusals or silence (no server error) upholds the first's refusal — so a logged-out tab still backs
   off as it did in v12.8.
 - **One diagnostic line per request**, naming the transport — `[ACN] index: transport=fetch org=730fcd2a… status=200`
@@ -74,7 +76,9 @@ break that varies by *manager*, not by site.
 
 New probe `probes/check-transport-ladder.js`, in CI on ubuntu × {chromium, firefox, webkit}. Its results
 against v12.8 and the mutation matrix are kept in one place: `reviews/review-2026-10-22-safari-transport.md`.
-The full suite passes 560/560 on chromium and on firefox (macOS arm64). On webkit it is 556/560 here **for both
+The full suite passed 560/560 on chromium and on firefox (macOS arm64, on `74c8811`'s userscript, before the
+owner's #5 revert; after the revert only the probe was re-run locally, and CI ran the full suite on every
+later commit). On webkit it is 556/560 here **for both
 v12.9 and v12.8** — the same four jump-acceptance entries, `got null` with healthy `raf10`, in an A/B under
 identical load and again solo — so this change did not cause it. **Corrected after the PR opened:** this entry
 first called it TESTING.md's webkit-on-macos signature and named CI's webkit jobs the reference. Neither holds.
@@ -98,7 +102,7 @@ until those lines exist. **Found, not fixed:** nothing kept in GM storage works 
 synchronous `GM_getValue`/`GM_setValue`): bookmarks, saved commands, the language and platform toggles.
 Display mode, scroll direction and panel width use `localStorage` and are unaffected. ROADMAP 0d.
 
-### After the PR opened (2026-10-22)
+### After the PR opened (2026-10-22 and 23)
 
 - **GitHub Codex reviewed `ae3ada1` twice and found nothing both times:** once automatically when the PR opened,
   and once on a manual `@codex review` ("Didn't find any major issues").
@@ -120,6 +124,17 @@ Display mode, scroll direction and panel width use `localStorage` and are unaffe
   other transport being asked (DEC-045).
 - **Validation record in one place:** the probe's results against v12.8 and the mutation matrix now live only
   in the review record. DEC-045, this entry, TROUBLESHOOTING and the probe header link to it.
+- **`9ee5222`** (the owner's decisions, above): CI run 39875539777 went 9/9, and Codex reviewed it and found
+  nothing.
+- **`9ed5182`** (CLAUDE.md, owner-approved): the Layer 3 changes as they were, plus the runtime line, the size,
+  and the per-manager measurement rule with the owner's sentence: a setup the agent cannot drive (Safari +
+  Userscripts today) is listed as owner acceptance in the PR, never reported as verified. Codex found
+  nothing. CI run 39877202022 lost `firefox on windows-latest` to TESTING.md's `page.goto … interrupted by
+  another navigation` harness flake (its second occurrence); one re-run of that job went 9/9.
+- **Merged 2026-10-23 as `4c72ca9`, on the owner's call, before the real-Safari acceptance.** That is a waiver
+  of DEC-031, recorded there; the acceptance stays owed (ROADMAP 0d). The post-merge `main` run 39878964613
+  lost `webkit on ubuntu-latest` to a second ubuntu install stall (TROUBLESHOOTING). One re-run of that job went 9/9: the install took 27s, and the suite and the transport
+  probe passed.
 
 ---
 
