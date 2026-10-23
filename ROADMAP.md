@@ -744,6 +744,8 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         (`buildTimeline` keeps element-backed entries), and the DEGRADED stamp is Claude-only (Porting step 6).
       - The Summary map orders mounted messages by the DOM and appends the unmounted questions after them
         (`_sumBuildTimeline`'s non-Claude branch).
+      - Search's chronological merge reads `pathIndex`, which adapter questions do not carry (they have
+        `ixPosition`), so question hits and answer hits are not interleaved by position (Tier 3, PR #78).
       - ChatGPT's assistant selectors (`getAIMessages`) are the February 2026 ones and were not re-measured; if
         they match nothing on the new shell, Summary, Export and Search see no answers there.
       - The Perplexity jump releases the scroller's stick-to-bottom pin with a synthetic wheel event. Measured

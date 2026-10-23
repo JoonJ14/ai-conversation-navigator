@@ -2546,6 +2546,9 @@
         var m = j.mapping, ids = [], n = j.current_node;
         var cap = Object.keys(m).length + 1;          // a cycle cannot spin forever
         while (n && m.hasOwnProperty(n) && cap-- > 0) { ids.push(n); n = m[n] && m[n].parent; }
+        // Stopped on an id the mapping lacks, or on the cap (a cycle): the path is not
+        // the whole branch, and listing it as complete would hide that (Tier 3).
+        if (n) throw new Error('unexpected response shape');
         ids.reverse();
         var out = [];
         for (var i = 0; i < ids.length; i++) {
@@ -2633,6 +2636,12 @@
                          truncated: capped ? all.length : 0 });
         }
         function next(cursor) {
+            // The user left this thread: stop paging it. ixLoad drops the result as
+            // superseded; without this the chain fetched every remaining page (Tier 3).
+            if (IX_ADAPTERS.perplexity.getConversationId() !== cid) {
+                done({ reason: 'superseded', permanent: false });
+                return;
+            }
             page++;
             var path = '/rest/thread/' + encodeURIComponent(cid) + '?limit=' + IX_PPLX_PAGE_LIMIT +
                        '&from_first=true' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
@@ -2940,9 +2949,13 @@
         if (!container) { done(false, null, 'no-container'); return; }
         var entry = { id: q.ixId, position: q.ixPosition };
         var total = Math.max(1, _ix.total);
+        var cid = _ix.cid;
         var moves = 0;
         function arrive() {
             if (token !== _ixJumpToken) { done(false, null, 'superseded'); return; }
+            // A thread switch before the next scan invalidates: a position from the old
+            // thread must not resolve the same-numbered entry of the new one (Tier 3).
+            if (_ix.cid !== cid || a.getConversationId() !== cid) { done(false, null, 'superseded'); return; }
             if (!container.isConnected) { done(false, null, 'container-gone'); return; }
             var el = a.locate(entry);
             if (el) { done(true, el, 'locate'); return; }
@@ -7582,7 +7595,7 @@
                 }
             }
             var sfp = q + '|' + _questions.length + '|' + (_aiResponses ? _aiResponses.length : 0) +
-                      '|g' + _ciIndexGen + '|L' + liveLen;
+                      '|g' + _ciIndexGen + '|L' + liveLen + '|x' + ixFingerprint();
             if (sfp === _searchListFingerprint && list.firstChild) return;
             _searchListFingerprint = sfp;
         }

@@ -89,8 +89,10 @@ function pplxPage(all, url, opts) {
     let start = cur ? parseInt(cur.replace('cur-', ''), 10) : 0;
     if (!fromFirst && !cur) start = Math.max(0, all.length - limit);   // newest page, as live
     const slice = all.slice(start, start + limit);
+    // endless: a thread that never stops paging, with a FRESH entry at every index, so a
+    // check can tell exactly which entries were listed.
     const more = opts && opts.endless ? true : start + limit < all.length;
-    return { status: 'COMPLETED', entries: opts && opts.endless ? all.slice(0, Math.min(limit, all.length)) : slice,
+    return { status: 'COMPLETED', entries: opts && opts.endless ? pplxEntries(start + limit).slice(start) : slice,
              has_next_page: more, next_cursor: more ? 'cur-' + (start + limit) : null,
              background_entries: [], first_entry: null, latest_entry: null, thread_metadata: {} };
 }
@@ -278,6 +280,15 @@ const READ = `(function () {
     check('C3', 'only the active branch is indexed (the edited-away original is absent)',
           c3.count === '10' && !c3.texts.some((t) => /ORIGINAL/.test(t)) && c3.texts[3] === T10[3].text, brief(c3));
 
+    // [new] A broken tree (a node whose parent the mapping lacks) is not a complete history:
+    // the walk refuses it and the panel says it is showing the window (Tier 3, PR #78).
+    const broken = gptMapping({ turns: T10 });
+    broken.mapping[T10[3].id].parent = 'missing-parent-id';
+    const c3b = await scenario({ site: 'chatgpt', url: gptUrl, mockConfig: { turns: T10 }, expectCount: 6,
+                                 api: gptApi(broken) });
+    check('C3b', 'a mapping with a missing parent degrades visibly instead of listing a partial path',
+          c3b.count === '6' && c3b.banner === 'degraded', brief(c3b));
+
     // 4 [new] A hidden user-role context node is excluded.
     const c4 = await scenario({ site: 'chatgpt', url: gptUrl, mockConfig: { turns: T10 }, expectCount: 10,
                                 api: gptApi(gptMapping({ turns: T10, hidden: true })) });
@@ -353,17 +364,18 @@ const READ = `(function () {
     const p10req = p10.calls.filter((c) => c.url.indexOf('/rest/thread/') !== -1);
     check('P10', 'all pages are fetched and merged in order (3 requests, from_first on each)',
           p10.count === '120' && p10req.length === 3 && p10req.every((c) => /from_first=true/.test(c.url)) &&
-          p10.texts[0] === E120[0].query_str && p10.texts[119] === E120[119].query_str,
+          p10.texts.join('|') === E120.map((e) => e.query_str).join('|'),
           brief(p10) + ' requests=' + p10req.length);
     check('P10-log', 'one line per page, with the page number; the last carries the count',
           lines(p10, /^\[ACN\] index: platform=perplexity transport=fetch endpoint=thread page=3 status=200 questions=120$/).length === 1,
           lines(p10, /endpoint=thread/).join(' / '));
     // 10b [new] The page cap holds against a thread that never stops paging, and the panel says so.
-    const p10b = await scenario({ site: 'perplexity', url: pplxUrl, mockConfig: { entries: texts(E12) }, expectCount: -1,
+    const p10b = await scenario({ site: 'perplexity', url: pplxUrl, mockConfig: { entries: texts(E12) }, expectCount: 2000,
                                   api: pplxApi(E12, { endless: true }), timeoutMs: 30000 });
     const p10breq = p10b.calls.filter((c) => c.url.indexOf('/rest/thread/') !== -1);
     check('P10b', 'the page cap (40) stops an endless thread, logs it and labels the list',
-          p10breq.length === 40 && p10b.banner === 'ready-with-notes' && lines(p10b, /page cap reached/).length === 1,
+          p10breq.length === 40 && p10b.banner === 'ready-with-notes' && lines(p10b, /page cap reached/).length === 1 &&
+          p10b.count === '2000' && p10b.texts.join('|') === pplxEntries(2000).map((e) => e.query_str).join('|'),
           brief(p10b) + ' requests=' + p10breq.length);
 
     // 11 [new] An API failure falls back to the DOM scan, visibly.
@@ -372,7 +384,7 @@ const READ = `(function () {
     check('P11', 'an API failure falls back to the mounted bubbles with the degraded banner',
           p11.count === '2' && p11.banner === 'degraded', brief(p11));
 
-    const all = [c1, c2, c3, c4, c5, c6a, c6b, g1, o1, p8, p9, p10, p10b, p11];
+    const all = [c1, c2, c3, c3b, c4, c5, c6a, c6b, g1, o1, p8, p9, p10, p10b, p11];
     const pageErrors = all.reduce((n, r) => n + r.errors.length, 0);
     check('E', 'no page errors in any scenario', pageErrors === 0,
           all.filter((r) => r.errors.length).map((r) => r.errors[0]).join(' / '));
