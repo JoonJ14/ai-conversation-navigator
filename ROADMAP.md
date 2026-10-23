@@ -746,6 +746,11 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         (`_sumBuildTimeline`'s non-Claude branch).
       - Search's chronological merge reads `pathIndex`, which adapter questions do not carry (they have
         `ixPosition`), so question hits and answer hits are not interleaved by position (Tier 3, PR #78).
+      - Perplexity's edit detection compares the API's raw `query_str` with the rendered bubble through
+        `_normalizeCompareFull`, so it is a MATCH, not an identity: an edit that changes only markdown
+        punctuation (`array[x]` → `arrayx`) is not seen as an edit. Exact comparison was tried and rejects
+        every formatted prompt instead. Accepted limit (Tier 3 post-fix round 3, PR #78); an id in the DOM
+        would remove it, and none was found there.
       - ChatGPT's assistant selectors (`getAIMessages`) are the February 2026 ones and were not re-measured; if
         they match nothing on the new shell, Summary, Export and Search see no answers there.
       - The Perplexity jump releases the scroller's stick-to-bottom pin with a synthetic wheel event. Measured
