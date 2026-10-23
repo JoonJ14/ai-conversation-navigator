@@ -2548,7 +2548,9 @@
         while (n && m.hasOwnProperty(n) && cap-- > 0) { ids.push(n); n = m[n] && m[n].parent; }
         // Stopped on an id the mapping lacks, or on the cap (a cycle): the path is not
         // the whole branch, and listing it as complete would hide that (Tier 3).
-        if (n) throw new Error('unexpected response shape');
+        // `parent` absent (undefined) ends the walk only at the message-less root.
+        var top = ids.length ? m[ids[ids.length - 1]] : null;
+        if (n || (n === undefined && top && top.message)) throw new Error('unexpected response shape');
         ids.reverse();
         var out = [];
         for (var i = 0; i < ids.length; i++) {
@@ -2595,8 +2597,11 @@
                     // retry once; anything still failing falls back to the DOM scan.
                     // On either transport: a refused gmxhr (401) whose fetch then threw
                     // reports the throw, with the 401 in firstFailure (Tier 3).
+                    // ...but only when the second gave no verdict of its own: after a 429 or a
+                    // 5xx a refresh would add requests to a rate-limited account (Tier 3 post-fix).
                     var expired = (r.kind === 'http' && r.status === 401) ||
-                        !!(r.firstFailure && r.firstFailure.kind === 'http' && r.firstFailure.status === 401);
+                        !!(r.firstFailure && r.firstFailure.kind === 'http' && r.firstFailure.status === 401 &&
+                           (r.kind === 'threw' || r.kind === 'network' || r.kind === 'timeout'));
                     if (!r.ok && expired && !retried) {
                         retried = true;
                         withToken(true, function (err, t2) {
@@ -2661,7 +2666,7 @@
                 // A cursor seen before would loop the same page to the cap (Tier 3).
                 if (!j || !Array.isArray(j.entries) ||
                     (more && (typeof j.next_cursor !== 'string' || !j.next_cursor ||
-                              seenCursors.hasOwnProperty(j.next_cursor)))) {
+                              seenCursors.hasOwnProperty('c:' + j.next_cursor)))) {
                     ixLog('perplexity', r, 'thread', ' page=' + page, ' questions=0');
                     done({ reason: 'unexpected response shape', permanent: true });
                     return;
@@ -2674,7 +2679,7 @@
                     return;
                 }
                 if (more) {
-                    seenCursors[j.next_cursor] = true;
+                    seenCursors['c:' + j.next_cursor] = true;   // prefixed: a cursor is opaque text
                     ixLog('perplexity', r, 'thread', ' page=' + page);
                     next(j.next_cursor);
                     return;
@@ -2755,7 +2760,7 @@
                 var w = document.querySelector('[data-workflow-entry="' + (entry.position | 0) + '"]');
                 if (!w) return null;
                 var b = w.querySelector('[data-message-bubble="right"]');
-                if (b && entry.text && _normalizeKey(_readMessageText(b)) !== _normalizeKey(entry.text)) return null;
+                if (b && entry.text && _normalizeFull(_readMessageText(b)) !== _normalizeFull(entry.text)) return null;
                 return b || w;
             },
             mounted: function () {
@@ -2769,8 +2774,10 @@
                     // Same ordinal, different question (an edit or a rewrite): stale, and
                     // keyed by its text so a later edit at that ordinal is new evidence (Tier 3).
                     if (pos >= 0 && _ix.textAt && _ix.textAt.hasOwnProperty(pos)) {
-                        var shown = _normalizeKey(_readMessageText(bubbles[i]));
-                        if (shown && shown !== _normalizeKey(_ix.textAt[pos])) {
+                        // FULL text: _normalizeKey stops at 200 chars, so an edit sharing that
+                        // prefix would pass as the old question (Tier 3 post-fix).
+                        var shown = _normalizeFull(_readMessageText(bubbles[i]));
+                        if (shown && shown !== _normalizeFull(_ix.textAt[pos])) {
                             pos = -1;
                             key = 'e' + n + ':' + shown.slice(0, 40);
                         }
