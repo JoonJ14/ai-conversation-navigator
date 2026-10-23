@@ -355,7 +355,8 @@ I've merged it, the session-close docs PR (docs/session-close-v12.10).
 
 THIS SESSION: two small PRs, in order, each its own branch and PR:
   A. The turn-counter fix, all browsers (HANDOFF §G.1). Its gate must fail on the
-     current build.
+     current build. Ask me before building its third point (close the panel on a
+     conversation change): its premise was wrong (TROUBLESHOOTING, corrected).
   B. Safari parity: usage onto the ladder with DEC-044's rules plus its exact-origin
      guard; the async GM storage wrapper, used only when the synchronous functions are
      missing (HANDOFF §G.2). SSE on Safari stays out of scope.
