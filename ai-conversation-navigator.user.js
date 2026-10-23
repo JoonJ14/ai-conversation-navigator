@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.9
+// @version      12.10
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -25,6 +25,8 @@
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @connect      claude.ai
+// @connect      chatgpt.com
+// @connect      perplexity.ai
 // ==/UserScript==
 
 (function () {
@@ -40,7 +42,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.9';
+    var ACN_VERSION = '12.10';
 
     // ============================================================
     // i18n — internationalization string table
@@ -355,8 +357,20 @@
             retryDelays: [],
             textExtractor: null,
             getUserMessages: function () {
+                // The app-shell markup (Oct 2026): the user bubble, then its search-unit
+                // wrapper. The legacy selectors below match nothing on the live site any
+                // more and stay as harmless fallbacks (spec 2.7).
+                // Scoped to the visible timeline: during a navigation ChatGPT keeps a
+                // hidden copy (role="presentation", every bubble 0x0) beside the real
+                // one, which doubled every count (measured, Chrome, 2026-10-23).
+                var root = document.querySelector('[data-app-action-timeline-scroll][role="region"]') || document;
+                var messages = root.querySelectorAll('[data-user-message-bubble="true"]');
+                if (messages.length === 0) {
+                    messages = root.querySelectorAll('[data-content-search-unit-key$=":user"]');
+                }
+                if (messages.length > 0) return messages;
                 var allMessages = document.querySelectorAll('[data-message-author-role]');
-                var messages = Array.from(allMessages).filter(function (msg) {
+                messages = Array.from(allMessages).filter(function (msg) {
                     return msg.getAttribute('data-message-author-role') === 'user';
                 });
                 if (messages.length === 0) {
@@ -837,6 +851,10 @@
             retryDelays: [],
             textExtractor: null,
             getUserMessages: function () {
+                // Oct 2026 markup: the user's question bubble (answers never carry it).
+                // The legacy selectors below match nothing on the live site any more.
+                var bubbles = document.querySelectorAll('[data-message-bubble="right"]');
+                if (bubbles.length > 0) return bubbles;
                 var perplexityQueries = document.querySelectorAll('.group\\/query');
                 var messages = Array.from(perplexityQueries).filter(function (el) {
                     return el.textContent.trim().length > 0;
@@ -1334,7 +1352,9 @@
         } catch (e) { return ''; }
     }
 
-    function ciGmxhrGet(path, done) {
+    // `opts` (v12.10, the index adapters only): { origin, headers }. Claude's calls pass
+    // none, and then the request below is v12.9's, option for option.
+    function ciGmxhrGet(path, done, opts) {
         var watchdog = null;
         if (typeof GM_xmlhttpRequest !== 'function') {
             done(ciFailure('threw', 0, 'GM_xmlhttpRequest unavailable'));
@@ -1354,11 +1374,17 @@
             done(ciFailure('threw', 0, 'GM_xmlhttpRequest never called back'));
         }, CI_FETCH_TIMEOUT_MS + 5000);
         try {
+            var headers = { 'Accept': 'application/json', 'Cache-Control': 'no-cache' };
+            if (opts && opts.headers) {
+                for (var hk in opts.headers) {
+                    if (opts.headers.hasOwnProperty(hk)) headers[hk] = opts.headers[hk];
+                }
+            }
             GM_xmlhttpRequest({
                 method: 'GET',
-                url: CI_API_ORIGIN + path,
+                url: ((opts && opts.origin) || CI_API_ORIGIN) + path,
                 timeout: CI_FETCH_TIMEOUT_MS,
-                headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
+                headers: headers,
                 onload: function (res) {
                     var r;
                     try { r = ciReadResponse(res.status, res.responseText); }
@@ -1421,15 +1447,19 @@
     // refused, never sent. ciIsClaudeChat already keeps the index off every other origin,
     // so today this cannot fire; it stays so the transport is safe on its own if that
     // guard is ever loosened (and the mutation matrix records it as unreachable, ungated).
-    function ciFetchGet(path, done) {
+    // `opts` (v12.10): { origin, headers }. `origin` is the exact origin this request
+    // belongs to (an index adapter's, already matched against the page); the guard below
+    // compares against it instead of claude.ai. Claude's calls pass none.
+    function ciFetchGet(path, done, opts) {
         var timer = null, stalled = false, open = false;
         var origin = ciFetchOrigin();
+        var expected = (opts && opts.origin) || CI_API_ORIGIN;
         if (typeof fetch !== 'function') {
             done(ciFailure('threw', 0, 'fetch unavailable'));
             return;
         }
-        if (origin !== CI_API_ORIGIN) {
-            done(ciFailure('threw', 0, 'fetch refused: page origin is not ' + CI_API_ORIGIN));
+        if (origin !== expected) {
+            done(ciFailure('threw', 0, 'fetch refused: page origin is not ' + expected));
             return;
         }
         if (_ciFetchStalled >= CI_FETCH_STALL_MAX || _ciFetchOpen >= CI_FETCH_OPEN_MAX) {
@@ -1470,7 +1500,9 @@
         try {
             open = true;
             _ciFetchOpen++;
-            fetch(origin + path, { credentials: 'include' }).then(function (res) {
+            var init = { credentials: 'include' };
+            if (opts && opts.headers) init.headers = opts.headers;
+            fetch(origin + path, init).then(function (res) {
                 var status;
                 // A late answer to a request already reported as timed out: nobody will
                 // read it, so do not download what may be megabytes of body.
@@ -1514,7 +1546,7 @@
     // `cb` fires exactly once. If cb itself throws, the exception is rethrown on a
     // fresh stack — inside a promise chain it would otherwise vanish, or be reported
     // as a transport failure that never happened.
-    function ciApiGet(transport, path, cb) {
+    function ciApiGet(transport, path, cb, opts) {
         var settled = false;
         function settle(r) {
             if (settled) return;
@@ -1522,8 +1554,8 @@
             r.transport = transport;
             try { cb(r); } catch (e) { setTimeout(function () { throw e; }, 0); }
         }
-        if (transport === 'fetch') ciFetchGet(path, settle);
-        else ciGmxhrGet(path, settle);
+        if (transport === 'fetch') ciFetchGet(path, settle, opts);
+        else ciGmxhrGet(path, settle, opts);
     }
 
     // What ONE transport's org walk saw, counted per RESPONSE rather than read off the
@@ -2388,6 +2420,554 @@
                        (secondUpholdsRefusal && ciIsPermanentReason(first.err.message)));
             });
         });
+    }
+
+
+    // ============================================================
+    // CONVERSATION-INDEX ADAPTERS (v12.10)
+    // ============================================================
+    // ChatGPT and Perplexity window their message lists the way Claude does (Layer 4):
+    // a DOM scan sees 2-7 turns of a long conversation, so their index comes from each
+    // site's own JSON. One seam per platform:
+    //   getConversationId()   -> the open conversation's id, or null
+    //   fetchIndex(cid, done) -> done(err, { entries: [{ id, text, position }], total, transport })
+    //   locate(entry)         -> the mounted DOM node for an entry, or null
+    // Claude is wrapped below WITHOUT changing its index: it keeps its own scan branch,
+    // jump bridge and bookmark identity (scanConversation, ciJumpToFullPathIndex), which
+    // carry far more than this seam does. ChatGPT and Perplexity run through the generic
+    // pipeline (ixScan / ixLoad / ixJump). A platform without an adapter keeps the DOM
+    // scan; Gemini can be one more entry once its virtualization is measured.
+    //
+    // Field names, the Perplexity paging model and the DOM ids below were measured in
+    // Chrome, page realm, on the owner's account (2026-10-23). The script runs in its
+    // manager's realm, not the page's; the transport ladder is what covers that.
+    var IX_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    var IX_ATTACHMENT_LABEL = '[Attachment]';
+    var IX_PPLX_PAGE_LIMIT  = 50;
+    var IX_PPLX_MAX_PAGES   = 40;      // 2000 questions; past it the panel says so
+    var IX_JUMP_MAX_MOVES   = 12;
+    var IX_JUMP_SETTLE_MS   = 350;
+
+    var _ix = {};                      // the generic pipeline's state, one conversation
+    var _ixJumpToken = 0;
+    var _ixGptToken  = null;           // { value, exp }: memory only, never logged or stored
+
+    function ixInvalidate() {
+        _ixJumpToken++;
+        _ix = { pid: null, cid: null, status: 'idle', entries: null, total: 0, idIndex: null,
+                inFlightCid: null, loadGen: (_ix.loadGen || 0) + 1, indexGen: (_ix.indexGen || 0) + 1,
+                reason: '', retryDelayMs: 0, lastFetchAt: 0, refreshFailed: '', truncated: 0,
+                actedSig: '' };
+    }
+    ixInvalidate();
+
+    // One line per request (spec 2.8): platform, transport, endpoint, status and, on the
+    // request that completed the index, how many questions it holds. Never a body, a
+    // token, or a URL with its query string.
+    function ixLog(pid, r, endpoint, extra, tail) {
+        console.log('[ACN] index: platform=' + pid + ' transport=' + r.transport +
+                    ' endpoint=' + endpoint + (extra || '') + ' status=' + r.status +
+                    (r.errorType ? ' error.type=' + r.errorType : '') +
+                    (!r.ok && r.kind !== 'http'
+                        ? ' error=' + r.error + (r.detail ? ' (' + r.detail + ')' : '') : '') +
+                    (tail || ''));
+    }
+
+    // The v12.9 ladder for ONE request: the same transports (ciApiGet), the same order
+    // (ciTransportOrder: this session's winner, else the manager's name) and the same rule
+    // for asking the second transport (ciTraceWantsFallback: the first was refused -
+    // 401/403/404 - or could not run). Claude's own load keeps its org walk in ciLoadIndex;
+    // this is that walk's one-request case. cb(r) gets the deciding response; when both
+    // failed, r.firstFailure holds the first so ixFailure can classify as Claude's does.
+    function ciLadderGet(path, opts, onFail, cb) {
+        var order = ciTransportOrder();
+        ciApiGet(order[0], path, function (first) {
+            if (!first.ok) { try { onFail(first); } catch (e) {} }
+            var trace = ciNewTrace(order[0]);
+            if (!first.ok) {
+                if (first.kind === 'http' &&
+                    (first.status === 401 || first.status === 403 || first.status === 404)) trace.refused++;
+                else if (first.kind === 'threw') trace.threw++;
+                else if (first.kind === 'network' || first.kind === 'timeout') trace.noAnswer++;
+                else trace.verdict++;
+            }
+            if (first.ok || !ciTraceWantsFallback(trace)) { cb(first); return; }
+            ciApiGet(order[1], path, function (second) {
+                if (!second.ok) {
+                    try { onFail(second); } catch (e) {}
+                    second.firstFailure = first;
+                }
+                cb(second);
+            }, opts);
+        }, opts);
+    }
+
+    // A failed request as { reason, permanent }, by Claude's rules: the reason names each
+    // transport, ciIsPermanentReason decides the class, and a second transport that met
+    // only a refusal, a throw or silence upholds the first's refusal.
+    function ixFailure(r) {
+        var reason = '[' + r.transport + '] ' + r.error;
+        var permanent = ciIsPermanentReason(r.error);
+        if (r.firstFailure) {
+            var f = r.firstFailure;
+            var secondExplains = !((r.kind === 'http' &&
+                                    (r.status === 401 || r.status === 403 || r.status === 404)) ||
+                                   r.kind === 'threw' || r.kind === 'network' || r.kind === 'timeout');
+            reason = '[' + f.transport + '] ' + f.error + ' \u00b7 ' + reason;
+            permanent = permanent || (!secondExplains && ciIsPermanentReason(f.error));
+        }
+        return { reason: reason, permanent: permanent };
+    }
+
+    // ── ChatGPT ─────────────────────────────────────────────────
+    function ixGptText(msg) {
+        var c = msg.content || {};
+        var out = [], other = 0;
+        if (Array.isArray(c.parts)) {
+            for (var i = 0; i < c.parts.length; i++) {
+                var p = c.parts[i];
+                if (typeof p === 'string') { if (p.trim()) out.push(p); }
+                else if (p) other++;        // multimodal_text: image/file pointers
+            }
+        } else if (typeof c.text === 'string') {
+            out.push(c.text);
+        }
+        var t = out.join('\n').trim();
+        return t || (other ? IX_ATTACHMENT_LABEL : '');
+    }
+
+    // current_node -> root via `parent`, reversed: the active branch only, so an edited
+    // question's abandoned sibling never appears.
+    function ixGptEntries(j) {
+        if (!j || typeof j !== 'object' || !j.mapping || typeof j.mapping !== 'object' ||
+            typeof j.current_node !== 'string' || !j.mapping.hasOwnProperty(j.current_node)) {
+            throw new Error('unexpected response shape');
+        }
+        var m = j.mapping, ids = [], n = j.current_node;
+        var cap = Object.keys(m).length + 1;          // a cycle cannot spin forever
+        while (n && m.hasOwnProperty(n) && cap-- > 0) { ids.push(n); n = m[n] && m[n].parent; }
+        ids.reverse();
+        var out = [];
+        for (var i = 0; i < ids.length; i++) {
+            var msg = m[ids[i]] && m[ids[i]].message;
+            if (!msg || !msg.author || msg.author.role !== 'user') continue;
+            if (msg.metadata && msg.metadata.is_visually_hidden_from_conversation) continue;
+            var t = ixGptText(msg);
+            if (!t) continue;
+            out.push({ id: ids[i], text: t, position: out.length });
+        }
+        return out;
+    }
+
+    function ixGptFetch(cid, done) {
+        var origin = ciFetchOrigin();
+        var retried = false;
+        function logFail(r) { ixLog('chatgpt', r, r.__endpoint || 'conversation'); }
+        function withToken(force, next) {
+            if (!force && _ixGptToken && (!_ixGptToken.exp || Date.now() < _ixGptToken.exp)) {
+                next(null, _ixGptToken.value);
+                return;
+            }
+            _ixGptToken = null;
+            ciLadderGet('/api/auth/session', { origin: origin },
+                function (r) { ixLog('chatgpt', r, 'session'); }, function (r) {
+                    if (r.ok) ixLog('chatgpt', r, 'session');
+                    if (!r.ok) { next(ixFailure(r)); return; }
+                    var tok = (r.json && typeof r.json.accessToken === 'string') ? r.json.accessToken : '';
+                    if (!tok) { next({ reason: 'no access token in the session (signed out?)', permanent: true }); return; }
+                    var exp = r.json && typeof r.json.expires === 'string' ? Date.parse(r.json.expires) : NaN;
+                    _ixGptToken = { value: tok, exp: isFinite(exp) ? exp : 0 };
+                    next(null, tok);
+                });
+        }
+        function conversation(tok) {
+            ciLadderGet('/backend-api/conversation/' + cid,
+                { origin: origin, headers: { 'Authorization': 'Bearer ' + tok } }, logFail, function (r) {
+                    // A 401 after both transports: the token expired. Refresh it once and
+                    // retry once; anything still failing falls back to the DOM scan.
+                    if (!r.ok && r.kind === 'http' && r.status === 401 && !retried) {
+                        retried = true;
+                        withToken(true, function (err, t2) {
+                            if (err) { done(err); return; }
+                            conversation(t2);
+                        });
+                        return;
+                    }
+                    if (!r.ok) { done(ixFailure(r)); return; }
+                    var entries;
+                    try { entries = ixGptEntries(r.json); }
+                    catch (e) {
+                        ixLog('chatgpt', r, 'conversation', '', ' questions=0');
+                        done({ reason: 'unexpected response shape', permanent: true });
+                        return;
+                    }
+                    ixLog('chatgpt', r, 'conversation', '', ' questions=' + entries.length);
+                    done(null, { entries: entries, total: entries.length, transport: r.transport });
+                });
+        }
+        withToken(false, function (err, tok) {
+            if (err) { done(err); return; }
+            conversation(tok);
+        });
+    }
+
+    // ── Perplexity ──────────────────────────────────────────────
+    // Paging, measured: `from_first=true` starts at the oldest entry, `cursor=<next_cursor>`
+    // continues, `offset` is ignored, and without from_first a short page holds the NEWEST
+    // entries. So every request asks from the first entry and follows the cursor.
+    function ixPplxFetch(cid, done) {
+        var origin = ciFetchOrigin();
+        var all = [], page = 0;
+        function fail(r) { ixLog('perplexity', r, 'thread', ' page=' + page); }
+        function finish(r, capped) {
+            var entries = [];
+            for (var k = 0; k < all.length; k++) {
+                var e = all[k];
+                var t = (e && typeof e.query_str === 'string') ? e.query_str.trim() : '';
+                if (!t) continue;
+                // position is the RAW entry index: it is what [data-workflow-entry] carries.
+                entries.push({ id: String(e.backend_uuid || k), text: t, position: k });
+            }
+            ixLog('perplexity', r, 'thread', ' page=' + page, ' questions=' + entries.length);
+            done(null, { entries: entries, total: all.length, transport: r.transport,
+                         truncated: capped ? all.length : 0 });
+        }
+        function next(cursor) {
+            page++;
+            var path = '/rest/thread/' + encodeURIComponent(cid) + '?limit=' + IX_PPLX_PAGE_LIMIT +
+                       '&from_first=true' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+            ciLadderGet(path, { origin: origin }, fail, function (r) {
+                if (!r.ok) { done(ixFailure(r)); return; }
+                var j = r.json;
+                var more = !!(j && j.has_next_page === true);
+                if (!j || !Array.isArray(j.entries) ||
+                    (more && (typeof j.next_cursor !== 'string' || !j.next_cursor))) {
+                    ixLog('perplexity', r, 'thread', ' page=' + page, ' questions=0');
+                    done({ reason: 'unexpected response shape', permanent: true });
+                    return;
+                }
+                all = all.concat(j.entries);
+                if (more && page >= IX_PPLX_MAX_PAGES) {
+                    console.warn('[ACN] index: platform=perplexity page cap reached (' +
+                                 IX_PPLX_MAX_PAGES + ' pages) - listing the first ' + all.length + ' entries');
+                    finish(r, true);
+                    return;
+                }
+                if (more) { ixLog('perplexity', r, 'thread', ' page=' + page); next(j.next_cursor); return; }
+                finish(r, false);
+            });
+        }
+        next(null);
+    }
+
+    var IX_ADAPTERS = {
+        // The v12.0 index, wrapped. Its scan branch, jump bridge and bookmarks call the
+        // ci* functions directly; locate() is what _relocateQuestionElement uses.
+        claude: {
+            id: 'claude',
+            native: true,
+            origins: ['https://claude.ai'],
+            getConversationId: function () { return ciIsClaudeChat() ? ciGetConversationUuid() : null; },
+            fetchIndex: function (cid, done) {
+                ciLoadIndex(true, function (ok) {
+                    if (!ok || !ciIsReady() || ciGetConversationUuid() !== cid) {
+                        done({ reason: _ciDegradedReason || 'index unavailable', permanent: false });
+                        return;
+                    }
+                    done(null, { entries: _ciIndex.map(function (q) {
+                                     return { id: q.uuid, text: q.text, position: q.pathIndex };
+                                 }),
+                                 total: _ciFullPath ? _ciFullPath.length : _ciIndex.length,
+                                 transport: _ciTransport });
+                });
+            },
+            locate: function (entry) { return ciResolveMountedByPathIndex(entry.position); }
+        },
+        chatgpt: {
+            id: 'chatgpt',
+            origins: ['https://chatgpt.com'],
+            getConversationId: function () {
+                var m = window.location.pathname.match(/^\/(?:g\/[^\/]+\/)?c\/([^\/?#]+)/);
+                if (m) return IX_UUID_RE.test(m[1]) ? m[1] : null;
+                var el = document.querySelector('[data-chatgpt-conversation-selection-target]');
+                var v = el ? el.getAttribute('data-chatgpt-conversation-selection-target') : '';
+                return IX_UUID_RE.test(v || '') ? v : null;
+            },
+            fetchIndex: ixGptFetch,
+            // data-turn-key on the user turn equals the API node id. Positions come from
+            // it, not from data-content-search-turn-key: that one was measured
+            // window-relative while the page was still loading (Chrome, 2026-10-23).
+            locate: function (entry) {
+                if (!IX_UUID_RE.test(entry.id || '')) return null;
+                var root = document.querySelector('[data-app-action-timeline-scroll][role="region"]') || document;
+                var t = root.querySelector('[data-turn-key="' + entry.id + '"]');
+                if (!t) return null;
+                return t.querySelector('[data-user-message-bubble="true"]') || t;
+            },
+            mounted: function () {
+                var out = [];
+                var bubbles = platform.getUserMessages();
+                for (var i = 0; i < bubbles.length; i++) {
+                    var t = bubbles[i].closest('[data-turn-key]');
+                    var key = t ? t.getAttribute('data-turn-key') : '';
+                    var pos = (key && _ix.idIndex && _ix.idIndex.hasOwnProperty(key)) ? _ix.idIndex[key] : -1;
+                    out.push({ pos: pos, key: key || ('#' + i), el: bubbles[i] });
+                }
+                return out;
+            }
+        },
+        perplexity: {
+            id: 'perplexity',
+            origins: ['https://www.perplexity.ai', 'https://perplexity.ai'],
+            getConversationId: function () {
+                var m = window.location.pathname.match(/^\/search\/([^\/?#]+)\/?$/);
+                return (m && /^[A-Za-z0-9._-]{1,200}$/.test(m[1])) ? m[1] : null;
+            },
+            fetchIndex: ixPplxFetch,
+            locate: function (entry) {
+                var w = document.querySelector('[data-workflow-entry="' + (entry.position | 0) + '"]');
+                if (!w) return null;
+                return w.querySelector('[data-message-bubble="right"]') || w;
+            },
+            mounted: function () {
+                var out = [];
+                var bubbles = document.querySelectorAll('[data-message-bubble="right"]');
+                for (var i = 0; i < bubbles.length; i++) {
+                    var w = bubbles[i].closest('[data-workflow-entry]');
+                    var n = w ? parseInt(w.getAttribute('data-workflow-entry'), 10) : NaN;
+                    var pos = (isFinite(n) && n >= 0 && n < _ix.total) ? n : -1;
+                    out.push({ pos: pos, key: isFinite(n) ? ('e' + n) : ('#' + i), el: bubbles[i] });
+                }
+                return out;
+            },
+            // Perplexity pins its scroller to the bottom: a programmatic scrollTop reverted
+            // within 300ms every time until a wheel event arrived, after which it stayed
+            // (measured, Chrome, 2026-10-23). The event scrolls nothing itself.
+            releaseScroll: function (container) {
+                try {
+                    container.dispatchEvent(new WheelEvent('wheel',
+                        { deltaY: -800, bubbles: true, cancelable: true }));
+                } catch (e) {}
+            }
+        }
+    };
+
+    // The adapter for this page, or null. EXACT origin, like ciIsClaudeChat: the adapters
+    // send credentialed requests and render the answer into the page, so a look-alike
+    // host that platform detection's host.includes() or an @include glob let in must
+    // never run them.
+    function ixAdapter() {
+        var a = (platform && IX_ADAPTERS.hasOwnProperty(platform.id)) ? IX_ADAPTERS[platform.id] : null;
+        if (!a || a.native) return null;
+        return a.origins.indexOf(ciFetchOrigin()) !== -1 ? a : null;
+    }
+
+    // The adapter whose index is ready for the open conversation, or null.
+    function ixReadyAdapter() {
+        var a = ixAdapter();
+        if (!a || _ix.status !== 'ready' || !_ix.entries || _ix.pid !== a.id) return null;
+        return _ix.cid === a.getConversationId() ? a : null;
+    }
+
+    function ixDegrade(err, keep) {
+        var reason = (err && err.reason) || 'unknown';
+        if (err && err.permanent) {
+            _ix.retryDelayMs = _ix.retryDelayMs ? Math.min(_ix.retryDelayMs * 4, 1800000) : 60000;
+            console.warn('[ACN] index failure looks PERMANENT (' + reason + ') \u2014 ' +
+                         'next retry in ' + Math.round(_ix.retryDelayMs / 1000) + 's');
+        } else {
+            _ix.retryDelayMs = 0;
+        }
+        if (keep) {
+            // A failed REFRESH keeps the snapshot it already had, as Claude's index does.
+            _ix.status = 'ready';
+            _ix.refreshFailed = reason;
+            console.warn('[ACN] index REFRESH failed (' + reason + ') \u2014 keeping the existing snapshot');
+            return;
+        }
+        _ix.status  = 'degraded';
+        _ix.reason  = reason;
+        _ix.entries = null;
+        console.warn('[ACN] conversation index unavailable \u2014 falling back to DOM scan. Reason: ' + reason);
+    }
+
+    function ixLoad(a, cid, done) {
+        var myGen = ++_ix.loadGen;
+        var keep = _ix.status === 'ready' && _ix.cid === cid && _ix.pid === a.id && !!_ix.entries;
+        _ix.inFlightCid = cid;
+        _ix.lastFetchAt = Date.now();
+        _ix.pid = a.id;
+        _ix.cid = cid;
+        if (!keep) { _ix.status = 'loading'; _ix.entries = null; }
+        var finished = false;
+        function finish(err, res) {
+            if (finished) return;
+            finished = true;
+            if (_ix.inFlightCid === cid && _ix.loadGen === myGen) _ix.inFlightCid = null;
+            // Superseded: the user moved on, or a newer load owns the state.
+            if (myGen !== _ix.loadGen || _ix.cid !== cid || a.getConversationId() !== cid) {
+                done(false);
+                return;
+            }
+            if (err) { ixDegrade(err, keep); done(false); return; }
+            var idIndex = {};
+            for (var i = 0; i < res.entries.length; i++) idIndex[res.entries[i].id] = res.entries[i].position;
+            _ix.entries       = res.entries;
+            _ix.total         = res.total;
+            _ix.idIndex       = idIndex;
+            _ix.truncated     = res.truncated || 0;
+            _ix.status        = 'ready';
+            _ix.reason        = '';
+            _ix.retryDelayMs  = 0;
+            _ix.refreshFailed = '';
+            _ix.indexGen++;
+            // The transport that delivered a usable index goes first from now on.
+            if (res.transport) _ciTransport = res.transport;
+            done(true);
+        }
+        try { a.fetchIndex(cid, finish); }
+        catch (e) { finish({ reason: 'index load threw: ' + ciErrorName(e), permanent: false }); }
+    }
+
+    function ixAfterLoad(ok) {
+        scanConversation(true);
+        if (!ok) _ciScheduleRescan(Math.max(CI_REFETCH_COOLDOWN_MS, _ix.retryDelayMs) + 1000);
+    }
+
+    // The generic pipeline's share of scanConversation. Returns true when it installed
+    // the index-backed question list (the caller then skips the DOM scan); false leaves
+    // the DOM scan as the source, as Claude's fallback does, with the banner saying so.
+    function ixScan() {
+        var a   = ixAdapter();
+        var cid = a ? a.getConversationId() : null;
+        if (_ix.cid && (!a || _ix.pid !== a.id || _ix.cid !== cid)) ixInvalidate();
+        if (!a || !cid) return false;
+
+        if (_ix.status === 'ready' && _ix.cid === cid && _ix.entries) {
+            var mounted = a.mounted();
+            var byPos = {}, stale = '';
+            for (var i = 0; i < mounted.length; i++) {
+                if (mounted[i].pos >= 0) byPos[mounted[i].pos] = mounted[i].el;
+                else if (!stale) stale = mounted[i].key;
+            }
+            _questions = _ix.entries.map(function (e) {
+                return { element: byPos.hasOwnProperty(e.position) ? byPos[e.position] : null,
+                         text: e.text, summary: generateSummary(e.text),
+                         ixPosition: e.position, ixId: e.id };
+            });
+            _aiResponses = Array.from(getAIMessages());
+            if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
+            if (typeof orbOnScanComplete === 'function') orbOnScanComplete();
+            // A mounted question the index does not know: a new message, an edit or a
+            // branch switch. Refetch once per such signature, behind the cooldown.
+            if (stale && stale !== _ix.actedSig && _ix.inFlightCid !== cid) {
+                var gate  = Math.max(CI_REFETCH_COOLDOWN_MS, _ix.retryDelayMs);
+                var since = Date.now() - _ix.lastFetchAt;
+                if (since > gate) {
+                    _ix.actedSig = stale;
+                    console.log('[ACN] index out of sync with DOM (new message, edit or branch) \u2014 refetching');
+                    ixLoad(a, cid, ixAfterLoad);
+                } else {
+                    _ciScheduleRescan(gate - since + 500);
+                }
+            }
+            return true;
+        }
+
+        var retryDue = _ix.status === 'degraded' &&
+            (Date.now() - _ix.lastFetchAt) > Math.max(CI_REFETCH_COOLDOWN_MS, _ix.retryDelayMs);
+        if (_ix.inFlightCid !== cid && (_ix.status === 'idle' || _ix.cid !== cid || retryDue)) {
+            ixLoad(a, cid, ixAfterLoad);
+        }
+        return false;
+    }
+
+    function ixFingerprint() {
+        return _ix.status + '|g' + _ix.indexGen + '|r' + (_ix.refreshFailed ? '1' : '0');
+    }
+
+    function ixRenderBanner(list) {
+        var a = ixAdapter();
+        if (!a || !a.getConversationId() || _ix.cid !== a.getConversationId()) return;
+        var banner = null;
+        if (_ix.status === 'degraded') {
+            banner = createElement('div', {
+                className: 'acn-ci-banner acn-ci-degraded',
+                textContent: '\u26a0 Showing only on-screen messages \u2014 full history unavailable (' +
+                             _ix.reason + ')'
+            });
+            banner.setAttribute('data-acn-index-status', 'degraded');
+        } else if (_ix.status === 'loading') {
+            banner = createElement('div', {
+                className: 'acn-ci-banner acn-ci-loading',
+                textContent: '\u2026 Loading full conversation history'
+            });
+            banner.setAttribute('data-acn-index-status', 'loading');
+        } else if (_ix.status === 'ready') {
+            var notes = [];
+            if (_ix.truncated) notes.push('only the first ' + _ix.truncated + ' entries are listed');
+            if (_ix.refreshFailed) notes.push('refresh failed \u2014 showing the last good snapshot');
+            if (notes.length) {
+                banner = createElement('div', {
+                    className: 'acn-ci-banner acn-ci-note',
+                    textContent: '\u26a0 ' + notes.join(' \u00b7 ')
+                });
+                banner.setAttribute('data-acn-index-status', 'ready-with-notes');
+            }
+        }
+        if (banner) list.appendChild(banner);
+    }
+
+    // Records which entry a jump resolved, on the zone, as the Claude jump does with its
+    // row index (data-acn-jump-resolved). Here it is the entry's position.
+    function ixMarkResolved(q) {
+        var zone = document.getElementById('acn-zone');
+        if (zone) zone.setAttribute('data-acn-jump-resolved', String(q.ixPosition));
+    }
+
+    // Resolve-on-arrival, the design of ciJumpToFullPathIndex at this seam's size: aim at
+    // the entry's share of the scroll height, wait for the window to settle, identify the
+    // target by its own id on arrival, otherwise move toward it by the nearest mounted
+    // entry's distance; bounded, and superseded by a newer jump. Text is a last resort,
+    // and only when exactly one mounted question matches.
+    function ixJump(a, q, done) {
+        var token = ++_ixJumpToken;
+        var container = ciFindScrollContainer();
+        if (!container) { done(false, null, 'no-container'); return; }
+        var entry = { id: q.ixId, position: q.ixPosition };
+        var total = Math.max(1, _ix.total);
+        var moves = 0;
+        function arrive() {
+            if (token !== _ixJumpToken) { done(false, null, 'superseded'); return; }
+            if (!container.isConnected) { done(false, null, 'container-gone'); return; }
+            var el = a.locate(entry);
+            if (el) { done(true, el, 'locate'); return; }
+            if (moves >= IX_JUMP_MAX_MOVES) {
+                var wanted = _normalizeKey(q.text), hits = [];
+                var cur = Array.from(getUserMessages());
+                for (var i = 0; i < cur.length; i++) {
+                    if (_normalizeKey(_readMessageText(cur[i])) === wanted) hits.push(cur[i]);
+                }
+                if (hits.length === 1) { done(true, hits[0], 'text'); return; }
+                done(false, null, 'not-found');
+                return;
+            }
+            moves++;
+            var max = Math.max(0, container.scrollHeight - container.clientHeight);
+            var near = null, best = Infinity, m = a.mounted();
+            for (var j = 0; j < m.length; j++) {
+                if (m[j].pos < 0) continue;
+                var d = Math.abs(m[j].pos - entry.position);
+                if (d < best) { best = d; near = m[j].pos; }
+            }
+            var px = (moves === 1 || near === null)
+                ? max * (total > 1 ? entry.position / (total - 1) : 0)
+                : container.scrollTop + (entry.position - near) * (container.scrollHeight / total);
+            if (a.releaseScroll) a.releaseScroll(container);
+            container.scrollTop = Math.max(0, Math.min(max, Math.round(px)));
+            setTimeout(arrive, IX_JUMP_SETTLE_MS);
+        }
+        arrive();
     }
 
     // Total characters across the whole active path. Replaces reading innerText
@@ -4768,6 +5348,10 @@
             }
         }
 
+        // ChatGPT and Perplexity: their index adapters (v12.10). True means the
+        // index-backed list is installed; false leaves the DOM scan below as the source.
+        if (!ciIsClaudeChat() && ixScan()) return;
+
         var messages = getUserMessages();
 
         if (isVirtualScroll && !forceReset) {
@@ -6260,7 +6844,7 @@
     // conversation. When the index is unavailable the user must be able to SEE
     // that the list is incomplete, not just find it in the console.
     function orbRenderIndexBanner(list) {
-        if (!ciIsClaudeChat()) return;
+        if (!ciIsClaudeChat()) { ixRenderBanner(list); return; }
 
         var banner = null;
 
@@ -6321,7 +6905,8 @@
         // early return fired and the "refresh failed — showing the last good snapshot" note
         // never appeared, including on reopening the panel (Codex).
         var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|') +
-                 '||' + _ciStatus + '|g' + _ciIndexGen + '|r' + (_ciRefreshFailed ? '1' : '0');
+                 '||' + _ciStatus + '|g' + _ciIndexGen + '|r' + (_ciRefreshFailed ? '1' : '0') +
+                 '|x' + ixFingerprint();
         if (fp === _navListFingerprint && list.firstChild) return;
         _navListFingerprint = fp;
 
@@ -6786,10 +7371,16 @@
             typeof q.pathIndex === 'number' && _ciFullPath) {
             // Not mounted (or not resolvable here) returns null, and the caller falls
             // through to the jump rather than accepting a same-text impostor.
-            var relOut = ciResolveMountedByPathIndex(q.pathIndex);
+            var relOut = IX_ADAPTERS.claude.locate({ position: q.pathIndex });
             ciPre('relocate indexed p=' + q.pathIndex +
                   ' -> ' + (relOut ? 'MOUNTED (fast path)' : 'null (will jump)'));
             return relOut;
+        }
+        // An adapter-backed question (v12.10) is identified by its own id or position,
+        // never by text: null means "not mounted", and the caller pages toward it.
+        if (typeof q.ixPosition === 'number') {
+            var ixa = ixReadyAdapter();
+            if (ixa) return ixa.locate({ id: q.ixId, position: q.ixPosition });
         }
         // isConnected alone is NOT sufficient. Under recycling the virtualizer reuses
         // the same DOM node for a different message, so a still-connected node can be
@@ -6838,6 +7429,21 @@
                 ciPre(why ? ('REFUSED before jump: ' + why + ' (no scroll will happen)')
                           : 'entering jump bridge for p=' + q.pathIndex);
             }
+            var ixJumpAdapter = typeof q.ixPosition === 'number' ? ixReadyAdapter() : null;
+            if (ixJumpAdapter) {
+                ixJump(ixJumpAdapter, q, function (ok, el, reason) {
+                    if (ok && el) {
+                        q.element = el;
+                        orbMarkJumpTarget(el);
+                        ixMarkResolved(q);
+                        el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+                        orbFlashElement(el);
+                    } else if (reason !== 'superseded') {
+                        showToast('That message is not currently rendered \u2014 scroll toward it and try again');
+                    }
+                });
+                return;
+            }
             if (ciIsClaudeChat() && ciIsReady() && _ciFullPath &&
                 !q.provisional && typeof q.pathIndex === 'number' &&
                 q.pathIndex >= 0 && q.pathIndex < _ciFullPath.length) {
@@ -6866,6 +7472,7 @@
         // Q2...) reported 147/147 failures while every jump was actually correct,
         // because each next target sat inside the mount window and resolved here.
         orbMarkJumpTarget(target);
+        if (typeof q.ixPosition === 'number') ixMarkResolved(q);
 
         if (isLeftChat) {
             // Close panel first so it doesn't obscure the chat

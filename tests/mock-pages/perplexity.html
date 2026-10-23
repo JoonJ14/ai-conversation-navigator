@@ -71,6 +71,14 @@
 </head>
 <body>
 <!--
+  UPDATED Oct 2026 (v12.10): the user queries below carry the markup measured live in Chrome on
+  2026-10-23 (DOM-REFERENCE.md, Perplexity): [data-workflow-entry="N"] (0-based, = the API
+  entry index) > ... > [data-message-bubble="right"] (the user bubble; answers never carry it).
+  The legacy classes the Feb 2026 notes below describe (group/query, group/title, select-text)
+  are GONE from the live site and were removed here, so the legacy selectors match nothing, as
+  live. The windowing and the stick-to-bottom scroller are modelled by perplexity-windowed.html.
+-->
+<!--
   Perplexity Mock Page — Real DOM Structure Reference
   ====================================================
   Source: Live DevTools inspection of perplexity.ai/search/{thread-id} (Feb 2026)
@@ -146,7 +154,7 @@
       <!-- ===== Query 1 + Answer 1 ===== -->
 
       <!-- User query 1 (full A-L nesting) -->
-      <div class="query-block">
+      <div class="query-block" data-workflow-entry="0">
         <!-- A: outer relative wrapper -->
         <div class="relative z-10" style="position:relative;z-index:10;">
           <!-- B: group flex wrapper -->
@@ -163,17 +171,17 @@
                   <button class="answer-action-btn" title="Edit">&#9998;</button>
                 </div>
                 <!-- G: group/title — FALLBACK parent selector target -->
-                <div class="group/title relative inline-flex flex-col" style="position:relative;display:inline-flex;flex-direction:column;">
+                <div class="relative inline-flex flex-col" style="position:relative;display:inline-flex;flex-direction:column;">
                   <!-- H: height-constrained transition wrapper -->
                   <div style="transition:none;overflow:hidden;height:auto;">
                     <!-- I: inner wrapper -->
                     <div>
                       <!-- J: group/query — PRIMARY selector target -->
-                      <div class="group/query relative whitespace-pre-line !text-wrap break-words selection:bg-super/10 dark:selection:text-super bg-transparent" style="position:relative;white-space:pre-line;word-wrap:break-word;background:transparent;">
+                      <div class="relative whitespace-pre-line !text-wrap break-words selection:bg-super/10 dark:selection:text-super bg-transparent" style="position:relative;white-space:pre-line;word-wrap:break-word;background:transparent;">
                         <!-- K: bubble (.bg-subtler.rounded-2xl) -->
-                        <div class="min-w-[48px] select-none p-3 bg-subtler rounded-2xl flex items-center justify-center query-bubble" style="max-width:600px;min-width:48px;user-select:none;padding:12px 16px;">
+                        <div class="min-w-[48px] select-none p-3 bg-subtler rounded-2xl flex items-center justify-center query-bubble" data-message-bubble="right" style="max-width:600px;min-width:48px;user-select:none;padding:12px 16px;">
                           <!-- L: text span (.select-text) -->
-                          <span class="font-sans text-base text-foreground font-normal select-text">What are the best practices for React server components?</span>
+                          <span class="font-sans text-base text-foreground font-normal">What are the best practices for React server components?</span>
                         </div>
                       </div>
                     </div>
@@ -213,7 +221,7 @@
       <!-- ===== Query 2 + Answer 2 ===== -->
 
       <!-- User query 2 (full A-L nesting) -->
-      <div class="query-block">
+      <div class="query-block" data-workflow-entry="1">
         <div class="relative z-10" style="position:relative;z-index:10;">
           <div class="group relative flex items-end gap-0.5" style="position:relative;display:flex;align-items:flex-end;gap:2px;">
             <div class="-inset-md pointer-events-none absolute select-none" style="position:absolute;pointer-events:none;user-select:none;"></div>
@@ -223,12 +231,12 @@
                   <button class="answer-action-btn" title="Copy">&#128203;</button>
                   <button class="answer-action-btn" title="Edit">&#9998;</button>
                 </div>
-                <div class="group/title relative inline-flex flex-col" style="position:relative;display:inline-flex;flex-direction:column;">
+                <div class="relative inline-flex flex-col" style="position:relative;display:inline-flex;flex-direction:column;">
                   <div style="transition:none;overflow:hidden;height:auto;">
                     <div>
-                      <div class="group/query relative whitespace-pre-line !text-wrap break-words selection:bg-super/10 dark:selection:text-super bg-transparent" style="position:relative;white-space:pre-line;word-wrap:break-word;background:transparent;">
-                        <div class="min-w-[48px] select-none p-3 bg-subtler rounded-2xl flex items-center justify-center query-bubble" style="max-width:600px;min-width:48px;user-select:none;padding:12px 16px;">
-                          <span class="font-sans text-base text-foreground font-normal select-text">How do they compare to traditional SSR with Next.js?</span>
+                      <div class="relative whitespace-pre-line !text-wrap break-words selection:bg-super/10 dark:selection:text-super bg-transparent" style="position:relative;white-space:pre-line;word-wrap:break-word;background:transparent;">
+                        <div class="min-w-[48px] select-none p-3 bg-subtler rounded-2xl flex items-center justify-center query-bubble" data-message-bubble="right" style="max-width:600px;min-width:48px;user-select:none;padding:12px 16px;">
+                          <span class="font-sans text-base text-foreground font-normal">How do they compare to traditional SSR with Next.js?</span>
                         </div>
                       </div>
                     </div>
@@ -271,7 +279,7 @@
       <!-- ===== Query 3 (no answer yet — most recent query) ===== -->
 
       <!-- User query 3 (full A-L nesting) -->
-      <div class="query-block">
+      <div class="query-block" data-workflow-entry="2">
         <div class="relative z-10" style="position:relative;z-index:10;">
           <div class="group relative flex items-end gap-0.5" style="position:relative;display:flex;align-items:flex-end;gap:2px;">
             <div class="-inset-md pointer-events-none absolute select-none" style="position:absolute;pointer-events:none;user-select:none;"></div>
@@ -281,12 +289,12 @@
                   <button class="answer-action-btn" title="Copy">&#128203;</button>
                   <button class="answer-action-btn" title="Edit">&#9998;</button>
                 </div>
-                <div class="group/title relative inline-flex flex-col" style="position:relative;display:inline-flex;flex-direction:column;">
+                <div class="relative inline-flex flex-col" style="position:relative;display:inline-flex;flex-direction:column;">
                   <div style="transition:none;overflow:hidden;height:auto;">
                     <div>
-                      <div class="group/query relative whitespace-pre-line !text-wrap break-words selection:bg-super/10 dark:selection:text-super bg-transparent" style="position:relative;white-space:pre-line;word-wrap:break-word;background:transparent;">
-                        <div class="min-w-[48px] select-none p-3 bg-subtler rounded-2xl flex items-center justify-center query-bubble" style="max-width:600px;min-width:48px;user-select:none;padding:12px 16px;">
-                          <span class="font-sans text-base text-foreground font-normal select-text">Can you show me a migration example from pages router to app router?</span>
+                      <div class="relative whitespace-pre-line !text-wrap break-words selection:bg-super/10 dark:selection:text-super bg-transparent" style="position:relative;white-space:pre-line;word-wrap:break-word;background:transparent;">
+                        <div class="min-w-[48px] select-none p-3 bg-subtler rounded-2xl flex items-center justify-center query-bubble" data-message-bubble="right" style="max-width:600px;min-width:48px;user-select:none;padding:12px 16px;">
+                          <span class="font-sans text-base text-foreground font-normal">Can you show me a migration example from pages router to app router?</span>
                         </div>
                       </div>
                     </div>

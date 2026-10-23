@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Perplexity (windowed) mock</title>
+<style>
+  html, body { margin: 0; height: 100%; font-family: sans-serif; }
+  .scrollable-container { position: relative; height: 600px; overflow: auto; }
+  .entry { position: absolute; left: 0; right: 0; height: 300px; box-sizing: border-box; padding: 8px; }
+  [data-message-bubble="right"] { background: #eef; padding: 8px; margin-left: 30%; }
+</style>
+</head>
+<body>
+<!--
+  Perplexity's thread markup as of Oct 2026 (measured live in Chrome, 2026-10-23). Two
+  live behaviours are reproduced, because the userscript has to survive both:
+   - WINDOWING: only the entries in view are mounted, plus the latest entry, which stays
+     mounted at every scroll position; the rest are REMOVED from the document.
+   - STICK-TO-BOTTOM: a programmatic scroll is pinned back to the bottom within a moment,
+     until a wheel event marks the scroll as the user's. Live, a scrollTop write reverted
+     within 300ms every time until a wheel event arrived.
+
+  Config (window.__MOCK_CONFIG):
+    entries: [{ text }]  the thread's questions, in order (default: 12 generated)
+  Test hooks: window.__mockWindow.mounted() -> mounted entry indices; .released.
+-->
+<main>
+  <div dir="ltr" data-orientation="horizontal">
+    <div class="scrollable-container flex flex-1 basis-0 overflow-auto" id="mock-scroller">
+      <div data-workflow-items="populated" id="mock-items"></div>
+    </div>
+  </div>
+</main>
+<script>
+(function () {
+  var cfg = window.__MOCK_CONFIG || {};
+  var entries = cfg.entries;
+  if (!entries) {
+    entries = [];
+    for (var g = 0; g < 12; g++) entries.push({ text: 'Generated thread question ' + (g + 1) + ' about pinned scrollers?' });
+  }
+  var H = 300;
+  var scroller = document.getElementById('mock-scroller');
+  var items = document.getElementById('mock-items');
+  items.style.height = (entries.length * H) + 'px';
+  var mountedNodes = {};
+  var released = false;
+
+  function build(i) {
+    var e = document.createElement('div');
+    e.className = 'entry group/partition flex flex-col';
+    e.style.top = (i * H) + 'px';
+    e.setAttribute('data-workflow-entry', String(i));
+    var bubble = document.createElement('div');
+    bubble.setAttribute('data-message-bubble', 'right');
+    var p = document.createElement('p');
+    p.textContent = entries[i].text;
+    bubble.appendChild(p);
+    var answer = document.createElement('div');
+    answer.className = 'answer prose';
+    answer.textContent = 'Answer ' + (i + 1);
+    e.appendChild(bubble);
+    e.appendChild(answer);
+    return e;
+  }
+
+  function render() {
+    var first = Math.floor(scroller.scrollTop / H);
+    var last = Math.floor((scroller.scrollTop + scroller.clientHeight - 1) / H);
+    var want = {};
+    for (var i = Math.max(0, first); i <= Math.min(entries.length - 1, last); i++) want[i] = true;
+    want[entries.length - 1] = true;      // the latest entry stays mounted
+    for (var k in mountedNodes) {
+      if (!want[k]) { mountedNodes[k].remove(); delete mountedNodes[k]; }
+    }
+    for (var w in want) {
+      if (!mountedNodes[w]) { mountedNodes[w] = build(+w); items.appendChild(mountedNodes[w]); }
+    }
+  }
+
+  function bottom() { return scroller.scrollHeight - scroller.clientHeight; }
+  scroller.addEventListener('wheel', function () { released = true; }, { passive: true });
+  scroller.addEventListener('scroll', function () {
+    if (!released && scroller.scrollTop < bottom() - 2) {
+      setTimeout(function () { if (!released) { scroller.scrollTop = bottom(); } }, 50);
+    }
+    render();
+  }, { passive: true });
+  scroller.scrollTop = bottom();
+  render();
+  window.__mockWindow = {
+    total: entries.length,
+    mounted: function () { return Object.keys(mountedNodes).map(Number).sort(function (a, b) { return a - b; }); },
+    get released() { return released; }
+  };
+}());
+</script>
+</body>
+</html>
