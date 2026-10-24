@@ -300,3 +300,33 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 > one mutant with the mechanism removed and see the check go red before trusting it green.
 > **Why:** a stub that reads at answer time serializes what it was meant to race. The check then passes for a reason
 > that has nothing to do with the code, and only a mutant shows it.
+
+> **Issue:** The answer-bookmark probe's `mountRow` scrolled the virtualizing mock until a row was mounted and returned
+> true at once. Mounting measures the row, so when the scroll event the browser had queued arrived, the mock
+> re-rendered at the shifted position and the row was gone: a click on its flag "failed" in R2, and one answer was never
+> checked in R1. The probe blamed the build for its own helper's stale read.
+> **Correct approach:** a helper that moves the mock must confirm the result after the mock has settled (wait past the
+> queued events, then check again, and retry), not right after its own call. Read the mock's state from the feed you
+> assert on (`#mock-feed [data-index]`), and treat any mock with height drift as moving under you.
+> **Why:** the mock's drift is deliberate (it models the live virtualizer), so a helper that ignores it fails on a
+> race that depends on machine speed: the failure looks like the code under test.
+
+> **Issue:** A precondition added to the answer-bookmark probe's R3 required "answer 3 is placed at load". That is the
+> FIXED build's behaviour: on v12.13, which places nothing, the precondition failed, so R3 printed INVALID and its eight
+> checks never ran on the very build they exist to fail on.
+> **Correct approach:** preconditions describe the fixture and the harness (the index loaded, a row mounted, the page
+> visible), never the behaviour under test. A requirement on the build's behaviour belongs in a check, where the
+> build that lacks it FAILS instead of skipping.
+> **Why:** a precondition that only the fixed build meets hides the gate's whole purpose: the old build reports
+> INVALID rather than red, and "v12.13 fails N" silently becomes a smaller N.
+
+> **Issue:** Phase 1 of the answer-bookmark PR counted `.acn-bm-icon` elements in the page and reported "older answers
+> get flags as they mount". The owner reported the opposite from hovering. Both were true: the flag sits at the
+> answer's top-right corner, so on an answer taller than the window it is in the DOM, at opacity 1 when hovered, and
+> 167 px above the window. The owner's re-test then found every flag by hovering near the answers' tops.
+> **Correct approach:** when a finding is about what the user sees, measure what is visible (the element's
+> rectangle against the viewport, `elementFromPoint` at its centre, the computed opacity under a real hover, a
+> screenshot), not only that the element exists. Report a DOM count as a DOM count.
+> **Why:** "the element is there" and "the user can see it" are different contexts, the same family as the
+> measurement-context table in CLAUDE.md, and mixing them sends a correct report and a correct measurement into an
+> argument neither can settle.

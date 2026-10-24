@@ -30,9 +30,9 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.13 MERGED (PR #85, `b96ec7b`); v12.14, the answer-bookmark PR, in review — live confirmation status: DEC-031
+## Current Status: v12.14 MERGED (PR #86) — live confirmation status: DEC-031
 
-**v12.14 (the answer-bookmark PR, 2026-10-24).** Claude answers have flags in project chats again, answer bookmarks
+**v12.14 (PR #86, merged 2026-10-24 after the owner's acceptance on all three browsers).** Claude answers have flags in project chats again, answer bookmarks
 key to the message and read "Answer to Q#n", and existing answer bookmarks bind on proof or show "A#?" (DEC-051;
 TROUBLESHOOTING, "Claude answer bookmarks"). Next: the third PR, Claude markup follow-ups (item 14).
 

@@ -476,7 +476,8 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 **Phase:** v12.12 acceptance; fixed in v12.14 (the answer-bookmark PR) | **Severity:** High — answers could not be
 bookmarked in most long chats, and existing answer bookmarks were mislabelled and unreachable, on all three browsers
-| **Status:** fixed in code and gated in the page realm; real-browser acceptance owed (DEC-031)
+| **Status:** fixed in code and gated in the page realm; accepted by the owner on all three browsers (DEC-031:
+steps 1–3 PASS everywhere; Chrome's and Firefox's steps 4–5 not reported)
 
 ### Symptom
 
@@ -548,8 +549,10 @@ label were rejected.
   answer, the twin, recycled nodes, the status line, the mid-stream answer. The guards
   pass on both builds, among them the refetch count while scrolling across windows (1 fetch, no "out of sync"
   line). Eighteen targeted mutants, each caught by its named check. Final runs: CHANGELOG 12.14.
-- **Real browsers: owed** (DEC-031). The mock cannot show Claude's real markup in each browser, the owner's own
-  records, or what is visible on hover.
+- **Real browsers** [measured, owner, 2026-10-24] (DEC-031 has the itemized results): on Safari, Chrome and Firefox,
+  every answer shows a flag on hover in project and non-project chats, bookmarks read "Answer to Q#n" and jumps from
+  far away land. On Safari, the existing answer bookmarks in the 147-question project chat all showed "A#?" (why each one
+  did not bind was not measured), and one in a short non-project chat bound by proof to "Answer to Q#4".
 
 ---
 

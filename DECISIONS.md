@@ -1254,13 +1254,15 @@ is a live run on the commit actually being shipped.
   wrong, and the honest report is "not reproduced", never a fix asserted on plausibility.
 
 **Addendum — merged before the live confirm, on the owner's explicit call (2026-10-23).** The owner has waived
-this rule five times:
+this rule six times:
 - PR #73 (v12.8), merged before its usage-panel confirm;
 - PR #75 (v12.9), merged as `4c72ca9` before its Safari, Firefox and Chrome confirms;
 - PR #78 (v12.10), merged as `166a281` before Safari's ChatGPT and Perplexity check;
 - PR #82 (v12.12), merged as `2b7e8d1` before its acceptance on all three browsers;
 - PR #85 (v12.13), merged 2026-10-24 with step 1 of its acceptance passed on all three browsers and steps 2–7 not
-  reported.
+  reported;
+- PR #86 (v12.14), merged 2026-10-24 with steps 1–3 passed on all three browsers and Chrome's and Firefox's steps 4–5
+  not reported.
 
 A waiver moves the merge, not the debt: each confirm stays owed on the merged build until it is run. Record
 every waiver here, and in the release's CHANGELOG entry.
@@ -1268,6 +1270,27 @@ every waiver here, and in the release's CHANGELOG entry.
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
 review record. Updated 2026-10-24:
+- **v12.14 (PR #86, Claude answer bookmarks).** Owner, real browsers, 2026-10-24, on the branch's build ("all three
+  tested"). Recorded as reported:
+  - **Safari + Userscripts.**
+    - L (147-question project chat): step 1 **PASS** (every answer has a flag on hover while scrolling up from the
+      bottom); step 2 **PASS** ("Answer to Q#79", "Answer to Q#76"); step 3 **PASS** (a jump from far away lands);
+      step 5 **PASS** (question bookmarks still read Q#n). Step 4: all of the owner's existing answer bookmarks there
+      showed "A#?" (count not noted); clicking one showed the could-not-be-matched message; the owner deleted them and
+      re-bookmarked.
+    - N (non-project chat): a new answer bookmark reads "Answer to Q#2": **PASS**. No older answer bookmarks there to
+      check.
+    - S (4-question non-project chat): an existing answer bookmark from an earlier version upgraded on its own to
+      "Answer to Q#4" (bound by proof): **PASS**.
+  - **Chrome + Tampermonkey and Firefox + Tampermonkey.** Project and non-project chats: step 1 **PASS** (every
+    answer shows a flag on hover), step 2 **PASS** (bookmarks read "Answer to Q#n"), step 3 **PASS** (a jump from far
+    away lands). Steps 4–5: **not reported**.
+  - **Optional steps 6–7:** not run on any browser.
+  - In the owner's words: "in project and non-project chats on all three browsers, answer bookmarks can now be made on
+    every answer, read correctly, and jump correctly. Old answer bookmarks either upgraded by proof or showed "A#?" as
+    designed."
+  - **Waiver (partial):** merged on the owner's call ("Merge #86 after the lessons commit's CI is green") with
+    Chrome's and Firefox's steps 4–5 not reported. They stay owed on the merged build.
 - **v12.13 (PR #85, cross-tab saves).** Owner, real browsers, 2026-10-24, on the branch's build (the userscript is
   unchanged since `23805a8`). Question bookmarks were used for the tests. Recorded as reported:
   - **Step 1, the two-tab test on different conversations: PASS on Safari + Userscripts, Chrome + Tampermonkey and
@@ -1279,13 +1302,26 @@ review record. Updated 2026-10-24:
   - **Waiver:** merged on the owner's call ("Merge PR #85 after the CLAUDE.md commit's CI is green") with steps 2–7
     not reported. They stay owed on the merged build.
   - C0, the cross-tab read the fix depends on: PASS on all three managers (DEC-050).
-- **v12.12 (PR #82, Safari parity: plan usage and GM storage).** Owner, real browsers, 2026-10-23, after the
-  merge. **A summary, recorded as reported; the itemized results are to come in the next session's prompt:**
+- **v12.12 (PR #82, Safari parity: plan usage and GM storage).** Owner, real browsers, 2026-10-23 (a summary) and
+  2026-10-24 (itemized), after the merge.
+  - **Itemized, recorded as reported (2026-10-24):**
+    - **Safari + Userscripts:** plan usage shows on Claude: **PASS**. A question bookmark survives a reload: **PASS**.
+      A moved button survives a reload: **PASS**. **Not reported** (never checked): the language change, the
+      turn-counter dots, quit-and-reopen Safari, ChatGPT and Perplexity on Safari.
+    - **Chrome + Tampermonkey and Firefox + Tampermonkey:** question bookmarks work. **Not reported:** whether the
+      bookmarks and language from before the update survived it, and plan usage (Firefox's PR #82 items were never
+      sent).
+    - **The owner's two-tab test, Safari + Userscripts:** LOST, confirmed: tab A's bookmark was gone after tab B
+      bookmarked in another conversation and A reloaded. Fixed in v12.13 (DEC-050).
+    - **Answer bookmarks:** broken on all three browsers (the owner's observations: TROUBLESHOOTING, "Claude answer
+      bookmarks"). Fixed in v12.14 (DEC-051).
+  - **The summary, recorded as reported (2026-10-23):**
   - In the owner's words: "I did some live testing on version 12.12 and then there were all the things that we
     have built actually were solved." Asked which browsers: "I tested all of them." The owner chose not to itemize
     browsers or checklist items, so no single item is recorded as a pass here beyond those words.
   - **Bookmarks:** "the bookmarks do survive" a reload, "but we're having separate issues": a separate bookmark
-    problem the owner will describe in the next session's prompt. Not yet diagnosed or recorded anywhere else.
+    problem the owner will describe in the next session's prompt. *Described 2026-10-24: answer bookmarks (fixed in
+    v12.14) and the Safari two-tab loss (fixed in v12.13), both above.*
   - **Waiver:** merged 2026-10-23 as `2b7e8d1` before this acceptance, on the owner's call ("I want to merge
     first, but then I want to do some live testings"). The debt stays owed on the merged build.
 - **v12.11 (PR #81, the turn-counter dots; merged as `9a0fc7d` after this acceptance).** Owner, real browsers,
