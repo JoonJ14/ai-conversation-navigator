@@ -415,7 +415,8 @@
             // itself waits for the next save, not a timer.
             if (how !== 'failed' || q.waiting.length > batch.length) acnPersist(key);
         }
-        function readFailed() { acnStoreWarn('GM.getValue failed'); finish('failed'); }
+        // A call that answers after its step was abandoned changes nothing, and says nothing.
+        function readFailed() { if (done) return; acnStoreWarn('GM.getValue failed'); finish('failed'); }
         try {
             GM.getValue(key).then(function (stored) {
                 if (done) return;   // abandoned
@@ -439,8 +440,11 @@
                 if (!applied) { finish('refused'); return; }
                 text = JSON.stringify(cur);
                 try {
-                    GM.setValue(key, text).then(function () { finish('stored', text); },
-                                                function () { acnStoreWarn('GM.setValue failed'); finish('failed'); });
+                    GM.setValue(key, text).then(function () { finish('stored', text); }, function () {
+                        if (done) return;
+                        acnStoreWarn('GM.setValue failed');
+                        finish('failed');
+                    });
                 } catch (e) { acnStoreWarn('GM.setValue failed'); finish('failed'); }
             }, readFailed);
         } catch (e) { readFailed(); }
@@ -12562,14 +12566,17 @@
 
     function executeCommand(command) {
         var usedAt = Date.now();
+        // This use's own id: two uses in one millisecond are two uses.
+        var useId = usedAt + ':' + Math.random().toString(16).slice(2, 10);
         updateCommands(function (list) {
             for (var i = 0; i < list.length; i++) {
                 if (list[i].id === command.id) {
                     // Already counted: this change ran before (a write that landed though its
                     // step was abandoned), and +1 must not be applied twice.
-                    if (list[i].lastUsedAt === usedAt) break;
+                    if (list[i].lastUseId === useId) break;
                     list[i].usageCount = (list[i].usageCount || 0) + 1;
                     list[i].lastUsedAt = usedAt;
+                    list[i].lastUseId = useId;
                     break;
                 }
             }
