@@ -2869,8 +2869,8 @@ this page's startup copy back, so a tab erased whatever any other tab had saved 
   of that key for the rest of the page (G21). Abandoning after 5 s keeps its changes waiting.
 - **Repair or reset an unreadable stored value.** Rejected (the owner's rule): never write from empty.
 - **Tampermonkey through the same queue.** Not needed: its path reads with `GM_getValue` immediately before
-  `GM_setValue`, in one synchronous call, with no copy of ours in between [code]. Whether `GM_getValue` in one tab
-  returns another tab's newest write is Tampermonkey's behaviour: C0 below.
+  `GM_setValue`, in one synchronous call, with no copy of ours in between [code], and `GM_getValue` in one tab
+  returns another tab's write (C0, below).
 
 ### Rationale
 Each change is a small function of its own captured inputs, so it can be applied to any version of the collection,
@@ -2878,10 +2878,14 @@ this page's or another tab's newer one, with no record of what the page last saw
 residual below.
 
 ### Key properties
-- **Correctness on Safari rests on a measurement:** a `GM.getValue` in one tab must return what another tab wrote
-  since this tab loaded. B0 measured persistence across a reload, not this. C0
-  (`probes/cross-tab-gm-check.user.js`, owner-run, scratch keys only) measures it on all three managers. Status:
-  pending until the owner runs it; DEC-031 records the real-browser results.
+- **Correctness rests on a measurement:** a read in one tab must return what another open tab wrote since this tab
+  loaded. B0 measured persistence across a reload, not this. C0 (`probes/cross-tab-gm-check.user.js`, scratch keys
+  only), the owner, real browsers, 2026-10-24, read in tab A after a Write in tab B, the line that counts: **PASS on
+  all three.** Safari + Userscripts 4.8.6, `GM.getValue`: "write #1 from tab 50a3dbfe (ANOTHER tab), written 4 s
+  ago". Chrome + Tampermonkey 5.5.1, `GM_getValue`: "write #1 from tab 98f05d4b (ANOTHER tab), written 5 s ago"
+  (`GM.getValue` the same). Firefox + Tampermonkey 5.5.0, `GM_getValue`: "write #1 from tab 2ae8b29a (ANOTHER tab),
+  written 4 s ago" (`GM.getValue` the same). So re-reading before a save works on Safari, and Tampermonkey's
+  existing read-then-write was already safe, which is why its path stays unchanged. Release acceptance: DEC-031.
 - **A change must not depend on this page's copy:** read the inputs at the call (the URL, the platform, the time),
   keep them in the change's own variables, and apply them to whatever value it is given.
 - **A new collection key saves through `acnUpdateValue`, never `acnSetValue`** (agent_docs/conventions.md, Storage
@@ -2891,7 +2895,8 @@ residual below.
   second record for it; nothing is lost.
 - **Two commands of one name** saved by two tabs are both kept; the later one is renamed `name-2` (`name-3`, ...),
   on create and on rename.
-- **Residuals, recorded, not fixed** (review, 2026-10-24) [code + inferred, unmeasured on any manager]:
+- **Residuals, recorded, not fixed** (review, 2026-10-24; the first and the unreadable-value one accepted by the
+  owner, 2026-10-24) [code + inferred, unmeasured on any manager]:
   - GM storage has no atomic compare-and-swap. Two tabs whose read-then-write steps overlap can still lose one
     change. The window is one `GM.getValue` → `GM.setValue` round trip (on Tampermonkey, `GM_getValue` → `GM_setValue`
     in one call plus the manager's own syncing), where v12.12's was the tab's whole life. Most likely from automatic
@@ -2903,7 +2908,8 @@ residual below.
   - A save sent less than one round trip before a reload or a tab close is not written; v12.12 sent the write at
     once.
   - A stored value that cannot be read blocks saving that collection until it is repaired by hand; there is no
-    in-UI recovery (the owner's rule: never write from empty). On Safari, a refusal found only at write time comes
+    in-UI recovery (the owner's rule: never write from empty). A "reset, keeping a backup copy" action is logged for
+    later (ROADMAP 0d). On Safari, a refusal found only at write time comes
     after the page showed the change.
   - On Safari a stored `null` counts as missing and is written over (Tampermonkey refuses it). Kept on purpose
     (Codex round 4): what `GM.getValue(key)` returns for a key never stored is unmeasured, and if it is `null`,

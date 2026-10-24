@@ -290,3 +290,13 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 > before the code.
 > **Why:** the failure looks like a broken build under test, and it was the same family as the `\uXXXX` lesson
 > above: each layer of quoting the text passes through can eat an escape.
+
+> **Issue:** The cross-tab PR's queue check (G13) first stubbed a slow `GM.getValue` that read storage when it
+> ANSWERED, 200 ms after the call. By then the first save had already written, so the second save's read always saw
+> it: two overlapping saves were lined up by the stub itself, and a build with no queue at all passed. Measured: the
+> no-queue mutant passed G13 until the stub was changed.
+> **Correct approach:** a stub for an async read answers with the value as it was WHEN CALLED, the worst case a
+> manager can give, and with uneven delays, so a later call can finish first. Then prove the check can fail: run
+> one mutant with the mechanism removed and see the check go red before trusting it green.
+> **Why:** a stub that reads at answer time serializes what it was meant to race. The check then passes for a reason
+> that has nothing to do with the code, and only a mutant shows it.

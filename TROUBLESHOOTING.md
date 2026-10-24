@@ -476,7 +476,7 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 **Phase:** v12.12 acceptance; fixed in v12.13 (the cross-tab PR) | **Severity:** High — data loss on one of the
 three equal-priority runtimes (DEC-047), across every conversation | **Status:** fixed in code and gated in the page
-realm; real-browser acceptance owed, and C0 (below) decides whether the fix holds on each manager (DEC-031)
+realm; C0 passed on all three managers; real-browser acceptance owed (DEC-031)
 
 ### Symptom
 
@@ -525,9 +525,10 @@ v12.12 fails).
   passes all twenty-eight. The guards (G10, G13, G19–G21, G23, G24, G27, G28) pass on both; the builds before each review round fail the
   checks that round added (DEC-050), and a build whose save steps can overlap fails G13. Residual limits: DEC-050.
   Final runs: CHANGELOG 12.13.
-- **The measurement the fix depends on, owed:** C0 (`probes/cross-tab-gm-check.user.js`, owner-run on all three
-  managers): does a read in one tab return what another tab wrote since it loaded? If a manager answers from a
-  per-tab cache, re-reading cannot help there.
+- **The measurement the fix depends on:** C0 (`probes/cross-tab-gm-check.user.js`): does a read in one tab return
+  what another open tab wrote since it loaded? **PASS on all three** [measured, owner, real browsers, 2026-10-24]:
+  Safari + Userscripts 4.8.6 (`GM.getValue`), Chrome + Tampermonkey 5.5.1 and Firefox + Tampermonkey 5.5.0
+  (`GM_getValue`, and `GM.getValue` the same). The lines: DEC-050.
 - **Real browsers: owed** (DEC-031): the owner's two-tab test again, on each of the three.
 
 ---
