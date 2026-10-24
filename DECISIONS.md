@@ -2916,14 +2916,14 @@ residual below.
   - On Safari a stored `null` counts as missing and is written over (Tampermonkey refuses it). Kept on purpose
     (Codex round 4): what `GM.getValue(key)` returns for a key never stored is unmeasured, and if it is `null`,
     refusing it would block every first save. A stored `null` holds no records, so nothing is lost.
-- Gates: `probes/check-gm-storage.js` G7–G30 (page realm, stubbed storage; two pages in one browser context are two
+- Gates: `probes/check-gm-storage.js` G7–G31 (page realm, stubbed storage; two pages in one browser context are two
   tabs). v12.12 fails G7, G8, G9, G11, G12, G14–G18, G22, G25, G26, G29 and G30; G10 (the synchronous path), G13 (one step at a
-  time), G19–G21, G23, G24, G27 and G28 are guards. The first build (`698e27f`) fails G15, G16, G19–G22 and G28; the round-1
+  time), G19–G21, G23, G24, G27, G28 and G31 are guards. The first build (`698e27f`) fails G15, G16, G19–G22 and G28; the round-1
   fix (`633a14c`) fails G23 and G25; the round-2 fix (`eff22e7`) fails G26 and G27; the round-4 build (`a9bf93a`)
-  fails G29; the round-6 build (`b524cdb`) fails G30; a build whose steps can overlap fails G13. Not proven by a failing build: Clear all by the panel's own ids (G24 passes on `633a14c` too, because a
+  fails G29; the round-6 build (`b524cdb`) fails G30; the PR's first head (`c4d1ec4`) fails G31
+  (GitHub Codex); a build whose steps can overlap fails G13. Not proven by a failing build: Clear all by the panel's own ids (G24 passes on `633a14c` too, because a
   scan redraws the panel within about 500 ms) and a command id's random part (32 bits on the millisecond: an id
   already stored is taken as this same change running again). Not gated: a conversation entry that is not a list (icon injection already fails
   on one, on v12.12 too, so no click reaches the save); a save made by a watcher while a step finishes (it needs a
   legacy record and a ready index; the watchers run while the key is still busy, and `acnPersist` refuses to start
-  a second step); a command's use counted once when its change runs again (it skips `+1` when its own time is
-  already stored).
+  a second step).

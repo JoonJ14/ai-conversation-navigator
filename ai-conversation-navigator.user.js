@@ -12572,11 +12572,14 @@
             for (var i = 0; i < list.length; i++) {
                 if (list[i].id === command.id) {
                     // Already counted: this change ran before (a write that landed though its
-                    // step was abandoned), and +1 must not be applied twice.
-                    if (list[i].lastUseId === useId) break;
+                    // step was abandoned), and +1 must not be applied twice. Every use still
+                    // waiting can be replayed, not just the last, so the recent ids are kept.
+                    var recent = Array.isArray(list[i].recentUseIds) ? list[i].recentUseIds : [];
+                    if (recent.indexOf(useId) !== -1) break;
                     list[i].usageCount = (list[i].usageCount || 0) + 1;
                     list[i].lastUsedAt = usedAt;
-                    list[i].lastUseId = useId;
+                    recent.push(useId);
+                    list[i].recentUseIds = recent.slice(-20);
                     break;
                 }
             }

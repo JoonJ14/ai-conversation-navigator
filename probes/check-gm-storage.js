@@ -69,6 +69,10 @@
 // Added in review (Codex Tier 3, round 5):
 //   G29 [new] async only, one conversation in two tabs: A loads with B's bookmark lit; B removes
 //       it; A saves another. A's flag for the removed one goes dark, and a click on it adds it again
+// Added in GitHub Codex's review of PR #85:
+//   G31 [guard] async only, the first commands write is refused and the second lands but never
+//       answers: three uses of one command count 3, not 5 (every waiting use is replayed). PR #85's
+//       head (c4d1ec4) counts 5
 // Added in review (Codex Tier 3, round 7):
 //   G30 [new] async only, a page saves in conversation A, then moves to B in place, where another
 //       tab has left B's stored entry null: the B bookmark is refused with the warning, and
@@ -107,7 +111,7 @@ const TARGET_B = 'https://claude.ai/chat/13131313-1313-4131-8131-131313131313';
 const SIX_KEYS = ['acn-bookmarks-v1', 'acn-claude-org-v1', 'acn-commands', 'acn-settings',
                   'acn-zone-positions', 'acn_ctx_cache'];
 
-// mode: 'async' | 'sync' | 'hang' | 'reject' | 'reorder' | 'slowread' | 'rejectonce' | 'hangonce' | 'rejectslow' | 'readfailonce'
+// mode: 'async' | 'sync' | 'hang' | 'reject' | 'reorder' | 'slowread' | 'rejectonce' | 'hangonce' | 'rejectslow' | 'readfailonce' | 'cmdflaky'
 function buildPage(scriptContent, mode) {
     const mockHTML = fs.readFileSync(path.join(REPO, 'tests/mock-pages/claude-virtualized.html'), 'utf8');
     const bodyMatch = mockHTML.match(/<body[^>]*>([\s\S]*)<\/body>/i);
@@ -172,6 +176,13 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
             if (MODE === 'reject') return Promise.reject(new Error('stub: write refused'));
             // 'rejectonce' / 'hangonce': the first bookmark write is refused, or never answered
             // (and never applied); every other write goes through.
+            // 'cmdflaky': the first commands write is refused; the second is applied but never
+            // answered (it lands, and its step is abandoned after 5 s); the rest go through.
+            if (MODE === 'cmdflaky' && k === 'acn-commands') {
+                window.__gm.cmdSets = (window.__gm.cmdSets || 0) + 1;
+                if (window.__gm.cmdSets === 1) return Promise.reject(new Error('stub: commands write refused'));
+                if (window.__gm.cmdSets === 2) { lsSet('__gmasync:', k, v); return new Promise(function () {}); }
+            }
             if ((MODE === 'rejectonce' || MODE === 'hangonce' || MODE === 'rejectslow') &&
                 k === 'acn-bookmarks-v1' && !window.__gm.bmOnce) {
                 window.__gm.bmOnce = true;
@@ -812,6 +823,30 @@ const READ = `(function () {
     })();
     check('G30', "async only: a save in a second conversation is checked against that conversation's entry",
         moved.kept && moved.refused === 1, 'stored value kept=' + moved.kept + ' refusal lines=' + moved.refused);
+
+    // G31 — one command used three times: the first write refused, the second lands unanswered.
+    const uses = await (async () => {
+        const one = { id: 'cmd_1', name: 'one', description: '', prompt: 'first prompt',
+                      createdAt: 1, updatedAt: 1, usageCount: 0, lastUsedAt: null };
+        const context = await browser.newContext();
+        const page = await openTab(context, TARGET, 'cmdflaky');
+        await setHeld(page, '__gmasync:', 'acn-commands', held('async', [one]));
+        await reloadTab(page);
+        await page.waitForFunction("!!document.querySelector('.acn-cmd-card[data-cmd-id=\"cmd_1\"]')", null, { timeout: 10000 });
+        const play = "document.querySelector('.acn-cmd-card[data-cmd-id=\"cmd_1\"] .acn-cmd-btn[title=\"Execute\"]').click()";
+        await page.evaluate(play);            // 1: its write is refused
+        await page.waitForTimeout(400);
+        await page.evaluate(play);            // 2: written with use 1, never answered
+        await page.waitForTimeout(5600);      // past the 5 s abandonment
+        await page.evaluate(play);            // 3: replays uses 1 and 2 over the landed write
+        await page.waitForTimeout(800);
+        const stored = unheld('async', await getHeld(page, '__gmasync:', 'acn-commands')) || [];
+        await context.close();
+        const c = stored.filter((x) => x.id === 'cmd_1')[0];
+        return c ? c.usageCount : null;
+    })();
+    check('G31', 'async only, writes refused and unanswered: three uses of one command count 3',
+        uses === 3, 'usageCount=' + uses);
 
     const rf = await twoAfterTrouble('readfailonce', 400);
     check('G28', 'async only, the first bookmark read after startup is refused: both bookmarks stored',

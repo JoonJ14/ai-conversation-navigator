@@ -93,7 +93,9 @@ What each round found, in short:
 - Adversarial workflow: 22 findings, 19 confirmed, 4 WARNs fixed.
 - Gates added: G7–G30 in `check-gm-storage` (G8b dropped: unreachable from the UI). Each fixed mechanism has a check
   that fails on the build before it, except those listed as not gated in DEC-050.
-- **GitHub Codex rounds needed afterwards:** (filled in after the PR's review cycle)
+- **GitHub Codex rounds needed afterwards:** round 1 (on `533ae97`, the head at opening): 1 finding, P2, real —
+  every use of a command still waiting can be replayed, so keeping only the last use's id counted 5 for 3 uses
+  (reproduced by G31). Fixed by keeping the last 20 use ids. Later rounds: (filled in as the cycle runs)
 
 ## Measurement context
 
