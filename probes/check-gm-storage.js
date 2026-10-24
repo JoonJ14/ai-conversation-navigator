@@ -66,6 +66,9 @@
 // before the click, and
 //   G28 [guard] async only, the first bookmark READ after the startup load is refused: both
 //       bookmarks still end up stored
+// Added in review (Codex Tier 3, round 5):
+//   G29 [new] async only, one conversation in two tabs: A loads with B's bookmark lit; B removes
+//       it; A saves another. A's flag for the removed one goes dark, and nothing brings it back
 // The guards pass on v12.12, which writes the whole copy each time; the review's pre-fix build
 // (698e27f) fails G19, G20 and G21.
 // Not gated, and not reachable from the UI: a conversation whose stored entry holds something
@@ -758,6 +761,30 @@ const READ = `(function () {
         await context.close();
         return { err, names: stored.map((c) => c.name) };
     })();
+    // G29 — the flags follow a write that brings in another tab's removal.
+    const flags = await (async () => {
+        const context = await browser.newContext();
+        const b = await openTab(context, TARGET, 'async');
+        await b.waitForFunction("document.querySelectorAll('[data-acn-bookmark]').length > 1", null, { timeout: 30000 });
+        await b.evaluate("document.querySelectorAll('[data-acn-bookmark]')[0].click()");   // X
+        await b.waitForTimeout(500);
+        const a = await openTab(context, TARGET, 'async');
+        await a.waitForFunction("document.querySelectorAll('.acn-bm-icon.acn-bm-active').length > 0", null, { timeout: 30000 });
+        await b.evaluate("document.querySelectorAll('[data-acn-bookmark]')[0].click()");   // B removes X
+        await b.waitForTimeout(500);
+        await a.evaluate("document.querySelectorAll('[data-acn-bookmark]')[1].click()");   // A saves Y
+        await a.waitForTimeout(1200);
+        const xLit = await a.evaluate("document.querySelectorAll('[data-acn-bookmark]')[0].classList.contains('acn-bm-active')");
+        await a.evaluate("document.querySelectorAll('[data-acn-bookmark]')[0].click()");   // A clicks X's flag
+        await a.waitForTimeout(800);
+        const store = await bookmarkStore(a, 'async');
+        const n = (store && store[TARGET]) ? store[TARGET].bookmarks.length : 0;
+        await context.close();
+        return { xLit, n };
+    })();
+    check('G29', "async only: a write that brings in another tab's removal turns that flag off",
+        flags.xLit === false, 'removed bookmark still lit in A=' + flags.xLit + ' bookmarks stored after clicking it=' + flags.n);
+
     const rf = await twoAfterTrouble('readfailonce', 400);
     check('G28', 'async only, the first bookmark read after startup is refused: both bookmarks stored',
         rf.n === 2, 'bookmarks stored=' + rf.n);

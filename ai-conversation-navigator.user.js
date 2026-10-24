@@ -8458,9 +8458,12 @@
         });
     }
 
-    // A write that brought another tab's bookmarks into this page's copy redraws the open
-    // panel, so it shows, and Clear all removes, what is there (DEC-050).
+    // A write that brought another tab's changes into this page's copy redraws what was
+    // drawn from the old one (DEC-050): every flag, so one another tab removed is not left
+    // lit (a click would add it back) and one it added is not left dark; and the open panel,
+    // so it shows, and Clear all removes, what is there.
     acnWatch(BOOKMARK_KEY, function () {
+        _bmResetIconState();
         var bmPanel = document.getElementById('acn-panel-bookmarks');
         if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
     });
@@ -12397,14 +12400,13 @@
             lastUsedAt:  null
         };
         var saved = updateCommands(function (list) {
-            var copy = JSON.parse(JSON.stringify(command));
+            // Its id already stored means this change ran before (a write that landed though
+            // its step was abandoned): done. With 32 random bits on the millisecond, another
+            // command under the same id is not a case to handle.
             for (var i = 0; i < list.length; i++) {
-                if (list[i].id !== command.id) continue;
-                // This command, already stored (the change running a second time): done. A
-                // different one under the same id: this one gets a new id, never dropped.
-                if (list[i].createdAt === command.createdAt && list[i].prompt === command.prompt) return list;
-                copy.id = command.id + '_' + Math.random().toString(16).slice(2, 10);
+                if (list[i].id === command.id) return list;
             }
+            var copy = JSON.parse(JSON.stringify(command));
             copy.name = uniqueCommandName(list, command.name, copy.id);
             list.push(copy);
             return list;

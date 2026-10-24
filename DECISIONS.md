@@ -2837,7 +2837,7 @@ Per runtime:
   whole-copy write carried it; if changes arrived during a failed step, the queue starts once more for them. A step
   with no answer in 5 s is abandoned the same way, and logged once. After a write, the page's copy becomes the
   stored value plus the changes still waiting, so it picks up what other tabs saved; when that changes the copy, the
-  open Bookmarks panel or /Commands list redraws (`acnWatch`).
+  bookmark flags reset and the open Bookmarks panel or /Commands list redraws (`acnWatch`).
 - **A stored value that cannot be read is never saved over:** the save is refused, with one console line and one
   toast per key per page, and a bookmark's flag does not turn on. On the async path a change already shown on the
   page stays on the page and is not stored.
@@ -2914,11 +2914,11 @@ residual below.
   - On Safari a stored `null` counts as missing and is written over (Tampermonkey refuses it). Kept on purpose
     (Codex round 4): what `GM.getValue(key)` returns for a key never stored is unmeasured, and if it is `null`,
     refusing it would block every first save. A stored `null` holds no records, so nothing is lost.
-- Gates: `probes/check-gm-storage.js` G7–G28 (page realm, stubbed storage; two pages in one browser context are two
-  tabs). v12.12 fails G7, G8, G9, G11, G12, G14–G18, G22, G25 and G26; G10 (the synchronous path), G13 (one step at a
+- Gates: `probes/check-gm-storage.js` G7–G29 (page realm, stubbed storage; two pages in one browser context are two
+  tabs). v12.12 fails G7, G8, G9, G11, G12, G14–G18, G22, G25, G26 and G29; G10 (the synchronous path), G13 (one step at a
   time), G19–G21, G23, G24, G27 and G28 are guards. The first build (`698e27f`) fails G15, G16, G19–G22 and G28; the round-1
-  fix (`633a14c`) fails G23 and G25; the round-2 fix (`eff22e7`) fails G26 and G27; a build whose steps can overlap
-  fails G13. Not proven by a failing build: Clear all by the panel's own ids (G24 passes on `633a14c` too, because a
-  scan redraws the panel within about 500 ms) and a command id's random part (with a fresh id for a different
-  command found under the same one). Not gated: a conversation entry that is not a list (icon injection already fails
+  fix (`633a14c`) fails G23 and G25; the round-2 fix (`eff22e7`) fails G26 and G27; the round-4 build (`a9bf93a`)
+  fails G29; a build whose steps can overlap fails G13. Not proven by a failing build: Clear all by the panel's own ids (G24 passes on `633a14c` too, because a
+  scan redraws the panel within about 500 ms) and a command id's random part (32 bits on the millisecond: an id
+  already stored is taken as this same change running again). Not gated: a conversation entry that is not a list (icon injection already fails
   on one, on v12.12 too, so no click reaches the save).
