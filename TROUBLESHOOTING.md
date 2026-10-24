@@ -472,11 +472,13 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ---
 
-## FIXED IN v12.12, ACCEPTANCE OWED — Safari + Userscripts: Plan usage unavailable, and nothing kept in GM storage persisted (found 2026-10-22)
+## RESOLVED IN v12.12 — Safari + Userscripts: Plan usage unavailable, and nothing kept in GM storage persisted (found 2026-10-22)
 
 **Phase:** v12.9–v12.11 acceptance; fixed in v12.12 (PR #82, merged as `2b7e8d1`) | **Severity:** Medium —
 features missing on one of the three equal-priority runtimes (DEC-047); no data lost, since nothing was ever
-stored | **Status:** Fixed in code. Real-Safari acceptance owed: DEC-031 (merged before it, on the owner's call)
+stored | **Status:** Resolved. The owner's live-test summary after the merge (2026-10-23) says everything built
+here works; the itemized results are to come (DEC-031, the only place they are kept). A separate bookmark issue
+the owner noticed is not this entry: it comes in the next session's prompt
 
 ### Symptom
 
@@ -981,7 +983,7 @@ Network**, and check its Cookie, Origin and Sec-Fetch-Site headers.
   (cookies received through GM_xhr stored partitioned, then overwriting the unpartitioned session cookie;
   fixed in a TM beta). Do not theorise further without the `[ACN] index:` lines from an occurrence.
 - ~~**Plan usage on Safari** still uses `GM_xmlhttpRequest` only — expect "Usage data unavailable" (inferred).~~
-  Fixed in v12.12 (the "FIXED IN v12.12" entry above; acceptance: DEC-031).
+  Fixed in v12.12 (the "RESOLVED IN v12.12" entry above; acceptance: DEC-031).
 - ~~**GM storage on Safari**~~ (fixed in v12.12, the same entry; the text below is as found) — Userscripts
   provides no synchronous `GM_getValue`/`GM_setValue` (from its source), so nothing the script keeps in GM storage works there: bookmarks, saved commands, the language and platform
   toggles, the org cache. Every call site is try/caught, so it fails silently. Display mode, scroll direction

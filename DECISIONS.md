@@ -1266,8 +1266,13 @@ every waiver here, and in the release's CHANGELOG entry.
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
 review record. Updated 2026-10-23:
-- **v12.12 (PR #82, Safari parity: plan usage and GM storage).** **OWED** on Safari + Userscripts, Chrome +
-  Tampermonkey and Firefox + Tampermonkey (checklist in the PR).
+- **v12.12 (PR #82, Safari parity: plan usage and GM storage).** Owner, real browsers, 2026-10-23, after the
+  merge. **A summary, recorded as reported; the itemized results are to come in the next session's prompt:**
+  - In the owner's words: "I did some live testing on version 12.12 and then there were all the things that we
+    have built actually were solved." Asked which browsers: "I tested all of them." The owner chose not to itemize
+    browsers or checklist items, so no single item is recorded as a pass here beyond those words.
+  - **Bookmarks:** "the bookmarks do survive" a reload, "but we're having separate issues": a separate bookmark
+    problem the owner will describe in the next session's prompt. Not yet diagnosed or recorded anywhere else.
   - **Waiver:** merged 2026-10-23 as `2b7e8d1` before this acceptance, on the owner's call ("I want to merge
     first, but then I want to do some live testings"). The debt stays owed on the merged build.
 - **v12.11 (PR #81, the turn-counter dots; merged as `9a0fc7d` after this acceptance).** Owner, real browsers,
@@ -1289,9 +1294,10 @@ review record. Updated 2026-10-23:
   - **Safari + Userscripts.** Claude index **PASS**: 144 questions, jumps first ↔ last. Plan usage "Usage data
     unavailable" (expected, the Safari parity item). Turn-counter dots **wrong**, intermittently: a defect that
     predates v12.10 (TROUBLESHOOTING, "OPEN — Claude's turn-counter dots"). **ChatGPT and Perplexity: OWED**,
-    after the merge.
+    after the merge. *Update 2026-10-23, on the v12.12 build: **Passed**. The owner picked "Passed" for "ChatGPT
+    and Perplexity, full lists and jumps", whose option read "both lists full and jumps landed, on Safari".*
   - **Waiver:** v12.10 was merged before Safari's ChatGPT and Perplexity acceptance, on the owner's call. The debt
-    stays owed on the merged build.
+    stays owed on the merged build. *Paid 2026-10-23 (the update above).*
 - **v12.9 (PR #75).** Safari + Userscripts **PASS** (owner): `transport=fetch org=730fcd2a… status=200`; the
   index ready with 144 questions (295 messages in the payload) via fetch; jumps to Q1 through Q144, the last
   five included, all landed. Firefox + Tampermonkey (Linux) **PASS** (owner, after the merge). Chrome +
