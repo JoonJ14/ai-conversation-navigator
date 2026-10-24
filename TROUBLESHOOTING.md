@@ -472,6 +472,67 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ---
 
+## FIXED IN v12.13 — Safari: a second tab erased the first tab's bookmarks, in any conversation (found 2026-10-24)
+
+**Phase:** v12.12 acceptance; fixed in v12.13 (the cross-tab PR) | **Severity:** High — data loss on one of the
+three equal-priority runtimes (DEC-047), across every conversation | **Status:** fixed in code and gated in the page
+realm; C0 passed on all three managers; real-browser acceptance owed (DEC-031)
+
+### Symptom
+
+The owner's two-tab test on Safari + Userscripts, v12.12 [measured, owner, 2026-10-24]: both tabs loaded, on
+different conversations; a question bookmarked in tab A, a different question in tab B; tab A reloaded. **Tab A's
+bookmark was gone.**
+
+### Diagnosis / root cause [code]
+
+Every bookmark of every conversation is one GM value, `acn-bookmarks-v1`. On Safari, v12.12 reads the six GM keys
+once at startup into a copy (DEC-049) and each save wrote that copy, plus its one change, back. Tab B's copy was
+taken before tab A's bookmark existed, so B's save wrote a store without it. The same shape held for the other
+collections: saved commands, button positions per platform, and the context cache. DEC-049 and ROADMAP 0d had logged
+this as "two tabs are last-write-wins per key", a known limit; per key, that is data loss in every conversation.
+
+One more defect on the same path, on every runtime [code]: `getBookmarks` returns `{}` when the stored value does
+not parse, so the next save wrote a store holding one bookmark over everything stored (gated by G8 and G9, which
+v12.12 fails).
+
+### Solutions considered
+
+- **Refresh the copy before each save, then write the copy.** Rejected: on Safari the refresh is a round trip, so a
+  second save in the meantime races it, and the loss comes back inside one tab.
+- **Merge this tab's copy with what is stored.** Rejected: without a base version a record missing on one side
+  cannot be told apart as deleted here or added there.
+- **Apply one change to what is stored: chosen** (DEC-050), with a queue per key on Safari so each write follows the
+  read before it. Other alternatives: DEC-050.
+
+### Fix (v12.13)
+
+- `acnUpdateValue(key, def, valid, apply)`: Tampermonkey reads with `GM_getValue` right before `GM_setValue`, as
+  every caller already did; Safari applies the change to the page's copy at once, then, one step at a time per key,
+  re-reads with `GM.getValue`, applies every change not yet stored and writes, and refreshes the copy from what is
+  stored. A failed or unanswered (5 s) step keeps its changes for the next save.
+- Bookmarks merge by record id (an update never revives a record another tab deleted; Clear all removes the records
+  this tab shows), commands by id, positions by platform, the context cache by conversation. `acn-settings` and the
+  org cache stay last-write-wins (the owner's call).
+- A stored value that cannot be read is never saved over: one console line and a toast ("Not saved: the stored data
+  could not be read") per key per page, and the bookmark flag does not turn on.
+
+### Results & verification
+
+- **Page realm** (Playwright, headless, this Mac, stubbed storage): `check-gm-storage` G7–G32. v12.12 fails G7 (the
+  owner's test: only conversation B is stored afterwards), G8 and G9 (the unreadable value is replaced), G11, G12,
+  G14–G18 (G17: B's removal erases A's bookmark; G18: a removed bookmark comes back), G22, G25, G26, G29 and
+  G30; v12.13 passes all thirty-two. The guards (G10, G13, G19–G21, G23, G24, G27, G28, G31, G32) pass on both; the builds before each review round fail the
+  checks that round added (DEC-050), and a build whose save steps can overlap fails G13. Residual limits: DEC-050.
+  Final runs: CHANGELOG 12.13.
+- **The measurement the fix depends on:** C0 (`probes/cross-tab-gm-check.user.js`): does a read in one tab return
+  what another open tab wrote since it loaded? **PASS on all three** [measured, owner, real browsers, 2026-10-24]:
+  Safari + Userscripts 4.8.6 (`GM.getValue`), Chrome + Tampermonkey 5.5.1 and Firefox + Tampermonkey 5.5.0
+  (`GM_getValue`, and `GM.getValue` the same). The lines: DEC-050.
+- **Real browsers: owed** (DEC-031): the owner's two-tab test again, on each of the three.
+
+---
+
 ## RESOLVED IN v12.12 — Safari + Userscripts: Plan usage unavailable, and nothing kept in GM storage persisted (found 2026-10-22)
 
 **Phase:** v12.9–v12.11 acceptance; fixed in v12.12 (PR #82, merged as `2b7e8d1`) | **Severity:** Medium —

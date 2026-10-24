@@ -22,6 +22,69 @@
 //   G6  async only, two writes of one key finish OUT OF ORDER (the stub finishes a key's
 //       first write last): the newer value is what survives the reload
 //
+// The cross-tab PR (v12.13, DEC-050). The owner's Safari two-tab test on v12.12 lost tab A's
+// bookmark: both tabs loaded, A bookmarked, B bookmarked in another conversation, and B's save
+// wrote B's startup copy of the whole store back. A "tab" here is a second page in the same
+// browser context, so both read and write the one stubbed storage. [new] fails on v12.12;
+// [guard] passes on both builds.
+//   G7  [new] async only, the owner's two-tab test: A's bookmark survives B's save
+//   G8  [new] async only, the stored bookmarks are unreadable: a click saves nothing over
+//       them, warns once (a console line and a toast), and the flag does not turn on
+//   G9  [new] the same, through the synchronous functions (the Tampermonkey path)
+//   G10 [guard] the two-tab test through the synchronous functions: both bookmarks kept
+//   G11 [new] async only: a zone position another tab saved, for another platform, survives
+//       this tab's drag
+//   G12 [new] async only: a command another tab saved survives this tab running one
+//   G13 [guard] async only, reads after the startup load answer late and unevenly (500 ms, then
+//       50 ms): two quick bookmarks in one tab both survive. The queue's own check: v12.12 has
+//       no re-read, so it passes there; a build whose save steps can overlap fails it
+// Added in review (Codex Tier 3 round 1, and an adversarial review):
+//   G14 [new] async only: another tab's context-cache entry, for another conversation,
+//       survives this tab's write from a real SSE message_delta through the fetch proxy
+//   G15 [new] async only: this tab and another both create /deploy: both kept, names unique
+//   G16 [new] async only, the stored commands are unreadable: creating one shows "Not saved"
+//       in the form and writes nothing
+//   G17 [new] async only, deletions: B removes its own bookmark after A bookmarked; A's survives
+//   G18 [new] async only, deletions: B removes a bookmark A's page still holds, then A saves; the
+//       removed one does not come back
+//   G19 [guard] async only, nothing stored yet: the first command is stored once
+//   G20 [guard] async only, the first bookmark write is rejected: that bookmark goes out with
+//       the next save
+//   G21 [guard] async only, the first bookmark write never answers: after the 5 s bound the next
+//       save carries it
+//   G22 [new] the same run: the stall is logged once
+// Added in review (Codex Tier 3, round 2):
+//   G23 [guard] async only, the first bookmark write is refused 300 ms late, and a second
+//       bookmark is made while it is pending: both are stored without a third save
+//   G24 [guard] async only, Clear all removes exactly the records the panel shows, after a
+//       write brought another tab's bookmark into this page
+//   G25 [new] async only, the open /Commands list shows the name a write stored (deploy-2)
+// Added in review (Codex Tier 3, round 3):
+//   G26 [new] async only, this conversation's stored entry is null: nothing saved over it
+//   G27 [guard] async only, a command named 'constructor' keeps its name (no prototype lookup)
+// Added in review (Codex Tier 3, round 4): G24 also asserts the panel showed every stored record
+// before the click, and
+//   G28 [guard] async only, the first bookmark READ after the startup load is refused: both
+//       bookmarks still end up stored
+// Added in review (Codex Tier 3, round 5):
+//   G29 [new] async only, one conversation in two tabs: A loads with B's bookmark lit; B removes
+//       it; A saves another. A's flag for the removed one goes dark, and a click on it adds it again
+// Added in GitHub Codex's review of PR #85:
+//   G31 [guard] async only, the first commands write is refused and the second lands but never
+//       answers: three uses of one command count 3, not 5 (every waiting use is replayed). PR #85's
+//       head (c4d1ec4) counts 5
+//   G32 [guard] the same, with 21 uses made while the first write is pending, then one more:
+//       22 counted. A window of the last 20 use ids (e69d5da) cascades past it
+// Added in review (Codex Tier 3, round 7):
+//   G30 [new] async only, a page saves in conversation A, then moves to B in place, where another
+//       tab has left B's stored entry null: the B bookmark is refused with the warning, and
+//       nothing is written over B's entry
+// The guards pass on v12.12, which writes the whole copy each time; the review's pre-fix build
+// (698e27f) fails G19, G20 and G21.
+// Not gated, and not reachable from the UI: a conversation whose stored entry holds something
+// other than a list. Icon injection already fails on such an entry, on v12.12 too, so no click
+// reaches the save; _bmUpdateStore refuses it anyway.
+//
 // G1 also asserts the startup load asks for all six keys, since one left out of
 // acnStoreLoad's list would reset its feature on every reload with no other check failing.
 //
@@ -45,10 +108,12 @@ catch (e) { playwright = require('playwright'); }
 
 const CONV_UUID = '12121212-1212-4121-8121-121212121212';
 const TARGET = 'https://claude.ai/chat/' + CONV_UUID;
+// The second tab's conversation, as in the owner's test: a different one.
+const TARGET_B = 'https://claude.ai/chat/13131313-1313-4131-8131-131313131313';
 const SIX_KEYS = ['acn-bookmarks-v1', 'acn-claude-org-v1', 'acn-commands', 'acn-settings',
                   'acn-zone-positions', 'acn_ctx_cache'];
 
-// mode: 'async' | 'sync' | 'hang' | 'reject' | 'reorder'
+// mode: 'async' | 'sync' | 'hang' | 'reject' | 'reorder' | 'slowread' | 'rejectonce' | 'hangonce' | 'rejectslow' | 'readfailonce' | 'cmdflaky'
 function buildPage(scriptContent, mode) {
     const mockHTML = fs.readFileSync(path.join(REPO, 'tests/mock-pages/claude-virtualized.html'), 'utf8');
     const bodyMatch = mockHTML.match(/<body[^>]*>([\s\S]*)<\/body>/i);
@@ -89,12 +154,52 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
             window.__gm.keys.push(k);
             if (!window.__gm.firstGetAt) window.__gm.firstGetAt = performance.now();
             if (MODE === 'hang') return new Promise(function () {});
+            // 'readfailonce': the first bookmark read after the startup load (six reads) is refused.
+            if (MODE === 'readfailonce' && k === 'acn-bookmarks-v1' && window.__gm.get > 6 && !window.__gm.readOnce) {
+                window.__gm.readOnce = true;
+                return Promise.reject(new Error('stub: read refused once'));
+            }
+            // 'slowread': the startup load (the first six reads) answers at once. After it, the
+            // first read answers 500 ms late and every later one 50 ms late, each with the value
+            // as it was WHEN CALLED, the worst case. A read taken at answer time would line two
+            // overlapping saves up by itself; uneven delays let a later save finish first.
+            if (MODE === 'slowread' && window.__gm.get > 6) {
+                var w = lsGet('__gmasync:', k);
+                var delay = window.__gm.get === 7 ? 500 : 50;
+                return new Promise(function (res) {
+                    setTimeout(function () { res(w === undefined ? d : w); }, delay);
+                });
+            }
             var v = lsGet('__gmasync:', k);
             return Promise.resolve(v === undefined ? d : v);
         },
         setValue: function (k, v) {
             window.__gm.set++;
             if (MODE === 'reject') return Promise.reject(new Error('stub: write refused'));
+            // 'rejectonce' / 'hangonce': the first bookmark write is refused, or never answered
+            // (and never applied); every other write goes through.
+            // 'cmdflaky': the first commands write is refused, 300 ms late; the second is applied but never
+            // answered (it lands, and its step is abandoned after 5 s); the rest go through.
+            if (MODE === 'cmdflaky' && k === 'acn-commands') {
+                window.__gm.cmdSets = (window.__gm.cmdSets || 0) + 1;
+                if (window.__gm.cmdSets === 1) {
+                    return new Promise(function (res, rej) {
+                        setTimeout(function () { rej(new Error('stub: commands write refused')); }, 300);
+                    });
+                }
+                if (window.__gm.cmdSets === 2) { lsSet('__gmasync:', k, v); return new Promise(function () {}); }
+            }
+            if ((MODE === 'rejectonce' || MODE === 'hangonce' || MODE === 'rejectslow') &&
+                k === 'acn-bookmarks-v1' && !window.__gm.bmOnce) {
+                window.__gm.bmOnce = true;
+                if (MODE === 'rejectslow') {
+                    return new Promise(function (res, rej) {
+                        setTimeout(function () { rej(new Error('stub: write refused late')); }, 300);
+                    });
+                }
+                return MODE === 'rejectonce' ? Promise.reject(new Error('stub: write refused once'))
+                                             : new Promise(function () {});
+            }
             // 'reorder': a key's first write is applied and answered 400 ms late, so a second
             // write made meanwhile lands first and the older value lands last.
             if (MODE === 'reorder' && !window.__gm.seen[k]) {
@@ -312,6 +417,472 @@ const READ = `(function () {
         !!english && o.koLabel !== english && o.before.gm.set >= 3 && o.after.navLabel === english,
         'chosen ko=' + JSON.stringify(o.koLabel) + ' GM.setValue calls=' + o.before.gm.set +
         ' stored=' + o.stored + ' label after reload=' + JSON.stringify(o.after.navLabel));
+
+    // ── The cross-tab PR (v12.13, DEC-050) ────────────────────────────────────────────
+
+    // A page on `url` in `context`, with the manager stubbed in `mode`, once its cluster is up.
+    async function openTab(context, url, mode, logs) {
+        const page = await context.newPage();
+        if (logs) page.on('console', (m) => logs.push(m.text()));
+        const html = buildPage(raw, mode);
+        await page.route('**/*', (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }));
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 });
+        await waitCluster(page);
+        return page;
+    }
+    async function reloadTab(page) {
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 120000 });
+        await waitCluster(page);
+    }
+    // Sets what the stubbed manager holds under `key`, as another tab's save would.
+    async function setHeld(page, prefix, key, held) {
+        await page.evaluate(([k, v]) => localStorage.setItem(k, v), [prefix + key, JSON.stringify(held)]);
+    }
+    // What the stubbed manager holds under `key`, or undefined.
+    async function getHeld(page, prefix, key) {
+        const t = await page.evaluate((k) => localStorage.getItem(k), prefix + key);
+        return t === null ? undefined : JSON.parse(t);
+    }
+    // The async path holds JSON text of each value (DEC-049); the sync stub holds the value.
+    const held = (mode, value) => (mode === 'sync' ? value : JSON.stringify(value));
+    const unheld = (mode, h) => (h === undefined ? undefined : (mode === 'sync' ? h : JSON.parse(h)));
+    async function bookmarkStore(page, mode) {
+        const raw = unheld(mode, await getHeld(page, mode === 'sync' ? '__gmsync:' : '__gmasync:', 'acn-bookmarks-v1'));
+        return raw === undefined ? null : JSON.parse(raw);
+    }
+    const urlsWithBookmarks = (store) => (store ? Object.keys(store).filter((u) =>
+        store[u] && Array.isArray(store[u].bookmarks) && store[u].bookmarks.length > 0) : []);
+
+    // G7 / G10 — the owner's two-tab test: both tabs load first, A bookmarks, B bookmarks in
+    // another conversation, A reloads.
+    async function twoTabs(mode) {
+        const context = await browser.newContext();
+        const a = await openTab(context, TARGET, mode);
+        const b = await openTab(context, TARGET_B, mode);
+        await bookmarkFirst(a);
+        await a.waitForTimeout(500);
+        await bookmarkFirst(b);
+        await b.waitForTimeout(500);
+        await reloadTab(a);
+        await a.waitForFunction("document.querySelectorAll('[data-acn-bookmark]').length > 0", null, { timeout: 30000 });
+        await a.waitForFunction("document.querySelectorAll('.acn-bm-icon.acn-bm-active').length > 0", null, { timeout: 8000 })
+            .catch(() => {});
+        const r = await a.evaluate(READ);
+        const urls = urlsWithBookmarks(await bookmarkStore(a, mode));
+        await context.close();
+        return { activeA: r.active, urls };
+    }
+    const twoTabsOk = (t) => t.activeA > 0 && t.urls.indexOf(TARGET) !== -1 && t.urls.indexOf(TARGET_B) !== -1;
+    const twoTabsDetail = (t) => 'A active after reload=' + t.activeA + ' conversations stored=' + JSON.stringify(t.urls);
+
+    const t7 = await twoTabs('async');
+    check('G7', "async only, two tabs: A's bookmark survives B's save in another conversation", twoTabsOk(t7), twoTabsDetail(t7));
+
+    // G8 / G9 — a store cut off mid-record, what a save must never replace.
+    const CUT_OFF = '{"https://claude.ai/chat/00000000-0000-4000-8000-000000000000":{"bookmarks":[{"id":"bm_kept"';
+    async function unreadable(mode, BROKEN) {
+        const prefix = mode === 'sync' ? '__gmsync:' : '__gmasync:';
+        const context = await browser.newContext();
+        const logs = [];
+        const page = await openTab(context, TARGET, mode, logs);
+        await setHeld(page, prefix, 'acn-bookmarks-v1', held(mode, BROKEN));
+        await reloadTab(page);
+        await bookmarkFirst(page);
+        await page.waitForTimeout(400);
+        const toast = await page.evaluate("(document.querySelector('[data-acn-role=\"toast\"]') || {}).textContent || ''");
+        const r = await page.evaluate(READ);   // the flag, after the FIRST click
+        await page.evaluate("document.querySelector('[data-acn-bookmark]').click()");   // a second try: still one warning
+        await page.waitForTimeout(400);
+        const after = unheld(mode, await getHeld(page, prefix, 'acn-bookmarks-v1'));
+        await context.close();
+        return { kept: after === BROKEN, toast, active: r.active,
+                 lines: logs.filter((l) => l.indexOf('[ACN] storage: the stored acn-bookmarks-v1 could not be read') === 0).length };
+    }
+    const unreadableOk = (u) => u.kept && u.lines === 1 && u.toast.indexOf('Not saved') === 0 && u.active === 0;
+    const unreadableDetail = (u) => 'stored value kept=' + u.kept + ' warning lines=' + u.lines +
+        ' toast=' + JSON.stringify(u.toast) + ' active flags=' + u.active;
+
+    const u8 = await unreadable('async', CUT_OFF);
+    check('G8', 'async only, stored bookmarks unreadable: nothing saved over them, one warning, flag stays off',
+        unreadableOk(u8), unreadableDetail(u8));
+    const u9 = await unreadable('sync', CUT_OFF);
+    check('G9', 'sync, stored bookmarks unreadable: nothing saved over them, one warning, flag stays off',
+        unreadableOk(u9), unreadableDetail(u9));
+
+    const t10 = await twoTabs('sync');
+    check('G10', 'sync, two tabs: both bookmarks kept (the Tampermonkey path re-reads before it writes)',
+        twoTabsOk(t10), twoTabsDetail(t10));
+
+    // G11 — another tab saves ChatGPT's position after this page loaded; this page is dragged.
+    const z = await (async () => {
+        const context = await browser.newContext();
+        const page = await openTab(context, TARGET, 'async');
+        await setHeld(page, '__gmasync:', 'acn-zone-positions', held('async', { chatgpt: 0.3 }));
+        const c = await page.evaluate(() => {
+            const r = document.getElementById('acn-dot-nav').getBoundingClientRect();
+            return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+        });
+        await page.mouse.move(c.x, c.y);
+        await page.mouse.down();
+        await page.mouse.move(c.x, c.y + 60, { steps: 6 });
+        await page.mouse.move(c.x, c.y + 120, { steps: 6 });
+        await page.mouse.up();
+        await page.waitForTimeout(500);
+        const stored = unheld('async', await getHeld(page, '__gmasync:', 'acn-zone-positions'));
+        await context.close();
+        return stored;
+    })();
+    check('G11', "async only: another tab's zone position for another platform survives this tab's drag",
+        !!z && z.chatgpt === 0.3 && typeof z.claude === 'number' && z.claude !== 0.5,
+        'stored positions=' + JSON.stringify(z));
+
+    // G12 — this page loaded with one command; another tab then saved a second; this page runs the first.
+    const cmds = await (async () => {
+        const one = { id: 'cmd_1', name: 'one', description: '', prompt: 'first prompt',
+                      createdAt: 1, updatedAt: 1, usageCount: 0, lastUsedAt: null };
+        const two = Object.assign({}, one, { id: 'cmd_2', name: 'two', prompt: 'second prompt', createdAt: 2, updatedAt: 2 });
+        const context = await browser.newContext();
+        const page = await openTab(context, TARGET, 'async');
+        await setHeld(page, '__gmasync:', 'acn-commands', held('async', [one]));
+        await reloadTab(page);
+        await page.waitForFunction("!!document.querySelector('.acn-cmd-card[data-cmd-id=\"cmd_1\"]')", null, { timeout: 10000 });
+        await setHeld(page, '__gmasync:', 'acn-commands', held('async', [one, two]));
+        await page.evaluate("document.querySelector('.acn-cmd-card[data-cmd-id=\"cmd_1\"] .acn-cmd-btn[title=\"Execute\"]').click()");
+        await page.waitForTimeout(500);
+        const stored = unheld('async', await getHeld(page, '__gmasync:', 'acn-commands'));
+        await context.close();
+        return stored || [];
+    })();
+    const cmdIds = cmds.map((c) => c.id);
+    const cmdOne = cmds.filter((c) => c.id === 'cmd_1')[0];
+    check('G12', "async only: a command another tab saved survives this tab running one",
+        cmdIds.indexOf('cmd_2') !== -1 && !!cmdOne && cmdOne.usageCount === 1,
+        'stored ids=' + JSON.stringify(cmdIds) + ' cmd_1 usageCount=' + (cmdOne && cmdOne.usageCount));
+
+    // G13 — two bookmarks made in quick succession while every read answers 200 ms late.
+    const q = await (async () => {
+        const context = await browser.newContext();
+        const page = await openTab(context, TARGET, 'slowread');
+        await page.waitForFunction("document.querySelectorAll('[data-acn-bookmark]').length > 1", null, { timeout: 30000 });
+        await page.evaluate("document.querySelectorAll('[data-acn-bookmark]')[0].click()");
+        await page.waitForTimeout(100);
+        await page.evaluate("document.querySelectorAll('[data-acn-bookmark]')[1].click()");
+        await page.waitForTimeout(1500);
+        const store = await bookmarkStore(page, 'async');
+        await context.close();
+        return (store && store[TARGET] && store[TARGET].bookmarks) ? store[TARGET].bookmarks.length : 0;
+    })();
+    check('G13', 'async only, reads answer late and unevenly: two quick bookmarks in one tab both survive',
+        q === 2, 'bookmarks stored for this conversation=' + q);
+
+    // G14 — another tab caches a conversation's context after this page loaded; this page then
+    // gets a reply's message_delta through its own fetch proxy (the SSE tap), which caches its own.
+    const ctx = await (async () => {
+        const context = await browser.newContext();
+        const page = await context.newPage();
+        const html = buildPage(raw, 'async');
+        await page.route('**/*', (route) => {
+            if (route.request().url().indexOf('/completion') !== -1) {
+                route.fulfill({ status: 200, contentType: 'text/event-stream',
+                    body: 'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n' });
+            } else route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
+        });
+        await page.goto(TARGET, { waitUntil: 'domcontentloaded', timeout: 120000 });
+        await waitCluster(page);
+        const other = { cumulativeThinkingChars: 7, sseMessageCount: 1, timestamp: 1 };
+        await setHeld(page, '__gmasync:', 'acn_ctx_cache', held('async', { 'other-conversation': other }));
+        await page.evaluate(() => fetch('https://claude.ai/api/organizations/o/chat_conversations/c/completion',
+            { method: 'POST' }).then((r) => r.text()));
+        await page.waitForTimeout(600);
+        const stored = unheld('async', await getHeld(page, '__gmasync:', 'acn_ctx_cache'));
+        await context.close();
+        return stored || {};
+    })();
+    const convId = TARGET.split('/').pop();
+    check('G14', "async only: another tab's context-cache entry survives this tab's SSE write",
+        !!ctx['other-conversation'] && !!ctx[convId] && ctx[convId].sseMessageCount === 1,
+        'stored conversations=' + JSON.stringify(Object.keys(ctx)));
+
+    // G15 / G16 — a command created through the form: Tools -> /Commands -> + New Command.
+    async function createThroughForm(page, name) {
+        await page.evaluate("document.querySelector('#acn-cmd-body .acn-cmd-new-btn').click()");
+        await page.waitForFunction("!!document.querySelector('#acn-cmd-body .acn-cmd-form-save')", null, { timeout: 10000 });
+        await page.evaluate((n) => {
+            const inputs = document.querySelectorAll('#acn-cmd-body .acn-cmd-input');
+            inputs[0].value = n;
+            document.querySelector('#acn-cmd-body .acn-cmd-textarea').value = 'a prompt for ' + n;
+            document.querySelector('#acn-cmd-body .acn-cmd-form-save').click();
+        }, name);
+        await page.waitForTimeout(500);
+        return page.evaluate("(document.querySelector('#acn-cmd-body .acn-cmd-form-err') || {}).textContent || ''");
+    }
+    const theirs = { id: 'cmd_9', name: 'deploy', description: '', prompt: 'their prompt',
+                     createdAt: 9, updatedAt: 9, usageCount: 0, lastUsedAt: null };
+    const dup = await (async () => {
+        const context = await browser.newContext();
+        const page = await openTab(context, TARGET, 'async');
+        await setHeld(page, '__gmasync:', 'acn-commands', held('async', [theirs]));   // another tab, after this one loaded
+        const err = await createThroughForm(page, 'deploy');
+        const stored = unheld('async', await getHeld(page, '__gmasync:', 'acn-commands')) || [];
+        await context.close();
+        return { err, stored };
+    })();
+    const dupNames = dup.stored.map((c) => c.name).sort();
+    check('G15', 'async only: two tabs both create /deploy: both kept, names unique',
+        dup.stored.length === 2 && dup.stored.some((c) => c.id === 'cmd_9') &&
+        new Set(dupNames).size === 2 && dupNames.indexOf('deploy') !== -1 && !dup.err,
+        'stored names=' + JSON.stringify(dupNames) + ' form error=' + JSON.stringify(dup.err));
+
+    const bad = await (async () => {
+        const context = await browser.newContext();
+        const page = await openTab(context, TARGET, 'async');
+        // Text that does not parse. (A value that parses but is not a list already stops the
+        // /Commands section rendering, on v12.12 too, so the form could not be reached.)
+        const heldValue = '[{"id":"cmd_1","name":"kept"';
+        await setHeld(page, '__gmasync:', 'acn-commands', heldValue);
+        await reloadTab(page);
+        const err = await createThroughForm(page, 'deploy');
+        const after = await getHeld(page, '__gmasync:', 'acn-commands');
+        await context.close();
+        return { err, kept: after === heldValue };
+    })();
+    check('G16', 'async only, stored commands unreadable: creating one shows "Not saved" and writes nothing',
+        bad.kept && bad.err.indexOf('Not saved') === 0,
+        'stored value kept=' + bad.kept + ' form error=' + JSON.stringify(bad.err));
+
+    // G17 / G18 — deletions. Clicking an active flag again removes that bookmark.
+    const firstFlag = "document.querySelector('[data-acn-bookmark]').click()";
+    const del17 = await (async () => {
+        const context = await browser.newContext();
+        const b = await openTab(context, TARGET_B, 'async');
+        await bookmarkFirst(b);
+        await b.waitForTimeout(500);
+        const a = await openTab(context, TARGET, 'async');
+        await bookmarkFirst(a);
+        await a.waitForTimeout(500);
+        await b.evaluate(firstFlag);          // B removes its own bookmark
+        await b.waitForTimeout(500);
+        const urls = urlsWithBookmarks(await bookmarkStore(a, 'async'));
+        await context.close();
+        return urls;
+    })();
+    check('G17', "async only: B removing its own bookmark keeps A's",
+        del17.indexOf(TARGET) !== -1 && del17.indexOf(TARGET_B) === -1,
+        'conversations stored=' + JSON.stringify(del17));
+    const del18 = await (async () => {
+        const context = await browser.newContext();
+        const b = await openTab(context, TARGET_B, 'async');
+        await bookmarkFirst(b);
+        await b.waitForTimeout(500);
+        const a = await openTab(context, TARGET, 'async');   // A's page now holds B's bookmark
+        await b.evaluate(firstFlag);          // B removes it
+        await b.waitForTimeout(500);
+        await bookmarkFirst(a);               // A saves
+        await a.waitForTimeout(500);
+        const urls = urlsWithBookmarks(await bookmarkStore(a, 'async'));
+        await context.close();
+        return urls;
+    })();
+    check('G18', "async only: a bookmark B removed does not come back with A's save",
+        del18.indexOf(TARGET) !== -1 && del18.indexOf(TARGET_B) === -1,
+        'conversations stored=' + JSON.stringify(del18));
+
+    // G19 — nothing stored under acn-commands yet: one command created, one stored.
+    const first = await (async () => {
+        const context = await browser.newContext();
+        const page = await openTab(context, TARGET, 'async');
+        const err = await createThroughForm(page, 'only');
+        const stored = unheld('async', await getHeld(page, '__gmasync:', 'acn-commands')) || [];
+        await context.close();
+        return { err, ids: stored.map((c) => c.id) };
+    })();
+    check('G19', 'async only, nothing stored yet: the first command is stored once',
+        first.ids.length === 1 && !first.err, 'stored ids=' + JSON.stringify(first.ids) + ' form error=' + JSON.stringify(first.err));
+
+    // G20 / G21 — the first bookmark write fails or never answers; a second bookmark follows.
+    async function twoAfterTrouble(mode, gapMs) {
+        const context = await browser.newContext();
+        const logs = [];
+        const page = await openTab(context, TARGET, mode, logs);
+        await page.waitForFunction("document.querySelectorAll('[data-acn-bookmark]').length > 1", null, { timeout: 30000 });
+        await page.evaluate("document.querySelectorAll('[data-acn-bookmark]')[0].click()");
+        await page.waitForTimeout(gapMs);
+        await page.evaluate("document.querySelectorAll('[data-acn-bookmark]')[1].click()");
+        await page.waitForTimeout(800);
+        const store = await bookmarkStore(page, 'async');
+        await context.close();
+        return { n: (store && store[TARGET] && store[TARGET].bookmarks) ? store[TARGET].bookmarks.length : 0,
+                 stall: logs.filter((l) => l.indexOf('[ACN] storage: GM storage did not answer within 5 s') === 0).length };
+    }
+    const rej = await twoAfterTrouble('rejectonce', 400);
+    check('G20', 'async only, the first bookmark write is rejected: it goes out with the next save',
+        rej.n === 2, 'bookmarks stored=' + rej.n);
+    const hng = await twoAfterTrouble('hangonce', 5600);
+    check('G21', 'async only, the first bookmark write never answers: the next save carries it',
+        hng.n === 2, 'bookmarks stored=' + hng.n);
+    check('G22', 'async only, the same stall is logged once', hng.stall === 1, 'stall lines=' + hng.stall);
+
+    const slowRej = await twoAfterTrouble('rejectslow', 100);   // the second click lands while the first write is pending
+    check('G23', 'async only, a bookmark made while a failing write is pending: both stored, no third save needed',
+        slowRej.n === 2, 'bookmarks stored=' + slowRej.n);
+
+    // G24 — A's panel is open with A's bookmark; B, on the same conversation, adds one; A adds
+    // a second, whose write brings B's into A's page; then A clears all.
+    const clear = await (async () => {
+        const context = await browser.newContext();
+        const a = await openTab(context, TARGET, 'async');
+        a.on('dialog', (d) => d.accept());
+        await a.evaluate("document.getElementById('acn-dot-bookmarks').click()");
+        await a.waitForFunction("document.querySelectorAll('[data-acn-bookmark]').length > 1", null, { timeout: 30000 });
+        await a.evaluate("document.querySelectorAll('[data-acn-bookmark]')[0].click()");
+        await a.waitForTimeout(500);
+        const b = await openTab(context, TARGET, 'async');
+        await b.waitForFunction("document.querySelectorAll('[data-acn-bookmark]').length > 2", null, { timeout: 30000 });
+        await b.evaluate("document.querySelectorAll('[data-acn-bookmark]')[2].click()");
+        await b.waitForTimeout(500);
+        await a.evaluate("document.querySelectorAll('[data-acn-bookmark]')[1].click()");
+        await a.waitForTimeout(800);
+        const before = await bookmarkStore(a, 'async');
+        const storedBefore = (before && before[TARGET]) ? before[TARGET].bookmarks.length : 0;
+        const shown = await a.evaluate("document.querySelectorAll('#acn-panel-bookmarks .acn-bk').length");
+        await a.evaluate("document.querySelector('#acn-panel-bookmarks .acn-bm-clearall').click()");
+        await a.waitForTimeout(600);
+        const after = await bookmarkStore(a, 'async');
+        const storedAfter = (after && after[TARGET]) ? after[TARGET].bookmarks.length : 0;
+        await context.close();
+        return { storedBefore, shown, storedAfter };
+    })();
+    check('G24', 'async only: the panel shows every stored bookmark, and Clear all removes exactly those',
+        clear.shown === clear.storedBefore && clear.storedAfter === clear.storedBefore - clear.shown && clear.shown > 0,
+        'stored before=' + clear.storedBefore + ' cards shown=' + clear.shown + ' stored after=' + clear.storedAfter);
+
+    // G25 — G15's case, read from the open list: the card shows the stored name.
+    const listNames = await (async () => {
+        const context = await browser.newContext();
+        const page = await openTab(context, TARGET, 'async');
+        await setHeld(page, '__gmasync:', 'acn-commands', held('async', [theirs]));
+        await createThroughForm(page, 'deploy');
+        await page.waitForTimeout(300);
+        const names = await page.evaluate("Array.from(document.querySelectorAll('#acn-cmd-body .acn-cmd-name')).map(function (e) { return e.textContent; })");
+        await context.close();
+        return names.sort();
+    })();
+    check('G25', 'async only: the open /Commands list shows the names as stored',
+        JSON.stringify(listNames) === JSON.stringify(['/deploy', '/deploy-2']), 'cards=' + JSON.stringify(listNames));
+
+    const u26 = await unreadable('async', JSON.stringify({ [TARGET]: null }));
+    check('G26', "async only, this conversation's stored entry is null: nothing saved over it, one warning",
+        unreadableOk(u26), unreadableDetail(u26));
+
+    const ctor = await (async () => {
+        const context = await browser.newContext();
+        const page = await openTab(context, TARGET, 'async');
+        const err = await createThroughForm(page, 'constructor');
+        const stored = unheld('async', await getHeld(page, '__gmasync:', 'acn-commands')) || [];
+        await context.close();
+        return { err, names: stored.map((c) => c.name) };
+    })();
+    // G29 — the flags follow a write that brings in another tab's removal.
+    const flags = await (async () => {
+        const context = await browser.newContext();
+        const b = await openTab(context, TARGET, 'async');
+        await b.waitForFunction("document.querySelectorAll('[data-acn-bookmark]').length > 1", null, { timeout: 30000 });
+        await b.evaluate("document.querySelectorAll('[data-acn-bookmark]')[0].click()");   // X
+        await b.waitForTimeout(500);
+        const a = await openTab(context, TARGET, 'async');
+        await a.waitForFunction("document.querySelectorAll('.acn-bm-icon.acn-bm-active').length > 0", null, { timeout: 30000 });
+        await b.evaluate("document.querySelectorAll('[data-acn-bookmark]')[0].click()");   // B removes X
+        await b.waitForTimeout(500);
+        await a.evaluate("document.querySelectorAll('[data-acn-bookmark]')[1].click()");   // A saves Y
+        await a.waitForTimeout(1200);
+        const xLit = await a.evaluate("document.querySelectorAll('[data-acn-bookmark]')[0].classList.contains('acn-bm-active')");
+        await a.evaluate("document.querySelectorAll('[data-acn-bookmark]')[0].click()");   // A clicks X's flag
+        await a.waitForTimeout(800);
+        const store = await bookmarkStore(a, 'async');
+        const n = (store && store[TARGET]) ? store[TARGET].bookmarks.length : 0;
+        await context.close();
+        return { xLit, n };
+    })();
+    check('G29', "async only: a write that brings in another tab's removal turns that flag off",
+        flags.xLit === false && flags.n === 2, 'removed bookmark still lit in A=' + flags.xLit + ' bookmarks stored after clicking it=' + flags.n);
+
+    // G30 — one page, two conversations: the queue for the key exists from A's save.
+    const moved = await (async () => {
+        const context = await browser.newContext();
+        const logs = [];
+        const page = await openTab(context, TARGET, 'async', logs);
+        await page.waitForFunction("document.querySelectorAll('[data-acn-bookmark]').length > 1", null, { timeout: 30000 });
+        await page.evaluate("document.querySelectorAll('[data-acn-bookmark]')[0].click()");   // a save in A
+        await page.waitForTimeout(500);
+        await page.evaluate((u) => history.pushState({}, '', u), new URL(TARGET_B).pathname);
+        const raw = unheld('async', await getHeld(page, '__gmasync:', 'acn-bookmarks-v1'));
+        const store = JSON.parse(raw);
+        store[TARGET_B] = null;                                   // another tab's damage to B
+        const damaged = JSON.stringify(store);
+        await setHeld(page, '__gmasync:', 'acn-bookmarks-v1', held('async', damaged));
+        await page.evaluate("document.querySelectorAll('[data-acn-bookmark]')[1].click()");   // a save in B
+        await page.waitForTimeout(700);
+        const after = unheld('async', await getHeld(page, '__gmasync:', 'acn-bookmarks-v1'));
+        await context.close();
+        return { kept: after === damaged,
+                 refused: logs.filter((l) => l.indexOf('[ACN] storage: the stored acn-bookmarks-v1 could not be read') === 0).length };
+    })();
+    check('G30', "async only: a save in a second conversation is checked against that conversation's entry",
+        moved.kept && moved.refused === 1, 'stored value kept=' + moved.kept + ' refusal lines=' + moved.refused);
+
+    // G31 — one command used three times: the first write refused, the second lands unanswered.
+    const uses = await (async () => {
+        const one = { id: 'cmd_1', name: 'one', description: '', prompt: 'first prompt',
+                      createdAt: 1, updatedAt: 1, usageCount: 0, lastUsedAt: null };
+        const context = await browser.newContext();
+        const page = await openTab(context, TARGET, 'cmdflaky');
+        await setHeld(page, '__gmasync:', 'acn-commands', held('async', [one]));
+        await reloadTab(page);
+        await page.waitForFunction("!!document.querySelector('.acn-cmd-card[data-cmd-id=\"cmd_1\"]')", null, { timeout: 10000 });
+        const play = "document.querySelector('.acn-cmd-card[data-cmd-id=\"cmd_1\"] .acn-cmd-btn[title=\"Execute\"]').click()";
+        await page.evaluate(play);            // 1: its write is refused
+        await page.waitForTimeout(400);
+        await page.evaluate(play);            // 2: written with use 1, never answered
+        await page.waitForTimeout(5600);      // past the 5 s abandonment
+        await page.evaluate(play);            // 3: replays uses 1 and 2 over the landed write
+        await page.waitForTimeout(800);
+        const stored = unheld('async', await getHeld(page, '__gmasync:', 'acn-commands')) || [];
+        await context.close();
+        const c = stored.filter((x) => x.id === 'cmd_1')[0];
+        return c ? c.usageCount : null;
+    })();
+    check('G31', 'async only, writes refused and unanswered: three uses of one command count 3',
+        uses === 3, 'usageCount=' + uses);
+
+    // G32 — 21 uses pile up behind the refused first write, land unanswered, then a 22nd.
+    const burst = await (async () => {
+        const one = { id: 'cmd_1', name: 'one', description: '', prompt: 'first prompt',
+                      createdAt: 1, updatedAt: 1, usageCount: 0, lastUsedAt: null };
+        const context = await browser.newContext();
+        const page = await openTab(context, TARGET, 'cmdflaky');
+        await setHeld(page, '__gmasync:', 'acn-commands', held('async', [one]));
+        await reloadTab(page);
+        await page.waitForFunction("!!document.querySelector('.acn-cmd-card[data-cmd-id=\"cmd_1\"]')", null, { timeout: 10000 });
+        const play = "document.querySelector('.acn-cmd-card[data-cmd-id=\"cmd_1\"] .acn-cmd-btn[title=\"Execute\"]').click()";
+        await page.evaluate("(function () { for (var i = 0; i < 21; i++) " + play + "; }())");   // within the 300 ms
+        await page.waitForTimeout(5800);      // the refusal, then the unanswered write is abandoned
+        await page.evaluate(play);            // the 22nd
+        await page.waitForTimeout(800);
+        const stored = unheld('async', await getHeld(page, '__gmasync:', 'acn-commands')) || [];
+        await context.close();
+        const c = stored.filter((x) => x.id === 'cmd_1')[0];
+        return c ? c.usageCount : null;
+    })();
+    check('G32', 'async only, 21 uses behind a refused write, then one more: 22 counted',
+        burst === 22, 'usageCount=' + burst);
+
+    const rf = await twoAfterTrouble('readfailonce', 400);
+    check('G28', 'async only, the first bookmark read after startup is refused: both bookmarks stored',
+        rf.n === 2, 'bookmarks stored=' + rf.n);
+
+    check('G27', "async only: a command named 'constructor' keeps its name",
+        JSON.stringify(ctor.names) === JSON.stringify(['constructor']) && !ctor.err,
+        'stored names=' + JSON.stringify(ctor.names) + ' form error=' + JSON.stringify(ctor.err));
 
     await browser.close();
     console.log(failures ? '\n' + failures + ' check(s) FAILED' : '\nall checks passed');

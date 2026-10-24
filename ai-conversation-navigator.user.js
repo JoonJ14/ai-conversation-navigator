@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.12
+// @version      12.13
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -51,7 +51,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.12';
+    var ACN_VERSION = '12.13';
 
     // ============================================================
     // i18n — internationalization string table
@@ -73,6 +73,7 @@
             noBookmarks: 'No bookmarks yet',
             bookmarkAdded: 'Bookmark added',
             bookmarkRemoved: 'Bookmark removed',
+            storageUnreadable: 'Not saved: the stored data could not be read',
             generateSummary: 'Generate Summary',
             regenerateSummary: 'Regenerate Summary',
             analyzing: 'Analyzing...',
@@ -153,6 +154,7 @@
             noBookmarks: '\uc544\uc9c1 \ubd81\ub9c8\ud06c\uac00 \uc5c6\uc2b5\ub2c8\ub2e4',
             bookmarkAdded: '\ubd81\ub9c8\ud06c \ucd94\uac00\ub428',
             bookmarkRemoved: '\ubd81\ub9c8\ud06c \uc0ad\uc81c\ub428',
+            storageUnreadable: '\uc800\uc7a5\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4: \uc800\uc7a5\ub41c \ub370\uc774\ud130\ub97c \uc77d\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4',
             generateSummary: '\uc694\uc57d \uc0dd\uc131',
             regenerateSummary: '\uc694\uc57d \ub2e4\uc2dc \uc0dd\uc131',
             analyzing: '\ubd84\uc11d \uc911...',
@@ -246,7 +248,9 @@
     // keeps its changes in memory only: each key holds a whole collection (every bookmark is
     // one value), so a save from a page on defaults would replace what is stored (owner,
     // 2026-10-23). The next page load tries again.
-    // Two tabs: the last write wins, per key, as with GM_setValue (ROADMAP 0d).
+    // Two tabs (v12.13, DEC-050): the four collections save through acnUpdateValue, which
+    // applies one change to the value as it is stored NOW. acn-settings and the org cache
+    // stay last-write-wins, through acnSetValue.
 
     function acnStoreIsAsync() {
         return !(typeof GM_getValue === 'function' && typeof GM_setValue === 'function') &&
@@ -288,16 +292,19 @@
         return _acnStore.mem.hasOwnProperty(key) ? JSON.parse(_acnStore.mem[key]) : def;
     }
 
+    // One line per page, whatever failed and however often.
+    function acnStoreWarn(what) {
+        if (_acnStore.warned) return;
+        _acnStore.warned = true;
+        console.log('[ACN] storage: ' + what + '; changes may not survive a reload');
+    }
+
     function acnSetValue(key, value) {
         if (!_acnStore) { GM_setValue(key, value); return; }
         var text = JSON.stringify(value);
         _acnStore.mem[key] = text;
         if (!_acnStore.persist) return;
-        function warn() {
-            if (_acnStore.warned) return;
-            _acnStore.warned = true;
-            console.log('[ACN] storage: GM.setValue failed; changes may not survive a reload');
-        }
+        function warn() { acnStoreWarn('GM.setValue failed'); }
         // Two writes of one key in flight may finish in either order, so the one that lands
         // last may not be the newest: once a write finishes, write the newest again if it has
         // changed since (Codex Tier 3). Not a queue, so one write that never answers holds
@@ -311,6 +318,140 @@
         }
         persist(text);
     }
+
+    // Saves ONE change to a collection, applied to the value as it is stored now (DEC-050).
+    // Each collection is a single GM value, so writing this page's copy back erased whatever
+    // another tab had saved since this page loaded, in any conversation (the owner's Safari
+    // two-tab test, v12.12). `apply(value)` may mutate what it gets and returns what to
+    // store; on the async path it runs a second time, on the stored value, so it must hold
+    // its change in its own variables and work on any version of the collection. `valid`
+    // rejects a stored value this script cannot read: saving over it would replace the
+    // collection with one change. Returns false when the save was refused.
+    //   Tampermonkey: GM_getValue then GM_setValue, the read-then-write the callers already
+    //     did, with no copy of ours in between.
+    //   Async only: the change goes into this page's copy at once and joins the key's list of
+    //     changes not yet known to be stored. One step at a time per key re-reads with
+    //     GM.getValue, applies every change on that list, and writes. A change leaves the
+    //     list only when a write that includes it succeeds: after a failed step it goes out
+    //     with the next save, as v12.12's next whole-copy write carried it. A step that gets
+    //     no answer in 5 s is abandoned the same way, so one lost call holds nothing up.
+    var _acnRefused = {};
+    function acnRefuseWrite(key) {
+        if (_acnRefused[key]) return;
+        _acnRefused[key] = true;
+        console.warn('[ACN] storage: the stored ' + key + ' could not be read, so nothing was saved over it');
+        if (typeof showToast === 'function') showToast(i18n('storageUnreadable'));
+    }
+
+    // Each read gets its own copy of the default: a change that mutates what it is given
+    // must not leave its mark on the default the next read uses.
+    function acnCopy(v) { return v === undefined ? v : JSON.parse(JSON.stringify(v)); }
+
+    // Async only: called after a write changed this page's copy of `key` (it now includes
+    // another tab's saves, or a renamed command), so a view drawn from the old copy redraws.
+    var _acnWatchers = {};
+    function acnWatch(key, fn) { (_acnWatchers[key] = _acnWatchers[key] || []).push(fn); }
+
+    function acnUpdateValue(key, def, valid, apply) {
+        if (!_acnStore) {
+            var cur = GM_getValue(key, acnCopy(def));
+            if (!valid(cur)) { acnRefuseWrite(key); return false; }
+            GM_setValue(key, apply(cur));
+            return true;
+        }
+        var mem = _acnStore.mem, here;
+        try { here = mem.hasOwnProperty(key) ? JSON.parse(mem[key]) : acnCopy(def); } catch (e) { here = undefined; }
+        if (!valid(here)) { acnRefuseWrite(key); return false; }
+        mem[key] = JSON.stringify(apply(here));
+        if (!_acnStore.persist) return true;
+        var queues = _acnStore.queues || (_acnStore.queues = {});
+        var q = queues[key] || (queues[key] = { def: def, waiting: [], busy: false });
+        // Each change keeps its own check: a bookmark's is for its own conversation.
+        q.waiting.push({ valid: valid, apply: apply });
+        if (!q.busy) acnPersist(key);
+        return true;
+    }
+
+    function acnPersist(key) {
+        var q = _acnStore.queues[key];
+        if (q.busy || !q.waiting.length) return;   // one step at a time, however it is reached
+        var batch = q.waiting.slice(), done = false;
+        q.busy = true;
+        var slow = setTimeout(function () {
+            if (!_acnStore.hangWarned) {
+                _acnStore.hangWarned = true;
+                console.log('[ACN] storage: GM storage did not answer within 5 s; the change will go ' +
+                            'out with the next save, and may not survive a reload');
+            }
+            finish('failed');
+        }, 5000);
+        // 'stored': the batch is written. 'refused': nothing in it could be applied (the stored
+        // value is unreadable), and it is dropped, never written over. 'failed': it stays waiting.
+        function finish(how, text) {
+            if (done) return;
+            done = true;
+            clearTimeout(slow);
+            if (how !== 'failed') q.waiting = q.waiting.slice(batch.length);
+            var shown = _acnStore.mem[key];
+            if (how === 'stored') {
+                // This page's copy becomes what is stored, plus the changes still waiting, so it
+                // now includes what other tabs saved too.
+                try {
+                    var v = JSON.parse(text);
+                    for (var i = 0; i < q.waiting.length; i++) {
+                        if (!q.waiting[i].valid(v)) continue;
+                        try { v = q.waiting[i].apply(v); } catch (e) {}
+                    }
+                    _acnStore.mem[key] = JSON.stringify(v);
+                } catch (e) {}
+            }
+            // Still busy while the watchers run: a save they make (a flag reset can upgrade a
+            // legacy bookmark) only joins `waiting`, and the step below takes it.
+            if (_acnStore.mem[key] !== shown) {
+                (_acnWatchers[key] || []).forEach(function (fn) { try { fn(); } catch (e) {} });
+            }
+            q.busy = false;
+            // Changes made during this step. After a failure, only those: the failed batch
+            // itself waits for the next save, not a timer.
+            if (how !== 'failed' || q.waiting.length > batch.length) acnPersist(key);
+        }
+        // A call that answers after its step was abandoned changes nothing, and says nothing.
+        function readFailed() { if (done) return; acnStoreWarn('GM.getValue failed'); finish('failed'); }
+        try {
+            GM.getValue(key).then(function (stored) {
+                if (done) return;   // abandoned
+                var cur, text;
+                try {
+                    if (stored === undefined || stored === null) cur = acnCopy(q.def);
+                    else if (typeof stored === 'string') cur = JSON.parse(stored);
+                    else throw new Error('not JSON text');
+                } catch (e) { cur = undefined; }
+                // Each change against its own check: one the stored value fails is refused and
+                // dropped, never written over what it cannot read. A change that throws is
+                // skipped, not retried: it would throw every time.
+                var applied = 0;
+                if (cur === undefined) acnRefuseWrite(key);
+                else {
+                    for (var i = 0; i < batch.length; i++) {
+                        if (!batch[i].valid(cur)) { acnRefuseWrite(key); continue; }
+                        try { cur = batch[i].apply(cur); applied++; } catch (e) { acnStoreWarn('a change could not be applied'); }
+                    }
+                }
+                if (!applied) { finish('refused'); return; }
+                text = JSON.stringify(cur);
+                try {
+                    GM.setValue(key, text).then(function () { finish('stored', text); }, function () {
+                        if (done) return;
+                        acnStoreWarn('GM.setValue failed');
+                        finish('failed');
+                    });
+                } catch (e) { acnStoreWarn('GM.setValue failed'); finish('failed'); }
+            }, readFailed);
+        } catch (e) { readFailed(); }
+    }
+
+    function acnIsPlainObject(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+    function acnIsArray(v) { return Array.isArray(v); }
 
     // ============================================================
     // Settings storage
@@ -5821,11 +5962,15 @@
             _orbYRatio = _orbClampYRatio(_orbYRatio);
         } catch (e) { _orbYRatio = 0.5; }
     }
+    // This platform's entry only, applied to the positions as stored now, so another tab's
+    // position for another platform survives (DEC-050).
     function _orbSaveZonePosition() {
+        var pid = platform.id, ratio = _orbYRatio;
         try {
-            var positions = acnGetValue('acn-zone-positions', {});
-            positions[platform.id] = _orbYRatio;
-            acnSetValue('acn-zone-positions', positions);
+            acnUpdateValue('acn-zone-positions', {}, acnIsPlainObject, function (positions) {
+                positions[pid] = ratio;
+                return positions;
+            });
         } catch (e) {}
     }
     // Returns the vertical center pixel for the orbital cluster
@@ -6084,26 +6229,28 @@
     function _cacheSSEData() {
         var convId = _getConvId();
         if (!convId || !_sseTokenData.exact) return;
+        var entry = {
+            cumulativeThinkingChars: _sseTokenData.cumulativeThinkingChars,
+            sseMessageCount:         _sseTokenData.sseMessageCount,
+            timestamp:               Date.now()
+        };
+        // This conversation's entry only, applied to the cache as stored now (DEC-050).
         try {
-            var cache = acnGetValue('acn_ctx_cache', {});
-            cache[convId] = {
-                cumulativeThinkingChars: _sseTokenData.cumulativeThinkingChars,
-                sseMessageCount:         _sseTokenData.sseMessageCount,
-                timestamp:               Date.now()
-            };
+            acnUpdateValue('acn_ctx_cache', {}, acnIsPlainObject, function (cache) {
+                cache[convId] = entry;
 
-            // Prune to 50 most recent conversations
-            var keys = Object.keys(cache);
-            if (keys.length > 50) {
-                keys.sort(function (a, b) {
-                    return (cache[b].timestamp || 0) - (cache[a].timestamp || 0);
-                });
-                var pruned = {};
-                for (var i = 0; i < 50; i++) pruned[keys[i]] = cache[keys[i]];
-                cache = pruned;
-            }
-
-            acnSetValue('acn_ctx_cache', cache);
+                // Prune to 50 most recent conversations
+                var keys = Object.keys(cache);
+                if (keys.length > 50) {
+                    keys.sort(function (a, b) {
+                        return (cache[b].timestamp || 0) - (cache[a].timestamp || 0);
+                    });
+                    var pruned = {};
+                    for (var i = 0; i < 50; i++) pruned[keys[i]] = cache[keys[i]];
+                    cache = pruned;
+                }
+                return cache;
+            });
         } catch (e) {}
     }
 
@@ -8294,17 +8441,76 @@
         return (store[url] && store[url].bookmarks) ? store[url].bookmarks : [];
     }
 
-    function saveBookmark(bookmark) {
-        var store = getBookmarks();
-        var url   = normalizeConversationUrl();
-        if (!store[url]) store[url] = { bookmarks: [] };
-        store[url].bookmarks = store[url].bookmarks.filter(function (b) {
-            return b.id !== bookmark.id;
+    // The store is JSON text of { url: { bookmarks: [...] } }. Anything else under the key is
+    // unreadable, and a save must not replace it with one bookmark (DEC-050).
+    function _bmStoreValid(raw) {
+        if (typeof raw !== 'string') return false;
+        try { return acnIsPlainObject(JSON.parse(raw)); } catch (e) { return false; }
+    }
+
+    // One change to this conversation's list, applied to the store as it is stored now, so
+    // another tab's bookmarks, in any conversation, survive this tab's save. The url is read
+    // here, at the click, not when a queued save runs.
+    function _bmUpdateStore(change) {
+        var url = normalizeConversationUrl();
+        // This conversation's entry, where there is one, must hold a list: a save must not
+        // replace a list it cannot read with one bookmark either.
+        // Only a missing entry is empty; anything else that is not { bookmarks: [...] } is unreadable.
+        function has(store) { return Object.prototype.hasOwnProperty.call(store, url); }
+        function valid(raw) {
+            if (!_bmStoreValid(raw)) return false;
+            var store = JSON.parse(raw);
+            return !has(store) || (acnIsPlainObject(store[url]) && Array.isArray(store[url].bookmarks));
+        }
+        return acnUpdateValue(BOOKMARK_KEY, '{}', valid, function (raw) {
+            var store = JSON.parse(raw);
+            var list = has(store) ? store[url].bookmarks : [];
+            var next = change(list);
+            if (!has(store)) {
+                if (!next.length) return raw;
+                store[url] = { bookmarks: [] };
+            }
+            store[url].bookmarks = next;
+            return JSON.stringify(store);
         });
-        store[url].bookmarks.push(bookmark);
+    }
+
+    // A write that brought another tab's changes into this page's copy redraws what was
+    // drawn from the old one (DEC-050): every flag, so one another tab removed is not left
+    // lit (a click would add it back) and one it added is not left dark; and the open panel,
+    // so it shows, and Clear all removes, what is there.
+    acnWatch(BOOKMARK_KEY, function () {
+        _bmResetIconState();
+        var bmPanel = document.getElementById('acn-panel-bookmarks');
+        if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
+    });
+
+    // isNew: a bookmark the user just made. Without it the save is an update (a migration or
+    // an upgrade), and an update to a record another tab has deleted leaves it deleted.
+    // Returns false when the save was refused.
+    var _bmSaveFailWarned = false;
+    function saveBookmark(bookmark, isNew) {
+        // A copy, taken now: the change may run again later, and a later change must not
+        // reach into a record this one already placed.
+        var record = JSON.parse(JSON.stringify(bookmark));
         try {
-            acnSetValue(BOOKMARK_KEY, JSON.stringify(store));
-        } catch (e) {}
+            return _bmUpdateStore(function (list) {
+                var found = false;
+                var next = list.filter(function (b) {
+                    if (b.id !== record.id) return true;
+                    found = true;
+                    return false;
+                });
+                if (found || isNew) next.push(JSON.parse(JSON.stringify(record)));
+                return next;
+            });
+        } catch (e) {
+            if (!_bmSaveFailWarned) {
+                _bmSaveFailWarned = true;
+                console.warn('[ACN] storage: a bookmark could not be saved:', e);
+            }
+            return false;
+        }
     }
 
     // Removal must also RESET icon state. A pre-v12 bookmark's mounted icon
@@ -8325,14 +8531,11 @@
     }
 
     function removeBookmark(bookmarkId) {
-        var store = getBookmarks();
-        var url   = normalizeConversationUrl();
-        if (!store[url]) return;
-        store[url].bookmarks = store[url].bookmarks.filter(function (b) {
-            return b.id !== bookmarkId;
-        });
+        if (!getBookmarks()[normalizeConversationUrl()]) return;
         try {
-            acnSetValue(BOOKMARK_KEY, JSON.stringify(store));
+            _bmUpdateStore(function (list) {
+                return list.filter(function (b) { return b.id !== bookmarkId; });
+            });
         } catch (e) {}
         _bmResetIconState();
     }
@@ -9003,7 +9206,9 @@
                 pendingOrdinal: (!isUuid && ciIsClaudeChat()) ? _bmSenderOrdinalOf(entityEl, entityType) : -1,
                 pendingRow:     (!isUuid && ciIsClaudeChat()) ? _bmRowIndexOf(entityEl) : -1
             };
-            saveBookmark(bm);
+            // Refused when the stored bookmarks cannot be read: acnRefuseWrite has said so, and
+            // the flag must not claim a bookmark that was not saved.
+            if (!saveBookmark(bm, true)) return;
             if (icon) icon.classList.add('acn-bm-active');
             showToast(i18n('bookmarkAdded'));
         }
@@ -9439,14 +9644,15 @@
         });
         clearBtn.addEventListener('click', function () {
             if (!window.confirm('Remove all bookmarks for this conversation?')) return;
-            var store = getBookmarks();
-            var url   = normalizeConversationUrl();
-            if (store[url]) {
-                store[url].bookmarks = [];
-                try {
-                    acnSetValue(BOOKMARK_KEY, JSON.stringify(store));
-                } catch (e) {}
-            }
+            // The records this panel shows, removed by id (DEC-050): one another tab added
+            // since it was drawn is not this click's to clear.
+            var shown = {};
+            sorted.forEach(function (b) { shown[b.id] = true; });
+            try {
+                _bmUpdateStore(function (list) {
+                    return list.filter(function (b) { return !shown[b.id]; });
+                });
+            } catch (e) {}
             var activeIcons = document.querySelectorAll('.acn-bm-icon.acn-bm-active');
             for (var i = 0; i < activeIcons.length; i++) {
                 activeIcons[i].classList.remove('acn-bm-active');
@@ -12141,13 +12347,39 @@
 
     // /Commands — storage and CRUD
     var COMMANDS_KEY = 'acn-commands';
+    // This page, and its uses so far (executeCommand).
+    var _cmdUsePage = Math.random().toString(16).slice(2, 10) + Date.now().toString(16);
+    var _cmdUseSeq = 0;
 
     function loadCommands() {
         try { return acnGetValue(COMMANDS_KEY, []); } catch (e) { return []; }
     }
 
-    function saveCommands(commands) {
-        try { acnSetValue(COMMANDS_KEY, commands); } catch (e) {}
+    // One change, applied to the commands as stored now, so a command another tab saved
+    // survives this tab's save (DEC-050). `change(list)` returns the new list.
+    function updateCommands(change) {
+        try { return acnUpdateValue(COMMANDS_KEY, [], acnIsArray, change); } catch (e) { return false; }
+    }
+
+    // A write that renamed a command or brought in another tab's redraws the list, unless a
+    // form is open over it (DEC-050).
+    acnWatch(COMMANDS_KEY, function () {
+        var body = document.getElementById('acn-cmd-body');
+        if (body && !body.querySelector('.acn-cmd-form')) _renderCommandListView(body, null);
+    });
+
+    // `name` was checked against this page's copy; another tab may have saved a command of
+    // that name since (DEC-050). Keep both, and the names unique: name, name-2, name-3...
+    function uniqueCommandName(list, name, id) {
+        var taken = Object.create(null), n = 2, sfx, out = name;   // no prototype: 'constructor' is a name
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].id !== id) taken[list[i].name] = true;
+        }
+        while (taken[out]) {
+            sfx = '-' + (n++);
+            out = name.substring(0, 30 - sfx.length) + sfx;
+        }
+        return out;
     }
 
     function getCommandByName(name) {
@@ -12176,9 +12408,9 @@
         if (!prompt || !prompt.trim()) {
             return { error: 'Prompt is required' };
         }
-        var commands = loadCommands();
         var command = {
-            id:          'cmd_' + Date.now(),
+            // The random part: two tabs creating in the same millisecond must not share an id.
+            id:          'cmd_' + Date.now() + '_' + Math.random().toString(16).slice(2, 10),
             name:        name,
             description: description || '',
             prompt:      prompt.trim(),
@@ -12187,8 +12419,19 @@
             usageCount:  0,
             lastUsedAt:  null
         };
-        commands.push(command);
-        saveCommands(commands);
+        var saved = updateCommands(function (list) {
+            // Its id already stored means this change ran before (a write that landed though
+            // its step was abandoned): done. With 32 random bits on the millisecond, another
+            // command under the same id is not a case to handle.
+            for (var i = 0; i < list.length; i++) {
+                if (list[i].id === command.id) return list;
+            }
+            var copy = JSON.parse(JSON.stringify(command));
+            copy.name = uniqueCommandName(list, command.name, copy.id);
+            list.push(copy);
+            return list;
+        });
+        if (!saved) return { error: i18n('storageUnreadable') };
         return { success: true, command: command };
     }
 
@@ -12196,20 +12439,30 @@
         var commands = loadCommands();
         for (var i = 0; i < commands.length; i++) {
             if (commands[i].id === id) {
+                var fields = {};
                 if (updates.name !== undefined && updates.name !== commands[i].name) {
                     var cleanName = sanitizeCommandName(updates.name);
                     if (!cleanName) return { error: 'Name must be 1-30 lowercase characters, numbers, or hyphens' };
                     var existing = getCommandByName(cleanName);
                     if (existing && existing.id !== id) return { error: 'A command with this name already exists' };
-                    commands[i].name = cleanName;
+                    fields.name = cleanName;
                 }
-                if (updates.description !== undefined) commands[i].description = updates.description;
+                if (updates.description !== undefined) fields.description = updates.description;
                 if (updates.prompt !== undefined) {
                     if (!updates.prompt.trim()) return { error: 'Prompt is required' };
-                    commands[i].prompt = updates.prompt.trim();
+                    fields.prompt = updates.prompt.trim();
                 }
-                commands[i].updatedAt = Date.now();
-                saveCommands(commands);
+                fields.updatedAt = Date.now();
+                // A command another tab has deleted stays deleted.
+                var saved = updateCommands(function (list) {
+                    list.forEach(function (cmd) {
+                        if (cmd.id !== id) return;
+                        Object.keys(fields).forEach(function (f) { cmd[f] = fields[f]; });
+                        if (fields.name) cmd.name = uniqueCommandName(list, fields.name, id);
+                    });
+                    return list;
+                });
+                if (!saved) return { error: i18n('storageUnreadable') };
                 return { success: true };
             }
         }
@@ -12217,8 +12470,9 @@
     }
 
     function deleteCommand(id) {
-        var commands = loadCommands().filter(function (cmd) { return cmd.id !== id; });
-        saveCommands(commands);
+        updateCommands(function (list) {
+            return list.filter(function (cmd) { return cmd.id !== id; });
+        });
     }
 
     function sortCommands(commands) {
@@ -12314,15 +12568,31 @@
     }
 
     function executeCommand(command) {
-        var commands = loadCommands();
-        for (var i = 0; i < commands.length; i++) {
-            if (commands[i].id === command.id) {
-                commands[i].usageCount = (commands[i].usageCount || 0) + 1;
-                commands[i].lastUsedAt = Date.now();
-                break;
+        var usedAt = Date.now();
+        // This page's uses are numbered in order, and the queue applies them in that order.
+        // A command keeps, per page, the highest number already counted, so a use that runs
+        // again (a write that landed though its step was abandoned) is skipped, however many
+        // were waiting: a window of recent ids cascaded once it was overrun.
+        var useSeq = ++_cmdUseSeq;
+        updateCommands(function (list) {
+            for (var i = 0; i < list.length; i++) {
+                if (list[i].id === command.id) {
+                    var counted = acnIsPlainObject(list[i].usesCounted) ? list[i].usesCounted : {};
+                    var mine = counted[_cmdUsePage];
+                    if (mine && mine.seq >= useSeq) break;
+                    list[i].usageCount = (list[i].usageCount || 0) + 1;
+                    list[i].lastUsedAt = usedAt;
+                    counted[_cmdUsePage] = { seq: useSeq, at: usedAt };
+                    // The 20 pages that used it last.
+                    var pages = Object.keys(counted).sort(function (a, b) { return counted[b].at - counted[a].at; });
+                    var kept = {};
+                    for (var j = 0; j < pages.length && j < 20; j++) kept[pages[j]] = counted[pages[j]];
+                    list[i].usesCounted = kept;
+                    break;
+                }
             }
-        }
-        saveCommands(commands);
+            return list;
+        });
         var prompt = command.prompt;
         copyToClipboard(prompt);
         var injected = tryDirectInject(prompt);

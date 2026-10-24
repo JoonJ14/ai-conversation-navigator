@@ -1254,18 +1254,31 @@ is a live run on the commit actually being shipped.
   wrong, and the honest report is "not reproduced", never a fix asserted on plausibility.
 
 **Addendum — merged before the live confirm, on the owner's explicit call (2026-10-23).** The owner has waived
-this rule four times:
+this rule five times:
 - PR #73 (v12.8), merged before its usage-panel confirm;
 - PR #75 (v12.9), merged as `4c72ca9` before its Safari, Firefox and Chrome confirms;
 - PR #78 (v12.10), merged as `166a281` before Safari's ChatGPT and Perplexity check;
-- PR #82 (v12.12), merged as `2b7e8d1` before its acceptance on all three browsers.
+- PR #82 (v12.12), merged as `2b7e8d1` before its acceptance on all three browsers;
+- PR #85 (v12.13), merged 2026-10-24 with step 1 of its acceptance passed on all three browsers and steps 2–7 not
+  reported.
 
 A waiver moves the merge, not the debt: each confirm stays owed on the merged build until it is run. Record
 every waiver here, and in the release's CHANGELOG entry.
 
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
-review record. Updated 2026-10-23:
+review record. Updated 2026-10-24:
+- **v12.13 (PR #85, cross-tab saves).** Owner, real browsers, 2026-10-24, on the branch's build (the userscript is
+  unchanged since `23805a8`). Question bookmarks were used for the tests. Recorded as reported:
+  - **Step 1, the two-tab test on different conversations: PASS on Safari + Userscripts, Chrome + Tampermonkey and
+    Firefox + Tampermonkey.** Tab A's bookmark survived tab B's bookmark and a reload of A. On a later reload, A's
+    flag showed dark briefly, then lit once the saved bookmarks loaded.
+  - **Not reported** (the PR's acceptance steps with no result), on all three browsers: step 2 (same conversation,
+    a removal), 3 (bookmark, then reload at once), 4 (commands across tabs), 5 (button positions across tabs),
+    6 (nothing lost in the upgrade) and 7 (no `[ACN] storage:` warnings).
+  - **Waiver:** merged on the owner's call ("Merge PR #85 after the CLAUDE.md commit's CI is green") with steps 2–7
+    not reported. They stay owed on the merged build.
+  - C0, the cross-tab read the fix depends on: PASS on all three managers (DEC-050).
 - **v12.12 (PR #82, Safari parity: plan usage and GM storage).** Owner, real browsers, 2026-10-23, after the
   merge. **A summary, recorded as reported; the itemized results are to come in the next session's prompt:**
   - In the owner's words: "I did some live testing on version 12.12 and then there were all the things that we
@@ -2804,5 +2817,133 @@ every call site stays synchronous. The cost is a startup that waits for the load
 - On the async path GM storage holds JSON text, so the two keys whose values are already JSON strings,
   `acn-bookmarks-v1` and `acn-claude-org-v1`, are stored double-encoded; the other four once. Any future migration
   between managers has to know that.
-- Two tabs are last-write-wins per key, as with `GM_setValue`; there is no syncing (ROADMAP 0d).
+- Two tabs are last-write-wins per key, as with `GM_setValue`; there is no syncing (ROADMAP 0d). *Superseded for the
+  four collections by DEC-050 (v12.13): per key, this was data loss, measured by the owner on Safari. It still
+  holds for `acn-settings` and the org cache.*
 - Gates: `probes/check-gm-storage.js` G1–G6 (page realm, stubbed storage). Real-Safari status: DEC-031.
+
+---
+
+## DEC-050: A Save of a Collection Applies One Change to What Is Stored Now — Never This Tab's Copy (v12.13)
+**Date:** 2026-10-24 | **Stage:** v12.13 (the cross-tab PR)
+
+### Decision
+The four GM keys that hold collections save through `acnUpdateValue(key, def, valid, apply)`: one change, applied to
+the value as it is stored at the moment of the save.
+- **Bookmarks** (`acn-bookmarks-v1`): by record id, under the conversation URL read at the click. A new bookmark is
+  added; an update (a migration, an upgrade) applies only if the record is still stored, so it never revives a
+  record another tab deleted; a removal removes that id; Clear all removes the records the panel drew.
+- **Commands** (`acn-commands`): by id. Create adds; edit, delete and the use counter change that id only.
+- **Zone positions** (`acn-zone-positions`): this platform's entry only.
+- **The context cache** (`acn_ctx_cache`): this conversation's entry, then the prune to 50.
+
+`acn-settings` and the org cache (`acn-claude-org-v1`) are single values and stay last-write-wins through
+`acnSetValue` (the owner's call, 2026-10-24).
+
+Per runtime:
+- **Tampermonkey:** `GM_getValue`, validate, `GM_setValue(apply(value))`: the read-then-write every caller already
+  did, with no copy of ours in between. The only change in behaviour there is the refusal below.
+- **Async only (Userscripts):** the change goes into this page's copy at once, so the page shows it, and joins the
+  key's list of changes not yet known to be stored. One step at a time per key re-reads with `GM.getValue`,
+  validates, applies every change on that list and writes with `GM.setValue`. A change leaves the list only when a
+  write that includes it succeeds, so after a failed step it goes out with the next save, as v12.12's next
+  whole-copy write carried it; if changes arrived during a failed step, the queue starts once more for them. A step
+  with no answer in 5 s is abandoned the same way, and logged once. After a write, the page's copy becomes the
+  stored value plus the changes still waiting, so it picks up what other tabs saved; when that changes the copy, the
+  bookmark flags reset and the open Bookmarks panel or /Commands list redraws (`acnWatch`).
+- **A command's use is counted once, however often its change is replayed:** each page numbers its uses in order (the
+  queue applies them in that order), and a command keeps, per page, the highest number counted (the 20 most recent
+  pages).
+- **Each queued change carries its own check** (a bookmark's is for its own conversation), so a change the stored
+  value fails is refused and dropped while the rest are written.
+- **A stored value that cannot be read is never saved over:** the save is refused, with one console line and one
+  toast per key per page, and a bookmark's flag does not turn on. On the async path a change already shown on the
+  page stays on the page and is not stored.
+
+### Context
+The owner's two-tab test on Safari + Userscripts, v12.12 [measured, owner, 2026-10-24]: both tabs loaded (different
+conversations), a question bookmarked in tab A, a different question in tab B, tab A reloaded: **tab A's bookmark
+was gone.** Every bookmark of every conversation is one GM value, and on the async path (DEC-049) each save wrote
+this page's startup copy back, so a tab erased whatever any other tab had saved since it loaded. DEC-049 recorded
+"two tabs are last-write-wins per key" as a known limit; per key, that is data loss across every conversation.
+
+### Alternatives considered
+- **Compare this page's copy with what is stored and merge the difference (a three-way merge).** Rejected: the page
+  holds no base version per record, so a record missing from one side cannot be told apart as "deleted here" or
+  "added there". Replaying the change itself needs no base.
+- **Refresh the page's copy from storage before every save, then write the copy.** On the async path the refresh is
+  itself a round trip, so a second save in the meantime races it: the same loss inside one tab. It also leaves the
+  write depending on the whole copy being current. Chosen instead: write only the change.
+- **Listen for other tabs' writes (`GM_addValueChangeListener`) and keep the copy current.** Not chosen: whether
+  Userscripts provides it is unmeasured, and a missed event would lose data silently.
+- **One GM key per conversation.** Not chosen: it bounds the loss to one conversation without removing it, and it
+  needs a migration of every stored bookmark.
+- **DEC-049's "rewrite the newest" for these keys.** It orders writes of a whole copy; here each write depends on the
+  read before it, so steps run one at a time per key. Overlapping steps were measured to lose a change when a later
+  step finished first (G13's mutant).
+- **Drop a failed step's change** (the first draft). Rejected in review: the next save then rebuilt the page's copy
+  without it, so a single refused write lost a bookmark that v12.12 would have carried (G20).
+- **Wait for a step that never answers** (the first draft). Rejected in review: one lost call held every later save
+  of that key for the rest of the page (G21). Abandoning after 5 s keeps its changes waiting.
+- **Repair or reset an unreadable stored value.** Rejected (the owner's rule): never write from empty.
+- **Tampermonkey through the same queue.** Not needed: its path reads with `GM_getValue` immediately before
+  `GM_setValue`, in one synchronous call, with no copy of ours in between [code], and `GM_getValue` in one tab
+  returns another tab's write (C0, below).
+
+### Rationale
+Each change is a small function of its own captured inputs, so it can be applied to any version of the collection,
+this page's or another tab's newer one, with no record of what the page last saw. It is not atomic: see the first
+residual below.
+
+### Key properties
+- **Correctness rests on a measurement:** a read in one tab must return what another open tab wrote since this tab
+  loaded. B0 measured persistence across a reload, not this. C0 (`probes/cross-tab-gm-check.user.js`, scratch keys
+  only), the owner, real browsers, 2026-10-24, read in tab A after a Write in tab B, the line that counts: **PASS on
+  all three.** Safari + Userscripts 4.8.6, `GM.getValue`: "write #1 from tab 50a3dbfe (ANOTHER tab), written 4 s
+  ago". Chrome + Tampermonkey 5.5.1, `GM_getValue`: "write #1 from tab 98f05d4b (ANOTHER tab), written 5 s ago"
+  (`GM.getValue` the same). Firefox + Tampermonkey 5.5.0, `GM_getValue`: "write #1 from tab 2ae8b29a (ANOTHER tab),
+  written 4 s ago" (`GM.getValue` the same). So re-reading before a save works on Safari, and Tampermonkey's
+  existing read-then-write was already safe, which is why its path stays unchanged. Release acceptance: DEC-031.
+- **A change must not depend on this page's copy:** read the inputs at the call (the URL, the platform, the time),
+  keep them in the change's own variables, and apply them to whatever value it is given.
+- **A new collection key saves through `acnUpdateValue`, never `acnSetValue`** (agent_docs/conventions.md, Storage
+  Keys).
+- **Within one tab on Safari,** a page shows another tab's changes to a collection only after its own next save of
+  that collection, or a reload. A bookmark toggled on a message another tab has also bookmarked can therefore add a
+  second record for it; nothing is lost.
+- **Two commands of one name** saved by two tabs are both kept; the later one is renamed `name-2` (`name-3`, ...),
+  on create and on rename.
+- **Residuals, recorded, not fixed** (review, 2026-10-24; the first and the unreadable-value one accepted by the
+  owner, 2026-10-24) [code + inferred, unmeasured on any manager]:
+  - GM storage has no atomic compare-and-swap. Two tabs whose read-then-write steps overlap can still lose one
+    change. The window is one `GM.getValue` → `GM.setValue` round trip (on Tampermonkey, `GM_getValue` → `GM_setValue`
+    in one call plus the manager's own syncing), where v12.12's was the tab's whole life. Most likely from automatic
+    saves (migrations in tabs restored together), not from clicks.
+  - An update (a migration, an upgrade) writes the whole record from this page's copy, so it can undo another tab's
+    newer change to that same record (for example a proof binding). Nothing is lost that the next migration does not
+    redo.
+  - A write abandoned after 5 s that lands later still could overwrite a newer write.
+  - A save sent less than one round trip before a reload or a tab close is not written; v12.12 sent the write at
+    once.
+  - A stored value that cannot be read blocks saving that collection until it is repaired by hand; there is no
+    in-UI recovery (the owner's rule: never write from empty). A "reset, keeping a backup copy" action is logged for
+    later (ROADMAP 0d). On Safari, a refusal found only at write time comes
+    after the page showed the change.
+  - A command's use can be counted twice if its page's marker was trimmed (the 20 most recent pages are kept)
+    while that use still waited to be replayed: it takes a write that landed unanswered and then 20 other page
+    loads using the same command before the page saves again (Tier 3 on `23805a8`). `usageCount` is never read
+    [code], so nothing visible changes.
+  - On Safari a stored `null` counts as missing and is written over (Tampermonkey refuses it). Kept on purpose
+    (Codex round 4): what `GM.getValue(key)` returns for a key never stored is unmeasured, and if it is `null`,
+    refusing it would block every first save. A stored `null` holds no records, so nothing is lost.
+- Gates: `probes/check-gm-storage.js` G7–G32 (page realm, stubbed storage; two pages in one browser context are two
+  tabs). v12.12 fails G7, G8, G9, G11, G12, G14–G18, G22, G25, G26, G29 and G30; G10 (the synchronous path), G13 (one step at a
+  time), G19–G21, G23, G24, G27, G28, G31 and G32 are guards. The first build (`698e27f`) fails G15, G16, G19–G22 and G28; the round-1
+  fix (`633a14c`) fails G23 and G25; the round-2 fix (`eff22e7`) fails G26 and G27; the round-4 build (`a9bf93a`)
+  fails G29; the round-6 build (`b524cdb`) fails G30; the PR's first head (`c4d1ec4`) fails G31
+  and G32 (GitHub Codex), and a window of the last 20 use ids (`e69d5da`) fails G32; a build whose steps can overlap fails G13. Not proven by a failing build: Clear all by the panel's own ids (G24 passes on `633a14c` too, because a
+  scan redraws the panel within about 500 ms) and a command id's random part (32 bits on the millisecond: an id
+  already stored is taken as this same change running again). Not gated: a conversation entry that is not a list (icon injection already fails
+  on one, on v12.12 too, so no click reaches the save); a save made by a watcher while a step finishes (it needs a
+  legacy record and a ready index; the watchers run while the key is still busy, and `acnPersist` refuses to start
+  a second step).
