@@ -519,11 +519,12 @@ v12.12 fails).
 
 ### Results & verification
 
-- **Page realm** (Playwright, headless, this Mac, stubbed storage): `check-gm-storage` G7–G22. v12.12 fails G7 (the
+- **Page realm** (Playwright, headless, this Mac, stubbed storage): `check-gm-storage` G7–G27. v12.12 fails G7 (the
   owner's test: only conversation B is stored afterwards), G8 and G9 (the unreadable value is replaced), G11, G12,
-  G14–G18 (G17: B's removal erases A's bookmark; G18: a removed bookmark comes back) and G22; v12.13 passes all
-  twenty-two. The guards G10, G13, G19, G20 and G21 pass on both; the review's pre-fix build fails G15, G16 and
-  G19–G22, and a build whose save steps can overlap fails G13. Residual limits: DEC-050. Final runs: CHANGELOG 12.13.
+  G14–G18 (G17: B's removal erases A's bookmark; G18: a removed bookmark comes back), G22, G25 and G26; v12.13
+  passes all twenty-seven. The guards (G10, G13, G19–G21, G23, G24, G27) pass on both; the builds before each review round fail the
+  checks that round added (DEC-050), and a build whose save steps can overlap fails G13. Residual limits: DEC-050.
+  Final runs: CHANGELOG 12.13.
 - **The measurement the fix depends on, owed:** C0 (`probes/cross-tab-gm-check.user.js`, owner-run on all three
   managers): does a read in one tab return what another tab wrote since it loaded? If a manager answers from a
   per-tab cache, re-reading cannot help there.

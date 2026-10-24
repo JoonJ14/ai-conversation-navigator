@@ -2819,7 +2819,7 @@ The four GM keys that hold collections save through `acnUpdateValue(key, def, va
 the value as it is stored at the moment of the save.
 - **Bookmarks** (`acn-bookmarks-v1`): by record id, under the conversation URL read at the click. A new bookmark is
   added; an update (a migration, an upgrade) applies only if the record is still stored, so it never revives a
-  record another tab deleted; a removal removes that id; Clear all removes the records this tab shows.
+  record another tab deleted; a removal removes that id; Clear all removes the records the panel drew.
 - **Commands** (`acn-commands`): by id. Create adds; edit, delete and the use counter change that id only.
 - **Zone positions** (`acn-zone-positions`): this platform's entry only.
 - **The context cache** (`acn_ctx_cache`): this conversation's entry, then the prune to 50.
@@ -2834,9 +2834,10 @@ Per runtime:
   key's list of changes not yet known to be stored. One step at a time per key re-reads with `GM.getValue`,
   validates, applies every change on that list and writes with `GM.setValue`. A change leaves the list only when a
   write that includes it succeeds, so after a failed step it goes out with the next save, as v12.12's next
-  whole-copy write carried it. A step with no answer in 5 s is abandoned the same way, and logged once. After a
-  write, the page's copy becomes the stored value plus the changes still waiting, so it picks up what other tabs
-  saved.
+  whole-copy write carried it; if changes arrived during a failed step, the queue starts once more for them. A step
+  with no answer in 5 s is abandoned the same way, and logged once. After a write, the page's copy becomes the
+  stored value plus the changes still waiting, so it picks up what other tabs saved; when that changes the copy, the
+  open Bookmarks panel or /Commands list redraws (`acnWatch`).
 - **A stored value that cannot be read is never saved over:** the save is refused, with one console line and one
   toast per key per page, and a bookmark's flag does not turn on. On the async path a change already shown on the
   page stays on the page and is not stored.
@@ -2904,8 +2905,11 @@ residual below.
   - A stored value that cannot be read blocks saving that collection until it is repaired by hand; there is no
     in-UI recovery (the owner's rule: never write from empty). On Safari, a refusal found only at write time comes
     after the page showed the change.
-- Gates: `probes/check-gm-storage.js` G7–G22 (page realm, stubbed storage; two pages in one browser context are two
-  tabs). v12.12 fails G7, G8, G9, G11, G12, G14–G18 and G22; G10 (the synchronous path), G13 (one step at a time),
-  G19, G20 and G21 are guards. The review's pre-fix build (`698e27f`) fails G15, G16, G19, G20, G21 and G22; a build
-  whose steps can overlap fails G13. Not gated: a conversation entry that is not a list (icon injection already
-  fails on one, on v12.12 too, so no click reaches the save).
+- Gates: `probes/check-gm-storage.js` G7–G27 (page realm, stubbed storage; two pages in one browser context are two
+  tabs). v12.12 fails G7, G8, G9, G11, G12, G14–G18, G22, G25 and G26; G10 (the synchronous path), G13 (one step at a
+  time), G19–G21, G23, G24 and G27 are guards. The first build (`698e27f`) fails G15, G16 and G19–G22; the round-1
+  fix (`633a14c`) fails G23 and G25; the round-2 fix (`eff22e7`) fails G26 and G27; a build whose steps can overlap
+  fails G13. Not proven by a failing build: Clear all by the panel's own ids (G24 passes on `633a14c` too, because a
+  scan redraws the panel within about 500 ms) and a command id's random part (with a fresh id for a different
+  command found under the same one). Not gated: a conversation entry that is not a list (icon injection already fails
+  on one, on v12.12 too, so no click reaches the save).

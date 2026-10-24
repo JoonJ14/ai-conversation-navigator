@@ -8438,16 +8438,18 @@
         var url = normalizeConversationUrl();
         // This conversation's entry, where there is one, must hold a list: a save must not
         // replace a list it cannot read with one bookmark either.
+        // Only a missing entry is empty; anything else that is not { bookmarks: [...] } is unreadable.
+        function has(store) { return Object.prototype.hasOwnProperty.call(store, url); }
         function valid(raw) {
             if (!_bmStoreValid(raw)) return false;
-            var entry = JSON.parse(raw)[url];
-            return !entry || (acnIsPlainObject(entry) && Array.isArray(entry.bookmarks));
+            var store = JSON.parse(raw);
+            return !has(store) || (acnIsPlainObject(store[url]) && Array.isArray(store[url].bookmarks));
         }
         return acnUpdateValue(BOOKMARK_KEY, '{}', valid, function (raw) {
             var store = JSON.parse(raw);
-            var list = store[url] ? store[url].bookmarks : [];
+            var list = has(store) ? store[url].bookmarks : [];
             var next = change(list);
-            if (!store[url]) {
+            if (!has(store)) {
                 if (!next.length) return raw;
                 store[url] = { bookmarks: [] };
             }
@@ -12346,7 +12348,7 @@
     // `name` was checked against this page's copy; another tab may have saved a command of
     // that name since (DEC-050). Keep both, and the names unique: name, name-2, name-3...
     function uniqueCommandName(list, name, id) {
-        var taken = {}, n = 2, sfx, out = name;
+        var taken = Object.create(null), n = 2, sfx, out = name;   // no prototype: 'constructor' is a name
         for (var i = 0; i < list.length; i++) {
             if (list[i].id !== id) taken[list[i].name] = true;
         }
@@ -12385,7 +12387,7 @@
         }
         var command = {
             // The random part: two tabs creating in the same millisecond must not share an id.
-            id:          'cmd_' + Date.now() + '_' + Math.random().toString(16).slice(2, 6),
+            id:          'cmd_' + Date.now() + '_' + Math.random().toString(16).slice(2, 10),
             name:        name,
             description: description || '',
             prompt:      prompt.trim(),
@@ -12395,11 +12397,15 @@
             lastUsedAt:  null
         };
         var saved = updateCommands(function (list) {
-            for (var i = 0; i < list.length; i++) {
-                if (list[i].id === command.id) return list;
-            }
             var copy = JSON.parse(JSON.stringify(command));
-            copy.name = uniqueCommandName(list, command.name, command.id);
+            for (var i = 0; i < list.length; i++) {
+                if (list[i].id !== command.id) continue;
+                // This command, already stored (the change running a second time): done. A
+                // different one under the same id: this one gets a new id, never dropped.
+                if (list[i].createdAt === command.createdAt && list[i].prompt === command.prompt) return list;
+                copy.id = command.id + '_' + Math.random().toString(16).slice(2, 10);
+            }
+            copy.name = uniqueCommandName(list, command.name, copy.id);
             list.push(copy);
             return list;
         });

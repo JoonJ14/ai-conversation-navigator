@@ -32,7 +32,7 @@
 
     var P = '[ACN-C0] ';
     var KEY = 'acn-c0-probe';
-    var TAB = Math.random().toString(16).slice(2, 6);
+    var TAB = Math.random().toString(16).slice(2, 10);   // 32 bits: two tabs never share a label
     var hasSync = typeof GM_getValue === 'function' && typeof GM_setValue === 'function';
     var hasAsync = typeof GM !== 'undefined' && GM !== null &&
                    typeof GM.getValue === 'function' && typeof GM.setValue === 'function';

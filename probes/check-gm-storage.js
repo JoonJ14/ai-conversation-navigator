@@ -59,6 +59,9 @@
 //   G24 [guard] async only, Clear all removes exactly the records the panel shows, after a
 //       write brought another tab's bookmark into this page
 //   G25 [new] async only, the open /Commands list shows the name a write stored (deploy-2)
+// Added in review (Codex Tier 3, round 3):
+//   G26 [new] async only, this conversation's stored entry is null: nothing saved over it
+//   G27 [guard] async only, a command named 'constructor' keeps its name (no prototype lookup)
 // The guards pass on v12.12, which writes the whole copy each time; the review's pre-fix build
 // (698e27f) fails G19, G20 and G21.
 // Not gated, and not reachable from the UI: a conversation whose stored entry holds something
@@ -733,6 +736,22 @@ const READ = `(function () {
     })();
     check('G25', 'async only: the open /Commands list shows the names as stored',
         JSON.stringify(listNames) === JSON.stringify(['/deploy', '/deploy-2']), 'cards=' + JSON.stringify(listNames));
+
+    const u26 = await unreadable('async', JSON.stringify({ [TARGET]: null }));
+    check('G26', "async only, this conversation's stored entry is null: nothing saved over it, one warning",
+        unreadableOk(u26), unreadableDetail(u26));
+
+    const ctor = await (async () => {
+        const context = await browser.newContext();
+        const page = await openTab(context, TARGET, 'async');
+        const err = await createThroughForm(page, 'constructor');
+        const stored = unheld('async', await getHeld(page, '__gmasync:', 'acn-commands')) || [];
+        await context.close();
+        return { err, names: stored.map((c) => c.name) };
+    })();
+    check('G27', "async only: a command named 'constructor' keeps its name",
+        JSON.stringify(ctor.names) === JSON.stringify(['constructor']) && !ctor.err,
+        'stored names=' + JSON.stringify(ctor.names) + ' form error=' + JSON.stringify(ctor.err));
 
     await browser.close();
     console.log(failures ? '\n' + failures + ' check(s) FAILED' : '\nall checks passed');
