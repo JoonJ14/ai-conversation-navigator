@@ -73,6 +73,8 @@
 //   G31 [guard] async only, the first commands write is refused and the second lands but never
 //       answers: three uses of one command count 3, not 5 (every waiting use is replayed). PR #85's
 //       head (c4d1ec4) counts 5
+//   G32 [guard] the same, with 21 uses made while the first write is pending, then one more:
+//       22 counted. A window of the last 20 use ids (e69d5da) cascades past it
 // Added in review (Codex Tier 3, round 7):
 //   G30 [new] async only, a page saves in conversation A, then moves to B in place, where another
 //       tab has left B's stored entry null: the B bookmark is refused with the warning, and
@@ -176,11 +178,15 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
             if (MODE === 'reject') return Promise.reject(new Error('stub: write refused'));
             // 'rejectonce' / 'hangonce': the first bookmark write is refused, or never answered
             // (and never applied); every other write goes through.
-            // 'cmdflaky': the first commands write is refused; the second is applied but never
+            // 'cmdflaky': the first commands write is refused, 300 ms late; the second is applied but never
             // answered (it lands, and its step is abandoned after 5 s); the rest go through.
             if (MODE === 'cmdflaky' && k === 'acn-commands') {
                 window.__gm.cmdSets = (window.__gm.cmdSets || 0) + 1;
-                if (window.__gm.cmdSets === 1) return Promise.reject(new Error('stub: commands write refused'));
+                if (window.__gm.cmdSets === 1) {
+                    return new Promise(function (res, rej) {
+                        setTimeout(function () { rej(new Error('stub: commands write refused')); }, 300);
+                    });
+                }
                 if (window.__gm.cmdSets === 2) { lsSet('__gmasync:', k, v); return new Promise(function () {}); }
             }
             if ((MODE === 'rejectonce' || MODE === 'hangonce' || MODE === 'rejectslow') &&
@@ -847,6 +853,28 @@ const READ = `(function () {
     })();
     check('G31', 'async only, writes refused and unanswered: three uses of one command count 3',
         uses === 3, 'usageCount=' + uses);
+
+    // G32 — 21 uses pile up behind the refused first write, land unanswered, then a 22nd.
+    const burst = await (async () => {
+        const one = { id: 'cmd_1', name: 'one', description: '', prompt: 'first prompt',
+                      createdAt: 1, updatedAt: 1, usageCount: 0, lastUsedAt: null };
+        const context = await browser.newContext();
+        const page = await openTab(context, TARGET, 'cmdflaky');
+        await setHeld(page, '__gmasync:', 'acn-commands', held('async', [one]));
+        await reloadTab(page);
+        await page.waitForFunction("!!document.querySelector('.acn-cmd-card[data-cmd-id=\"cmd_1\"]')", null, { timeout: 10000 });
+        const play = "document.querySelector('.acn-cmd-card[data-cmd-id=\"cmd_1\"] .acn-cmd-btn[title=\"Execute\"]').click()";
+        await page.evaluate("(function () { for (var i = 0; i < 21; i++) " + play + "; }())");   // within the 300 ms
+        await page.waitForTimeout(5800);      // the refusal, then the unanswered write is abandoned
+        await page.evaluate(play);            // the 22nd
+        await page.waitForTimeout(800);
+        const stored = unheld('async', await getHeld(page, '__gmasync:', 'acn-commands')) || [];
+        await context.close();
+        const c = stored.filter((x) => x.id === 'cmd_1')[0];
+        return c ? c.usageCount : null;
+    })();
+    check('G32', 'async only, 21 uses behind a refused write, then one more: 22 counted',
+        burst === 22, 'usageCount=' + burst);
 
     const rf = await twoAfterTrouble('readfailonce', 400);
     check('G28', 'async only, the first bookmark read after startup is refused: both bookmarks stored',

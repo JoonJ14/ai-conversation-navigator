@@ -12347,6 +12347,9 @@
 
     // /Commands — storage and CRUD
     var COMMANDS_KEY = 'acn-commands';
+    // This page, and its uses so far (executeCommand).
+    var _cmdUsePage = Math.random().toString(16).slice(2, 10) + Date.now().toString(16);
+    var _cmdUseSeq = 0;
 
     function loadCommands() {
         try { return acnGetValue(COMMANDS_KEY, []); } catch (e) { return []; }
@@ -12566,20 +12569,25 @@
 
     function executeCommand(command) {
         var usedAt = Date.now();
-        // This use's own id: two uses in one millisecond are two uses.
-        var useId = usedAt + ':' + Math.random().toString(16).slice(2, 10);
+        // This page's uses are numbered in order, and the queue applies them in that order.
+        // A command keeps, per page, the highest number already counted, so a use that runs
+        // again (a write that landed though its step was abandoned) is skipped, however many
+        // were waiting: a window of recent ids cascaded once it was overrun.
+        var useSeq = ++_cmdUseSeq;
         updateCommands(function (list) {
             for (var i = 0; i < list.length; i++) {
                 if (list[i].id === command.id) {
-                    // Already counted: this change ran before (a write that landed though its
-                    // step was abandoned), and +1 must not be applied twice. Every use still
-                    // waiting can be replayed, not just the last, so the recent ids are kept.
-                    var recent = Array.isArray(list[i].recentUseIds) ? list[i].recentUseIds : [];
-                    if (recent.indexOf(useId) !== -1) break;
+                    var counted = acnIsPlainObject(list[i].usesCounted) ? list[i].usesCounted : {};
+                    var mine = counted[_cmdUsePage];
+                    if (mine && mine.seq >= useSeq) break;
                     list[i].usageCount = (list[i].usageCount || 0) + 1;
                     list[i].lastUsedAt = usedAt;
-                    recent.push(useId);
-                    list[i].recentUseIds = recent.slice(-20);
+                    counted[_cmdUsePage] = { seq: useSeq, at: usedAt };
+                    // The 20 pages that used it last.
+                    var pages = Object.keys(counted).sort(function (a, b) { return counted[b].at - counted[a].at; });
+                    var kept = {};
+                    for (var j = 0; j < pages.length && j < 20; j++) kept[pages[j]] = counted[pages[j]];
+                    list[i].usesCounted = kept;
                     break;
                 }
             }
