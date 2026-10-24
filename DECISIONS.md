@@ -2905,9 +2905,12 @@ residual below.
   - A stored value that cannot be read blocks saving that collection until it is repaired by hand; there is no
     in-UI recovery (the owner's rule: never write from empty). On Safari, a refusal found only at write time comes
     after the page showed the change.
-- Gates: `probes/check-gm-storage.js` G7–G27 (page realm, stubbed storage; two pages in one browser context are two
+  - On Safari a stored `null` counts as missing and is written over (Tampermonkey refuses it). Kept on purpose
+    (Codex round 4): what `GM.getValue(key)` returns for a key never stored is unmeasured, and if it is `null`,
+    refusing it would block every first save. A stored `null` holds no records, so nothing is lost.
+- Gates: `probes/check-gm-storage.js` G7–G28 (page realm, stubbed storage; two pages in one browser context are two
   tabs). v12.12 fails G7, G8, G9, G11, G12, G14–G18, G22, G25 and G26; G10 (the synchronous path), G13 (one step at a
-  time), G19–G21, G23, G24 and G27 are guards. The first build (`698e27f`) fails G15, G16 and G19–G22; the round-1
+  time), G19–G21, G23, G24, G27 and G28 are guards. The first build (`698e27f`) fails G15, G16, G19–G22 and G28; the round-1
   fix (`633a14c`) fails G23 and G25; the round-2 fix (`eff22e7`) fails G26 and G27; a build whose steps can overlap
   fails G13. Not proven by a failing build: Clear all by the panel's own ids (G24 passes on `633a14c` too, because a
   scan redraws the panel within about 500 ms) and a command id's random part (with a fresh id for a different

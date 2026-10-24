@@ -62,6 +62,10 @@
 // Added in review (Codex Tier 3, round 3):
 //   G26 [new] async only, this conversation's stored entry is null: nothing saved over it
 //   G27 [guard] async only, a command named 'constructor' keeps its name (no prototype lookup)
+// Added in review (Codex Tier 3, round 4): G24 also asserts the panel showed every stored record
+// before the click, and
+//   G28 [guard] async only, the first bookmark READ after the startup load is refused: both
+//       bookmarks still end up stored
 // The guards pass on v12.12, which writes the whole copy each time; the review's pre-fix build
 // (698e27f) fails G19, G20 and G21.
 // Not gated, and not reachable from the UI: a conversation whose stored entry holds something
@@ -96,7 +100,7 @@ const TARGET_B = 'https://claude.ai/chat/13131313-1313-4131-8131-131313131313';
 const SIX_KEYS = ['acn-bookmarks-v1', 'acn-claude-org-v1', 'acn-commands', 'acn-settings',
                   'acn-zone-positions', 'acn_ctx_cache'];
 
-// mode: 'async' | 'sync' | 'hang' | 'reject' | 'reorder' | 'slowread' | 'rejectonce' | 'hangonce' | 'rejectslow'
+// mode: 'async' | 'sync' | 'hang' | 'reject' | 'reorder' | 'slowread' | 'rejectonce' | 'hangonce' | 'rejectslow' | 'readfailonce'
 function buildPage(scriptContent, mode) {
     const mockHTML = fs.readFileSync(path.join(REPO, 'tests/mock-pages/claude-virtualized.html'), 'utf8');
     const bodyMatch = mockHTML.match(/<body[^>]*>([\s\S]*)<\/body>/i);
@@ -137,6 +141,11 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
             window.__gm.keys.push(k);
             if (!window.__gm.firstGetAt) window.__gm.firstGetAt = performance.now();
             if (MODE === 'hang') return new Promise(function () {});
+            // 'readfailonce': the first bookmark read after the startup load (six reads) is refused.
+            if (MODE === 'readfailonce' && k === 'acn-bookmarks-v1' && window.__gm.get > 6 && !window.__gm.readOnce) {
+                window.__gm.readOnce = true;
+                return Promise.reject(new Error('stub: read refused once'));
+            }
             // 'slowread': the startup load (the first six reads) answers at once. After it, the
             // first read answers 500 ms late and every later one 50 ms late, each with the value
             // as it was WHEN CALLED, the worst case. A read taken at answer time would line two
@@ -719,8 +728,8 @@ const READ = `(function () {
         await context.close();
         return { storedBefore, shown, storedAfter };
     })();
-    check('G24', 'async only: Clear all removes exactly the bookmarks the panel shows',
-        clear.storedAfter === clear.storedBefore - clear.shown && clear.shown > 0,
+    check('G24', 'async only: the panel shows every stored bookmark, and Clear all removes exactly those',
+        clear.shown === clear.storedBefore && clear.storedAfter === clear.storedBefore - clear.shown && clear.shown > 0,
         'stored before=' + clear.storedBefore + ' cards shown=' + clear.shown + ' stored after=' + clear.storedAfter);
 
     // G25 — G15's case, read from the open list: the card shows the stored name.
@@ -749,6 +758,10 @@ const READ = `(function () {
         await context.close();
         return { err, names: stored.map((c) => c.name) };
     })();
+    const rf = await twoAfterTrouble('readfailonce', 400);
+    check('G28', 'async only, the first bookmark read after startup is refused: both bookmarks stored',
+        rf.n === 2, 'bookmarks stored=' + rf.n);
+
     check('G27', "async only: a command named 'constructor' keeps its name",
         JSON.stringify(ctor.names) === JSON.stringify(['constructor']) && !ctor.err,
         'stored names=' + JSON.stringify(ctor.names) + ' form error=' + JSON.stringify(ctor.err));
