@@ -6,7 +6,8 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.12 — Safari Parity: Plan Usage and Everything Kept in GM Storage] — 2026-10-23
 
-**Branch:** `fix/safari-parity` | **PR:** #82
+**Branch:** `fix/safari-parity` | **PR:** #82 | **Merged:** `2b7e8d1`, before the owner's real-browser
+acceptance, on the owner's call (a waiver, DEC-031)
 
 ### Problem
 
@@ -53,7 +54,8 @@ On Safari + Userscripts, two things never worked:
 Measured in Playwright's page realm, headless, this Mac. Not any manager's real storage or transport.
 - **`check-usage-state` U11** (gmxhr refused, fetch answers: bars), **U11b** (the same with no `lastActiveOrg`
   cookie, so the org list comes through fetch too) and **U12** (a look-alike host: no usage request on either
-  transport). All three fail on v12.11 and pass on v12.12 (results per engine: in the PR). The probe's GM stub now
+  transport). All three fail on v12.11 (U11b run on Chromium; U11 and U12 on Chromium and Firefox) and pass on
+  v12.12 on all three engines. The probe's GM stub now
   reports every HTTP status through `onload`, as a real manager does.
 - **`probes/check-gm-storage.js`** (new; in `npm run test:probes` and CI's ubuntu jobs on all three engines):
   - G1: a bookmark survives a reload with only the async API;
@@ -62,9 +64,20 @@ Measured in Playwright's page realm, headless, this Mac. Not any manager's real 
   - G4: a `GM.getValue` that never answers still brings the UI up at the 2 s bound, logs once, and writes nothing;
   - G5: a rejecting `GM.setValue` is logged once, with no page error;
   - G6: two writes of one key landing out of order leave the newer value stored.
-  v12.11 fails G1, G2, G4 and G5; v12.12 passes all six (results per engine: in the PR). G3 passes on both, as the
-  unchanged path should.
-- Suite and probes on the final build: in the PR.
+  v12.11 fails G1, G2, G4 and G5 (G1–G5 run on Chromium, before G6 existed; G6 was not run on v12.11); v12.12
+  passes all six on all three engines. G3 passes on both,
+  as the unchanged path should. Single mutants of v12.12: no rewrite fails G6 only, and a 1.5 s bound fails G4
+  only.
+- **The final build** (`e87aa27`; the commits after it are docs only), one local run, macOS arm64:
+  - `npm test`: Chromium 560/560, Firefox 560/560, WebKit 556/560. WebKit's 4 are the known local jump entries
+    (TROUBLESHOOTING, "OPEN — Local mac WebKit"), in a run whose frames were about twice as slow as that record's.
+  - All seven probes pass on all three engines, except `check-usage-state` U10 on Firefox, the known timeout
+    (TROUBLESHOOTING). U11, U11b and U12 passed before it.
+  - CI: all 9 jobs green on `5af4d79`. Not real-browser evidence.
+- **Review** (`reviews/review-2026-10-23-safari-parity.md`): Tiers 1 and 2 in session found 2 issues, both fixed.
+  The Codex CLI's Tier 3 raised 10 findings over two rounds and a post-fix pass: 8 fixed, 1 logged and 1 recorded
+  as ungated. GitHub Codex then reviewed `5af4d79` twice, on opening and on a manual `@codex review`, with no
+  findings: 0 rounds.
 
 **Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey** (PR checklist):
 results in DEC-031.
@@ -73,7 +86,8 @@ results in DEC-031.
 
 ## [12.11 — The Turn-Counter Dots Show the Real Count] — 2026-10-23
 
-**Branch:** `fix/turn-counter-dots` | **PR:** #81
+**Branch:** `fix/turn-counter-dots` | **PR:** #81 | **Merged:** `9a0fc7d`, after the owner's acceptance on all
+three browsers (DEC-031)
 
 ### Problem
 
@@ -114,7 +128,12 @@ measured in Playwright's page realm:
 
 v12.10 fails all six at 3 stale dots; v12.11 passes all eight. A3 (a normal load) and A4 (no mutations while
 idle) pass on both. Mutants show each mechanism is gated except the guarded unchanged-list redraw, which only an
-SSE draw reaches (TROUBLESHOOTING). Suite and probes on the final build: in the PR.
+SSE draw reaches (TROUBLESHOOTING).
+
+**The final build** (`6f90d5a`; the commits after it are comments and docs only), one local run, macOS arm64:
+`npm test` Chromium 560/560, Firefox 560/560, WebKit 557/560 (3 of the 4 known local jump entries; the 150-row
+one passed). All six probes passed on all three engines, and the known U10 Firefox timeout did not occur. GitHub
+Codex was clean on its first review of `39e35c5`: 0 rounds (`reviews/review-2026-10-23-turn-counter.md`).
 
 **Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey** (PR checklist):
 results in DEC-031.

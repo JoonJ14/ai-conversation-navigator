@@ -472,6 +472,83 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ---
 
+## FIXED IN v12.12, ACCEPTANCE OWED — Safari + Userscripts: Plan usage unavailable, and nothing kept in GM storage persisted (found 2026-10-22)
+
+**Phase:** v12.9–v12.11 acceptance; fixed in v12.12 (PR #82, merged as `2b7e8d1`) | **Severity:** Medium —
+features missing on one of the three equal-priority runtimes (DEC-047); no data lost, since nothing was ever
+stored | **Status:** Fixed in code. Real-Safari acceptance owed: DEC-031 (merged before it, on the owner's call)
+
+### Symptom
+
+- **Plan usage:** on Safari the panel always read "Usage data unavailable", while Chrome and Firefox showed real
+  numbers [measured: owner, the v12.10 and v12.11 acceptances, DEC-031].
+- **GM storage:** bookmarks gone after a reload, saved /commands never kept, button positions reset, and the
+  language and platform toggles unable to change, so the panels stayed in English [inferred in v12.9 from
+  Userscripts' source and this script's code (ROADMAP 0d); never observed as such by a user].
+
+### Diagnosis / root cause
+
+Both are the quiet face of Layer 3 (CLAUDE.md): the manager withholds something the code relies on, and nothing
+crashes.
+
+1. **Usage [code; measured].** `fetchClaudeUsage` sent both of its requests, the org list and the usage request,
+   through `GM_xmlhttpRequest` only. Userscripts' `GM_xmlhttpRequest` does not carry the claude.ai session: in
+   v12.8 it got 403 from every org (the v12.9 entry below). v12.9 gave the index a second transport and left usage
+   off it on purpose: usage carries DEC-044's ordering rules, and v12.9's spec was index-only. The owner's B0
+   probe (2026-10-23, Userscripts 4.8.6) measured the missing piece: a content-world
+   `fetch('/api/organizations/<org>/usage', {credentials: 'include'})` answers **200, `application/json`**.
+2. **Storage [code; measured].** All six GM keys were read and written with the synchronous `GM_getValue` /
+   `GM_setValue`. B0: both are `typeof 'undefined'` under Userscripts 4.8.6, despite their `@grant` lines, while
+   `GM.getValue` / `GM.setValue` are functions that round-trip a value and persist it across reloads. Every call
+   site was try/caught, so each read returned its default and each write vanished, without a word. `acn-settings`
+   is re-read on every `i18n()` call, so the language could never change at all.
+
+### Solutions considered
+
+Usage:
+- **Keep usage on GM, with the honest "unavailable" state** (v12.8–v12.11). Rejected: Safari carries equal
+  priority (DEC-047).
+- **Switch usage wholesale to `fetch`.** Rejected for the index's reason (DEC-045): it trades Tampermonkey's proven
+  GM path for one never measured in its sandbox.
+- **Put it on the existing ladder, `ciLadderGet`: chosen.** The hypothesis: the ladder's rule (a refusal, or a
+  transport that cannot run, hands the request to the other transport) is exactly Safari's case, and B0 had
+  measured the `fetch` leg. Two constraints: DEC-044's rules had to survive the move, and the ladder could not be
+  restructured, since its mutation tooling anchors on its exact code. Its builder still builds every mutant it
+  built on main (42 of 42; M08, M09, M21 and M34 have been broken since v12.10).
+
+Storage:
+- **Move the GM keys to `localStorage`**, which ROADMAP 0d listed. Not chosen: the owner's spec asked for the async
+  GM path, and for the README's wording, the userscript manager's storage and not the site's, to keep holding.
+- **Make every read site async.** Rejected: every read is synchronous today (`i18n()` reads settings for each
+  string), so it would restructure most features.
+- **Preload the six keys into memory at startup, then run: chosen**, as the spec designed it. How startup is
+  deferred, what a failed load does and how writes are ordered, with the variants rejected for each: DEC-049.
+
+### Fix
+
+- **B1:** both usage requests go through `ciLadderGet`, with DEC-044's rules kept (DEC-044, v12.12 addendum).
+  `maybeRefreshUsage` now requires the exact origin, `https://claude.ai`.
+- **B2:** `acnGetValue` / `acnSetValue` for the six keys. Where only the async API exists, `acnMain` loads them
+  through `GM.getValue` and then runs again with them in memory (DEC-049). `@grant GM.getValue` / `GM.setValue`
+  added. Tampermonkey's path calls `GM_getValue` / `GM_setValue` exactly as before.
+- **Found and fixed in review:** a pre-existing no-cookie org-list race (`_usageOrgListSeq`), and two writes of one
+  key landing out of order (the newest is rewritten).
+
+### Results & verification
+
+- **Page realm** (Playwright, headless, this Mac; transports and storage stubbed):
+  - `check-usage-state` U11 (gmxhr 403, fetch 200: bars), U11b (no cookie, every GM request refused: the org list
+    and usage come through fetch) and U12 (a look-alike host: no usage request). They fail on v12.11 (Chromium; U11
+    and U12 also on Firefox) and pass on v12.12 on all three engines.
+  - `check-gm-storage` G1–G6: v12.11 fails G1, G2, G4 and G5 (Chromium; it was run before G6 existed, so G6 was
+    not run on it); v12.12 passes all six on all three engines. Single mutants: no rewrite fails G6 only, and a 1.5 s load bound fails G4 only.
+  - The final run and the review: CHANGELOG 12.12.
+- **Real Safari: owed** (DEC-031).
+- **Remaining, logged in ROADMAP 0d:** the SSE half of the exact-origin gap; no gate for the cross-org stale-response
+  drop; the usage requests now share the fetch transport's caps with the index; two tabs are last-write-wins.
+
+---
+
 ## RESOLVED — Claude's turn-counter dots freeze at a stale count: 0 or the 1–4 mounted turns (found 2026-10-23)
 
 **Phase:** v12.10 acceptance on Safari + Userscripts | **Severity:** Medium — a wrong indicator, no data loss |
@@ -671,6 +748,26 @@ The four runs: v12.8 and v12.9 side by side under identical load, the final buil
   kept jumps unchanged. Real Safari did not reproduce it in the owner's acceptance (2026-10-23), so this is a
   Playwright engine-build question only.
 
+### Measured again 2026-10-23 — the v12.11 and v12.12 final runs, local, macOS arm64
+
+| Run | Entries failed | `raf10` | Give-up |
+|---|---|---|---|
+| v12.11 final (`6f90d5a`, PR #81) | 3 of 4; the 150-row entry passed | ~150 ms | ~1.46 s |
+| v12.12 final (`e87aa27`, PR #82) | all 4 | 272–327 ms | 1460–1801 ms |
+
+Both show the same shape: `got null busySeen=true idx=null`, on "every targeted question reaches its exact row"
+only, for the last questions of each conversation. **Two elements of the v12.12 run differ from the record
+above:** its frames were about twice as slow, and one give-up came past the 1452–1701 ms range. Frame rate alone
+does not explain the failure, since the record's runs failed at 135–168 ms. The 150-row entry, which fails only 2
+of its 15 questions when it fails at all, passed in the faster run and failed in the slower one. CI's `webkit on
+macos-latest` passed all 560 on both PRs' heads (`763f0d7`, `5af4d79`). Real Safari did not reproduce it (DEC-031).
+
+**Why WebKit only: inferred, not measured.** A jump to an unmounted question scrolls, waits for the virtualizer to
+remount rows, and reads which rows landed, so it depends on scroll, layout and animation-frame timing, where engines
+differ. Near the bottom the mock's pinned tail leaves the mounted set non-contiguous, so the jump has to pick the
+right cluster. An older WebKit build handling the scroll or the remount differently there fits the pattern. Owed
+item 2 below is still the test for it.
+
 ### Approaches considered
 
 - **"v12.9 broke it."** The first hypothesis for any new failure on a branch. Tested by the side-by-side run
@@ -725,8 +822,10 @@ rediscovered as new.
 
 ### Measured again 2026-10-23 (PR #82, v12.12), solo runs, macOS arm64
 
-The same signature, at the same wait (`window.__acnUsageRequests >= 3`; now line 424, moved by lines added above
-it): **v12.12 4 of 4 runs, v12.11 1 of 2.** Every run was solo, so load alone does not explain it. v12.12 moved
+The same signature, at the same wait (`window.__acnUsageRequests >= 3`): line 424 in v12.12's first runs and
+line 443 in its final run (397 in v12.11's probe), moved only by lines added above it. **v12.12 5 of 5 runs** (the
+fifth was PR #82's final run on `e87aa27`), **v12.11 1 of 2.** PR A's final run of v12.11 earlier that day, on the probe as it was then, passed it. Every run was solo, so
+load alone does not explain it. v12.12 moved
 the usage requests onto the transport ladder; no mechanism that would delay this third request was found in that
 change [code], and v12.11 fails it too. U11 and U12 now run before U10, so its throw no longer leaves them
 unjudged. Still not investigated.
@@ -881,9 +980,10 @@ Network**, and check its Cookie, Origin and Sec-Fetch-Site headers.
 - **Chrome + Tampermonkey's intermittent 403 (at least once, per the owner) — UNEXPLAINED.** A candidate, unverified: Tampermonkey #2782
   (cookies received through GM_xhr stored partitioned, then overwriting the unpartitioned session cookie;
   fixed in a TM beta). Do not theorise further without the `[ACN] index:` lines from an occurrence.
-- **Plan usage on Safari** still uses `GM_xmlhttpRequest` only — expect "Usage data unavailable" (inferred).
-- **GM storage on Safari** — Userscripts provides no synchronous `GM_getValue`/`GM_setValue` (from its source),
-  so nothing the script keeps in GM storage works there: bookmarks, saved commands, the language and platform
+- ~~**Plan usage on Safari** still uses `GM_xmlhttpRequest` only — expect "Usage data unavailable" (inferred).~~
+  Fixed in v12.12 (the "FIXED IN v12.12" entry above; acceptance: DEC-031).
+- ~~**GM storage on Safari**~~ (fixed in v12.12, the same entry; the text below is as found) — Userscripts
+  provides no synchronous `GM_getValue`/`GM_setValue` (from its source), so nothing the script keeps in GM storage works there: bookmarks, saved commands, the language and platform
   toggles, the org cache. Every call site is try/caught, so it fails silently. Display mode, scroll direction
   and panel width use `localStorage` and are unaffected. Separate from this fix; ROADMAP 0d.
 - ~~**A long conversation on Safari** — the measurement above used 6 messages.~~ Settled by the owner's Safari

@@ -254,3 +254,26 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 > list is complete; until then write "not reached by \<the paths read\>".
 > **Why:** an "unreachable" label stops anyone from gating the branch or reasoning about it. A probe that never
 > reaches it (this one has no SSE) then passes, and the pass looks like confirmation.
+
+> **Issue:** v12.12's async GM storage path starts at the very top of `acnMain`, before any `var` below it has been
+> assigned. The first draft of `acnStoreLoad` read its 2 s bound from a `var ACN_STORE_LOAD_MS = 2000` declared
+> further down. Hoisting made the name exist but left it `undefined` at that point, and `setTimeout(fn, undefined)`
+> fires at once. So every Safari page would have logged a load timeout and run on defaults, which reads like a
+> slow manager rather than a bug. Caught by reading, before any run.
+> **Correct approach:** code that runs before the body (the duplicate guard, `acnStoreIsAsync`, `acnStoreLoad`)
+> may call hoisted function declarations, but must not read any module-level `var`: give it literals or locals.
+> When adding such code, list every identifier it reads and check where each one is assigned.
+> **Why:** a hoisted `var` is `undefined` rather than missing, so nothing throws. The code runs with a wrong value,
+> and the symptom points at the runtime instead of at the code.
+
+> **Issue:** While adding U11b to `probes/check-usage-state.js` through a Python heredoc, a regex inside the page's
+> template literal reached the file as `/\/usage$/` instead of `/\\/usage$/`: the non-raw Python string halved the
+> backslash once. The template literal then turned `\/` into `/`, so the generated page held `//usage$/…`, a line
+> comment. The stub script stopped parsing, U3–U6 failed with `requests=undefined`, and U7 timed out, all for that
+> reason alone. The probe's own comments warn about this trap.
+> **Correct approach:** inside a JS template literal every backslash must be doubled in the file, and a non-raw
+> Python string halves it once more. Write such edits with a raw string (`r'''...'''`) or from a file, and grep the
+> line as it landed. When many unrelated checks fail at once with values like `undefined`, suspect the harness
+> before the code.
+> **Why:** the failure looks like a broken build under test, and it was the same family as the `\uXXXX` lesson
+> above: each layer of quoting the text passes through can eat an escape.

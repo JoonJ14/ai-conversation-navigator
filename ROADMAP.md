@@ -30,7 +30,7 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.10 MERGED (PR #78, `166a281`) — live confirmation status: DEC-031
+## Current Status: v12.12 MERGED (PR #82, `2b7e8d1`) — live confirmation status: DEC-031 (owed on all three browsers)
 
 **v12.10 (PR #78, merged 2026-10-23 as `166a281`).** ChatGPT and Perplexity list every question again: October
 selectors for the DOM fallback, and an index adapter per platform reading each site's own JSON through the v12.9
@@ -40,19 +40,25 @@ for Claude; Safari's ChatGPT and Perplexity check is owed after the merge (a wai
 **v12.9 (PR #75, merged as `4c72ca9`)** — the Claude index works on Safari + Userscripts through a second
 transport (DEC-045; item 0d).
 
-**Next, in the owner's order (2026-10-23).** The next session gets a spec from the owner; two small PRs, in order:
+**Done, in the owner's order (2026-10-23):** two small PRs from the owner's spec, both merged. The v12.10 and
+v12.9 paragraphs above are history.
 1. **PR A, the turn-counter fix, all browsers: v12.11 (PR #81, merged as `9a0fc7d`).** Claude's dots froze at a
    stale count (TROUBLESHOOTING, "Claude's turn-counter dots", which has the fix, its gate and why closing the panel
    on a switch was dropped). Owner acceptance: DEC-031.
-2. **PR B, Safari parity (item 0d): built as v12.12 (PR #82).** The usage request is on the transport ladder with
+2. **PR B, Safari parity (item 0d): v12.12 (PR #82, merged as `2b7e8d1` before the owner's acceptance, a waiver,
+   DEC-031).** The usage request is on the transport ladder with
    DEC-044's rules and the exact-origin guard. A GM storage wrapper serves the six GM keys from an in-memory copy
    loaded through `GM.getValue` at startup, only when the synchronous functions are missing; the Tampermonkey path
    is unchanged. The owner's B0 measurement is in agent_docs/architecture.md's runtime matrix. SSE on Safari stays
-   out of scope. Owner acceptance: DEC-031.
+   out of scope. Owner acceptance owed: DEC-031. Design: DEC-049; the debugging story: TROUBLESHOOTING, "Safari +
+   Userscripts: Plan usage unavailable".
+
+**Next (owner, 2026-10-23):** the owner's live testing of v12.12 on all three browsers (PR #82's checklist; results
+in DEC-031), then a handoff for the next session.
 
 Then: Grok and Gemini (the owner decides the order), Perplexity attachment images, the CI rebuild (item 0e),
 the context-window meter (item 12) and the v12.10 follow-ups (item 13). Owed meanwhile: Safari's ChatGPT and
-Perplexity acceptance (DEC-031).
+Perplexity acceptance and v12.12's acceptance on all three browsers (DEC-031).
 
 **v12.8 (PR #73, merged)** — a failed usage fetch says so instead of "loading" forever (DEC-044).
 
@@ -313,7 +319,7 @@ Numbering below is stable (items keep their historical numbers):
      index request logs `[ACN] index: transport=<gmxhr|fetch> org=<8 chars>… status=<n>`, and
      every reason from the org walk starts with the transport. **If it recurs, collect those lines before
      theorising** — they say which transport was refused and whether the ladder rescued the load.
-   - **The Plan usage panel on Safari — BUILT in v12.12 (PR #82); acceptance: DEC-031.** Through
+   - **The Plan usage panel on Safari — MERGED in v12.12 (PR #82, `2b7e8d1`); acceptance owed: DEC-031.** Through
      `GM_xmlhttpRequest` it read "Usage data unavailable" (the owner, v12.10 and v12.11). Its two requests now go
      through `ciLadderGet` with DEC-044's rules kept (one caller, the flag cleared before the call, asymmetric
      supersession, the silent stale-org drop on every answer); the ladder's 45 s timeout is past U4's window. The
@@ -330,8 +336,8 @@ Numbering below is stable (items keep their historical numbers):
      (2026-10-23); which transport won was not recorded, so the intermittent 403 above still has no log lines.
      Real Safari did NOT reproduce the local mac WebKit jump failure, so that entry
      stays open only as a Playwright engine-build issue (TROUBLESHOOTING, "OPEN — Local mac WebKit").
-   - **Nothing kept in GM storage works on Safari + Userscripts — BUILT in v12.12 (PR #82); acceptance:
-     DEC-031.** The owner's B0 probe (Userscripts 4.8.6) measured no synchronous functions at all and a working,
+   - **Nothing kept in GM storage works on Safari + Userscripts — MERGED in v12.12 (PR #82, `2b7e8d1`);
+     acceptance owed: DEC-031.** The owner's B0 probe (Userscripts 4.8.6) measured no synchronous functions at all and a working,
      persisting `GM.getValue` / `GM.setValue` (runtime matrix). `acnGetValue` / `acnSetValue` serve the six keys
      from a copy loaded through `GM.getValue` before the script runs; Tampermonkey's path is unchanged. Gate:
      `probes/check-gm-storage.js`. **Known limits, logged:** two tabs are last-write-wins per key (no syncing);
