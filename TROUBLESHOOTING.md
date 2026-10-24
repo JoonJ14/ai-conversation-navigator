@@ -632,7 +632,8 @@ refetch.
 
 **Phase:** v12.12 acceptance; fixed in v12.13 (the cross-tab PR) | **Severity:** High — data loss on one of the
 three equal-priority runtimes (DEC-047), across every conversation | **Status:** fixed in code and gated in the page
-realm; C0 passed on all three managers; real-browser acceptance owed (DEC-031)
+realm; C0 passed on all three managers; merged as `b96ec7b` after the owner's acceptance: step 1 (the two-tab
+test) passed on all three browsers, steps 2–7 not reported (a waiver, DEC-031)
 
 ### Symptom
 

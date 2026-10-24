@@ -32,7 +32,7 @@ This document tracks features and platform expansions we're considering but have
 
 ## Current Status: v12.14 MERGED (PR #86) — live confirmation status: DEC-031
 
-**v12.14 (PR #86, merged 2026-10-24 after the owner's acceptance on all three browsers).** Claude answers have flags in project chats again, answer bookmarks
+**v12.14 (PR #86, merged 2026-10-24 as `79e4953`).** Owner acceptance: steps 1–3 passed on all three browsers; Chrome's and Firefox's steps 4–5 not reported (a partial waiver, DEC-031). Claude answers have flags in project chats again, answer bookmarks
 key to the message and read "Answer to Q#n", and existing answer bookmarks bind on proof or show "A#?" (DEC-051;
 TROUBLESHOOTING, "Claude answer bookmarks"). Next: the third PR, Claude markup follow-ups (item 14).
 
@@ -61,13 +61,30 @@ v12.9 paragraphs above are history.
    Userscripts: Plan usage unavailable".
 
 **Next (owner, 2026-10-24):** the bookmark issue the owner found in v12.12's acceptance became two PRs: v12.13
-(a second tab erased the first tab's bookmarks) and v12.14 (answer bookmarks), both accepted on all three browsers
-and recorded in DEC-031 with v12.12's itemized results. Then the third PR, Claude markup follow-ups (item 14), in a new
+(a second tab erased the first tab's bookmarks) and v12.14 (answer bookmarks), both merged after the owner's
+acceptance with partial waivers, recorded in DEC-031 with v12.12's itemized results. Then the third PR, Claude markup follow-ups (item 14), in a new
 session (the owner's plan, 2026-10-24).
 
-Then: Grok and Gemini (the owner decides the order), Perplexity attachment images, the CI rebuild (item 0e),
-the context-window meter (item 12) and the v12.10 follow-ups (item 13). Owed meanwhile: v12.12's
-itemized acceptance (DEC-031). Safari's v12.10 ChatGPT and Perplexity check passed on 2026-10-23.
+Then, in the owner's order (2026-10-24; the owner decides the order within it):
+1. Grok on all three browsers (item 13).
+2. Gemini: does it keep or slide older turns (item 13)?
+3. Perplexity attachment images.
+4. ChatGPT and Perplexity answer bookmarks (item 13).
+5. The CI rebuild (item 0e).
+6. The context-window meter's recalibration to the current limit, after verifying the limit per model (item 12).
+7. The stale "Turn N" badge on non-Claude sites. It is logged in TROUBLESHOOTING, "RESOLVED — Claude's
+   turn-counter dots", under "Logged, not fixed".
+8. The "reset, keeping a backup copy" action (item 0d).
+9. The AbortController follow-up for the ladder's caps (item 0d).
+10. Chrome's intermittent v12.9-era 403 (item 0d). It is logged and never reproduced; not active.
+11. Someday, at low priority: a spot-check of Chrome and Firefox on Windows. It is logged here only.
+
+Owed meanwhile, "not reported" until the owner sends results (DEC-031):
+- PR #85's steps 2–7;
+- PR #86's steps 4–5 on Chrome and Firefox;
+- the v12.12 items never reported;
+- v12.10's Safari check of ChatGPT and Perplexity, lists and jumps. It was recorded as passed on 2026-10-23 and
+  corrected to owed on 2026-10-24 (owner, DEC-031).
 
 **v12.8 (PR #73, merged)** — a failed usage fetch says so instead of "loading" forever (DEC-044).
 

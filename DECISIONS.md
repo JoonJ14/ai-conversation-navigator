@@ -1345,8 +1345,12 @@ review record. Updated 2026-10-24:
     predates v12.10 (TROUBLESHOOTING, "OPEN — Claude's turn-counter dots"). **ChatGPT and Perplexity: OWED**,
     after the merge. *Update 2026-10-23, on the v12.12 build: **Passed**. The owner picked "Passed" for "ChatGPT
     and Perplexity, full lists and jumps", whose option read "both lists full and jumps landed, on Safari".*
+    *Corrected 2026-10-24 (owner): **OWED**. The owner's v12.12 itemized report lists "ChatGPT and Perplexity on
+    Safari" as never checked (v12.12 above), and when asked which record stands, the owner chose owed. The
+    2026-10-23 pick stays above as it was recorded.*
   - **Waiver:** v12.10 was merged before Safari's ChatGPT and Perplexity acceptance, on the owner's call. The debt
-    stays owed on the merged build. *Paid 2026-10-23 (the update above).*
+    stays owed on the merged build. *Paid 2026-10-23 (the update above); owed again since 2026-10-24 (the
+    correction above).*
 - **v12.9 (PR #75).** Safari + Userscripts **PASS** (owner): `transport=fetch org=730fcd2a… status=200`; the
   index ready with 144 questions (295 messages in the payload) via fetch; jumps to Q1 through Q144, the last
   five included, all landed. Firefox + Tampermonkey (Linux) **PASS** (owner, after the merge). Chrome +
