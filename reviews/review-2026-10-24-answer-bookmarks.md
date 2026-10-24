@@ -68,7 +68,9 @@ timeout path. No userscript change; A36 passes on all three engines and still fa
 - Gates: `check-answer-bookmarks` A1–A36. v12.13 fails A2–A5, A9–A21, A24 and A27–A36; A1, A6–A8, A22, A23 and A26 are
   guards; A25 is a control. 18 targeted mutants, each caught by its named check after the unmutated build passes
   every check.
-- **GitHub Codex rounds needed afterwards:** to be recorded after the PR's review.
+- **GitHub Codex rounds needed afterwards:** 2, with no findings. On opening, Codex reacted 👍; the `@codex review`
+  the owner's rule asks for on a clean first pass came back on `8a42e80`: "Didn't find any major issues". **Total: 2
+  GitHub Codex rounds, 0 findings** (PR #85 needed 3 rounds and had 1 finding).
 
 ## Measurement context
 
