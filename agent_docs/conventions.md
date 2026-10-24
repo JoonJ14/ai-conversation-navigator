@@ -31,9 +31,11 @@ The userscript must remain **ES5 compatible**. This means:
 
 ## Storage Keys
 
-Checked against the code in v12.9. **Which store a key uses matters:** under Safari + Userscripts the
-synchronous `GM_getValue`/`GM_setValue` do not exist (from Userscripts' source), so every GM key below
-fails silently there. The `localStorage` keys are unaffected (ROADMAP item 0d).
+Checked against the code in v12.12. **Every GM key goes through `acnGetValue` / `acnSetValue`, never
+`GM_getValue` / `GM_setValue` directly.** Under Safari + Userscripts the synchronous functions do not exist
+(the owner's B0 run, Userscripts 4.8.6), so the wrapper serves the GM keys from a copy that `acnStoreLoad`
+reads through `GM.getValue` before the script runs. **A new GM key must also be added to `acnStoreLoad`'s
+list**, or on Safari it reads as its default on every page load.
 
 | Key | Store | Purpose |
 |-----|-------|---------|

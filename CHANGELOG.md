@@ -4,6 +4,63 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.12 — Safari Parity: Plan Usage and Everything Kept in GM Storage] — 2026-10-23
+
+**Branch:** `fix/safari-parity` | **PR:** #82
+
+### Problem
+
+On Safari + Userscripts, two things never worked:
+- **The Plan usage panel read "Usage data unavailable"** (owner, v12.10 and v12.11). It asked only through
+  `GM_xmlhttpRequest`, which Userscripts sends without the claude.ai session (v12.9).
+- **Nothing kept in GM storage was stored.** Bookmarks and saved commands vanished on reload, button positions
+  reset, and the language and platform toggles could not change, so the panels stayed in English.
+
+### Root cause
+
+- **Usage [code]:** `fetchClaudeUsage` was left off v12.9's transport ladder on purpose: it carries v12.8's
+  ordering rules (DEC-044), and v12.9's spec was index-only.
+- **Storage:** Userscripts provides no synchronous `GM_getValue` / `GM_setValue` at all, and every call site was
+  try/caught, so each failed silently. Measured by the owner's B0 probe (Safari, Userscripts 4.8.6): `typeof` both
+  `'undefined'`, while the async `GM.getValue` / `GM.setValue` work and persist across reloads. The same probe
+  measured the content-world `fetch` of the usage endpoint at 200, `application/json`.
+
+### Fix
+
+- **Usage:** both requests go through `ciLadderGet`, so a refused or missing transport hands them to the other
+  one. DEC-044's rules are kept: one caller, the flag cleared before the call, asymmetric supersession, the silent
+  stale-org drop on every answer, and no timeout shorter than U4's window (the ladder's is 45 s). The ladder
+  itself is unchanged.
+- **The exact-origin guard for usage:** `maybeRefreshUsage` runs only on `https://claude.ai` exactly, as the
+  index does. The SSE half of that gap stays open (ROADMAP 0d).
+- **Storage:** `acnGetValue` / `acnSetValue` for the six GM keys. With the synchronous functions present
+  (Tampermonkey) they are called exactly as before. Without them, the script first loads the six keys through
+  `GM.getValue`, then runs with them in memory; writes update memory at once and persist with `GM.setValue`.
+  `@grant GM.getValue` and `GM.setValue` added. No migration: nothing was ever stored on Safari.
+- **A failed or slow load** (over 2 s) runs on defaults, logs once, and saves nothing for that page, because each
+  key holds a whole collection and a save would replace what is stored (owner's decision).
+- **Known limit:** two tabs are last-write-wins per key, as with `GM_setValue` (ROADMAP 0d).
+
+### Verification
+
+Measured in Playwright's page realm, headless, this Mac. Not any manager's real storage or transport.
+- **`check-usage-state` U11** (gmxhr refused, fetch answers: bars) and **U12** (a look-alike host: no usage request
+  on either transport). Both fail on v12.11 (run on Chromium and Firefox) and pass on v12.12 (all three engines). The probe's GM stub now
+  reports every HTTP status through `onload`, as a real manager does.
+- **`probes/check-gm-storage.js`** (new; in `npm run test:probes` and CI's ubuntu jobs on all three engines):
+  - G1: a bookmark survives a reload with only the async API;
+  - G2: a language change does too;
+  - G3: with both APIs present, both survive through the sync functions and `GM.*` is never called;
+  - G4: a `GM.getValue` that never answers still brings the UI up, logs once, and writes nothing.
+  v12.11 fails G1, G2 and G4 (run on Chromium); v12.12 passes all four on all three engines. G3 passes on both, as the unchanged
+  path should.
+- Suite and probes on the final build: in the PR.
+
+**Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey** (PR checklist):
+results in DEC-031.
+
+---
+
 ## [12.11 — The Turn-Counter Dots Show the Real Count] — 2026-10-23
 
 **Branch:** `fix/turn-counter-dots` | **PR:** #81

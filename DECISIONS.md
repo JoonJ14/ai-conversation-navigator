@@ -1264,6 +1264,8 @@ every waiver here, and in the release's CHANGELOG entry.
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
 review record. Updated 2026-10-23:
+- **v12.12 (PR #82, Safari parity: plan usage and GM storage).** **OWED** on Safari + Userscripts, Chrome +
+  Tampermonkey and Firefox + Tampermonkey (checklist in the PR).
 - **v12.11 (PR #81, the turn-counter dots).** Owner, real browsers, 2026-10-23, recorded as reported:
   - **Safari + Userscripts, Chrome + Tampermonkey, Firefox + Tampermonkey: PASS.** On the 144-question Claude
     conversation, Navigate shows 1 question for a moment, then the full list about half a second later, with the
