@@ -355,20 +355,32 @@ const PAGE_HELPERS = `(function () {
             return { litBefore: litBefore, hadIcon: !!icon };
         },
         // Runs the Tools panel's bookmark export and returns the file's text (the download link's blob).
+        // The file's text, read from the Blob the export builds (wrapped here), not from the download, which
+        // engines handle differently; null with window.__acn.exportWhy saying why.
         exportBookmarks: function () {
             return new Promise(function (resolve) {
-                var orig = HTMLAnchorElement.prototype.click;
-                HTMLAnchorElement.prototype.click = function () {
-                    if (!this.download) return orig.call(this);
-                    HTMLAnchorElement.prototype.click = orig;
-                    fetch(this.href).then(function (r) { return r.text(); }).then(resolve, function () { resolve(null); });
+                var OrigBlob = window.Blob, done = false;
+                function finish(text, why) {
+                    if (done) return;
+                    done = true;
+                    window.Blob = OrigBlob;
+                    window.__acn.exportWhy = why || null;
+                    resolve(text);
+                }
+                window.Blob = function (parts, opts) {
+                    var b = new OrigBlob(parts, opts);
+                    if (opts && /markdown/.test(opts.type || '')) {
+                        try { finish(parts.map(String).join(''), null); } catch (e) { finish(null, 'blob parts: ' + e); }
+                    }
+                    return b;
                 };
+                window.Blob.prototype = OrigBlob.prototype;
                 var opt = document.querySelector('[data-acn-export="bookmarks"]');
                 if (!opt) { var dot = document.getElementById('acn-dot-tools'); if (dot) dot.click();
                             opt = document.querySelector('[data-acn-export="bookmarks"]'); }
-                if (!opt) { HTMLAnchorElement.prototype.click = orig; resolve(null); return; }
+                if (!opt) { finish(null, 'no bookmarks export option'); return; }
                 opt.click();
-                setTimeout(function () { HTMLAnchorElement.prototype.click = orig; resolve(null); }, 3000);
+                setTimeout(function () { finish(null, 'no markdown Blob within 3 s'); }, 3000);
             });
         },
         clickDecoyFlag: function () {
@@ -723,9 +735,10 @@ const PAGE_HELPERS = `(function () {
             const md = await page.evaluate('window.__p.exportBookmarks()');
             const heads = md ? (md.match(/^## .*$/gm) || []).map((h) => h.replace(/^## \S+ /, '').replace(/ \u2014 .*$/, '')) : null;
             const wantHeads = [answerLabel(2), 'Q#5', answerLabel(12), answerLabel(20)];
+            const why = md ? null : await page.evaluate('window.__acn.exportWhy');
             check('A36', 'the bookmark export uses the same labels, an answer right after its question',
                 !!heads && JSON.stringify(heads) === JSON.stringify(wantHeads),
-                'headings ' + JSON.stringify(heads) + ' want ' + JSON.stringify(wantHeads));
+                'headings ' + JSON.stringify(heads) + ' want ' + JSON.stringify(wantHeads) + (why ? ' (' + why + ')' : ''));
             // A5 — from the top, jump to answer 20 (row ~37, not mounted there).
             await page.evaluate('window.__mockVirtualization.scrollToFraction(0)');
             await stableAnswers(page);
