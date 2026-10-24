@@ -365,8 +365,9 @@
         mem[key] = JSON.stringify(apply(here));
         if (!_acnStore.persist) return true;
         var queues = _acnStore.queues || (_acnStore.queues = {});
-        var q = queues[key] || (queues[key] = { def: def, valid: valid, waiting: [], busy: false });
-        q.waiting.push(apply);
+        var q = queues[key] || (queues[key] = { def: def, waiting: [], busy: false });
+        // Each change keeps its own check: a bookmark's is for its own conversation.
+        q.waiting.push({ valid: valid, apply: apply });
         if (!q.busy) acnPersist(key);
         return true;
     }
@@ -384,8 +385,8 @@
             }
             finish('failed');
         }, 5000);
-        // 'stored': the batch is written. 'refused': the stored value is unreadable, and the
-        // batch is dropped (never written over it). 'failed': the batch stays waiting.
+        // 'stored': the batch is written. 'refused': nothing in it could be applied (the stored
+        // value is unreadable), and it is dropped, never written over. 'failed': it stays waiting.
         function finish(how, text) {
             if (done) return;
             done = true;
@@ -397,7 +398,10 @@
                 // now includes what other tabs saved too.
                 try {
                     var v = JSON.parse(text);
-                    for (var i = 0; i < q.waiting.length; i++) v = q.waiting[i](v);
+                    for (var i = 0; i < q.waiting.length; i++) {
+                        if (!q.waiting[i].valid(v)) continue;
+                        try { v = q.waiting[i].apply(v); } catch (e) {}
+                    }
                     _acnStore.mem[key] = JSON.stringify(v);
                 } catch (e) {}
             }
@@ -421,11 +425,18 @@
                     else if (typeof stored === 'string') cur = JSON.parse(stored);
                     else throw new Error('not JSON text');
                 } catch (e) { cur = undefined; }
-                if (!q.valid(cur)) { acnRefuseWrite(key); finish('refused'); return; }
-                // A change that throws is skipped, not retried: it would throw every time.
-                for (var i = 0; i < batch.length; i++) {
-                    try { cur = batch[i](cur); } catch (e) { acnStoreWarn('a change could not be applied'); }
+                // Each change against its own check: one the stored value fails is refused and
+                // dropped, never written over what it cannot read. A change that throws is
+                // skipped, not retried: it would throw every time.
+                var applied = 0;
+                if (cur === undefined) acnRefuseWrite(key);
+                else {
+                    for (var i = 0; i < batch.length; i++) {
+                        if (!batch[i].valid(cur)) { acnRefuseWrite(key); continue; }
+                        try { cur = batch[i].apply(cur); applied++; } catch (e) { acnStoreWarn('a change could not be applied'); }
+                    }
                 }
+                if (!applied) { finish('refused'); return; }
                 text = JSON.stringify(cur);
                 try {
                     GM.setValue(key, text).then(function () { finish('stored', text); },

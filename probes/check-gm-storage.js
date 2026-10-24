@@ -68,7 +68,11 @@
 //       bookmarks still end up stored
 // Added in review (Codex Tier 3, round 5):
 //   G29 [new] async only, one conversation in two tabs: A loads with B's bookmark lit; B removes
-//       it; A saves another. A's flag for the removed one goes dark, and nothing brings it back
+//       it; A saves another. A's flag for the removed one goes dark, and a click on it adds it again
+// Added in review (Codex Tier 3, round 7):
+//   G30 [new] async only, a page saves in conversation A, then moves to B in place, where another
+//       tab has left B's stored entry null: the B bookmark is refused with the warning, and
+//       nothing is written over B's entry
 // The guards pass on v12.12, which writes the whole copy each time; the review's pre-fix build
 // (698e27f) fails G19, G20 and G21.
 // Not gated, and not reachable from the UI: a conversation whose stored entry holds something
@@ -783,7 +787,31 @@ const READ = `(function () {
         return { xLit, n };
     })();
     check('G29', "async only: a write that brings in another tab's removal turns that flag off",
-        flags.xLit === false, 'removed bookmark still lit in A=' + flags.xLit + ' bookmarks stored after clicking it=' + flags.n);
+        flags.xLit === false && flags.n === 2, 'removed bookmark still lit in A=' + flags.xLit + ' bookmarks stored after clicking it=' + flags.n);
+
+    // G30 — one page, two conversations: the queue for the key exists from A's save.
+    const moved = await (async () => {
+        const context = await browser.newContext();
+        const logs = [];
+        const page = await openTab(context, TARGET, 'async', logs);
+        await page.waitForFunction("document.querySelectorAll('[data-acn-bookmark]').length > 1", null, { timeout: 30000 });
+        await page.evaluate("document.querySelectorAll('[data-acn-bookmark]')[0].click()");   // a save in A
+        await page.waitForTimeout(500);
+        await page.evaluate((u) => history.pushState({}, '', u), new URL(TARGET_B).pathname);
+        const raw = unheld('async', await getHeld(page, '__gmasync:', 'acn-bookmarks-v1'));
+        const store = JSON.parse(raw);
+        store[TARGET_B] = null;                                   // another tab's damage to B
+        const damaged = JSON.stringify(store);
+        await setHeld(page, '__gmasync:', 'acn-bookmarks-v1', held('async', damaged));
+        await page.evaluate("document.querySelectorAll('[data-acn-bookmark]')[1].click()");   // a save in B
+        await page.waitForTimeout(700);
+        const after = unheld('async', await getHeld(page, '__gmasync:', 'acn-bookmarks-v1'));
+        await context.close();
+        return { kept: after === damaged,
+                 refused: logs.filter((l) => l.indexOf('[ACN] storage: the stored acn-bookmarks-v1 could not be read') === 0).length };
+    })();
+    check('G30', "async only: a save in a second conversation is checked against that conversation's entry",
+        moved.kept && moved.refused === 1, 'stored value kept=' + moved.kept + ' refusal lines=' + moved.refused);
 
     const rf = await twoAfterTrouble('readfailonce', 400);
     check('G28', 'async only, the first bookmark read after startup is refused: both bookmarks stored',
