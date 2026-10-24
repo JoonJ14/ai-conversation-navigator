@@ -365,6 +365,13 @@ async function routeChangeAndForceScan(page, url) {
                 route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
                 return;
             }
+            // The usage panel is not under test here. Since v12.12 its requests also ride the ladder,
+            // so they can reach fetch (first in Userscripts order; after the GM watchdog otherwise):
+            // refused at once, and kept out of fetchCalls, which counts the index's requests.
+            if (/^https:\/\/[^/]+\/api\/organizations\/[^/]+\/usage$/.test(u.split('?')[0])) {
+                route.abort().catch(() => {});
+                return;
+            }
             // ANY origin's /api/ request is recorded — a request sent from the wrong origin is
             // exactly what LO and LH must be able to see — but only claude.ai's is answered.
             if (/^https:\/\/[^/]+\/api\//.test(u)) {

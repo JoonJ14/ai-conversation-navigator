@@ -723,6 +723,14 @@ is a live suspect, and it was not separated out. What delays or suppresses the t
 not investigated — out of PR #75's scope. Nothing was tried; this entry exists so the flake is not
 rediscovered as new.
 
+### Measured again 2026-10-23 (PR #82, v12.12), solo runs, macOS arm64
+
+The same signature, at the same wait (`window.__acnUsageRequests >= 3`; now line 424, moved by lines added above
+it): **v12.12 4 of 4 runs, v12.11 1 of 2.** Every run was solo, so load alone does not explain it. v12.12 moved
+the usage requests onto the transport ladder; no mechanism that would delay this third request was found in that
+change [code], and v12.11 fails it too. U11 and U12 now run before U10, so its throw no longer leaves them
+unjudged. Still not investigated.
+
 ### Owed
 
 Repeated solo Firefox runs of the probe before reading anything into it (a single run is not a measurement).

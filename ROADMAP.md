@@ -41,13 +41,14 @@ for Claude; Safari's ChatGPT and Perplexity check is owed after the merge (a wai
 transport (DEC-045; item 0d).
 
 **Next, in the owner's order (2026-10-23).** The next session gets a spec from the owner; two small PRs, in order:
-1. **PR A, the turn-counter fix, all browsers: built as v12.11 (PR #81).** Claude's dots froze at a stale count
-   (TROUBLESHOOTING, "Claude's turn-counter dots", which has the fix, its gate and why closing the panel on a
-   switch was dropped). Owner acceptance: DEC-031.
-2. **PR B, Safari parity (item 0d).** The usage request onto the ladder with DEC-044's rules, plus the
-   exact-origin guard for usage. A GM storage wrapper using async `GM.getValue` / `GM.setValue` with an in-memory
-   copy loaded at startup, used only when the synchronous functions are missing; the Tampermonkey path stays
-   unchanged. SSE on Safari stays out of scope.
+1. **PR A, the turn-counter fix, all browsers: v12.11 (PR #81, merged as `9a0fc7d`).** Claude's dots froze at a
+   stale count (TROUBLESHOOTING, "Claude's turn-counter dots", which has the fix, its gate and why closing the panel
+   on a switch was dropped). Owner acceptance: DEC-031.
+2. **PR B, Safari parity (item 0d): built as v12.12 (PR #82).** The usage request is on the transport ladder with
+   DEC-044's rules and the exact-origin guard. A GM storage wrapper serves the six GM keys from an in-memory copy
+   loaded through `GM.getValue` at startup, only when the synchronous functions are missing; the Tampermonkey path
+   is unchanged. The owner's B0 measurement is in agent_docs/architecture.md's runtime matrix. SSE on Safari stays
+   out of scope. Owner acceptance: DEC-031.
 
 Then: Grok and Gemini (the owner decides the order), Perplexity attachment images, the CI rebuild (item 0e),
 the context-window meter (item 12) and the v12.10 follow-ups (item 13). Owed meanwhile: Safari's ChatGPT and
@@ -312,20 +313,32 @@ Numbering below is stable (items keep their historical numbers):
      index request logs `[ACN] index: transport=<gmxhr|fetch> org=<8 chars>… status=<n>`, and
      every reason from the org walk starts with the transport. **If it recurs, collect those lines before
      theorising** — they say which transport was refused and whether the ladder rescued the load.
-   - **The Plan usage panel on Safari — almost certainly still unavailable (inferred, NOT
-     measured).** `fetchClaudeUsage` still makes both of its requests through
-     `GM_xmlhttpRequest` only, so on Safari it should 403 like every other GM request there and
-     the panel should read "Usage data unavailable" (v12.8's honest failure state). Kept out of
-     v12.9 because the usage path carries v12.8's ordering rules (one caller, flag cleared before
-     the call, asymmetric supersession — DEC-044) and the spec was index-only. Moving it onto the
-     ladder is a separate, gated change: keep the silent stale-org drop on every leg, add no
-     timeout shorter than the U4 window, and give its GM stub real onload-for-4xx semantics first.
+   - **The Plan usage panel on Safari — BUILT in v12.12 (PR #82); acceptance: DEC-031.** Through
+     `GM_xmlhttpRequest` it read "Usage data unavailable" (the owner, v12.10 and v12.11). Its two requests now go
+     through `ciLadderGet` with DEC-044's rules kept (one caller, the flag cleared before the call, asymmetric
+     supersession, the silent stale-org drop on every answer); the ladder's 45 s timeout is past U4's window. The
+     owner's B0 probe measured the content-world `fetch` of the usage endpoint at 200, `application/json`
+     (runtime matrix). Gate: `check-usage-state` U11, after its GM stub was given real onload-for-4xx/5xx
+     semantics. **Logged, not changed:** the usage requests now share the fetch transport's page-wide caps
+     (`CI_FETCH_OPEN_MAX` 6, `CI_FETCH_STALL_MAX` 2) with the index, so on Safari a hanging path reaches the caps
+     about twice as fast during rapid conversation switches [code, not measured].
+     **Logged, not gated (Codex Tier 3, PR #82):** no check covers the cross-org stale-response drop
+     (`_usageOrgUuid !== uuid`). U8–U10 overlap requests for one org by design, so removing that line fails
+     nothing. It predates PR #82, which keeps the line as it was. A gate needs a two-org fixture whose second
+     org is validated mid-request.
    - **Live confirmation status: DEC-031.** The Chrome + Tampermonkey check ran during the v12.10 acceptance
      (2026-10-23); which transport won was not recorded, so the intermittent 403 above still has no log lines.
      Real Safari did NOT reproduce the local mac WebKit jump failure, so that entry
      stays open only as a Playwright engine-build issue (TROUBLESHOOTING, "OPEN — Local mac WebKit").
-   - **Nothing kept in GM storage works on Safari + Userscripts — OPEN, its own item, bigger than
-     the index.** Userscripts has never provided the synchronous `GM_getValue` / `GM_setValue` (read
+   - **Nothing kept in GM storage works on Safari + Userscripts — BUILT in v12.12 (PR #82); acceptance:
+     DEC-031.** The owner's B0 probe (Userscripts 4.8.6) measured no synchronous functions at all and a working,
+     persisting `GM.getValue` / `GM.setValue` (runtime matrix). `acnGetValue` / `acnSetValue` serve the six keys
+     from a copy loaded through `GM.getValue` before the script runs; Tampermonkey's path is unchanged. Gate:
+     `probes/check-gm-storage.js`. **Known limits, logged:** two tabs are last-write-wins per key (no syncing);
+     a load that fails or takes over 2 s runs on defaults and saves nothing for that page (the owner's call), and
+     a late answer is not applied. *The rest of this item is the pre-v12.12 diagnosis, kept as found:*
+     Previously OPEN, its own item, bigger than
+     the index. Userscripts has never provided the synchronous `GM_getValue` / `GM_setValue` (read
      from its source; corroborated by its own log line, which lists only `GM_xmlhttpRequest` among
      the grants it honoured). Every call site in this script is try/caught, so each one fails
      silently (read from the code; not yet checked on Safari): **bookmarks** and saved
@@ -348,11 +361,14 @@ Numbering below is stable (items keep their historical numbers):
      page error. The index survives the same cookie since v12.9 (probe L8, which deliberately does
      not assert page errors because of this one).
    - **What the Safari acceptance did not report stays inferred** in `agent_docs/architecture.md`'s runtime
-     matrix: the Safari and Userscripts versions, the context bar's label (`(est.)` is expected), the usage
-     panel's state, and whether a bookmark or a language change survives a reload. The last three belong to
-     the Safari parity follow-up (the owner's order, above).
-   - **The exact-origin guard covers only the index — OPEN, found by the close-out audit (2026-10-23),
-     pre-existing, inferred from code, not reproduced.** The Plan usage panel (`fetchClaudeUsage`) and the SSE
+     matrix: the Safari version and the context bar's label (`(est.)` is expected). The Userscripts version is
+     4.8.6 (B0). The usage panel's state and whether a bookmark or a language change survives a reload are PR
+     #82's acceptance (DEC-031).
+   - **The exact-origin guard: the usage half CLOSED in v12.12 (PR #82); the SSE half OPEN.** `maybeRefreshUsage`
+     now requires `https://claude.ai` exactly (gate: `check-usage-state` U12, a look-alike host sends no usage
+     request on either transport). The SSE interceptor's install is still gated by `host.includes('claude.ai')`
+     alone; out of PR #82's scope. *As found:* covered only the index — found by the close-out audit (2026-10-23),
+     pre-existing, inferred from code, not reproduced. The Plan usage panel (`fetchClaudeUsage`) and the SSE
      interceptor's install are gated only by platform detection's `host.includes('claude.ai')`. The header's
      `@include https://*cloudworkstations.dev/*` glob also matches registrable hosts whose name contains
      `claude.ai`. On such a page the usage panel would request the user's plan usage with their session

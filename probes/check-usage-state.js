@@ -35,6 +35,10 @@
 //     no-repaint mutant failed U7 — but U7 was racy then, and its race produced the
 //     same symptom as the mutant. With the race fixed, the mutant passes. The repaint
 //     rests on reading orbPopulateNavigate's early return, not on a check here.
+//   - U11/U12 (v12.12) gate the usage request on the transport ladder (gmxhr refused,
+//     fetch answers) and its exact-origin guard (a look-alike host sends nothing). Both
+//     fail on v12.11. The GM stub now reports every HTTP status through onload, as a
+//     real manager does, so a 403 reaches the ladder as a refusal.
 //
 // CONTEXT of these results (record it with the finding): Playwright <engine> on this
 // machine, page realm, the REAL shipped renderUsageBars / maybeRefreshUsage /
@@ -60,7 +64,18 @@ const EN_LOADING     = 'Plan usage loading…';
 // Same escape convention as the I18N table, so this file is comparable to it by eye.
 const KO_UNAVAILABLE = '사용량 데이터를 불러올 수 없습니다';
 
-// usageMode: 'ok' | 'error' | 'hang'   — 'hang' never calls back at all.
+const USAGE_BODY = {
+    five_hour:        { utilization: 42, resets_at: '2030-01-01T00:00:00Z' },
+    seven_day:        { utilization: 17, resets_at: '2030-01-02T00:00:00Z' },
+    seven_day_sonnet: { utilization: 3,  resets_at: '2030-01-03T00:00:00Z' },
+};
+// What claude.ai answers when a transport does not carry the session (U11).
+const REFUSED_BODY = JSON.stringify({ type: 'error', error: { type: 'permission_error', message: 'refused' } });
+
+// usageMode: 'ok' | 'error' | 'hang' | 'refused' | 'refused-fresh'   — 'hang' never calls
+// back at all; 'refused' answers 403 through GM_xmlhttpRequest, Safari's case (U11);
+// 'refused-fresh' answers 403 to EVERY GM request and sets no lastActiveOrg cookie, a fresh
+// session, so the usage path must find its org through the org list (U11b).
 function buildPage(scriptContent, usageMode, lang, respScript) {
     const mockHTML = fs.readFileSync(path.join(REPO, 'tests/mock-pages/claude-virtualized.html'), 'utf8');
     const bodyMatch = mockHTML.match(/<body[^>]*>([\s\S]*)<\/body>/i);
@@ -76,11 +91,6 @@ function buildPage(scriptContent, usageMode, lang, respScript) {
               attachments: [], files: [], content: [{ type: 'text', text: 'Probe answer one.' }] },
         ],
     };
-    const usageBody = {
-        five_hour:        { utilization: 42, resets_at: '2030-01-01T00:00:00Z' },
-        seven_day:        { utilization: 17, resets_at: '2030-01-02T00:00:00Z' },
-        seven_day_sonnet: { utilization: 3,  resets_at: '2030-01-03T00:00:00Z' },
-    };
 
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>usage state checks</title></head><body>
 <script>window.__MOCK_CONFIG = {"totalMessages":2};</script>
@@ -89,16 +99,25 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
 <script>
 (function () {
     var CONV  = ${JSON.stringify(conv)};
-    var USAGE = ${JSON.stringify(usageBody)};
+    var USAGE = ${JSON.stringify(USAGE_BODY)};
+    var REFUSED = ${JSON.stringify(REFUSED_BODY)};
     window.__acnUsageMode = ${JSON.stringify(usageMode)};
     window.__acnUsageScript = ${JSON.stringify(respScript || null)};
     window.__acnUsageRequests = 0;
     window.GM_xmlhttpRequest = function (opts) {
         var url = opts.url || '';
+        if (window.__acnUsageMode === 'refused-fresh') {
+            if (/\\/usage$/.test(url)) window.__acnUsageRequests++;
+            setTimeout(function () { if (opts.onload) opts.onload({ status: 403, responseText: REFUSED }); }, 10);
+            return;
+        }
+        // As a real manager reports it (v12.12): every HTTP answer, 4xx and 5xx included,
+        // arrives through onload with its status. onerror is for a request that got no
+        // answer at all. Before, a non-200 went to onerror, so a refusal could never reach
+        // the transport ladder as a refusal.
         function respond(status, body) {
             setTimeout(function () {
-                if (status === 200 && opts.onload) opts.onload({ status: 200, responseText: body });
-                else if (opts.onerror) opts.onerror({ status: status });
+                if (opts.onload) opts.onload({ status: status, responseText: body });
             }, 10);
         }
         // Order matters: the usage URL also begins with /api/organizations.
@@ -119,13 +138,14 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
                         var body = JSON.parse(JSON.stringify(USAGE));
                         if (typeof step.util === 'number') body.five_hour.utilization = step.util;
                         opts.onload({ status: 200, responseText: JSON.stringify(body) });
-                    } else if (opts.onerror) opts.onerror({ status: 500 });
+                    } else if (opts.onload) opts.onload({ status: 500, responseText: '' });
                 }, step.delay);
                 return;
             }
             var mode = window.__acnUsageMode;
             if (mode === 'ok')    { respond(200, JSON.stringify(USAGE)); return; }
             if (mode === 'error') { respond(500, ''); return; }
+            if (mode === 'refused') { respond(403, REFUSED); return; }
             return;  // 'hang' — deliberately never calls onload or onerror.
         }
         if (/\\/api\\/organizations$/.test(url)) {
@@ -138,7 +158,9 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
     var _s = { 'acn-settings': { language: ${JSON.stringify(lang)} } };
     window.GM_getValue = function (k, d) { return _s.hasOwnProperty(k) ? _s[k] : d; };
     window.GM_setValue = function (k, v) { _s[k] = v; };
-    try { document.cookie = 'lastActiveOrg=' + ${JSON.stringify(ORG)} + '; path=/'; } catch (e) {}
+    if (window.__acnUsageMode !== 'refused-fresh') {
+        try { document.cookie = 'lastActiveOrg=' + ${JSON.stringify(ORG)} + '; path=/'; } catch (e) {}
+    }
 }());
 </script>
 <script>${scriptContent}</script></body></html>`;
@@ -256,20 +278,44 @@ async function openNavigate(page) {
         else { failures++; console.log('  FAIL  ' + id + ' ' + desc + (detail ? ' — ' + detail : '')); }
     }
 
-    async function scenario(usageMode, lang) {
+    // opts (v12.12): origin — the page's origin (U12's look-alike host); fetchUsage — the
+    // fetch transport's usage request is answered 200 with the usage body (U11); idleMs —
+    // read once after this long instead of waiting for a stable section (U12, where the
+    // section stays empty). The usage request through fetch is counted on every scenario:
+    // GM_xmlhttpRequest is the stub above and never reaches the network, so any /usage
+    // request seen here came from the fetch transport.
+    async function scenario(usageMode, lang, opts) {
+        opts = opts || {};
         const context = await browser.newContext();
         const page = await context.newPage();
-        const targetURL = `https://claude.ai/chat/${CONV_UUID}`;
+        const targetURL = `${opts.origin || 'https://claude.ai'}/chat/${CONV_UUID}`;
         const html = buildPage(raw, usageMode, lang);
+        let fetchUsage = 0, fetchOrgList = 0;
         await page.route('**/*', (route) => {
             const u = route.request().url();
             if (u === targetURL || u === targetURL + '/') {
                 route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
+            } else if (opts.fetchUsage && u === 'https://claude.ai/api/organizations') {
+                // The org list through fetch (U11b). The index asks for it too; both get it.
+                fetchOrgList++;
+                route.fulfill({ status: 200, contentType: 'application/json',
+                                body: JSON.stringify([{ uuid: ORG, name: 'Fixture Org', capabilities: ['chat'] }]) });
+            } else if (/\/usage$/.test(u)) {
+                fetchUsage++;
+                if (opts.fetchUsage) {
+                    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(USAGE_BODY) });
+                } else route.abort();
             } else route.abort();
         });
         await page.goto(targetURL, { waitUntil: 'domcontentloaded', timeout: 120000 });
         await openNavigate(page);
-        const out = await readStable(page, 15000, 250);
+        let out;
+        if (opts.idleMs) {
+            await page.waitForTimeout(opts.idleMs);
+            out = await page.evaluate(READ_STATE);
+        } else out = await readStable(page, 15000, 250);
+        out.fetchUsage = fetchUsage;
+        out.fetchOrgList = fetchOrgList;
         await context.close();
         return out;
     }
@@ -474,6 +520,37 @@ async function openNavigate(page) {
     check('U9', 'a superseded late SUCCESS is used when nothing newer produced data',
         sound(u9) && u9.state === null && u9.bars > 0,
         'state=' + u9.state + ' bars=' + u9.bars + ' requests=' + u9.requests + ' ' + why(u9));
+
+    // U11 and U12 run before U10: U10 times out on Firefox intermittently and its throw ends
+    // the run (TROUBLESHOOTING, "OPEN — `check-usage-state` U10"), which would leave both unjudged.
+    //
+    // U11 (v12.12) — Safari's case: GM_xmlhttpRequest is refused (403, as Userscripts' is on
+    // claude.ai) and fetch answers. The usage request is on the transport ladder, so the
+    // refusal hands it to fetch and the panel shows the bars. v12.11 asked GM only and
+    // read "Usage data unavailable". The GM and fetch counts show both were really asked.
+    const u11 = await scenario('refused', 'en', { fetchUsage: true });
+    check('U11', 'gmxhr refused, fetch answers: the panel shows the usage bars',
+        sound(u11) && u11.state === null && u11.bars > 0 && u11.requests > 0 && u11.fetchUsage > 0,
+        'state=' + u11.state + ' bars=' + u11.bars + ' gm usage requests=' + u11.requests +
+        ' fetch usage requests=' + u11.fetchUsage + ' ' + why(u11));
+
+    // U11b (v12.12) — the same, in a fresh session: no lastActiveOrg cookie and every GM request
+    // refused, so the usage path finds its org through the org list, which must ride the ladder
+    // too. U11 always has the cookie and never reaches that branch (Codex Tier 3).
+    const u11b = await scenario('refused-fresh', 'en', { fetchUsage: true });
+    check('U11b', 'no cookie, every GM request refused: the org list and usage come through fetch',
+        sound(u11b) && u11b.state === null && u11b.bars > 0 && u11b.fetchOrgList > 0 && u11b.fetchUsage > 0,
+        'state=' + u11b.state + ' bars=' + u11b.bars + ' fetch org lists=' + u11b.fetchOrgList +
+        ' fetch usage requests=' + u11b.fetchUsage + ' gm usage requests=' + u11b.requests + ' ' + why(u11b));
+
+    // U12 (v12.12) — the exact-origin guard. On a look-alike host platform detection says
+    // Claude, but the usage request carries the user's session and renders into the page,
+    // so it must not be sent on either transport. v12.11 sent it through GM.
+    const u12 = await scenario('ok', 'en', { origin: 'https://claude.ai.example.com', fetchUsage: true, idleMs: 2000 });
+    check('U12', 'on a look-alike host no usage request is sent on either transport',
+        u12.section === true && u12.requests === 0 && u12.fetchUsage === 0 && u12.bars === 0,
+        'gm usage requests=' + u12.requests + ' fetch usage requests=' + u12.fetchUsage +
+        ' bars=' + u12.bars + ' section=' + u12.section);
 
     const u10 = await staleOrgScenario();
     check('U10', 'a superseded SUCCESS replaces stale data from an older generation',

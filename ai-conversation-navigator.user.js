@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.11
+// @version      12.12
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -22,6 +22,8 @@
 // @grant        GM_addStyle
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM.getValue
+// @grant        GM.setValue
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @connect      claude.ai
@@ -29,20 +31,27 @@
 // @connect      perplexity.ai
 // ==/UserScript==
 
-(function () {
+(function acnMain(_acnStore) {
     'use strict';
 
     // === DUPLICATE EXECUTION GUARD ===
-    if (window._aiNavAlreadyLoaded) {
-        console.log('AI Nav: Script already loaded, skipping duplicate execution.');
-        return;
+    // A second run of acnMain, with the GM storage loaded (below), has already passed it.
+    if (!_acnStore) {
+        if (window._aiNavAlreadyLoaded) {
+            console.log('AI Nav: Script already loaded, skipping duplicate execution.');
+            return;
+        }
+        window._aiNavAlreadyLoaded = true;
+        // No synchronous GM storage (Safari + Userscripts): read the stored keys first, then
+        // run the whole script again with them in memory, so nothing reads storage before
+        // it has loaded (v12.12, acnStoreLoad).
+        if (acnStoreIsAsync()) { acnStoreLoad(acnMain); return; }
     }
-    window._aiNavAlreadyLoaded = true;
 
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.11';
+    var ACN_VERSION = '12.12';
 
     // ============================================================
     // i18n — internationalization string table
@@ -212,7 +221,7 @@
 
     function i18n(key, replacements) {
         var lang = 'en';
-        try { lang = GM_getValue('acn-settings', {}).language || 'en'; } catch(e) {}
+        try { lang = acnGetValue('acn-settings', {}).language || 'en'; } catch(e) {}
         var str = (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
         if (replacements) {
             Object.keys(replacements).forEach(function (k) {
@@ -220,6 +229,87 @@
             });
         }
         return str;
+    }
+
+    // ============================================================
+    // GM storage (v12.12)
+    // ============================================================
+    // Tampermonkey provides the synchronous GM_getValue / GM_setValue, and they are called
+    // exactly as before. Safari's Userscripts provides only the async GM.getValue /
+    // GM.setValue (B0, the owner's Safari, Userscripts 4.8.6: typeof GM_getValue was
+    // 'undefined', and a GM.setValue'd value persisted across reloads). There, the six keys
+    // below are read once at startup, before the rest of the script runs (the top of
+    // acnMain); reads come from that copy, and writes update it at once and persist with
+    // GM.setValue. Values are kept as JSON text in the copy and in GM storage, so a read
+    // returns a fresh object, as GM_getValue does.
+    // If the load fails or takes longer than 2 s, the page runs on defaults and
+    // keeps its changes in memory only: each key holds a whole collection (every bookmark is
+    // one value), so a save from a page on defaults would replace what is stored (owner,
+    // 2026-10-23). The next page load tries again.
+    // Two tabs: the last write wins, per key, as with GM_setValue (ROADMAP 0d).
+
+    function acnStoreIsAsync() {
+        return !(typeof GM_getValue === 'function' && typeof GM_setValue === 'function') &&
+               typeof GM !== 'undefined' && !!GM &&
+               typeof GM.getValue === 'function' && typeof GM.setValue === 'function';
+    }
+
+    // done({ mem, persist }) runs once, on a fresh stack, whatever happens. Called from the
+    // top of acnMain, before any var below it is assigned, so it uses literals only.
+    function acnStoreLoad(done) {
+        var LOAD_MS = 2000;
+        var keys = ['acn-settings', 'acn-claude-org-v1', 'acn-zone-positions',
+                    'acn_ctx_cache', 'acn-bookmarks-v1', 'acn-commands'];
+        var mem = {}, left = keys.length, finished = false, timer = null;
+        function finish(ok, why) {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            if (!ok) console.log('[ACN] storage: ' + why + '; running on defaults, and changes on ' +
+                                 'this page are not saved');
+            setTimeout(function () { done({ mem: ok ? mem : {}, persist: ok, warned: false }); }, 0);
+        }
+        timer = setTimeout(function () {
+            finish(false, 'GM.getValue did not answer within ' + LOAD_MS + 'ms');
+        }, LOAD_MS);
+        keys.forEach(function (k) {
+            try {
+                GM.getValue(k).then(function (v) {
+                    if (typeof v === 'string') mem[k] = v;
+                    if (--left === 0) finish(true);
+                }, function () { finish(false, 'GM.getValue failed'); });
+            } catch (e) { finish(false, 'GM.getValue threw'); }
+        });
+    }
+
+    // Throws where GM_getValue would; every caller catches.
+    function acnGetValue(key, def) {
+        if (!_acnStore) return GM_getValue(key, def);
+        return _acnStore.mem.hasOwnProperty(key) ? JSON.parse(_acnStore.mem[key]) : def;
+    }
+
+    function acnSetValue(key, value) {
+        if (!_acnStore) { GM_setValue(key, value); return; }
+        var text = JSON.stringify(value);
+        _acnStore.mem[key] = text;
+        if (!_acnStore.persist) return;
+        function warn() {
+            if (_acnStore.warned) return;
+            _acnStore.warned = true;
+            console.log('[ACN] storage: GM.setValue failed; changes may not survive a reload');
+        }
+        // Two writes of one key in flight may finish in either order, so the one that lands
+        // last may not be the newest: once a write finishes, write the newest again if it has
+        // changed since (Codex Tier 3). Not a queue, so one write that never answers holds
+        // nothing else up.
+        function persist(t) {
+            try {
+                GM.setValue(key, t).then(function () {
+                    if (_acnStore.mem[key] !== t) persist(_acnStore.mem[key]);
+                }, warn);
+            } catch (e) { warn(); }
+        }
+        persist(text);
     }
 
     // ============================================================
@@ -245,7 +335,7 @@
 
     function loadSettings() {
         var stored = {};
-        try { stored = GM_getValue('acn-settings', {}); } catch(e) {}
+        try { stored = acnGetValue('acn-settings', {}); } catch(e) {}
         var settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
         if (stored.orbMode) settings.orbMode = stored.orbMode;
         if (stored.scrollInverted !== undefined) settings.scrollInverted = stored.scrollInverted;
@@ -259,7 +349,7 @@
     }
 
     function saveSettings(settings) {
-        try { GM_setValue('acn-settings', settings); } catch(e) {}
+        try { acnSetValue('acn-settings', settings); } catch(e) {}
     }
 
     // ================================================================
@@ -1638,7 +1728,7 @@
 
     function ciReadCachedOrg() {
         try {
-            var raw = GM_getValue(CI_ORG_CACHE_KEY, '');
+            var raw = acnGetValue(CI_ORG_CACHE_KEY, '');
             if (!raw) return null;
             var o = JSON.parse(raw);
             // Cached per account, not per conversation — the same org serves every
@@ -1649,7 +1739,7 @@
 
     function ciWriteCachedOrg(org) {
         try {
-            GM_setValue(CI_ORG_CACHE_KEY, JSON.stringify({ acct: ciAccountKey(), org: org }));
+            acnSetValue(CI_ORG_CACHE_KEY, JSON.stringify({ acct: ciAccountKey(), org: org }));
         } catch (e) {}
     }
 
@@ -4849,6 +4939,7 @@
     var _usageData     = null;
     var _usageLastFetch = 0;
     var _usageOrgUuid   = null;   // org the cached usage was fetched FOR
+    var _usageOrgListSeq = 0;     // the pending org-list lookup in fetchClaudeUsage, if any
     var _usageRefreshTimer = null; // debounce timer for maybeRefreshUsage
     // A null _usageData means two different things and the panel used to render
     // both as "Plan usage loading…": no fetch has finished YET, and a fetch finished
@@ -5725,16 +5816,16 @@
     // ── Zone position persistence (per-platform, GM storage) ───
     function _orbLoadZonePosition() {
         try {
-            var positions = GM_getValue('acn-zone-positions', {});
+            var positions = acnGetValue('acn-zone-positions', {});
             _orbYRatio = (positions[platform.id] !== undefined) ? positions[platform.id] : 0.5;
             _orbYRatio = _orbClampYRatio(_orbYRatio);
         } catch (e) { _orbYRatio = 0.5; }
     }
     function _orbSaveZonePosition() {
         try {
-            var positions = GM_getValue('acn-zone-positions', {});
+            var positions = acnGetValue('acn-zone-positions', {});
             positions[platform.id] = _orbYRatio;
-            GM_setValue('acn-zone-positions', positions);
+            acnSetValue('acn-zone-positions', positions);
         } catch (e) {}
     }
     // Returns the vertical center pixel for the orbital cluster
@@ -5994,7 +6085,7 @@
         var convId = _getConvId();
         if (!convId || !_sseTokenData.exact) return;
         try {
-            var cache = GM_getValue('acn_ctx_cache', {});
+            var cache = acnGetValue('acn_ctx_cache', {});
             cache[convId] = {
                 cumulativeThinkingChars: _sseTokenData.cumulativeThinkingChars,
                 sseMessageCount:         _sseTokenData.sseMessageCount,
@@ -6012,7 +6103,7 @@
                 cache = pruned;
             }
 
-            GM_setValue('acn_ctx_cache', cache);
+            acnSetValue('acn_ctx_cache', cache);
         } catch (e) {}
     }
 
@@ -6020,7 +6111,7 @@
         var convId = _getConvId();
         if (!convId) return;
         try {
-            var cache = GM_getValue('acn_ctx_cache', {});
+            var cache = acnGetValue('acn_ctx_cache', {});
             var entry = cache[convId];
             if (entry && entry.sseMessageCount) {
                 _sseTokenData.cumulativeThinkingChars = entry.cumulativeThinkingChars;
@@ -6102,13 +6193,15 @@
         return '#ef4444';
     }
 
+    // Both requests go through the index's transport ladder (v12.12): Userscripts'
+    // GM_xmlhttpRequest is refused on Safari, and the content world's fetch carries the
+    // session for this endpoint (B0, the owner's Safari run: 200, application/json). A
+    // transport that cannot run, or a refusal, hands the request to the other transport;
+    // ciLadderGet calls back once, with the deciding answer, and each answer is read
+    // exactly as before: anything but a 200 with usable JSON is callback(null).
     function fetchClaudeUsage(callback) {
-        if (typeof GM_xmlhttpRequest !== 'function') {
-            callback(null);
-            return;
-        }
-
         function fetchUsageFor(uuid) {
+            _usageOrgListSeq++;   // an org list still pending is now superseded (below)
             // Record the org THIS fetch actually uses. Snapshotting _ciOrgUuid at the
             // call site recorded null whenever usage was requested before the index
             // validated an org — while this function proceeded with lastActiveOrg or
@@ -6116,24 +6209,18 @@
             // cross-org invalidation check unable to fire, so multi-org users kept
             // the wrong quota for the full cache interval (Codex R13 :4345).
             _usageOrgUuid = uuid;
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url: 'https://claude.ai/api/organizations/' + uuid + '/usage',
-                headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
-                onload: function (r2) {
-                    // Responses are scoped to the org they were REQUESTED for: a slow
-                    // response for cookie-org B landing after validated-org A's request
-                    // overwrote A's fresh data and the wrong quota displayed for the
-                    // whole cache interval (Codex R21). _usageOrgUuid always names the
-                    // latest requested org, so a mismatched response is stale by
-                    // definition and is dropped silently.
-                    if (_usageOrgUuid !== uuid) return;
-                    try {
-                        var data = JSON.parse(r2.responseText);
-                        callback(parseUsageFromJSON(data));
-                    } catch (e) { callback(null); }
-                },
-                onerror: function () { if (_usageOrgUuid === uuid) callback(null); }
+            ciLadderGet('/api/organizations/' + uuid + '/usage', null, function () {}, function (r2) {
+                // Responses are scoped to the org they were REQUESTED for: a slow
+                // response for cookie-org B landing after validated-org A's request
+                // overwrote A's fresh data and the wrong quota displayed for the
+                // whole cache interval (Codex R21). _usageOrgUuid always names the
+                // latest requested org, so a mismatched response is stale by
+                // definition and is dropped silently — success or failure, from
+                // either transport.
+                if (_usageOrgUuid !== uuid) return;
+                var data = null;
+                try { if (r2.ok) data = parseUsageFromJSON(r2.json); } catch (e) {}
+                callback(data);
             });
         }
 
@@ -6146,23 +6233,23 @@
         var cookieOrg = ciGetCookie('lastActiveOrg');
         if (cookieOrg) { fetchUsageFor(cookieOrg); return; }
 
-        GM_xmlhttpRequest({
-            method: 'GET',
-            url: 'https://claude.ai/api/organizations',
-            headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
-            onload: function (r1) {
-                var uuid = null;
-                try {
-                    var orgs = JSON.parse(r1.responseText);
-                    // Rank by the 'chat' capability instead of array position.
-                    var ranked = Array.isArray(orgs) ? ciRankOrgs(orgs) : [];
-                    if (ranked.length) uuid = ranked[0];
-                } catch (e) { /* skip */ }
+        // A later request supersedes this one while the org list is pending: its answer would
+        // otherwise start a request for this org, overwrite _usageOrgUuid, and so drop the
+        // later request's answer while this one's is shown (Codex Tier 3; pre-existing). It is
+        // dropped silently, like the stale-org drop above, and for the same reason: the later
+        // request came through maybeRefreshUsage, whose own callback resolves the flag.
+        var listSeq = ++_usageOrgListSeq;
+        ciLadderGet('/api/organizations', null, function () {}, function (r1) {
+            if (listSeq !== _usageOrgListSeq) return;
+            var uuid = null;
+            try {
+                // Rank by the 'chat' capability instead of array position.
+                var ranked = (r1.ok && Array.isArray(r1.json)) ? ciRankOrgs(r1.json) : [];
+                if (ranked.length) uuid = ranked[0];
+            } catch (e) { /* skip */ }
 
-                if (!uuid) { callback(null); return; }
-                fetchUsageFor(uuid);
-            },
-            onerror: function () { callback(null); }
+            if (!uuid) { callback(null); return; }
+            fetchUsageFor(uuid);
         });
     }
 
@@ -6253,6 +6340,10 @@
 
     function maybeRefreshUsage() {
         if (typeof platform === 'undefined' || platform.id !== 'claude') return;
+        // The exact origin, as ciIsClaudeChat requires for the index (v12.12): the request
+        // carries the user's session and its answer is rendered into this page, so a
+        // look-alike host or claude.ai on another port or scheme must never run it.
+        if (window.location.origin !== CI_API_ORIGIN) return;
         var now = Date.now();
         if (now - _usageLastFetch < USAGE_POLL_INTERVAL) {
             var section = document.getElementById('acn-usage-section');
@@ -6263,8 +6354,8 @@
         _usageLastFetch = now;
         // A request is genuinely in flight from here, so "loading" is true again even
         // if the previous attempt failed. Cleared BEFORE the call because
-        // fetchClaudeUsage can invoke its callback synchronously (no GM_xmlhttpRequest),
-        // which would otherwise clear the failure the callback just recorded.
+        // fetchClaudeUsage can invoke its callback synchronously (neither transport can
+        // run), which would otherwise clear the failure the callback just recorded.
         _usageFetchFailed = false;
         var seq = ++_usageReqSeq;
 
@@ -6299,8 +6390,8 @@
             _usageData = data;
             if (data) _usageDataSeq = seq;
             // Every FAILURE in fetchClaudeUsage funnels through callback(null): no
-            // GM_xmlhttpRequest, transport error, unparseable body, no org resolved,
-            // and parseUsageFromJSON finding no recognised tiers.
+            // transport could run, a non-200, a transport error or timeout, an unparseable
+            // body, no org resolved, and parseUsageFromJSON finding no recognised tiers.
             // The one exit that calls back NEITHER way is the stale-response drop
             // (`_usageOrgUuid !== uuid`), and it is safe to leave the flag alone there:
             // that response was superseded by a later fetch, and every fetch comes
@@ -8190,7 +8281,7 @@
 
     function getBookmarks() {
         try {
-            var raw = GM_getValue(BOOKMARK_KEY, '{}');
+            var raw = acnGetValue(BOOKMARK_KEY, '{}');
             return JSON.parse(raw) || {};
         } catch (e) {
             return {};
@@ -8212,7 +8303,7 @@
         });
         store[url].bookmarks.push(bookmark);
         try {
-            GM_setValue(BOOKMARK_KEY, JSON.stringify(store));
+            acnSetValue(BOOKMARK_KEY, JSON.stringify(store));
         } catch (e) {}
     }
 
@@ -8241,7 +8332,7 @@
             return b.id !== bookmarkId;
         });
         try {
-            GM_setValue(BOOKMARK_KEY, JSON.stringify(store));
+            acnSetValue(BOOKMARK_KEY, JSON.stringify(store));
         } catch (e) {}
         _bmResetIconState();
     }
@@ -9353,7 +9444,7 @@
             if (store[url]) {
                 store[url].bookmarks = [];
                 try {
-                    GM_setValue(BOOKMARK_KEY, JSON.stringify(store));
+                    acnSetValue(BOOKMARK_KEY, JSON.stringify(store));
                 } catch (e) {}
             }
             var activeIcons = document.querySelectorAll('.acn-bm-icon.acn-bm-active');
@@ -12052,11 +12143,11 @@
     var COMMANDS_KEY = 'acn-commands';
 
     function loadCommands() {
-        try { return GM_getValue(COMMANDS_KEY, []); } catch (e) { return []; }
+        try { return acnGetValue(COMMANDS_KEY, []); } catch (e) { return []; }
     }
 
     function saveCommands(commands) {
-        try { GM_setValue(COMMANDS_KEY, commands); } catch (e) {}
+        try { acnSetValue(COMMANDS_KEY, commands); } catch (e) {}
     }
 
     function getCommandByName(name) {
