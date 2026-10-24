@@ -100,7 +100,8 @@ GitHub Actions runs on push/PR to `main`:
     when the index lands after Navigate opens, across a switch, and on an empty page.
   - Every `ubuntu` job also runs `check-gm-storage` on its own engine (v12.12): bookmarks and settings surviving a
     reload with only the async `GM.getValue` / `GM.setValue` (Safari's Userscripts), the sync path left untouched,
-    and a load that never answers.
+    and a load that never answers; since v12.13, two tabs saving the same collection, a stored value that cannot be
+    read, and the save queue (DEC-050).
 
 **Windows is the runner that catches timing assumptions.** It is materially slower than
 the Ubuntu and macOS runners, so an assertion that races the virtualizer passes on two OSes

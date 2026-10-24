@@ -37,16 +37,21 @@ Checked against the code in v12.12. **Every GM key goes through `acnGetValue` / 
 reads through `GM.getValue` before the script runs. **A new GM key must also be added to `acnStoreLoad`'s
 list**, or on Safari it reads as its default on every page load.
 
-| Key | Store | Purpose |
-|-----|-------|---------|
-| `'acn-settings'` | GM | Language and platform toggles. Re-read on every `i18n()` call and platform check |
-| `'acn-bookmarks-v1'` | GM | Message bookmarks per conversation (`BOOKMARK_KEY`) |
-| `'acn-commands'` | GM | Saved /commands (`COMMANDS_KEY`) |
-| `'acn_ctx_cache'` | GM | Claude context window cache |
-| `'acn-zone-positions'` | GM | Orbital zone Y position per platform (fraction of viewport height, added v10.10) |
-| `'acn-claude-org-v1'` | GM | The conversation index's validated org uuid (`CI_ORG_CACHE_KEY`) |
-| `'_acnv10'` | localStorage | Display mode, scroll direction (`natural`) and panel width (`orbSaveSettings`) |
-| `'acnJumpDebug'` | localStorage | Opt-in jump-trace flag: set it to `'1'` by hand; the script only reads it |
+**A key that holds a collection saves through `acnUpdateValue`, never `acnSetValue`** (DEC-050, v12.13). Pass one
+change, `apply(value)`, that reads its inputs at the call and works on any version of the collection: it runs on
+the value as stored at the save, which on Safari may be another tab's newer one. Writing back a copy read earlier
+erases every other tab's saves; the owner measured that on Safari (v12.12, bookmarks).
+
+| Key | Store | Two tabs (DEC-050) | Purpose |
+|-----|-------|--------------------|---------|
+| `'acn-settings'` | GM | last write wins | Language and platform toggles. Re-read on every `i18n()` call and platform check |
+| `'acn-bookmarks-v1'` | GM | merged, by record id | Message bookmarks per conversation (`BOOKMARK_KEY`) |
+| `'acn-commands'` | GM | merged, by id | Saved /commands (`COMMANDS_KEY`) |
+| `'acn_ctx_cache'` | GM | merged, by conversation | Claude context window cache |
+| `'acn-zone-positions'` | GM | merged, by platform | Orbital zone Y position per platform (fraction of viewport height, added v10.10) |
+| `'acn-claude-org-v1'` | GM | last write wins | The conversation index's validated org uuid (`CI_ORG_CACHE_KEY`) |
+| `'_acnv10'` | localStorage | n/a | Display mode, scroll direction (`natural`) and panel width (`orbSaveSettings`) |
+| `'acnJumpDebug'` | localStorage | n/a | Opt-in jump-trace flag: set it to `'1'` by hand; the script only reads it |
 
 ## i18n Conventions
 

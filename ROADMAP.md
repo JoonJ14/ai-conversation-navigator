@@ -341,7 +341,7 @@ Numbering below is stable (items keep their historical numbers):
      acceptance: DEC-031.** The owner's B0 probe (Userscripts 4.8.6) measured no synchronous functions at all and a working,
      persisting `GM.getValue` / `GM.setValue` (runtime matrix). `acnGetValue` / `acnSetValue` serve the six keys
      from a copy loaded through `GM.getValue` before the script runs; Tampermonkey's path is unchanged. Gate:
-     `probes/check-gm-storage.js`. **Known limits, logged:** two tabs are last-write-wins per key (no syncing);
+     `probes/check-gm-storage.js`. **Known limits, logged:** two tabs are last-write-wins per key (no syncing) *(for the four collections this was data loss, measured by the owner on Safari, 2026-10-24: fixed in v12.13, DEC-050; it still holds for `acn-settings` and the org cache)*;
      a load that fails or takes over 2 s runs on defaults and saves nothing for that page (the owner's call), and
      a late answer is not applied. *The rest of this item is the pre-v12.12 diagnosis, kept as found:*
      Previously OPEN, its own item, bigger than

@@ -2804,5 +2804,82 @@ every call site stays synchronous. The cost is a startup that waits for the load
 - On the async path GM storage holds JSON text, so the two keys whose values are already JSON strings,
   `acn-bookmarks-v1` and `acn-claude-org-v1`, are stored double-encoded; the other four once. Any future migration
   between managers has to know that.
-- Two tabs are last-write-wins per key, as with `GM_setValue`; there is no syncing (ROADMAP 0d).
+- Two tabs are last-write-wins per key, as with `GM_setValue`; there is no syncing (ROADMAP 0d). *Superseded for the
+  four collections by DEC-050 (v12.13): per key, this was data loss, measured by the owner on Safari. It still
+  holds for `acn-settings` and the org cache.*
 - Gates: `probes/check-gm-storage.js` G1–G6 (page realm, stubbed storage). Real-Safari status: DEC-031.
+
+---
+
+## DEC-050: A Save of a Collection Applies One Change to What Is Stored Now — Never This Tab's Copy (v12.13)
+**Date:** 2026-10-24 | **Stage:** v12.13 (the cross-tab PR)
+
+### Decision
+The four GM keys that hold collections save through `acnUpdateValue(key, def, valid, apply)`: one change, applied to
+the value as it is stored at the moment of the save.
+- **Bookmarks** (`acn-bookmarks-v1`): by record id, under the conversation URL read at the click. A new bookmark is
+  added; an update (a migration, an upgrade) applies only if the record is still stored, so it never revives a
+  record another tab deleted; a removal removes that id; Clear all removes the records this tab shows.
+- **Commands** (`acn-commands`): by id. Create adds; edit, delete and the use counter change that id only.
+- **Zone positions** (`acn-zone-positions`): this platform's entry only.
+- **The context cache** (`acn_ctx_cache`): this conversation's entry, then the prune to 50.
+
+`acn-settings` and the org cache (`acn-claude-org-v1`) are single values and stay last-write-wins through
+`acnSetValue` (the owner's call, 2026-10-24).
+
+Per runtime:
+- **Tampermonkey:** `GM_getValue`, validate, `GM_setValue(apply(value))`: the read-then-write every caller already
+  did, with no copy of ours in between. The only change in behaviour there is the refusal below.
+- **Async only (Userscripts):** the change goes into this page's copy at once, so the page shows it; then a queue per
+  key re-reads with `GM.getValue`, validates, applies the change again and writes with `GM.setValue`. After a write,
+  the page's copy becomes the stored value plus this page's changes still queued, so it picks up what other tabs
+  saved.
+- **A stored value that cannot be read is never saved over:** the save is refused, with one console line and one
+  toast per key per page, and a bookmark's flag does not turn on. On the async path a change already shown on the
+  page stays on the page and is not stored.
+
+### Context
+The owner's two-tab test on Safari + Userscripts, v12.12 [measured, owner, 2026-10-24]: both tabs loaded (different
+conversations), a question bookmarked in tab A, a different question in tab B, tab A reloaded: **tab A's bookmark
+was gone.** Every bookmark of every conversation is one GM value, and on the async path (DEC-049) each save wrote
+this page's startup copy back, so a tab erased whatever any other tab had saved since it loaded. DEC-049 recorded
+"two tabs are last-write-wins per key" as a known limit; per key, that is data loss across every conversation.
+
+### Alternatives considered
+- **Compare this page's copy with what is stored and merge the difference (a three-way merge).** Rejected: the page
+  holds no base version per record, so a record missing from one side cannot be told apart as "deleted here" or
+  "added there". Replaying the change itself needs no base.
+- **Refresh the page's copy from storage before every save, then write the copy.** On the async path the refresh is
+  itself a round trip, so a second save in the meantime races it: the same loss inside one tab. It also leaves the
+  write depending on the whole copy being current. Chosen instead: write only the change.
+- **Listen for other tabs' writes (`GM_addValueChangeListener`) and keep the copy current.** Not chosen: whether
+  Userscripts provides it is unmeasured, and a missed event would lose data silently.
+- **One GM key per conversation.** Not chosen: it bounds the loss to one conversation without removing it, and it
+  needs a migration of every stored bookmark.
+- **DEC-049's "rewrite the newest" for these keys.** It orders writes of a whole copy; here each write depends on the
+  read before it, so a write must wait for the previous one. The queue waits for a step that does not answer
+  instead of reordering, and reports it once after 5 s.
+- **Repair or reset an unreadable stored value.** Rejected (the owner's rule): never write from empty.
+- **Tampermonkey through the same queue.** Not needed: its path reads with `GM_getValue` immediately before
+  `GM_setValue`, in one synchronous call, with no copy of ours in between [code]. Whether `GM_getValue` in one tab
+  returns another tab's newest write is Tampermonkey's behaviour: C0 below.
+
+### Rationale
+Each change is a small function of its own captured inputs, so it can be applied to any version of the collection,
+this page's or another tab's newer one. That makes the merge exact without any record of what the page last saw.
+
+### Key properties
+- **Correctness on Safari rests on a measurement:** a `GM.getValue` in one tab must return what another tab wrote
+  since this tab loaded. B0 measured persistence across a reload, not this. C0
+  (`probes/cross-tab-gm-check.user.js`, owner-run, scratch keys only) measures it on all three managers. Status:
+  pending until the owner runs it; DEC-031 records the real-browser results.
+- **A change must not depend on this page's copy:** read the inputs at the call (the URL, the platform, the time),
+  keep them in the change's own variables, and apply them to whatever value it is given.
+- **A new collection key saves through `acnUpdateValue`, never `acnSetValue`** (agent_docs/conventions.md, Storage
+  Keys).
+- **Within one tab on Safari,** a page shows another tab's changes to a collection only after its own next save of
+  that collection, or a reload. A bookmark toggled on a message another tab has also bookmarked can therefore add a
+  second record for it; nothing is lost.
+- Gates: `probes/check-gm-storage.js` G7–G13 (page realm, stubbed storage; two pages in one browser context are two
+  tabs). v12.12 fails G7, G8, G9, G11 and G12; G10 (the synchronous path) and G13 (the queue) are guards, and a
+  build whose saves do not wait for each other fails G13.
