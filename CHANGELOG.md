@@ -6,8 +6,9 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.13 — Cross-Tab Saves: A Second Tab No Longer Erases What Another Tab Saved] — 2026-10-24
 
-**Branch:** `fix/cross-tab-storage` | **PR:** #85 | **Status:** open; C0 passed on all three
-managers; real-browser acceptance owed (DEC-031)
+**Branch:** `fix/cross-tab-storage` | **PR:** #85 | **Merged:** on the owner's call, with step 1 of the
+real-browser acceptance passed on all three browsers and steps 2–7 not reported (a waiver, DEC-031). C0 passed on
+all three managers
 
 ### Problem
 
@@ -54,11 +55,18 @@ Measured in Playwright's page realm, headless, this Mac, with both storage APIs 
   G31 and G32 (GitHub Codex), and a 20-id window (`e69d5da`) fails G32, all found in review; a build whose save steps can overlap fails G13.
 - **Review:** three tiers (Tier 1 and 2 in session, Tier 3 Codex CLI) plus an adversarial workflow:
   `reviews/review-2026-10-24-cross-tab.md`.
-- **The final build** (`c4d1ec4`; the commits after it are docs only), one local run, macOS arm64, about 36 minutes:
+- **The three-engine run** (`c4d1ec4`, before the two command-count fixes `e69d5da` and `23805a8`), one local run,
+  macOS arm64, about 36 minutes:
   - `npm test`: Chromium 560/560, Firefox 560/560, WebKit 556/560. WebKit's 4 are the known local jump entries
     (TROUBLESHOOTING, "OPEN — Local mac WebKit"), each giving up at about 1.46 s as recorded there.
   - All seven probes pass on all three engines, except `check-usage-state` U10 on Firefox, the known timeout
     (TROUBLESHOOTING); U11, U11b and U12 passed before it. `check-gm-storage`: 30 of 30 on each engine.
+- **The final build** (`23805a8`; the commits after it are docs only), one local run: `npm test` on Chromium
+  560/560; the probes pass, `check-gm-storage` 32 of 32 on Chromium, except the known Firefox U10 timeout. CI's nine
+  jobs pass. The owner skipped a second local three-engine run (2026-10-24): CI covered the last change, and real
+  browsers are the gate.
+- **Owner acceptance** [measured, owner, 2026-10-24]: step 1, the two-tab test, PASS on Safari, Chrome and Firefox;
+  steps 2–7 not reported (DEC-031).
 
 ---
 

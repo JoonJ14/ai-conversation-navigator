@@ -1,7 +1,8 @@
 # Review — 2026-10-24 — v12.13 cross-tab saves (the cross-tab PR)
 
 - **Branch:** `fix/cross-tab-storage` → `main` | **PR:** #85 | **First head reviewed:** `698e27f` |
-  **Final:** `c4d1ec4` (later commits are docs only)
+  **Final:** `23805a8` (the GitHub Codex round-1 fixes after `c4d1ec4`, reviewed in
+  `reviews/review-2026-10-24-23805a8.md`; later commits are docs only)
 - **Diff:** the userscript (`acnUpdateValue`, `acnPersist`, the four collections' callers), `probes/check-gm-storage.js`
   (G7–G30), C0's owner-run `probes/cross-tab-gm-check.user.js`, and docs.
 - **Tiers run:** all three (adaptive: 500+ lines, two new files), plus an adversarial workflow alongside Tier 1–2,

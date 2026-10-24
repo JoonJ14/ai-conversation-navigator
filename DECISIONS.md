@@ -1254,18 +1254,31 @@ is a live run on the commit actually being shipped.
   wrong, and the honest report is "not reproduced", never a fix asserted on plausibility.
 
 **Addendum — merged before the live confirm, on the owner's explicit call (2026-10-23).** The owner has waived
-this rule four times:
+this rule five times:
 - PR #73 (v12.8), merged before its usage-panel confirm;
 - PR #75 (v12.9), merged as `4c72ca9` before its Safari, Firefox and Chrome confirms;
 - PR #78 (v12.10), merged as `166a281` before Safari's ChatGPT and Perplexity check;
-- PR #82 (v12.12), merged as `2b7e8d1` before its acceptance on all three browsers.
+- PR #82 (v12.12), merged as `2b7e8d1` before its acceptance on all three browsers;
+- PR #85 (v12.13), merged 2026-10-24 with step 1 of its acceptance passed on all three browsers and steps 2–7 not
+  reported.
 
 A waiver moves the merge, not the debt: each confirm stays owed on the merged build until it is run. Record
 every waiver here, and in the release's CHANGELOG entry.
 
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
-review record. Updated 2026-10-23:
+review record. Updated 2026-10-24:
+- **v12.13 (PR #85, cross-tab saves).** Owner, real browsers, 2026-10-24, on the branch's build (the userscript is
+  unchanged since `23805a8`). Question bookmarks were used for the tests. Recorded as reported:
+  - **Step 1, the two-tab test on different conversations: PASS on Safari + Userscripts, Chrome + Tampermonkey and
+    Firefox + Tampermonkey.** Tab A's bookmark survived tab B's bookmark and a reload of A. On a later reload, A's
+    flag showed dark briefly, then lit once the saved bookmarks loaded.
+  - **Not reported** (the PR's acceptance steps with no result), on all three browsers: step 2 (same conversation,
+    a removal), 3 (bookmark, then reload at once), 4 (commands across tabs), 5 (button positions across tabs),
+    6 (nothing lost in the upgrade) and 7 (no `[ACN] storage:` warnings).
+  - **Waiver:** merged on the owner's call ("Merge PR #85 after the CLAUDE.md commit's CI is green") with steps 2–7
+    not reported. They stay owed on the merged build.
+  - C0, the cross-tab read the fix depends on: PASS on all three managers (DEC-050).
 - **v12.12 (PR #82, Safari parity: plan usage and GM storage).** Owner, real browsers, 2026-10-23, after the
   merge. **A summary, recorded as reported; the itemized results are to come in the next session's prompt:**
   - In the owner's words: "I did some live testing on version 12.12 and then there were all the things that we
