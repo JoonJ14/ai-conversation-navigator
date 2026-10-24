@@ -1,6 +1,6 @@
 # Review — 2026-10-24 — v12.14 Claude answer bookmarks (the answer-bookmark PR)
 
-- **Branch:** `fix/claude-answer-bookmarks` → `main` (`b96ec7b`) | **PR:** the answer-bookmark PR
+- **Branch:** `fix/claude-answer-bookmarks` → `main` (`b96ec7b`) | **PR:** #86
 - **Diff:** the userscript (the row-scoped answer finder, `ciAnswerMap`, the answer label, the proof pass, the
   twin and recycled-node rules, the one-refresh request, the jump, the status line), the virtualizing mock's October
   knobs, `probes/check-answer-bookmarks.js` (A1–A36), `probes/run-answer-mutants.js` (M1–M18), the seeds fixture, CI

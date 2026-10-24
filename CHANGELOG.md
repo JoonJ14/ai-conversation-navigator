@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.14 — Claude Answer Bookmarks: Flags in Project Chats, "Answer to Q#n", Jumps That Land] — 2026-10-24
 
-**Branch:** `fix/claude-answer-bookmarks` | **PR:** the answer-bookmark PR | **Status:** open; real-browser
+**Branch:** `fix/claude-answer-bookmarks` | **PR:** #86 | **Status:** open; real-browser
 acceptance owed (DEC-031)
 
 ### Problem
