@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.13 — Cross-Tab Saves: A Second Tab No Longer Erases What Another Tab Saved] — 2026-10-24
 
-**Branch:** `fix/cross-tab-storage` | **PR:** (number on opening) | **Status:** open; C0 passed on all three
+**Branch:** `fix/cross-tab-storage` | **PR:** #85 | **Status:** open; C0 passed on all three
 managers; real-browser acceptance owed (DEC-031)
 
 ### Problem
