@@ -53,6 +53,12 @@
 //   G21 [guard] async only, the first bookmark write never answers: after the 5 s bound the next
 //       save carries it
 //   G22 [new] the same run: the stall is logged once
+// Added in review (Codex Tier 3, round 2):
+//   G23 [guard] async only, the first bookmark write is refused 300 ms late, and a second
+//       bookmark is made while it is pending: both are stored without a third save
+//   G24 [guard] async only, Clear all removes exactly the records the panel shows, after a
+//       write brought another tab's bookmark into this page
+//   G25 [new] async only, the open /Commands list shows the name a write stored (deploy-2)
 // The guards pass on v12.12, which writes the whole copy each time; the review's pre-fix build
 // (698e27f) fails G19, G20 and G21.
 // Not gated, and not reachable from the UI: a conversation whose stored entry holds something
@@ -87,7 +93,7 @@ const TARGET_B = 'https://claude.ai/chat/13131313-1313-4131-8131-131313131313';
 const SIX_KEYS = ['acn-bookmarks-v1', 'acn-claude-org-v1', 'acn-commands', 'acn-settings',
                   'acn-zone-positions', 'acn_ctx_cache'];
 
-// mode: 'async' | 'sync' | 'hang' | 'reject' | 'reorder' | 'slowread' | 'rejectonce' | 'hangonce'
+// mode: 'async' | 'sync' | 'hang' | 'reject' | 'reorder' | 'slowread' | 'rejectonce' | 'hangonce' | 'rejectslow'
 function buildPage(scriptContent, mode) {
     const mockHTML = fs.readFileSync(path.join(REPO, 'tests/mock-pages/claude-virtualized.html'), 'utf8');
     const bodyMatch = mockHTML.match(/<body[^>]*>([\s\S]*)<\/body>/i);
@@ -147,8 +153,14 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
             if (MODE === 'reject') return Promise.reject(new Error('stub: write refused'));
             // 'rejectonce' / 'hangonce': the first bookmark write is refused, or never answered
             // (and never applied); every other write goes through.
-            if ((MODE === 'rejectonce' || MODE === 'hangonce') && k === 'acn-bookmarks-v1' && !window.__gm.bmOnce) {
+            if ((MODE === 'rejectonce' || MODE === 'hangonce' || MODE === 'rejectslow') &&
+                k === 'acn-bookmarks-v1' && !window.__gm.bmOnce) {
                 window.__gm.bmOnce = true;
+                if (MODE === 'rejectslow') {
+                    return new Promise(function (res, rej) {
+                        setTimeout(function () { rej(new Error('stub: write refused late')); }, 300);
+                    });
+                }
                 return MODE === 'rejectonce' ? Promise.reject(new Error('stub: write refused once'))
                                              : new Promise(function () {});
             }
@@ -673,6 +685,54 @@ const READ = `(function () {
     check('G21', 'async only, the first bookmark write never answers: the next save carries it',
         hng.n === 2, 'bookmarks stored=' + hng.n);
     check('G22', 'async only, the same stall is logged once', hng.stall === 1, 'stall lines=' + hng.stall);
+
+    const slowRej = await twoAfterTrouble('rejectslow', 100);   // the second click lands while the first write is pending
+    check('G23', 'async only, a bookmark made while a failing write is pending: both stored, no third save needed',
+        slowRej.n === 2, 'bookmarks stored=' + slowRej.n);
+
+    // G24 — A's panel is open with A's bookmark; B, on the same conversation, adds one; A adds
+    // a second, whose write brings B's into A's page; then A clears all.
+    const clear = await (async () => {
+        const context = await browser.newContext();
+        const a = await openTab(context, TARGET, 'async');
+        a.on('dialog', (d) => d.accept());
+        await a.evaluate("document.getElementById('acn-dot-bookmarks').click()");
+        await a.waitForFunction("document.querySelectorAll('[data-acn-bookmark]').length > 1", null, { timeout: 30000 });
+        await a.evaluate("document.querySelectorAll('[data-acn-bookmark]')[0].click()");
+        await a.waitForTimeout(500);
+        const b = await openTab(context, TARGET, 'async');
+        await b.waitForFunction("document.querySelectorAll('[data-acn-bookmark]').length > 2", null, { timeout: 30000 });
+        await b.evaluate("document.querySelectorAll('[data-acn-bookmark]')[2].click()");
+        await b.waitForTimeout(500);
+        await a.evaluate("document.querySelectorAll('[data-acn-bookmark]')[1].click()");
+        await a.waitForTimeout(800);
+        const before = await bookmarkStore(a, 'async');
+        const storedBefore = (before && before[TARGET]) ? before[TARGET].bookmarks.length : 0;
+        const shown = await a.evaluate("document.querySelectorAll('#acn-panel-bookmarks .acn-bk').length");
+        await a.evaluate("document.querySelector('#acn-panel-bookmarks .acn-bm-clearall').click()");
+        await a.waitForTimeout(600);
+        const after = await bookmarkStore(a, 'async');
+        const storedAfter = (after && after[TARGET]) ? after[TARGET].bookmarks.length : 0;
+        await context.close();
+        return { storedBefore, shown, storedAfter };
+    })();
+    check('G24', 'async only: Clear all removes exactly the bookmarks the panel shows',
+        clear.storedAfter === clear.storedBefore - clear.shown && clear.shown > 0,
+        'stored before=' + clear.storedBefore + ' cards shown=' + clear.shown + ' stored after=' + clear.storedAfter);
+
+    // G25 — G15's case, read from the open list: the card shows the stored name.
+    const listNames = await (async () => {
+        const context = await browser.newContext();
+        const page = await openTab(context, TARGET, 'async');
+        await setHeld(page, '__gmasync:', 'acn-commands', held('async', [theirs]));
+        await createThroughForm(page, 'deploy');
+        await page.waitForTimeout(300);
+        const names = await page.evaluate("Array.from(document.querySelectorAll('#acn-cmd-body .acn-cmd-name')).map(function (e) { return e.textContent; })");
+        await context.close();
+        return names.sort();
+    })();
+    check('G25', 'async only: the open /Commands list shows the names as stored',
+        JSON.stringify(listNames) === JSON.stringify(['/deploy', '/deploy-2']), 'cards=' + JSON.stringify(listNames));
 
     await browser.close();
     console.log(failures ? '\n' + failures + ' check(s) FAILED' : '\nall checks passed');

@@ -347,6 +347,11 @@
     // must not leave its mark on the default the next read uses.
     function acnCopy(v) { return v === undefined ? v : JSON.parse(JSON.stringify(v)); }
 
+    // Async only: called after a write changed this page's copy of `key` (it now includes
+    // another tab's saves, or a renamed command), so a view drawn from the old copy redraws.
+    var _acnWatchers = {};
+    function acnWatch(key, fn) { (_acnWatchers[key] = _acnWatchers[key] || []).push(fn); }
+
     function acnUpdateValue(key, def, valid, apply) {
         if (!_acnStore) {
             var cur = GM_getValue(key, acnCopy(def));
@@ -386,6 +391,7 @@
             done = true;
             clearTimeout(slow);
             if (how !== 'failed') q.waiting = q.waiting.slice(batch.length);
+            var shown = _acnStore.mem[key];
             if (how === 'stored') {
                 // This page's copy becomes what is stored, plus the changes still waiting, so it
                 // now includes what other tabs saved too.
@@ -396,8 +402,12 @@
                 } catch (e) {}
             }
             q.busy = false;
-            // Changes made during this step. After a failure the next save retries, not a timer.
-            if (how !== 'failed') acnPersist(key);
+            if (_acnStore.mem[key] !== shown) {
+                (_acnWatchers[key] || []).forEach(function (fn) { try { fn(); } catch (e) {} });
+            }
+            // Changes made during this step. After a failure, only those: the failed batch
+            // itself waits for the next save, not a timer.
+            if (how !== 'failed' || q.waiting.length > batch.length) acnPersist(key);
         }
         function readFailed() { acnStoreWarn('GM.getValue failed'); finish('failed'); }
         try {
@@ -8446,6 +8456,13 @@
         });
     }
 
+    // A write that brought another tab's bookmarks into this page's copy redraws the open
+    // panel, so it shows, and Clear all removes, what is there (DEC-050).
+    acnWatch(BOOKMARK_KEY, function () {
+        var bmPanel = document.getElementById('acn-panel-bookmarks');
+        if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
+    });
+
     // isNew: a bookmark the user just made. Without it the save is an update (a migration or
     // an upgrade), and an update to a record another tab has deleted leaves it deleted.
     // Returns false when the save was refused.
@@ -9605,11 +9622,10 @@
         });
         clearBtn.addEventListener('click', function () {
             if (!window.confirm('Remove all bookmarks for this conversation?')) return;
-            // The records this tab knows of at the click, removed by id (DEC-050). On Safari
-            // that is the page's copy, so one another tab added since is kept; on Tampermonkey
-            // the list is read fresh, so every stored record goes, as before.
+            // The records this panel shows, removed by id (DEC-050): one another tab added
+            // since it was drawn is not this click's to clear.
             var shown = {};
-            getConversationBookmarks().forEach(function (b) { shown[b.id] = true; });
+            sorted.forEach(function (b) { shown[b.id] = true; });
             try {
                 _bmUpdateStore(function (list) {
                     return list.filter(function (b) { return !shown[b.id]; });
@@ -12320,6 +12336,13 @@
         try { return acnUpdateValue(COMMANDS_KEY, [], acnIsArray, change); } catch (e) { return false; }
     }
 
+    // A write that renamed a command or brought in another tab's redraws the list, unless a
+    // form is open over it (DEC-050).
+    acnWatch(COMMANDS_KEY, function () {
+        var body = document.getElementById('acn-cmd-body');
+        if (body && !body.querySelector('.acn-cmd-form')) _renderCommandListView(body, null);
+    });
+
     // `name` was checked against this page's copy; another tab may have saved a command of
     // that name since (DEC-050). Keep both, and the names unique: name, name-2, name-3...
     function uniqueCommandName(list, name, id) {
@@ -12361,7 +12384,8 @@
             return { error: 'Prompt is required' };
         }
         var command = {
-            id:          'cmd_' + Date.now(),
+            // The random part: two tabs creating in the same millisecond must not share an id.
+            id:          'cmd_' + Date.now() + '_' + Math.random().toString(16).slice(2, 6),
             name:        name,
             description: description || '',
             prompt:      prompt.trim(),
