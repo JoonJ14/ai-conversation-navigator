@@ -72,8 +72,10 @@ const USAGE_BODY = {
 // What claude.ai answers when a transport does not carry the session (U11).
 const REFUSED_BODY = JSON.stringify({ type: 'error', error: { type: 'permission_error', message: 'refused' } });
 
-// usageMode: 'ok' | 'error' | 'hang' | 'refused'   — 'hang' never calls back at all;
-// 'refused' answers 403 through GM_xmlhttpRequest, Safari's case (U11).
+// usageMode: 'ok' | 'error' | 'hang' | 'refused' | 'refused-fresh'   — 'hang' never calls
+// back at all; 'refused' answers 403 through GM_xmlhttpRequest, Safari's case (U11);
+// 'refused-fresh' answers 403 to EVERY GM request and sets no lastActiveOrg cookie, a fresh
+// session, so the usage path must find its org through the org list (U11b).
 function buildPage(scriptContent, usageMode, lang, respScript) {
     const mockHTML = fs.readFileSync(path.join(REPO, 'tests/mock-pages/claude-virtualized.html'), 'utf8');
     const bodyMatch = mockHTML.match(/<body[^>]*>([\s\S]*)<\/body>/i);
@@ -104,6 +106,11 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
     window.__acnUsageRequests = 0;
     window.GM_xmlhttpRequest = function (opts) {
         var url = opts.url || '';
+        if (window.__acnUsageMode === 'refused-fresh') {
+            if (/\\/usage$/.test(url)) window.__acnUsageRequests++;
+            setTimeout(function () { if (opts.onload) opts.onload({ status: 403, responseText: REFUSED }); }, 10);
+            return;
+        }
         // As a real manager reports it (v12.12): every HTTP answer, 4xx and 5xx included,
         // arrives through onload with its status. onerror is for a request that got no
         // answer at all. Before, a non-200 went to onerror, so a refusal could never reach
@@ -151,7 +158,9 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
     var _s = { 'acn-settings': { language: ${JSON.stringify(lang)} } };
     window.GM_getValue = function (k, d) { return _s.hasOwnProperty(k) ? _s[k] : d; };
     window.GM_setValue = function (k, v) { _s[k] = v; };
-    try { document.cookie = 'lastActiveOrg=' + ${JSON.stringify(ORG)} + '; path=/'; } catch (e) {}
+    if (window.__acnUsageMode !== 'refused-fresh') {
+        try { document.cookie = 'lastActiveOrg=' + ${JSON.stringify(ORG)} + '; path=/'; } catch (e) {}
+    }
 }());
 </script>
 <script>${scriptContent}</script></body></html>`;
@@ -281,11 +290,16 @@ async function openNavigate(page) {
         const page = await context.newPage();
         const targetURL = `${opts.origin || 'https://claude.ai'}/chat/${CONV_UUID}`;
         const html = buildPage(raw, usageMode, lang);
-        let fetchUsage = 0;
+        let fetchUsage = 0, fetchOrgList = 0;
         await page.route('**/*', (route) => {
             const u = route.request().url();
             if (u === targetURL || u === targetURL + '/') {
                 route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
+            } else if (opts.fetchUsage && u === 'https://claude.ai/api/organizations') {
+                // The org list through fetch (U11b). The index asks for it too; both get it.
+                fetchOrgList++;
+                route.fulfill({ status: 200, contentType: 'application/json',
+                                body: JSON.stringify([{ uuid: ORG, name: 'Fixture Org', capabilities: ['chat'] }]) });
             } else if (/\/usage$/.test(u)) {
                 fetchUsage++;
                 if (opts.fetchUsage) {
@@ -301,6 +315,7 @@ async function openNavigate(page) {
             out = await page.evaluate(READ_STATE);
         } else out = await readStable(page, 15000, 250);
         out.fetchUsage = fetchUsage;
+        out.fetchOrgList = fetchOrgList;
         await context.close();
         return out;
     }
@@ -518,6 +533,15 @@ async function openNavigate(page) {
         sound(u11) && u11.state === null && u11.bars > 0 && u11.requests > 0 && u11.fetchUsage > 0,
         'state=' + u11.state + ' bars=' + u11.bars + ' gm usage requests=' + u11.requests +
         ' fetch usage requests=' + u11.fetchUsage + ' ' + why(u11));
+
+    // U11b (v12.12) — the same, in a fresh session: no lastActiveOrg cookie and every GM request
+    // refused, so the usage path finds its org through the org list, which must ride the ladder
+    // too. U11 always has the cookie and never reaches that branch (Codex Tier 3).
+    const u11b = await scenario('refused-fresh', 'en', { fetchUsage: true });
+    check('U11b', 'no cookie, every GM request refused: the org list and usage come through fetch',
+        sound(u11b) && u11b.state === null && u11b.bars > 0 && u11b.fetchOrgList > 0 && u11b.fetchUsage > 0,
+        'state=' + u11b.state + ' bars=' + u11b.bars + ' fetch org lists=' + u11b.fetchOrgList +
+        ' fetch usage requests=' + u11b.fetchUsage + ' gm usage requests=' + u11b.requests + ' ' + why(u11b));
 
     // U12 (v12.12) — the exact-origin guard. On a look-alike host platform detection says
     // Claude, but the usage request carries the user's session and renders into the page,

@@ -298,7 +298,18 @@
             _acnStore.warned = true;
             console.log('[ACN] storage: GM.setValue failed; changes may not survive a reload');
         }
-        try { GM.setValue(key, text).then(null, warn); } catch (e) { warn(); }
+        // Two writes of one key in flight may finish in either order, so the one that lands
+        // last may not be the newest: once a write finishes, write the newest again if it has
+        // changed since (Codex Tier 3). Not a queue, so one write that never answers holds
+        // nothing else up.
+        function persist(t) {
+            try {
+                GM.setValue(key, t).then(function () {
+                    if (_acnStore.mem[key] !== t) persist(_acnStore.mem[key]);
+                }, warn);
+            } catch (e) { warn(); }
+        }
+        persist(text);
     }
 
     // ============================================================
@@ -4928,6 +4939,7 @@
     var _usageData     = null;
     var _usageLastFetch = 0;
     var _usageOrgUuid   = null;   // org the cached usage was fetched FOR
+    var _usageOrgListSeq = 0;     // the pending org-list lookup in fetchClaudeUsage, if any
     var _usageRefreshTimer = null; // debounce timer for maybeRefreshUsage
     // A null _usageData means two different things and the panel used to render
     // both as "Plan usage loading…": no fetch has finished YET, and a fetch finished
@@ -6189,6 +6201,7 @@
     // exactly as before: anything but a 200 with usable JSON is callback(null).
     function fetchClaudeUsage(callback) {
         function fetchUsageFor(uuid) {
+            _usageOrgListSeq++;   // an org list still pending is now superseded (below)
             // Record the org THIS fetch actually uses. Snapshotting _ciOrgUuid at the
             // call site recorded null whenever usage was requested before the index
             // validated an org — while this function proceeded with lastActiveOrg or
@@ -6220,7 +6233,14 @@
         var cookieOrg = ciGetCookie('lastActiveOrg');
         if (cookieOrg) { fetchUsageFor(cookieOrg); return; }
 
+        // A later request supersedes this one while the org list is pending: its answer would
+        // otherwise start a request for this org, overwrite _usageOrgUuid, and so drop the
+        // later request's answer while this one's is shown (Codex Tier 3; pre-existing). It is
+        // dropped silently, like the stale-org drop above, and for the same reason: the later
+        // request came through maybeRefreshUsage, whose own callback resolves the flag.
+        var listSeq = ++_usageOrgListSeq;
         ciLadderGet('/api/organizations', null, function () {}, function (r1) {
+            if (listSeq !== _usageOrgListSeq) return;
             var uuid = null;
             try {
                 // Rank by the 'chat' capability instead of array position.

@@ -14,9 +14,14 @@
 //   G2  async only: a language change survives a reload
 //   G3  both APIs present: the same two survive, through the SYNC functions, and the
 //       async GM.getValue / GM.setValue are never called (the Tampermonkey path)
-//   G4  async only, GM.getValue never answers: the UI still comes up, the failure is
-//       logged once, and a bookmark made on that page is kept in memory only, never
-//       written over what is stored (the owner's call, 2026-10-23)
+//   G4  async only, GM.getValue never answers: the UI still comes up, after the 2 s bound
+//       and well before any longer one, the failure is logged once, and a bookmark made on
+//       that page is kept in memory only, never written over what is stored (the owner's
+//       call, 2026-10-23)
+//   G5  async only, GM.setValue rejects: the failure is logged once, however many writes
+//
+// G1 also asserts the startup load asks for all six keys, since one left out of
+// acnStoreLoad's list would reset its feature on every reload with no other check failing.
 //
 // The "reload" is a real one (page.reload) in the same browser context. Each stub keeps
 // its values in the page's localStorage under its own prefix, so they outlive the page
@@ -38,8 +43,10 @@ catch (e) { playwright = require('playwright'); }
 
 const CONV_UUID = '12121212-1212-4121-8121-121212121212';
 const TARGET = 'https://claude.ai/chat/' + CONV_UUID;
+const SIX_KEYS = ['acn-bookmarks-v1', 'acn-claude-org-v1', 'acn-commands', 'acn-settings',
+                  'acn-zone-positions', 'acn_ctx_cache'];
 
-// mode: 'async' | 'sync' | 'hang'
+// mode: 'async' | 'sync' | 'hang' | 'reject'
 function buildPage(scriptContent, mode) {
     const mockHTML = fs.readFileSync(path.join(REPO, 'tests/mock-pages/claude-virtualized.html'), 'utf8');
     const bodyMatch = mockHTML.match(/<body[^>]*>([\s\S]*)<\/body>/i);
@@ -50,7 +57,7 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
 <script>
 (function () {
     var MODE = ${JSON.stringify(mode)};
-    window.__gm = { get: 0, set: 0, syncGet: 0, syncSet: 0 };
+    window.__gm = { get: 0, set: 0, syncGet: 0, syncSet: 0, keys: [] };
     function lsGet(prefix, k) {
         var t = localStorage.getItem(prefix + k);
         return t === null ? undefined : JSON.parse(t);
@@ -72,11 +79,17 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
     window.GM = {
         getValue: function (k, d) {
             window.__gm.get++;
+            window.__gm.keys.push(k);
             if (MODE === 'hang') return new Promise(function () {});
             var v = lsGet('__gmasync:', k);
             return Promise.resolve(v === undefined ? d : v);
         },
-        setValue: function (k, v) { window.__gm.set++; lsSet('__gmasync:', k, v); return Promise.resolve(); }
+        setValue: function (k, v) {
+            window.__gm.set++;
+            if (MODE === 'reject') return Promise.reject(new Error('stub: write refused'));
+            lsSet('__gmasync:', k, v);
+            return Promise.resolve();
+        }
     };
 }());
 </script>
@@ -185,10 +198,12 @@ const READ = `(function () {
     })();
 
     const a = await reloadScenario('async', english);
-    check('G1', 'async only: a bookmark survives a reload',
-        a.before.active > 0 && a.after.active > 0 && a.after.stored.indexOf('__gmasync:acn-bookmarks-v1') !== -1,
+    const loadedKeys = Array.from(new Set(a.after.gm.keys)).sort();
+    check('G1', 'async only: a bookmark survives a reload; the load asks for all six keys',
+        a.before.active > 0 && a.after.active > 0 && a.after.stored.indexOf('__gmasync:acn-bookmarks-v1') !== -1 &&
+        JSON.stringify(loadedKeys) === JSON.stringify(SIX_KEYS),
         'active before=' + a.before.active + ' after=' + a.after.active + ' icons after=' + a.after.icons +
-        ' stored=' + JSON.stringify(a.after.stored));
+        ' stored=' + JSON.stringify(a.after.stored) + ' keys loaded=' + JSON.stringify(loadedKeys));
     check('G2', 'async only: a language change survives a reload',
         !!english && a.koLabel !== english && a.after.navLabel === a.koLabel,
         'english=' + JSON.stringify(english) + ' chosen=' + JSON.stringify(a.koLabel) +
@@ -220,10 +235,35 @@ const READ = `(function () {
         await context.close();
         return { r, upMs, storageLines: logs.filter((l) => l.indexOf('[ACN] storage:') === 0) };
     })();
-    check('G4', 'GM.getValue never answers: UI comes up, logged once, a bookmark stays in memory only',
-        h.r.cluster && h.storageLines.length === 1 && h.r.active > 0 && h.r.gm.set === 0 && h.r.stored.length === 0,
+    // upMs runs from navigation to the cluster, so it includes the page load: at least the 2 s
+    // bound, and far below a bound raised to 10 s or more.
+    check('G4', 'GM.getValue never answers: UI comes up after the 2 s bound, logged once, a bookmark stays in memory only',
+        h.r.cluster && h.upMs >= 1900 && h.upMs < 8000 &&
+        h.storageLines.length === 1 && h.r.active > 0 && h.r.gm.set === 0 && h.r.stored.length === 0,
         'up after ' + h.upMs + 'ms, storage lines=' + JSON.stringify(h.storageLines) + ' active=' + h.r.active +
         ' GM.setValue calls=' + h.r.gm.set + ' stored=' + JSON.stringify(h.r.stored));
+
+    const j = await (async () => {
+        const context = await browser.newContext();
+        const page = await context.newPage();
+        const logs = [];
+        const errors = [];
+        page.on('console', (m) => logs.push(m.text()));
+        page.on('pageerror', (e) => errors.push(String(e && e.message || e)));
+        const html = buildPage(raw, 'reject');
+        await page.route('**/*', (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }));
+        await page.goto(TARGET, { waitUntil: 'domcontentloaded', timeout: 120000 });
+        await waitCluster(page);
+        await bookmarkFirst(page);
+        await chooseKorean(page);
+        await page.waitForTimeout(500);
+        const r = await page.evaluate(READ);
+        await context.close();
+        return { r, errors, failLines: logs.filter((l) => l.indexOf('[ACN] storage: GM.setValue failed') === 0) };
+    })();
+    check('G5', 'GM.setValue rejects: logged once across several writes, no page error',
+        j.r.gm.set >= 2 && j.failLines.length === 1 && j.errors.length === 0,
+        'GM.setValue calls=' + j.r.gm.set + ' failure lines=' + j.failLines.length + ' page errors=' + JSON.stringify(j.errors.slice(0, 2)));
 
     await browser.close();
     console.log(failures ? '\n' + failures + ' check(s) FAILED' : '\nall checks passed');

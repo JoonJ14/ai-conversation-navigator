@@ -322,6 +322,10 @@ Numbering below is stable (items keep their historical numbers):
      semantics. **Logged, not changed:** the usage requests now share the fetch transport's page-wide caps
      (`CI_FETCH_OPEN_MAX` 6, `CI_FETCH_STALL_MAX` 2) with the index, so on Safari a hanging path reaches the caps
      about twice as fast during rapid conversation switches [code, not measured].
+     **Logged, not gated (Codex Tier 3, PR #82):** no check covers the cross-org stale-response drop
+     (`_usageOrgUuid !== uuid`). U8–U10 overlap requests for one org by design, so removing that line fails
+     nothing. It predates PR #82, which keeps the line as it was. A gate needs a two-org fixture whose second
+     org is validated mid-request.
    - **Live confirmation status: DEC-031.** The Chrome + Tampermonkey check ran during the v12.10 acceptance
      (2026-10-23); which transport won was not recorded, so the intermittent 403 above still has no log lines.
      Real Safari did NOT reproduce the local mac WebKit jump failure, so that entry
