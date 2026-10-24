@@ -2830,9 +2830,12 @@ the value as it is stored at the moment of the save.
 Per runtime:
 - **Tampermonkey:** `GM_getValue`, validate, `GM_setValue(apply(value))`: the read-then-write every caller already
   did, with no copy of ours in between. The only change in behaviour there is the refusal below.
-- **Async only (Userscripts):** the change goes into this page's copy at once, so the page shows it; then a queue per
-  key re-reads with `GM.getValue`, validates, applies the change again and writes with `GM.setValue`. After a write,
-  the page's copy becomes the stored value plus this page's changes still queued, so it picks up what other tabs
+- **Async only (Userscripts):** the change goes into this page's copy at once, so the page shows it, and joins the
+  key's list of changes not yet known to be stored. One step at a time per key re-reads with `GM.getValue`,
+  validates, applies every change on that list and writes with `GM.setValue`. A change leaves the list only when a
+  write that includes it succeeds, so after a failed step it goes out with the next save, as v12.12's next
+  whole-copy write carried it. A step with no answer in 5 s is abandoned the same way, and logged once. After a
+  write, the page's copy becomes the stored value plus the changes still waiting, so it picks up what other tabs
   saved.
 - **A stored value that cannot be read is never saved over:** the save is refused, with one console line and one
   toast per key per page, and a bookmark's flag does not turn on. On the async path a change already shown on the
@@ -2857,8 +2860,12 @@ this page's startup copy back, so a tab erased whatever any other tab had saved 
 - **One GM key per conversation.** Not chosen: it bounds the loss to one conversation without removing it, and it
   needs a migration of every stored bookmark.
 - **DEC-049's "rewrite the newest" for these keys.** It orders writes of a whole copy; here each write depends on the
-  read before it, so a write must wait for the previous one. The queue waits for a step that does not answer
-  instead of reordering, and reports it once after 5 s.
+  read before it, so steps run one at a time per key. Overlapping steps were measured to lose a change when a later
+  step finished first (G13's mutant).
+- **Drop a failed step's change** (the first draft). Rejected in review: the next save then rebuilt the page's copy
+  without it, so a single refused write lost a bookmark that v12.12 would have carried (G20).
+- **Wait for a step that never answers** (the first draft). Rejected in review: one lost call held every later save
+  of that key for the rest of the page (G21). Abandoning after 5 s keeps its changes waiting.
 - **Repair or reset an unreadable stored value.** Rejected (the owner's rule): never write from empty.
 - **Tampermonkey through the same queue.** Not needed: its path reads with `GM_getValue` immediately before
   `GM_setValue`, in one synchronous call, with no copy of ours in between [code]. Whether `GM_getValue` in one tab
@@ -2866,7 +2873,8 @@ this page's startup copy back, so a tab erased whatever any other tab had saved 
 
 ### Rationale
 Each change is a small function of its own captured inputs, so it can be applied to any version of the collection,
-this page's or another tab's newer one. That makes the merge exact without any record of what the page last saw.
+this page's or another tab's newer one, with no record of what the page last saw. It is not atomic: see the first
+residual below.
 
 ### Key properties
 - **Correctness on Safari rests on a measurement:** a `GM.getValue` in one tab must return what another tab wrote
@@ -2880,6 +2888,24 @@ this page's or another tab's newer one. That makes the merge exact without any r
 - **Within one tab on Safari,** a page shows another tab's changes to a collection only after its own next save of
   that collection, or a reload. A bookmark toggled on a message another tab has also bookmarked can therefore add a
   second record for it; nothing is lost.
-- Gates: `probes/check-gm-storage.js` G7–G13 (page realm, stubbed storage; two pages in one browser context are two
-  tabs). v12.12 fails G7, G8, G9, G11 and G12; G10 (the synchronous path) and G13 (the queue) are guards, and a
-  build whose saves do not wait for each other fails G13.
+- **Two commands of one name** saved by two tabs are both kept; the later one is renamed `name-2` (`name-3`, ...),
+  on create and on rename.
+- **Residuals, recorded, not fixed** (review, 2026-10-24) [code + inferred, unmeasured on any manager]:
+  - GM storage has no atomic compare-and-swap. Two tabs whose read-then-write steps overlap can still lose one
+    change. The window is one `GM.getValue` → `GM.setValue` round trip (on Tampermonkey, `GM_getValue` → `GM_setValue`
+    in one call plus the manager's own syncing), where v12.12's was the tab's whole life. Most likely from automatic
+    saves (migrations in tabs restored together), not from clicks.
+  - An update (a migration, an upgrade) writes the whole record from this page's copy, so it can undo another tab's
+    newer change to that same record (for example a proof binding). Nothing is lost that the next migration does not
+    redo.
+  - A write abandoned after 5 s that lands later still could overwrite a newer write.
+  - A save sent less than one round trip before a reload or a tab close is not written; v12.12 sent the write at
+    once.
+  - A stored value that cannot be read blocks saving that collection until it is repaired by hand; there is no
+    in-UI recovery (the owner's rule: never write from empty). On Safari, a refusal found only at write time comes
+    after the page showed the change.
+- Gates: `probes/check-gm-storage.js` G7–G22 (page realm, stubbed storage; two pages in one browser context are two
+  tabs). v12.12 fails G7, G8, G9, G11, G12, G14–G18 and G22; G10 (the synchronous path), G13 (one step at a time),
+  G19, G20 and G21 are guards. The review's pre-fix build (`698e27f`) fails G15, G16, G19, G20, G21 and G22; a build
+  whose steps can overlap fails G13. Not gated: a conversation entry that is not a list (icon injection already
+  fails on one, on v12.12 too, so no click reaches the save).

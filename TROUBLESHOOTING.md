@@ -508,8 +508,9 @@ v12.12 fails).
 ### Fix (v12.13)
 
 - `acnUpdateValue(key, def, valid, apply)`: Tampermonkey reads with `GM_getValue` right before `GM_setValue`, as
-  every caller already did; Safari applies the change to the page's copy at once, then re-reads with `GM.getValue`,
-  applies it again and writes, one save at a time per key, and refreshes the copy from what is stored.
+  every caller already did; Safari applies the change to the page's copy at once, then, one step at a time per key,
+  re-reads with `GM.getValue`, applies every change not yet stored and writes, and refreshes the copy from what is
+  stored. A failed or unanswered (5 s) step keeps its changes for the next save.
 - Bookmarks merge by record id (an update never revives a record another tab deleted; Clear all removes the records
   this tab shows), commands by id, positions by platform, the context cache by conversation. `acn-settings` and the
   org cache stay last-write-wins (the owner's call).
@@ -518,10 +519,11 @@ v12.12 fails).
 
 ### Results & verification
 
-- **Page realm** (Playwright, headless, this Mac, stubbed storage): `check-gm-storage` G7–G13. v12.12 fails G7 (the
-  owner's test: only conversation B is stored afterwards), G8 and G9 (the unreadable value is replaced), G11 and G12;
-  v12.13 passes all thirteen. G10 (the sync path) and G13 (the queue) pass on both; a build whose saves do not wait
-  for each other fails G13 (one of two bookmarks lost). Final runs: CHANGELOG 12.13.
+- **Page realm** (Playwright, headless, this Mac, stubbed storage): `check-gm-storage` G7–G22. v12.12 fails G7 (the
+  owner's test: only conversation B is stored afterwards), G8 and G9 (the unreadable value is replaced), G11, G12,
+  G14–G18 (G17: B's removal erases A's bookmark; G18: a removed bookmark comes back) and G22; v12.13 passes all
+  twenty-two. The guards G10, G13, G19, G20 and G21 pass on both; the review's pre-fix build fails G15, G16 and
+  G19–G22, and a build whose save steps can overlap fails G13. Residual limits: DEC-050. Final runs: CHANGELOG 12.13.
 - **The measurement the fix depends on, owed:** C0 (`probes/cross-tab-gm-check.user.js`, owner-run on all three
   managers): does a read in one tab return what another tab wrote since it loaded? If a manager answers from a
   per-tab cache, re-reading cannot help there.

@@ -19,6 +19,10 @@
 // How to run: open claude.ai in two tabs, A and B, and leave both loaded (no reload from here on).
 // In B click "Write". In A click "Read". The box in A shows what each storage API returned and
 // whether it came from tab B. Then the other way round: Write in A, Read in B.
+// Reading it: a fresh cross-tab read names B's tab id (B's box title) and B's write number, and is
+// a few seconds old. A value from an earlier run also says ANOTHER tab, but with an id no open tab
+// has and a large age. The line that counts: GM_getValue on Tampermonkey (what the navigator uses
+// there), GM.getValue on Userscripts.
 //
 // Every console line starts with [ACN-C0]. The only keys written are 'acn-c0-probe' (async API)
 // and 'acn-c0-probe-sync' (synchronous API, where it exists), never a key the navigator uses.
@@ -44,7 +48,8 @@
         if (info) manager = info.scriptHandler + ' ' + info.version;
     } catch (e) {}
     title.textContent = 'C0 tab ' + TAB + ' — ' + manager + ' — sync API: ' + (hasSync ? 'yes' : 'no') +
-                        ', async API: ' + (hasAsync ? 'yes' : 'no');
+                        ', async API: ' + (hasAsync ? 'yes' : 'no') + ' — the line that counts: ' +
+                        (hasSync ? 'GM_getValue' : 'GM.getValue');
     var out = document.createElement('div');
     out.style.whiteSpace = 'pre-wrap';
     out.textContent = 'not read yet';
@@ -65,7 +70,8 @@
         if (typeof v === 'string') { try { o = JSON.parse(v); } catch (e) { return api + ': unreadable ' + JSON.stringify(v); } }
         if (!o || !o.tab) return api + ': unexpected ' + JSON.stringify(v);
         return api + ': write #' + o.n + ' from tab ' + o.tab + (o.tab === TAB ? ' (THIS tab)' : ' (ANOTHER tab)') +
-               ', written ' + Math.round((Date.now() - o.at) / 1000) + ' s ago';
+               ', written ' + Math.round((Date.now() - o.at) / 1000) + ' s ago' +
+               ' (fresh if the id is the other open tab\'s and the age is a few seconds)';
     }
 
     function write() {

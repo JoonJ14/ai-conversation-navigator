@@ -329,10 +329,12 @@
     // collection with one change. Returns false when the save was refused.
     //   Tampermonkey: GM_getValue then GM_setValue, the read-then-write the callers already
     //     did, with no copy of ours in between.
-    //   Async only: the change goes into this page's copy at once, then a queue per key
-    //     re-reads with GM.getValue, applies it again and writes. A queue, not DEC-049's
-    //     rewrite, because each write now depends on the read before it; a step that does
-    //     not answer is reported, and the queue waits for it rather than reorder.
+    //   Async only: the change goes into this page's copy at once and joins the key's list of
+    //     changes not yet known to be stored. One step at a time per key re-reads with
+    //     GM.getValue, applies every change on that list, and writes. A change leaves the
+    //     list only when a write that includes it succeeds: after a failed step it goes out
+    //     with the next save, as v12.12's next whole-copy write carried it. A step that gets
+    //     no answer in 5 s is abandoned the same way, so one lost call holds nothing up.
     var _acnRefused = {};
     function acnRefuseWrite(key) {
         if (_acnRefused[key]) return;
@@ -341,62 +343,82 @@
         if (typeof showToast === 'function') showToast(i18n('storageUnreadable'));
     }
 
+    // Each read gets its own copy of the default: a change that mutates what it is given
+    // must not leave its mark on the default the next read uses.
+    function acnCopy(v) { return v === undefined ? v : JSON.parse(JSON.stringify(v)); }
+
     function acnUpdateValue(key, def, valid, apply) {
         if (!_acnStore) {
-            var cur = GM_getValue(key, def);
+            var cur = GM_getValue(key, acnCopy(def));
             if (!valid(cur)) { acnRefuseWrite(key); return false; }
             GM_setValue(key, apply(cur));
             return true;
         }
         var mem = _acnStore.mem, here;
-        try { here = mem.hasOwnProperty(key) ? JSON.parse(mem[key]) : def; } catch (e) { here = undefined; }
+        try { here = mem.hasOwnProperty(key) ? JSON.parse(mem[key]) : acnCopy(def); } catch (e) { here = undefined; }
         if (!valid(here)) { acnRefuseWrite(key); return false; }
         mem[key] = JSON.stringify(apply(here));
         if (!_acnStore.persist) return true;
         var queues = _acnStore.queues || (_acnStore.queues = {});
-        var pending = queues[key] || (queues[key] = []);
-        pending.push(apply);
-        if (pending.length === 1) acnPersistNext(key, def, valid);
+        var q = queues[key] || (queues[key] = { def: def, valid: valid, waiting: [], busy: false });
+        q.waiting.push(apply);
+        if (!q.busy) acnPersist(key);
         return true;
     }
 
-    function acnPersistNext(key, def, valid) {
-        var pending = _acnStore.queues[key];
-        if (!pending.length) return;
-        var apply = pending[0], finished = false;
-        var slow = setTimeout(function () { acnStoreWarn('a save is still waiting for GM storage'); }, 5000);
-        function next() {
-            if (finished) return;
-            finished = true;
+    function acnPersist(key) {
+        var q = _acnStore.queues[key];
+        if (!q.waiting.length) return;
+        var batch = q.waiting.slice(), done = false;
+        q.busy = true;
+        var slow = setTimeout(function () {
+            if (!_acnStore.hangWarned) {
+                _acnStore.hangWarned = true;
+                console.log('[ACN] storage: GM storage did not answer within 5 s; the change will go ' +
+                            'out with the next save, and may not survive a reload');
+            }
+            finish('failed');
+        }, 5000);
+        // 'stored': the batch is written. 'refused': the stored value is unreadable, and the
+        // batch is dropped (never written over it). 'failed': the batch stays waiting.
+        function finish(how, text) {
+            if (done) return;
+            done = true;
             clearTimeout(slow);
-            pending.shift();
-            acnPersistNext(key, def, valid);
+            if (how !== 'failed') q.waiting = q.waiting.slice(batch.length);
+            if (how === 'stored') {
+                // This page's copy becomes what is stored, plus the changes still waiting, so it
+                // now includes what other tabs saved too.
+                try {
+                    var v = JSON.parse(text);
+                    for (var i = 0; i < q.waiting.length; i++) v = q.waiting[i](v);
+                    _acnStore.mem[key] = JSON.stringify(v);
+                } catch (e) {}
+            }
+            q.busy = false;
+            // Changes made during this step. After a failure the next save retries, not a timer.
+            if (how !== 'failed') acnPersist(key);
         }
-        function readFailed() { acnStoreWarn('GM.getValue failed'); next(); }
-        function written(text) {
-            // This page's copy becomes what is stored, plus its own saves still queued, so it
-            // now includes what other tabs saved too.
-            try {
-                var v = JSON.parse(text);
-                for (var i = 1; i < pending.length; i++) v = pending[i](v);
-                _acnStore.mem[key] = JSON.stringify(v);
-            } catch (e) {}
-            next();
-        }
+        function readFailed() { acnStoreWarn('GM.getValue failed'); finish('failed'); }
         try {
             GM.getValue(key).then(function (stored) {
+                if (done) return;   // abandoned
                 var cur, text;
                 try {
-                    if (stored === undefined || stored === null) cur = def;
+                    if (stored === undefined || stored === null) cur = acnCopy(q.def);
                     else if (typeof stored === 'string') cur = JSON.parse(stored);
                     else throw new Error('not JSON text');
                 } catch (e) { cur = undefined; }
-                if (!valid(cur)) { acnRefuseWrite(key); next(); return; }
-                try { text = JSON.stringify(apply(cur)); } catch (e) { acnStoreWarn('a save failed'); next(); return; }
+                if (!q.valid(cur)) { acnRefuseWrite(key); finish('refused'); return; }
+                // A change that throws is skipped, not retried: it would throw every time.
+                for (var i = 0; i < batch.length; i++) {
+                    try { cur = batch[i](cur); } catch (e) { acnStoreWarn('a change could not be applied'); }
+                }
+                text = JSON.stringify(cur);
                 try {
-                    GM.setValue(key, text).then(function () { written(text); },
-                                                function () { acnStoreWarn('GM.setValue failed'); next(); });
-                } catch (e) { acnStoreWarn('GM.setValue failed'); next(); }
+                    GM.setValue(key, text).then(function () { finish('stored', text); },
+                                                function () { acnStoreWarn('GM.setValue failed'); finish('failed'); });
+                } catch (e) { acnStoreWarn('GM.setValue failed'); finish('failed'); }
             }, readFailed);
         } catch (e) { readFailed(); }
     }
@@ -8404,9 +8426,16 @@
     // here, at the click, not when a queued save runs.
     function _bmUpdateStore(change) {
         var url = normalizeConversationUrl();
-        return acnUpdateValue(BOOKMARK_KEY, '{}', _bmStoreValid, function (raw) {
+        // This conversation's entry, where there is one, must hold a list: a save must not
+        // replace a list it cannot read with one bookmark either.
+        function valid(raw) {
+            if (!_bmStoreValid(raw)) return false;
+            var entry = JSON.parse(raw)[url];
+            return !entry || (acnIsPlainObject(entry) && Array.isArray(entry.bookmarks));
+        }
+        return acnUpdateValue(BOOKMARK_KEY, '{}', valid, function (raw) {
             var store = JSON.parse(raw);
-            var list = (store[url] && Array.isArray(store[url].bookmarks)) ? store[url].bookmarks : [];
+            var list = store[url] ? store[url].bookmarks : [];
             var next = change(list);
             if (!store[url]) {
                 if (!next.length) return raw;
@@ -8420,19 +8449,29 @@
     // isNew: a bookmark the user just made. Without it the save is an update (a migration or
     // an upgrade), and an update to a record another tab has deleted leaves it deleted.
     // Returns false when the save was refused.
+    var _bmSaveFailWarned = false;
     function saveBookmark(bookmark, isNew) {
+        // A copy, taken now: the change may run again later, and a later change must not
+        // reach into a record this one already placed.
+        var record = JSON.parse(JSON.stringify(bookmark));
         try {
             return _bmUpdateStore(function (list) {
                 var found = false;
                 var next = list.filter(function (b) {
-                    if (b.id !== bookmark.id) return true;
+                    if (b.id !== record.id) return true;
                     found = true;
                     return false;
                 });
-                if (found || isNew) next.push(bookmark);
+                if (found || isNew) next.push(JSON.parse(JSON.stringify(record)));
                 return next;
             });
-        } catch (e) { return false; }
+        } catch (e) {
+            if (!_bmSaveFailWarned) {
+                _bmSaveFailWarned = true;
+                console.warn('[ACN] storage: a bookmark could not be saved:', e);
+            }
+            return false;
+        }
     }
 
     // Removal must also RESET icon state. A pre-v12 bookmark's mounted icon
@@ -9566,8 +9605,9 @@
         });
         clearBtn.addEventListener('click', function () {
             if (!window.confirm('Remove all bookmarks for this conversation?')) return;
-            // The records this tab shows. One another tab added since is not this tab's to
-            // clear (DEC-050).
+            // The records this tab knows of at the click, removed by id (DEC-050). On Safari
+            // that is the page's copy, so one another tab added since is kept; on Tampermonkey
+            // the list is read fresh, so every stored record goes, as before.
             var shown = {};
             getConversationBookmarks().forEach(function (b) { shown[b.id] = true; });
             try {
@@ -12280,6 +12320,20 @@
         try { return acnUpdateValue(COMMANDS_KEY, [], acnIsArray, change); } catch (e) { return false; }
     }
 
+    // `name` was checked against this page's copy; another tab may have saved a command of
+    // that name since (DEC-050). Keep both, and the names unique: name, name-2, name-3...
+    function uniqueCommandName(list, name, id) {
+        var taken = {}, n = 2, sfx, out = name;
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].id !== id) taken[list[i].name] = true;
+        }
+        while (taken[out]) {
+            sfx = '-' + (n++);
+            out = name.substring(0, 30 - sfx.length) + sfx;
+        }
+        return out;
+    }
+
     function getCommandByName(name) {
         var commands = loadCommands();
         for (var i = 0; i < commands.length; i++) {
@@ -12316,7 +12370,16 @@
             usageCount:  0,
             lastUsedAt:  null
         };
-        updateCommands(function (list) { list.push(command); return list; });
+        var saved = updateCommands(function (list) {
+            for (var i = 0; i < list.length; i++) {
+                if (list[i].id === command.id) return list;
+            }
+            var copy = JSON.parse(JSON.stringify(command));
+            copy.name = uniqueCommandName(list, command.name, command.id);
+            list.push(copy);
+            return list;
+        });
+        if (!saved) return { error: i18n('storageUnreadable') };
         return { success: true, command: command };
     }
 
@@ -12339,13 +12402,15 @@
                 }
                 fields.updatedAt = Date.now();
                 // A command another tab has deleted stays deleted.
-                updateCommands(function (list) {
+                var saved = updateCommands(function (list) {
                     list.forEach(function (cmd) {
                         if (cmd.id !== id) return;
                         Object.keys(fields).forEach(function (f) { cmd[f] = fields[f]; });
+                        if (fields.name) cmd.name = uniqueCommandName(list, fields.name, id);
                     });
                     return list;
                 });
+                if (!saved) return { error: i18n('storageUnreadable') };
                 return { success: true };
             }
         }
