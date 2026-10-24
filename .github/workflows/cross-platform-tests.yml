@@ -94,3 +94,10 @@ jobs:
       - name: Run GM storage probe
         if: matrix.os == 'ubuntu-latest'
         run: node probes/check-gm-storage.js --browser ${{ matrix.browser }}
+
+      # The answer-bookmark probe (v12.14, DEC-051): placed like the four above. It asserts scan timing
+      # (the 500 ms debounce), the jump, and both storage APIs, and the owner's answer bookmarks failed
+      # on all three browsers.
+      - name: Run answer-bookmark probe
+        if: matrix.os == 'ubuntu-latest'
+        run: node probes/check-answer-bookmarks.js --browser ${{ matrix.browser }}

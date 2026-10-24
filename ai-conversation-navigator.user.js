@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.13
+// @version      12.14
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -51,7 +51,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.13';
+    var ACN_VERSION = '12.14';
 
     // ============================================================
     // i18n — internationalization string table
@@ -74,6 +74,10 @@
             bookmarkAdded: 'Bookmark added',
             bookmarkRemoved: 'Bookmark removed',
             storageUnreadable: 'Not saved: the stored data could not be read',
+            answerToQuestion: 'Answer to Q#{n}',
+            answerNoQuestion: 'Answer (no question)',
+            answerUnresolved: 'A#?',
+            answerUnresolvedToast: 'This answer bookmark could not be matched to a message \u2014 delete it and bookmark the answer again',
             generateSummary: 'Generate Summary',
             regenerateSummary: 'Regenerate Summary',
             analyzing: 'Analyzing...',
@@ -155,6 +159,10 @@
             bookmarkAdded: '\ubd81\ub9c8\ud06c \ucd94\uac00\ub428',
             bookmarkRemoved: '\ubd81\ub9c8\ud06c \uc0ad\uc81c\ub428',
             storageUnreadable: '\uc800\uc7a5\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4: \uc800\uc7a5\ub41c \ub370\uc774\ud130\ub97c \uc77d\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4',
+            answerToQuestion: 'Q#{n}\uc5d0 \ub300\ud55c \ub2f5\ubcc0',
+            answerNoQuestion: '\ub2f5\ubcc0 (\uc55e\uc120 \uc9c8\ubb38 \uc5c6\uc74c)',
+            answerUnresolved: 'A#?',
+            answerUnresolvedToast: '\uc774 \ub2f5\ubcc0 \ubd81\ub9c8\ud06c\ub294 \uc5b4\ub290 \uba54\uc2dc\uc9c0\uc778\uc9c0 \ud655\uc778\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4 \u2014 \uc0ad\uc81c\ud55c \ub4a4 \ub2e4\uc2dc \ubd81\ub9c8\ud06c\ud558\uc138\uc694',
             generateSummary: '\uc694\uc57d \uc0dd\uc131',
             regenerateSummary: '\uc694\uc57d \ub2e4\uc2dc \uc0dd\uc131',
             analyzing: '\ubd84\uc11d \uc911...',
@@ -4389,6 +4397,137 @@
                rowEl;
     }
 
+    // ── Answers, for bookmarks: found inside the feed's rows, placed by position (DEC-051) ──
+    // Answers are [data-testid="assistant-message"] [measured, Chrome page realm, 2026-10-23].
+    // getAIMessages tries its selectors across the whole document and stops at the first that
+    // matches anything, and in a project chat '.font-claude-response' now matches the project's
+    // name link in a hidden side panel, so no answer was found at all [measured, Chrome, three
+    // project chats, 2026-10-24]. Bookmarks look for answers only inside rows. getAIMessages,
+    // ciMessageNodeWithin and the staleness check stay as they are: handing the staleness check
+    // answer nodes would compare rendered answers, which open with an activity line the payload
+    // lacks, and refetch the index for every window again.
+    function ciAnswerNodeInRow(rowEl) {
+        if (!rowEl || !rowEl.querySelector) return null;
+        if (rowEl.querySelector('[data-testid="user-message"]')) return null;
+        var node = rowEl.querySelector('[data-testid="assistant-message"]');
+        if (node) return node;
+        // July 2026's markup, and the test mock. Only inside the feed: outside it, a row can be
+        // another list's.
+        if (ciFeedRoot() === document) return null;
+        return rowEl.querySelector('.font-claude-response') ||
+               rowEl.querySelector('.\\!font-claude-response');
+    }
+
+    // The fetched snapshot's row count, as _ciMergeLiveMessages computes it: a row at or past it
+    // shows something the index does not hold yet.
+    function _ciSnapshotRows() {
+        return _ciPredicateWarned && _ciRowsAtBuild !== null
+            ? Math.min(_ciRowsAtBuild, _ciRenderable.length)
+            : _ciRenderable.length;
+    }
+
+    // The path entry a mounted question row matches right now (the matcher anchors use), or
+    // null; false when it matches another entry than the anchor recorded for that row, i.e. the
+    // conversation changed under the index (an edit before the resync). Memoized per index
+    // generation and row text: ciMatchRowToPath walks the whole path.
+    var _ciQMatchMemo = { gen: -1, rows: {} };
+    function _ciQuestionPathNow(row) {
+        if (!row || !row.isUser) return null;
+        // A row past the snapshot shows a question the index does not hold: a just-sent prompt
+        // repeating an older one matches the OLD entry, which would place the answer above it.
+        if (row.dataIndex >= _ciSnapshotRows()) return null;
+        var inner = row.el.querySelector('[data-testid="user-message"]');
+        var text = inner ? _readMessageText(inner) : '';
+        if (!text) return null;
+        if (_ciQMatchMemo.gen !== _ciIndexGen) _ciQMatchMemo = { gen: _ciIndexGen, rows: {} };
+        var key = String(row.dataIndex), memo = _ciQMatchMemo.rows[key], p;
+        if (memo && memo.text === text) {
+            p = memo.p;
+        } else {
+            p = ciMatchRowToPath(row);
+            _ciQMatchMemo.rows[key] = { text: text, p: p };
+        }
+        if (p === null || !_ciFullPath[p] || _ciFullPath[p].sender !== 'human') return null;
+        if (_ciAnchorRows && _ciAnchorRows.hasOwnProperty(key) && _ciAnchorRows[key] !== p) return false;
+        return p;
+    }
+
+    // The one answer that renders between question qp and the next question, or null when
+    // there is none or more than one entry there (an interrupted generation beside the answer:
+    // picking one would rest on the stop_reason predicate, which may only ever refuse).
+    function _ciSoleAnswerAfter(qp) {
+        var k = qp + 1;
+        while (k < _ciFullPath.length && _ciFullPath[k].sender !== 'human') k++;
+        if (k - qp !== 2) return null;
+        var e = _ciFullPath[qp + 1];
+        return (e.sender === 'assistant' && ciEntryRenders(e)) ? qp + 1 : null;
+    }
+    function _ciSoleAnswerBefore(hp) {
+        var j = hp - 1;
+        while (j >= 0 && _ciFullPath[j].sender !== 'human') j--;
+        if (hp - j !== 2) return null;
+        var e = _ciFullPath[hp - 1];
+        return (e.sender === 'assistant' && ciEntryRenders(e)) ? hp - 1 : null;
+    }
+
+    // Every mounted answer row, and the path entry it shows where that is proven:
+    // { rows: [{ dataIndex, el, node }], pathOf: { dataIndex: pathIndex or null } }.
+    //
+    // Never from text: a rendered answer opens with an activity line the payload's text lacks,
+    // so the two never match [measured, Chrome, 2026-10-23]. A row is placed only when the rows
+    // around it prove it:
+    //   A  measured anchors bracket it with one offset (ciResolvePathForRowStrict);
+    //   B  the question row right above (or below) matches its entry now, and exactly one entry,
+    //      an answer that renders, sits between that question and the next one;
+    //   C  it is the last row, the row count equals the entries predicted to render, and the last
+    //      of those is an answer.
+    // Every route that answers must agree, the entry must be an answer that renders, two rows
+    // never share an entry, and a row past the fetched snapshot is never placed. Nothing here
+    // records an anchor: a derived position is not a measurement, and anchors feed the jump and
+    // the staleness check.
+    function ciAnswerMap() {
+        var out = { rows: [], pathOf: {} };
+        var mounted = ciMountedRows(), byRow = {}, i;
+        for (i = 0; i < mounted.length; i++) {
+            byRow[mounted[i].dataIndex] = mounted[i];
+            if (mounted[i].isUser) continue;
+            var node = ciAnswerNodeInRow(mounted[i].el);
+            if (node) out.rows.push({ dataIndex: mounted[i].dataIndex, el: mounted[i].el, node: node });
+        }
+        var placed = ciIsClaudeChat() && ciIsReady() && !!_ciFullPath && !!_ciRenderable;
+        var bound = placed ? _ciSnapshotRows() : 0;
+        var total = placed ? ciTotalRows() : null;
+        var at = {};
+        for (i = 0; i < out.rows.length; i++) {
+            var d = out.rows[i].dataIndex;
+            var p = (placed && d < bound) ? _ciAnswerPathForRow(d, byRow, total) : null;
+            out.pathOf[d] = p;
+            if (p === null) continue;
+            if (at.hasOwnProperty(p)) { out.pathOf[d] = null; out.pathOf[at[p]] = null; }
+            else at[p] = d;
+        }
+        return out;
+    }
+
+    function _ciAnswerPathForRow(d, byRow, total) {
+        var cands = [];
+        var strict = ciResolvePathForRowStrict(d);
+        if (strict !== null) cands.push(strict);
+        var above = _ciQuestionPathNow(byRow[d - 1]);
+        var below = _ciQuestionPathNow(byRow[d + 1]);
+        if (above === false || below === false) return null;
+        if (above !== null) { var pa = _ciSoleAnswerAfter(above); if (pa !== null) cands.push(pa); }
+        if (below !== null) { var pb = _ciSoleAnswerBefore(below); if (pb !== null) cands.push(pb); }
+        if (total !== null && d === total - 1 && total === _ciRenderable.length) {
+            var last = _ciRenderable[_ciRenderable.length - 1];
+            if (_ciFullPath[last] && _ciFullPath[last].sender === 'assistant') cands.push(last);
+        }
+        if (!cands.length) return null;
+        for (var k = 1; k < cands.length; k++) if (cands[k] !== cands[0]) return null;
+        var e = _ciFullPath[cands[0]];
+        return (e && e.sender === 'assistant' && ciEntryRenders(e)) ? cands[0] : null;
+    }
+
     /**
      * Scrolls a message into view by its position in _ciFullPath, paging the
      * virtualizer until the row mounts.
@@ -4953,6 +5092,10 @@
         _ciIndex          = null;
         _ciFullPath       = null;
         _ciTextToUuid     = null;
+        _ciQMatchMemo     = { gen: -1, rows: {} };   // question texts of the conversation left behind
+        _bmRefreshFor     = null;   // a bookmark's refetch request belongs to the conversation it was made in
+        _bmProveSeen      = '';     // and the proof gate's copy of the stored bookmarks with it
+        _bmProveRaw       = null;
         _ciInFlightCid    = null;   // never let an old conversation's request block the new one
         if (_ciRescanTimer !== null) { clearTimeout(_ciRescanTimer); _ciRescanTimer = null; }
         // Usage quota is org-scoped; a conversation switch can land in a different
@@ -5635,6 +5778,9 @@
                         // the mount-set gate because a new index generation is itself new
                         // evidence, even if nothing scrolled.
                         _bmHarvestSeen = '';
+                        // Answer bookmarks bind on proof before the status line counts them.
+                        _bmProveSeen = '';
+                        _bmProveAnswers();
                         _bmHarvestLegacyFromMounted();
                         _bmMigrateLegacy();
                         _bmMigratedGen = _ciIndexGen;
@@ -5649,7 +5795,14 @@
                 if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
                 if (typeof orbOnScanComplete === 'function') orbOnScanComplete();
 
-                if (_ciNeedsResync(_questions) || _ciAssistantStale()) {
+                // The staleness check runs on every scan exactly as before; a bookmark on an answer
+                // the index does not hold yet (_bmRequestIndexRefresh) only joins its refetch.
+                var ciStale = _ciNeedsResync(_questions) || _ciAssistantStale();
+                if (_bmRefreshFor && (_bmRefreshFor !== _ciConversationId || !_bmRefreshStillWanted())) {
+                    _bmRefreshFor = null;
+                }
+                var bmWantsRefetch = !!_bmRefreshFor;
+                if (ciStale || bmWantsRefetch) {
                     var sinceRefetch = Date.now() - _ciLastRefetchAt;
                     // Honour the PERMANENT-failure backoff here, not just the base
                     // cooldown. Retaining the snapshot means the index stays READY after a
@@ -5662,8 +5815,14 @@
                     var refetchGate = Math.max(CI_REFETCH_COOLDOWN_MS, _ciRetryDelayMs);
                     if (sinceRefetch > refetchGate) {
                         _ciLastRefetchAt = Date.now();
-                        console.log('[ACN] index out of sync with DOM (new message, edit, ' +
-                                    'or regenerate) — refetching');
+                        _bmRefreshFor = null;
+                        if (ciStale) {
+                            console.log('[ACN] index out of sync with DOM (new message, edit, ' +
+                                        'or regenerate) — refetching');
+                        } else {
+                            console.log('[ACN] refetching the index for a bookmarked answer it ' +
+                                        'does not hold yet');
+                        }
                         ciLoadIndex(true, function (ok) {
                             scanConversation(true);
                             if (!ok) _ciScheduleRescan(
@@ -8555,29 +8714,60 @@
     // msgIndex is the ordinal at bookmark time and goes stale — a migrated legacy record
     // rendered "A#91" in an 8-message conversation (measured 2026-07-29). With a uuid the
     // index knows the true position, so derive it and fall back only when it cannot.
+    // A Claude answer is not numbered here: it is labelled by the question it follows
+    // (_bmLabel, DEC-051).
     function _bmDisplayOrdinal(bm) {
-        if (bm && bm.msgUuid && ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
-            // HUMAN: number exactly as the Navigate panel does — its Q# is a position in
-            // _questions, which drops human turns with no extractable text (~10% of turns:
-            // large pastes become attachments). Counting raw path entries instead made the
-            // badge disagree with the list it is meant to help you find.
-            if (bm.entityType !== 'ai-msg') {
-                for (var q = 0; q < _questions.length; q++) {
-                    if (_questions[q].uuid === bm.msgUuid) return q;
-                }
-            } else {
-                // ASSISTANT: count only entries that RENDER a row. Non-rendering entries
-                // (interrupted generations, no stop_reason) are invisible on screen, so
-                // counting them inflates A# past anything the user can see.
-                var ord = 0;
-                for (var i = 0; i < _ciFullPath.length; i++) {
-                    if (_ciFullPath[i].sender !== 'assistant') continue;
-                    if (_ciFullPath[i].uuid === bm.msgUuid) return ord;
-                    if (ciEntryRenders(_ciFullPath[i])) ord++;
-                }
+        if (bm && bm.msgUuid && bm.entityType !== 'ai-msg' && ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
+            // Number exactly as the Navigate panel does — its Q# is a position in _questions,
+            // which drops human turns with no extractable text. Counting raw path entries
+            // instead made the badge disagree with the list it is meant to help you find.
+            for (var q = 0; q < _questions.length; q++) {
+                if (_questions[q].uuid === bm.msgUuid) return q;
             }
         }
         return bm ? (bm.msgIndex || 0) : 0;
+    }
+
+    // "Answer to Q#n": the question the answer follows on the path, numbered as Navigate
+    // numbers it, so it is never a separate count of answers. A 0-based index into _questions;
+    // -1 when no listed question precedes it; null when the record is not bound, or its
+    // message is not on this path.
+    function _bmAnswerQuestionIndex(bm) {
+        if (!bm.msgUuid || !_ciFullPath) return null;
+        var p = -1, j, q;
+        for (j = 0; j < _ciFullPath.length; j++) {
+            if (_ciFullPath[j].uuid === bm.msgUuid) { p = j; break; }
+        }
+        if (p < 0) return null;
+        for (j = p - 1; j >= 0; j--) if (_ciFullPath[j].sender === 'human') break;
+        if (j < 0) return -1;
+        for (q = 0; q < _questions.length; q++) {
+            if (_questions[q].uuid === _ciFullPath[j].uuid) return q;
+        }
+        return -1;
+    }
+
+    // The label a bookmark shows in the panel and the export. A Claude answer: "Answer to Q#n";
+    // "A#?" when it is not bound to a message (or its message left the path); "Answer to Q#?"
+    // while the index is not ready.
+    function _bmLabel(bm) {
+        if (bm.entityType === 'user-msg') return 'Q#' + (_bmDisplayOrdinal(bm) + 1);
+        if (bm.entityType !== 'ai-msg' || !ciIsClaudeChat()) return 'A#' + (_bmDisplayOrdinal(bm) + 1);
+        if (!bm.msgUuid) return i18n('answerUnresolved');
+        if (!(ciIsReady() && _ciFullPath)) return i18n('answerToQuestion', { n: '?' });
+        var q = _bmAnswerQuestionIndex(bm);
+        if (q === null) return i18n('answerUnresolved');
+        if (q < 0) return i18n('answerNoQuestion');
+        return i18n('answerToQuestion', { n: q + 1 });
+    }
+
+    // Export order: by the number the label shows, an answer right after its question; an
+    // answer with no listed question before it, then one that is not placed, go last.
+    function _bmSortKey(bm) {
+        if (bm.entityType !== 'ai-msg' || !ciIsClaudeChat()) return _bmDisplayOrdinal(bm);
+        var q = ciIsReady() ? _bmAnswerQuestionIndex(bm) : null;
+        if (q === null) return 1e9;
+        return q < 0 ? 1e9 - 1 : q + 0.5;
     }
 
     function _bmDisplayText(bm) {
@@ -8596,13 +8786,15 @@
     // Printed once per PAGE LOAD whenever un-uuid'd legacy records remain. The event-driven
     // summary line only fires on a CHANGE, so a settled store looked like silence — and the
     // owner read that as the diagnostics having been removed. State gets one line always.
+    // Every record without a uuid counts, a provisional one (pendingHash) too: skipping those
+    // printed "all records carry a uuid" over answer bookmarks that never had one (DEC-051).
     var _bmStatusPrinted = false;
     function _bmPrintLegacyStatus(list) {
         if (_bmStatusPrinted) return;
         var out = [];
         for (var i = 0; i < list.length; i++) {
             var b = list[i];
-            if (b.msgUuid || b.schema === 2 || b.pendingHash) continue;
+            if (b.msgUuid) continue;
             out.push(b.id + ' ("' + String(b.preview || '').substring(0, 40) + '…")');
         }
         _bmStatusPrinted = true;
@@ -8832,12 +9024,14 @@
         }
         if (!pending.length) { _bmPendingLegacy = false; return; }
         var changed = false;
-        function sweep(els, sender, type) {
+        // uuids: each element's uuid where its row is already placed (answers: by position, never
+        // by text, DEC-051); otherwise ciUuidForText.
+        function sweep(els, sender, type, uuids) {
             for (var e = 0; e < els.length && pending.length; e++) {
                 var el = els[e];
                 var text = sender === 'human' ? _readMessageText(el) : _readAIText(el);
                 if (!text) continue;
-                var uuid = ciUuidForText(text, el);
+                var uuid = uuids ? uuids[e] : ciUuidForText(text, el);
                 if (!uuid) continue;   // identity unmeasured — never bind on a guess
                 var p = -1, ordAll = 0, ordRen = 0, j;
                 for (j = 0; j < _ciFullPath.length; j++) {
@@ -8906,7 +9100,14 @@
             }
         }
         sweep(Array.from(getUserMessages()), 'human', 'user-msg');
-        sweep(Array.from(getAIMessages()), 'assistant', 'ai-msg');
+        var amap = ciAnswerMap(), aEls = [], aUuids = [];
+        for (var ar = 0; ar < amap.rows.length; ar++) {
+            var ap = amap.pathOf[amap.rows[ar].dataIndex];
+            if (ap === null || ap === undefined) continue;
+            aEls.push(amap.rows[ar].node);
+            aUuids.push(_ciFullPath[ap].uuid);
+        }
+        sweep(aEls, 'assistant', 'ai-msg', aUuids);
         if (!pending.length) _bmPendingLegacy = false;   // harvest cleared the last one
         if (changed) {
             var bmPanel = document.getElementById('acn-panel-bookmarks');
@@ -9147,6 +9348,173 @@
         return stats;
     }
 
+    // ── Claude answer bookmarks (DEC-051) ──────────────────────────────────────
+    // Binds an answer bookmark made before its message was placed, on proof only: the row it
+    // was made on (pendingRow) is mounted, that row is placed on an answer entry (ciAnswerMap),
+    // and the answer's text there, read as the record was made, reproduces the stored hash. A
+    // record made on the hidden project link has no row and stays unbound: "A#?" in the panel,
+    // deletable. A second record of an answer that already has one is removed instead: a flag
+    // that is dark because its row could not be placed at that moment can be clicked again.
+    // Runs once per change in what is mounted, placed or shown, or in what is stored (another
+    // tab's record, this tab's click), so an idle page writes nothing; a bind that fails is retried
+    // on the next scan.
+    var _bmProveSeen = '', _bmProveRaw = null;
+    var _bmProveWarned = false;
+    function _bmProveAnswers(map) {
+        if (!(ciIsClaudeChat() && ciIsReady() && _ciFullPath)) return;
+        try {
+            map = map || ciAnswerMap();
+            // What a proof reads: the rows, their places, their texts (one still being written may
+            // reach its stored hash later), and the stored records.
+            var key = _ciIndexGen + ':', r, k;
+            for (r = 0; r < map.rows.length; r++) {
+                key += map.rows[r].dataIndex + '=' + map.pathOf[map.rows[r].dataIndex] + '#' +
+                       contentHash(_readAIText(map.rows[r].node), -1) + ',';
+            }
+            var raw = String(acnGetValue(BOOKMARK_KEY, '{}'));
+            if (key === _bmProveSeen && raw === _bmProveRaw) return;
+            _bmProveSeen = key;
+            _bmProveRaw = raw;
+            var list = getConversationBookmarks(), changed = false;
+            for (var i = 0; i < list.length; i++) {
+                var b = list[i];
+                if (b.entityType !== 'ai-msg' || b.msgUuid || b.schema === 2 || !b.pendingHash) continue;
+                if (typeof b.pendingRow !== 'number' || b.pendingRow < 0) continue;
+                var p = map.pathOf[b.pendingRow];
+                if (p === null || p === undefined) continue;
+                var row = null;
+                for (k = 0; k < map.rows.length; k++) if (map.rows[k].dataIndex === b.pendingRow) row = map.rows[k];
+                if (!row || contentHash(_readAIText(row.node), -1) !== b.contentHash) continue;
+                if (!_bmBindAnswer(b.id, _ciFullPath[p].uuid)) _bmProveSeen = '';
+                // Its flag may already be drawn, dark, under this uuid: drop the mark so the next
+                // injection redraws it from the store.
+                row.node.removeAttribute('data-acn-bookmarked');
+                changed = true;
+            }
+            if (changed) {
+                var bmPanel = document.getElementById('acn-panel-bookmarks');
+                if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
+            }
+        } catch (e) {
+            // Logged once; the next change tries again (a storage read can fail once and recover).
+            _bmProveSeen = '';
+            if (!_bmProveWarned) {
+                _bmProveWarned = true;
+                console.warn('[ACN bookmarks] answer binding failed; it tries again on the next change:', e);
+            }
+        }
+    }
+
+    // The write behind a proof, decided on the list as stored at the write (another tab may have
+    // bound, removed or added a record of this answer since this page read it): bind the record,
+    // or remove it if another record already holds this answer; nothing if it is gone or bound.
+    function _bmBindAnswer(id, uuid) {
+        var dupHere = getConversationBookmarks().some(function (x) {
+            return x.id !== id && x.entityType === 'ai-msg' && x.msgUuid === uuid &&
+                   !(x.boundBy === 'inference' && x.legacyHash);
+        });
+        var saved;
+        try {
+            saved = _bmUpdateStore(function (l) {
+                var at = -1, other = false;
+                for (var i = 0; i < l.length; i++) {
+                    if (l[i].id === id) at = i;
+                    // A record bound only by inference (a pre-v12.0 preview rule) is not proof that
+                    // this answer is already bookmarked: the harvest may still move it elsewhere.
+                    else if (l[i].entityType === 'ai-msg' && l[i].msgUuid === uuid &&
+                             !(l[i].boundBy === 'inference' && l[i].legacyHash)) other = true;
+                }
+                if (at < 0 || l[at].msgUuid) return l;
+                if (other) return l.filter(function (x) { return x.id !== id; });
+                var b = JSON.parse(JSON.stringify(l[at]));
+                b.schema         = 2;
+                b.contentHash    = uuid;
+                b.msgUuid        = uuid;
+                b.boundBy        = 'proof';
+                b.pendingHash    = null;
+                b.pendingSender  = null;
+                b.pendingOrdinal = -1;
+                b.pendingRow     = -1;
+                var next = l.slice();
+                next[at] = b;
+                return next;
+            });
+        } catch (e) {
+            if (!_bmSaveFailWarned) {
+                _bmSaveFailWarned = true;
+                console.warn('[ACN] storage: a bookmark could not be saved:', e);
+            }
+            return false;
+        }
+        if (!saved) return false;   // refused: the stored bookmarks cannot be read (acnRefuseWrite said so)
+        console.log('[ACN bookmarks] ' + id + (dupHere
+            ? ': a second bookmark of an answer already bookmarked; removed'
+            : ' bound to its answer (its row and its text)'));
+        return true;
+    }
+
+    // A bookmark made on an answer past the fetched snapshot (the index was fetched while the
+    // answer was still being written, so its entry had no stop_reason) asks the scan for one
+    // refetch: the scan's own refetch path, under its cooldown. The record binds by proof when
+    // the new index lands; nothing retries the request.
+    var _bmRefreshFor = null;
+    function _bmRequestIndexRefresh(rowIdx) {
+        if (rowIdx < 0 || !(ciIsClaudeChat() && ciIsReady() && _ciRenderable)) return;
+        if (rowIdx < _ciSnapshotRows()) return;   // the index holds this row; a refetch would not place it
+        _bmRefreshFor = _ciConversationId;
+        _ciScheduleRescan(0);
+    }
+
+    // The request stands only while a record still waits on it: an answer bookmark without a uuid
+    // made on a row past the snapshot (removing that bookmark cancels the refetch).
+    function _bmRefreshStillWanted() {
+        if (!_ciRenderable) return false;
+        var bound = _ciSnapshotRows();
+        return getConversationBookmarks().some(function (b) {
+            return b.entityType === 'ai-msg' && !b.msgUuid &&
+                   typeof b.pendingRow === 'number' && b.pendingRow >= bound;
+        });
+    }
+
+    // Which stored records a flag stands for. A Claude answer's flag stands only for its own
+    // message: its uuid, or while its row is not placed, the text hash made on that same row (a
+    // record with no row, such as one made on the project link, matches no flag).
+    // The older text forms in legacyIds match identical text anywhere, so one twin's flag was
+    // lit by, and its click deleted, the other twin's bookmark; an answer record reaches its
+    // uuid by proof instead (_bmProveAnswers).
+    function _bmFlagMatches(b, entityId, legacyIds, entityType, rowIdx) {
+        if (entityType === 'ai-msg' && rowIdx >= 0 && ciIsClaudeChat()) {
+            if (b.entityType !== 'ai-msg') return false;
+            if (/^[0-9a-f-]{36}$/i.test(entityId)) return b.msgUuid === entityId || b.contentHash === entityId;
+            return !b.msgUuid && b.contentHash === entityId && b.pendingRow === rowIdx;
+        }
+        return b.contentHash === entityId || _bmInLegacySet(b, legacyIds);
+    }
+
+    // A Claude answer flag's identity: its uuid, or while its row is not placed, its text hash on
+    // that row (two answers with the same text share a hash). _bmAnswerKeyNow reads it again from
+    // the node as it is now.
+    function _bmAnswerKey(id, row) {
+        return /^[0-9a-f-]{36}$/i.test(id) ? id : id + '@' + row;
+    }
+    function _bmAnswerKeyNow(el) {
+        var d = _bmRowIndexOf(el);
+        if (d < 0) return null;
+        var p = ciAnswerMap().pathOf[d];
+        if (p !== null && p !== undefined) return _ciFullPath[p].uuid;
+        var t = _readAIText(el);
+        return t ? _bmAnswerKey(contentHash(t, -1), d) : null;
+    }
+
+    // An answer's position among the path's answers (all of them, as _bmPathOrdinal counts),
+    // for the hash forms of records made before v12.0; the mounted position when not placed.
+    function _bmAnswerOrdinal(p, fallback) {
+        if (p === null || p === undefined || !_ciFullPath) return fallback;
+        var n = 0;
+        for (var i = 0; i < p; i++) if (_ciFullPath[i].sender === 'assistant') n++;
+        return n;
+    }
+
     function _bmGenId() {
         return 'bm_' + Math.random().toString(16).substring(2, 10);
     }
@@ -9156,8 +9524,9 @@
         // as active via legacyId, so without this the toggle would add a SECOND
         // record under the new identity and leave the old one behind — the icon
         // would then never clear.
+        var rowIdx = entityType === 'ai-msg' ? _bmRowIndexOf(entityEl) : -1;
         var existing = getConversationBookmarks().filter(function (b) {
-            return b.contentHash === entityId || _bmInLegacySet(b, legacyIds);
+            return _bmFlagMatches(b, entityId, legacyIds, entityType, rowIdx);
         });
 
         var icon = entityEl.querySelector('[data-acn-bookmark]');
@@ -9211,6 +9580,9 @@
             if (!saveBookmark(bm, true)) return;
             if (icon) icon.classList.add('acn-bm-active');
             showToast(i18n('bookmarkAdded'));
+            // An answer the index does not hold yet asks for one refresh (DEC-051); the proof
+            // pass sees the new record by its stored text.
+            if (!isUuid && entityType === 'ai-msg' && ciIsClaudeChat()) _bmRequestIndexRefresh(rowIdx);
         }
 
         var bmPanel = document.getElementById('acn-panel-bookmarks');
@@ -9227,9 +9599,12 @@
             entityEl.style.position = 'relative';
         }
 
+        var rowIdx       = entityType === 'ai-msg' ? _bmRowIndexOf(entityEl) : -1;
+        var answerKey    = (entityType === 'ai-msg' && rowIdx >= 0 && ciIsClaudeChat())
+            ? _bmAnswerKey(entityId, rowIdx) : null;
         var bookmarks    = getConversationBookmarks();
         var isBookmarked = bookmarks.some(function (b) {
-            return b.contentHash === entityId || _bmInLegacySet(b, legacyIds);
+            return _bmFlagMatches(b, entityId, legacyIds, entityType, rowIdx);
         });
 
         var icon = document.createElement('div');
@@ -9240,9 +9615,18 @@
 
         icon.addEventListener('click', function (e) {
             e.stopPropagation();
+            // A Claude answer's node can be recycled to show another answer, or move to another row,
+            // before the next scan redraws this flag: act only if it still shows the answer this flag
+            // was drawn for; otherwise redraw, and the next click acts on what is shown (DEC-051).
+            if (answerKey !== null && _bmAnswerKeyNow(entityEl) !== answerKey) {
+                entityEl.removeAttribute('data-acn-bookmarked');
+                if (icon.parentNode) icon.parentNode.removeChild(icon);
+                injectBookmarkIcons();
+                return;
+            }
             toggleBookmark(entityId, entityType, entityEl, msgIndex, legacyIds);
             var nowBookmarked = getConversationBookmarks().some(function (b) {
-                return b.contentHash === entityId || _bmInLegacySet(b, legacyIds);
+                return _bmFlagMatches(b, entityId, legacyIds, entityType, rowIdx);
             });
             icon.setAttribute('title', nowBookmarked ? 'Remove bookmark' : 'Bookmark this message');
         });
@@ -9360,13 +9744,16 @@
         // Under recycling React reuses the same DOM node for a different message,
         // so a presence-only guard would leave a stale icon showing another
         // message's bookmark state.
-        function inject(el, idx, type, text) {
+        function inject(el, idx, type, text, knownId, row) {
             if (!text) return;
-            var id = _bmEntityId(el, idx, text);
-            if (el.getAttribute('data-acn-bookmarked') === id) return;
+            var id = knownId || _bmEntityId(el, idx, text);
+            // A text hash is the same for two answers with the same text, and a recycled node can
+            // move between them, so for a Claude answer the recorded mark carries its row too.
+            var mark = row !== undefined ? _bmAnswerKey(id, row) : id;
+            if (el.getAttribute('data-acn-bookmarked') === mark) return;
             var stale = el.querySelector('[data-acn-bookmark]');
             if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
-            el.setAttribute('data-acn-bookmarked', id);
+            el.setAttribute('data-acn-bookmarked', mark);
             createBookmarkIcon(el, type, id, idx, _bmLegacyIdSet(el, idx));
         }
 
@@ -9381,9 +9768,23 @@
         Array.from(getUserMessages()).forEach(function (el, idx) {
             inject(el, pathOrdinal(el, 'human', idx), 'user-msg', _readMessageText(el));
         });
-        Array.from(getAIMessages()).forEach(function (el, idx) {
-            inject(el, pathOrdinal(el, 'assistant', idx), 'ai-msg', _readAIText(el));
-        });
+        if (ciIsClaudeChat()) {
+            // Answers by their row and its position, never by their text, and never through
+            // getAIMessages(), which in a project chat is the hidden project link (DEC-051).
+            // Proof first, so a record it binds is drawn lit.
+            var amap = ciAnswerMap();
+            _bmProveAnswers(amap);
+            amap.rows.forEach(function (r, idx) {
+                var p = amap.pathOf[r.dataIndex];
+                var text = _readAIText(r.node);
+                var id = (p !== null && p !== undefined) ? _ciFullPath[p].uuid : contentHash(text, -1);
+                inject(r.node, _bmAnswerOrdinal(p, idx), 'ai-msg', text, id, r.dataIndex);
+            });
+        } else {
+            Array.from(getAIMessages()).forEach(function (el, idx) {
+                inject(el, pathOrdinal(el, 'assistant', idx), 'ai-msg', _readAIText(el));
+            });
+        }
         // Opportunistic legacy harvest over the same mounted set this scan just walked.
         // Guarded inside: exits immediately when no un-uuid'd records remain.
         try { _bmHarvestLegacyFromMounted(); } catch (e) {
@@ -9430,10 +9831,92 @@
                 : 'This bookmark predates v12.0 and could not be located \u2014 please recreate it');
             return;
         }
+        // A Claude answer bookmark with no uuid ("A#?"): scrolling cannot help either.
+        if (bookmark && bookmark.entityType === 'ai-msg' && !bookmark.msgUuid && ciIsClaudeChat()) {
+            showToast(i18n('answerUnresolvedToast'));
+            return;
+        }
         showToast('That message is not currently rendered \u2014 scroll toward it and try again');
     }
 
+    // An answer bookmark's jump on Claude (DEC-051): by uuid, to the mounted answer or through the
+    // index jump; a record without a uuid only to the row it was made on, while the text there
+    // still reproduces its hash. Never a search over getAIMessages(), which in a project chat is
+    // the hidden project link.
+    function _bmJumpToAnswer(bookmark) {
+        var map = ciAnswerMap(), i, p;
+        function land(node) { orbMarkJumpTarget(node); orbScrollToMessage(node); }
+        var want = bookmark.msgUuid ||
+                   (/^[0-9a-f-]{36}$/i.test(bookmark.contentHash || '') ? bookmark.contentHash : null);
+        if (want) {
+            for (i = 0; i < map.rows.length; i++) {
+                p = map.pathOf[map.rows[i].dataIndex];
+                if (p !== null && p !== undefined && _ciFullPath[p].uuid === want) { land(map.rows[i].node); return; }
+            }
+            var pathIdx = -1;
+            if (ciIsReady() && _ciFullPath) {
+                for (i = 0; i < _ciFullPath.length; i++) {
+                    if (_ciFullPath[i].uuid === want) { pathIdx = i; break; }
+                }
+            }
+            if (pathIdx < 0) {
+                // Its message is not on this path any more (an edit or a regenerate): "A#?".
+                if (ciIsReady() && _ciFullPath) showToast(i18n('answerUnresolvedToast'));
+                else _bmFailToast(bookmark);
+                return;
+            }
+            // Only an answer that renders is a target. An entry that renders no row (an interrupted
+            // generation) has nothing to land on, and an old record could have been bound by text to a
+            // question: either jump would end somewhere else, with the page already scrolled away.
+            var target = _ciFullPath[pathIdx];
+            if (target.sender !== 'assistant' || !ciEntryRenders(target)) {
+                showToast(i18n('answerUnresolvedToast'));
+                return;
+            }
+            ciJumpToFullPathIndex(pathIdx, function (ok, el, reason) {
+                if (!ok || !el) {
+                    // Not a failure when the user scrolled or started another jump.
+                    if (reason !== 'superseded' && reason !== 'user') _bmFailToast(bookmark);
+                    return;
+                }
+                var rowEl = el.closest ? el.closest('[' + CI_ROW_ATTR + ']') : null;
+                var node = rowEl ? ciAnswerNodeInRow(rowEl) : null;
+                // It must land on an answer, and where that row is placed, on the target.
+                if (!node) { _bmFailToast(bookmark); return; }
+                var lp = ciAnswerMap().pathOf[parseInt(rowEl.getAttribute(CI_ROW_ATTR), 10)];
+                if (lp !== null && lp !== undefined && lp !== pathIdx) { _bmFailToast(bookmark); return; }
+                orbMarkJumpTarget(node);
+                node.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+                orbFlashElement(node);
+            });
+            return;
+        }
+        if (typeof bookmark.pendingRow === 'number' && bookmark.pendingRow >= 0) {
+            for (i = 0; i < map.rows.length; i++) {
+                var r = map.rows[i];
+                if (r.dataIndex !== bookmark.pendingRow) continue;
+                if (contentHash(_readAIText(r.node), -1) === bookmark.contentHash) { land(r.node); return; }
+                _bmFailToast(bookmark);   // its row is here and shows another answer: it cannot be placed
+                return;
+            }
+            // Its row is not mounted. Not an identical answer elsewhere: only its own row can prove
+            // it, and it binds when that row is on screen again.
+            showToast('That message is not currently rendered — scroll toward it and try again');
+            return;
+        }
+        // A record from before v12.0 (no row): its hash forms against what is mounted, as before.
+        for (i = 0; i < map.rows.length; i++) {
+            p = map.pathOf[map.rows[i].dataIndex];
+            if (!_bmMatchesLegacy(bookmark, map.rows[i].node, _bmAnswerOrdinal(p, i))) continue;
+            if (p !== null && p !== undefined) _bmCommitLegacyUpgrade(bookmark, _ciFullPath[p].uuid, true);
+            land(map.rows[i].node);
+            return;
+        }
+        _bmFailToast(bookmark);
+    }
+
     function orbScrollToBookmark(bookmark) {
+        if (bookmark.entityType === 'ai-msg' && ciIsClaudeChat()) { _bmJumpToAnswer(bookmark); return; }
         var targetEl = null;
         var isUser   = bookmark.entityType === 'user-msg';
         var els      = Array.from(isUser ? getUserMessages() : getAIMessages());
@@ -9589,9 +10072,7 @@
         var list = createElement('div', { className: 'acn-ql' });
 
         sorted.forEach(function (bm) {
-            var labelText = bm.entityType === 'user-msg'
-                ? 'Q#' + (_bmDisplayOrdinal(bm) + 1)
-                : 'A#' + (_bmDisplayOrdinal(bm) + 1);
+            var labelText = _bmLabel(bm);
 
             var typeEl = createElement('div', {
                 className: 'acn-bk-type',
@@ -9605,9 +10086,9 @@
             });
             removeBtn.addEventListener('click', function (e) {
                 e.stopPropagation();
+                // removeBookmark redraws every flag from the store. Turning off "the first flag with
+                // this hash" afterwards could darken another answer's own bookmark (identical text).
                 removeBookmark(bm.id);
-                var icon = document.querySelector('[data-acn-bookmark="' + bm.contentHash + '"]');
-                if (icon) icon.classList.remove('acn-bm-active');
                 orbRefreshBookmarksPanel();
                 showToast(i18n('bookmarkRemoved'));
             });
@@ -12251,7 +12732,7 @@
         // while labelling with the derived one produced markdown whose own Q#/A# numbers
         // did not ascend — the last consumer still trusting a value the rest of the branch
         // stopped trusting.
-        bookmarks.sort(function (a, b) { return _bmDisplayOrdinal(a) - _bmDisplayOrdinal(b); });
+        bookmarks.sort(function (a, b) { return _bmSortKey(a) - _bmSortKey(b); });
         var typeIcons  = { 'user-msg': '\uD83D\uDCCC', 'ai-msg': '\uD83D\uDCCC', 'code': '\uD83D\uDCBB', 'file': '\uD83D\uDCC4' };
         var typeLabels = { 'user-msg': 'Your Question', 'ai-msg': 'AI Response', 'code': 'Code Block', 'file': 'File' };
         var platformTitle = (typeof platform !== 'undefined' && platform && platform.title)
@@ -12267,9 +12748,7 @@
         bookmarks.forEach(function (bm) {
             var icon   = typeIcons[bm.entityType]  || '\uD83D\uDCCC';
             var label  = typeLabels[bm.entityType] || 'Item';
-            var prefix = (bm.entityType === 'user-msg')
-                ? 'Q#' + (_bmDisplayOrdinal(bm) + 1)
-                : 'A#' + (_bmDisplayOrdinal(bm) + 1);
+            var prefix = _bmLabel(bm);
             lines.push('');
             lines.push('## ' + icon + ' ' + prefix + ' \u2014 ' + label);
             lines.push('');
