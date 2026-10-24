@@ -10,7 +10,7 @@ AI Conversation Navigator is a single-file browser userscript (Tampermonkey/Grea
 - **Runtime:** a userscript manager — Tampermonkey (Chrome, Firefox), Userscripts (Safari), Greasemonkey (untested). Each ships its own `GM_*` implementation (v12.9, Layer 3)
 - **Build:** None — single file (`ai-conversation-navigator.user.js`), deployed as-is
 - **Testing:** Playwright (Chromium/Firefox/WebKit) across 14 platforms' mock pages (17 files, including the three virtualizing mocks: Claude, ChatGPT and Perplexity)
-- **Storage:** `GM_setValue`/`GM_getValue` + `localStorage`. GM storage does not exist under Safari's Userscripts, so anything that must persist there needs `localStorage` (agent_docs/architecture.md → "Runtime matrix")
+- **Storage:** GM storage + `localStorage`. Always go through `acnGetValue`/`acnSetValue`, never `GM_getValue`/`GM_setValue` directly: Safari's Userscripts has only the async `GM.getValue`/`GM.setValue`, which the wrapper preloads at startup. A new GM key must also be added to `acnStoreLoad`'s list, or it silently resets to its default on every Safari page load (agent_docs/conventions.md → Storage Keys; agent_docs/architecture.md → Runtime matrix).
 - **Browser APIs:** MutationObserver, TreeWalker, ResizeObserver
 
 ## Critical Rules (Apply to ALL Tasks)
