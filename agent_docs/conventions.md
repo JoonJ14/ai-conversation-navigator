@@ -134,6 +134,14 @@ use literal characters.
 - **DOM observation resilience** — use MutationObserver patterns for SPA-aware re-scanning; never assume DOM is static
 - **`exportFunction()` for replaced globals** — when assigning a function to `unsafeWindow.*` or built-in objects (`history.pushState`, etc.), always wrap with `exportFunction()` on Firefox. Page JS may call `.bind()` on these, and Firefox blocks cross-compartment `.bind()`. Pattern: `if (typeof exportFunction === 'function') { target.fn = exportFunction(proxy, target); } else { target.fn = proxy; }` — see DEC-019. **Critical caveat:** `exportFunction()` only works for functions whose return values the page does NOT inspect (like `pushState` which returns `undefined`). For functions that return values the page uses (like `fetch` returning `Promise<Response>`), the sandbox taints the return pipeline and there is no fix — skip interception on Firefox entirely. See DEC-020.
 
+## Documentation Rules
+
+- **CLAUDE.md lines state rules, with no version tags or mechanism details, so they cannot go stale** (owner,
+  2026-10-23). The mechanism belongs in DECISIONS, and a verified result in DEC-031. Show the owner any CLAUDE.md
+  diff before committing it.
+- **Live-confirmation results live in DEC-031 only**, recorded exactly as the owner reports them, per browser and
+  per site. Other docs point there.
+
 ## Debugging & Mistakes Policy
 
 If you make a mistake or discover something non-obvious during debugging, suggest adding it to this file so the user can decide whether to codify the lesson. Format:

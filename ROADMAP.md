@@ -30,7 +30,7 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.12 MERGED (PR #82, `2b7e8d1`) — live confirmation status: DEC-031 (owed on all three browsers)
+## Current Status: v12.12 MERGED (PR #82, `2b7e8d1`) — live confirmation status: DEC-031 (a summary pass; itemized results to come)
 
 **v12.10 (PR #78, merged 2026-10-23 as `166a281`).** ChatGPT and Perplexity list every question again: October
 selectors for the DOM fallback, and an index adapter per platform reading each site's own JSON through the v12.9
@@ -50,15 +50,16 @@ v12.9 paragraphs above are history.
    DEC-044's rules and the exact-origin guard. A GM storage wrapper serves the six GM keys from an in-memory copy
    loaded through `GM.getValue` at startup, only when the synchronous functions are missing; the Tampermonkey path
    is unchanged. The owner's B0 measurement is in agent_docs/architecture.md's runtime matrix. SSE on Safari stays
-   out of scope. Owner acceptance owed: DEC-031. Design: DEC-049; the debugging story: TROUBLESHOOTING, "Safari +
+   out of scope. Owner acceptance: a summary pass, itemized results to come (DEC-031). Design: DEC-049; the debugging story: TROUBLESHOOTING, "Safari +
    Userscripts: Plan usage unavailable".
 
-**Next (owner, 2026-10-23):** the owner's live testing of v12.12 on all three browsers (PR #82's checklist; results
-in DEC-031), then a handoff for the next session.
+**Next (owner, 2026-10-23):** the owner live-tested v12.12 after the merge and reports everything built works
+(a summary; the itemized results come in the next session's prompt, for DEC-031). The next session starts from a
+**separate bookmark issue** the owner noticed, described in their prompt; it is not in the repo (HANDOFF.md, §G).
 
 Then: Grok and Gemini (the owner decides the order), Perplexity attachment images, the CI rebuild (item 0e),
-the context-window meter (item 12) and the v12.10 follow-ups (item 13). Owed meanwhile: Safari's ChatGPT and
-Perplexity acceptance and v12.12's acceptance on all three browsers (DEC-031).
+the context-window meter (item 12) and the v12.10 follow-ups (item 13). Owed meanwhile: v12.12's
+itemized acceptance (DEC-031). Safari's v12.10 ChatGPT and Perplexity check passed on 2026-10-23.
 
 **v12.8 (PR #73, merged)** — a failed usage fetch says so instead of "loading" forever (DEC-044).
 
@@ -319,7 +320,7 @@ Numbering below is stable (items keep their historical numbers):
      index request logs `[ACN] index: transport=<gmxhr|fetch> org=<8 chars>… status=<n>`, and
      every reason from the org walk starts with the transport. **If it recurs, collect those lines before
      theorising** — they say which transport was refused and whether the ladder rescued the load.
-   - **The Plan usage panel on Safari — MERGED in v12.12 (PR #82, `2b7e8d1`); acceptance owed: DEC-031.** Through
+   - **The Plan usage panel on Safari — DONE in v12.12 (PR #82, `2b7e8d1`); acceptance: DEC-031.** Through
      `GM_xmlhttpRequest` it read "Usage data unavailable" (the owner, v12.10 and v12.11). Its two requests now go
      through `ciLadderGet` with DEC-044's rules kept (one caller, the flag cleared before the call, asymmetric
      supersession, the silent stale-org drop on every answer); the ladder's 45 s timeout is past U4's window. The
@@ -336,8 +337,8 @@ Numbering below is stable (items keep their historical numbers):
      (2026-10-23); which transport won was not recorded, so the intermittent 403 above still has no log lines.
      Real Safari did NOT reproduce the local mac WebKit jump failure, so that entry
      stays open only as a Playwright engine-build issue (TROUBLESHOOTING, "OPEN — Local mac WebKit").
-   - **Nothing kept in GM storage works on Safari + Userscripts — MERGED in v12.12 (PR #82, `2b7e8d1`);
-     acceptance owed: DEC-031.** The owner's B0 probe (Userscripts 4.8.6) measured no synchronous functions at all and a working,
+   - **Nothing kept in GM storage works on Safari + Userscripts — DONE in v12.12 (PR #82, `2b7e8d1`);
+     acceptance: DEC-031.** The owner's B0 probe (Userscripts 4.8.6) measured no synchronous functions at all and a working,
      persisting `GM.getValue` / `GM.setValue` (runtime matrix). `acnGetValue` / `acnSetValue` serve the six keys
      from a copy loaded through `GM.getValue` before the script runs; Tampermonkey's path is unchanged. Gate:
      `probes/check-gm-storage.js`. **Known limits, logged:** two tabs are last-write-wins per key (no syncing);
@@ -764,7 +765,7 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
     - **Done:** Claude (wrapped; the v12.0 index unchanged), ChatGPT and Perplexity (v12.10, PR #78; live
       status: DEC-031).
     - **Pending:** Grok, untested on all three browsers; Gemini, once its virtualization is measured. The
-      owner decides their order, after PRs A and B (HANDOFF §G).
+      owner decides their order (ROADMAP, "Current Status"; HANDOFF.md, §G).
     - **How to add the next one:** "Porting the Layer 4 response to another platform" below, then one
       `IX_ADAPTERS` entry and a mock that genuinely unmounts (`probes/check-index-adapters.js` has two).
     - **Logged from v12.10, outside its scope:**
