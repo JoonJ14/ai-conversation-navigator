@@ -198,7 +198,8 @@ with B0's measurement.
 
 ## E. Git state
 
-`main` is at `39ad1bb` (the PR #83 merge) and holds v12.12.
+`main` is at `b96ec7b` (the PR #85 merge) and holds v12.13. *Corrected 2026-10-24: this line said `39ad1bb`, which
+was already one merge behind when this handoff was written (PR #84, `d533f5c`).*
 
 | Commit | What |
 |---|---|
@@ -211,10 +212,13 @@ with B0's measurement.
 | `2b7e8d1` | **merge of PR #82** |
 | `472afab`, `8d78d46` | close-out docs, two lessons |
 | `39ad1bb` | **merge of PR #83** |
-| session-close PR | `docs/session-close-v12.12`: this handoff, DEC-031's summary, status lines |
+| `d533f5c` | **merge of PR #84** (`docs/session-close-v12.12`: this handoff, DEC-031's summary, status lines) |
+| `f3f529e`–`ba293c2` | **v12.13**, the cross-tab PR: code, gates, review fixes, CLAUDE.md (`ce7af86`), acceptance |
+| `b96ec7b` | **merge of PR #85** (2026-10-24) |
 
-- The merged branches are left on the remote: `fix/turn-counter-dots`, `fix/safari-parity` and
-  `docs/v12.12-closeout`.
+- **Merged branches deleted from the remote, 2026-10-24, at the owner's request:** the eleven branches of PRs
+  #75–#85, each an ancestor of `main` before deletion; their commits live on through the merges. Before that,
+  merged branches were left on the remote.
 - **Merges use merge commits** (`gh pr merge --merge`). The ruleset requires all nine CI checks and allows no
   bypass, so re-run a stalled job and never override it. This session needed no reruns.
 - **The owner's own untracked files: never `git add` them.** `.playwright-mcp/`, `docs/CONTEXT-TRACKING-AUDIT.md`,

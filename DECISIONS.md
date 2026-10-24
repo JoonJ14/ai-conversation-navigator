@@ -2947,3 +2947,117 @@ residual below.
   on one, on v12.12 too, so no click reaches the save); a save made by a watcher while a step finishes (it needs a
   legacy record and a ready index; the watchers run while the key is still busy, and `acnPersist` refuses to start
   a second step).
+
+---
+
+## DEC-051: Claude Answers Are Found Inside Rows and Placed by Position, Never by Text (v12.14)
+**Date:** 2026-10-24 | **Stage:** the answer-bookmark PR (the owner's spec, 2026-10-24)
+
+### Decision
+On a Claude chat, bookmarks find answers only inside the feed's rows (`[data-testid="assistant-message"]`, then July
+2026's classes, still only inside rows) and place each answer row on its path entry by position, never by text:
+- measured anchors bracket the row with one offset;
+- or the question row right above (or below) matches its path entry now, and exactly one entry, an answer that
+  renders, sits between that question and the next one;
+- or it is the last row, the row count equals the entries predicted to render, and the last of those is an answer.
+
+Every route that answers must agree; a row past the fetched snapshot, or two rows on one entry, are refused. An
+answer bookmark stores that entry's uuid and is labelled **"Answer to Q#n"**: the question it follows on the path,
+numbered as Navigate numbers it (the owner: "not a separate answer count"). A record without a uuid binds **only on
+proof**: the row it was made on is mounted and placed, and the answer's text there reproduces its stored hash.
+Otherwise it shows **"A#?"** and can be deleted; clicking it says it cannot be matched (or, while the row it was
+made on is not on screen, that the message is not rendered, since it may still bind there). A Claude answer's flag stands only for its
+own message. A bookmark made on an answer past the fetched snapshot asks for one refetch through the scan's own
+refetch path, under its cooldown (the owner, 2026-10-24: no new timers or retries).
+
+### Context
+The owner, v12.12 and v12.13, all three browsers [measured, owner, 2026-10-23/24]: no answer flags at all in long
+chats; elsewhere labels by position ("answer 1, 1, 1", "1, 2, 3, 2, 1"); a jump to an answer off screen failed;
+question bookmarks were right. Two causes [measured, Chrome page realm, the owner's profile, 2026-10-23/24]:
+1. **Which answers.** `getAIMessages` returns the first selector that matches anything in the document.
+   `.font-claude-response`, first in the list, now matches only the project's name link in a hidden side panel
+   (`div.w-0 … a[href="/project/…"]`), so in a project chat the real answers (`[data-testid="assistant-message"]`)
+   were never found. Every chat with 12 or more questions among the owner's 60 most recent is in a project.
+2. **Which message.** An answer got a uuid only if its rendered text equalled its payload text, and a rendered
+   answer opens with an activity line ("Organizing owner tasks…") that the payload's text blocks lack. So answer
+   keys were text hashes, the label was the answer's position among those mounted when its flag was made, and the
+   index jump never ran for an answer.
+
+Also: the console printed "all records carry a uuid" over these records (it skipped provisional ones), and a flag
+matched records by older text forms, so one of two identical answers lit, and its click deleted, the other's
+bookmark.
+
+### Alternatives considered
+- **Reorder `getAIMessages`** (testid first). Rejected for bookmarks: still a document-wide first match, and its
+  other readers (Search, Summary, the gallery, Export's DOM path) need their own measurement. Logged (ROADMAP 14).
+- **Teach `ciMessageNodeWithin` the testid.** Rejected (the owner's spec): it feeds the staleness check, where every
+  answer with an activity line would mismatch and refetch the index for each window. The gate's mutant M9 shows it.
+- **Match text with the activity line removed.** Rejected: the line is truncated and often doubled on screen while
+  the payload keeps the full summary in thinking blocks (July 2026), so any rule is inference; position is measured.
+- **Place a row by the stop_reason predicate alone** (`_ciRenderable[row]`). Rejected as an identity source: one
+  non-rendering entry the predicate misses shifts every later answer by one, persisted (Codex R8). The predicate may
+  only refuse, and route C uses it only when the row count equals the prediction.
+- **An answer count ("A#n" from the index).** Rejected by the owner.
+
+### Rationale
+Position is measured: on three of the owner's chats, every mounted row's `data-index` was its path position and its
+role was the path's sender (53 rows over 5 scroll positions on the 147-question chat, 0 mismatches) [measured,
+Chrome, 2026-10-24]. Answer text is not equal to the payload. A wrong uuid is persisted and silent; a refused one is
+a visible "A#?" that binds later on proof.
+
+### Key properties
+- **Left alone:** `getAIMessages`, `ciMessageNodeWithin`, `_ciAssistantStale` (it still runs on every scan; a
+  bookmark's refetch request only joins its refetch), and the anchor store (a derived position is never recorded
+  as an anchor). Questions keep their text identity.
+- **Labels:** "Answer to Q#n"; "A#?" when unbound or its message left the path; "Answer (no question)" when no
+  listed question precedes it; "Answer to Q#?" while the index is not ready (a variant the owner did not list,
+  flagged in the PR). Export uses the same label and sorts an answer right after its question.
+- **Residuals, recorded, not fixed** [code + inferred, unmeasured live]:
+  - An answer next to a question whose rendered text does not match its payload (multi-block questions, the third
+    PR's cause) and not bracketed by anchors is not placed: its flag carries a hash, and a bookmark on it reads
+    "A#?" until its row is placed and proves.
+  - A regenerate, or an edit, before the resync: route B, A (anchors from before the edit) or C (the last row) can
+    place the new answer on the old answer's uuid. After the resync that uuid is off the path, so the bookmark reads "A#?"
+    (visible, deletable). Regenerate detection: the third PR.
+  - A bookmark on an answer still being written, taken before 200 characters had rendered, hashes that partial text
+    and can never prove: "A#?" (Tier 3 review).
+  - The one refetch a bookmark asks for is spent if a load is already in flight; that load's index is used, and if
+    it was fetched before the answer finished, the record stays unbound until the next refetch.
+  - An interrupted generation beside an answer (two entries between questions) leaves that answer unplaced. Rare;
+    July 2026 measured one such entry in 688.
+  - A bookmarked answer whose row cannot be placed at that moment shows a dark flag; a click adds a second record,
+    which the proof pass removes when it binds to the same uuid.
+  - Records from before v12.0 with identical text still bind, through the harvest, to whichever twin is mounted
+    (pre-existing).
+  - The provisional migrator (`_bmMigrateProvisional`, unchanged) still binds an answer record whose full text
+    equals exactly one payload entry: only an answer with no activity line, and only under DEC-030's uniqueness
+    gate. Its last route does not check the sender, so an answer whose text equals exactly one question's could bind
+    to that question (pre-existing; low probability).
+- **Gates:** `probes/check-answer-bookmarks.js` A1–A36 (page realm, the virtualizing mock with the October markup,
+  the project link, the activity line, in R2 an answer entry the page never renders, so the stop_reason predicate is
+  wrong, and in R6 answer nodes moved between rows by hand, as Claude's recycling would). v12.13 fails A2–A5,
+  A9–A21, A24 and A27–A36; A1, A6–A8, A22, A23 and A26 are guards; A25 is a control (the July markup's answers do
+  refetch, on both builds). Labels are checked in the panel, in Korean, before the index lands and in the export;
+  "Answer (no question)" is not reached by any fixture (a conversation that opens with an answer). Eighteen targeted
+  mutants, each caught by its named check after the unmutated build passes
+  every check (`probes/run-answer-mutants.js`, not in CI). Release acceptance: DEC-031.
+- **A click acts only for the answer its flag was drawn for:** Claude recycles message nodes, so before the next scan
+  redraws a flag, its node can show another answer, or sit in another row. The click compares the node's identity now
+  (`_bmAnswerKeyNow`: the placed uuid, or the text hash with its row) with the one it was drawn for, and redraws
+  instead of acting when they differ (Codex Tier 3, round 2). Question flags have the same pattern, unchanged
+  (logged, ROADMAP 14).
+- **A jump lands only on an answer:** a target entry that is not an answer or renders no row, or a landing on a
+  row that is not an answer, says it cannot be matched, before anything scrolls where it can (post-fix validations
+  1 and 2). The refetch a bookmark asked for is dropped when no answer
+  record without a uuid waits on it any more (its bookmark was removed), or the conversation changed.
+- **A neighbouring question past the fetched snapshot is never evidence:** a just-sent prompt repeating an older one
+  text-matches the OLD entry (review).
+- **The proof pass runs once per change** in what is mounted, placed or shown (each answer's text hash), or in what
+  is stored (another tab's record, read live on Tampermonkey; on Safari a tab sees another tab's records only after
+  its own next save or a reload, DEC-050), so an idle page writes nothing. A bind refused or thrown at the save is tried
+  again on the next scan; on Safari a write that fails later goes out with the next save, like every save (DEC-050),
+  and a reload proves the record again (Codex Tier 3, rounds 4 and 5).
+- **A proof's write is decided on the list as stored at the write** (`_bmBindAnswer`, through `acnUpdateValue`):
+  bind the record, or remove it when another record already holds that answer, or nothing when it is gone or bound
+  elsewhere. Deciding on this page's copy could, on Safari, remove the only record left after another tab deleted
+  its twin (Codex Tier 3, round 1).

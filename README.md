@@ -11,7 +11,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-12.13-blue)
+![Version](https://img.shields.io/badge/version-12.14-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -250,6 +250,13 @@ identifier yet, so it is bound as soon as one becomes available. If the message'
 more than once in the conversation, the script deliberately declines to guess which one you
 meant — that bookmark keeps working while the message is on screen, and re-bookmarking it later
 gives a permanent one.
+
+**Answer bookmarks on Claude** (since v12.14) work in every chat, including chats inside a project, where answers
+had no flags at all before. An answer is identified by its place in the conversation, not by its text, so its
+bookmark is labelled **"Answer to Q#n"** after the question it answers, and jumps to it from anywhere. An answer
+bookmark made before v12.14 is re-keyed the first time its answer is on screen, if the answer still reads as it did
+when you bookmarked it; one that cannot be matched shows **"A#?"**, says so when clicked, and can be deleted with
+its ✕. (Live confirmation status: DEC-031.)
 
 ## Icon Choices
 

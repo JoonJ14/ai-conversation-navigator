@@ -4,6 +4,68 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.14 — Claude Answer Bookmarks: Flags in Project Chats, "Answer to Q#n", Jumps That Land] — 2026-10-24
+
+**Branch:** `fix/claude-answer-bookmarks` | **PR:** the answer-bookmark PR | **Status:** open; real-browser
+acceptance owed (DEC-031)
+
+### Problem
+
+The owner, v12.12 and v12.13, Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey [measured,
+owner, 2026-10-23/24]: no answer flags at all in long chats; elsewhere answer bookmarks labelled by their position on
+screen ("answer 1, 1, 1"); a jump to an answer off screen failed. Question bookmarks were right.
+
+### Root cause [measured, Chrome page realm, the owner's profile, 2026-10-23/24; code]
+
+- `getAIMessages` stops at the first selector that matches anything in the document, and `.font-claude-response`
+  now matches only the project's name link in a hidden side panel. In a project chat, every one of the owner's chats
+  with 12+ questions, no real answer (`[data-testid="assistant-message"]`) was found.
+- An answer got a uuid only if its rendered text equalled its payload text, and rendered answers open with an
+  activity line the payload lacks. So answers were keyed by a text hash, labelled by mounted position, and never
+  reached the index jump.
+- The console's "all records carry a uuid" skipped exactly these records; one of two identical answers' flags lit,
+  and its click deleted, the other's bookmark.
+
+### Fix (DEC-051)
+
+- Answers are found inside the feed's rows only (`ciAnswerNodeInRow`) and placed on their path entry from the rows
+  around them, never from text (`ciAnswerMap`). `getAIMessages`, `ciMessageNodeWithin` and the staleness check are
+  unchanged, so answer refetching does not come back.
+- An answer bookmark keys to the message uuid and reads **"Answer to Q#n"**, the question it follows (Korean
+  "Q#n에 대한 답변"); "A#?" when it cannot be bound; "Answer (no question)" when no question precedes it. The export
+  uses the same labels.
+- Answer bookmarks made by v12.12/v12.13 bind on proof only (their row, and their text reproducing their hash);
+  otherwise "A#?", with a toast that says it cannot be matched, and deletable. A record made on the project link
+  never binds.
+- A bookmark on an answer the index fetched mid-stream asks for one refetch through the scan's own refetch path,
+  under its cooldown, and binds when it lands.
+- The status line counts every record without a uuid; a Claude answer's flag matches only its own message, and a
+  click acts only if the flag's node still shows the answer it was drawn for (Claude recycles message nodes).
+
+### Verification
+
+Measured in Playwright's page realm, headless, this Mac, on the virtualizing mock with October's markup (the
+`assistant-message` node, an activity line, the hidden project link), storage and the conversation request stubbed.
+- **`probes/check-answer-bookmarks.js` A1–A36** (new). v12.13 fails A2–A5, A9–A21, A24 and A27–A36; A1, A6–A8,
+  A22, A23 and A26 are guards; A25 is a control (the July markup's answers refetch, on both builds). The seeds are records v12.13
+  itself made (`--mint-seeds`).
+- **Eighteen targeted mutants** (`probes/run-answer-mutants.js`), each caught by its named check once the unmutated
+  build passes every check, among them a finder that
+  takes the first match in the document (A9, A10), a label that counts answers (A4), proof without the row or the
+  hash (A16), the twin rule reverted (A18), no refresh for a mid-stream answer (A24), a second record bound instead
+  of removed (A27), rows placed by the stop_reason predicate alone (A28), a click acting for a recycled node's old
+  answer (A29, A31), and `ciMessageNodeWithin` reading answers (A6: a refetch while scrolling).
+- **The final build** (the userscript at `dbf1925`), one local run, macOS arm64, about 23 minutes:
+  - `npm test` on Chromium: 560/560.
+  - Every probe passes on its default engine (`check-gm-storage` 32/32; `check-usage-state` on Firefox passed U10
+    this time).
+  - `check-answer-bookmarks` 36/36 on Chromium, Firefox and WebKit. WebKit's first run failed A36 only: the probe read
+    the export through the download link, which WebKit handles differently. It now reads the Blob the export builds,
+    and WebKit passes all 36 (Chromium and Firefox pass A36 the same way).
+  - The 18 mutants are each caught after the unmutated build passes every check.
+
+---
+
 ## [12.13 — Cross-Tab Saves: A Second Tab No Longer Erases What Another Tab Saved] — 2026-10-24
 
 **Branch:** `fix/cross-tab-storage` | **PR:** #85 | **Merged:** on the owner's call, with step 1 of the
