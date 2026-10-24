@@ -95,7 +95,9 @@ What each round found, in short:
   that fails on the build before it, except those listed as not gated in DEC-050.
 - **GitHub Codex rounds needed afterwards:** round 1 (on `533ae97`, the head at opening): 1 finding, P2, real —
   every use of a command still waiting can be replayed, so keeping only the last use's id counted 5 for 3 uses
-  (reproduced by G31). Fixed by keeping the last 20 use ids. Later rounds: (filled in as the cycle runs)
+  (reproduced by G31). The first fix kept the last 20 use ids (`e69d5da`); round 2 on it came back clean ("Didn't
+  find any major issues"). The review gate's Tier 3 (Codex CLI) then found that window cascading past 20 waiting
+  uses, 43 for 22 (G32); replaced by per-page use numbers (`23805a8`). Later rounds: (filled in as the cycle runs)
 
 ## Measurement context
 

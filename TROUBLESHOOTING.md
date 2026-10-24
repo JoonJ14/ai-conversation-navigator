@@ -519,10 +519,10 @@ v12.12 fails).
 
 ### Results & verification
 
-- **Page realm** (Playwright, headless, this Mac, stubbed storage): `check-gm-storage` G7–G31. v12.12 fails G7 (the
+- **Page realm** (Playwright, headless, this Mac, stubbed storage): `check-gm-storage` G7–G32. v12.12 fails G7 (the
   owner's test: only conversation B is stored afterwards), G8 and G9 (the unreadable value is replaced), G11, G12,
   G14–G18 (G17: B's removal erases A's bookmark; G18: a removed bookmark comes back), G22, G25, G26, G29 and
-  G30; v12.13 passes all thirty-one. The guards (G10, G13, G19–G21, G23, G24, G27, G28, G31) pass on both; the builds before each review round fail the
+  G30; v12.13 passes all thirty-two. The guards (G10, G13, G19–G21, G23, G24, G27, G28, G31, G32) pass on both; the builds before each review round fail the
   checks that round added (DEC-050), and a build whose save steps can overlap fails G13. Residual limits: DEC-050.
   Final runs: CHANGELOG 12.13.
 - **The measurement the fix depends on:** C0 (`probes/cross-tab-gm-check.user.js`): does a read in one tab return

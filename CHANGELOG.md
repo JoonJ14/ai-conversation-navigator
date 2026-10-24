@@ -47,11 +47,11 @@ runtime, a stored bookmark value that did not parse was read as empty, and the n
 ### Verification
 
 Measured in Playwright's page realm, headless, this Mac, with both storage APIs stubbed. Not any manager's storage.
-- **`probes/check-gm-storage.js` G7–G31** (new; G1–G6 unchanged). v12.12 fails G7, G8, G9, G11, G12, G14–G18, G22,
-  G25, G26, G29 and G30; G10, G13, G19–G21, G23, G24, G27, G28 and G31 are guards. The first build of this PR (`698e27f`) fails
+- **`probes/check-gm-storage.js` G7–G32** (new; G1–G6 unchanged). v12.12 fails G7, G8, G9, G11, G12, G14–G18, G22,
+  G25, G26, G29 and G30; G10, G13, G19–G21, G23, G24, G27, G28, G31 and G32 are guards. The first build of this PR (`698e27f`) fails
   G15, G16, G19–G22 and G28, the round-1 fix (`633a14c`) fails G23 and G25, the round-2 fix (`eff22e7`) fails G26 and G27, and the
-  round-4 build (`a9bf93a`) fails G29, the round-6 build (`b524cdb`) fails G30, and the PR's first head (`c4d1ec4`) fails
-  G31 (GitHub Codex), all found in review; a build whose save steps can overlap fails G13.
+  round-4 build (`a9bf93a`) fails G29, the round-6 build (`b524cdb`) fails G30, the PR's first head (`c4d1ec4`) fails
+  G31 and G32 (GitHub Codex), and a 20-id window (`e69d5da`) fails G32, all found in review; a build whose save steps can overlap fails G13.
 - **Review:** three tiers (Tier 1 and 2 in session, Tier 3 Codex CLI) plus an adversarial workflow:
   `reviews/review-2026-10-24-cross-tab.md`.
 - **The final build** (`c4d1ec4`; the commits after it are docs only), one local run, macOS arm64, about 36 minutes:
