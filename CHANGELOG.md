@@ -30,7 +30,9 @@ On Safari + Userscripts, two things never worked:
 - **Usage:** both requests go through `ciLadderGet`, so a refused or missing transport hands them to the other
   one. DEC-044's rules are kept: one caller, the flag cleared before the call, asymmetric supersession, the silent
   stale-org drop on every answer, and no timeout shorter than U4's window (the ladder's is 45 s). The ladder
-  itself is unchanged.
+  itself is unchanged. **One change on every browser [code]:** the GM request had no timeout, so a request that
+  never answered left the panel at "loading" forever. Now it ends as "Usage data unavailable" after 45 s, and a
+  manager that never calls back at all hands the request to `fetch` after 50 s (the ladder's watchdog).
 - **The exact-origin guard for usage:** `maybeRefreshUsage` runs only on `https://claude.ai` exactly, as the
   index does. The SSE half of that gap stays open (ROADMAP 0d).
 - **Storage:** `acnGetValue` / `acnSetValue` for the six GM keys. With the synchronous functions present
