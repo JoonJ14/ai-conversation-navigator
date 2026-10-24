@@ -41,21 +41,29 @@ On Safari + Userscripts, two things never worked:
   `@grant GM.getValue` and `GM.setValue` added. No migration: nothing was ever stored on Safari.
 - **A failed or slow load** (over 2 s) runs on defaults, logs once, and saves nothing for that page, because each
   key holds a whole collection and a save would replace what is stored (owner's decision).
-- **Known limit:** two tabs are last-write-wins per key, as with `GM_setValue` (ROADMAP 0d).
+- **Known limit:** two tabs are last-write-wins per key, as with `GM_setValue` (ROADMAP 0d). Within one page, a
+  write that finishes after a newer write of the same key rewrites the newest, so a write landing out of order
+  cannot leave an older value stored.
+- **A pre-existing race, in code this release rewrote:** with no `lastActiveOrg` cookie, a late org-list answer
+  could start a request for its org and push a later request's answer out. A later request now supersedes a
+  pending org list.
 
 ### Verification
 
 Measured in Playwright's page realm, headless, this Mac. Not any manager's real storage or transport.
-- **`check-usage-state` U11** (gmxhr refused, fetch answers: bars) and **U12** (a look-alike host: no usage request
-  on either transport). Both fail on v12.11 (run on Chromium and Firefox) and pass on v12.12 (all three engines). The probe's GM stub now
+- **`check-usage-state` U11** (gmxhr refused, fetch answers: bars), **U11b** (the same with no `lastActiveOrg`
+  cookie, so the org list comes through fetch too) and **U12** (a look-alike host: no usage request on either
+  transport). All three fail on v12.11 and pass on v12.12 (results per engine: in the PR). The probe's GM stub now
   reports every HTTP status through `onload`, as a real manager does.
 - **`probes/check-gm-storage.js`** (new; in `npm run test:probes` and CI's ubuntu jobs on all three engines):
   - G1: a bookmark survives a reload with only the async API;
   - G2: a language change does too;
   - G3: with both APIs present, both survive through the sync functions and `GM.*` is never called;
-  - G4: a `GM.getValue` that never answers still brings the UI up, logs once, and writes nothing.
-  v12.11 fails G1, G2 and G4 (run on Chromium); v12.12 passes all four on all three engines. G3 passes on both, as the unchanged
-  path should.
+  - G4: a `GM.getValue` that never answers still brings the UI up at the 2 s bound, logs once, and writes nothing;
+  - G5: a rejecting `GM.setValue` is logged once, with no page error;
+  - G6: two writes of one key landing out of order leave the newer value stored.
+  v12.11 fails G1, G2, G4 and G5; v12.12 passes all six (results per engine: in the PR). G3 passes on both, as the
+  unchanged path should.
 - Suite and probes on the final build: in the PR.
 
 **Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey** (PR checklist):

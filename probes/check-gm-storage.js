@@ -19,6 +19,8 @@
 //       that page is kept in memory only, never written over what is stored (the owner's
 //       call, 2026-10-23)
 //   G5  async only, GM.setValue rejects: the failure is logged once, however many writes
+//   G6  async only, two writes of one key finish OUT OF ORDER (the stub finishes a key's
+//       first write last): the newer value is what survives the reload
 //
 // G1 also asserts the startup load asks for all six keys, since one left out of
 // acnStoreLoad's list would reset its feature on every reload with no other check failing.
@@ -46,7 +48,7 @@ const TARGET = 'https://claude.ai/chat/' + CONV_UUID;
 const SIX_KEYS = ['acn-bookmarks-v1', 'acn-claude-org-v1', 'acn-commands', 'acn-settings',
                   'acn-zone-positions', 'acn_ctx_cache'];
 
-// mode: 'async' | 'sync' | 'hang' | 'reject'
+// mode: 'async' | 'sync' | 'hang' | 'reject' | 'reorder'
 function buildPage(scriptContent, mode) {
     const mockHTML = fs.readFileSync(path.join(REPO, 'tests/mock-pages/claude-virtualized.html'), 'utf8');
     const bodyMatch = mockHTML.match(/<body[^>]*>([\s\S]*)<\/body>/i);
@@ -57,7 +59,12 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
 <script>
 (function () {
     var MODE = ${JSON.stringify(mode)};
-    window.__gm = { get: 0, set: 0, syncGet: 0, syncSet: 0, keys: [] };
+    window.__gm = { get: 0, set: 0, syncGet: 0, syncSet: 0, keys: [], seen: {}, firstGetAt: 0, upAt: 0 };
+    // When the cluster is inserted, timed in the page, so G4 measures the storage bound itself
+    // and not the page load around it.
+    new MutationObserver(function () {
+        if (!window.__gm.upAt && document.getElementById('acn-dot-nav')) window.__gm.upAt = performance.now();
+    }).observe(document.documentElement, { childList: true, subtree: true });
     function lsGet(prefix, k) {
         var t = localStorage.getItem(prefix + k);
         return t === null ? undefined : JSON.parse(t);
@@ -80,6 +87,7 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
         getValue: function (k, d) {
             window.__gm.get++;
             window.__gm.keys.push(k);
+            if (!window.__gm.firstGetAt) window.__gm.firstGetAt = performance.now();
             if (MODE === 'hang') return new Promise(function () {});
             var v = lsGet('__gmasync:', k);
             return Promise.resolve(v === undefined ? d : v);
@@ -87,6 +95,15 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
         setValue: function (k, v) {
             window.__gm.set++;
             if (MODE === 'reject') return Promise.reject(new Error('stub: write refused'));
+            // 'reorder': a key's first write is applied and answered 400 ms late, so a second
+            // write made meanwhile lands first and the older value lands last.
+            if (MODE === 'reorder' && !window.__gm.seen[k]) {
+                window.__gm.seen[k] = true;
+                return new Promise(function (res) {
+                    setTimeout(function () { lsSet('__gmasync:', k, v); res(); }, 400);
+                });
+            }
+            window.__gm.seen[k] = true;
             lsSet('__gmasync:', k, v);
             return Promise.resolve();
         }
@@ -235,12 +252,13 @@ const READ = `(function () {
         await context.close();
         return { r, upMs, storageLines: logs.filter((l) => l.indexOf('[ACN] storage:') === 0) };
     })();
-    // upMs runs from navigation to the cluster, so it includes the page load: at least the 2 s
-    // bound, and far below a bound raised to 10 s or more.
-    check('G4', 'GM.getValue never answers: UI comes up after the 2 s bound, logged once, a bookmark stays in memory only',
-        h.r.cluster && h.upMs >= 1900 && h.upMs < 8000 &&
+    // Timed in the page, from the first GM.getValue (the load starting) to the cluster's
+    // insertion: the 2 s bound itself, whatever the page load around it costs.
+    const boundMs = h.r.gm.upAt && h.r.gm.firstGetAt ? Math.round(h.r.gm.upAt - h.r.gm.firstGetAt) : null;
+    check('G4', 'GM.getValue never answers: UI comes up at the 2 s bound, logged once, a bookmark stays in memory only',
+        h.r.cluster && boundMs !== null && boundMs >= 2000 && boundMs < 4000 &&
         h.storageLines.length === 1 && h.r.active > 0 && h.r.gm.set === 0 && h.r.stored.length === 0,
-        'up after ' + h.upMs + 'ms, storage lines=' + JSON.stringify(h.storageLines) + ' active=' + h.r.active +
+        'load to cluster ' + boundMs + 'ms (navigation to cluster ' + h.upMs + 'ms), storage lines=' + JSON.stringify(h.storageLines) + ' active=' + h.r.active +
         ' GM.setValue calls=' + h.r.gm.set + ' stored=' + JSON.stringify(h.r.stored));
 
     const j = await (async () => {
@@ -264,6 +282,36 @@ const READ = `(function () {
     check('G5', 'GM.setValue rejects: logged once across several writes, no page error',
         j.r.gm.set >= 2 && j.failLines.length === 1 && j.errors.length === 0,
         'GM.setValue calls=' + j.r.gm.set + ' failure lines=' + j.failLines.length + ' page errors=' + JSON.stringify(j.errors.slice(0, 2)));
+
+    // G6 — Korean, then English straight away: two writes of acn-settings, the first of which
+    // the stub finishes last. Without the rewrite, Korean (the older value) is what stays stored.
+    const o = await (async () => {
+        const context = await browser.newContext();
+        const page = await context.newPage();
+        const html = buildPage(raw, 'reorder');
+        await page.route('**/*', (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }));
+        await page.goto(TARGET, { waitUntil: 'domcontentloaded', timeout: 120000 });
+        await waitCluster(page);
+        const koLabel = await chooseKorean(page);
+        await page.evaluate(`(function () {
+            var sel = document.getElementById('acn-lang-sel');
+            sel.value = 'en';
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+        }())`);
+        await page.waitForTimeout(1200);   // past the late first write and any rewrite after it
+        const before = await page.evaluate(READ);
+        const stored = await page.evaluate("localStorage.getItem('__gmasync:acn-settings')");
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 120000 });
+        await waitCluster(page);
+        await page.waitForTimeout(300);
+        const after = await page.evaluate(READ);
+        await context.close();
+        return { koLabel, before, after, stored };
+    })();
+    check('G6', 'two writes of one key land out of order: the newer value survives the reload',
+        !!english && o.koLabel !== english && o.before.gm.set >= 3 && o.after.navLabel === english,
+        'chosen ko=' + JSON.stringify(o.koLabel) + ' GM.setValue calls=' + o.before.gm.set +
+        ' stored=' + o.stored + ' label after reload=' + JSON.stringify(o.after.navLabel));
 
     await browser.close();
     console.log(failures ? '\n' + failures + ' check(s) FAILED' : '\nall checks passed');
