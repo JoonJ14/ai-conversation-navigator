@@ -97,7 +97,9 @@ What each round found, in short:
   every use of a command still waiting can be replayed, so keeping only the last use's id counted 5 for 3 uses
   (reproduced by G31). The first fix kept the last 20 use ids (`e69d5da`); round 2 on it came back clean ("Didn't
   find any major issues"). The review gate's Tier 3 (Codex CLI) then found that window cascading past 20 waiting
-  uses, 43 for 22 (G32); replaced by per-page use numbers (`23805a8`). Later rounds: (filled in as the cycle runs)
+  uses, 43 for 22 (G32); replaced by per-page use numbers (`23805a8`), whose own Tier 3 round left one residual
+  (DEC-050; `reviews/review-2026-10-24-23805a8.md`). Round 3 on `c81923e`: "Didn't find any major issues".
+  **Total: 3 GitHub Codex rounds, 1 finding** (against 0 on PRs #81 and #82, and 4 on PR #78).
 
 ## Measurement context
 
