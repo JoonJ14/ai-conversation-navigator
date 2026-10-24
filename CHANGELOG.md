@@ -4,6 +4,63 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.13 — Cross-Tab Saves: A Second Tab No Longer Erases What Another Tab Saved] — 2026-10-24
+
+**Branch:** `fix/cross-tab-storage` | **PR:** (number on opening) | **Status:** open; C0 passed on all three
+managers; real-browser acceptance owed (DEC-031)
+
+### Problem
+
+The owner's two-tab test on Safari + Userscripts, v12.12 [measured, owner, 2026-10-24]: both tabs loaded, on
+different conversations; a question bookmarked in tab A, a different one in tab B; tab A reloaded: **tab A's bookmark
+was gone.** v12.12 had logged two tabs as "last-write-wins per key", a known limit.
+
+### Root cause [code]
+
+Every bookmark of every conversation is one GM value. On Safari the six GM keys are read once at startup (DEC-049),
+and each save wrote that startup copy, plus its one change, back: a tab erased whatever any other tab had saved since
+it loaded, in any conversation. Saved commands, button positions and the context cache had the same shape. On every
+runtime, a stored bookmark value that did not parse was read as empty, and the next save wrote one bookmark over it.
+
+### Fix
+
+- **`acnUpdateValue`** (DEC-050): a save of a collection applies one change to the value as it is stored at the save.
+  Bookmarks merge by record id (an update never revives a record another tab deleted; Clear all removes the records
+  the panel drew), commands by id (two tabs creating one name keep both: `name-2`), button positions by platform,
+  the context cache by conversation. `acn-settings` and the org cache stay last-write-wins (the owner's call).
+- **Tampermonkey:** unchanged in behaviour. Each save already read with `GM_getValue` right before its `GM_setValue`,
+  with no copy in between [code], and `GM_getValue` sees another open tab's write (C0, below).
+- **Safari:** the change shows on the page at once; then, one step at a time per key, the script re-reads with
+  `GM.getValue`, applies every change not yet stored and writes. A failed step's changes go out with the next save; a
+  step with no answer in 5 s is abandoned the same way and logged once.
+- **An unreadable stored value is never saved over,** on every runtime: one console line and a toast ("Not saved:
+  the stored data could not be read") per key per page; the bookmark flag does not turn on, and the command form
+  shows the error.
+- **C0** (`probes/cross-tab-gm-check.user.js`): an owner-run measurement, scratch keys only. The fix holds on a
+  manager only if a read in one tab returns what another open tab wrote since it loaded. **PASS on all three**
+  [measured, owner, 2026-10-24]: Safari + Userscripts 4.8.6, Chrome + Tampermonkey 5.5.1, Firefox + Tampermonkey
+  5.5.0 (DEC-050 has the lines).
+- **Residual limits, recorded in DEC-050:** no atomic compare-and-swap across tabs (the window shrinks to one
+  read-then-write round trip, from the tab's whole life; accepted by the owner); a migration's whole-record update; an abandoned write
+  landing late; a save less than one round trip before a reload; no in-UI recovery from an unreadable value.
+
+### Verification
+
+Measured in Playwright's page realm, headless, this Mac, with both storage APIs stubbed. Not any manager's storage.
+- **`probes/check-gm-storage.js` G7–G30** (new; G1–G6 unchanged). v12.12 fails G7, G8, G9, G11, G12, G14–G18, G22,
+  G25, G26, G29 and G30; G10, G13, G19–G21, G23, G24, G27 and G28 are guards. The first build of this PR (`698e27f`) fails
+  G15, G16, G19–G22 and G28, the round-1 fix (`633a14c`) fails G23 and G25, the round-2 fix (`eff22e7`) fails G26 and G27, and the
+  round-4 build (`a9bf93a`) fails G29, and the round-6 build (`b524cdb`) fails G30, all found in review; a build whose save steps can overlap fails G13.
+- **Review:** three tiers (Tier 1 and 2 in session, Tier 3 Codex CLI) plus an adversarial workflow:
+  `reviews/review-2026-10-24-cross-tab.md`.
+- **The final build** (`c4d1ec4`; the commits after it are docs only), one local run, macOS arm64, about 36 minutes:
+  - `npm test`: Chromium 560/560, Firefox 560/560, WebKit 556/560. WebKit's 4 are the known local jump entries
+    (TROUBLESHOOTING, "OPEN — Local mac WebKit"), each giving up at about 1.46 s as recorded there.
+  - All seven probes pass on all three engines, except `check-usage-state` U10 on Firefox, the known timeout
+    (TROUBLESHOOTING); U11, U11b and U12 passed before it. `check-gm-storage`: 30 of 30 on each engine.
+
+---
+
 ## [12.12 — Safari Parity: Plan Usage and Everything Kept in GM Storage] — 2026-10-23
 
 **Branch:** `fix/safari-parity` | **PR:** #82 | **Merged:** `2b7e8d1`, before the owner's real-browser
