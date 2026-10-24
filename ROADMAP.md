@@ -30,7 +30,14 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.12 MERGED (PR #82, `2b7e8d1`) — live confirmation status: DEC-031 (a summary pass; itemized results to come)
+## Current Status: v12.14 MERGED (PR #86) — live confirmation status: DEC-031
+
+**v12.14 (PR #86, merged 2026-10-24 after the owner's acceptance on all three browsers).** Claude answers have flags in project chats again, answer bookmarks
+key to the message and read "Answer to Q#n", and existing answer bookmarks bind on proof or show "A#?" (DEC-051;
+TROUBLESHOOTING, "Claude answer bookmarks"). Next: the third PR, Claude markup follow-ups (item 14).
+
+**v12.13 (PR #85, merged 2026-10-24 as `b96ec7b`).** A second tab no longer erases what another tab saved (DEC-050).
+Owner acceptance: step 1 passed on all three browsers, steps 2–7 not reported (a waiver, DEC-031).
 
 **v12.10 (PR #78, merged 2026-10-23 as `166a281`).** ChatGPT and Perplexity list every question again: October
 selectors for the DOM fallback, and an index adapter per platform reading each site's own JSON through the v12.9
@@ -53,9 +60,10 @@ v12.9 paragraphs above are history.
    out of scope. Owner acceptance: a summary pass, itemized results to come (DEC-031). Design: DEC-049; the debugging story: TROUBLESHOOTING, "Safari +
    Userscripts: Plan usage unavailable".
 
-**Next (owner, 2026-10-23):** the owner live-tested v12.12 after the merge and reports everything built works
-(a summary; the itemized results come in the next session's prompt, for DEC-031). The next session starts from a
-**separate bookmark issue** the owner noticed, described in their prompt; it is not in the repo (HANDOFF.md, §G).
+**Next (owner, 2026-10-24):** the bookmark issue the owner found in v12.12's acceptance became two PRs: v12.13
+(a second tab erased the first tab's bookmarks) and v12.14 (answer bookmarks), both accepted on all three browsers
+and recorded in DEC-031 with v12.12's itemized results. Then the third PR, Claude markup follow-ups (item 14), in a new
+session (the owner's plan, 2026-10-24).
 
 Then: Grok and Gemini (the owner decides the order), Perplexity attachment images, the CI rebuild (item 0e),
 the context-window meter (item 12) and the v12.10 follow-ups (item 13). Owed meanwhile: v12.12's
@@ -788,6 +796,35 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       - The Perplexity jump releases the scroller's stick-to-bottom pin with a synthetic wheel event. Measured
         in Chrome's page realm only; in Firefox's Tampermonkey sandbox the event crosses realms (owner
         acceptance).
+      - **Answer bookmarks on ChatGPT and Perplexity** (logged 2026-10-24, from the Claude answer-bookmark PR):
+        the same class of problem as Claude's, and worse. Questions and answers alike key to a position, with
+        no uuid route and no index jump [code]. ChatGPT's answers may get no flags at all, since its answer
+        selectors were not re-measured since February [inferred]. Both payloads carry ids a fix could key to: the
+        ChatGPT adapter fetches the assistant node ids and drops them; Perplexity's entries carry `backend_uuid`,
+        which covers a question and its answer [code].
+
+14. **Claude markup follow-ups — the planned THIRD PR (owner, 2026-10-24).** After the answer-bookmark PR (v12.14).
+    Claude's October 2026 markup broke two assumptions the staleness check rests on (TROUBLESHOOTING has both):
+    - **The question-side refetch:** a multi-block question's rendered text never equals its payload, so each
+      distinct window holding one re-downloads the conversation once per page load. With it: the question-identity
+      risk (a mismatch inside a question's first 200 characters costs it its uuid).
+    - **Dead regenerate and late-answer detection:** the answer branches never see an answer any more.
+    - **Logged from v12.14, outside its scope** (the owner approved this list, 2026-10-24):
+      - The project-link mix-up in `getAIMessages`' other readers: Search, the Summary's DOM path, the image
+        gallery, Export's DOM path and `ciFindScrollContainer`'s fallback still see the hidden link in a project
+        chat [code].
+      - Search numbers answers with its own `A#` count, not "Answer to Q#n" [code].
+      - Export's DOM path keeps the ⚑ glyph (`isUIChrome` does not skip `[data-acn-bookmark]`) [code].
+      - The flag guard checks our attribute, not the flag: if the page removes the flag but keeps the element, the
+        flag never comes back [code].
+      - A question flag's click acts for the identity it was drawn with; if Claude recycles the node to another
+        question before the next scan, a click in that half second acts on the old one [code]. v12.14 checks this
+        for answers only (DEC-051).
+      - A regenerate before the resync gives the new answer the old answer's uuid; it then reads "A#?" (DEC-051).
+      - On an answer taller than the window, the flag shows only while the answer's top edge is on screen: hovering
+        an answer that filled the window showed nothing, its flag 167 px above it [measured, Chrome page realm,
+        2026-10-24]. Not a defect the owner reported (their re-test found every flag on hover); recorded for a
+        placement decision.
 
 ---
 

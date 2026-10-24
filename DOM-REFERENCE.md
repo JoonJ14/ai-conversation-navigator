@@ -205,6 +205,32 @@ detach-and-remount usually produces a silent **no-op** on a disconnected node. T
 
 > ⚠️ **Claude virtualizes its message list with recycling.** Only ~3–5 user turns are mounted at any moment; the rest are unmounted. Selector counts here describe the *mounted window*, not the conversation. Message enumeration comes from the API-backed conversation index (DEC-021), not from these selectors. They remain the degraded fallback.
 
+### October 2026: answers, rows and the project link (measured live, Chrome page realm, 2026-10-23/24)
+
+Context: the owner's real Chrome profile, Tampermonkey, v12.12 then v12.13, a visible tab, read through the page
+console; seven of the owner's chats (4 to 147 questions, three in a project). Safari and Firefox were not measured
+here; the owner's console counts from them are in TROUBLESHOOTING ("Claude answer bookmarks").
+
+| What | Live (Oct 2026) | July 2026 record below |
+|---|---|---|
+| Answer node | `div[data-testid="assistant-message"]` inside the row; children: `h3.sr-only.select-none` ("Claude responded: <first words>…"), the content (`.prose`), `[data-testid="message-actions"]` | `.font-claude-response` (5 live); `assistant-message` 0 |
+| `.font-claude-response` | **outside every row**: in a project chat, the project's name ("Tech", "Jobs") in `div.w-0 > … > a[href="/project/<uuid>"]`, a zero-width side panel (x beyond the window); none outside projects | the answer node |
+| Row | `div[data-testid="transcript-row"][data-index][data-rs-index]`, plus `data-perf-row="human"\|"assistant"`, `data-perf-row-from-tail`, `data-last-message` | `[data-index][data-rs-index]`, no testid |
+| `aria-setsize` | on a descendant of the row (74 for a 37-question chat) | the `role="article"` wrapper |
+| Mount window | about 5 rows at the bottom at load, even in a 4- or 8-question chat | the last ~3 rows always mounted |
+
+- **The activity line.** Some answers show a line above the text ("Organizing owner tasks…", "Clarifying refund
+  timelines…"), which the payload's text blocks do not hold, so an answer's rendered text never equals its payload
+  text. Where it sits in the tree was not measured. The sr-only `h3` is dropped by `_cleanText` [code].
+- **Rows still line up with the path:** `data-index` was the path position and `data-perf-row` the path's sender on
+  every row checked (53 rows over 5 scroll positions on the 147-question chat; 7 and 5 rows on two others), and
+  question flags' uuids equalled the path's.
+- **Questions** render a multi-line message as separate blocks (`<p>`, `<ol>`/`<li>`); the list numbers are CSS, so
+  `textContent` lacks them and the breaks between blocks (row 290 of the 147-question chat: 8 `<p>`, 18 `<li>`,
+  2 `<ol>`). July's record below has one pre-wrap `<p>` per question.
+- `getAIMessages` stops at its first matching selector across the document, so in a project chat it returns only the
+  project link. v12.14's bookmarks look for answers inside rows instead (DEC-051).
+
 ### v12.0 selector drift (measured live, Jul 26 2026)
 
 The structure documented for v11.x below is **stale**. What changed:
@@ -249,6 +275,15 @@ all ancestors and all descendants returned zero matches against the API's messag
 entries, i.e. one leading message is never rendered. The measured offset was +1, but from a
 single matched row — so production re-derives it on every jump from every mounted user row
 and refuses to convert when they disagree. Do not hardcode it.
+
+**Corrected 2026-10-24: the non-rendered message is not a leading one.** The July record above is conversation
+`b3c603a4` (the code's comment at the offset sweep names it). Read again through the API in October [Chrome page
+realm, the owner's profile, 2026-10-24]: its active path now holds 299 entries (149 questions, the conversation has
+grown), the first is a question, and the only answer without a `stop_reason` is at path index 199, as the
+predicate's comment in the code says. So the offset is 0 before that entry and +1 after it; the "+1" July measured
+came from a row after it. A different 147-question chat measured in October (`65dfa4f2`) has 294 entries, none
+without a `stop_reason`, `aria-setsize` 294 and offset 0: not a conflict with July, two conversations. The code
+derives the offset either way.
 
 **The mounted set is NON-CONTIGUOUS.** The last ~3 rows stay mounted at *every* scroll
 position. At `scrollTop = 0` the mounted set was `[0,1,2,3,291,292,293]`. Any "is my target

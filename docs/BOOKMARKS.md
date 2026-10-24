@@ -30,6 +30,42 @@ Design and implementation plan for real bookmark functionality, replacing the cu
 
 ---
 
+> **v12.13 update (PR #85, DEC-050) — a save of the store applies one change to what is stored.**
+>
+> Every bookmark of every conversation lives in the one GM value `acn-bookmarks-v1`. On Safari the value was read once
+> at page load and each save wrote that copy back, so a second tab erased what another tab had saved, in any
+> conversation (the owner's two-tab test, v12.12: LOST). Bookmarks now save through `acnUpdateValue`
+> (`_bmUpdateStore`): the change (add, update, remove) is applied to the store as it is stored at the save, merged by
+> record id. An update never revives a record another tab deleted (`saveBookmark(b)` without `isNew`), and a store
+> that cannot be read is never written over. Details and residual limits: DEC-050.
+
+> **v12.14 update (PR #86, DEC-051) — Claude answers are found inside rows and identified by position.**
+>
+> On Claude chats (`ciIsClaudeChat()`), answer flags no longer come from `getAIMessages()`:
+> - **Finder:** `ciAnswerNodeInRow(row)` — `[data-testid="assistant-message"]` inside a feed row (the October 2026
+>   markup), then `.font-claude-response` / `.\!font-claude-response` only inside rows. In a project chat
+>   `getAIMessages()` returns the project's name link in a hidden side panel, so no answer had a flag.
+> - **Identity:** `ciAnswerMap()` places each mounted answer row on its path entry by position (bracketing anchors,
+>   the question row next to it with exactly one answer between it and the next question, or the last row when the
+>   counts agree) and never by text: a rendered answer opens with an activity line the payload lacks. The flag's id is
+>   that entry's uuid; an answer that cannot be placed keeps the old `contentHash(text, -1)`.
+> - **Label:** `_bmLabel(bm)` — "Answer to Q#n" (n is the question the answer follows, numbered as Navigate numbers
+>   it; Korean "Q#n에 대한 답변"); "A#?" for a record not bound to a message, or whose message left the path;
+>   "Answer to Q#?" while the index loads; "Answer (no question)" when none precedes it. The export uses the same
+>   labels and puts each answer right after its question (`_bmSortKey`).
+> - **Existing records:** an answer record without a uuid binds only on proof (`_bmProveAnswers`): the row it was made
+>   on (`pendingRow`) is mounted and placed, and its text there reproduces the stored hash. The write is decided on
+>   the stored list (`_bmBindAnswer`); a second record of an answer already bookmarked is removed instead.
+> - **Matching:** a Claude answer's flag stands only for its own message (`_bmFlagMatches`): its uuid, or while
+>   unplaced, a hash record made on the same row. The older text forms no longer match answers, so one of two
+>   identical answers can no longer light, or delete, the other's bookmark. A click acts only if the node still shows
+>   the answer its flag was drawn for (`_bmAnswerKeyNow`; Claude recycles message nodes).
+> - **The newest answer:** a bookmark on an answer the index fetched mid-stream asks for one refetch through the
+>   scan's own refetch path (`_bmRequestIndexRefresh`), and binds by proof when it lands.
+> - **Jump:** `_bmJumpToAnswer` — the mounted answer by uuid, else the index jump; it lands only on an answer.
+> Questions keep their v12.0 identity (text-confirmed row mapping, `ciUuidForText`). Gate:
+> `probes/check-answer-bookmarks.js`.
+
 ## Table of Contents
 
 1. [Overview](#overview)
@@ -435,6 +471,13 @@ function normalizeConversationUrl() {
     return window.location.origin + window.location.pathname;
 }
 ```
+
+> **The key is the page's address, not the conversation id** [code]. On Claude that is `https://claude.ai/chat/<id>`
+> whether or not the chat is in a project [measured, Chrome page realm, 2026-10-24]: every chat link on a project's
+> page is `/chat/<id>`, and an address of the older form `/project/<pid>/chat/<cid>` renders no conversation. So moving
+> a chat into or out of a project keeps its bookmarks, question and answer alike [inferred from both; the move itself
+> was not tested]. If Claude ever puts the project back into chat addresses, each chat's bookmarks would stay under
+> its old address.
 
 ### Storage Helpers
 

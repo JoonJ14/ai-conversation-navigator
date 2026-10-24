@@ -4,11 +4,105 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.14 — Claude Answer Bookmarks: Flags in Project Chats, "Answer to Q#n", Jumps That Land] — 2026-10-24
+
+**Branch:** `fix/claude-answer-bookmarks` | **PR:** #86 | **Merged** on the owner's call after their real-browser
+acceptance: steps 1–3 PASS on Safari, Chrome and Firefox; Chrome's and Firefox's steps 4–5 not reported (a partial
+waiver, DEC-031)
+
+### Problem
+
+The owner, v12.12 and v12.13, Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey [measured,
+owner, 2026-10-23/24]: no answer flags at all in long chats; elsewhere answer bookmarks labelled by their position on
+screen ("answer 1, 1, 1"); a jump to an answer off screen failed. Question bookmarks were right.
+
+### Root cause [measured, Chrome page realm, the owner's profile, 2026-10-23/24; code]
+
+- `getAIMessages` stops at the first selector that matches anything in the document, and `.font-claude-response`
+  now matches only the project's name link in a hidden side panel. In a project chat, every one of the owner's chats
+  with 12+ questions, no real answer (`[data-testid="assistant-message"]`) was found.
+- An answer got a uuid only if its rendered text equalled its payload text, and rendered answers open with an
+  activity line the payload lacks. So answers were keyed by a text hash, labelled by mounted position, and never
+  reached the index jump.
+- The console's "all records carry a uuid" skipped exactly these records; one of two identical answers' flags lit,
+  and its click deleted, the other's bookmark.
+
+### Fix (DEC-051)
+
+- Answers are found inside the feed's rows only (`ciAnswerNodeInRow`) and placed on their path entry from the rows
+  around them, never from text (`ciAnswerMap`). `getAIMessages`, `ciMessageNodeWithin` and the staleness check are
+  unchanged, so answer refetching does not come back.
+- An answer bookmark keys to the message uuid and reads **"Answer to Q#n"**, the question it follows (Korean
+  "Q#n에 대한 답변"); "A#?" when it cannot be bound; "Answer (no question)" when no question precedes it. The export
+  uses the same labels.
+- Answer bookmarks made by v12.12/v12.13 bind on proof only (their row, and their text reproducing their hash);
+  otherwise "A#?", with a toast that says it cannot be matched, and deletable. A record made on the project link
+  never binds.
+- A bookmark on an answer the index fetched mid-stream asks for one refetch through the scan's own refetch path,
+  under its cooldown, and binds when it lands.
+- The status line counts every record without a uuid; a Claude answer's flag matches only its own message, and a
+  click acts only if the flag's node still shows the answer it was drawn for (Claude recycles message nodes).
+
+### Verification
+
+Measured in Playwright's page realm, headless, this Mac, on the virtualizing mock with October's markup (the
+`assistant-message` node, an activity line, the hidden project link), storage and the conversation request stubbed.
+- **`probes/check-answer-bookmarks.js` A1–A36** (new). v12.13 fails A2–A5, A9–A21, A24 and A27–A36; A1, A6–A8,
+  A22, A23 and A26 are guards; A25 is a control (the July markup's answers refetch, on both builds). The seeds are records v12.13
+  itself made (`--mint-seeds`).
+- **Eighteen targeted mutants** (`probes/run-answer-mutants.js`), each caught by its named check once the unmutated
+  build passes every check, among them a finder that
+  takes the first match in the document (A9, A10), a label that counts answers (A4), proof without the row or the
+  hash (A16), the twin rule reverted (A18), no refresh for a mid-stream answer (A24), a second record bound instead
+  of removed (A27), rows placed by the stop_reason predicate alone (A28), a click acting for a recycled node's old
+  answer (A29, A31), and `ciMessageNodeWithin` reading answers (A6: a refetch while scrolling).
+- **The final build** (the userscript at `dbf1925`), one local run, macOS arm64, about 23 minutes:
+  - `npm test` on Chromium: 560/560.
+  - Every probe passes on its default engine (`check-gm-storage` 32/32; `check-usage-state` on Firefox passed U10
+    this time).
+  - `check-answer-bookmarks` 36/36 on Chromium, Firefox and WebKit. WebKit's first run failed A36 only: the probe read
+    the export through the download link, which WebKit handles differently. It now reads the Blob the export builds,
+    and WebKit passes all 36 (Chromium and Firefox pass A36 the same way).
+  - The 18 mutants are each caught after the unmutated build passes every check.
+
+### Owner acceptance [measured, owner, real browsers, 2026-10-24]
+
+Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey, project and non-project chats: every answer
+shows a flag on hover, bookmarks read "Answer to Q#n" ("Answer to Q#79", "Answer to Q#76" on Safari's 147-question
+chat), and a jump from far away lands. On Safari the old answer bookmarks in the 147-question project chat all showed
+"A#?" (the owner deleted and re-made them), and one in a 4-question non-project chat bound by proof to "Answer to Q#4".
+Chrome's and Firefox's steps 4–5 were not reported; the optional console and newest-answer steps were not run. Itemized:
+DEC-031.
+
+### Review
+
+All three tiers plus an adversarial workflow (`reviews/review-2026-10-24-answer-bookmarks.md`): the adversarial pass
+(8 agents) confirmed 16 of 18 findings; Codex CLI ran 8 rounds and 2 post-fix validations, 39 findings, 38 real,
+approved in rounds 7 and 8. Among what review found and the gate now covers: a repeated prompt matching an OLD question
+(a row past the snapshot is never evidence), a click acting for a recycled node's old answer, a duplicate decided on a
+stale copy, a jump landing on a question. GitHub Codex afterwards: 2 rounds, 0 findings.
+
+### Also in this PR (docs and repo)
+
+- DOM-REFERENCE records October 2026's answer, row and project-link markup, and corrects the "294/295 conflict": the
+  July record is conversation `b3c603a4`, whose only non-rendering entry sits at path 199 (not a leading one), while the
+  October 147-question chat (`65dfa4f2`) is a different conversation with 294 entries.
+- Bookmarks are keyed by the page address, and Claude serves every chat at `/chat/<id>`, in a project or not
+  [measured, Chrome, 2026-10-24], so moving a chat keeps its bookmarks (docs/BOOKMARKS.md).
+- Three lessons in agent_docs/conventions.md (a mock helper must confirm after the mock settles; preconditions describe
+  the fixture; a DOM count is not what the user sees).
+- The eleven merged remote branches of PRs #75–#85 were deleted at the owner's request (HANDOFF §E).
+- ROADMAP 14 holds the planned third PR (the question-side refetch, dead regenerate detection, the question-identity
+  risk) and the logged-not-fixed list; ROADMAP 13 gains ChatGPT and Perplexity answer bookmarks.
+
+---
+
 ## [12.13 — Cross-Tab Saves: A Second Tab No Longer Erases What Another Tab Saved] — 2026-10-24
 
-**Branch:** `fix/cross-tab-storage` | **PR:** #85 | **Merged:** on the owner's call, with step 1 of the
-real-browser acceptance passed on all three browsers and steps 2–7 not reported (a waiver, DEC-031). C0 passed on
-all three managers
+**Branch:** `fix/cross-tab-storage` | **PR:** #85 | **Merged:** 2026-10-24 as `b96ec7b`, on the owner's call, with
+step 1 of the real-browser acceptance passed on all three browsers and steps 2–7 not reported (a waiver, DEC-031). C0
+passed on all three managers. **CLAUDE.md** (`ce7af86`, owner-approved): the storage line names `acnUpdateValue` and
+says a key holding a collection saves through it, never `acnSetValue`
 
 ### Problem
 

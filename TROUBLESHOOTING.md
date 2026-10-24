@@ -472,6 +472,162 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ---
 
+## FIXED IN v12.14 — Claude answer bookmarks: no flags in project chats, labels by position, jumps failing (found 2026-10-23)
+
+**Phase:** v12.12 acceptance; fixed in v12.14 (the answer-bookmark PR) | **Severity:** High — answers could not be
+bookmarked in most long chats, and existing answer bookmarks were mislabelled and unreachable, on all three browsers
+| **Status:** fixed in code and gated in the page realm; accepted by the owner on all three browsers (DEC-031:
+steps 1–3 PASS everywhere; Chrome's and Firefox's steps 4–5 not reported)
+
+### Symptom
+
+The owner [measured, owner, Safari + Userscripts, Chrome + Tampermonkey, Firefox + Tampermonkey]:
+- v12.12 (2026-10-23): on the 147-question chat, answer flags only on the last ~3 answers in Safari and Firefox,
+  none above them even after scrolling, none at all in Chrome; labels "answer 1, 3, 2" for answers 49–51; "not
+  currently rendered" even for answers on screen. Console counts the owner ran: Safari won the race once at load
+  (2 answer flags, then 0 new ones after scrolling), Firefox lost it (0).
+- v12.13 (2026-10-24): long chats (144, 30 and 20 questions): no answer flags at all. Short chats: flags on the last
+  ~3 answers; labels wrong ("answer 3" for answer 6 or 8), two answers both "answer 1"; but a jump to them worked
+  there.
+- A correction and its retraction, both the owner's, 2026-10-24: first "in non-project chats, once I scroll past the
+  last ~3 answers, the older answers show NO flag on hover"; after re-testing, "as I scroll up, every answer shows a
+  flag on hover, even the 1st and 11th answers"; "Project chat: no answer flags anywhere"; answer labels 1–4 (the
+  position on screen), question labels right (Q1, Q140), in both kinds of chat.
+
+### Diagnosis / root cause
+
+Measured in Chrome's page realm, the owner's real profile, visible tab, v12.12 then v12.13 (2026-10-23/24):
+- **No flags in project chats.** Answers are `[data-testid="assistant-message"]`. `getAIMessages` tries its selectors
+  across the whole document and stops at the first that matches anything [code]; `.font-claude-response`, first in
+  the list, now matches only the project's name link ("Tech", "Jobs", "ai-newsroom") in a zero-width side panel
+  outside every row. So the only answer flag went on that hidden link: 0 answer flags at every scroll position on the
+  20-, 37- and 147-question chats. Every chat with 12+ questions among the owner's 60 most recent is in a project
+  (the API's `project_uuid`; the sidebar's "Chats and tasks" list shows project chats too). On v12.12 a scan could
+  still beat the link's render (about 58 ms after the rows), which is Safari's "won once at load".
+- **"Only the last ~3" in short chats.** Claude mounts about 5 rows at load even in a 4- or 8-question chat. Outside
+  a project, every answer got its flag as it mounted, about 0.5 s later (the scan's debounce): rows 1, 3 and 5
+  mounted at 52 ms, flagged at 562 ms, none lost.
+- **Labels by position, jumps failing.** An answer got a uuid only if its rendered text equalled its payload text
+  [code], and a rendered answer opens with an activity line the payload's text lacks. So its key was a text hash,
+  its label the position among the answers mounted when its flag was made, and its jump only a search of what was
+  mounted.
+- **The console's "all records carry a uuid"** skipped records with a `pendingHash`, which every such answer record
+  has [code].
+- **Twins.** A flag matched records by older text forms, so one of two answers with the same text lit, and its click
+  deleted, the other's bookmark [code].
+
+Why the owner's correction did not reproduce, recorded because it is a measurement-context lesson: the flag sits at
+the answer's top-right corner and shows only on hover. In "Apple account sign-in from unknown location" (11 questions,
+no project; Chrome, window 1214×727), every answer is 600–900 px tall, and hovering an answer that filled the window
+showed nothing on screen while its flag was at opacity 1, 167 px above the window. The first Phase 1 measurement
+counted flag elements in the page, which is not what the owner sees; the hover check and the owner's re-test agree
+that the flags are there. Logged: ROADMAP 14.
+
+### Solutions considered
+
+The design alternatives are in DEC-051; this is the order the thinking went in.
+- **First hypothesis: the project link explains every long chat.** The owner reported their 30- and 20-question chats
+  as outside a project, which the decoy could not explain. Measured instead of argued: the API's `project_uuid` put
+  every chat with 12+ questions in a project, and the decoy's text was the project's name. The sidebar's "Chats and
+  tasks" list, which shows project chats too, explains the impression.
+- **Reorder `getAIMessages` (testid first).** It would have flagged answers, but still by a document-wide first match,
+  and five other readers depend on that chain without their own measurement. Rejected; logged (ROADMAP 14).
+- **Teach `ciMessageNodeWithin` the testid.** The obvious one-line fix, rejected because that function feeds the
+  staleness check: every answer with an activity line would mismatch its payload and refetch the index per window.
+  The gate's mutant M9 shows exactly that (A6 fails).
+- **Strip the activity line and keep matching text.** The line is truncated and often doubled on screen while the
+  payload holds the full summary in thinking blocks, so any rule would be inference. Position is measured (53 rows,
+  0 mismatches), so identity moved to position.
+- **Place each row by the stop_reason predicate (`_ciRenderable[row]`).** Simple and right on the owner's chats, but
+  one entry the predicate misjudges shifts every later answer by one, persisted. It may only refuse; the gate's R2
+  puts a never-rendered completed entry on the path, and mutant M12 (predicate alone) fails A28.
+- **A sticky flag for tall answers** (proposed when the owner first reported "no flag on hover"; the measurement
+  showed the flag above the window). Dropped when the owner's re-test found every flag; logged as a placement note.
+- **What review changed** (each now gated): the proof's write decided on the page's copy → decided on the stored list
+  at the write (A27); the proof pass gated on the mounted rows only → also on their texts and the stored records
+  (A33); an unplaced flag's identity without its row → with its row (A30); a click trusting the identity its flag was
+  drawn with → checked against the node now (A29, A31); a neighbouring question past the snapshot as evidence →
+  refused (a repeated prompt matched the OLD entry); a jump accepting any landing → only an answer, and never a target
+  that does not render or is not an answer.
+
+### Fix (v12.14)
+
+- A row-scoped answer finder (`ciAnswerNodeInRow`) and `ciAnswerMap`, which places each mounted answer row on its
+  path entry from the rows around it, never from text (DEC-051).
+- Answer flags and bookmarks key to that uuid. The label is "Answer to Q#n"; "A#?" for a record not bound.
+- Existing answer records bind on proof (`_bmProveAnswers`): their own row mounted and placed, and its text
+  reproducing their hash. A record made on the project link never does: "A#?", deletable, with a toast that says it
+  cannot be matched.
+- A bookmark on an answer the index does not hold yet (fetched mid-stream) asks for one refetch through the scan's
+  refetch path; the record binds when it lands.
+- The status line counts every record without a uuid. A Claude answer's flag matches only its own message.
+
+### Results & verification
+
+- **Page realm** (Playwright, headless, this Mac; the virtualizing mock with the October markup, the project link and
+  the activity line): `probes/check-answer-bookmarks.js`, 36 checks. v12.13 fails 28, the [new] ones: answer uuids,
+  labels (panel, Korean, before the index lands, export), an off-screen jump, the project chat, a wrong stop_reason predicate, binding, a second record of one
+  answer, the twin, recycled nodes, the status line, the mid-stream answer. The guards
+  pass on both builds, among them the refetch count while scrolling across windows (1 fetch, no "out of sync"
+  line). Eighteen targeted mutants, each caught by its named check. Final runs: CHANGELOG 12.14.
+- **Real browsers** [measured, owner, 2026-10-24] (DEC-031 has the itemized results): on Safari, Chrome and Firefox,
+  every answer shows a flag on hover in project and non-project chats, bookmarks read "Answer to Q#n" and jumps from
+  far away land. On Safari, the existing answer bookmarks in the 147-question project chat all showed "A#?" (why each one
+  did not bind was not measured), and one in a short non-project chat bound by proof to "Answer to Q#4".
+
+---
+
+## OPEN — Claude refetches the whole conversation while you only scroll: the question side (found 2026-10-23; the planned third PR)
+
+**Phase:** v12.12 acceptance | **Severity:** Medium — a full re-download (about 3.3 MB on a long chat, measured in
+July) per distinct window | **Status:** Open; the planned THIRD PR, Claude markup follow-ups (ROADMAP 14)
+
+### Symptom
+
+"[ACN] index out of sync with DOM (new message, edit, or regenerate) — refetching" while only scrolling: 3 times in
+Firefox and 2 in Safari on the 147-question chat [measured, owner, v12.12]; once in Chrome on v12.12 and 3 times in
+one page load on v12.13 [measured, Chrome page realm, 2026-10-23/24].
+
+### Diagnosis
+
+- Not answers: no row holds `.font-claude-response`, so `ciMessageNodeWithin` returns the row and the staleness
+  check skips every answer row [code + measured, Chrome].
+- The edited-question branch ('e') of `_ciAssistantStale` compares each mounted question's full rendered text with
+  its payload text [code]. Claude now renders a multi-line question as separate blocks; the page's text loses the list
+  numbers (CSS draws them) and the breaks between blocks, while the payload keeps both. Row 290 of the 147-question
+  chat (8 `<p>`, 18 `<li>`, 2 `<ol>`) differs from its payload by exactly the 8 numbers and the block whitespace
+  [measured, Chrome, v12.12]; single-paragraph questions match exactly.
+- A signature is consumed only when it survives its own refetch, so each distinct set of mismatching mounted
+  questions refetches once per page load, at most one per 15 s [code].
+- Each refetch also resets row anchors, cancels a Navigate jump in flight, marks an open Summary out of date and
+  reruns the bookmark repair pass [code].
+- **The question-identity risk:** a question whose mismatch starts within its first 200 characters would lose its
+  uuid and get a positional bookmark [code; inferred, not observed]. Row 290's starts at character 282.
+- v12.14's answer placement uses the same question match (`ciMatchRowToPath`), so an answer next to such a question
+  is placed only by other routes (DEC-051 residuals).
+
+### Owed
+
+The fix belongs with the third PR: one measurement per mounted question (block count, the comparison at its path
+position) before choosing how the comparison should read blocks.
+
+---
+
+## OPEN — Claude: a regenerated or late answer no longer triggers a resync (found 2026-10-23; the planned third PR)
+
+**Phase:** v12.12 acceptance | **Severity:** Medium — Search, Summary and Export keep the old answer until the next
+prompt [inferred] | **Status:** Open; the planned THIRD PR (ROADMAP 14)
+
+The answer branches of `_ciAssistantStale` ('g', 's', 'o') reach answers only through `ciMessageNodeWithin`, which
+looks for `.font-claude-response`; no row holds it any more, so it returns the row and every answer row is skipped
+[code + measured, Chrome page realm, 2026-10-23]. A regenerated answer, or an answer the index fetched mid-stream,
+no longer triggers a refetch. v12.14 leaves this alone on purpose (DEC-051): reading `assistant-message` there
+compares rendered answers, whose activity line never matches the payload, and refetches every window (the gate's
+mutant M9). It covers the one case bookmarks need: a click on an answer the index does not hold yet asks for one
+refetch.
+
+---
+
 ## FIXED IN v12.13 — Safari: a second tab erased the first tab's bookmarks, in any conversation (found 2026-10-24)
 
 **Phase:** v12.12 acceptance; fixed in v12.13 (the cross-tab PR) | **Severity:** High — data loss on one of the
@@ -892,6 +1048,12 @@ load alone does not explain it. v12.12 moved
 the usage requests onto the transport ladder; no mechanism that would delay this third request was found in that
 change [code], and v12.11 fails it too. U11 and U12 now run before U10, so its throw no longer leaves them
 unjudged. Still not investigated.
+
+### What it does to `npm run test:probes` (2026-10-24)
+
+`check-usage-state` runs on Firefox unless told otherwise, and `test:probes` chains the probes with `&&`. So on this
+Mac the U10 timeout ends the chain, and the probes after it do not run: run them directly (PR #85's and the
+answer-bookmark PR's final runs did).
 
 ### Owed
 

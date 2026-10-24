@@ -102,6 +102,9 @@ GitHub Actions runs on push/PR to `main`:
     reload with only the async `GM.getValue` / `GM.setValue` (Safari's Userscripts), the sync path left untouched,
     and a load that never answers; since v12.13, two tabs saving the same collection, a stored value that cannot be
     read, and the save queue (DEC-050).
+  - Every `ubuntu` job also runs `check-answer-bookmarks` on its own engine (v12.14, DEC-051): Claude answer flags
+    in a project chat and outside one, "Answer to Q#n" labels, jumps, existing answer bookmarks binding on proof,
+    and no refetch while scrolling. `node probes/run-answer-mutants.js` (not in CI) shows each check can fail.
 
 **Windows is the runner that catches timing assumptions.** It is materially slower than
 the Ubuntu and macOS runners, so an assertion that races the virtualizer passes on two OSes

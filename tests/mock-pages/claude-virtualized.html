@@ -93,7 +93,24 @@
     var CFG = window.__MOCK_CONFIG || {};
     var TOTAL_MESSAGES = CFG.totalMessages || 80;   // user+assistant, interleaved
     var WINDOW_SIZE    = 6;    // messages mounted around the scroll position
-    var TAIL_ROWS      = 1;    // final row pinned mounted at every position
+    // Final rows pinned mounted at every position. 1 by default; the live site keeps the last
+    // ~3 rows mounted (DOM-REFERENCE.md, July 2026), which probes/check-answer-bookmarks.js uses.
+    var TAIL_ROWS      = CFG.tailRows || 1;
+
+    // ANSWER MARKUP (October 2026, all off by default so every suite entry renders as before).
+    // Measured live in Chrome's page realm, 2026-10-23/24, on the owner's conversations:
+    //   answerTestid  answers are div[data-testid="assistant-message"], which opens with an sr-only
+    //                 "Claude responded: …" heading; '.font-claude-response' is no longer inside rows.
+    //   answerHeaders a visible activity line above the answer's text ("Organizing owner tasks…"),
+    //                 which the payload's text blocks do not carry, so rendered text never equals it.
+    //   decoy         in a project chat '.font-claude-response' matches the project's name link in a
+    //                 hidden side panel outside the feed. 'static' adds it before any script runs,
+    //                 'manual' only on __mockVirtualization.addDecoy().
+    //   unansweredTurns  turns whose question has no rendered answer (the generation was
+    //                 interrupted), so an answer's count differs from its question's number.
+    var ANSWER_TESTID = !!CFG.answerTestid;
+    var ANSWER_HEADERS = !!CFG.answerHeaders;
+    var UNANSWERED = CFG.unansweredTurns || [];
 
     // ── ROW HEIGHTS: sampled from the REAL distribution, not invented ────────
     //
@@ -242,22 +259,41 @@
             ? '답변 ' + turn + '. 먼저 입력 값을 검증한 다음 그 결과에 따라 분기하는 방식을 권장합니다.'
             : 'Answer number ' + turn + ': validate the input first, then branch on the result.';
     }
+    function userMessage(i, turn) {
+        var qt;
+        if (DUP_ROWS.indexOf(i) !== -1)      qt = 'here is the full report.';
+        else if (ATT_ROWS.indexOf(i) !== -1) qt = '[Pasted text #' + turn + ']';
+        else qt = baseQ(turn) + (TOPIC_BLOCKS ? topicQ(turn) : '');
+        return { sender: 'user', text: qt, turn: turn };
+    }
+    function aiMessage(i, turn) {
+        return { sender: 'ai', turn: turn, text: SHORT_ANS.indexOf(i) !== -1
+              ? 'Yes.'
+              : IDENT_ANS.indexOf(i) !== -1
+                ? IDENT_TEXT
+                : baseA(turn) + (TOPIC_BLOCKS ? topicA(turn) : '') };
+    }
     var MESSAGES = [];
-    for (var i = 0; i < TOTAL_MESSAGES; i++) {
-        var turn = Math.floor(i / 2) + 1;
-        if (i % 2 === 0) {
-            var qt;
-            if (DUP_ROWS.indexOf(i) !== -1)      qt = 'here is the full report.';
-            else if (ATT_ROWS.indexOf(i) !== -1) qt = '[Pasted text #' + turn + ']';
-            else qt = baseQ(turn) + (TOPIC_BLOCKS ? topicQ(turn) : '');
-            MESSAGES.push({ sender: 'user', text: qt });
-        } else {
-            MESSAGES.push({ sender: 'ai', text: SHORT_ANS.indexOf(i) !== -1
-                  ? 'Yes.'
-                  : IDENT_ANS.indexOf(i) !== -1
-                    ? IDENT_TEXT
-                    : baseA(turn) + (TOPIC_BLOCKS ? topicA(turn) : '') });
+    if (!UNANSWERED.length) {
+        for (var i = 0; i < TOTAL_MESSAGES; i++) {
+            var turn = Math.floor(i / 2) + 1;
+            MESSAGES.push(i % 2 === 0 ? userMessage(i, turn) : aiMessage(i, turn));
         }
+    } else {
+        // Turn by turn: an unanswered turn's question is followed directly by the next question.
+        for (var t = 1; MESSAGES.length < TOTAL_MESSAGES; t++) {
+            MESSAGES.push(userMessage(MESSAGES.length, t));
+            if (UNANSWERED.indexOf(t) === -1 && MESSAGES.length < TOTAL_MESSAGES) {
+                MESSAGES.push(aiMessage(MESSAGES.length, t));
+            }
+        }
+    }
+    // The activity line above an answer. Identical answers get identical lines, so their rendered
+    // texts are equal too (the twin case).
+    function headerText(i) {
+        return IDENT_ANS.indexOf(i) !== -1
+            ? 'Comparing both cases before answering'
+            : 'Working through case ' + MESSAGES[i].turn + ' before answering';
     }
     // One giant row (>=15,000px) exercises intra-row scrolling with no remount.
     if (typeof CFG.giantRowAt === 'number') REAL_H[CFG.giantRowAt] = 15000;
@@ -360,8 +396,20 @@
         } else {
             var aiAlign = el('div', 'flex flex-col items-start gap-1',
                              'display:flex;flex-direction:column;align-items:flex-start;gap:4px;');
-            var body = el('div', 'font-claude-response', 'max-width:85%;line-height:1.6;padding:10px 0;');
+            var body = el('div', ANSWER_TESTID ? 'group/message-row flex-col mock-answer' : 'font-claude-response',
+                          'max-width:85%;line-height:1.6;padding:10px 0;');
+            if (ANSWER_TESTID) {
+                body.setAttribute('data-testid', 'assistant-message');
+                var srH = el('h3', 'sr-only select-none');
+                srH.textContent = 'Claude responded: ' + msg.text.substring(0, 24);
+                body.appendChild(srH);
+            }
             body.appendChild(document.createComment(' MOCK-COMMENT-SHOULD-NOT-APPEAR '));
+            if (ANSWER_HEADERS) {
+                var hdr = el('div', 'mock-activity', 'color:#9a968e;font-size:13px;');
+                hdr.textContent = headerText(index);
+                body.appendChild(hdr);
+            }
             var ap = el('p', 'whitespace-pre-wrap break-words', 'margin:0;');
             ap.textContent = msg.text;
             body.appendChild(ap);
@@ -412,9 +460,28 @@
     container.addEventListener('scroll', render, { passive: true });
     render(true);
 
+    // The project chat's decoy: the project's name, as a link in a zero-width side panel outside
+    // the feed (live: div.w-0 > … > a[href="/project/<uuid>"] > div.font-claude-response).
+    function addDecoy() {
+        if (document.getElementById('mock-decoy')) return;
+        var panel = el('div', 'w-0', 'width:0;overflow:hidden;flex:none;');
+        panel.id = 'mock-decoy-panel';
+        var link = document.createElement('a');
+        link.setAttribute('href', '/project/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f');
+        var name = el('div', 'font-claude-response text-secondary-control leading-tight');
+        name.id = 'mock-decoy';
+        name.textContent = 'Project name';
+        link.appendChild(name);
+        panel.appendChild(link);
+        (document.querySelector('body > div') || document.body).appendChild(panel);
+    }
+    if (CFG.decoy === 'static') addDecoy();
+
     window.__mockVirtualization = {
         totalMessages: TOTAL_MESSAGES,
-        totalTurns:    TOTAL_MESSAGES / 2,
+        totalTurns:    UNANSWERED.length
+            ? MESSAGES.filter(function (m) { return m.sender === 'user'; }).length
+            : TOTAL_MESSAGES / 2,
         windowSize:    WINDOW_SIZE,
         userWindowSize: WINDOW_SIZE / 2,
         tailRows:      TAIL_ROWS,
@@ -442,6 +509,9 @@
         // same Layer 4 rule the product follows: do not ask the DOM for data
         // the index already holds.
         rowText: function (i) { return MESSAGES[i] ? MESSAGES[i].text : null; },
+        rowSender: function (i) { return MESSAGES[i] ? MESSAGES[i].sender : null; },
+        rowTurn: function (i) { return MESSAGES[i] ? MESSAGES[i].turn : null; },
+        addDecoy: addDecoy,
         scrollHeight: function () { return container.scrollHeight; },
         resetMeasurements: function () {
             measured = {};
