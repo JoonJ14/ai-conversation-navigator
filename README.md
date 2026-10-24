@@ -11,7 +11,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-12.12-blue)
+![Version](https://img.shields.io/badge/version-12.13-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -135,7 +135,7 @@ So "Allow on All Websites" effectively behaves the same as per-site permissions 
 **What works differently on Safari (Userscripts):**
 
 - **Claude's full conversation list.** Userscripts' `GM_xmlhttpRequest` does not carry your claude.ai login, so since v12.9 the script reads the conversation with an ordinary `fetch` instead (see the privacy FAQ below). Before v12.9, Navigate on Safari showed only the few messages Claude keeps on screen. (Live confirmation status: DEC-031.)
-- **Bookmarks, saved commands, the language and platform toggles and button positions are kept with `GM.getValue`/`GM.setValue`** (since v12.12). Userscripts does not provide the synchronous `GM_getValue`/`GM_setValue` the script uses elsewhere, so before v12.12 none of these were stored on Safari, and the panels stayed in English. The script reads them once as the page loads; if that fails or takes longer than 2 seconds, it runs with the defaults and does not save changes made on that page, so nothing stored is overwritten. With two tabs open, the last change saved wins. Display mode, scroll direction and panel width live in the page's `localStorage`, as before. (Live confirmation status: DEC-031.)
+- **Bookmarks, saved commands, the language and platform toggles and button positions are kept with `GM.getValue`/`GM.setValue`** (since v12.12). Userscripts does not provide the synchronous `GM_getValue`/`GM_setValue` the script uses elsewhere, so before v12.12 none of these were stored on Safari, and the panels stayed in English. The script reads them once as the page loads; if that fails or takes longer than 2 seconds, it runs with the defaults and does not save changes made on that page, so nothing stored is overwritten. With two tabs open, a save in one tab no longer erases what another tab saved (since v12.13): bookmarks, saved commands and button positions are merged into what is stored. For the language and platform toggles, the last change saved wins. Display mode, scroll direction and panel width live in the page's `localStorage`, as before. (Live confirmation status: DEC-031.)
 - **The Plan usage panel** reads your usage with the same `fetch` as the conversation list (since v12.12). Before v12.12 it read "Usage data unavailable" on Safari. (Live confirmation status: DEC-031.)
 
 **Important quirk:** Unlike Tampermonkey, Userscripts.app does not auto-detect external file changes. If you manually edit or update the `.user.js` file outside of Safari, you must **open the Userscripts extension popup once** for the changes to take effect.
