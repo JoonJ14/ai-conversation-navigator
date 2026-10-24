@@ -2921,4 +2921,7 @@ residual below.
   fails G29; a build whose steps can overlap fails G13. Not proven by a failing build: Clear all by the panel's own ids (G24 passes on `633a14c` too, because a
   scan redraws the panel within about 500 ms) and a command id's random part (32 bits on the millisecond: an id
   already stored is taken as this same change running again). Not gated: a conversation entry that is not a list (icon injection already fails
-  on one, on v12.12 too, so no click reaches the save).
+  on one, on v12.12 too, so no click reaches the save); a save made by a watcher while a step finishes (it needs a
+  legacy record and a ready index; the watchers run while the key is still busy, and `acnPersist` refuses to start
+  a second step); a command's use counted once when its change runs again (it skips `+1` when its own time is
+  already stored).

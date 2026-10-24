@@ -373,7 +373,7 @@
 
     function acnPersist(key) {
         var q = _acnStore.queues[key];
-        if (!q.waiting.length) return;
+        if (q.busy || !q.waiting.length) return;   // one step at a time, however it is reached
         var batch = q.waiting.slice(), done = false;
         q.busy = true;
         var slow = setTimeout(function () {
@@ -401,10 +401,12 @@
                     _acnStore.mem[key] = JSON.stringify(v);
                 } catch (e) {}
             }
-            q.busy = false;
+            // Still busy while the watchers run: a save they make (a flag reset can upgrade a
+            // legacy bookmark) only joins `waiting`, and the step below takes it.
             if (_acnStore.mem[key] !== shown) {
                 (_acnWatchers[key] || []).forEach(function (fn) { try { fn(); } catch (e) {} });
             }
+            q.busy = false;
             // Changes made during this step. After a failure, only those: the failed batch
             // itself waits for the next save, not a timer.
             if (how !== 'failed' || q.waiting.length > batch.length) acnPersist(key);
@@ -12552,6 +12554,9 @@
         updateCommands(function (list) {
             for (var i = 0; i < list.length; i++) {
                 if (list[i].id === command.id) {
+                    // Already counted: this change ran before (a write that landed though its
+                    // step was abandoned), and +1 must not be applied twice.
+                    if (list[i].lastUsedAt === usedAt) break;
                     list[i].usageCount = (list[i].usageCount || 0) + 1;
                     list[i].lastUsedAt = usedAt;
                     break;
