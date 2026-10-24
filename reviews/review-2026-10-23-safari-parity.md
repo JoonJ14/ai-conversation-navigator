@@ -25,7 +25,9 @@
   fetch (first in Userscripts order, after the GM watchdog otherwise), so its `fetchCalls.length === 0` checks
   could fail on a request they are not about. Usage requests are now refused and not counted.
 - **The ladder's mutant builder, run only (no battery):** every mutant that builds on main builds on v12.12,
-  41 of 41. M08, M09, M21 and M34 have been broken since v12.10 (ROADMAP 0d); nothing new broke.
+  42 of 42. M08, M09, M21 and M34 have been broken since v12.10 (ROADMAP 0d); nothing new broke. *Corrected
+  2026-10-23 by the close-out docs check: this line first said 41 of 41, because the hand-typed ID list left out
+  M33, which builds on both.*
 
 ## Tier 2 — PASS after one doc fix
 
@@ -93,4 +95,6 @@ The probe's own comments warn about this trap.
 - **Tier 3:** 10 raised, 10 verified real; 8 fixed, 1 logged (the cross-org gate), 1 recorded as ungated (U11b's
   transport order).
 
-**GitHub rounds needed afterwards:** to be recorded when PR #82's GitHub Codex review completes.
+**GitHub rounds needed afterwards:** 0. GitHub Codex reviewed `5af4d79` twice, both clean: on the PR opening
+("Code Review ✅ Completed", no findings, a 👍), and again on a manual `@codex review` the owner asked for ("Didn't
+find any major issues"). No inline comments or review objects either time.

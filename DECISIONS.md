@@ -1253,10 +1253,12 @@ is a live run on the commit actually being shipped.
   cannot be made to fail in the harness, the harness — not the reasoning — is usually what is
   wrong, and the honest report is "not reproduced", never a fix asserted on plausibility.
 
-**Addendum — merged before the live confirm, on the owner's explicit call (2026-10-23).** The owner waived
-this rule twice:
+**Addendum — merged before the live confirm, on the owner's explicit call (2026-10-23).** The owner has waived
+this rule four times:
 - PR #73 (v12.8), merged before its usage-panel confirm;
-- PR #75 (v12.9), merged as `4c72ca9` before its Safari, Firefox and Chrome confirms.
+- PR #75 (v12.9), merged as `4c72ca9` before its Safari, Firefox and Chrome confirms;
+- PR #78 (v12.10), merged as `166a281` before Safari's ChatGPT and Perplexity check;
+- PR #82 (v12.12), merged as `2b7e8d1` before its acceptance on all three browsers.
 
 A waiver moves the merge, not the debt: each confirm stays owed on the merged build until it is run. Record
 every waiver here, and in the release's CHANGELOG entry.
@@ -1266,7 +1268,10 @@ point here, so a status cannot go stale in a copy; each release's results are al
 review record. Updated 2026-10-23:
 - **v12.12 (PR #82, Safari parity: plan usage and GM storage).** **OWED** on Safari + Userscripts, Chrome +
   Tampermonkey and Firefox + Tampermonkey (checklist in the PR).
-- **v12.11 (PR #81, the turn-counter dots).** Owner, real browsers, 2026-10-23, recorded as reported:
+  - **Waiver:** merged 2026-10-23 as `2b7e8d1` before this acceptance, on the owner's call ("I want to merge
+    first, but then I want to do some live testings"). The debt stays owed on the merged build.
+- **v12.11 (PR #81, the turn-counter dots; merged as `9a0fc7d` after this acceptance).** Owner, real browsers,
+  2026-10-23, recorded as reported:
   - **Safari + Userscripts, Chrome + Tampermonkey, Firefox + Tampermonkey: PASS.** On the 144-question Claude
     conversation, Navigate shows 1 question for a moment, then the full list about half a second later, with the
     correct turn-counter dots. Switching between conversations, the dots consistently show the right count.
@@ -2357,6 +2362,33 @@ itself the finding.
 Suite 1120/1120 both engines. No mock reproduces a real 5xx from claude.ai, and a green suite is a
 context-scoped finding, so the release needed a live confirm. **Live confirmation status: DEC-031.**
 
+### v12.12 addendum — the same rules on the transport ladder (PR #82)
+Both usage requests (the org list and the usage request) now go through `ciLadderGet` (DEC-045), so Safari's
+refused GM request falls through to `fetch`. How each rule above survives the move [code]:
+- **One caller:** unchanged. `maybeRefreshUsage` is still the only caller of `fetchClaudeUsage`.
+- **The flag cleared before the call:** still needed. The callback can still arrive synchronously in two cases:
+  when neither transport can run (`ciGmxhrGet` reports a missing `GM_xmlhttpRequest` at once, and `ciFetchGet` a
+  missing `fetch`), and when `fetch` goes first (Userscripts, or a cached `fetch` winner) while its page-wide caps
+  are full, since `ciFetchGet` then reports a timeout at once and the ladder does not fall back on a timeout.
+  `ciFetchGet`'s own origin refusal cannot fire for usage: the exact-origin guard below returns first.
+- **Asymmetric supersession:** untouched (`_usageReqSeq`, `_usageDataSeq`).
+- **The stale-org drop:** the first line of the ladder's single callback, so it covers success and failure from
+  either transport. **Not gated:** U8–U10 overlap requests for one org, so removing it fails nothing (ROADMAP 0d).
+- **No timeout shorter than U4's window:** the GM request had no timeout; the ladder's is 45 s
+  (`CI_FETCH_TIMEOUT_MS`), past U4's 15 s read. A consequence on every browser: a request that never answers now
+  ends as "Usage data unavailable" after 45 s instead of "loading" forever, and a manager that never calls back
+  hands the request to `fetch` after 50 s (the ladder's watchdog).
+- **New: a pending org list can be superseded.** With no `lastActiveOrg` cookie, a late org-list answer used to
+  start a request for its org and overwrite `_usageOrgUuid`, pushing a later request's answer out while its own
+  was shown (pre-existing; found by Codex Tier 3). `_usageOrgListSeq` drops that continuation silently. That is
+  safe for the stale-org drop's reason: the superseding request came through `maybeRefreshUsage`, whose own
+  callback resolves the flag.
+- **New: the exact origin.** `maybeRefreshUsage` returns unless the page's origin is `https://claude.ai`, as
+  `ciIsClaudeChat` requires for the index.
+
+Gates: `check-usage-state` U11, U11b and U12; its GM stub now reports every HTTP status through `onload`, as a real
+manager does. Live status: DEC-031.
+
 ### What this cost, recorded because it is the reusable part
 The probe's first two drafts were both **fixed sleeps sampling a transient state** — the panel
 re-renders on MutationObserver cycles, so the same scenario passed one run and failed the next
@@ -2565,10 +2597,10 @@ Results against v12.8, the mutation matrix and the CI runs are kept in ONE place
 - **Chrome + Tampermonkey's 403 — unexplained.** A candidate, unverified: Tampermonkey issue #2782. The new
   log lines are what will settle it (ROADMAP 0d).
 - **The exact-origin guard covers the index only.** The usage panel and the SSE install are not covered (ROADMAP
-  0d; found after the merge, pre-existing).
-- **Nothing kept in GM storage works on Safari + Userscripts** (no synchronous `GM_getValue`/`GM_setValue`,
-  from its source): bookmarks, saved commands, the language and platform toggles, the org cache. Display mode,
-  scroll direction and panel width use `localStorage` and are unaffected. Outside this change; ROADMAP 0d.
+  0d; found after the merge, pre-existing). *v12.12: the usage half is closed; the SSE half stays open.*
+- ~~**Nothing kept in GM storage works on Safari + Userscripts**~~ (fixed in v12.12, DEC-049; as found: no
+  synchronous `GM_getValue`/`GM_setValue`, from its source): bookmarks, saved commands, the language and platform
+  toggles, the org cache. Display mode, scroll direction and panel width use `localStorage` and are unaffected. Outside this change; ROADMAP 0d.
 
 ---
 
@@ -2670,3 +2702,101 @@ Each runtime is a different execution context (CLAUDE.md, Layer 3's second face;
 - The owner may still waive it for a given PR; record the waiver in DEC-031, as before.
 - Agents cannot drive Safari + Userscripts; they can drive Chrome through the owner's real profile, read-only on
   the owner's accounts.
+
+---
+
+## DEC-048: The Context Bar Redraws When the Turn Counter Differs From What It Drew — Never on Every Scan, Never on a Timer (v12.11)
+**Date:** 2026-10-23 | **Stage:** v12.11 (PR #81)
+
+### Decision
+The turn counter is updated before anything draws. After that, the context bar and its dots redraw only when the
+counter differs from the one they were last drawn for: `orbUpdateContextBar()` records `_turnCounterSig()` in
+`_ctxDrawnTurns`, and `orbPopulateNavigate()`'s unchanged-list return redraws only when the two differ. Its
+empty-list return always redraws. No timers and no throttling (owner).
+
+### Context
+Claude's dots froze at a stale count: they were drawn before `updateTurnCounter()` ran, and the list's early
+returns skipped the redraw (TROUBLESHOOTING, "Claude's turn-counter dots"). The owner's spec asked for a redraw on
+every scan while the panel is open.
+
+### Alternatives considered
+- **Redraw on every scan, as the spec asked.** Tried first in a scratch build. The panel sits inside
+  `document.body`, which `startMessageObserver()` watches (`childList`, `subtree`) with a 500 ms debounced scan.
+  So each redraw schedules the next scan, and that scan the next redraw: 744 mutation records in 6 s on an idle
+  page with Navigate open, against 0 [measured, Playwright page realm, Chromium and Firefox; the gate's A4 later
+  counted 984]. Rejected.
+- **Break that loop with a timer or a throttle.** Rejected by the owner: "No timers, no throttling."
+- **Close the panel when a scan detects a conversation switch (the spec's change 3)**, so that Safari would
+  behave like Chrome and Firefox. Its premise was wrong: Claude and ChatGPT are `spa: false`, so no history hook
+  closes the panel on a switch in any browser, and closing it would have been new behaviour everywhere. The owner
+  skipped it and had the TROUBLESHOOTING explanation corrected.
+- **Widen the guard to every input the bar draws from** (compaction data, the not-ready inputs). The owner chose
+  to log such cases rather than widen it: `_compactionHistory` has no writer today, and the bar's not-ready inputs
+  are logged in TROUBLESHOOTING.
+
+### Rationale
+The counter is the input the freeze was about. Comparing it with what was drawn makes the redraw self-limiting:
+a redraw records what it drew, so the next scan finds nothing to do and the observer loop cannot start.
+
+### Key properties
+- Any DOM write a scan triggers inside `document.body`, our own panels included, must be guarded the same way
+  (agent_docs/conventions.md, Lessons Learned). A4 in `probes/check-turn-counter.js` fails on an unconditional
+  redraw.
+- SSE events (Chrome + Claude) draw the bar without the list, so the guarded redraw is reachable. The probe has no
+  SSE, so that path is not gated (TROUBLESHOOTING).
+- The counter's reset rules and what it counts did not change.
+
+---
+
+## DEC-049: Where GM Storage Is Async Only, the Script Preloads Its Keys and Then Runs — and a Failed Load Saves Nothing (v12.12)
+**Date:** 2026-10-23 | **Stage:** v12.12 (PR #82)
+
+### Decision
+Every GM key goes through `acnGetValue` / `acnSetValue`. Where the synchronous `GM_getValue` and `GM_setValue`
+both exist (Tampermonkey), the wrapper calls them exactly as before. Otherwise, where `GM.getValue` and
+`GM.setValue` exist (Safari's Userscripts), the script loads the six keys first and then runs with them in memory:
+- `acnMain`, the named IIFE, starts `acnStoreLoad` and returns; the load calls `acnMain` again with the loaded
+  store (`_acnStore`), which skips the duplicate-execution guard it already passed;
+- reads come from the copy; a write updates it at once and persists with `GM.setValue`;
+- values are kept as JSON text, in the copy and in GM storage;
+- a load that fails or takes over 2 s runs on defaults, logs once, and keeps that page's writes in memory only;
+- a write that finishes after a newer write of the same key triggers a rewrite of the newest.
+
+### Context
+B0 (the owner, real Safari, Userscripts 4.8.6) measured no synchronous GM storage at all, and a working, persisting
+async API (agent_docs/architecture.md, Runtime matrix). Every read in the script is synchronous: `i18n()` reads
+`acn-settings` for each string. The owner's spec required that nothing storage-backed be read before the load
+resolves, and that the UI never hang on storage.
+
+### Alternatives considered
+- **Move the GM keys to `localStorage`.** ROADMAP 0d listed it as the other fix. Not chosen: the spec asked for the
+  async GM path, and for the README's wording, the userscript manager's storage and not the site's, to keep
+  holding.
+- **Make every read site async.** Rejected: it would restructure most features for one manager.
+- **Defer startup by wrapping the whole body in a new function.** That means reindenting about 12,600 non-blank
+  lines, or leaving one unindented wrapper around them. Rejected for the diff it makes. Naming the existing IIFE and calling
+  it again changes a few lines at its top.
+- **Persist writes even after a failed load**, the spec's literal text. Rejected by the owner (2026-10-23): each key
+  holds a whole collection, every bookmark in one value, so a save from a page running on defaults would replace
+  what is stored with the defaults plus one change.
+- **Queue the writes, one at a time.** Considered for Codex Tier 3's finding that two writes of one key could land
+  out of order. Rejected: one write that never answers would hold every later write for the rest of the page.
+  Chosen instead: when a write finishes and the copy has moved on since, write the newest again.
+- **Store raw values instead of JSON text.** Not chosen. JSON text gives each read a fresh object, as
+  `GM_getValue` does, and callers mutate what they read before saving it (zone positions, the context cache). It
+  also keeps what crosses Userscripts' API to a string; B0 measured only a number's round trip.
+
+### Rationale
+Nothing changes where the synchronous API exists, no migration is needed (nothing was ever stored on Safari), and
+every call site stays synchronous. The cost is a startup that waits for the load on Safari, bounded at 2 s.
+
+### Key properties
+- **A new GM key must be added to `acnStoreLoad`'s list**, or on Safari it reads as its default on every page load
+  (CLAUDE.md; agent_docs/conventions.md, Storage Keys). G1 asserts that the six keys are loaded.
+- `acnStoreLoad` runs before any `var` below the top of `acnMain` is assigned, so its bound (2000 ms) and its keys
+  are literals. A draft that read the bound from a `var` would have timed out at once.
+- On the async path GM storage holds JSON text, so the two keys whose values are already JSON strings,
+  `acn-bookmarks-v1` and `acn-claude-org-v1`, are stored double-encoded; the other four once. Any future migration
+  between managers has to know that.
+- Two tabs are last-write-wins per key, as with `GM_setValue`; there is no syncing (ROADMAP 0d).
+- Gates: `probes/check-gm-storage.js` G1–G6 (page realm, stubbed storage). Real-Safari status: DEC-031.
