@@ -525,9 +525,30 @@ that the flags are there. Logged: ROADMAP 14.
 
 ### Solutions considered
 
-DEC-051: reordering `getAIMessages`, teaching `ciMessageNodeWithin` the testid (it would revive answer refetching),
-matching text without the activity line, placing rows by the stop_reason predicate alone, and an answer count as the
-label were rejected.
+The design alternatives are in DEC-051; this is the order the thinking went in.
+- **First hypothesis: the project link explains every long chat.** The owner reported their 30- and 20-question chats
+  as outside a project, which the decoy could not explain. Measured instead of argued: the API's `project_uuid` put
+  every chat with 12+ questions in a project, and the decoy's text was the project's name. The sidebar's "Chats and
+  tasks" list, which shows project chats too, explains the impression.
+- **Reorder `getAIMessages` (testid first).** It would have flagged answers, but still by a document-wide first match,
+  and five other readers depend on that chain without their own measurement. Rejected; logged (ROADMAP 14).
+- **Teach `ciMessageNodeWithin` the testid.** The obvious one-line fix, rejected because that function feeds the
+  staleness check: every answer with an activity line would mismatch its payload and refetch the index per window.
+  The gate's mutant M9 shows exactly that (A6 fails).
+- **Strip the activity line and keep matching text.** The line is truncated and often doubled on screen while the
+  payload holds the full summary in thinking blocks, so any rule would be inference. Position is measured (53 rows,
+  0 mismatches), so identity moved to position.
+- **Place each row by the stop_reason predicate (`_ciRenderable[row]`).** Simple and right on the owner's chats, but
+  one entry the predicate misjudges shifts every later answer by one, persisted. It may only refuse; the gate's R2
+  puts a never-rendered completed entry on the path, and mutant M12 (predicate alone) fails A28.
+- **A sticky flag for tall answers** (proposed when the owner first reported "no flag on hover"; the measurement
+  showed the flag above the window). Dropped when the owner's re-test found every flag; logged as a placement note.
+- **What review changed** (each now gated): the proof's write decided on the page's copy → decided on the stored list
+  at the write (A27); the proof pass gated on the mounted rows only → also on their texts and the stored records
+  (A33); an unplaced flag's identity without its row → with its row (A30); a click trusting the identity its flag was
+  drawn with → checked against the node now (A29, A31); a neighbouring question past the snapshot as evidence →
+  refused (a repeated prompt matched the OLD entry); a jump accepting any landing → only an answer, and never a target
+  that does not render or is not an answer.
 
 ### Fix (v12.14)
 

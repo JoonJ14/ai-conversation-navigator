@@ -3046,8 +3046,8 @@ a visible "A#?" that binds later on proof.
   bookmark's refetch request only joins its refetch), and the anchor store (a derived position is never recorded
   as an anchor). Questions keep their text identity.
 - **Labels:** "Answer to Q#n"; "A#?" when unbound or its message left the path; "Answer (no question)" when no
-  listed question precedes it; "Answer to Q#?" while the index is not ready (a variant the owner did not list,
-  flagged in the PR). Export uses the same label and sorts an answer right after its question.
+  listed question precedes it; "Answer to Q#?" while the index is not ready (kept by the owner, 2026-10-24: "A#?"
+  stays reserved for bookmarks that cannot be matched). Export uses the same label and sorts an answer right after its question.
 - **Residuals, recorded, not fixed** [code + inferred, unmeasured live]:
   - An answer next to a question whose rendered text does not match its payload (multi-block questions, the third
     PR's cause) and not bracketed by anchors is not placed: its flag carries a hash, and a bookmark on it reads
@@ -3073,7 +3073,9 @@ a visible "A#?" that binds later on proof.
   the project link, the activity line, in R2 an answer entry the page never renders, so the stop_reason predicate is
   wrong, and in R6 answer nodes moved between rows by hand, as Claude's recycling would). v12.13 fails A2–A5,
   A9–A21, A24 and A27–A36; A1, A6–A8, A22, A23 and A26 are guards; A25 is a control (the July markup's answers do
-  refetch, on both builds). Labels are checked in the panel, in Korean, before the index lands and in the export;
+  refetch, on both builds). The owner accepted this gate's size (2026-10-24: 36 checks in 6 runs, about 2 minutes per
+  engine, 18 mutants, against an approved ~20 checks; the runtime is within budget). Labels are checked in the panel,
+  in Korean, before the index lands and in the export;
   "Answer (no question)" is not reached by any fixture (a conversation that opens with an answer). Eighteen targeted
   mutants, each caught by its named check after the unmutated build passes
   every check (`probes/run-answer-mutants.js`, not in CI). Release acceptance: DEC-031.

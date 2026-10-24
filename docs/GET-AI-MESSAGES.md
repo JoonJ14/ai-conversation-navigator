@@ -16,6 +16,19 @@ Add `getAIMessages()` to every platform entry in the PLATFORMS registry, followi
 >
 > Note also that on Claude these selectors now return only the mounted window (~3 turns), not the conversation. They are the degraded fallback; enumeration comes from the conversation index (DEC-021).
 
+> **v12.14 update (October 2026) — the first link of Claude's chain now matches a decoy.**
+>
+> Measured in Chrome's page realm on the owner's chats (2026-10-23/24): answers are `[data-testid="assistant-message"]`
+> inside `[data-testid="transcript-row"]` rows, and `.font-claude-response` — still first in the chain — matches only
+> the project's name link in a hidden side panel, in a project chat (none outside one). Because the chain returns the
+> first selector that matches **anything in the document**, in a project chat it returns that one link and never
+> reaches `assistant-message`. This is the hazard the v12.0 note above describes, in its next form: a fallback chain
+> can also stop on something that is not a message at all.
+>
+> v12.14 does not change `getAIMessages`. Bookmarks on Claude use their own row-scoped finder, `ciAnswerNodeInRow`
+> (DEC-051). The other readers (Search, the Summary's DOM path, the image gallery, Export's DOM path,
+> `ciFindScrollContainer`'s fallback) still see the decoy in a project chat; logged as ROADMAP 14.
+
 
 ---
 

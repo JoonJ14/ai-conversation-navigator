@@ -62,7 +62,7 @@ If one of the other 12 flips, do **not** start from selectors. The order of oper
 
 | Function | Role |
 |---|---|
-| `ciIsClaudeChat()` | Guard — true only when the page origin is exactly `https://claude.ai` and the path is `/chat/<uuid>` (or `/project/<uuid>/chat/<uuid>`). The origin check is v12.9's |
+| `ciIsClaudeChat()` | Guard — true only when the page origin is exactly `https://claude.ai` and the path is `/chat/<uuid>` (or `/project/<uuid>/chat/<uuid>`). The origin check is v12.9's. Claude itself serves every chat at `/chat/<uuid>`, in a project or not; the project form renders no conversation [measured, Chrome, 2026-10-24] |
 | `ciLoadIndex(force, done)` | Resolves org, fetches, builds. Idempotent; `_ciInFlightCid` + `_ciInFlightGen` block concurrency. Runs the **transport ladder** (v12.9, DEC-045) |
 | `ciApiGet(transport, path, cb)` | ONE request over ONE transport (`'gmxhr'` or `'fetch'`), normalised to `{ok, kind, status, json, errorType, transport, error}`; never throws, calls back exactly once |
 | `ciWalkOrgs(transport, cid, cb)` | v12.8's org walk (cheap candidates → org list), run on one transport; reports a per-response `trace` the ladder decides from |
@@ -70,7 +70,8 @@ If one of the other 12 flips, do **not** start from selectors. The order of oper
 | `ciResolveActivePath(data)` | Walks `current_leaf_message_uuid` → root, excluding abandoned branches |
 | `ciExtractText(msg)` | `content[]` text blocks → attachment `extracted_content` → file names |
 | `ciIsReady()` | **Check this before reading the index.** False on other platforms and while degraded |
-| `ciUuidForText(text)` | Normalized text → stable message uuid (used by bookmarks) |
+| `ciUuidForText(text)` | Normalized text → stable message uuid (question bookmarks; Search) |
+| `ciAnswerNodeInRow(row)` / `ciAnswerMap()` | v12.14 (DEC-051): an answer node found inside a feed row only, and each mounted answer row placed on its path entry by position (anchors, the adjacent question, the last row), never by text. Bookmarks only; `getAIMessages` and `ciMessageNodeWithin` are unchanged |
 | `ciFindScrollContainer()` | Shared, class-name-free scroll-container locator |
 | `ciTotalChars()` / `ciTotalThinkingChars()` | Whole-conversation counts for context tracking |
 
@@ -205,6 +206,12 @@ user message that begins with those words.
 - **`q.element` may be `null`** — any question outside the mounted window has no DOM node. Use `_relocateQuestionElement(q)`; if it returns null, fail *visibly*.
 - **Never order messages with `compareDocumentPosition` across unmounted nodes.** Detached nodes return `DOCUMENT_POSITION_DISCONNECTED`, matching neither FOLLOWING nor PRECEDING, so the comparator returns 0 and the sort silently degrades to arbitrary order.
 - **Never key persisted data to a DOM index.** Use the message uuid (bookmarks schema 2).
+- **On Claude, never find answers with a document-wide selector, and never identify one by its text** (v12.14,
+  DEC-051). In a project chat the first answer selector matches the project's name link outside every row, and a
+  rendered answer opens with an activity line the payload lacks. Use `ciAnswerNodeInRow` / `ciAnswerMap`.
+- **Do not hand answer nodes to the staleness check.** `ciMessageNodeWithin` returns the row for an answer, so
+  `_ciAssistantStale` skips answers; giving it `assistant-message` would refetch the index for every window
+  (the answer-bookmark gate's mutant M9).
 - **Degradation must be visible.** `orbRenderIndexBanner()` renders `data-acn-index-status`. Silent fallback is what hid this bug.
 - **Never refetch without the cooldown.** `_ciInFlightCid` prevents only *concurrent* fetches; `CI_REFETCH_COOLDOWN_MS` prevents a sequential loop of 3.3 MB downloads.
 

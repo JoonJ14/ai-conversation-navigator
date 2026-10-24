@@ -28,7 +28,7 @@ refetch block. The proof pass cannot loop through Safari's watcher. One gap, fix
 provisional migrator still binds an answer whose full text equals one payload entry (no activity line), so "binds only
 on proof" was too strong; recorded as a residual.
 
-## Adversarial workflow — 18 findings, 15 confirmed real
+## Adversarial workflow — 18 findings, 16 confirmed real
 
 Fixed: a question row past the snapshot used as evidence (a repeated prompt matched the OLD entry; reproduced with the
 real functions in node); a flag left dark after a bind under the same uuid; a duplicate removal preferring an
@@ -37,7 +37,9 @@ inference-bound record; a stale refresh request across a conversation switch; a 
 full redraw; the mutant runner not running the unmutated build; flagless "stable" reads and unchecked clicks in the
 probe; no fixture with a wrong stop_reason predicate (R2 now has one, A28, M12); two precondition gaps. Recorded as
 residuals (DEC-051): an edit before the resync, a mid-stream bookmark before 200 characters, a refresh spent on a load
-in flight, "Answer (no question)" not reached by any fixture. One refuted (A16's precondition: X shares W1's row).
+in flight, "Answer (no question)" not reached by any fixture. Two refuted: A16's precondition (X shares W1's row,
+so A27 would fail if that row were not placed) and a refused landing not restoring the scroll (by design: the jump
+restores only when it fails, and a refusal after landing says so with a toast).
 
 ## Tier 3 — rounds
 
@@ -64,7 +66,7 @@ timeout path. No userscript change; A36 passes on all three engines and still fa
 - Tier 3: 39 raw findings over 8 rounds and two post-fix passes (1 CRITICAL, 26 WARN, 12 NOTE); 38 verified real,
   1 false positive; every real one fixed, or recorded as a residual in DEC-051. Tokens: 1,981,748 over the ten passes
   (Codex CLI's own reporting).
-- Adversarial workflow: 18 findings, 15 confirmed, all acted on.
+- Adversarial workflow: 18 findings, 16 confirmed (2 refuted), all acted on.
 - Gates: `check-answer-bookmarks` A1–A36. v12.13 fails A2–A5, A9–A21, A24 and A27–A36; A1, A6–A8, A22, A23 and A26 are
   guards; A25 is a control. 18 targeted mutants, each caught by its named check after the unmutated build passes
   every check.

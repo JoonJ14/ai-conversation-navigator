@@ -45,7 +45,7 @@ erases every other tab's saves; the owner measured that on Safari (v12.12, bookm
 | Key | Store | Two tabs (DEC-050) | Purpose |
 |-----|-------|--------------------|---------|
 | `'acn-settings'` | GM | last write wins | Language and platform toggles. Re-read on every `i18n()` call and platform check |
-| `'acn-bookmarks-v1'` | GM | merged, by record id | Message bookmarks per conversation (`BOOKMARK_KEY`) |
+| `'acn-bookmarks-v1'` | GM | merged, by record id | Message bookmarks per conversation (`BOOKMARK_KEY`), keyed by the page address (`origin + pathname`; on Claude `/chat/<id>`, in a project or not) |
 | `'acn-commands'` | GM | merged, by id | Saved /commands (`COMMANDS_KEY`) |
 | `'acn_ctx_cache'` | GM | merged, by conversation | Claude context window cache |
 | `'acn-zone-positions'` | GM | merged, by platform | Orbital zone Y position per platform (fraction of viewport height, added v10.10) |

@@ -61,8 +61,9 @@ v12.9 paragraphs above are history.
    Userscripts: Plan usage unavailable".
 
 **Next (owner, 2026-10-24):** the bookmark issue the owner found in v12.12's acceptance became two PRs: v12.13
-(a second tab erased the first tab's bookmarks) and v12.14 (answer bookmarks). Then the third PR, Claude markup
-follow-ups (item 14). v12.12's itemized acceptance is held by the owner, not yet recorded (DEC-031).
+(a second tab erased the first tab's bookmarks) and v12.14 (answer bookmarks), both accepted on all three browsers
+and recorded in DEC-031 with v12.12's itemized results. Then the third PR, Claude markup follow-ups (item 14), in a new
+session (the owner's plan, 2026-10-24).
 
 Then: Grok and Gemini (the owner decides the order), Perplexity attachment images, the CI rebuild (item 0e),
 the context-window meter (item 12) and the v12.10 follow-ups (item 13). Owed meanwhile: v12.12's

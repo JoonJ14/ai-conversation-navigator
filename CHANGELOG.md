@@ -65,13 +65,44 @@ Measured in Playwright's page realm, headless, this Mac, on the virtualizing moc
     and WebKit passes all 36 (Chromium and Firefox pass A36 the same way).
   - The 18 mutants are each caught after the unmutated build passes every check.
 
+### Owner acceptance [measured, owner, real browsers, 2026-10-24]
+
+Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey, project and non-project chats: every answer
+shows a flag on hover, bookmarks read "Answer to Q#n" ("Answer to Q#79", "Answer to Q#76" on Safari's 147-question
+chat), and a jump from far away lands. On Safari the old answer bookmarks in the 147-question project chat all showed
+"A#?" (the owner deleted and re-made them), and one in a 4-question non-project chat bound by proof to "Answer to Q#4".
+Chrome's and Firefox's steps 4–5 were not reported; the optional console and newest-answer steps were not run. Itemized:
+DEC-031.
+
+### Review
+
+All three tiers plus an adversarial workflow (`reviews/review-2026-10-24-answer-bookmarks.md`): the adversarial pass
+(8 agents) confirmed 16 of 18 findings; Codex CLI ran 8 rounds and 2 post-fix validations, 39 findings, 38 real,
+approved in rounds 7 and 8. Among what review found and the gate now covers: a repeated prompt matching an OLD question
+(a row past the snapshot is never evidence), a click acting for a recycled node's old answer, a duplicate decided on a
+stale copy, a jump landing on a question. GitHub Codex afterwards: 2 rounds, 0 findings.
+
+### Also in this PR (docs and repo)
+
+- DOM-REFERENCE records October 2026's answer, row and project-link markup, and corrects the "294/295 conflict": the
+  July record is conversation `b3c603a4`, whose only non-rendering entry sits at path 199 (not a leading one), while the
+  October 147-question chat (`65dfa4f2`) is a different conversation with 294 entries.
+- Bookmarks are keyed by the page address, and Claude serves every chat at `/chat/<id>`, in a project or not
+  [measured, Chrome, 2026-10-24], so moving a chat keeps its bookmarks (docs/BOOKMARKS.md).
+- Three lessons in agent_docs/conventions.md (a mock helper must confirm after the mock settles; preconditions describe
+  the fixture; a DOM count is not what the user sees).
+- The eleven merged remote branches of PRs #75–#85 were deleted at the owner's request (HANDOFF §E).
+- ROADMAP 14 holds the planned third PR (the question-side refetch, dead regenerate detection, the question-identity
+  risk) and the logged-not-fixed list; ROADMAP 13 gains ChatGPT and Perplexity answer bookmarks.
+
 ---
 
 ## [12.13 — Cross-Tab Saves: A Second Tab No Longer Erases What Another Tab Saved] — 2026-10-24
 
-**Branch:** `fix/cross-tab-storage` | **PR:** #85 | **Merged:** on the owner's call, with step 1 of the
-real-browser acceptance passed on all three browsers and steps 2–7 not reported (a waiver, DEC-031). C0 passed on
-all three managers
+**Branch:** `fix/cross-tab-storage` | **PR:** #85 | **Merged:** 2026-10-24 as `b96ec7b`, on the owner's call, with
+step 1 of the real-browser acceptance passed on all three browsers and steps 2–7 not reported (a waiver, DEC-031). C0
+passed on all three managers. **CLAUDE.md** (`ce7af86`, owner-approved): the storage line names `acnUpdateValue` and
+says a key holding a collection saves through it, never `acnSetValue`
 
 ### Problem
 
