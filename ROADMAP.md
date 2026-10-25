@@ -909,7 +909,8 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
           record there reads "Q#?") [code].
         - A rendering the text key does not model reads as stale, as before v12.15: math typeset by KaTeX, say, a
           table written without leading pipes (the key handles rows that start with `|`, the shape measured live), or
-          single-asterisk italics (a lone `*` counts, so that "10*2" is not "102") [inferred; not measured].
+          intraword italics such as `a*b*c` (single-marker emphasis is dropped only where it opens after a start,
+          space or punctuation, so that "2*3*4" keeps its stars) [inferred; not measured].
 
 14. **Claude markup follow-ups — part C of v12.15 (owner, 2026-10-24).** First planned as a third PR of its own after
     the answer-bookmark PR (v12.14); now one of v12.15's three parts (Current Status). **Built in v12.15** (not

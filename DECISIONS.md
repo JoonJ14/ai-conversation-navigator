@@ -3457,8 +3457,10 @@ exists; short threads (no container) keep v12.14's fast path. The callback marks
 the staleness scan (`mounted`) and both flag keys (`keyOf`, `ixPplxStillIndexed`) compare a mounted bubble with the
 entry's `query_str` through `ixPplxTextKey`, on the bubble's text without its buttons and our flag. Both sides lose
 the markdown the bubble renders (measured on a 12-question thread: images and links to their alt text or label,
-headings, tables and lists without their markers) plus fence and blockquote markers, emphasis pairs and backticks,
-and all whitespace; every other character counts, at full length.
+headings, tables and lists without their markers) plus fence and blockquote markers, emphasis and backticks, and all
+whitespace; every other character counts, at full length. Single-marker emphasis (`*x*`, `_x_`) is dropped only where
+it opens after a start, a space or punctuation and closes before one, so "2*3*4" and `my_var_name` keep theirs
+(GitHub Codex, PR #88 round 2).
 `_normalizeCompareFull` never matched a question whose bubble renders its markdown: live, Chrome + Tampermonkey, a
 pasted README showed its images as alt text, its table without pipes and a "Read more" button, and its jump stopped
 862 px short 4 of 4 times. Rejected:

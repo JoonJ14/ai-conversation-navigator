@@ -208,16 +208,17 @@ const FIXTURES = [
     // as their alt text and links as their label, renders headings, tables and lists without their
     // markers, drops the whitespace between blocks, and carries a "Read more" button. J16b: no
     // resync, and both flags carry the entry's id. Both fail on 2ef0d80 and on v12.14.
-    { id: 'J16', label: 'new', desc: 'a question whose bubble renders its markdown (images, links, a heading, a table, a list, Read more): top -> Q10',
+    { id: 'J16', label: 'new', desc: 'a question whose bubble renders its markdown (images, links, a heading, a table, a list, emphasis, Read more): top -> Q10',
       site: 'perplexity', n: 12, start: 'top', target: 9, model: LIVE_PPLX, idChecks: true,
       entry: { query_str: 'here is the full readme. # Probe Navigator\n\n![Version](https://img.shields.io/badge/version-11.0-blue) ' +
                           '![License](https://img.shields.io/badge/license-MIT-green)\n\n## Supported platforms\n\n' +
                           '| Platform | Status |\n|----------|--------|\n| Claude | **ok** |\n\n1. Install it.\n2. Open a chat.\n\n' +
-                          'See [the docs](https://example.com/docs) (version 2).',
+                          'See [the docs](https://example.com/docs) (version 2), *gravity* and _orbit_.',
                html: '<p style="margin:0">here is the full readme. # Probe Navigator</p><p style="margin:0">Version License</p>' +
                      '<h2 style="margin:0">Supported platforms</h2>' +
                      '<table><tr><th>Platform</th><th>Status</th></tr><tr><td>Claude</td><td><strong>ok</strong></td></tr></table>' +
-                     '<ol><li>Install it.</li><li>Open a chat.</li></ol><p style="margin:0">See <a href="https://example.com/docs">the docs</a> (version 2).</p>' +
+                     '<ol><li>Install it.</li><li>Open a chat.</li></ol><p style="margin:0">See <a href="https://example.com/docs">the docs</a> (version 2), ' +
+                     '<em>gravity</em> and <em>orbit</em>.</p>' +
                      '<button aria-expanded="false"><span>Read more</span></button>' } },
     // The other side of J16: a question edited in place, keeping its ordinal, where only an
     // operator changed ("10+2" -> "10/2"). It is not the indexed question: no key on its flag, and
@@ -234,6 +235,11 @@ const FIXTURES = [
       site: 'perplexity', n: 12, start: 'top', target: 9, model: LIVE_PPLX, staleOnly: true,
       entry: { query_str: 'Is (10+2)*3 equal to 36?',
                html: '<p style="margin:0">Is 10+2*3 equal to 36?</p>' } },
+    // And with a star that is an operator, not emphasis: the italics rule must leave "2*3*4" alone.
+    { id: 'J17c', label: 'new', desc: 'a question edited in place where only the multiplication stars went reads as stale',
+      site: 'perplexity', n: 12, start: 'top', target: 9, model: LIVE_PPLX, staleOnly: true,
+      entry: { query_str: 'Is 2*3*4 equal to 24?',
+               html: '<p style="margin:0">Is 234 equal to 24?</p>' } },
     // ChatGPT.
     { id: 'K1', label: 'new', desc: 'ChatGPT live model: older turns prepended with no reserved height, bottom -> Q7',
       site: 'chatgpt', n: 24, start: 'bottom', target: 6,

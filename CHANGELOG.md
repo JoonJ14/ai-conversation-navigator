@@ -62,10 +62,12 @@ Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey (DEC-047,
   sides without the markdown the bubble renders and without whitespace, on the bubble's text without its buttons;
   `locate`, `mounted`, `keyOf` and `ixPplxStillIndexed` use it (`989fe0a`). Measured on that thread, the bubble shows
   images and links as their alt text or label, and renders headings, tables and lists without their markers; the key
-  drops those, plus fence and blockquote markers, emphasis pairs and backticks. Every other character counts: the
+  drops those, plus fence and blockquote markers, emphasis (pairs, and single `*x*` / `_x_` where they open after a
+  space or punctuation) and backticks. Every other character counts: the
   first version (`989fe0a`) compared letters and digits only, which read an edit from "10+2" to "10/2" as the indexed
   question (GitHub Codex on this PR), and `_mdFlatten` would delete every parenthesis ("(10+2)*3" as "10+2*3"); both
-  fixed in the review round.
+  fixed in review round 1 (`1a6de53`). Round 2: rendered single-marker italics (`*gravity*`) left an unchanged
+  question stale (GitHub Codex); fixed in the round-2 commit.
 
 **Part A — ChatGPT and Perplexity bookmarks by the messages' own ids (DEC-053; `59d4422`, `8b5b097`):**
 - Keys: a ChatGPT question by its `data-turn-key`, an answer by the first id in its
@@ -151,16 +153,17 @@ labelled [new] fails on v12.14 (`64ee6fa`); a [guard] passes on both.
     36/36 and `check-index-adapters` 26/26 on all three engines.
   - The other probes pass on all three engines, except `check-usage-state` U10 on Firefox, the known timeout.
 
-- **J16, J16b, J17 and J17b** (`check-ix-jumps`, the text fix). J16 is a question whose bubble renders images, a
-  link, a heading, a table with bold text, a list and a "Read more" button; J16b checks that it reads as indexed;
-  J17 and J17b are in-place edits where only an operator or only the parentheses changed, which must read as stale.
+- **J16, J16b, J17, J17b and J17c** (`check-ix-jumps`, the text fix). J16 is a question whose bubble renders images,
+  a link, a heading, a table with bold text, a list, italics (`*x*` and `_x_`) and a "Read more" button; J16b checks
+  that it reads as indexed; J17, J17b and J17c are in-place edits where only an operator, only the parentheses or only
+  the multiplication stars changed, which must read as stale.
   All pass on Chromium, Firefox and WebKit. J16 and J16b fail on `2ef0d80` and on v12.14; J17 passes on `2ef0d80`
   and J17b fails there (its `_mdFlatten` compare already deleted parentheses); both fail on v12.14 (no ids there);
   `989fe0a` (letters and digits) fails all four. Mutants (chromium, 1 run each), each failing a check: reverting any one of the four
   call sites, keeping the button's text, dropping any one markdown rule, or running the key through `_mdFlatten`.
   Live, the final key was also computed in the page realm for all 12 questions of the thread: 12 of 12 match their
   `query_str`.
-  After the review fix, Chromium ×1: `npm test` 560/560, every probe passes (`check-ix-jumps` 24/24); J16 to J17b
+  After the review fix, Chromium ×1: `npm test` 560/560, every probe passes (`check-ix-jumps` 24/24, 25/25 after round 2); J16 to J17c
   pass on Firefox and WebKit.
 - **Live, Chrome + Tampermonkey** (the owner's real profile, visible tab, 2026-10-25; installed through Tampermonkey
   from a local build; test bookmarks created for the check and deleted afterwards; the owner's own bookmarks only

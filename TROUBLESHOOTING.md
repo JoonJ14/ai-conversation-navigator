@@ -513,7 +513,8 @@ owner acceptance on all three browsers pending (DEC-031)
 
 - **The Perplexity text compare (found live, above):** `ixPplxTextKey`, at all four places, on the bubble's text
   without its buttons and our flag (`ixPplxBubbleText`). Both sides lose image and link syntax (to the alt text or
-  label), table pipes and separator rows, list and heading markers, fence and blockquote markers, emphasis pairs and
+  label), table pipes and separator rows, list and heading markers, fence and blockquote markers, emphasis (pairs,
+  and single `*x*` / `_x_` where they open after a space or punctuation, as GitHub Codex's round 2 asked) and
   backticks, and all whitespace; every other character counts, at full length, so an edit still reads as a different
   question. A first version compared letters and digits only; GitHub Codex showed that it read "10+2" and "10/2" as
   one question (PR #88). `_mdFlatten` is not used: it deletes every parenthesis.
@@ -530,8 +531,8 @@ owner acceptance on all three browsers pending (DEC-031)
   `probes/check-ix-bookmarks.js` 56/56 on chromium ×3, firefox ×1, webkit ×1; v12.14 fails every [new] check (14 and
   55) on chromium ×1. The windowed mocks model the live layout from the facts above; they are not the live sites.
 - **The text compare:** `check-ix-jumps` J16 and J16b (a Perplexity question whose bubble renders images, a link, a
-  heading, a table with bold text, a list and a "Read more" button) and J17 / J17b (in-place edits of only an operator
-  or only the parentheses read as stale). All pass on Chromium, Firefox and WebKit; J16 and J16b fail on `2ef0d80`
+  heading, a table with bold text, a list, italics and a "Read more" button) and J17 / J17b / J17c (in-place edits of
+  only an operator, the parentheses or the multiplication stars read as stale). All pass on Chromium, Firefox and WebKit; J16 and J16b fail on `2ef0d80`
   and on v12.14; J17 fails on `989fe0a`'s letters-and-digits compare and on v12.14, J17b on those and on `2ef0d80`. A mutant that reverts any one
   of the four call sites, keeps the button's text, drops any one markdown rule or adds `_mdFlatten` fails one of them
   [measured, Playwright page realm, headless, chromium, 1 run each]. Live, the same key computed in the page realm:

@@ -3076,7 +3076,7 @@
     // the bubble shows images as their alt text and links as their label, and drops table
     // pipes and separator rows, list markers, heading markers and the whitespace between
     // blocks; the key drops the same on both sides, plus the other markers a rendering
-    // removes (fences, blockquotes, emphasis pairs, backticks). Every other character counts:
+    // removes (fences, blockquotes, emphasis, backticks). Every other character counts:
     // _mdFlatten deletes every bracket and parenthesis, and an earlier key kept only letters
     // and digits, which read an edit from "10+2" to "10/2" as the indexed question (GitHub
     // Codex, PR #88).
@@ -3095,6 +3095,11 @@
             .replace(/^[ \t]*#{1,6}[ \t]+/gm, '')                       // heading markers
             .replace(/^[ \t]*(?:[-+*]|\d+[.)])[ \t]+/gm, '')            // list markers
             .replace(/\*\*|__|~~|`/g, '')                               // emphasis pairs, code
+            // Single-marker emphasis, rendered as italics: *x* and _x_, only where a marker
+            // opens after a start, a space or punctuation and closes before one, so "10*2*3"
+            // and my_var_name keep theirs (GitHub Codex, PR #88).
+            .replace(/(^|[^A-Za-z0-9*])\*(?=\S)([^*\n]*?\S)\*(?![A-Za-z0-9*])/g, '$1$2')
+            .replace(/(^|[^A-Za-z0-9_])_(?=\S)([^_\n]*?\S)_(?![A-Za-z0-9_])/g, '$1$2')
             .toLowerCase().replace(/\s+/g, '');
     }
     // The bubble's own text: without its buttons ("Read more") and our flag.
