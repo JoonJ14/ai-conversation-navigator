@@ -33,11 +33,12 @@ screen ("answer 1, 1, 1"); a jump to an answer off screen failed. Question bookm
   around them, never from text (`ciAnswerMap`). `getAIMessages`, `ciMessageNodeWithin` and the staleness check are
   unchanged, so answer refetching does not come back.
 - An answer bookmark keys to the message uuid and reads **"Answer to Q#n"**, the question it follows (Korean
-  "Q#n에 대한 답변"); "A#?" when it cannot be bound; "Answer (no question)" when no question precedes it. The export
-  uses the same labels.
+  "Q#n에 대한 답변"); "A#?" when it cannot be bound; "Answer (no question)" when the nearest question above it is
+  not one Navigate lists. The export uses the same labels.
 - Answer bookmarks made by v12.12/v12.13 bind on proof only (their row, and their text reproducing their hash);
-  otherwise "A#?", with a toast that says it cannot be matched, and deletable. A record made on the project link
-  never binds.
+  otherwise "A#?", deletable. Clicking it gives a toast that it cannot be matched, or "not currently rendered" while
+  the row it was made on is off screen, since it may still bind there. A record made on the project link never
+  binds.
 - A bookmark on an answer the index fetched mid-stream asks for one refetch through the scan's own refetch path,
   under its cooldown, and binds when it lands.
 - The status line counts every record without a uuid; a Claude answer's flag matches only its own message, and a
@@ -60,10 +61,16 @@ Measured in Playwright's page realm, headless, this Mac, on the virtualizing moc
   - `npm test` on Chromium: 560/560.
   - Every probe passes on its default engine (`check-gm-storage` 32/32; `check-usage-state` on Firefox passed U10
     this time).
-  - `check-answer-bookmarks` 36/36 on Chromium, Firefox and WebKit. WebKit's first run failed A36 only: the probe read
-    the export through the download link, which WebKit handles differently. It now reads the Blob the export builds,
-    and WebKit passes all 36 (Chromium and Firefox pass A36 the same way).
-  - The 18 mutants are each caught after the unmutated build passes every check.
+  - `check-answer-bookmarks` 36/36 on Chromium, Firefox and WebKit.
+    - WebKit's first run failed A36 only, with "headings null": the probe read the export by intercepting the
+      download link's click and fetching its blob URL, and got no file. Which step failed (the click interception,
+      the blob fetch or the 3 s timeout) was not found, because the old capture recorded no reason. A36 had not run
+      on WebKit before: the earlier WebKit pass predates A34–A36.
+    - The probe now reads the Blob the export builds (`ecdfb45`). After that fix, WebKit reran the full probe
+      (36/36), and Chromium and Firefox reran R1, the run that holds A36.
+    - v12.13 still fails A36, with headings `["A#2","A#3","A#3","Q#5"]`.
+  - The 18 mutants are each caught after the unmutated build passes every check. That battery ran on the probe from
+    before `ecdfb45`; the fix touches only A36's capture, which no mutant names.
 
 ### Owner acceptance [measured, owner, real browsers, 2026-10-24]
 
@@ -78,9 +85,20 @@ DEC-031.
 
 All three tiers plus an adversarial workflow (`reviews/review-2026-10-24-answer-bookmarks.md`): the adversarial pass
 (8 agents) confirmed 16 of 18 findings; Codex CLI ran 8 rounds and 2 post-fix validations, 39 findings, 38 real,
-approved in rounds 7 and 8. Among what review found and the gate now covers: a repeated prompt matching an OLD question
-(a row past the snapshot is never evidence), a click acting for a recycled node's old answer, a duplicate decided on a
-stale copy, a jump landing on a question. GitHub Codex afterwards: 2 rounds, 0 findings.
+approved in rounds 7 and 8.
+
+What review found and the gate now covers:
+- a click acting for a recycled node's old answer (A29–A32);
+- a duplicate decided on a stale copy (A27, in one tab);
+- the proof pass blind to another tab's record (A33).
+
+Fixed, but with no check that fails without them (DEC-051, Gates):
+- a repeated prompt matching an OLD question (a row past the snapshot is never evidence);
+- a jump landing on a question;
+- the refresh kept after its bookmark is removed;
+- `ciInvalidate`'s resets.
+
+GitHub Codex afterwards: 2 rounds, 0 findings.
 
 ### Also in this PR (docs and repo)
 
@@ -123,11 +141,18 @@ runtime, a stored bookmark value that did not parse was read as empty, and the n
   Bookmarks merge by record id (an update never revives a record another tab deleted; Clear all removes the records
   the panel drew), commands by id (two tabs creating one name keep both: `name-2`), button positions by platform,
   the context cache by conversation. `acn-settings` and the org cache stay last-write-wins (the owner's call).
-- **Tampermonkey:** unchanged in behaviour. Each save already read with `GM_getValue` right before its `GM_setValue`,
-  with no copy in between [code], and `GM_getValue` sees another open tab's write (C0, below).
+- **Tampermonkey:** the save path itself is unchanged. Each save already read with `GM_getValue` right before its
+  `GM_setValue`, with no copy in between [code], and `GM_getValue` sees another open tab's write (C0, below). Four
+  things change on it, as on Safari:
+  - the refusal of an unreadable value (below);
+  - Clear all removes the records the panel drew, by id. v12.12 cleared every stored record of the conversation,
+    including one another tab had added;
+  - a save that throws logs once;
+  - command ids carry a random part.
 - **Safari:** the change shows on the page at once; then, one step at a time per key, the script re-reads with
   `GM.getValue`, applies every change not yet stored and writes. A failed step's changes go out with the next save; a
-  step with no answer in 5 s is abandoned the same way and logged once.
+  step with no answer in 5 s is abandoned the same way and logged once. When a write brings in another tab's changes,
+  the bookmark flags, the open Bookmarks panel and the /Commands list redraw (`acnWatch`).
 - **An unreadable stored value is never saved over,** on every runtime: one console line and a toast ("Not saved:
   the stored data could not be read") per key per page; the bookmark flag does not turn on, and the command form
   shows the error.
@@ -137,7 +162,11 @@ runtime, a stored bookmark value that did not parse was read as empty, and the n
   5.5.0 (DEC-050 has the lines).
 - **Residual limits, recorded in DEC-050:** no atomic compare-and-swap across tabs (the window shrinks to one
   read-then-write round trip, from the tab's whole life; accepted by the owner); a migration's whole-record update; an abandoned write
-  landing late; a save less than one round trip before a reload; no in-UI recovery from an unreadable value.
+  landing late; a save less than one round trip before a reload; no in-UI recovery from an unreadable value (accepted
+  by the owner; a "reset, keeping a backup copy" action is logged, ROADMAP 0d); on Safari a refusal found only at
+  write time, after the page showed the change; a command's use counted twice after its page's marker was trimmed
+  (`usageCount` is never read; accepted by the owner); a stored `null` on Safari read as missing (kept on purpose); a
+  command edited after another tab deleted it reports success.
 
 ### Verification
 

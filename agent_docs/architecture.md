@@ -296,6 +296,13 @@ data-acn-jump-resolved="N"              -> On the ZONE: the data-index a complet
                                            the element is unreadable by the time a test looks.
                                            Stamped by BOTH routes (orbMarkJumpTarget): it names the
                                            resolution, never the route taken.
+data-acn-bookmark                       -> The bookmark flag itself (an injected element). Excluded from every
+                                           text read (`_isExcludedFromText`).
+data-acn-bookmarked="<id>"              -> On the host element a flag was drawn for: the identity it stands for.
+                                           The injection guard compares it (not the flag) to skip redrawing.
+                                           Since v12.14, on a Claude answer it is the placed answer's uuid, or
+                                           `<hash>@<row>` while the answer is not placed (`_bmAnswerKey`,
+                                           DEC-051); only the harvest compares a mark to a uuid.
 data-acn-role="sum-generate"            -> Summary panel generate button (v12.3)
 data-acn-role="sum-results"             -> Summary results container (v12.3)
 data-acn-role="sum-stats"               -> Stats section, with data-acn-sum-total / -user / -ai

@@ -360,14 +360,23 @@ Numbering below is stable (items keep their historical numbers):
      org is validated mid-request.
    - **Live confirmation status: DEC-031.** The Chrome + Tampermonkey check ran during the v12.10 acceptance
      (2026-10-23); which transport won was not recorded, so the intermittent 403 above still has no log lines.
+     Since then, two loads logged the winner, both with no 403, so neither reproduces it [measured, Chrome +
+     Tampermonkey, the owner's profile, chat `65dfa4f2`, visible tab]:
+     - v12.12, 2026-10-24 03:46 UTC, a reload during the answer-bookmark investigation: `index order: gmxhr → fetch
+       (scriptHandler: Tampermonkey)`, `transport=gmxhr org=730fcd2a… status=200`, "147 questions (301 messages in
+       payload) via gmxhr".
+     - v12.13, 2026-10-24 17:44 UTC: the same lines. Each of the 3 scroll refetches after it logged "gmxhr → fetch
+       (this session's last winner first)", then gmxhr 200.
      Real Safari did NOT reproduce the local mac WebKit jump failure, so that entry
      stays open only as a Playwright engine-build issue (TROUBLESHOOTING, "OPEN — Local mac WebKit").
    - **Nothing kept in GM storage works on Safari + Userscripts — DONE in v12.12 (PR #82, `2b7e8d1`);
      acceptance: DEC-031.** The owner's B0 probe (Userscripts 4.8.6) measured no synchronous functions at all and a working,
      persisting `GM.getValue` / `GM.setValue` (runtime matrix). `acnGetValue` / `acnSetValue` serve the six keys
      from a copy loaded through `GM.getValue` before the script runs; Tampermonkey's path is unchanged. Gate:
-     `probes/check-gm-storage.js`. **Known limits, logged:** two tabs are last-write-wins per key (no syncing) *(for the four collections this was data loss, measured by the owner on Safari, 2026-10-24: fixed in v12.13, DEC-050; it still holds for `acn-settings` and the org cache)*. **Later (owner, 2026-10-24): a "reset, keeping a backup copy" action** for a collection whose stored value cannot be read: since v12.13 such a value is never saved over, so every save to that collection is refused until it is repaired by hand (DEC-050); the action would copy the unreadable text to a backup key, start the collection empty, and say so. **Logged, pre-existing (Codex, the cross-tab PR's round 5):** on Tampermonkey, a migration whose `saveBookmark` throws (`GM_setValue` failing) is not retried: the pass stamps its index generation done, and the harvest skips `pendingHash` records, so that record stays unbound until the next generation or a reload. v12.12 behaved the same (its `saveBookmark` swallowed the throw);
-     a load that fails or takes over 2 s runs on defaults and saves nothing for that page (the owner's call), and
+     `probes/check-gm-storage.js`. **Known limits, logged:** two tabs are last-write-wins per key (no syncing) *(for the four collections this was data loss, measured by the owner on Safari, 2026-10-24: fixed in v12.13, DEC-050; it still holds for `acn-settings` and the org cache)*. **Later (owner, 2026-10-24): a "reset, keeping a backup copy" action** for a collection whose stored value cannot be read: since v12.13 such a value is never saved over, so every save to that collection is refused until it is repaired by hand (DEC-050); the action would copy the unreadable text to a backup key, start the collection empty, and say so. **Logged, pre-existing (Codex, the cross-tab PR's round 5):** on Tampermonkey, a migration whose `saveBookmark` throws (`GM_setValue` failing) is not retried: the pass stamps its index generation done, and the harvest skips `pendingHash` records, so that record stays unbound until the next generation or a reload. v12.12 behaved the same (its `saveBookmark` swallowed the throw). **Logged, pre-existing (found building G16, the
+     cross-tab PR):** a stored `acn-commands` that parses but is not a list stops the /Commands section drawing,
+     because `sortCommands(loadCommands())` throws. Saves to it are refused since v12.13, but the section still needs
+     a guard. The same happens on v12.12. Separately, a load that fails or takes over 2 s runs on defaults and saves nothing for that page (the owner's call), and
      a late answer is not applied. *The rest of this item is the pre-v12.12 diagnosis, kept as found:*
      Previously OPEN, its own item, bigger than
      the index. Userscripts has never provided the synchronous `GM_getValue` / `GM_setValue` (read
@@ -818,30 +827,86 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         no uuid route and no index jump [code]. ChatGPT's answers may get no flags at all, since its answer
         selectors were not re-measured since February [inferred]. Both payloads carry ids a fix could key to: the
         ChatGPT adapter fetches the assistant node ids and drops them; Perplexity's entries carry `backend_uuid`,
-        which covers a question and its answer [code].
+        which covers a question and its answer [code]. Perplexity's `getAIMessages` uses `[class*="prose"]`, which may
+        match nested nodes and so double or misplace answer flags [inferred, unmeasured].
 
 14. **Claude markup follow-ups — the planned THIRD PR (owner, 2026-10-24).** After the answer-bookmark PR (v12.14).
     Claude's October 2026 markup broke two assumptions the staleness check rests on (TROUBLESHOOTING has both):
     - **The question-side refetch:** a multi-block question's rendered text never equals its payload, so each
-      distinct window holding one re-downloads the conversation once per page load. With it: the question-identity
-      risk (a mismatch inside a question's first 200 characters costs it its uuid).
+      distinct set of mismatching mounted questions re-downloads the conversation once per page load (and again if
+      the user scrolled away during its download). With it: the question-identity risk (a mismatch inside a
+      question's first 200 characters costs it its uuid). The options considered so far, the measurement method and
+      its traps: TROUBLESHOOTING, the OPEN question-side entry.
     - **Dead regenerate and late-answer detection:** the answer branches never see an answer any more.
-    - **Logged from v12.14, outside its scope** (the owner approved this list, 2026-10-24):
+    - **Logged from v12.14, outside its scope.** The owner approved the list as it stood before the code
+      (2026-10-24, "The logged-not-fixed list is approved as is"): the project-link mix-up in Search, the gallery and
+      Export; Search's own `A#`; Export's ⚑; a host stripping a flag; a regenerate before the resync; and the third
+      PR's items. The items marked "(added later)" came afterwards, from review and measurement, and are logged under
+      the same rule (log, don't fix out of scope).
       - The project-link mix-up in `getAIMessages`' other readers: Search, the Summary's DOM path, the image
         gallery, Export's DOM path and `ciFindScrollContainer`'s fallback still see the hidden link in a project
-        chat [code].
+        chat [code]. (The Summary's DOM path and `ciFindScrollContainer` were added later.)
       - Search numbers answers with its own `A#` count, not "Answer to Q#n" [code].
       - Export's DOM path keeps the ⚑ glyph (`isUIChrome` does not skip `[data-acn-bookmark]`) [code].
       - The flag guard checks our attribute, not the flag: if the page removes the flag but keeps the element, the
         flag never comes back [code].
-      - A question flag's click acts for the identity it was drawn with; if Claude recycles the node to another
-        question before the next scan, a click in that half second acts on the old one [code]. v12.14 checks this
-        for answers only (DEC-051).
+      - (added later) A question flag's click acts for the identity it was drawn with; if Claude recycles the node
+        to another question before the next scan, a click in that half second acts on the old one [code]. v12.14
+        checks this for answers only (DEC-051).
       - A regenerate before the resync gives the new answer the old answer's uuid; it then reads "A#?" (DEC-051).
       - On an answer taller than the window, the flag shows only while the answer's top edge is on screen: hovering
         an answer that filled the window showed nothing, its flag 167 px above it [measured, Chrome page realm,
         2026-10-24]. Not a defect the owner reported (their re-test found every flag on hover); recorded for a
-        placement decision.
+        placement decision. (added later)
+        - **The proposal so far:** a zero-height sticky holder at the start of the answer, so the layout does not
+          change. The flag stays out of every text read, and questions are unchanged.
+        - **Checked first** [measured, Chrome + Tampermonkey, v12.13, visible tab]: no ancestor within 8 levels of
+          the flag has non-visible overflow, a `clip-path` or `contain`; the answer node is `position: relative`; the
+          flag has `z-index` 10. The placement in code is `position: absolute; top: 4px; right: 4px`, shown only on
+          hover.
+        - **Still to check:** whether Claude's header covers a sticky flag.
+      - (added later) **Nested or duplicate flag nodes never heal** [code]:
+        - `inject` removes only the first descendant `[data-acn-bookmark]`, writes the new id into
+          `data-acn-bookmarked`, then calls `createBookmarkIcon`.
+        - `createBookmarkIcon` returns early when any descendant icon exists.
+        - So with nested elements, or a leftover icon, the stale outer icon keeps its old click handler (old id,
+          `msgIndex`, legacy ids). The guard then reports the element as up to date, and the inner element's icon
+          stays gone.
+      - (added later) **Off Claude answers, questions and answers share one hash namespace** [code]. `_bmFlagMatches`
+        checks `entityType` only for a Claude answer on a row. Question flags, and every flag off Claude, match any
+        record with the same `contentHash` or legacy hash, whatever its type.
+      - (added later) **`injectBookmarkIcons` runs without a try/catch** from the scan paths (the index branch, the
+        DOM fallback and `ixScan`) [code]. A throw in its answer loop would skip the remaining answers and
+        `orbOnScanComplete` on every scan. Question flags, made first, would survive. Not observed.
+      - (added later) **A legacy hash match in the jump** calls `_bmCommitLegacyUpgrade(bookmark, lUuid, true)`. That
+        sets `boundBy: 'proof'`, also on v12.x records that carry a `pendingHash`, and does not clear their `pending*`
+        fields [code; pre-existing].
+      - (added later) **A just-sent prompt repeating an older question** anchors to the OLD entry and resets the
+        other anchors, until the next refetch (pre-existing; reproduced in node; DEC-051 residuals). v12.14 keeps
+        route B from using it. Its effect on route A and question jumps was not analysed.
+      - (added later) **Mounted jumps ignore reduced motion:** the index-bridge jump honours it, but
+        `orbScrollToMessage` always scrolls with `behavior: 'smooth'` [code].
+      - (added later) **Comments that disagree with the code** in the bookmark path (from the read-only path map at
+        v12.12; check each against the current code before acting):
+        - route 3b's comment says it accepts only an unmatchable or markdown-skewed target; the code has no such
+          condition;
+        - `contentHash(text, msgIndex)` in the schema-1 comment: on Claude the ordinal is -1;
+        - "the text map is deliberately first-wins": duplicates are poisoned;
+        - the legacy migrator "exits immediately when no un-uuid'd records remain": it is memoized, and stays
+          active for records bound by inference;
+        - "migrated on sight": that needs `ciUuidForText`, which never resolves off Claude;
+        - "non-indexed fallback": ChatGPT and Perplexity are indexed yet still positional;
+        - "Printed once per PAGE LOAD": the flag resets on every conversation switch;
+        - `probes/check-answer-bookmarks.js` says "a gate run runs all five"; there are six runs.
+      - (added later) **Bookmark test gaps** (the read-only path map, v12.12):
+        - no bookmark assertions on ChatGPT's and Perplexity's windowed mocks, or the other 11 platforms;
+        - nothing tests toggle-off, Clear all, export or the jump outside Claude;
+        - nothing tests a conversation switch, a message still streaming, an edited or regenerated message, an
+          attachment-only turn, the legacy-mode platforms, or identical question and answer text.
+
+        v12.14's probe covers Claude answers only.
+      - (added later) **v12.14's own test debt:** the fixes with no check that fails without them, and the gaps in
+        its label and refresh checks (DEC-051, Gates).
 
 ---
 

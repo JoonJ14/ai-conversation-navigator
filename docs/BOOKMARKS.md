@@ -43,26 +43,38 @@ Design and implementation plan for real bookmark functionality, replacing the cu
 >
 > On Claude chats (`ciIsClaudeChat()`), answer flags no longer come from `getAIMessages()`:
 > - **Finder:** `ciAnswerNodeInRow(row)` — `[data-testid="assistant-message"]` inside a feed row (the October 2026
->   markup), then `.font-claude-response` / `.\!font-claude-response` only inside rows. In a project chat
+>   markup), then `.font-claude-response` / `.\!font-claude-response` only inside rows, and only when the feed root
+>   is found; never in a row that holds a `user-message`. In a project chat
 >   `getAIMessages()` returns the project's name link in a hidden side panel, so no answer had a flag.
 > - **Identity:** `ciAnswerMap()` places each mounted answer row on its path entry by position (bracketing anchors,
 >   the question row next to it with exactly one answer between it and the next question, or the last row when the
->   counts agree) and never by text: a rendered answer opens with an activity line the payload lacks. The flag's id is
->   that entry's uuid; an answer that cannot be placed keeps the old `contentHash(text, -1)`.
+>   counts agree) and never by text. An answer that shows an activity line never equals its payload text, and on two
+>   measured rows even the payload's first 120 characters appear nowhere on the page (DEC-051). The flag's id is that
+>   entry's uuid. An answer that cannot be placed keeps the old `contentHash(text, -1)`, and its flag's mark is
+>   `<hash>@<row>`.
 > - **Label:** `_bmLabel(bm)` — "Answer to Q#n" (n is the question the answer follows, numbered as Navigate numbers
 >   it; Korean "Q#n에 대한 답변"); "A#?" for a record not bound to a message, or whose message left the path;
->   "Answer to Q#?" while the index loads; "Answer (no question)" when none precedes it. The export uses the same
->   labels and puts each answer right after its question (`_bmSortKey`).
+>   "Answer to Q#?" while the index loads; "Answer (no question)" when the nearest question above it on the path is not
+>   one Navigate lists (none, or one with no text, such as an attachment-only turn). The export uses the same labels:
+>   each answer right after its question (`_bmSortKey`), then "Answer (no question)", then the unbound ones.
 > - **Existing records:** an answer record without a uuid binds only on proof (`_bmProveAnswers`): the row it was made
 >   on (`pendingRow`) is mounted and placed, and its text there reproduces the stored hash. The write is decided on
->   the stored list (`_bmBindAnswer`); a second record of an answer already bookmarked is removed instead.
+>   the stored list (`_bmBindAnswer`); a second record of an answer already bookmarked is removed instead. A record
+>   bound only by inference (pre-v12.0) does not count as the one that already holds it. Records already bound by an
+>   exact text match keep their uuid (the owner's decision).
 > - **Matching:** a Claude answer's flag stands only for its own message (`_bmFlagMatches`): its uuid, or while
 >   unplaced, a hash record made on the same row. The older text forms no longer match answers, so one of two
 >   identical answers can no longer light, or delete, the other's bookmark. A click acts only if the node still shows
->   the answer its flag was drawn for (`_bmAnswerKeyNow`; Claude recycles message nodes).
+>   the answer its flag was drawn for (`_bmAnswerKeyNow`), in case Claude recycles message nodes (never measured live;
+>   ROADMAP item 8).
 > - **The newest answer:** a bookmark on an answer the index fetched mid-stream asks for one refetch through the
 >   scan's own refetch path (`_bmRequestIndexRefresh`), and binds by proof when it lands.
-> - **Jump:** `_bmJumpToAnswer` — the mounted answer by uuid, else the index jump; it lands only on an answer.
+> - **Jump:** `_bmJumpToAnswer` — the mounted answer by uuid, else the index jump; it lands only on an answer. For an
+>   unbound record, if its own row is not mounted, it says "That message is not currently rendered — scroll toward it
+>   and try again" and never jumps to an identical answer elsewhere.
+> - **Console:** a bind logs `[ACN bookmarks] <id> bound to its answer (its row and its text)`, a duplicate removed logs
+>   `… a second bookmark of an answer already bookmarked; removed`, and a bookmark's refetch logs `[ACN] refetching
+>   the index for a bookmarked answer it does not hold yet` instead of "index out of sync".
 > Questions keep their v12.0 identity (text-confirmed row mapping, `ciUuidForText`). Gate:
 > `probes/check-answer-bookmarks.js`.
 
@@ -592,7 +604,9 @@ Replace `orbBuildPanelBookmarks()` with a dynamic panel that reads from storage.
 - **Empty state:** "No bookmarks yet. Hover over any message and click ⚑ to bookmark it."
 - **Click a bookmark:** Scroll to that message in the conversation (reuse `orbScrollToQuestion()` logic, generalized to any element)
 - **Remove button:** Each bookmark entry has a small ✕ to remove it individually
-- **Clear all:** At the bottom, requires confirmation ("Are you sure? This removes all bookmarks for this conversation.")
+- **Clear all:** At the bottom, requires confirmation ("Remove all bookmarks for this conversation?"). Since v12.13 it
+  removes, by id, the records the panel drew, so a bookmark another tab added after the panel was drawn is kept
+  (DEC-050).
 - **Ordering:** Bookmarks displayed in conversation order (by `msgIndex`), not by creation time
 - **Type badges:** Visual distinction between user messages (speech bubble icon), AI messages (robot/star icon), code (brackets icon), files (document icon)
 

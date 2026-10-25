@@ -69,7 +69,8 @@ open is ROADMAP 14 (the third PR's items and the logged list) and the owed accep
   userscript, measured that a read in one tab sees another tab's write on all three managers before the fix was
   trusted.
 - **Verification.** `probes/check-gm-storage.js` G7–G32; review: three tiers plus an adversarial workflow, Codex CLI 8
-  rounds; GitHub Codex 3 rounds, 1 finding (command use counting on replay; per-page use numbers). Owner: the two-tab
+  rounds plus a post-fix pass, then 2 more Tier 3 rounds on the GitHub fixes (`e69d5da`, `23805a8`); GitHub Codex 3
+  rounds, 1 finding (command use counting on replay; per-page use numbers). Owner: the two-tab
   test PASS on all three browsers; steps 2–7 not reported.
 - **Path.** DEC-050; CHANGELOG 12.13; `reviews/review-2026-10-24-cross-tab.md` and `review-2026-10-24-23805a8.md`.
 
@@ -78,7 +79,7 @@ open is ROADMAP 14 (the third PR's items and the logged list) and the owed accep
 - **Phase 1** (read-only; Chrome page realm; the owner's chats). Every chat with 12+ questions among the owner's 60
   most recent is in a project (the API's `project_uuid`); the decoy's text is the project's name. Claude mounts ~5
   rows at load even in a 4-question chat. `data-index` equals the path position and `data-perf-row` the path's sender
-  on every row checked (53 rows over 5 scroll positions on the 147-question chat; 7 and 5 rows on two others). The owner first reported older answers had no flag on hover, then
+  on every row checked (53 row observations over 5 scroll stops on the 147-question chat; 7 and 5 rows on two others). The owner first reported older answers had no flag on hover, then
   retracted after a re-test: the flags were there; on a tall answer the flag shows only near its top edge (§B.6).
 - **What / how.**
   - `ciAnswerNodeInRow(row)`: `[data-testid="assistant-message"]` inside a feed row, July's classes only inside rows.
@@ -121,8 +122,9 @@ open is ROADMAP 14 (the third PR's items and the logged list) and the owed accep
 ### 5. Repo housekeeping
 
 - The eleven merged remote branches of PRs #75–#85 deleted (owner's request); their tips are in the merges.
-- Four lessons in `agent_docs/conventions.md`: one from PR #85 (`be36c24`: an async stub must answer with the value
-  as it was when called) and three from PR #86 (owner-approved). DEC-031 updated with v12.14, v12.13 and v12.12's
+- Five lessons in `agent_docs/conventions.md`: one from PR #85 (`be36c24`: an async stub must answer with the value
+  as it was when called), three from PR #86 (owner-approved), and one from the docs audit after it (a twin fixture
+  must stay unbound while its twin is on screen; owner-approved). DEC-031 updated with v12.14, v12.13 and v12.12's
   itemized results.
 
 ### 6. Mistakes, kept because they generalize
@@ -182,8 +184,25 @@ Changed:
 
 - **Remote branches:** `main`, `fix/claude-answer-bookmarks` (merged; left in place) and, once pushed, the
   session-close branch.
-- **Merges use merge commits** (`gh pr merge --merge --match-head-commit`). The ruleset requires all nine CI checks
-  and allows no bypass; this session needed no reruns.
+- **Deleted this session** (owner's request), each checked as an ancestor of `origin/main` and as a merged PR's
+  branch. Their tips, for recovery:
+
+  | Branch | Tip | PR |
+  |---|---|---|
+  | `docs/v12.9-post-merge` | `fb5193e` | #76 |
+  | `docs/v12.9-handoff` | `ced1ae5` | #77 |
+  | `feat/chatgpt-perplexity-index-adapters` | `e390efe` | #78 |
+  | `docs/v12.10-close-out` | `cdc1ea3` | #79 |
+  | `docs/session-close-v12.10` | `12262d2` | #80 |
+  | `fix/turn-counter-dots` | `763f0d7` | #81 |
+  | `fix/safari-parity` | `5af4d79` | #82 |
+  | `docs/v12.12-closeout` | `8d78d46` | #83 |
+  | `docs/session-close-v12.12` | `594b1b1` | #84 |
+  | `fix/cross-tab-storage` | `ba293c2` | #85 |
+  | `fix/safari-transport-fallback` | `9ed5182` | #75 |
+- **Merges use merge commits** (`gh pr merge --merge --match-head-commit <full SHA>`). An abbreviated SHA fails with
+  "Could not coerce value … to GitObjectID"; use `$(git rev-parse HEAD)`. The ruleset requires all nine CI checks and
+  allows no bypass; this session needed no reruns.
 - **The owner's own untracked files: never `git add` them.** `.playwright-mcp/`, `docs/CONTEXT-TRACKING-AUDIT.md`,
   `docs/IMAGE-GALLERY-DOM-FIX.md`, `docs/V10.10-TASKS.md`, `docs/V10.11-TASKS.md`.
 
@@ -200,7 +219,7 @@ Changed:
 | `DOM-REFERENCE.md` → Claude, "October 2026: answers, rows and the project link" | the markup the third PR reads |
 | The userscript: `_ciAssistantStale`, `_ciNeedsResync`, `_ciMergeLiveMessages`, `ciMessageNodeWithin`, `ciMatchRowToPath`, `_cleanText`, `_mdFlatten`, `ciAnswerMap` | the staleness check and the question matcher (third PR), and what v12.14 built beside them |
 | `probes/check-answer-bookmarks.js` (A6: no refetch while scrolling; A25: the July markup's control) | a refetch instrument to build on. A6 passes on v12.13: the mock has no multi-block question yet, so the third PR needs a new fixture before A6 can fail on the question side |
-| `agent_docs/conventions.md` → "Lessons Learned" | this session's four lessons |
+| `agent_docs/conventions.md` → "Lessons Learned" | this session's five lessons |
 
 ---
 
@@ -270,12 +289,18 @@ New this session:
 ## I. Deferred / future work
 
 Not queued; §G comes first. Each is logged where named.
-- **The ROADMAP 14 logged list** (owner-approved): `getAIMessages`' other readers still see the project link (Search,
-  the Summary's DOM path, the gallery, Export's DOM path, `ciFindScrollContainer`); Search's own `A#` numbering;
-  Export's DOM path keeps the ⚑ glyph; the flag guard checks our attribute, not the flag; question flags' click
-  closures (the recycling pattern); on a tall answer the flag shows only near its top edge.
-- **DEC-050's residuals.** The owner accepted two of them: there is no atomic compare-and-swap across tabs, and a
-  stored value that cannot be read blocks saving that collection. A "reset, keeping a backup copy" action is logged
+- **The ROADMAP 14 logged list.** The owner approved its first six items before the code. The rest were added from
+  review and measurement, marked "(added later)". Highlights:
+  - `getAIMessages`' other readers still see the project link;
+  - Search's own `A#` numbering, and Export's DOM path keeping the ⚑ glyph;
+  - the flag guard checks our attribute, not the flag; nested flag nodes never heal;
+  - question flags' click closures (the recycling pattern);
+  - on a tall answer the flag shows only near its top edge (a sticky-flag proposal, with its checks);
+  - a repeated prompt anchoring to the old entry;
+  - comments that disagree with the code, and the bookmark test gaps.
+- **DEC-050's residuals.** The owner accepted three of them: there is no atomic compare-and-swap across tabs; a
+  stored value that cannot be read blocks saving that collection; and a command's use can be counted twice ("keep
+  it; the residual is accepted (usageCount is never read)"). A "reset, keeping a backup copy" action is logged
   in ROADMAP 0d. The rest of DEC-050's list is recorded, not fixed.
 - **ROADMAP 0d logs one pre-existing issue:** on Tampermonkey, a migration whose save throws is not retried.
 - **The local WebKit question** (TROUBLESHOOTING, "OPEN — Local mac WebKit").
@@ -287,17 +312,20 @@ Not queued; §G comes first. Each is logged where named.
 - **DEC-051's residuals:** an edit or a regenerate before the resync can give a new answer the old answer's uuid (it
   then reads "A#?"); an answer next to a multi-block question with no bracketing anchors stays unplaced; a bookmark
   taken on an answer before 200 characters rendered can never prove; one refetch request is spent if a load is
-  already in flight; "Answer (no question)" is reached by no fixture.
+  already in flight; "Answer (no question)" is reached by no fixture. More in DEC-051: the actions bar's changing
+  text, the activity line changing between bookmark and proof, a repeated prompt's anchor, and the gate's known gaps.
+  Several review fixes have no check that fails without them (DEC-051, Gates).
 - **The question-side refetch is live:** 3 times in one page load while scrolling the 147-question chat [measured,
-  Chrome, v12.13]. It fires once per distinct mismatching window, at most one per 15 s [code]. Each refetch
-  re-downloads the conversation, resets anchors and cancels a jump in flight.
+  Chrome, v12.13]. It fires once per distinct set of mismatching mounted questions, at most one per 15 s, and again
+  for a set whose download the user scrolled away from [code]. Each refetch re-downloads the conversation, resets
+  anchors and cancels a jump in flight. The options and the measurement method: TROUBLESHOOTING, the OPEN entry.
 - **Bookmarks are keyed by the page address.** If Claude puts the project back into chat addresses, a moved chat's
   bookmarks would stay under the old address (§B.4).
 - **The mock does not recycle nodes;** R6 moves them by hand. Whether Claude reuses or rebuilds message nodes has never
   been measured live (ROADMAP item 8).
 - **Owner acceptance gaps** are listed in §G.2, including v12.10's Safari ChatGPT and Perplexity check.
 - **Test engines:** local mac WebKit fails the 4 known jump entries; `check-usage-state` U10 times out on Firefox on
-  this Mac (it passed in this session's final run).
+  this Mac, intermittently (2026-10-24: 2 of 3 runs passed, the final run among them; TROUBLESHOOTING).
 
 ---
 

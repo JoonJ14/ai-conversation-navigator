@@ -14,6 +14,32 @@
 | 3 — independent | `cli:codex` (owner's config) | Codex CLI, the model in the owner's `~/.codex/config.toml` |
 | extra — adversarial | a workflow: 4 finder lenses, one skeptic per lens | Claude Opus 5.5 subagents, 8 agents |
 
+The adversarial lenses and what each raised: identity 3, records 3, scan 5, gate 7 (18 findings, 16 confirmed). Its
+cost: 1,213,160 subagent tokens, 243 tool uses and 1,472 s.
+
+## How the gate was built, before review
+
+- **The first mutant battery** (10 mutants, Chromium, `-j 4`) let M6 and M10 through.
+  - **M6** (the twin bug back) could not fail A18 as first written. Seed T was made on answer 2 (row 3), which is
+    mounted at load, so the proof pass bound T to answer 2's uuid before any twin comparison ran.
+  - **The fix to the probe:** T was re-minted on answer 16 (row 30). A18 became the twin test:
+    - answer 2's flag is not lit by T;
+    - T's card does not jump to answer 2;
+    - clicking answer 2's flag keeps T;
+    - T binds to answer 16 when that row mounts.
+
+    A MutationObserver now records each `acn-bm-flash` with its row, so a jump's target is still known after the node
+    is recycled.
+  - **M10** (the jump through `getAIMessages`) exposed a real userscript defect. An unbound record whose own row was
+    off screen got the "could not be matched — delete it" toast, although it could still bind there. The fix is in
+    `_bmJumpToAnswer` (DEC-051), and M10 was retargeted to A18.
+  - After both fixes all 10 were caught. The lesson (owner-approved, agent_docs/conventions.md): a twin fixture must
+    keep the record unbound while its twin is on screen, or proof binds it first and the twin rule is never tested.
+- **A syntax trap:** a probe comment with backticks inside the page-helper template literal ended the template
+  early (`SyntaxError: Unexpected identifier 'from'`). The comments now write FROM, TO, TEXT and CLICK in capitals.
+- **A35's seed** encoded `acn-settings` one level too deep on both stubs, so the fixed build failed A35 with "Answer
+  to Q#1". The sync stub now stores the object and the async stub its JSON text; v12.13 then reads "A#1".
+
 ## Tier 1 — PASS
 
 Every new function has its callers; the four i18n keys have an English and a Korean string and one call site each
@@ -54,12 +80,44 @@ restores only when it fails, and a refusal after landing says so with a toast).
 | 7 | **APPROVED**, 2 NOTE | 2 | fixed: `--only` rejects unknown runs; DEC-051's Safari wording | 176,398 |
 | post-fix 1 | 3 WARN | 3 | fixed: `ciInvalidate` clears the proof gate's copy; a removed bookmark cancels its refresh; a jump refuses a non-rendering target and a landing that is not an answer | 228,226 |
 | 8 | **APPROVED**, no notes | — | — | 151,786 |
-| post-fix 2 | 1 WARN | 1 | fixed: a jump now refuses a target that is not an answer (an old record bound by text to a question) before scrolling. The review was at its 10-round cap, so this last one-condition fix is gated (the full probe passes, the mutant battery reruns) but was not re-reviewed by Codex | 168,875 |
+| post-fix 2 | 1 WARN | 1 | fixed: a jump now refuses a target that is not an answer (an old record bound by text to a question) before scrolling. The review was at its 10-round cap, so Codex CLI did not re-review this last one-condition fix. GitHub Codex then reviewed all the code (`df28497`) with no findings. After it, the full probe passed and the mutant battery reran, but no check or mutant targets this refusal, nor post-fix 1's three fixes (DEC-051, Gates) | 168,875 |
 
 **After the review, a probe-only fix (Tiers 1 and 2, this session):** the final local run failed A36 on WebKit
-only. The probe read the bookmark export through the download link, which WebKit handles differently, and got no
-file. It now reads the Blob the export builds; the wrapper restores the original constructor, finishes once, and has a
-timeout path. No userscript change; A36 passes on all three engines and still fails on v12.13.
+only ("headings null"). The probe read the bookmark export by intercepting the download link's click and fetching
+its blob URL, and got no file. Which step failed was not found: the old capture recorded no reason. A36 had not run on
+WebKit before, because the earlier WebKit pass predates A34–A36.
+
+The probe now reads the Blob the export builds (`ecdfb45`). The wrapper restores the original constructor, finishes
+once, and has a timeout path. No userscript changed. After the fix:
+- WebKit reran the full probe (36/36), and Chromium and Firefox reran R1, the run that holds A36;
+- v12.13 still fails A36, with `["A#2","A#3","A#3","Q#5"]`;
+- the mutant battery's last run was on the probe from before the fix, which touches only A36's capture.
+
+## The final mutant battery (Chromium, `dbf1925`): what each mutant fails
+
+| Mutant | Expected | Failed |
+|---|---|---|
+| M1 answers through `getAIMessages` | A9, A10 | A28, A9, A10, A11, A12, A13 |
+| M2 the label counts answers | A4 | A4, A36 |
+| M3 no proof pass | A14, A15 | A14, A27, A15, A18, A33, A20 |
+| M4 proof by hash on any row | A16 | A16, A18 |
+| M5 proof by row alone | A16 | A16 |
+| M6 the twin bug | A18 | A18 |
+| M7 no refresh for a mid-stream answer | A24 | A24 |
+| M8 the status line skips provisional records | A19 | A19 |
+| M9 `ciMessageNodeWithin` reads answers | A6 | A6 |
+| M10 the generic jump | A18 | A18 |
+| M11 a second record bound | A27 | A27, A33 |
+| M12 rows by the predicate alone | A28 | A28, A11, A12 |
+| M13 the mark without its row | A30 | A30 |
+| M14 no click-time identity check | A29, A31 | A29, A31 |
+| M15 an unplaced flag matches a row-less record | A32 | A32 |
+| M16 an inference-bound record counts as the original | A14 | A14, A20 |
+| M17 the proof pass ignores the store | A33 | A33 |
+| M18 the bookmark refetch logs "out of sync" | A24 | A24 |
+
+The baseline (the unmutated build) passed every check first. No check or mutant targets these fixes: the
+past-snapshot guard, post-fix 1's three and post-fix 2's one (DEC-051, Gates).
 
 ## Totals
 
@@ -70,11 +128,24 @@ timeout path. No userscript change; A36 passes on all three engines and still fa
 - Gates: `check-answer-bookmarks` A1–A36. v12.13 fails A2–A5, A9–A21, A24 and A27–A36; A1, A6–A8, A22, A23 and A26 are
   guards; A25 is a control. 18 targeted mutants, each caught by its named check after the unmutated build passes
   every check.
-- **GitHub Codex rounds needed afterwards:** 2, with no findings. On opening, Codex reacted 👍; the `@codex review`
-  the owner's rule asks for on a clean first pass came back on `8a42e80`: "Didn't find any major issues". **Total: 2
+- **GitHub Codex rounds needed afterwards:** 2, with no findings. On opening (head `df28497`, which holds all the
+  code), Codex reacted 👍. The `@codex review` the owner's rule asks for on a clean first pass came back on
+  `8a42e80`: "Didn't find any major issues. Bravo." The owner later wrote "No babysit needed"; by then the babysit
+  cycle had already run. **Total: 2
   GitHub Codex rounds, 0 findings** (PR #85 needed 3 rounds and had 1 finding).
 
 ## Measurement context
+
+**Codex CLI never ran the probe.** Every Tier 3 round and both post-fix validations report that Playwright could not
+launch in Codex's read-only sandbox. Only `node --check` and `git diff --check` ran there, so its verdicts, the
+approvals included, are static reads. Every gate result was run locally.
+
+**The gate's runtime** was measured on Chromium only: one full run took 127.5 s (`/usr/bin/time -p`). "About 2
+minutes per engine" assumes the other engines take about the same.
+
+**Accepted for Codex, now recorded:** from round 2 on, the Codex prompts listed two residuals as "accepted (in
+DEC-051, do not report)" that DEC-051 did not hold until the docs audit: the label checks not telling Navigate's
+numbering from a count of human entries, and A24 not detecting a skipped cooldown. Both are in DEC-051's Gates now.
 
 Every gate result is Playwright's page realm, headless, this Mac, the virtualizing mock with the October markup, GM
 storage and the conversation request stubbed; Claude's real markup was measured in Chrome's page realm on the owner's

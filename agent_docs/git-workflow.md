@@ -22,7 +22,9 @@
 - **List anything you cannot test yourself as owner acceptance in the PR** (today: Safari + Userscripts). Never
   report it as verified (CLAUDE.md, measurement context)
 - **Merging is the owner's call, per PR.** This repo merges with merge commits (`gh pr merge --merge`); auto-merge
-  is disabled. A merge before a release's live confirm is an owner waiver of DEC-031: record it there
+  is disabled. To merge only the head that was checked, add `--match-head-commit` with the FULL SHA
+  (`--match-head-commit "$(git rev-parse HEAD)"`): an abbreviated one fails with "Could not coerce value … to
+  GitObjectID" (PR #85). A merge before a release's live confirm is an owner waiver of DEC-031: record it there
 
 ## Version Bumping
 
