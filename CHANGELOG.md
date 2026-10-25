@@ -4,6 +4,192 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.15 — One-Click Jumps on Perplexity and ChatGPT, Bookmarks by Message Id There, Claude Rows by Their data-turn-key] — 2026-10-25
+
+**Branch:** `fix/v12.15-bookmarks-jumps-claude` | **PR:** (to be opened) | **Not merged; owner acceptance pending** on
+Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey (DEC-047, DEC-031)
+
+### Problem
+
+- **Perplexity jumps** [measured, owner, v12.14, 2026-10-24]: on Safari + Userscripts a mid-conversation jump stops
+  partway (from Q12, clicking Q5 stopped mid-answer 7) and takes 2–3 clicks; on Chrome + Tampermonkey, from the top,
+  clicking Q2 goes to around Q3–Q6, and even a one-click landing often stops slightly above or below. Q1 always lands.
+- **ChatGPT jumps** [measured, owner, Safari + Userscripts, v12.14]: a far jump sometimes lands near the target (on
+  answer 14 instead of question 14); a second click lands.
+- **ChatGPT and Perplexity bookmarks** [measured, owner, Safari + Userscripts, v12.14]: no answer flags on either site;
+  question labels are on-screen positions (two different questions both read "Q4"; a 16-question thread shows only
+  Q1–Q4); a jump to an off-screen question says "not currently rendered".
+- **Claude** (TROUBLESHOOTING's two part C entries): "[ACN] index out of sync … refetching" while only scrolling
+  [measured, owner, v12.12: 3 times on Firefox, 2 on Safari; Chrome page realm, v12.13: 3 times in one page load]; a
+  regenerated or late answer no longer triggers a resync [code + measured, Chrome page realm, 2026-10-23]; and the
+  question-identity risk, then inferred.
+
+### Root cause [measured live, Chrome + Tampermonkey page realm, the owner's profile, v12.14, 2026-10-24; code]
+
+- **Jumps (part B).** `ixJump` took "mounted" for "arrived" and ended with one smooth `scrollIntoView` that nothing
+  checked. On Perplexity that glide was cut short 8 of 8 times (Q8 from the top ended 842 px above the window), where
+  an instant scroll landed within 16 px 8 of 8. On ChatGPT it ended 8514 px off when older turns were prepended
+  mid-glide (Q7 from the bottom: resolved correctly, then Q9 at the top).
+- **Bookmarks off Claude (part A).** A bookmark was keyed by `contentHash(text, its place among the MOUNTED
+  messages)`, labelled by that place, and jumped to only while mounted. `getAIMessages`' ChatGPT selectors matched 0
+  nodes, so answers had no flag; Perplexity's `[class*="prose"]` matched 22 nodes, 19 of them nested, and drew 5 flags
+  into one answer. Records were filed under origin + pathname, so ChatGPT's `/g/<project>/c/<id>` and `/c/<id>`, and
+  `www.perplexity.ai` and `perplexity.ai`, split one conversation's bookmarks [code].
+- **Claude identity (part C).** v12.14 matched rows to the conversation by text. In the 147-question chat that compare
+  failed for 31 of 129 questions, 27 of them within the first 200 characters (blocks joined without whitespace, CSS
+  list numbers). Meanwhile every `[data-index]` row carries its message's uuid on a descendant `[data-turn-key]`
+  (294 of 294 rows, both senders) and its sender on `data-perf-row` (294 of 294), which DEC-023 recorded as absent in
+  July (DEC-054 has both findings with their contexts).
+
+### Fix
+
+**Part B — jumps land instantly and verify (DEC-052; `2d29022`, `2e22c53`):**
+- `ixLandOn` (new): release the pin, write `scrollTop` instantly, settle 350 ms, re-locate the target by identity,
+  repeat until within 8 px of the intended position (clamped at the scroll ends) or 4 writes; at the cap, one console
+  line, `[ACN] jump: alignment cap reached (4 writes), target N px from its intended position`. `block: 'center'`, or
+  `'start'` for an element taller than 0.8 × the container.
+- `ixJump` lands through it before calling back; a move that reverses direction halves the step from then on; "near"
+  counts only entries within one viewport of the view (Perplexity keeps its latest entry mounted everywhere), and when
+  nothing is near it waits at most two settles, then steps from the mounted entry nearest the view in px.
+- The Perplexity adapter's `extent()`: an entry's box includes its answer slot.
+- `orbScrollToQuestion`: an index-backed mounted target goes through `ixJump` when a scroll container exists; short
+  threads keep v12.14's fast path. The callback no longer glides.
+
+- **Found by the live check before the PR:** a Perplexity question whose bubble renders its markdown never matched
+  its `query_str` (live, Chrome + Tampermonkey, 2026-10-25: Q10 of 12, a pasted README; the bubble shows an image as
+  its alt text, where `_mdFlatten` leaves `!alt`, and a "Read more" button). Its jump stopped 862 px short 4 of 4
+  times, its flags had no key, and a scan logged "index out of sync". `ixPplxTextKey` compares letters and digits
+  only, at full length, on the bubble's text without its buttons; `locate`, `mounted`, `keyOf` and
+  `ixPplxStillIndexed` use it (`989fe0a`).
+
+**Part A — ChatGPT and Perplexity bookmarks by the messages' own ids (DEC-053; `59d4422`, `8b5b097`):**
+- Keys: a ChatGPT question by its `data-turn-key`, an answer by the first id in its
+  `data-chatgpt-search-message-ids`; a Perplexity question by its entry's `backend_uuid`, an answer by
+  `backend_uuid + ':answer'`. One flag per message, matched exactly (type and key); a click acts only while the node
+  still shows its key.
+- Labels: "Q#n" is Navigate's number; answers read "Answer to Q#n" (v12.14's strings, Korean included). Jumps go
+  through the index jump and land with `ixLandOn`.
+- A ChatGPT message the index does not hold yet is saved by its page id and asks for one index refresh; a Perplexity
+  one has no id yet, so nothing is saved and a toast says "This message is not in the index yet — try again in a
+  moment" (English and Korean).
+- Old positional records bind to a question only on proof (P1 ∧ P2 ∧ U); otherwise "Q#?" / "A#?", visible and
+  deletable.
+- One store key per conversation: `https://chatgpt.com/c/<id>` and `https://www.perplexity.ai/search/<id>`. Sets filed
+  under the other URL forms merge in through `acnUpdateValue`. Claude's key is unchanged.
+
+**Part C — Claude rows identified by their `data-turn-key` (DEC-054; `3bdaf87`, `6ba8e71`):**
+- Question and answer rows take their identity from the row's one uuid key, cross-checked against the row's position
+  where the position is trusted. Rows without a usable key keep v12.14's text and DEC-051 routes.
+- Staleness reads the ids: `'k'` (the row's id is not on the path) and `'p'` (on it with no `stop_reason`, a late
+  answer), both deferred while the row's `data-perf-row-streaming` is "true" (120 s cap); and `'x'` (a question row
+  whose text changed under a key it kept, an edit in place; such a row gets no identity). The "index out of sync …
+  refetching" line keeps its prefix and now ends with the signature kinds, e.g. `[k]`.
+- Console: one `[ACN] turn keys: U of N mounted rows carry a usable data-turn-key, P of them on the fetched path` per
+  index load; one line for the first row in a conversation that falls back to text, with the reason.
+- Owner scope addition: `_bmProveQuestions` binds a hash-keyed Claude question record to its uuid on proof (its row's
+  checked id, and its stored hash reproduced from that row).
+
+### Verification
+
+Every result below is from mocks, except the "Live, Chrome + Tampermonkey" item at the end: Playwright page realm, headless, this Mac (macOS), viewport 1280×720 for parts A and B, the userscript
+inlined into the page with GM storage stubbed there (part A: a synchronous shim, the Tampermonkey shape), no real
+userscript manager. None of the mock results is real-browser evidence. Each part was measured on its own build, in its own worktree, before integration. A check
+labelled [new] fails on v12.14 (`64ee6fa`); a [guard] passes on both.
+- **Part B, `probes/check-ix-jumps.js`** (new; 18 fixtures plus E, no page errors; each fixture makes one Navigate click
+  and asserts where the target is once the view is still for 800 ms, with no "alignment cap reached" line):
+  - this build: 19/19 on Chromium ×3, Firefox ×1, WebKit ×1;
+  - v12.14, Chromium ×1: 14 fail, exactly the 14 [new] fixtures; J5, J14, K3, K4 and E pass;
+  - the build before the review fix: J13 fails (a "not currently rendered" toast where v12.14 resolved the entry);
+  - mutants, Chromium ×1 each: the review round's eight, six caught (the unbounded wait by J13, a lost target giving up
+    and a single landing write by J9, tolerance −1 by 17 checks, an unclamped landing by J5 and K3, always centring
+    by J14); two survive (the near filter's one-viewport margin; the fallback entry chosen by number instead of px).
+  - `check-index-adapters` P13 now asserts the landing and is relabelled [guard] (it passes on v12.14).
+- **Part A, `probes/check-ix-bookmarks.js`** (new; 56 checks, 55 [new], 1 [guard]):
+  - this build: 56/56 on Chromium ×3, Firefox ×1, WebKit ×1;
+  - v12.14, Chromium ×1: 55 fail, G2 [guard] passes;
+  - mutants, Chromium ×1 each: 7 by the implementer, 6 by the reviewer and 7 in the fix round, each caught by a named
+    check; among them a Perplexity key read from the raw entry position (P-K5), the legacy proof without U (P-K11a),
+    the slot-place fallback without either guard (P-K14a, P-K14b), a refresh request never marked acted on (N1c), and
+    both review fixes undone (G-K2c, N1d). Five of the reviewer's mutants that first survived now fail a check added
+    in the fix round; one still survives, logged (ChatGPT's preference for the answer unit the index names, A-N3).
+- **Part C, `probes/check-claude-turnkeys.js`** (new; 30 checks over 17 scenarios):
+  - this build: 30/30 on Chromium ×3, Firefox ×1, WebKit ×1 (two probe processes at once, `-j 3`);
+  - v12.14, Chromium ×1: 19 fail, all [new]; 11 pass, all [guard];
+  - the build before the review fix: G17, G17b and G18 fail;
+  - mutants, Chromium ×1 each: 9 by the implementer and 7 in the fix round, caught; three survive the full probe and
+    are logged (the sender check in `ciRowIdPath`, the scheduled 1.5 s rescan, the id-keyed memo in
+    `_ciQuestionPathNow`).
+  - Key results: a sweep over multi-block questions makes 1 fetch and prints no "out of sync" line (v12.14: 3
+    fetches); 13 of 13 multi-block flags carry their uuid (v12.14: 8 hashes); a regenerate resyncs exactly once, after
+    the stream (v12.14: never); jumps to Q13 and Q28 resolve (v12.14: "not currently rendered").
+- **Regression, each part's build, Chromium ×1:** `npm test` 560/560; `check-index-adapters`, `check-answer-bookmarks`
+  (36/36) pass; `run-answer-mutants` 18 of 18 caught (part C). Part A also ran `check-ix-jumps` on its build.
+
+- **The review pipeline on the integrated diff** (`reviews/review-2026-10-25-v12.15.md`): Tiers 1–3, Tier 3 (Codex
+  CLI) at the owner's 5-round cap. Fixed (`500ced6`, `f5a036e`, `92dd6c8`), each with a check that fails without it
+  except the last:
+  - a ChatGPT save during the first index load now asks for a refresh, which is dropped only once a load holds every
+    waiting key (N1e, N1g); a keyless Perplexity click then asks too;
+  - `ixLandOn`'s cap with the target outside the scroller's content box reports `'cap-out'` and toasts, instead of
+    success (J15);
+  - a flag clicked after the URL moved to another chat saves nothing and draws no fresh flag (N1f, two clicks);
+  - G17 and G17b allow at most 2 resyncs;
+  - the answer jump's 350 ms retry stops on a user scroll (ungated: a trusted wheel in that window cannot be timed
+    from the probe).
+- CI: the job timeout is 30 minutes (the Ubuntu jobs took 13m42s–13m59s in run 40148788240, before the three new
+  probes).
+- **Integrated build, final run** (`2ef0d80`, macOS arm64, local, 2026-10-25, Playwright page realm, headless, one run
+  per engine):
+  - `npm test`: Chromium 560/560, Firefox 560/560, WebKit 556/560. WebKit's 4 are the known local jump entries
+    (TROUBLESHOOTING, "OPEN — Local mac WebKit").
+  - `check-ix-jumps` 20/20, `check-ix-bookmarks` 59/59, `check-claude-turnkeys` 30/30, `check-answer-bookmarks`
+    36/36 and `check-index-adapters` 26/26 on all three engines.
+  - The other probes pass on all three engines, except `check-usage-state` U10 on Firefox, the known timeout.
+
+- **J16 and J16b** (`check-ix-jumps`, the text fix): pass on Chromium, Firefox and WebKit; fail on `2ef0d80` and on
+  v12.14; a mutant reverting any one of the four call sites, or keeping the button's text, fails one of them
+  [Playwright page realm, headless, chromium, 1 run each]. After the fix, Chromium ×1: `npm test` 560/560, every probe
+  passes (`check-ix-jumps` 22/22).
+- **Live, Chrome + Tampermonkey** (the owner's real profile, visible tab, 2026-10-25; installed through Tampermonkey
+  from a local build; test bookmarks created for the check and deleted afterwards; the owner's own bookmarks only
+  read). One run of each:
+  - **ChatGPT, the 24-question project chat** (on `2ef0d80`; the text fix touches only the Perplexity adapter):
+    1. Question labels Q#2, Q#9, Q#16, Q#23: the real numbers, distinct.
+    2. Answer flags on all 24 turns over a top-to-bottom scroll (109 steps), one per answer and one per question;
+       "Answer to Q#5", "Q#12", "Q#20", "Q#24", correct and distinct; their jumps land.
+    3. 13 one-click Navigate jumps and 8 bookmark jumps from the opposite end: all with the target in view; no
+       alignment-cap line. The same 8 bookmarks were listed after a reload through `/c/<id>`.
+  - **Perplexity, the 12-question thread:** on `2ef0d80`, Q10 failed as above (11 of 12 landed). On the fixed build (`989fe0a`):
+    1. Q#2, Q#6, Q#10, Q#12: correct and distinct.
+    2. All 12 answers and 12 questions flagged with a key, never two flags on one node; "Answer to Q#1", "Q#5", "Q#9",
+       "Q#11", correct and distinct; their jumps land.
+    3. 12 of 12 Navigate jumps and 8 of 8 bookmark jumps from the opposite end landed in one click (Q10 4 of 4); no
+       alignment-cap or out-of-sync line. The same 8 were listed at the bare `perplexity.ai` address.
+  - **Claude, the 147-question chat** (`989fe0a`):
+    4. The existing bookmarks read Q#147 and "Answer to Q#147". Scrolling from the bottom to the top in 202 steps of
+       1.5 views (rows 293 → 0, 120 s) printed no `[ACN]` line at all (the console channel checked live); the load
+       printed `turn keys: 3 of 3 mounted rows carry a usable data-turn-key, 3 of them on the fetched path`. Test
+       bookmarks on Q20 and on Q60's answer jumped onto their rows from the opposite ends; Navigate to Q100 and Q140
+       from the top and Q5 from the bottom landed.
+    - **Pre-existing, logged:** from the top, a jump to Q147 itself (Navigate or the bookmark Q#147) usually ends at
+      the bottom, 1,136 px past the question, on 12.15 and on v12.14 alike (TROUBLESHOOTING, OPEN).
+
+### Owner acceptance
+
+Pending, on all three browsers. Results go in DEC-031 as reported.
+
+### Also in this PR (docs and repo)
+
+- The three new probes are in `npm run test:probes` and in CI's Ubuntu matrix, after `check-answer-bookmarks`.
+- DEC-023 gains the October `data-turn-key` finding beside its July one, both with their contexts (DEC-054);
+  DOM-REFERENCE's July "no message uuid in the DOM" line is corrected the same way.
+- TROUBLESHOOTING: the two Claude part C entries are marked fixed on mocks, live acceptance pending, and the
+  question-identity risk is recorded as observed live; a new entry covers the ChatGPT and Perplexity jumps and
+  bookmarks.
+- ROADMAP 13 and 14 log what this PR left out of scope.
+
+---
+
 ## [12.14 — Claude Answer Bookmarks: Flags in Project Chats, "Answer to Q#n", Jumps That Land] — 2026-10-24
 
 **Branch:** `fix/claude-answer-bookmarks` | **PR:** #86 | **Merged** on the owner's call after their real-browser

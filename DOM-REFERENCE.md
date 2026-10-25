@@ -320,6 +320,13 @@ There is **no message uuid anywhere in the DOM** — a full attribute scan of mo
 all ancestors and all descendants returned zero matches against the API's message uuids.
 `data-index` is the only stable identifier available.
 
+**Contradicted 2026-10-24; both results stand in their contexts (DEC-023's addendum).** The July scan above recorded
+no browser or realm. In October [measured live, Chrome + Tampermonkey page realm, the owner's profile, v12.14, one
+147-question chat (`65dfa4f2`), at rest]: every `[data-index]` row has a descendant `[data-turn-key]`, five levels
+down, equal to the uuid of `path[data-index]` (294 of 294 rows, both senders), and `data-perf-row` names the sender
+(294 of 294); `data-perf-row-streaming` is "false" at rest; `[data-item-key]` on answer rows is never the uuid. v12.15
+identifies rows by that key (DEC-054).
+
 **Alignment is NOT assumed.** `aria-setsize` reported 294 while the API active path had 295
 entries, i.e. one leading message is never rendered. The measured offset was +1, but from a
 single matched row — so production re-derives it on every jump from every mounted user row

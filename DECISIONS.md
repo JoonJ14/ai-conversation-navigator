@@ -817,6 +817,18 @@ reproduces `data-index`, the non-contiguous pinned tail and scroll-driven unmoun
 question #1 is reached from the bottom of a 40-turn conversation in ~200 ms, with the
 target provably unmounted at click time.
 
+**Addendum (2026-10-25): a later measurement contradicts "no message uuid anywhere".** Both results, with their
+contexts:
+- **July** [v12.0 Phase 3.0 investigation, 2026-07-26; the browser and realm were not recorded]: a full attribute
+  scan of mounted rows, their ancestors and their descendants found no message uuid.
+- **October** [measured live, Chrome + Tampermonkey page realm, the owner's profile, v12.14, one 147-question chat
+  (`65dfa4f2`), at rest, 2026-10-24]: every `[data-index]` row has a descendant `[data-turn-key]`, five levels down,
+  equal to the uuid of `path[data-index]`, 294 of 294 rows, both senders; `data-perf-row` names the sender on 294 of
+  294.
+
+Whether Claude added the attribute after July or the July scan missed it is not known. `data-index` stays the
+jump's positional bridge; v12.15 identifies rows by the key, with position as its cross-check (DEC-054).
+
 ---
 
 ## DEC-024: No Synthetic Scroll Event — Reposition Only (v12.0 Phase 3)
@@ -1270,6 +1282,17 @@ every waiver here, and in the release's CHANGELOG entry.
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
 review record. Updated 2026-10-24:
+- **v12.15 (PR to be opened; ChatGPT and Perplexity jumps and bookmarks, Claude rows by `data-turn-key`; DEC-052,
+  DEC-053, DEC-054).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey:
+  **pending**, nothing reported yet. The steps will be posted on the PR.
+  - **The agent's live check before the PR — not owner acceptance.** Chrome + Tampermonkey, the owner's real
+    profile, visible tab, 2026-10-25, one run each. ChatGPT (24-question project chat, `2ef0d80`) and Perplexity
+    (12-question thread, `989fe0a`): labels, answer flags and one-click jumps from the opposite end all passed;
+    Perplexity first failed on one question, fixed in `989fe0a` and rechecked. Claude (147 questions, `989fe0a`): the
+    existing bookmarks read and jump, and a full bottom-to-top scroll printed no "index out of sync" line; a jump to
+    the latest question from the top misses on 12.15 and v12.14 alike (pre-existing, TROUBLESHOOTING). Details: the
+    v12.15 CHANGELOG entry.
+  <!-- V12.15 ACCEPTANCE: filled in by the integrator, as reported -->
 - **v12.14 (PR #86, Claude answer bookmarks).** Owner, real browsers, 2026-10-24, on the branch's build ("all three
   tested"; the userscript is unchanged from `dbf1925` through the merge `79e4953`). Recorded as reported.
   - **The steps, as posted on the PR** (https://github.com/JoonJ14/ai-conversation-navigator/pull/86#issuecomment-6390014892).
@@ -3397,3 +3420,334 @@ a visible "A#?" that binds later on proof.
   rule) does not count as the record that already holds it: the harvest may still move it, so removing the proven
   record in its favour would lose both (adversarial review; seed L and M16 via A14). Deciding on this page's copy could, on Safari, remove the only record left after another tab deleted
   its twin (Codex Tier 3, round 1).
+
+---
+
+## DEC-052: An Index-Backed Jump Lands Instantly and Verifies Where It Landed — Perplexity and ChatGPT (v12.15)
+**Date:** 2026-10-25 | **Stage:** v12.15, part B (the owner's decisions, 2026-10-24). Not merged; owner acceptance
+pending on all three browsers (DEC-031)
+
+### Decision
+An index-backed jump (`ixJump`, the ChatGPT and Perplexity adapters) no longer ends with one smooth `scrollIntoView`
+that nothing checks. It lands through a new helper, `ixLandOn(a, getEl, opts, done)`:
+- release the pin (`releaseScroll`) before every write, write `scrollTop` instantly, settle `IX_JUMP_SETTLE_MS`
+  (350 ms), re-locate the target by identity, and repeat until it is within `IX_JUMP_ALIGN_TOL` (8 px) of its intended
+  position, clamped at the scroll ends, or `IX_JUMP_MAX_ALIGNS` (4) writes have been made;
+- `block: 'center'`, or `'start'` for an element taller than 0.8 × the container's height;
+- at the cap it counts as landed (the owner's decision 6) and logs one line: `[ACN] jump: alignment cap reached (4
+  writes), target N px from its intended position`. Amended by the integrated review (Tier 3, `500ced6`, `92dd6c8`):
+  a target still outside the scroller's content box at the cap is `'cap-out'`, a toast and no resolution, since it
+  did not land (check-ix-jumps J15).
+
+`ixJump` changes around it:
+- **Damped step:** a move that reverses direction halves the step from then on.
+- **"Near" only from entries within one viewport of the view.** Perplexity keeps its latest entry mounted wherever the
+  view is, so the nearest entry by number could be one far from the view.
+- **Nothing near after a move:** wait at most two settles, then step from the mounted entry nearest the view in px,
+  never by number (the always-mounted latest entry would win that).
+- **The Perplexity adapter's `extent()`:** an entry's box includes its answer slot, because `[data-workflow-entry]`
+  wraps only the question slot.
+- **`opts.land === false`** resolves without aligning, for a caller that lands on an answer itself (DEC-053).
+- `ixWatchUser`: the user-scroll watch, factored out of `ixJump` unchanged.
+
+`orbScrollToQuestion`: an index-backed target that is already mounted goes through `ixJump` when a scroll container
+exists; short threads (no container) keep v12.14's fast path. The callback marks and flashes only.
+
+**Added after the live check (2026-10-25, `989fe0a`): the Perplexity question compare.** The arrival test (`locate`),
+the staleness scan (`mounted`) and both flag keys (`keyOf`, `ixPplxStillIndexed`) compare a mounted bubble with the
+entry's `query_str` through `ixPplxTextKey`: letters and digits only, full length, after `_mdFlatten`, on the
+bubble's text without its buttons and our flag. `_normalizeCompareFull` never matched a question whose bubble renders
+its markdown: live, Chrome + Tampermonkey, a pasted README showed its images as alt text and a "Read more" button,
+and its jump stopped 862 px short 4 of 4 times. Rejected: dropping the text check (it is what tells an edit at the
+same ordinal from the indexed question), and a prefix compare (two questions sharing a long opening would pass as one,
+the Tier 3 finding the full-length compare was written for).
+
+### Context
+The owner [measured, owner, v12.14, 2026-10-24]: on Safari + Userscripts a mid-conversation Perplexity jump stopped
+partway and took 2–3 clicks, and a far ChatGPT jump sometimes landed on the answer above its question; on Chrome +
+Tampermonkey Perplexity's Q2 from the top went to around Q3–Q6, and one-click landings often stopped slightly off. Q1
+always landed.
+
+Measured live [Chrome + Tampermonkey page realm, the owner's profile, v12.14, visible tab, 2026-10-24]:
+- **Perplexity:** the jump resolved the right entry (Q8 from the top: resolved 7), then the smooth glide moved
+  5443 → 5354 and stopped, Q8 842 px above the window. In a controlled run (Q3, Q6, Q8 and Q10 from the share
+  estimate, 2 runs each) the smooth glide was cut short 8 of 8 times, −99 to −1255 px from centre; an instant scroll
+  (`behavior: 'auto'`) landed within 0–16 px 8 of 8.
+- **The live layout:** 24 sibling slots for 12 entries, [question slot, answer slot]; unmounted slots are empty and
+  keep their height (`scrollHeight` 9375 → 9407 over a whole sweep); `[data-workflow-entry]` only inside the question
+  slot; answers 276–1415 px tall; 5–8 entries mounted, the latest always; one answer seen mounted while its question
+  slot was empty.
+- **ChatGPT:** Q7 from the bottom resolved correctly, then the final glide (9742 → 9187) was cut off when ChatGPT
+  prepended Q6 (`scrollHeight` 40818 → 44784, `scrollTop` 9187 → 13023): Q9 at the top, Q7 8514 px above centre. Older
+  turns are prepended on scroll-up with no reserved height. The same mechanism as Perplexity.
+- **No code regression** since v12.10: the adapter block and the jump functions are identical from `166a281` to
+  v12.14 [code], and v12.10 and v12.14 behave alike on the mocks to within 3 px [measured, Playwright page realm,
+  chromium, 3 runs].
+
+### Alternatives considered
+- **Keep the smooth glide and check after it.** Rejected (the owner, decision B): the glide over a list that resizes
+  is the defect. The flash stays as the visual cue.
+- **Step from the near entry's real offset** (Phase 1 report 2's prototype). Rejected: it puts the view at the near
+  entry's top plus one mean height, so with an entry taller than the step the next aim lands inside the same entry
+  forever; it gave up after 12 moves on top → Q2 and bottom → Q5 where v12.14 lands [measured, Playwright page realm,
+  chromium, 3 runs].
+- **Alignment and damping without the near filter** (Phase 1 report 1's prototype). Rejected: in an overscan model,
+  top → Q15 ended in a false "not currently rendered" toast, because the always-mounted latest entry was "near" by
+  number from everywhere [measured, chromium, 3 runs]; v12.14 resolved it 777–781 px off.
+- **Drop the fast path for every index-backed target.** Rejected: on a short thread (no scroll container) `ixJump`
+  returns `'no-container'`, so a mounted ChatGPT Q2 that v12.14 lands became a toast [measured, chromium, 3-turn mock].
+- **An unbounded wait when nothing is near.** Built first, then replaced in review: when the view sits inside the
+  target's own long answer and its question slot is empty (the live fact above), nothing passes the filter and the
+  jump waited until the move cap, then toasted where v12.14 had resolved the entry [measured, Playwright page realm,
+  chromium x2, firefox, webkit, a reviewer's mock knob, answers 1300–1415 px].
+- **Let each entry's box reach down to the next mounted entry** (a generic `extent`). Rejected [inferred]: a stale
+  window above the view would count as near again, which is what the filter removes.
+- **A wall-clock cap and a hidden-tab guard in `ixJump`, as Claude's jump has.** Not built; logged (ROADMAP 13).
+
+### Rationale
+Instant writes are what landed live (8 of 8 within 16 px); verifying after each write is what turns "the right entry
+resolved" into "the right entry is on screen". Every bound is a count (4 writes, 12 moves, 2 waits), so a jump ends.
+
+### Key properties
+- **Cost:** up to 4 writes × 350 ms, so a jump can take about 1.4 s longer before the flash; the empty-question wait
+  adds up to 2 × 350 ms. One click took 0.9–4.8 s on the mocks [measured, chromium].
+- **Constants unchanged:** `IX_JUMP_SETTLE_MS` 350, `IX_JUMP_MAX_MOVES` 12.
+- **Claude is untouched:** its adapter is native, so `ixReadyAdapter()` never returns it [code].
+- **Gate:** `probes/check-ix-jumps.js`, 18 fixtures plus E, built on two mock models of the live layout
+  (`perplexity-windowed.html` and `chatgpt-windowed.html` `jumpModel`, off by default): drift, the site's own
+  anchoring writes, 5–8 entries mounted, mount delay, the pin re-asserting, empty question slots (`qLag`), a 520 px
+  bubble, ChatGPT's prepending. Each fixture asserts the landing (fully in view, at most 24 px from its intended
+  position) and no "alignment cap reached" line. v12.14 fails exactly the 14 [new] fixtures [measured, Playwright page
+  realm, headless, chromium ×1]; the build passes 19/19 on chromium ×3, firefox ×1, webkit ×1. On Firefox, v12.14
+  passed J3 and J6 as well (in the first 17-check version): Firefox does not cancel a smooth glide on a same-value
+  `scrollTop` write [measured, page realm, 1 run].
+- **Gate gaps:** the one-viewport margin (mutant R3) and the px choice of the fallback entry (F2) survive every check
+  (F2 also passed 88 generated fixtures); the lost → re-arrive path is pinned only by J9; J14 is a [guard] (v12.14's
+  cut-short glide stopped 10 px from the start position by chance).
+- **Unmeasured live:** what writes `scrollTop` during the glide, mount latency, CSS `scroll-behavior` and
+  `overflow-anchor` on either site [inferred: with CSS `scroll-behavior: smooth` a `scrollTop` write animates, like
+  the instant `scrollIntoView` measured live], and whether Perplexity empties every question slot above the view
+  (one case was seen).
+- **Everything above is a model** of the live site built from the 2026-10-24 Chrome facts. Release acceptance:
+  DEC-031.
+
+---
+
+## DEC-053: ChatGPT and Perplexity Bookmarks Key to the Messages' Own Ids, Under One Store Key per Conversation (v12.15)
+**Date:** 2026-10-25 | **Stage:** v12.15, part A (the owner's decisions and scope addition 1, 2026-10-24). Not merged;
+owner acceptance pending on all three browsers (DEC-031)
+
+### Decision
+On ChatGPT and Perplexity a bookmark keys to the message's own id, never to its place among the mounted messages:
+
+| | Question | Answer |
+|---|---|---|
+| **ChatGPT** | the turn's `data-turn-key` (the user node id) | the first id in the answer unit's `data-chatgpt-search-message-ids` (the turn's last shown text node) |
+| **Perplexity** | the entry's `backend_uuid` (`_ix.idAtPos`, entries with an id of their own only, and the bubble's text matching the index) | `backend_uuid + ':answer'`; its entry from the question slot before `[data-workflow-final-text]`, or the slot's place in the list when that slot is empty |
+
+- Records are schema 2 (`msgUuid = contentHash = key`), saved through `toggleBookmark`'s new `isKey`. A flag matches
+  exactly (type and key); one flag per message; a click acts only while the node still shows its key, otherwise the
+  flag is redrawn.
+- **Labels:** "Q#n", Navigate's number; "Answer to Q#n" (v12.14's strings, Korean included); "Q#…" / "Answer to Q#…"
+  while the index loads; "Answer to Q#?" while a refresh the bookmark asked for is pending; "Q#?" / "A#?" otherwise;
+  "Answer (no question)" for an answer after a question Navigate does not list.
+- **Jumps:** a question through `orbScrollToQuestion` (so DEC-052 applies); a mounted answer through
+  `ixLandOn(block 'start')`; otherwise `ixJump(…, {land: false})` to its question, then the answer by key (one settle's
+  re-check) and `ixLandOn`.
+- **A message the index does not hold yet** (the owner's choice, "Save if id, else refresh"): ChatGPT shows its real
+  id in the page, so the record is saved under it at once and asks for one index refresh, through the scan's refetch
+  path and its cooldown, with no new timers. Perplexity has no id until the index refreshes, so nothing is saved; a
+  toast says "This message is not in the index yet — try again in a moment" (English and Korean) and one refresh is
+  asked for. No positional record is ever made on these sites again.
+- **Old positional records** bind to a question only on proof, all three of:
+  - **P1:** the stored hash reproduces at the stored `msgIndex`, on a mounted node that has a key;
+  - **P2:** that `msgIndex` equals the node's Navigate index;
+  - **U:** the record's 200-character normalized prefix is unique among the indexed questions.
+
+  Answer records never bind. An unbound record reads "Q#?" / "A#?", stays visible and deletable, and a click says it
+  cannot be matched.
+- **One store key per conversation** (scope addition 1): `normalizeConversationUrl()` returns
+  `https://chatgpt.com/c/<id>` or `https://www.perplexity.ai/search/<id>` from the adapter's conversation id, so the
+  store's shape and readers stay the same. Sets under this conversation's other URL forms (`/g/<project>/c/<id>`, bare
+  `perplexity.ai`) merge into it in one `acnUpdateValue` change (`_bmMergeSplitKeys`): a union by record id, one
+  record per message (the bound one kept), the old key deleted in the same write, an unreadable set left where it is;
+  memoised on the raw store string, so it is idempotent (DEC-050). Claude and every other site keep origin + pathname.
+
+### Context
+The owner [measured, owner, Safari + Userscripts, v12.14, 2026-10-24]: no answer flags on either site; questions
+labelled by on-screen position ("Q4" twice; a 16-question thread showing only Q1–Q4); a jump to an off-screen
+question says "not currently rendered".
+
+The cause [code]: v12.10 put the index on these sites (DEC-046) but never connected it to bookmarks. Every id route
+was gated on Claude, so a bookmark was `contentHash(text, its index among the mounted messages)`, labelled by that
+index and found only while mounted (Layer 4).
+
+Measured live [Chrome + Tampermonkey page realm, the owner's profile, v12.14, 2026-10-24]:
+- **ChatGPT:** `getAIMessages`' selectors (`[data-message-author-role="assistant"]`, `.markdown.prose`) match 0 nodes.
+  Each `[data-turn-key]` turn holds the question and its answer unit
+  (`[data-content-search-unit-key$=":assistant"]`), whose `data-chatgpt-search-message-ids` lists one id twice: the
+  turn's final visible text node (content type text, recipient all), never thoughts, a reasoning recap, code or a tool
+  call (10 of 10 turns over two chats, one with 22 assistant nodes in a turn). Nodes are replaced, not recycled.
+  Project chats live at `/g/<project>/c/<id>`.
+- **Perplexity:** `[class*="prose"]` matched 22 nodes, 19 nested `<li>`, all outside entries, and drew 5 flags into one
+  answer. The answer slot carries no id; exactly one `[data-workflow-final-text]` per mounted answer.
+  `backend_uuid` was unique on 12 of 12 entries.
+- Phase 1's adversarial check [measured, Playwright page realm, chromium ×3, firefox, webkit, spread 0]: an entry with
+  an empty `query_str` makes Navigate's index differ from the raw entry index, so keying by `_ix.entries[position]`
+  stores the next entry's id.
+
+### Alternatives considered
+- **Key the Perplexity question by `_ix.entries[position]`** (Phase 1 report 2). Rejected: wrong message's id after an
+  empty entry (above); mutant M1 shows it (P-K5: entry 10's uuid, "Q#9").
+- **Key the ChatGPT answer by `userId + ':answer'`.** Rejected: it is not a message id, and it silently follows a
+  regenerate to different content.
+- **Take the ChatGPT answer id from the index through its turn.** Rejected as a default: `ixScan` checks only question
+  ids, so after a regenerate the stale id would be stored for the new answer and no refetch would follow.
+- **The answer as the first shown text node of its turn.** Rejected: the DOM names the last (mutant M3).
+- **Legacy proof by P1 alone, or P1 + P2.** Rejected: a schema-1 hash takes the stored `msgIndex` as an input, so P1 is
+  a 200-character text test; without U a record on one "continue" binds to another "continue" (mutant M4). Uniqueness
+  alone (report 2's B1) binds by text, against the spec.
+- **A provisional Perplexity record bound when the index lands** (Phase 1's suggestion). Rejected by the owner ("Save
+  if id, else refresh"): no record without an id.
+- **Keep origin + pathname as the store key.** Rejected by the owner (scope addition 1): it splits one conversation's
+  bookmarks across URL forms.
+
+### Rationale
+These sites expose ids for exactly the messages the index lists, so a position is never needed. A refused record is a
+visible "#?"; a wrong id would be persisted and silent.
+
+### Key properties
+- **Index maps** (`ixLoad`): `_ix.qIdx` (id → Navigate index), `_ix.idAtPos` (raw entry position → id),
+  `_ix.answerOf` (answer key → its question's index), `_ix.answerAt` (turn or entry → answer key).
+- **The bookmark's refresh** (`_ix.wantRefresh`) has its own acted signature, so a question signature already
+  refetched cannot swallow it; the counters `_ixBmAsked` / `_ixBmServed` live beside `_ix`, and a conversation change
+  counts every earlier request as answered (review A-R2). It logs `[ACN] index refresh asked for by a bookmark of a
+  message it does not hold — refetching`.
+- **`msgIndex`** is stored as the Navigate index taken at the click (review A-R1). Nothing in v12.15 reads it; only a
+  tab still on v12.14 does.
+- **The panel's change check** includes `ixFingerprint()` and `_ix.cid`, so labels update when the index lands.
+- **`_bmBindAnswer`** gained an optional `entityType`, so it binds questions too.
+- **Claude and the other 11 platforms are unchanged:** `ixAdapter()` is null there [code].
+- **Gate:** `probes/check-ix-bookmarks.js`, 56 checks (55 [new], G2 [guard]) on the windowed mocks' `bmModel`
+  (off by default): the live answer unit, the slot layout with empty placeholders, nested prose and a decoy, hooks for
+  recycling, edits in place, renumbering and inserted children. v12.14 fails all 55 [new] [measured, Playwright page
+  realm, headless, chromium ×1]; the build passes 56/56 on chromium ×3, firefox ×1, webkit ×1.
+- **Residuals** (ROADMAP 13): a keyless Perplexity flag asks for a refetch on each click, under the cooldown, though no
+  refresh can key it, and its toast says "not in the index yet" (A-N1); a multimodal ChatGPT answer reads "A#?" for
+  good (A-N2); the preference for the answer unit the index names is unguarded (A-N3); with no question slot mounted,
+  Perplexity draws no flags; a degraded index leaves every Perplexity flag keyless; a positional record lights no flag;
+  a tab still on v12.14 keeps filing positional records, which merge in as "Q#?"; K9 models node reuse, which live
+  ChatGPT does not do.
+- **Unmeasured live:** a just-sent ChatGPT question's key and streaming answer ids; whether `backend_uuid` changes on
+  Rewrite; more than one `:assistant` unit in a turn. Release acceptance: DEC-031.
+
+---
+
+## DEC-054: Claude Rows Are Identified by Their Own `data-turn-key`, Text Matching Only as the Fallback (v12.15)
+**Date:** 2026-10-25 | **Stage:** v12.15, part C (the owner's decisions and scope addition 2, 2026-10-24). Not merged;
+owner acceptance pending on all three browsers (DEC-031)
+
+### Decision
+On a Claude chat a mounted row, question or answer, is identified by the uuid on its descendant `[data-turn-key]`:
+- **A usable key** (`ciRowTurnKey`): exactly one `[data-turn-key]` in the row, a lowercase uuid. The sender comes from
+  `data-perf-row` (fallback: whether the row holds a user-message node). The key is looked up on the fetched path
+  (`ciRowIdPath`, a uuid → path map memoised per index generation); a key naming the other sender's entry is not
+  usable.
+- **Cross-checked** (`ciRowIdPathChecked`): where the position is trusted (no predicate warning, and the row count
+  equals the prediction), the id must name the entry the row's position names; otherwise no identity, and one warning
+  per conversation: `[ACN] turn keys: row N's data-turn-key names path P but its position names path Q — not used as
+  identity`. A question row whose text changed under the key it first showed it with gets no identity either (-3,
+  review C-R1).
+- **Used by** `ciMatchRowToPath` (question rows), `ciUuidForText` and `ciAnswerMap` (answers). A row with a usable key
+  is decided by it alone: an id off the path leaves the row unplaced rather than handing it to DEC-051's routes.
+- **Rows without a usable key** keep v12.14's text identity and DEC-051's answer routes (the owner's decision C).
+- **Staleness** (`_ciAssistantStale`) reads the ids first, for both senders. An id on the path whose entry renders is
+  known, whatever the row's text, so a multi-block question no longer looks edited. Otherwise `'k'` (the id is not on
+  the path: a regenerate, an edit, a branch switch, a just-sent turn) or `'p'` (on it, an answer with no
+  `stop_reason`). Both are the row's text hashed against itself, never the payload (DEC-051), plus a token that
+  changes on every scan while the row's `data-perf-row-streaming` is "true" (a counter, 120 s cap), so nothing
+  resyncs mid-stream. `'x'` is the edit kept under its key: the row's text differs from the text it first showed under
+  that key, recorded per row and key for the conversation. An id signature schedules its own second scan
+  (`_ciScheduleRescan(1500)`). The two-scan rule and consumption are unchanged.
+- **Observable** (the owner's decision C): one `[ACN] turn keys: U of N mounted rows carry a usable data-turn-key, P of
+  them on the fetched path` per index load; one `[ACN] turn keys: row N has no usable data-turn-key (none | K keys |
+  not a uuid | it names a message of the other sender); it is identified by its text, as before (first such row in
+  this conversation)`. The "index out of sync … refetching" line keeps its prefix and appends the kinds, e.g. `[k]`.
+- **Hash-keyed question records** (scope addition 2, about 55 lines): `_bmProveQuestions` binds a Claude question
+  record with no uuid only on proof: its `pendingRow` is mounted, that row's checked id names a question on the path,
+  and the stored hash reproduces from that row's text. Decided on the stored list through `_bmUpdateStore`; a second
+  record of a question already bookmarked is removed, except beside a record bound only by inference (`boundBy:
+  'inference'` with a `legacyHash`), as `_bmBindAnswer` does (review C-R2). Wrapped like `_bmProveAnswers`: one
+  warning, then a retry on the next change (C-N1).
+
+### Context
+Measured live [Chrome + Tampermonkey page realm, the owner's profile, v12.14, one 147-question chat (`65dfa4f2`), 294
+path entries, at rest, visible tab, 2026-10-24]:
+- Every `[data-index]` row has a descendant `[data-turn-key]`, five levels down, equal to the uuid of
+  `path[data-index]`: 294 of 294 rows, 0 mismatches, both senders. `data-perf-row` equals the sender on 294 of 294;
+  `data-perf-row-streaming` is "false" at rest. `[data-item-key]` on 137 answer rows is never the uuid (another key;
+  ignored).
+- v12.14's text compare (its `_cleanText`, `_mdFlatten` and `_normalizeFull` ported, our flags excluded) failed on 31
+  of 129 questions compared, 27 of them first differing within 200 characters (the earliest at 9). Ignoring whitespace
+  fixed 20, list numbers 2 more; 9 still differed by 1–36 characters.
+- A slow sweep (46 stops × 2.6 s) printed 2 "index out of sync … refetching" lines, 15 s apart, each a full
+  re-download; a fast sweep printed none.
+
+That is the question-side refetch, the dead regenerate and late-answer detection and the question-identity risk
+(TROUBLESHOOTING's two part C entries), all from one cause: text identity against a renderer that no longer
+reproduces the payload's text.
+
+**This contradicts DEC-023's July finding,** recorded there as "no message uuid anywhere — a full attribute scan of
+mounted rows, their ancestors and their descendants returned zero" [v12.0 Phase 3.0 investigation, 2026-07-26; the
+browser and realm were not recorded]. Both stand in their contexts: in July no uuid was found; in October one is on
+every row of one chat. Whether Claude added the attribute between the two, or the July scan missed it, is not known.
+DEC-023 carries the addendum.
+
+### Alternatives considered
+- **Identity by position** (`_ciRenderable[row]`, Phase 1 report 1's D5, and the spec's first wording). Rejected: it is
+  DEC-051's rejected source (one non-rendering entry the predicate misses shifts every later row by one, persisted),
+  and its text guard is vacuous for attachment-only questions (18 of 147 live have no text block). Position stays as
+  the cross-check.
+- **A rendering-insensitive text form** (whitespace and list numbers ignored; Phase 1 report 2). Rejected: 9 of the 31
+  live mismatches remain, and text the renderer adds (a code-block label, a Copy button) defeats any normalization.
+- **Answers by id but left to DEC-051's routes when the id is off the path.** Rejected: those routes give a
+  just-regenerated answer the superseded answer's uuid (G16 shows it on v12.14).
+- **A clock token for the streaming defer.** Rejected on measurement: two scans in one millisecond repeated the
+  signature and refetched mid-stream (1 of 2 chromium runs).
+- **For C-R1, only adding "edit a question" to the owner's acceptance** (the reviewer's second option). Not chosen;
+  the self-baseline was built: without it an edit that keeps its key files the edited question's bookmark under the
+  superseded uuid, for good, where v12.14 resynced at 1.0 s [measured, Playwright page realm, chromium ×3, webkit ×1,
+  the reviewer's R1]. The acceptance step is still suggested, since live fact L4 is unmeasured.
+- **Stamp the first load's refetch time.** Rejected: with ids the bottom-window refetch is gone, and the stamp would
+  delay a late answer's resync by 15 s.
+
+### Rationale
+The row carries the message's own id, measured on every row of a long chat; text compare failed on a quarter of its
+questions. An id is checked against the path, the sender and, where trusted, the position, so a wrong one is refused,
+not persisted.
+
+### Key properties
+- **Existing bookmarks** (the owner's decision C): uuid records and DEC-051 records behave as before (`check-answer-
+  bookmarks` 36/36, its 18 mutants caught) [measured, Playwright page realm, chromium].
+- **The mock's keys are off by default** (`claude-virtualized.html`, a separate PART C block): `turnKeys`, `perfRow`,
+  `multiBlockTurns`, `multiBlockLateTurns`, `addedTextTurns`, `doubleKeyRows` / `doubleKeyFrom`, and
+  `__mockVirtualization.partC` (set a key, edit, regenerate with a streaming phase). With keys on,
+  `check-answer-bookmarks` A24 and A25 fail as predicted: the late answer resyncs by itself, and July's markup no longer
+  refetches.
+- **Gate:** `probes/check-claude-turnkeys.js`, 30 checks over 17 scenarios. v12.14 fails all 19 [new] and passes the
+  11 [guard] [measured, Playwright page realm, headless, GM stubbed, chromium ×1]; the build passes 30/30 on chromium
+  ×3, firefox ×1, webkit ×1. Untested by any check: the sender check in `ciRowIdPath` (MB), the scheduled 1.5 s rescan
+  (MD: a 5.0 s vs 5.5 s resync, a continuous metric near a threshold) and the id-keyed memo (MF); C-N1's wrapper.
+- **Residuals** (ROADMAP 14):
+  - while the position is untrusted, identity rests on the id and the sender alone;
+  - a renderer that changes a question's text after it first mounts (a late code label, a collapse) looks edited: one
+    consumed refetch and no id identity for that row for the rest of the conversation [inferred, new with C-R1];
+  - a regenerate that changes the key only when the stream ends would let a bookmark made mid-stream keep the
+    superseded uuid, as v12.14 does (C-O1);
+  - unbound Claude question records read "Q#1" (C-O2, also v12.14);
+  - a temporary uuid-shaped key on a just-sent turn would cost one consumed `'k'` refetch per send [inferred];
+  - only the first fallback per conversation is logged; without `data-perf-row*`, self-stability is the only stream
+    defer; `ciMatchTargetInWindow` stays text-only (jumps arrive through id anchors, G10).
+- **Unmeasured live** (the owner's acceptance): keys in Safari and Firefox, on more chats; a just-sent turn's key;
+  when the key changes on a regenerate (L3) and on an edit (L4); a branch switch; a mid-stream payload; whether
+  `data-perf-row-streaming` stays "true" through thinking and tool phases. Release acceptance: DEC-031.

@@ -830,8 +830,10 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         - Answers: no flags at all on either site.
         - Questions: labels are on-screen positions (two different questions both read "Q4"; a 16-question thread
           shows only Q1–Q4); a jump to an off-screen question shows "not currently rendered".
-    - **Planned for v12.15** (the owner, 2026-10-24): part A, ChatGPT and Perplexity bookmarks; part B, the
-      Perplexity one-click jump, and ChatGPT's near-miss if it is the same cause. The owner gives the spec.
+    - **Built in v12.15** (branch `fix/v12.15-bookmarks-jumps-claude`, PR to be opened; not merged): part B, jumps
+      that land instantly and verify, Perplexity and ChatGPT (DEC-052); part A, ChatGPT and Perplexity bookmarks by
+      the messages' own ids, one store key per conversation (DEC-053). Gated on mocks only [measured, Playwright page
+      realm, headless]; live acceptance on all three browsers pending (DEC-031).
     - **Pending:** Grok, untested on all three browsers; Gemini, once its virtualization is measured. The
       owner decides their order (ROADMAP, "Current Status"; HANDOFF.md, §G).
     - **How to add the next one:** "Porting the Layer 4 response to another platform" below, then one
@@ -864,16 +866,61 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         selectors were not re-measured since February [inferred]. Both payloads carry ids a fix could key to: the
         ChatGPT adapter fetches the assistant node ids and drops them; Perplexity's entries carry `backend_uuid`,
         which covers a question and its answer [code]. Perplexity's `getAIMessages` uses `[class*="prose"]`, which may
-        match nested nodes and so double or misplace answer flags [inferred, unmeasured].
+        match nested nodes and so double or misplace answer flags [inferred, unmeasured]. *Measured 2026-10-24 and
+        built in v12.15, part A (above).*
+    - **Logged from v12.15, outside its scope** (parts B and A; the reviews' and implementers' residuals):
+      - Short Perplexity threads (≤1.5 screens, no scroll container): Q1 gets the "no-container" toast, and the pin
+        reverts a mounted target's glide [measured, Playwright page realm, chromium, v12.14, 1 run; v12.15 keeps
+        v12.14's path when there is no container, code].
+      - `getAIMessages`' other readers (Search, Summary, Export) are still document-wide on these sites: on ChatGPT
+        its selectors match 0 nodes, on Perplexity 22, 19 nested [measured live, Chrome + Tampermonkey page realm,
+        v12.14, 2026-10-24]; only bookmarks were moved off it.
+      - `ixJump` has no hidden-tab guard and no wall-clock cap; Claude's jump has both [code].
+      - Claude's jump callbacks and the legacy nav handler still end with an unchecked smooth glide [code]. *Measured
+        2026-10-25:* Claude does resize during it, and a jump to the latest question from the top (mounted at every
+        scroll position, so the fast path's glide) ends at the bottom, past it, on 12.15 and on v12.14 alike [measured
+        live, Chrome + Tampermonkey]: TROUBLESHOOTING, the OPEN Claude latest-question entry.
+      - `orbScrollToMessage` has no `releaseScroll` [code].
+      - B6: with fewer entries mounted than the live 5–8 (2–3) and an empty question slot, jumps fail on v12.14, on
+        the part B build and on its bounded-wait prototype alike [measured, Playwright page realm, chromium, 1 run];
+        outside the live mount count, so unlikely live [inferred].
+      - A-N1: a Perplexity flag that can never get a key (no `backend_uuid`, or text never matching `query_str`)
+        asks for a full refetch on every click, under the 15 s cooldown, and its toast says "not in the index yet"
+        [code; not measured].
+      - A-N2: a multimodal ChatGPT answer (an image) is not in `answerOf` (text answers only), so its bookmark reads
+        "Answer to Q#?", then "A#?" for good, and jumps only while mounted [code; inferred: the DOM ids of image
+        answers are unknown].
+      - A-N3: `ixGptAnswerIn`'s preference for the answer unit the index names is unguarded by any check; more than
+        one `:assistant` unit per turn is unmeasured live [measured, mutant R12 survives, chromium].
+      - With no `[data-workflow-entry]` mounted, Perplexity draws no flags [measured, Playwright page realm, chromium,
+        1 run]; whether the latest entry's question slot is always mounted live is unmeasured.
+      - Gate gaps in `check-ix-jumps`: the near filter's one-viewport margin (mutant R3) and the px choice of the
+        fallback entry (F2) survive every check; the lost → re-arrive path is pinned by J9 alone [measured,
+        chromium, 1 run each].
+      - **From the live check before the PR** (Chrome + Tampermonkey, the owner's profile, 2026-10-25):
+        - A Perplexity answer's bookmark preview begins with "Finished": the status label Perplexity puts inside
+          `[data-workflow-final-text]` [measured live].
+        - On `2ef0d80`, four "index out of sync … refetching" lines and nine thread loads in about one second,
+          despite the 15 s cooldown; unexplained, not reproduced on the mock or on the fixed build (TROUBLESHOOTING,
+          the ChatGPT and Perplexity entry).
+        - The Perplexity text key fixes the adapter's four compares only. `ixJump`'s text fallback and
+          `_bmIxProveLegacy` still compare with `_normalizeCompareFull` / `_normalizeCompare`, so on a question
+          whose bubble renders its markdown they find no match (the fallback is moot once `locate` matches; a legacy
+          record there reads "Q#?") [code].
+        - A rendering the text key cannot bridge (math typeset by KaTeX, say) would still read as stale [inferred;
+          not measured].
 
 14. **Claude markup follow-ups — part C of v12.15 (owner, 2026-10-24).** First planned as a third PR of its own after
-    the answer-bookmark PR (v12.14); now one of v12.15's three parts (Current Status).
+    the answer-bookmark PR (v12.14); now one of v12.15's three parts (Current Status). **Built in v12.15** (not
+    merged): rows identified by their `data-turn-key` (DEC-054), which addresses the question-side refetch, the dead
+    regenerate and late-answer detection and the question-identity risk below. Gated on mocks only; live acceptance
+    pending (DEC-031).
     Claude's October 2026 markup broke two assumptions the staleness check rests on (TROUBLESHOOTING has both):
     - **The question-side refetch:** a multi-block question's rendered text never equals its payload, so each
       distinct set of mismatching mounted questions re-downloads the conversation once per page load (and again if
       the user scrolled away during its download). With it: the question-identity risk (a mismatch inside a
       question's first 200 characters costs it its uuid). The options considered so far, the measurement method and
-      its traps: TROUBLESHOOTING, the OPEN question-side entry.
+      its traps: TROUBLESHOOTING, the question-side entry (fixed in v12.15 on mocks).
     - **Dead regenerate and late-answer detection:** the answer branches never see an answer any more.
     - **Logged from v12.14, outside its scope.** The owner approved the list as it stood before the code
       (2026-10-24, "The logged-not-fixed list is approved as is"): the project-link mix-up in Search, the gallery and
@@ -944,6 +991,36 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         v12.14's probe covers Claude answers only.
       - (added later) **v12.14's own test debt:** the fixes with no check that fails without them, and the gaps in
         its label and refresh checks (DEC-051, Gates).
+    - **Found by v12.15's live check, pre-existing:** a jump to the latest question from the top (Navigate or its
+      bookmark) ends at the bottom, past it, on 12.15 and on v12.14 [measured live, Chrome + Tampermonkey,
+      2026-10-25]. TROUBLESHOOTING has the entry; a likely fix is `ixLandOn`-style instant writes for a far mounted
+      target.
+    - **Logged from v12.15, part C, outside its scope** (DEC-054's residuals):
+      - C-O1: if a regenerate changes the row's key only when the stream ends (live fact L3, unmeasured), a bookmark
+        made mid-stream keeps the superseded uuid and reads "A#?" after the resync; v12.14 does the same [measured,
+        Playwright page realm, chromium, 1 run]. `data-perf-row-streaming="true"` could withhold a persisted identity.
+      - C-O2: unbound Claude question records read "Q#1", because their `msgIndex` 0 is the mounted-window ordinal;
+        v12.14 too [measured, Playwright page realm, chromium]. Part A's "Q#?" rule could apply.
+      - New with the kept-key edit fix (C-R1): a renderer that changes a question's text after it first mounts (a late
+        code label or Copy button, a collapse) looks like an edit: one consumed refetch, and no id identity for that
+        row for the rest of the conversation [inferred; the mock renders synchronously, live timing unmeasured].
+      - `ciDeriveRowOffset` is dead code [code] (item 10).
+      - The first refetch after a load has no cooldown: `_ciLastRefetchAt` starts at 0 [code].
+      - Gate gaps in `check-claude-turnkeys`: the sender check in `ciRowIdPath` (MB), the id signature's scheduled
+        1.5 s rescan (MD) and `_ciQuestionPathNow`'s id-keyed memo (MF) survive every check [measured, chromium,
+        1 run each].
+    - **Logged from v12.15's integrated review** (`reviews/review-2026-10-25-v12.15.md`, Tier 3; all [code] unless
+      noted):
+      - `ixJump`'s text fallback has no index-generation check (unchanged v12.14 code).
+      - A Perplexity attachment-only answer (q = −1) jumps only while mounted, with an honest toast otherwise.
+      - `_bmIxWaiting` keeps answered keys; its growth is bounded by the clicks made.
+      - `check-claude-turnkeys` asserts page errors in S1 only.
+      - `_ciKeyTextEdited` takes its baseline from the row's first observation, so an edit made before the row's
+        first scan becomes the baseline. It depends on live fact L4 (does an edit keep the row's key), unmeasured;
+        the owner's optional edit step at acceptance would measure it.
+      - No check covers a keyless request kept through a refresh already in flight (`wantKeyless` with
+        `keep = true`), and none times a user scroll inside the answer jump's 350 ms retry.
+      - The round-5 fixes had no Tier 3 round after them (the cap); they go to the PR's GitHub Codex review.
 
 ---
 

@@ -78,6 +78,19 @@ Design and implementation plan for real bookmark functionality, replacing the cu
 > Questions keep their v12.0 identity (text-confirmed row mapping, `ciUuidForText`). Gate:
 > `probes/check-answer-bookmarks.js`.
 
+> **v12.15 update (not merged; DEC-053, DEC-054) — ChatGPT and Perplexity by message id; Claude rows by `data-turn-key`.**
+>
+> - **ChatGPT and Perplexity:** questions and answers key to the messages' own ids (ChatGPT: `data-turn-key`, and the
+>   first id in the answer unit's `data-chatgpt-search-message-ids`; Perplexity: the entry's `backend_uuid`, and
+>   `backend_uuid + ':answer'`), labelled "Q#n" / "Answer to Q#n" by Navigate's numbers. Positional records bind only on
+>   proof (P1 ∧ P2 ∧ U), otherwise "Q#?" / "A#?". The store key there is one canonical URL per conversation
+>   (`https://chatgpt.com/c/<id>`, `https://www.perplexity.ai/search/<id>`), so the note on the page address below holds
+>   for Claude and the other sites only.
+> - **Claude:** question rows, and answer rows, are identified by their `data-turn-key`, cross-checked against
+>   position; rows without a usable key keep the text identity above. A hash-keyed question record binds on proof
+>   (`_bmProveQuestions`). Gates: `probes/check-ix-bookmarks.js`, `probes/check-claude-turnkeys.js` (mocks only;
+>   live acceptance pending, DEC-031).
+
 ## Table of Contents
 
 1. [Overview](#overview)

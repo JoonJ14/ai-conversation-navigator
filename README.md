@@ -11,7 +11,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-12.14-blue)
+![Version](https://img.shields.io/badge/version-12.15-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -257,6 +257,12 @@ bookmark is labelled **"Answer to Q#n"** after the question it answers, and jump
 bookmark made before v12.14 is re-keyed the first time its answer is on screen, if the answer still reads as it did
 when you bookmarked it; one that cannot be matched shows **"A#?"** and can be deleted with its ✕. Clicked, it
 says it cannot be matched, or that the message is not rendered yet while the place it was made is off screen. (Live confirmation status: DEC-031.)
+
+**Bookmarks on ChatGPT and Perplexity** (since v12.15) key to the message's own identifier, questions and answers
+alike: they read **"Q#n"** and **"Answer to Q#n"** with Navigate's numbers and jump from anywhere, and one
+conversation keeps one set of bookmarks whichever of its addresses you open it under. A bookmark made there by an
+earlier version, which saved only a position on screen, is re-keyed only when the script can prove which question
+it was; otherwise it shows **"Q#?"** or **"A#?"** and can be deleted. (Live confirmation status: DEC-031.)
 
 ## Icon Choices
 
