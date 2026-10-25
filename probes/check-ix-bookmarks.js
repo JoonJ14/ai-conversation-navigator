@@ -58,7 +58,8 @@
 //               page's ids and read "Answer to Q#?" / "Q#?" until the one refresh lands, then
 //               "Answer to Q#16" / "Q#17"; the replaced answer's record reads "A#?"; one fetch per request
 //               (N1c) and no further fetch past the refetch cooldown; (N1e) saves while the first load is
-//               in flight keep their request until a load holds them all; (N1d) a record whose one
+//               in flight keep their request until a load holds them all; (N1f) a flag clicked after the
+//               URL moved to another chat, before a redraw, saves nothing; (N1d) a record whose one
 //               refresh was answered still reads "A#?", not "Answer to Q#?", after leaving the chat
 //               and coming back
 //   N2  [new]   Perplexity: a new entry's flag saves nothing and says so
@@ -623,7 +624,22 @@ window.GM_setValue = function (k, v) { _s[k] = v; };
               atClickD.indexOf('Answer to Q#?') !== -1 && servedD.indexOf('Answer to Q#?') === -1 && nA(servedD) >= 2 &&
               loadsOf() > loads0 && backD.indexOf('Answer to Q#?') === -1 && nA(backD) === nA(servedD),
               'at click ' + short(atClickD) + ' -> ' + short(servedD) + ' -> back (reloaded=' + (loadsOf() > loads0) + ') ' + short(backD));
+        // N1f: the URL moves to another chat and a flag of this one is clicked before any scan
+        // redraws (the old timeline still on screen): nothing is saved, under either chat (Tier 3).
+        await c.settle();
         const storeA = await c.store();
+        const clickedF = await c.ev(([o, back]) => {
+            history.pushState({}, '', '/c/' + o);
+            var ok = window.__p.click('q', 13) && window.__p.click('a', 13);
+            history.pushState({}, '', '/c/' + back);
+            return ok;
+        }, [GPT_OTHER, GPT_CONV]);
+        await sleep(300);
+        const storeF = await c.store();
+        check('N1f', '[new] a flag clicked after the URL moved to another chat, before a redraw, saves nothing under either chat',
+              clickedF && JSON.stringify(storeF) === JSON.stringify(storeA),
+              'clicked=' + clickedF + (JSON.stringify(storeF) === JSON.stringify(storeA) ? ', store unchanged'
+                                       : ', store changed: ' + short(Object.keys(storeF).map((k) => k + ':' + list(storeF, k).length))));
         await c.close();
 
         // ── G-B: the same chat at /c/<id>, the index answering 3 s late, in Korean; a record whose

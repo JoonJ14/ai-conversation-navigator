@@ -10766,7 +10766,7 @@
     // One flag per mounted question and answer, keyed by what the node shows now. A node with
     // no key yet still gets a flag; its click says so instead of saving (createBookmarkIcon).
     function _bmIxInject(a) {
-        var i;
+        var i, drawnIn = a.getConversationId();
         if (_bmMergeSplitKeys()) {
             var marked = document.querySelectorAll('[data-acn-bookmarked]');
             for (i = 0; i < marked.length; i++) marked[i].removeAttribute('data-acn-bookmarked');
@@ -10785,7 +10785,11 @@
             if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
             el.setAttribute('data-acn-bookmarked', mark);
             createBookmarkIcon(el, type, mark, Math.max(0, _bmIxNavIndex(key, type)), null,
-                               { keyless: !key, keyNow: function () { return a.keyOf(el, type); },
+                               // A flag stands for the conversation it was drawn in: after the URL
+                               // changes, until the next scan redraws, the old timeline is still on
+                               // screen, and a save would file its message under the new chat (Tier 3).
+                               { keyless: !key, keyNow: function () {
+                                     return a.getConversationId() === drawnIn ? a.keyOf(el, type) : null; },
                                  // At the click: a ChatGPT flag is usually drawn before the index lands,
                                  // and is not redrawn when it does (its key comes from the page).
                                  navIndex: function () { return Math.max(0, _bmIxNavIndex(key, type)); } });
