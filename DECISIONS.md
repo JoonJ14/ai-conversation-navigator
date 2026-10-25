@@ -1290,8 +1290,9 @@ review record. Updated 2026-10-24:
     (12-question thread, `989fe0a`): labels, answer flags and one-click jumps from the opposite end all passed;
     Perplexity first failed on one question, fixed in `989fe0a` and rechecked. Claude (147 questions, `989fe0a`): the
     existing bookmarks read and jump, and a full bottom-to-top scroll printed no "index out of sync" line; a jump to
-    the latest question from the top misses on 12.15 and v12.14 alike (pre-existing, TROUBLESHOOTING). Details: the
-    v12.15 CHANGELOG entry.
+    the latest question from the top misses on 12.15 and v12.14 alike (pre-existing, TROUBLESHOOTING). Retested on the
+    final build `12ad0a6` after the Codex cycle: the same checks passed on all three sites. Details: the v12.15
+    CHANGELOG entry.
   <!-- V12.15 ACCEPTANCE: filled in by the integrator, as reported -->
 - **v12.14 (PR #86, Claude answer bookmarks).** Owner, real browsers, 2026-10-24, on the branch's build ("all three
   tested"; the userscript is unchanged from `dbf1925` through the merge `79e4953`). Recorded as reported.

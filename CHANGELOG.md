@@ -188,6 +188,14 @@ labelled [new] fails on v12.14 (`64ee6fa`); a [guard] passes on both.
        from the top and Q5 from the bottom landed.
     - **Pre-existing, logged:** from the top, a jump to Q147 itself (Navigate or the bookmark Q#147) usually ends at
       the bottom, 1,136 px past the question, on 12.15 and on v12.14 alike (TROUBLESHOOTING, OPEN).
+  - **Retest on the final build `12ad0a6`** (after the Codex cycle; reinstalled through Tampermonkey; same context):
+    - ChatGPT: 8 of 8 Navigate jumps from the opposite end; all 24 turns flagged once each (85 steps); bookmarks
+      Q#5, Q#19, "Answer to Q#10", "Q#22", all 4 jumps landed from the opposite end.
+    - Perplexity: 12 of 12 Navigate jumps from the opposite end (Q10 included); all 12 questions and 12 answers
+      flagged with a key; bookmarks Q#10, Q#3, "Answer to Q#6", "Q#12", all 4 jumps landed; no out-of-sync line.
+    - Claude: the existing Q#147 and "Answer to Q#147" read right; a 202-step bottom-to-top sweep printed no
+      "index out of sync" line; Navigate Q30 from the bottom and "Answer to Q#147" from the top landed.
+    - Test bookmarks deleted afterwards.
 
 ### Owner acceptance
 

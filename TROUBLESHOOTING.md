@@ -555,7 +555,9 @@ owner acceptance on all three browsers pending (DEC-031)
 - **An unexplained observation** [measured live, same context, build `2ef0d80`, during the Navigate run]: four "index
   out of sync … refetching" lines and nine thread loads within about one second (09:46:49–50), although the refetch
   cooldown is 15 s and only `ixInvalidate` resets its clock. Not reproduced: the mock on the same build made one
-  resync in 17 s (J16b), and the fixed build logged none live. Logged: ROADMAP 13.
+  resync in 17 s (J16b), and the fixed build logged none live. A clue, same context, on `12ad0a6`: the console reader
+  (claude-in-chrome's `read_console_messages`) returned six identical index lines with one timestamp for a single
+  page load, so the four lines may be the reader repeating them, not four refetches [inferred]. Logged: ROADMAP 13.
 
 ---
 
