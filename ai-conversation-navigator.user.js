@@ -4096,7 +4096,108 @@
         return true;
     }
 
+    // ── The row's own id (v12.15) ────────────────────────────────────────────
+    // Every row carries its message's uuid on a descendant [data-turn-key], both senders, and
+    // data-perf-row names its sender [measured, Chrome + Tampermonkey page realm, v12.14, one
+    // 147-question chat, 294 of 294 rows, at rest, 2026-10-24]. The text compare this replaces
+    // failed on 31 of 129 of that chat's questions, 27 of them within the first 200 characters:
+    // the DOM joins a question's blocks without whitespace and draws list numbers with CSS, while
+    // the payload holds the markdown. A row is identified by its id only when it holds exactly one
+    // key and that key is a uuid; every other row is identified as before, by its text.
+    var CI_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    var _ciUuidPathMemo = { gen: -1, path: null, map: null };
+    var _ciKeyNote = { cid: null, fellBack: false, posWarned: false };
+    var _ciKeyCountGen = -1;
 
+    // Which of the two one-time lines this conversation has printed.
+    function _ciKeyNoteNow() {
+        var cid = ciGetConversationUuid();
+        if (_ciKeyNote.cid !== cid) _ciKeyNote = { cid: cid, fellBack: false, posWarned: false };
+        return _ciKeyNote;
+    }
+    // The first row in this conversation identified by its text after all, and why (one line).
+    function _ciNoteKeyFallback(rowEl, why) {
+        if (_ciKeyNoteNow().fellBack) return;
+        _ciKeyNote.fellBack = true;
+        console.log('[ACN] turn keys: row ' + rowEl.getAttribute(CI_ROW_ATTR) + ' has no usable ' +
+                    'data-turn-key (' + why + '); it is identified by its text, as before ' +
+                    '(first such row in this conversation)');
+    }
+
+    function ciRowTurnKey(rowEl) {
+        if (!rowEl || !rowEl.querySelectorAll) return null;
+        var ks = rowEl.querySelectorAll('[data-turn-key]');
+        var k = ks.length === 1 ? ks[0].getAttribute('data-turn-key') : null;
+        if (k !== null && CI_UUID_RE.test(k)) return k;
+        _ciNoteKeyFallback(rowEl, !ks.length ? 'none' : ks.length > 1 ? ks.length + ' keys' : 'not a uuid');
+        return null;
+    }
+
+    // data-perf-row where the row carries it; otherwise the user-message node, which an
+    // attachment-only question does not have.
+    function ciRowSender(rowEl) {
+        var s = rowEl.getAttribute('data-perf-row');
+        if (s === 'human' || s === 'assistant') return s;
+        return rowEl.querySelector('[data-testid="user-message"]') ? 'human' : 'assistant';
+    }
+
+    // The path index the row's id names; -1 when the id is not on the fetched path (the page is
+    // ahead of the index); null when the row has no usable id, or the entry its id names has the
+    // other sender.
+    function ciRowIdPath(rowEl) {
+        if (!_ciFullPath) return null;
+        var k = ciRowTurnKey(rowEl);
+        if (k === null) return null;
+        if (_ciUuidPathMemo.gen !== _ciIndexGen || _ciUuidPathMemo.path !== _ciFullPath) {
+            var m = {};
+            for (var i = 0; i < _ciFullPath.length; i++) if (_ciFullPath[i].uuid) m[_ciFullPath[i].uuid] = i;
+            _ciUuidPathMemo = { gen: _ciIndexGen, path: _ciFullPath, map: m };
+        }
+        if (!Object.prototype.hasOwnProperty.call(_ciUuidPathMemo.map, k)) return -1;
+        var p = _ciUuidPathMemo.map[k];
+        if (_ciFullPath[p].sender !== ciRowSender(rowEl)) {
+            _ciNoteKeyFallback(rowEl, 'it names a message of the other sender');
+            return null;
+        }
+        return p;
+    }
+
+    // For identity (anchors, bookmarks): where the row's position is trusted (the predicate holds
+    // and the row count is the snapshot's), the id must name the entry the position names. On
+    // disagreement the row has no identity (-2, one line), so a row showing another message's key
+    // never hands that message's uuid to a bookmark.
+    function ciRowIdPathChecked(rowEl, di) {
+        var p = ciRowIdPath(rowEl);
+        if (p === null || p < 0) return p;
+        if (!_ciPredicateWarned && _ciRenderable && di < _ciRenderable.length &&
+            _ciRenderable[di] !== p && ciTotalRows() === _ciRenderable.length) {
+            if (!_ciKeyNoteNow().posWarned) {
+                _ciKeyNote.posWarned = true;
+                console.warn('[ACN] turn keys: row ' + di + '\'s data-turn-key names path ' + p +
+                             ' but its position names path ' + _ciRenderable[di] + ' — not used as identity');
+            }
+            return -2;
+        }
+        return p;
+    }
+
+    // One line per index load: how many mounted rows carry a usable key, and how many of those
+    // the fetched path holds.
+    function _ciReportTurnKeys() {
+        if (_ciKeyCountGen === _ciIndexGen) return;
+        var rows = ciMountedRows();
+        if (!rows.length) return;
+        _ciKeyCountGen = _ciIndexGen;
+        var usable = 0, onPath = 0;
+        for (var i = 0; i < rows.length; i++) {
+            if (ciRowTurnKey(rows[i].el) === null) continue;
+            usable++;
+            var p = ciRowIdPath(rows[i].el);
+            if (p !== null && p >= 0) onPath++;
+        }
+        console.log('[ACN] turn keys: ' + usable + ' of ' + rows.length + ' mounted rows carry a usable ' +
+                    'data-turn-key, ' + onPath + ' of them on the fetched path');
+    }
 
     // ── THE ONE MATCHER family (resolve-on-arrival core) ─────────────────────
     // One row -> its unique path entry. BOTH senders: restricting to user rows left
@@ -4108,6 +4209,13 @@
     // all, so they can neither match nor be allowed to match something else.
     function ciMatchRowToPath(rowObj) {
         if (!_ciFullPath) return null;
+        // A question row with a usable id is its id's entry, or nothing when the id is not on the
+        // path: never the text match, which can name a superseded entry with the same text.
+        // Answer rows keep the text match, as before.
+        if (ciRowSender(rowObj.el) === 'human') {
+            var idp = ciRowIdPathChecked(rowObj.el, rowObj.dataIndex);
+            if (idp !== null) return idp >= 0 ? idp : null;
+        }
         var isUser = rowObj.isUser;
         var inner = isUser
             ? rowObj.el.querySelector('[data-testid="user-message"]')
@@ -4824,7 +4932,8 @@
     // The path entry a mounted question row matches right now (the matcher anchors use), or
     // null; false when it matches another entry than the anchor recorded for that row, i.e. the
     // conversation changed under the index (an edit before the resync). Memoized per index
-    // generation and row text: ciMatchRowToPath walks the whole path.
+    // generation, row text and row id: ciMatchRowToPath walks the whole path, and a row keeps its
+    // text while its id changes.
     var _ciQMatchMemo = { gen: -1, rows: {} };
     function _ciQuestionPathNow(row) {
         if (!row || !row.isUser) return null;
@@ -4836,11 +4945,12 @@
         if (!text) return null;
         if (_ciQMatchMemo.gen !== _ciIndexGen) _ciQMatchMemo = { gen: _ciIndexGen, rows: {} };
         var key = String(row.dataIndex), memo = _ciQMatchMemo.rows[key], p;
-        if (memo && memo.text === text) {
+        var tk = ciRowTurnKey(row.el);
+        if (memo && memo.text === text && memo.tk === tk) {
             p = memo.p;
         } else {
             p = ciMatchRowToPath(row);
-            _ciQMatchMemo.rows[key] = { text: text, p: p };
+            _ciQMatchMemo.rows[key] = { text: text, tk: tk, p: p };
         }
         if (p === null || !_ciFullPath[p] || _ciFullPath[p].sender !== 'human') return null;
         if (_ciAnchorRows && _ciAnchorRows.hasOwnProperty(key) && _ciAnchorRows[key] !== p) return false;
@@ -4880,6 +4990,9 @@
     // never share an entry, and a row past the fetched snapshot is never placed. Nothing here
     // records an anchor: a derived position is not a measurement, and anchors feed the jump and
     // the staleness check.
+    // A row with a usable id (v12.15) is placed by its id alone, when the id names an answer that
+    // renders and agrees with the row's position where that is trusted, and is left unplaced
+    // otherwise; the routes above decide only for a row without one.
     function ciAnswerMap() {
         var out = { rows: [], pathOf: {} };
         var mounted = ciMountedRows(), byRow = {}, i;
@@ -4895,7 +5008,12 @@
         var at = {};
         for (i = 0; i < out.rows.length; i++) {
             var d = out.rows[i].dataIndex;
+            var idp = (placed && d < bound) ? ciRowIdPathChecked(out.rows[i].el, d) : null;
             var p = (placed && d < bound) ? _ciAnswerPathForRow(d, byRow, total) : null;
+            if (idp !== null) {
+                p = (idp >= 0 && _ciFullPath[idp].sender === 'assistant' && ciEntryRenders(_ciFullPath[idp]))
+                    ? idp : null;
+            }
             out.pathOf[d] = p;
             if (p === null) continue;
             if (at.hasOwnProperty(p)) { out.pathOf[d] = null; out.pathOf[at[p]] = null; }
@@ -5402,6 +5520,11 @@
             if (rowEl) {
                 var di = parseInt(rowEl.getAttribute(CI_ROW_ATTR), 10);
                 if (!isNaN(di)) {
+                    // The row's own id first (v12.15): its uuid, or none when the id is not on
+                    // the path or disagrees with the row's position. The text confirm and the
+                    // text map below are for rows without a usable id.
+                    var idq = ciRowIdPathChecked(rowEl, di);
+                    if (idq !== null) return idq >= 0 ? _ciFullPath[idq].uuid : null;
                     // MEASURED resolution only. This uuid gets PERSISTED (bookmarks),
                     // and the predicate fallback assigned an adjacent message's
                     // identity whenever the stop-reason predicate missed an unrendered
@@ -5491,6 +5614,8 @@
         _bmRefreshFor     = null;   // a bookmark's refetch request belongs to the conversation it was made in
         _bmProveSeen      = '';     // and the proof gate's copy of the stored bookmarks with it
         _bmProveRaw       = null;
+        _bmProveQSeen     = '';
+        _bmProveQRaw      = null;
         _ciInFlightCid    = null;   // never let an old conversation's request block the new one
         if (_ciRescanTimer !== null) { clearTimeout(_ciRescanTimer); _ciRescanTimer = null; }
         // Usage quota is org-scoped; a conversation switch can land in a different
@@ -5516,6 +5641,7 @@
         _ciResyncedSigOrder = [];
         _ciPendingResyncSig = '';
         _ciAwaitingResyncSig = '';
+        _ciStreamSince      = {};
         _bmDiagnosed        = {};
         _bmStatusPrinted    = false;   // per-conversation, like _bmDiagnosed
         _bmPendingLegacy    = true;    // unknown until the next migration pass counts it
@@ -5959,10 +6085,48 @@
             delete _ciResyncedSigs[_ciResyncedSigOrder.shift()];
         }
     }
+
+    // A row whose id says the index lags it (below) while the row is still being written never
+    // settles: the token differs on every scan (a counter: two scans can fall in the same
+    // millisecond, and a clock token then repeats). Capped, so an attribute stuck at "true"
+    // cannot hold a resync back for good; past the cap the row's own text decides when it has
+    // settled.
+    var CI_STREAM_DEFER_MAX_MS = 120000;
+    var _ciStreamSince = {};   // 'row:key' -> when that row was first seen streaming
+    var _ciStreamSeq = 0;
+    function _ciStreamToken(rowEl, di, key) {
+        var sk = di + ':' + key;
+        if (rowEl.getAttribute('data-perf-row-streaming') !== 'true') { delete _ciStreamSince[sk]; return ''; }
+        var now = Date.now();
+        if (!_ciStreamSince[sk]) _ciStreamSince[sk] = now;
+        return now - _ciStreamSince[sk] < CI_STREAM_DEFER_MAX_MS ? ':w' + (++_ciStreamSeq) : '';
+    }
+
     function _ciAssistantStale() {
         if (!ciIsReady() || !_ciFullPath) return false;
         var rows = ciMountedRows(), sig = '', i;
         for (i = 0; i < rows.length; i++) {
+            // ROWS WITH AN ID (v12.15), both senders, ahead of the text checks below. An id the
+            // path holds, on an entry that renders, is known whatever the row's text: a question
+            // rendered as several blocks no longer looks edited. Otherwise the index lags the row:
+            // 'k' the id is not on the path (a regenerate, an edit, a branch switch, a just-sent
+            // turn), 'p' it is, on an answer without a stop_reason (the index was fetched while it
+            // was being written). Stability is the row against ITSELF, never against the payload
+            // (DEC-051), under the same two-scan rule and consumption as every signature.
+            var idr = ciRowIdPath(rows[i].el);
+            if (idr !== null) {
+                if (idr >= 0 && ciEntryRenders(_ciFullPath[idr])) continue;
+                var selfNode = rows[i].isUser
+                    ? rows[i].el.querySelector('[data-testid="user-message"]')
+                    : ciAnswerNodeInRow(rows[i].el);
+                var selfT = rows[i].isUser ? _readMessageText(selfNode || rows[i].el)
+                                           : _readAIText(selfNode || rows[i].el);
+                var tk = ciRowTurnKey(rows[i].el);
+                sig += (idr < 0 ? 'k' : 'p') + rows[i].dataIndex + ':' + tk.slice(0, 8) + ':' +
+                       selfT.length + ':' + _fnv1aHex(selfT) +
+                       _ciStreamToken(rows[i].el, rows[i].dataIndex, tk) + ';';
+                continue;
+            }
             var inner = ciMessageNodeWithin(rows[i].el);
             if (!inner || inner === rows[i].el) continue;
             var rawTxt = _readMessageText(inner);
@@ -6100,7 +6264,24 @@
         }
         if (sig === _ciLastAsstMismatch) { _ciPendingResyncSig = sig; return true; }
         _ciLastAsstMismatch = sig;
+        // An id signature's second scan is scheduled rather than left to the next mutation: the
+        // end of a stream can be the last change the page makes.
+        if (/(^|;)[kp]\d/.test(sig)) _ciScheduleRescan(1500);
         return false;
+    }
+
+    // The kinds in a signature, for the "out of sync" line: k / p a row's id (not on the path /
+    // on an answer still unfinished there), e an edited question, g / s / o an answer that grew,
+    // changed, or lies past the snapshot, m a long answer matching no entry.
+    function _ciSigKinds(sig) {
+        var seen = {}, out = [], parts = String(sig || '').split(';');
+        for (var i = 0; i < parts.length; i++) {
+            if (!parts[i]) continue;
+            var c = parts[i].charAt(0);
+            if (c >= '0' && c <= '9') c = 'm';
+            if (!seen[c]) { seen[c] = true; out.push(c); }
+        }
+        return out.join(',');
     }
 
     function scanConversation(forceReset) {
@@ -6139,6 +6320,7 @@
                 // (only unanchored rows are examined) and idempotent.
                 ciHarvestAnchors();
                 ciValidatePredicate();
+                _ciReportTurnKeys();
                 // Once per index generation: bind any bookmark taken before its message
                 // had a uuid. _ciIndexGen changes on every rebuild, which is exactly when
                 // a previously-unknown uuid can become known.
@@ -6176,6 +6358,8 @@
                         // Answer bookmarks bind on proof before the status line counts them.
                         _bmProveSeen = '';
                         _bmProveAnswers();
+                        _bmProveQSeen = '';
+                        _bmProveQuestions();
                         _bmHarvestLegacyFromMounted();
                         _bmMigrateLegacy();
                         _bmMigratedGen = _ciIndexGen;
@@ -6192,7 +6376,8 @@
 
                 // The staleness check runs on every scan exactly as before; a bookmark on an answer
                 // the index does not hold yet (_bmRequestIndexRefresh) only joins its refetch.
-                var ciStale = _ciNeedsResync(_questions) || _ciAssistantStale();
+                var ciProvisional = _ciNeedsResync(_questions);
+                var ciStale = ciProvisional || _ciAssistantStale();
                 if (_bmRefreshFor && (_bmRefreshFor !== _ciConversationId || !_bmRefreshStillWanted())) {
                     _bmRefreshFor = null;
                 }
@@ -6213,7 +6398,8 @@
                         _bmRefreshFor = null;
                         if (ciStale) {
                             console.log('[ACN] index out of sync with DOM (new message, edit, ' +
-                                        'or regenerate) — refetching');
+                                        'or regenerate) — refetching [' +
+                                        (ciProvisional ? 'provisional' : _ciSigKinds(_ciPendingResyncSig)) + ']');
                         } else {
                             console.log('[ACN] refetching the index for a bookmarked answer it ' +
                                         'does not hold yet');
@@ -9943,6 +10129,62 @@
         return true;
     }
 
+    // A question bookmark made while its row's text did not match the index (a question rendered
+    // as several blocks never did) holds a text hash and no uuid. It binds on proof, as an answer
+    // does: the row it was made on carries a usable id naming a question on the path, and the
+    // record's hash reproduces from that row's text. Decided on the list as stored at the write.
+    var _bmProveQSeen = '', _bmProveQRaw = null;
+    function _bmProveQuestions() {
+        if (!(ciIsClaudeChat() && ciIsReady() && _ciFullPath)) return;
+        var rows = ciMountedRows(), cand = {}, key = _ciIndexGen + ':', changed = false, r;
+        for (r = 0; r < rows.length; r++) {
+            var node = rows[r].el.querySelector('[data-testid="user-message"]');
+            var p = node ? ciRowIdPathChecked(rows[r].el, rows[r].dataIndex) : null;
+            if (p === null || p < 0) continue;
+            cand[rows[r].dataIndex] = { uuid: _ciFullPath[p].uuid, node: node,
+                                        hash: contentHash(_readMessageText(node), -1) };
+            key += rows[r].dataIndex + '=' + p + '#' + cand[rows[r].dataIndex].hash + ',';
+        }
+        var raw = String(acnGetValue(BOOKMARK_KEY, '{}'));
+        if (key === _bmProveQSeen && raw === _bmProveQRaw) return;
+        _bmProveQSeen = key;
+        _bmProveQRaw = raw;
+        getConversationBookmarks().forEach(function (b) {
+            var c = (b.entityType === 'user-msg' && !b.msgUuid && b.schema !== 2 && b.pendingHash &&
+                     cand.hasOwnProperty(b.pendingRow)) ? cand[b.pendingRow] : null;
+            if (!c || c.hash !== b.contentHash) return;
+            var outcome = '', saved;
+            try {
+                saved = _bmUpdateStore(function (l) {
+                    var at = -1, other = false;
+                    for (var i = 0; i < l.length; i++) {
+                        if (l[i].id === b.id) at = i;
+                        else if (l[i].entityType === 'user-msg' && l[i].msgUuid === c.uuid) other = true;
+                    }
+                    outcome = '';
+                    if (at < 0 || l[at].msgUuid) return l;
+                    outcome = other ? ': a second bookmark of a question already bookmarked; removed'
+                                    : ' bound to its question (its row\'s id and its text)';
+                    if (other) return l.filter(function (x) { return x.id !== b.id; });
+                    var nb = JSON.parse(JSON.stringify(l[at]));
+                    nb.schema = 2; nb.contentHash = c.uuid; nb.msgUuid = c.uuid; nb.boundBy = 'proof';
+                    nb.pendingHash = null; nb.pendingSender = null; nb.pendingOrdinal = -1; nb.pendingRow = -1;
+                    var next = l.slice();
+                    next[at] = nb;
+                    return next;
+                });
+            } catch (e) { saved = false; }
+            if (!saved) { _bmProveQSeen = ''; return; }   // tried again on the next scan
+            if (outcome) console.log('[ACN bookmarks] ' + b.id + outcome);
+            c.node.removeAttribute('data-acn-bookmarked');   // redrawn from the store
+            changed = true;
+        });
+        if (changed) {
+            var bmPanel = document.getElementById('acn-panel-bookmarks');
+            if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
+        }
+    }
+
     // A bookmark made on an answer past the fetched snapshot (the index was fetched while the
     // answer was still being written, so its entry had no stop_reason) asks the scan for one
     // refetch: the scan's own refetch path, under its cooldown. The record binds by proof when
@@ -10279,6 +10521,8 @@
         // ChatGPT and Perplexity: by the messages' own ids, never by position (v12.15).
         var ixa = ixAdapter();
         if (ixa) { _bmIxInject(ixa); return; }
+        // Question records that wait on proof bind first, so their flags are drawn from the bound record.
+        if (ciIsClaudeChat()) _bmProveQuestions();
         Array.from(getUserMessages()).forEach(function (el, idx) {
             inject(el, pathOrdinal(el, 'human', idx), 'user-msg', _readMessageText(el));
         });
