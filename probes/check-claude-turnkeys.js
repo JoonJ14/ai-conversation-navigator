@@ -823,11 +823,11 @@ const FIX_PLAIN = { mb: [], mbl: [], added: [] };
                       '; record ' + (recs[0].msgUuid ? 'uuid ' + short(recs[0].msgUuid) : 'hash ' + recs[0].contentHash) +
                       ' (superseded ' + short(p0.truth[qr]) + ', edited ' + short(pE.truth[qr]) + ')';
             if (!rekey) {
-                check('G17', '[guard] an edit in place, keys kept: resynced, and no question record holds the superseded uuid',
-                    after.length >= 1 && recs[0].msgUuid !== p0.truth[qr], d);
+                check('G17', '[guard] an edit in place, keys kept: resynced (once or twice, never more), and no question record holds the superseded uuid',
+                    after.length >= 1 && after.length <= 2 && recs[0].msgUuid !== p0.truth[qr], d);
             } else {
-                check('G17b', '[guard] an edit in place, keys taken 4 s later: the record made in between ends bound to the edited question',
-                    after.length >= 1 && recs[0].msgUuid === pE.truth[qr], d);
+                check('G17b', '[guard] an edit in place, keys taken 4 s later: at most two resyncs, and the record made in between ends bound to the edited question',
+                    after.length >= 1 && after.length <= 2 && recs[0].msgUuid === pE.truth[qr], d);
             }
         };
     }

@@ -57,7 +57,8 @@
 //   N1  [new]   ChatGPT: a regenerated answer and a new question, not in the index, are saved by the
 //               page's ids and read "Answer to Q#?" / "Q#?" until the one refresh lands, then
 //               "Answer to Q#16" / "Q#17"; the replaced answer's record reads "A#?"; one fetch per request
-//               (N1c) and no further fetch past the refetch cooldown; (N1d) a record whose one
+//               (N1c) and no further fetch past the refetch cooldown; (N1e) saves while the first load is
+//               in flight keep their request until a load holds them all; (N1d) a record whose one
 //               refresh was answered still reads "A#?", not "Answer to Q#?", after leaving the chat
 //               and coming back
 //   N2  [new]   Perplexity: a new entry's flag saves nothing and says so
@@ -653,6 +654,35 @@ window.GM_setValue = function (k, v) { _s[k] = v; };
               q16b.qLit === true && late.indexOf('Q#16') !== -1, 'Q16 lit=' + q16b.qLit + ' cards=' + short(late));
         await c.close();
         delay = 0;
+        mapping = gptMapping(T);
+
+        // ── G-E: saves while the first load is in flight (Tier 3) ── the load predates a
+        // regenerated answer A; A, then Q16 (which it holds), are saved before it lands. A's request
+        // must survive the load that holds only Q16, and the one follow-up must label A.
+        const REGEN_E = uuid(15, 'cdcdcdcd');
+        const TE = T.map((t) => Object.assign({}, t));
+        TE[15].aid = REGEN_E; TE[15].answer = 'Regenerated answer 16, again.';
+        delay = 8000;
+        c = await open('chatgpt', PLAIN, cfg(T), {}, { chatgpt: () => mapping, delay: () => delay });
+        await c.ev((a) => window.__mockWindow.setAnswer(15, a, 'Regenerated answer 16, again.'), REGEN_E);
+        await c.settle();
+        for (let k = 0; k < 100 && c.fetches === 0; k++) await sleep(100);   // the first load is in flight
+        const fetchesE0 = c.fetches;
+        await c.click('a', 15);
+        await c.click('q', 15);
+        mapping = gptMapping(TE);                       // what a fetch made from now on answers
+        delay = 3000;                                   // the follow-up lands 3 s after it is made
+        const loadedE = await c.indexed(16, 15000);
+        const firstE = await c.cards();
+        const flippedE = await c.waitCards((cs) => cs.indexOf('Answer to Q#16') !== -1, 30000);
+        await sleep(2000);
+        const fetchesE = c.fetches - fetchesE0;
+        check('N1e', '[new] an answer saved while the first load is in flight, then a question that load holds: the load answers ' +
+              'only the question, one follow-up fetch is made, and the answer then reads "Answer to Q#16"',
+              fetchesE0 === 1 && loadedE && firstE.indexOf('Answer to Q#?') !== -1 && flippedE.indexOf('Answer to Q#16') !== -1 &&
+              flippedE.indexOf('Q#16') !== -1 && fetchesE === 1,
+              'first load in flight=' + (fetchesE0 === 1) + ' loaded=' + loadedE + ' after the first load ' + short(firstE) + ' -> ' + short(flippedE) + ', follow-up fetches ' + fetchesE);
+        await c.close();
         mapping = gptMapping(T);
 
         // ── G-C: split sets seeded, then a reload ──

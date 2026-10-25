@@ -2711,7 +2711,7 @@
                 textAt: null, inFlightCid: null, loadGen: (_ix.loadGen || 0) + 1, indexGen: (_ix.indexGen || 0) + 1,
                 reason: '', retryDelayMs: 0, lastFetchAt: 0, refreshFailed: '', truncated: 0,
                 actedSig: '', qIdx: null, idAtPos: null, answerOf: null, answerAt: null, wantRefresh: '',
-                wantActed: '' };
+                wantActed: '', wantKeyless: false };
     }
     ixInvalidate();
 
@@ -3353,9 +3353,17 @@
             _ix.answerAt      = answerAt;
             // A bookmark's refresh request is answered by the load started for it, not by one
             // already in flight when it was made (_bmIxRequestRefresh).
+            // A load that already holds EVERY message still waiting answers their requests too, so
+            // no second fetch is made (saves while this load was in flight); one message it lacks,
+            // or a request with no message (a Perplexity flag without a key), keeps them all asked.
+            if (_ix.wantRefresh && _ix.wantRefresh !== _ix.wantActed && !_ix.wantKeyless &&
+                _bmIxAllHeld(qIdx, answerOf)) {
+                _ix.wantActed = _ix.wantRefresh;
+            }
             if (_ix.wantRefresh && _ix.wantRefresh === _ix.wantActed) {
                 _ixBmServed     = Math.max(_ixBmServed, parseInt(_ix.wantRefresh.slice(3), 10) || 0);
                 _ix.wantRefresh = '';
+                _ix.wantKeyless = false;
             }
             _ix.textAt        = textAt;
             _ix.entries       = res.entries;
@@ -3547,9 +3555,10 @@
     //            state: { aligns } shared by a caller that re-enters, so one cap covers it all
     //   done(ok, el, reason)
     //            ok: 'aligned' (within IX_JUMP_ALIGN_TOL px of the intended position, which is
-    //              clamped at the scroll ends) or 'cap' (IX_JUMP_MAX_ALIGNS writes used; one
-    //              console line gives the offset left over)
-    //            not ok: 'lost' (getEl() returned null), 'no-container', or check()'s reason
+    //              clamped at the scroll ends) or 'cap' (IX_JUMP_MAX_ALIGNS writes used, the
+    //              target in view; one console line gives the offset left over)
+    //            not ok: 'lost' (getEl() returned null), 'no-container', 'cap-out' (the cap
+    //              used and the target out of view), or check()'s reason
     // Every write is instant: write, settle IX_JUMP_SETTLE_MS, re-locate, measure, repeat.
     // A smooth glide over a list that mounts, unmounts and re-writes scrollTop as it goes was
     // cut short 8 of 8 times on Perplexity, where an instant scroll landed within 16 px 8 of 8,
@@ -3593,7 +3602,10 @@
             if (state.aligns >= IX_JUMP_MAX_ALIGNS) {
                 console.log('[ACN] jump: alignment cap reached (' + IX_JUMP_MAX_ALIGNS +
                             ' writes), target ' + off + ' px from its intended position');
-                finish(true, el, 'cap');
+                // Off by more than the tolerance is still a landing while the target is in view;
+                // out of view it is not, and the caller says so.
+                var seen = er.bottom > cr.top && er.top < cr.bottom;
+                finish(seen, seen ? el : null, seen ? 'cap' : 'cap-out');
                 return;
             }
             state.aligns++;
@@ -10646,12 +10658,28 @@
     // behind its cooldown (ixScan, _ix.wantRefresh). Each request is its own signature, so a
     // later click can ask again, still behind the cooldown; a load that fails is asked again
     // as the scan's own refetch is (ixDegrade).
+    // A save made while this conversation's first load is in flight asks too: that load can
+    // predate the message, and nothing else would ask again (an answer is never "stale" to the
+    // scan). The load drops the request when it holds every waiting message (ixLoad, _bmIxAllHeld).
     function _bmIxRequestRefresh(key) {
-        if (_bmIxState() !== 'ready') return;     // a load is under way, or the scan's retry owns it
+        var st = _bmIxState();
+        if (st === 'off') return;                 // the scan's retry owns it
+        if (st === 'loading' && !(key && _ix.status === 'loading' && _ix.cid === ixAdapter().getConversationId())) return;
         var n = ++_ixBmAsked;
         if (key) _bmIxWaiting[key] = n;
         _ix.wantRefresh = 'bm:' + n;
+        if (!key) _ix.wantKeyless = true;
         _ciScheduleRescan(0);
+    }
+
+    // Does this index hold every message whose request is still waiting? Keys are the pages' own
+    // ids, so a question's and an answer's never collide.
+    function _bmIxAllHeld(qIdx, answerOf) {
+        for (var k in _bmIxWaiting) {
+            if (!_bmIxWaiting.hasOwnProperty(k) || _bmIxWaiting[k] <= _ixBmServed) continue;
+            if (!qIdx.hasOwnProperty(k) && !answerOf.hasOwnProperty(k)) return false;
+        }
+        return true;
     }
 
     // "Q#n" is the Navigate number; an answer is "Answer to Q#n" (DEC-051's strings). "Q#…"
@@ -10831,9 +10859,12 @@
             }
             var found = _bmIxFind(a, key, type);
             if (found) { land(found); return; }
-            var token = _ixJumpToken;
+            // ixJump's own watch has stopped: the user taking the scroll back during this
+            // settle ends the jump too.
+            var token = _ixJumpToken, box = ciFindScrollContainer(), watch = box ? ixWatchUser(box) : null;
             setTimeout(function () {
-                if (token !== _ixJumpToken) return;
+                if (watch) watch.stop();
+                if (token !== _ixJumpToken || (watch && watch.scrolled)) return;
                 var again = _bmIxFind(a, key, type);
                 if (again) land(again);
                 else _bmIxFailToast(bm);

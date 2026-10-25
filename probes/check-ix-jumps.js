@@ -17,6 +17,8 @@
 // still for 800 ms: its bubble fully inside the scroller, and at most 24 px from the intended
 // position (centred, clamped at the scroll ends; a bubble taller than 0.8 x the scroller at its
 // start) — plus the resolved entry, no toast, and no "alignment cap reached" console line.
+// J15 is the one exception: a site that pulls every write back, where the honest outcome is the
+// cap's console line, a toast and no resolved entry.
 //
 // THE MOCKS: the jumpModel blocks appended to tests/mock-pages/perplexity-windowed.html and
 // chatgpt-windowed.html (off by default). Each fixture names the model it runs:
@@ -186,6 +188,13 @@ const FIXTURES = [
     { id: 'J14', label: 'guard', desc: 'a question bubble taller than 0.8 x the view lands at its start: bottom -> Q5',
       site: 'perplexity', n: 12, start: 'bottom', target: 4,
       model: Object.assign({}, LIVE_PPLX, { q: LIVE_Q.map((h, i) => i === 4 ? 560 : h), bubble: LIVE_Q.map((h, i) => i === 4 ? 520 : 0) }) },
+    // A site that pulls every write back (the pin re-asserting 1 ms after each release): the
+    // landing spends its 4 writes and the target, mounted above the latest entry's long answer,
+    // is still out of view. That is not a landing: a toast and no resolution (Tier 3). v12.14
+    // and a cap that always counts as landed both report it resolved.
+    { id: 'J15', label: 'new', desc: 'every write pulled back to the bottom: the cap with the target out of view is a toast, not a landing',
+      site: 'perplexity', n: 12, start: 'bottom', target: 10, expect: 'cap-out',
+      model: Object.assign({}, LIVE_PPLX, { a: LIVE_A.map((h, i) => i === 11 ? 1500 : h), pinMs: 1 }) },
     // ChatGPT.
     { id: 'K1', label: 'new', desc: 'ChatGPT live model: older turns prepended with no reserved height, bottom -> Q7',
       site: 'chatgpt', n: 24, start: 'bottom', target: 6,
@@ -321,8 +330,10 @@ const FIXTURES = [
         pageErrors = pageErrors.concat(m.errors || []);
         // A landing that converges never hits the alignment cap; one that does spends every
         // write and logs the cap line (the live observability channel) on each jump.
-        const ok = !m.crashed && m.clicked && m.resolved === String(fx.target) && !m.toast &&
-                   m.mounted && m.inView && Math.abs(m.err) <= 24 && m.capLines.length === 0;
+        const ok = fx.expect === 'cap-out'
+            ? !m.crashed && m.clicked && m.resolved === null && !!m.toast && m.capLines.length >= 1 && !m.inView
+            : !m.crashed && m.clicked && m.resolved === String(fx.target) && !m.toast &&
+              m.mounted && m.inView && Math.abs(m.err) <= 24 && m.capLines.length === 0;
         const detail = m.crashed ? 'crashed: ' + m.crashed
             : 'resolved=' + m.resolved + ' toast=' + (m.toast ? 'yes' : 'no') + ' mounted=' + m.mounted +
               ' inView=' + m.inView + ' err=' + m.err + 'px scrollTop=' + m.scrollTop + '/' + m.max +
