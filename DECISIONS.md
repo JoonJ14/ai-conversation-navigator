@@ -1394,9 +1394,19 @@ review record. Updated 2026-10-24:
       14); a second click lands exactly.
     - Perplexity jumps: **FAIL** as a one-click jump. A mid-conversation jump stops partway (from Q12, clicking Q5
       stopped mid-answer 7); it takes 2–3 clicks to arrive. The first question works. Chrome comparison: not checked
-      yet.
+      yet. *Checked later the same day, below.*
+    - Bookmarks on ChatGPT and Perplexity (Safari, the same run; confirms ROADMAP 13's logged item in a real
+      browser):
+      - Answers: no flags at all on either site.
+      - Questions: labels are on-screen positions (two different questions both read "Q4"; a 16-question thread
+        shows only Q1–Q4); a jump to an off-screen question shows "not currently rendered".
     - So this item: lists **PASS**; it stays **open for the Perplexity jump** (planned for v12.15, part B; ROADMAP
       13).
+
+    **Chrome + Tampermonkey, v12.14, 2026-10-24** [measured, owner], recorded as written: Perplexity jumps — Q1
+    always lands in one click. Other jumps almost never do: from the top, clicking Q2 goes to around Q3–Q6, and it
+    takes several clicks to arrive. Even a one-click landing often stops slightly above or below the question. So the
+    Perplexity jump defect is not Safari-specific.
   - **Waiver:** v12.10 was merged before Safari's ChatGPT and Perplexity acceptance, on the owner's call. The debt
     stays owed on the merged build. *Paid 2026-10-23 (the update above); owed again since 2026-10-24 (the
     correction above). Lists paid 2026-10-24 on v12.14; the Perplexity jump is still owed.*

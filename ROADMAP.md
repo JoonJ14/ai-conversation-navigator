@@ -820,8 +820,12 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
           14); a second click lands exactly.
         - Perplexity jumps: FAIL as a one-click jump. A mid-conversation jump stops partway (from Q12, clicking Q5
           stopped mid-answer 7); it takes 2–3 clicks to arrive. The first question works. Chrome comparison: not
-          checked yet.
+          checked yet (checked later the same day, next item).
         - So DEC-031's v12.10 Safari item: lists PASS; it stays open for the Perplexity jump.
+      - **Perplexity jumps, Chrome + Tampermonkey, v12.14** [measured, owner, 2026-10-24], recorded as written: Q1
+        always lands in one click. Other jumps almost never do: from the top, clicking Q2 goes to around Q3–Q6, and it
+        takes several clicks to arrive. Even a one-click landing often stops slightly above or below the question. So
+        part B is not Safari-specific.
       - Bookmarks on ChatGPT and Perplexity (Safari; confirms the logged item below in a real browser):
         - Answers: no flags at all on either site.
         - Questions: labels are on-screen positions (two different questions both read "Q4"; a 16-question thread
