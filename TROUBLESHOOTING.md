@@ -695,11 +695,11 @@ The design alternatives are in DEC-051; this is the order the thinking went in.
 
 ---
 
-## OPEN — Claude refetches the whole conversation while you only scroll: the question side (found 2026-10-23; the planned third PR)
+## OPEN — Claude refetches the whole conversation while you only scroll: the question side (found 2026-10-23; planned for v12.15, part C)
 
 **Phase:** v12.12 acceptance | **Severity:** Medium — a full re-download (about 3.3 MB on a long chat, measured in
 July) for each distinct set of mismatching mounted questions, per page load, and again for a set whose download the
-user scrolled away from | **Status:** Open; the planned THIRD PR, Claude markup follow-ups (ROADMAP 14)
+user scrolled away from | **Status:** Open; planned for v12.15, part C (Claude markup follow-ups, ROADMAP 14)
 
 ### Symptom
 
@@ -710,7 +710,7 @@ one page load on v12.13 [measured, Chrome page realm, 2026-10-23/24].
   question row 290 mounted. Scrolling back past it caused no second refetch. The owner's 3 (Firefox) and 2 (Safari)
   then mean several such questions in the range scrolled, or scrolling on during a download [inferred].
 - **The owner's rule:** "If it's the same cause (rendered answers not matching the payload), fix it in PR #84; if
-  not, log it." Verdict: not the same cause. It is rendered questions, not answers, so it was logged for the third PR.
+  not, log it." Verdict: not the same cause. It is rendered questions, not answers, so it was logged for the third PR (now v12.15, part C).
   It is the same family, though (rendered text against payload text), and likely the same Claude markup change.
 
 ### Diagnosis
@@ -795,14 +795,14 @@ one page load on v12.13 [measured, Chrome page realm, 2026-10-23/24].
 - **Why the suite never saw it:** the only refetch guard in the tests measures an idle page (36 s, no clicks, no
   scrolling: `tests/test-all-platforms.js`). Every mock question is one `<p>` holding exactly its payload text, so the
   `'e'` branch never fires there. A6 passes on v12.13 for the same reason. This is the static-mock blind spot. The
-  third PR needs a multi-block question fixture and a refetch count while scrolling across windows.
+  v12.15 part C needs a multi-block question fixture and a refetch count while scrolling across windows.
 - **Comments that disagree with the code** (v12.12; log, not fixed):
   - "resynced exactly once" above `_ciPendingResyncSig`: since `c92b539` it only moves the signature to awaiting.
   - "a permanent mismatch is resynced once and left alone": true per signature, not per question.
   - The regenerate-detection comment in `_ciNeedsResync`'s neighbourhood describes a check that never runs on the
     live DOM (the next entry).
 
-### Options for the third PR (none verified)
+### Options for v12.15, part C (none verified)
 
 - (a) Leave `ciMessageNodeWithin` alone (v12.14 did): no new refetch source, and regenerate detection stays dead.
 - (b) Strip the activity-line subtree before reading answer text. This needs a measured selector. It must also live
@@ -821,7 +821,7 @@ one page load on v12.13 [measured, Chrome page realm, 2026-10-23/24].
 
 ### Owed
 
-The fix belongs with the third PR: one measurement per mounted question (block count, the comparison at its path
+The fix belongs with v12.15, part C: one measurement per mounted question (block count, the comparison at its path
 position) before choosing how the comparison should read blocks.
 - **The method, and its traps** (from the investigation's verifier):
   - Run the comparison in the page realm with the userscript disabled, or port `_cleanText`'s exclusions
@@ -848,10 +848,10 @@ position) before choosing how the comparison should read blocks.
 
 ---
 
-## OPEN — Claude: a regenerated or late answer no longer triggers a resync (found 2026-10-23; the planned third PR)
+## OPEN — Claude: a regenerated or late answer no longer triggers a resync (found 2026-10-23; planned for v12.15, part C)
 
 **Phase:** v12.12 acceptance | **Severity:** Medium — Search, Summary and Export keep the old answer until the next
-prompt [inferred] | **Status:** Open; the planned THIRD PR (ROADMAP 14)
+prompt [inferred] | **Status:** Open; planned for v12.15, part C (ROADMAP 14)
 
 The answer branches of `_ciAssistantStale` ('g', 's', 'o') reach answers only through `ciMessageNodeWithin`, which
 looks for `.font-claude-response`; no row holds it any more, so it returns the row and every answer row is skipped

@@ -16,9 +16,13 @@ Answers are now found inside rows, identified by position, and labelled "Answer 
   Chrome's and Firefox's steps 4–5 not reported (a partial waiver, DEC-031).
 - **The session-close PR** (`docs/session-close-v12.14`, docs only): this handoff, the archive, ROADMAP's order and
   owed list. **The owner merges it**, or the next session does on the owner's OK.
-- **Next session: the third PR, Claude markup follow-ups (ROADMAP 14).** **The owner gives its spec** as the first
-  message of the next session, together with the kickoff prompt (§K). Nothing here pre-writes its scope beyond ROADMAP
-  14.
+- **Next session: v12.15, one combined PR** (the owner's plan, 2026-10-24), in three parts:
+  - A, ChatGPT and Perplexity bookmarks;
+  - B, the Perplexity one-click jump;
+  - C, the Claude markup follow-ups.
+
+  **The owner gives the full spec** as the first message of the next session, together with the kickoff prompt (§K).
+  Nothing here pre-writes its scope (§G).
 
 ---
 
@@ -29,8 +33,10 @@ through `acnUpdateValue`, which applies one change to the value as stored at the
 before the write, on Safari a queue per key that re-reads with `GM.getValue` (DEC-050; CLAUDE.md's storage line). On
 Claude chats, bookmarks look for answers only inside the feed's rows (`ciAnswerNodeInRow`) and place each answer row
 on its path entry by position (`ciAnswerMap`), never by text; an answer bookmark reads "Answer to Q#n", an unbound one
-"A#?" (DEC-051). `getAIMessages`, `ciMessageNodeWithin` and the staleness check are unchanged on purpose. What stays
-open is ROADMAP 14 (the third PR's items and the logged list) and the owed acceptance items in §G.
+"A#?" (DEC-051). `getAIMessages`, `ciMessageNodeWithin` and the staleness check are unchanged on purpose. On ChatGPT
+and Perplexity, bookmarks are still positional, which the owner confirmed in Safari on 2026-10-24 (§B.7), and
+Perplexity's jump takes 2–3 clicks there. What stays open is v12.15 (§G: ROADMAP 13's bookmarks and jump, ROADMAP
+14's Claude follow-ups) and the owed acceptance items in §G.
 
 ---
 
@@ -51,7 +57,7 @@ open is ROADMAP 14 (the third PR's items and the logged list) and the owed accep
     never reached the index jump.
 - **Also found:** the Safari two-tab loss (confirmed by the owner's test: LOST), which became PR #85; a refetch while
   only scrolling, traced to the QUESTION side (multi-block questions: CSS list numbers and block joins), logged as the
-  third PR; dead regenerate detection; the misleading "all records carry a uuid" console line.
+  third PR (now v12.15, part C); dead regenerate detection; the misleading "all records carry a uuid" console line.
 - **Path.** TROUBLESHOOTING "FIXED IN v12.14 — Claude answer bookmarks" and the two OPEN entries after it;
   DOM-REFERENCE "October 2026: answers, rows and the project link".
 
@@ -139,6 +145,28 @@ open is ROADMAP 14 (the third PR's items and the logged list) and the owed accep
 - **Miscounts corrected before or after commit:** the adversarial tally (15 → 16), a token total, and PR #85's
   CHANGELOG naming `c4d1ec4` as the final build after two code commits followed it.
 
+### 7. The owner's results and plan, from the planning thread (2026-10-24, after the merges)
+
+- **New owner results** [measured, owner, Safari + Userscripts, v12.14], recorded as written in DEC-031 and ROADMAP 13:
+  - **v12.10's owed Safari check, ChatGPT and Perplexity:**
+    - question lists PASS on both (all questions listed);
+    - ChatGPT jumps work, but a far jump sometimes lands near the target (e.g. on answer 14 instead of question 14);
+      a second click lands exactly;
+    - Perplexity jumps FAIL as a one-click jump: a mid-conversation jump stops partway (from Q12, clicking Q5
+      stopped mid-answer 7), and it takes 2–3 clicks to arrive. The first question works. The Chrome comparison has
+      not been checked yet.
+
+    So DEC-031's v12.10 Safari item: lists PASS; it stays open for the Perplexity jump.
+  - **Bookmarks on ChatGPT and Perplexity** (Safari; confirms ROADMAP 13 in a real browser):
+    - answers: no flags at all on either site;
+    - questions: labels are on-screen positions (two different questions both read "Q4"; a 16-question thread
+      shows only Q1–Q4), and a jump to an off-screen question shows "not currently rendered".
+- **The next session's plan:** one combined PR, v12.15 (§G.1). It replaces the earlier plan of a third PR holding
+  ROADMAP 14 alone.
+- **Confirmed already in the repo:** the storage-key answer (§B.4; docs/BOOKMARKS.md), the later items (ROADMAP,
+  "Current Status") and the process (§D). One pointer was added: "Perplexity attachment images" now says where the
+  repo records it (the gallery marks Perplexity unsupported; there is no backlog item of its own yet).
+
 ---
 
 ## C. Architecture snapshot
@@ -213,29 +241,50 @@ Changed:
 | Path | Why |
 |---|---|
 | `HANDOFF.md` | this file |
-| `ROADMAP.md` **item 14** | the third PR's items and the logged list; "Current Status" has the order after it |
-| `TROUBLESHOOTING.md` → "OPEN — Claude refetches the whole conversation while you only scroll" and "OPEN — Claude: a regenerated or late answer no longer triggers a resync" | the third PR's debugging stories so far |
+| `ROADMAP.md` "Current Status" | the v12.15 plan, the later items, the owed list |
+| `ROADMAP.md` **item 13** | parts A and B: the owner's Safari results, the logged bookmark and jump items, the ids the adapters fetch (`data-turn-key`, `backend_uuid`) |
+| `ROADMAP.md` **item 14** | part C's items and the logged list |
+| `ROADMAP.md` → "Porting the Layer 4 response to another platform", **Step 4** | part A: users' saved bookmarks on a platform that changes identity |
+| `DECISIONS.md` **DEC-046** | parts A and B: the index adapters (`IX_ADAPTERS`, `ixAdapter`, `ixLoad`, `ixScan`, `ixJump`), the Perplexity jump's wheel event |
+| `probes/check-index-adapters.js`, `tests/mock-pages/chatgpt-windowed.html`, `perplexity-windowed.html` | parts A and B: the mocks that genuinely unmount, and the probe built on them |
+| `TROUBLESHOOTING.md` → "OPEN — Claude refetches the whole conversation while you only scroll" and "OPEN — Claude: a regenerated or late answer no longer triggers a resync" | part C's debugging stories so far, the options and the measurement method |
 | `DECISIONS.md` **DEC-051**, **DEC-050**, **DEC-031** | answer identity and its residuals; cross-tab saves; live status |
-| `DOM-REFERENCE.md` → Claude, "October 2026: answers, rows and the project link" | the markup the third PR reads |
-| The userscript: `_ciAssistantStale`, `_ciNeedsResync`, `_ciMergeLiveMessages`, `ciMessageNodeWithin`, `ciMatchRowToPath`, `_cleanText`, `_mdFlatten`, `ciAnswerMap` | the staleness check and the question matcher (third PR), and what v12.14 built beside them |
-| `probes/check-answer-bookmarks.js` (A6: no refetch while scrolling; A25: the July markup's control) | a refetch instrument to build on. A6 passes on v12.13: the mock has no multi-block question yet, so the third PR needs a new fixture before A6 can fail on the question side |
+| `DOM-REFERENCE.md` → Claude, "October 2026: answers, rows and the project link" | the markup part C reads |
+| The userscript: `_ciAssistantStale`, `_ciNeedsResync`, `_ciMergeLiveMessages`, `ciMessageNodeWithin`, `ciMatchRowToPath`, `_cleanText`, `_mdFlatten`, `ciAnswerMap` | the staleness check and the question matcher (part C), and what v12.14 built beside them |
+| `DECISIONS.md` **DEC-051**, `docs/BOOKMARKS.md` | part A's model: how Claude answers got identity by position, proof binding, "A#?" |
+| `probes/check-answer-bookmarks.js` (A6: no refetch while scrolling; A25: the July markup's control) | a refetch instrument to build on. A6 passes on v12.13: the mock has no multi-block question yet, so part C needs a new fixture before A6 can fail on the question side |
 | `agent_docs/conventions.md` → "Lessons Learned" | this session's five lessons |
 
 ---
 
 ## G. What comes next
 
-1. **The third PR: Claude markup follow-ups (ROADMAP 14).** **The owner gives its spec** as the first message of the
-   next session. ROADMAP 14 names the items; do not pre-scope beyond it:
-   - the question-side refetch while scrolling (multi-block questions);
-   - dead regenerate and late-answer detection;
-   - the question-identity risk.
+1. **v12.15: one combined PR, three parts in separate commits** (the owner's plan, 2026-10-24):
+   - **A, ChatGPT and Perplexity bookmarks:** questions and answers keyed by the ids the adapters fetch; "Q#n" /
+     "Answer to Q#n"; jumps to off-screen messages; legacy records bind on proof or show "#?" (ROADMAP 13).
+   - **B, the Perplexity one-click jump**, and ChatGPT's near-miss if it is the same cause (ROADMAP 13).
+   - **C, the Claude markup follow-ups** (ROADMAP 14): the question-side refetch while scrolling, dead regenerate and
+     late-answer detection, the question-identity risk.
 
-   Same scope guard and measure-first rules: a read-only Phase 1, the owner decides, then code. The first
-   measurement is named in TROUBLESHOOTING's question-side entry, under "Owed": for each mounted question, its block
-   count and the comparison at its path position. Before measuring live, confirm which userscript version is
-   installed in the measurement browser (DEC-027). Branch from `main` after the session-close PR merges (ask if it
-   has not).
+   **The owner gives the full spec** as the first message of the next session. Do not pre-write its scope from this
+   list.
+
+   The shape:
+   - one read-only Phase 1 for all three parts;
+   - one owner decision checkpoint;
+   - one combined owner acceptance pass;
+   - one merge.
+
+   Its process changes: **Tier 3 is capped at 5 rounds**, and **new issues found during acceptance are logged for a
+   later PR unless they block this one.** The same scope guard and measure-first rules apply.
+
+   Where Phase 1 can start:
+   - part C: the first measurement is named in TROUBLESHOOTING's question-side entry, under "Owed": for each mounted
+     question, its block count and the comparison at its path position;
+   - part B: the Chrome comparison the owner has not run yet.
+
+   Before measuring live, confirm which userscript version is installed in the measurement browser (DEC-027).
+   Branch from `main` after the session-close PR merges (ask if it has not).
 2. **Owed acceptance, recorded as "not reported" until the owner sends results** (DEC-031):
    - PR #85 (v12.13): steps 2–7, all three browsers.
    - PR #86 (v12.14): Chrome's and Firefox's steps 4–5. The optional steps 6–7 were not run on any browser.
@@ -243,15 +292,20 @@ Changed:
      and Firefox: bookmarks and language surviving the update, and plan usage.
    - v12.11: ChatGPT's 130-question dots (not checked); Chrome and Firefox, the panel closing on navigation
      unchanged (not reported).
-   - v12.10: Safari's check of ChatGPT and Perplexity (lists and jumps). Owed (owner, 2026-10-24). DEC-031 keeps
-     the 2026-10-23 "Passed" pick, with the correction under it. The owner's v12.12 report lists the same check as
-     never done.
-3. **Then, in the owner's order (owner, 2026-10-24; the owner decides the order within it):** Grok on all three
-   browsers; Gemini (does it keep or slide older turns?); Perplexity attachment images; ChatGPT and Perplexity answer
-   bookmarks (ROADMAP 13); the CI rebuild (0e); the context-window meter's recalibration, verifying the limit per
-   model first (12); the stale "Turn N" badge on non-Claude sites; the "reset, keeping a backup copy" action (0d);
-   the AbortController follow-up for the ladder's caps (0d); Chrome's intermittent v12.9-era 403 (never reproduced;
-   logged, not active); a someday Windows spot-check of Chrome and Firefox (low priority).
+   - v12.10: Safari's check of ChatGPT and Perplexity. Lists PASS (owner, 2026-10-24, on v12.14). It stays open for
+     the Perplexity jump (v12.15 part B). ChatGPT's far jump sometimes lands near the target; the Chrome comparison
+     has not been checked. DEC-031 keeps the earlier records under it.
+3. **Later; the owner decides the order** (2026-10-24):
+   - Grok on all three browsers;
+   - Gemini (does it keep or slide older turns?);
+   - Perplexity attachment images;
+   - the CI rebuild (0e);
+   - the context-window meter's recalibration to the current limit, verifying it per model first (12);
+   - the stale "Turn N" badge on non-Claude sites;
+   - the "reset, keeping a backup copy" action (0d);
+   - the AbortController follow-up for the ladder's caps (0d);
+   - Chrome's intermittent v12.9-era 403 (never reproduced since; logged, not active);
+   - someday, at low priority, a Windows spot-check of Chrome and Firefox.
 
 ---
 
@@ -272,7 +326,8 @@ Carried over, still in force:
   timeout on this Mac (its `&&` chain): run the probes after it directly.
 - **Every claim carries its measurement context.** Safari + Userscripts can only be verified by the owner.
 - **CI is not real-browser evidence.** Restart stalled or failed jobs; never override.
-- **Review:** the pipeline's Tier 3 (Codex CLI) runs without asking and loops until clean (10 rounds at most).
+- **Review:** the pipeline's Tier 3 (Codex CLI) runs without asking and loops until clean: 10 rounds at most by
+  default, **5 for v12.15** (the owner, 2026-10-24).
 - **`/babysit-pr-cycle`, `/baton-handoff`, `/update-project-docs`:** run them only when the owner names them. On a
   babysit after a clean automatic Codex review, post `@codex review` once more.
 - **Git:** explicit `git add` paths; never push to `main`.
@@ -283,6 +338,9 @@ New this session:
   read-only Phase 1 before code.
 - **Live Chrome checks** go through claude-in-chrome on the owner's real profile; if the extension does not connect,
   launch Chrome, retry, then ask the owner (they reconnect it with `/chrome`).
+- **For v12.15** (the owner, 2026-10-24): one Phase 1, one decision checkpoint, one combined acceptance pass, one
+  merge; Tier 3 capped at 5 rounds; new issues found during acceptance are logged for a later PR unless they block
+  this one.
 
 ---
 
@@ -323,7 +381,9 @@ Not queued; §G comes first. Each is logged where named.
   bookmarks would stay under the old address (§B.4).
 - **The mock does not recycle nodes;** R6 moves them by hand. Whether Claude reuses or rebuilds message nodes has never
   been measured live (ROADMAP item 8).
-- **Owner acceptance gaps** are listed in §G.2, including v12.10's Safari ChatGPT and Perplexity check.
+- **Owner acceptance gaps** are listed in §G.2, including v12.10's Safari check, open for the Perplexity jump.
+- **On ChatGPT and Perplexity, bookmarks are positional** [measured, owner, Safari, v12.14]: answers get no flag, two
+  different questions can read "Q4", and a jump to an off-screen question fails. v12.15 part A.
 - **Test engines:** local mac WebKit fails the 4 known jump entries; `check-usage-state` U10 times out on Firefox on
   this Mac, intermittently (2026-10-24: 2 of 3 runs passed, the final run among them; TROUBLESHOOTING).
 
@@ -333,7 +393,7 @@ Not queued; §G comes first. Each is logged where named.
 
 ```
 Pick up AI Conversation Navigator from the handoff at HANDOFF.md
-(2026-10-24, v12.13 and v12.14).
+(2026-10-24, v12.13 and v12.14; next: v12.15).
 
 CLAUDE.md auto-loads. Read HANDOFF.md before touching anything, especially §G (what
 comes next), §H (owner rules) and §J (risk caveats).
@@ -348,12 +408,21 @@ open, HANDOFF.md and ROADMAP.md on main are the OLD ones: read both from that br
 (git show origin/docs/session-close-v12.14:HANDOFF.md, and the same for ROADMAP.md)
 and ask me whether to merge it before you branch.
 
-THIS SESSION: the third PR, Claude markup follow-ups (ROADMAP 14). My spec for it is
-in this message, after this prompt. Confirm your understanding of the handoff and the
-spec, then start with a read-only Phase 1: measure first, report, and wait for my
-decisions before any code. Read TROUBLESHOOTING's two OPEN Claude entries and the
-staleness code (HANDOFF §F) before reasoning about a cause. Before any live
-measurement, confirm which userscript version is installed in that browser (DEC-027).
+THIS SESSION: v12.15, ONE combined PR in three parts, separate commits (HANDOFF §G.1):
+  A. ChatGPT + Perplexity bookmarks (ROADMAP 13)
+  B. the Perplexity one-click jump, and ChatGPT's near-miss if same cause (ROADMAP 13)
+  C. the Claude markup follow-ups (ROADMAP 14)
+My full spec is in this message, after this prompt; it decides the scope, not the
+handoff. Confirm your understanding of the handoff and the spec, then run ONE
+read-only Phase 1 for all three parts: measure first, report, and wait for my
+decisions (one checkpoint) before any code. Read HANDOFF §B.7, ROADMAP 13 and 14,
+DEC-046, and TROUBLESHOOTING's two OPEN Claude entries before reasoning about a
+cause. Before any live measurement, confirm which userscript version is installed
+in that browser (DEC-027).
+
+PROCESS FOR v12.15: Tier 3 capped at 5 rounds. One combined owner acceptance pass,
+one merge. New issues found during acceptance are logged for a later PR unless they
+block this one.
 
 STANDING RULE: Safari, Chrome and Firefox are equal priority; none is primary
 (DEC-047). I work mostly on the Mac: Safari first, Chrome if Safari fails.

@@ -34,7 +34,7 @@ This document tracks features and platform expansions we're considering but have
 
 **v12.14 (PR #86, merged 2026-10-24 as `79e4953`).** Owner acceptance: steps 1–3 passed on all three browsers; Chrome's and Firefox's steps 4–5 not reported (a partial waiver, DEC-031). Claude answers have flags in project chats again, answer bookmarks
 key to the message and read "Answer to Q#n", and existing answer bookmarks bind on proof or show "A#?" (DEC-051;
-TROUBLESHOOTING, "Claude answer bookmarks"). Next: the third PR, Claude markup follow-ups (item 14).
+TROUBLESHOOTING, "Claude answer bookmarks"). Next: v12.15, one combined PR (below).
 
 **v12.13 (PR #85, merged 2026-10-24 as `b96ec7b`).** A second tab no longer erases what another tab saved (DEC-050).
 Owner acceptance: step 1 passed on all three browsers, steps 2–7 not reported (a waiver, DEC-031).
@@ -62,29 +62,43 @@ v12.9 paragraphs above are history.
 
 **Next (owner, 2026-10-24):** the bookmark issue the owner found in v12.12's acceptance became two PRs: v12.13
 (a second tab erased the first tab's bookmarks) and v12.14 (answer bookmarks), both merged after the owner's
-acceptance with partial waivers, recorded in DEC-031 with v12.12's itemized results. Then the third PR, Claude markup follow-ups (item 14), in a new
-session (the owner's plan, 2026-10-24).
+acceptance with partial waivers, recorded in DEC-031 with v12.12's itemized results.
 
-Then, in the owner's order (2026-10-24; the owner decides the order within it):
-1. Grok on all three browsers (item 13).
-2. Gemini: does it keep or slide older turns (item 13)?
-3. Perplexity attachment images.
-4. ChatGPT and Perplexity answer bookmarks (item 13).
-5. The CI rebuild (item 0e).
-6. The context-window meter's recalibration to the current limit, after verifying the limit per model (item 12).
-7. The stale "Turn N" badge on non-Claude sites. It is logged in TROUBLESHOOTING, "RESOLVED — Claude's
-   turn-counter dots", under "Logged, not fixed".
-8. The "reset, keeping a backup copy" action (item 0d).
-9. The AbortController follow-up for the ladder's caps (item 0d).
-10. Chrome's intermittent v12.9-era 403 (item 0d). It is logged and never reproduced; not active.
-11. Someday, at low priority: a spot-check of Chrome and Firefox on Windows. It is logged here only.
+**Then v12.15: one combined PR, in a new session** (the owner's plan, 2026-10-24; it replaces the earlier plan of a
+third PR holding item 14 alone). Three parts, in separate commits:
+- **A, ChatGPT and Perplexity bookmarks** (item 13): questions and answers keyed by the ids the adapters fetch;
+  "Q#n" / "Answer to Q#n"; jumps to off-screen messages; legacy records bind on proof or show "#?".
+- **B, the Perplexity one-click jump** (item 13), and ChatGPT's near-miss if it is the same cause.
+- **C, the Claude markup follow-ups** (item 14): the question-side refetch while scrolling, dead regenerate and
+  late-answer detection, the question-identity risk.
+
+It gets one read-only Phase 1 for all three parts, one owner decision checkpoint, one combined owner acceptance pass
+and one merge. Its process changes: Tier 3 is capped at 5 rounds, and new issues found during acceptance are logged
+for a later PR unless they block this one. **The owner gives the full spec** as the first message of that session;
+nothing here pre-writes its scope.
+
+Later; the owner decides the order (2026-10-24):
+- Grok on all three browsers (item 13).
+- Gemini: does it keep or slide older turns (item 13)?
+- Perplexity attachment images. The gallery has marked Perplexity unsupported since v11.x, because its attachments
+  render as text labels, not `<img>` tags ("Image Gallery Platform-Specific Selectors", below). There is no backlog
+  item of its own yet.
+- The CI rebuild (item 0e).
+- The context-window meter's recalibration to the current limit, after verifying the limit per model (item 12).
+- The stale "Turn N" badge on non-Claude sites. It is logged in TROUBLESHOOTING, "RESOLVED — Claude's
+  turn-counter dots", under "Logged, not fixed".
+- The "reset, keeping a backup copy" action (item 0d).
+- The AbortController follow-up for the ladder's caps (item 0d).
+- Chrome's intermittent v12.9-era 403 (item 0d): never reproduced since, logged, not active.
+- Someday, at low priority: a spot-check of Chrome and Firefox on Windows. It is logged here only.
 
 Owed meanwhile, "not reported" until the owner sends results (DEC-031):
 - PR #85's steps 2–7;
 - PR #86's steps 4–5 on Chrome and Firefox;
 - the v12.12 items never reported;
-- v12.10's Safari check of ChatGPT and Perplexity, lists and jumps. It was recorded as passed on 2026-10-23 and
-  corrected to owed on 2026-10-24 (owner, DEC-031).
+- v12.10's Safari check of ChatGPT and Perplexity: the lists **PASS** (owner, 2026-10-24, on v12.14). It stays open
+  for the Perplexity jump (v12.15, part B). ChatGPT's far jump sometimes lands near the target. The Chrome comparison
+  has not been checked.
 
 **v12.8 (PR #73, merged)** — a failed usage fetch says so instead of "loading" forever (DEC-044).
 
@@ -798,6 +812,22 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
     adapter per platform (DEC-046; `IX_ADAPTERS` in the userscript).
     - **Done:** Claude (wrapped; the v12.0 index unchanged), ChatGPT and Perplexity (v12.10, PR #78; live
       status: DEC-031).
+    - **The owner's Safari results, 2026-10-24** [measured, owner, Safari + Userscripts, v12.14], recorded as
+      written:
+      - v12.10's owed Safari check, ChatGPT and Perplexity:
+        - Question lists: PASS on both (all questions listed).
+        - ChatGPT jumps: work, but a far jump sometimes lands near the target (e.g. on answer 14 instead of question
+          14); a second click lands exactly.
+        - Perplexity jumps: FAIL as a one-click jump. A mid-conversation jump stops partway (from Q12, clicking Q5
+          stopped mid-answer 7); it takes 2–3 clicks to arrive. The first question works. Chrome comparison: not
+          checked yet.
+        - So DEC-031's v12.10 Safari item: lists PASS; it stays open for the Perplexity jump.
+      - Bookmarks on ChatGPT and Perplexity (Safari; confirms the logged item below in a real browser):
+        - Answers: no flags at all on either site.
+        - Questions: labels are on-screen positions (two different questions both read "Q4"; a 16-question thread
+          shows only Q1–Q4); a jump to an off-screen question shows "not currently rendered".
+    - **Planned for v12.15** (the owner, 2026-10-24): part A, ChatGPT and Perplexity bookmarks; part B, the
+      Perplexity one-click jump, and ChatGPT's near-miss if it is the same cause. The owner gives the spec.
     - **Pending:** Grok, untested on all three browsers; Gemini, once its virtualization is measured. The
       owner decides their order (ROADMAP, "Current Status"; HANDOFF.md, §G).
     - **How to add the next one:** "Porting the Layer 4 response to another platform" below, then one
@@ -821,8 +851,10 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         they match nothing on the new shell, Summary, Export and Search see no answers there.
       - The Perplexity jump releases the scroller's stick-to-bottom pin with a synthetic wheel event. Measured
         in Chrome's page realm only; in Firefox's Tampermonkey sandbox the event crosses realms (owner
-        acceptance).
-      - **Answer bookmarks on ChatGPT and Perplexity** (logged 2026-10-24, from the Claude answer-bookmark PR):
+        acceptance). Since 2026-10-24 the Perplexity jump is known to stop partway on Safari (above). Whether this
+        is related is not known [unmeasured].
+      - **Answer bookmarks on ChatGPT and Perplexity** (logged 2026-10-24, from the Claude answer-bookmark PR;
+        confirmed in Safari the same day, above; v12.15 part A):
         the same class of problem as Claude's, and worse. Questions and answers alike key to a position, with
         no uuid route and no index jump [code]. ChatGPT's answers may get no flags at all, since its answer
         selectors were not re-measured since February [inferred]. Both payloads carry ids a fix could key to: the
@@ -830,7 +862,8 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         which covers a question and its answer [code]. Perplexity's `getAIMessages` uses `[class*="prose"]`, which may
         match nested nodes and so double or misplace answer flags [inferred, unmeasured].
 
-14. **Claude markup follow-ups — the planned THIRD PR (owner, 2026-10-24).** After the answer-bookmark PR (v12.14).
+14. **Claude markup follow-ups — part C of v12.15 (owner, 2026-10-24).** First planned as a third PR of its own after
+    the answer-bookmark PR (v12.14); now one of v12.15's three parts (Current Status).
     Claude's October 2026 markup broke two assumptions the staleness check rests on (TROUBLESHOOTING has both):
     - **The question-side refetch:** a multi-block question's rendered text never equals its payload, so each
       distinct set of mismatching mounted questions re-downloads the conversation once per page load (and again if

@@ -1345,7 +1345,8 @@ review record. Updated 2026-10-24:
   - **Itemized, recorded as reported (2026-10-24):**
     - **Safari + Userscripts:** plan usage shows on Claude: **PASS**. A question bookmark survives a reload: **PASS**.
       A moved button survives a reload: **PASS**. **Not reported** (the owner's words: "Not yet checked"): the
-      language change, the turn-counter dots, quit-and-reopen Safari, ChatGPT and Perplexity on Safari.
+      language change, the turn-counter dots, quit-and-reopen Safari, ChatGPT and Perplexity on Safari. (ChatGPT and
+      Perplexity on Safari were later checked on the v12.14 build: v12.10 below.)
     - **Chrome + Tampermonkey and Firefox + Tampermonkey:** question bookmarks work. **Not reported** (the owner's
       words: "Not yet reported"): whether the bookmarks and language from before the update survived it, and plan
       usage. The owner wrote on 2026-10-24 that "PR #82's Firefox acceptance (old bookmarks and language surviving the
@@ -1387,9 +1388,18 @@ review record. Updated 2026-10-24:
     *Corrected 2026-10-24 (owner): **OWED**. The owner's v12.12 itemized report lists "ChatGPT and Perplexity on
     Safari" as never checked (v12.12 above), and when asked which record stands, the owner chose owed. The
     2026-10-23 pick stays above as it was recorded.*
+    **Run 2026-10-24 on the v12.14 build** [measured, owner, Safari + Userscripts], recorded as written:
+    - Question lists: **PASS** on both (all questions listed).
+    - ChatGPT jumps: work, but a far jump sometimes lands near the target (e.g. on answer 14 instead of question
+      14); a second click lands exactly.
+    - Perplexity jumps: **FAIL** as a one-click jump. A mid-conversation jump stops partway (from Q12, clicking Q5
+      stopped mid-answer 7); it takes 2–3 clicks to arrive. The first question works. Chrome comparison: not checked
+      yet.
+    - So this item: lists **PASS**; it stays **open for the Perplexity jump** (planned for v12.15, part B; ROADMAP
+      13).
   - **Waiver:** v12.10 was merged before Safari's ChatGPT and Perplexity acceptance, on the owner's call. The debt
     stays owed on the merged build. *Paid 2026-10-23 (the update above); owed again since 2026-10-24 (the
-    correction above).*
+    correction above). Lists paid 2026-10-24 on v12.14; the Perplexity jump is still owed.*
 - **v12.9 (PR #75).** Safari + Userscripts **PASS** (owner): `transport=fetch org=730fcd2a… status=200`; the
   index ready with 144 questions (295 messages in the payload) via fetch; jumps to Q1 through Q144, the last
   five included, all landed. Firefox + Tampermonkey (Linux) **PASS** (owner, after the merge). Chrome +
@@ -3252,7 +3262,7 @@ a visible "A#?" that binds later on proof.
   only the link.
 - **What it logs:**
   - `[ACN] refetching the index for a bookmarked answer it does not hold yet`. It replaces "index out of sync …
-    refetching" when only a bookmark asked for the refetch, so the third PR's "out of sync" counts are not inflated
+    refetching" when only a bookmark asked for the refetch, so v12.15 part C's "out of sync" counts are not inflated
     by bookmark refetches. A24 asserts it (M18).
   - `[ACN bookmarks] <id> bound to its answer (its row and its text)`.
   - `[ACN bookmarks] <id>: a second bookmark of an answer already bookmarked; removed`.
@@ -3263,7 +3273,7 @@ a visible "A#?" that binds later on proof.
     "A#?" until its row is placed and proves.
   - A regenerate, or an edit, before the resync: route B, A (anchors from before the edit) or C (the last row) can
     place the new answer on the old answer's uuid. After the resync that uuid is off the path, so the bookmark reads "A#?"
-    (visible, deletable). Regenerate detection: the third PR.
+    (visible, deletable). Regenerate detection: v12.15, part C.
     - **Why the guard misses most edits:** `_ciQuestionPathNow` returns `false` only when the edited question's text
       matches a *different* entry than its anchor. A normal edit matches nothing, so it returns null before the
       anchor check (its code comment overstates this).
