@@ -1,0 +1,65 @@
+{
+  "note": "Minted by probes/check-claude-turnkeys.js --mint-seeds with v12.14.user.js on chromium: QH by clicking question 13's flag (a multi-block question, row 24), QB question 2's. Synthesized: QX = QH with a hash its row does not reproduce; QW = QH made on row 44.",
+  "records": {
+    "QH": {
+      "id": "bm_f5775db4",
+      "schema": 1,
+      "entityType": "user-msg",
+      "contentHash": "d05dc1f5",
+      "msgUuid": null,
+      "preview": "Question number 13: please check these steps.first step for case 13second step for case 13Thanks for case 13. VISIBLE-NO",
+      "msgIndex": 0,
+      "createdAt": 1792898177247,
+      "platform": "claude.ai",
+      "pendingHash": "cffd9145",
+      "pendingSender": "user-msg",
+      "pendingOrdinal": 12,
+      "pendingRow": 24
+    },
+    "QB": {
+      "id": "bm_8bf7ff58",
+      "schema": 2,
+      "entityType": "user-msg",
+      "contentHash": "a5a5a5a5-a5a5-4a5a-8a5a-000000000002",
+      "msgUuid": "a5a5a5a5-a5a5-4a5a-8a5a-000000000002",
+      "preview": "Question number 2: how do I handle case 2 when the input is unusual? VISIBLE-NOT-SR-ONLY",
+      "msgIndex": 1,
+      "createdAt": 1792898179730,
+      "platform": "claude.ai",
+      "pendingHash": null,
+      "pendingSender": null,
+      "pendingOrdinal": -1,
+      "pendingRow": -1
+    },
+    "QX": {
+      "id": "bm_qxqxqxqx",
+      "schema": 1,
+      "entityType": "user-msg",
+      "contentHash": "005dc1f5",
+      "msgUuid": null,
+      "preview": "Question number 13: please check these steps.first step for case 13second step for case 13Thanks for case 13. VISIBLE-NO",
+      "msgIndex": 0,
+      "createdAt": 1792898179731,
+      "platform": "claude.ai",
+      "pendingHash": "cffd9145",
+      "pendingSender": "user-msg",
+      "pendingOrdinal": 12,
+      "pendingRow": 24
+    },
+    "QW": {
+      "id": "bm_qwqwqwqw",
+      "schema": 1,
+      "entityType": "user-msg",
+      "contentHash": "d05dc1f5",
+      "msgUuid": null,
+      "preview": "Question number 13: please check these steps.first step for case 13second step for case 13Thanks for case 13. VISIBLE-NO",
+      "msgIndex": 0,
+      "createdAt": 1792898179732,
+      "platform": "claude.ai",
+      "pendingHash": "cffd9145",
+      "pendingSender": "user-msg",
+      "pendingOrdinal": 12,
+      "pendingRow": 44
+    }
+  }
+}
