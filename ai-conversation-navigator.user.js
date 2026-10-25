@@ -2686,6 +2686,8 @@
     var IX_PPLX_MAX_PAGES   = 40;      // 2000 questions; past it the panel says so
     var IX_JUMP_MAX_MOVES   = 12;
     var IX_JUMP_SETTLE_MS   = 350;
+    var IX_JUMP_MAX_ALIGNS  = 4;       // instant alignment writes on arrival (ixLandOn)
+    var IX_JUMP_ALIGN_TOL   = 8;       // px from the intended position that counts as landed
 
     var _ix = {};                      // the generic pipeline's state, one conversation
     var _ixJumpToken = 0;
@@ -3027,6 +3029,23 @@
                 }
                 return out;
             },
+            // An entry's whole box, { top, bottom } in viewport px, for ixJump's "near the view"
+            // test. [data-workflow-entry] wraps the QUESTION slot only: entry -> parent (one
+            // child) -> parent (one child) -> the slot, a child of the list; the answer is the
+            // next slot, carries no entry attribute, and is often taller than the view (live,
+            // Chrome, 2026-10-24: 276-1415 px). A next sibling that holds an entry is not an
+            // answer (another layout): then the entry's own box.
+            extent: function (el) {
+                var w = el.closest('[data-workflow-entry]') || el;
+                var slot = w;
+                while (slot.parentElement && slot.parentElement.children.length === 1) slot = slot.parentElement;
+                var r = slot.getBoundingClientRect(), ans = slot.nextElementSibling;
+                var bottom = r.bottom;
+                if (ans && !ans.querySelector('[data-workflow-entry]') && !ans.hasAttribute('data-workflow-entry')) {
+                    bottom = Math.max(bottom, ans.getBoundingClientRect().bottom);
+                }
+                return { top: r.top, bottom: bottom };
+            },
             // Perplexity pins its scroller to the bottom: a programmatic scrollTop reverted
             // within 300ms every time until a wheel event arrived, after which it stayed
             // (measured, Chrome, 2026-10-23). The event scrolls nothing itself.
@@ -3246,12 +3265,115 @@
         if (zone) zone.setAttribute('data-acn-jump-resolved', String(q.ixPosition));
     }
 
+    // The user taking the scroll back ends a jump, as in ciJumpToFullPathIndex: trusted
+    // wheel, touch, scrollbar drag, or a scrolling key outside a text field. Perplexity's
+    // releaseScroll wheel is synthetic (isTrusted false), so it cannot.
+    var IX_SCROLL_KEYS = { PageUp: 1, PageDown: 1, Home: 1, End: 1, ArrowUp: 1, ArrowDown: 1, ' ': 1 };
+    function ixWatchUser(container) {
+        var w = { scrolled: false };
+        function onUser(e) {
+            if (!e || !e.isTrusted) return;
+            if (e.type === 'keydown') {
+                var t = e.target;
+                if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+                if (!IX_SCROLL_KEYS[e.key]) return;
+            }
+            w.scrolled = true;
+        }
+        container.addEventListener('wheel', onUser, { passive: true });
+        container.addEventListener('touchstart', onUser, { passive: true });
+        container.addEventListener('mousedown', onUser, { passive: true });
+        document.addEventListener('keydown', onUser, true);
+        w.stop = function () {
+            container.removeEventListener('wheel', onUser);
+            container.removeEventListener('touchstart', onUser);
+            container.removeEventListener('mousedown', onUser);
+            document.removeEventListener('keydown', onUser, true);
+        };
+        return w;
+    }
+
+    // ixLandOn(a, getEl, opts, done) — puts a MOUNTED target where it was asked to go, and
+    // checks that it stayed there (v12.15). The adapter jump lands its question with it; a
+    // caller that has an element of its own (a bookmarked answer, say) can call it directly,
+    // after ixJump(..., { land: false }) has brought the right entry into the window.
+    //   a        the adapter (its releaseScroll, if any, runs before every write)
+    //   getEl()  the target's CURRENT element, re-located by identity on every call, or null
+    //   opts     block: 'center' | 'start'. Omitted: 'center', except an element taller than
+    //              0.8 x the container's height, which goes to 'start' (its top stays in view)
+    //            container: the scroll container (default: looked up fresh)
+    //            check(): a reason to stop, or null. Default: a newer jump, a thread switch,
+    //              the container leaving the document, or the user scrolling
+    //            state: { aligns } shared by a caller that re-enters, so one cap covers it all
+    //   done(ok, el, reason)
+    //            ok: 'aligned' (within IX_JUMP_ALIGN_TOL px of the intended position, which is
+    //              clamped at the scroll ends) or 'cap' (IX_JUMP_MAX_ALIGNS writes used; one
+    //              console line gives the offset left over)
+    //            not ok: 'lost' (getEl() returned null), 'no-container', or check()'s reason
+    // Every write is instant: write, settle IX_JUMP_SETTLE_MS, re-locate, measure, repeat.
+    // A smooth glide over a list that mounts, unmounts and re-writes scrollTop as it goes was
+    // cut short 8 of 8 times on Perplexity, where an instant scroll landed within 16 px 8 of 8,
+    // and on ChatGPT it ended 8514 px off when older turns were prepended mid-glide (Chrome,
+    // page realm, v12.14, 2026-10-24). Nothing here is smooth, so reduced motion needs no branch.
+    function ixLandOn(a, getEl, opts, done) {
+        opts = opts || {};
+        var container = opts.container || null;
+        if (!container) { _ciScrollContainer = null; container = ciFindScrollContainer(); }
+        if (!container) { done(false, null, 'no-container'); return; }
+        var state = opts.state || { aligns: 0 };
+        var check = opts.check, watch = null;
+        if (!check) {
+            var token = _ixJumpToken, cid = _ix.cid;
+            watch = ixWatchUser(container);
+            check = function () {
+                if (watch.scrolled) return 'user';
+                if (token !== _ixJumpToken) return 'superseded';
+                if (_ix.cid !== cid || a.getConversationId() !== cid) return 'superseded';
+                if (!container.isConnected) return 'container-gone';
+                return null;
+            };
+        }
+        function finish(ok, el, reason) {
+            if (watch) watch.stop();
+            done(ok, el, reason);
+        }
+        function step() {
+            var why = check();
+            if (why) { finish(false, null, why); return; }
+            var el = getEl();
+            if (!el || !el.isConnected) { finish(false, null, 'lost'); return; }
+            var cr = container.getBoundingClientRect(), er = el.getBoundingClientRect();
+            var block = opts.block || (er.height > container.clientHeight * 0.8 ? 'start' : 'center');
+            var lead = block === 'start' ? 0 : (container.clientHeight - er.height) / 2;
+            var max = Math.max(0, container.scrollHeight - container.clientHeight);
+            var want = Math.max(0, Math.min(max, Math.round(container.scrollTop +
+                                (er.top - cr.top - container.clientTop) - lead)));
+            var off = Math.round(want - container.scrollTop);
+            if (Math.abs(off) <= IX_JUMP_ALIGN_TOL) { finish(true, el, 'aligned'); return; }
+            if (state.aligns >= IX_JUMP_MAX_ALIGNS) {
+                console.log('[ACN] jump: alignment cap reached (' + IX_JUMP_MAX_ALIGNS +
+                            ' writes), target ' + off + ' px from its intended position');
+                finish(true, el, 'cap');
+                return;
+            }
+            state.aligns++;
+            if (a.releaseScroll) a.releaseScroll(container);
+            container.scrollTop = want;
+            setTimeout(step, IX_JUMP_SETTLE_MS);
+        }
+        step();
+    }
+
     // Resolve-on-arrival, the design of ciJumpToFullPathIndex at this seam's size: aim at
     // the entry's share of the scroll height, wait for the window to settle, identify the
     // target by its own id on arrival, otherwise move toward it by the nearest mounted
     // entry's distance; bounded, and superseded by a newer jump. Text is a last resort,
     // and only when exactly one mounted question matches.
-    function ixJump(a, q, outerDone) {
+    // On arrival the target is LANDED (ixLandOn: instant, verified) before outerDone runs,
+    // because "mounted" is not "in view" (v12.15). opts.land === false skips that: outerDone
+    // gets the mounted question as found, for a caller that lands on something else itself.
+    function ixJump(a, q, outerDone, opts) {
+        opts = opts || {};
         var token = ++_ixJumpToken;
         // Looked up fresh: the cache trusts any connected node, and ChatGPT keeps the
         // previous conversation's timeline connected, hidden, after a switch (Tier 3).
@@ -3261,43 +3383,49 @@
         var entry = { id: q.ixId, position: q.ixPosition, text: q.text };
         var total = Math.max(1, _ix.total);
         var cid = _ix.cid;
-        var moves = 0;
-        // The user taking the scroll back ends the jump, as in ciJumpToFullPathIndex:
-        // trusted wheel, touch, scrollbar drag, or a scrolling key outside a text field.
-        // Perplexity's releaseScroll wheel is synthetic (isTrusted false), so it cannot.
-        var userScrolled = false, finished = false;
-        var SCROLL_KEYS = { PageUp: 1, PageDown: 1, Home: 1, End: 1, ArrowUp: 1, ArrowDown: 1, ' ': 1 };
-        function onUser(e) {
-            if (!e || !e.isTrusted) return;
-            if (e.type === 'keydown') {
-                var t = e.target;
-                if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-                if (!SCROLL_KEYS[e.key]) return;
-            }
-            userScrolled = true;
-        }
-        container.addEventListener('wheel', onUser, { passive: true });
-        container.addEventListener('touchstart', onUser, { passive: true });
-        container.addEventListener('mousedown', onUser, { passive: true });
-        document.addEventListener('keydown', onUser, true);
+        var moves = 0, lastDir = 0, factor = 1;
+        var landing = { aligns: 0 };
+        var watch = ixWatchUser(container), finished = false;
         function done(ok, el, reason) {
             if (finished) return;
             finished = true;
-            container.removeEventListener('wheel', onUser);
-            container.removeEventListener('touchstart', onUser);
-            container.removeEventListener('mousedown', onUser);
-            document.removeEventListener('keydown', onUser, true);
+            watch.stop();
             outerDone(ok, el, reason);
         }
-        function arrive() {
-            if (userScrolled) { done(false, null, 'user'); return; }
-            if (token !== _ixJumpToken) { done(false, null, 'superseded'); return; }
+        function live() {
+            if (watch.scrolled) return 'user';
+            if (token !== _ixJumpToken) return 'superseded';
             // A thread switch before the next scan invalidates: a position from the old
             // thread must not resolve the same-numbered entry of the new one (Tier 3).
-            if (_ix.cid !== cid || a.getConversationId() !== cid) { done(false, null, 'superseded'); return; }
-            if (!container.isConnected) { done(false, null, 'container-gone'); return; }
+            if (_ix.cid !== cid || a.getConversationId() !== cid) return 'superseded';
+            if (!container.isConnected) return 'container-gone';
+            return null;
+        }
+        // Lands on the found element. Lost (unmounted again by the landing write) goes back
+        // to moving; the shared `landing` cap and IX_JUMP_MAX_MOVES bound the round trips.
+        function land(el, getEl, reason) {
+            if (opts.land === false) { done(true, el, reason); return; }
+            ixLandOn(a, getEl, { container: container, check: live, state: landing }, function (ok, landed, why) {
+                if (ok) done(true, landed, reason);
+                else if (why === 'lost') arrive();
+                else done(false, null, why);
+            });
+        }
+        // A move that reverses the previous one's direction overshot: halve the step from
+        // then on. Reserved heights that differ from the mean otherwise swing the view
+        // past the target and back until the move cap (v12.15, mock models).
+        function damp(delta) {
+            if (!delta) return factor;
+            var dir = delta > 0 ? 1 : -1;
+            if (lastDir && dir !== lastDir) factor = factor / 2;
+            lastDir = dir;
+            return factor;
+        }
+        function arrive() {
+            var why = live();
+            if (why) { done(false, null, why); return; }
             var el = a.locate(entry);
-            if (el) { done(true, el, 'locate'); return; }
+            if (el) { land(el, function () { return a.locate(entry); }, 'locate'); return; }
             if (moves >= IX_JUMP_MAX_MOVES) {
                 // Text stands in for identity only if no other question in the WHOLE
                 // conversation reads the same, and never for a node the adapter already
@@ -3319,21 +3447,38 @@
                     }
                     if (!other) hits.push(cur[i]);
                 }
-                if (same === 1 && hits.length === 1) { done(true, hits[0], 'text'); return; }
+                if (same === 1 && hits.length === 1) {
+                    // No id to re-locate by: the node itself, while it stays mounted.
+                    var hit = hits[0];
+                    land(hit, function () { return hit.isConnected ? hit : null; }, 'text');
+                    return;
+                }
                 done(false, null, 'not-found');
                 return;
             }
             moves++;
             var max = Math.max(0, container.scrollHeight - container.clientHeight);
             var near = null, best = Infinity, m = a.mounted();
+            var vr = container.getBoundingClientRect(), vh = container.clientHeight;
             for (var j = 0; j < m.length; j++) {
                 if (m[j].pos < 0) continue;
+                // The step below assumes the view sits at `near`, so only an entry in the
+                // view or within one viewport of it may stand for it: Perplexity keeps its
+                // latest entry mounted wherever the view is (live, Chrome, 2026-10-24).
+                // The entry's whole box, its answer included (the adapter's extent()).
+                var mr = a.extent ? a.extent(m[j].el)
+                       : (m[j].el.closest('[data-workflow-entry],[data-turn-key]') || m[j].el).getBoundingClientRect();
+                if (mr.bottom < vr.top - vh || mr.top > vr.bottom + vh) continue;
                 var d = Math.abs(m[j].pos - entry.position);
                 if (d < best) { best = d; near = m[j].pos; }
             }
+            // Nothing mounted near the view after a move: the window has not caught up with
+            // the last write yet. Wait one more settle instead of re-aiming (it counts as a move).
+            if (moves > 1 && near === null) { setTimeout(arrive, IX_JUMP_SETTLE_MS); return; }
             var px = (moves === 1 || near === null)
                 ? max * (total > 1 ? entry.position / (total - 1) : 0)
-                : container.scrollTop + (entry.position - near) * (container.scrollHeight / total);
+                : container.scrollTop + (entry.position - near) * (container.scrollHeight / total) *
+                  damp(entry.position - near);
             if (a.releaseScroll) a.releaseScroll(container);
             container.scrollTop = Math.max(0, Math.min(max, Math.round(px)));
             setTimeout(arrive, IX_JUMP_SETTLE_MS);
@@ -7958,6 +8103,14 @@
               ' pathLen=' + (_ciFullPath ? _ciFullPath.length : -1) +
               ' hadElement=' + (q.element ? 1 : 0));
         var target = _relocateQuestionElement(q);
+        // An index-backed target goes through the adapter jump even when it is mounted:
+        // mounted is not in view, and only the jump lands and checks (v12.15). Not on a
+        // thread too short to have a scroll container: ixJump would refuse it with a toast,
+        // and the plain fast path below lands it, as before.
+        if (target && typeof q.ixPosition === 'number' && ixReadyAdapter()) {
+            _ciScrollContainer = null;
+            if (ciFindScrollContainer()) target = null;
+        }
 
         // Not mounted. On Claude the settle loop can page the virtualizer to it.
         // The other 13 platforms are not known to virtualize, so they short-circuit
@@ -7985,10 +8138,11 @@
             if (ixJumpAdapter) {
                 ixJump(ixJumpAdapter, q, function (ok, el, reason) {
                     if (ok && el) {
+                        // Already landed by ixJump (ixLandOn): no scroll here. A glide
+                        // from this callback is what left targets short (v12.15).
                         q.element = el;
                         orbMarkJumpTarget(el);
                         ixMarkResolved(q);
-                        el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
                         orbFlashElement(el);
                     } else if (reason !== 'superseded' && reason !== 'user') {
                         showToast('That message is not currently rendered \u2014 scroll toward it and try again');
@@ -8024,17 +8178,10 @@
         // Q2...) reported 147/147 failures while every jump was actually correct,
         // because each next target sat inside the mount window and resolved here.
         orbMarkJumpTarget(target);
-        if (typeof q.ixPosition === 'number') {
-            ixMarkResolved(q);
-            // A mounted target needs the scroll pin released too: Perplexity's stick-to-bottom
-            // reverts scrollIntoView as it does a scrollTop write (Codex, PR #78).
-            var ixFast = ixReadyAdapter();
-            if (ixFast && ixFast.releaseScroll) {
-                _ciScrollContainer = null;
-                var fastContainer = ciFindScrollContainer();
-                if (fastContainer) ixFast.releaseScroll(fastContainer);
-            }
-        }
+        // An index-backed target reaches this path only without a scroll container (a short
+        // thread) or without a ready index (v12.15, above); the pin release it used to do
+        // here now happens in ixLandOn, before each of its writes.
+        if (typeof q.ixPosition === 'number') ixMarkResolved(q);
 
         if (isLeftChat) {
             // Close panel first so it doesn't obscure the chat
