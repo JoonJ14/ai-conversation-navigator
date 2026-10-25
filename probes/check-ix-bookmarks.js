@@ -58,7 +58,8 @@
 //               page's ids and read "Answer to Q#?" / "Q#?" until the one refresh lands, then
 //               "Answer to Q#16" / "Q#17"; the replaced answer's record reads "A#?"; one fetch per request
 //               (N1c) and no further fetch past the refetch cooldown; (N1e) saves while the first load is
-//               in flight keep their request until a load holds them all; (N1f) a flag clicked after the
+//               in flight keep their request until a load holds them all, and (N1g) one that holds
+//               them all answers them, with no follow-up fetch; (N1f) a flag clicked after the
 //               URL moved to another chat, before a redraw, saves nothing; (N1d) a record whose one
 //               refresh was answered still reads "A#?", not "Answer to Q#?", after leaving the chat
 //               and coming back
@@ -628,15 +629,18 @@ window.GM_setValue = function (k, v) { _s[k] = v; };
         // redraws (the old timeline still on screen): nothing is saved, under either chat (Tier 3).
         await c.settle();
         const storeA = await c.store();
+        // Each flag twice: a rejected click must not redraw a flag the second click could use.
         const clickedF = await c.ev(([o, back]) => {
             history.pushState({}, '', '/c/' + o);
-            var ok = window.__p.click('q', 13) && window.__p.click('a', 13);
+            var first = window.__p.click('q', 13) && window.__p.click('a', 13);
+            window.__p.click('q', 13);
+            window.__p.click('a', 13);
             history.pushState({}, '', '/c/' + back);
-            return ok;
+            return first;
         }, [GPT_OTHER, GPT_CONV]);
         await sleep(300);
         const storeF = await c.store();
-        check('N1f', '[new] a flag clicked after the URL moved to another chat, before a redraw, saves nothing under either chat',
+        check('N1f', '[new] a flag clicked (twice) after the URL moved to another chat, before a redraw, saves nothing under either chat',
               clickedF && JSON.stringify(storeF) === JSON.stringify(storeA),
               'clicked=' + clickedF + (JSON.stringify(storeF) === JSON.stringify(storeA) ? ', store unchanged'
                                        : ', store changed: ' + short(Object.keys(storeF).map((k) => k + ':' + list(storeF, k).length))));
@@ -698,6 +702,26 @@ window.GM_setValue = function (k, v) { _s[k] = v; };
               fetchesE0 === 1 && loadedE && firstE.indexOf('Answer to Q#?') !== -1 && flippedE.indexOf('Answer to Q#16') !== -1 &&
               flippedE.indexOf('Q#16') !== -1 && fetchesE === 1,
               'first load in flight=' + (fetchesE0 === 1) + ' loaded=' + loadedE + ' after the first load ' + short(firstE) + ' -> ' + short(flippedE) + ', follow-up fetches ' + fetchesE);
+        await c.close();
+        // N1g: the same, but the load in flight already holds the regenerated answer: it answers
+        // the request, and no follow-up fetch is made, not even past the refetch cooldown.
+        mapping = gptMapping(TE);
+        delay = 8000;
+        c = await open('chatgpt', PLAIN, cfg(T), {}, { chatgpt: () => mapping, delay: () => delay });
+        await c.ev((a) => window.__mockWindow.setAnswer(15, a, 'Regenerated answer 16, again.'), REGEN_E);
+        await c.settle();
+        for (let k = 0; k < 100 && c.fetches === 0; k++) await sleep(100);
+        const fetchesG0 = c.fetches;
+        await c.click('a', 15);
+        delay = 0;
+        const loadedG = await c.indexed(16, 15000);
+        await sleep(15000 + 3000);
+        const cardsG = await c.cards();
+        const fetchesG = c.fetches - fetchesG0;
+        check('N1g', '[new] an answer saved while the first load is in flight, which that load holds: "Answer to Q#16", ' +
+              'and no follow-up fetch past the refetch cooldown',
+              fetchesG0 === 1 && loadedG && cardsG.indexOf('Answer to Q#16') !== -1 && fetchesG === 0,
+              'first load in flight=' + (fetchesG0 === 1) + ' loaded=' + loadedG + ' cards ' + short(cardsG) + ', follow-up fetches ' + fetchesG);
         await c.close();
         mapping = gptMapping(T);
 

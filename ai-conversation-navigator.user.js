@@ -3604,7 +3604,8 @@
                             ' writes), target ' + off + ' px from its intended position');
                 // Off by more than the tolerance is still a landing while the target is in view;
                 // out of view it is not, and the caller says so.
-                var seen = er.bottom > cr.top && er.top < cr.bottom;
+                var top = cr.top + container.clientTop;
+                var seen = er.bottom > top && er.top < top + container.clientHeight;
                 finish(seen, seen ? el : null, seen ? 'cap' : 'cap-out');
                 return;
             }
@@ -10386,7 +10387,8 @@
     }
 
     // ix (ChatGPT, Perplexity, v12.15): { keyNow(): the key the node shows now, keyless: the
-    // node has none yet, navIndex(): the msgIndex to store, read at the click }. Its flag stands
+    // node has none yet, moved(): the URL names another chat than the flag was drawn in,
+    // navIndex(): the msgIndex to store, read at the click }. Its flag stands
     // for its key only, and a click acts only while the node still shows that key.
     function createBookmarkIcon(entityEl, entityType, entityId, msgIndex, legacyIds, ix) {
         if (entityEl.querySelector('[data-acn-bookmark]')) return;
@@ -10421,7 +10423,9 @@
                 (ix && ix.keyNow() !== (ix.keyless ? null : entityId))) {
                 entityEl.removeAttribute('data-acn-bookmarked');
                 if (icon.parentNode) icon.parentNode.removeChild(icon);
-                injectBookmarkIcons();
+                // Drawn in another chat than the one the URL names now: no redraw from here, which
+                // would draw this old node's flag for the new chat; the scan redraws (Tier 3).
+                if (!(ix && ix.moved())) injectBookmarkIcons();
                 return;
             }
             // No key yet: on Perplexity a new entry has none until the index lists it. Nothing
@@ -10658,13 +10662,14 @@
     // behind its cooldown (ixScan, _ix.wantRefresh). Each request is its own signature, so a
     // later click can ask again, still behind the cooldown; a load that fails is asked again
     // as the scan's own refetch is (ixDegrade).
-    // A save made while this conversation's first load is in flight asks too: that load can
-    // predate the message, and nothing else would ask again (an answer is never "stale" to the
-    // scan). The load drops the request when it holds every waiting message (ixLoad, _bmIxAllHeld).
+    // A save, or a click on a flag without a key, made while this conversation's first load is in
+    // flight asks too: that load can predate the message, and nothing else would ask again (an
+    // answer is never "stale" to the scan). The load drops the request when it holds every waiting
+    // message and none of them was keyless (ixLoad, _bmIxAllHeld).
     function _bmIxRequestRefresh(key) {
         var st = _bmIxState();
         if (st === 'off') return;                 // the scan's retry owns it
-        if (st === 'loading' && !(key && _ix.status === 'loading' && _ix.cid === ixAdapter().getConversationId())) return;
+        if (st === 'loading' && !(_ix.status === 'loading' && _ix.cid === ixAdapter().getConversationId())) return;
         var n = ++_ixBmAsked;
         if (key) _bmIxWaiting[key] = n;
         _ix.wantRefresh = 'bm:' + n;
@@ -10790,6 +10795,7 @@
                                // screen, and a save would file its message under the new chat (Tier 3).
                                { keyless: !key, keyNow: function () {
                                      return a.getConversationId() === drawnIn ? a.keyOf(el, type) : null; },
+                                 moved: function () { return a.getConversationId() !== drawnIn; },
                                  // At the click: a ChatGPT flag is usually drawn before the index lands,
                                  // and is not redrawn when it does (its key comes from the page).
                                  navIndex: function () { return Math.max(0, _bmIxNavIndex(key, type)); } });
