@@ -35,7 +35,7 @@
 <script>
 (function () {
   var cfg = window.__MOCK_CONFIG || {};
-  if (cfg.jumpModel) return;      // v12.15 jump models: the block at the end builds the page
+  if (cfg.jumpModel || cfg.bmModel) return;   // v12.15 models: their blocks at the end build the page
   var turns = cfg.turns;
   if (!turns) {
     turns = [];
@@ -256,6 +256,141 @@
       var t = tops();
       scroller.scrollTop = i === 'top' ? 0 : i === 'bottom' ? scroller.scrollHeight : t[i];
     }
+  };
+}());
+</script>
+<!--
+  ── v12.15 BOOKMARK MODEL (part A) ───────────────────────────────────────────────────────
+  OFF by default: everything below runs only when window.__MOCK_CONFIG.bmModel is set, and the
+  blocks above then build nothing. The markup is the live one (Chrome, v12.14, 2026-10-24): each
+  [data-turn-key=<user node id>] turn holds BOTH the user bubble and the answer unit
+  [data-content-search-unit-key$=":assistant"], whose data-chatgpt-search-message-ids lists the
+  turn's final shown text node id twice; an sr-only h4 "ChatGPT said:" opens the answer; no
+  .markdown.prose and no data-message-author-role anywhere (v12.14's answer selectors matched 0
+  nodes live). 5-7 turns mounted; nodes are REPLACED, not recycled, and inserted in order.
+  Config: turns: [{ id, text, aid, answer }] (aid: the DOM answer id; omitted: no ids attribute)
+  bmModel: {
+    h: px         height of every turn (default 420)
+    window: n     turns mounted around the view (default 6)
+    idsOn: 'unit' | 'wrapper' | 'alternate' (default)  which element carries the message ids:
+                  the :assistant content unit, its data-chatgpt-search-unit-key wrapper, or the
+                  wrapper on even turns and the unit on odd ones (both readings of the live note)
+    hidden: true  (default) a hidden second timeline, role="presentation", 0x0, holding a copy of
+                  the first two turns, as live during a navigation (DOM-REFERENCE.md)
+  }
+  Test hooks: window.__mockWindow.mounted() (positions), .total, .userScrollTo(i|'top'|'bottom'),
+  .recycle(i, j) (the mounted elements of turn i re-used, in place, to show turn j: key, text, ids;
+  live, ChatGPT replaces its nodes instead (Chrome, 2026-10-24), so this models a site change),
+  .setAnswer(i, aid, text) (turn i's answer replaced: a regenerate), .domIndex(i) (the bubble's
+  place among the mounted bubbles), .addTurn({ id, text, aid, answer }) (a new turn at the end).
+-->
+<style>
+  .bm-turn { position: absolute; left: 0; right: 0; box-sizing: border-box; padding: 8px; overflow: hidden; }
+  .bm-turn [data-content-search-unit-key$=":assistant"] { padding: 8px; min-height: 120px; }
+  .bm-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+<script>
+(function () {
+  var cfg = window.__MOCK_CONFIG || {};
+  var bm = cfg.bmModel;
+  if (!bm) return;
+  var turns = cfg.turns || [];
+  var H = bm.h || 420, W = bm.window || 6;
+  var scroller = document.getElementById('mock-scroller');
+  var spacer = document.getElementById('mock-spacer');
+  var nodes = {};
+  function idsOnUnit(i) { return bm.idsOn === 'unit' || (bm.idsOn !== 'wrapper' && i % 2 === 1); }
+  function html(i, t) {
+    var ids = t.aid ? ' data-chatgpt-search-message-ids="' + t.aid + ' ' + t.aid + '"' : '';
+    return '<div data-content-search-turn-key="fallback-turn-' + i + '">' +
+        '<div data-chatgpt-search-unit-key="fallback-turn-' + i + ':0:user" data-chatgpt-search-message-ids="' + t.id + '">' +
+          '<div data-content-search-unit-key="fallback-turn-' + i + ':0:user">' +
+            '<div data-user-message-bubble="true"></div>' +
+          '</div>' +
+        '</div>' +
+        '<div data-chatgpt-search-unit-key="fallback-turn-' + i + ':2:assistant"' + (idsOnUnit(i) ? '' : ids) + '>' +
+          '<div data-content-search-unit-key="fallback-turn-' + i + ':2:assistant"' + (idsOnUnit(i) ? ids : '') + '>' +
+            '<h4 class="sr-only bm-sr" data-conversation-role="assistant">ChatGPT said:</h4>' +
+            '<div class="bm-md"><p class="bm-a"></p><ul><li>a point inside the answer</li></ul></div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+  function fill(node, i, t) {
+    node.setAttribute('data-turn-key', t.id);
+    node.innerHTML = html(i, t);
+    node.querySelector('[data-user-message-bubble]').textContent = t.text;
+    node.querySelector('.bm-a').textContent = t.answer || ('Answer ' + (i + 1));
+  }
+  function build(i) {
+    var d = document.createElement('div');
+    d.className = 'bm-turn';
+    d.style.top = (i * H) + 'px';
+    d.style.height = H + 'px';
+    fill(d, i, turns[i]);
+    return d;
+  }
+  function render() {
+    spacer.style.height = (turns.length * H) + 'px';
+    var first = Math.floor(scroller.scrollTop / H);
+    var start = Math.max(0, Math.min(first - 1, turns.length - W));
+    var want = {};
+    for (var i = start; i < Math.min(turns.length, start + W); i++) want[i] = true;
+    for (var k in nodes) if (!want[k]) { nodes[k].remove(); delete nodes[k]; }
+    for (var w = 0; w < turns.length; w++) {
+      if (!want[w] || nodes[w]) continue;
+      nodes[w] = build(w);
+      var next = null;                       // in order: before the next mounted turn
+      for (var n = w + 1; n < turns.length; n++) if (nodes[n] && nodes[n].parentNode) { next = nodes[n]; break; }
+      scroller.insertBefore(nodes[w], next);
+    }
+  }
+  if (bm.hidden !== false) {
+    var ghost = document.createElement('div');
+    ghost.setAttribute('data-app-action-timeline-scroll', '');
+    ghost.setAttribute('role', 'presentation');
+    ghost.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
+    for (var g = 0; g < Math.min(2, turns.length); g++) {
+      var gt = document.createElement('div');
+      fill(gt, g, turns[g]);
+      ghost.appendChild(gt);
+    }
+    document.body.insertBefore(ghost, document.body.firstChild);
+  }
+  scroller.addEventListener('scroll', render, { passive: true });
+  scroller.scrollTop = scroller.scrollHeight;
+  render();
+  scroller.scrollTop = scroller.scrollHeight;
+  render();
+  window.__mockWindow = {
+    get total() { return turns.length; },
+    mounted: function () { return Object.keys(nodes).map(Number).sort(function (a, b) { return a - b; }); },
+    userScrollTo: function (i) {
+      scroller.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true }));
+      scroller.scrollTop = i === 'top' ? 0 : i === 'bottom' ? scroller.scrollHeight : i * H;
+    },
+    // In place: the same elements (and whatever the page appended to them) show turn j.
+    recycle: function (i, j) {
+      var n = nodes[i], t = turns[j];
+      if (!n) return false;
+      n.setAttribute('data-turn-key', t.id);
+      var b = n.querySelector('[data-user-message-bubble]');
+      if (b.firstChild && b.firstChild.nodeType === 3) b.firstChild.nodeValue = t.text;
+      var h = n.querySelector('[data-chatgpt-search-unit-key$=":assistant"] [data-chatgpt-search-message-ids], [data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids]');
+      if (h && t.aid) h.setAttribute('data-chatgpt-search-message-ids', t.aid + ' ' + t.aid);
+      n.querySelector('.bm-a').textContent = t.answer || ('Answer ' + (j + 1));
+      return true;
+    },
+    setAnswer: function (i, aid, text) {
+      turns[i].aid = aid;
+      turns[i].answer = text;
+      if (nodes[i]) fill(nodes[i], i, turns[i]);
+    },
+    domIndex: function (i) {
+      var b = Array.prototype.slice.call(scroller.querySelectorAll('[data-user-message-bubble="true"]'));
+      return nodes[i] ? b.indexOf(nodes[i].querySelector('[data-user-message-bubble]')) : -1;
+    },
+    addTurn: function (t) { turns.push(t); render(); }
   };
 }());
 </script>
