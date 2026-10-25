@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.15 — One-Click Jumps on Perplexity and ChatGPT, Bookmarks by Message Id There, Claude Rows by Their data-turn-key] — 2026-10-25
 
-**Branch:** `fix/v12.15-bookmarks-jumps-claude` | **PR:** (to be opened) | **Not merged; owner acceptance pending** on
+**Branch:** `fix/v12.15-bookmarks-jumps-claude` | **PR:** #88 | **Not merged; owner acceptance pending** on
 Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey (DEC-047, DEC-031)
 
 ### Problem

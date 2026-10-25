@@ -1282,7 +1282,7 @@ every waiver here, and in the release's CHANGELOG entry.
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
 review record. Updated 2026-10-24:
-- **v12.15 (PR to be opened; ChatGPT and Perplexity jumps and bookmarks, Claude rows by `data-turn-key`; DEC-052,
+- **v12.15 (PR #88; ChatGPT and Perplexity jumps and bookmarks, Claude rows by `data-turn-key`; DEC-052,
   DEC-053, DEC-054).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey:
   **pending**, nothing reported yet. The steps will be posted on the PR.
   - **The agent's live check before the PR — not owner acceptance.** Chrome + Tampermonkey, the owner's real

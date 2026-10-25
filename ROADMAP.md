@@ -830,7 +830,7 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         - Answers: no flags at all on either site.
         - Questions: labels are on-screen positions (two different questions both read "Q4"; a 16-question thread
           shows only Q1–Q4); a jump to an off-screen question shows "not currently rendered".
-    - **Built in v12.15** (branch `fix/v12.15-bookmarks-jumps-claude`, PR to be opened; not merged): part B, jumps
+    - **Built in v12.15** (branch `fix/v12.15-bookmarks-jumps-claude`, PR #88; not merged): part B, jumps
       that land instantly and verify, Perplexity and ChatGPT (DEC-052); part A, ChatGPT and Perplexity bookmarks by
       the messages' own ids, one store key per conversation (DEC-053). Gated on mocks only [measured, Playwright page
       realm, headless]; live acceptance on all three browsers pending (DEC-031).
