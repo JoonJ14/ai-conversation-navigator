@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "test": "node tests/test-all-platforms.js",
-    "test:probes": "node probes/check-tokenizer.js && node probes/check-subsegments.js && node probes/check-usage-state.js && node probes/check-transport-ladder.js && node probes/check-index-adapters.js && node probes/check-turn-counter.js && node probes/check-gm-storage.js && node probes/check-answer-bookmarks.js",
+    "test:probes": "node probes/check-tokenizer.js && node probes/check-subsegments.js && node probes/check-usage-state.js && node probes/check-transport-ladder.js && node probes/check-index-adapters.js && node probes/check-turn-counter.js && node probes/check-gm-storage.js && node probes/check-answer-bookmarks.js && node probes/check-ix-jumps.js && node probes/check-ix-bookmarks.js && node probes/check-claude-turnkeys.js",
     "test:screenshots": "node tests/test-all-platforms.js --screenshots"
   },
   "devDependencies": {

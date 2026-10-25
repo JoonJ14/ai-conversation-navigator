@@ -17,7 +17,10 @@ jobs:
     # image, same Playwright build as green runs minutes earlier). 20 minutes
     # is 2x the slowest healthy job; a sick host now fails fast and visibly
     # instead of blocking the PR for an hour. Queue time does not count.
-    timeout-minutes: 20
+    # v12.15: the ubuntu jobs, which run every probe, took 13m42s-13m59s on
+    # 2026-10-25 before three more probes (about 5 minutes locally) joined them,
+    # so 20 minutes no longer covers a healthy ubuntu job; 30 does, with room.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -101,3 +104,19 @@ jobs:
       - name: Run answer-bookmark probe
         if: matrix.os == 'ubuntu-latest'
         run: node probes/check-answer-bookmarks.js --browser ${{ matrix.browser }}
+
+      # The v12.15 probes: placed like the five above. The jump probe asserts where one click lands
+      # under scroll, mount and timer behaviour (a smooth glide is cancelled differently per engine);
+      # the ChatGPT/Perplexity bookmark probe and the Claude turn-key probe assert scan timing, the
+      # refetch cooldown and both storage APIs, and the owner's failures were seen on all three browsers.
+      - name: Run index-jump probe
+        if: matrix.os == 'ubuntu-latest'
+        run: node probes/check-ix-jumps.js --browser ${{ matrix.browser }}
+
+      - name: Run ChatGPT/Perplexity bookmark probe
+        if: matrix.os == 'ubuntu-latest'
+        run: node probes/check-ix-bookmarks.js --browser ${{ matrix.browser }}
+
+      - name: Run Claude turn-key probe
+        if: matrix.os == 'ubuntu-latest'
+        run: node probes/check-claude-turnkeys.js --browser ${{ matrix.browser }}
