@@ -4106,14 +4106,31 @@
     // key and that key is a uuid; every other row is identified as before, by its text.
     var CI_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
     var _ciUuidPathMemo = { gen: -1, path: null, map: null };
-    var _ciKeyNote = { cid: null, fellBack: false, posWarned: false };
+    var _ciKeyNote = { cid: null, fellBack: false, posWarned: false, shown: {} };
     var _ciKeyCountGen = -1;
 
     // Which of the two one-time lines this conversation has printed.
     function _ciKeyNoteNow() {
         var cid = ciGetConversationUuid();
-        if (_ciKeyNote.cid !== cid) _ciKeyNote = { cid: cid, fellBack: false, posWarned: false };
+        if (_ciKeyNote.cid !== cid) _ciKeyNote = { cid: cid, fellBack: false, posWarned: false, shown: {} };
         return _ciKeyNote;
+    }
+
+    // A question edited in place under the key its row already had (whether an edit keeps the
+    // row's key until the resync is unmeasured live): the key still names the superseded entry,
+    // which the row no longer shows. A message's text never changes under its uuid, so the text a
+    // row first shows under a key in this conversation is that row's text under that key from then
+    // on; a later read showing other text is an edit. Per row and key, so a row showing another
+    // row's key never stands for that row. The row is compared with itself, never
+    // with the payload (a question rendered as several blocks never matches it). '' when the text
+    // is unchanged or empty (an attachment-only question); otherwise the shown text's signature.
+    function _ciKeyTextEdited(rowEl, di, k) {
+        var node = rowEl.querySelector('[data-testid="user-message"]');
+        var t = node ? _readMessageText(node) : '';
+        if (!t) return '';
+        var shown = _ciKeyNoteNow().shown, sk = di + ':' + k, h = t.length + ':' + _fnv1aHex(t);
+        if (!Object.prototype.hasOwnProperty.call(shown, sk)) { shown[sk] = h; return ''; }
+        return shown[sk] === h ? '' : h;
     }
     // The first row in this conversation identified by its text after all, and why (one line).
     function _ciNoteKeyFallback(rowEl, why) {
@@ -4165,7 +4182,9 @@
     // For identity (anchors, bookmarks): where the row's position is trusted (the predicate holds
     // and the row count is the snapshot's), the id must name the entry the position names. On
     // disagreement the row has no identity (-2, one line), so a row showing another message's key
-    // never hands that message's uuid to a bookmark.
+    // never hands that message's uuid to a bookmark. A question edited under its key has none
+    // either (-3, signalled by the staleness check), so its bookmark is not filed under the
+    // message it replaced.
     function ciRowIdPathChecked(rowEl, di) {
         var p = ciRowIdPath(rowEl);
         if (p === null || p < 0) return p;
@@ -4178,6 +4197,7 @@
             }
             return -2;
         }
+        if (_ciFullPath[p].sender === 'human' && _ciKeyTextEdited(rowEl, di, ciRowTurnKey(rowEl))) return -3;
         return p;
     }
 
@@ -6115,6 +6135,11 @@
             // (DEC-051), under the same two-scan rule and consumption as every signature.
             var idr = ciRowIdPath(rows[i].el);
             if (idr !== null) {
+                // 'x' a question edited under the key it had: a stable change is resynced once,
+                // and survives a refetch that cannot fix it (consumed, as every signature).
+                var xe = (idr >= 0 && _ciFullPath[idr].sender === 'human')
+                    ? _ciKeyTextEdited(rows[i].el, rows[i].dataIndex, ciRowTurnKey(rows[i].el)) : '';
+                if (xe) { sig += 'x' + rows[i].dataIndex + ':' + xe + ';'; continue; }
                 if (idr >= 0 && ciEntryRenders(_ciFullPath[idr])) continue;
                 var selfNode = rows[i].isUser
                     ? rows[i].el.querySelector('[data-testid="user-message"]')
@@ -6266,13 +6291,14 @@
         _ciLastAsstMismatch = sig;
         // An id signature's second scan is scheduled rather than left to the next mutation: the
         // end of a stream can be the last change the page makes.
-        if (/(^|;)[kp]\d/.test(sig)) _ciScheduleRescan(1500);
+        if (/(^|;)[kpx]\d/.test(sig)) _ciScheduleRescan(1500);
         return false;
     }
 
     // The kinds in a signature, for the "out of sync" line: k / p a row's id (not on the path /
-    // on an answer still unfinished there), e an edited question, g / s / o an answer that grew,
-    // changed, or lies past the snapshot, m a long answer matching no entry.
+    // on an answer still unfinished there), x a question edited under its row's id, e an edited
+    // question, g / s / o an answer that grew, changed, or lies past the snapshot, m a long answer
+    // matching no entry.
     function _ciSigKinds(sig) {
         var seen = {}, out = [], parts = String(sig || '').split(';');
         for (var i = 0; i < parts.length; i++) {
@@ -10134,8 +10160,21 @@
     // does: the row it was made on carries a usable id naming a question on the path, and the
     // record's hash reproduces from that row's text. Decided on the list as stored at the write.
     var _bmProveQSeen = '', _bmProveQRaw = null;
+    var _bmProveQWarned = false;
     function _bmProveQuestions() {
         if (!(ciIsClaudeChat() && ciIsReady() && _ciFullPath)) return;
+        try {
+            _bmProveQuestionsNow();
+        } catch (e) {
+            // Logged once; the next change tries again, and the flags of this scan still draw.
+            _bmProveQSeen = '';
+            if (!_bmProveQWarned) {
+                _bmProveQWarned = true;
+                console.warn('[ACN bookmarks] question binding failed; it tries again on the next change:', e);
+            }
+        }
+    }
+    function _bmProveQuestionsNow() {
         var rows = ciMountedRows(), cand = {}, key = _ciIndexGen + ':', changed = false, r;
         for (r = 0; r < rows.length; r++) {
             var node = rows[r].el.querySelector('[data-testid="user-message"]');
@@ -10159,7 +10198,10 @@
                     var at = -1, other = false;
                     for (var i = 0; i < l.length; i++) {
                         if (l[i].id === b.id) at = i;
-                        else if (l[i].entityType === 'user-msg' && l[i].msgUuid === c.uuid) other = true;
+                        // As for answers (_bmBindAnswer): a record bound only by inference (a
+                        // pre-v12.0 preview rule) is not proof the question is bookmarked already.
+                        else if (l[i].entityType === 'user-msg' && l[i].msgUuid === c.uuid &&
+                                 !(l[i].boundBy === 'inference' && l[i].legacyHash)) other = true;
                     }
                     outcome = '';
                     if (at < 0 || l[at].msgUuid) return l;
