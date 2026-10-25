@@ -127,6 +127,9 @@
     bubble: [px]      height of each entry's question bubble (default 40); give its question
                       slot (q) room for it
   }
+  entries[i].html (jump models only): the bubble's markup, in place of its text. The bubble
+  renders part of the markdown its query_str holds (live, Chrome, 2026-10-25: an image as its
+  alt text, a long question with a "Read more" button).
   Test hooks: window.__mockWindow.mounted(), .released, .total, .siteWrites,
   .userScrollTo(i | 'top' | 'bottom') (a wheel, then the scroll, as a user would).
 -->
@@ -175,7 +178,8 @@
     var q = slots[2 * i];
     q.innerHTML = '<div><div class="group/partition" data-workflow-entry="' + i + '">' +
                   '<div data-message-bubble="right"><p style="margin:0"></p></div></div></div>';
-    q.querySelector('p').textContent = entries[i].text;
+    if (entries[i].html) q.querySelector('[data-message-bubble]').innerHTML = entries[i].html;
+    else q.querySelector('p').textContent = entries[i].text;
     if (jm.bubble && jm.bubble[i]) q.querySelector('[data-message-bubble]').style.height = jm.bubble[i] + 'px';
   }
   function fill(i) {

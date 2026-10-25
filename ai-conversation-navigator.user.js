@@ -3068,13 +3068,39 @@
         return (at - 1) / 2;
     }
 
+    // A Perplexity question's text for comparing the bubble with the index's query_str:
+    // letters and digits only, full length. _normalizeCompareFull is not enough here: the
+    // bubble renders part of the markdown (an image shows its alt text, where _mdFlatten
+    // leaves "!alt") and a long question carries a "Read more" button. A question holding a
+    // pasted README never matched (live, Chrome + Tampermonkey, 2026-10-25: Q10 of 12,
+    // 3,404 chars): its jump never arrived, its flags had no key, and a scan refetched. The
+    // full length keeps an edit a different question.
+    var IX_PPLX_NON_WORD = /[\s!-\/:-@\[-`{-~\u00a0-\u00bf\u2000-\u206f\u2190-\u2bff\u3000-\u303f\ufe30-\ufe4f\uff01-\uff0f\uff1a-\uff20\uff3b-\uff40\uff5b-\uff65]+/g;
+    function ixPplxTextKey(text) {
+        return _mdFlatten(text).toLowerCase().replace(IX_PPLX_NON_WORD, '');
+    }
+    // The bubble's own text: without its buttons ("Read more") and our flag.
+    function ixPplxBubbleText(b) {
+        if (!b.querySelector('button, [data-acn-bookmark]')) return _readMessageText(b);
+        var out = '', w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT, null, false), n;
+        while ((n = w.nextNode())) {
+            var p = n.parentElement;
+            if (p && p !== b && b.contains(p.closest('button, [data-acn-bookmark]'))) continue;
+            out += n.nodeValue;
+        }
+        return out;
+    }
+    function ixPplxSameText(b, text) {
+        return ixPplxTextKey(ixPplxBubbleText(b)) === ixPplxTextKey(text);
+    }
+
     // Does the mounted question of entry n still read as the index says? Unmounted: nothing
     // contradicts it. An edit or a rewrite keeps the ordinal and changes the text (Tier 3).
     function ixPplxStillIndexed(n) {
         var w = document.querySelector('[data-workflow-entry="' + n + '"]');
         var b = w ? w.querySelector('[data-message-bubble="right"]') : null;
         if (!b || !_ix.textAt || !_ix.textAt.hasOwnProperty(n)) return true;
-        return _normalizeCompareFull(_readMessageText(b)) === _normalizeCompareFull(_ix.textAt[n]);
+        return ixPplxSameText(b, _ix.textAt[n]);
     }
 
     var IX_ADAPTERS = {
@@ -3175,7 +3201,7 @@
                 var w = document.querySelector('[data-workflow-entry="' + (entry.position | 0) + '"]');
                 if (!w) return null;
                 var b = w.querySelector('[data-message-bubble="right"]');
-                if (b && entry.text && _normalizeCompareFull(_readMessageText(b)) !== _normalizeCompareFull(entry.text)) return null;
+                if (b && entry.text && !ixPplxSameText(b, entry.text)) return null;
                 return b || w;
             },
             mounted: function () {
@@ -3189,12 +3215,12 @@
                     // Same ordinal, different question (an edit or a rewrite): stale, and
                     // keyed by its text so a later edit at that ordinal is new evidence (Tier 3).
                     if (pos >= 0 && _ix.textAt && _ix.textAt.hasOwnProperty(pos)) {
-                        // _normalizeCompareFull: the API side is raw markdown and the DOM is
-                        // rendered, and _normalizeKey stops at 200 chars, so an edit sharing
-                        // that prefix would pass as the old question (Tier 3 post-fix). The
-                        // signature is the FULL text, so every later edit is new evidence.
-                        var shown = _normalizeCompareFull(_readMessageText(bubbles[i]));
-                        if (shown && shown !== _normalizeCompareFull(_ix.textAt[pos])) {
+                        // The full text, as ixPplxTextKey reads it: the API side is raw
+                        // markdown and the DOM is rendered, and _normalizeKey stops at 200
+                        // chars, so an edit sharing that prefix would pass as the old question
+                        // (Tier 3 post-fix). Every later edit is new evidence.
+                        var shown = ixPplxTextKey(ixPplxBubbleText(bubbles[i]));
+                        if (shown && shown !== ixPplxTextKey(_ix.textAt[pos])) {
                             pos = -1;
                             key = 'e' + n + ':' + shown;
                         }
@@ -3261,7 +3287,7 @@
                 var w = el.closest('[data-workflow-entry]');
                 var p = w ? ixPplxEntryNo(w) : -1;
                 if (p < 0 || !_ix.idAtPos.hasOwnProperty(p) || !_ix.textAt.hasOwnProperty(p)) return null;
-                if (_normalizeCompareFull(_readMessageText(el)) !== _normalizeCompareFull(_ix.textAt[p])) return null;
+                if (!ixPplxSameText(el, _ix.textAt[p])) return null;
                 return _ix.idAtPos[p];
             }
         }

@@ -18,7 +18,9 @@
 // position (centred, clamped at the scroll ends; a bubble taller than 0.8 x the scroller at its
 // start) — plus the resolved entry, no toast, and no "alignment cap reached" console line.
 // J15 is the one exception: a site that pulls every write back, where the honest outcome is the
-// cap's console line, a toast and no resolved entry.
+// cap's console line, a toast and no resolved entry. J16 (found live, Chrome + Tampermonkey,
+// 2026-10-25) is a Perplexity question whose bubble renders its markdown: J16b also asserts that
+// it reads as indexed (no resync once the 15 s refetch cooldown has passed, both flags keyed).
 //
 // THE MOCKS: the jumpModel blocks appended to tests/mock-pages/perplexity-windowed.html and
 // chatgpt-windowed.html (off by default). Each fixture names the model it runs:
@@ -103,7 +105,11 @@ const MEASURE = `(function (a) {
         ? document.querySelector('[data-workflow-entry="' + a.target + '"] [data-message-bubble="right"]')
         : document.querySelector('[data-turn-key="' + a.key + '"] [data-user-message-bubble="true"]');
     var max = sc.scrollHeight - sc.clientHeight;
+    var qSlot = bub && bub.closest('.jm-slot'), aSlot = qSlot && qSlot.nextElementSibling;
+    var fin = aSlot && aSlot.querySelector('[data-workflow-final-text]');
     var out = { scrollTop: Math.round(sc.scrollTop), max: max, mounted: !!bub, err: null, inView: false,
+                qMark: bub ? bub.getAttribute('data-acn-bookmarked') : null,
+                aMark: fin ? fin.getAttribute('data-acn-bookmarked') : null,
                 resolved: document.getElementById('acn-zone').getAttribute('data-acn-jump-resolved'),
                 toast: (document.getElementById('acn-toast') || {}).textContent || null,
                 window: window.__mockWindow.mounted().join(',') };
@@ -195,6 +201,17 @@ const FIXTURES = [
     { id: 'J15', label: 'new', desc: 'every write pulled back to the bottom: the cap with the target out of view is a toast, not a landing',
       site: 'perplexity', n: 12, start: 'bottom', target: 10, expect: 'cap-out',
       model: Object.assign({}, LIVE_PPLX, { a: LIVE_A.map((h, i) => i === 11 ? 1500 : h), pinMs: 1 }) },
+    // A question whose bubble renders its markdown (live, Chrome + Tampermonkey, 2026-10-25: Q10
+    // of 12, a pasted README; from the top it stopped 862 px short 4 of 4 times, its flags had no
+    // key, and a scan logged "index out of sync"). The bubble shows an image as its alt text, where
+    // _mdFlatten leaves "!alt", and carries a "Read more" button. J16b: no resync, and both flags
+    // carry the entry's id. Both fail on 2ef0d80.
+    { id: 'J16', label: 'new', desc: 'a question whose bubble renders its markdown (images as alt text, a Read more button): top -> Q10',
+      site: 'perplexity', n: 12, start: 'top', target: 9, model: LIVE_PPLX, idChecks: true,
+      entry: { query_str: 'here is the full readme. # Probe Navigator\n\n![Version](https://img.shields.io/badge/version-11.0-blue) ' +
+                          '![License](https://img.shields.io/badge/license-MIT-green)\n\nA browser userscript.',
+               html: '<p style="margin:0">here is the full readme. # Probe Navigator\n\nVersion License\n\nA browser userscript.</p>' +
+                     '<button aria-expanded="false"><span>Read more</span></button>' } },
     // ChatGPT.
     { id: 'K1', label: 'new', desc: 'ChatGPT live model: older turns prepended with no reserved height, bottom -> Q7',
       site: 'chatgpt', n: 24, start: 'bottom', target: 6,
@@ -234,10 +251,13 @@ const FIXTURES = [
         const errors = [], logs = [];
         page.on('pageerror', (e) => errors.push(String(e && e.message || e)));
         page.on('console', (m) => logs.push(m.text()));
-        let url, api, mockConfig, key = null;
+        let url, api, mockConfig, key = null, threadFetches = 0;
         if (fx.site === 'perplexity') {
             const E = pplxEntries(fx.n);
-            mockConfig = { entries: E.map((e) => ({ text: e.query_str })), jumpModel: fx.model || undefined };
+            if (fx.entry) E[fx.target].query_str = fx.entry.query_str;
+            mockConfig = { entries: E.map((e, i) => ({ text: e.query_str, html: fx.entry && i === fx.target ? fx.entry.html : undefined })),
+                           jumpModel: fx.model || undefined };
+            key = E[fx.target].backend_uuid;
             url = 'https://www.perplexity.ai/search/' + PPLX_CONV;
             api = (u) => u.indexOf('/rest/thread/' + PPLX_CONV) !== -1 ? { status: 200, body: JSON.stringify(pplxPage(E, u)) } : null;
         } else {
@@ -256,6 +276,7 @@ const FIXTURES = [
             const u = route.request().url();
             if (u === url) { route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }); return; }
             const a = /\/(api|backend-api|rest)\//.test(u) ? api(u) : null;
+            if (a && u.indexOf('/rest/thread/') !== -1) threadFetches++;
             if (a) { route.fulfill({ status: a.status, contentType: 'application/json', body: a.body }).catch(() => {}); return; }
             route.abort().catch(() => {});
         });
@@ -313,9 +334,14 @@ const FIXTURES = [
         }
         const m = await page.evaluate(MEASURE + '(' + JSON.stringify({ site: fx.site, target: fx.target, key }) + ')');
         m.ms = Date.now() - t0;
+        m.key = key;
         m.clicked = clicked;
         m.errors = errors;
+        // A stale mounted question refetches behind the 15 s cooldown: wait it out.
+        if (fx.idChecks) await page.waitForTimeout(Math.max(0, 17000 - (Date.now() - t0)));
+        m.threadFetches = threadFetches;
         m.capLines = logs.filter((l) => /^\[ACN\] jump: alignment cap/.test(l));
+        m.syncLines = logs.filter((l) => /^\[ACN\] index out of sync/.test(l));
         if (trace) console.log('    trace ' + fx.id + ':\n      ' + (await page.evaluate(() => window.__trace)).join('\n      '));
         await context.close();
         return m;
@@ -339,6 +365,11 @@ const FIXTURES = [
               ' inView=' + m.inView + ' err=' + m.err + 'px scrollTop=' + m.scrollTop + '/' + m.max +
               ' window=[' + m.window + '] ' + m.ms + 'ms' + (m.capLines.length ? ' CAP: ' + m.capLines[0] : '');
         check(fx.id, '[' + fx.label + '] ' + fx.desc, ok, detail);
+        if (fx.idChecks) {
+            check(fx.id + 'b', '[' + fx.label + '] the same question reads as indexed: no resync, and both flags carry the entry id',
+                  !m.crashed && m.syncLines.length === 0 && m.threadFetches === 1 && m.qMark === m.key && m.aMark === m.key + ':answer',
+                  'resyncs=' + (m.syncLines || []).length + ' thread fetches=' + m.threadFetches + ' (17 s after the click) qMark=' + m.qMark + ' aMark=' + m.aMark);
+        }
     }
     check('E', 'no page errors in any fixture', pageErrors.length === 0, pageErrors.slice(0, 2).join(' / '));
     await browser.close();
