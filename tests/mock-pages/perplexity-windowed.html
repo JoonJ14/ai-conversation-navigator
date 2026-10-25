@@ -34,6 +34,7 @@
 <script>
 (function () {
   var cfg = window.__MOCK_CONFIG || {};
+  if (cfg.jumpModel) return;      // v12.15 jump models: the block at the end builds the page
   var entries = cfg.entries;
   if (!entries) {
     entries = [];
@@ -92,6 +93,149 @@
     total: entries.length,
     mounted: function () { return Object.keys(mountedNodes).map(Number).sort(function (a, b) { return a - b; }); },
     get released() { return released; }
+  };
+}());
+</script>
+<!--
+  ── v12.15 JUMP MODELS (part B) ─────────────────────────────────────────────────────────
+  OFF by default: everything below runs only when window.__MOCK_CONFIG.jumpModel is set, and
+  the block above then builds nothing. The layout is the live one (Chrome, 2026-10-24): one
+  list of two slots per entry, [question slot, answer slot]; [data-workflow-entry=N] sits two
+  levels inside the question slot; an unmounted slot is an EMPTY div that KEEPS its height;
+  5-8 entries are mounted and the latest one always is; the stick-to-bottom pin as above.
+  jumpModel: {
+    q: [px], a: [px]  true heights of each entry's question / answer slot (default 120 / 600)
+    reserve: 'exact'  (default) an unmounted slot keeps its true height, as live
+           | 'estimate'  a never-mounted slot reserves estQ / estA px until it first mounts
+    estQ, estA        the estimates (default 60 / 240)
+    drift: px         'exact' only: a slot reserves this much less than its true height until
+                      it first mounts (live: scrollHeight 9375 -> 9407 over a sweep, +8 px steps)
+    anchor: true      the site keeps the view still across every mount or unmount: it re-writes
+                      scrollTop after the change, adding the growth of slots wholly above the
+                      view. A write cancels a smooth glide in progress (measured, Playwright:
+                      any write in Chromium and WebKit, a changed value in Firefox)
+    around: n         n more entries mounted on each side of those in view (live: 5-8 mounted,
+                      changing as the view moves; around: 2 gives that)
+    overscan: px      mounted beyond the viewport on each side (default 0)
+    mountDelay: ms    the window re-renders this long after a scroll (default 0: at once)
+    pinMs: ms         a wheel releases the pin for this long only; a later scroll away from the
+                      bottom is pinned back (default: one wheel releases it for good, as above)
+  }
+  Test hooks: window.__mockWindow.mounted(), .released, .total, .siteWrites,
+  .userScrollTo(i | 'top' | 'bottom') (a wheel, then the scroll, as a user would).
+-->
+<style>
+  .jm-slot { box-sizing: border-box; overflow: hidden; padding: 8px; }
+  .jm-slot [data-message-bubble="right"] { height: 40px; box-sizing: border-box; overflow: hidden; }
+</style>
+<script>
+(function () {
+  var cfg = window.__MOCK_CONFIG || {};
+  var jm = cfg.jumpModel;
+  if (!jm) return;
+  var entries = cfg.entries;
+  if (!entries) {
+    entries = [];
+    for (var g = 0; g < 12; g++) entries.push({ text: 'Generated thread question ' + (g + 1) + ' about pinned scrollers?' });
+  }
+  var N = entries.length, S = 2 * N;
+  var scroller = document.getElementById('mock-scroller');
+  var items = document.getElementById('mock-items');
+  scroller.style.overflowAnchor = 'none';     // the mock anchors itself, the same way in every engine
+  function trueH(k) {
+    var i = k >> 1;
+    return k % 2 ? ((jm.a && jm.a[i]) || 600) : ((jm.q && jm.q[i]) || 120);
+  }
+  var height = [], seen = [], slots = [], mountedEntries = {};
+  for (var k = 0; k < S; k++) {
+    var h0 = jm.reserve === 'estimate' ? (k % 2 ? (jm.estA || 240) : (jm.estQ || 60)) : trueH(k) - (jm.drift || 0);
+    height.push(Math.max(1, h0));
+    seen.push(false);
+    var d = document.createElement('div');
+    d.className = 'jm-slot';
+    d.style.height = height[k] + 'px';
+    items.appendChild(d);
+    slots.push(d);
+  }
+  var released = false, lastWheel = -1e9, siteWrites = 0, pending = null;
+
+  function tops() {
+    var t = [], y = 0;
+    for (var s = 0; s < S; s++) { t.push(y); y += height[s]; }
+    t.push(y);
+    return t;
+  }
+  function fill(i) {
+    var q = slots[2 * i], a = slots[2 * i + 1];
+    q.innerHTML = '<div><div class="group/partition" data-workflow-entry="' + i + '">' +
+                  '<div data-message-bubble="right"><p style="margin:0"></p></div></div></div>';
+    q.querySelector('p').textContent = entries[i].text;
+    a.innerHTML = '<div><div data-workflow-final-text="true" class="prose">Answer ' + (i + 1) + '</div></div>';
+  }
+  function empty(i) { slots[2 * i].innerHTML = ''; slots[2 * i + 1].innerHTML = ''; }
+
+  function render() {
+    var t = tops();
+    var st = scroller.scrollTop, over = jm.overscan || 0;
+    var lo = st - over, hi = st + scroller.clientHeight + over;
+    var want = {}, first = -1, last = -1;
+    for (var i = 0; i < N; i++) {
+      if (t[2 * i + 2] > lo && t[2 * i] < hi) { want[i] = true; if (first < 0) first = i; last = i; }
+    }
+    if (first >= 0 && jm.around) {
+      for (var w = Math.max(0, first - jm.around); w <= Math.min(N - 1, last + jm.around); w++) want[w] = true;
+    }
+    want[N - 1] = true;                       // the latest entry stays mounted
+    var changed = false, growth = 0;
+    for (var e = 0; e < N; e++) {
+      var on = !!want[e];
+      if (on === !!mountedEntries[e]) continue;
+      changed = true;
+      if (!on) { empty(e); delete mountedEntries[e]; continue; }
+      fill(e);
+      mountedEntries[e] = true;
+      for (var s = 2 * e; s <= 2 * e + 1; s++) {
+        if (seen[s]) continue;
+        seen[s] = true;
+        var nh = trueH(s);
+        if (nh === height[s]) continue;
+        if (t[s + 1] <= st) growth += nh - height[s];      // wholly above the view
+        height[s] = nh;
+        slots[s].style.height = nh + 'px';
+      }
+    }
+    if (jm.anchor && changed) { siteWrites++; scroller.scrollTop = st + growth; }
+  }
+  function schedule() {
+    if (!jm.mountDelay) { render(); return; }
+    if (pending) return;
+    pending = setTimeout(function () { pending = null; render(); }, jm.mountDelay);
+  }
+  function bottom() { return scroller.scrollHeight - scroller.clientHeight; }
+  function isReleased() {
+    if (!released) return false;
+    return !jm.pinMs || (Date.now() - lastWheel) <= jm.pinMs;
+  }
+  scroller.addEventListener('wheel', function () { released = true; lastWheel = Date.now(); }, { passive: true });
+  scroller.addEventListener('scroll', function () {
+    if (!isReleased() && scroller.scrollTop < bottom() - 2) {
+      setTimeout(function () { if (!isReleased()) { siteWrites++; scroller.scrollTop = bottom(); } }, 50);
+    }
+    schedule();
+  }, { passive: true });
+  scroller.scrollTop = bottom();
+  render();
+  scroller.scrollTop = bottom();
+  render();
+  window.__mockWindow = {
+    total: N,
+    mounted: function () { return Object.keys(mountedEntries).map(Number).sort(function (x, y) { return x - y; }); },
+    get released() { return released; },
+    get siteWrites() { return siteWrites; },
+    userScrollTo: function (i) {
+      scroller.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true }));
+      scroller.scrollTop = i === 'top' ? 0 : i === 'bottom' ? bottom() : tops()[2 * i];
+    }
   };
 }());
 </script>

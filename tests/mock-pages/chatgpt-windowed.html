@@ -35,6 +35,7 @@
 <script>
 (function () {
   var cfg = window.__MOCK_CONFIG || {};
+  if (cfg.jumpModel) return;      // v12.15 jump models: the block at the end builds the page
   var turns = cfg.turns;
   if (!turns) {
     turns = [];
@@ -98,6 +99,163 @@
     setTurns: setTurns,
     get total() { return turns.length; },
     mounted: function () { return Object.keys(mountedNodes).map(Number).sort(function (a, b) { return a - b; }); }
+  };
+}());
+</script>
+<!--
+  ── v12.15 JUMP MODELS (part B) ─────────────────────────────────────────────────────────
+  OFF by default: everything below runs only when window.__MOCK_CONFIG.jumpModel is set, and
+  the block above then builds nothing. Live (Chrome, 2026-10-24): 5-7 turns mounted; on load
+  only the LAST few turns exist; older turns reserve NO height: scrolling near the top
+  PREPENDS them, scrollHeight grows and scrollTop jumps to keep the view (e.g. 926 -> 6119);
+  a turn that leaves the window keeps its space; nodes are replaced, not recycled.
+  jumpModel: {
+    h: [px]           true height of each turn (default 900)
+    loaded: n         turns present at load, counted from the end (default: all of them)
+    batch: n          turns prepended per load (default 3)
+    prependDelay: ms  from the scroll that reaches the top region to the prepend (default 80)
+    prependWithin: px a scroll this close to the top loads older turns (default: one viewport)
+                 | 'window'  a scroll while the first loaded turn is mounted does (a top sentinel:
+                      live, a prepend landed mid-glide at scrollTop 9187 of 40818)
+    minTurns: n       consecutive turns mounted around the view (default 5)
+    grow: { ms, add } a turn first mounts `add` px short and grows to its true height `ms` later
+    anchor: true      that growth, in a turn wholly above the view, is compensated by a
+                      scrollTop write (a prepend is always compensated, as live)
+  }
+  Test hooks: window.__mockWindow.mounted() (positions), .total, .loadedFrom, .siteWrites,
+  .userScrollTo(i | 'top' | 'bottom'), .loadAll() (every older turn, the view kept still).
+-->
+<style>
+  .jm-turn { box-sizing: border-box; overflow: hidden; }
+  .jm-turn [data-turn-key] { box-sizing: border-box; padding: 8px; height: 100%; }
+  .jm-turn [data-user-message-bubble] { height: 40px; box-sizing: border-box; overflow: hidden; }
+</style>
+<script>
+(function () {
+  var cfg = window.__MOCK_CONFIG || {};
+  var jm = cfg.jumpModel;
+  if (!jm) return;
+  var turns = cfg.turns;
+  if (!turns) {
+    turns = [];
+    for (var g = 0; g < 10; g++) {
+      turns.push({ id: 'aaaaaaaa-0000-4000-8000-' + ('000000000000' + g).slice(-12),
+                   text: 'Generated question number ' + (g + 1) + ' about windowed lists?' });
+    }
+  }
+  var N = turns.length;
+  var scroller = document.getElementById('mock-scroller');
+  document.getElementById('mock-spacer').style.height = '0px';
+  scroller.style.overflowAnchor = 'none';     // the mock anchors itself, the same way in every engine
+  var list = document.createElement('div');
+  scroller.appendChild(list);
+  function trueH(i) { return (jm.h && jm.h[i]) || 900; }
+  var L = Math.max(0, N - (jm.loaded || N));  // the first loaded turn
+  var height = {}, seen = {}, slots = {}, mountedTurns = {}, siteWrites = 0, prepending = null;
+  function addSlot(i, before) {
+    var d = document.createElement('div');
+    d.className = 'jm-turn';
+    height[i] = trueH(i);
+    d.style.height = height[i] + 'px';
+    if (before) list.insertBefore(d, before); else list.appendChild(d);
+    slots[i] = d;
+  }
+  for (var i0 = L; i0 < N; i0++) addSlot(i0, null);
+
+  function tops() {
+    var t = {}, y = 0;
+    for (var i = L; i < N; i++) { t[i] = y; y += height[i]; }
+    t[N] = y;
+    return t;
+  }
+  function fill(i) {
+    var t = turns[i];
+    slots[i].innerHTML =
+      '<div data-turn-key="' + t.id + '">' +
+        '<div data-content-search-turn-key="fallback-turn-' + i + '">' +
+          '<div data-chatgpt-search-unit-key="fallback-turn-' + i + ':0:user" data-chatgpt-search-message-ids="' + t.id + '">' +
+            '<div data-content-search-unit-key="fallback-turn-' + i + ':0:user">' +
+              '<div data-user-message-bubble="true"></div>' +
+            '</div>' +
+          '</div>' +
+          '<div data-chatgpt-search-unit-key="fallback-turn-' + i + ':1:assistant" class="answer">Answer ' + (i + 1) + '</div>' +
+        '</div>' +
+      '</div>';
+    slots[i].querySelector('[data-user-message-bubble]').textContent = t.text;
+  }
+  function setHeight(i, h, t, st) {
+    var old = height[i];
+    height[i] = h;
+    slots[i].style.height = h + 'px';
+    return (t[i + 1] <= st) ? h - old : 0;          // growth wholly above the view
+  }
+
+  function render() {
+    var t = tops();
+    var st = scroller.scrollTop, hi = st + scroller.clientHeight;
+    var want = {}, first = -1, last = -1, minT = jm.minTurns || 5;
+    for (var i = L; i < N; i++) {
+      if (t[i + 1] > st && t[i] < hi) { want[i] = true; if (first < 0) first = i; last = i; }
+    }
+    if (first < 0) { first = last = N - 1; want[N - 1] = true; }
+    while (last - first + 1 < minT && (first > L || last < N - 1)) {
+      if (last < N - 1) last++;
+      if (last - first + 1 < minT && first > L) first--;
+    }
+    for (var w = first; w <= last; w++) want[w] = true;
+    var growth = 0;
+    for (var e = L; e < N; e++) {
+      var on = !!want[e];
+      if (on === !!mountedTurns[e]) continue;
+      if (!on) { slots[e].innerHTML = ''; delete mountedTurns[e]; continue; }
+      fill(e);
+      mountedTurns[e] = true;
+      if (jm.grow && !seen[e]) {
+        seen[e] = true;
+        growth += setHeight(e, Math.max(60, trueH(e) - jm.grow.add), t, st);
+        (function (j) {
+          setTimeout(function () {
+            var g2 = setHeight(j, trueH(j), tops(), scroller.scrollTop);
+            if (jm.anchor && g2) { siteWrites++; scroller.scrollTop = scroller.scrollTop + g2; }
+          }, jm.grow.ms);
+        }(e));
+      }
+    }
+    if (jm.anchor && growth) { siteWrites++; scroller.scrollTop = st + growth; }
+  }
+  // Older turns arrive at the top; the view is kept still by moving scrollTop down by
+  // exactly what was inserted above it (live: 926 -> 6119).
+  function prepend(count) {
+    if (L === 0) return;
+    var from = Math.max(0, L - count), before = slots[L], added = 0;
+    for (var i = from; i < L; i++) { addSlot(i, before); added += height[i]; }
+    L = from;
+    siteWrites++;
+    scroller.scrollTop = scroller.scrollTop + added;
+    render();
+  }
+  function maybePrepend() {
+    if (L === 0 || prepending) return;
+    if (jm.prependWithin === 'window' ? !mountedTurns[L]
+        : scroller.scrollTop > (jm.prependWithin || scroller.clientHeight)) return;
+    prepending = setTimeout(function () { prepending = null; prepend(jm.batch || 3); }, jm.prependDelay || 80);
+  }
+  scroller.addEventListener('scroll', function () { render(); maybePrepend(); }, { passive: true });
+  scroller.scrollTop = scroller.scrollHeight;
+  render();
+  scroller.scrollTop = scroller.scrollHeight;
+  render();
+  window.__mockWindow = {
+    get total() { return N; },
+    get loadedFrom() { return L; },
+    get siteWrites() { return siteWrites; },
+    mounted: function () { return Object.keys(mountedTurns).map(Number).sort(function (a, b) { return a - b; }); },
+    loadAll: function () { prepend(N); },
+    userScrollTo: function (i) {
+      scroller.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true }));
+      var t = tops();
+      scroller.scrollTop = i === 'top' ? 0 : i === 'bottom' ? scroller.scrollHeight : t[i];
+    }
   };
 }());
 </script>
