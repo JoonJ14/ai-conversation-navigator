@@ -3068,16 +3068,34 @@
         return (at - 1) / 2;
     }
 
-    // A Perplexity question's text for comparing the bubble with the index's query_str:
-    // letters and digits only, full length. _normalizeCompareFull is not enough here: the
-    // bubble renders part of the markdown (an image shows its alt text, where _mdFlatten
-    // leaves "!alt") and a long question carries a "Read more" button. A question holding a
-    // pasted README never matched (live, Chrome + Tampermonkey, 2026-10-25: Q10 of 12,
-    // 3,404 chars): its jump never arrived, its flags had no key, and a scan refetched. The
-    // full length keeps an edit a different question.
-    var IX_PPLX_NON_WORD = /[\s!-\/:-@\[-`{-~\u00a0-\u00bf\u2000-\u206f\u2190-\u2bff\u3000-\u303f\ufe30-\ufe4f\uff01-\uff0f\uff1a-\uff20\uff3b-\uff40\uff5b-\uff65]+/g;
+    // A Perplexity question's text for comparing the bubble with the index's query_str, at
+    // full length. _normalizeCompareFull is not enough here: the bubble renders the markdown
+    // and a long question carries a "Read more" button. A question holding a pasted README
+    // never matched (live, Chrome + Tampermonkey, 2026-10-25: Q10 of 12, 3,404 chars): its
+    // jump never arrived, its flags had no key, and a scan refetched. Measured on that thread,
+    // the bubble shows images as their alt text and links as their label, and drops table
+    // pipes and separator rows, list markers, heading markers and the whitespace between
+    // blocks; the key drops the same on both sides, plus the other markers a rendering
+    // removes (fences, blockquotes, emphasis pairs, backticks). Every other character counts:
+    // _mdFlatten deletes every bracket and parenthesis, and an earlier key kept only letters
+    // and digits, which read an edit from "10+2" to "10/2" as the indexed question (GitHub
+    // Codex, PR #88).
     function ixPplxTextKey(text) {
-        return _mdFlatten(text).toLowerCase().replace(IX_PPLX_NON_WORD, '');
+        var lines = String(text == null ? '' : text)
+            .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')                // images, links -> label
+            .split('\n');
+        for (var i = 0; i < lines.length; i++) {
+            var t = lines[i].replace(/^\s+|\s+$/g, '');
+            if (t.charAt(0) !== '|') continue;                        // a table row
+            lines[i] = /^[|:\s-]*-{3,}[|:\s-]*$/.test(t) ? '' : t.replace(/\|/g, ' ');
+        }
+        return lines.join('\n')
+            .replace(/^[ \t]*```[a-zA-Z0-9_-]*[ \t]*$/gm, '')             // fence lines
+            .replace(/^[ \t]*>+[ \t]?/gm, '')                           // blockquote markers
+            .replace(/^[ \t]*#{1,6}[ \t]+/gm, '')                       // heading markers
+            .replace(/^[ \t]*(?:[-+*]|\d+[.)])[ \t]+/gm, '')            // list markers
+            .replace(/\*\*|__|~~|`/g, '')                               // emphasis pairs, code
+            .toLowerCase().replace(/\s+/g, '');
     }
     // The bubble's own text: without its buttons ("Read more") and our flag.
     function ixPplxBubbleText(b) {

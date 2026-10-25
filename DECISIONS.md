@@ -3455,12 +3455,20 @@ exists; short threads (no container) keep v12.14's fast path. The callback marks
 
 **Added after the live check (2026-10-25, `989fe0a`): the Perplexity question compare.** The arrival test (`locate`),
 the staleness scan (`mounted`) and both flag keys (`keyOf`, `ixPplxStillIndexed`) compare a mounted bubble with the
-entry's `query_str` through `ixPplxTextKey`: letters and digits only, full length, after `_mdFlatten`, on the
-bubble's text without its buttons and our flag. `_normalizeCompareFull` never matched a question whose bubble renders
-its markdown: live, Chrome + Tampermonkey, a pasted README showed its images as alt text and a "Read more" button,
-and its jump stopped 862 px short 4 of 4 times. Rejected: dropping the text check (it is what tells an edit at the
-same ordinal from the indexed question), and a prefix compare (two questions sharing a long opening would pass as one,
-the Tier 3 finding the full-length compare was written for).
+entry's `query_str` through `ixPplxTextKey`, on the bubble's text without its buttons and our flag. Both sides lose
+the markdown the bubble renders (measured on a 12-question thread: images and links to their alt text or label,
+headings, tables and lists without their markers) plus fence and blockquote markers, emphasis pairs and backticks,
+and all whitespace; every other character counts, at full length.
+`_normalizeCompareFull` never matched a question whose bubble renders its markdown: live, Chrome + Tampermonkey, a
+pasted README showed its images as alt text, its table without pipes and a "Read more" button, and its jump stopped
+862 px short 4 of 4 times. Rejected:
+- dropping the text check: it is what tells an edit at the same ordinal from the indexed question;
+- a prefix compare: two questions sharing a long opening would pass as one, the Tier 3 finding the full-length
+  compare was written for;
+- letters and digits only (`989fe0a`, the first version): it read an edit from "10+2" to "10/2" as the indexed
+  question (GitHub Codex, PR #88);
+- `_mdFlatten`, which the other platforms' compares use: it deletes every bracket and parenthesis, so "(10+2)*3" read
+  as "10+2*3".
 
 ### Context
 The owner [measured, owner, v12.14, 2026-10-24]: on Safari + Userscripts a mid-conversation Perplexity jump stopped

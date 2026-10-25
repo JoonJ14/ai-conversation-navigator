@@ -21,6 +21,7 @@
 // cap's console line, a toast and no resolved entry. J16 (found live, Chrome + Tampermonkey,
 // 2026-10-25) is a Perplexity question whose bubble renders its markdown: J16b also asserts that
 // it reads as indexed (no resync once the 15 s refetch cooldown has passed, both flags keyed).
+// J17 asserts no landing: an edit that changes only an operator reads as a different question.
 //
 // THE MOCKS: the jumpModel blocks appended to tests/mock-pages/perplexity-windowed.html and
 // chatgpt-windowed.html (off by default). Each fixture names the model it runs:
@@ -203,15 +204,36 @@ const FIXTURES = [
       model: Object.assign({}, LIVE_PPLX, { a: LIVE_A.map((h, i) => i === 11 ? 1500 : h), pinMs: 1 }) },
     // A question whose bubble renders its markdown (live, Chrome + Tampermonkey, 2026-10-25: Q10
     // of 12, a pasted README; from the top it stopped 862 px short 4 of 4 times, its flags had no
-    // key, and a scan logged "index out of sync"). The bubble shows an image as its alt text, where
-    // _mdFlatten leaves "!alt", and carries a "Read more" button. J16b: no resync, and both flags
-    // carry the entry's id. Both fail on 2ef0d80.
-    { id: 'J16', label: 'new', desc: 'a question whose bubble renders its markdown (images as alt text, a Read more button): top -> Q10',
+    // key, and a scan logged "index out of sync"). Measured on that thread, the bubble shows images
+    // as their alt text and links as their label, renders headings, tables and lists without their
+    // markers, drops the whitespace between blocks, and carries a "Read more" button. J16b: no
+    // resync, and both flags carry the entry's id. Both fail on 2ef0d80 and on v12.14.
+    { id: 'J16', label: 'new', desc: 'a question whose bubble renders its markdown (images, links, a heading, a table, a list, Read more): top -> Q10',
       site: 'perplexity', n: 12, start: 'top', target: 9, model: LIVE_PPLX, idChecks: true,
       entry: { query_str: 'here is the full readme. # Probe Navigator\n\n![Version](https://img.shields.io/badge/version-11.0-blue) ' +
-                          '![License](https://img.shields.io/badge/license-MIT-green)\n\nA browser userscript.',
-               html: '<p style="margin:0">here is the full readme. # Probe Navigator\n\nVersion License\n\nA browser userscript.</p>' +
+                          '![License](https://img.shields.io/badge/license-MIT-green)\n\n## Supported platforms\n\n' +
+                          '| Platform | Status |\n|----------|--------|\n| Claude | **ok** |\n\n1. Install it.\n2. Open a chat.\n\n' +
+                          'See [the docs](https://example.com/docs) (version 2).',
+               html: '<p style="margin:0">here is the full readme. # Probe Navigator</p><p style="margin:0">Version License</p>' +
+                     '<h2 style="margin:0">Supported platforms</h2>' +
+                     '<table><tr><th>Platform</th><th>Status</th></tr><tr><td>Claude</td><td><strong>ok</strong></td></tr></table>' +
+                     '<ol><li>Install it.</li><li>Open a chat.</li></ol><p style="margin:0">See <a href="https://example.com/docs">the docs</a> (version 2).</p>' +
                      '<button aria-expanded="false"><span>Read more</span></button>' } },
+    // The other side of J16: a question edited in place, keeping its ordinal, where only an
+    // operator changed ("10+2" -> "10/2"). It is not the indexed question: no key on its flag, and
+    // a resync once the cooldown has passed. The letters-and-digits compare of 989fe0a read the two
+    // as one (GitHub Codex, PR #88). 2ef0d80, with the strict compare, passes; v12.14 fails, since its
+    // flags carry no id at all.
+    { id: 'J17', label: 'new', desc: 'a question edited in place where only an operator changed reads as stale',
+      site: 'perplexity', n: 12, start: 'top', target: 9, model: LIVE_PPLX, staleOnly: true,
+      entry: { query_str: 'Calculate 10+2 for me, please.',
+               html: '<p style="margin:0">Calculate 10/2 for me, please.</p>' } },
+    // The same with brackets: _mdFlatten deletes every parenthesis, so "(10+2)*3" read as "10+2*3"
+    // (fails on 2ef0d80, 989fe0a and v12.14).
+    { id: 'J17b', label: 'new', desc: 'a question edited in place where only the parentheses changed reads as stale',
+      site: 'perplexity', n: 12, start: 'top', target: 9, model: LIVE_PPLX, staleOnly: true,
+      entry: { query_str: 'Is (10+2)*3 equal to 36?',
+               html: '<p style="margin:0">Is 10+2*3 equal to 36?</p>' } },
     // ChatGPT.
     { id: 'K1', label: 'new', desc: 'ChatGPT live model: older turns prepended with no reserved height, bottom -> Q7',
       site: 'chatgpt', n: 24, start: 'bottom', target: 6,
@@ -338,7 +360,7 @@ const FIXTURES = [
         m.clicked = clicked;
         m.errors = errors;
         // A stale mounted question refetches behind the 15 s cooldown: wait it out.
-        if (fx.idChecks) await page.waitForTimeout(Math.max(0, 17000 - (Date.now() - t0)));
+        if (fx.idChecks || fx.staleOnly) await page.waitForTimeout(Math.max(0, 17000 - (Date.now() - t0)));
         m.threadFetches = threadFetches;
         m.capLines = logs.filter((l) => /^\[ACN\] jump: alignment cap/.test(l));
         m.syncLines = logs.filter((l) => /^\[ACN\] index out of sync/.test(l));
@@ -364,6 +386,12 @@ const FIXTURES = [
             : 'resolved=' + m.resolved + ' toast=' + (m.toast ? 'yes' : 'no') + ' mounted=' + m.mounted +
               ' inView=' + m.inView + ' err=' + m.err + 'px scrollTop=' + m.scrollTop + '/' + m.max +
               ' window=[' + m.window + '] ' + m.ms + 'ms' + (m.capLines.length ? ' CAP: ' + m.capLines[0] : '');
+        if (fx.staleOnly) {
+            check(fx.id, '[' + fx.label + '] ' + fx.desc + ': no key on its flag, and a resync',
+                  !m.crashed && m.qMark === 'nokey:user-msg' && m.syncLines.length >= 1,
+                  'qMark=' + m.qMark + ' resyncs=' + (m.syncLines || []).length + ' thread fetches=' + m.threadFetches + ' (17 s after the click)');
+            continue;
+        }
         check(fx.id, '[' + fx.label + '] ' + fx.desc, ok, detail);
         if (fx.idChecks) {
             check(fx.id + 'b', '[' + fx.label + '] the same question reads as indexed: no resync, and both flags carry the entry id',

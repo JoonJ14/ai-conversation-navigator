@@ -506,13 +506,17 @@ owner acceptance on all three browsers pending (DEC-031)
   with `query_str` never matched. Four places used that compare: `locate` (the jump never arrived), `keyOf` and
   `ixPplxStillIndexed` (both of Q10's flags had no key) and `mounted` (staleness: "index out of sync … refetching").
   Compared letters and digits only, the two texts are identical apart from the button's "Read more" [measured, same
-  context].
+  context]. The full set the bubble renders, measured on all 12 questions of that thread: images and links as their
+  alt text or label; headings, tables and lists without their markers; no whitespace between blocks.
 
 ### Fix (v12.15, parts B and A)
 
-- **The Perplexity text compare (found live, above):** `ixPplxTextKey` (letters and digits only, full length, after
-  `_mdFlatten`) on the bubble's text without its buttons and our flag (`ixPplxBubbleText`), at all four places. An
-  edit still reads as a different question, since the whole text is compared.
+- **The Perplexity text compare (found live, above):** `ixPplxTextKey`, at all four places, on the bubble's text
+  without its buttons and our flag (`ixPplxBubbleText`). Both sides lose image and link syntax (to the alt text or
+  label), table pipes and separator rows, list and heading markers, fence and blockquote markers, emphasis pairs and
+  backticks, and all whitespace; every other character counts, at full length, so an edit still reads as a different
+  question. A first version compared letters and digits only; GitHub Codex showed that it read "10+2" and "10/2" as
+  one question (PR #88). `_mdFlatten` is not used: it deletes every parenthesis.
 - **Jumps (DEC-052):** land with instant writes, re-located by identity, until within 8 px or 4 writes; a damped
   step; "near" only within a viewport of the view; a bounded wait, then a step from the entry nearest in px; the
   Perplexity entry's box includes its answer slot.
@@ -525,10 +529,13 @@ owner acceptance on all three browsers pending (DEC-031)
 - **Mocks only** [measured, Playwright page realm, headless, 1280×720, this Mac]: `probes/check-ix-jumps.js` 19/19 and
   `probes/check-ix-bookmarks.js` 56/56 on chromium ×3, firefox ×1, webkit ×1; v12.14 fails every [new] check (14 and
   55) on chromium ×1. The windowed mocks model the live layout from the facts above; they are not the live sites.
-- **The text compare:** `check-ix-jumps` J16 and J16b, a Perplexity question whose bubble shows images as alt text and
-  a "Read more" button. Both pass on Chromium, Firefox and WebKit, and fail on `2ef0d80` and on v12.14. A mutant that
-  reverts any one of the four call sites, or keeps the button's text, fails one of them [measured, Playwright page
-  realm, headless, chromium, 1 run each].
+- **The text compare:** `check-ix-jumps` J16 and J16b (a Perplexity question whose bubble renders images, a link, a
+  heading, a table with bold text, a list and a "Read more" button) and J17 / J17b (in-place edits of only an operator
+  or only the parentheses read as stale). All pass on Chromium, Firefox and WebKit; J16 and J16b fail on `2ef0d80`
+  and on v12.14; J17 fails on `989fe0a`'s letters-and-digits compare and on v12.14, J17b on those and on `2ef0d80`. A mutant that reverts any one
+  of the four call sites, keeps the button's text, drops any one markdown rule or adds `_mdFlatten` fails one of them
+  [measured, Playwright page realm, headless, chromium, 1 run each]. Live, the same key computed in the page realm:
+  12 of 12 questions of the thread match their `query_str`.
 - **Live, Chrome + Tampermonkey** (the owner's profile, visible tab, 2026-10-25; one run each unless noted; test
   bookmarks created for the check and deleted afterwards):
   - ChatGPT, 24-question project chat, on `2ef0d80` (the text fix touches only the Perplexity adapter): 13 one-click
