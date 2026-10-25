@@ -311,7 +311,9 @@
     //   multiBlockLateTurns the same, after a long preamble: first difference past 200 chars
     //   addedTextTurns      a question whose renderer ADDS text (a code block's language label and
     //                       its "Copy" button), which no normalization of the payload reproduces
-    //   doubleKeyRows       rows holding a second [data-turn-key] (not one id per row)
+    //   doubleKeyRows       rows holding a second [data-turn-key] (not one id per row), ahead of the
+    //                       row's own in document order
+    //   doubleKeyFrom       { row: other row }: that second key is the other row's (default: its own)
     // The probe builds the matching payload (probes/check-claude-turnkeys.js, pcQuestionMarkdown).
     var PC_KEYS = CFG.turnKeys ? CFG.turnKeys.slice() : null;
     var PC_PERF = !!CFG.perfRow;
@@ -351,8 +353,9 @@
         if (PC_KEYS && PC_KEYS[index]) renderWrap.setAttribute('data-turn-key', PC_KEYS[index]);
         if (PC_KEYS && PC_DOUBLE.indexOf(index) !== -1) {
             var extra = el('span', 'sr-only');
-            extra.setAttribute('data-turn-key', PC_KEYS[index]);
-            renderWrap.appendChild(extra);
+            var from = CFG.doubleKeyFrom && CFG.doubleKeyFrom[index] !== undefined ? CFG.doubleKeyFrom[index] : index;
+            extra.setAttribute('data-turn-key', PC_KEYS[from]);
+            row.insertBefore(extra, row.firstChild);
         }
         var blocks = pcBlocks(index);
         var p = blocks && row.querySelector('[data-testid="user-message"] > p');

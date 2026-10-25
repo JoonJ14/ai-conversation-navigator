@@ -44,14 +44,23 @@
 //     G8  [guard] exactly one resync
 //   S8  the last question edited, its new answer streaming
 //     G9  [new]   exactly one resync, after the stream ended (v12.14 resyncs mid-stream)
+//   S14 the last question edited IN PLACE, both rows keeping their keys (whether a live edit keeps
+//       the key is unmeasured); its flag clicked 0.5-1.5 s after the edit. S14b: the same, and 4 s
+//       after the edit the two rows take the edited messages' keys
+//     G17 [guard] the edit is resynced, and no question record holds the superseded uuid (S14)
+//     G17b[guard] the record made in that window ends bound to the edited question's uuid (S14b)
 //   S9  row 20 (question 11) shows row 22's key
-//     G6  [new]   no flag on row 20 carries row 22's uuid, and one console line names the
-//                 disagreement (v12.14 has no line)
-//   S10 hostile rows, no multi-block questions: row 40 a malformed key, row 42 two keys, row 58 an
-//       attachment-only question (no user-message node) with its key
+//     G6  [guard] no flag on row 20 carries row 22's uuid (v12.14 reads no keys)
+//     G6b [new]   one console line names the disagreement
+//     G6c [guard] neither row looks edited: one fetch, no "out of sync" line
+//   S10 hostile rows, no multi-block questions: row 40 a malformed key, row 42 two keys (the first
+//       in document order row 44's), row 58 an attachment-only question (no user-message node,
+//       data-perf-row="human") with its key; row 58 is mounted first
 //     G12 [guard] rows 40 and 42 are identified by their text: their flags carry their uuids
 //     G12b[new]   one line names the first row without a usable key, and why
 //     G7  [guard] one conversation fetch, no "out of sync" line
+//     G7b [guard] row 58 is identified by its key: no fallback line names it (its sender is read
+//                 from data-perf-row; the row has no user-message node)
 //   S12 keys off (the July-like markup of every other suite): multi-block questions
 //     G11 [guard] plain questions' flags carry their uuids; multi-block ones carry no uuid (text
 //                 identity, as v12.14)
@@ -59,8 +68,11 @@
 //       hash with no uuid; QX = QH with a hash its row does not reproduce; QW = QH made on row 44;
 //       QB on question 2, bound (schema 2)
 //     G13 [new]   QH binds to question 13's uuid once its row mounts, labelled "Q#13"
-//     G14 [new]   QX and QW stay unbound and unchanged, while QH is bound in the same run; QB
-//                 stays bound, "Q#2"
+//     G14 [guard] QX and QW stay unbound and unchanged; QB stays bound, "Q#2"
+//   S13b QH, and QI: question 13 bound by inference only (a pre-v12.0 preview rule, legacyHash)
+//     G18 [new]   QH binds to question 13's uuid and QI stays (inference is no proof of a bookmark)
+//   S13c QH, and QD: question 13 bound (schema 2)
+//     G19 [new]   QH, a second bookmark of a bookmarked question, is removed; QD stays
 //
 // CONTEXT of these results: Playwright <engine>, page realm, headless, this machine; the userscript
 // inlined into the virtualizing Claude mock, GM storage and the conversation request stubbed. Not a
@@ -319,7 +331,7 @@ const FIX_PLAIN = { mb: [], mbl: [], added: [] };
     const quiet = argv.includes('--quiet');
     const mint = argv.includes('--mint-seeds');
     const jobs = argv.indexOf('-j') !== -1 ? Math.max(1, parseInt(argv[argv.indexOf('-j') + 1], 10) || 1) : 3;
-    const IDS = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S6b', 'S7', 'S8', 'S9', 'S10', 'S12', 'S13'];
+    const IDS = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S6b', 'S7', 'S8', 'S9', 'S10', 'S12', 'S13', 'S13b', 'S13c', 'S14', 'S14b'];
     const only = argv.indexOf('--only') !== -1 ? String(argv[argv.indexOf('--only') + 1]).split(',') : null;
     if (only && only.some((id) => IDS.indexOf(id) === -1)) {
         console.log('INVALID: --only takes scenario ids from ' + IDS.join(',') + '; got ' + only.join(','));
@@ -640,10 +652,15 @@ const FIX_PLAIN = { mb: [], mbl: [], added: [] };
         const bad = seen.filter((q) => q.row === 20 && q.id === truth[22]);
         const own = seen.filter((q) => q.row === 22 && q.id === truth[22]);
         const line = o.logs.filter((l) => /row 20's data-turn-key names path 22 but its position names path 20/.test(l.text));
-        check('G6', 'a row showing another message\'s key: no flag on it carries that uuid; one line names the disagreement',
-            seen.some((q) => q.row === 20) && bad.length === 0 && own.length > 0 && line.length === 1,
-            'row 20 flags=' + seen.filter((q) => q.row === 20).map((q) => short(q.id)).join(',') + ' row 22 own=' + own.length +
-            ' lines=' + line.length);
+        check('G6', '[guard] a row showing another message\'s key: no flag on it carries that uuid',
+            seen.some((q) => q.row === 20) && bad.length === 0 && own.length > 0,
+            'row 20 flags=' + seen.filter((q) => q.row === 20).map((q) => short(q.id)).join(',') + ' row 22 own=' + own.length);
+        check('G6b', 'one console line names the disagreement', line.length === 1, 'lines=' + line.length);
+        await o.page.waitForTimeout(5000);   // a signature from either row would have refetched by now
+        const fetches = await o.page.evaluate('window.__acn.fetches');
+        check('G6c', '[guard] neither row looks edited (each is compared with its own earlier text): one fetch, no "out of sync" line',
+            fetches === 1 && outOfSync(o.logs).length === 0,
+            'fetches=' + fetches + ' out-of-sync=' + outOfSync(o.logs).map((l) => l.text.replace(/^.*refetching/, '')).join('|'));
         await o.context.close();
     };
 
@@ -653,11 +670,12 @@ const FIX_PLAIN = { mb: [], mbl: [], added: [] };
         const cfg = keysCfg(truth);
         cfg.turnKeys[40] = 'not-a-uuid-' + truth[40].slice(0, 8);
         cfg.doubleKeyRows = [42];
+        cfg.doubleKeyFrom = { 42: 44 };
         cfg.chipRows = [58];
         const o = await openPage(cfg, { seq: [payload] }, null);
         if (!precondition('S10', await ready(o.page, o.logs), 'index ready / visible')) { await o.context.close(); return; }
         const seen = {};
-        for (const R of [40, 42, 58]) {
+        for (const R of [58, 40, 42]) {
             await o.page.evaluate('window.__p.mountRow(' + R + ')');
             await o.page.waitForTimeout(1500);
             (await o.page.evaluate('window.__p.questions()')).forEach((q) => { if (q.row === 40 || q.row === 42) seen[q.row] = q.id; });
@@ -676,6 +694,9 @@ const FIX_PLAIN = { mb: [], mbl: [], added: [] };
         const fetches = await o.page.evaluate('window.__acn.fetches');
         check('G7', '[guard] those rows and an attachment-only question with its key: one fetch, no "out of sync" line',
             fetches === 1 && outOfSync(o.logs).length === 0, 'fetches=' + fetches + ' out-of-sync=' + outOfSync(o.logs).length);
+        const fb58 = o.logs.filter((l) => /row 58 has no usable data-turn-key/.test(l.text));
+        check('G7b', '[guard] the attachment-only question (data-perf-row="human", no user-message node) is identified by its key',
+            fb58.length === 0, JSON.stringify(fb58.map((l) => l.text)));
         await o.context.close();
     };
 
@@ -724,14 +745,94 @@ const FIX_PLAIN = { mb: [], mbl: [], added: [] };
             !!QH && QH.msgUuid === truth[rowOfQ(13)] && QH.schema === 2 && cards.indexOf('Q#13') !== -1,
             'QH=' + (QH ? (QH.msgUuid ? 'bound ' + short(QH.msgUuid) : 'unbound') : 'gone') + ' cards=' + JSON.stringify(cards));
         const same = (a, b) => !!a && !!b && a.contentHash === b.contentHash && !a.msgUuid && a.schema === b.schema && a.pendingRow === b.pendingRow;
-        check('G14', 'a record whose hash its row does not reproduce, and one made on another row, stay unbound; ' +
+        check('G14', '[guard] a record whose hash its row does not reproduce, and one made on another row, stay unbound; ' +
             'a bound record stays bound, "Q#2"',
-            !!QH && !!QH.msgUuid && same(QX, SEEDS.QX) && same(QW, SEEDS.QW) && !!QB && QB.msgUuid === truth[rowOfQ(2)] &&
+            same(QX, SEEDS.QX) && same(QW, SEEDS.QW) && !!QB && QB.msgUuid === truth[rowOfQ(2)] &&
             cards.indexOf('Q#2') !== -1,
             'QX=' + (QX ? (QX.msgUuid ? 'BOUND' : 'unbound') : 'gone') + ' QW=' + (QW ? (QW.msgUuid ? 'BOUND' : 'unbound') : 'gone') +
             ' QB=' + (QB ? short(QB.msgUuid) : 'gone') + ' QH bound=' + !!(QH && QH.msgUuid));
         await o.context.close();
     };
+
+    // QH with one more record of question 13 already in the store: S13b (QI, bound by inference
+    // only) and S13c (QD, bound).
+    function pairScenario(id, other) {
+        return async () => {
+            const { payload, truth } = buildPayload(FIX_SWEEP);
+            const second = Object.assign(JSON.parse(JSON.stringify(SEEDS.QB)), other, {
+                contentHash: truth[rowOfQ(13)], msgUuid: truth[rowOfQ(13)], msgIndex: 12,
+                preview: 'Question number 13: please check these steps.' });
+            const store = {};
+            store[CHAT_URL] = { bookmarks: [JSON.parse(JSON.stringify(SEEDS.QH)), second] };
+            const o = await openPage(Object.assign(keysCfg(truth), { multiBlockTurns: MB, multiBlockLateTurns: MBL, addedTextTurns: ADDED }),
+                                     { seq: [payload] }, store);
+            if (!precondition(id, await ready(o.page, o.logs), 'index ready / visible')) { await o.context.close(); return; }
+            await o.page.evaluate('window.__p.mountRow(' + rowOfQ(13) + ')');
+            await o.page.waitForTimeout(2500);
+            const by = {};
+            (await storeOf(o.page)).forEach((b) => { by[b.id] = b; });
+            await o.context.close();
+            const QH = by[SEEDS.QH.id], S = by[second.id];
+            const d = 'QH=' + (QH ? (QH.msgUuid ? 'bound ' + short(QH.msgUuid) : 'unbound') : 'gone') +
+                      ' ' + second.id + '=' + (S ? short(S.msgUuid) + ' ' + (S.boundBy || '') : 'gone');
+            if (id === 'S13b') {
+                check('G18', 'QH binds to question 13 beside a record of it bound by inference only, which stays',
+                    !!QH && QH.msgUuid === truth[rowOfQ(13)] && !!S && S.msgUuid === truth[rowOfQ(13)], d);
+            } else {
+                check('G19', 'QH, a second bookmark of a question already bookmarked, is removed; the bound record stays',
+                    !QH && !!S && S.msgUuid === truth[rowOfQ(13)], d);
+            }
+        };
+    }
+    SCEN.S13b = pairScenario('S13b', { id: 'bm_qiqiqiqi', boundBy: 'inference', legacyHash: '1234abcd' });
+    SCEN.S13c = pairScenario('S13c', { id: 'bm_qdqdqdqd' });
+
+    // An edit in place: both rows keep their keys (S14), or take the edited messages' keys 4 s later
+    // (S14b); the question's flag is clicked 0.5-1.5 s after the edit.
+    function inPlaceEditScenario(id, rekey) {
+        return async () => {
+            const p0 = buildPayload(FIX_PLAIN);
+            const pE = buildPayload(FIX_PLAIN, { edit: 'done' });
+            const qr = ROWS - 2;
+            const o = await openPage(keysCfg(p0.truth), { seq: [p0.payload, pE.payload] }, null);
+            const ok = await ready(o.page, o.logs);
+            await o.page.evaluate('window.__mockVirtualization.scrollToFraction(1)');
+            await o.page.waitForTimeout(2500);
+            const before = await o.page.evaluate('window.__acn.fetches');
+            const t0 = await o.page.evaluate('performance.now()');
+            await o.page.evaluate('(function () { var pc = window.__mockVirtualization.partC;' +
+                'pc.editQuestion(' + qr + ',' + JSON.stringify(EDIT_TEXT) + ',undefined,undefined,' + JSON.stringify(REGEN_TEXT) + ');' +
+                (rekey ? 'setTimeout(function () { pc.setTurnKey(' + qr + ',' + JSON.stringify(pE.truth[qr]) + ');' +
+                         'pc.setTurnKey(' + (qr + 1) + ',' + JSON.stringify(pE.truth[qr + 1]) + '); }, 4000);' : '') + '})()');
+            await o.page.waitForTimeout(500);
+            let clicked = false;   // the flag can be redrawn just then: a few tries, 100 ms apart
+            for (let k = 0; k < 10 && !clicked; k++) {
+                clicked = await o.page.evaluate('window.__p.clickQuestionFlag(' + qr + ')');
+                if (!clicked) await o.page.waitForTimeout(100);
+            }
+            await o.page.waitForTimeout(20000);
+            const after = (await o.page.evaluate('window.__acn.fetchAt')).filter((t) => t > t0);
+            const recs = (await storeOf(o.page)).filter((b) => b.entityType === 'user-msg');
+            if (argv.includes('--logs')) {
+                console.log('--- ' + id + '\n' + o.logs.filter((l) => /^\[(ACN|DBG)/.test(l.text)).map((l) => '    ' + l.text.slice(0, 220)).join('\n'));
+            }
+            await o.context.close();
+            if (!precondition(id, ok && before === 1 && clicked && recs.length === 1,
+                'ready=' + ok + ' fetches before=' + before + ' clicked=' + clicked + ' question records=' + recs.length)) return;
+            const d = 'resyncs after the edit at ' + (after.map((t) => ((t - t0) / 1000).toFixed(1) + 's').join(',') || 'none') +
+                      '; record ' + (recs[0].msgUuid ? 'uuid ' + short(recs[0].msgUuid) : 'hash ' + recs[0].contentHash) +
+                      ' (superseded ' + short(p0.truth[qr]) + ', edited ' + short(pE.truth[qr]) + ')';
+            if (!rekey) {
+                check('G17', '[guard] an edit in place, keys kept: resynced, and no question record holds the superseded uuid',
+                    after.length >= 1 && recs[0].msgUuid !== p0.truth[qr], d);
+            } else {
+                check('G17b', '[guard] an edit in place, keys taken 4 s later: the record made in between ends bound to the edited question',
+                    after.length >= 1 && recs[0].msgUuid === pE.truth[qr], d);
+            }
+        };
+    }
+    SCEN.S14 = inPlaceEditScenario('S14', false);
+    SCEN.S14b = inPlaceEditScenario('S14b', true);
 
     console.log('check-claude-turnkeys — engine=' + engine + ', script=' + path.basename(scriptPath) + ', -j ' + jobs);
     const list = IDS.filter((id) => !only || only.indexOf(id) !== -1);
