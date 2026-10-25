@@ -54,6 +54,34 @@ Commands persist via `GM_setValue` — follow you across chats, across platforms
 
 ---
 
+> **v12.13 update (PR #85, DEC-050): a save of the commands applies one change to what is stored.**
+>
+> The data model and helpers below are the v10.7 spec. Since v12.13 the code differs from them in these ways:
+> - **Saves.** `saveCommands(list)` no longer writes the whole array. Each create, edit, delete and use goes through
+>   `updateCommands(change)`, which calls `acnUpdateValue('acn-commands', [], acnIsArray, change)`. The change is
+>   applied to the commands as stored at the save, so a command another tab saved survives this tab's save.
+> - **Unreadable stored commands.** A stored value that is not an array is never written over: the form shows
+>   "Not saved: the stored data could not be read" (`storageUnreadable`).
+>   - Logged, pre-existing: a stored value that parses but is not an array also stops the /Commands section drawing,
+>     because `sortCommands(loadCommands())` throws (ROADMAP 0d).
+> - **Ids** are `'cmd_' + Date.now() + '_' + 8 hex digits`. Two tabs creating a command in the same millisecond no
+>   longer collide.
+> - **Names stay unique across tabs.** Another tab may have saved a command of the same name since this page checked.
+>   Both are kept, and the later one is renamed `name-2` (`name-3`, ...), on create and on rename
+>   (`uniqueCommandName`). The base is cut so the result stays within 30 characters, and a command's own id does not
+>   count as taken.
+> - **Uses are counted once, however often a queued change is replayed.**
+>   - Each page has an id (`_cmdUsePage`: 8 hex digits plus `Date.now()` in hex) and numbers its uses in order
+>     (`_cmdUseSeq`).
+>   - A command stores `usesCounted: { <page id>: { seq, at } }` for the 20 pages that used it most recently, ordered
+>     by `at`. A use is skipped when its page's stored `seq` is already at or past it.
+>   - Residual (owner-accepted): a use can be counted twice if its page's marker was trimmed while that use still
+>     waited to be replayed. `usageCount` is never read, so nothing visible changes (DEC-050).
+> - **The list redraws** when a write brings in another tab's commands (`acnWatch`), unless a command form is open
+>   over it.
+> - A command edited in a tab after another tab deleted it reports success, then disappears on the next redraw
+>   (DEC-050, residuals).
+
 ## Data Model
 
 ```javascript

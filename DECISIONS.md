@@ -1271,7 +1271,31 @@ every waiver here, and in the release's CHANGELOG entry.
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
 review record. Updated 2026-10-24:
 - **v12.14 (PR #86, Claude answer bookmarks).** Owner, real browsers, 2026-10-24, on the branch's build ("all three
-  tested"). Recorded as reported:
+  tested"; the userscript is unchanged from `dbf1925` through the merge `79e4953`). Recorded as reported.
+  - **The steps, as posted on the PR** (https://github.com/JoonJ14/ai-conversation-navigator/pull/86#issuecomment-6390014892).
+    Install from the branch and confirm the console says v12.14. Use three chats per browser:
+    - **L**, a long project chat ("Updating AI newsroom repository with Git clone", 147 questions, or "Health resume
+      editing and optimization", 37);
+    - **N**, the longest chat outside a project ("Apple account sign-in from unknown location", 11, or "Public
+      transit options from NYC airports", 8);
+    - **S**, a short chat ("Comparing Minno and Nano portable espresso machines", 4).
+
+    The steps:
+    1. Scroll up from the bottom past the last 3 answers, hovering near the tops of answers: every answer has a flag,
+       in L too.
+    2. Bookmark an answer that mounted only after scrolling, and one near the bottom: each reads "Answer to Q#n" (n is
+       Navigate's number for the question right above), and no two share a number.
+    3. Jump to it from the far end: it lands and flashes, with no "not currently rendered".
+    4. Existing v12.12/v12.13 answer bookmarks read "Answer to Q#n" or "A#?". One outside a project may need its
+       answer on screen once. Clicking an "A#?" shows the could-not-be-matched toast (or "not currently rendered");
+       ✕ deletes it. Note how many of each.
+    5. Question bookmarks still read Q#n, and Navigate's count is unchanged.
+    6. Optional: the `[ACN bookmarks] legacy status:` line no longer says "all records carry a uuid" while "A#?"
+       records exist.
+    7. Optional, only when sending a message anyway: a just-finished answer, bookmarked, reads "Answer to Q#n" within
+       seconds; "refetching the index for a bookmarked answer it does not hold yet" may log once.
+
+    Out of scope there: "[ACN] index out of sync … refetching" while scrolling (the third PR).
   - **Safari + Userscripts.**
     - L (147-question project chat): step 1 **PASS** (every answer has a flag on hover while scrolling up from the
       bottom); step 2 **PASS** ("Answer to Q#79", "Answer to Q#76"); step 3 **PASS** (a jump from far away lands);
@@ -1292,7 +1316,21 @@ review record. Updated 2026-10-24:
   - **Waiver (partial):** merged on the owner's call ("Merge #86 after the lessons commit's CI is green") with
     Chrome's and Firefox's steps 4–5 not reported. They stay owed on the merged build.
 - **v12.13 (PR #85, cross-tab saves).** Owner, real browsers, 2026-10-24, on the branch's build (the userscript is
-  unchanged since `23805a8`). Question bookmarks were used for the tests. Recorded as reported:
+  unchanged since `23805a8`). Question bookmarks were used for the tests. Recorded as reported.
+  - **The steps, as posted on the PR** (https://github.com/JoonJ14/ai-conversation-navigator/pull/85#issuecomment-6382258147).
+    Install from the branch and confirm the console says v12.13. Use throwaway records and remove them afterwards.
+    1. Two tabs on **different** conversations: bookmark a question in A, then a different one in B, then reload A.
+       A's bookmark is still there; after reloading B, B's is too.
+    2. Two tabs on the **same** conversation: bookmark a message in A, reload B so it shows it, and remove it in B.
+       Then bookmark a different message in A. In A the removed flag turns off without a reload; after a reload of
+       either tab, the removed bookmark stays gone and the new one is there.
+    3. Bookmark a message and reload within about 1 s: the bookmark is still there.
+    4. Create `/c-one` in A (Tools → /Commands → New Command), then `/c-two` in B, and reload both: both commands are
+       listed in both tabs.
+    5. With a Claude tab and a ChatGPT tab open, drag the navigator button to a new height in each and reload both:
+       each keeps its own position.
+    6. The bookmarks, commands, language and button position from v12.12 are still there after the update.
+    7. Optional: no `[ACN] storage:` warnings in normal use.
   - **Step 1, the two-tab test on different conversations: PASS on Safari + Userscripts, Chrome + Tampermonkey and
     Firefox + Tampermonkey.** Tab A's bookmark survived tab B's bookmark and a reload of A. On a later reload, A's
     flag showed dark briefly, then lit once the saved bookmarks loaded.
@@ -1306,11 +1344,13 @@ review record. Updated 2026-10-24:
   2026-10-24 (itemized), after the merge.
   - **Itemized, recorded as reported (2026-10-24):**
     - **Safari + Userscripts:** plan usage shows on Claude: **PASS**. A question bookmark survives a reload: **PASS**.
-      A moved button survives a reload: **PASS**. **Not reported** (never checked): the language change, the
-      turn-counter dots, quit-and-reopen Safari, ChatGPT and Perplexity on Safari.
-    - **Chrome + Tampermonkey and Firefox + Tampermonkey:** question bookmarks work. **Not reported:** whether the
-      bookmarks and language from before the update survived it, and plan usage (Firefox's PR #82 items were never
-      sent).
+      A moved button survives a reload: **PASS**. **Not reported** (the owner's words: "Not yet checked"): the
+      language change, the turn-counter dots, quit-and-reopen Safari, ChatGPT and Perplexity on Safari. (ChatGPT and
+      Perplexity on Safari were later checked on the v12.14 build: v12.10 below.)
+    - **Chrome + Tampermonkey and Firefox + Tampermonkey:** question bookmarks work. **Not reported** (the owner's
+      words: "Not yet reported"): whether the bookmarks and language from before the update survived it, and plan
+      usage. The owner wrote on 2026-10-24 that "PR #82's Firefox acceptance (old bookmarks and language surviving the
+      upgrade, plan usage) is still to come"; it has not arrived.
     - **The owner's two-tab test, Safari + Userscripts:** LOST, confirmed: tab A's bookmark was gone after tab B
       bookmarked in another conversation and A reloaded. Fixed in v12.13 (DEC-050).
     - **Answer bookmarks:** broken on all three browsers (the owner's observations: TROUBLESHOOTING, "Claude answer
@@ -1345,13 +1385,28 @@ review record. Updated 2026-10-24:
     predates v12.10 (TROUBLESHOOTING, "OPEN — Claude's turn-counter dots"). **ChatGPT and Perplexity: OWED**,
     after the merge. *Update 2026-10-23, on the v12.12 build: **Passed**. The owner picked "Passed" for "ChatGPT
     and Perplexity, full lists and jumps", whose option read "both lists full and jumps landed, on Safari".*
+    *Corrected 2026-10-24 (owner): **OWED**. The owner's v12.12 itemized report lists "ChatGPT and Perplexity on
+    Safari" as never checked (v12.12 above), and when asked which record stands, the owner chose owed. The
+    2026-10-23 pick stays above as it was recorded.*
+    **Run 2026-10-24 on the v12.14 build** [measured, owner, Safari + Userscripts], recorded as written:
+    - Question lists: **PASS** on both (all questions listed).
+    - ChatGPT jumps: work, but a far jump sometimes lands near the target (e.g. on answer 14 instead of question
+      14); a second click lands exactly.
+    - Perplexity jumps: **FAIL** as a one-click jump. A mid-conversation jump stops partway (from Q12, clicking Q5
+      stopped mid-answer 7); it takes 2–3 clicks to arrive. The first question works. Chrome comparison: not checked
+      yet.
+    - So this item: lists **PASS**; it stays **open for the Perplexity jump** (planned for v12.15, part B; ROADMAP
+      13).
   - **Waiver:** v12.10 was merged before Safari's ChatGPT and Perplexity acceptance, on the owner's call. The debt
-    stays owed on the merged build. *Paid 2026-10-23 (the update above).*
+    stays owed on the merged build. *Paid 2026-10-23 (the update above); owed again since 2026-10-24 (the
+    correction above). Lists paid 2026-10-24 on v12.14; the Perplexity jump is still owed.*
 - **v12.9 (PR #75).** Safari + Userscripts **PASS** (owner): `transport=fetch org=730fcd2a… status=200`; the
   index ready with 144 questions (295 messages in the payload) via fetch; jumps to Q1 through Q144, the last
   five included, all landed. Firefox + Tampermonkey (Linux) **PASS** (owner, after the merge). Chrome +
   Tampermonkey **PASS** (owner, 2026-10-23, closed by the v12.10 acceptance: Claude with 144 questions, plan
-  usage and turn counter); which transport won was not recorded.
+  usage and turn counter); which transport won was not recorded. Two later loads in Chrome logged gmxhr winning with
+  status 200, on v12.12 and v12.13. Those were the assistant's measurements on the owner's profile, not acceptance
+  (ROADMAP 0d).
 - **v12.8 (PR #73).** The usage panel on Firefox + Tampermonkey **PASS** (owner): it shows real plan usage,
   matching Claude Code's figures exactly. That observes the rendered state. On Safari the panel is expected to
   fail (`GM_xmlhttpRequest`); the Safari parity follow-up covers it (ROADMAP 0d), not a separate debt.
@@ -2878,15 +2933,28 @@ the value as it is stored at the moment of the save.
 
 Per runtime:
 - **Tampermonkey:** `GM_getValue`, validate, `GM_setValue(apply(value))`: the read-then-write every caller already
-  did, with no copy of ours in between. The only change in behaviour there is the refusal below.
+  did, with no copy of ours in between. Four things change there:
+  - the refusal below;
+  - **Clear all** removes the records the panel drew, by id. v12.12 read the list fresh and cleared every stored record
+    of the conversation, including one another tab had added since the panel was drawn;
+  - a save that throws (`GM_setValue` failing) logs once per page (`_bmSaveFailWarned`); v12.12 swallowed it;
+  - a command id carries a random part: `'cmd_' + Date.now() + '_' + 8 hex digits` (Codex round 3; 4 digits in round 2).
 - **Async only (Userscripts):** the change goes into this page's copy at once, so the page shows it, and joins the
   key's list of changes not yet known to be stored. One step at a time per key re-reads with `GM.getValue`,
   validates, applies every change on that list and writes with `GM.setValue`. A change leaves the list only when a
   write that includes it succeeds, so after a failed step it goes out with the next save, as v12.12's next
   whole-copy write carried it; if changes arrived during a failed step, the queue starts once more for them. A step
-  with no answer in 5 s is abandoned the same way, and logged once. After a write, the page's copy becomes the
-  stored value plus the changes still waiting, so it picks up what other tabs saved; when that changes the copy, the
-  bookmark flags reset and the open Bookmarks panel or /Commands list redraws (`acnWatch`).
+  with no answer in 5 s is abandoned the same way, and logged once: "[ACN] storage: GM storage did not answer within
+  5 s; the change will go out with the next save, and may not survive a reload". The line has its own once-per-page
+  flag (`_acnStore.hangWarned`), not `acnStoreWarn`'s shared one, so an earlier storage warning cannot hide it
+  (adversarial review). After a write, the page's copy becomes the
+  stored value plus the changes still waiting, so it picks up what other tabs saved. When that changes the copy, the
+  bookmark flags reset and the open Bookmarks panel or /Commands list redraws (`acnWatch`):
+  - the watchers run only when the rebased copy differs from the copy just before the rebase (a first draft compared
+    against the copy at the step's start);
+  - the bookmark watcher redraws the panel only while it is open;
+  - the commands watcher skips the redraw while a command form is open;
+  - the watchers run while the key is still busy, so a save they make only joins the waiting list.
 - **A command's use is counted once, however often its change is replayed:** each page numbers its uses in order (the
   queue applies them in that order), and a command keeps, per page, the highest number counted (the 20 most recent
   pages).
@@ -2895,6 +2963,17 @@ Per runtime:
 - **A stored value that cannot be read is never saved over:** the save is refused, with one console line and one
   toast per key per page, and a bookmark's flag does not turn on. On the async path a change already shown on the
   page stays on the page and is not stored.
+- **What "cannot be read" means, per key** [code]:
+  - bookmarks: JSON text of a plain object (`_bmStoreValid`);
+  - commands: an array (`acnIsArray`);
+  - positions and the context cache: a plain object (`acnIsPlainObject`).
+
+  `acnStoreLoad` keeps only string values at startup, and on Safari a stored value that is not a string is refused
+  at the save. Two rules sit side by side here:
+  - Inside the bookmark store, only a *missing* conversation entry counts as empty. An entry that is there but is not
+    `{ bookmarks: [...] }` (a `null`, `false` or `0` included) is unreadable and refused (G26; the round-2 fix
+    `eff22e7` fails it).
+  - A whole-key `null` on Safari counts as missing, on purpose (the last residual below).
 
 ### Context
 The owner's two-tab test on Safari + Userscripts, v12.12 [measured, owner, 2026-10-24]: both tabs loaded (different
@@ -2902,6 +2981,20 @@ conversations), a question bookmarked in tab A, a different question in tab B, t
 was gone.** Every bookmark of every conversation is one GM value, and on the async path (DEC-049) each save wrote
 this page's startup copy back, so a tab erased whatever any other tab had saved since it loaded. DEC-049 recorded
 "two tabs are last-write-wins per key" as a known limit; per key, that is data loss across every conversation.
+
+The owner's spec (2026-10-24), as given:
+- "On every bookmark save: re-read the stored value, merge by record id (keeping other tabs' additions and honouring
+  deletions this tab made), then write."
+- "Check every other GM key with the same multi-record shape (e.g. saved commands) and apply the same merge there.
+  Single-value settings can stay last-write-wins; list which keys are which."
+- "Check whether the Tampermonkey path has the same race … If it does, fix it the same way; if not, leave it
+  unchanged and say why."
+- "If the stored value ever fails to parse: refuse to save and warn once, never write from empty."
+- "Gate: a probe with two simulated tabs that loses a bookmark on the current build and keeps it after the fix, plus
+  the parse-failure case."
+
+The spec named commands. The zone positions and the context cache were added under its second point. "Merge by
+record id" was carried out by applying one change rather than by merging copies (Alternatives, below).
 
 ### Alternatives considered
 - **Compare this page's copy with what is stored and merge the difference (a three-way merge).** Rejected: the page
@@ -2922,6 +3015,22 @@ this page's startup copy back, so a tab erased whatever any other tab had saved 
 - **Wait for a step that never answers** (the first draft). Rejected in review: one lost call held every later save
   of that key for the rest of the page (G21). Abandoning after 5 s keeps its changes waiting.
 - **Repair or reset an unreadable stored value.** Rejected (the owner's rule): never write from empty.
+- **Close the remaining window (the first residual below) with a lock across tabs.** Rejected: the browser's lock
+  feature (Web Locks) holds only within one site, while the GM value is shared by the tabs of every site the script
+  runs on (claude.ai and chatgpt.com, for example). Its behaviour inside Firefox's sandbox is also unmeasured, so it
+  risks breaking the page.
+- **Check after saving, and redo the change if it is missing.** Rejected: it narrows the window but costs more code,
+  and still cannot close it. The owner was offered both and kept the residual as recorded (2026-10-24).
+- **Treat a key that comes back missing as unreadable when this page had already seen it** (adversarial review,
+  refuted). Rejected:
+  - The script has no `GM.deleteValue` grant, and every `apply` returns a value. So a stored key goes missing only
+    when the user clears the script's storage, and applying one change onto the default respects that.
+  - The guard would refuse every later save on that page until a reload.
+  - The owner's rule covers a value that fails to parse, not a missing one.
+- **Count a command's uses with no cap on the per-page markers.** That would remove the use-counter residual below,
+  at the cost of stored data that grows by one marker for each page load that uses a command. Rejected by the
+  owner: "The use-counter cap: keep it; the residual is accepted (usageCount is never read). In future, prefer logging
+  over perfecting a field nothing reads." (2026-10-24).
 - **Tampermonkey through the same queue.** Not needed: its path reads with `GM_getValue` immediately before
   `GM_setValue`, in one synchronous call, with no copy of ours in between [code], and `GM_getValue` in one tab
   returns another tab's write (C0, below).
@@ -2938,10 +3047,33 @@ residual below.
   all three.** Safari + Userscripts 4.8.6, `GM.getValue`: "write #1 from tab 50a3dbfe (ANOTHER tab), written 4 s
   ago". Chrome + Tampermonkey 5.5.1, `GM_getValue`: "write #1 from tab 98f05d4b (ANOTHER tab), written 5 s ago"
   (`GM.getValue` the same). Firefox + Tampermonkey 5.5.0, `GM_getValue`: "write #1 from tab 2ae8b29a (ANOTHER tab),
-  written 4 s ago" (`GM.getValue` the same). So re-reading before a save works on Safari, and Tampermonkey's
+  written 4 s ago" (`GM.getValue` the same). The reading tabs were 2db19b04 (Safari), f85567d5 (Chrome) and 54bb0b64
+  (Firefox). Each writing tab confirmed its write ("GM.setValue: ok" on Safari, "GM_setValue: ok" on the other two).
+  The owner ran one direction (Write in B, Read in A) and then removed the C0 script from all three managers. So
+  re-reading before a save works on Safari, and Tampermonkey's
   existing read-then-write was already safe, which is why its path stays unchanged. Release acceptance: DEC-031.
 - **A change must not depend on this page's copy:** read the inputs at the call (the URL, the platform, the time),
   keep them in the change's own variables, and apply them to whatever value it is given.
+- **An `apply` can run several times for one change:** once on the page's copy, again on each step attempt, and again
+  on each rebase after a write. So it must never put a captured object into the value by reference, and never mutate
+  the default.
+  - `acnCopy(def)` gives each read its own copy of the default.
+  - `saveBookmark` clones the record at the call and pushes a fresh clone; `createCommand` pushes a clone.
+
+  Before this fix (adversarial review), the first command saved on an empty Safari store was stored twice
+  (`["only","only"]`; `["only"]` on the synchronous path), because the `[]` default was mutated, and a replay alias
+  counted one run of a command as `usageCount` 2. The zone positions and the context cache took the same double apply,
+  but their applies are idempotent. Bookmarks were safe because their default is the string `'{}'`. G12 missed it
+  because it seeds `acn-commands` before the reload.
+- **No value an earlier version stored is refused** [git history, per key and writer, adversarial review]:
+  - `acn-bookmarks-v1` was always JSON text of `{ url: { bookmarks: [...] } }`, from v10.5 (`f88b5af`) through
+    `ba24c54`, `7e775a0`, `1114749` and `f0ea979`;
+  - `acn-commands` was always an array (`4e6a808`);
+  - `acn-zone-positions` was always an object (`f154e2a`);
+  - `acn_ctx_cache` was always an object (`c45e88c`);
+  - v12.12 on Safari stored JSON text of the same shapes.
+
+  So the refusal cannot lock out a store this script wrote.
 - **A new collection key saves through `acnUpdateValue`, never `acnSetValue`** (agent_docs/conventions.md, Storage
   Keys).
 - **Within one tab on Safari,** a page shows another tab's changes to a collection only after its own next save of
@@ -2949,8 +3081,8 @@ residual below.
   second record for it; nothing is lost.
 - **Two commands of one name** saved by two tabs are both kept; the later one is renamed `name-2` (`name-3`, ...),
   on create and on rename.
-- **Residuals, recorded, not fixed** (review, 2026-10-24; the first and the unreadable-value one accepted by the
-  owner, 2026-10-24) [code + inferred, unmeasured on any manager]:
+- **Residuals, recorded, not fixed** (review, 2026-10-24; the first, the unreadable-value one and the use counter
+  accepted by the owner, 2026-10-24) [code + inferred, unmeasured on any manager]:
   - GM storage has no atomic compare-and-swap. Two tabs whose read-then-write steps overlap can still lose one
     change. The window is one `GM.getValue` → `GM.setValue` round trip (on Tampermonkey, `GM_getValue` → `GM_setValue`
     in one call plus the manager's own syncing), where v12.12's was the tab's whole life. Most likely from automatic
@@ -2963,8 +3095,13 @@ residual below.
     once.
   - A stored value that cannot be read blocks saving that collection until it is repaired by hand; there is no
     in-UI recovery (the owner's rule: never write from empty). A "reset, keeping a backup copy" action is logged for
-    later (ROADMAP 0d). On Safari, a refusal found only at write time comes
-    after the page showed the change.
+    later (ROADMAP 0d). On Safari, a refusal found only at write time comes after the page showed the change. That
+    needs a stored value that is neither a string nor `null`: `acnStoreLoad` keeps strings only, so the page runs on
+    the default while the step's check refuses what is stored. No build writes such a value [code + git history]. So
+    on the async path, a save's `true` means "applied to this page and queued", not "stored".
+  - A command edited in a tab after another tab deleted it: the replay changes nothing, but `updateCommand` still
+    returns `{ success: true }`, so the form reports success; the card disappears on the next redraw or reload
+    (Codex round 1).
   - A command's use can be counted twice if its page's marker was trimmed (the 20 most recent pages are kept)
     while that use still waited to be replayed: it takes a write that landed unanswered and then 20 other page
     loads using the same command before the page saves again (Tier 3 on `23805a8`). `usageCount` is never read
@@ -2982,7 +3119,13 @@ residual below.
   already stored is taken as this same change running again). Not gated: a conversation entry that is not a list (icon injection already fails
   on one, on v12.12 too, so no click reaches the save); a save made by a watcher while a step finishes (it needs a
   legacy record and a ready index; the watchers run while the key is still busy, and `acnPersist` refuses to start
-  a second step).
+  a second step); a read after startup that never answers (G28 gates only a read that fails; no stub makes one
+hang); a late rejection after a step was abandoned at 5 s (it logs nothing: `readFailed` and the `GM.setValue`
+reject handler return early when the step is `done`; Codex round 8 NOTE 1; G22's promise never settles); a bookmark
+another tab added staying dark until a write redraws it (the same `_bmResetIconState` call fixes both directions;
+G29 checks only the removal); and a stored `acn-commands` that parses but is not a list (saves are refused, but the
+/Commands section stops drawing because `sortCommands(loadCommands())` throws, on v12.12 too; found when G16's
+first draft crashed the probe; logged in ROADMAP 0d).
 
 ---
 
@@ -2990,8 +3133,13 @@ residual below.
 **Date:** 2026-10-24 | **Stage:** the answer-bookmark PR (the owner's spec, 2026-10-24)
 
 ### Decision
-On a Claude chat, bookmarks find answers only inside the feed's rows (`[data-testid="assistant-message"]`, then July
-2026's classes, still only inside rows) and place each answer row on its path entry by position, never by text:
+On a Claude chat, bookmarks find answers only inside the feed's rows (`ciAnswerNodeInRow`):
+- `[data-testid="assistant-message"]` first;
+- then July 2026's classes, but only when the feed root is found (`ciFeedRoot() !== document`), because outside the
+  feed a `[data-index]` row can belong to another list;
+- never in a row that holds a `[data-testid="user-message"]`.
+
+Each answer row is placed on its path entry by position, never by text:
 - measured anchors bracket the row with one offset;
 - or the question row right above (or below) matches its path entry now, and exactly one entry, an answer that
   renders, sits between that question and the next one;
@@ -3014,22 +3162,65 @@ question bookmarks were right. Two causes [measured, Chrome page realm, the owne
    `.font-claude-response`, first in the list, now matches only the project's name link in a hidden side panel
    (`div.w-0 … a[href="/project/…"]`), so in a project chat the real answers (`[data-testid="assistant-message"]`)
    were never found. Every chat with 12 or more questions among the owner's 60 most recent is in a project.
-2. **Which message.** An answer got a uuid only if its rendered text equalled its payload text, and a rendered
-   answer opens with an activity line ("Organizing owner tasks…") that the payload's text blocks lack. So answer
-   keys were text hashes, the label was the answer's position among those mounted when its flag was made, and the
-   index jump never ran for an answer.
+2. **Which message.** An answer got a uuid only if its rendered text equalled its payload text.
+   - **Answers with an activity line never match.** An answer that shows an activity line ("Organizing owner
+     tasks…") above its text never equals the payload's text blocks, which lack the line.
+   - **The text differs beyond that line.** On rows 291 and 293 of the 147-question chat, the payload's first 120
+     characters appear nowhere in the rendered text, and the last `.prose` node's text does not equal the last text
+     block either [measured, Chrome page realm, v12.12].
+   - **What the flags carried.** All 11 answer flags checked on two non-project chats carried 8-hex text hashes
+     [measured, Chrome, v12.13]. Why each one failed to match was not measured.
+   - **Answers with no activity line can still match.** One whose text normalizes equal still gets a uuid through
+     the row route or the text map [code].
+
+   So answer keys were text hashes, the label was the answer's position among those mounted when its flag was made,
+   and the index jump never ran for an answer.
 
 Also: the console printed "all records carry a uuid" over these records (it skipped provisional ones), and a flag
 matched records by older text forms, so one of two identical answers lit, and its click deleted, the other's
 bookmark.
+
+The owner's spec (2026-10-24), as given:
+- "The label is 'the answer to Q#n': the question the answer follows on the path, not a separate answer count."
+- "It gets its own answer finder; leave ciMessageNodeWithin and the staleness check alone, so answer refetching
+  doesn't come back. Exclude anything the PR injects (labels) from text reads."
+- "Existing records: bind only on proof; otherwise 'A#?', visible and deletable. Fix the misleading 'all records carry
+  a uuid' console line."
+- "Gate as you described, including the refetch count while scrolling across windows."
+
+The owner's decisions before the code ("Go. Decisions", 2026-10-24):
+1. "Newest answer: approved. A flag click on an answer the index doesn't hold yet requests one refresh within the
+   existing 15 s limit, and binds when it lands. Reuse the existing refresh path; no new timers or retry machinery."
+2. "Answer bookmarks already bound by an exact text match: keep them; they show 'Answer to Q#n'." This covers records
+   from before v12.0 bound by inference and schema-2 records bound through the text map.
+3. "Twin answers (one flag click deleting another answer's bookmark): fix it in this PR, since it's the click path
+   you're rewriting."
+4. The gate, trimmed: "~20 checks, 5 runs, ~3 min per engine", in `npm run test:probes` and CI on Ubuntu for all
+   three engines. "It must fail on v12.13; ~10 targeted mutants, no full battery." The larger gate that shipped was
+   accepted later (Gates, below).
+5. Labels: "Answer to Q#n" / "Q#n에 대한 답변", "A#?", "Answer (no question)".
 
 ### Alternatives considered
 - **Reorder `getAIMessages`** (testid first). Rejected for bookmarks: still a document-wide first match, and its
   other readers (Search, Summary, the gallery, Export's DOM path) need their own measurement. Logged (ROADMAP 14).
 - **Teach `ciMessageNodeWithin` the testid.** Rejected (the owner's spec): it feeds the staleness check, where every
   answer with an activity line would mismatch and refetch the index for each window. The gate's mutant M9 shows it.
-- **Match text with the activity line removed.** Rejected: the line is truncated and often doubled on screen while
-  the payload keeps the full summary in thinking blocks (July 2026), so any rule is inference; position is measured.
+- **Match text with the activity line removed.** Rejected:
+  - the line is truncated and often doubled on screen, while the payload keeps the full summary in thinking blocks
+    (July 2026), so any rule is inference, whereas position is measured;
+  - removing it would not be enough anyway: on rows 291 and 293 the payload's first 120 characters appear nowhere in
+    the rendered text (Context 2).
+- **Prove an existing record against the payload** (its text blocks, or its preview against the thinking
+  summaries). Rejected: the preview matched 1 of 3 answers [measured, Chrome, v12.12], so the payload cannot prove an
+  existing record. Proof is the record's own row and its own hash.
+- **Keep labels out of text reads by widening `_isExcludedFromText` and `_cleanText`'s fast path.** Rejected: those
+  feed the staleness check (user rows, through `_readMessageText`) and the anchor matcher (`ciMatchRowToPath`). The
+  spec's "exclude anything the PR injects (labels) from text reads" is met by injecting no label text on the page:
+  only the flag goes into an answer, and labels appear only in the panel and the export (A8).
+- **Clicking an unbound card scrolls to its `pendingRow` and proves on arrival.** Rejected: it brings back the
+  positional jump that v12.0 removed on purpose.
+- **Rewrite the status line into three groups.** Rejected for the spec's minimal fix: count records with no
+  `msgUuid`.
 - **Place a row by the stop_reason predicate alone** (`_ciRenderable[row]`). Rejected as an identity source: one
   non-rendering entry the predicate misses shifts every later answer by one, persisted (Codex R8). The predicate may
   only refuse, and route C uses it only when the row count equals the prediction.
@@ -3037,26 +3228,61 @@ bookmark.
 
 ### Rationale
 Position is measured: on three of the owner's chats, every mounted row's `data-index` was its path position and its
-role was the path's sender (53 rows over 5 scroll positions on the 147-question chat, 0 mismatches) [measured,
-Chrome, 2026-10-24]. Answer text is not equal to the payload. A wrong uuid is persisted and silent; a refused one is
+role was the path's sender (53 row observations over 5 scroll stops on the 147-question chat, the tail rows counted
+at every stop, 0 mismatches; and the 7 and 5 mounted rows of two others) [measured, Chrome, 2026-10-24]. Answer text is not equal to the payload. A wrong uuid is persisted and silent; a refused one is
 a visible "A#?" that binds later on proof.
 
 ### Key properties
 - **Left alone:** `getAIMessages`, `ciMessageNodeWithin`, `_ciAssistantStale` (it still runs on every scan; a
   bookmark's refetch request only joins its refetch), and the anchor store (a derived position is never recorded
   as an anchor). Questions keep their text identity.
-- **Labels:** "Answer to Q#n"; "A#?" when unbound or its message left the path; "Answer (no question)" when no
-  listed question precedes it; "Answer to Q#?" while the index is not ready (kept by the owner, 2026-10-24: "A#?"
-  stays reserved for bookmarks that cannot be matched). Export uses the same label and sorts an answer right after its question.
+- **Labels** (`_bmLabel`, `_bmAnswerQuestionIndex`):
+  - "Answer to Q#n";
+  - "A#?" when unbound, or when its message left the path;
+  - "Answer (no question)" when the nearest question above it on the path is not one Navigate lists. That means no
+    question at all, or one Navigate drops because it has no text, such as an attachment-only turn. The walk back
+    stops at the nearest question, so a listed question further up does not count [code];
+  - "Answer to Q#?" while the index is not ready. Kept by the owner (2026-10-24): "A#?" stays reserved for bookmarks
+    that cannot be matched.
+
+  Export uses the same labels and order (`_bmSortKey`): a placed answer right after its question (`q + 0.5`),
+  "Answer (no question)" just before the unplaced ones (`1e9 - 1`, an adversarial fix; it had sorted first), and
+  unplaced or unbound answers last (`1e9`).
+- **Records already bound by an exact text match keep their uuid** and read "Answer to Q#n" (the owner's decision 2).
+- **What a flag's mark holds** (`data-acn-bookmarked`, `_bmAnswerKey`): a placed answer's uuid, or `<hash>@<row>` while
+  it is not placed. Only the harvest compares a mark to a uuid, and a uuid mark has no suffix. After a proof bind the
+  row's mark is removed so the next injection draws the flag lit. The click-time check removes the mark and the icon,
+  then calls `injectBookmarkIcons()`.
+- **Order on each scan and each index generation:**
+  - the proof pass runs before answer flags are injected, so a record it binds is drawn lit (A14);
+  - on a new index generation it runs before `_bmHarvestLegacyFromMounted`, `_bmMigrateLegacy` and the status line
+    (`_bmPrintLegacyStatus`, printed once per page load), so the line does not list records already bound (A19, A23).
+- **The harvest's answer sweep** (records from before v12.0) uses `ciAnswerMap`'s placed rows, each row's uuid taken
+  by position, and skips unplaced rows. It used `getAIMessages()` plus `ciUuidForText`, which in a project chat saw
+  only the link.
+- **What it logs:**
+  - `[ACN] refetching the index for a bookmarked answer it does not hold yet`. It replaces "index out of sync …
+    refetching" when only a bookmark asked for the refetch, so v12.15 part C's "out of sync" counts are not inflated
+    by bookmark refetches. A24 asserts it (M18).
+  - `[ACN bookmarks] <id> bound to its answer (its row and its text)`.
+  - `[ACN bookmarks] <id>: a second bookmark of an answer already bookmarked; removed`.
+  - `[ACN bookmarks] answer binding failed; it tries again on the next change:`, on a throw.
 - **Residuals, recorded, not fixed** [code + inferred, unmeasured live]:
   - An answer next to a question whose rendered text does not match its payload (multi-block questions, the third
     PR's cause) and not bracketed by anchors is not placed: its flag carries a hash, and a bookmark on it reads
     "A#?" until its row is placed and proves.
   - A regenerate, or an edit, before the resync: route B, A (anchors from before the edit) or C (the last row) can
     place the new answer on the old answer's uuid. After the resync that uuid is off the path, so the bookmark reads "A#?"
-    (visible, deletable). Regenerate detection: the third PR.
+    (visible, deletable). Regenerate detection: v12.15, part C.
+    - **Why the guard misses most edits:** `_ciQuestionPathNow` returns `false` only when the edited question's text
+      matches a *different* entry than its anchor. A normal edit matches nothing, so it returns null before the
+      anchor check (its code comment overstates this).
+    - **How long it lasts:** the resync waits for the `'e'` signature, two scans plus the fetch, and longer under the
+      15 s cooldown or the retry backoff.
+    - Both were reproduced in node with the real functions (the adversarial review): the new answer resolved to the
+      superseded answers.
   - A bookmark on an answer still being written, taken before 200 characters had rendered, hashes that partial text
-    and can never prove: "A#?" (Tier 3 review).
+    and can never prove: "A#?" (the adversarial review).
   - The one refetch a bookmark asks for is spent if a load is already in flight; that load's index is used, and if
     it was fetched before the answer finished, the record stays unbound until the next refetch.
   - An interrupted generation beside an answer (two entries between questions) leaves that answer unplaced. Rare;
@@ -3065,6 +3291,29 @@ a visible "A#?" that binds later on proof.
     which the proof pass removes when it binds to the same uuid.
   - Records from before v12.0 with identical text still bind, through the harvest, to whichever twin is mounted
     (pre-existing).
+  - **A just-sent prompt that repeats an older question** (pre-existing; the adversarial review reproduced it in node
+    with the real functions):
+    - `ciHarvestAnchors` has no snapshot bound, so it anchors that row to the OLD entry (in the example, row 20 →
+      path 4);
+    - `ciRecordAnchor`'s monotonicity reset then discards every other anchor, leaving only `{20: 4}` after each scan;
+    - no resync fires, because `_ciMergeLiveMessages` skips the row (`ciResolvePathForRowStrict(20)` is not null),
+      the `'e'` check compares identical text, and answer rows are skipped;
+    - it lasts until the next refetch.
+
+    v12.14 only stops route B from using such a row (`_ciQuestionPathNow` returns null at or past
+    `_ciSnapshotRows()`). The effect on route A and on question jumps was not analysed (ROADMAP 14).
+  - **The actions bar's text sits in the answer's text, and it changes:** in `57549439`, the
+    `[data-testid="message-actions"]` wrapper held 11 characters on the last answer (row 73) and 0 on rows 67, 69 and
+    71 [measured, Chrome page realm, v12.13]. `_cleanText` does not exclude it. So an answer under 200 characters
+    bookmarked while it is the last one may hash differently once another answer follows, and could never prove
+    [inferred].
+  - **The activity line can change between the bookmark and the proof** [inferred]: expanded or collapsed, truncated
+    differently at another window width, or with hover-only controls inside `assistant-message`. Any of these
+    changes `_cleanText`, so the hash no longer reproduces.
+  - **Open:** whether `assistant-message` reads the same first 200 characters as July's `.font-claude-response` node
+    did. That decides whether answer records made before October can ever prove.
+  - A refusal that can only happen after landing (a landing row that is not an answer) leaves the page scrolled
+    there, with a toast. The jump restores the view only when it fails (by design; the adversarial review).
   - The provisional migrator (`_bmMigrateProvisional`, unchanged) still binds an answer record whose full text
     equals exactly one payload entry: only an answer with no activity line, and only under DEC-030's uniqueness
     gate. Its last route does not check the sender, so an answer whose text equals exactly one question's could bind
@@ -3076,18 +3325,55 @@ a visible "A#?" that binds later on proof.
   refetch, on both builds). The owner accepted this gate's size (2026-10-24: 36 checks in 6 runs, about 2 minutes per
   engine, 18 mutants, against an approved ~20 checks; the runtime is within budget). Labels are checked in the panel,
   in Korean, before the index lands and in the export;
-  "Answer (no question)" is not reached by any fixture (a conversation that opens with an answer). Eighteen targeted
-  mutants, each caught by its named check after the unmutated build passes
-  every check (`probes/run-answer-mutants.js`, not in CI). Release acceptance: DEC-031.
-- **A click acts only for the answer its flag was drawn for:** Claude recycles message nodes, so before the next scan
-  redraws a flag, its node can show another answer, or sit in another row. The click compares the node's identity now
+  "Answer (no question)" is not reached by any fixture: neither a conversation that opens with an answer, nor an
+  answer after a question with no text. Eighteen targeted mutants, each caught by its named check after the
+  unmutated build passes every check (`probes/run-answer-mutants.js`, not in CI).
+
+  **What the mutants cover** (the final battery, Chromium, `dbf1925`):
+  - They name 17 checks as their expectation: A4, A6, A9, A10, A14–A16, A18, A19, A24 and A27–A33.
+  - Counting every check a mutant also fails, 22 fail under some mutant (the review record has the matrix).
+  - A2, A3, A5, A17, A21, A34 and A35 fail under no mutant; only v12.13 shows they can fail.
+  - The guards (A1, A7, A8, A22, A23, A26) and the control A25 are failed by nothing.
+
+  **Known gaps, recorded in review, not gated:**
+  - **Navigate's numbering vs a count:** the label checks cannot tell Navigate's numbering from a count of the
+    path's human entries. Every fixture question has text, so a build counting human entries would pass A4, A11, A14,
+    A15, A20 and A24.
+  - **A24's cooldown and retries:** A24 cannot detect a refresh that skips the cooldown or retries.
+    `_ciLastRefetchAt` stays 0 after a successful first load, so the 15 s gate is not active when A24 clicks. M18
+    catches a refresh that bypasses the scan's refetch path.
+  - **R4 binding on mount:** R4 (async storage only, the Safari shape) never binds a record when its row mounts.
+    A21 checks a bind at load; tab B deletes P2 before A mounts its row.
+  - **Fixes no check or mutant targets** [code reading; not run as mutants]:
+    - the past-snapshot refusal in `_ciQuestionPathNow`;
+    - `ciInvalidate` clearing the refresh request, the question-match memo and the proof gate's copy;
+    - `_bmRefreshStillWanted` dropping a refresh after its bookmark was removed;
+    - the jump's refusals: a target that is not an answer or does not render, and a landing row that is not an
+      answer;
+    - the two-tab case of deciding a bind on the stored list (A27 and M11 cover one tab).
+
+  Release acceptance: DEC-031.
+- **A click acts only for the answer its flag was drawn for:** in case Claude recycles message nodes (never measured
+  live; ROADMAP 8), a node can show another answer, or sit in another row, before the next scan redraws its flag. The click compares the node's identity now
   (`_bmAnswerKeyNow`: the placed uuid, or the text hash with its row) with the one it was drawn for, and redraws
   instead of acting when they differ (Codex Tier 3, round 2). Question flags have the same pattern, unchanged
   (logged, ROADMAP 14).
 - **A jump lands only on an answer:** a target entry that is not an answer or renders no row, or a landing on a
   row that is not an answer, says it cannot be matched, before anything scrolls where it can (post-fix validations
-  1 and 2). The refetch a bookmark asked for is dropped when no answer
-  record without a uuid waits on it any more (its bookmark was removed), or the conversation changed.
+  1 and 2).
+  - `_bmJumpToAnswer` refuses with the could-not-be-matched toast before scrolling when
+    `target.sender !== 'assistant' || !ciEntryRenders(target)`.
+  - In the landing callback it fails (`_bmFailToast`) when the row has no answer node (`ciAnswerNodeInRow`), or when
+    the row is placed on another entry.
+  - For an unbound record: its own row mounted with its hash reproducing lands. Its own row mounted showing another
+    answer gives the could-not-be-matched toast. Its own row not mounted gives "That message is not currently
+    rendered — scroll toward it and try again", and never a jump to an identical answer elsewhere. This came from
+    mutant M10's first run, which exposed a toast telling the user to delete a record that could still bind.
+
+  The refetch a bookmark asked for (`_bmRefreshFor`) is dropped when the conversation changed, or when
+  `_bmRefreshStillWanted()` is false. That is the case when no stored answer record without a uuid has a `pendingRow`
+  at or past `_ciSnapshotRows()` (its bookmark was removed). `ciInvalidate` also clears `_bmProveSeen`, `_bmProveRaw`
+  (the whole serialized store, otherwise kept for the page's life) and `_ciQMatchMemo`.
 - **A neighbouring question past the fetched snapshot is never evidence:** a just-sent prompt repeating an older one
   text-matches the OLD entry (review).
 - **The proof pass runs once per change** in what is mounted, placed or shown (each answer's text hash), or in what
@@ -3097,5 +3383,7 @@ a visible "A#?" that binds later on proof.
   and a reload proves the record again (Codex Tier 3, rounds 4 and 5).
 - **A proof's write is decided on the list as stored at the write** (`_bmBindAnswer`, through `acnUpdateValue`):
   bind the record, or remove it when another record already holds that answer, or nothing when it is gone or bound
-  elsewhere. Deciding on this page's copy could, on Safari, remove the only record left after another tab deleted
+  elsewhere. A record bound only by inference (`boundBy: 'inference'` with a `legacyHash`, from the pre-v12.0 preview
+  rule) does not count as the record that already holds it: the harvest may still move it, so removing the proven
+  record in its favour would lose both (adversarial review; seed L and M16 via A14). Deciding on this page's copy could, on Safari, remove the only record left after another tab deleted
   its twin (Codex Tier 3, round 1).

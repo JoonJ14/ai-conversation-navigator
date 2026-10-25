@@ -330,3 +330,12 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 > **Why:** "the element is there" and "the user can see it" are different contexts, the same family as the
 > measurement-context table in CLAUDE.md, and mixing them sends a correct report and a correct measurement into an
 > argument neither can settle.
+
+> **Issue:** The answer-bookmark probe's first twin check (A18) could not fail. Seed T was made on answer 2, whose row
+> is mounted at load, so the proof pass bound T to answer 2's uuid before any twin comparison ran, and mutant M6 (the
+> twin bug restored) passed the gate. The first 10-mutant battery let it through.
+> **Correct approach:** a fixture for a rule between two records must keep the record in the state the rule is about
+> while its counterpart is on screen. For twins, that means unbound: T was re-minted on answer 16 (row 30), with the
+> twin tested at row 3. Then run the mutant that removes the rule, and keep the fixture only if that mutant fails.
+> **Why:** an earlier mechanism (here, proof binding) can resolve the case before the rule under test is reached.
+> The check then passes on every build, and only a mutant shows it.

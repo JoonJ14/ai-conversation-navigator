@@ -255,8 +255,8 @@ gives a permanent one.
 had no flags at all before. An answer is identified by its place in the conversation, not by its text, so its
 bookmark is labelled **"Answer to Q#n"** after the question it answers, and jumps to it from anywhere. An answer
 bookmark made before v12.14 is re-keyed the first time its answer is on screen, if the answer still reads as it did
-when you bookmarked it; one that cannot be matched shows **"A#?"**, says so when clicked, and can be deleted with
-its ✕. (Live confirmation status: DEC-031.)
+when you bookmarked it; one that cannot be matched shows **"A#?"** and can be deleted with its ✕. Clicked, it
+says it cannot be matched, or that the message is not rendered yet while the place it was made is off screen. (Live confirmation status: DEC-031.)
 
 ## Icon Choices
 

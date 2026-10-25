@@ -4,16 +4,29 @@
   **Final:** `23805a8` (the GitHub Codex round-1 fixes after `c4d1ec4`, reviewed in
   `reviews/review-2026-10-24-23805a8.md`; later commits are docs only)
 - **Diff:** the userscript (`acnUpdateValue`, `acnPersist`, the four collections' callers), `probes/check-gm-storage.js`
-  (G7–G30), C0's owner-run `probes/cross-tab-gm-check.user.js`, and docs.
-- **Tiers run:** all three (adaptive: 500+ lines, two new files), plus an adversarial workflow alongside Tier 1–2,
-  as for PR A.
+  (G7–G30; G31–G32 came with the GitHub Codex fixes, reviewed in `review-2026-10-24-23805a8.md`), C0's owner-run
+  `probes/cross-tab-gm-check.user.js`, and docs.
+- **Tiers run:** all three (adaptive: 500+ lines over three files, one of them new, `cross-tab-gm-check.user.js`;
+  `check-gm-storage.js` existed since v12.12), plus an adversarial workflow alongside Tier 1–2, as for PR A.
 
 | Tier | Reviewer bound | Model that ran |
 |---|---|---|
 | 1 — structural | `session` (shipped default) | Claude Opus 5.5, this session |
 | 2 — deep logic | `session` (shipped default) | Claude Opus 5.5, this session |
-| 3 — independent | `cli:codex` (owner's config) | Codex CLI, the model in the owner's `~/.codex/config.toml` |
+| 3 — independent | `cli:codex` (owner's config) | Codex CLI 0.162.1, `model = "gpt-5.6-terra"` in the owner's `~/.codex/config.toml` (the reasoning effort was not shown) |
 | extra — adversarial | a workflow: 4 finder lenses, one refuter per finding | Claude Opus 5.5 subagents, 26 agents |
+
+The four adversarial lenses:
+- **async-queue:** the Safari queue.
+- **sync-parity:** the Tampermonkey path against v12.12, plus the git history of how each key was written.
+- **ops-integrity:** each `apply` replayed on a newer value.
+- **probe-validity:** whether each check can fail.
+
+Refuters defaulted to "not real" when unsure. 22 findings, 19 confirmed, 3 refuted. One refuted finding (AQ6) is
+recorded in DEC-050's alternatives: treat a key that comes back missing as unreadable.
+
+Each Tier 3 round's prompt carried the earlier rounds' outcomes and the accepted residuals, with "Do not re-report
+those unless the code contradicts the record".
 
 ## Tier 1 — PASS
 
@@ -94,6 +107,29 @@ What each round found, in short:
 - Adversarial workflow: 22 findings, 19 confirmed, 4 WARNs fixed.
 - Gates added: G7–G30 in `check-gm-storage` (G8b dropped: unreachable from the UI). Each fixed mechanism has a check
   that fails on the build before it, except those listed as not gated in DEC-050.
+- **How the gate was proven, and one claim that was false at first.**
+  - G13 (saves to one key wait for each other) was first written with every read after startup answering 200 ms late
+    with the value as of the call, and both clicks in one evaluate. The probe header and the docs commit `186b217`
+    already claimed "a build whose saves do not wait for each other fails G13" before any mutant had run.
+  - The overlapping-steps mutant (`if (!q.busy) acnPersist(key)` changed to `acnPersist(key)`) then printed "all
+    checks passed".
+  - The stub was reworked so the first read answers 500 ms late and later ones 50 ms, with the clicks 100 ms apart.
+    The mutant then stored 1 of 2.
+  - The first "no-queue" mutant was also not one: it dropped only the `pending.length === 1` gate and still shared one
+    queue per key. A true per-save-queue mutant was built.
+  - Both mutants passed G13 until the stub answered with the value as of the call. That is the conventions.md lesson
+    (owner-approved).
+  - A filtered run hid a crash once. The first three-build comparison was piped through grep. G8b's `bookmarkFirst`
+    timed out at 30,000 ms, and the unhandled rejection killed the probe with no summary line. A filtered run that
+    shows no check lines is a crash, not a pass.
+- **A fix that opened the next finding:** round 6's watcher-overlap WARN came from round 5's own fix. The flag reset
+  inside the watcher can upgrade a legacy bookmark and save while `finish` runs.
+- **Post-fix validation's preservation criteria:**
+  - the Tampermonkey path as in v12.12, except the refusal (and Clear all by id, DEC-050);
+  - `acn-settings` and the org cache unchanged;
+  - G1–G6 behaviour unchanged.
+
+  Codex confirmed all three.
 - **GitHub Codex rounds needed afterwards:** round 1 (on `533ae97`, the head at opening): 1 finding, P2, real —
   every use of a command still waiting can be replayed, so keeping only the last use's id counted 5 for 3 uses
   (reproduced by G31). The first fix kept the last 20 use ids (`e69d5da`); round 2 on it came back clean ("Didn't
@@ -105,5 +141,8 @@ What each round found, in short:
 ## Measurement context
 
 Every gate result above is Playwright's page realm, headless, this Mac, with both GM APIs stubbed over
-`localStorage`; no manager's real storage. C0 is the real-browser measurement the fix depends on: the owner, all
+`localStorage`; no manager's real storage. **Codex CLI never ran the probe:** in every Tier 3 round, including the
+post-fix pass and both rounds on the GitHub fixes, Playwright could not create its temporary directory in Codex's
+read-only sandbox (`EPERM mkdtemp`). Its verdicts are static reads plus syntax checks, and every gate result was run
+locally. C0 is the real-browser measurement the fix depends on: the owner, all
 three managers, PASS (DEC-050). Real-browser acceptance of v12.13: DEC-031.

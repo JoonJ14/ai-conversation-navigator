@@ -213,6 +213,13 @@ What gets translated (UI strings) — **partially, on every line**:
   the translations existed from the start but were never read)
 - The Plan usage panel, including reset phrases, which are `{placeholder}` templates because
   Korean orders the meridiem before the time
+- **v12.13:** the "Not saved: the stored data could not be read" toast and form error
+  (`storageUnreadable`, "저장하지 못했습니다: 저장된 데이터를 읽을 수 없습니다").
+- **v12.14, Claude answer bookmarks:** the labels in the Bookmarks panel and the export,
+  "Answer to Q#{n}" / "Q#{n}에 대한 답변" (`answerToQuestion`, also "Answer to Q#?" while the index
+  loads), "Answer (no question)" / "답변 (앞선 질문 없음)" (`answerNoQuestion`), "A#?" in both
+  (`answerUnresolved`), and the could-not-be-matched toast (`answerUnresolvedToast`). Still English:
+  the "That message is not currently rendered — scroll toward it and try again" toast.
 
 What stays in English **on purpose**:
 - `/Commands` — "slash command" reads better untranslated (DEC-042)

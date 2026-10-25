@@ -215,16 +215,65 @@ here; the owner's console counts from them are in TROUBLESHOOTING ("Claude answe
 |---|---|---|
 | Answer node | `div[data-testid="assistant-message"]` inside the row; children: `h3.sr-only.select-none` ("Claude responded: <first words>…"), the content (`.prose`), `[data-testid="message-actions"]` | `.font-claude-response` (5 live); `assistant-message` 0 |
 | `.font-claude-response` | **outside every row**: in a project chat, the project's name ("Tech", "Jobs") in `div.w-0 > … > a[href="/project/<uuid>"]`, a zero-width side panel (x beyond the window); none outside projects | the answer node |
-| Row | `div[data-testid="transcript-row"][data-index][data-rs-index]`, plus `data-perf-row="human"\|"assistant"`, `data-perf-row-from-tail`, `data-last-message` | `[data-index][data-rs-index]`, no testid |
+| Row | `div[data-testid="transcript-row"][data-index][data-rs-index]`, plus `data-perf-row="human"\|"assistant"`, `data-perf-row-from-tail`, `data-perf-row-streaming`, `data-last-message`; the answer node sits five levels below the row (row > 4 `div`s > `assistant-message`) | `[data-index][data-rs-index]`, no testid |
 | `aria-setsize` | on a descendant of the row (74 for a 37-question chat) | the `role="article"` wrapper |
-| Mount window | about 5 rows at the bottom at load, even in a 4- or 8-question chat | the last ~3 rows always mounted |
+| Mount window | about 5 rows at the bottom at load, even in a 4- or 8-question chat; scrolled up, the last ~3 rows stay mounted too (`7b4e5079` at `scrollTop` 0: rows 0–7 plus 13–15; `964bf232` after 50 wheel ticks up: rows 7–15 plus 19–21) | the last ~3 rows always mounted |
 
+- **The project link, exactly** (`9f7c3684`, v12.13): `div.font-claude-response.text-secondary-control.leading-tight`
+  (with `group-hover/project:underline`). Its ancestors, innermost first:
+  - `a[href="/project/019c14db…"].group/project`
+  - `div.rounded-lg.border.px-3.py-4`
+  - `div.mt-4`
+  - `div.flex.flex-col.gap-5`
+  - `div.w-0`
+
+  It also sits inside a `div.opacity-0`. Its box is x = 1249, y = 97, 32×18, in a 1214-px-wide window. Its
+  `offsetParent` is not null: it is laid out, not `display: none`, so a visibility filter on `offsetParent` would not
+  exclude it.
 - **The activity line.** Some answers show a line above the text ("Organizing owner tasks…", "Clarifying refund
-  timelines…"), which the payload's text blocks do not hold, so an answer's rendered text never equals its payload
-  text. Where it sits in the tree was not measured. The sr-only `h3` is dropped by `_cleanText` [code].
+  timelines…"), which the payload's text blocks do not hold. An answer that shows it never equals its payload text.
+  Where the line sits in the tree was not measured. The sr-only `h3` is dropped by `_cleanText` [code].
+  - **The text differs beyond the line too.** On rows 291 and 293 of the 147-question chat (two answers that open with
+    thinking, one text block and one `.prose` each), the payload's first 120 characters appear nowhere in the
+    rendered text. Full equality, the 200-character key and the 120-character prefix all fail, with the first
+    difference at character 1 and 0. The last `.prose` node's text does not equal the last text block either
+    [measured, Chrome page realm, v12.12].
+  - **Answers with no activity line can still match.** The claim "never equals" rests on the answers measured. An
+    answer with no activity line, whose text normalizes equal, still gets a uuid in code (DEC-051).
+  - **Against the thinking summaries** [measured, Chrome, v12.12]: rows 289, 291 and 293 open "Organizing owner
+    tasks, clea…", "Checking overlooked details…" and "Explaining how federated aut…". Only row 293's text starts with
+    its thinking summary. Rows 289 and 291, with two summaries each, contain none at the start. This is consistent
+    with July's finding that the line is truncated. 130 of the 147 answers carry thinking summaries.
+- **The actions bar holds text that changes:** in `57549439`, `[data-testid="message-actions"]` held 11 characters on
+  the last answer (row 73) and 0 on rows 67, 69 and 71 [measured, Chrome page realm, v12.13]. `_cleanText` does not
+  exclude it (DEC-051 has the consequence).
 - **Rows still line up with the path:** `data-index` was the path position and `data-perf-row` the path's sender on
-  every row checked (53 rows over 5 scroll positions on the 147-question chat; 7 and 5 rows on two others), and
-  question flags' uuids equalled the path's.
+  every row checked. That was 53 row observations over 5 scroll stops on the 147-question chat (the tail rows were
+  counted at every stop, so there were fewer distinct rows), plus the 7 and 5 rows of two other chats. The question
+  flags' uuids equalled the path's (16 checked, 0 mismatches).
+- **What the payload holds** (`65dfa4f2`, the 147-question chat) [measured, Chrome page realm, v12.12, 2026-10-24]:
+  - **Counts:** `chat_messages` 301 (every branch). The active path is 294 (147 questions and 147 answers, strictly
+    alternating), with 294 well-formed, unique uuids. No answer lacks a `stop_reason`, and `aria-setsize` is 294.
+  - **Text blocks:** 18 of the 147 questions have no text block; every answer has one.
+  - **How answers open:** the first block is thinking in 129, text in 16, and tool_use in 2.
+  - **Answer block totals:** text 153, thinking 194, tool_use 121, tool_result 121.
+  - **The per-message `index` field** runs 0 → 300, strictly increasing along the path, but it is NOT the path
+    position. It counts across the whole tree. Production code never reads it; never key on it.
+  - **"N messages in payload"** in the console's "conversation index ready" line counts `chat_messages.length` over
+    every branch, not the path. DEC-031's v12.9 "295 messages in the payload" counts the same way.
+  - A smaller chat, `7b4e5079`: 18 messages, path 16 (one off-path pair).
+  - **Open:** whether DEC-031's "144-question conversation" (v12.9–v12.11) is this chat three turns earlier (v12.9
+    logged "144 questions (295 messages)"), or whether Navigate's count differs because it drops questions with no
+    text. Both fit; neither was verified.
+- **Routing** [measured, Chrome page realm, the owner's profile, read-only, 2026-10-24; the installed userscript
+  version was not checked]:
+  - A project's page (`/project/019c14db…`) had 30 `a[href*="/chat/"]` links, none of the form
+    `/project/<id>/chat/<id>`.
+  - `/project/019c14db…/chat/9f7c3684…` kept that address (no redirect), showed the title "Claude", and had 0
+    `[data-testid="transcript-row"]`.
+
+  So a chat is served at `/chat/<id>` whether or not it is in a project. Bookmarks key on that address
+  (docs/BOOKMARKS.md).
 - **Questions** render a multi-line message as separate blocks (`<p>`, `<ol>`/`<li>`); the list numbers are CSS, so
   `textContent` lacks them and the breaks between blocks (row 290 of the 147-question chat: 8 `<p>`, 18 `<li>`,
   2 `<ol>`). July's record below has one pre-wrap `<p>` per question.
