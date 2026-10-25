@@ -15,7 +15,8 @@
 //
 // So every fixture here asserts WHERE THE TARGET ENDED UP after ONE click, once the view has been
 // still for 800 ms: its bubble fully inside the scroller, and at most 24 px from the intended
-// position (centred, clamped at the scroll ends) — plus the resolved entry and no toast.
+// position (centred, clamped at the scroll ends; a bubble taller than 0.8 x the scroller at its
+// start) — plus the resolved entry, no toast, and no "alignment cap reached" console line.
 //
 // THE MOCKS: the jumpModel blocks appended to tests/mock-pages/perplexity-windowed.html and
 // chatgpt-windowed.html (off by default). Each fixture names the model it runs:
@@ -131,6 +132,8 @@ const GPT_H24 = [1400, 900, 2100, 1300, 800, 1700, 1500, 2600, 900, 1200, 1800, 
 const GPT_C9 = [1701, 1078, 2116, 935, 1094, 1767, 2060, 1819, 382, 1612, 2064, 993, 2071, 414, 1921, 1663, 234, 2381, 1214, 2291];
 
 const LIVE_PPLX = Object.assign({ q: LIVE_Q, a: LIVE_A, drift: 8, anchor: true, around: 2 });
+// Long answers, all inside the live range (276-1415 px).
+const PPLX_TALL_A = [1415, 1300, 1400, 1350, 1415, 1380, 1300, 1415, 1350, 1400, 1415, 1300];
 
 // id, label, desc, site, n, start ('bottom' | 'top'), target (0-based), model
 const FIXTURES = [
@@ -170,6 +173,19 @@ const FIXTURES = [
     { id: 'J12', label: 'new', desc: 'the always-mounted latest entry is no stand-in for the view: top -> Q15',
       site: 'perplexity', n: 16, start: 'top', target: 14,
       model: split([2500, 2500, 2500, 2500, 2500, 2500, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300], 60) },
+    // The view inside the target's own long answer, whose question slot is EMPTY (live, Chrome,
+    // 2026-10-24: an answer mounted with its question slot empty). Nothing near the view carries
+    // a question, and no wait changes that: the jump must step from the nearest mounted entry.
+    { id: 'J13', label: 'new', desc: 'question slots above the view stay empty, answers ~1400 px: bottom -> Q4',
+      site: 'perplexity', n: 12, start: 'bottom', target: 3,
+      model: Object.assign({}, LIVE_PPLX, { a: PPLX_TALL_A, qLag: true }) },
+    // A question bubble taller than 0.8 x the scroller lands with its top at the top ('start'),
+    // not centred (ixLandOn's contract, which part A's answer landing relies on). [guard]: v12.14
+    // passes it (err -10 px: its glide toward centre stopped near the start position; chromium,
+    // 1 run), and a landing that always centres fails it (err -40 px).
+    { id: 'J14', label: 'guard', desc: 'a question bubble taller than 0.8 x the view lands at its start: bottom -> Q5',
+      site: 'perplexity', n: 12, start: 'bottom', target: 4,
+      model: Object.assign({}, LIVE_PPLX, { q: LIVE_Q.map((h, i) => i === 4 ? 560 : h), bubble: LIVE_Q.map((h, i) => i === 4 ? 520 : 0) }) },
     // ChatGPT.
     { id: 'K1', label: 'new', desc: 'ChatGPT live model: older turns prepended with no reserved height, bottom -> Q7',
       site: 'chatgpt', n: 24, start: 'bottom', target: 6,
@@ -303,8 +319,10 @@ const FIXTURES = [
         let m;
         try { m = await run(fx); } catch (e) { m = { crashed: String(e).slice(0, 200), errors: [] }; }
         pageErrors = pageErrors.concat(m.errors || []);
+        // A landing that converges never hits the alignment cap; one that does spends every
+        // write and logs the cap line (the live observability channel) on each jump.
         const ok = !m.crashed && m.clicked && m.resolved === String(fx.target) && !m.toast &&
-                   m.mounted && m.inView && Math.abs(m.err) <= 24;
+                   m.mounted && m.inView && Math.abs(m.err) <= 24 && m.capLines.length === 0;
         const detail = m.crashed ? 'crashed: ' + m.crashed
             : 'resolved=' + m.resolved + ' toast=' + (m.toast ? 'yes' : 'no') + ' mounted=' + m.mounted +
               ' inView=' + m.inView + ' err=' + m.err + 'px scrollTop=' + m.scrollTop + '/' + m.max +

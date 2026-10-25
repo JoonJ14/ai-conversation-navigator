@@ -3383,7 +3383,7 @@
         var entry = { id: q.ixId, position: q.ixPosition, text: q.text };
         var total = Math.max(1, _ix.total);
         var cid = _ix.cid;
-        var moves = 0, lastDir = 0, factor = 1;
+        var moves = 0, lastDir = 0, factor = 1, waits = 0;
         var landing = { aligns: 0 };
         var watch = ixWatchUser(container), finished = false;
         function done(ok, el, reason) {
@@ -3458,7 +3458,7 @@
             }
             moves++;
             var max = Math.max(0, container.scrollHeight - container.clientHeight);
-            var near = null, best = Infinity, m = a.mounted();
+            var near = null, best = Infinity, m = a.mounted(), geo = null, geoGap = Infinity;
             var vr = container.getBoundingClientRect(), vh = container.clientHeight;
             for (var j = 0; j < m.length; j++) {
                 if (m[j].pos < 0) continue;
@@ -3468,13 +3468,23 @@
                 // The entry's whole box, its answer included (the adapter's extent()).
                 var mr = a.extent ? a.extent(m[j].el)
                        : (m[j].el.closest('[data-workflow-entry],[data-turn-key]') || m[j].el).getBoundingClientRect();
+                // The mounted entry nearest the view IN PX, for the fallback below.
+                var gap = mr.bottom < vr.top ? vr.top - mr.bottom : mr.top > vr.bottom ? mr.top - vr.bottom : 0;
+                if (gap < geoGap) { geoGap = gap; geo = m[j].pos; }
                 if (mr.bottom < vr.top - vh || mr.top > vr.bottom + vh) continue;
                 var d = Math.abs(m[j].pos - entry.position);
                 if (d < best) { best = d; near = m[j].pos; }
             }
-            // Nothing mounted near the view after a move: the window has not caught up with
-            // the last write yet. Wait one more settle instead of re-aiming (it counts as a move).
-            if (moves > 1 && near === null) { setTimeout(arrive, IX_JUMP_SETTLE_MS); return; }
+            // Nothing mounted near the view after a move. Either the window has not caught up
+            // with the last write (a slow mount), or it has and still shows no question near
+            // the view: the view sits inside a long answer whose question slot is empty, which
+            // Perplexity does (live, Chrome, 2026-10-24: slot 19's answer mounted, slot 18's
+            // question empty), and no wait ends that. So wait at most two settles (each counts
+            // as a move), then step from the mounted entry nearest the view in px, never by
+            // number: the always-mounted latest entry is nearer by number from anywhere.
+            if (near !== null) waits = 0;
+            else if (moves > 1 && waits < 2) { waits++; setTimeout(arrive, IX_JUMP_SETTLE_MS); return; }
+            else if (moves > 1) near = geo;
             var px = (moves === 1 || near === null)
                 ? max * (total > 1 ? entry.position / (total - 1) : 0)
                 : container.scrollTop + (entry.position - near) * (container.scrollHeight / total) *

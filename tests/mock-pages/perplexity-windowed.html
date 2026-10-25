@@ -120,6 +120,12 @@
     mountDelay: ms    the window re-renders this long after a scroll (default 0: at once)
     pinMs: ms         a wheel releases the pin for this long only; a later scroll away from the
                       bottom is pinned back (default: one wheel releases it for good, as above)
+    qLag: true        a mounted entry whose question slot lies wholly above the view keeps that
+                      slot EMPTY while its answer stays mounted (live, Chrome, 2026-10-24: slot
+                      19's answer mounted, slot 18's question empty); it fills again once the
+                      slot reaches the view (default: a slot pair mounts and unmounts together)
+    bubble: [px]      height of each entry's question bubble (default 40); give its question
+                      slot (q) room for it
   }
   Test hooks: window.__mockWindow.mounted(), .released, .total, .siteWrites,
   .userScrollTo(i | 'top' | 'bottom') (a wheel, then the scroll, as a user would).
@@ -165,11 +171,16 @@
     t.push(y);
     return t;
   }
-  function fill(i) {
-    var q = slots[2 * i], a = slots[2 * i + 1];
+  function fillQ(i) {
+    var q = slots[2 * i];
     q.innerHTML = '<div><div class="group/partition" data-workflow-entry="' + i + '">' +
                   '<div data-message-bubble="right"><p style="margin:0"></p></div></div></div>';
     q.querySelector('p').textContent = entries[i].text;
+    if (jm.bubble && jm.bubble[i]) q.querySelector('[data-message-bubble]').style.height = jm.bubble[i] + 'px';
+  }
+  function fill(i) {
+    var a = slots[2 * i + 1];
+    fillQ(i);
     a.innerHTML = '<div><div data-workflow-final-text="true" class="prose">Answer ' + (i + 1) + '</div></div>';
   }
   function empty(i) { slots[2 * i].innerHTML = ''; slots[2 * i + 1].innerHTML = ''; }
@@ -202,6 +213,15 @@
         if (t[s + 1] <= st) growth += nh - height[s];      // wholly above the view
         height[s] = nh;
         slots[s].style.height = nh + 'px';
+      }
+    }
+    if (jm.qLag) {
+      var t2 = tops();
+      for (var qe = 0; qe < N; qe++) {
+        if (!mountedEntries[qe]) continue;
+        var qAbove = t2[2 * qe + 1] <= st, hasQ = !!slots[2 * qe].firstChild;
+        if (qAbove && hasQ) { slots[2 * qe].innerHTML = ''; changed = true; }
+        else if (!qAbove && !hasQ) { fillQ(qe); changed = true; }
       }
     }
     if (jm.anchor && changed) { siteWrites++; scroller.scrollTop = st + growth; }

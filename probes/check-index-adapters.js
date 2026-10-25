@@ -414,10 +414,13 @@ const READ = `(function () {
     check('P12', 'jump to Q1 from the bottom resolves entry 0 via data-workflow-entry',
           p9.after && p9.after.resolved === '0' && p9.after.targetId === '0', JSON.stringify(p9.after));
 
-    // 13 [new] A MOUNTED target (the penultimate entry, at the bottom) must land in view
+    // 13 [guard] A MOUNTED target (the penultimate entry, at the bottom) must land in view
     // through the stick-to-bottom pin, which reverts any scroll it was not released for.
     // Asserted as the landing (in view, within 24 px of centred), not as the mechanism: since
-    // v12.15 the release happens in the jump's landing writes, not on a fast path.
+    // v12.15 the release happens in the jump's landing writes, not on a fast path. It was
+    // [new] against the pre-v12.10 build; v12.14 passes it too (Playwright page realm,
+    // chromium, 1 run), so between v12.14 and v12.15 it guards the release. The v12.15 jump
+    // checks that fail on v12.14 are in probes/check-ix-jumps.js.
     const p13 = await scenario({ site: 'perplexity', url: pplxUrl, mockConfig: { entries: texts(E12) }, expectCount: 12,
                                  api: pplxApi(E12), after: jumpTo('data-workflow-entry', 10) });
     check('P13', 'a mounted-target jump resolves entry 10 and lands it in view, through the scroll pin',
