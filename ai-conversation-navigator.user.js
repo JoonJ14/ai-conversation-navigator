@@ -2698,14 +2698,20 @@
     var _ix = {};                      // the generic pipeline's state, one conversation
     var _ixJumpToken = 0;
     var _ixGptToken  = null;           // { value, exp }: memory only, never logged or stored
+    // Bookmark refresh requests (v12.15, _bmIxRequestRefresh): how many were made, and the newest
+    // one a load has answered. Page lifetime, outside _ix: a conversation change answers every
+    // request made before it, since the next open loads that chat's index afresh (ixInvalidate).
+    var _ixBmAsked  = 0;
+    var _ixBmServed = 0;
 
     function ixInvalidate() {
         _ixJumpToken++;
+        _ixBmServed = _ixBmAsked;
         _ix = { pid: null, cid: null, status: 'idle', entries: null, total: 0, idIndex: null,
                 textAt: null, inFlightCid: null, loadGen: (_ix.loadGen || 0) + 1, indexGen: (_ix.indexGen || 0) + 1,
                 reason: '', retryDelayMs: 0, lastFetchAt: 0, refreshFailed: '', truncated: 0,
                 actedSig: '', qIdx: null, idAtPos: null, answerOf: null, answerAt: null, wantRefresh: '',
-                wantActed: '', wantServed: 0 };
+                wantActed: '' };
     }
     ixInvalidate();
 
@@ -3348,7 +3354,7 @@
             // A bookmark's refresh request is answered by the load started for it, not by one
             // already in flight when it was made (_bmIxRequestRefresh).
             if (_ix.wantRefresh && _ix.wantRefresh === _ix.wantActed) {
-                _ix.wantServed  = parseInt(_ix.wantRefresh.slice(3), 10) || 0;
+                _ixBmServed     = Math.max(_ixBmServed, parseInt(_ix.wantRefresh.slice(3), 10) || 0);
                 _ix.wantRefresh = '';
             }
             _ix.textAt        = textAt;
@@ -10084,8 +10090,8 @@
     }
 
     // ix (ChatGPT, Perplexity, v12.15): { keyNow(): the key the node shows now, keyless: the
-    // node has none yet }. Its flag stands for its key only, and a click acts only while the
-    // node still shows that key.
+    // node has none yet, navIndex(): the msgIndex to store, read at the click }. Its flag stands
+    // for its key only, and a click acts only while the node still shows that key.
     function createBookmarkIcon(entityEl, entityType, entityId, msgIndex, legacyIds, ix) {
         if (entityEl.querySelector('[data-acn-bookmark]')) return;
 
@@ -10129,7 +10135,7 @@
                 _bmIxRequestRefresh(null);
                 return;
             }
-            toggleBookmark(entityId, entityType, entityEl, msgIndex, legacyIds, !!ix);
+            toggleBookmark(entityId, entityType, entityEl, ix ? ix.navIndex() : msgIndex, legacyIds, !!ix);
             var nowBookmarked = getConversationBookmarks().some(function (b) {
                 return _bmFlagMatches(b, entityId, legacyIds, entityType, rowIdx, !!ix);
             });
@@ -10320,11 +10326,12 @@
 
     // Keys saved before the index held them, with the number of the refresh asked for then:
     // until the load made for that request lands, such a record reads as waiting ("Answer to
-    // Q#?"), after that as unmatched ("A#?").
+    // Q#?"), after that as unmatched ("A#?"). The counters sit beside _ix (_ixBmAsked,
+    // _ixBmServed) and outlive a conversation change: leaving the chat and coming back must not
+    // make an answered request read as waiting again.
     var _bmIxWaiting = {};
-    var _bmIxAsked = 0;
     function _bmIxIsWaiting(key) {
-        return !!key && _bmIxWaiting.hasOwnProperty(key) && _bmIxWaiting[key] > (_ix.wantServed || 0);
+        return !!key && _bmIxWaiting.hasOwnProperty(key) && _bmIxWaiting[key] > _ixBmServed;
     }
 
     // 'ready' (the index of the open conversation is in), 'loading' (it is coming), or 'off'
@@ -10341,8 +10348,9 @@
         return type === 'user-msg' ? _ix.qIdx.hasOwnProperty(key) : _ix.answerOf.hasOwnProperty(key);
     }
 
-    // The Navigate index a record is shown under (0-based), or -1. Stored in msgIndex for an
-    // export or a tab still on v12.14 only; nothing here reads it back as identity.
+    // The Navigate index a record is shown under (0-based), or -1. Stored in msgIndex, taken at
+    // the click, for a tab still on v12.14 only (its labels number by it); nothing here reads it.
+    // The export labels by _bmLabel, not by msgIndex.
     function _bmIxNavIndex(key, type) {
         if (!_bmIxIndexed(key, type)) return -1;
         return type === 'user-msg' ? _ix.qIdx[key] : _ix.answerOf[key];
@@ -10354,7 +10362,7 @@
     // as the scan's own refetch is (ixDegrade).
     function _bmIxRequestRefresh(key) {
         if (_bmIxState() !== 'ready') return;     // a load is under way, or the scan's retry owns it
-        var n = ++_bmIxAsked;
+        var n = ++_ixBmAsked;
         if (key) _bmIxWaiting[key] = n;
         _ix.wantRefresh = 'bm:' + n;
         _ciScheduleRescan(0);
@@ -10463,7 +10471,10 @@
             if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
             el.setAttribute('data-acn-bookmarked', mark);
             createBookmarkIcon(el, type, mark, Math.max(0, _bmIxNavIndex(key, type)), null,
-                               { keyless: !key, keyNow: function () { return a.keyOf(el, type); } });
+                               { keyless: !key, keyNow: function () { return a.keyOf(el, type); },
+                                 // At the click: a ChatGPT flag is usually drawn before the index lands,
+                                 // and is not redrawn when it does (its key comes from the page).
+                                 navIndex: function () { return Math.max(0, _bmIxNavIndex(key, type)); } });
         });
     }
 

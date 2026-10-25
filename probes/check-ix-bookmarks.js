@@ -30,7 +30,9 @@
 // Checks ([new] must FAIL on v12.14; [guard] passes on both):
 //   K1  [new]   one flag per mounted question and answer, at the bottom, the middle and the top;
 //               none in the hidden timeline (ChatGPT), on nested "prose" nodes or the decoy (Perplexity)
-//   K2  [new]   question flags and records carry data-turn-key / the entry's backend_uuid, schema 2
+//   K2  [new]   question flags and records carry data-turn-key / the entry's backend_uuid, schema 2;
+//               (K2c) both records store the Navigate index at the click as msgIndex, also when the
+//               ChatGPT flags were drawn before the index landed
 //   K3  [new]   answer flags and records carry the turn's last shown text node id / backend_uuid:answer
 //   K4  [new]   labels: the Navigate number ("Q#16" and "Q#1" differ), "Answer to Q#16", Korean, the
 //               export in label order
@@ -55,7 +57,16 @@
 //   N1  [new]   ChatGPT: a regenerated answer and a new question, not in the index, are saved by the
 //               page's ids and read "Answer to Q#?" / "Q#?" until the one refresh lands, then
 //               "Answer to Q#16" / "Q#17"; the replaced answer's record reads "A#?"; one fetch per request
+//               (N1c) and no further fetch past the refetch cooldown; (N1d) a record whose one
+//               refresh was answered still reads "A#?", not "Answer to Q#?", after leaving the chat
+//               and coming back
 //   N2  [new]   Perplexity: a new entry's flag saves nothing and says so
+//   K13 [new]   Perplexity: a mounted question edited in place (its data-workflow-entry kept, the
+//               index not refetched yet): its question and answer flags have no key and save nothing
+//   K14 [new]   Perplexity, an answer whose question slot is empty: the slot-place fallback refuses
+//               (no key, nothing saved) when a mounted question slot is not at twice its entry
+//               number, and when the list is not exactly two slots per raw entry (two extra children
+//               above it would otherwise key it as the NEXT entry's answer)
 //   G1  [new]   an entry without a backend_uuid saves nothing (v12.14 saves a hash); no record is
 //               keyed by a raw position
 //   G2  [guard] no page errors
@@ -481,6 +492,8 @@ window.GM_setValue = function (k, v) { _s[k] = v; };
         check('G-K2b', '[new] the question record is schema 2, keyed by data-turn-key',
               !!rq && rq.schema === 2 && rq.msgUuid === T[15].id && rq.contentHash === T[15].id, short(rq || recordsOf(st)));
         check('G-K3b', '[new] the answer record carries that id', !!ra && ra.msgUuid === T[15].aid, short(ra || null));
+        check('G-K2c', '[new] both records store Q16\'s Navigate index (15) as msgIndex, though their flags were drawn before the index landed',
+              !!rq && !!ra && rq.msgIndex === 15 && ra.msgIndex === 15, 'msgIndex ' + (rq && rq.msgIndex) + ' / ' + (ra && ra.msgIndex));
         // K6: Q9 bookmarked at one stop, lit at another where its place among the bubbles differs.
         await c.scroll(7);
         k1s.push(k1('chatgpt', await c.flags(), 'middle'));
@@ -567,6 +580,12 @@ window.GM_setValue = function (k, v) { _s[k] = v; };
               regenKey === GPT_REGEN && !!rr && waitingA === 'Answer to Q#?' && flipped[flipped.length - 1] === 'Answer to Q#16' &&
               flipped[1] === 'A#?' && fetchesA === 1,
               'flag=' + regenKey + ' record=' + !!rr + ' at click ' + waitingA + ' then ' + short(flipped) + ', fetches ' + fetchesA);
+        // One request, one load: still one after the 15 s refetch cooldown has run out (an unmarked
+        // request refetches every cooldown).
+        await sleep(15000 + 3000);
+        const fetchesC = c.fetches - fetches0;
+        check('N1c', '[new] that request causes no further fetch once the refetch cooldown has passed',
+              fetchesA === 1 && fetchesC === 1, 'fetches ' + fetchesA + ' at the flip, ' + fetchesC + ' 18 s later');
         // The new question: its turn is mounted at the end; the scan's own stale check and the click
         // ask; the index that lands holds it.
         const T3 = T2.concat([GPT_NEW]);
@@ -581,6 +600,28 @@ window.GM_setValue = function (k, v) { _s[k] = v; };
         const rn = list(st, PLAIN).find((b) => b.msgUuid === GPT_NEW.id);
         check('N1b', '[new] a new question is saved by its data-turn-key, reads "Q#?" until the index holds it, then "Q#17"',
               !!rn && waitingQ === 'Q#?' && flippedQ[flippedQ.length - 1] === 'Q#17', 'record=' + !!rn + ' at click ' + waitingQ + ' then ' + short(flippedQ));
+        // N1d: an answer the index never lists; its one refresh is answered ("A#?"); then the user
+        // leaves the chat and comes back.
+        const NEVER = uuid(14, 'bcbcbcbc');
+        await c.ev((a) => window.__mockWindow.setAnswer(14, a, 'A reply the index never lists.'), NEVER);
+        await c.settle();
+        await c.click('a', 14);
+        const atClickD = await c.cards();
+        const servedD = await c.waitCards((cs) => cs.indexOf('Answer to Q#?') === -1, 30000);
+        const loadsOf = () => c.logs.filter((l) => /^\[ACN\] index: platform=\w+ .*questions=17/.test(l)).length;
+        const loads0 = loadsOf();
+        const go = (o) => c.ev((x) => { history.pushState({}, '', '/c/' + x); window.dispatchEvent(new PopStateEvent('popstate')); }, o);
+        await go(GPT_OTHER);
+        await sleep(2000);
+        await go(GPT_CONV);
+        const t0D = Date.now();
+        while (loadsOf() === loads0 && Date.now() - t0D < 25000) await sleep(200);
+        const backD = await c.waitCards((cs) => cs.length > 0 && !cs.some((x) => x.indexOf('\u2026') !== -1), 10000);
+        const nA = (cs) => cs.filter((x) => x === 'A#?').length;
+        check('N1d', '[new] a record whose one refresh was answered reads "A#?" after leaving the chat and coming back, not "Answer to Q#?"',
+              atClickD.indexOf('Answer to Q#?') !== -1 && servedD.indexOf('Answer to Q#?') === -1 && nA(servedD) >= 2 &&
+              loadsOf() > loads0 && backD.indexOf('Answer to Q#?') === -1 && nA(backD) === nA(servedD),
+              'at click ' + short(atClickD) + ' -> ' + short(servedD) + ' -> back (reloaded=' + (loadsOf() > loads0) + ') ' + short(backD));
         const storeA = await c.store();
         await c.close();
 
@@ -711,6 +752,8 @@ window.GM_setValue = function (k, v) { _s[k] = v; };
         const rq = recs.find((b) => b.entityType === 'user-msg'), ra = recs.find((b) => b.entityType === 'ai-msg');
         check('P-K2b', '[new] the question record is schema 2, keyed by backend_uuid', !!rq && rq.schema === 2 && rq.msgUuid === U(11), short(rq || recordsOf(st)));
         check('P-K3b', '[new] the answer record is keyed backend_uuid:answer', !!ra && ra.msgUuid === U(11) + ':answer', short(ra || null));
+        check('P-K2c', '[new] both records store entry 12\'s Navigate index (10) as msgIndex',
+              !!rq && !!ra && rq.msgIndex === 10 && ra.msgIndex === 10, 'msgIndex ' + (rq && rq.msgIndex) + ' / ' + (ra && ra.msgIndex));
         // K5 and G1 around entries 4 (empty query_str) and 7 (no backend_uuid).
         await c.scroll(7);
         k1s.push(k1('perplexity', await c.flags(), 'middle'));
@@ -923,6 +966,69 @@ window.GM_setValue = function (k, v) { _s[k] = v; };
         jt = (j.jumps || [])[0] || {};
         check('P-K8c', '[new] that answer is landed on, mounted (its question slot empty) and from off screen',
               fast && jt.kind === 'a' && jt.pos === 5 && j.landed && j.landed.startInView && !(j.toasts || []).length, 'mounted=' + fast + ' off-screen: ' + short(j));
+        await c.close();
+
+        // ── P-F: what the keys must refuse (qLag, the view as in P-E) ──
+        c = await open('perplexity', WWW, cfg({ qLag: true }), {}, api);
+        await c.indexed(11);
+        await c.settle();
+        await c.ev(() => {
+            var sc = document.getElementById('mock-scroller');
+            sc.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true }));
+            sc.scrollTop = 5 * 600 + 150;
+        });
+        await sleep(250);
+        await c.settle();
+        f = await c.flags();
+        const pre5 = (f.items.find((r) => r.i === 5) || {}).aKey, pre7 = f.items.find((r) => r.i === 7) || {};
+        // K13: entry 8's question edited in place before any refetch.
+        const edited = await c.ev(() => window.__mockWindow.editQuestion(7, 'An edited version of question 8?'));
+        await sleep(1500);
+        f = await c.flags();
+        const e7 = f.items.find((r) => r.i === 7) || {};
+        const before13 = JSON.stringify(await c.store());
+        const clicked13 = await c.ev(() => window.__p.clickBoth(7));
+        await sleep(300);
+        const after13 = JSON.stringify(await c.store());
+        check('P-K13', '[new] a question edited in place: its question and answer flags have no key, and their clicks save nothing',
+              edited && pre7.qKey === U(7) && pre7.aKey === U(7) + ':answer' && e7.qKey === 'nokey:user-msg' && e7.aKey === 'nokey:ai-msg' &&
+              clicked13 === 2 && before13 === after13,
+              'before ' + pre7.qKey + ' / ' + pre7.aKey + ', after ' + e7.qKey + ' / ' + e7.aKey + ', clicked ' + clicked13 + ', ' + (before13 === after13 ? 'unchanged' : 'store changed'));
+        // K14a: a mounted question slot (entry 7's) carries a number that is not half its place.
+        await c.ev(() => window.__mockWindow.renumber(6, 60));
+        await sleep(1500);
+        f = await c.flags();
+        const a5 = (f.items.find((r) => r.i === 5) || {}).aKey;
+        const before14 = JSON.stringify(await c.store());
+        await c.click('a', 5);
+        const after14 = JSON.stringify(await c.store());
+        check('P-K14a', '[new] the slot-place fallback refuses when a mounted question slot is not at twice its entry number',
+              pre5 === U(5) + ':answer' && a5 === 'nokey:ai-msg' && before14 === after14,
+              'entry 6\'s answer flag ' + pre5 + ' -> ' + a5 + ', ' + (before14 === after14 ? 'unchanged' : 'store changed'));
+        await c.close();
+
+        // K14b: at the bottom, entries 10-12 mounted, the question slots of 11 and 12 empty, so the
+        // one mounted question slot (entry 10's) sits above both answers and cannot contradict
+        // their places; then two children that are not slots appear above entry 11.
+        c = await open('perplexity', WWW, cfg({ around: 2 }), {}, api);
+        await c.indexed(11);
+        await c.settle();
+        const hid = await c.ev(() => window.__mockWindow.hideQuestion(10) && window.__mockWindow.hideQuestion(11));
+        await sleep(1500);
+        const keysB0 = await c.ev(() => window.__mockWindow.answerKeys());
+        const kids = await c.ev(() => window.__mockWindow.insertExtras(10, 2));
+        await sleep(1500);
+        const keysB1 = await c.ev(() => window.__mockWindow.answerKeys());
+        const beforeB = JSON.stringify(await c.store());
+        const clickedB = await c.ev((t) => window.__mockWindow.clickAnswer(t), PX[10].answer);
+        await sleep(300);
+        const afterB = JSON.stringify(await c.store());
+        const keyB = (ks, i) => (ks.find((k) => k.text === PX[i].answer) || {}).key;
+        check('P-K14b', '[new] the slot-place fallback refuses a list that is not exactly two slots per raw entry',
+              hid && keyB(keysB0, 10) === U(10) + ':answer' && keyB(keysB0, 11) === U(11) + ':answer' && kids === 26 &&
+              keyB(keysB1, 10) === 'nokey:ai-msg' && keyB(keysB1, 11) === 'nokey:ai-msg' && clickedB && beforeB === afterB,
+              'before ' + short(keysB0.map((k) => k.key)) + ', ' + kids + ' children, after ' + short(keysB1.map((k) => k.key)) +
+              ', ' + (beforeB === afterB ? 'unchanged' : 'store changed: ' + afterB.slice(0, 160)));
         await c.close();
     }
 

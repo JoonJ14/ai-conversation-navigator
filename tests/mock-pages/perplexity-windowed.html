@@ -280,7 +280,14 @@
   }
   Test hooks: window.__mockWindow.mounted(), .total, .released, .userScrollTo(i|'top'|'bottom'),
   .recycle(i, j) (entry i's mounted slots re-used, in place, to show entry j), .domIndex(i) (the
-  bubble's place among the mounted bubbles), .addEntry({ text, answer }) (a new entry at the end).
+  bubble's place among the mounted bubbles), .addEntry({ text, answer }) (a new entry at the end),
+  .editQuestion(i, text) (entry i's question reads `text`, in place, its data-workflow-entry kept:
+  an edit before the index is refetched), .renumber(i, j) (entry i's question slot carries
+  data-workflow-entry=j from now on), .insertExtras(i, n) (n empty, zero-height children that are
+  not slots, put into the list before entry i's question slot), .answerKeys() ([{ text, key }] for
+  every [data-workflow-final-text]: its answer text and its flag's data-acn-bookmark, or null),
+  .clickAnswer(text) (clicks the flag on the answer showing `text`), .hideQuestion(i) (entry i's
+  question slot stays EMPTY while its answer is mounted, wherever the view is).
 -->
 <style>
   .bm-slot { box-sizing: border-box; overflow: hidden; padding: 8px; }
@@ -299,7 +306,7 @@
   decoy.className = 'bm-decoy prose prose-sm';
   decoy.textContent = 'Library: another thread about something else entirely';
   document.body.appendChild(decoy);
-  var slots = [], mounted = {}, released = false;
+  var slots = [], mounted = {}, released = false, numberOf = {}, qHidden = {};
   function addSlots(i) {
     for (var s = 0; s < 2; s++) {
       var d = document.createElement('div');
@@ -311,7 +318,8 @@
   }
   for (var i0 = 0; i0 < entries.length; i0++) addSlots(i0);
   function fillQ(slot, i) {
-    slot.innerHTML = '<div><div class="group/partition" data-workflow-entry="' + i + '">' +
+    var no = numberOf.hasOwnProperty(i) ? numberOf[i] : i;
+    slot.innerHTML = '<div><div class="group/partition" data-workflow-entry="' + no + '">' +
                      '<div data-message-bubble="right"><p style="margin:0"></p></div></div></div>';
     slot.querySelector('p').textContent = entries[i].text;
   }
@@ -352,6 +360,7 @@
         else if (!above && !has) fillQ(slots[2 * q], q);
       }
     }
+    for (var h in qHidden) if (mounted[h] && slots[2 * h].firstChild) slots[2 * h].innerHTML = '';
   }
   function bottom() { return scroller.scrollHeight - scroller.clientHeight; }
   scroller.addEventListener('wheel', function () { released = true; }, { passive: true });
@@ -384,7 +393,47 @@
       var w = document.querySelector('[data-workflow-entry="' + i + '"] [data-message-bubble="right"]');
       return w ? b.indexOf(w) : -1;
     },
-    addEntry: function (e) { entries.push(e); addSlots(entries.length - 1); render(); }
+    addEntry: function (e) { entries.push(e); addSlots(entries.length - 1); render(); },
+    editQuestion: function (i, text) {
+      entries[i] = { text: text, answer: entries[i].answer };
+      var p = slots[2 * i].querySelector('[data-message-bubble="right"] p');
+      if (p) p.textContent = text;
+      return !!p;
+    },
+    renumber: function (i, j) {
+      numberOf[i] = j;
+      if (!slots[2 * i].firstChild) return false;
+      fillQ(slots[2 * i], i);
+      return true;
+    },
+    hideQuestion: function (i) { qHidden[i] = true; render(); return !slots[2 * i].firstChild; },
+    insertExtras: function (i, n) {
+      for (var k = 0; k < n; k++) {
+        var x = document.createElement('div');
+        x.className = 'bm-extra';
+        items.insertBefore(x, slots[2 * i]);
+      }
+      return items.children.length;
+    },
+    answerKeys: function () {
+      var f = document.querySelectorAll('[data-workflow-final-text]'), out = [];
+      for (var k = 0; k < f.length; k++) {
+        var ic = null;
+        for (var c = 0; c < f[k].children.length; c++) if (f[k].children[c].getAttribute('data-acn-bookmark') !== null) ic = f[k].children[c];
+        out.push({ text: f[k].querySelector('.bm-a').textContent, key: ic ? ic.getAttribute('data-acn-bookmark') : null });
+      }
+      return out;
+    },
+    clickAnswer: function (text) {
+      var f = document.querySelectorAll('[data-workflow-final-text]');
+      for (var k = 0; k < f.length; k++) {
+        if (f[k].querySelector('.bm-a').textContent !== text) continue;
+        for (var c = 0; c < f[k].children.length; c++) {
+          if (f[k].children[c].getAttribute('data-acn-bookmark') !== null) { f[k].children[c].click(); return true; }
+        }
+      }
+      return false;
+    }
   };
 }());
 </script>
