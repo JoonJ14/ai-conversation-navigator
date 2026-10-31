@@ -1446,6 +1446,8 @@
                                     // conversation block every load attempt for the
                                     // newly opened one until timeout (Codex :1570).
     var _ciOrgUuid        = null;
+    var _ciModel          = null;   // the conversation's model id (its JSON's top-level `model`), for
+                                    // the context meter's limit (v12.16, DEC-056); null when absent
     var _ciLastRefetchAt  = 0;
 
     // The two real Claude conversation routes, and ONLY those:
@@ -2274,6 +2276,7 @@
         _ciTruncatedCount   = truncated;
         _ciUsedLeafFallback = resolved.usedFallback;
         _ciPathComplete     = resolved.reachedRoot;
+        _ciModel            = (typeof data.model === 'string' && data.model) ? data.model : null;
         ciBuildRenderable();
         ciResetAnchors();
         // A mid-jump refetch for the SAME conversation (edit/regenerate resync) rebuilds
@@ -2480,6 +2483,7 @@
         _ciIndex            = null;
         _ciFullPath         = null;
         _ciTextToUuid       = null;
+        _ciModel            = null;
         _ciTruncatedCount   = 0;
         _ciUsedLeafFallback = false;
         _ciPathComplete     = true;
@@ -5733,6 +5737,7 @@
         _ciIndex          = null;
         _ciFullPath       = null;
         _ciTextToUuid     = null;
+        _ciModel          = null;
         _ciQMatchMemo     = { gen: -1, rows: {} };   // question texts of the conversation left behind
         _bmRefreshFor     = null;   // a bookmark's refetch request belongs to the conversation it was made in
         _bmProveSeen      = '';     // and the proof gate's copy of the stored bookmarks with it
@@ -6782,6 +6787,56 @@
         gemini:     1000000,
         perplexity: 127072,
     };
+
+    // Claude's context window by the conversation's model (v12.16, DEC-056). The conversation
+    // JSON the index downloads names the chat's model at its top level (`model`: 60 of 60
+    // conversations, e.g. 'claude-opus-5'; Chrome + Tampermonkey, 2026-10-31); messages carry none.
+    // SOURCE: Anthropic Help Center, "How large is the context window on paid Claude plans?",
+    // https://support.claude.com/en/articles/8606394 (updated 2026-10-30), table "Chatting with
+    // Claude", which covers Pro, Max, Ultra, Team and Enterprise: "Outside of these models,
+    // Claude's context window size is 200K". It gives no per-model figure for the Free plan, and
+    // the API's windows differ (several are 1M there and 500K here). A model this table does not
+    // know (a newer one, or none in the payload) reads the smallest window, and the meter says the
+    // limit is assumed.
+    var CLAUDE_CTX_BY_MODEL = {
+        'claude-fable-5-1':  1000000, 'claude-fable-5':    500000,
+        'claude-opus-5-5':   1000000, 'claude-opus-5':     1000000,
+        'claude-opus-4-8':    500000, 'claude-opus-4-7':    500000, 'claude-opus-4-6': 500000,
+        'claude-sonnet-5-5': 1000000, 'claude-sonnet-5':   1000000, 'claude-sonnet-4-6': 500000,
+        'claude-haiku-5-5':  1000000
+    };
+    var CLAUDE_CTX_FALLBACK = 200000;
+
+    // { limit, model, known }: known is true only for a model in the table. A dated id
+    // (claude-x-y-YYYYMMDD) is looked up without its date.
+    function orbClaudeCtxLimit() {
+        var m = (ciIsClaudeChat() && ciIsReady() && typeof _ciModel === 'string') ? _ciModel : null;
+        var key = m ? m.replace(/-[0-9]{8}$/, '') : null;
+        if (key && Object.prototype.hasOwnProperty.call(CLAUDE_CTX_BY_MODEL, key)) {
+            return { limit: CLAUDE_CTX_BY_MODEL[key], model: m, known: true };
+        }
+        return { limit: CLAUDE_CTX_FALLBACK, model: m, known: false };
+    }
+
+    // 1000000 -> '1M', 500000 -> '500K' (a 1M window used to read "1000K").
+    function orbFmtCtxLimit(n) {
+        return (n >= 1000000 && n % 1000000 === 0) ? (n / 1000000) + 'M' : Math.round(n / 1000) + 'K';
+    }
+
+    // Publishes the limit the meter used (test contract) and logs it once per change, so a
+    // user's console says which model and limit the percentage rests on.
+    var _ctxLimitLogged = '';
+    function orbStampCtxLimit(pct, info) {
+        pct.setAttribute('data-acn-ctx-limit', String(info.limit));
+        pct.setAttribute('data-acn-ctx-limit-source', info.known ? 'model' : 'assumed');
+        pct.setAttribute('data-acn-ctx-model', info.model || '');
+        var sig = (_ciConversationId || '') + '|' + (info.model || '') + '|' + info.limit;
+        if (sig !== _ctxLimitLogged) {
+            _ctxLimitLogged = sig;
+            console.log('[ACN] context limit: model=' + (info.model || '(none)') + ' limit=' + info.limit +
+                        ' source=' + (info.known ? 'model' : 'assumed'));
+        }
+    }
 
     // ── Orbital state ───────────────────────────────────────────
     var orbMode      = 'show-all'; // 'show-all' | 'arc' | 'wheel'
@@ -8221,6 +8276,13 @@
         var limit = (typeof CTX_LIMITS !== 'undefined' && platform && CTX_LIMITS[platform.id])
                     ? CTX_LIMITS[platform.id]
                     : 128000;
+        // Claude: the conversation's model decides the window (v12.16, DEC-056).
+        var ctxInfo = null;
+        if (platform && platform.id === 'claude') {
+            ctxInfo = orbClaudeCtxLimit();
+            limit = ctxInfo.limit;
+            orbStampCtxLimit(pct, ctxInfo);
+        }
 
         // ── Path A: Claude with hybrid SSE data ───────────────
         if (platform && platform.id === 'claude' &&
@@ -8288,7 +8350,7 @@
             var color    = getBarColor(pctNum);
 
             var tokFmt = totalTok.toLocaleString();
-            var limFmt = Math.round(limit / 1000) + 'K';
+            var limFmt = orbFmtCtxLimit(limit);
 
             pct.textContent       = pctNum + '%';
             pct.style.color       = color;
@@ -8296,7 +8358,8 @@
             fill.style.background = color;
 
             if (meta) {
-                var label = _sseTokenData.cached ? '(last known)' : '(hybrid)';
+                var label = _sseTokenData.cached ? '(last known' : '(hybrid';
+                label += (ctxInfo && !ctxInfo.known) ? ', limit assumed)' : ')';
                 meta.textContent = '~' + tokFmt + ' / ' + limFmt + ' tokens ' + label;
                 meta.style.color = _sseTokenData.cached ? '#666' : '#888';
             }
@@ -8311,7 +8374,7 @@
         // (Firefox: SSE interception disabled due to sandbox contamination — DEC-020)
         // (Chrome: SSE data not yet received, e.g. page just loaded)
         if (platform && platform.id === 'claude') {
-            _renderEstimatedBar(pct, fill, meta, limit);
+            _renderEstimatedBar(pct, fill, meta, limit, ctxInfo);
             _renderTurnDots();
             _renderCompactionInfo(0);
             return;
@@ -8338,7 +8401,7 @@
         _renderTurnCompactionInfo();
     }
 
-    function _renderEstimatedBar(pct, fill, meta, limit) {
+    function _renderEstimatedBar(pct, fill, meta, limit, ctxInfo) {
         var totalChars = 0;
         var estTokens;
         var node  = null;
@@ -8394,8 +8457,8 @@
 
         if (meta) {
             var kEst   = (estTokens / 1000).toFixed(1);
-            var kLimit = Math.round(limit / 1000);
-            meta.textContent = '~' + kEst + 'K / ' + kLimit + 'K tokens (est.)';
+            meta.textContent = '~' + kEst + 'K / ' + orbFmtCtxLimit(limit) + ' tokens (est.' +
+                               ((ctxInfo && !ctxInfo.known) ? ', limit assumed)' : ')');
             meta.style.color = '#666';
         }
     }
