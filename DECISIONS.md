@@ -1294,6 +1294,9 @@ review record. Updated 2026-10-31:
     meter read 35%, "~353.6K / 1M tokens (est.)", model `claude-opus-5` (v12.15: 100%, "/ 200K"); a `claude-opus-4-7`
     chat used 500K. Gemini, a 32-question chat: the "older messages are not loaded yet" note at 10, 20 and 30 loaded,
     gone at 32; correct on 10-, 9- and 1-question chats. Details: DEC-055 to DEC-057 and the v12.16 CHANGELOG entry.
+    Rechecked before the PR on `2527956` (the review fixes and the turn dots in): Q140 from the top 3 of 3; the meter
+    35%, "~353.6K / 1M tokens (est.)", model `claude-opus-5`, and all 40 dots green (v12.15: 28 green, 6 yellow, 6 red
+    under the same chat); the Gemini note at 10 and 20, gone at 32 through the 8 s rule (see DEC-057).
   <!-- V12.16 ACCEPTANCE: filled in by the integrator, as reported -->
 - **v12.15 (PR #88, merged 2026-10-31 as `6baac2e` before acceptance, a waiver; ChatGPT and Perplexity jumps and
   bookmarks, Claude rows by `data-turn-key`; DEC-052, DEC-053, DEC-054).** Owner acceptance on Safari + Userscripts,
@@ -3948,4 +3951,6 @@ chats.
 - Gate: `tests/mock-pages/gemini-history.html`, `probes/check-gemini-history.js`: v12.15 failed H2, H3, H4, H6 and H6b;
   the build passes on chromium (twice), firefox and webkit, and HEAD; mutants M1–M5 and M3b (the path-keyed reset)
   caught. After `loadAll` (22 turns arriving in one scan) the note stays until the 8 s rule, the conservative
-  direction; live, two loads would have to land within one 500 ms scan. [Playwright page realm, headless, this Mac.]
+  direction. **Seen live too** (Chrome, 2026-10-31, on `2527956`, scrolling to the top every 8 s): Gemini's
+  rendering delayed the scan past a second load (Navigate read 20 with 30 loaded), so the scan saw 20 → 32 at once,
+  the short-page rule did not apply, and the note left only through the 8 s rule at the top. [Playwright page realm, headless, this Mac.]
