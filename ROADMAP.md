@@ -30,7 +30,16 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.14 MERGED (PR #86) — live confirmation status: DEC-031
+## Current Status: v12.15 MERGED (PR #88) — live confirmation status: DEC-031
+
+**v12.15 (PR #88, merged 2026-10-31 as `6baac2e`, on the owner's OK before their acceptance: a waiver, DEC-031).**
+One combined PR in three parts. B: jumps on Perplexity and ChatGPT land in one click, instantly and checked
+(DEC-052). A: ChatGPT and Perplexity bookmarks key to the messages' own ids, read "Q#n" / "Answer to Q#n", and keep
+one store key per conversation (DEC-053). C: Claude rows are identified by their `data-turn-key`, so scrolling no
+longer refetches the conversation (DEC-054). The agent's live check in Chrome + Tampermonkey found one Perplexity bug
+before the PR (a question whose bubble renders its markdown), fixed, and GitHub Codex's two findings were fixed in
+the PR (CHANGELOG 12.15). Owner acceptance on all three browsers is owed. Logged for later: Claude's jump to the
+latest question from the top (TROUBLESHOOTING, OPEN; v12.14 does the same), and the J15 CI flake (below).
 
 **v12.14 (PR #86, merged 2026-10-24 as `79e4953`).** Owner acceptance: steps 1–3 passed on all three browsers; Chrome's and Firefox's steps 4–5 not reported (a partial waiver, DEC-031). Claude answers have flags in project chats again, answer bookmarks
 key to the message and read "Answer to Q#n", and existing answer bookmarks bind on proof or show "A#?" (DEC-051;
@@ -65,7 +74,7 @@ v12.9 paragraphs above are history.
 acceptance with partial waivers, recorded in DEC-031 with v12.12's itemized results.
 
 **Then v12.15: one combined PR, in a new session** (the owner's plan, 2026-10-24; it replaces the earlier plan of a
-third PR holding item 14 alone). Three parts, in separate commits:
+third PR holding item 14 alone). *Done: PR #88, above; this paragraph is history.* Three parts, in separate commits:
 - **A, ChatGPT and Perplexity bookmarks** (item 13): questions and answers keyed by the ids the adapters fetch;
   "Q#n" / "Answer to Q#n"; jumps to off-screen messages; legacy records bind on proof or show "#?".
 - **B, the Perplexity one-click jump** (item 13), and ChatGPT's near-miss if it is the same cause.
@@ -77,8 +86,11 @@ and one merge. Its process changes: Tier 3 is capped at 5 rounds, and new issues
 for a later PR unless they block this one. **The owner gives the full spec** as the first message of that session;
 nothing here pre-writes its scope.
 
-Later; the owner decides the order (2026-10-24):
+Later; the owner decides the order (2026-10-24; the last two added 2026-10-31):
 - Grok on all three browsers (item 13).
+- Claude: a jump to the latest question from the top ends at the bottom, past it (TROUBLESHOOTING, OPEN; pre-existing,
+  v12.14 does the same; item 14).
+- `check-ix-jumps` J15's timing race in CI (TROUBLESHOOTING, OPEN): make the fixture's pin deterministic.
 - Gemini: does it keep or slide older turns (item 13)?
 - Perplexity attachment images. The gallery has marked Perplexity unsupported since v11.x, because its attachments
   render as text labels, not `<img>` tags ("Image Gallery Platform-Specific Selectors", below). There is no backlog
@@ -93,6 +105,7 @@ Later; the owner decides the order (2026-10-24):
 - Someday, at low priority: a spot-check of Chrome and Firefox on Windows. It is logged here only.
 
 Owed meanwhile, "not reported" until the owner sends results (DEC-031):
+- PR #88's acceptance (v12.15), every step on all three browsers, plus the optional Claude throwaway-chat step;
 - PR #85's steps 2–7;
 - PR #86's steps 4–5 on Chrome and Firefox;
 - the v12.12 items never reported;
@@ -830,10 +843,11 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         - Answers: no flags at all on either site.
         - Questions: labels are on-screen positions (two different questions both read "Q4"; a 16-question thread
           shows only Q1–Q4); a jump to an off-screen question shows "not currently rendered".
-    - **Built in v12.15** (branch `fix/v12.15-bookmarks-jumps-claude`, PR #88; not merged): part B, jumps
-      that land instantly and verify, Perplexity and ChatGPT (DEC-052); part A, ChatGPT and Perplexity bookmarks by
-      the messages' own ids, one store key per conversation (DEC-053). Gated on mocks only [measured, Playwright page
-      realm, headless]; live acceptance on all three browsers pending (DEC-031).
+    - **Done in v12.15** (PR #88, merged 2026-10-31 as `6baac2e`): part B, jumps that land instantly and verify,
+      Perplexity and ChatGPT (DEC-052); part A, ChatGPT and Perplexity bookmarks by the messages' own ids, one store
+      key per conversation (DEC-053). Gated on mocks [measured, Playwright page realm, headless] and checked live in
+      Chrome + Tampermonkey by the agent (CHANGELOG 12.15); owner acceptance on all three browsers owed (a waiver,
+      DEC-031).
     - **Pending:** Grok, untested on all three browsers; Gemini, once its virtualization is measured. The
       owner decides their order (ROADMAP, "Current Status"; HANDOFF.md, §G).
     - **How to add the next one:** "Porting the Layer 4 response to another platform" below, then one
@@ -913,10 +927,10 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
           space or punctuation, so that "2*3*4" keeps its stars) [inferred; not measured].
 
 14. **Claude markup follow-ups — part C of v12.15 (owner, 2026-10-24).** First planned as a third PR of its own after
-    the answer-bookmark PR (v12.14); now one of v12.15's three parts (Current Status). **Built in v12.15** (not
-    merged): rows identified by their `data-turn-key` (DEC-054), which addresses the question-side refetch, the dead
-    regenerate and late-answer detection and the question-identity risk below. Gated on mocks only; live acceptance
-    pending (DEC-031).
+    the answer-bookmark PR (v12.14); now one of v12.15's three parts (Current Status). **Done in v12.15** (PR #88,
+    merged 2026-10-31 as `6baac2e`): rows identified by their `data-turn-key` (DEC-054), which addresses the
+    question-side refetch, the dead regenerate and late-answer detection and the question-identity risk below. Gated
+    on mocks; the refetch checked live in Chrome by the agent; owner acceptance owed (a waiver, DEC-031).
     Claude's October 2026 markup broke two assumptions the staleness check rests on (TROUBLESHOOTING has both):
     - **The question-side refetch:** a multi-block question's rendered text never equals its payload, so each
       distinct set of mismatching mounted questions re-downloads the conversation once per page load (and again if

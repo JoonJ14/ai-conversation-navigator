@@ -107,6 +107,12 @@ GitHub Actions runs on push/PR to `main`:
     and no refetch while scrolling. `node probes/run-answer-mutants.js` (not in CI) runs 18 targeted mutants.
     22 of the 36 checks fail under some mutant. Seven more are shown to fail only by v12.13, and the guards by
     nothing (DEC-051, Gates).
+  - Every `ubuntu` job also runs three v12.15 probes on its own engine: `check-ix-jumps` (one-click jumps on the
+    windowed ChatGPT and Perplexity mocks, and the Perplexity question compare, DEC-052), `check-ix-bookmarks`
+    (ChatGPT and Perplexity bookmarks by message id, DEC-053) and `check-claude-turnkeys` (Claude rows by
+    `data-turn-key`, DEC-054). They took the ubuntu jobs to about 22 minutes, so the job cap is 30 since v12.15.
+    `check-ix-jumps` J15 has a known timing race in CI (TROUBLESHOOTING, OPEN): a failure reading
+    `resolved=10 toast=no inView=true err=0px` clears on one re-run.
 
 **Windows is the runner that catches timing assumptions.** It is materially slower than
 the Ubuntu and macOS runners, so an assertion that races the virtualizer passes on two OSes
@@ -122,7 +128,7 @@ sibling entries stay exact at ~300ms is a degraded macOS runner episode, not cod
 2026-07-30 on identical commits green minutes apart. Check `vis=`/`raf10=` on the failure
 lines (~160ms rAF sample = healthy; seconds = throttled; -1 = stopped) and the per-entry
 wall clocks, then re-run the job once. Full signature and procedure:
-`TESTING.md` → "CI: reading a webkit-on-macos failure or hang". The job `timeout-minutes: 20`
+`TESTING.md` → "CI: reading a webkit-on-macos failure or hang". The job `timeout-minutes` (30 since v12.15)
 exists for this; do not raise assertion budgets to make a sick runner green.
 
 **A local mac WebKit failure is NOT that signature** (found 2026-10-22). On the owner's Mac, four acceptance

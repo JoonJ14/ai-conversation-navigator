@@ -6,8 +6,9 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.15 — One-Click Jumps on Perplexity and ChatGPT, Bookmarks by Message Id There, Claude Rows by Their data-turn-key] — 2026-10-25
 
-**Branch:** `fix/v12.15-bookmarks-jumps-claude` | **PR:** #88 | **Not merged; owner acceptance pending** on
-Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey (DEC-047, DEC-031)
+**Branch:** `fix/v12.15-bookmarks-jumps-claude` | **PR:** #88 | **Merged** 2026-10-31 as `6baac2e` on the owner's
+explicit OK, before their acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey (a
+waiver: every step is still owed on the merged build, DEC-047, DEC-031)
 
 ### Problem
 
@@ -199,7 +200,20 @@ labelled [new] fails on v12.14 (`64ee6fa`); a [guard] passes on both.
 
 ### Owner acceptance
 
-Pending, on all three browsers. Results go in DEC-031 as reported.
+Owed, on all three browsers: the PR merged before any step was reported (a waiver, recorded in DEC-031). Results go
+in DEC-031 as reported. The steps are on the PR:
+https://github.com/JoonJ14/ai-conversation-navigator/pull/88#issuecomment-6399417237.
+
+### Merge and CI
+
+- **GitHub Codex:** three rounds, then the confirming one. Round 1 found the letters-and-digits Perplexity compare
+  (fixed in `1a6de53`); round 2, rendered single-marker italics (fixed in `12ad0a6`); rounds 3 and 4 were clean on
+  `12ad0a6`.
+- **CI** (run 40214646346, on `258c5c4`; its userscript is the merged one): attempt 1 went 8 of 9. `firefox on
+  ubuntu-latest` failed one check after 16m15s, `check-ix-jumps` J15 (`resolved=10 toast=no inView=true err=0px`):
+  the fixture's 1 ms pin lost a timing race, so the jump truly landed (TROUBLESHOOTING, OPEN). At the owner's request the
+  failed job was re-run; attempt 2 passed in 21m43s, 9 of 9. CI is not real-browser evidence.
+- **Merged** 2026-10-31 as `6baac2e`, a merge commit, on the owner's explicit OK; no check was overridden.
 
 ### Also in this PR (docs and repo)
 

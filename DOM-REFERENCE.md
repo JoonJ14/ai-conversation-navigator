@@ -477,6 +477,17 @@ main[data-codex-history-swipe-page="true"][data-app-shell-main-surface="browser"
   navigation, doubling every unscoped count. Scope to `role="region"`.
 - **Windowing:** 4–7 user turns mounted. Turn 0 mounted only after `scrollTop = 0` was set more than once,
   because the page re-estimates heights as it goes.
+
+**Answers and bookmarks (v12.15; measured live, Chrome + Tampermonkey page realm, the owner's profile, 2026-10-24/25;
+DEC-052, DEC-053):**
+- Each `[data-turn-key]` turn holds its question **and** its answer unit, `[data-content-search-unit-key$=":assistant"]`.
+  The unit's `data-chatgpt-search-message-ids` lists one id twice: the turn's final visible text node in the API
+  mapping, never thoughts, a reasoning recap, code or a tool call (10 of 10 turns over two chats, one with 22
+  assistant nodes in a turn). That id is the answer's bookmark key; the turn's `data-turn-key` is the question's.
+- The February answer selectors (`[data-message-author-role="assistant"]`, `.markdown.prose`) match 0 nodes.
+- Nodes are replaced, not recycled.
+- Scrolling up prepends older turns with no reserved height, which moves everything below by the new turn's height
+  (`scrollHeight` 40818 → 44784 in one prepend); a smooth scroll in progress ends far from its target.
 - No visible native "jump between your messages" control was found (`data-thread-user-message-navigation-content`
   exists on one container; buttons read only Copy, Edit and Scroll to bottom). Reported, not acted on.
 - Hashed classes (`block-…`) and `data-talvt-*` are unstable; do not select on them.
@@ -713,6 +724,22 @@ below match nothing on the live site and stay as fallbacks. **The full list come
   4–9 and 11.
 - Long questions are clipped visually (`max-h-[144px] overflow-hidden`); the text is all in the DOM.
 - Do not use `data-renderer="lm"` (answers carry it too) or hashed classes (`_root_128yu_7`).
+
+**The thread's layout, answers and question text (v12.15; measured live, Chrome + Tampermonkey page realm, the owner's
+profile, 2026-10-24/25; DEC-052, DEC-053):**
+- **One list of two slots per entry**, [question slot, answer slot]: 24 sibling slots for 12 entries.
+  `[data-workflow-entry="N"]` sits two levels inside the question slot only. An unmounted slot is an empty `div` that
+  keeps its height (`scrollHeight` 9375 → 9407 over a whole sweep). 5–8 entries are mounted, the latest always; one
+  answer was seen mounted while its question slot was empty.
+- **Answers:** the slot after the question; exactly one `[data-workflow-final-text]` per mounted answer, the answer's
+  anchor (no id of its own; its key is the entry's `backend_uuid` + `:answer`). It holds a "Finished" status label
+  before the answer text. `[class*="prose"]` matched 22 nodes, 19 of them nested `<li>`.
+- **The question bubble renders markdown** (measured on all 12 questions of one thread, 2026-10-25): images and links
+  show as their alt text or label; headings, tables (no pipes, no separator row) and lists show without their
+  markers; blocks are joined without whitespace. A long question also carries a `<button aria-expanded>` "Read more"
+  inside `[data-message-bubble="right"]`. So the bubble's text never equals the entry's `query_str` for such a
+  question: compare through `ixPplxTextKey` (agent_docs/architecture.md), never `_normalizeCompareFull`.
+- `backend_uuid` was unique on 12 of 12 entries.
 
 ### Historical: Feb 2026 structure (superseded)
 

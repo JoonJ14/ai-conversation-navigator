@@ -45,7 +45,7 @@ erases every other tab's saves; the owner measured that on Safari (v12.12, bookm
 | Key | Store | Two tabs (DEC-050) | Purpose |
 |-----|-------|--------------------|---------|
 | `'acn-settings'` | GM | last write wins | Language and platform toggles. Re-read on every `i18n()` call and platform check |
-| `'acn-bookmarks-v1'` | GM | merged, by record id | Message bookmarks per conversation (`BOOKMARK_KEY`), keyed by the page address (`origin + pathname`; on Claude `/chat/<id>`, in a project or not) |
+| `'acn-bookmarks-v1'` | GM | merged, by record id | Message bookmarks per conversation (`BOOKMARK_KEY`), keyed by `normalizeConversationUrl()`. Since v12.15 (DEC-053) ChatGPT and Perplexity use one canonical key per conversation, the adapter's `bookmarkUrl(cid)`: `https://chatgpt.com/c/<id>` (project chats too) and `https://www.perplexity.ai/search/<id>` (the bare host too); sets filed under the other URL forms are merged in by `_bmMergeSplitKeys` through `acnUpdateValue`. Everywhere else, Claude included, it is the page address (`origin + pathname`; on Claude `/chat/<id>`, in a project or not). Records on ChatGPT and Perplexity are keyed by the message's own id, never a position |
 | `'acn-commands'` | GM | merged, by id | Saved /commands (`COMMANDS_KEY`) |
 | `'acn_ctx_cache'` | GM | merged, by conversation | Claude context window cache |
 | `'acn-zone-positions'` | GM | merged, by platform | Orbital zone Y position per platform (fraction of viewport height, added v10.10) |
@@ -339,3 +339,29 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 > twin tested at row 3. Then run the mutant that removes the rule, and keep the fixture only if that mutant fails.
 > **Why:** an earlier mechanism (here, proof binding) can resolve the case before the rule under test is reached.
 > The check then passes on every build, and only a mutant shows it.
+
+> **Issue:** v12.15's first Perplexity text key compared letters and digits only, to make a question whose bubble
+> renders its markdown match its `query_str` (live: Q10 never arrived). It did, and it also made an edit from "10+2"
+> to "10/2" read as the indexed question: the compare's other job, telling an edit at the same ordinal from the
+> indexed question, was gone. GitHub Codex caught it; fixing it found `_mdFlatten` deleting every parenthesis too.
+> **Correct approach:** when you loosen an identity compare to fix a false mismatch, add a check that it still rejects
+> a meaningful edit (`check-ix-jumps` J17–J17c), and drop only what the other side was measured to change, never a
+> whole character class.
+> **Why:** a compare has two jobs, matching the same thing and rejecting a different one, and a fix aimed at the first
+> is tested only against the first. The second fails silently: nothing goes stale, so nothing refetches or warns.
+
+> **Issue:** The live Chrome check found a Perplexity question by the first 60 characters of Navigate's text. Three
+> ChatGPT questions opened with the same shell prompt, and Navigate truncates long questions with "...", so the helper
+> matched none or several, and it reported misses that were not there.
+> **Correct approach:** before trusting a test helper's result, confirm its matcher selects exactly one node, by the
+> message's own id or turn key where there is one, and make it report how many it found.
+> **Why:** a helper that silently picks the first of several matches turns its own ambiguity into a finding about the
+> code under test.
+
+> **Issue:** `check-ix-jumps` J15's mock released its scroll pin for 1 ms after a wheel event, keyed on `Date.now()`.
+> Locally the scroll always landed in a later millisecond; once in CI (`firefox on ubuntu-latest`) it landed in the
+> same one, the pin never fired, the jump truly landed, and J15, which expects the cap-out, failed. A re-run passed.
+> **Correct approach:** a mock's behaviour must not depend on how two events fall within a clock tick. Model the site's
+> rule as an ordering (pull back every scroll, or the next one), not a millisecond window.
+> **Why:** a window that is always open or always shut on a fast machine is a coin flip on a slow runner, and the
+> failure reads like a bug in the code under test (TROUBLESHOOTING, the J15 entry).

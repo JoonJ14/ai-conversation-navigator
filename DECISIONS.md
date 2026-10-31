@@ -1274,17 +1274,21 @@ this rule six times:
 - PR #85 (v12.13), merged 2026-10-24 with step 1 of its acceptance passed on all three browsers and steps 2–7 not
   reported;
 - PR #86 (v12.14), merged 2026-10-24 with steps 1–3 passed on all three browsers and Chrome's and Firefox's steps 4–5
-  not reported.
+  not reported;
+- PR #88 (v12.15), merged 2026-10-31 as `6baac2e` on the owner's explicit OK, with none of its acceptance steps
+  reported on any browser. The agent's own live checks in Chrome + Tampermonkey (below) are not acceptance.
 
 A waiver moves the merge, not the debt: each confirm stays owed on the merged build until it is run. Record
 every waiver here, and in the release's CHANGELOG entry.
 
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
-review record. Updated 2026-10-24:
-- **v12.15 (PR #88; ChatGPT and Perplexity jumps and bookmarks, Claude rows by `data-turn-key`; DEC-052,
-  DEC-053, DEC-054).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey:
-  **pending**, nothing reported yet. The steps will be posted on the PR.
+review record. Updated 2026-10-31:
+- **v12.15 (PR #88, merged 2026-10-31 as `6baac2e` before acceptance, a waiver; ChatGPT and Perplexity jumps and
+  bookmarks, Claude rows by `data-turn-key`; DEC-052, DEC-053, DEC-054).** Owner acceptance on Safari + Userscripts,
+  Chrome + Tampermonkey and Firefox + Tampermonkey: **owed**, nothing reported yet. The steps, as posted on the PR:
+  https://github.com/JoonJ14/ai-conversation-navigator/pull/88#issuecomment-6399417237. The userscript is unchanged
+  from `12ad0a6` through the merge.
   - **The agent's live check before the PR — not owner acceptance.** Chrome + Tampermonkey, the owner's real
     profile, visible tab, 2026-10-25, one run each. ChatGPT (24-question project chat, `2ef0d80`) and Perplexity
     (12-question thread, `989fe0a`): labels, answer flags and one-click jumps from the opposite end all passed;
@@ -3425,8 +3429,8 @@ a visible "A#?" that binds later on proof.
 ---
 
 ## DEC-052: An Index-Backed Jump Lands Instantly and Verifies Where It Landed — Perplexity and ChatGPT (v12.15)
-**Date:** 2026-10-25 | **Stage:** v12.15, part B (the owner's decisions, 2026-10-24). Not merged; owner acceptance
-pending on all three browsers (DEC-031)
+**Date:** 2026-10-25 | **Stage:** v12.15, part B (the owner's decisions, 2026-10-24). PR #88, merged 2026-10-31 as `6baac2e` on the owner's OK, before their acceptance (a waiver, DEC-031); owner
+acceptance pending on all three browsers
 
 ### Decision
 An index-backed jump (`ixJump`, the ChatGPT and Perplexity adapters) no longer ends with one smooth `scrollIntoView`
@@ -3545,8 +3549,8 @@ resolved" into "the right entry is on screen". Every bound is a count (4 writes,
 ---
 
 ## DEC-053: ChatGPT and Perplexity Bookmarks Key to the Messages' Own Ids, Under One Store Key per Conversation (v12.15)
-**Date:** 2026-10-25 | **Stage:** v12.15, part A (the owner's decisions and scope addition 1, 2026-10-24). Not merged;
-owner acceptance pending on all three browsers (DEC-031)
+**Date:** 2026-10-25 | **Stage:** v12.15, part A (the owner's decisions and scope addition 1, 2026-10-24). PR #88,
+merged 2026-10-31 as `6baac2e` on the owner's OK, before their acceptance (a waiver, DEC-031); owner acceptance pending on all three browsers
 
 ### Decision
 On ChatGPT and Perplexity a bookmark keys to the message's own id, never to its place among the mounted messages:
@@ -3577,6 +3581,12 @@ On ChatGPT and Perplexity a bookmark keys to the message's own id, never to its 
 
   Answer records never bind. An unbound record reads "Q#?" / "A#?", stays visible and deletable, and a click says it
   cannot be matched.
+
+  What to expect [inferred from P2, Phase 1, 2026-10-24; not measured on the owner's records]: P2 holds only where
+  the stored `msgIndex`, a place among the messages mounted when the record was made, equals the question's Navigate
+  number, which under windowing means a window that began at the conversation's first question. So most records made
+  since these sites began windowing, including those made on Safari, are expected to read "Q#?"; old answer records
+  always read "A#?". Acceptance step 6 (ChatGPT) and step 11 (Perplexity) count them.
 - **One store key per conversation** (scope addition 1): `normalizeConversationUrl()` returns
   `https://chatgpt.com/c/<id>` or `https://www.perplexity.ai/search/<id>` from the adapter's conversation id, so the
   store's shape and readers stay the same. Sets under this conversation's other URL forms (`/g/<project>/c/<id>`, bare
@@ -3655,8 +3665,8 @@ visible "#?"; a wrong id would be persisted and silent.
 ---
 
 ## DEC-054: Claude Rows Are Identified by Their Own `data-turn-key`, Text Matching Only as the Fallback (v12.15)
-**Date:** 2026-10-25 | **Stage:** v12.15, part C (the owner's decisions and scope addition 2, 2026-10-24). Not merged;
-owner acceptance pending on all three browsers (DEC-031)
+**Date:** 2026-10-25 | **Stage:** v12.15, part C (the owner's decisions and scope addition 2, 2026-10-24). PR #88,
+merged 2026-10-31 as `6baac2e` on the owner's OK, before their acceptance (a waiver, DEC-031); owner acceptance pending on all three browsers
 
 ### Decision
 On a Claude chat a mounted row, question or answer, is identified by the uuid on its descendant `[data-turn-key]`:
