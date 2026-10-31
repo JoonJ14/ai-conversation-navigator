@@ -1295,8 +1295,8 @@ review record. Updated 2026-10-31:
     chat used 500K. Gemini, a 32-question chat: the "older messages are not loaded yet" note at 10, 20 and 30 loaded,
     gone at 32; correct on 10-, 9- and 1-question chats. Details: DEC-055 to DEC-057 and the v12.16 CHANGELOG entry.
     Rechecked before the PR on `2527956` (the review fixes and the turn dots in): Q140 from the top 3 of 3; the meter
-    35%, "~353.6K / 1M tokens (est.)", model `claude-opus-5`, and all 40 dots green (v12.15: 28 green, 6 yellow, 6 red
-    under the same chat); the Gemini note at 10 and 20, gone at 32 through the 8 s rule (see DEC-057).
+    35%, "~353.6K / 1M tokens (est.)", model `claude-opus-5`, and all 40 dots green (v12.15 colours 40 dots by position, 28 green, 6 yellow,
+    6 red, whatever the meter reads [code]; the final A/B measures it); the Gemini note at 10 and 20, gone at 32 through the 8 s rule (see DEC-057).
   <!-- V12.16 ACCEPTANCE: filled in by the integrator, as reported -->
 - **v12.15 (PR #88, merged 2026-10-31 as `6baac2e` before acceptance, a waiver; ChatGPT and Perplexity jumps and
   bookmarks, Claude rows by `data-turn-key`; DEC-052, DEC-053, DEC-054).** Owner acceptance on Safari + Userscripts,
