@@ -6725,7 +6725,9 @@
             if (sc !== _gmHist.scroller) { gmHistOnScroll(); return; }   // re-armed for the current one
             if (_gmHist.key !== key || location.pathname !== key || !sc.isConnected || sc.scrollTop > 2) return;
             var t = gmHistTurns(sc);
-            if (t.length !== n0 || (t.length ? t[0].id || null : null) !== id0) return;   // something loaded
+            // The turns changed while it waited (a load, or a message sent): start over from now. A
+            // load re-anchors the view away from the top, which stops the new wait at once.
+            if (t.length !== n0 || (t.length ? t[0].id || null : null) !== id0) { gmHistOnScroll(); return; }
             _gmHist.complete = true;
             if (orbPanel === 'nav') orbPopulateNavigate();
         }, GM_HISTORY_TOP_MS);
