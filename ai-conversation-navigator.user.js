@@ -3707,6 +3707,9 @@
             watch.stop();
             if (ok && node) { landed(node); return; }
             if (why !== 'superseded' && why !== 'user') {
+                // A jump that did not land has resolved nothing: clear any mark its caller set up
+                // front, so data-acn-jump-resolved never reports it (a newer jump marks its own).
+                orbMarkJumpTarget(null);
                 showToast('That message is not currently rendered \u2014 scroll toward it and try again');
             }
         });
