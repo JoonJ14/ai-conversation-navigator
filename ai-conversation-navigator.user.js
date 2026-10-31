@@ -5850,6 +5850,7 @@
     var _vsAccumulatedKeys = new Set();
     var _navListFingerprint    = ''; // used to skip DOM rebuild when questions are unchanged
     var _ctxDrawnTurns         = ''; // the turn counter as the context bar last drew it
+    var _ctxDrawnPct           = null; // Claude: the meter's percentage as last drawn, for the dots (v12.16)
     var _searchListFingerprint = ''; // same guard for search panel
     var _ciIndexGen = 0;             // bumped on every index (re)build: a same-count
                                      // branch swap must still invalidate cached search
@@ -8486,6 +8487,7 @@
             }
 
             // ── Also render turn dots + compaction info below the bar ───
+            _ctxDrawnPct = pctNum;
             _renderTurnDots();
             _renderCompactionInfo(pctNum);
             return;
@@ -8570,6 +8572,7 @@
 
         var pctNum = Math.min(100, Math.round((estTokens / limit) * 100));
         var color  = getBarColor(pctNum);
+        _ctxDrawnPct = pctNum;   // the dots below take their colour from it (v12.16)
 
         pct.textContent  = pctNum + '%';
         pct.style.color  = color;
@@ -8639,11 +8642,19 @@
         var total     = predicted || 40;
 
         var dotsToShow = Math.min(since, 40);
+        // Claude (v12.16, the owner's request): the dots agree with the context meter above them.
+        // Coloured by position out of 40, they turned red at the 35th question whatever the window
+        // held, so a 1M chat read red at 35% full. Dot i stands for the share of the window used by
+        // the conversation up to that turn, estimated as the meter's share x (i+1)/dots: the last
+        // dot is the meter's own colour, and none is redder. Same thresholds as the bar.
+        var meterShare = (platform && platform.id === 'claude' && typeof _ctxDrawnPct === 'number')
+                         ? _ctxDrawnPct / 100 : null;
         for (var i = 0; i < dotsToShow; i++) {
             var dot = document.createElement('div');
             dot.className = 'acn-ctx-dot';
 
-            var pct = predicted ? (i / predicted) : (i / total);
+            var pct = meterShare !== null ? meterShare * (i + 1) / dotsToShow
+                    : predicted ? (i / predicted) : (i / total);
             if (pct < 0.70)      dot.style.background = '#22c55e';
             else if (pct < 0.85) dot.style.background = '#eab308';
             else                 dot.style.background = '#ef4444';
