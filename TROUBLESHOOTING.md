@@ -1527,6 +1527,13 @@ Make the fixture's pin independent of the clock: a `jumpModel` option under whic
 is pulled back whether or not a wheel came first, for J15 only. The userscript's `'cap-out'` path is unchanged, and
 J15 still fails on `71eda09` and v12.14 if the new pin reproduces their outcome (check that before adopting it).
 
+### Seen locally too (2026-10-31, v12.16's final run)
+
+The same race on this Mac [Playwright, headless, page realm, `--only J15`, three runs per build and engine]: Firefox
+failed 1 of 3 on v12.16 and 1 of 3 on v12.15; WebKit 2 of 3 on v12.16 and 1 of 3 on v12.15; every failure read
+`resolved=10 toast=no err=0px`, every pass `resolved=null toast=yes err=2072px`. So it is not CI-only, and it is not
+v12.16's (that PR does not touch `ixJump` or `ixLandOn`'s adapter path). The probe-only fix above still stands.
+
 ### How to respond meanwhile
 
 A J15 failure with `resolved=10 toast=no inView=true err=0px` is this race: re-run the job once

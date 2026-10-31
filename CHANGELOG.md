@@ -64,7 +64,12 @@ One combined PR in three parts, from the owner's spec (2026-10-31). Grok is out 
   not owner acceptance): Navigate → Q140 from the top 3 of 3 and the Q#140 test bookmark 3 of 3 landed (deleted
   afterwards); mid jumps unchanged; the meter 35%, "~353.6K / 1M", model `claude-opus-5`; a `claude-opus-4-7` chat
   500K; the Gemini note at 10/20/30 loaded, gone at 32, right on 10-, 9- and 1-question chats.
-- <!-- FINAL RUN -->
+- **The pre-approved final run** on `0b2454c` [Playwright, headless, page realm, this Mac, 2026-10-31]: `npm test`
+  chromium 560/560, firefox 560/560, webkit 556/560 (the four known local mac WebKit entries, same questions and
+  shape, `got null busySeen=true` at 1,459–1,704 ms with `raf10` 137–164 ms; the 120-row entry failed 12 of 60
+  against a recorded 9–11). Every probe passed on all three engines, the three new ones included, except
+  `check-ix-jumps` J15 on firefox and webkit: its known timing race (`resolved=10 toast=no err=0px`), which v12.15 also
+  fails intermittently here (TROUBLESHOOTING, the J15 entry). `check-usage-state` U10 did not time out this time.
 
 ### Logged, not fixed (ROADMAP 12, 13, 14)
 
