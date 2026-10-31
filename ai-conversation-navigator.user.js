@@ -144,6 +144,7 @@
             noCommands: 'No commands saved yet',
             commandPalette: 'Commands',
             insertCommand: 'Insert',
+            olderHistoryNotLoaded: 'Older messages are not loaded yet \u2014 scroll to the top of the chat to load them',
         },
         ko: {
             navigate: '\ud0d0\uc0c9',
@@ -232,6 +233,7 @@
             noCommands: '\uc800\uc7a5\ub41c \ucee4\ub9e8\ub4dc\uac00 \uc5c6\uc2b5\ub2c8\ub2e4',
             commandPalette: '\ucee4\ub9e8\ub4dc',
             insertCommand: '\uc0bd\uc785',
+            olderHistoryNotLoaded: '\uc774\uc804 \uba54\uc2dc\uc9c0\uac00 \uc544\uc9c1 \ub85c\ub4dc\ub418\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4 \u2014 \ucc44\ud305 \ub9e8 \uc704\ub85c \uc2a4\ud06c\ub864\ud558\uba74 \ubd88\ub7ec\uc635\ub2c8\ub2e4',
         }
     };
 
@@ -6639,8 +6641,94 @@
         _aiResponses = Array.from(getAIMessages());
         if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
 
+        // Gemini: whether the chat's start is loaded (v12.16), before the panels draw.
+        if (platform.id === 'gemini') gmHistObserve();
+
         // Notify orbital panels of updated question list
         if (typeof orbOnScanComplete === 'function') orbOnScanComplete();
+    }
+
+    // ── Gemini: is the chat's start loaded? (v12.16, DEC-057) ────────────
+    // Gemini shows a chat's latest turns and loads older ones, ten at a time, when the view
+    // reaches the top, and it KEEPS every turn it has loaded: 10 -> 20 -> 30 -> 32 on a 32-question
+    // chat, every node still connected back at the bottom, no virtualizer (Chrome + Tampermonkey,
+    // 2026-10-31). So Navigate's list is complete once the history is; until then it is the
+    // latest part only, and says so. Nothing in the DOM marks "older history exists" (no
+    // loading marker; user-query-content-N restarts at 0 per render), so the start counts as
+    // loaded once one of these is seen:
+    //   - the chat's first page held fewer than GM_HISTORY_PAGE turns (it renders at once: 0 -> 10)
+    //   - turns arrived ABOVE the first one (its id changed) and fewer than a page of them
+    //   - the view sat at the top for GM_HISTORY_TOP_MS with nothing loading (Gemini loads there,
+    //     and re-anchors the view away from the top when it does)
+    // A message the user sends arrives below and keeps the first turn's id, so it counts as none.
+    var GM_HISTORY_PAGE   = 10;
+    var GM_HISTORY_TOP_MS = 8000;
+    var _gmHist = { key: null, n: 0, firstId: null, complete: false, scroller: null, timer: null };
+
+    function gmHistTurns(sc) {
+        var out = [];
+        if (!sc) return out;
+        for (var i = 0; i < sc.children.length; i++) {
+            if (sc.children[i].classList.contains('conversation-container')) out.push(sc.children[i]);
+        }
+        return out;
+    }
+
+    function gmHistStopTimer() {
+        if (_gmHist.timer !== null) { clearTimeout(_gmHist.timer); _gmHist.timer = null; }
+    }
+
+    function gmHistObserve() {
+        var key = location.pathname;
+        var sc = document.querySelector('infinite-scroller.chat-history');
+        var turns = gmHistTurns(sc);
+        var n = turns.length;
+        var firstId = n ? (turns[0].id || null) : null;
+        if (key !== _gmHist.key) {
+            gmHistStopTimer();
+            _gmHist.key = key; _gmHist.n = 0; _gmHist.firstId = null; _gmHist.complete = false;
+        }
+        if (n > 0) {
+            if (_gmHist.n === 0) {
+                _gmHist.complete = n < GM_HISTORY_PAGE;
+            } else if (firstId !== _gmHist.firstId) {
+                // Turns arrived above the first one: a history load, short of a page at the start.
+                // Fewer turns under a new first id is another chat's first render (an SPA switch
+                // that kept the old turns for a moment): judged as a first page.
+                _gmHist.complete = n > _gmHist.n ? (n - _gmHist.n) < GM_HISTORY_PAGE
+                                                 : n < GM_HISTORY_PAGE;
+            }
+            _gmHist.n = n;
+            _gmHist.firstId = firstId;
+        }
+        if (sc && sc !== _gmHist.scroller) {
+            if (_gmHist.scroller) _gmHist.scroller.removeEventListener('scroll', gmHistOnScroll);
+            _gmHist.scroller = sc;
+            sc.addEventListener('scroll', gmHistOnScroll, { passive: true });
+        }
+        gmHistOnScroll();
+    }
+
+    function gmHistOnScroll() {
+        var sc = _gmHist.scroller;
+        if (!sc || _gmHist.complete || _gmHist.n === 0) { gmHistStopTimer(); return; }
+        if (sc.scrollTop > 2) { gmHistStopTimer(); return; }
+        if (_gmHist.timer !== null) return;
+        var key = _gmHist.key, n0 = _gmHist.n, id0 = _gmHist.firstId;
+        _gmHist.timer = setTimeout(function () {
+            _gmHist.timer = null;
+            if (_gmHist.key !== key || location.pathname !== key || !sc.isConnected || sc.scrollTop > 2) return;
+            var t = gmHistTurns(sc);
+            if (t.length !== n0 || (t.length ? t[0].id || null : null) !== id0) return;   // something loaded
+            _gmHist.complete = true;
+            if (orbPanel === 'nav') orbPopulateNavigate();
+        }, GM_HISTORY_TOP_MS);
+    }
+
+    // True while Navigate lists only the latest part of a Gemini chat.
+    function gmHistPartial() {
+        return !!(platform && platform.id === 'gemini' && _gmHist.key === location.pathname &&
+                  _gmHist.n > 0 && !_gmHist.complete);
     }
 
     // ============================================================
@@ -8209,7 +8297,7 @@
         // never appeared, including on reopening the panel (Codex).
         var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|') +
                  '||' + _ciStatus + '|g' + _ciIndexGen + '|r' + (_ciRefreshFailed ? '1' : '0') +
-                 '|x' + ixFingerprint();
+                 '|x' + ixFingerprint() + '|h' + (gmHistPartial() ? '1' : '0');
         // The list is unchanged, but what is drawn may not match the counter: the SSE events
         // draw the bar without the list, so a later scan or a reopen can find dots drawn for
         // another count. Redraw only when the counter differs from what is drawn. Never
@@ -8225,6 +8313,16 @@
         while (list.firstChild) list.removeChild(list.firstChild);
 
         orbRenderIndexBanner(list);
+        // Gemini: the list is the loaded part of the chat only (v12.16, DEC-057).
+        if (gmHistPartial()) {
+            var histNote = createElement('div', {
+                className: 'acn-ci-banner acn-ci-note',
+                textContent: '\u2191 ' + (i18n('olderHistoryNotLoaded') ||
+                             'Older messages are not loaded yet \u2014 scroll to the top of the chat to load them')
+            });
+            histNote.setAttribute('data-acn-history', 'partial');
+            list.appendChild(histNote);
+        }
 
         if (_questions.length === 0) {
             var empty = createElement('div', { className: 'acn-empty' },
