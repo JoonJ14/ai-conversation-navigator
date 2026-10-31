@@ -1537,8 +1537,10 @@ How to respond:
    it is NOT this signature — treat it as a real finding (the Windows rule below applies:
    a runner-specific failure is usually a real statement about an assertion).
 
-The workflow's `timeout-minutes: 20` (2× the slowest healthy job) makes a wedged runner fail
-fast instead of blocking the check for up to GitHub's 6-hour default. Queue time doesn't count
+The workflow's `timeout-minutes` (20 until v12.15, 2× the slowest healthy job then; **30 since v12.15**, because
+the ubuntu jobs, which run every probe, now take about 22 minutes: 21m43s–22m8s on PR #88's run 40214646346) makes a
+wedged runner fail fast instead of blocking the check for up to GitHub's 6-hour default. A failure well inside the
+cap is not a wedge: read the failing check first (TROUBLESHOOTING, the J15 entry, is one that looked like a stall). Queue time doesn't count
 against it. The cap covers the whole job, installs included. On PR #75 a `firefox on ubuntu-latest`
 job spent all 20 minutes in `npx playwright install --with-deps` on a slow apt mirror and never ran
 a test. Read which STEP was cancelled before reading anything into the job (TROUBLESHOOTING has

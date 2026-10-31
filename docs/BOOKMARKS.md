@@ -78,7 +78,7 @@ Design and implementation plan for real bookmark functionality, replacing the cu
 > Questions keep their v12.0 identity (text-confirmed row mapping, `ciUuidForText`). Gate:
 > `probes/check-answer-bookmarks.js`.
 
-> **v12.15 update (not merged; DEC-053, DEC-054) — ChatGPT and Perplexity by message id; Claude rows by `data-turn-key`.**
+> **v12.15 update (PR #88, merged 2026-10-31; DEC-053, DEC-054) — ChatGPT and Perplexity by message id; Claude rows by `data-turn-key`.**
 >
 > - **ChatGPT and Perplexity:** questions and answers key to the messages' own ids (ChatGPT: `data-turn-key`, and the
 >   first id in the answer unit's `data-chatgpt-search-message-ids`; Perplexity: the entry's `backend_uuid`, and

@@ -472,12 +472,12 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ---
 
-## FIXED IN v12.15, CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — ChatGPT and Perplexity: jumps stop short; bookmarks positional, answers unflagged (found 2026-10-24)
+## FIXED IN v12.15 (MERGED, PR #88), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — ChatGPT and Perplexity: jumps stop short; bookmarks positional, answers unflagged (found 2026-10-24)
 
 **Phase:** v12.10's owed Safari check, run on v12.14 | **Severity:** High on Perplexity (a jump takes 2–3 clicks),
 Medium on ChatGPT; bookmarks on both sites unusable past the mounted window | **Status:** fixed in code and gated on
-mocks (Playwright page realm); checked live in Chrome + Tampermonkey before the PR (2026-10-25, below); not merged;
-owner acceptance on all three browsers pending (DEC-031)
+mocks (Playwright page realm); checked live in Chrome + Tampermonkey before the PR and on the final build (below);
+merged 2026-10-31 as `6baac2e` on the owner's OK, before their acceptance (a waiver, DEC-031); owner acceptance on all three browsers pending
 
 ### Symptom [measured, owner, v12.14, 2026-10-24]
 
@@ -814,14 +814,15 @@ The design alternatives are in DEC-051; this is the order the thinking went in.
 
 ---
 
-## FIXED IN v12.15, CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Claude refetches the whole conversation while you only scroll: the question side (found 2026-10-23)
+## FIXED IN v12.15 (MERGED, PR #88), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Claude refetches the whole conversation while you only scroll: the question side (found 2026-10-23)
 
 **Phase:** v12.12 acceptance; fixed in v12.15, part C | **Severity:** Medium — a full re-download (about 3.3 MB on a
 long chat, measured in July) for each distinct set of mismatching mounted questions, per page load, and again for a
 set whose download the user scrolled away from | **Status:** fixed in code and gated on mocks (Playwright page
 realm). Checked live in Chrome + Tampermonkey before the PR (the owner's profile, 2026-10-25, the 147-question chat,
-one run): scrolling from the bottom to the top in 202 steps printed no "index out of sync" line. Not merged; owner
-acceptance on all three browsers pending (DEC-031). Fix: "Fix (v12.15, part C)" below, DEC-054
+one run, and again on the final build `12ad0a6`): scrolling from the bottom to the top in 202 steps printed no
+"index out of sync" line. Merged 2026-10-31 as `6baac2e` on the owner's OK, before their acceptance (a waiver, DEC-031); owner acceptance on all three browsers pending. Fix: "Fix (v12.15,
+part C)" below, DEC-054
 
 ### Symptom
 
@@ -995,11 +996,12 @@ position) before choosing how the comparison should read blocks. *Run 2026-10-24
 
 ---
 
-## FIXED IN v12.15 ON MOCKS, LIVE ACCEPTANCE PENDING — Claude: a regenerated or late answer no longer triggers a resync (found 2026-10-23)
+## FIXED IN v12.15 (MERGED, PR #88) ON MOCKS, LIVE ACCEPTANCE PENDING — Claude: a regenerated or late answer no longer triggers a resync (found 2026-10-23)
 
 **Phase:** v12.12 acceptance; fixed in v12.15, part C | **Severity:** Medium — Search, Summary and Export keep the
 old answer until the next prompt [inferred] | **Status:** fixed in code and gated on mocks (Playwright page realm);
-not merged; live acceptance pending (DEC-031). Fix: the paragraph at the end of this entry, DEC-054
+merged 2026-10-31 as `6baac2e` on the owner's OK, before their acceptance (a waiver, DEC-031); live acceptance pending (the owner's optional regenerate step). Fix: the paragraph at the end of this entry,
+DEC-054
 
 The answer branches of `_ciAssistantStale` ('g', 's', 'o') reach answers only through `ciMessageNodeWithin`, which
 looks for `.font-claude-response`; no row holds it any more, so it returns the row and every answer row is skipped
@@ -1468,6 +1470,47 @@ answer-bookmark PR's final runs did).
 ### Owed
 
 Repeated solo Firefox runs of the probe before reading anything into it (a single run is not a measurement).
+
+---
+
+## OPEN — CI: `check-ix-jumps` J15 lost a timing race on `firefox on ubuntu-latest` (PR #88, found 2026-10-31)
+
+**Phase:** v12.15's PR CI | **Severity:** Low — a probe fixture's timing, no userscript code involved; one re-run
+cleared it | **Status:** open; a probe-only fix is proposed below, not yet made
+
+### Symptom
+
+Run 40214646346, attempt 1, on `258c5c4` (the PR's head; its userscript is byte-identical to the merged one): 8 of 9
+jobs green, and `firefox on ubuntu-latest` **failed** after 16m15s on one check in the index-jump probe:
+
+`FAIL  J15 [new] every write pulled back to the bottom: the cap with the target out of view is a toast, not a landing —
+resolved=10 toast=no mounted=true inView=true err=0px scrollTop=9307/11379 window=[7,8,9,10,11] 2321ms`
+
+The job did not stall: it ended well inside its 30-minute limit. `gh run rerun --failed` (attempt 2, 2026-10-31,
+21m43s) passed, with J15 reporting what it is meant to: `resolved=null toast=yes inView=false err=2072px
+scrollTop=11379/11379`, and the alignment-cap line. J15 had passed locally on all three engines.
+
+### Diagnosis [code; the cause of the lost race is inferred]
+
+J15 models a site that pulls every scroll back to the bottom: `jumpModel.pinMs: 1`, so a wheel releases the pin for
+1 ms only (`isReleased()`: `Date.now() - lastWheel <= pinMs`). The jump releases the pin with a wheel before each
+write, and the mock's scroll handler pulls the view back only if that scroll arrives **more than 1 ms** after the
+wheel. When the scroll event lands in the same `Date.now()` millisecond as the wheel, nothing is pulled back, so
+the jump truly lands, and J15, which expects the cap with the target out of view, fails. In attempt 1 the target
+landed exactly (`err=0px`, resolved), which is what a pin that never fired looks like. Which runner property made the
+two events share a millisecond (timer clamping in Firefox, or a fast frame) was not measured.
+
+### Proposed fix (probe only; not in PR #88)
+
+Make the fixture's pin independent of the clock: a `jumpModel` option under which every scroll away from the bottom
+is pulled back whether or not a wheel came first, for J15 only. The userscript's `'cap-out'` path is unchanged, and
+J15 still fails on `71eda09` and v12.14 if the new pin reproduces their outcome (check that before adopting it).
+
+### How to respond meanwhile
+
+A J15 failure with `resolved=10 toast=no inView=true err=0px` is this race: re-run the job once
+(`gh run rerun <run-id> --failed`), as the owner did for PR #88. A J15 failure with any other shape, or one that
+repeats on a re-run, is a real finding about the jump's cap.
 
 ---
 
