@@ -6703,10 +6703,13 @@
             _gmHist.n = n;
             _gmHist.firstId = firstId;
         }
-        if (sc && sc !== _gmHist.scroller) {
+        if (sc !== _gmHist.scroller) {
+            // A new scroller (or none, on a route without a chat): the old one's listener and any
+            // pending timer go with it, so the timer can be armed for the new one.
+            gmHistStopTimer();
             if (_gmHist.scroller) _gmHist.scroller.removeEventListener('scroll', gmHistOnScroll);
-            _gmHist.scroller = sc;
-            sc.addEventListener('scroll', gmHistOnScroll, { passive: true });
+            _gmHist.scroller = sc || null;
+            if (sc) sc.addEventListener('scroll', gmHistOnScroll, { passive: true });
         }
         gmHistOnScroll();
     }
@@ -6719,6 +6722,7 @@
         var key = _gmHist.key, n0 = _gmHist.n, id0 = _gmHist.firstId;
         _gmHist.timer = setTimeout(function () {
             _gmHist.timer = null;
+            if (sc !== _gmHist.scroller) { gmHistOnScroll(); return; }   // re-armed for the current one
             if (_gmHist.key !== key || location.pathname !== key || !sc.isConnected || sc.scrollTop > 2) return;
             var t = gmHistTurns(sc);
             if (t.length !== n0 || (t.length ? t[0].id || null : null) !== id0) return;   // something loaded
@@ -11159,6 +11163,10 @@
         }
         function doScroll() {
             if (getEl && ciLandFar(el, getEl, flash)) return;
+            // A glide without a landing still supersedes one in flight on Claude, or that
+            // landing's next write would pull the view back to its own target (ciLandFar bumps
+            // the tokens itself when it is called).
+            if (!getEl && ciIsClaudeChat()) { _ixJumpToken++; _ciJumpToken++; }
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             flash(el);
         }
