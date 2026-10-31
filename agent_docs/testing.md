@@ -113,6 +113,10 @@ GitHub Actions runs on push/PR to `main`:
     `data-turn-key`, DEC-054). They took the ubuntu jobs to about 22 minutes, so the job cap is 30 since v12.15.
     `check-ix-jumps` J15 has a known timing race in CI (TROUBLESHOOTING, OPEN): a failure reading
     `resolved=10 toast=no inView=true err=0px` clears on one re-run.
+  - Every `ubuntu` job also runs three v12.16 probes on its own engine: `check-claude-far-jump` (Claude's latest
+    question from the top lands in one click, on the virtualizing mock with `tailAtEnd`, DEC-055), `check-ctx-limit`
+    (the context window by the conversation's model, DEC-056) and `check-gemini-history` (Gemini's history note on
+    `gemini-history.html`, DEC-057, about 45 s per engine with one real 8 s wait).
 
 **Windows is the runner that catches timing assumptions.** It is materially slower than
 the Ubuntu and macOS runners, so an assertion that races the virtualizer passes on two OSes

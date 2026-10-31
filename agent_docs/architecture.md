@@ -54,6 +54,20 @@ Claude virtualizes its message list with recycling — only ~3–5 user turns ar
 
 **Since v12.15, an index-backed jump lands and checks (DEC-052).** `ixJump` steps toward the target, then lands through `ixLandOn(a, getEl, opts, done)`: instant `scrollTop` writes, each after releasing the site's pin, re-locating the target by identity after a 350 ms settle, until it is within 8 px of its intended position or 4 writes are spent. At the cap it logs `[ACN] jump: alignment cap reached …`, and a target still outside the scroller's content box is `'cap-out'`: a toast, not a resolution. Never end a jump with an unchecked smooth `scrollIntoView` on these sites: live, the glide was cut short 8 of 8 times. Perplexity compares a mounted question bubble with its `query_str` through `ixPplxTextKey` (on `ixPplxBubbleText`, the bubble without its buttons and our flag): full length, without the markdown the bubble renders and without whitespace; every other character counts, so an edit still reads as a different question. `_normalizeCompareFull` cannot do this, since `_mdFlatten` deletes every bracket and parenthesis.
 
+**Since v12.16, a far mounted target on Claude lands the same way (DEC-055).** Claude keeps its latest rows mounted at
+every scroll position, so a jump to the latest question from the top finds it mounted about 200,000 px away.
+`ciLandFar(el, getEl, landed)` sends such a target (outside the view extended by one viewport each way) through
+`ixLandOn` with its own check, re-locating it with the resolver of the route that found it (Navigate: by path index;
+a bookmark: by uuid; Search's answer: by row identity). Every call on Claude bumps `_ixJumpToken` and `_ciJumpToken`
+first. Near targets return false and glide as before. Callers: `orbScrollToQuestion`'s fast path and
+`orbScrollToMessage(el, getEl)`.
+
+**Gemini pages its history in, and keeps it (v12.16, DEC-057).** Ten turns at load, ten more each time the view
+reaches the top, nothing ever removed: the DOM scan's list is complete once the history is. `gmHistObserve` (called
+by the scan on Gemini) decides whether the chat's start is loaded, from the turn containers' count and the first
+one's id (a first page under 10, a load above the first turn under 10, or 8 s at the top with nothing loading); until
+then Navigate shows a note, `data-acn-history="partial"`.
+
 **Claude is not the only virtualized platform — Emergent recycles too** (Virtuoso), and it is **not** handled the same way. Emergent has only *passive accumulation*: `scanConversation` keeps messages the user has already scrolled past, so on a long session the Navigate list is the mounted window plus whatever they happened to scroll. `DOM-REFERENCE.md` claimed a panel-open sweep for five months; that code never existed (ROADMAP backlog item 7). **Beware the `virtualScroll` platform flag: it selects that accumulation behaviour, not the platform property, so `claude` — the most virtualized platform here — is `virtualScroll: false`.** The `DOM-REFERENCE.md` table is the record of which platforms virtualize.
 
 **The remaining twelve are "not observed", not "verified absent", and that is a fact with a date on it.** Virtualization is the standard fix for a slow chat page; Claude's own answer flipped between February and July 2026 with no announcement, no error, and a green test suite. Treat "platform X is not virtualized" as *unverified* rather than *verified false* — per-platform status and the two-command check are in `DOM-REFERENCE.md` → "Virtualization status".
@@ -317,6 +331,12 @@ data-acn-role="sum-subsegment"          -> Sub-segment (child) inside a segment,
                                            data-acn-sub-start / -end timeline span (v12.5)
 data-acn-role="tool-export"             -> Tools export option, with data-acn-export="full|bookmarks|summary" (v12.3)
 data-acn-role="toast"                   -> The transient #acn-toast message (v12.3)
+data-acn-ctx-limit="N"                  -> On #acn-ctx-pct (Claude): the context window the meter used (v12.16, DEC-056)
+data-acn-ctx-limit-source="model|assumed" -> "model": the conversation's model is in the table; "assumed": the
+                                           200K fallback (no model, index not ready, or a model the table lacks)
+data-acn-ctx-model="<id>"               -> The conversation's model id from its JSON, or empty
+data-acn-history="partial"              -> Gemini (v12.16, DEC-057): the note in Navigate's list while the chat's
+                                           start is not loaded. Absent once it is, and on every other platform
 ```
 
 Never remove or rename these attributes — tests depend on them.

@@ -4,6 +4,78 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.16 — Claude's Latest-Question Jump Lands, Claude's Context Meter by Model, Gemini's History Note] — 2026-10-31
+
+**Branch:** `fix/v12.16-claude-jump-meter-gemini` | **PR:** pending | Owner acceptance on Safari + Userscripts,
+Chrome + Tampermonkey and Firefox + Tampermonkey owed (DEC-031, DEC-047)
+
+One combined PR in three parts, from the owner's spec (2026-10-31). Grok is out of scope (its own PR).
+
+### Problem
+
+- **Claude, the latest question** (TROUBLESHOOTING, the entry this fixes): from the top, Navigate → the latest
+  question or its bookmark usually missed it. Re-measured 2026-10-31 [Chrome + Tampermonkey, the owner's profile,
+  visible tab, chat `3d7b6dc1`, 140 questions on its active path]: v12.15 missed Q140 3 of 3, ending 285,576 px,
+  98,987 px and 875 px from the view.
+- **Claude's context meter** assumed 200K for every chat: the long chat read 100%, "~353.6K / 200K tokens (est.)".
+- **Gemini** shows a chat's latest turns and loads older ones as the view reaches the top. Navigate listed only what
+  was loaded and said nothing; the behaviour past 10 turns had never been measured (July: n≤10 only).
+
+### Root cause [measured live, Chrome + Tampermonkey page realm, the owner's profile, 2026-10-31; code]
+
+- **Jump (part A).** Claude keeps its latest rows mounted at every scroll position, so the latest question took the
+  mounted fast path: one smooth `scrollIntoView` across ~200,000 px that nothing checked, while estimated row heights
+  were replaced by measured ones under it.
+- **Meter (part B).** `CTX_LIMITS.claude` was a fixed 200000. The conversation JSON the index already downloads names
+  the chat's model (top-level `model`: 60 of 60 conversations), and claude.ai's windows differ by model: 1M, 500K or
+  200K (Anthropic's help center, article 8606394, updated 2026-10-30, paid plans).
+- **Gemini (part C).** Gemini pages history in 10 turns at a time and keeps every turn (32-question chat: 10 → 20 →
+  30 → 32, all still mounted at the bottom; no virtualizer; `scrollTop` re-anchored on each load). Nothing in the DOM
+  marks that older history exists.
+
+### Fix
+
+- **A (DEC-055):** `ciLandFar` lands a far mounted Claude target through `ixLandOn` (instant writes, re-located by the
+  route's own resolver, within 8 px or 4 writes), from Navigate, both bookmark kinds and Search's mounted answer; near
+  targets glide as before; every call on Claude supersedes an older landing, and so does a direct glide (Summary, the
+  gallery, a plain message scroll).
+- **B (DEC-056):** the turn dots on Claude take their colour from the meter (the owner's request: no red dots under a
+  meter at a third); `_ciModel` from the conversation JSON → `CLAUDE_CTX_BY_MODEL` (sourced in the code); an unknown
+  model reads 200K and the meter says "limit assumed"; the limit prints as "1M" / "500K"; `#acn-ctx-pct` carries
+  `data-acn-ctx-limit`, `-limit-source`, `-model`; one console line per change.
+- **C (DEC-057):** a tracker infers when a Gemini chat's start is loaded (a first page under 10, a load above the
+  first turn under 10, or 8 s at the top with nothing loading); until then Navigate shows "↑ Older messages are not
+  loaded yet — scroll to the top of the chat to load them" (`data-acn-history="partial"`, en + ko). Jumps unchanged
+  (9 of 9 landed live on v12.15's code).
+
+### Verification
+
+- **Gates** [Playwright page realm, headless, this Mac; each [new] check fails on v12.15]:
+  - `check-claude-far-jump` (part A, the Claude mock's new `tailAtEnd` knob): v12.15 failed F1, F2, F4 and F7 3 of 3 (it ends at the bottom with Q147 3,018 px above the view, the live shape; the glide animates in headless chromium, 68–86 frames, while `scrollHeight` shrinks); the build passed 3 of 3 on chromium and once each on firefox and webkit, and HEAD `f25e3e4`; mutants M1–M4 caught (no landing, one write, a kept element, the bookmark route alone reverted).
+  - `check-ctx-limit` (part B): v12.15 9 checks failed; the build passes on chromium (twice), firefox and webkit, and
+    on HEAD `f25e3e4`; mutants M1, M3, M4 caught, M2 (the `ciInvalidate` clear) not catchable by design.
+  - `check-turn-counter` A3/A6 (the dots follow the meter, the owner's request): fail on v12.15 and on the mutant.
+  - `check-gemini-history` (part C, new mock `gemini-history.html`): v12.15 5 checks failed (H2, H3, H4, H6, H6b);
+    the build passes on chromium (twice), firefox and webkit, and on HEAD `f25e3e4`; mutants M1–M5 and M3b caught.
+- **Review** (`reviews/review-2026-10-31-v12.16.md`): Tiers 1–2 in session (2 WARN fixed); Tier 3 `cli:codex`, 5
+  rounds (the owner's cap), 9 verified findings fixed, 1 false positive, 1 accepted limitation; the round-5 fixes go
+  to GitHub Codex.
+- **The agent's live check before the PR** (Chrome + Tampermonkey, the owner's profile, visible tab, 2026-10-31;
+  not owner acceptance): Navigate → Q140 from the top 3 of 3 and the Q#140 test bookmark 3 of 3 landed (deleted
+  afterwards); mid jumps unchanged; the meter 35%, "~353.6K / 1M", model `claude-opus-5`; a `claude-opus-4-7` chat
+  500K; the Gemini note at 10/20/30 loaded, gone at 32, right on 10-, 9- and 1-question chats.
+- <!-- FINAL RUN -->
+
+### Logged, not fixed (ROADMAP 12, 13, 14)
+
+The estimate above the window on chats claude.ai has summarized; Gemini
+bookmarks by the turn's id; an automatic "load full history" action (proposed); Export and Summary dropping unmounted
+questions on ChatGPT and Perplexity; `run-answer-mutants` M14/M16 anchors; the i18n audit's ternary false positive;
+DEC-031's waiver count; CLAUDE.md's line count; the jump section of `agent_docs/architecture.md`. And the PR #89 CI
+flake (TROUBLESHOOTING, OPEN, beside J15).
+
+---
+
 ## [12.15 — One-Click Jumps on Perplexity and ChatGPT, Bookmarks by Message Id There, Claude Rows by Their data-turn-key] — 2026-10-25
 
 **Branch:** `fix/v12.15-bookmarks-jumps-claude` | **PR:** #88 | **Merged** 2026-10-31 as `6baac2e` on the owner's

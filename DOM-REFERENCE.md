@@ -41,7 +41,7 @@ follow — virtualization is the standard fix for a slow chat page, not a Claude
 |---|---|---|---|
 | **Claude** (`claude.ai/chat`) | **YES — Virtuoso-style recycling**, ~3–7 of N turns mounted | Jul 26, 2026 | **API-backed conversation index** (DEC-021). DOM is the labelled fallback. |
 | **Emergent** (`app.emergent.sh`) | **YES — Virtuoso recycling**, `[data-testid="virtuoso-scroller"]` | Feb 15, 2026 | **Accumulation only** — scans keep messages the user has already scrolled past, plus click-time re-resolution of stale references. **Nothing sweeps.** See the ⚠️ below. |
-| **Gemini** | **NO recycling at n≤10 — measured**; unresolved at 100+ | Jul 30, 2026 | DOM. Measured live (Chromium, page realm, owner's account, visible tab, 10-turn conversation — the longest available): all 10 turns mounted at top/middle/bottom scroll positions, held references stayed `isConnected` with text intact; zero `cdk-virtual-scroll-viewport` nodes. Owner's Firefox observation at n≈10–20 corroborates. `docs/CONTEXT-TRACKING.md` / `docs/BOOKMARKS.md` claims that "only viewport messages exist in DOM" are **contradicted at this scale** — but the scroller is literally `<infinite-scroller class="chat-history">`, so lazy-loading at 100+ turns remains possible and unmeasured. No conversation that long exists on the test account. |
+| **Gemini** | **NO recycling — it KEEPS**, but **loads history in pages of 10** as the view reaches the top | Oct 31, 2026 | DOM, plus a "history not loaded yet" note in Navigate (v12.16, DEC-057). Measured live (Chrome + Tampermonkey, the owner's profile, visible tab, a 32-question chat, the longest of the 29 in the sidebar): 10 turns at load (rendered at once, 0 → 10), then 20, 30, 32 as the view reached the top; back at the bottom all 32 stayed mounted and every held node stayed `isConnected`; zero `cdk-virtual-scroll-viewport`. Gemini re-anchors `scrollTop` on a load (5,975 → 9,064 when 10 turns were prepended) and blocks the page for about 4.6 s while it renders them. Nothing in the DOM marks that older history exists. Jul 30, 2026 (Chromium page realm, a 10-turn chat): no recycling at n≤10; that measurement could not see paging, since the chat was a single page. |
 | **ChatGPT** (`chatgpt.com/c/<id>`) | **YES — a sliding window**, 4–7 user turns mounted, the rest removed | Oct 23, 2026 | **API-backed index adapter** (v12.10, DEC-046). DOM is the labelled fallback. Measured live (Chrome, page realm, owner's account, visible tab; 10- and 130-question conversations). |
 | **Perplexity** (`perplexity.ai/search/<id>`) | **YES — the entries in view plus the latest**, the rest removed | Oct 23, 2026 | **API-backed index adapter** (v12.10, DEC-046). DOM is the labelled fallback. Measured live (Chrome, page realm, owner's account; 12-entry thread). |
 | Grok | not observed | Feb 18, 2026 | DOM |
@@ -279,6 +279,16 @@ here; the owner's console counts from them are in TROUBLESHOOTING ("Claude answe
   2 `<ol>`). July's record below has one pre-wrap `<p>` per question.
 - `getAIMessages` stops at its first matching selector across the document, so in a project chat it returns only the
   project link. v12.14's bookmarks look for answers inside rows instead (DEC-051).
+
+### The conversation JSON names the chat's model (v12.16; measured live, Chrome, 2026-10-31)
+
+Not DOM, but read by the same index: `GET /api/organizations/<org>/chat_conversations/<id>?tree=True&…` (the
+request `ciLoadIndex` already makes) has a top-level **`model`**, the chat's model id, e.g. `claude-opus-5`,
+`claude-opus-5-5`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-fable-5`, `claude-sonnet-5-5`. Measured [Chrome +
+Tampermonkey page realm, the owner's profile, GET reads only]: present on 60 of 60 recent conversations, equal to the
+conversation list's `model` every time; no message carries a model key. The context meter's window comes from it
+(DEC-056). The ids are the API's dateless form; whether a conversation switched to another model mid-way reports
+the newer one was not tested.
 
 ### v12.0 selector drift (measured live, Jul 26 2026)
 
@@ -629,8 +639,45 @@ ancestor-gatable.
 - `.query-text` lives deep inside (element J) — still reliable, only on user queries, 1 per turn
 - `.query-text-line` / `p.query-text-line` (fallbacks 2–3) now match K, 1 per turn — they were
   designed for older Gemini builds and work again by coincidence of the Jul 2026 structure
-- Virtualization: **none observed at n=10** (see the status table at the top of this file for
-  the full measurement and its context); scroller is `<infinite-scroller class="chat-history">`
+- Virtualization: **none** (see the status table at the top of this file); the scroller is
+  `<infinite-scroller class="chat-history">`, and it **pages history in** 10 turns at a time when
+  the view reaches the top, keeping every turn (Oct 31, 2026; DEC-057)
+
+### Turns and history paging (Oct 31, 2026)
+
+Measured live [Chrome + Tampermonkey page realm, the owner's profile, visible tab, ACN 12.16
+installed (Part A build; Gemini's code unchanged from v12.15), a 32-question chat]:
+
+```
+infinite-scroller.chat-history            (the scroller; its only children are the turns)
+  div.conversation-container#ac1060697d5d3d07.message-actions-hover-boundary[.turn-content-visibility]
+    user-query                            (A above; J inside is the question text)
+      … div#user-query-content-N …        (N restarts at 0 on every render: 0–19 with 20 of 32 loaded)
+    model-response
+      … message-content#message-content-id-r_ac1060697d5d3d07 …
+    div
+    model-response-disclaimers
+  div.conversation-container#…            (one per turn, oldest first)
+```
+
+- **Each turn has a stable id:** the container's 16-hex `id`, repeated in the answer's
+  `message-content-id-r_<id>`. The first and last ids were the same across two reloads. Navigate
+  does not use it yet (Gemini bookmarks stay positional; ROADMAP 13).
+- **Paging:** 10 turns at load, rendered at once (0 → 10, ~10 s after navigation with the page
+  blocked); each time the view reaches the top Gemini loads the previous 10 (`batchexecute`,
+  `rpcids=hNvQHb`, followed by `ESY5D`, `aPya6c`, `qpEbW`; bodies not inspected), blocks the page
+  for about 4.6 s while it renders them, and re-anchors `scrollTop` so the view stays on the same
+  turn (5,975 → 9,064). 32 questions: 10 → 20 → 30 → 32. A 10-question chat stayed at 10 at the
+  top; a 12-question chat went 10 → 12.
+- **Nothing marks "more history above":** the scroller holds only turns, the first turn looks like
+  every other, and `user-query-content-N` is render-relative. v12.16 infers it (DEC-057).
+- **Off-screen turns carry `turn-content-visibility`:** their `innerText` reads empty while scrolled
+  away (the first question read `""` at the bottom). `_cleanText` reads `textContent`, which is
+  unaffected.
+- **Jumps:** v12.15's glide landed loaded questions 9 of 9 (Q1 from the bottom 3/3 and Q32 from the
+  top 2/2 fully loaded; Q16; the earliest loaded question from the bottom 3/3 with history still
+  loading, where the glide's arrival at the top loaded the next page and Gemini's re-anchoring held
+  the target in view, 72 px from the top).
 
 ### Debugging History
 - v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Real structure uses Angular custom elements (user-query, user-query-content, model-response), deep nesting with ngcontent hash attributes, horizontal-container spans, and Material Design icon buttons.

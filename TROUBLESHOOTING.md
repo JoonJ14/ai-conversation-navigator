@@ -561,10 +561,12 @@ merged 2026-10-31 as `6baac2e` on the owner's OK, before their acceptance (a wai
 
 ---
 
-## OPEN — Claude: a jump to the latest question from the top ends at the bottom, past it (found 2026-10-25)
+## FIXED IN v12.16 (PR pending), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Claude: a jump to the latest question from the top ends at the bottom, past it (found 2026-10-25)
 
-**Phase:** v12.15's live check (Claude regression) | **Severity:** Medium (the latest question only; one more click
-lands) | **Status:** open, pre-existing; logged for a later PR (ROADMAP 14)
+**Phase:** v12.15's live check (Claude regression); fixed in v12.16 part A (DEC-055) | **Severity:** Medium (the
+latest question only; one more click lands) | **Status:** fixed in code, gated in the page realm
+(`probes/check-claude-far-jump.js`) and checked live in the agent's Chrome + Tampermonkey; owner acceptance on Safari,
+Chrome and Firefox pending (DEC-031)
 
 ### Symptom [measured live, Chrome + Tampermonkey, the owner's profile, visible tab, 2026-10-25, the 147-question chat]
 
@@ -586,8 +588,27 @@ can land. Mid-conversation targets are unmounted and go through
 ### Fix
 
 Not in v12.15: the code path is unchanged from v12.14, and the owner's rule logs issues found at acceptance for a
-later PR unless they block this one. A likely fix is part B's for the other sites: instant writes re-located by
-identity (`ixLandOn`) instead of a long smooth glide, for a far mounted target.
+later PR unless they block this one.
+
+**v12.16 (DEC-055).** `ciLandFar` lands a FAR mounted target (outside the view extended by one viewport each way, the
+rule `ixJump` uses) through `ixLandOn`: instant writes, re-located on every step by the resolver that found it,
+within 8 px or capped at 4 writes, a toast when it cannot land. Navigate's fast path, a question or answer bookmark
+and Search's mounted answer use it; near targets glide as before.
+
+**Measured live again on 2026-10-31** [Chrome + Tampermonkey, the owner's profile, visible tab, the long chat
+`3d7b6dc1` (140 questions on its active path; 147 counting every branch)]:
+- **v12.15, before the fix:** from the top, Navigate → Q140 failed 3 of 3, but not at the bottom this time: the
+  question ended 285,576 px, 98,987 px and 875 px from the view (the glide stopped short twice). The unchecked glide's
+  end varies run to run; what does not vary is that nothing checks it.
+- **v12.16 (`365d825`, and again on the full build):** Navigate → Q140 3 of 3 and the Q#140 bookmark 3 of 3 landed
+  from the top, the question fully in view, 269 px from the view's top, in about 1.4–1.6 s, no toast (the test
+  bookmark was deleted afterwards). Q70 from the top and Q5 and Q100 from the bottom (the settle loop, unchanged)
+  still land.
+
+**Not changed, logged (ROADMAP 14):** the settle loop's success callbacks (Navigate, Search, both bookmark kinds,
+Summary) still end with a smooth `scrollIntoView`, short after a real arrival and not measured failing; Summary's
+mounted path and the gallery glide unchecked too (the gallery has no identity to re-locate by). The legacy panel's
+handler never runs on Claude (`useOrbital: true`).
 
 ---
 
@@ -1511,6 +1532,45 @@ J15 still fails on `71eda09` and v12.14 if the new pin reproduces their outcome 
 A J15 failure with `resolved=10 toast=no inView=true err=0px` is this race: re-run the job once
 (`gh run rerun <run-id> --failed`), as the owner did for PR #88. A J15 failure with any other shape, or one that
 repeats on a re-run, is a real finding about the jump's cap.
+
+---
+
+## OPEN — CI: the Claude 294-row sweep gave up on one question on `firefox on macos-latest` (PR #89, found 2026-10-31)
+
+**Phase:** PR #89's CI (docs only) | **Severity:** Low — one sweep entry on one runner, no userscript change involved;
+one re-run cleared it | **Status:** open, logged only (no fix proposed yet)
+
+### Symptom
+
+Run 41220675889, attempt 1, on `338ec89` (PR #89's head; the userscript diff against main was 0 lines): 8 of 9 jobs
+green, and `firefox on macos-latest` failed `npm test` 559/560, on one assertion:
+
+`✗ ACCEPTANCE: every targeted question reaches its exact row: 1/147 failed — Q62: expected row 122, got null
+busySeen=true idx=null "Q#62Question number 62: how do" (2565ms, vis=visible, raf10=153ms)`
+
+in `Testing Claude (294 rows, N=10 unrendered)... FAIL (1 failed, 60.2s)`. Attempt 2 passed (owner's re-run).
+
+### What the signature says [code; the cause is not known]
+
+Compared element by element with the two documented failures it could be mistaken for (conventions.md, the
+signature lesson):
+- **Not J15** (above): a different suite (`npm test`, not `check-ix-jumps`), a different site (the Claude settle
+  loop, not `ixJump`), and a null resolution, not a landing the check did not expect.
+- **Not "Local mac WebKit … ~1.46s"** (below): a different engine and host (CI Firefox, not local WebKit), one
+  question of 147 rather than the same four every run, and 2,565 ms rather than the harness's 1,400 ms floor.
+- `busySeen=true`: the jump started and ended (the harness waits for busy to clear past its 1,400 ms floor and polls
+  every 110 ms, so the jump ended around 2.45–2.57 s), well short of the loop's 5 s hard cap. `raf10=153ms` is a
+  healthy frame rate, and the tab was visible when sampled (after the jump, not during it).
+- `idx=null` carries no information: the harness reads `data-acn-index-status` from the zone, and the userscript
+  writes it only on the banner inside Navigate's list (agent_docs/architecture.md, test contract).
+- So the settle loop gave up honestly inside `arrive()` (iteration, nudge or no-progress cap, no local match,
+  container gone, or a throw); the harness does not record which. Which runner property made Q62 miss once was not
+  measured.
+
+### How to respond meanwhile
+
+Re-run the job once (`gh run rerun <run-id> --failed`). A repeat, or the same question failing on another runner, is a
+real finding: then run the sweep locally with `localStorage.acnJumpDebug = '1'` to get the `[ACN jump]` exit reason.
 
 ---
 
