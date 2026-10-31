@@ -6692,11 +6692,13 @@
             if (_gmHist.n === 0) {
                 _gmHist.complete = n < GM_HISTORY_PAGE;
             } else if (firstId !== _gmHist.firstId) {
-                // Turns arrived above the first one: a history load, short of a page at the start.
-                // Fewer turns under a new first id is another chat's first render (an SPA switch
-                // that kept the old turns for a moment): judged as a first page.
-                _gmHist.complete = n > _gmHist.n ? (n - _gmHist.n) < GM_HISTORY_PAGE
-                                                 : n < GM_HISTORY_PAGE;
+                // A history load keeps the old first turn, now further down: short of a page, the
+                // start is reached. Without it, these turns replaced the old ones (an SPA switch whose
+                // previous chat lingered for a scan): judged as a first page.
+                var kept = false;
+                for (var t = 1; t < n && !kept; t++) kept = turns[t].id === _gmHist.firstId;
+                _gmHist.complete = (kept && n > _gmHist.n) ? (n - _gmHist.n) < GM_HISTORY_PAGE
+                                                           : n < GM_HISTORY_PAGE;
             }
             _gmHist.n = n;
             _gmHist.firstId = firstId;
@@ -11383,7 +11385,9 @@
         }
 
         // A far mounted message on Claude lands (v12.16), re-found by its uuid exactly as above.
+        // Only when the message found is that uuid's: one found by a legacy hash glides as before.
         var landUuid = ciIsClaudeChat() ? (bookmark.msgUuid || wantUuid) : null;
+        if (landUuid && ciUuidForText(textOf(targetEl), targetEl) !== landUuid) landUuid = null;
         orbScrollToMessage(targetEl, landUuid ? function () {
             var live = Array.from(isUser ? getUserMessages() : getAIMessages());
             for (var k = 0; k < live.length; k++) {
