@@ -1,236 +1,174 @@
-# Session Handoff — 2026-10-24 (v12.13 and v12.14: a second tab no longer erases bookmarks; Claude answer bookmarks work again)
+# Session Handoff — 2026-10-31 (v12.15: one-click jumps on Perplexity and ChatGPT, bookmarks by message id there, Claude rows by their data-turn-key)
 
-**Scope:** the bookmark issue the owner found while live-testing v12.12, investigated read-only first, then fixed as
-two PRs in the owner's order. **PR #85 (v12.13):** on Safari a second tab erased the first tab's bookmarks, in any
-conversation. Every save of a collection now applies one change to what is stored. **PR #86 (v12.14):** answer
-bookmarks on Claude were broken on all three browsers: no flags in project chats, labels by position, failed jumps.
-Answers are now found inside rows, identified by position, and labelled "Answer to Q#n".
+**Scope:** the owner's v12.15 spec, one combined PR in three parts. **B:** Perplexity jumps took 2–3 clicks and
+ChatGPT's far jump landed near its target; they now land in one click. **A:** ChatGPT and Perplexity bookmarks were
+positional, and answers had no flags; they are now keyed by each message's own id. **C:** Claude refetched the
+whole conversation while you only scrolled, and regenerated answers went unnoticed; rows are now identified by their
+own `data-turn-key`. Built by a workflow, reviewed (Tier 3 at the owner's cap of 5), checked live in the owner's
+Chrome before the PR, babysat through GitHub Codex, retested live, merged.
 
-**Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-10-23_v12.11-v12.12-safari-parity.md` (v12.11/v12.12; its
-§G was this session's prompt).
+**Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-10-24_v12.13-v12.14-bookmarks.md` (v12.13/v12.14; its §G
+was this session's plan, and the owner's spec was this session's first message).
 
 **Status at close:**
-- **PR #85 (v12.13): MERGED** as `b96ec7b`. Owner acceptance: step 1 (the two-tab test) PASS on all three browsers;
-  steps 2–7 not reported (a waiver, DEC-031). The owner-approved CLAUDE.md storage line is `ce7af86`.
-- **PR #86 (v12.14): MERGED** as `79e4953`. Owner acceptance on all three browsers: steps 1–3 PASS everywhere;
-  Chrome's and Firefox's steps 4–5 not reported (a partial waiver, DEC-031).
-- **The session-close PR** (`docs/session-close-v12.14`, docs only): this handoff, the archive, ROADMAP's order and
-  owed list. **The owner merges it**, or the next session does on the owner's OK.
-- **Next session: v12.15, one combined PR** (the owner's plan, 2026-10-24), in three parts:
-  - A, ChatGPT and Perplexity bookmarks;
-  - B, the Perplexity one-click jump;
-  - C, the Claude markup follow-ups.
-
-  **The owner gives the full spec** as the first message of the next session, together with the kickoff prompt (§K).
-  Nothing here pre-writes its scope (§G).
+- **PR #88 (v12.15): MERGED** 2026-10-31 as `6baac2e`, on the owner's explicit OK, **before any acceptance step
+  was reported** (a waiver, DEC-031). Owner acceptance on Safari, Chrome and Firefox is owed; the steps are the PR's
+  first comment.
+- **PR #89** (`docs/v12.15-merge-followup`, docs only): the merge record and waiver, the J15 CI timing race, the
+  agent_docs and the gaps found re-reading the session, and this handoff. **The owner merges it**, or the next
+  session does on the owner's OK.
+- **Next session:** no spec yet. The owner's acceptance of v12.15, then whichever item the owner picks (§G).
 
 ---
 
 ## A. State in one paragraph
 
-main is v12.14. Collections in GM storage (bookmarks, saved commands, button positions, the context cache) save
-through `acnUpdateValue`, which applies one change to the value as stored at the save: on Tampermonkey a read right
-before the write, on Safari a queue per key that re-reads with `GM.getValue` (DEC-050; CLAUDE.md's storage line). On
-Claude chats, bookmarks look for answers only inside the feed's rows (`ciAnswerNodeInRow`) and place each answer row
-on its path entry by position (`ciAnswerMap`), never by text; an answer bookmark reads "Answer to Q#n", an unbound one
-"A#?" (DEC-051). `getAIMessages`, `ciMessageNodeWithin` and the staleness check are unchanged on purpose. On ChatGPT
-and Perplexity, bookmarks are still positional, which the owner confirmed in Safari on 2026-10-24 (§B.7), and
-Perplexity's jump takes 2–3 clicks there. What stays open is v12.15 (§G: ROADMAP 13's bookmarks and jump, ROADMAP
-14's Claude follow-ups) and the owed acceptance items in §G.
+main is v12.15. On ChatGPT and Perplexity, an index-backed jump (`ixJump`) steps toward its target and then lands
+through `ixLandOn`: instant `scrollTop` writes, each re-located by identity, until within 8 px or 4 writes; a target
+still out of view at that cap is `'cap-out'`, a toast (DEC-052). Bookmarks there are keyed by the message's own id
+(ChatGPT: the turn's `data-turn-key`, the answer unit's message id; Perplexity: `backend_uuid`, `backend_uuid:answer`),
+labelled "Q#n" / "Answer to Q#n", filed under one canonical key per conversation, and old positional records bind
+only on proof or read "Q#?" / "A#?" (DEC-053). Perplexity compares a question bubble with its `query_str` through
+`ixPplxTextKey`, which drops only the markdown the bubble renders. On Claude, rows take their identity from their one
+`data-turn-key`, cross-checked against position, with text matching only as the fallback, and staleness reads the ids
+('k', 'p', 'x'), so scrolling no longer refetches and a regenerate resyncs once (DEC-054). Open: the owner's
+acceptance; Claude's jump to the latest question from the top (pre-existing); the J15 CI race; the logged residuals
+(ROADMAP 13 and 14).
 
 ---
 
 ## B. What was accomplished
 
-### 1. The investigation (read-only, before any code)
+### 1. Phase 1: one read-only investigation for all three parts
 
-- **What.** The owner reported answer bookmarks broken on all three browsers (v12.12): flags only on the last ~3
-  answers (Safari, Firefox) or none (Chrome), labels 1, 3, 2 for answers 49–51, every jump "not currently rendered".
-  I answered eight questions, live in Chrome's page realm on the owner's real profile, read-only.
-- **Why it broke.** Two stacked causes:
-  - **Which answers:** `getAIMessages` returns the first selector that matches anything in the document, and
-    `.font-claude-response`, first in the list, now matches only the project's name link in a hidden side panel.
-    In a project chat the real answers (`[data-testid="assistant-message"]`) were never found; on v12.12 a scan could
-    beat that link's render (~58 ms after the rows), which is why Safari once showed a few flags.
-  - **Which message:** an answer got a uuid only if its rendered text equalled its payload text, and rendered answers
-    open with an activity line the payload lacks. So answers were text-hash keyed, labelled by mounted position, and
-    never reached the index jump.
-- **Also found:** the Safari two-tab loss (confirmed by the owner's test: LOST), which became PR #85; a refetch while
-  only scrolling, traced to the QUESTION side (multi-block questions: CSS list numbers and block joins), logged as the
-  third PR (now v12.15, part C); dead regenerate detection; the misleading "all records carry a uuid" console line.
-- **Path.** TROUBLESHOOTING "FIXED IN v12.14 — Claude answer bookmarks" and the two OPEN entries after it;
-  DOM-REFERENCE "October 2026: answers, rows and the project link".
+- **What.** A 9-agent workflow (two investigators and an adversarial verifier per part) on the code and mocks, plus
+  live measurements in the owner's Chrome (v12.14 installed, visible tab, read-only, GET reads of each site's JSON).
+  One report, one owner checkpoint.
+- **Findings** (all in DEC-052 to DEC-054, with their contexts):
+  - **B:** a jump counted "mounted" as "arrived", then ended with one smooth `scrollIntoView` that both sites cut
+    short: Perplexity 8 of 8 runs, −99 to −1255 px; an instant scroll landed within 16 px 8 of 8. ChatGPT's near-miss
+    was the same: a glide cut off when older turns were prepended. **No code regression since v12.10**: the jump code
+    is identical from `166a281`, and the mocks gave v12.10 and v12.14 the same result within 3 px.
+  - **A:** every id route was gated on Claude; ChatGPT's answer selectors matched 0 nodes live; Perplexity's
+    `[class*="prose"]` drew 5 flags into one answer. The answer ids exist: ChatGPT's
+    `data-chatgpt-search-message-ids` (10 of 10 turns, one with 22 assistant nodes); Perplexity's
+    `[data-workflow-final-text]` slot.
+  - **C:** every Claude row carries its message uuid on `[data-turn-key]` (294 of 294 rows), which DEC-023 had recorded
+    as absent in July; text comparison failed 31 of 129 questions, 27 within 200 characters.
+- **The owner's decisions:** B, A and C as proposed; "Save if id, else refresh" for a message the index does not hold
+  yet; two scope additions (one store key per conversation; bind hash-keyed Claude question records on proof).
 
-### 2. PR #85 — v12.13, cross-tab saves (DEC-050)
+### 2. The build, integration and review
 
-- **What / why.** Every bookmark of every conversation is one GM value. On Safari it was read once at load and each
-  save wrote that copy back, so a second tab erased whatever another tab had saved. Saved commands, button positions
-  and the context cache had the same shape. A stored value that did not parse was read as empty and written over.
-- **Alternatives.** Refresh-then-write (races inside one tab), merging copies (cannot tell a deletion from an
-  addition), and applying one change to what is stored (chosen). Settings and the org cache stay last-write-wins
-  (owner).
-- **How.** `acnUpdateValue(key, def, valid, apply)`; bookmarks merge by record id (an update never revives a record
-  another tab deleted), commands by id (`name-2` on a clash), positions by platform, the context cache by
-  conversation. Unreadable stored values are never written over (one console line and a toast). C0, an owner-run
-  userscript, measured that a read in one tab sees another tab's write on all three managers before the fix was
-  trusted.
-- **Verification.** `probes/check-gm-storage.js` G7–G32; review: three tiers plus an adversarial workflow, Codex CLI 8
-  rounds plus a post-fix pass, then 2 more Tier 3 rounds on the GitHub fixes (`e69d5da`, `23805a8`); GitHub Codex 3
-  rounds, 1 finding (command use counting on replay; per-page use numbers). Owner: the two-tab
-  test PASS on all three browsers; steps 2–7 not reported.
-- **Path.** DEC-050; CHANGELOG 12.13; `reviews/review-2026-10-24-cross-tab.md` and `review-2026-10-24-23805a8.md`.
+- **How.** A build workflow implemented B and C in parallel worktrees, then A on top of B, each with a review and a
+  fix round; the parts were cherry-picked onto `fix/v12.15-bookmarks-jumps-claude` in the order B, A, C, keeping
+  their own commits. Version 12.15; the three new probes joined `test:probes` and CI; the CI job cap went from 20 to
+  30 minutes.
+- **Review** (`reviews/review-2026-10-25-v12.15.md`): Tiers 1–2 in session; Tier 3 (Codex CLI) 5 rounds, the
+  owner's cap: 19 raw findings, 16 verified, 12 fixed, each gated except one (N1e, N1f, N1g, J15, G17/G17b).
+- **Verification:** the pre-approved three-engine run on `2ef0d80`: `npm test` Chromium and Firefox 560/560, WebKit
+  556/560 (the 4 known local jump entries); the new probes pass on all three engines; the known Firefox U10 timeout.
 
-### 3. PR #86 — v12.14, Claude answer bookmarks (DEC-051)
+### 3. The live check in the owner's Chrome, before the PR (found one bug)
 
-- **Phase 1** (read-only; Chrome page realm; the owner's chats). Every chat with 12+ questions among the owner's 60
-  most recent is in a project (the API's `project_uuid`); the decoy's text is the project's name. Claude mounts ~5
-  rows at load even in a 4-question chat. `data-index` equals the path position and `data-perf-row` the path's sender
-  on every row checked (53 row observations over 5 scroll stops on the 147-question chat; 7 and 5 rows on two others). The owner first reported older answers had no flag on hover, then
-  retracted after a re-test: the flags were there; on a tall answer the flag shows only near its top edge (§B.6).
-- **What / how.**
-  - `ciAnswerNodeInRow(row)`: `[data-testid="assistant-message"]` inside a feed row, July's classes only inside rows.
-  - `ciAnswerMap()`: places each mounted answer row by bracketing anchors, the adjacent question (matched now, with
-    exactly one rendering answer between it and the next question; never a question past the fetched snapshot), or
-    the last row when the counts agree. Routes must agree; nothing records an anchor.
-  - Labels (`_bmLabel`): "Answer to Q#n" (Korean "Q#n에 대한 답변"), "A#?", "Answer to Q#?" while the index loads,
-    "Answer (no question)". The export uses the same labels and order (`_bmSortKey`).
-  - Existing records bind only on proof (`_bmProveAnswers`, `_bmBindAnswer` deciding on the stored list): the row they
-    were made on, placed, and its text reproducing their hash. Otherwise "A#?", deletable.
-  - The owner's four decisions: one refetch for a bookmark on an answer the index fetched mid-stream
-    (`_bmRequestIndexRefresh`, through the scan's refetch path); text-bound records kept; the twin fix
-    (`_bmFlagMatches`); the gate.
-  - From review: a click acts only if its node still shows the answer its flag was drawn for (`_bmAnswerKeyNow`), in
-    case Claude recycles nodes, which has never been measured live (§J); a jump lands only on an answer.
-- **Alternatives rejected** (DEC-051): reorder `getAIMessages`; teach `ciMessageNodeWithin` the testid (would revive
-  answer refetching, mutant M9); match text without the activity line; place rows by the stop_reason predicate alone
-  (mutant M12); an answer count as the label (owner).
-- **Verification.** `probes/check-answer-bookmarks.js` 36 checks in 6 runs (v12.13 fails 28; ~2 min per engine;
-  owner-accepted size); 18 targeted mutants (`probes/run-answer-mutants.js`), each caught after the baseline passes.
-  Review: Tiers 1–2, an adversarial workflow (16 of 18 confirmed), Codex CLI 8 rounds + 2 post-fix validations (39
-  findings, 38 real; approved in rounds 7 and 8; the last post-fix fix was gated but not re-reviewed by Codex, the
-  10-round cap — GitHub Codex then reviewed all the code clean). GitHub Codex: 2 rounds, 0 findings. Final local run:
-  `npm test` 560/560 on Chromium, every probe, and the new probe 36/36 on all three engines. Owner: §A's status.
-- **Path.** DEC-051; CHANGELOG 12.14; TROUBLESHOOTING; `reviews/review-2026-10-24-answer-bookmarks.md`;
-  `docs/BOOKMARKS.md`; `docs/GET-AI-MESSAGES.md`.
+- **What.** Installed the build through Tampermonkey (TESTING.md, "The live check in the owner's Chrome") and ran the
+  owner's four checks on ChatGPT (24 questions), Perplexity (12) and Claude (147), with test bookmarks deleted
+  afterwards.
+- **Found:** Perplexity Q10, a pasted README, stopped 862 px short 4 of 4 times, and its flags had no key. Its bubble
+  renders markdown (images as alt text, tables without pipes, a "Read more" button), so it never matched its
+  `query_str`. Fixed (`989fe0a`) with `ixPplxTextKey` at all four compare sites; gated by J16/J16b.
+- **Found, pre-existing, logged:** on Claude, a jump to the latest question from the top ends at the bottom, past it,
+  on 12.15 and on v12.14 alike (measured by downgrading to v12.14 live, then reinstalling). TROUBLESHOOTING, OPEN.
+- **Recorded, unexplained:** four "out of sync" lines in about a second on the pre-fix build; the console reader later
+  repeated one line six times, which may explain it (TROUBLESHOOTING).
+- **Result:** all four checks passed on ChatGPT and Perplexity; on Claude the bookmarks read and jump and a full
+  202-step scroll printed no "out of sync" line.
 
-### 4. Owner questions answered
+### 4. The PR, the Codex cycle, the final retest, the merge
 
-- **Do bookmarks survive moving a chat into or out of a project?** Yes [inferred from the code and a measurement; the
-  move itself was not tested]. The key is the page
-  address, `origin + pathname` (`normalizeConversationUrl`), not the conversation id. Claude serves every chat at
-  `/chat/<id>`, in a project or not: all 30 chat links on a project page are `/chat/<id>`, and the older
-  `/project/<pid>/chat/<cid>` address renders no conversation [measured, Chrome page realm, 2026-10-24]. A move keeps
-  the id, so the address and the bookmarks stay. Not tested by an actual move: asked whether a live check was worth
-  it, I advised against one (it changes the live account); the owner has not decided. Recorded in `docs/BOOKMARKS.md`, architecture.md and conventions.md's key table.
-- **The "294/295 conflict"** was two conversations: July's record is `b3c603a4` (its one non-rendering entry sits at
-  path 199, not at the head), October's 147-question chat is `65dfa4f2` (294 entries). DOM-REFERENCE corrected.
+- **GitHub Codex:** round 1 found that `989fe0a`'s letters-and-digits key read "10+2" and "10/2" as one question;
+  fixing it also caught `_mdFlatten` deleting parentheses (`1a6de53`, J17/J17b). Round 2: rendered single-marker
+  italics left an unchanged question stale (`12ad0a6`, J17c). Rounds 3 and 4 clean.
+- **Final live retest** on `12ad0a6` (reinstalled): the same checks passed on all three sites.
+- **CI:** `firefox on ubuntu-latest` failed J15 once after 16 min (a timing race in the probe's mock, not the code);
+  re-run at the owner's request, green. **Merged** on the owner's OK.
 
-### 5. Repo housekeeping
+### 5. The docs follow-up (PR #89)
 
-- The eleven merged remote branches of PRs #75–#85 deleted (owner's request); their tips are in the merges.
-- Five lessons in `agent_docs/conventions.md`: one from PR #85 (`be36c24`: an async stub must answer with the value
-  as it was when called), three from PR #86 (owner-approved), and one from the docs audit after it (a twin fixture
-  must stay unbound while its twin is on screen; owner-approved). DEC-031 updated with v12.14, v12.13 and v12.12's
-  itemized results.
+The waiver in DEC-031 and CHANGELOG; every v12.15 status line set to merged; the J15 race (TROUBLESHOOTING, OPEN;
+TESTING.md); agent_docs (the bookmark key, the adapter hooks, `ixLandOn`, Claude row identity); and, from re-reading
+the whole session transcript at the owner's request: the live-check procedure in TESTING.md, v12.15's live markup in
+DOM-REFERENCE, the four probes missing from `probes/README.md`, and what to expect of old positional records
+(DEC-053).
 
 ### 6. Mistakes, kept because they generalize
 
-- **A DOM count reported as what the owner sees.** Phase 1 counted flag elements; the owner reported no flag on hover.
-  Both were true (the flag sat above the window). Now a lesson.
-- **A probe helper trusted a mock that moves under it** (`mountRow`), and **a precondition described the fixed build's
-  behaviour**, which made v12.13's checks INVALID instead of red. Both lessons.
-- **A "conflict" reported without checking the conversation id** (294/295 above).
-- **An inference written as fact:** "made on the project link, as predicted" in TROUBLESHOOTING about the owner's
-  unbound records. Removed: why each did not bind was not measured.
-- **Miscounts corrected before or after commit:** the adversarial tally (15 → 16), a token total, and PR #85's
-  CHANGELOG naming `c4d1ec4` as the final build after two code commits followed it.
+- **Loosening a compare to fix false mismatches broke its job of telling edits apart.** The letters-and-digits key
+  made Q10 match, and made "10+2" equal "10/2"; GitHub Codex caught it. When widening an identity compare, add a check
+  that it still rejects a meaningful edit (J17–J17c).
+- **A test helper's matcher must be unique before its results count.** A 60-character prefix matched three ChatGPT
+  questions, and Navigate's "..." truncation hid two more; the jumps were fine, the helper was wrong.
+- **A timing window in a mock is a race in CI.** J15's 1 ms pin lost once on a slow runner.
 
-### 7. The owner's results and plan, from the planning thread (2026-10-24, after the merges)
-
-- **New owner results** [measured, owner, Safari + Userscripts, v12.14], recorded as written in DEC-031 and ROADMAP 13:
-  - **v12.10's owed Safari check, ChatGPT and Perplexity:**
-    - question lists PASS on both (all questions listed);
-    - ChatGPT jumps work, but a far jump sometimes lands near the target (e.g. on answer 14 instead of question 14);
-      a second click lands exactly;
-    - Perplexity jumps FAIL as a one-click jump: a mid-conversation jump stops partway (from Q12, clicking Q5
-      stopped mid-answer 7), and it takes 2–3 clicks to arrive. The first question works. The Chrome comparison has
-      not been checked yet.
-
-    So DEC-031's v12.10 Safari item: lists PASS; it stays open for the Perplexity jump.
-  - **Bookmarks on ChatGPT and Perplexity** (Safari; confirms ROADMAP 13 in a real browser):
-    - answers: no flags at all on either site;
-    - questions: labels are on-screen positions (two different questions both read "Q4"; a 16-question thread
-      shows only Q1–Q4), and a jump to an off-screen question shows "not currently rendered".
-- **The next session's plan:** one combined PR, v12.15 (§G.1). It replaces the earlier plan of a third PR holding
-  ROADMAP 14 alone.
-- **Confirmed already in the repo:** the storage-key answer (§B.4; docs/BOOKMARKS.md), the later items (ROADMAP,
-  "Current Status") and the process (§D). One pointer was added: "Perplexity attachment images" now says where the
-  repo records it (the gallery marks Perplexity unsupported; there is no backlog item of its own yet).
+All three are in `agent_docs/conventions.md` → "Lessons Learned", and CLAUDE.md's measurement-context table gained the
+Perplexity bubble row (both approved by the owner, 2026-10-31).
 
 ---
 
 ## C. Architecture snapshot
 
-Changed:
-- **`acnUpdateValue`** for collections (DEC-050). CLAUDE.md: a collection saves through it, never `acnSetValue`.
-- **Answers on Claude for bookmarks:** `ciAnswerNodeInRow` / `ciAnswerMap` (architecture.md's ci table and two new
-  invariants: no document-wide answer finder, no text identity; no answer nodes to the staleness check).
-- **The virtualizing mock** has October knobs, all off by default: `answerTestid`, `answerHeaders`, `decoy`,
-  `unansweredTurns`, `tailRows`.
+Changed (agent_docs/architecture.md has the details):
+- **The adapter seam** gained `bookmarkUrl`, `pathId`, `bookmarkables`, `keyOf` and `extent`; jumps land through
+  `ixLandOn`; Perplexity's question compare is `ixPplxTextKey` on `ixPplxBubbleText`.
+- **Bookmarks on ChatGPT and Perplexity:** `_bmIxInject`, `_bmIxJump`, `_bmIxRequestRefresh` / `_bmIxAllHeld`,
+  `_bmMergeSplitKeys`; one store key per conversation (agent_docs/conventions.md, storage keys).
+- **Claude:** `ciRowTurnKey`, `ciRowSender`, `ciRowIdPath`, `ciRowIdPathChecked`, `_ciKeyTextEdited`,
+  `_ciStreamToken`, `_ciReportTurnKeys`, `_bmProveQuestions`; `ciUuidForText` reads the row's id first.
+- **Mocks:** `jumpModel` and `bmModel` blocks in both windowed mocks (off by default); Claude mock turn-key knobs.
 
 ---
 
 ## D. Key principles established
 
-- **Process that worked (owner, 2026-10-24):**
-  - **Owner-run measurement scripts before building** what depends on an unmeasured runtime fact (B0 for Safari's
-    storage; C0 for cross-tab reads, all three managers) — the fix was trusted only after C0 passed.
-  - **Change one thing at a time when comparing** (the project vs non-project test that isolated the decoy).
-  - **Investigation first:** a read-only Phase 1 with measured findings, then the owner decides, then code.
-- **A mechanism counts only with a check that fails without it.** For PR #86 the owner approved ~10 targeted mutants;
-  review raised it to 18, accepted because the runtime stayed within budget. Run the unmutated build first.
-- **Run all three review tiers before pushing a code PR.** GitHub Codex afterwards found nothing on #86 (2 rounds, 0
-  findings) and one issue on #85 (3 rounds, 1 finding).
-- **Log, don't perfect, a field nothing reads** (owner; the command use counter).
-- **When a finding is about what the user sees, measure what is visible** (lesson).
+- **The owner's live-test-before-PR process** (2026-10-25): build → install in Chrome → the owner's checks → fix and
+  reinstall until they pass → PR → babysit → final reinstall and retest. It found a bug every mock passed.
+- **A mock models what was measured, not what was assumed.** The windowed mocks rendered `query_str` as plain text;
+  the live bubble renders markdown. Measure a live rendering before trusting a text compare against it.
+- **Assert where the target ended up**, not which entry resolved (DEC-052; the old P13 passed throughout).
+- **Measure "regression" before claiming it either way:** Claude's latest-question miss looked like part C's doing
+  and was the same on v12.14.
+- **Re-read the whole transcript before closing a long session** (the owner, 2026-10-31): it found five gaps in docs
+  that looked complete.
 
 ---
 
 ## E. Git state
 
-`main` is at `79e4953` (the PR #86 merge) and holds v12.14.
+`main` is at `6baac2e` (the PR #88 merge) and holds v12.15.
 
 | Commit | What |
 |---|---|
-| `f3f529e`–`ba293c2` | **v12.13**: C0, code, gates, review fixes, CLAUDE.md (`ce7af86`), acceptance |
-| `b96ec7b` | **merge of PR #85** |
-| `dbf1925` | **v12.14** code, mock knobs, probes, CI |
-| `ecdfb45` | the A36 export capture (WebKit) |
-| `df28497`–`0a96258` | PR #86 docs: DEC-051, review record, acceptance, lessons, the detailed docs pass |
-| `79e4953` | **merge of PR #86** |
-| session-close PR | `docs/session-close-v12.14`: this handoff, the archive, ROADMAP's order and owed list |
+| `d579600` | Phase 0: the owner's Chrome result and Safari bookmark findings in DEC-031 and ROADMAP 13 |
+| `2d29022`–`2e22c53` | **part B**: the landing, the gate, the review fix |
+| `59d4422`–`8b5b097` | **part A**: bookmarks by id, the store key, the review fix |
+| `3bdaf87`–`9b16225` | **part C**: rows by `data-turn-key`, the gate, the review round |
+| `71eda09` | version 12.15; probes in `test:probes` and CI |
+| `500ced6`, `f5a036e`, `92dd6c8` | Tier 3 fixes, rounds 1–5 |
+| `2ef0d80` | the review summary |
+| `989fe0a` | the live check's Perplexity text fix |
+| `6adde2f`, `353db37` | the v12.15 docs; the PR number |
+| `1a6de53`, `12ad0a6` | GitHub Codex rounds 1 and 2 |
+| `258c5c4` | the final live retest's record |
+| `6baac2e` | **merge of PR #88** |
+| `e5c32fc`, `d53fe16`, `360d59a`, this handoff | PR #89, `docs/v12.15-merge-followup` |
 
-- **Remote branches:** `main`, `fix/claude-answer-bookmarks` (merged; left in place) and, once pushed, the
-  session-close branch.
-- **Deleted this session** (owner's request), each checked as an ancestor of `origin/main` and as a merged PR's
-  branch. Their tips, for recovery:
-
-  | Branch | Tip | PR |
-  |---|---|---|
-  | `docs/v12.9-post-merge` | `fb5193e` | #76 |
-  | `docs/v12.9-handoff` | `ced1ae5` | #77 |
-  | `feat/chatgpt-perplexity-index-adapters` | `e390efe` | #78 |
-  | `docs/v12.10-close-out` | `cdc1ea3` | #79 |
-  | `docs/session-close-v12.10` | `12262d2` | #80 |
-  | `fix/turn-counter-dots` | `763f0d7` | #81 |
-  | `fix/safari-parity` | `5af4d79` | #82 |
-  | `docs/v12.12-closeout` | `8d78d46` | #83 |
-  | `docs/session-close-v12.12` | `594b1b1` | #84 |
-  | `fix/cross-tab-storage` | `ba293c2` | #85 |
-  | `fix/safari-transport-fallback` | `9ed5182` | #75 |
-- **Merges use merge commits** (`gh pr merge --merge --match-head-commit <full SHA>`). An abbreviated SHA fails with
-  "Could not coerce value … to GitObjectID"; use `$(git rev-parse HEAD)`. The ruleset requires all nine CI checks and
-  allows no bypass; this session needed no reruns.
+- **Remote branches:** `main`, `fix/v12.15-bookmarks-jumps-claude` (merged; left in place), `docs/v12.15-merge-followup`
+  (PR #89).
+- **Local-only branches** left by the build workflow, all merged through PR #88's cherry-picks: `v1215-A`,
+  `v1215-A-fix`, `v1215-B`, `v1215-B-fix`, `v1215-C`, `v1215-C-fix`, and six `worktree-wf_2be744b1-3b4-*`. Their
+  worktrees are removed. Delete the branches on the owner's OK.
+- **Merges use merge commits** (`gh pr merge --merge`); the ruleset requires all nine CI checks and allows no bypass.
+  PR #88 needed one re-run (J15).
 - **The owner's own untracked files: never `git add` them.** `.playwright-mcp/`, `docs/CONTEXT-TRACKING-AUDIT.md`,
   `docs/IMAGE-GALLERY-DOM-FIX.md`, `docs/V10.10-TASKS.md`, `docs/V10.11-TASKS.md`.
 
@@ -241,151 +179,108 @@ Changed:
 | Path | Why |
 |---|---|
 | `HANDOFF.md` | this file |
-| `ROADMAP.md` "Current Status" | the v12.15 plan, the later items, the owed list |
-| `ROADMAP.md` **item 13** | parts A and B: the owner's Safari results, the logged bookmark and jump items, the ids the adapters fetch (`data-turn-key`, `backend_uuid`) |
-| `ROADMAP.md` **item 14** | part C's items and the logged list |
-| `ROADMAP.md` → "Porting the Layer 4 response to another platform", **Step 4** | part A: users' saved bookmarks on a platform that changes identity |
-| `DECISIONS.md` **DEC-046** | parts A and B: the index adapters (`IX_ADAPTERS`, `ixAdapter`, `ixLoad`, `ixScan`, `ixJump`), the Perplexity jump's wheel event |
-| `probes/check-index-adapters.js`, `tests/mock-pages/chatgpt-windowed.html`, `perplexity-windowed.html` | parts A and B: the mocks that genuinely unmount, and the probe built on them |
-| `TROUBLESHOOTING.md` → "OPEN — Claude refetches the whole conversation while you only scroll" and "OPEN — Claude: a regenerated or late answer no longer triggers a resync" | part C's debugging stories so far, the options and the measurement method |
-| `DECISIONS.md` **DEC-051**, **DEC-050**, **DEC-031** | answer identity and its residuals; cross-tab saves; live status |
-| `DOM-REFERENCE.md` → Claude, "October 2026: answers, rows and the project link" | the markup part C reads |
-| The userscript: `_ciAssistantStale`, `_ciNeedsResync`, `_ciMergeLiveMessages`, `ciMessageNodeWithin`, `ciMatchRowToPath`, `_cleanText`, `_mdFlatten`, `ciAnswerMap` | the staleness check and the question matcher (part C), and what v12.14 built beside them |
-| `DECISIONS.md` **DEC-051**, `docs/BOOKMARKS.md` | part A's model: how Claude answers got identity by position, proof binding, "A#?" |
-| `probes/check-answer-bookmarks.js` (A6: no refetch while scrolling; A25: the July markup's control) | a refetch instrument to build on. A6 passes on v12.13: the mock has no multi-block question yet, so part C needs a new fixture before A6 can fail on the question side |
-| `agent_docs/conventions.md` → "Lessons Learned" | this session's five lessons |
+| `ROADMAP.md` "Current Status" | v12.15, the "Later" list, the owed list |
+| `DECISIONS.md` **DEC-052**, **DEC-053**, **DEC-054**, **DEC-031** | the three parts' designs and residuals; live status and the waiver |
+| `CHANGELOG.md` 12.15 | every result with its context, the live check, the Codex rounds, CI |
+| `TROUBLESHOOTING.md` → "OPEN — Claude: a jump to the latest question…", "OPEN — CI: `check-ix-jumps` J15…" | the two open items this session found |
+| `TESTING.md` → "The live check in the owner's Chrome" | how to install a build and measure live |
+| `agent_docs/architecture.md`, `agent_docs/conventions.md` | the adapter hooks, the landing, row identity, the store key; this session's three lessons |
+| `DOM-REFERENCE.md` → ChatGPT, Perplexity, Claude | the markup v12.15 reads |
+| `probes/check-ix-jumps.js`, `check-ix-bookmarks.js`, `check-claude-turnkeys.js`, `probes/README.md` | the gates |
+| `reviews/review-2026-10-25-v12.15.md` | the review record, Tier 3 and the Codex rounds |
+
+The Phase 1 reports and the build brief were session scratch files and no longer exist; their findings are in
+DEC-052 to DEC-054.
 
 ---
 
 ## G. What comes next
 
-1. **v12.15: one combined PR, three parts in separate commits** (the owner's plan, 2026-10-24):
-   - **A, ChatGPT and Perplexity bookmarks:** questions and answers keyed by the ids the adapters fetch; "Q#n" /
-     "Answer to Q#n"; jumps to off-screen messages; legacy records bind on proof or show "#?" (ROADMAP 13).
-   - **B, the Perplexity one-click jump**, and ChatGPT's near-miss if it is the same cause (ROADMAP 13).
-   - **C, the Claude markup follow-ups** (ROADMAP 14): the question-side refetch while scrolling, dead regenerate and
-     late-answer detection, the question-identity risk.
-
-   **The owner gives the full spec** as the first message of the next session. Do not pre-write its scope from this
-   list.
-
-   The shape:
-   - one read-only Phase 1 for all three parts;
-   - one owner decision checkpoint;
-   - one combined owner acceptance pass;
-   - one merge.
-
-   Its process changes: **Tier 3 is capped at 5 rounds**, and **new issues found during acceptance are logged for a
-   later PR unless they block this one.** The same scope guard and measure-first rules apply.
-
-   Where Phase 1 can start:
-   - part C: the first measurement is named in TROUBLESHOOTING's question-side entry, under "Owed": for each mounted
-     question, its block count and the comparison at its path position;
-   - part B: the Chrome comparison the owner has not run yet.
-
-   Before measuring live, confirm which userscript version is installed in the measurement browser (DEC-027).
-   Branch from `main` after the session-close PR merges (ask if it has not).
-2. **Owed acceptance, recorded as "not reported" until the owner sends results** (DEC-031):
-   - PR #85 (v12.13): steps 2–7, all three browsers.
-   - PR #86 (v12.14): Chrome's and Firefox's steps 4–5. The optional steps 6–7 were not run on any browser.
-   - v12.12: the language change, turn-counter dots, quit-and-reopen Safari, ChatGPT and Perplexity on Safari; Chrome
-     and Firefox: bookmarks and language surviving the update, and plan usage.
-   - v12.11: ChatGPT's 130-question dots (not checked); Chrome and Firefox, the panel closing on navigation
-     unchanged (not reported).
-   - v12.10: Safari's check of ChatGPT and Perplexity. Lists PASS (owner, 2026-10-24, on v12.14). It stays open for
-     the Perplexity jump (v12.15 part B). ChatGPT's far jump sometimes lands near the target; the Chrome comparison
-     has not been checked. DEC-031 keeps the earlier records under it.
-3. **Later; the owner decides the order** (2026-10-24):
-   - Grok on all three browsers;
-   - Gemini (does it keep or slide older turns?);
-   - Perplexity attachment images;
-   - the CI rebuild (0e);
-   - the context-window meter's recalibration to the current limit, verifying it per model first (12);
-   - the stale "Turn N" badge on non-Claude sites;
-   - the "reset, keeping a backup copy" action (0d);
-   - the AbortController follow-up for the ladder's caps (0d);
-   - Chrome's intermittent v12.9-era 403 (never reproduced since; logged, not active);
-   - someday, at low priority, a Windows spot-check of Chrome and Firefox.
+1. **The owner's acceptance of v12.15** on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey: the
+   steps on PR #88's first comment
+   (https://github.com/JoonJ14/ai-conversation-navigator/pull/88#issuecomment-6399417237), plus the optional Claude
+   throwaway-chat step (send a message, regenerate an answer), which measures the facts no agent could without
+   writing to the account: whether a just-sent message's key is final at once, whether and when a regenerate changes
+   the row's key (L3), and whether an edit keeps it (L4). Record results in DEC-031 exactly as reported. Step 6
+   (ChatGPT) and step 11 (Perplexity) count old bookmarks that bind versus read "Q#?" (most are expected to read
+   "Q#?", DEC-053).
+2. **Then the owner picks the next item.** No spec exists; do not pre-write one. The "Later" list (ROADMAP, Current
+   Status):
+   - Claude's jump to the latest question from the top (TROUBLESHOOTING, OPEN; a likely fix is `ixLandOn`-style
+     instant writes for a far mounted target);
+   - `check-ix-jumps` J15's CI race (a clock-independent pin for its mock; probe only);
+   - Grok on all three browsers; Gemini (does it keep or slide older turns?);
+   - Perplexity attachment images; the CI rebuild (0e); the context-window meter's recalibration (12);
+   - the stale "Turn N" badge on non-Claude sites; the "reset, keeping a backup copy" action (0d); the AbortController
+     follow-up (0d); Chrome's v12.9-era 403 (logged, not active); someday, a Windows spot-check.
+3. **Owed acceptance from earlier releases** (DEC-031): PR #85's steps 2–7; PR #86's steps 4–5 on Chrome and Firefox;
+   the v12.12 items never reported; v12.11's ChatGPT dots; v12.10's Safari Perplexity jump (now v12.15's).
 
 ---
 
 ## H. Operational context + owner rules
 
 Carried over, still in force:
-- **Safari, Chrome and Firefox are equal priority** (DEC-047). Acceptance on all three comes before a merge, unless
-  the owner waives it for that PR. Record every waiver in DEC-031.
+- **Safari, Chrome and Firefox are equal priority** (DEC-047). Acceptance on all three comes before a merge unless the
+  owner waives it for that PR; record every waiver in DEC-031 and the release's CHANGELOG entry.
 - **Merge authority is per PR and explicit.** Nothing in this document authorizes a merge.
-- **Live-confirmation results go in DEC-031 only, exactly as reported.** Blanks are "not reported"; ask once.
-- **Live work in the owner's accounts is strictly read-only** (inspecting the DOM, the console and GET API reads are
-  fine; no message sent, edited or deleted; no bookmark created or deleted without asking).
-- **CLAUDE.md changes:** show the diff and commit only on approval. Lines state rules, with no version tags or
-  mechanism details.
-- **Scope:** build the minimal version of the spec; log out-of-scope findings to ROADMAP or TROUBLESHOOTING.
-- **Proof:** the gate probe; `npm test` and the probes after any code change (CLAUDE.md rule 7), with the
-  three-engine runs on the final build; ask before any long run, with a time estimate. `npm run test:probes` stops at `check-usage-state`'s Firefox U10
-  timeout on this Mac (its `&&` chain): run the probes after it directly.
+- **Acceptance results go in DEC-031 only, exactly as reported.** Blanks are "not reported".
+- **Live work in the owner's accounts is read-only.** GET reads of a site's own JSON are fine. Test bookmarks only when
+  the owner allows them; delete exactly those afterwards; never touch the owner's.
+- **CLAUDE.md changes:** show the diff; commit only on approval.
+- **Scope:** build the minimal version of the spec; log out-of-scope findings to ROADMAP or TROUBLESHOOTING. New
+  issues found during acceptance are logged for a later PR unless they block this one.
+- **Proof:** a gate that fails without each mechanism; `npm test` and the probes after any code change;
+  `npm run test:probes` stops at the Firefox U10 timeout on this Mac, so run the rest directly; ask before any long
+  run, with an estimate.
 - **Every claim carries its measurement context.** Safari + Userscripts can only be verified by the owner.
-- **CI is not real-browser evidence.** Restart stalled or failed jobs; never override.
-- **Review:** the pipeline's Tier 3 (Codex CLI) runs without asking and loops until clean: 10 rounds at most by
-  default, **5 for v12.15** (the owner, 2026-10-24).
-- **`/babysit-pr-cycle`, `/baton-handoff`, `/update-project-docs`:** run them only when the owner names them. On a
-  babysit after a clean automatic Codex review, post `@codex review` once more.
+- **CI is not real-browser evidence.** Re-run a stalled or flaky job; never override. A failure well inside the job
+  cap is not a stall: read the failing check first (the owner wants the logs if a re-run fails again).
+- **Review:** Tier 3 (Codex CLI) runs without asking; capped at 5 rounds when the owner says so (v12.15 did).
+- **`/babysit-pr-cycle`, `/baton-handoff`, `/update-project-docs`:** only when the owner names them. After a clean
+  Codex review, post `@codex review` once more.
 - **Git:** explicit `git add` paths; never push to `main`.
 
 New this session:
-- **Log, don't perfect, a field nothing reads** (owner, on the command use counter; memory).
-- **The owner's process** (§D): owner-run measurement scripts first; one change at a time when comparing; a
-  read-only Phase 1 before code.
-- **Live Chrome checks** go through claude-in-chrome on the owner's real profile; if the extension does not connect,
-  launch Chrome, retry, then ask the owner (they reconnect it with `/chrome`).
-- **For v12.15** (the owner, 2026-10-24): one Phase 1, one decision checkpoint, one combined acceptance pass, one
-  merge; Tier 3 capped at 5 rounds; new issues found during acceptance are logged for a later PR unless they block
-  this one.
+- **Live-test before the PR, and again after the babysit** (the owner, 2026-10-25; §D; memory).
+- **Installing a build in the owner's Chrome** is allowed for these checks: press Tampermonkey's Reinstall / Update /
+  Overwrite (the owner: "click, both either of those buttons when you see it"); it needs the Mac unlocked.
+- **The claude-in-chrome extension** may need the owner to sign in again before it connects (2026-10-25; reported to
+  the Claude Code team through `/feedback`, receipt `a9ec2258-c3ae-463b-9c63-96521fa8d94b`).
+- **Before a session-close handoff, re-read the whole transcript** for undocumented facts (the owner, 2026-10-31).
 
 ---
 
 ## I. Deferred / future work
 
 Not queued; §G comes first. Each is logged where named.
-- **The ROADMAP 14 logged list.** The owner approved its first six items before the code. The rest were added from
-  review and measurement, marked "(added later)". Highlights:
-  - `getAIMessages`' other readers still see the project link;
-  - Search's own `A#` numbering, and Export's DOM path keeping the ⚑ glyph;
-  - the flag guard checks our attribute, not the flag; nested flag nodes never heal;
-  - question flags' click closures (the recycling pattern);
-  - on a tall answer the flag shows only near its top edge (a sticky-flag proposal, with its checks);
-  - a repeated prompt anchoring to the old entry;
-  - comments that disagree with the code, and the bookmark test gaps.
-- **DEC-050's residuals.** The owner accepted three of them: there is no atomic compare-and-swap across tabs; a
-  stored value that cannot be read blocks saving that collection; and a command's use can be counted twice ("keep
-  it; the residual is accepted (usageCount is never read)"). A "reset, keeping a backup copy" action is logged
-  in ROADMAP 0d. The rest of DEC-050's list is recorded, not fixed.
-- **ROADMAP 0d logs one pre-existing issue:** on Tampermonkey, a migration whose save throws is not retried.
-- **The local WebKit question** (TROUBLESHOOTING, "OPEN — Local mac WebKit").
+- **ROADMAP 13's v12.15 lists:** short Perplexity threads (no scroll container); `getAIMessages`' other readers;
+  `ixJump` without a hidden-tab guard or wall-clock cap; `orbScrollToMessage` without `releaseScroll`; B6 (fewer
+  entries mounted than live); A-N1 to A-N3; the integrated review's residuals; the live check's ("Finished" in
+  Perplexity answer previews; the unexplained burst; the text fallback and legacy proof still on the old compares;
+  renderings the text key does not model).
+- **ROADMAP 14's part C list:** C-O1 (a mid-stream bookmark keeps the superseded uuid), C-O2 (unbound Claude question
+  records read "Q#1"), the renderer-change false edit, `ciDeriveRowOffset` dead code, the first refetch without a
+  cooldown, and the gate gaps.
+- **Earlier lists** (ROADMAP 14's v12.14 list, DEC-050's and DEC-051's residuals, ROADMAP 0d) are unchanged.
 
 ---
 
 ## J. Risk caveats / known limitations
 
-- **DEC-051's residuals:** an edit or a regenerate before the resync can give a new answer the old answer's uuid (it
-  then reads "A#?"); an answer next to a multi-block question with no bracketing anchors stays unplaced; a bookmark
-  taken on an answer before 200 characters rendered can never prove; one refetch request is spent if a load is
-  already in flight; "Answer (no question)" is reached by no fixture. More in DEC-051: the actions bar's changing
-  text, the activity line changing between bookmark and proof, a repeated prompt's anchor, and the gate's known gaps.
-  Several review fixes have no check that fails without them (DEC-051, Gates).
-- **The question-side refetch is live:** 3 times in one page load while scrolling the 147-question chat [measured,
-  Chrome, v12.13]. It fires once per distinct set of mismatching mounted questions, at most one per 15 s, and again
-  for a set whose download the user scrolled away from [code]. Each refetch re-downloads the conversation, resets
-  anchors and cancels a jump in flight. The options and the measurement method: TROUBLESHOOTING, the OPEN entry.
-- **Bookmarks are keyed by the page address.** If Claude puts the project back into chat addresses, a moved chat's
-  bookmarks would stay under the old address (§B.4).
-- **The mock does not recycle nodes;** R6 moves them by hand. Whether Claude reuses or rebuilds message nodes has never
-  been measured live (ROADMAP item 8).
-- **Owner acceptance gaps** are listed in §G.2, including v12.10's Safari check, open for the Perplexity jump.
-- **On ChatGPT and Perplexity, bookmarks are positional** [measured, owner, Safari, v12.14]: answers get no flag, two
-  different questions can read "Q4", and a jump to an off-screen question fails. v12.15 part A.
+- **v12.15 is merged without owner acceptance.** Everything rests on mocks and the agent's Chrome + Tampermonkey
+  checks; Safari + Userscripts and Firefox + Tampermonkey have not been run on it at all.
+- **Unmeasured live facts** (DEC-053, DEC-054): a just-sent ChatGPT message's key and streaming answer ids; whether
+  `backend_uuid` changes on Rewrite; whether a Claude regenerate changes the row's key, and when (L3); whether an edit
+  keeps it (L4: `_ciKeyTextEdited` takes its baseline from the first observation, so an edit before the row's first
+  scan becomes the baseline).
+- **Perplexity's text key** models the renderings measured on one 12-question thread. Others (KaTeX math, a table
+  without leading pipes, intraword italics) read as stale, as before v12.15: one refetch and keyless flags for that
+  question.
+- **Claude's latest-question jump from the top** usually ends at the bottom, past the question (pre-existing).
+- **J15** can fail once in CI with `resolved=10 toast=no inView=true err=0px`; re-run.
 - **Test engines:** local mac WebKit fails the 4 known jump entries; `check-usage-state` U10 times out on Firefox on
-  this Mac, intermittently (2026-10-24: 2 of 3 runs passed, the final run among them; TROUBLESHOOTING).
+  this Mac, intermittently.
 
 ---
 
@@ -393,7 +288,7 @@ Not queued; §G comes first. Each is logged where named.
 
 ```
 Pick up AI Conversation Navigator from the handoff at HANDOFF.md
-(2026-10-24, v12.13 and v12.14; next: v12.15).
+(2026-10-31, v12.15 merged as 6baac2e before acceptance; next: the owner's call).
 
 CLAUDE.md auto-loads. Read HANDOFF.md before touching anything, especially §G (what
 comes next), §H (owner rules) and §J (risk caveats).
@@ -402,30 +297,27 @@ FIRST, CHECK STATE — do not assume:
   git fetch origin
   git log --oneline --first-parent -4 origin/main
   gh pr list --state open
-main should be v12.14 and include the merges of PR #85 (b96ec7b) and PR #86
-(79e4953). If the session-close PR (branch docs/session-close-v12.14) is still
-open, HANDOFF.md and ROADMAP.md on main are the OLD ones: read both from that branch
-(git show origin/docs/session-close-v12.14:HANDOFF.md, and the same for ROADMAP.md)
+main should be v12.15 and include the merge of PR #88 (6baac2e). If PR #89
+(branch docs/v12.15-merge-followup) is still open, HANDOFF.md, ROADMAP.md and
+DECISIONS.md on main are the OLD ones: read them from that branch
+(git show origin/docs/v12.15-merge-followup:HANDOFF.md, and the same for the others)
 and ask me whether to merge it before you branch.
 
-THIS SESSION: v12.15, ONE combined PR in three parts, separate commits (HANDOFF §G.1):
-  A. ChatGPT + Perplexity bookmarks (ROADMAP 13)
-  B. the Perplexity one-click jump, and ChatGPT's near-miss if same cause (ROADMAP 13)
-  C. the Claude markup follow-ups (ROADMAP 14)
-My full spec is in this message, after this prompt; it decides the scope, not the
-handoff. Confirm your understanding of the handoff and the spec, then run ONE
-read-only Phase 1 for all three parts: measure first, report, and wait for my
-decisions (one checkpoint) before any code. Read HANDOFF §B.7, ROADMAP 13 and 14,
-DEC-046, and TROUBLESHOOTING's two OPEN Claude entries before reasoning about a
-cause. Before any live measurement, confirm which userscript version is installed
-in that browser (DEC-027).
-
-PROCESS FOR v12.15: Tier 3 capped at 5 rounds. One combined owner acceptance pass,
-one merge. New issues found during acceptance are logged for a later PR unless they
-block this one.
+THIS SESSION: no spec yet. Ask me which of these comes first:
+  - my acceptance results for v12.15 (I report; you record them in DEC-031 exactly
+    as I report them), or
+  - an item from ROADMAP "Current Status" → "Later" (HANDOFF §G.2), or
+  - something new I describe.
+For any code change: a read-only Phase 1 first, measure before reasoning, and wait
+for my decision before code. Before any live measurement, confirm which userscript
+version is installed in that browser (DEC-027).
 
 STANDING RULE: Safari, Chrome and Firefox are equal priority; none is primary
 (DEC-047). I work mostly on the Mac: Safari first, Chrome if Safari fails.
+
+PROCESS (HANDOFF §H, §D): build, install in my Chrome through Tampermonkey and test
+live until it passes, then open the PR, run the babysit cycle when I name it, and
+install and retest the final build at the end.
 
 DO NOT:
 - Merge anything without my explicit OK for that PR, or push to main. The ruleset

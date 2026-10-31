@@ -70,13 +70,14 @@ On `claude.ai/chat/<uuid>`, `_questions` is populated from the **API-backed conv
 
 ## Measurement Context Is Part of the Finding (v12.0+)
 
-**Problem.** Three separate findings in v12.0 were verified, written down as settled fact, and later proved false — not because the measurement was sloppy, but because it was taken in a context different from the one the code runs in.
+**Problem.** Three separate findings in v12.0, and one more since (the last row), were verified, written down as settled fact, and later proved false — not because the measurement was sloppy, but because it was taken in a context different from the one the code runs in.
 
 | Finding | Verified in | False in | Cost |
 |---|---|---|---|
 | API `text` field is usable | shape inspection | actual contents — empty on all 192 messages | would have rendered 147 blank rows |
 | A bare `fetch` returns 200 | DevTools console (page realm) | Tampermonkey sandbox — never tested there | caught pre-ship by review |
 | `scrollTop` alone does not drive the virtualizer | a **hidden** window with rAF throttled | a visible window, and the Firefox sandbox | written into **three committed files** before correction |
+| Perplexity's question bubble reads as its index text | the windowed mocks (plain text) | the live site — the bubble renders the question's markdown | a jump that never landed and flags with no key, caught by the live check before the PR |
 
 **v12.9 adds a context to the second row without replacing it:** a bare `fetch(…, {credentials: 'include'})` from the **Safari + Userscripts content-script world** returned 200 for the right org (owner's manual probe, short conversation; not recorded whether the script was loaded at the time — if it was, that `fetch` was our own SSE proxy, which Userscripts lets the interceptor install on the content world's `window`). It is *still* unmeasured in the **Tampermonkey sandbox** — which is why detection never puts `fetch` first there. It runs under Tampermonkey only after `gmxhr` was refused or could not run, and once it has won a load it goes first for the rest of that page session (the cached winner, DEC-045).
 
