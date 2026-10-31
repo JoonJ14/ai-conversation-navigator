@@ -561,7 +561,7 @@ merged 2026-10-31 as `6baac2e` on the owner's OK, before their acceptance (a wai
 
 ---
 
-## FIXED IN v12.16 (PR pending), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Claude: a jump to the latest question from the top ends at the bottom, past it (found 2026-10-25)
+## FIXED IN v12.16 (PR #90), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Claude: a jump to the latest question from the top ends at the bottom, past it (found 2026-10-25)
 
 **Phase:** v12.15's live check (Claude regression); fixed in v12.16 part A (DEC-055) | **Severity:** Medium (the
 latest question only; one more click lands) | **Status:** fixed in code, gated in the page realm

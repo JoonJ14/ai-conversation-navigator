@@ -30,9 +30,9 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.16 IN REVIEW (PR pending); v12.15 MERGED (PR #88) — live confirmation status: DEC-031
+## Current Status: v12.16 IN REVIEW (PR #90); v12.15 MERGED (PR #88) — live confirmation status: DEC-031
 
-**v12.16 (branch `fix/v12.16-claude-jump-meter-gemini`, PR pending; owner acceptance owed on all three browsers).**
+**v12.16 (branch `fix/v12.16-claude-jump-meter-gemini`, PR #90; owner acceptance owed on all three browsers).**
 One combined PR in three parts, from the owner's spec (2026-10-31). A: on Claude, a jump to a far target that is
 already mounted (the latest question, from the top) lands instead of gliding past it (DEC-055; TROUBLESHOOTING, the
 entry it fixes). B: Claude's context meter uses the window of the conversation's model, from Anthropic's help center,

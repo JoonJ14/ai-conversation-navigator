@@ -1284,9 +1284,10 @@ every waiver here, and in the release's CHANGELOG entry.
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
 review record. Updated 2026-10-31:
-- **v12.16 (PR pending; Claude's far jump, Claude's context window by model, Gemini's history note; DEC-055,
+- **v12.16 (PR #90; Claude's far jump, Claude's context window by model, Gemini's history note; DEC-055,
   DEC-056, DEC-057).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey:
-  **owed**, nothing reported yet (the steps will be the PR's first comment).
+  **owed**, nothing reported yet. The steps, as posted on the PR:
+  https://github.com/JoonJ14/ai-conversation-navigator/pull/90#issuecomment-6550538381
   - **The agent's live check before the PR — not owner acceptance.** Chrome + Tampermonkey, the owner's real profile,
     visible tab, 2026-10-31 (installed: 12.15 before, then the branch builds through Tampermonkey's Update and
     Reinstall). Claude, the long chat `3d7b6dc1` (140 questions on its active path): from the top, Navigate → Q140
@@ -3790,7 +3791,7 @@ not persisted.
 ---
 
 ## DEC-055: A Far Mounted Claude Target Lands the Way the Adapter Sites' Targets Do (v12.16)
-**Date:** 2026-10-31 | **Stage:** v12.16, part A (the owner's spec, default fix). PR pending; owner acceptance pending
+**Date:** 2026-10-31 | **Stage:** v12.16, part A (the owner's spec, default fix). PR #90; owner acceptance pending
 on all three browsers (DEC-031)
 
 ### Decision
@@ -3901,7 +3902,7 @@ Phase 1). PR pending; owner acceptance pending (DEC-031)
 ---
 
 ## DEC-057: Gemini Keeps What It Loads; Navigate Says When the Chat's Start Is Not Loaded Yet (v12.16)
-**Date:** 2026-10-31 | **Stage:** v12.16, part C (the owner's spec: KEEP measured, so the default). PR pending; owner
+**Date:** 2026-10-31 | **Stage:** v12.16, part C (the owner's spec: KEEP measured, so the default). PR #90; owner
 acceptance pending (DEC-031)
 
 ### Decision
