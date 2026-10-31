@@ -45,7 +45,7 @@ erases every other tab's saves; the owner measured that on Safari (v12.12, bookm
 | Key | Store | Two tabs (DEC-050) | Purpose |
 |-----|-------|--------------------|---------|
 | `'acn-settings'` | GM | last write wins | Language and platform toggles. Re-read on every `i18n()` call and platform check |
-| `'acn-bookmarks-v1'` | GM | merged, by record id | Message bookmarks per conversation (`BOOKMARK_KEY`), keyed by the page address (`origin + pathname`; on Claude `/chat/<id>`, in a project or not) |
+| `'acn-bookmarks-v1'` | GM | merged, by record id | Message bookmarks per conversation (`BOOKMARK_KEY`), keyed by `normalizeConversationUrl()`. Since v12.15 (DEC-053) ChatGPT and Perplexity use one canonical key per conversation, the adapter's `bookmarkUrl(cid)`: `https://chatgpt.com/c/<id>` (project chats too) and `https://www.perplexity.ai/search/<id>` (the bare host too); sets filed under the other URL forms are merged in by `_bmMergeSplitKeys` through `acnUpdateValue`. Everywhere else, Claude included, it is the page address (`origin + pathname`; on Claude `/chat/<id>`, in a project or not). Records on ChatGPT and Perplexity are keyed by the message's own id, never a position |
 | `'acn-commands'` | GM | merged, by id | Saved /commands (`COMMANDS_KEY`) |
 | `'acn_ctx_cache'` | GM | merged, by conversation | Claude context window cache |
 | `'acn-zone-positions'` | GM | merged, by platform | Orbital zone Y position per platform (fraction of viewport height, added v10.10) |
