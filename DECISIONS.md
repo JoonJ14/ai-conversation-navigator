@@ -3843,7 +3843,7 @@ in about 1.4–1.6 s.
 
 ## DEC-056: Claude's Context Meter Uses the Window of the Conversation's Model (v12.16)
 **Date:** 2026-10-31 | **Stage:** v12.16, part B (the owner's spec, default fix; both stop conditions cleared in
-Phase 1). PR pending; owner acceptance pending (DEC-031)
+Phase 1). PR #90; owner acceptance pending (DEC-031)
 
 ### Decision
 - **The model:** the conversation JSON the index already downloads names the chat's model at its top level

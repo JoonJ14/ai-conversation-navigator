@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.16 — Claude's Latest-Question Jump Lands, Claude's Context Meter by Model, Gemini's History Note] — 2026-10-31
 
-**Branch:** `fix/v12.16-claude-jump-meter-gemini` | **PR:** pending | Owner acceptance on Safari + Userscripts,
+**Branch:** `fix/v12.16-claude-jump-meter-gemini` | **PR:** #90 | Owner acceptance on Safari + Userscripts,
 Chrome + Tampermonkey and Firefox + Tampermonkey owed (DEC-031, DEC-047)
 
 One combined PR in three parts, from the owner's spec (2026-10-31). Grok is out of scope (its own PR).
