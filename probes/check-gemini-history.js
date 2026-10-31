@@ -322,6 +322,42 @@ async function runEngine(engine, raw, only, quiet) {
         }
     }
 
+    // ── H10: every page loaded, the older turns never rendered (cv): Q32 from the top, Q1 from the bottom ──
+    // Live (Chrome, 2026-10-31): the turns between carry turn-content-visibility, so their heights are
+    // estimates until they render; a glide grew scrollHeight under it and left Q32 4,240 px below the
+    // view (2 of 4). v12.16 lands a far loaded question through ixLandOn (gmLandFar).
+    if (want('H10')) {
+        const runs = [];
+        for (const [n, from, idx] of [[32, 'top', 31], [1, 'bottom', 0]]) {
+            const h = await open('H10', C32, { cv: true, cvEstimate: 120 });
+            if (!h) continue;
+            const logs = [];
+            h.page.on('console', (m) => { const t = m.text(); if (t.indexOf('[ACN') === 0) logs.push(t); });
+            await h.page.evaluate(() => { try { localStorage.setItem('acnJumpDebug', '1'); } catch (e) {} });
+            await h.page.evaluate(() => window.__mockGemini.loadAll());
+            await h.openNav();
+            const v0 = await h.waitCount(32);
+            await h.page.evaluate((w) => window.__mockGemini.userScroll(w), from);
+            await h.waitStill();
+            const pre = await h.page.evaluate(() => ({ sh: document.querySelector('infinite-scroller.chat-history').scrollHeight,
+                unseen: document.querySelectorAll('.mock-cv-unseen').length }));
+            const c = v0.count === '32' && await h.click(idx);
+            if (c) await h.waitStill();
+            const b = await h.bubble(n);
+            const post = await h.page.evaluate(() => document.querySelector('infinite-scroller.chat-history').scrollHeight);
+            runs.push({ n, from, ok: c && b.inView && !b.toast, b, pre, post, logs });
+            await h.close();
+        }
+        if (runs.length === 2) {
+            check('H10', '[new] turns never rendered between (content-visibility): Q32 from the top and Q1 from the bottom land in view',
+                  runs.every((r) => r.ok),
+                  runs.map((r) => 'Q' + r.n + ' from the ' + r.from + ' ' + (r.b.inView ? 'in' : 'OUT') + ' top=' + r.b.top +
+                                  ' scrollTop=' + r.b.scrollTop + ' scrollHeight ' + r.pre.sh + '->' + r.post +
+                                  ' unseen before=' + r.pre.unseen + (r.b.toast ? ' TOAST' : '') +
+                                  (r.ok ? '' : ' [' + r.logs.filter((t) => /far landing|alignment cap|jump/.test(t)).slice(-4).join(' ; ') + ']')).join(' | '));
+        }
+    }
+
     check('E', 'no page errors', pageErrors.length === 0, pageErrors.slice(0, 2).join(' / '));
     await browser.close();
     const secs = ((Date.now() - t0) / 1000).toFixed(1);

@@ -3672,41 +3672,28 @@
         step();
     }
 
-    // ciLandFar(el, getEl, landed) — a FAR mounted target on Claude lands the way ixLandOn
-    // lands the adapter sites' targets (v12.16, DEC-055). Claude keeps its latest rows mounted
-    // at every scroll position, so from the top the latest question is found mounted about
-    // 200,000 px away, and one smooth scrollIntoView across that distance ended at the bottom,
-    // past it: the virtualizer replaced estimated row heights with measured ones during the
-    // glide, scrollHeight shrank (278,903 -> ~209,000 px) and the destination fixed at its start
-    // no longer held the target (Chrome + Tampermonkey, v12.15 and v12.14, 2026-10-25;
-    // TROUBLESHOOTING). Far is ixJump's own rule: outside the view extended by one viewport each
-    // way. A near target returns false and the caller glides as before.
+    // orbLandFarIn(box, el, getEl, landed, a, stillValid) — a FAR mounted target lands the way
+    // ixLandOn lands the adapter sites' targets (v12.16, DEC-055, DEC-057): instant writes, the
+    // target re-located before each by the caller's own resolver, within IX_JUMP_ALIGN_TOL px or
+    // IX_JUMP_MAX_ALIGNS writes, a toast when it cannot land. Far is ixJump's own rule: outside the
+    // view extended by one viewport each way; a near target returns false and the caller glides as
+    // before. The caller bumps the jump tokens BEFORE calling, so a newer click supersedes this one.
+    //   box        the scroll container;  a: the adapter (only its releaseScroll is read)
     //   el         the target as the caller found it (mounted)
     //   getEl()    the same target re-located by the CALLER'S OWN resolver, on every step
-    //   landed(n)  the caller's success (mark, flash). A failure toasts here, except a newer
-    //              jump or the user scrolling
-    // Every call on Claude supersedes an older jump, near or far, before the distance test: a
-    // landing still in flight must not write over a newer click's glide.
-    // A direct glide on Claude (Summary, the gallery, a plain message scroll) supersedes a far
-    // landing still in flight: ixWatchUser sees only the user's own input, so without this the
-    // landing's next write would pull the view back to its target.
-    function ciSupersedeLanding() {
-        if (ciIsClaudeChat()) { _ixJumpToken++; _ciJumpToken++; }
-    }
-
-    function ciLandFar(el, getEl, landed) {
-        if (!ciIsClaudeChat()) return false;
-        var ixTok = ++_ixJumpToken, ciTok = ++_ciJumpToken;
-        if (!el || !el.isConnected || !getEl || !ciIsReady()) return false;
-        var box = ciFindScrollContainerStable();
-        if (!box || !box.contains(el)) return false;
+    //   landed(n)  the caller's success (mark, flash)
+    //   stillValid optional: false ends the landing as superseded (Claude: the index left ready)
+    function orbLandFarIn(box, el, getEl, landed, a, stillValid) {
+        if (!box || !el || !el.isConnected || !getEl || !box.contains(el)) return false;
         var vr = box.getBoundingClientRect(), vh = box.clientHeight, er = el.getBoundingClientRect();
         if (er.bottom >= vr.top - vh && er.top <= vr.bottom + vh) return false;
         ciPre('far landing: target ' + Math.round(er.top - vr.top) + ' px from the view top');
+        var ixTok = _ixJumpToken, ciTok = _ciJumpToken;
         var watch = ixWatchUser(box);
-        ixLandOn(IX_ADAPTERS.claude, getEl, { container: box, check: function () {
+        ixLandOn(a, getEl, { container: box, check: function () {
             if (watch.scrolled) return 'user';
-            if (ixTok !== _ixJumpToken || ciTok !== _ciJumpToken || !ciIsReady()) return 'superseded';
+            if (ixTok !== _ixJumpToken || ciTok !== _ciJumpToken ||
+                (stillValid && !stillValid())) return 'superseded';
             if (!box.isConnected) return 'container-gone';
             if (document.visibilityState !== 'visible') return 'hidden';
             return null;
@@ -3722,6 +3709,39 @@
             }
         });
         return true;
+    }
+
+    // A direct glide on Claude (Summary, the gallery, a plain message scroll) supersedes a far
+    // landing still in flight: ixWatchUser sees only the user's own input, so without this the
+    // landing's next write would pull the view back to its target.
+    function ciSupersedeLanding() {
+        if (ciIsClaudeChat()) { _ixJumpToken++; _ciJumpToken++; }
+    }
+
+    // Claude (DEC-055). Claude keeps its latest rows mounted at every scroll position, so from the
+    // top the latest question is found mounted about 200,000 px away, and one smooth
+    // scrollIntoView across that distance ended at the bottom, past it: the virtualizer replaced
+    // estimated row heights with measured ones during the glide, scrollHeight shrank (278,903 ->
+    // ~209,000 px) and the destination fixed at its start no longer held the target (Chrome +
+    // Tampermonkey, v12.15 and v12.14, 2026-10-25; TROUBLESHOOTING). Every call on Claude
+    // supersedes an older jump, near or far, before the distance test.
+    function ciLandFar(el, getEl, landed) {
+        if (!ciIsClaudeChat()) return false;
+        _ixJumpToken++; _ciJumpToken++;
+        if (!ciIsReady()) return false;
+        return orbLandFarIn(ciFindScrollContainerStable(), el, getEl, landed, IX_ADAPTERS.claude, ciIsReady);
+    }
+
+    // Gemini (DEC-057). Off-screen turns carry turn-content-visibility, so their heights are
+    // estimates until they render; a glide from the top to the latest question grew scrollHeight
+    // under it (59,324 -> 63,126 px) and left the target 4,240 px below the view, 2 of 4 times
+    // (Chrome + Tampermonkey, 2026-10-31; the times it landed, the turns had rendered before).
+    // Gemini keeps its turns, so the question re-locates through _relocateQuestionElement.
+    function gmLandFar(el, q, landed) {
+        if (!platform || platform.id !== 'gemini') return false;
+        _ixJumpToken++;
+        return orbLandFarIn(document.querySelector('infinite-scroller.chat-history'), el,
+                            function () { return _relocateQuestionElement(q); }, landed, {}, null);
     }
 
     // Resolve-on-arrival, the design of ciJumpToFullPathIndex at this seam's size: aim at
@@ -8956,6 +8976,10 @@
             if (typeof q.pathIndex === 'number' && !q.provisional &&
                 ciLandFar(target, function () { return ciResolveMountedByPathIndex(q.pathIndex); },
                           function (n) { q.element = n; orbMarkJumpTarget(n); orbFlashElement(n); })) {
+                return;
+            }
+            // Gemini: the same for a far loaded question (v12.16, DEC-057).
+            if (gmLandFar(target, q, function (n) { q.element = n; orbMarkJumpTarget(n); orbFlashElement(n); })) {
                 return;
             }
             target.scrollIntoView({ behavior: 'smooth', block: 'center' });

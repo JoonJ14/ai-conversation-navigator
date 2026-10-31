@@ -17,6 +17,14 @@
        - A history load takes seconds (live it blocks the main thread): config `loadDelayMs`
          (default 2000) between reaching the top and the prepend. No checks depend on its value.
        - Nothing in the DOM marks "more history"; user-query-content-N ids restart at 0 per render.
+       - Off-screen turns carry turn-content-visibility: their height is an estimate until they render,
+         and a glide from the top to the latest question grew scrollHeight under it (59,324 -> 63,126 px),
+         leaving the target 4,240 px below the view. Measured live: turns are `content-visibility: auto`
+         with `contain-intrinsic-size: auto 500px`, and the scroller keeps the browser's scroll anchoring
+         (`overflow-anchor: auto`). Config `cv` (off by default) gives every turn an estimated height
+         (`cvEstimate`, default 500 px, the live value) until it first comes within half a view of the
+         scroller's view, settled on each scroll event (an ordering, not a timing window), and turns
+         the scroller's anchoring on, as live.
      NOT modelled: the main-thread block itself, Gemini's real heights, streaming.
 
      CONFIG (window.__MOCK_CONFIG, set before this body):
@@ -25,6 +33,7 @@
        loadDelayMs: delay from reaching the top (scrollTop <= 50) to the prepend (default 2000)
        anchor:      re-anchor scrollTop on a prepend (default true)
        firstDelayMs: delay before the first page renders (default 200), so a script sees 0 then 10
+       cv:          the content-visibility model above (default false); cvEstimate: its height (500)
 
      window.__mockGemini:
        loaded()        turns currently in the DOM
@@ -85,6 +94,8 @@
     var DELAY = typeof cfg.loadDelayMs === 'number' ? cfg.loadDelayMs : 2000;
     var ANCHOR = cfg.anchor !== false;
     var FIRST = typeof cfg.firstDelayMs === 'number' ? cfg.firstDelayMs : 200;
+    var CV = !!cfg.cv;
+    var CV_EST = typeof cfg.cvEstimate === 'number' ? cfg.cvEstimate : 500;
     var sc = document.querySelector('infinite-scroller.chat-history');
 
     var TOPICS = ['orbital transfer windows', 'tidal locking of moons', 'the Roche limit', 'gravity assists',
@@ -135,8 +146,29 @@
             '<structured-content-container class="model-response-text">' + answerHtml(n) + '</structured-content-container>' +
             '<div class="response-footer"></div></div></div></model-response>';
         d.querySelector('p.query-text-line').textContent = text || questionText(n);
+        if (CV) { d.className += ' mock-cv-unseen'; d.style.height = CV_EST + 'px'; d.style.overflow = 'hidden'; }
         return d;
     }
+
+    // cv: a turn takes its real height the first time it comes within half a view of the scroller's
+    // view, repeated until nothing new qualifies (the browser settles content-visibility before it
+    // paints). A glide passes every turn on its way and renders them all; an instant write skips the
+    // ones between, which is the difference measured live.
+    function cvReveal() {
+        if (!CV) return;
+        for (var pass = 0; pass < 50; pass++) {
+            var r = sc.getBoundingClientRect(), m = sc.clientHeight / 2, u = sc.querySelectorAll('.mock-cv-unseen'), any = false;
+            for (var i = 0; i < u.length; i++) {
+                var b = u[i].getBoundingClientRect();
+                if (b.bottom > r.top - m && b.top < r.bottom + m) {
+                    u[i].classList.remove('mock-cv-unseen'); u[i].style.height = ''; u[i].style.overflow = ''; any = true;
+                }
+            }
+            if (!any) return;
+        }
+    }
+    sc.addEventListener('scroll', cvReveal, { passive: true });
+    if (CV) sc.style.overflowAnchor = 'auto';
 
     // user-query-content-N restarts at 0 per render (live), counting from the top of what is shown.
     function renumber() {
@@ -173,6 +205,7 @@
             sc.appendChild(frag);
             renumber();
             sc.scrollTop = sc.scrollHeight;
+            cvReveal();
         }, FIRST);
     }
 
