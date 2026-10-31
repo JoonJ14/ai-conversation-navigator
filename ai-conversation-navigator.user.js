@@ -3666,6 +3666,47 @@
         step();
     }
 
+    // ciLandFar(el, getEl, landed) — a FAR mounted target on Claude lands the way ixLandOn
+    // lands the adapter sites' targets (v12.16, DEC-055). Claude keeps its latest rows mounted
+    // at every scroll position, so from the top the latest question is found mounted about
+    // 200,000 px away, and one smooth scrollIntoView across that distance ended at the bottom,
+    // past it: the virtualizer replaced estimated row heights with measured ones during the
+    // glide, scrollHeight shrank (278,903 -> ~209,000 px) and the destination fixed at its start
+    // no longer held the target (Chrome + Tampermonkey, v12.15 and v12.14, 2026-10-25;
+    // TROUBLESHOOTING). Far is ixJump's own rule: outside the view extended by one viewport each
+    // way. A near target returns false and the caller glides as before.
+    //   el         the target as the caller found it (mounted)
+    //   getEl()    the same target re-located by the CALLER'S OWN resolver, on every step
+    //   landed(n)  the caller's success (mark, flash). A failure toasts here, except a newer
+    //              jump or the user scrolling
+    // Every call on Claude supersedes an older jump, near or far, before the distance test: a
+    // landing still in flight must not write over a newer click's glide.
+    function ciLandFar(el, getEl, landed) {
+        if (!ciIsClaudeChat()) return false;
+        var ixTok = ++_ixJumpToken, ciTok = ++_ciJumpToken;
+        if (!el || !el.isConnected || !getEl || !ciIsReady()) return false;
+        var box = ciFindScrollContainerStable();
+        if (!box || !box.contains(el)) return false;
+        var vr = box.getBoundingClientRect(), vh = box.clientHeight, er = el.getBoundingClientRect();
+        if (er.bottom >= vr.top - vh && er.top <= vr.bottom + vh) return false;
+        ciPre('far landing: target ' + Math.round(er.top - vr.top) + ' px from the view top');
+        var watch = ixWatchUser(box);
+        ixLandOn(IX_ADAPTERS.claude, getEl, { container: box, check: function () {
+            if (watch.scrolled) return 'user';
+            if (ixTok !== _ixJumpToken || ciTok !== _ciJumpToken || !ciIsReady()) return 'superseded';
+            if (!box.isConnected) return 'container-gone';
+            if (document.visibilityState !== 'visible') return 'hidden';
+            return null;
+        } }, function (ok, node, why) {
+            watch.stop();
+            if (ok && node) { landed(node); return; }
+            if (why !== 'superseded' && why !== 'user') {
+                showToast('That message is not currently rendered \u2014 scroll toward it and try again');
+            }
+        });
+        return true;
+    }
+
     // Resolve-on-arrival, the design of ciJumpToFullPathIndex at this seam's size: aim at
     // the entry's share of the scroll height, wait for the window to settle, identify the
     // target by its own id on arrival, otherwise move toward it by the nearest mounted
@@ -8715,6 +8756,13 @@
                 orbFlashElement(target);
             }, 350);
         } else {
+            // A far mounted target on Claude (the latest question, from the top) lands instead
+            // of gliding (v12.16), re-located by the same resolver that found it.
+            if (typeof q.pathIndex === 'number' && !q.provisional &&
+                ciLandFar(target, function () { return ciResolveMountedByPathIndex(q.pathIndex); },
+                          function (n) { q.element = n; orbMarkJumpTarget(n); orbFlashElement(n); })) {
+                return;
+            }
             target.scrollIntoView({ behavior: 'smooth', block: 'center' });
             orbFlashElement(target);
         }
@@ -9059,6 +9107,7 @@
                     // and this branch used to be gated on the node being DISCONNECTED. The
                     // click then scrolled confidently to whatever response now occupied it.
                     // Same rule _sumScrollToElement follows (Codex).
+                    var landGet = null;
                     if (typeof m.pathIndex === 'number' && ciIsClaudeChat() && ciIsReady()) {
                         target = null;
                         // INDEXED match: resolve by ROW IDENTITY only. The old
@@ -9067,16 +9116,18 @@
                         // answers scrolled to the wrong message (Codex R4). A mounted
                         // row that RESOLVES to this match's path entry is the target;
                         // anything else falls through to the uuid jump bridge below.
-                        var mrows = ciMountedRows();
-                        for (var ri = 0; ri < mrows.length; ri++) {
-                            if (mrows[ri].isUser) continue;
-                            var rp = ciResolvePathForRowStrict(mrows[ri].dataIndex);
-                            if (rp === null) rp = ciMatchRowToPath(mrows[ri]);
-                            if (rp === m.pathIndex) {
-                                target = ciMessageNodeWithin(mrows[ri].el);
-                                break;
+                        // The same resolver re-finds it for a far landing (v12.16).
+                        landGet = function () {
+                            var mrows = ciMountedRows();
+                            for (var ri = 0; ri < mrows.length; ri++) {
+                                if (mrows[ri].isUser) continue;
+                                var rp = ciResolvePathForRowStrict(mrows[ri].dataIndex);
+                                if (rp === null) rp = ciMatchRowToPath(mrows[ri]);
+                                if (rp === m.pathIndex) return ciMessageNodeWithin(mrows[ri].el);
                             }
-                        }
+                            return null;
+                        };
+                        target = landGet();
                     } else if (!target || !target.isConnected) {
                         // Non-indexed platforms: text matching is all there is.
                         var wanted = _normalizeKey(m.text);
@@ -9119,7 +9170,7 @@
                         showToast('That message is not currently rendered — scroll toward it and try again');
                         return;
                     }
-                    orbScrollToMessage(target);
+                    orbScrollToMessage(target, landGet);
                 };
             }(match)));
 
@@ -10931,15 +10982,22 @@
         }, { land: false });
     }
 
-    function orbScrollToMessage(el) {
+    // getEl (optional, Claude): re-locates the same message by the caller's own resolver, so a
+    // far mounted target lands through ciLandFar instead of gliding (v12.16). Without it, or for
+    // a near target, the glide is unchanged.
+    function orbScrollToMessage(el, getEl) {
         if (!el) return;
 
+        function flash(n) {
+            n.classList.remove('acn-bm-flash');
+            void n.offsetWidth;
+            n.classList.add('acn-bm-flash');
+            setTimeout(function () { n.classList.remove('acn-bm-flash'); }, 1600);
+        }
         function doScroll() {
+            if (getEl && ciLandFar(el, getEl, flash)) return;
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            el.classList.remove('acn-bm-flash');
-            void el.offsetWidth;
-            el.classList.add('acn-bm-flash');
-            setTimeout(function () { el.classList.remove('acn-bm-flash'); }, 1600);
+            flash(el);
         }
 
         if (typeof isLeftChat !== 'undefined' && isLeftChat) {
@@ -10975,13 +11033,25 @@
     // the hidden project link.
     function _bmJumpToAnswer(bookmark) {
         var map = ciAnswerMap(), i, p;
-        function land(node) { orbMarkJumpTarget(node); orbScrollToMessage(node); }
+        function land(node, getEl) { orbMarkJumpTarget(node); orbScrollToMessage(node, getEl); }
         var want = bookmark.msgUuid ||
                    (/^[0-9a-f-]{36}$/i.test(bookmark.contentHash || '') ? bookmark.contentHash : null);
         if (want) {
             for (i = 0; i < map.rows.length; i++) {
                 p = map.pathOf[map.rows[i].dataIndex];
-                if (p !== null && p !== undefined && _ciFullPath[p].uuid === want) { land(map.rows[i].node); return; }
+                if (p !== null && p !== undefined && _ciFullPath[p].uuid === want) {
+                    // A far mounted answer lands (v12.16), re-found by its uuid the same way.
+                    land(map.rows[i].node, function () {
+                        var m2 = ciAnswerMap(), k, p2;
+                        for (k = 0; k < m2.rows.length; k++) {
+                            p2 = m2.pathOf[m2.rows[k].dataIndex];
+                            if (p2 !== null && p2 !== undefined && _ciFullPath[p2] &&
+                                _ciFullPath[p2].uuid === want) return m2.rows[k].node;
+                        }
+                        return null;
+                    });
+                    return;
+                }
             }
             var pathIdx = -1;
             if (ciIsReady() && _ciFullPath) {
@@ -11151,7 +11221,15 @@
             }
         }
 
-        orbScrollToMessage(targetEl);
+        // A far mounted message on Claude lands (v12.16), re-found by its uuid exactly as above.
+        var landUuid = ciIsClaudeChat() ? (bookmark.msgUuid || wantUuid) : null;
+        orbScrollToMessage(targetEl, landUuid ? function () {
+            var live = Array.from(isUser ? getUserMessages() : getAIMessages());
+            for (var k = 0; k < live.length; k++) {
+                if (ciUuidForText(textOf(live[k]), live[k]) === landUuid) return live[k];
+            }
+            return null;
+        } : null);
     }
 
     function orbRefreshBookmarksPanel() {
