@@ -222,13 +222,29 @@ const READ = `(function () {
             await page.waitForFunction(() => document.getElementById('acn-zone').getAttribute('data-acn-jump-resolved') !== null,
                                        null, { timeout: 15000 });
         } catch (e) {}
+        // Where the target ended up, once the view has been still for 800 ms (cap 8 s).
+        let last = null, still = 0;
+        for (let k = 0; k < 160 && still < 16; k++) {
+            const st = await page.evaluate(() => document.getElementById('mock-scroller').scrollTop);
+            if (st === last) still++; else { still = 0; last = st; }
+            await page.waitForTimeout(50);
+        }
         return page.evaluate((attr) => {
             const t = document.querySelector('[data-acn-jump-target]');
             const host = t && t.closest('[' + attr + ']');
+            const sc = document.getElementById('mock-scroller');
+            let inView = false, err = null;
+            if (t) {
+                const r = sc.getBoundingClientRect(), b = t.getBoundingClientRect();
+                const max = sc.scrollHeight - sc.clientHeight;
+                const ideal = Math.max(0, Math.min(max, b.top - r.top + sc.scrollTop - (sc.clientHeight - b.height) / 2));
+                inView = b.top >= r.top - 1 && b.bottom <= r.bottom + 1;
+                err = Math.round(sc.scrollTop - ideal);
+            }
             return { resolved: document.getElementById('acn-zone').getAttribute('data-acn-jump-resolved'),
                      targetId: host ? host.getAttribute(attr) : null,
                      mounted: window.__mockWindow.mounted(),
-                     released: window.__mockWindow.released };
+                     released: window.__mockWindow.released, inView: inView, err: err };
         }, idAttr);
     };
 
@@ -398,12 +414,18 @@ const READ = `(function () {
     check('P12', 'jump to Q1 from the bottom resolves entry 0 via data-workflow-entry',
           p9.after && p9.after.resolved === '0' && p9.after.targetId === '0', JSON.stringify(p9.after));
 
-    // 13 [new] A MOUNTED target (the penultimate entry, at the bottom) takes the fast path,
-    // which must release the stick-to-bottom pin too, or the pin reverts scrollIntoView.
+    // 13 [guard] A MOUNTED target (the penultimate entry, at the bottom) must land in view
+    // through the stick-to-bottom pin, which reverts any scroll it was not released for.
+    // Asserted as the landing (in view, within 24 px of centred), not as the mechanism: since
+    // v12.15 the release happens in the jump's landing writes, not on a fast path. It was
+    // [new] against the pre-v12.10 build; v12.14 passes it too (Playwright page realm,
+    // chromium, 1 run), so between v12.14 and v12.15 it guards the release. The v12.15 jump
+    // checks that fail on v12.14 are in probes/check-ix-jumps.js.
     const p13 = await scenario({ site: 'perplexity', url: pplxUrl, mockConfig: { entries: texts(E12) }, expectCount: 12,
                                  api: pplxApi(E12), after: jumpTo('data-workflow-entry', 10) });
-    check('P13', 'a mounted-target jump resolves entry 10 and releases the scroll pin',
-          p13.after && p13.after.resolved === '10' && p13.after.targetId === '10' && p13.after.released === true,
+    check('P13', 'a mounted-target jump resolves entry 10 and lands it in view, through the scroll pin',
+          p13.after && p13.after.resolved === '10' && p13.after.targetId === '10' &&
+          p13.after.inView === true && Math.abs(p13.after.err) <= 24,
           JSON.stringify(p13.after));
 
     // 10 [new] Many pages: 120 entries arrive 50 + 50 + 20, merged in order, every request

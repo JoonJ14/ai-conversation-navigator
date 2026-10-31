@@ -34,6 +34,7 @@
 <script>
 (function () {
   var cfg = window.__MOCK_CONFIG || {};
+  if (cfg.jumpModel || cfg.bmModel) return;   // v12.15 models: their blocks at the end build the page
   var entries = cfg.entries;
   if (!entries) {
     entries = [];
@@ -92,6 +93,351 @@
     total: entries.length,
     mounted: function () { return Object.keys(mountedNodes).map(Number).sort(function (a, b) { return a - b; }); },
     get released() { return released; }
+  };
+}());
+</script>
+<!--
+  ── v12.15 JUMP MODELS (part B) ─────────────────────────────────────────────────────────
+  OFF by default: everything below runs only when window.__MOCK_CONFIG.jumpModel is set, and
+  the block above then builds nothing. The layout is the live one (Chrome, 2026-10-24): one
+  list of two slots per entry, [question slot, answer slot]; [data-workflow-entry=N] sits two
+  levels inside the question slot; an unmounted slot is an EMPTY div that KEEPS its height;
+  5-8 entries are mounted and the latest one always is; the stick-to-bottom pin as above.
+  jumpModel: {
+    q: [px], a: [px]  true heights of each entry's question / answer slot (default 120 / 600)
+    reserve: 'exact'  (default) an unmounted slot keeps its true height, as live
+           | 'estimate'  a never-mounted slot reserves estQ / estA px until it first mounts
+    estQ, estA        the estimates (default 60 / 240)
+    drift: px         'exact' only: a slot reserves this much less than its true height until
+                      it first mounts (live: scrollHeight 9375 -> 9407 over a sweep, +8 px steps)
+    anchor: true      the site keeps the view still across every mount or unmount: it re-writes
+                      scrollTop after the change, adding the growth of slots wholly above the
+                      view. A write cancels a smooth glide in progress (measured, Playwright:
+                      any write in Chromium and WebKit, a changed value in Firefox)
+    around: n         n more entries mounted on each side of those in view (live: 5-8 mounted,
+                      changing as the view moves; around: 2 gives that)
+    overscan: px      mounted beyond the viewport on each side (default 0)
+    mountDelay: ms    the window re-renders this long after a scroll (default 0: at once)
+    pinMs: ms         a wheel releases the pin for this long only; a later scroll away from the
+                      bottom is pinned back (default: one wheel releases it for good, as above)
+    qLag: true        a mounted entry whose question slot lies wholly above the view keeps that
+                      slot EMPTY while its answer stays mounted (live, Chrome, 2026-10-24: slot
+                      19's answer mounted, slot 18's question empty); it fills again once the
+                      slot reaches the view (default: a slot pair mounts and unmounts together)
+    bubble: [px]      height of each entry's question bubble (default 40); give its question
+                      slot (q) room for it
+  }
+  entries[i].html (jump models only): the bubble's markup, in place of its text. The bubble
+  renders part of the markdown its query_str holds (live, Chrome, 2026-10-25: an image as its
+  alt text, a long question with a "Read more" button).
+  Test hooks: window.__mockWindow.mounted(), .released, .total, .siteWrites,
+  .userScrollTo(i | 'top' | 'bottom') (a wheel, then the scroll, as a user would).
+-->
+<style>
+  .jm-slot { box-sizing: border-box; overflow: hidden; padding: 8px; }
+  .jm-slot [data-message-bubble="right"] { height: 40px; box-sizing: border-box; overflow: hidden; }
+</style>
+<script>
+(function () {
+  var cfg = window.__MOCK_CONFIG || {};
+  var jm = cfg.jumpModel;
+  if (!jm) return;
+  var entries = cfg.entries;
+  if (!entries) {
+    entries = [];
+    for (var g = 0; g < 12; g++) entries.push({ text: 'Generated thread question ' + (g + 1) + ' about pinned scrollers?' });
+  }
+  var N = entries.length, S = 2 * N;
+  var scroller = document.getElementById('mock-scroller');
+  var items = document.getElementById('mock-items');
+  scroller.style.overflowAnchor = 'none';     // the mock anchors itself, the same way in every engine
+  function trueH(k) {
+    var i = k >> 1;
+    return k % 2 ? ((jm.a && jm.a[i]) || 600) : ((jm.q && jm.q[i]) || 120);
+  }
+  var height = [], seen = [], slots = [], mountedEntries = {};
+  for (var k = 0; k < S; k++) {
+    var h0 = jm.reserve === 'estimate' ? (k % 2 ? (jm.estA || 240) : (jm.estQ || 60)) : trueH(k) - (jm.drift || 0);
+    height.push(Math.max(1, h0));
+    seen.push(false);
+    var d = document.createElement('div');
+    d.className = 'jm-slot';
+    d.style.height = height[k] + 'px';
+    items.appendChild(d);
+    slots.push(d);
+  }
+  var released = false, lastWheel = -1e9, siteWrites = 0, pending = null;
+
+  function tops() {
+    var t = [], y = 0;
+    for (var s = 0; s < S; s++) { t.push(y); y += height[s]; }
+    t.push(y);
+    return t;
+  }
+  function fillQ(i) {
+    var q = slots[2 * i];
+    q.innerHTML = '<div><div class="group/partition" data-workflow-entry="' + i + '">' +
+                  '<div data-message-bubble="right"><p style="margin:0"></p></div></div></div>';
+    if (entries[i].html) q.querySelector('[data-message-bubble]').innerHTML = entries[i].html;
+    else q.querySelector('p').textContent = entries[i].text;
+    if (jm.bubble && jm.bubble[i]) q.querySelector('[data-message-bubble]').style.height = jm.bubble[i] + 'px';
+  }
+  function fill(i) {
+    var a = slots[2 * i + 1];
+    fillQ(i);
+    a.innerHTML = '<div><div data-workflow-final-text="true" class="prose">Answer ' + (i + 1) + '</div></div>';
+  }
+  function empty(i) { slots[2 * i].innerHTML = ''; slots[2 * i + 1].innerHTML = ''; }
+
+  function render() {
+    var t = tops();
+    var st = scroller.scrollTop, over = jm.overscan || 0;
+    var lo = st - over, hi = st + scroller.clientHeight + over;
+    var want = {}, first = -1, last = -1;
+    for (var i = 0; i < N; i++) {
+      if (t[2 * i + 2] > lo && t[2 * i] < hi) { want[i] = true; if (first < 0) first = i; last = i; }
+    }
+    if (first >= 0 && jm.around) {
+      for (var w = Math.max(0, first - jm.around); w <= Math.min(N - 1, last + jm.around); w++) want[w] = true;
+    }
+    want[N - 1] = true;                       // the latest entry stays mounted
+    var changed = false, growth = 0;
+    for (var e = 0; e < N; e++) {
+      var on = !!want[e];
+      if (on === !!mountedEntries[e]) continue;
+      changed = true;
+      if (!on) { empty(e); delete mountedEntries[e]; continue; }
+      fill(e);
+      mountedEntries[e] = true;
+      for (var s = 2 * e; s <= 2 * e + 1; s++) {
+        if (seen[s]) continue;
+        seen[s] = true;
+        var nh = trueH(s);
+        if (nh === height[s]) continue;
+        if (t[s + 1] <= st) growth += nh - height[s];      // wholly above the view
+        height[s] = nh;
+        slots[s].style.height = nh + 'px';
+      }
+    }
+    if (jm.qLag) {
+      var t2 = tops();
+      for (var qe = 0; qe < N; qe++) {
+        if (!mountedEntries[qe]) continue;
+        var qAbove = t2[2 * qe + 1] <= st, hasQ = !!slots[2 * qe].firstChild;
+        if (qAbove && hasQ) { slots[2 * qe].innerHTML = ''; changed = true; }
+        else if (!qAbove && !hasQ) { fillQ(qe); changed = true; }
+      }
+    }
+    if (jm.anchor && changed) { siteWrites++; scroller.scrollTop = st + growth; }
+  }
+  function schedule() {
+    if (!jm.mountDelay) { render(); return; }
+    if (pending) return;
+    pending = setTimeout(function () { pending = null; render(); }, jm.mountDelay);
+  }
+  function bottom() { return scroller.scrollHeight - scroller.clientHeight; }
+  function isReleased() {
+    if (!released) return false;
+    return !jm.pinMs || (Date.now() - lastWheel) <= jm.pinMs;
+  }
+  scroller.addEventListener('wheel', function () { released = true; lastWheel = Date.now(); }, { passive: true });
+  scroller.addEventListener('scroll', function () {
+    if (!isReleased() && scroller.scrollTop < bottom() - 2) {
+      setTimeout(function () { if (!isReleased()) { siteWrites++; scroller.scrollTop = bottom(); } }, 50);
+    }
+    schedule();
+  }, { passive: true });
+  scroller.scrollTop = bottom();
+  render();
+  scroller.scrollTop = bottom();
+  render();
+  window.__mockWindow = {
+    total: N,
+    mounted: function () { return Object.keys(mountedEntries).map(Number).sort(function (x, y) { return x - y; }); },
+    get released() { return released; },
+    get siteWrites() { return siteWrites; },
+    userScrollTo: function (i) {
+      scroller.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true }));
+      scroller.scrollTop = i === 'top' ? 0 : i === 'bottom' ? bottom() : tops()[2 * i];
+    }
+  };
+}());
+</script>
+<!--
+  ── v12.15 BOOKMARK MODEL (part A) ───────────────────────────────────────────────────────
+  OFF by default: everything below runs only when window.__MOCK_CONFIG.bmModel is set, and the
+  blocks above then build nothing. The markup is the live one (Chrome, v12.14, 2026-10-24): one
+  list of two slots per entry, [question slot, answer slot]; [data-workflow-entry=N] sits two
+  levels inside the question slot and NOWHERE in the answer slot, which carries no id at all;
+  exactly one [data-workflow-final-text] per mounted answer; inside it, list items whose classes
+  contain "prose" (live: 19 of v12.14's 22 [class*="prose"] matches were such nested nodes), and a
+  "prose" node outside the thread; an unmounted slot is an EMPTY div that KEEPS its height; the
+  entries in view (and `around` more on each side) are mounted, the latest always; the
+  stick-to-bottom pin of the block above.
+  Config: entries: [{ text, answer }] (text '' renders an empty bubble: an attachment-only entry)
+  bmModel: {
+    q: px, a: px  heights of every question / answer slot (default 100 / 500)
+    around: n     entries mounted beyond those in view, on each side (default 1)
+    qLag: true    a mounted entry whose question slot lies wholly above the view keeps that slot
+                  EMPTY while its answer stays mounted (live: slot 19's answer mounted, slot 18's
+                  question empty)
+  }
+  Test hooks: window.__mockWindow.mounted(), .total, .released, .userScrollTo(i|'top'|'bottom'),
+  .recycle(i, j) (entry i's mounted slots re-used, in place, to show entry j), .domIndex(i) (the
+  bubble's place among the mounted bubbles), .addEntry({ text, answer }) (a new entry at the end),
+  .editQuestion(i, text) (entry i's question reads `text`, in place, its data-workflow-entry kept:
+  an edit before the index is refetched), .renumber(i, j) (entry i's question slot carries
+  data-workflow-entry=j from now on), .insertExtras(i, n) (n empty, zero-height children that are
+  not slots, put into the list before entry i's question slot), .answerKeys() ([{ text, key }] for
+  every [data-workflow-final-text]: its answer text and its flag's data-acn-bookmark, or null),
+  .clickAnswer(text) (clicks the flag on the answer showing `text`), .hideQuestion(i) (entry i's
+  question slot stays EMPTY while its answer is mounted, wherever the view is).
+-->
+<style>
+  .bm-slot { box-sizing: border-box; overflow: hidden; padding: 8px; }
+  .bm-decoy { position: fixed; right: 0; top: 0; width: 120px; }
+</style>
+<script>
+(function () {
+  var cfg = window.__MOCK_CONFIG || {};
+  var bm = cfg.bmModel;
+  if (!bm) return;
+  var entries = (cfg.entries || []).slice();
+  var QH = bm.q || 100, AH = bm.a || 500;
+  var scroller = document.getElementById('mock-scroller');
+  var items = document.getElementById('mock-items');
+  var decoy = document.createElement('div');
+  decoy.className = 'bm-decoy prose prose-sm';
+  decoy.textContent = 'Library: another thread about something else entirely';
+  document.body.appendChild(decoy);
+  var slots = [], mounted = {}, released = false, numberOf = {}, qHidden = {};
+  function addSlots(i) {
+    for (var s = 0; s < 2; s++) {
+      var d = document.createElement('div');
+      d.className = 'bm-slot';
+      d.style.height = (s ? AH : QH) + 'px';
+      items.appendChild(d);
+      slots.push(d);
+    }
+  }
+  for (var i0 = 0; i0 < entries.length; i0++) addSlots(i0);
+  function fillQ(slot, i) {
+    var no = numberOf.hasOwnProperty(i) ? numberOf[i] : i;
+    slot.innerHTML = '<div><div class="group/partition" data-workflow-entry="' + no + '">' +
+                     '<div data-message-bubble="right"><p style="margin:0"></p></div></div></div>';
+    slot.querySelector('p').textContent = entries[i].text;
+  }
+  function fillA(slot, i) {
+    slot.innerHTML = '<div class="prose dark:prose-invert"><div data-workflow-final-text="true">' +
+                     '<p class="bm-a"></p><ul><li class="prose-p:my-0">a nested point</li>' +
+                     '<li class="prose-p:my-0">another nested point</li></ul>' +
+                     '<span class="prose-inline">inline</span></div></div>' +
+                     '<div class="bm-sources">Sources</div>';
+    slot.querySelector('.bm-a').textContent = entries[i].answer || ('Answer ' + (i + 1));
+  }
+  function tops() {
+    var t = [], y = 0;
+    for (var s = 0; s < slots.length; s++) { t.push(y); y += s % 2 ? AH : QH; }
+    t.push(y);
+    return t;
+  }
+  function render() {
+    var t = tops(), N = entries.length, st = scroller.scrollTop, hi = st + scroller.clientHeight;
+    var want = {}, first = -1, last = -1, around = bm.around === undefined ? 1 : bm.around;
+    for (var i = 0; i < N; i++) {
+      if (t[2 * i + 2] > st && t[2 * i] < hi) { if (first < 0) first = i; last = i; }
+    }
+    if (first >= 0) for (var w = Math.max(0, first - around); w <= Math.min(N - 1, last + around); w++) want[w] = true;
+    want[N - 1] = true;
+    for (var e = 0; e < N; e++) {
+      if (!!want[e] === !!mounted[e]) continue;
+      if (!want[e]) { slots[2 * e].innerHTML = ''; slots[2 * e + 1].innerHTML = ''; delete mounted[e]; continue; }
+      fillQ(slots[2 * e], e);
+      fillA(slots[2 * e + 1], e);
+      mounted[e] = true;
+    }
+    if (bm.qLag) {
+      for (var q = 0; q < N; q++) {
+        if (!mounted[q]) continue;
+        var above = t[2 * q + 1] <= st, has = !!slots[2 * q].firstChild;
+        if (above && has) slots[2 * q].innerHTML = '';
+        else if (!above && !has) fillQ(slots[2 * q], q);
+      }
+    }
+    for (var h in qHidden) if (mounted[h] && slots[2 * h].firstChild) slots[2 * h].innerHTML = '';
+  }
+  function bottom() { return scroller.scrollHeight - scroller.clientHeight; }
+  scroller.addEventListener('wheel', function () { released = true; }, { passive: true });
+  scroller.addEventListener('scroll', function () {
+    if (!released && scroller.scrollTop < bottom() - 2) {
+      setTimeout(function () { if (!released) scroller.scrollTop = bottom(); }, 50);
+    }
+    render();
+  }, { passive: true });
+  scroller.scrollTop = bottom();
+  render();
+  window.__mockWindow = {
+    get total() { return entries.length; },
+    get released() { return released; },
+    mounted: function () { return Object.keys(mounted).map(Number).sort(function (a, b) { return a - b; }); },
+    userScrollTo: function (i) {
+      scroller.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true }));
+      scroller.scrollTop = i === 'top' ? 0 : i === 'bottom' ? bottom() : tops()[2 * i];
+    },
+    // In place: the same elements (and whatever the page appended to them) show entry j.
+    recycle: function (i, j) {
+      if (!mounted[i] || !slots[2 * i].firstChild) return false;
+      slots[2 * i].querySelector('[data-workflow-entry]').setAttribute('data-workflow-entry', String(j));
+      slots[2 * i].querySelector('p').textContent = entries[j].text;
+      slots[2 * i + 1].querySelector('.bm-a').textContent = entries[j].answer || ('Answer ' + (j + 1));
+      return true;
+    },
+    domIndex: function (i) {
+      var b = Array.prototype.slice.call(document.querySelectorAll('[data-message-bubble="right"]'));
+      var w = document.querySelector('[data-workflow-entry="' + i + '"] [data-message-bubble="right"]');
+      return w ? b.indexOf(w) : -1;
+    },
+    addEntry: function (e) { entries.push(e); addSlots(entries.length - 1); render(); },
+    editQuestion: function (i, text) {
+      entries[i] = { text: text, answer: entries[i].answer };
+      var p = slots[2 * i].querySelector('[data-message-bubble="right"] p');
+      if (p) p.textContent = text;
+      return !!p;
+    },
+    renumber: function (i, j) {
+      numberOf[i] = j;
+      if (!slots[2 * i].firstChild) return false;
+      fillQ(slots[2 * i], i);
+      return true;
+    },
+    hideQuestion: function (i) { qHidden[i] = true; render(); return !slots[2 * i].firstChild; },
+    insertExtras: function (i, n) {
+      for (var k = 0; k < n; k++) {
+        var x = document.createElement('div');
+        x.className = 'bm-extra';
+        items.insertBefore(x, slots[2 * i]);
+      }
+      return items.children.length;
+    },
+    answerKeys: function () {
+      var f = document.querySelectorAll('[data-workflow-final-text]'), out = [];
+      for (var k = 0; k < f.length; k++) {
+        var ic = null;
+        for (var c = 0; c < f[k].children.length; c++) if (f[k].children[c].getAttribute('data-acn-bookmark') !== null) ic = f[k].children[c];
+        out.push({ text: f[k].querySelector('.bm-a').textContent, key: ic ? ic.getAttribute('data-acn-bookmark') : null });
+      }
+      return out;
+    },
+    clickAnswer: function (text) {
+      var f = document.querySelectorAll('[data-workflow-final-text]');
+      for (var k = 0; k < f.length; k++) {
+        if (f[k].querySelector('.bm-a').textContent !== text) continue;
+        for (var c = 0; c < f[k].children.length; c++) {
+          if (f[k].children[c].getAttribute('data-acn-bookmark') !== null) { f[k].children[c].click(); return true; }
+        }
+      }
+      return false;
+    }
   };
 }());
 </script>

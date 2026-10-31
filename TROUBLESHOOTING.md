@@ -472,6 +472,125 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ---
 
+## FIXED IN v12.15, CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — ChatGPT and Perplexity: jumps stop short; bookmarks positional, answers unflagged (found 2026-10-24)
+
+**Phase:** v12.10's owed Safari check, run on v12.14 | **Severity:** High on Perplexity (a jump takes 2–3 clicks),
+Medium on ChatGPT; bookmarks on both sites unusable past the mounted window | **Status:** fixed in code and gated on
+mocks (Playwright page realm); checked live in Chrome + Tampermonkey before the PR (2026-10-25, below); not merged;
+owner acceptance on all three browsers pending (DEC-031)
+
+### Symptom [measured, owner, v12.14, 2026-10-24]
+
+- Safari + Userscripts: a mid-conversation Perplexity jump stops partway (from Q12, clicking Q5 stopped mid-answer 7);
+  a far ChatGPT jump sometimes lands on answer 14 instead of question 14. Bookmarks: no answer flags on either site;
+  question labels are on-screen positions ("Q4" twice; a 16-question thread shows only Q1–Q4); an off-screen
+  question's bookmark says "not currently rendered".
+- Chrome + Tampermonkey, Perplexity: Q1 always lands; from the top, clicking Q2 goes to around Q3–Q6; one-click
+  landings often stop slightly above or below.
+
+### Root cause [measured live, Chrome + Tampermonkey page realm, the owner's profile, v12.14, 2026-10-24; code]
+
+- **Jumps:** `ixJump` took "mounted" for "arrived", then one smooth `scrollIntoView` that nothing checked. On
+  Perplexity the glide was cut short 8 of 8 times (Q8 from the top: 842 px above the window); an instant scroll landed
+  within 16 px 8 of 8. On ChatGPT, prepending older turns mid-glide left Q7 8514 px above centre. No code change since
+  v12.10 [code].
+- **Bookmarks:** off Claude every id route was gated on Claude, so a bookmark was `contentHash(text, its index among
+  the mounted messages)`, labelled and found by that index [code]. ChatGPT's answer selectors matched 0 nodes;
+  Perplexity's `[class*="prose"]` matched 22, 19 nested, and drew 5 flags in one answer. Records were filed by origin +
+  pathname, so `/g/<project>/c/<id>` and `/c/<id>`, and `www.` and bare `perplexity.ai`, split [code].
+
+- **Found by the live check before the PR** [measured live, Chrome + Tampermonkey, the owner's profile, visible tab,
+  build `2ef0d80`, 2026-10-25]: in the 12-question Perplexity thread, Q10 (a pasted README, 3,404 characters) from
+  the top stopped 862 px short 4 of 4 times, while the other 11 landed. Its bubble renders part of the markdown (an
+  image as its alt text, where `_mdFlatten` leaves `!alt`) and carries a "Read more" button, so the full-text compare
+  with `query_str` never matched. Four places used that compare: `locate` (the jump never arrived), `keyOf` and
+  `ixPplxStillIndexed` (both of Q10's flags had no key) and `mounted` (staleness: "index out of sync … refetching").
+  Compared letters and digits only, the two texts are identical apart from the button's "Read more" [measured, same
+  context]. The full set the bubble renders, measured on all 12 questions of that thread: images and links as their
+  alt text or label; headings, tables and lists without their markers; no whitespace between blocks.
+
+### Fix (v12.15, parts B and A)
+
+- **The Perplexity text compare (found live, above):** `ixPplxTextKey`, at all four places, on the bubble's text
+  without its buttons and our flag (`ixPplxBubbleText`). Both sides lose image and link syntax (to the alt text or
+  label), table pipes and separator rows, list and heading markers, fence and blockquote markers, emphasis (pairs,
+  and single `*x*` / `_x_` where they open after a space or punctuation, as GitHub Codex's round 2 asked) and
+  backticks, and all whitespace; every other character counts, at full length, so an edit still reads as a different
+  question. A first version compared letters and digits only; GitHub Codex showed that it read "10+2" and "10/2" as
+  one question (PR #88). `_mdFlatten` is not used: it deletes every parenthesis.
+- **Jumps (DEC-052):** land with instant writes, re-located by identity, until within 8 px or 4 writes; a damped
+  step; "near" only within a viewport of the view; a bounded wait, then a step from the entry nearest in px; the
+  Perplexity entry's box includes its answer slot.
+- **Bookmarks (DEC-053):** keyed by the messages' own ids (`data-turn-key` and the answer unit's message id on ChatGPT;
+  `backend_uuid` and `backend_uuid:answer` on Perplexity); "Q#n" / "Answer to Q#n"; jumps through the index; old
+  positional records bind only on proof, else "Q#?" / "A#?"; one store key per conversation, split sets merged in.
+
+### Results & verification
+
+- **Mocks only** [measured, Playwright page realm, headless, 1280×720, this Mac]: `probes/check-ix-jumps.js` 19/19 and
+  `probes/check-ix-bookmarks.js` 56/56 on chromium ×3, firefox ×1, webkit ×1; v12.14 fails every [new] check (14 and
+  55) on chromium ×1. The windowed mocks model the live layout from the facts above; they are not the live sites.
+- **The text compare:** `check-ix-jumps` J16 and J16b (a Perplexity question whose bubble renders images, a link, a
+  heading, a table with bold text, a list, italics and a "Read more" button) and J17 / J17b / J17c (in-place edits of
+  only an operator, the parentheses or the multiplication stars read as stale). All pass on Chromium, Firefox and WebKit; J16 and J16b fail on `2ef0d80`
+  and on v12.14; J17 fails on `989fe0a`'s letters-and-digits compare and on v12.14, J17b on those and on `2ef0d80`. A mutant that reverts any one
+  of the four call sites, keeps the button's text, drops any one markdown rule or adds `_mdFlatten` fails one of them
+  [measured, Playwright page realm, headless, chromium, 1 run each]. Live, the same key computed in the page realm:
+  12 of 12 questions of the thread match their `query_str`.
+- **Live, Chrome + Tampermonkey** (the owner's profile, visible tab, 2026-10-25; one run each unless noted; test
+  bookmarks created for the check and deleted afterwards):
+  - ChatGPT, 24-question project chat, on `2ef0d80` (the text fix touches only the Perplexity adapter): 13 one-click
+    Navigate jumps from the opposite end, all with the question in view; on a top-to-bottom scroll (109 steps) all 24
+    turns showed one question flag and one answer flag; 8 bookmarks read Q#2, Q#9, Q#16, Q#23 and "Answer to Q#5",
+    "Q#12", "Q#20", "Q#24", all 8 jumps landed in one click from the opposite end, and the same 8 were listed after a
+    reload through `/c/<id>`.
+  - Perplexity, the 12-question thread, on the fixed build (`989fe0a`): Q10 landed 4 of 4; 12 of 12 Navigate jumps from the
+    opposite end landed; all 12 questions and 12 answers flagged with a key, never two flags on one node; 8 bookmarks
+    read Q#2, Q#6, Q#10, Q#12 and "Answer to Q#1", "Q#5", "Q#9", "Q#11", all 8 jumps landed, and the same 8 were
+    listed at the bare `perplexity.ai` address (it redirected to `www.`).
+  - No `[ACN] jump: alignment cap reached` line on either site; no "index out of sync" line on the fixed build.
+- **Still unmeasured live:** mount latency, CSS `scroll-behavior`, a just-sent ChatGPT message's ids, whether
+  `backend_uuid` changes on Rewrite. Owner acceptance on all three browsers: pending (DEC-031). Logged residuals:
+  ROADMAP 13.
+- **An unexplained observation** [measured live, same context, build `2ef0d80`, during the Navigate run]: four "index
+  out of sync … refetching" lines and nine thread loads within about one second (09:46:49–50), although the refetch
+  cooldown is 15 s and only `ixInvalidate` resets its clock. Not reproduced: the mock on the same build made one
+  resync in 17 s (J16b), and the fixed build logged none live. A clue, same context, on `12ad0a6`: the console reader
+  (claude-in-chrome's `read_console_messages`) returned six identical index lines with one timestamp for a single
+  page load, so the four lines may be the reader repeating them, not four refetches [inferred]. Logged: ROADMAP 13.
+
+---
+
+## OPEN — Claude: a jump to the latest question from the top ends at the bottom, past it (found 2026-10-25)
+
+**Phase:** v12.15's live check (Claude regression) | **Severity:** Medium (the latest question only; one more click
+lands) | **Status:** open, pre-existing; logged for a later PR (ROADMAP 14)
+
+### Symptom [measured live, Chrome + Tampermonkey, the owner's profile, visible tab, 2026-10-25, the 147-question chat]
+
+From the top, Navigate → Q147 and the bookmark Q#147 usually stopped at the very bottom with Q147's row 1,136 px
+above the view (once 533 px above it, and once, on Navigate, 929 px below the top of a 682 px view): on 12.15 the bookmark 4 of 4 and Navigate 2 of 3 (the other landed, 76 px from the top); on v12.14 the
+bookmark 2 of 2 and Navigate 1 of 2 (the other landed, 35 px from the top). One run of each is one click from the top. Navigate to Q100 and Q140 from the top and Q5 from the bottom landed, as did test
+bookmarks on Q20 and on Q60's answer from the opposite ends (12.15).
+
+### Root cause [measured, same context; code]
+
+Claude keeps the latest rows mounted at every scroll position, so Q147's row is mounted at the top, and both jumps take
+the mounted fast path: one smooth `scrollIntoView` across about 200,000 px that nothing checks (`orbScrollToQuestion`,
+`orbScrollToMessage`). During the glide the virtualizer replaces its estimated row heights with measured ones and
+`scrollHeight` shrinks (278,903 → about 209,000 px), so the destination, fixed when the glide starts, no longer holds
+the target: it is clamped at the bottom, or falls short [inferred from the trace]. A later click, on measured heights,
+can land. Mid-conversation targets are unmounted and go through
+`ciJumpToFullPathIndex`, whose settle loop lands them first.
+
+### Fix
+
+Not in v12.15: the code path is unchanged from v12.14, and the owner's rule logs issues found at acceptance for a
+later PR unless they block this one. A likely fix is part B's for the other sites: instant writes re-located by
+identity (`ixLandOn`) instead of a long smooth glide, for a far mounted target.
+
+---
+
 ## FIXED IN v12.14 — Claude answer bookmarks: no flags in project chats, labels by position, jumps failing (found 2026-10-23)
 
 **Phase:** v12.12 acceptance; fixed in v12.14 (the answer-bookmark PR) | **Severity:** High — answers could not be
@@ -695,11 +814,14 @@ The design alternatives are in DEC-051; this is the order the thinking went in.
 
 ---
 
-## OPEN — Claude refetches the whole conversation while you only scroll: the question side (found 2026-10-23; planned for v12.15, part C)
+## FIXED IN v12.15, CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Claude refetches the whole conversation while you only scroll: the question side (found 2026-10-23)
 
-**Phase:** v12.12 acceptance | **Severity:** Medium — a full re-download (about 3.3 MB on a long chat, measured in
-July) for each distinct set of mismatching mounted questions, per page load, and again for a set whose download the
-user scrolled away from | **Status:** Open; planned for v12.15, part C (Claude markup follow-ups, ROADMAP 14)
+**Phase:** v12.12 acceptance; fixed in v12.15, part C | **Severity:** Medium — a full re-download (about 3.3 MB on a
+long chat, measured in July) for each distinct set of mismatching mounted questions, per page load, and again for a
+set whose download the user scrolled away from | **Status:** fixed in code and gated on mocks (Playwright page
+realm). Checked live in Chrome + Tampermonkey before the PR (the owner's profile, 2026-10-25, the 147-question chat,
+one run): scrolling from the bottom to the top in 202 steps printed no "index out of sync" line. Not merged; owner
+acceptance on all three browsers pending (DEC-031). Fix: "Fix (v12.15, part C)" below, DEC-054
 
 ### Symptom
 
@@ -790,6 +912,12 @@ one page load on v12.13 [measured, Chrome page realm, 2026-10-23/24].
   The parse runs on the main thread, so scrolling may stutter [inferred].
 - **The question-identity risk:** a question whose mismatch starts within its first 200 characters would lose its
   uuid and get a positional bookmark [code; inferred, not observed]. Row 290's starts at character 282.
+  - **Observed live since** [measured live, Chrome + Tampermonkey page realm, the owner's profile, v12.14, the
+    147-question chat `65dfa4f2`, at rest, 2026-10-24]: v12.14's compare (`_cleanText`, `_mdFlatten`,
+    `_normalizeFull` ported, our flags excluded) failed for 31 of the 129 questions compared, and 27 of those first
+    differ within 200 characters (the earliest at character 9). Ignoring whitespace fixes 20, list numbers 2 more; 9
+    still differ by 1–36 characters. The risk is real, not hypothetical. Both records stand: the row-290 measurement
+    (v12.12) did not reach it; the chat-wide one did.
 - v12.14's answer placement uses the same question match (`ciMatchRowToPath`), so an answer next to such a question
   is placed only by other routes (DEC-051 residuals).
 - **Why the suite never saw it:** the only refetch guard in the tests measures an idle page (36 s, no clicks, no
@@ -819,10 +947,29 @@ one page load on v12.13 [measured, Chrome page realm, 2026-10-23/24].
 - A design aid: put the signature's kind (`e`, `g`, `s`, `o` or provisional) in the "out of sync" line, so a user's
   log says which branch fired.
 
+### Fix (v12.15, part C; DEC-054)
+
+The per-question measurement below was run (2026-10-24, the observation above) and found more than block
+whitespace: 9 questions differ beyond whitespace and list numbers. It also found that every row carries its
+message's uuid on a descendant `[data-turn-key]` (294 of 294 rows, same context), which DEC-023 had recorded as absent
+in July (both findings: DEC-023's addendum). So the comparison was not reworked; identity moved off text:
+- question and answer rows are identified by their key, cross-checked against position where it is trusted; rows
+  without a usable key keep v12.14's text identity;
+- the staleness check treats a row whose id is on the path, on an entry that renders, as known whatever its text, so
+  a multi-block question no longer looks edited;
+- one `[ACN] turn keys: …` counts line per index load, and the "out of sync" line now ends with the signature kinds.
+
+**Verified on mocks only** [measured, Playwright page realm, headless, GM stubbed, this Mac]:
+`probes/check-claude-turnkeys.js` G1, a sweep over early and late multi-block questions plus one whose renderer adds
+text: 1 fetch, no "out of sync" line on this build (chromium ×3, firefox ×1, webkit ×1); 3 fetches on v12.14
+(chromium ×1). G2: 13 of 13 multi-block flags carry their uuid (v12.14: 8 hashes). Live acceptance: a slow sweep of
+the 147-question chat with no "index out of sync … refetching" line (v12.14 printed 2) is in the PR's steps; results
+go to DEC-031.
+
 ### Owed
 
 The fix belongs with v12.15, part C: one measurement per mounted question (block count, the comparison at its path
-position) before choosing how the comparison should read blocks.
+position) before choosing how the comparison should read blocks. *Run 2026-10-24; see the fix above.*
 - **The method, and its traps** (from the investigation's verifier):
   - Run the comparison in the page realm with the userscript disabled, or port `_cleanText`'s exclusions
     (`[data-acn-bookmark]`, `.sr-only`, `[class*=sr-only]`, `.cdk-visually-hidden`). With the script loaded and no
@@ -848,10 +995,11 @@ position) before choosing how the comparison should read blocks.
 
 ---
 
-## OPEN — Claude: a regenerated or late answer no longer triggers a resync (found 2026-10-23; planned for v12.15, part C)
+## FIXED IN v12.15 ON MOCKS, LIVE ACCEPTANCE PENDING — Claude: a regenerated or late answer no longer triggers a resync (found 2026-10-23)
 
-**Phase:** v12.12 acceptance | **Severity:** Medium — Search, Summary and Export keep the old answer until the next
-prompt [inferred] | **Status:** Open; planned for v12.15, part C (ROADMAP 14)
+**Phase:** v12.12 acceptance; fixed in v12.15, part C | **Severity:** Medium — Search, Summary and Export keep the
+old answer until the next prompt [inferred] | **Status:** fixed in code and gated on mocks (Playwright page realm);
+not merged; live acceptance pending (DEC-031). Fix: the paragraph at the end of this entry, DEC-054
 
 The answer branches of `_ciAssistantStale` ('g', 's', 'o') reach answers only through `ciMessageNodeWithin`, which
 looks for `.font-claude-response`; no row holds it any more, so it returns the row and every answer row is skipped
@@ -862,6 +1010,17 @@ Export then stay on the old answer until the next prompt [inferred]. v12.14 leav
 compares rendered answers, whose activity line never matches the payload, and refetches every window (the gate's
 mutant M9). It covers the one case bookmarks need: a click on an answer the index does not hold yet asks for one
 refetch.
+
+**Fix (v12.15, part C; DEC-054).** The answer text is still never compared with the payload. Instead the staleness
+check reads each row's `data-turn-key`: an id not on the path (`'k'`: a regenerate, an edit, a branch switch, a
+just-sent turn) or on it without a `stop_reason` (`'p'`: the index was fetched mid-stream) signals, deferred while the
+row's `data-perf-row-streaming` is "true". **Verified on mocks only** [measured, Playwright page realm, headless, GM
+stubbed, chromium ×3, firefox ×1, webkit ×1]: `check-claude-turnkeys` G3, a regenerate (the key changing at the
+start, at the end, and with no perf attributes) resyncs exactly once, after the stream (v12.14: never); G4, no fetch
+while streaming; G5, a late answer resyncs and its flag carries its uuid. **Unmeasured live:** when a regenerate
+changes the row's key (at the start or at the end of the stream; ROADMAP 14, C-O1) and whether
+`data-perf-row-streaming` stays "true" through thinking and tool phases. The PR's acceptance suggests a throwaway
+chat for this.
 
 ---
 

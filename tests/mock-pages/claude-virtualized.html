@@ -298,6 +298,142 @@
     // One giant row (>=15,000px) exercises intra-row scrolling with no remount.
     if (typeof CFG.giantRowAt === 'number') REAL_H[CFG.giantRowAt] = 15000;
 
+    // ── PART C (v12.15): row ids and multi-block questions. All knobs off by default. ─────────
+    // Measured live in Chrome's page realm (v12.14 installed, one 147-question chat, 2026-10-24):
+    // every row holds its message's uuid on a descendant [data-turn-key] (294 of 294 rows, both
+    // senders), and carries data-perf-row ("human" | "assistant") and data-perf-row-streaming
+    // ("false" at rest). A question the payload holds as markdown renders as several blocks
+    // joined without whitespace, with list numbers drawn by CSS, so its DOM text differs from the
+    // payload's; 27 of 129 questions differed within the first 200 characters.
+    //   turnKeys            row -> data-turn-key value (any string: a malformed one is a test too)
+    //   perfRow             data-perf-row and data-perf-row-streaming on every row
+    //   multiBlockTurns     questions rendered as p + ol + p; first difference within ~45 chars
+    //   multiBlockLateTurns the same, after a long preamble: first difference past 200 chars
+    //   addedTextTurns      a question whose renderer ADDS text (a code block's language label and
+    //                       its "Copy" button), which no normalization of the payload reproduces
+    //   doubleKeyRows       rows holding a second [data-turn-key] (not one id per row), ahead of the
+    //                       row's own in document order
+    //   doubleKeyFrom       { row: other row }: that second key is the other row's (default: its own)
+    // The probe builds the matching payload (probes/check-claude-turnkeys.js, pcQuestionMarkdown).
+    var PC_KEYS = CFG.turnKeys ? CFG.turnKeys.slice() : null;
+    var PC_PERF = !!CFG.perfRow;
+    var PC_MB = CFG.multiBlockTurns || [];
+    var PC_MBL = CFG.multiBlockLateTurns || [];
+    var PC_ADDED = CFG.addedTextTurns || [];
+    var PC_DOUBLE = CFG.doubleKeyRows || [];
+    var PC_PLAIN = {};         // rows edited back to plain text
+    var PC_STREAMING = {};     // row -> true while it is being written
+    var PC_PHASE = 'idle';     // 'idle' | 'streaming' | 'done': a regenerate's state, for the probe's API stub
+    function pcIntro(turn, late) {
+        return late
+            ? 'Question number ' + turn + ': here is a long preamble that keeps going so that the first ' +
+              'difference between the rendered text and the payload falls well past the two hundred ' +
+              'character key, which is the identity risk boundary we want to straddle in this case.'
+            : 'Question number ' + turn + ': please check these steps.';
+    }
+    function pcBlocks(i) {
+        var m = MESSAGES[i];
+        if (!m || m.sender !== 'user' || PC_PLAIN[i]) return null;
+        var t = m.turn, late = PC_MBL.indexOf(t) !== -1;
+        if (PC_ADDED.indexOf(t) !== -1) {
+            return [{ tag: 'p', text: 'Question number ' + t + ': why does this snippet log twice?' },
+                    { tag: 'code', lang: 'javascript', text: 'console.log(' + t + ');' },
+                    { tag: 'p', text: 'Thanks for case ' + t + '.' }];
+        }
+        if (!late && PC_MB.indexOf(t) === -1) return null;
+        return [{ tag: 'p', text: pcIntro(t, late) },
+                { tag: 'ol', items: ['first step for case ' + t, 'second step for case ' + t] },
+                { tag: 'p', text: 'Thanks for case ' + t + '.' }];
+    }
+    function pcDecorateRow(row, renderWrap, index) {
+        if (PC_PERF) {
+            row.setAttribute('data-perf-row', MESSAGES[index].sender === 'user' ? 'human' : 'assistant');
+            row.setAttribute('data-perf-row-streaming', PC_STREAMING[index] ? 'true' : 'false');
+        }
+        if (PC_KEYS && PC_KEYS[index]) renderWrap.setAttribute('data-turn-key', PC_KEYS[index]);
+        if (PC_KEYS && PC_DOUBLE.indexOf(index) !== -1) {
+            var extra = el('span', 'sr-only');
+            var from = CFG.doubleKeyFrom && CFG.doubleKeyFrom[index] !== undefined ? CFG.doubleKeyFrom[index] : index;
+            extra.setAttribute('data-turn-key', PC_KEYS[from]);
+            row.insertBefore(extra, row.firstChild);
+        }
+        var blocks = pcBlocks(index);
+        var p = blocks && row.querySelector('[data-testid="user-message"] > p');
+        if (!p) return;
+        for (var b = 0; b < blocks.length; b++) {
+            var n;
+            if (blocks[b].tag === 'p') {
+                n = el('p', 'whitespace-normal break-words', 'margin:0;');
+                n.textContent = blocks[b].text;
+            } else if (blocks[b].tag === 'ol') {
+                n = el('ol', 'list-decimal', 'margin:0;');
+                for (var li = 0; li < blocks[b].items.length; li++) {
+                    var item = el('li');
+                    item.textContent = blocks[b].items[li];
+                    n.appendChild(item);
+                }
+            } else {
+                n = el('div', 'code-block');
+                var label = el('div', 'code-label');
+                label.textContent = blocks[b].lang;
+                var copy = el('button', 'code-copy');
+                copy.textContent = 'Copy';
+                var pre = el('pre');
+                pre.textContent = blocks[b].text;
+                n.appendChild(label); n.appendChild(copy); n.appendChild(pre);
+            }
+            p.parentNode.insertBefore(n, p);
+        }
+        p.parentNode.removeChild(p);
+    }
+    function pcRerender() { currentStart = -1; render(true); }
+    var pcApi = {
+        phase: function () { return PC_PHASE; },
+        streaming: function (i) { return !!PC_STREAMING[i]; },
+        setTurnKey: function (i, k) { if (PC_KEYS) PC_KEYS[i] = k; pcRerender(); },
+        // An edit of question row i: its text changes in place (plain text from now on), with the
+        // new keys of the question and of its answer, and the answer's new text.
+        editQuestion: function (i, newText, qKey, aKey, aText) {
+            MESSAGES[i].text = newText;
+            PC_PLAIN[i] = true;
+            if (PC_KEYS && qKey) PC_KEYS[i] = qKey;
+            if (PC_KEYS && aKey) PC_KEYS[i + 1] = aKey;
+            if (aText !== undefined && MESSAGES[i + 1]) MESSAGES[i + 1].text = aText;
+            pcRerender();
+        },
+        // A regenerate of answer row i, or (newText === null) answer row i finishing as it is: the
+        // row streams its text in `steps` steps (3 by default: long pauses, as in a thinking phase)
+        // over ms with data-perf-row-streaming "true", then settles. The row's key changes to newKey
+        // when the stream starts, or with keyAt 'end' when it ends. startAt / doneAt: performance.now().
+        startAt: null,
+        doneAt: null,
+        regenerate: function (i, newText, ms, newKey, keyAt, steps) {
+            var full = newText === null ? MESSAGES[i].text : newText, k = 0;
+            steps = steps || 3;
+            PC_STREAMING[i] = true;
+            PC_PHASE = 'streaming';
+            pcApi.startAt = performance.now();
+            pcApi.doneAt = null;
+            if (PC_KEYS && newKey && keyAt !== 'end') PC_KEYS[i] = newKey;
+            function step() {
+                k++;
+                MESSAGES[i].text = full.substring(0, Math.ceil(full.length * k / steps));
+                if (k >= steps) {
+                    delete PC_STREAMING[i];
+                    PC_PHASE = 'done';
+                    pcApi.doneAt = performance.now();
+                    if (PC_KEYS && newKey && keyAt === 'end') PC_KEYS[i] = newKey;
+                }
+                pcRerender();
+                if (k < steps) setTimeout(step, Math.round(ms / steps));
+            }
+            MESSAGES[i].text = full.substring(0, Math.ceil(full.length / (steps * 2)));
+            pcRerender();
+            setTimeout(step, Math.round(ms / steps));
+        }
+    };
+    // ── end PART C ────────────────────────────────────────────────────────────────────────────
+
     var container = document.getElementById('mock-scroll-container');
     var mounted   = document.getElementById('mock-mounted');
     var spacerTop = document.getElementById('mock-spacer-top');
@@ -419,6 +555,7 @@
 
         article.appendChild(renderWrap);
         row.appendChild(article);
+        pcDecorateRow(row, renderWrap, index);   // PART C knobs; nothing when they are off
         row.style.height = REAL_H[index] + 'px';
         row.style.overflow = 'hidden';
         measured[index] = true;      // mounting = measuring; shrinks scrollHeight over time
@@ -525,6 +662,7 @@
             render();
         }
     };
+    window.__mockVirtualization.partC = pcApi;   // PART C
 })();
 </script>
 </body>

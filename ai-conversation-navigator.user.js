@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.14
+// @version      12.15
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -51,7 +51,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.14';
+    var ACN_VERSION = '12.15';
 
     // ============================================================
     // i18n — internationalization string table
@@ -78,6 +78,9 @@
             answerNoQuestion: 'Answer (no question)',
             answerUnresolved: 'A#?',
             answerUnresolvedToast: 'This answer bookmark could not be matched to a message \u2014 delete it and bookmark the answer again',
+            questionUnresolved: 'Q#?',
+            questionUnresolvedToast: 'This question bookmark could not be matched to a message \u2014 delete it and bookmark the question again',
+            notIndexedToast: 'This message is not in the index yet \u2014 try again in a moment',
             generateSummary: 'Generate Summary',
             regenerateSummary: 'Regenerate Summary',
             analyzing: 'Analyzing...',
@@ -163,6 +166,9 @@
             answerNoQuestion: '\ub2f5\ubcc0 (\uc55e\uc120 \uc9c8\ubb38 \uc5c6\uc74c)',
             answerUnresolved: 'A#?',
             answerUnresolvedToast: '\uc774 \ub2f5\ubcc0 \ubd81\ub9c8\ud06c\ub294 \uc5b4\ub290 \uba54\uc2dc\uc9c0\uc778\uc9c0 \ud655\uc778\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4 \u2014 \uc0ad\uc81c\ud55c \ub4a4 \ub2e4\uc2dc \ubd81\ub9c8\ud06c\ud558\uc138\uc694',
+            questionUnresolved: 'Q#?',
+            questionUnresolvedToast: '\uc774 \uc9c8\ubb38 \ubd81\ub9c8\ud06c\ub294 \uc5b4\ub290 \uba54\uc2dc\uc9c0\uc778\uc9c0 \ud655\uc778\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4 \u2014 \uc0ad\uc81c\ud55c \ub4a4 \ub2e4\uc2dc \ubd81\ub9c8\ud06c\ud558\uc138\uc694',
+            notIndexedToast: '\uc774 \uba54\uc2dc\uc9c0\ub294 \uc544\uc9c1 \uc0c9\uc778\uc5d0 \uc5c6\uc2b5\ub2c8\ub2e4 \u2014 \uc7a0\uc2dc \ud6c4 \ub2e4\uc2dc \uc2dc\ub3c4\ud558\uc138\uc694',
             generateSummary: '\uc694\uc57d \uc0dd\uc131',
             regenerateSummary: '\uc694\uc57d \ub2e4\uc2dc \uc0dd\uc131',
             analyzing: '\ubd84\uc11d \uc911...',
@@ -2686,17 +2692,26 @@
     var IX_PPLX_MAX_PAGES   = 40;      // 2000 questions; past it the panel says so
     var IX_JUMP_MAX_MOVES   = 12;
     var IX_JUMP_SETTLE_MS   = 350;
+    var IX_JUMP_MAX_ALIGNS  = 4;       // instant alignment writes on arrival (ixLandOn)
+    var IX_JUMP_ALIGN_TOL   = 8;       // px from the intended position that counts as landed
 
     var _ix = {};                      // the generic pipeline's state, one conversation
     var _ixJumpToken = 0;
     var _ixGptToken  = null;           // { value, exp }: memory only, never logged or stored
+    // Bookmark refresh requests (v12.15, _bmIxRequestRefresh): how many were made, and the newest
+    // one a load has answered. Page lifetime, outside _ix: a conversation change answers every
+    // request made before it, since the next open loads that chat's index afresh (ixInvalidate).
+    var _ixBmAsked  = 0;
+    var _ixBmServed = 0;
 
     function ixInvalidate() {
         _ixJumpToken++;
+        _ixBmServed = _ixBmAsked;
         _ix = { pid: null, cid: null, status: 'idle', entries: null, total: 0, idIndex: null,
                 textAt: null, inFlightCid: null, loadGen: (_ix.loadGen || 0) + 1, indexGen: (_ix.indexGen || 0) + 1,
                 reason: '', retryDelayMs: 0, lastFetchAt: 0, refreshFailed: '', truncated: 0,
-                actedSig: '' };
+                actedSig: '', qIdx: null, idAtPos: null, answerOf: null, answerAt: null, wantRefresh: '',
+                wantActed: '', wantKeyless: false };
     }
     ixInvalidate();
 
@@ -2775,9 +2790,23 @@
         return t || (other ? IX_ATTACHMENT_LABEL : '');
     }
 
+    // An assistant node the page shows as the turn's text: plain text to everyone. Not
+    // thoughts, a reasoning recap, code or a tool call, which the page folds away. The answer
+    // unit's data-chatgpt-search-message-ids named the turn's LAST such node, 10 of 10 turns,
+    // tool and reasoning turns among them (live, Chrome, v12.14, 2026-10-24).
+    function ixGptShownText(msg) {
+        var c = msg.content || {};
+        if (c.content_type !== 'text' || (msg.recipient && msg.recipient !== 'all')) return false;
+        if (msg.metadata && msg.metadata.is_visually_hidden_from_conversation) return false;
+        return !!ixGptText(msg);
+    }
+
     // current_node -> root via `parent`, reversed: the active branch only, so an edited
     // question's abandoned sibling never appears.
-    function ixGptEntries(j) {
+    // `answers`, when given, receives each turn's answer for bookmarks (v12.15):
+    // { key: the turn's last shown assistant node, q: its question's index in the list
+    // returned (-1 after a question the list skips), at: that question's node id }.
+    function ixGptEntries(j, answers) {
         if (!j || typeof j !== 'object' || !j.mapping || typeof j.mapping !== 'object' ||
             typeof j.current_node !== 'string' || !j.mapping.hasOwnProperty(j.current_node)) {
             throw new Error('unexpected response shape');
@@ -2791,15 +2820,29 @@
         var top = ids.length ? m[ids[ids.length - 1]] : null;
         if (n || (n === undefined && top && top.message)) throw new Error('unexpected response shape');
         ids.reverse();
-        var out = [];
+        var out = [], turnQ = -1, turnAt = null, shown = null;
+        function endTurn() {
+            if (answers && shown !== null) answers.push({ key: shown, q: turnQ, at: turnAt });
+            shown = null;
+        }
         for (var i = 0; i < ids.length; i++) {
             var msg = m[ids[i]] && m[ids[i]].message;
-            if (!msg || !msg.author || msg.author.role !== 'user') continue;
+            if (!msg || !msg.author) continue;
+            if (msg.author.role === 'assistant') {
+                if (turnAt !== null && ixGptShownText(msg)) shown = ids[i];
+                continue;
+            }
+            if (msg.author.role !== 'user') continue;
+            endTurn();
+            turnQ = -1;
+            turnAt = ids[i];
             if (msg.metadata && msg.metadata.is_visually_hidden_from_conversation) continue;
             var t = ixGptText(msg);
             if (!t) continue;
+            turnQ = out.length;
             out.push({ id: ids[i], text: t, position: out.length });
         }
+        endTurn();
         return out;
     }
 
@@ -2850,15 +2893,16 @@
                         return;
                     }
                     if (!r.ok) { done(ixFailure(r)); return; }
-                    var entries;
-                    try { entries = ixGptEntries(r.json); }
+                    var entries, answers = [];
+                    try { entries = ixGptEntries(r.json, answers); }
                     catch (e) {
                         ixLog('chatgpt', r, 'conversation', '', ' questions=0');
                         done({ reason: 'unexpected response shape', permanent: true });
                         return;
                     }
                     ixLog('chatgpt', r, 'conversation', '', ' questions=' + entries.length);
-                    done(null, { entries: entries, total: entries.length, transport: r.transport });
+                    done(null, { entries: entries, total: entries.length, transport: r.transport,
+                                 answers: answers });
                 });
         }
         withToken(false, function (err, tok) {
@@ -2876,17 +2920,24 @@
         var all = [], page = 0, seenCursors = {};
         function fail(r) { ixLog('perplexity', r, 'thread', ' page=' + page); }
         function finish(r, capped) {
-            var entries = [];
+            var entries = [], answers = [];
             for (var k = 0; k < all.length; k++) {
                 var e = all[k];
                 var t = (e && typeof e.query_str === 'string') ? e.query_str.trim() : '';
+                // An entry's own id, or none: the fallback `k` below is a position, and a
+                // bookmark must never be keyed by one (v12.15).
+                var own = (e && (typeof e.backend_uuid === 'string' || typeof e.backend_uuid === 'number') &&
+                           String(e.backend_uuid)) ? String(e.backend_uuid) : '';
+                // Its answer, for bookmarks: listed under the entry's own id even when the
+                // entry's question is not (an attachment-only question: "Answer (no question)").
+                if (own) answers.push({ key: own + ':answer', q: t ? entries.length : -1, at: 'e' + k });
                 if (!t) continue;
                 // position is the RAW entry index: it is what [data-workflow-entry] carries.
-                entries.push({ id: String(e.backend_uuid || k), text: t, position: k });
+                entries.push({ id: String(e.backend_uuid || k), text: t, position: k, hasUuid: !!own });
             }
             ixLog('perplexity', r, 'thread', ' page=' + page, ' questions=' + entries.length);
             done(null, { entries: entries, total: all.length, transport: r.transport,
-                         truncated: capped ? all.length : 0 });
+                         truncated: capped ? all.length : 0, answers: answers });
         }
         function next(cursor) {
             // The user left this thread: stop paging it. ixLoad drops the result as
@@ -2929,6 +2980,152 @@
         next(null);
     }
 
+    // ── Bookmarks on the index-backed sites (v12.15) ───────────
+    // A conversation's id from a path, shared by getConversationId and the bookmark store's
+    // key (normalizeConversationUrl). ChatGPT: undefined when the path is not a
+    // conversation's, null when what stands in the id's place is not one.
+    function ixGptPathId(pathname) {
+        var m = String(pathname || '').match(/^\/(?:g\/[^\/]+\/)?c\/([^\/?#]+)/);
+        if (!m) return undefined;
+        return IX_UUID_RE.test(m[1]) ? m[1] : null;
+    }
+    function ixPplxPathId(pathname) {
+        var m = String(pathname || '').match(/^\/search\/([^\/?#]+)\/?$/);
+        return (m && /^[A-Za-z0-9._-]{1,200}$/.test(m[1])) ? m[1] : null;
+    }
+
+    function ixGptRoot() {
+        return document.querySelector('[data-app-action-timeline-scroll][role="region"]');
+    }
+
+    // The first id an answer unit names in data-chatgpt-search-message-ids, on the unit or on
+    // a wrapper inside its turn. Live it is the turn's last shown text node, listed twice
+    // (Chrome, v12.14, 2026-10-24; ixGptShownText).
+    function ixGptAnswerId(unit) {
+        var turn = unit.closest('[data-turn-key]');
+        var holder = unit.closest('[data-chatgpt-search-message-ids]');
+        if (!holder || !turn || !turn.contains(holder)) holder = unit.querySelector('[data-chatgpt-search-message-ids]');
+        var first = holder ? String(holder.getAttribute('data-chatgpt-search-message-ids') || '').trim().split(/\s+/)[0] : '';
+        return IX_UUID_RE.test(first) ? first : null;
+    }
+
+    // One answer per turn: the unit naming the index's answer for that turn, else the last
+    // unit naming any id, else the last unit. Only inside the turn, and the caller takes turns
+    // from the visible timeline only: the hidden copy (role="presentation") carries the same
+    // markup, so a document-wide selector would flag it too.
+    function ixGptAnswerIn(turn) {
+        var units = turn.querySelectorAll('[data-content-search-unit-key$=":assistant"]');
+        var want = _ix.answerAt ? _ix.answerAt[turn.getAttribute('data-turn-key')] : null;
+        var last = null, named = null;
+        for (var i = 0; i < units.length; i++) {
+            if (last && last.contains(units[i])) continue;      // the outermost unit only
+            if (units[i].closest('[data-turn-key]') !== turn) continue;
+            var id = ixGptAnswerId(units[i]);
+            if (want && id === want) return units[i];
+            if (id) named = units[i];
+            last = units[i];
+        }
+        return named || last;
+    }
+
+    // The thread's list on Perplexity: the parent of the question slots. [data-workflow-entry]
+    // sits inside the question slot, under ancestors that each have one child (live, Chrome,
+    // 2026-10-24); its answer is the NEXT slot of the list and carries no id at all.
+    function ixPplxSlotOf(el) {
+        var slot = el;
+        while (slot.parentElement && slot.parentElement.children.length === 1) slot = slot.parentElement;
+        return slot;
+    }
+    function ixPplxList() {
+        var w = document.querySelector('[data-workflow-entry]');
+        return w ? ixPplxSlotOf(w).parentElement : null;
+    }
+    function ixPplxEntryNo(w) {
+        var n = parseInt(w.getAttribute('data-workflow-entry'), 10);
+        return isFinite(n) && n >= 0 ? n : -1;
+    }
+
+    // The entry an answer belongs to, or -1: the entry in the slot before the answer's. That
+    // slot can be EMPTY while the answer is mounted (live: slot 19's answer mounted, slot 18's
+    // question empty); then the answer slot's place decides, but only in a list that is
+    // exactly [question, answer] for every raw entry, as every mounted question slot confirms.
+    function ixPplxAnswerEntry(el) {
+        var list = ixPplxList();
+        if (!list || el === list || !list.contains(el)) return -1;
+        var slot = el;
+        while (slot.parentElement !== list) slot = slot.parentElement;
+        var prev = slot.previousElementSibling;
+        var w = prev ? prev.querySelector('[data-workflow-entry]') : null;
+        if (w) return ixPplxEntryNo(w);
+        if (slot.querySelector('[data-workflow-entry]')) return -1;     // a question slot
+        var kids = list.children, at = Array.prototype.indexOf.call(kids, slot);
+        if (!_ix.total || kids.length !== 2 * _ix.total || at % 2 !== 1) return -1;
+        var ws = list.querySelectorAll('[data-workflow-entry]');
+        for (var i = 0; i < ws.length; i++) {
+            var s = ixPplxSlotOf(ws[i]);
+            if (s.parentElement !== list || Array.prototype.indexOf.call(kids, s) !== 2 * ixPplxEntryNo(ws[i])) return -1;
+        }
+        return (at - 1) / 2;
+    }
+
+    // A Perplexity question's text for comparing the bubble with the index's query_str, at
+    // full length. _normalizeCompareFull is not enough here: the bubble renders the markdown
+    // and a long question carries a "Read more" button. A question holding a pasted README
+    // never matched (live, Chrome + Tampermonkey, 2026-10-25: Q10 of 12, 3,404 chars): its
+    // jump never arrived, its flags had no key, and a scan refetched. Measured on that thread,
+    // the bubble shows images as their alt text and links as their label, and drops table
+    // pipes and separator rows, list markers, heading markers and the whitespace between
+    // blocks; the key drops the same on both sides, plus the other markers a rendering
+    // removes (fences, blockquotes, emphasis, backticks). Every other character counts:
+    // _mdFlatten deletes every bracket and parenthesis, and an earlier key kept only letters
+    // and digits, which read an edit from "10+2" to "10/2" as the indexed question (GitHub
+    // Codex, PR #88).
+    function ixPplxTextKey(text) {
+        var lines = String(text == null ? '' : text)
+            .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')                // images, links -> label
+            .split('\n');
+        for (var i = 0; i < lines.length; i++) {
+            var t = lines[i].replace(/^\s+|\s+$/g, '');
+            if (t.charAt(0) !== '|') continue;                        // a table row
+            lines[i] = /^[|:\s-]*-{3,}[|:\s-]*$/.test(t) ? '' : t.replace(/\|/g, ' ');
+        }
+        return lines.join('\n')
+            .replace(/^[ \t]*```[a-zA-Z0-9_-]*[ \t]*$/gm, '')             // fence lines
+            .replace(/^[ \t]*>+[ \t]?/gm, '')                           // blockquote markers
+            .replace(/^[ \t]*#{1,6}[ \t]+/gm, '')                       // heading markers
+            .replace(/^[ \t]*(?:[-+*]|\d+[.)])[ \t]+/gm, '')            // list markers
+            .replace(/\*\*|__|~~|`/g, '')                               // emphasis pairs, code
+            // Single-marker emphasis, rendered as italics: *x* and _x_, only where a marker
+            // opens after a start, a space or punctuation and closes before one, so "10*2*3"
+            // and my_var_name keep theirs (GitHub Codex, PR #88).
+            .replace(/(^|[^A-Za-z0-9*])\*(?=\S)([^*\n]*?\S)\*(?![A-Za-z0-9*])/g, '$1$2')
+            .replace(/(^|[^A-Za-z0-9_])_(?=\S)([^_\n]*?\S)_(?![A-Za-z0-9_])/g, '$1$2')
+            .toLowerCase().replace(/\s+/g, '');
+    }
+    // The bubble's own text: without its buttons ("Read more") and our flag.
+    function ixPplxBubbleText(b) {
+        if (!b.querySelector('button, [data-acn-bookmark]')) return _readMessageText(b);
+        var out = '', w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT, null, false), n;
+        while ((n = w.nextNode())) {
+            var p = n.parentElement;
+            if (p && p !== b && b.contains(p.closest('button, [data-acn-bookmark]'))) continue;
+            out += n.nodeValue;
+        }
+        return out;
+    }
+    function ixPplxSameText(b, text) {
+        return ixPplxTextKey(ixPplxBubbleText(b)) === ixPplxTextKey(text);
+    }
+
+    // Does the mounted question of entry n still read as the index says? Unmounted: nothing
+    // contradicts it. An edit or a rewrite keeps the ordinal and changes the text (Tier 3).
+    function ixPplxStillIndexed(n) {
+        var w = document.querySelector('[data-workflow-entry="' + n + '"]');
+        var b = w ? w.querySelector('[data-message-bubble="right"]') : null;
+        if (!b || !_ix.textAt || !_ix.textAt.hasOwnProperty(n)) return true;
+        return ixPplxSameText(b, _ix.textAt[n]);
+    }
+
     var IX_ADAPTERS = {
         // The v12.0 index, wrapped. Its scan branch, jump bridge and bookmarks call the
         // ci* functions directly; locate() is what _relocateQuestionElement uses.
@@ -2956,12 +3153,16 @@
             id: 'chatgpt',
             origins: ['https://chatgpt.com'],
             getConversationId: function () {
-                var m = window.location.pathname.match(/^\/(?:g\/[^\/]+\/)?c\/([^\/?#]+)/);
-                if (m) return IX_UUID_RE.test(m[1]) ? m[1] : null;
+                var p = ixGptPathId(window.location.pathname);
+                if (p !== undefined) return p;
                 var el = document.querySelector('[data-chatgpt-conversation-selection-target]');
                 var v = el ? el.getAttribute('data-chatgpt-conversation-selection-target') : '';
                 return IX_UUID_RE.test(v || '') ? v : null;
             },
+            // The bookmark store's key for a conversation: one per id, whichever URL shows it
+            // (/g/<project>/c/<id> and /c/<id> are one chat). pathId reads an old key's id.
+            bookmarkUrl: function (cid) { return 'https://chatgpt.com/c/' + cid; },
+            pathId: function (p) { return ixGptPathId(p) || null; },
             fetchIndex: ixGptFetch,
             // data-turn-key on the user turn equals the API node id. Positions come from
             // it, not from data-content-search-turn-key: that one was measured
@@ -2983,15 +3184,39 @@
                     out.push({ pos: pos, key: key || ('#' + i), el: bubbles[i] });
                 }
                 return out;
+            },
+            // What a bookmark can be made on, mounted now: { el, type }. Questions as
+            // mounted() finds them; one answer per turn, inside the turn (ixGptAnswerIn).
+            bookmarkables: function () {
+                var out = [], i, root = ixGptRoot();
+                var bubbles = platform.getUserMessages();
+                for (i = 0; i < bubbles.length; i++) out.push({ el: bubbles[i], type: 'user-msg' });
+                var turns = root ? root.querySelectorAll('[data-turn-key]') : [];
+                for (i = 0; i < turns.length; i++) {
+                    var ans = ixGptAnswerIn(turns[i]);
+                    if (ans) out.push({ el: ans, type: 'ai-msg' });
+                }
+                return out;
+            },
+            // The bookmark key a node shows NOW, or null: a question's data-turn-key (the user
+            // node's id), an answer's first message id. Both are the page's own ids, so a new
+            // message has its key before the index holds it.
+            keyOf: function (el, type) {
+                var root = ixGptRoot();
+                if (!IX_ADAPTERS.chatgpt.getConversationId() || !root || !root.contains(el)) return null;
+                if (type === 'ai-msg') return ixGptAnswerId(el);
+                var t = el.closest('[data-turn-key]');
+                var k = t ? t.getAttribute('data-turn-key') : '';
+                return IX_UUID_RE.test(k || '') ? k : null;
             }
         },
         perplexity: {
             id: 'perplexity',
             origins: ['https://www.perplexity.ai', 'https://perplexity.ai'],
-            getConversationId: function () {
-                var m = window.location.pathname.match(/^\/search\/([^\/?#]+)\/?$/);
-                return (m && /^[A-Za-z0-9._-]{1,200}$/.test(m[1])) ? m[1] : null;
-            },
+            getConversationId: function () { return ixPplxPathId(window.location.pathname); },
+            // www.perplexity.ai and perplexity.ai show one thread under one id.
+            bookmarkUrl: function (cid) { return 'https://www.perplexity.ai/search/' + cid; },
+            pathId: ixPplxPathId,
             fetchIndex: ixPplxFetch,
             // By ordinal, then CONFIRMED by text when the entry carries it: after an edit or
             // a rewrite the same ordinal can hold a different question (Tier 3).
@@ -2999,7 +3224,7 @@
                 var w = document.querySelector('[data-workflow-entry="' + (entry.position | 0) + '"]');
                 if (!w) return null;
                 var b = w.querySelector('[data-message-bubble="right"]');
-                if (b && entry.text && _normalizeCompareFull(_readMessageText(b)) !== _normalizeCompareFull(entry.text)) return null;
+                if (b && entry.text && !ixPplxSameText(b, entry.text)) return null;
                 return b || w;
             },
             mounted: function () {
@@ -3013,12 +3238,12 @@
                     // Same ordinal, different question (an edit or a rewrite): stale, and
                     // keyed by its text so a later edit at that ordinal is new evidence (Tier 3).
                     if (pos >= 0 && _ix.textAt && _ix.textAt.hasOwnProperty(pos)) {
-                        // _normalizeCompareFull: the API side is raw markdown and the DOM is
-                        // rendered, and _normalizeKey stops at 200 chars, so an edit sharing
-                        // that prefix would pass as the old question (Tier 3 post-fix). The
-                        // signature is the FULL text, so every later edit is new evidence.
-                        var shown = _normalizeCompareFull(_readMessageText(bubbles[i]));
-                        if (shown && shown !== _normalizeCompareFull(_ix.textAt[pos])) {
+                        // The full text, as ixPplxTextKey reads it: the API side is raw
+                        // markdown and the DOM is rendered, and _normalizeKey stops at 200
+                        // chars, so an edit sharing that prefix would pass as the old question
+                        // (Tier 3 post-fix). Every later edit is new evidence.
+                        var shown = ixPplxTextKey(ixPplxBubbleText(bubbles[i]));
+                        if (shown && shown !== ixPplxTextKey(_ix.textAt[pos])) {
                             pos = -1;
                             key = 'e' + n + ':' + shown;
                         }
@@ -3026,6 +3251,23 @@
                     out.push({ pos: pos, key: key, el: bubbles[i] });
                 }
                 return out;
+            },
+            // An entry's whole box, { top, bottom } in viewport px, for ixJump's "near the view"
+            // test. [data-workflow-entry] wraps the QUESTION slot only: entry -> parent (one
+            // child) -> parent (one child) -> the slot, a child of the list; the answer is the
+            // next slot, carries no entry attribute, and is often taller than the view (live,
+            // Chrome, 2026-10-24: 276-1415 px). A next sibling that holds an entry is not an
+            // answer (another layout): then the entry's own box.
+            extent: function (el) {
+                var w = el.closest('[data-workflow-entry]') || el;
+                var slot = w;
+                while (slot.parentElement && slot.parentElement.children.length === 1) slot = slot.parentElement;
+                var r = slot.getBoundingClientRect(), ans = slot.nextElementSibling;
+                var bottom = r.bottom;
+                if (ans && !ans.querySelector('[data-workflow-entry]') && !ans.hasAttribute('data-workflow-entry')) {
+                    bottom = Math.max(bottom, ans.getBoundingClientRect().bottom);
+                }
+                return { top: r.top, bottom: bottom };
             },
             // Perplexity pins its scroller to the bottom: a programmatic scrollTop reverted
             // within 300ms every time until a wheel event arrived, after which it stayed
@@ -3035,6 +3277,41 @@
                     container.dispatchEvent(new WheelEvent('wheel',
                         { deltaY: -800, bubbles: true, cancelable: true }));
                 } catch (e) {}
+            },
+            // Questions by their bubble; answers by [data-workflow-final-text], one per slot of
+            // the thread's list (live: exactly one per mounted answer). Never [class*="prose"]:
+            // live it matched 22 nodes, 19 of them nested list items, and v12.14 drew 5 flags
+            // into one answer (Chrome, 2026-10-24).
+            bookmarkables: function () {
+                var out = [], i, seen = [];
+                var bubbles = document.querySelectorAll('[data-message-bubble="right"]');
+                for (i = 0; i < bubbles.length; i++) out.push({ el: bubbles[i], type: 'user-msg' });
+                var list = ixPplxList();
+                var finals = list ? list.querySelectorAll('[data-workflow-final-text]') : [];
+                for (i = 0; i < finals.length; i++) {
+                    var slot = finals[i];
+                    while (slot.parentElement !== list) slot = slot.parentElement;
+                    if (seen.indexOf(slot) !== -1) continue;
+                    seen.push(slot);
+                    out.push({ el: finals[i], type: 'ai-msg' });
+                }
+                return out;
+            },
+            // A question's key is its entry's backend_uuid, an answer's that + ':answer'. Both
+            // come from the index, so there is none before it lists the entry, and none for an
+            // entry without an id of its own; a question must read as indexed.
+            keyOf: function (el, type) {
+                if (ixReadyAdapter() !== IX_ADAPTERS.perplexity) return null;
+                if (type === 'ai-msg') {
+                    var n = ixPplxAnswerEntry(el);
+                    var key = n >= 0 ? _ix.answerAt['e' + n] : null;
+                    return (key && ixPplxStillIndexed(n)) ? key : null;
+                }
+                var w = el.closest('[data-workflow-entry]');
+                var p = w ? ixPplxEntryNo(w) : -1;
+                if (p < 0 || !_ix.idAtPos.hasOwnProperty(p) || !_ix.textAt.hasOwnProperty(p)) return null;
+                if (!ixPplxSameText(el, _ix.textAt[p])) return null;
+                return _ix.idAtPos[p];
             }
         }
     };
@@ -3060,8 +3337,9 @@
         var reason = (err && err.reason) || 'unknown';
         // The load failed, so the stale signature that triggered it was NOT acted on:
         // let the scheduled retry ask again (cooldown and backoff still gate it), as
-        // ciSetDegraded clears _ciPendingResyncSig (Codex, PR #78).
+        // ciSetDegraded clears _ciPendingResyncSig (Codex, PR #78). A bookmark's request too.
         _ix.actedSig = '';
+        _ix.wantActed = '';
         if (err && err.permanent) {
             _ix.retryDelayMs = _ix.retryDelayMs ? Math.min(_ix.retryDelayMs * 4, 1800000) : 60000;
             console.warn('[ACN] index failure looks PERMANENT (' + reason + ') \u2014 ' +
@@ -3102,9 +3380,39 @@
             }
             if (err) { ixDegrade(err, keep); done(false); return; }
             var idIndex = {}, textAt = {};
+            // For bookmarks (v12.15): qIdx { id -> the Navigate index }, idAtPos { position ->
+            // id } for entries with an id of their own (never the positional fallback), and
+            // answerOf { answer key -> its question's Navigate index, -1 none } with answerAt
+            // { where the answer sits (ChatGPT: its turn's key; Perplexity: 'e' + entry) -> key }.
+            var qIdx = {}, idAtPos = {}, answerOf = {}, answerAt = {}, an = res.answers || [];
             for (var i = 0; i < res.entries.length; i++) {
                 idIndex[res.entries[i].id] = res.entries[i].position;
                 textAt[res.entries[i].position] = res.entries[i].text;
+                if (res.entries[i].hasUuid === false) continue;
+                qIdx[res.entries[i].id] = i;
+                idAtPos[res.entries[i].position] = res.entries[i].id;
+            }
+            for (var k = 0; k < an.length; k++) {
+                answerOf[an[k].key] = an[k].q;
+                answerAt[an[k].at] = an[k].key;
+            }
+            _ix.qIdx          = qIdx;
+            _ix.idAtPos       = idAtPos;
+            _ix.answerOf      = answerOf;
+            _ix.answerAt      = answerAt;
+            // A bookmark's refresh request is answered by the load started for it, not by one
+            // already in flight when it was made (_bmIxRequestRefresh).
+            // A load that already holds EVERY message still waiting answers their requests too, so
+            // no second fetch is made (saves while this load was in flight); one message it lacks,
+            // or a request with no message (a Perplexity flag without a key), keeps them all asked.
+            if (_ix.wantRefresh && _ix.wantRefresh !== _ix.wantActed && !_ix.wantKeyless &&
+                _bmIxAllHeld(qIdx, answerOf)) {
+                _ix.wantActed = _ix.wantRefresh;
+            }
+            if (_ix.wantRefresh && _ix.wantRefresh === _ix.wantActed) {
+                _ixBmServed     = Math.max(_ixBmServed, parseInt(_ix.wantRefresh.slice(3), 10) || 0);
+                _ix.wantRefresh = '';
+                _ix.wantKeyless = false;
             }
             _ix.textAt        = textAt;
             _ix.entries       = res.entries;
@@ -3165,12 +3473,20 @@
             if (typeof orbOnScanComplete === 'function') orbOnScanComplete();
             // A mounted question the index does not know: a new message, an edit or a
             // branch switch. Refetch once per such signature, behind the cooldown.
-            if (stale && stale !== _ix.actedSig && _ix.inFlightCid !== cid) {
+            // A bookmark made on a message the index does not hold asks the same way, once
+            // per request (v12.15, _bmIxRequestRefresh): a question already refetched for
+            // must not swallow it, and its answer must not refetch for the question again.
+            var newStale = !!stale && stale !== _ix.actedSig;
+            var asked = !!_ix.wantRefresh && _ix.wantRefresh !== _ix.wantActed;
+            if ((newStale || asked) && _ix.inFlightCid !== cid) {
                 var gate  = Math.max(CI_REFETCH_COOLDOWN_MS, _ix.retryDelayMs);
                 var since = Date.now() - _ix.lastFetchAt;
                 if (since > gate) {
-                    _ix.actedSig = stale;
-                    console.log('[ACN] index out of sync with DOM (new message, edit or branch) \u2014 refetching');
+                    if (newStale) _ix.actedSig = stale;
+                    if (asked) _ix.wantActed = _ix.wantRefresh;
+                    console.log(newStale
+                        ? '[ACN] index out of sync with DOM (new message, edit or branch) \u2014 refetching'
+                        : '[ACN] index refresh asked for by a bookmark of a message it does not hold \u2014 refetching');
                     ixLoad(a, cid, ixAfterLoad);
                 } else {
                     _ciScheduleRescan(gate - since + 500);
@@ -3246,12 +3562,120 @@
         if (zone) zone.setAttribute('data-acn-jump-resolved', String(q.ixPosition));
     }
 
+    // The user taking the scroll back ends a jump, as in ciJumpToFullPathIndex: trusted
+    // wheel, touch, scrollbar drag, or a scrolling key outside a text field. Perplexity's
+    // releaseScroll wheel is synthetic (isTrusted false), so it cannot.
+    var IX_SCROLL_KEYS = { PageUp: 1, PageDown: 1, Home: 1, End: 1, ArrowUp: 1, ArrowDown: 1, ' ': 1 };
+    function ixWatchUser(container) {
+        var w = { scrolled: false };
+        function onUser(e) {
+            if (!e || !e.isTrusted) return;
+            if (e.type === 'keydown') {
+                var t = e.target;
+                if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+                if (!IX_SCROLL_KEYS[e.key]) return;
+            }
+            w.scrolled = true;
+        }
+        container.addEventListener('wheel', onUser, { passive: true });
+        container.addEventListener('touchstart', onUser, { passive: true });
+        container.addEventListener('mousedown', onUser, { passive: true });
+        document.addEventListener('keydown', onUser, true);
+        w.stop = function () {
+            container.removeEventListener('wheel', onUser);
+            container.removeEventListener('touchstart', onUser);
+            container.removeEventListener('mousedown', onUser);
+            document.removeEventListener('keydown', onUser, true);
+        };
+        return w;
+    }
+
+    // ixLandOn(a, getEl, opts, done) — puts a MOUNTED target where it was asked to go, and
+    // checks that it stayed there (v12.15). The adapter jump lands its question with it; a
+    // caller that has an element of its own (a bookmarked answer, say) can call it directly,
+    // after ixJump(..., { land: false }) has brought the right entry into the window.
+    //   a        the adapter (its releaseScroll, if any, runs before every write)
+    //   getEl()  the target's CURRENT element, re-located by identity on every call, or null
+    //   opts     block: 'center' | 'start'. Omitted: 'center', except an element taller than
+    //              0.8 x the container's height, which goes to 'start' (its top stays in view)
+    //            container: the scroll container (default: looked up fresh)
+    //            check(): a reason to stop, or null. Default: a newer jump, a thread switch,
+    //              the container leaving the document, or the user scrolling
+    //            state: { aligns } shared by a caller that re-enters, so one cap covers it all
+    //   done(ok, el, reason)
+    //            ok: 'aligned' (within IX_JUMP_ALIGN_TOL px of the intended position, which is
+    //              clamped at the scroll ends) or 'cap' (IX_JUMP_MAX_ALIGNS writes used, the
+    //              target in view; one console line gives the offset left over)
+    //            not ok: 'lost' (getEl() returned null), 'no-container', 'cap-out' (the cap
+    //              used and the target out of view), or check()'s reason
+    // Every write is instant: write, settle IX_JUMP_SETTLE_MS, re-locate, measure, repeat.
+    // A smooth glide over a list that mounts, unmounts and re-writes scrollTop as it goes was
+    // cut short 8 of 8 times on Perplexity, where an instant scroll landed within 16 px 8 of 8,
+    // and on ChatGPT it ended 8514 px off when older turns were prepended mid-glide (Chrome,
+    // page realm, v12.14, 2026-10-24). Nothing here is smooth, so reduced motion needs no branch.
+    function ixLandOn(a, getEl, opts, done) {
+        opts = opts || {};
+        var container = opts.container || null;
+        if (!container) { _ciScrollContainer = null; container = ciFindScrollContainer(); }
+        if (!container) { done(false, null, 'no-container'); return; }
+        var state = opts.state || { aligns: 0 };
+        var check = opts.check, watch = null;
+        if (!check) {
+            var token = _ixJumpToken, cid = _ix.cid;
+            watch = ixWatchUser(container);
+            check = function () {
+                if (watch.scrolled) return 'user';
+                if (token !== _ixJumpToken) return 'superseded';
+                if (_ix.cid !== cid || a.getConversationId() !== cid) return 'superseded';
+                if (!container.isConnected) return 'container-gone';
+                return null;
+            };
+        }
+        function finish(ok, el, reason) {
+            if (watch) watch.stop();
+            done(ok, el, reason);
+        }
+        function step() {
+            var why = check();
+            if (why) { finish(false, null, why); return; }
+            var el = getEl();
+            if (!el || !el.isConnected) { finish(false, null, 'lost'); return; }
+            var cr = container.getBoundingClientRect(), er = el.getBoundingClientRect();
+            var block = opts.block || (er.height > container.clientHeight * 0.8 ? 'start' : 'center');
+            var lead = block === 'start' ? 0 : (container.clientHeight - er.height) / 2;
+            var max = Math.max(0, container.scrollHeight - container.clientHeight);
+            var want = Math.max(0, Math.min(max, Math.round(container.scrollTop +
+                                (er.top - cr.top - container.clientTop) - lead)));
+            var off = Math.round(want - container.scrollTop);
+            if (Math.abs(off) <= IX_JUMP_ALIGN_TOL) { finish(true, el, 'aligned'); return; }
+            if (state.aligns >= IX_JUMP_MAX_ALIGNS) {
+                console.log('[ACN] jump: alignment cap reached (' + IX_JUMP_MAX_ALIGNS +
+                            ' writes), target ' + off + ' px from its intended position');
+                // Off by more than the tolerance is still a landing while the target is in view;
+                // out of view it is not, and the caller says so.
+                var top = cr.top + container.clientTop;
+                var seen = er.bottom > top && er.top < top + container.clientHeight;
+                finish(seen, seen ? el : null, seen ? 'cap' : 'cap-out');
+                return;
+            }
+            state.aligns++;
+            if (a.releaseScroll) a.releaseScroll(container);
+            container.scrollTop = want;
+            setTimeout(step, IX_JUMP_SETTLE_MS);
+        }
+        step();
+    }
+
     // Resolve-on-arrival, the design of ciJumpToFullPathIndex at this seam's size: aim at
     // the entry's share of the scroll height, wait for the window to settle, identify the
     // target by its own id on arrival, otherwise move toward it by the nearest mounted
     // entry's distance; bounded, and superseded by a newer jump. Text is a last resort,
     // and only when exactly one mounted question matches.
-    function ixJump(a, q, outerDone) {
+    // On arrival the target is LANDED (ixLandOn: instant, verified) before outerDone runs,
+    // because "mounted" is not "in view" (v12.15). opts.land === false skips that: outerDone
+    // gets the mounted question as found, for a caller that lands on something else itself.
+    function ixJump(a, q, outerDone, opts) {
+        opts = opts || {};
         var token = ++_ixJumpToken;
         // Looked up fresh: the cache trusts any connected node, and ChatGPT keeps the
         // previous conversation's timeline connected, hidden, after a switch (Tier 3).
@@ -3261,43 +3685,49 @@
         var entry = { id: q.ixId, position: q.ixPosition, text: q.text };
         var total = Math.max(1, _ix.total);
         var cid = _ix.cid;
-        var moves = 0;
-        // The user taking the scroll back ends the jump, as in ciJumpToFullPathIndex:
-        // trusted wheel, touch, scrollbar drag, or a scrolling key outside a text field.
-        // Perplexity's releaseScroll wheel is synthetic (isTrusted false), so it cannot.
-        var userScrolled = false, finished = false;
-        var SCROLL_KEYS = { PageUp: 1, PageDown: 1, Home: 1, End: 1, ArrowUp: 1, ArrowDown: 1, ' ': 1 };
-        function onUser(e) {
-            if (!e || !e.isTrusted) return;
-            if (e.type === 'keydown') {
-                var t = e.target;
-                if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-                if (!SCROLL_KEYS[e.key]) return;
-            }
-            userScrolled = true;
-        }
-        container.addEventListener('wheel', onUser, { passive: true });
-        container.addEventListener('touchstart', onUser, { passive: true });
-        container.addEventListener('mousedown', onUser, { passive: true });
-        document.addEventListener('keydown', onUser, true);
+        var moves = 0, lastDir = 0, factor = 1, waits = 0;
+        var landing = { aligns: 0 };
+        var watch = ixWatchUser(container), finished = false;
         function done(ok, el, reason) {
             if (finished) return;
             finished = true;
-            container.removeEventListener('wheel', onUser);
-            container.removeEventListener('touchstart', onUser);
-            container.removeEventListener('mousedown', onUser);
-            document.removeEventListener('keydown', onUser, true);
+            watch.stop();
             outerDone(ok, el, reason);
         }
-        function arrive() {
-            if (userScrolled) { done(false, null, 'user'); return; }
-            if (token !== _ixJumpToken) { done(false, null, 'superseded'); return; }
+        function live() {
+            if (watch.scrolled) return 'user';
+            if (token !== _ixJumpToken) return 'superseded';
             // A thread switch before the next scan invalidates: a position from the old
             // thread must not resolve the same-numbered entry of the new one (Tier 3).
-            if (_ix.cid !== cid || a.getConversationId() !== cid) { done(false, null, 'superseded'); return; }
-            if (!container.isConnected) { done(false, null, 'container-gone'); return; }
+            if (_ix.cid !== cid || a.getConversationId() !== cid) return 'superseded';
+            if (!container.isConnected) return 'container-gone';
+            return null;
+        }
+        // Lands on the found element. Lost (unmounted again by the landing write) goes back
+        // to moving; the shared `landing` cap and IX_JUMP_MAX_MOVES bound the round trips.
+        function land(el, getEl, reason) {
+            if (opts.land === false) { done(true, el, reason); return; }
+            ixLandOn(a, getEl, { container: container, check: live, state: landing }, function (ok, landed, why) {
+                if (ok) done(true, landed, reason);
+                else if (why === 'lost') arrive();
+                else done(false, null, why);
+            });
+        }
+        // A move that reverses the previous one's direction overshot: halve the step from
+        // then on. Reserved heights that differ from the mean otherwise swing the view
+        // past the target and back until the move cap (v12.15, mock models).
+        function damp(delta) {
+            if (!delta) return factor;
+            var dir = delta > 0 ? 1 : -1;
+            if (lastDir && dir !== lastDir) factor = factor / 2;
+            lastDir = dir;
+            return factor;
+        }
+        function arrive() {
+            var why = live();
+            if (why) { done(false, null, why); return; }
             var el = a.locate(entry);
-            if (el) { done(true, el, 'locate'); return; }
+            if (el) { land(el, function () { return a.locate(entry); }, 'locate'); return; }
             if (moves >= IX_JUMP_MAX_MOVES) {
                 // Text stands in for identity only if no other question in the WHOLE
                 // conversation reads the same, and never for a node the adapter already
@@ -3319,21 +3749,48 @@
                     }
                     if (!other) hits.push(cur[i]);
                 }
-                if (same === 1 && hits.length === 1) { done(true, hits[0], 'text'); return; }
+                if (same === 1 && hits.length === 1) {
+                    // No id to re-locate by: the node itself, while it stays mounted.
+                    var hit = hits[0];
+                    land(hit, function () { return hit.isConnected ? hit : null; }, 'text');
+                    return;
+                }
                 done(false, null, 'not-found');
                 return;
             }
             moves++;
             var max = Math.max(0, container.scrollHeight - container.clientHeight);
-            var near = null, best = Infinity, m = a.mounted();
+            var near = null, best = Infinity, m = a.mounted(), geo = null, geoGap = Infinity;
+            var vr = container.getBoundingClientRect(), vh = container.clientHeight;
             for (var j = 0; j < m.length; j++) {
                 if (m[j].pos < 0) continue;
+                // The step below assumes the view sits at `near`, so only an entry in the
+                // view or within one viewport of it may stand for it: Perplexity keeps its
+                // latest entry mounted wherever the view is (live, Chrome, 2026-10-24).
+                // The entry's whole box, its answer included (the adapter's extent()).
+                var mr = a.extent ? a.extent(m[j].el)
+                       : (m[j].el.closest('[data-workflow-entry],[data-turn-key]') || m[j].el).getBoundingClientRect();
+                // The mounted entry nearest the view IN PX, for the fallback below.
+                var gap = mr.bottom < vr.top ? vr.top - mr.bottom : mr.top > vr.bottom ? mr.top - vr.bottom : 0;
+                if (gap < geoGap) { geoGap = gap; geo = m[j].pos; }
+                if (mr.bottom < vr.top - vh || mr.top > vr.bottom + vh) continue;
                 var d = Math.abs(m[j].pos - entry.position);
                 if (d < best) { best = d; near = m[j].pos; }
             }
+            // Nothing mounted near the view after a move. Either the window has not caught up
+            // with the last write (a slow mount), or it has and still shows no question near
+            // the view: the view sits inside a long answer whose question slot is empty, which
+            // Perplexity does (live, Chrome, 2026-10-24: slot 19's answer mounted, slot 18's
+            // question empty), and no wait ends that. So wait at most two settles (each counts
+            // as a move), then step from the mounted entry nearest the view in px, never by
+            // number: the always-mounted latest entry is nearer by number from anywhere.
+            if (near !== null) waits = 0;
+            else if (moves > 1 && waits < 2) { waits++; setTimeout(arrive, IX_JUMP_SETTLE_MS); return; }
+            else if (moves > 1) near = geo;
             var px = (moves === 1 || near === null)
                 ? max * (total > 1 ? entry.position / (total - 1) : 0)
-                : container.scrollTop + (entry.position - near) * (container.scrollHeight / total);
+                : container.scrollTop + (entry.position - near) * (container.scrollHeight / total) *
+                  damp(entry.position - near);
             if (a.releaseScroll) a.releaseScroll(container);
             container.scrollTop = Math.max(0, Math.min(max, Math.round(px)));
             setTimeout(arrive, IX_JUMP_SETTLE_MS);
@@ -3701,7 +4158,128 @@
         return true;
     }
 
+    // ── The row's own id (v12.15) ────────────────────────────────────────────
+    // Every row carries its message's uuid on a descendant [data-turn-key], both senders, and
+    // data-perf-row names its sender [measured, Chrome + Tampermonkey page realm, v12.14, one
+    // 147-question chat, 294 of 294 rows, at rest, 2026-10-24]. The text compare this replaces
+    // failed on 31 of 129 of that chat's questions, 27 of them within the first 200 characters:
+    // the DOM joins a question's blocks without whitespace and draws list numbers with CSS, while
+    // the payload holds the markdown. A row is identified by its id only when it holds exactly one
+    // key and that key is a uuid; every other row is identified as before, by its text.
+    var CI_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    var _ciUuidPathMemo = { gen: -1, path: null, map: null };
+    var _ciKeyNote = { cid: null, fellBack: false, posWarned: false, shown: {} };
+    var _ciKeyCountGen = -1;
 
+    // Which of the two one-time lines this conversation has printed.
+    function _ciKeyNoteNow() {
+        var cid = ciGetConversationUuid();
+        if (_ciKeyNote.cid !== cid) _ciKeyNote = { cid: cid, fellBack: false, posWarned: false, shown: {} };
+        return _ciKeyNote;
+    }
+
+    // A question edited in place under the key its row already had (whether an edit keeps the
+    // row's key until the resync is unmeasured live): the key still names the superseded entry,
+    // which the row no longer shows. A message's text never changes under its uuid, so the text a
+    // row first shows under a key in this conversation is that row's text under that key from then
+    // on; a later read showing other text is an edit. Per row and key, so a row showing another
+    // row's key never stands for that row. The row is compared with itself, never
+    // with the payload (a question rendered as several blocks never matches it). '' when the text
+    // is unchanged or empty (an attachment-only question); otherwise the shown text's signature.
+    function _ciKeyTextEdited(rowEl, di, k) {
+        var node = rowEl.querySelector('[data-testid="user-message"]');
+        var t = node ? _readMessageText(node) : '';
+        if (!t) return '';
+        var shown = _ciKeyNoteNow().shown, sk = di + ':' + k, h = t.length + ':' + _fnv1aHex(t);
+        if (!Object.prototype.hasOwnProperty.call(shown, sk)) { shown[sk] = h; return ''; }
+        return shown[sk] === h ? '' : h;
+    }
+    // The first row in this conversation identified by its text after all, and why (one line).
+    function _ciNoteKeyFallback(rowEl, why) {
+        if (_ciKeyNoteNow().fellBack) return;
+        _ciKeyNote.fellBack = true;
+        console.log('[ACN] turn keys: row ' + rowEl.getAttribute(CI_ROW_ATTR) + ' has no usable ' +
+                    'data-turn-key (' + why + '); it is identified by its text, as before ' +
+                    '(first such row in this conversation)');
+    }
+
+    function ciRowTurnKey(rowEl) {
+        if (!rowEl || !rowEl.querySelectorAll) return null;
+        var ks = rowEl.querySelectorAll('[data-turn-key]');
+        var k = ks.length === 1 ? ks[0].getAttribute('data-turn-key') : null;
+        if (k !== null && CI_UUID_RE.test(k)) return k;
+        _ciNoteKeyFallback(rowEl, !ks.length ? 'none' : ks.length > 1 ? ks.length + ' keys' : 'not a uuid');
+        return null;
+    }
+
+    // data-perf-row where the row carries it; otherwise the user-message node, which an
+    // attachment-only question does not have.
+    function ciRowSender(rowEl) {
+        var s = rowEl.getAttribute('data-perf-row');
+        if (s === 'human' || s === 'assistant') return s;
+        return rowEl.querySelector('[data-testid="user-message"]') ? 'human' : 'assistant';
+    }
+
+    // The path index the row's id names; -1 when the id is not on the fetched path (the page is
+    // ahead of the index); null when the row has no usable id, or the entry its id names has the
+    // other sender.
+    function ciRowIdPath(rowEl) {
+        if (!_ciFullPath) return null;
+        var k = ciRowTurnKey(rowEl);
+        if (k === null) return null;
+        if (_ciUuidPathMemo.gen !== _ciIndexGen || _ciUuidPathMemo.path !== _ciFullPath) {
+            var m = {};
+            for (var i = 0; i < _ciFullPath.length; i++) if (_ciFullPath[i].uuid) m[_ciFullPath[i].uuid] = i;
+            _ciUuidPathMemo = { gen: _ciIndexGen, path: _ciFullPath, map: m };
+        }
+        if (!Object.prototype.hasOwnProperty.call(_ciUuidPathMemo.map, k)) return -1;
+        var p = _ciUuidPathMemo.map[k];
+        if (_ciFullPath[p].sender !== ciRowSender(rowEl)) {
+            _ciNoteKeyFallback(rowEl, 'it names a message of the other sender');
+            return null;
+        }
+        return p;
+    }
+
+    // For identity (anchors, bookmarks): where the row's position is trusted (the predicate holds
+    // and the row count is the snapshot's), the id must name the entry the position names. On
+    // disagreement the row has no identity (-2, one line), so a row showing another message's key
+    // never hands that message's uuid to a bookmark. A question edited under its key has none
+    // either (-3, signalled by the staleness check), so its bookmark is not filed under the
+    // message it replaced.
+    function ciRowIdPathChecked(rowEl, di) {
+        var p = ciRowIdPath(rowEl);
+        if (p === null || p < 0) return p;
+        if (!_ciPredicateWarned && _ciRenderable && di < _ciRenderable.length &&
+            _ciRenderable[di] !== p && ciTotalRows() === _ciRenderable.length) {
+            if (!_ciKeyNoteNow().posWarned) {
+                _ciKeyNote.posWarned = true;
+                console.warn('[ACN] turn keys: row ' + di + '\'s data-turn-key names path ' + p +
+                             ' but its position names path ' + _ciRenderable[di] + ' — not used as identity');
+            }
+            return -2;
+        }
+        if (_ciFullPath[p].sender === 'human' && _ciKeyTextEdited(rowEl, di, ciRowTurnKey(rowEl))) return -3;
+        return p;
+    }
+
+    // One line per index load: how many mounted rows carry a usable key, and how many of those
+    // the fetched path holds.
+    function _ciReportTurnKeys() {
+        if (_ciKeyCountGen === _ciIndexGen) return;
+        var rows = ciMountedRows();
+        if (!rows.length) return;
+        _ciKeyCountGen = _ciIndexGen;
+        var usable = 0, onPath = 0;
+        for (var i = 0; i < rows.length; i++) {
+            if (ciRowTurnKey(rows[i].el) === null) continue;
+            usable++;
+            var p = ciRowIdPath(rows[i].el);
+            if (p !== null && p >= 0) onPath++;
+        }
+        console.log('[ACN] turn keys: ' + usable + ' of ' + rows.length + ' mounted rows carry a usable ' +
+                    'data-turn-key, ' + onPath + ' of them on the fetched path');
+    }
 
     // ── THE ONE MATCHER family (resolve-on-arrival core) ─────────────────────
     // One row -> its unique path entry. BOTH senders: restricting to user rows left
@@ -3713,6 +4291,13 @@
     // all, so they can neither match nor be allowed to match something else.
     function ciMatchRowToPath(rowObj) {
         if (!_ciFullPath) return null;
+        // A question row with a usable id is its id's entry, or nothing when the id is not on the
+        // path: never the text match, which can name a superseded entry with the same text.
+        // Answer rows keep the text match, as before.
+        if (ciRowSender(rowObj.el) === 'human') {
+            var idp = ciRowIdPathChecked(rowObj.el, rowObj.dataIndex);
+            if (idp !== null) return idp >= 0 ? idp : null;
+        }
         var isUser = rowObj.isUser;
         var inner = isUser
             ? rowObj.el.querySelector('[data-testid="user-message"]')
@@ -4429,7 +5014,8 @@
     // The path entry a mounted question row matches right now (the matcher anchors use), or
     // null; false when it matches another entry than the anchor recorded for that row, i.e. the
     // conversation changed under the index (an edit before the resync). Memoized per index
-    // generation and row text: ciMatchRowToPath walks the whole path.
+    // generation, row text and row id: ciMatchRowToPath walks the whole path, and a row keeps its
+    // text while its id changes.
     var _ciQMatchMemo = { gen: -1, rows: {} };
     function _ciQuestionPathNow(row) {
         if (!row || !row.isUser) return null;
@@ -4441,11 +5027,12 @@
         if (!text) return null;
         if (_ciQMatchMemo.gen !== _ciIndexGen) _ciQMatchMemo = { gen: _ciIndexGen, rows: {} };
         var key = String(row.dataIndex), memo = _ciQMatchMemo.rows[key], p;
-        if (memo && memo.text === text) {
+        var tk = ciRowTurnKey(row.el);
+        if (memo && memo.text === text && memo.tk === tk) {
             p = memo.p;
         } else {
             p = ciMatchRowToPath(row);
-            _ciQMatchMemo.rows[key] = { text: text, p: p };
+            _ciQMatchMemo.rows[key] = { text: text, tk: tk, p: p };
         }
         if (p === null || !_ciFullPath[p] || _ciFullPath[p].sender !== 'human') return null;
         if (_ciAnchorRows && _ciAnchorRows.hasOwnProperty(key) && _ciAnchorRows[key] !== p) return false;
@@ -4485,6 +5072,9 @@
     // never share an entry, and a row past the fetched snapshot is never placed. Nothing here
     // records an anchor: a derived position is not a measurement, and anchors feed the jump and
     // the staleness check.
+    // A row with a usable id (v12.15) is placed by its id alone, when the id names an answer that
+    // renders and agrees with the row's position where that is trusted, and is left unplaced
+    // otherwise; the routes above decide only for a row without one.
     function ciAnswerMap() {
         var out = { rows: [], pathOf: {} };
         var mounted = ciMountedRows(), byRow = {}, i;
@@ -4500,7 +5090,12 @@
         var at = {};
         for (i = 0; i < out.rows.length; i++) {
             var d = out.rows[i].dataIndex;
+            var idp = (placed && d < bound) ? ciRowIdPathChecked(out.rows[i].el, d) : null;
             var p = (placed && d < bound) ? _ciAnswerPathForRow(d, byRow, total) : null;
+            if (idp !== null) {
+                p = (idp >= 0 && _ciFullPath[idp].sender === 'assistant' && ciEntryRenders(_ciFullPath[idp]))
+                    ? idp : null;
+            }
             out.pathOf[d] = p;
             if (p === null) continue;
             if (at.hasOwnProperty(p)) { out.pathOf[d] = null; out.pathOf[at[p]] = null; }
@@ -5007,6 +5602,11 @@
             if (rowEl) {
                 var di = parseInt(rowEl.getAttribute(CI_ROW_ATTR), 10);
                 if (!isNaN(di)) {
+                    // The row's own id first (v12.15): its uuid, or none when the id is not on
+                    // the path or disagrees with the row's position. The text confirm and the
+                    // text map below are for rows without a usable id.
+                    var idq = ciRowIdPathChecked(rowEl, di);
+                    if (idq !== null) return idq >= 0 ? _ciFullPath[idq].uuid : null;
                     // MEASURED resolution only. This uuid gets PERSISTED (bookmarks),
                     // and the predicate fallback assigned an adjacent message's
                     // identity whenever the stop-reason predicate missed an unrendered
@@ -5096,6 +5696,8 @@
         _bmRefreshFor     = null;   // a bookmark's refetch request belongs to the conversation it was made in
         _bmProveSeen      = '';     // and the proof gate's copy of the stored bookmarks with it
         _bmProveRaw       = null;
+        _bmProveQSeen     = '';
+        _bmProveQRaw      = null;
         _ciInFlightCid    = null;   // never let an old conversation's request block the new one
         if (_ciRescanTimer !== null) { clearTimeout(_ciRescanTimer); _ciRescanTimer = null; }
         // Usage quota is org-scoped; a conversation switch can land in a different
@@ -5121,6 +5723,7 @@
         _ciResyncedSigOrder = [];
         _ciPendingResyncSig = '';
         _ciAwaitingResyncSig = '';
+        _ciStreamSince      = {};
         _bmDiagnosed        = {};
         _bmStatusPrinted    = false;   // per-conversation, like _bmDiagnosed
         _bmPendingLegacy    = true;    // unknown until the next migration pass counts it
@@ -5564,10 +6167,53 @@
             delete _ciResyncedSigs[_ciResyncedSigOrder.shift()];
         }
     }
+
+    // A row whose id says the index lags it (below) while the row is still being written never
+    // settles: the token differs on every scan (a counter: two scans can fall in the same
+    // millisecond, and a clock token then repeats). Capped, so an attribute stuck at "true"
+    // cannot hold a resync back for good; past the cap the row's own text decides when it has
+    // settled.
+    var CI_STREAM_DEFER_MAX_MS = 120000;
+    var _ciStreamSince = {};   // 'row:key' -> when that row was first seen streaming
+    var _ciStreamSeq = 0;
+    function _ciStreamToken(rowEl, di, key) {
+        var sk = di + ':' + key;
+        if (rowEl.getAttribute('data-perf-row-streaming') !== 'true') { delete _ciStreamSince[sk]; return ''; }
+        var now = Date.now();
+        if (!_ciStreamSince[sk]) _ciStreamSince[sk] = now;
+        return now - _ciStreamSince[sk] < CI_STREAM_DEFER_MAX_MS ? ':w' + (++_ciStreamSeq) : '';
+    }
+
     function _ciAssistantStale() {
         if (!ciIsReady() || !_ciFullPath) return false;
         var rows = ciMountedRows(), sig = '', i;
         for (i = 0; i < rows.length; i++) {
+            // ROWS WITH AN ID (v12.15), both senders, ahead of the text checks below. An id the
+            // path holds, on an entry that renders, is known whatever the row's text: a question
+            // rendered as several blocks no longer looks edited. Otherwise the index lags the row:
+            // 'k' the id is not on the path (a regenerate, an edit, a branch switch, a just-sent
+            // turn), 'p' it is, on an answer without a stop_reason (the index was fetched while it
+            // was being written). Stability is the row against ITSELF, never against the payload
+            // (DEC-051), under the same two-scan rule and consumption as every signature.
+            var idr = ciRowIdPath(rows[i].el);
+            if (idr !== null) {
+                // 'x' a question edited under the key it had: a stable change is resynced once,
+                // and survives a refetch that cannot fix it (consumed, as every signature).
+                var xe = (idr >= 0 && _ciFullPath[idr].sender === 'human')
+                    ? _ciKeyTextEdited(rows[i].el, rows[i].dataIndex, ciRowTurnKey(rows[i].el)) : '';
+                if (xe) { sig += 'x' + rows[i].dataIndex + ':' + xe + ';'; continue; }
+                if (idr >= 0 && ciEntryRenders(_ciFullPath[idr])) continue;
+                var selfNode = rows[i].isUser
+                    ? rows[i].el.querySelector('[data-testid="user-message"]')
+                    : ciAnswerNodeInRow(rows[i].el);
+                var selfT = rows[i].isUser ? _readMessageText(selfNode || rows[i].el)
+                                           : _readAIText(selfNode || rows[i].el);
+                var tk = ciRowTurnKey(rows[i].el);
+                sig += (idr < 0 ? 'k' : 'p') + rows[i].dataIndex + ':' + tk.slice(0, 8) + ':' +
+                       selfT.length + ':' + _fnv1aHex(selfT) +
+                       _ciStreamToken(rows[i].el, rows[i].dataIndex, tk) + ';';
+                continue;
+            }
             var inner = ciMessageNodeWithin(rows[i].el);
             if (!inner || inner === rows[i].el) continue;
             var rawTxt = _readMessageText(inner);
@@ -5705,7 +6351,25 @@
         }
         if (sig === _ciLastAsstMismatch) { _ciPendingResyncSig = sig; return true; }
         _ciLastAsstMismatch = sig;
+        // An id signature's second scan is scheduled rather than left to the next mutation: the
+        // end of a stream can be the last change the page makes.
+        if (/(^|;)[kpx]\d/.test(sig)) _ciScheduleRescan(1500);
         return false;
+    }
+
+    // The kinds in a signature, for the "out of sync" line: k / p a row's id (not on the path /
+    // on an answer still unfinished there), x a question edited under its row's id, e an edited
+    // question, g / s / o an answer that grew, changed, or lies past the snapshot, m a long answer
+    // matching no entry.
+    function _ciSigKinds(sig) {
+        var seen = {}, out = [], parts = String(sig || '').split(';');
+        for (var i = 0; i < parts.length; i++) {
+            if (!parts[i]) continue;
+            var c = parts[i].charAt(0);
+            if (c >= '0' && c <= '9') c = 'm';
+            if (!seen[c]) { seen[c] = true; out.push(c); }
+        }
+        return out.join(',');
     }
 
     function scanConversation(forceReset) {
@@ -5744,6 +6408,7 @@
                 // (only unanchored rows are examined) and idempotent.
                 ciHarvestAnchors();
                 ciValidatePredicate();
+                _ciReportTurnKeys();
                 // Once per index generation: bind any bookmark taken before its message
                 // had a uuid. _ciIndexGen changes on every rebuild, which is exactly when
                 // a previously-unknown uuid can become known.
@@ -5781,6 +6446,8 @@
                         // Answer bookmarks bind on proof before the status line counts them.
                         _bmProveSeen = '';
                         _bmProveAnswers();
+                        _bmProveQSeen = '';
+                        _bmProveQuestions();
                         _bmHarvestLegacyFromMounted();
                         _bmMigrateLegacy();
                         _bmMigratedGen = _ciIndexGen;
@@ -5797,7 +6464,8 @@
 
                 // The staleness check runs on every scan exactly as before; a bookmark on an answer
                 // the index does not hold yet (_bmRequestIndexRefresh) only joins its refetch.
-                var ciStale = _ciNeedsResync(_questions) || _ciAssistantStale();
+                var ciProvisional = _ciNeedsResync(_questions);
+                var ciStale = ciProvisional || _ciAssistantStale();
                 if (_bmRefreshFor && (_bmRefreshFor !== _ciConversationId || !_bmRefreshStillWanted())) {
                     _bmRefreshFor = null;
                 }
@@ -5818,7 +6486,8 @@
                         _bmRefreshFor = null;
                         if (ciStale) {
                             console.log('[ACN] index out of sync with DOM (new message, edit, ' +
-                                        'or regenerate) — refetching');
+                                        'or regenerate) — refetching [' +
+                                        (ciProvisional ? 'provisional' : _ciSigKinds(_ciPendingResyncSig)) + ']');
                         } else {
                             console.log('[ACN] refetching the index for a bookmarked answer it ' +
                                         'does not hold yet');
@@ -7958,6 +8627,14 @@
               ' pathLen=' + (_ciFullPath ? _ciFullPath.length : -1) +
               ' hadElement=' + (q.element ? 1 : 0));
         var target = _relocateQuestionElement(q);
+        // An index-backed target goes through the adapter jump even when it is mounted:
+        // mounted is not in view, and only the jump lands and checks (v12.15). Not on a
+        // thread too short to have a scroll container: ixJump would refuse it with a toast,
+        // and the plain fast path below lands it, as before.
+        if (target && typeof q.ixPosition === 'number' && ixReadyAdapter()) {
+            _ciScrollContainer = null;
+            if (ciFindScrollContainer()) target = null;
+        }
 
         // Not mounted. On Claude the settle loop can page the virtualizer to it.
         // The other 13 platforms are not known to virtualize, so they short-circuit
@@ -7985,10 +8662,11 @@
             if (ixJumpAdapter) {
                 ixJump(ixJumpAdapter, q, function (ok, el, reason) {
                     if (ok && el) {
+                        // Already landed by ixJump (ixLandOn): no scroll here. A glide
+                        // from this callback is what left targets short (v12.15).
                         q.element = el;
                         orbMarkJumpTarget(el);
                         ixMarkResolved(q);
-                        el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
                         orbFlashElement(el);
                     } else if (reason !== 'superseded' && reason !== 'user') {
                         showToast('That message is not currently rendered \u2014 scroll toward it and try again');
@@ -8024,17 +8702,10 @@
         // Q2...) reported 147/147 failures while every jump was actually correct,
         // because each next target sat inside the mount window and resolved here.
         orbMarkJumpTarget(target);
-        if (typeof q.ixPosition === 'number') {
-            ixMarkResolved(q);
-            // A mounted target needs the scroll pin released too: Perplexity's stick-to-bottom
-            // reverts scrollIntoView as it does a scrollTop write (Codex, PR #78).
-            var ixFast = ixReadyAdapter();
-            if (ixFast && ixFast.releaseScroll) {
-                _ciScrollContainer = null;
-                var fastContainer = ciFindScrollContainer();
-                if (fastContainer) ixFast.releaseScroll(fastContainer);
-            }
-        }
+        // An index-backed target reaches this path only without a scroll container (a short
+        // thread) or without a ready index (v12.15, above); the pin release it used to do
+        // here now happens in ixLandOn, before each of its writes.
+        if (typeof q.ixPosition === 'number') ixMarkResolved(q);
 
         if (isLeftChat) {
             // Close panel first so it doesn't obscure the chat
@@ -8581,7 +9252,15 @@
         return _fnv1aHex(String(msgIndex) + '|' + (text || '').substring(0, 200));
     }
 
+    // The store's key for this conversation. On ChatGPT and Perplexity it is one canonical URL
+    // per conversation id (v12.15): ChatGPT shows one chat at /g/<project>/c/<id> and /c/<id>,
+    // Perplexity at www.perplexity.ai and perplexity.ai, and origin + pathname filed each form
+    // apart. The canonical form keeps the store's shape, so every reader stays as it was; sets
+    // filed under the old forms move into it (_bmMergeSplitKeys). Elsewhere, Claude included,
+    // origin + pathname, unchanged.
     function normalizeConversationUrl() {
+        var a = ixAdapter(), cid = a ? a.getConversationId() : null;
+        if (cid) return a.bookmarkUrl(cid);
         return window.location.origin + window.location.pathname;
     }
 
@@ -8632,6 +9311,84 @@
             store[url].bookmarks = next;
             return JSON.stringify(store);
         });
+    }
+
+    // `more` added to `list`, as a union by record id that keeps one record per message: the
+    // same entity type and the same key (its uuid, or while it has none its hash). Of two such,
+    // the bound one stays. Nothing else is dropped.
+    function _bmUnion(list, more) {
+        function ident(b) { return String(b.entityType) + '|' + String(b.msgUuid || b.contentHash); }
+        var out = list.slice();
+        for (var i = 0; i < more.length; i++) {
+            var b = more[i], at = -1;
+            if (!acnIsPlainObject(b)) { out.push(b); continue; }
+            for (var j = 0; j < out.length; j++) {
+                if (acnIsPlainObject(out[j]) && (out[j].id === b.id || ident(out[j]) === ident(b))) { at = j; break; }
+            }
+            if (at < 0) out.push(b);
+            else if (!out[at].msgUuid && b.msgUuid) out[at] = b;
+        }
+        return out;
+    }
+
+    // Sets of THIS conversation filed under its other URL forms (normalizeConversationUrl),
+    // moved into its canonical key: one change to the store as it is stored now (DEC-050).
+    // An old key is removed in the same write that puts its records in the canonical set, and
+    // a set that cannot be read is left where it is. A second run finds nothing to move, and a
+    // v12.14 tab still filing under an old form is picked up on the next scan.
+    var _bmMergeSeen = '';
+    function _bmMergeSplitKeys() {
+        var a = ixAdapter(), cid = a ? a.getConversationId() : null;
+        if (!cid) return false;
+        var url = a.bookmarkUrl(cid), raw;
+        try { raw = String(acnGetValue(BOOKMARK_KEY, '{}')); } catch (e) { return false; }
+        if (url + '\n' + raw === _bmMergeSeen) return false;
+        function has(store, k) { return Object.prototype.hasOwnProperty.call(store, k); }
+        function splitKeys(store) {
+            var out = [];
+            for (var k in store) {
+                if (!has(store, k) || k === url) continue;
+                var u;
+                try { u = new URL(k); } catch (e) { continue; }
+                if (a.origins.indexOf(u.origin) === -1 || a.pathId(u.pathname) !== cid) continue;
+                if (!acnIsPlainObject(store[k]) || !Array.isArray(store[k].bookmarks)) continue;
+                out.push(k);
+            }
+            return out.sort();
+        }
+        var found = [];
+        try { if (_bmStoreValid(raw)) found = splitKeys(JSON.parse(raw)); } catch (e) {}
+        if (!found.length) { _bmMergeSeen = url + '\n' + raw; return false; }
+        function valid(r) {
+            if (!_bmStoreValid(r)) return false;
+            var st = JSON.parse(r);
+            return !has(st, url) || (acnIsPlainObject(st[url]) && Array.isArray(st[url].bookmarks));
+        }
+        var saved = false;
+        try {
+            saved = acnUpdateValue(BOOKMARK_KEY, '{}', valid, function (r) {
+                var st = JSON.parse(r), keys = splitKeys(st);
+                if (!keys.length) return r;
+                var list = has(st, url) ? st[url].bookmarks : [];
+                for (var i = 0; i < keys.length; i++) {
+                    list = _bmUnion(list, st[keys[i]].bookmarks);
+                    delete st[keys[i]];
+                }
+                if (!has(st, url)) st[url] = {};
+                st[url].bookmarks = list;
+                return JSON.stringify(st);
+            });
+        } catch (e) {
+            if (!_bmSaveFailWarned) {
+                _bmSaveFailWarned = true;
+                console.warn('[ACN] storage: a bookmark could not be saved:', e);
+            }
+            return false;
+        }
+        if (!saved) { _bmMergeSeen = url + '\n' + raw; return false; }   // refused: until the store changes
+        console.log('[ACN bookmarks] ' + found.length + ' set(s) of this conversation filed under ' +
+                    'another URL form merged into ' + url);
+        return true;
     }
 
     // A write that brought another tab's changes into this page's copy redraws what was
@@ -8751,6 +9508,7 @@
     // "A#?" when it is not bound to a message (or its message left the path); "Answer to Q#?"
     // while the index is not ready.
     function _bmLabel(bm) {
+        if (ixAdapter()) return _bmIxLabel(bm);      // ChatGPT, Perplexity (v12.15)
         if (bm.entityType === 'user-msg') return 'Q#' + (_bmDisplayOrdinal(bm) + 1);
         if (bm.entityType !== 'ai-msg' || !ciIsClaudeChat()) return 'A#' + (_bmDisplayOrdinal(bm) + 1);
         if (!bm.msgUuid) return i18n('answerUnresolved');
@@ -8764,6 +9522,7 @@
     // Export order: by the number the label shows, an answer right after its question; an
     // answer with no listed question before it, then one that is not placed, go last.
     function _bmSortKey(bm) {
+        if (ixAdapter()) return _bmIxSortKey(bm);
         if (bm.entityType !== 'ai-msg' || !ciIsClaudeChat()) return _bmDisplayOrdinal(bm);
         var q = ciIsReady() ? _bmAnswerQuestionIndex(bm) : null;
         if (q === null) return 1e9;
@@ -9408,9 +10167,12 @@
     // The write behind a proof, decided on the list as stored at the write (another tab may have
     // bound, removed or added a record of this answer since this page read it): bind the record,
     // or remove it if another record already holds this answer; nothing if it is gone or bound.
-    function _bmBindAnswer(id, uuid) {
+    // entityType: 'ai-msg' when omitted; a question record binds the same way (v12.15,
+    // _bmIxProveLegacy).
+    function _bmBindAnswer(id, uuid, entityType) {
+        var type = entityType || 'ai-msg';
         var dupHere = getConversationBookmarks().some(function (x) {
-            return x.id !== id && x.entityType === 'ai-msg' && x.msgUuid === uuid &&
+            return x.id !== id && x.entityType === type && x.msgUuid === uuid &&
                    !(x.boundBy === 'inference' && x.legacyHash);
         });
         var saved;
@@ -9421,7 +10183,7 @@
                     if (l[i].id === id) at = i;
                     // A record bound only by inference (a pre-v12.0 preview rule) is not proof that
                     // this answer is already bookmarked: the harvest may still move it elsewhere.
-                    else if (l[i].entityType === 'ai-msg' && l[i].msgUuid === uuid &&
+                    else if (l[i].entityType === type && l[i].msgUuid === uuid &&
                              !(l[i].boundBy === 'inference' && l[i].legacyHash)) other = true;
                 }
                 if (at < 0 || l[at].msgUuid) return l;
@@ -9447,10 +10209,84 @@
             return false;
         }
         if (!saved) return false;   // refused: the stored bookmarks cannot be read (acnRefuseWrite said so)
+        var what = type === 'ai-msg' ? 'answer' : 'question';
         console.log('[ACN bookmarks] ' + id + (dupHere
-            ? ': a second bookmark of an answer already bookmarked; removed'
-            : ' bound to its answer (its row and its text)'));
+            ? ': a second bookmark of an ' + what + ' already bookmarked; removed'
+            : (type === 'ai-msg' ? ' bound to its answer (its row and its text)'
+                                 : ' bound to its question (its position and its text)')));
         return true;
+    }
+
+    // A question bookmark made while its row's text did not match the index (a question rendered
+    // as several blocks never did) holds a text hash and no uuid. It binds on proof, as an answer
+    // does: the row it was made on carries a usable id naming a question on the path, and the
+    // record's hash reproduces from that row's text. Decided on the list as stored at the write.
+    var _bmProveQSeen = '', _bmProveQRaw = null;
+    var _bmProveQWarned = false;
+    function _bmProveQuestions() {
+        if (!(ciIsClaudeChat() && ciIsReady() && _ciFullPath)) return;
+        try {
+            _bmProveQuestionsNow();
+        } catch (e) {
+            // Logged once; the next change tries again, and the flags of this scan still draw.
+            _bmProveQSeen = '';
+            if (!_bmProveQWarned) {
+                _bmProveQWarned = true;
+                console.warn('[ACN bookmarks] question binding failed; it tries again on the next change:', e);
+            }
+        }
+    }
+    function _bmProveQuestionsNow() {
+        var rows = ciMountedRows(), cand = {}, key = _ciIndexGen + ':', changed = false, r;
+        for (r = 0; r < rows.length; r++) {
+            var node = rows[r].el.querySelector('[data-testid="user-message"]');
+            var p = node ? ciRowIdPathChecked(rows[r].el, rows[r].dataIndex) : null;
+            if (p === null || p < 0) continue;
+            cand[rows[r].dataIndex] = { uuid: _ciFullPath[p].uuid, node: node,
+                                        hash: contentHash(_readMessageText(node), -1) };
+            key += rows[r].dataIndex + '=' + p + '#' + cand[rows[r].dataIndex].hash + ',';
+        }
+        var raw = String(acnGetValue(BOOKMARK_KEY, '{}'));
+        if (key === _bmProveQSeen && raw === _bmProveQRaw) return;
+        _bmProveQSeen = key;
+        _bmProveQRaw = raw;
+        getConversationBookmarks().forEach(function (b) {
+            var c = (b.entityType === 'user-msg' && !b.msgUuid && b.schema !== 2 && b.pendingHash &&
+                     cand.hasOwnProperty(b.pendingRow)) ? cand[b.pendingRow] : null;
+            if (!c || c.hash !== b.contentHash) return;
+            var outcome = '', saved;
+            try {
+                saved = _bmUpdateStore(function (l) {
+                    var at = -1, other = false;
+                    for (var i = 0; i < l.length; i++) {
+                        if (l[i].id === b.id) at = i;
+                        // As for answers (_bmBindAnswer): a record bound only by inference (a
+                        // pre-v12.0 preview rule) is not proof the question is bookmarked already.
+                        else if (l[i].entityType === 'user-msg' && l[i].msgUuid === c.uuid &&
+                                 !(l[i].boundBy === 'inference' && l[i].legacyHash)) other = true;
+                    }
+                    outcome = '';
+                    if (at < 0 || l[at].msgUuid) return l;
+                    outcome = other ? ': a second bookmark of a question already bookmarked; removed'
+                                    : ' bound to its question (its row\'s id and its text)';
+                    if (other) return l.filter(function (x) { return x.id !== b.id; });
+                    var nb = JSON.parse(JSON.stringify(l[at]));
+                    nb.schema = 2; nb.contentHash = c.uuid; nb.msgUuid = c.uuid; nb.boundBy = 'proof';
+                    nb.pendingHash = null; nb.pendingSender = null; nb.pendingOrdinal = -1; nb.pendingRow = -1;
+                    var next = l.slice();
+                    next[at] = nb;
+                    return next;
+                });
+            } catch (e) { saved = false; }
+            if (!saved) { _bmProveQSeen = ''; return; }   // tried again on the next scan
+            if (outcome) console.log('[ACN bookmarks] ' + b.id + outcome);
+            c.node.removeAttribute('data-acn-bookmarked');   // redrawn from the store
+            changed = true;
+        });
+        if (changed) {
+            var bmPanel = document.getElementById('acn-panel-bookmarks');
+            if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
+        }
     }
 
     // A bookmark made on an answer past the fetched snapshot (the index was fetched while the
@@ -9482,7 +10318,10 @@
     // The older text forms in legacyIds match identical text anywhere, so one twin's flag was
     // lit by, and its click deleted, the other twin's bookmark; an answer record reaches its
     // uuid by proof instead (_bmProveAnswers).
-    function _bmFlagMatches(b, entityId, legacyIds, entityType, rowIdx) {
+    // isKey: a flag keyed by the message's own id (ChatGPT, Perplexity, v12.15) stands for
+    // the records of that type and id, and nothing else: never a hash or an old text form.
+    function _bmFlagMatches(b, entityId, legacyIds, entityType, rowIdx, isKey) {
+        if (isKey) return b.entityType === entityType && b.msgUuid === entityId;
         if (entityType === 'ai-msg' && rowIdx >= 0 && ciIsClaudeChat()) {
             if (b.entityType !== 'ai-msg') return false;
             if (/^[0-9a-f-]{36}$/i.test(entityId)) return b.msgUuid === entityId || b.contentHash === entityId;
@@ -9519,14 +10358,16 @@
         return 'bm_' + Math.random().toString(16).substring(2, 10);
     }
 
-    function toggleBookmark(entityId, entityType, entityEl, msgIndex, legacyIds) {
+    // isKey: entityId is the message's own id (ChatGPT, Perplexity, v12.15), whatever its
+    // shape; a Perplexity answer's ends in ':answer', which the uuid test below would miss.
+    function toggleBookmark(entityId, entityType, entityEl, msgIndex, legacyIds, isKey) {
         // Match the legacy id too. createBookmarkIcon() renders a pre-v12.0 record
         // as active via legacyId, so without this the toggle would add a SECOND
         // record under the new identity and leave the old one behind — the icon
         // would then never clear.
         var rowIdx = entityType === 'ai-msg' ? _bmRowIndexOf(entityEl) : -1;
         var existing = getConversationBookmarks().filter(function (b) {
-            return _bmFlagMatches(b, entityId, legacyIds, entityType, rowIdx);
+            return _bmFlagMatches(b, entityId, legacyIds, entityType, rowIdx, isKey);
         });
 
         var icon = entityEl.querySelector('[data-acn-bookmark]');
@@ -9544,7 +10385,7 @@
             // to contentHash(text, msgIndex) — where msgIndex is a position in the
             // live NodeList. Under virtualization that index changes as the user
             // scrolls, so schema 1 records silently stop matching their own message.
-            var isUuid = /^[0-9a-f-]{36}$/i.test(entityId);
+            var isUuid = !!isKey || /^[0-9a-f-]{36}$/i.test(entityId);
             var bm = {
                 id:          _bmGenId(),
                 schema:      isUuid ? 2 : 1,
@@ -9583,6 +10424,9 @@
             // An answer the index does not hold yet asks for one refresh (DEC-051); the proof
             // pass sees the new record by its stored text.
             if (!isUuid && entityType === 'ai-msg' && ciIsClaudeChat()) _bmRequestIndexRefresh(rowIdx);
+            // A ChatGPT message the index does not hold yet (just sent, or a new answer): saved
+            // by its own id, and one refresh is asked for, so its label can follow (v12.15).
+            if (isKey && !_bmIxIndexed(entityId, entityType)) _bmIxRequestRefresh(entityId);
         }
 
         var bmPanel = document.getElementById('acn-panel-bookmarks');
@@ -9591,7 +10435,11 @@
         }
     }
 
-    function createBookmarkIcon(entityEl, entityType, entityId, msgIndex, legacyIds) {
+    // ix (ChatGPT, Perplexity, v12.15): { keyNow(): the key the node shows now, keyless: the
+    // node has none yet, moved(): the URL names another chat than the flag was drawn in,
+    // navIndex(): the msgIndex to store, read at the click }. Its flag stands
+    // for its key only, and a click acts only while the node still shows that key.
+    function createBookmarkIcon(entityEl, entityType, entityId, msgIndex, legacyIds, ix) {
         if (entityEl.querySelector('[data-acn-bookmark]')) return;
 
         var computed = window.getComputedStyle(entityEl);
@@ -9603,8 +10451,8 @@
         var answerKey    = (entityType === 'ai-msg' && rowIdx >= 0 && ciIsClaudeChat())
             ? _bmAnswerKey(entityId, rowIdx) : null;
         var bookmarks    = getConversationBookmarks();
-        var isBookmarked = bookmarks.some(function (b) {
-            return _bmFlagMatches(b, entityId, legacyIds, entityType, rowIdx);
+        var isBookmarked = !(ix && ix.keyless) && bookmarks.some(function (b) {
+            return _bmFlagMatches(b, entityId, legacyIds, entityType, rowIdx, !!ix);
         });
 
         var icon = document.createElement('div');
@@ -9618,15 +10466,27 @@
             // A Claude answer's node can be recycled to show another answer, or move to another row,
             // before the next scan redraws this flag: act only if it still shows the answer this flag
             // was drawn for; otherwise redraw, and the next click acts on what is shown (DEC-051).
-            if (answerKey !== null && _bmAnswerKeyNow(entityEl) !== answerKey) {
+            // The same on ChatGPT and Perplexity, for every flag: a node can be rebuilt or
+            // re-used for another message before the next scan (v12.15).
+            if ((answerKey !== null && _bmAnswerKeyNow(entityEl) !== answerKey) ||
+                (ix && ix.keyNow() !== (ix.keyless ? null : entityId))) {
                 entityEl.removeAttribute('data-acn-bookmarked');
                 if (icon.parentNode) icon.parentNode.removeChild(icon);
-                injectBookmarkIcons();
+                // Drawn in another chat than the one the URL names now: no redraw from here, which
+                // would draw this old node's flag for the new chat; the scan redraws (Tier 3).
+                if (!(ix && ix.moved())) injectBookmarkIcons();
                 return;
             }
-            toggleBookmark(entityId, entityType, entityEl, msgIndex, legacyIds);
+            // No key yet: on Perplexity a new entry has none until the index lists it. Nothing
+            // is saved; one refresh is asked for (v12.15, owner's decision).
+            if (ix && ix.keyless) {
+                showToast(i18n('notIndexedToast'));
+                _bmIxRequestRefresh(null);
+                return;
+            }
+            toggleBookmark(entityId, entityType, entityEl, ix ? ix.navIndex() : msgIndex, legacyIds, !!ix);
             var nowBookmarked = getConversationBookmarks().some(function (b) {
-                return _bmFlagMatches(b, entityId, legacyIds, entityType, rowIdx);
+                return _bmFlagMatches(b, entityId, legacyIds, entityType, rowIdx, !!ix);
             });
             icon.setAttribute('title', nowBookmarked ? 'Remove bookmark' : 'Bookmark this message');
         });
@@ -9765,6 +10625,11 @@
         function pathOrdinal(el, sender, fallbackIdx) {
             return _bmPathOrdinal(el, sender, fallbackIdx);
         }
+        // ChatGPT and Perplexity: by the messages' own ids, never by position (v12.15).
+        var ixa = ixAdapter();
+        if (ixa) { _bmIxInject(ixa); return; }
+        // Question records that wait on proof bind first, so their flags are drawn from the bound record.
+        if (ciIsClaudeChat()) _bmProveQuestions();
         Array.from(getUserMessages()).forEach(function (el, idx) {
             inject(el, pathOrdinal(el, 'human', idx), 'user-msg', _readMessageText(el));
         });
@@ -9799,6 +10664,271 @@
                              'recovery by hash is off for this session:', e);
             }
         }
+    }
+
+    // ── ChatGPT and Perplexity bookmarks (v12.15) ──────────────
+    // v12.10 gave these sites an index, and v12.14's bookmarks never used it: a record was
+    // contentHash(text, its place in the mounted window), labelled by that place, and jumped
+    // to only while mounted, so under windowing two questions read "Q#4" and an off-screen one
+    // could not be reached (owner, Safari, v12.14). Now a record is keyed by the message's own
+    // id: a ChatGPT question by its data-turn-key, its answer by the first id the answer unit
+    // names; a Perplexity question by its entry's backend_uuid, its answer by that + ':answer'.
+    // The label is the Navigate number; the jump goes through the index jump.
+
+    // Keys saved before the index held them, with the number of the refresh asked for then:
+    // until the load made for that request lands, such a record reads as waiting ("Answer to
+    // Q#?"), after that as unmatched ("A#?"). The counters sit beside _ix (_ixBmAsked,
+    // _ixBmServed) and outlive a conversation change: leaving the chat and coming back must not
+    // make an answered request read as waiting again.
+    var _bmIxWaiting = {};
+    function _bmIxIsWaiting(key) {
+        return !!key && _bmIxWaiting.hasOwnProperty(key) && _bmIxWaiting[key] > _ixBmServed;
+    }
+
+    // 'ready' (the index of the open conversation is in), 'loading' (it is coming), or 'off'
+    // (no conversation, or its index failed and the page runs on the DOM scan).
+    function _bmIxState() {
+        var a = ixAdapter(), cid = a ? a.getConversationId() : null;
+        if (!cid) return 'off';
+        if (ixReadyAdapter() === a) return 'ready';
+        return (_ix.status === 'degraded' && _ix.cid === cid) ? 'off' : 'loading';
+    }
+
+    function _bmIxIndexed(key, type) {
+        if (_bmIxState() !== 'ready' || !key) return false;
+        return type === 'user-msg' ? _ix.qIdx.hasOwnProperty(key) : _ix.answerOf.hasOwnProperty(key);
+    }
+
+    // The Navigate index a record is shown under (0-based), or -1. Stored in msgIndex, taken at
+    // the click, for a tab still on v12.14 only (its labels number by it); nothing here reads it.
+    // The export labels by _bmLabel, not by msgIndex.
+    function _bmIxNavIndex(key, type) {
+        if (!_bmIxIndexed(key, type)) return -1;
+        return type === 'user-msg' ? _ix.qIdx[key] : _ix.answerOf[key];
+    }
+
+    // One index refresh for a message the index does not hold: the scan's own refetch path,
+    // behind its cooldown (ixScan, _ix.wantRefresh). Each request is its own signature, so a
+    // later click can ask again, still behind the cooldown; a load that fails is asked again
+    // as the scan's own refetch is (ixDegrade).
+    // A save, or a click on a flag without a key, made while this conversation's first load is in
+    // flight asks too: that load can predate the message, and nothing else would ask again (an
+    // answer is never "stale" to the scan). The load drops the request when it holds every waiting
+    // message and none of them was keyless (ixLoad, _bmIxAllHeld).
+    function _bmIxRequestRefresh(key) {
+        var st = _bmIxState();
+        if (st === 'off') return;                 // the scan's retry owns it
+        if (st === 'loading' && !(_ix.status === 'loading' && _ix.cid === ixAdapter().getConversationId())) return;
+        var n = ++_ixBmAsked;
+        if (key) _bmIxWaiting[key] = n;
+        _ix.wantRefresh = 'bm:' + n;
+        if (!key) _ix.wantKeyless = true;
+        _ciScheduleRescan(0);
+    }
+
+    // Does this index hold every message whose request is still waiting? Keys are the pages' own
+    // ids, so a question's and an answer's never collide.
+    function _bmIxAllHeld(qIdx, answerOf) {
+        for (var k in _bmIxWaiting) {
+            if (!_bmIxWaiting.hasOwnProperty(k) || _bmIxWaiting[k] <= _ixBmServed) continue;
+            if (!qIdx.hasOwnProperty(k) && !answerOf.hasOwnProperty(k)) return false;
+        }
+        return true;
+    }
+
+    // "Q#n" is the Navigate number; an answer is "Answer to Q#n" (DEC-051's strings). "Q#…"
+    // while the index loads; "Q#?" / "A#?" for a record no message here holds, a positional
+    // record from before v12.15 among them.
+    function _bmIxLabel(bm) {
+        var st = _bmIxState(), key = bm.msgUuid;
+        if (bm.entityType === 'user-msg') {
+            if (!key) return i18n('questionUnresolved');
+            if (st === 'loading') return 'Q#…';
+            return _bmIxIndexed(key, 'user-msg') ? 'Q#' + (_ix.qIdx[key] + 1) : i18n('questionUnresolved');
+        }
+        if (!key) return i18n('answerUnresolved');
+        if (st === 'loading') return i18n('answerToQuestion', { n: '…' });
+        if (_bmIxIndexed(key, 'ai-msg')) {
+            var q = _ix.answerOf[key];
+            return q < 0 ? i18n('answerNoQuestion') : i18n('answerToQuestion', { n: q + 1 });
+        }
+        if (st !== 'ready' || _bmIxIsWaiting(key)) return i18n('answerToQuestion', { n: '?' });
+        return i18n('answerUnresolved');
+    }
+
+    function _bmIxSortKey(bm) {
+        var key = bm.msgUuid;
+        if (!_bmIxIndexed(key, bm.entityType)) return 1e9;
+        if (bm.entityType === 'user-msg') return _ix.qIdx[key];
+        return _ix.answerOf[key] < 0 ? 1e9 - 1 : _ix.answerOf[key] + 0.5;
+    }
+
+    // A positional record from before v12.15 (schema 1: contentHash(text, msgIndex), msgIndex its
+    // place in the mounted window, or on a static page its place in the thread) is bound to a
+    // question only on proof, against a mounted question that has its own key:
+    //   P1  the stored hash reproduces from that question's text at the stored msgIndex;
+    //   P2  that msgIndex is the question's Navigate index;
+    //   U   no other indexed question shares its first 200 characters (normalized).
+    // P1 alone is a text test: msgIndex is the hash's own input, so any question with that text
+    // reproduces it. Without U, a windowed-era record made on Q14 "continue" at window place 3
+    // binds to Q4 if Q4 also reads "continue". Answers are never bound: their old places
+    // counted nodes that no index lists. Anything unproven stays "Q#?" / "A#?" and deletable.
+    var _bmIxProveSeen = '';
+    function _bmIxProveLegacy(items) {
+        if (_bmIxState() !== 'ready') return false;
+        var list = getConversationBookmarks(), i, k, any = false;
+        for (i = 0; i < list.length; i++) {
+            if (list[i].entityType === 'user-msg' && !list[i].msgUuid) { any = true; break; }
+        }
+        if (!any) return false;
+        var qs = [], sig = _ix.cid + '|' + _ix.indexGen + '|' + String(acnGetValue(BOOKMARK_KEY, '{}'));
+        for (k = 0; k < items.length; k++) {
+            if (items[k].type !== 'user-msg' || !_bmIxIndexed(items[k].key, 'user-msg')) continue;
+            qs.push(items[k]);
+            sig += '|' + items[k].key + '#' + _fnv1aHex(_readMessageText(items[k].el));
+        }
+        if (sig === _bmIxProveSeen) return false;
+        _bmIxProveSeen = sig;
+        var changed = false;
+        for (i = 0; i < list.length; i++) {
+            var b = list[i];
+            if (b.entityType !== 'user-msg' || b.msgUuid || typeof b.msgIndex !== 'number') continue;
+            for (k = 0; k < qs.length; k++) {
+                var it = qs[k], nav = _ix.qIdx[it.key];
+                if (nav !== b.msgIndex) continue;                                         // P2
+                if (_bmLegacyIdSet(it.el, b.msgIndex).indexOf(b.contentHash) === -1) break; // P1
+                var pre = _normalizeCompare(_readMessageText(it.el)), same = 0, own = false;
+                for (var e = 0; e < _ix.entries.length; e++) {
+                    if (_normalizeCompare(_ix.entries[e].text) !== pre) continue;
+                    same++;
+                    if (e === nav) own = true;
+                }
+                if (same !== 1 || !own) break;                                            // U
+                if (!_bmBindAnswer(b.id, it.key, 'user-msg')) _bmIxProveSeen = '';
+                it.el.removeAttribute('data-acn-bookmarked');   // redrawn lit
+                changed = true;
+                break;
+            }
+        }
+        if (changed) {
+            var bmPanel = document.getElementById('acn-panel-bookmarks');
+            if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
+        }
+        return changed;
+    }
+
+    // One flag per mounted question and answer, keyed by what the node shows now. A node with
+    // no key yet still gets a flag; its click says so instead of saving (createBookmarkIcon).
+    function _bmIxInject(a) {
+        var i, drawnIn = a.getConversationId();
+        if (_bmMergeSplitKeys()) {
+            var marked = document.querySelectorAll('[data-acn-bookmarked]');
+            for (i = 0; i < marked.length; i++) marked[i].removeAttribute('data-acn-bookmarked');
+            var bmPanel = document.getElementById('acn-panel-bookmarks');
+            if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
+        }
+        var items = a.bookmarkables();
+        for (i = 0; i < items.length; i++) items[i].key = a.keyOf(items[i].el, items[i].type);
+        _bmIxProveLegacy(items);
+        items.forEach(function (it) {
+            var el = it.el, type = it.type, key = it.key;
+            if (!(type === 'user-msg' ? _readMessageText(el) : _readAIText(el))) return;
+            var mark = key || ('nokey:' + type);
+            if (el.getAttribute('data-acn-bookmarked') === mark) return;
+            var stale = el.querySelector('[data-acn-bookmark]');
+            if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
+            el.setAttribute('data-acn-bookmarked', mark);
+            createBookmarkIcon(el, type, mark, Math.max(0, _bmIxNavIndex(key, type)), null,
+                               // A flag stands for the conversation it was drawn in: after the URL
+                               // changes, until the next scan redraws, the old timeline is still on
+                               // screen, and a save would file its message under the new chat (Tier 3).
+                               { keyless: !key, keyNow: function () {
+                                     return a.getConversationId() === drawnIn ? a.keyOf(el, type) : null; },
+                                 moved: function () { return a.getConversationId() !== drawnIn; },
+                                 // At the click: a ChatGPT flag is usually drawn before the index lands,
+                                 // and is not redrawn when it does (its key comes from the page).
+                                 navIndex: function () { return Math.max(0, _bmIxNavIndex(key, type)); } });
+        });
+    }
+
+    // The mounted node that shows this key now, or null.
+    function _bmIxFind(a, key, type) {
+        var items = a.bookmarkables();
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].type === type && a.keyOf(items[i].el, type) === key) return items[i].el;
+        }
+        return null;
+    }
+
+    function _bmIxQuestion(key) {
+        for (var i = 0; i < _questions.length; i++) if (_questions[i].ixId === key) return _questions[i];
+        return null;
+    }
+
+    function _bmIxFailToast(bm) {
+        var key = bm.msgUuid, type = bm.entityType;
+        if (_bmIxIndexed(key, type)) {
+            showToast('That message is not currently rendered — scroll toward it and try again');
+        } else if (key && (_bmIxState() !== 'ready' || _bmIxIsWaiting(key))) {
+            showToast(i18n('notIndexedToast'));
+        } else {
+            showToast(i18n(type === 'user-msg' ? 'questionUnresolvedToast' : 'answerUnresolvedToast'));
+        }
+    }
+
+    // A question through orbScrollToQuestion: the Navigate jump, with its landing. An answer: the
+    // mounted node if there is one, otherwise the index jump to its question without landing
+    // there, then the answer in that turn or entry by its key (one settle if it is not there
+    // yet), landed at its start: 'center' puts a long answer's middle in view.
+    function _bmIxJump(a, bm) {
+        var key = bm.msgUuid, type = bm.entityType;
+        var q = null;
+        if (_bmIxIndexed(key, type)) {
+            q = type === 'user-msg' ? _bmIxQuestion(key)
+              : (_ix.answerOf[key] >= 0 ? _questions[_ix.answerOf[key]] || null : null);
+            if (q && q.ixId !== _ix.entries[type === 'user-msg' ? _ix.qIdx[key] : _ix.answerOf[key]].id) q = null;
+        }
+        if (type === 'user-msg' && q) { orbScrollToQuestion(q); return; }
+        _ixJumpToken++;
+        function land(el) {
+            ixLandOn(a, function () { return _bmIxFind(a, key, type); },
+                     { block: type === 'ai-msg' ? 'start' : undefined }, function (ok, landed, why) {
+                if (!ok && why === 'no-container' && el.isConnected) {
+                    // A thread too short to scroll: in view already, as the question fast path.
+                    ok = true;
+                    landed = el;
+                    el.scrollIntoView({ block: type === 'ai-msg' ? 'start' : 'center' });
+                }
+                if (!ok || !landed) {
+                    if (why !== 'superseded' && why !== 'user') _bmIxFailToast(bm);
+                    return;
+                }
+                orbMarkJumpTarget(landed);
+                if (q) ixMarkResolved(q);
+                orbFlashElement(landed);
+            });
+        }
+        var here = key ? _bmIxFind(a, key, type) : null;
+        if (here) { land(here); return; }
+        if (!q || type === 'user-msg') { _bmIxFailToast(bm); return; }
+        ixJump(a, q, function (ok, el, reason) {
+            if (!ok) {
+                if (reason !== 'superseded' && reason !== 'user') _bmIxFailToast(bm);
+                return;
+            }
+            var found = _bmIxFind(a, key, type);
+            if (found) { land(found); return; }
+            // ixJump's own watch has stopped: the user taking the scroll back during this
+            // settle ends the jump too.
+            var token = _ixJumpToken, box = ciFindScrollContainer(), watch = box ? ixWatchUser(box) : null;
+            setTimeout(function () {
+                if (watch) watch.stop();
+                if (token !== _ixJumpToken || (watch && watch.scrolled)) return;
+                var again = _bmIxFind(a, key, type);
+                if (again) land(again);
+                else _bmIxFailToast(bm);
+            }, IX_JUMP_SETTLE_MS);
+        }, { land: false });
     }
 
     function orbScrollToMessage(el) {
@@ -9916,6 +11046,8 @@
     }
 
     function orbScrollToBookmark(bookmark) {
+        var ixJumpA = ixAdapter();
+        if (ixJumpA) { _bmIxJump(ixJumpA, bookmark); return; }       // ChatGPT, Perplexity (v12.15)
         if (bookmark.entityType === 'ai-msg' && ciIsClaudeChat()) { _bmJumpToAnswer(bookmark); return; }
         var targetEl = null;
         var isUser   = bookmark.entityType === 'user-msg';
@@ -10048,7 +11180,10 @@
         var bfp = bookmarks.map(function (b) {
             return b.id + ':' + (b.msgUuid || '') + ':' + (b.contentHash || '') +
                    ':' + (b.legacyUnresolved || '');
-        }).join('|') + '||g' + _ciIndexGen + '|r' + (ciIsReady() ? 1 : 0);
+        }).join('|') + '||g' + _ciIndexGen + '|r' + (ciIsReady() ? 1 : 0) +
+            // ChatGPT and Perplexity label from their index (v12.15): a panel drawn before it
+            // landed must redraw when it does.
+            '|x' + ixFingerprint() + '|' + (_ix.cid || '');
         if (bfp === _bmListFingerprint && panel.children.length > 1) return;
         _bmListFingerprint = bfp;
 
