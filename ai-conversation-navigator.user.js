@@ -3687,6 +3687,13 @@
     //              jump or the user scrolling
     // Every call on Claude supersedes an older jump, near or far, before the distance test: a
     // landing still in flight must not write over a newer click's glide.
+    // A direct glide on Claude (Summary, the gallery, a plain message scroll) supersedes a far
+    // landing still in flight: ixWatchUser sees only the user's own input, so without this the
+    // landing's next write would pull the view back to its target.
+    function ciSupersedeLanding() {
+        if (ciIsClaudeChat()) { _ixJumpToken++; _ciJumpToken++; }
+    }
+
     function ciLandFar(el, getEl, landed) {
         if (!ciIsClaudeChat()) return false;
         var ixTok = ++_ixJumpToken, ciTok = ++_ciJumpToken;
@@ -3706,10 +3713,11 @@
         } }, function (ok, node, why) {
             watch.stop();
             if (ok && node) { landed(node); return; }
+            // A jump that did not land has resolved nothing, the user's own scroll included: clear
+            // any mark its caller set up front, so data-acn-jump-resolved never reports it. A newer
+            // jump marks its own.
+            if (why !== 'superseded') orbMarkJumpTarget(null);
             if (why !== 'superseded' && why !== 'user') {
-                // A jump that did not land has resolved nothing: clear any mark its caller set up
-                // front, so data-acn-jump-resolved never reports it (a newer jump marks its own).
-                orbMarkJumpTarget(null);
                 showToast('That message is not currently rendered \u2014 scroll toward it and try again');
             }
         });
@@ -6698,10 +6706,11 @@
                 // A history load keeps the old first turn, now further down: short of a page, the
                 // start is reached. Without it, these turns replaced the old ones (an SPA switch whose
                 // previous chat lingered for a scan): judged as a first page.
-                var kept = false;
-                for (var t = 1; t < n && !kept; t++) kept = turns[t].id === _gmHist.firstId;
-                _gmHist.complete = (kept && n > _gmHist.n) ? (n - _gmHist.n) < GM_HISTORY_PAGE
-                                                           : n < GM_HISTORY_PAGE;
+                // Its index is how many arrived ABOVE it: a message sent in the same scan arrives below
+                // and must not count toward the page.
+                var above = -1;
+                for (var t = 1; t < n && above < 0; t++) if (turns[t].id === _gmHist.firstId) above = t;
+                _gmHist.complete = above > 0 ? above < GM_HISTORY_PAGE : n < GM_HISTORY_PAGE;
             }
             _gmHist.n = n;
             _gmHist.firstId = firstId;
@@ -11174,7 +11183,7 @@
             // A glide without a landing still supersedes one in flight on Claude, or that
             // landing's next write would pull the view back to its own target (ciLandFar bumps
             // the tokens itself when it is called).
-            if (!getEl && ciIsClaudeChat()) { _ixJumpToken++; _ciJumpToken++; }
+            if (!getEl) ciSupersedeLanding();
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             flash(el);
         }
@@ -12931,6 +12940,7 @@
             // and wrote it back permanently, onto a node the virtualizer then recycled
             // to an unrelated message. Convergence made that easy to hit: every item
             // from one response can now resolve to the same message node.
+            ciSupersedeLanding();
             orbMarkJumpTarget(el);
             el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
             orbFlashElement(el);
@@ -13665,6 +13675,7 @@
                 navBtn.addEventListener('click', (function (data) {
                     return function (e) {
                         e.stopPropagation();
+                        ciSupersedeLanding();
                         data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         data.msgElement.classList.add('acn-highlight-flash');
                         setTimeout(function () { data.msgElement.classList.remove('acn-highlight-flash'); }, 1500);
@@ -13686,6 +13697,7 @@
             if (!(imgData.msgIndex === -1 && platform.imagesOrphaned)) {
                 thumb.addEventListener('click', (function (data) {
                     return function () {
+                        ciSupersedeLanding();
                         data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         data.msgElement.classList.add('acn-highlight-flash');
                         setTimeout(function () { data.msgElement.classList.remove('acn-highlight-flash'); }, 1500);
