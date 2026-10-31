@@ -3581,6 +3581,12 @@ On ChatGPT and Perplexity a bookmark keys to the message's own id, never to its 
 
   Answer records never bind. An unbound record reads "Q#?" / "A#?", stays visible and deletable, and a click says it
   cannot be matched.
+
+  What to expect [inferred from P2, Phase 1, 2026-10-24; not measured on the owner's records]: P2 holds only where
+  the stored `msgIndex`, a place among the messages mounted when the record was made, equals the question's Navigate
+  number, which under windowing means a window that began at the conversation's first question. So most records made
+  since these sites began windowing, including those made on Safari, are expected to read "Q#?"; old answer records
+  always read "A#?". Acceptance step 6 (ChatGPT) and step 11 (Perplexity) count them.
 - **One store key per conversation** (scope addition 1): `normalizeConversationUrl()` returns
   `https://chatgpt.com/c/<id>` or `https://www.perplexity.ai/search/<id>` from the adapter's conversation id, so the
   store's shape and readers stay the same. Sets under this conversation's other URL forms (`/g/<project>/c/<id>`, bare

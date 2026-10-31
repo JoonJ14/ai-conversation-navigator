@@ -25,7 +25,8 @@ This document explains **everything** about the automated test suite: what it do
    - [Per-Platform Selector ↔ Mock DOM Reference](#per-platform-selector--mock-dom-reference)
 8. [Step-by-Step: Adding a New Platform](#step-by-step-adding-a-new-platform)
 9. [Debugging Failed Tests](#debugging-failed-tests)
-10. [Limitations and Caveats](#limitations-and-caveats)
+10. [The live check in the owner's Chrome (agent-driven, v12.15)](#the-live-check-in-the-owners-chrome-agent-driven-v1215)
+11. [Limitations and Caveats](#limitations-and-caveats)
 
 ---
 
@@ -1657,6 +1658,53 @@ is what worked here), or an explicit admin merge with this record attached.
 
 ---
 
+## The live check in the owner's Chrome (agent-driven, v12.15)
+
+**Why it exists.** The owner's process since v12.15 (2026-10-25): build, install the build in the owner's real Chrome
+through Tampermonkey, test it live, and fix and reinstall until it passes; only then open the PR; run the babysit
+cycle; and at the end install the final build and test live once more. It caught what every mock passed: a
+Perplexity question whose bubble renders its markdown never matched its index text (TROUBLESHOOTING, the ChatGPT and
+Perplexity entry). It is the agent's check, not the owner's acceptance (DEC-031), and covers Chrome + Tampermonkey
+only.
+
+**Installing a build** (measured 2026-10-24/25, macOS, Chrome + Tampermonkey, the owner's profile):
+1. Serve the build from localhost: `python3 -m http.server 8765 --bind 127.0.0.1` in a scratch directory holding the
+   `.user.js`, then navigate a claude-in-chrome tab to `http://127.0.0.1:8765/ai-conversation-navigator.user.js`.
+   Tampermonkey opens its confirm page (`chrome-extension://…/ask.html`).
+2. claude-in-chrome cannot read or click `chrome-extension://` pages, `screencapture` is not permitted from the
+   terminal, and a blind Return closes the page **without** installing. What works is AppleScript: bring the
+   `ask.html` tab to the front, set `AXManualAccessibility` to true on process "Google Chrome" (it exposes web
+   content to accessibility), then `AXPress` the button named Reinstall, Update, Overwrite, Install or Downgrade (the
+   owner: press whichever it shows). It needs an **unlocked screen**: while the Mac was locked, System Events could
+   not see Chrome's windows ("Can't get window 1").
+3. The build has the same `@name` and `@namespace`, so Tampermonkey treats it as an update of the installed script
+   and keeps its GM storage, the owner's bookmarks included. A same-version build shows "Reinstall"; an older one
+   "Downgrade" (used to measure v12.14 against v12.15 live, then reinstalled).
+4. Verify on a supported site: `[data-acn-version]` (DEC-027). It cannot tell two builds of one version apart, so
+   also compare the served file's `shasum` with the branch's.
+
+**Measuring** (page realm, through claude-in-chrome's `javascript_tool`):
+- Check `innerWidth`, `innerHeight` and `document.visibilityState` first. One tab reported a 0×0 viewport and timed
+  out on screenshots (its renderer frozen); a fresh tab measured normally.
+- A tool call times out after 45 s. Run a long loop in the page, writing results to a `window` variable, and poll it
+  from later calls.
+- Perplexity pins its scroller to the bottom: dispatch a wheel event before a programmatic scroll, or the scroll is
+  pulled back.
+- A landing is the target's own node inside the scroller's content box once `scrollTop` has been still for 1.2 s.
+  Identify the target by its own id or turn key, never by a text prefix: Navigate truncates long questions with
+  "...", and a 60-character prefix matched three ChatGPT questions that open with the same shell prompt.
+- `read_console_messages` can return one line several times (six identical index lines with one timestamp, for one
+  page load); log a marker of your own to confirm the channel, and count by timestamp.
+- Editing a text node does not trigger the navigator's scan, so a synthetic DOM edit does not test staleness.
+- GET reads of a site's own JSON (the requests the script makes) are fine; never send, edit, regenerate or delete.
+
+**Test bookmarks.** Read the conversation's existing bookmarks first; create test ones through the flags; delete
+exactly those through each card's ✕ (no dialog). Never use "Remove all": it opens a `window.confirm` dialog, which
+blocks the browser tools, and it would delete the owner's bookmarks too.
+
+**The connection.** If `tabs_context_mcp` reports no extension, launch Chrome and retry; on 2026-10-25 it connected
+only after the owner signed in to the extension again (reported to the Claude Code team through `/feedback`).
+
 ## Limitations and Caveats
 
 ### What mock testing catches
@@ -1679,6 +1727,7 @@ is what worked here), or an explicit admin merge with this record attached.
 | CSP (Content Security Policy) | Some sites (Gemini) have strict CSP that blocks inline scripts; the test pages have no CSP | The userscript avoids `innerHTML` (uses `createElement` + `textContent`) specifically for CSP compliance — this was validated manually |
 | Which transport a real manager lets through (v12.9) | The harness inlines the script into the page realm; `GM_xmlhttpRequest` is a shim and `fetch` is the page's. Whether a manager's `GM_xmlhttpRequest` carries the session (Userscripts' does not) only exists in the real extension | `probes/check-transport-ladder.js` proves the ladder's *decisions*; the owner's live check on Safari, Firefox and Chrome proves the *credentials*. The `[ACN] index: transport=…` console lines are the evidence |
 | Claude's answer markup and what a flag looks like (v12.14) | `tests/mock-pages/claude-virtualized.html` models October 2026's answers (`answerTestid`), the activity line (`answerHeaders`) and the project link (`decoy`) from one Chrome measurement; it does not recycle nodes (R6 moves them by hand), and DOM counts are not what the user sees on hover | `probes/check-answer-bookmarks.js` proves placement, labels, proof and the jump in the page realm; the owner's acceptance on Safari, Chrome and Firefox (DEC-031) proves the live markup and the visible flags |
+| How a live site renders a question's markdown (v12.15) | Mock bubbles hold the plain `query_str`; live, Perplexity shows images and links as their text, tables, lists and headings without their markers, and a "Read more" button, so a compare that passed every mock never matched one live question | `check-ix-jumps` J16 models the renderings measured live; the agent's live Chrome check (above) runs before every PR |
 | Cross-browser differences | Chromium, Playwright-Gecko and Playwright-WebKit are all run, locally and in CI (WebKit locally since 2026-10-22) | `npx playwright install webkit`, then `--browser webkit`. Note none of these are the Tampermonkey sandbox — see the Firefox scope note above |
 
 ### The `--single-process` flag
