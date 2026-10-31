@@ -6719,7 +6719,10 @@
         if (!sc || _gmHist.complete || _gmHist.n === 0) { gmHistStopTimer(); return; }
         if (sc.scrollTop > 2) { gmHistStopTimer(); return; }
         if (_gmHist.timer !== null) return;
-        var key = _gmHist.key, n0 = _gmHist.n, id0 = _gmHist.firstId;
+        // The live turns, not the last scan's record: a turn added inside the scan's debounce would
+        // otherwise make every wait compare against a stale count.
+        var t0 = gmHistTurns(sc);
+        var key = _gmHist.key, n0 = t0.length, id0 = t0.length ? (t0[0].id || null) : null;
         _gmHist.timer = setTimeout(function () {
             _gmHist.timer = null;
             if (sc !== _gmHist.scroller) { gmHistOnScroll(); return; }   // re-armed for the current one
