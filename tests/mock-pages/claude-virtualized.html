@@ -72,6 +72,7 @@
             <div id="mock-spacer-top" style="width:100%;"></div>
             <div id="mock-mounted" style="max-width:768px;margin:0 auto;padding:0 16px;"></div>
             <div id="mock-spacer-bottom" style="width:100%;"></div>
+            <div id="mock-tail" style="max-width:768px;margin:0 auto;padding:0 16px;"></div>
           </div>
         </div>
       </div>
@@ -96,6 +97,12 @@
     // Final rows pinned mounted at every position. 1 by default; the live site keeps the last
     // ~3 rows mounted (DOM-REFERENCE.md, July 2026), which probes/check-answer-bookmarks.js uses.
     var TAIL_ROWS      = CFG.tailRows || 1;
+    // tailAtEnd (v12.16, off by default): the pinned tail sits where the live site puts it, at the
+    // END of the scroll height (after the bottom spacer), not right after the mounted window. With
+    // it, the latest question from the top is mounted ~330,000 px away on a 294-row chat, the shape
+    // measured live (TROUBLESHOOTING, Claude's latest-question jump); without it, it is ~2,800 px
+    // away and moves down with every scroll, so no jump to it can reproduce the live failure.
+    var TAIL_AT_END    = !!CFG.tailAtEnd;
 
     // ANSWER MARKUP (October 2026, all off by default so every suite entry renders as before).
     // Measured live in Chrome's page realm, 2026-10-23/24, on the owner's conversations:
@@ -438,6 +445,7 @@
     var mounted   = document.getElementById('mock-mounted');
     var spacerTop = document.getElementById('mock-spacer-top');
     var spacerBot = document.getElementById('mock-spacer-bottom');
+    var tailBox   = document.getElementById('mock-tail');
     var loadBtn   = document.getElementById('mock-load-earlier');
 
     function hOf(i) { return measured[i] ? REAL_H[i] : ESTIMATED_H; }
@@ -583,9 +591,10 @@
         var end = Math.min(TOTAL_MESSAGES - TAIL_ROWS, start + WINDOW_SIZE);
 
         while (mounted.firstChild) mounted.removeChild(mounted.firstChild);
+        while (tailBox.firstChild) tailBox.removeChild(tailBox.firstChild);
         for (var i = start; i < end; i++) mounted.appendChild(buildRow(i));
         for (var t = TOTAL_MESSAGES - TAIL_ROWS; t < TOTAL_MESSAGES; t++) {
-            mounted.appendChild(buildRow(t));
+            (TAIL_AT_END ? tailBox : mounted).appendChild(buildRow(t));
         }
 
         spacerTop.style.height = heightBefore(start) + 'px';
