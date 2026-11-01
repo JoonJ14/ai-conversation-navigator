@@ -290,6 +290,18 @@ conversation list's `model` every time; no message carries a model key. The cont
 (DEC-056). The ids are the API's dateless form; whether a conversation switched to another model mid-way reports
 the newer one was not tested.
 
+### Images and full text for v12.17's features (measured live, Chrome + Tampermonkey (12.16 installed), the owner's profile, visible tab, page realm, 2026-11-01)
+
+- **Images** are `files` entries on their message with `file_kind: "image"`, each with `preview_asset.url` and
+  `thumbnail_asset.url` (`/api/<org>/files/<id>/preview|thumbnail`, same origin): 7 of 7 on the 147-question chat
+  (`65dfa4f2`), on Q106–Q139. The page's own files panel loads every one of them (7 `<img>` with `/preview`, none
+  inside a `[data-index]` row), which is why v12.16's document-wide gallery listed all 7, as "Upload" with no link to
+  a message. A PDF (`file_kind: "document"`) has a `thumbnail_asset` too, and the panel shows it.
+- Search, Export and Summary were already complete from the index on 12.16: an early question's and an early
+  answer's word found from the bottom; Export 294 of 294 messages; Summary 294.
+- A word that appears only inside a link's URL (`app2.greenhouse.io/...`) is not visible text, so Search does not
+  find it, correctly.
+
 ### v12.0 selector drift (measured live, Jul 26 2026)
 
 The structure documented for v11.x below is **stale**. What changed:
@@ -502,6 +514,24 @@ DEC-052, DEC-053):**
   exists on one container; buttons read only Copy, Edit and Scroll to bottom). Reported, not acted on.
 - Hashed classes (`block-…`) and `data-talvt-*` are unstable; do not select on them.
 
+### History paging, answers and images (v12.17; measured live, Chrome + Tampermonkey (12.16 installed), the owner's profile, visible tab, page realm, 2026-11-01)
+
+- **Paging.** A chat loads its newest ~10 turns; each time the view reaches the top, 5 older ones arrive, 734–1,089 ms
+  later, with `scrollTop` re-anchored (to about 1,460). A 49-question project chat (`69a0c6f8`) took 9 pages, 10.6 s,
+  to its start: `scrollHeight` 13,647 → 24,066 → … → 135,879, and every loaded turn keeps its height while about 5
+  stay mounted. A 24-question chat (`69a1e127`) needs 5 pages. This is what made v12.16's jump to Q15 of 49 toast
+  2 of 2 from a fresh load (DEC-059).
+- **Answers.** v12.16's answer selectors (`[data-message-author-role]`, `.markdown.prose`) matched **0** nodes with 10
+  answer units mounted. The answer is the outermost `[data-content-search-unit-key$=":assistant"]` of the visible
+  timeline. A turn with two shown text nodes can render the first as a turn of its own with no question
+  (`data-turn-key="fallback-turn-0"`, Q45 of the 49-question chat): that unit names the first node's id, not the
+  turn's last.
+- **Images** are content parts `{ content_type: "image_asset_pointer", asset_pointer: "sediment://file_…" }` with no
+  URL; the message's `metadata.attachments` names each by id (3 of 3: `name`, `mime_type`, `width`, `height`). The
+  page shows a mounted turn's images as `blob:https://chatgpt.com/<id>` URLs it made itself, and loads none of a turn
+  that is not mounted. A URL for an unmounted image would need `/backend-api/files/download/<id>` (a signed link): a
+  new request, which the owner declined (DEC-059).
+
 ### Historical: Feb 2026 structure (superseded)
 
 **Inspected:** Feb 16, 2026 (live site)
@@ -686,6 +716,15 @@ infinite-scroller.chat-history            (the scroller; its only children are t
   held the target in view, 72 px from the top). All nine ran after the turns had rendered; right after
   paging in, the glide failed (above).
 
+### Text of turns that are not rendered (v12.17; measured live, Chrome + Tampermonkey (12.16 installed), the owner's profile, visible tab, page realm, 2026-11-01)
+
+- With the view at the bottom of the 32-question chat (all loaded), Q1's and A1's `innerText` read **0** characters
+  while `textContent` read 4,402: off-screen turns are `content-visibility: auto`. The navigator's readers
+  (`_cleanText`) use `textContent`, so Search, Summary and Export already saw every loaded turn on 12.16.
+- `div.model-response-text` matches 0 nodes; `.response-content` matches one per turn (32 of 32).
+- The chat's 78 images ≥ 50 px are search-result product thumbnails (`rich-list-card`, `encrypted-tbn*.gstatic.com`)
+  inside answers, none an upload; the gallery lists only `img[data-test-id="uploaded-img"]`.
+
 ### Debugging History
 - v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Real structure uses Angular custom elements (user-query, user-query-content, model-response), deep nesting with ngcontent hash attributes, horizontal-container spans, and Material Design icon buttons.
 - v12.2 (Jul 30, 2026): Live probe found the hidden `cdk-visually-hidden` sender labels ("You
@@ -794,6 +833,19 @@ profile, 2026-10-24/25; DEC-052, DEC-053):**
   inside `[data-message-bubble="right"]`. So the bubble's text never equals the entry's `query_str` for such a
   question: compare through `ixPplxTextKey` (agent_docs/architecture.md), never `_normalizeCompareFull`.
 - `backend_uuid` was unique on 12 of 12 entries.
+
+### Answer text, attachments and the "Finished" label (v12.17; measured live, Chrome + Tampermonkey (12.16 installed), the owner's profile, visible tab, page realm, 2026-11-01)
+
+- **Answer text.** An entry's `text` is a JSON list of steps (`INITIAL_QUERY`, `SEARCH_WEB`, `SEARCH_RESULTS`,
+  `URL_NAVIGATE`, `ATTACHMENT`, `FINAL`). The `FINAL` step's `content.answer` is itself JSON whose `answer` is the
+  markdown shown: 12 of 12 entries of the 12-entry thread (`de5dd7ce`). `blocks` was empty there.
+- **"Finished"** is not in the payload. The page draws it inside `[data-workflow-final-text]`, before the answer, in
+  a `div.group/step-header` (sometimes inside a `button.reset`): 3 of 3 mounted answers.
+- **Attachments** are signed links on `ppl-ai-file-upload.s3.amazonaws.com` (`X-Amz-*` query), 6 on entries 10 and 11;
+  the page loads none of them (0 such `<img>`; it shows icon tiles). `media_items` were 3 video search results, not
+  conversation images.
+- v12.16's `[class*="prose"]` matched 22 nodes for 2 mounted answers: Search labelled the 12th answer A#18, Summary
+  counted 22 AI messages, and Export wrote 22 fragments. `[data-workflow-final-text]` is one per answer.
 
 ### Historical: Feb 2026 structure (superseded)
 

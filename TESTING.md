@@ -1697,6 +1697,13 @@ only.
   out on screenshots (its renderer frozen); a fresh tab measured normally.
 - A tool call times out after 45 s. Run a long loop in the page, writing results to a `window` variable, and poll it
   from later calls.
+- **Exports: a real click, in a tab that has not been refused a download** (2026-11-01). An export triggered by a
+  script click (`el.click()` from `javascript_tool`) after an earlier download in the same tab is held by Chrome's
+  multiple-download prompt, which the agent cannot see; unanswered, it blocks every later download in that tab, a
+  real click included, and Chrome records nothing (TROUBLESHOOTING, "NOT A BUG — an export downloads nothing").
+  Click the export with `computer` `left_click` (take the coordinates from a screenshot: CSS pixels are not the
+  screenshot's), and open a fresh tab if one was refused. Check `~/Downloads` by modification time; Chrome names a
+  repeat `conversation-export (1).md`, and the owner may keep files of their own there: delete only the test files.
 - Perplexity pins its scroller to the bottom: dispatch a wheel event before a programmatic scroll, or the scroll is
   pulled back.
 - A landing is the target's own node inside the scroller's content box once `scrollTop` has been still for 1.2 s.

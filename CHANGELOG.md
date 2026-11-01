@@ -4,6 +4,64 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.17 — Every Feature Reads the Whole Conversation; Gemini Bookmarks by Turn; ChatGPT's Jump Through History Pages] — 2026-11-01
+
+**Branch:** `feat/v12.17-feature-gaps` | **PR:** (opened after the live check) | Not merged; owner acceptance owed on
+Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey (DEC-047, DEC-031)
+
+One combined PR, separate commits per feature, from the owner's spec (2026-11-01; DEC-058's first PR). Platforms in
+scope: Claude, ChatGPT, Perplexity, Gemini. Design and limits: DEC-059.
+
+### Problem [measured live, Chrome + Tampermonkey, 12.16 installed, the owner's profile, visible tab, 2026-11-01]
+
+| | Claude (147 q.) | ChatGPT (49 q.) | Perplexity (12) | Gemini (32, after loading) |
+|---|---|---|---|---|
+| Search | whole index | no answer at all | 2 of 12 answers, as fragments up to "A#18" | all loaded; with 10 of 32 loaded "No matches", no note |
+| Export (full) | 294 of 294 | "4 (49 user, 0 AI)" over 4 questions | "24 (12 user, 22 AI)" over 2 q. + 22 fragments | all loaded, no note when partial |
+| Summary | 294 | "49 user, 0 AI" | "12 user, 22 AI" | 64 |
+| Gallery | 7 of 7 as "Upload", no link | 0 of 3 | marked unsupported | uploads of loaded turns |
+| Bookmarks | by id | by id | by id | **positional** |
+
+And, found while measuring: **ChatGPT's jump to Q15 of 49 toasted "not currently rendered" 2 of 2** from a fresh load
+(TROUBLESHOOTING, the v12.17 ChatGPT entry).
+
+### Root cause [code; measured]
+- Only Navigate, bookmarks and jumps had moved onto the index. The rest read `getAIMessages()`: on ChatGPT its
+  February selectors matched 0 nodes; on Perplexity `[class*="prose"]` matched 22 nested nodes for 2 answers. The
+  ChatGPT and Perplexity indexes kept no answer text. Gemini's readers use `textContent`, which off-screen
+  `content-visibility` turns keep (their `innerText` read 0 characters), so Gemini was complete once loaded.
+- ChatGPT now loads a chat's newest ~10 turns and 5 older ones per visit to the top, 734–1,089 ms per page; `ixJump`
+  counted each settle spent waiting for a page as a move and ran out of its 12 after ~5 pages.
+
+### Fix (DEC-059)
+- **F1 Search** (`6f187cd`, `a10857f`): answers from the index's text; one position scale, so Q and A interleave; an
+  answer click jumps by its key; Gemini's note; Claude's settle-loop results land (`ciLandSettled`).
+- **F2 Export** (`fbb9da2`): ChatGPT and Perplexity from the index, header = body; DEGRADED on every DOM fallback;
+  Gemini says when older history is not loaded.
+- **F3 Summary** (`de0cae9`): ChatGPT and Perplexity from the index, in order; every click lands (`jumpRef`,
+  `sumIndexStamp`); Claude's far items land.
+- **F4 Gallery** (`7dcd066`, `d89916f`): every image from the index, labelled with its message; a real thumbnail only
+  when the page has loaded it, otherwise a named placeholder; no new requests or hosts (the owner's decision).
+- **F5 Gemini bookmarks** (`e7529ff`): keyed `<turn id>` / `<turn id>:answer`; "Q#…" while history is partial;
+  positional records bind only on proof.
+- **F6** (`1ab3aed`): Perplexity's "Finished" label out of all text; the `gmLandFar` comment's 6,139 px.
+- **ChatGPT's jump** (`5437bc7`): waits for history pages without spending moves; lands after the top page.
+- Version 12.17 (`faeb031`); the pre-approved CLAUDE.md heading (`45188fb`: "Three more shapes of the same mistake").
+
+### Verification
+- **Gates** [Playwright, page realm, headless, Chromium, this Mac]: `probes/check-feature-gaps.js` C1–C6, P1–P6,
+  G1–G8, L1–L3: 18 [new] checks fail on v12.16 and pass here; G7, G8 and L3 are guards (pass on both). `check-ix-jumps`
+  K5, K6, K8 [new] (K7 guard). Mutants, one or two per mechanism, 14 of 14 caught (the list in `ad6bf77`). Two gate
+  defects were the probe's own and were fixed before trusting it: ChatGPT measurements read the page's hidden copy of
+  the first turns, and the mock's `loadAll()` (22 turns in one step) proves nothing about Gemini's start.
+- **Found by the suite:** `ciLandSettled` broke "Claude (80 rows, Q#1 is a file chip)" (a file-chip question cannot be
+  re-located by path index); fixed in `a10857f`, 3 of 3 runs.
+- **The agent's live check** (Chrome + Tampermonkey, build `77fc122b…`): DEC-031. It found ChatGPT Search listing an
+  A#50 on 49 questions (a turn's first text node rendered as its own turn), fixed in `a10857f`.
+- <!-- V12.17 REVIEW AND FINAL RUN: filled in when they finish -->
+
+---
+
 ## [12.16 — Claude's Latest-Question Jump Lands, Claude's Context Meter by Model, Gemini's History Note] — 2026-10-31
 
 **Branch:** `fix/v12.16-claude-jump-meter-gemini` | **PR:** #90 | **Merged** 2026-11-01 as `a9ecb14` on the owner's

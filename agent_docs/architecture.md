@@ -70,6 +70,20 @@ then Navigate shows a note, `data-acn-history="partial"`. A far loaded question 
 (`gmLandFar`, the core `orbLandFarIn` shared with Claude's `ciLandFar`): off-screen turns are
 `content-visibility: auto`, so a glide renders and grows every turn it passes.
 
+**Since v12.17, every feature reads the whole conversation (DEC-059).** The ChatGPT and Perplexity indexes keep each
+answer's text and place: `_ix.answers` (`{ key, q, at, text, pos, ids }`, in order), `_ix.answerIdOf` (any shown
+node's id → its answer's key: a ChatGPT turn can render its first text node as a turn of its own), and `_ix.images`
+(identities and names, never URLs). `ixConversation()` merges questions and answers on one `pos` scale; Search,
+Export (`_exportFromIx`) and Summary (`_sumBuildTimeline`, `generateFullSummary`) read it, and a summary is stamped by
+`sumIndexStamp()` (Claude's or the adapters' index). An answer from Search, Summary or the gallery jumps by its key
+through `_bmIxJump`. The gallery is `orbIndexedImages()` on the three index sites (a page-loaded thumbnail or a named
+placeholder; never a new request) and the DOM path on Gemini. Gemini's turns are addressed by their 16-hex id
+(`gmTurnOf`, `gmTurnById`, `gmQuestionIn`, `gmAnswerIn`); bookmarks there are the `_bmGm*` functions, and a far
+answer lands through `gmLandFarEl`. `gmHistNote()` is the shared "older history not loaded" note. On Claude a
+settle-loop result lands through `ciLandSettled` (`orbLandIn`, `orbLandFarIn` without its distance test). On ChatGPT,
+`ixJump` waits for history pages (`pagesAtTop`, `IX_PAGE_WAIT_MS`, `_ixStartLoaded`). A platform's chrome inside a
+message (Perplexity's "Finished") is `platform.textExclude`, honoured by `_cleanText` and `extractMarkdownContent`.
+
 **Claude is not the only virtualized platform — Emergent recycles too** (Virtuoso), and it is **not** handled the same way. Emergent has only *passive accumulation*: `scanConversation` keeps messages the user has already scrolled past, so on a long session the Navigate list is the mounted window plus whatever they happened to scroll. `DOM-REFERENCE.md` claimed a panel-open sweep for five months; that code never existed (ROADMAP backlog item 7). **Beware the `virtualScroll` platform flag: it selects that accumulation behaviour, not the platform property, so `claude` — the most virtualized platform here — is `virtualScroll: false`.** The `DOM-REFERENCE.md` table is the record of which platforms virtualize.
 
 **The remaining twelve are "not observed", not "verified absent", and that is a fact with a date on it.** Virtualization is the standard fix for a slow chat page; Claude's own answer flipped between February and July 2026 with no announcement, no error, and a green test suite. Treat "platform X is not virtualized" as *unverified* rather than *verified false* — per-platform status and the two-command check are in `DOM-REFERENCE.md` → "Virtualization status".
