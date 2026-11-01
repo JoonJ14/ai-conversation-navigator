@@ -1110,14 +1110,20 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         `keep = true`), and none times a user scroll inside the answer jump's 350 ms retry.
       - The round-5 fixes had no Tier 3 round after them (the cap); they go to the PR's GitHub Codex review.
     - **Logged from v12.17** (not fixed; out of its spec):
-      - **A ChatGPT answer bookmark on a "fallback" turn is labelled "A#?"** [measured, Chrome, 2026-11-01]: a turn with
+      - **A ChatGPT answer bookmark on a "fallback" turn is labelled "A#?"** — **done in v12.17** (the owner pulled it
+        into the PR; `_bmIxCanon`, gate C7) [measured, Chrome, 2026-11-01]: a turn with
         two shown text nodes can render the first as a turn of its own with no question (`data-turn-key=
         "fallback-turn-0"`, Q45 of a 49-question chat). That unit names the first node's id, while the index keys the
         answer by the turn's last; a flag drawn there saves under an id the index does not list as an answer. Search
         maps such a unit to its answer (`_ix.answerIdOf`); bookmarks do not (v12.15's path).
       - **Claude's bookmark jumps still end in an unchecked glide** after the settle loop (`_bmJumpToAnswer`, and
-        `orbScrollToBookmark`'s uuid path) [code]; v12.17 replaced the glide for Navigate, Search, Summary and the
-        gallery only (DEC-059).
+        `orbScrollToBookmark`'s uuid path) — **done in v12.17** (pulled in by the owner; `ciLandSettled`, gate L6).
+      - **The last answer's bookmark on Claude, from the top, measures 218 px short on v12.16 and v12.17 alike** [Playwright,
+        page realm, `check-feature-gaps`'s former L4]: it is mounted from the top and lands through v12.16's
+        `ciLandFar` (unchanged here), and the probe's row measure and the landing's target disagree by the row's
+        top part. Not measured live; either the measure or the landed element is wrong.
+      - **No probe switches ChatGPT conversations and back** (A → B → A): `_ixStartLoaded` is cleared on the switch
+        (Tier 3, v12.17), but the mock would need a rebuild to show only the newest pages again on return.
       - **Summary and the gallery look up each answer's mounted node one by one** (`_bmIxFind` per answer, each a
         fresh `bookmarkables()` walk) [code]: fine at 49 answers; unmeasured on a 2,000-entry Perplexity thread.
       - **CI headroom:** `check-feature-gaps` adds about 2.5 min (Chromium, this Mac) per ubuntu job, plus about 1 min
