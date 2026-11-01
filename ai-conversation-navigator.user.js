@@ -1139,6 +1139,11 @@
                 }
                 return messages;
             },
+            // The answer's "Finished" status label: a step header the page draws above the answer text,
+            // inside [data-workflow-final-text] (measured, Chrome, 2026-11-01: 3 of 3 mounted answers,
+            // div.group/step-header, sometimes inside a button). Never part of the answer's text
+            // (_cleanText, extractMarkdownContent; v12.17).
+            textExclude: '[class*="group/step-header"]',
             // Perplexity attachments are text labels in a dropdown, not inline <img> tags.
             // S3 URLs require programmatic modal clicks to access and have expiry params.
             // Gallery will correctly show "No images in this conversation" on Perplexity.
@@ -3875,8 +3880,9 @@
 
     // Gemini (DEC-057). Off-screen turns carry turn-content-visibility, so their heights are
     // estimates until they render; a glide from the top to the latest question grew scrollHeight
-    // under it (59,324 -> 63,126 px) and left the target 4,240 px below the view, 2 of 4 times
-    // (Chrome + Tampermonkey, 2026-10-31; the times it landed, the turns had rendered before).
+    // under it (59,324 -> 63,126 px) and left the target below the view 2 of 4 times: 6,139 px the
+    // first time, 4,240 px on a later run (Chrome + Tampermonkey, 2026-10-31; DEC-057; the times it
+    // landed, the turns had rendered before).
     // Gemini keeps its turns, so the question re-locates through _relocateQuestionElement.
     // A switch to another chat ends it (GitHub Codex, PR #90): the scroller can be reused, and the
     // new chat may hold the same question text.
@@ -6177,6 +6183,8 @@
     function _isExcludedFromText(n) {
         if (!n || n.nodeType !== 1) return false;
         if (n.getAttribute && n.getAttribute('data-acn-bookmark') !== null) return true;
+        // A platform's own chrome inside a message (Perplexity's "Finished" label, v12.17).
+        if (platform && platform.textExclude && n.matches && n.matches(platform.textExclude)) return true;
         return _isSrOnlyClassList(n.className);
     }
 
@@ -6187,7 +6195,8 @@
         // (sm:sr-only) that the slow path's regex excludes — otherwise the two paths
         // disagree and a variant label survives into the text.
         if (!el.querySelector ||
-            !el.querySelector('[data-acn-bookmark], .sr-only, [class*="sr-only"], .cdk-visually-hidden')) {
+            !el.querySelector('[data-acn-bookmark], .sr-only, [class*="sr-only"], .cdk-visually-hidden' +
+                              (platform && platform.textExclude ? ', ' + platform.textExclude : ''))) {
             return el.textContent || el.innerText || '';
         }
         var out = '';
@@ -10067,6 +10076,25 @@
             var gt = gEl ? (bm.entityType === 'user-msg' ? _readMessageText(gEl) : _readAIText(gEl)) : '';
             gt = gt.replace(/\s+/g, ' ').trim();
             if (gt) return gt.substring(0, 120);
+        }
+        // ChatGPT and Perplexity (v12.17): the message's text from the index, as Claude's below. A
+        // Perplexity answer's stored preview begins with the page's "Finished" label, glued to the
+        // text ("FinishedRight now, ..."): records made before v12.17 kept it.
+        if (bm && bm.msgUuid && ixReadyAdapter()) {
+            var ixt = '', j;
+            if (bm.entityType === 'user-msg' && _ix.qIdx && _ix.qIdx.hasOwnProperty(bm.msgUuid)) {
+                ixt = (_ix.entries[_ix.qIdx[bm.msgUuid]] || {}).text || '';
+            } else if (bm.entityType === 'ai-msg' && _ix.answers) {
+                for (j = 0; j < _ix.answers.length; j++) {
+                    if (_ix.answers[j].key === bm.msgUuid) { ixt = _ix.answers[j].text || ''; break; }
+                }
+            }
+            ixt = _mdVisible(ixt).replace(/\s+/g, ' ').trim();
+            if (ixt) return ixt.substring(0, 120);
+        }
+        if (bm && bm.entityType === 'ai-msg' && platform && platform.id === 'perplexity' &&
+            typeof bm.preview === 'string' && /^Finished\S/.test(bm.preview)) {
+            return bm.preview.substring('Finished'.length);
         }
         if (bm && bm.msgUuid && ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
             for (var i = 0; i < _ciFullPath.length; i++) {
@@ -14504,6 +14532,7 @@
             // exactly the content those utilities exist to show. Two predicates that
             // disagreed on the same class list; now one.
             if (_isSrOnlyClassList(rawCls)) return true;
+            if (platform && platform.textExclude && node.matches && node.matches(platform.textExclude)) return true;
             var chromeFragments = ['copy-button', 'action-bar', 'toolbar', 'btn', 'button',
                                    'avatar', 'feedback', 'thumb', 'vote', 'tooltip'];
             for (var i = 0; i < chromeFragments.length; i++) {
