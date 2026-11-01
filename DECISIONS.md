@@ -1266,7 +1266,7 @@ is a live run on the commit actually being shipped.
   wrong, and the honest report is "not reproduced", never a fix asserted on plausibility.
 
 **Addendum — merged before the live confirm, on the owner's explicit call (2026-10-23).** The owner has waived
-this rule six times:
+this rule eight times:
 - PR #73 (v12.8), merged before its usage-panel confirm;
 - PR #75 (v12.9), merged as `4c72ca9` before its Safari, Firefox and Chrome confirms;
 - PR #78 (v12.10), merged as `166a281` before Safari's ChatGPT and Perplexity check;
@@ -1276,16 +1276,19 @@ this rule six times:
 - PR #86 (v12.14), merged 2026-10-24 with steps 1–3 passed on all three browsers and Chrome's and Firefox's steps 4–5
   not reported;
 - PR #88 (v12.15), merged 2026-10-31 as `6baac2e` on the owner's explicit OK, with none of its acceptance steps
-  reported on any browser. The agent's own live checks in Chrome + Tampermonkey (below) are not acceptance.
+  reported on any browser. The agent's own live checks in Chrome + Tampermonkey (below) are not acceptance;
+- PR #90 (v12.16), merged 2026-11-01 as `a9ecb14` on the owner's explicit OK, with none of its acceptance steps
+  reported on any browser; the owner will run them on the merged build. The agent's live checks and final A/B in
+  Chrome + Tampermonkey (below) are not acceptance.
 
 A waiver moves the merge, not the debt: each confirm stays owed on the merged build until it is run. Record
 every waiver here, and in the release's CHANGELOG entry.
 
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
-review record. Updated 2026-10-31:
-- **v12.16 (PR #90; Claude's far jump, Claude's context window by model, Gemini's history note; DEC-055,
-  DEC-056, DEC-057).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey:
+review record. Updated 2026-11-01:
+- **v12.16 (PR #90, merged 2026-11-01 as `a9ecb14` before acceptance, a waiver; Claude's far jump, Claude's context
+  window by model, Gemini's history note; DEC-055, DEC-056, DEC-057).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey:
   **owed**, nothing reported yet. The steps, as posted on the PR:
   https://github.com/JoonJ14/ai-conversation-navigator/pull/90#issuecomment-6550538381
   - **The agent's live check before the PR — not owner acceptance.** Chrome + Tampermonkey, the owner's real profile,
@@ -3807,8 +3810,8 @@ not persisted.
 ## DEC-055: A Far Mounted Claude Target Lands the Way the Adapter Sites' Targets Do (v12.16)
 
 (The landing core, `orbLandFarIn`, is shared with Gemini since the final live check: DEC-057.)
-**Date:** 2026-10-31 | **Stage:** v12.16, part A (the owner's spec, default fix). PR #90; owner acceptance pending
-on all three browsers (DEC-031)
+**Date:** 2026-10-31 | **Stage:** v12.16, part A (the owner's spec, default fix). PR #90, merged 2026-11-01 as
+`a9ecb14` before acceptance (a waiver, DEC-031); owner acceptance pending on all three browsers
 
 ### Decision
 On a Claude chat, a jump whose target is already mounted but **far** from the view lands through `ixLandOn`
@@ -3859,7 +3862,7 @@ in about 1.4–1.6 s.
 
 ## DEC-056: Claude's Context Meter Uses the Window of the Conversation's Model (v12.16)
 **Date:** 2026-10-31 | **Stage:** v12.16, part B (the owner's spec, default fix; both stop conditions cleared in
-Phase 1). PR #90; owner acceptance pending (DEC-031)
+Phase 1). PR #90, merged 2026-11-01 as `a9ecb14` before acceptance (a waiver, DEC-031); owner acceptance pending
 
 ### Decision
 - **The model:** the conversation JSON the index already downloads names the chat's model at its top level
@@ -3918,8 +3921,8 @@ Phase 1). PR #90; owner acceptance pending (DEC-031)
 ---
 
 ## DEC-057: Gemini Keeps What It Loads; Navigate Says When the Chat's Start Is Not Loaded Yet (v12.16)
-**Date:** 2026-10-31 | **Stage:** v12.16, part C (the owner's spec: KEEP measured, so the default). PR #90; owner
-acceptance pending (DEC-031)
+**Date:** 2026-10-31 | **Stage:** v12.16, part C (the owner's spec: KEEP measured, so the default). PR #90, merged
+2026-11-01 as `a9ecb14` before acceptance (a waiver, DEC-031); owner acceptance pending
 
 ### Decision
 - **No index, no accumulation:** Gemini keeps every turn it has loaded, so the DOM scan's list is complete once the
