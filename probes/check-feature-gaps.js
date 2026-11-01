@@ -436,9 +436,11 @@ function claudeXhr(payload) {
                 const a = await pg.evaluate("window.__h.search('ocelot')");
                 const q = await pg.evaluate("window.__h.search('quokka')");
                 const c = await pg.evaluate("window.__h.search('lemur')");
-                check('C1', 'new', 'ChatGPT Search: a word only in an unmounted answer and one only in a question; Q and A in position order',
-                      o.ready && a.labels.join() === 'A#2' && q.labels.join() === 'Q#2' && c.labels.join() === 'Q#5,A#5,Q#20',
-                      'ocelot=[' + a.labels + '] quokka=[' + q.labels + '] lemur=[' + c.labels + ']');
+                // Turn 6's answer is two text nodes: its second is part of A#6, not another answer.
+                const sp = await pg.evaluate("window.__h.search('second part of answer 6')");
+                check('C1', 'new', 'ChatGPT Search: a word only in an unmounted answer and one only in a question; Q and A in position order; a split answer\'s second part is A#6',
+                      o.ready && a.labels.join() === 'A#2' && q.labels.join() === 'Q#2' && c.labels.join() === 'Q#5,A#5,Q#20' && sp.labels.join() === 'A#6',
+                      'ocelot=[' + a.labels + '] quokka=[' + q.labels + '] lemur=[' + c.labels + '] split=[' + sp.labels + ']');
             }
             if (want('C2')) {
                 const clicked = await pg.evaluate("window.__h.clickSearch('ocelot', 'A#2')");
@@ -467,7 +469,8 @@ function claudeXhr(payload) {
                 const users = (f.match(/^## User \(Q#/gm) || []).length, ais = (f.match(/^## Assistant \(A#/gm) || []).length;
                 const ord = exportOrder(f, 24);
                 check('C3', 'new', 'ChatGPT full export: every question and answer, in order (Q#1, A#1 ... Q#24, A#24), the header counting the body',
-                      /\*\*Messages:\*\* 48 \(24 user, 24 AI\)/.test(f) && users === 24 && ais === 24 && /ocelot/.test(f) && ord.ok,
+                      /\*\*Messages:\*\* 48 \(24 user, 24 AI\)/.test(f) && users === 24 && ais === 24 && /ocelot/.test(f) && ord.ok &&
+                      /Answer 6: [^#]*second part of answer 6/.test(f),
                       'header=' + ((f.match(/\*\*Messages:\*\*[^\n]*/) || [''])[0]) + ' body=' + users + '/' + ais + ' in order=' + ord.ok);
             }
             if (want('C5')) {
@@ -488,7 +491,7 @@ function claudeXhr(payload) {
             if (want('C6')) {
                 const g = await pg.evaluate("window.__h.gallery()");
                 const okCards = g.cards.length === 2 && g.cards.every((c) => c.label === 'Q#3' && c.thumb === 'placeholder') &&
-                                /hand-one\.jpg/.test(g.cards[0].text);
+                                /hand-one\.jpg/.test(g.cards[0].text) && /hand-two\.jpg/.test(g.cards[1].text);
                 await pg.evaluate("window.__h.clickGallery(0)");
                 await settle(pg, '#mock-scroller');
                 const m = await pg.evaluate((k) => Object.assign(window.__h.inView(document.getElementById('mock-scroller'),
@@ -592,8 +595,9 @@ function claudeXhr(payload) {
                     return Object.assign(window.__h.inView(document.getElementById('mock-scroller'), fins[0] || null),
                                          { toasts: window.__acnToasts.slice() });
                 });
-                check('P2', 'new', 'Perplexity Search: a click on the unmounted answer A#1, from the bottom, lands on it',
-                      m.inView && !m.toasts.length, JSON.stringify(m));
+                // An answer lands at its start (_bmIxJump, block 'start'), not merely somewhere in view.
+                check('P2', 'new', 'Perplexity Search: a click on the unmounted answer A#1, from the bottom, lands with its start at the top',
+                      m.inView && m.top !== null && Math.abs(m.top) <= 24 && !m.toasts.length, JSON.stringify(m));
             }
             if (want('P3')) {
                 const f = await pg.evaluate("window.__h.exportFull()") || '';

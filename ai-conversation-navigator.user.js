@@ -2727,6 +2727,7 @@
     var IX_PAGE_WAIT_MS     = 2500;    // the wait for one page at the top before calling it the start
     var IX_PAGE_SIZE_MIN    = 5;       // the smallest page measured: bounds the pages a jump waits for
     var _ixStartLoaded      = null;    // the conversation whose start a page wait found loaded
+    var IX_PAGE_IDLE_MAX    = 3;       // waits at the top that brought no older turn, per jump
 
     var _ix = {};                      // the generic pipeline's state, one conversation
     var _ixJumpToken = 0;
@@ -3980,7 +3981,7 @@
         var entry = { id: q.ixId, position: q.ixPosition, text: q.text };
         var total = Math.max(1, _ix.total);
         var cid = _ix.cid;
-        var moves = 0, lastDir = 0, factor = 1, waits = 0, pages = 0;
+        var moves = 0, lastDir = 0, factor = 1, waits = 0, pages = 0, idle = 0;
         // A conversation whose start is known to be loaded waits for no page (only the first jump
         // that reaches its start pays IX_PAGE_WAIT_MS).
         var pageCap = _ixStartLoaded === cid ? 0 : Math.ceil(total / IX_PAGE_SIZE_MIN) + 2;
@@ -4010,7 +4011,7 @@
             // brings the next page, which moves the target's place from under it (the probe's K5:
             // 272 px off). So bring that page first and land after it; none in IX_PAGE_WAIT_MS means
             // the start is loaded, and then the top is the right place.
-            if (a.pagesAtTop && pages < pageCap) {
+            if (a.pagesAtTop && pages < pageCap && idle < IX_PAGE_IDLE_MAX) {
                 var cr = container.getBoundingClientRect(), er = el.getBoundingClientRect();
                 var lead = er.height > container.clientHeight * 0.8 ? 0 : (container.clientHeight - er.height) / 2;
                 if (container.scrollTop + (er.top - cr.top - container.clientTop) - lead <= 1) {
@@ -4041,7 +4042,7 @@
         // as a move, so a 49-question chat's Q15 ran out of moves after ~5 pages and toasted, 2 of 2
         // from a fresh load (Chrome, 2026-11-01; a 24-question chat needed 5 pages and landed).
         function pagingAbove() {
-            if (!a.pagesAtTop || container.scrollTop > 1 || pages >= pageCap) return false;
+            if (!a.pagesAtTop || container.scrollTop > 1 || pages >= pageCap || idle >= IX_PAGE_IDLE_MAX) return false;
             var m = a.mounted(), lo = Infinity;
             for (var j = 0; j < m.length; j++) if (m[j].pos >= 0 && m[j].pos < lo) lo = m[j].pos;
             return lo !== Infinity && lo > entry.position;
@@ -4053,7 +4054,7 @@
             return lo;
         }
         function awaitPage() {
-            pages++;
+            idle++;
             var h0 = container.scrollHeight, t0 = Date.now(), lo0 = lowestMounted();
             (function poll() {
                 var why = live();
@@ -4064,13 +4065,22 @@
                     // the steps and pageCap the pages. Growth of another kind (an image, a streamed answer)
                     // is refunded nothing (Tier 3).
                     setTimeout(function () {
-                        if (lowestMounted() < lo0 && moves > 0) moves--;
+                        // Only a page counts against pageCap (Tier 3 r2): growth of another kind spends one of
+                        // the few idle waits instead.
+                        if (lowestMounted() < lo0) { pages++; idle--; if (moves > 0) moves--; }
                         arrive();
                     }, IX_JUMP_SETTLE_MS);
                     return;
                 }
-                // None came: the start is loaded. Ordinary moves from here.
-                if (Date.now() - t0 >= IX_PAGE_WAIT_MS) { pages = pageCap; _ixStartLoaded = cid; arrive(); return; }
+                // None came: ordinary moves from here. The start counts as loaded for later jumps only when
+                // the first question is the one mounted at the top: a hidden tab, whose page work is
+                // throttled, can time out with older history still to come (Tier 3 r2).
+                if (Date.now() - t0 >= IX_PAGE_WAIT_MS) {
+                    pages = pageCap;
+                    if (lowestMounted() === 0 && document.visibilityState === 'visible') _ixStartLoaded = cid;
+                    arrive();
+                    return;
+                }
                 setTimeout(poll, 100);
             }());
         }
@@ -12723,7 +12733,7 @@
                 var cq = cm.type === 'user' ? _questions[cm.qIdx] : null;
                 var cel = cm.type === 'user' ? (cq && cq.element && cq.element.isConnected ? cq.element : null)
                                              : (cm.key ? _bmIxFind(ixA, cm.key, 'ai-msg') : null);
-                all.push({ element: cel, text: cm.type === 'user' ? (cm.text || '') : _mdVisible(cm.text || ''),
+                all.push({ element: cel, text: cm.text || '',
                            type: cm.type, elKey: _sumElKey(cel),
                            jumpRef: cm.type === 'user' ? { kind: 'ixq', qIdx: cm.qIdx, id: cq ? cq.ixId : null }
                                                        : { kind: 'ixa', key: cm.key, qIdx: cm.qIdx } });
@@ -13369,7 +13379,8 @@
             // ChatGPT chat, "12 user, 22 AI" on a 12-entry Perplexity thread (Chrome, 2026-11-01).
             var ixA = ixReadyAdapter();
             aiMsgs = ixConversation().filter(function (m) { return m.type === 'ai'; }).map(function (m) {
-                return { element: m.key ? _bmIxFind(ixA, m.key, 'ai-msg') : null, text: _mdVisible(m.text),
+                // Raw markdown, as Claude's: the code inventory reads its fences (Tier 3 r2).
+                return { element: m.key ? _bmIxFind(ixA, m.key, 'ai-msg') : null, text: m.text,
                          type: 'ai', jumpRef: { kind: 'ixa', key: m.key, qIdx: m.qIdx } };
             });
         } else {
@@ -14382,9 +14393,12 @@
                 out.push({ label: it.side === 'user' ? qLabel(it.q) : aLabel(it.q), name: it.name, src: thumb,
                            jump: function () {
                                var q = it.q >= 0 ? _questions[it.q] : null;
-                               if (q && ixReadyAdapter()) {
-                                   if (it.side === 'ai' && _ix.answerAt && _ix.answerAt[it.at]) {
-                                       _bmIxJump(ixReadyAdapter(), { msgUuid: _ix.answerAt[it.at], entityType: 'ai-msg' });
+                               var akey = _ix.answerAt ? _ix.answerAt[it.at] : null;
+                               if (ixReadyAdapter() && (q || akey)) {
+                                   // An answer's image, or an entry with no listed question (Perplexity, an
+                                   // attachment-only question: Tier 3 r2), goes to the answer by its key.
+                                   if (akey && (it.side === 'ai' || !q)) {
+                                       _bmIxJump(ixReadyAdapter(), { msgUuid: akey, entityType: 'ai-msg' });
                                    } else orbScrollToQuestion(q);
                                    return;
                                }
@@ -14396,6 +14410,20 @@
     }
 
     function _renderIndexedGallery(container, items) {
+        // A card belongs to the index it was drawn from: after a switch or a refetch its message may be
+        // another one, so a click redraws the gallery instead of jumping (Tier 3 r2).
+        var stamp = sumIndexStamp() + '|' + location.pathname;
+        items.forEach(function (it) {
+            var go = it.jump;
+            it.jump = function () {
+                if (sumIndexStamp() + '|' + location.pathname !== stamp) {
+                    renderImageGallery(container);
+                    showToast('Gallery is out of date \u2014 it was refreshed, click again');
+                    return;
+                }
+                go();
+            };
+        });
         var header = document.createElement('div');
         header.className = 'acn-tool-section-header';
         header.textContent = '\uD83D\uDDBC\uFE0F ' + (i18n('imageGallery') || 'Image Gallery') + ' (' + items.length + ')';
@@ -14962,7 +14990,17 @@
         // payload shape this build cannot read): named, not dropped silently (Tier 3).
         var noText = 0, allAns = _ix.answers || [];
         for (i = 0; i < allAns.length; i++) if (!(allAns[i].text || '').trim()) noText++;
-        var partial = _ix.truncated || _ix.refreshFailed || newer || noText;
+        // A listed question with no answer in the loaded history (not answered yet, or still being written
+        // when it was loaded: ChatGPT lists an answer only once it has text), and an answer on screen that
+        // is longer than its loaded text (written since): both named (Tier 3 r2).
+        var answered = {}, unanswered = 0, grown = 0;
+        for (i = 0; i < allAns.length; i++) if (allAns[i].q >= 0) answered[allAns[i].q] = true;   // no-text ones: noText
+        for (i = 0; i < (_ix.entries || []).length; i++) if (!answered[i]) unanswered++;
+        for (i = 0; i < allAns.length; i++) {
+            var mEl = allAns[i].key && a ? _bmIxFind(a, allAns[i].key, 'ai-msg') : null;
+            if (mEl && _readAIText(mEl).length > _mdVisible(allAns[i].text || '').length + 20) grown++;
+        }
+        var partial = _ix.truncated || _ix.refreshFailed || newer || noText || unanswered || grown;
         lines.push('**Source:** ' + (partial ? 'conversation history (API) \u2014 see warning below'
                                             : 'complete conversation history (API)'));
         if (_ix.truncated) {
@@ -14980,6 +15018,17 @@
             lines.push('> \u26a0 **' + noText + ' answer' + (noText !== 1 ? 's have' : ' has') + ' no text in the loaded ' +
                        'history** (unfinished, failed, or in a form this version cannot read) and ' +
                        (noText !== 1 ? 'are' : 'is') + ' not in this file.');
+        }
+        if (unanswered) {
+            lines.push('');
+            lines.push('> \u26a0 **' + unanswered + ' question' + (unanswered !== 1 ? 's have' : ' has') + ' no answer in the ' +
+                       'loaded history** (not answered yet, or still being written when it was loaded).');
+        }
+        if (grown) {
+            lines.push('');
+            lines.push('> \u26a0 **' + grown + ' answer' + (grown !== 1 ? 's on screen are' : ' on screen is') + ' longer than the ' +
+                       'loaded history** (still being written when it was loaded): this file has the shorter text. ' +
+                       'Export again once it has finished.');
         }
         if (newer) {
             lines.push('');

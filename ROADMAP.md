@@ -1122,6 +1122,9 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         page realm, `check-feature-gaps`'s former L4]: it is mounted from the top and lands through v12.16's
         `ciLandFar` (unchanged here), and the probe's row measure and the landing's target disagree by the row's
         top part. Not measured live; either the measure or the landed element is wrong.
+      - **A ChatGPT answer can be bookmarked twice under its two keys** (Tier 3 round 2): a tab whose index has not
+        loaded saves a "fallback" unit's raw node id, an indexed tab the answer's key. Both records persist and show
+        as one answer; removing one removes both (`_bmIxCanon` matches both). Not a wrong jump; logged.
       - **No probe switches ChatGPT conversations and back** (A → B → A): `_ixStartLoaded` is cleared on the switch
         (Tier 3, v12.17), but the mock would need a rebuild to show only the newest pages again on return.
       - **Summary and the gallery look up each answer's mounted node one by one** (`_bmIxFind` per answer, each a
