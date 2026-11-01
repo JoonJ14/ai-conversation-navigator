@@ -138,6 +138,12 @@ const split = (hs, q) => ({ q: hs.map(() => q), a: hs.map((h) => h - q) });
 // ChatGPT turns, live-like: 24 turns, the last 5 present at load, older ones prepended.
 const GPT_H24 = [1400, 900, 2100, 1300, 800, 1700, 1500, 2600, 900, 1200, 1800, 1100,
                  2400, 1000, 1600, 700, 1900, 1300, 2200, 900, 1500, 1200, 2000, 1100];
+// ChatGPT paging its history at the top (v12.17), the live numbers (Chrome, 2026-11-01, a
+// 49-question project chat): the newest 10 turns at load, 5 more each time the view reaches the top,
+// 734-1,089 ms per page, 9 pages to the start, every loaded turn keeping its height (135,879 px for
+// 49 turns, about 2,770 px each), about 5 turns mounted. Heights spread over that mean.
+const GPT_H49 = Array.from({ length: 49 }, (_, i) => 1500 + ((i * 7919) % 2600));
+const GPT_PAGING = { h: GPT_H49, loaded: 10, batch: 5, prependDelay: 900, prependWithin: 1, minTurns: 5 };
 const GPT_C9 = [1701, 1078, 2116, 935, 1094, 1767, 2060, 1819, 382, 1612, 2064, 993, 2071, 414, 1921, 1663, 234, 2381, 1214, 2291];
 
 const LIVE_PPLX = Object.assign({ q: LIVE_Q, a: LIVE_A, drift: 8, anchor: true, around: 2 });
@@ -250,6 +256,15 @@ const FIXTURES = [
     { id: 'K3', label: 'guard', desc: 'ChatGPT live model: bottom -> Q1',
       site: 'chatgpt', n: 24, start: 'bottom', target: 0,
       model: { h: GPT_H24, loaded: 5, batch: 3, prependDelay: 80, prependWithin: 'window', minTurns: 5 } },
+    // v12.17: ChatGPT pages its history at the top. v12.16 spent a move on every settle it waited
+    // there, so a target more than about 4 pages up ran out of moves and toasted (live: Q15 of 49, 2
+    // of 2 from a fresh load; the 24-question chat's 5 pages fitted).
+    { id: 'K5', label: 'new', desc: 'ChatGPT pages 5 turns at the top (live numbers): bottom -> Q15 of 49',
+      site: 'chatgpt', n: 49, start: 'bottom', target: 14, model: GPT_PAGING, timeout: 40000 },
+    { id: 'K6', label: 'new', desc: 'ChatGPT pages 5 turns at the top (live numbers): bottom -> Q1 of 49, nine pages',
+      site: 'chatgpt', n: 49, start: 'bottom', target: 0, model: GPT_PAGING, timeout: 40000 },
+    { id: 'K7', label: 'guard', desc: 'ChatGPT pages at the top: bottom -> Q42, already loaded',
+      site: 'chatgpt', n: 49, start: 'bottom', target: 41, model: GPT_PAGING, timeout: 40000 },
     // No scroll container (a thread under 1.5 screens): the plain fast path, as in v12.14.
     { id: 'K4', label: 'guard', desc: 'a 3-turn ChatGPT thread (no scroll container): the mounted Q2 lands',
       site: 'chatgpt', n: 3, start: 'bottom', target: 1, model: null },
@@ -350,7 +365,7 @@ const FIXTURES = [
         if (clicked) {
             try {
                 await page.waitForFunction(() => document.getElementById('acn-zone').getAttribute('data-acn-jump-resolved') !== null ||
-                                                  !!document.getElementById('acn-toast'), null, { timeout: 15000 });
+                                                  !!document.getElementById('acn-toast'), null, { timeout: fx.timeout || 15000 });
             } catch (e) {}
             // Then until the view has been still for 800 ms (cap 8 s).
             let last = null, still = 0;

@@ -2722,6 +2722,11 @@
     var IX_JUMP_SETTLE_MS   = 350;
     var IX_JUMP_MAX_ALIGNS  = 4;       // instant alignment writes on arrival (ixLandOn)
     var IX_JUMP_ALIGN_TOL   = 8;       // px from the intended position that counts as landed
+    // ChatGPT pages its history at the top (v12.17): 5 older turns per page, 734-1,089 ms each,
+    // 9 pages from a 49-question chat's newest 10 turns to its start (Chrome, 2026-11-01).
+    var IX_PAGE_WAIT_MS     = 2500;    // the wait for one page at the top before calling it the start
+    var IX_PAGE_SIZE_MIN    = 5;       // the smallest page measured: bounds the pages a jump waits for
+    var _ixStartLoaded      = null;    // the conversation whose start a page wait found loaded
 
     var _ix = {};                      // the generic pipeline's state, one conversation
     var _ixJumpToken = 0;
@@ -3265,6 +3270,8 @@
             // The bookmark store's key for a conversation: one per id, whichever URL shows it
             // (/g/<project>/c/<id> and /c/<id> are one chat). pathId reads an old key's id.
             bookmarkUrl: function (cid) { return 'https://chatgpt.com/c/' + cid; },
+            // Older turns arrive in pages when the view reaches the top (ixJump waits for them).
+            pagesAtTop: true,
             pathId: function (p) { return ixGptPathId(p) || null; },
             fetchIndex: ixGptFetch,
             // data-turn-key on the user turn equals the API node id. Positions come from
@@ -3954,7 +3961,10 @@
         var entry = { id: q.ixId, position: q.ixPosition, text: q.text };
         var total = Math.max(1, _ix.total);
         var cid = _ix.cid;
-        var moves = 0, lastDir = 0, factor = 1, waits = 0;
+        var moves = 0, lastDir = 0, factor = 1, waits = 0, pages = 0;
+        // A conversation whose start is known to be loaded waits for no page (only the first jump
+        // that reaches its start pays IX_PAGE_WAIT_MS).
+        var pageCap = _ixStartLoaded === cid ? 0 : Math.ceil(total / IX_PAGE_SIZE_MIN) + 2;
         var landing = { aligns: 0 };
         var watch = ixWatchUser(container), finished = false;
         function done(ok, el, reason) {
@@ -3976,6 +3986,21 @@
         // to moving; the shared `landing` cap and IX_JUMP_MAX_MOVES bound the round trips.
         function land(el, getEl, reason) {
             if (opts.land === false) { done(true, el, reason); return; }
+            // On a site that pages at the top, a target whose landing position is the top (it sits
+            // near the start of what is loaded) would be aligned there, clamped, and that very write
+            // brings the next page, which moves the target's place from under it (the probe's K5:
+            // 272 px off). So bring that page first and land after it; none in IX_PAGE_WAIT_MS means
+            // the start is loaded, and then the top is the right place.
+            if (a.pagesAtTop && pages < pageCap) {
+                var cr = container.getBoundingClientRect(), er = el.getBoundingClientRect();
+                var lead = er.height > container.clientHeight * 0.8 ? 0 : (container.clientHeight - er.height) / 2;
+                if (container.scrollTop + (er.top - cr.top - container.clientTop) - lead <= 1) {
+                    if (a.releaseScroll) a.releaseScroll(container);
+                    container.scrollTop = 0;
+                    awaitPage();
+                    return;
+                }
+            }
             ixLandOn(a, getEl, { container: container, check: live, state: landing }, function (ok, landed, why) {
                 if (ok) done(true, landed, reason);
                 else if (why === 'lost') arrive();
@@ -3992,11 +4017,40 @@
             lastDir = dir;
             return factor;
         }
+        // A target above every mounted entry, with the view at the top, on a site that pages its
+        // history there (ChatGPT): its page is on the way. v12.16 counted each settle spent waiting
+        // as a move, so a 49-question chat's Q15 ran out of moves after ~5 pages and toasted, 2 of 2
+        // from a fresh load (Chrome, 2026-11-01; a 24-question chat needed 5 pages and landed).
+        function pagingAbove() {
+            if (!a.pagesAtTop || container.scrollTop > 1 || pages >= pageCap) return false;
+            var m = a.mounted(), lo = Infinity;
+            for (var j = 0; j < m.length; j++) if (m[j].pos >= 0 && m[j].pos < lo) lo = m[j].pos;
+            return lo !== Infinity && lo > entry.position;
+        }
+        function awaitPage() {
+            pages++;
+            var h0 = container.scrollHeight, t0 = Date.now();
+            (function poll() {
+                var why = live();
+                if (why) { done(false, null, why); return; }
+                if (container.scrollHeight !== h0) {
+                    // A page arrived: the move that brought the view here is refunded, so the move cap
+                    // bounds the steps and pageCap the pages. Then the usual settle.
+                    if (moves > 0) moves--;
+                    setTimeout(arrive, IX_JUMP_SETTLE_MS);
+                    return;
+                }
+                // None came: the start is loaded. Ordinary moves from here.
+                if (Date.now() - t0 >= IX_PAGE_WAIT_MS) { pages = pageCap; _ixStartLoaded = cid; arrive(); return; }
+                setTimeout(poll, 100);
+            }());
+        }
         function arrive() {
             var why = live();
             if (why) { done(false, null, why); return; }
             var el = a.locate(entry);
             if (el) { land(el, function () { return a.locate(entry); }, 'locate'); return; }
+            if (pagingAbove()) { awaitPage(); return; }
             if (moves >= IX_JUMP_MAX_MOVES) {
                 // Text stands in for identity only if no other question in the WHOLE
                 // conversation reads the same, and never for a node the adapter already
