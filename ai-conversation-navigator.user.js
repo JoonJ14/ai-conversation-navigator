@@ -10038,6 +10038,7 @@
     // while the index is not ready.
     function _bmLabel(bm) {
         if (ixAdapter()) return _bmIxLabel(bm);      // ChatGPT, Perplexity (v12.15)
+        if (platform && platform.id === 'gemini') return _bmGmLabel(bm);   // v12.17
         if (bm.entityType === 'user-msg') return 'Q#' + (_bmDisplayOrdinal(bm) + 1);
         if (bm.entityType !== 'ai-msg' || !ciIsClaudeChat()) return 'A#' + (_bmDisplayOrdinal(bm) + 1);
         if (!bm.msgUuid) return i18n('answerUnresolved');
@@ -10052,6 +10053,7 @@
     // answer with no listed question before it, then one that is not placed, go last.
     function _bmSortKey(bm) {
         if (ixAdapter()) return _bmIxSortKey(bm);
+        if (platform && platform.id === 'gemini') return _bmGmSortKey(bm);
         if (bm.entityType !== 'ai-msg' || !ciIsClaudeChat()) return _bmDisplayOrdinal(bm);
         var q = ciIsReady() ? _bmAnswerQuestionIndex(bm) : null;
         if (q === null) return 1e9;
@@ -10059,6 +10061,13 @@
     }
 
     function _bmDisplayText(bm) {
+        if (bm && bm.msgUuid && platform && platform.id === 'gemini') {
+            // The turn's own text while it is loaded (textContent: off-screen turns render nothing).
+            var gEl = _bmGmElement(bm.msgUuid, bm.entityType);
+            var gt = gEl ? (bm.entityType === 'user-msg' ? _readMessageText(gEl) : _readAIText(gEl)) : '';
+            gt = gt.replace(/\s+/g, ' ').trim();
+            if (gt) return gt.substring(0, 120);
+        }
         if (bm && bm.msgUuid && ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
             for (var i = 0; i < _ciFullPath.length; i++) {
                 if (_ciFullPath[i].uuid !== bm.msgUuid) continue;
@@ -11157,6 +11166,8 @@
         // ChatGPT and Perplexity: by the messages' own ids, never by position (v12.15).
         var ixa = ixAdapter();
         if (ixa) { _bmIxInject(ixa); return; }
+        // Gemini: by the turn's own id, never by position (v12.17).
+        if (platform && platform.id === 'gemini') { _bmGmInject(); return; }
         // Question records that wait on proof bind first, so their flags are drawn from the bound record.
         if (ciIsClaudeChat()) _bmProveQuestions();
         Array.from(getUserMessages()).forEach(function (el, idx) {
@@ -11460,6 +11471,144 @@
         }, { land: false });
     }
 
+    // ── Gemini bookmarks by the turn's id (v12.17) ─────────────
+    // v12.16 still keyed a Gemini record by contentHash(text, its place among the LOADED turns) and
+    // labelled it by that place, so a record changed meaning as older history loaded above it. Now
+    // a question is keyed by its turn's 16-hex id and its answer by <id>:answer (DEC-053's form, as
+    // Perplexity's), labelled "Q#n" / "Answer to Q#n" by the question's place in Navigate. Until the
+    // chat's start is loaded no number is final: "Q#…". Once it is, a record whose turn is not in
+    // the chat reads "Q#?" / "A#?". A positional record binds to a question only on proof
+    // (_bmGmProveLegacy), never an answer; otherwise it reads "Q#?" / "A#?" and stays deletable.
+    function _bmGmTurnId(key) {
+        return String(key || '').replace(/:answer$/, '');
+    }
+    function _bmGmElement(key, type) {
+        var t = gmTurnById(_bmGmTurnId(key));
+        return t ? (type === 'user-msg' ? gmQuestionIn(t) : gmAnswerIn(t)) : null;
+    }
+    // The Navigate index of the record's question (an answer's: the question of its turn), or -1.
+    function _bmGmNavIndex(key, type) {
+        var q = gmQuestionIn(gmTurnById(_bmGmTurnId(key)));
+        if (!q) return -1;
+        for (var i = 0; i < _questions.length; i++) {
+            var e = _questions[i].element;
+            if (e && (e === q || q.contains(e) || e.contains(q))) return i;
+        }
+        return -1;
+    }
+    // Numbers are final only once the chat's start is loaded, and while the chat shows any turn.
+    function _bmGmFinal() {
+        return !gmHistPartial() && !!document.querySelector('div.conversation-container');
+    }
+    function _bmGmLabel(bm) {
+        var user = bm.entityType === 'user-msg';
+        if (!bm.msgUuid) return i18n(user ? 'questionUnresolved' : 'answerUnresolved');
+        var qi = _bmGmNavIndex(bm.msgUuid, bm.entityType);
+        if (!_bmGmFinal()) return user ? 'Q#\u2026' : i18n('answerToQuestion', { n: '\u2026' });
+        if (qi >= 0) return user ? 'Q#' + (qi + 1) : i18n('answerToQuestion', { n: qi + 1 });
+        if (!user && gmTurnById(_bmGmTurnId(bm.msgUuid))) return i18n('answerNoQuestion');
+        return i18n(user ? 'questionUnresolved' : 'answerUnresolved');
+    }
+    function _bmGmSortKey(bm) {
+        var qi = bm.msgUuid ? _bmGmNavIndex(bm.msgUuid, bm.entityType) : -1;
+        if (qi < 0) return 1e9;
+        return bm.entityType === 'user-msg' ? qi : qi + 0.5;
+    }
+
+    // A positional question record (contentHash(text, msgIndex), msgIndex its place among the
+    // questions then loaded) binds to a turn only on proof, the v12.15 standard (DEC-053), and only
+    // once the chat's start is loaded, so that the place and the uniqueness are the whole chat's:
+    //   P1  the stored hash reproduces from the question's text at the stored msgIndex;
+    //   P2  that msgIndex is the question's Navigate index;
+    //   U   no other question in the chat shares its first 200 characters (normalized).
+    var _bmGmProveSeen = '';
+    function _bmGmProveLegacy() {
+        if (!_bmGmFinal()) return false;
+        var list = getConversationBookmarks(), i, any = false;
+        for (i = 0; i < list.length; i++) {
+            if (list[i].entityType === 'user-msg' && !list[i].msgUuid) { any = true; break; }
+        }
+        if (!any) return false;
+        var sig = location.pathname + '|' + _questions.length + '|' + String(acnGetValue(BOOKMARK_KEY, '{}'));
+        if (sig === _bmGmProveSeen) return false;
+        _bmGmProveSeen = sig;
+        var changed = false;
+        for (i = 0; i < list.length; i++) {
+            var b = list[i];
+            if (b.entityType !== 'user-msg' || b.msgUuid || typeof b.msgIndex !== 'number') continue;
+            var q = _questions[b.msgIndex], el = q && q.element;
+            var turn = el ? gmTurnOf(el) : null;
+            if (!turn) continue;                                                        // P2
+            if (_bmLegacyIdSet(el, b.msgIndex).indexOf(b.contentHash) === -1) continue; // P1
+            var pre = _normalizeCompare(_readMessageText(el)), same = 0;
+            for (var k = 0; k < _questions.length; k++) {
+                if (_questions[k].element && _normalizeCompare(_readMessageText(_questions[k].element)) === pre) same++;
+            }
+            if (same !== 1) continue;                                                   // U
+            if (!_bmBindAnswer(b.id, turn.id, 'user-msg')) { _bmGmProveSeen = ''; continue; }
+            el.removeAttribute('data-acn-bookmarked');   // redrawn lit
+            changed = true;
+        }
+        if (changed) {
+            var bmPanel = document.getElementById('acn-panel-bookmarks');
+            if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
+        }
+        return changed;
+    }
+
+    // One flag per loaded question and answer, keyed by its turn's id.
+    function _bmGmInject() {
+        _bmGmProveLegacy();
+        var drawnIn = location.pathname;
+        var turns = document.querySelectorAll('div.conversation-container');
+        for (var i = 0; i < turns.length; i++) {
+            if (!GM_TURN_ID_RE.test(turns[i].id || '')) continue;
+            var pair = [[gmQuestionIn(turns[i]), 'user-msg', turns[i].id],
+                        [gmAnswerIn(turns[i]), 'ai-msg', turns[i].id + ':answer']];
+            for (var k = 0; k < 2; k++) {
+                (function (el, type, key) {
+                    if (!el) return;
+                    if (!(type === 'user-msg' ? _readMessageText(el) : _readAIText(el))) return;
+                    if (el.getAttribute('data-acn-bookmarked') === key) return;
+                    var stale = el.querySelector('[data-acn-bookmark]');
+                    if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
+                    el.setAttribute('data-acn-bookmarked', key);
+                    createBookmarkIcon(el, type, key, Math.max(0, _bmGmNavIndex(key, type)), null, {
+                        keyless: false,
+                        // The key the node shows now: its turn's id, while the chat is the one it was
+                        // drawn in (an SPA switch can leave the old turns on screen for a scan).
+                        keyNow: function () {
+                            if (location.pathname !== drawnIn) return null;
+                            var t = gmTurnOf(el);
+                            return t ? (type === 'user-msg' ? t.id : t.id + ':answer') : null;
+                        },
+                        moved: function () { return location.pathname !== drawnIn; },
+                        navIndex: function () { return Math.max(0, _bmGmNavIndex(key, type)); }
+                    });
+                }(pair[k][0], pair[k][1], pair[k][2]));
+            }
+        }
+    }
+
+    // A question through Navigate's jump (gmLandFar); an answer through gmLandFarEl, re-found by its
+    // turn's id, so it lands on that turn after more history loaded above it.
+    function _bmGmJump(bm) {
+        var user = bm.entityType === 'user-msg';
+        if (!bm.msgUuid) { showToast(i18n(user ? 'questionUnresolvedToast' : 'answerUnresolvedToast')); return; }
+        var el = _bmGmElement(bm.msgUuid, bm.entityType);
+        if (!el) {
+            showToast(_bmGmFinal() ? i18n(user ? 'questionUnresolvedToast' : 'answerUnresolvedToast')
+                                   : (i18n('olderHistoryNotLoaded') || 'Older messages are not loaded yet'));
+            return;
+        }
+        if (user) {
+            var qi = _bmGmNavIndex(bm.msgUuid, 'user-msg');
+            if (qi >= 0) { orbScrollToQuestion(_questions[qi]); return; }
+        }
+        orbMarkJumpTarget(el);
+        orbScrollToMessage(el, function () { return _bmGmElement(bm.msgUuid, bm.entityType); });
+    }
+
     // getEl (optional, Claude): re-locates the same message by the caller's own resolver, so a
     // far mounted target lands through ciLandFar instead of gliding (v12.16). Without it, or for
     // a near target, the glide is unchanged.
@@ -11600,6 +11749,7 @@
     function orbScrollToBookmark(bookmark) {
         var ixJumpA = ixAdapter();
         if (ixJumpA) { _bmIxJump(ixJumpA, bookmark); return; }       // ChatGPT, Perplexity (v12.15)
+        if (platform && platform.id === 'gemini') { _bmGmJump(bookmark); return; }   // v12.17
         if (bookmark.entityType === 'ai-msg' && ciIsClaudeChat()) { _bmJumpToAnswer(bookmark); return; }
         var targetEl = null;
         var isUser   = bookmark.entityType === 'user-msg';
@@ -11745,7 +11895,11 @@
         }).join('|') + '||g' + _ciIndexGen + '|r' + (ciIsReady() ? 1 : 0) +
             // ChatGPT and Perplexity label from their index (v12.15): a panel drawn before it
             // landed must redraw when it does.
-            '|x' + ixFingerprint() + '|' + (_ix.cid || '');
+            '|x' + ixFingerprint() + '|' + (_ix.cid || '') +
+            // Gemini labels follow the loaded turns and whether the start is loaded (v12.17).
+            (platform && platform.id === 'gemini'
+                ? '|gm' + (gmHistPartial() ? 1 : 0) + ':' + document.querySelectorAll('div.conversation-container').length
+                : '');
         if (bfp === _bmListFingerprint && panel.children.length > 1) return;
         _bmListFingerprint = bfp;
 
