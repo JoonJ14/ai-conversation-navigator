@@ -30,7 +30,15 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.15 MERGED (PR #88) — live confirmation status: DEC-031
+## Current Status: v12.16 IN REVIEW (PR #90); v12.15 MERGED (PR #88) — live confirmation status: DEC-031
+
+**v12.16 (branch `fix/v12.16-claude-jump-meter-gemini`, PR #90; owner acceptance owed on all three browsers).**
+One combined PR in three parts, from the owner's spec (2026-10-31). A: on Claude, a jump to a far target that is
+already mounted (the latest question, from the top) lands instead of gliding past it (DEC-055; TROUBLESHOOTING, the
+entry it fixes). B: Claude's context meter uses the window of the conversation's model, from Anthropic's help center,
+with a labelled 200K fallback (DEC-056; step 1 of item 12). The turn dots on Claude follow the meter (the owner's request). C: Gemini keeps every turn it loads, so Navigate's list is
+complete once the history is, and says so while it is not (DEC-057). The agent's live check in Chrome + Tampermonkey
+passed all three (DEC-031). Grok is out of scope (its own PR after the owner's testing).
 
 **v12.15 (PR #88, merged 2026-10-31 as `6baac2e`, on the owner's OK before their acceptance: a waiver, DEC-031).**
 One combined PR in three parts. B: jumps on Perplexity and ChatGPT land in one click, instantly and checked
@@ -88,10 +96,9 @@ nothing here pre-writes its scope.
 
 Later; the owner decides the order (2026-10-24; the last two added 2026-10-31):
 - Grok on all three browsers (item 13).
-- Claude: a jump to the latest question from the top ends at the bottom, past it (TROUBLESHOOTING, OPEN; pre-existing,
-  v12.14 does the same; item 14).
+- ~~Claude: a jump to the latest question from the top ends at the bottom, past it~~ — v12.16 part A (DEC-055).
 - `check-ix-jumps` J15's timing race in CI (TROUBLESHOOTING, OPEN): make the fixture's pin deterministic.
-- Gemini: does it keep or slide older turns (item 13)?
+- ~~Gemini: does it keep or slide older turns (item 13)?~~ — it keeps them; v12.16 part C (DEC-057).
 - Perplexity attachment images. The gallery has marked Perplexity unsupported since v11.x, because its attachments
   render as text labels, not `<img>` tags ("Image Gallery Platform-Specific Selectors", below). There is no backlog
   item of its own yet.
@@ -674,6 +681,19 @@ Numbering below is stable (items keep their historical numbers):
      mismatch** (CHANGELOG 11.1, which raised the overhead estimate; CHANGELOG 12.0, which traced most of it
      to the virtualized DOM's ~35x undercount that PR #47 only partially addressed). The owner thinks the two
      may share a cause, so check that link during step 2.
+   - **v12.16: step 1 done (DEC-056)** — the window comes from the conversation's model (1M / 500K / 200K, from the
+     help center), with a labelled 200K fallback. **Logged from v12.16, for step 2:**
+     - The turn-counter link was **not** a shared cause [code]: the dots turned red at the 35th question on a fixed
+       count of 40 with no token input. **Fixed for Claude in v12.16 at the owner's request** (DEC-056): the dots take
+       their colour from the meter. Still open: `predictedCycleLength` and the compaction fields are never written,
+       so the "Turn N" badge and the compaction warning never fire; other platforms keep positional colours.
+     - On a chat past its window the estimate exceeds it (a `claude-opus-4-7` chat: "~600.1K / 500K", 100%)
+       [measured, Chrome, 2026-10-31]: the index counts the whole history, while claude.ai summarizes earlier
+       messages near the limit ("automatic context management", the same help article), which the meter cannot see.
+     - Path B (Firefox; Safari inferred) never shows "Context nearly full": it calls `_renderCompactionInfo(0)`
+       [code].
+     - The help center gives no per-model window for the Free plan; the Team plan page still says "200k context
+       window" (2026-10-30). The table is the paid-plan one.
 
 **v12.0 Accomplishments (2026-07-26):**
 - **API-Backed Conversation Index (DEC-021):** Claude virtualized its message list with recycling — only ~3 of 147 user turns are mounted at any moment (~3% coverage), so `document.querySelectorAll()` stopped being a complete record of the conversation. Navigate, Search, Summary and Export were all operating on a fraction of the data, and Export was silently writing truncated files under an authoritative-looking message count. Fixed by reading Claude's own conversation JSON endpoint via `GM_xmlhttpRequest` and walking the message tree from `current_leaf_message_uuid` to isolate the active branch. This is an ordinary outbound request, not fetch interception — no Firefox cross-compartment exposure (DEC-019/DEC-020).
@@ -925,6 +945,18 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
           table written without leading pipes (the key handles rows that start with `|`, the shape measured live), or
           intraword italics such as `a*b*c` (single-marker emphasis is dropped only where it opens after a start,
           space or punctuation, so that "2*3*4" keeps its stars) [inferred; not measured].
+    - **Logged from v12.16** (not fixed; out of its spec):
+      - **Gemini bookmarks by the turn's id.** Each turn has a stable 16-hex id (`div.conversation-container#…`, the
+        same across two reloads; DOM-REFERENCE, Gemini), but bookmarks there are still `contentHash(text, position
+        among loaded turns)`, and the position shifts by 10 whenever an older page loads above [code + measured
+        paging]. Keying them to the id needs a migration of existing records, so it is not small.
+      - **Gemini: an automatic "load the full history" action** (scrolls the page for the user until the start is
+        loaded): proposed to the owner, not built.
+      - **Gemini: Navigate catches up with a history load about 5 s late** [measured, Chrome, 2026-10-31]: the scan
+        waits for Gemini's DOM to go quiet (the 500 ms debounce restarts on each mutation).
+      - **Export and Summary drop unmounted questions on ChatGPT and Perplexity** [code]: `buildTimeline` keeps only
+        `q.element` entries, and the adapters leave every unmounted one null, while the "Exporting N messages" toast
+        counts them. Found reading the code at 82d3a3c; live effect unmeasured.
 
 14. **Claude markup follow-ups — part C of v12.15 (owner, 2026-10-24).** First planned as a third PR of its own after
     the answer-bookmark PR (v12.14); now one of v12.15's three parts (Current Status). **Done in v12.15** (PR #88,
@@ -1037,6 +1069,23 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       - No check covers a keyless request kept through a refresh already in flight (`wantKeyless` with
         `keep = true`), and none times a user scroll inside the answer jump's 350 ms retry.
       - The round-5 fixes had no Tier 3 round after them (the cap); they go to the PR's GitHub Codex review.
+    - **Logged from v12.16** (not fixed; out of its spec; all [code] unless noted):
+      - Claude's other unchecked glides: the settle loop's success callbacks (Navigate, Search, both bookmark kinds,
+        Summary), Summary's mounted path and the gallery. Short after a real arrival, none measured failing; the
+        gallery has no identity to re-locate by. `ciLandFar` drops into the first ones with one line each (DEC-055).
+      - An index refetch committing during a far landing supersedes it silently (the commit bumps `_ciJumpToken`).
+      - Search's jump to the LAST answer from the top does not land through `ciLandFar`: no anchor lies below that
+        row and its activity line keeps its text from matching, so Search cannot place it from the top and sends it
+        through the settle loop and its final glide [measured, `check-claude-far-jump`, page realm].
+      - `probes/run-answer-mutants.js`: M14's and M16's anchors no longer match main exactly once (v12.15 changed
+        those lines), so the battery cannot build them; the CHANGELOG's "18 of 18 caught" cannot be reproduced on
+        main.
+      - The i18n audit (agent_docs/conventions.md) lists `questionUnresolvedToast` as dead: a false positive, the key
+        is called inside a ternary the audit's regex cannot see. The documented baseline is unchanged.
+      - DEC-031's addendum says the owner waived the rule "six times" and lists seven merges.
+      - CLAUDE.md says "~12,700 lines"; the file has about 15,700 (a CLAUDE.md change needs the owner's approval).
+      - `agent_docs/architecture.md`'s jump section still describes `ciDeriveRowOffset` (no caller) and
+        `ciVerifyLandedRow` (deleted with resolve-on-arrival).
 
 ---
 

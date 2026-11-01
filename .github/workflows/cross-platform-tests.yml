@@ -120,3 +120,20 @@ jobs:
       - name: Run Claude turn-key probe
         if: matrix.os == 'ubuntu-latest'
         run: node probes/check-claude-turnkeys.js --browser ${{ matrix.browser }}
+
+      # The v12.16 probes: placed like the ones above. The far-jump probe asserts where one click
+      # lands under scroll, mount and timer behaviour (a smooth glide is handled differently per
+      # engine); the context-limit probe asserts the meter's limit per conversation model across a
+      # conversation switch and SSE redraws; the Gemini probe asserts paging, the scan debounce and
+      # an 8 s real-time wait. The owner's acceptance covers all three browsers.
+      - name: Run Claude far-jump probe
+        if: matrix.os == 'ubuntu-latest'
+        run: node probes/check-claude-far-jump.js --browser ${{ matrix.browser }}
+
+      - name: Run context-limit probe
+        if: matrix.os == 'ubuntu-latest'
+        run: node probes/check-ctx-limit.js --browser ${{ matrix.browser }}
+
+      - name: Run Gemini history probe
+        if: matrix.os == 'ubuntu-latest'
+        run: node probes/check-gemini-history.js --browser ${{ matrix.browser }}

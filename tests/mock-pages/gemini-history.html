@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html><head><title>Gemini History Mock</title>
+<!-- Gemini (gemini.google.com) with its history loading modelled (v12.16 part C, DEC-057).
+     Used by probes/check-gemini-history.js; not part of the 14-platform suite (tests/mock-pages/
+     gemini.html stays the static mock).
+
+     WHAT IS MODELLED (measured live, Chrome + Tampermonkey, visible tab, 2026-10-31):
+       - The chat's latest turns render at once (0 -> 10 turns in one step), view at the bottom.
+       - Older turns load a page (10) at a time when the scroller reaches the top: 10 -> 20 -> 30 -> 32
+         on a 32-question chat. Every loaded turn is KEPT (no virtualizer, no recycling).
+       - The scroller is <infinite-scroller class="chat-history">; its direct children are
+         <div class="conversation-container" id="<16 hex>">, one per turn, ids stable across loads.
+         Each holds <user-query> (div.query-text > span.cdk-visually-hidden "You said" +
+         p.query-text-line) and <model-response>.
+       - Gemini re-anchors scrollTop when it prepends (live 5975 -> 9064 after 10 turns above):
+         config `anchor` (default true) adds the prepended height to scrollTop.
+       - A history load takes seconds (live it blocks the main thread): config `loadDelayMs`
+         (default 2000) between reaching the top and the prepend. No checks depend on its value.
+       - Nothing in the DOM marks "more history"; user-query-content-N ids restart at 0 per render.
+       - Off-screen turns carry turn-content-visibility: their height is an estimate until they render,
+         and a glide from the top to the latest question grew scrollHeight under it (59,324 -> 63,126 px),
+         leaving the target 4,240 px below the view. Measured live: turns are `content-visibility: auto`
+         with `contain-intrinsic-size: auto 500px`, and the scroller keeps the browser's scroll anchoring
+         (`overflow-anchor: auto`). Config `cv` (off by default) gives every turn an estimated height
+         (`cvEstimate`, default 500 px, the live value) until it first comes within half a view of the
+         scroller's view, settled on each scroll event (an ordering, not a timing window), and turns
+         the scroller's anchoring on, as live.
+     NOT modelled: the main-thread block itself, Gemini's real heights, streaming.
+
+     CONFIG (window.__MOCK_CONFIG, set before this body):
+       chats:       { <16-hex chat id>: <turn count> }  the chat shown is location.pathname's /app/<id>
+       page:        turns per load (default 10)
+       loadDelayMs: delay from reaching the top (scrollTop <= 50) to the prepend (default 2000)
+       anchor:      re-anchor scrollTop on a prepend (default true)
+       firstDelayMs: delay before the first page renders (default 200), so a script sees 0 then 10
+       cv:          the content-visibility model above (default false); cvEstimate: its height (500)
+
+     window.__mockGemini:
+       loaded()        turns currently in the DOM
+       total()         the current chat's turn count
+       pending()       true while a history load is scheduled
+       loads()         history loads done in this chat
+       loadAll()       synchronously prepend every remaining turn, anchored (one DOM step)
+       switchTo(id)    history.pushState to /app/<id>, then render that chat's first page
+       send(text)      append a new turn at the bottom (a message the user sent), view to the bottom
+       userScroll(w)   'top' | 'bottom' | <number>: a scroll as a user makes it (wheel, then the write)
+       turnId(n)       the stable id of turn n (1-based) in the current chat
+-->
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: #131314; color: #e3e3e3;
+    font-family: 'Google Sans', 'Helvetica Neue', sans-serif;
+    display: flex; flex-direction: column;
+  }
+  infinite-scroller.chat-history {
+    display: block; flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none;
+  }
+  .conversation-container { max-width: 768px; margin: 0 auto; padding: 12px 24px; box-sizing: border-box; }
+  user-query { display: block; margin: 16px 0 8px; }
+  .user-query-container { display: flex; flex-direction: column; }
+  user-query-content { display: block; }
+  .file-preview-container { display: none; }
+  .query-content { display: flex; flex-direction: column; }
+  .user-query-bubble-with-background {
+    display: inline-flex; background: #1e1f20; border-radius: 20px; padding: 10px 16px;
+    max-width: 60%; align-self: flex-end;
+  }
+  .horizontal-container { display: flex; align-items: center; gap: 8px; }
+  .query-text { font-size: 16px; line-height: 24px; word-break: break-word; }
+  .query-text-line { margin: 0; }
+  .cdk-visually-hidden {
+    border: 0; clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; padding: 0;
+    position: absolute; width: 1px; white-space: nowrap;
+  }
+  model-response { display: block; margin: 8px 0 16px; }
+  .model-response-text { font-size: 16px; line-height: 24px; color: #c4c7c5; }
+  .model-response-text p { margin: 8px 0; }
+  .input-area-container { padding: 16px 24px; display: flex; justify-content: center; }
+  .prompt-input {
+    width: 100%; max-width: 768px; padding: 12px 16px; border-radius: 24px; border: 1px solid #3c4043;
+    background: #1b1b1f; color: #e3e3e3; font-size: 16px; box-sizing: border-box;
+  }
+</style>
+</head>
+<body>
+<infinite-scroller class="chat-history"></infinite-scroller>
+<div class="input-area-container"><input class="prompt-input" placeholder="Ask Gemini" type="text"></div>
+<script>
+(function () {
+    var cfg = window.__MOCK_CONFIG || {};
+    var CHATS = cfg.chats || {};
+    var PAGE = cfg.page || 10;
+    var DELAY = typeof cfg.loadDelayMs === 'number' ? cfg.loadDelayMs : 2000;
+    var ANCHOR = cfg.anchor !== false;
+    var FIRST = typeof cfg.firstDelayMs === 'number' ? cfg.firstDelayMs : 200;
+    var CV = !!cfg.cv;
+    var CV_EST = typeof cfg.cvEstimate === 'number' ? cfg.cvEstimate : 500;
+    var sc = document.querySelector('infinite-scroller.chat-history');
+
+    var TOPICS = ['orbital transfer windows', 'tidal locking of moons', 'the Roche limit', 'gravity assists',
+                  'Lagrange points', 'escape velocity', 'atmospheric drag on satellites', 'precession of orbits',
+                  'Hohmann transfers', 'the Oberth effect', 'synchronous orbits', 'three-body chaos'];
+
+    var state = { chat: null, total: 0, first: 0, sent: 0, pending: false, gen: 0, loads: 0 };
+
+    function fnv(s) {
+        var h = 0x811c9dc5;
+        for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+        return ('0000000' + h.toString(16)).slice(-8);
+    }
+    function turnId(chat, n) { return fnv(chat + '#' + n) + fnv(n + '@' + chat); }
+    function questionText(n) {
+        var t = TOPICS[(n * 7) % TOPICS.length], u = TOPICS[(n * 5 + 3) % TOPICS.length];
+        return 'Gemini question ' + n + ': how would you explain ' + t + ' to someone who already knows ' + u +
+               ', and which everyday example makes the difference between them easiest to see?';
+    }
+    function answerHtml(n) {
+        var paras = 2 + (n * 3) % 4, out = '';
+        for (var i = 0; i < paras; i++) {
+            out += '<p>Answer ' + n + ', part ' + (i + 1) + ': the short version is that the motion is set by ' +
+                   'energy and angular momentum, and everything else follows from how those two trade off over ' +
+                   'one orbit. A worked example helps more than a formula here, so consider a ball on a string.</p>';
+        }
+        return out;
+    }
+    function makeTurn(chat, n, idx, text) {
+        var d = document.createElement('div');
+        d.className = 'conversation-container';
+        d.id = turnId(chat, n);
+        d.setAttribute('data-mock-turn', String(n));
+        d.innerHTML =
+            '<user-query><span class="user-query-container">' +
+            '<user-query-content class="user-query-container" style="--max-lines-for-collapse-count: 5;">' +
+            '<div class="user-query-container"><div class="file-preview-container ng-star-inserted"></div>' +
+            '<div id="user-query-content-' + idx + '" class="query-content ng-star-inserted" data-turn="user">' +
+            '<div class="ng-star-inserted"></div>' +
+            '<span class="user-query-bubble-with-background ng-star-inserted"><span class="horizontal-container">' +
+            '<div class="query-text gds-body-l query-text-animated" role="heading" aria-level="5" dir="ltr">' +
+            '<span class="cdk-visually-hidden screen-reader-user-query-label">You said</span>' +
+            '<p class="query-text-line ng-star-inserted"></p></div>' +
+            '<button class="mdc-icon-button" aria-label="Expand text" style="display:none"></button>' +
+            '</span></span></div></div></user-query-content></span></user-query>' +
+            '<model-response><div class="response-container"><div class="response-content">' +
+            '<div class="model-response-label-announcer"><h2 class="cdk-visually-hidden screen-reader-model-response-label">Gemini said</h2></div>' +
+            '<structured-content-container class="model-response-text">' + answerHtml(n) + '</structured-content-container>' +
+            '<div class="response-footer"></div></div></div></model-response>';
+        d.querySelector('p.query-text-line').textContent = text || questionText(n);
+        if (CV) { d.className += ' mock-cv-unseen'; d.style.height = CV_EST + 'px'; d.style.overflow = 'hidden'; }
+        return d;
+    }
+
+    // cv: a turn takes its real height the first time it comes within half a view of the scroller's
+    // view, repeated until nothing new qualifies (the browser settles content-visibility before it
+    // paints). A glide passes every turn on its way and renders them all; an instant write skips the
+    // ones between, which is the difference measured live.
+    function cvReveal() {
+        if (!CV) return;
+        for (var pass = 0; pass < 50; pass++) {
+            var r = sc.getBoundingClientRect(), m = sc.clientHeight / 2, u = sc.querySelectorAll('.mock-cv-unseen'), any = false;
+            for (var i = 0; i < u.length; i++) {
+                var b = u[i].getBoundingClientRect();
+                if (b.bottom > r.top - m && b.top < r.bottom + m) {
+                    u[i].classList.remove('mock-cv-unseen'); u[i].style.height = ''; u[i].style.overflow = ''; any = true;
+                }
+            }
+            if (!any) return;
+        }
+    }
+    sc.addEventListener('scroll', cvReveal, { passive: true });
+    if (CV) sc.style.overflowAnchor = 'auto';
+
+    // user-query-content-N restarts at 0 per render (live), counting from the top of what is shown.
+    function renumber() {
+        var q = sc.querySelectorAll('.query-content');
+        for (var i = 0; i < q.length; i++) q[i].id = 'user-query-content-' + i;
+    }
+
+    function prepend(count) {
+        var from = state.first - count, frag = document.createDocumentFragment();
+        for (var n = from; n < state.first; n++) frag.appendChild(makeTurn(state.chat, n, 0));
+        var h0 = sc.scrollHeight, top0 = sc.scrollTop;
+        sc.insertBefore(frag, sc.firstChild);
+        state.first = from;
+        renumber();
+        if (ANCHOR) sc.scrollTop = top0 + (sc.scrollHeight - h0);
+        state.loads++;
+    }
+
+    function render(chat) {
+        state.gen++;
+        state.pending = false;
+        state.chat = chat;
+        state.total = CHATS[chat] || 0;
+        state.sent = 0;
+        state.loads = 0;
+        while (sc.firstChild) sc.removeChild(sc.firstChild);
+        state.first = state.total + 1;
+        var gen = state.gen;
+        setTimeout(function () {
+            if (gen !== state.gen) return;
+            var k = Math.min(PAGE, state.total), frag = document.createDocumentFragment();
+            state.first = state.total - k + 1;
+            for (var n = state.first; n <= state.total; n++) frag.appendChild(makeTurn(chat, n, 0));
+            sc.appendChild(frag);
+            renumber();
+            sc.scrollTop = sc.scrollHeight;
+            cvReveal();
+        }, FIRST);
+    }
+
+    sc.addEventListener('scroll', function () {
+        if (state.pending || state.first <= 1 || sc.scrollTop > 50) return;
+        state.pending = true;
+        var gen = state.gen;
+        setTimeout(function () {
+            if (gen !== state.gen) return;
+            state.pending = false;
+            prepend(Math.min(PAGE, state.first - 1));
+        }, DELAY);
+    }, { passive: true });
+
+    function chatFromPath() {
+        var m = location.pathname.match(/^\/app\/([0-9a-f]+)/);
+        return m ? m[1] : null;
+    }
+
+    window.__mockGemini = {
+        loaded: function () { return sc.querySelectorAll(':scope > .conversation-container').length; },
+        total: function () { return state.total + state.sent; },
+        pending: function () { return state.pending; },
+        loads: function () { return state.loads; },
+        loadAll: function () {
+            state.gen++;          // a scheduled load is dropped
+            state.pending = false;
+            if (state.first > 1) prepend(state.first - 1);
+            return this.loaded();
+        },
+        switchTo: function (id) {
+            history.pushState({}, '', '/app/' + id);
+            render(id);
+        },
+        send: function (text) {
+            state.sent++;
+            var n = state.total + state.sent;
+            sc.appendChild(makeTurn(state.chat, n, 0, text || questionText(n)));
+            renumber();
+            sc.scrollTop = sc.scrollHeight;
+        },
+        userScroll: function (where) {
+            sc.dispatchEvent(new WheelEvent('wheel', { deltaY: where === 'top' ? -1000 : 1000, bubbles: true }));
+            sc.scrollTop = where === 'top' ? 0 : where === 'bottom' ? sc.scrollHeight : where;
+            return sc.scrollTop;
+        },
+        turnId: function (n) { return turnId(state.chat, n); },
+        questionText: questionText,
+    };
+
+    render(chatFromPath());
+})();
+</script>
+</body>
+</html>

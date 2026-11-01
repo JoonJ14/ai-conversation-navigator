@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.15
+// @version      12.16
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -51,7 +51,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.15';
+    var ACN_VERSION = '12.16';
 
     // ============================================================
     // i18n — internationalization string table
@@ -144,6 +144,7 @@
             noCommands: 'No commands saved yet',
             commandPalette: 'Commands',
             insertCommand: 'Insert',
+            olderHistoryNotLoaded: 'Older messages are not loaded yet \u2014 scroll to the top of the chat to load them',
         },
         ko: {
             navigate: '\ud0d0\uc0c9',
@@ -232,6 +233,7 @@
             noCommands: '\uc800\uc7a5\ub41c \ucee4\ub9e8\ub4dc\uac00 \uc5c6\uc2b5\ub2c8\ub2e4',
             commandPalette: '\ucee4\ub9e8\ub4dc',
             insertCommand: '\uc0bd\uc785',
+            olderHistoryNotLoaded: '\uc774\uc804 \uba54\uc2dc\uc9c0\uac00 \uc544\uc9c1 \ub85c\ub4dc\ub418\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4 \u2014 \ucc44\ud305 \ub9e8 \uc704\ub85c \uc2a4\ud06c\ub864\ud558\uba74 \ubd88\ub7ec\uc635\ub2c8\ub2e4',
         }
     };
 
@@ -1446,6 +1448,8 @@
                                     // conversation block every load attempt for the
                                     // newly opened one until timeout (Codex :1570).
     var _ciOrgUuid        = null;
+    var _ciModel          = null;   // the conversation's model id (its JSON's top-level `model`), for
+                                    // the context meter's limit (v12.16, DEC-056); null when absent
     var _ciLastRefetchAt  = 0;
 
     // The two real Claude conversation routes, and ONLY those:
@@ -2274,6 +2278,7 @@
         _ciTruncatedCount   = truncated;
         _ciUsedLeafFallback = resolved.usedFallback;
         _ciPathComplete     = resolved.reachedRoot;
+        _ciModel            = (typeof data.model === 'string' && data.model) ? data.model : null;
         ciBuildRenderable();
         ciResetAnchors();
         // A mid-jump refetch for the SAME conversation (edit/regenerate resync) rebuilds
@@ -2480,6 +2485,7 @@
         _ciIndex            = null;
         _ciFullPath         = null;
         _ciTextToUuid       = null;
+        _ciModel            = null;
         _ciTruncatedCount   = 0;
         _ciUsedLeafFallback = false;
         _ciPathComplete     = true;
@@ -3664,6 +3670,84 @@
             setTimeout(step, IX_JUMP_SETTLE_MS);
         }
         step();
+    }
+
+    // orbLandFarIn(box, el, getEl, landed, a, stillValid) — a FAR mounted target lands the way
+    // ixLandOn lands the adapter sites' targets (v12.16, DEC-055, DEC-057): instant writes, the
+    // target re-located before each by the caller's own resolver, within IX_JUMP_ALIGN_TOL px or
+    // IX_JUMP_MAX_ALIGNS writes, a toast when it cannot land. Far is ixJump's own rule: outside the
+    // view extended by one viewport each way; a near target returns false and the caller glides as
+    // before. The caller bumps the jump tokens BEFORE calling, so a newer click supersedes this one.
+    //   box        the scroll container;  a: the adapter (only its releaseScroll is read)
+    //   el         the target as the caller found it (mounted)
+    //   getEl()    the same target re-located by the CALLER'S OWN resolver, on every step
+    //   landed(n)  the caller's success (mark, flash)
+    //   stillValid optional: false ends the landing as superseded (Claude: the index left ready)
+    function orbLandFarIn(box, el, getEl, landed, a, stillValid) {
+        if (!box || !el || !el.isConnected || !getEl || !box.contains(el)) return false;
+        var vr = box.getBoundingClientRect(), vh = box.clientHeight, er = el.getBoundingClientRect();
+        if (er.bottom >= vr.top - vh && er.top <= vr.bottom + vh) return false;
+        ciPre('far landing: target ' + Math.round(er.top - vr.top) + ' px from the view top');
+        var ixTok = _ixJumpToken, ciTok = _ciJumpToken;
+        var watch = ixWatchUser(box);
+        ixLandOn(a, getEl, { container: box, check: function () {
+            if (watch.scrolled) return 'user';
+            if (ixTok !== _ixJumpToken || ciTok !== _ciJumpToken ||
+                (stillValid && !stillValid())) return 'superseded';
+            if (!box.isConnected) return 'container-gone';
+            if (document.visibilityState !== 'visible') return 'hidden';
+            return null;
+        } }, function (ok, node, why) {
+            watch.stop();
+            if (ok && node) { landed(node); return; }
+            // A jump that did not land has resolved nothing, the user's own scroll included: clear
+            // any mark its caller set up front, so data-acn-jump-resolved never reports it. A newer
+            // jump marks its own.
+            if (why !== 'superseded') orbMarkJumpTarget(null);
+            if (why !== 'superseded' && why !== 'user') {
+                showToast('That message is not currently rendered \u2014 scroll toward it and try again');
+            }
+        });
+        return true;
+    }
+
+    // A direct glide (Summary, the gallery, a plain message scroll) supersedes a far landing still
+    // in flight on Claude or Gemini: ixWatchUser sees only the user's own input, so without this the
+    // landing's next write would pull the view back to its target. Gemini's landing checks
+    // _ixJumpToken only (GitHub Codex, PR #90).
+    function ciSupersedeLanding() {
+        if (ciIsClaudeChat()) { _ixJumpToken++; _ciJumpToken++; }
+        else if (platform && platform.id === 'gemini') _ixJumpToken++;
+    }
+
+    // Claude (DEC-055). Claude keeps its latest rows mounted at every scroll position, so from the
+    // top the latest question is found mounted about 200,000 px away, and one smooth
+    // scrollIntoView across that distance ended at the bottom, past it: the virtualizer replaced
+    // estimated row heights with measured ones during the glide, scrollHeight shrank (278,903 ->
+    // ~209,000 px) and the destination fixed at its start no longer held the target (Chrome +
+    // Tampermonkey, v12.15 and v12.14, 2026-10-25; TROUBLESHOOTING). Every call on Claude
+    // supersedes an older jump, near or far, before the distance test.
+    function ciLandFar(el, getEl, landed) {
+        if (!ciIsClaudeChat()) return false;
+        _ixJumpToken++; _ciJumpToken++;
+        if (!ciIsReady()) return false;
+        return orbLandFarIn(ciFindScrollContainerStable(), el, getEl, landed, IX_ADAPTERS.claude, ciIsReady);
+    }
+
+    // Gemini (DEC-057). Off-screen turns carry turn-content-visibility, so their heights are
+    // estimates until they render; a glide from the top to the latest question grew scrollHeight
+    // under it (59,324 -> 63,126 px) and left the target 4,240 px below the view, 2 of 4 times
+    // (Chrome + Tampermonkey, 2026-10-31; the times it landed, the turns had rendered before).
+    // Gemini keeps its turns, so the question re-locates through _relocateQuestionElement.
+    // A switch to another chat ends it (GitHub Codex, PR #90): the scroller can be reused, and the
+    // new chat may hold the same question text.
+    function gmLandFar(el, q, landed) {
+        if (!platform || platform.id !== 'gemini') return false;
+        _ixJumpToken++;
+        var path0 = location.pathname;
+        return orbLandFarIn(document.querySelector('infinite-scroller.chat-history'), el,
+                            function () { return _relocateQuestionElement(q); }, landed, {},
+                            function () { return location.pathname === path0; });
     }
 
     // Resolve-on-arrival, the design of ciJumpToFullPathIndex at this seam's size: aim at
@@ -5692,6 +5776,7 @@
         _ciIndex          = null;
         _ciFullPath       = null;
         _ciTextToUuid     = null;
+        _ciModel          = null;
         _ciQMatchMemo     = { gen: -1, rows: {} };   // question texts of the conversation left behind
         _bmRefreshFor     = null;   // a bookmark's refetch request belongs to the conversation it was made in
         _bmProveSeen      = '';     // and the proof gate's copy of the stored bookmarks with it
@@ -5791,6 +5876,7 @@
     var _vsAccumulatedKeys = new Set();
     var _navListFingerprint    = ''; // used to skip DOM rebuild when questions are unchanged
     var _ctxDrawnTurns         = ''; // the turn counter as the context bar last drew it
+    var _ctxDrawnPct           = null; // Claude: the meter's percentage as last drawn, for the dots (v12.16)
     var _searchListFingerprint = ''; // same guard for search panel
     var _ciIndexGen = 0;             // bumped on every index (re)build: a same-count
                                      // branch swap must still invalidate cached search
@@ -6593,8 +6679,106 @@
         _aiResponses = Array.from(getAIMessages());
         if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
 
+        // Gemini: whether the chat's start is loaded (v12.16), before the panels draw.
+        if (platform.id === 'gemini') gmHistObserve();
+
         // Notify orbital panels of updated question list
         if (typeof orbOnScanComplete === 'function') orbOnScanComplete();
+    }
+
+    // ── Gemini: is the chat's start loaded? (v12.16, DEC-057) ────────────
+    // Gemini shows a chat's latest turns and loads older ones, ten at a time, when the view
+    // reaches the top, and it KEEPS every turn it has loaded: 10 -> 20 -> 30 -> 32 on a 32-question
+    // chat, every node still connected back at the bottom, no virtualizer (Chrome + Tampermonkey,
+    // 2026-10-31). So Navigate's list is complete once the history is; until then it is the
+    // latest part only, and says so. Nothing in the DOM marks "older history exists" (no
+    // loading marker; user-query-content-N restarts at 0 per render), so the start counts as
+    // loaded once one of these is seen:
+    //   - the chat's first page held fewer than GM_HISTORY_PAGE turns (it renders at once: 0 -> 10)
+    //   - turns arrived ABOVE the first one (its id changed) and fewer than a page of them
+    //   - the view sat at the top for GM_HISTORY_TOP_MS with nothing loading (Gemini loads there,
+    //     and re-anchors the view away from the top when it does)
+    // A message the user sends arrives below and keeps the first turn's id, so it counts as none.
+    var GM_HISTORY_PAGE   = 10;
+    var GM_HISTORY_TOP_MS = 8000;
+    var _gmHist = { key: null, n: 0, firstId: null, complete: false, scroller: null, timer: null };
+
+    function gmHistTurns(sc) {
+        var out = [];
+        if (!sc) return out;
+        for (var i = 0; i < sc.children.length; i++) {
+            if (sc.children[i].classList.contains('conversation-container')) out.push(sc.children[i]);
+        }
+        return out;
+    }
+
+    function gmHistStopTimer() {
+        if (_gmHist.timer !== null) { clearTimeout(_gmHist.timer); _gmHist.timer = null; }
+    }
+
+    function gmHistObserve() {
+        var key = location.pathname;
+        var sc = document.querySelector('infinite-scroller.chat-history');
+        var turns = gmHistTurns(sc);
+        var n = turns.length;
+        var firstId = n ? (turns[0].id || null) : null;
+        if (key !== _gmHist.key) {
+            gmHistStopTimer();
+            _gmHist.key = key; _gmHist.n = 0; _gmHist.firstId = null; _gmHist.complete = false;
+        }
+        if (n > 0) {
+            if (_gmHist.n === 0) {
+                _gmHist.complete = n < GM_HISTORY_PAGE;
+            } else if (firstId !== _gmHist.firstId) {
+                // A history load keeps the old first turn, now further down: short of a page, the
+                // start is reached. Without it, these turns replaced the old ones (an SPA switch whose
+                // previous chat lingered for a scan): judged as a first page.
+                // Its index is how many arrived ABOVE it: a message sent in the same scan arrives below
+                // and must not count toward the page.
+                var above = -1;
+                for (var t = 1; t < n && above < 0; t++) if (turns[t].id === _gmHist.firstId) above = t;
+                _gmHist.complete = above > 0 ? above < GM_HISTORY_PAGE : n < GM_HISTORY_PAGE;
+            }
+            _gmHist.n = n;
+            _gmHist.firstId = firstId;
+        }
+        if (sc !== _gmHist.scroller) {
+            // A new scroller (or none, on a route without a chat): the old one's listener and any
+            // pending timer go with it, so the timer can be armed for the new one.
+            gmHistStopTimer();
+            if (_gmHist.scroller) _gmHist.scroller.removeEventListener('scroll', gmHistOnScroll);
+            _gmHist.scroller = sc || null;
+            if (sc) sc.addEventListener('scroll', gmHistOnScroll, { passive: true });
+        }
+        gmHistOnScroll();
+    }
+
+    function gmHistOnScroll() {
+        var sc = _gmHist.scroller;
+        if (!sc || _gmHist.complete || _gmHist.n === 0) { gmHistStopTimer(); return; }
+        if (sc.scrollTop > 2) { gmHistStopTimer(); return; }
+        if (_gmHist.timer !== null) return;
+        // The live turns, not the last scan's record: a turn added inside the scan's debounce would
+        // otherwise make every wait compare against a stale count.
+        var t0 = gmHistTurns(sc);
+        var key = _gmHist.key, n0 = t0.length, id0 = t0.length ? (t0[0].id || null) : null;
+        _gmHist.timer = setTimeout(function () {
+            _gmHist.timer = null;
+            if (sc !== _gmHist.scroller) { gmHistOnScroll(); return; }   // re-armed for the current one
+            if (_gmHist.key !== key || location.pathname !== key || !sc.isConnected || sc.scrollTop > 2) return;
+            var t = gmHistTurns(sc);
+            // The turns changed while it waited (a load, or a message sent): start over from now. A
+            // load re-anchors the view away from the top, which stops the new wait at once.
+            if (t.length !== n0 || (t.length ? t[0].id || null : null) !== id0) { gmHistOnScroll(); return; }
+            _gmHist.complete = true;
+            if (orbPanel === 'nav') orbPopulateNavigate();
+        }, GM_HISTORY_TOP_MS);
+    }
+
+    // True while Navigate lists only the latest part of a Gemini chat.
+    function gmHistPartial() {
+        return !!(platform && platform.id === 'gemini' && _gmHist.key === location.pathname &&
+                  _gmHist.n > 0 && !_gmHist.complete);
     }
 
     // ============================================================
@@ -6741,6 +6925,56 @@
         gemini:     1000000,
         perplexity: 127072,
     };
+
+    // Claude's context window by the conversation's model (v12.16, DEC-056). The conversation
+    // JSON the index downloads names the chat's model at its top level (`model`: 60 of 60
+    // conversations, e.g. 'claude-opus-5'; Chrome + Tampermonkey, 2026-10-31); messages carry none.
+    // SOURCE: Anthropic Help Center, "How large is the context window on paid Claude plans?",
+    // https://support.claude.com/en/articles/8606394 (updated 2026-10-30), table "Chatting with
+    // Claude", which covers Pro, Max, Ultra, Team and Enterprise: "Outside of these models,
+    // Claude's context window size is 200K". It gives no per-model figure for the Free plan, and
+    // the API's windows differ (several are 1M there and 500K here). A model this table does not
+    // know (a newer one, or none in the payload) reads the smallest window, and the meter says the
+    // limit is assumed.
+    var CLAUDE_CTX_BY_MODEL = {
+        'claude-fable-5-1':  1000000, 'claude-fable-5':    500000,
+        'claude-opus-5-5':   1000000, 'claude-opus-5':     1000000,
+        'claude-opus-4-8':    500000, 'claude-opus-4-7':    500000, 'claude-opus-4-6': 500000,
+        'claude-sonnet-5-5': 1000000, 'claude-sonnet-5':   1000000, 'claude-sonnet-4-6': 500000,
+        'claude-haiku-5-5':  1000000
+    };
+    var CLAUDE_CTX_FALLBACK = 200000;
+
+    // { limit, model, known }: known is true only for a model in the table. A dated id
+    // (claude-x-y-YYYYMMDD) is looked up without its date.
+    function orbClaudeCtxLimit() {
+        var m = (ciIsClaudeChat() && ciIsReady() && typeof _ciModel === 'string') ? _ciModel : null;
+        var key = m ? m.replace(/-[0-9]{8}$/, '') : null;
+        if (key && Object.prototype.hasOwnProperty.call(CLAUDE_CTX_BY_MODEL, key)) {
+            return { limit: CLAUDE_CTX_BY_MODEL[key], model: m, known: true };
+        }
+        return { limit: CLAUDE_CTX_FALLBACK, model: m, known: false };
+    }
+
+    // 1000000 -> '1M', 500000 -> '500K' (a 1M window used to read "1000K").
+    function orbFmtCtxLimit(n) {
+        return (n >= 1000000 && n % 1000000 === 0) ? (n / 1000000) + 'M' : Math.round(n / 1000) + 'K';
+    }
+
+    // Publishes the limit the meter used (test contract) and logs it once per change, so a
+    // user's console says which model and limit the percentage rests on.
+    var _ctxLimitLogged = '';
+    function orbStampCtxLimit(pct, info) {
+        pct.setAttribute('data-acn-ctx-limit', String(info.limit));
+        pct.setAttribute('data-acn-ctx-limit-source', info.known ? 'model' : 'assumed');
+        pct.setAttribute('data-acn-ctx-model', info.model || '');
+        var sig = (_ciConversationId || '') + '|' + (info.model || '') + '|' + info.limit;
+        if (sig !== _ctxLimitLogged) {
+            _ctxLimitLogged = sig;
+            console.log('[ACN] context limit: model=' + (info.model || '(none)') + ' limit=' + info.limit +
+                        ' source=' + (info.known ? 'model' : 'assumed'));
+        }
+    }
 
     // ── Orbital state ───────────────────────────────────────────
     var orbMode      = 'show-all'; // 'show-all' | 'arc' | 'wheel'
@@ -8113,7 +8347,7 @@
         // never appeared, including on reopening the panel (Codex).
         var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|') +
                  '||' + _ciStatus + '|g' + _ciIndexGen + '|r' + (_ciRefreshFailed ? '1' : '0') +
-                 '|x' + ixFingerprint();
+                 '|x' + ixFingerprint() + '|h' + (gmHistPartial() ? '1' : '0');
         // The list is unchanged, but what is drawn may not match the counter: the SSE events
         // draw the bar without the list, so a later scan or a reopen can find dots drawn for
         // another count. Redraw only when the counter differs from what is drawn. Never
@@ -8129,6 +8363,16 @@
         while (list.firstChild) list.removeChild(list.firstChild);
 
         orbRenderIndexBanner(list);
+        // Gemini: the list is the loaded part of the chat only (v12.16, DEC-057).
+        if (gmHistPartial()) {
+            var histNote = createElement('div', {
+                className: 'acn-ci-banner acn-ci-note',
+                textContent: '\u2191 ' + (i18n('olderHistoryNotLoaded') ||
+                             'Older messages are not loaded yet \u2014 scroll to the top of the chat to load them')
+            });
+            histNote.setAttribute('data-acn-history', 'partial');
+            list.appendChild(histNote);
+        }
 
         if (_questions.length === 0) {
             var empty = createElement('div', { className: 'acn-empty' },
@@ -8180,6 +8424,13 @@
         var limit = (typeof CTX_LIMITS !== 'undefined' && platform && CTX_LIMITS[platform.id])
                     ? CTX_LIMITS[platform.id]
                     : 128000;
+        // Claude: the conversation's model decides the window (v12.16, DEC-056).
+        var ctxInfo = null;
+        if (platform && platform.id === 'claude') {
+            ctxInfo = orbClaudeCtxLimit();
+            limit = ctxInfo.limit;
+            orbStampCtxLimit(pct, ctxInfo);
+        }
 
         // ── Path A: Claude with hybrid SSE data ───────────────
         if (platform && platform.id === 'claude' &&
@@ -8247,7 +8498,7 @@
             var color    = getBarColor(pctNum);
 
             var tokFmt = totalTok.toLocaleString();
-            var limFmt = Math.round(limit / 1000) + 'K';
+            var limFmt = orbFmtCtxLimit(limit);
 
             pct.textContent       = pctNum + '%';
             pct.style.color       = color;
@@ -8255,12 +8506,14 @@
             fill.style.background = color;
 
             if (meta) {
-                var label = _sseTokenData.cached ? '(last known)' : '(hybrid)';
+                var label = _sseTokenData.cached ? '(last known' : '(hybrid';
+                label += (ctxInfo && !ctxInfo.known) ? ', limit assumed)' : ')';
                 meta.textContent = '~' + tokFmt + ' / ' + limFmt + ' tokens ' + label;
                 meta.style.color = _sseTokenData.cached ? '#666' : '#888';
             }
 
             // ── Also render turn dots + compaction info below the bar ───
+            _ctxDrawnPct = pctNum;
             _renderTurnDots();
             _renderCompactionInfo(pctNum);
             return;
@@ -8270,7 +8523,7 @@
         // (Firefox: SSE interception disabled due to sandbox contamination — DEC-020)
         // (Chrome: SSE data not yet received, e.g. page just loaded)
         if (platform && platform.id === 'claude') {
-            _renderEstimatedBar(pct, fill, meta, limit);
+            _renderEstimatedBar(pct, fill, meta, limit, ctxInfo);
             _renderTurnDots();
             _renderCompactionInfo(0);
             return;
@@ -8297,7 +8550,7 @@
         _renderTurnCompactionInfo();
     }
 
-    function _renderEstimatedBar(pct, fill, meta, limit) {
+    function _renderEstimatedBar(pct, fill, meta, limit, ctxInfo) {
         var totalChars = 0;
         var estTokens;
         var node  = null;
@@ -8345,6 +8598,7 @@
 
         var pctNum = Math.min(100, Math.round((estTokens / limit) * 100));
         var color  = getBarColor(pctNum);
+        _ctxDrawnPct = pctNum;   // the dots below take their colour from it (v12.16)
 
         pct.textContent  = pctNum + '%';
         pct.style.color  = color;
@@ -8353,8 +8607,8 @@
 
         if (meta) {
             var kEst   = (estTokens / 1000).toFixed(1);
-            var kLimit = Math.round(limit / 1000);
-            meta.textContent = '~' + kEst + 'K / ' + kLimit + 'K tokens (est.)';
+            meta.textContent = '~' + kEst + 'K / ' + orbFmtCtxLimit(limit) + ' tokens (est.' +
+                               ((ctxInfo && !ctxInfo.known) ? ', limit assumed)' : ')');
             meta.style.color = '#666';
         }
     }
@@ -8414,11 +8668,19 @@
         var total     = predicted || 40;
 
         var dotsToShow = Math.min(since, 40);
+        // Claude (v12.16, the owner's request): the dots agree with the context meter above them.
+        // Coloured by position out of 40, they turned red at the 35th question whatever the window
+        // held, so a 1M chat read red at 35% full. Dot i stands for the share of the window used by
+        // the conversation up to that turn, estimated as the meter's share x (i+1)/dots: the last
+        // dot is the meter's own colour, and none is redder. Same thresholds as the bar.
+        var meterShare = (platform && platform.id === 'claude' && typeof _ctxDrawnPct === 'number')
+                         ? _ctxDrawnPct / 100 : null;
         for (var i = 0; i < dotsToShow; i++) {
             var dot = document.createElement('div');
             dot.className = 'acn-ctx-dot';
 
-            var pct = predicted ? (i / predicted) : (i / total);
+            var pct = meterShare !== null ? meterShare * (i + 1) / dotsToShow
+                    : predicted ? (i / predicted) : (i / total);
             if (pct < 0.70)      dot.style.background = '#22c55e';
             else if (pct < 0.85) dot.style.background = '#eab308';
             else                 dot.style.background = '#ef4444';
@@ -8715,6 +8977,17 @@
                 orbFlashElement(target);
             }, 350);
         } else {
+            // A far mounted target on Claude (the latest question, from the top) lands instead
+            // of gliding (v12.16), re-located by the same resolver that found it.
+            if (typeof q.pathIndex === 'number' && !q.provisional &&
+                ciLandFar(target, function () { return ciResolveMountedByPathIndex(q.pathIndex); },
+                          function (n) { q.element = n; orbMarkJumpTarget(n); orbFlashElement(n); })) {
+                return;
+            }
+            // Gemini: the same for a far loaded question (v12.16, DEC-057).
+            if (gmLandFar(target, q, function (n) { q.element = n; orbMarkJumpTarget(n); orbFlashElement(n); })) {
+                return;
+            }
             target.scrollIntoView({ behavior: 'smooth', block: 'center' });
             orbFlashElement(target);
         }
@@ -9059,6 +9332,7 @@
                     // and this branch used to be gated on the node being DISCONNECTED. The
                     // click then scrolled confidently to whatever response now occupied it.
                     // Same rule _sumScrollToElement follows (Codex).
+                    var landGet = null;
                     if (typeof m.pathIndex === 'number' && ciIsClaudeChat() && ciIsReady()) {
                         target = null;
                         // INDEXED match: resolve by ROW IDENTITY only. The old
@@ -9067,16 +9341,18 @@
                         // answers scrolled to the wrong message (Codex R4). A mounted
                         // row that RESOLVES to this match's path entry is the target;
                         // anything else falls through to the uuid jump bridge below.
-                        var mrows = ciMountedRows();
-                        for (var ri = 0; ri < mrows.length; ri++) {
-                            if (mrows[ri].isUser) continue;
-                            var rp = ciResolvePathForRowStrict(mrows[ri].dataIndex);
-                            if (rp === null) rp = ciMatchRowToPath(mrows[ri]);
-                            if (rp === m.pathIndex) {
-                                target = ciMessageNodeWithin(mrows[ri].el);
-                                break;
+                        // The same resolver re-finds it for a far landing (v12.16).
+                        landGet = function () {
+                            var mrows = ciMountedRows();
+                            for (var ri = 0; ri < mrows.length; ri++) {
+                                if (mrows[ri].isUser) continue;
+                                var rp = ciResolvePathForRowStrict(mrows[ri].dataIndex);
+                                if (rp === null) rp = ciMatchRowToPath(mrows[ri]);
+                                if (rp === m.pathIndex) return ciMessageNodeWithin(mrows[ri].el);
                             }
-                        }
+                            return null;
+                        };
+                        target = landGet();
                     } else if (!target || !target.isConnected) {
                         // Non-indexed platforms: text matching is all there is.
                         var wanted = _normalizeKey(m.text);
@@ -9119,7 +9395,7 @@
                         showToast('That message is not currently rendered — scroll toward it and try again');
                         return;
                     }
-                    orbScrollToMessage(target);
+                    orbScrollToMessage(target, landGet);
                 };
             }(match)));
 
@@ -10931,15 +11207,26 @@
         }, { land: false });
     }
 
-    function orbScrollToMessage(el) {
+    // getEl (optional, Claude): re-locates the same message by the caller's own resolver, so a
+    // far mounted target lands through ciLandFar instead of gliding (v12.16). Without it, or for
+    // a near target, the glide is unchanged.
+    function orbScrollToMessage(el, getEl) {
         if (!el) return;
 
+        function flash(n) {
+            n.classList.remove('acn-bm-flash');
+            void n.offsetWidth;
+            n.classList.add('acn-bm-flash');
+            setTimeout(function () { n.classList.remove('acn-bm-flash'); }, 1600);
+        }
         function doScroll() {
+            if (getEl && ciLandFar(el, getEl, flash)) return;
+            // A glide without a landing still supersedes one in flight on Claude, or that
+            // landing's next write would pull the view back to its own target (ciLandFar bumps
+            // the tokens itself when it is called).
+            if (!getEl) ciSupersedeLanding();
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            el.classList.remove('acn-bm-flash');
-            void el.offsetWidth;
-            el.classList.add('acn-bm-flash');
-            setTimeout(function () { el.classList.remove('acn-bm-flash'); }, 1600);
+            flash(el);
         }
 
         if (typeof isLeftChat !== 'undefined' && isLeftChat) {
@@ -10975,13 +11262,25 @@
     // the hidden project link.
     function _bmJumpToAnswer(bookmark) {
         var map = ciAnswerMap(), i, p;
-        function land(node) { orbMarkJumpTarget(node); orbScrollToMessage(node); }
+        function land(node, getEl) { orbMarkJumpTarget(node); orbScrollToMessage(node, getEl); }
         var want = bookmark.msgUuid ||
                    (/^[0-9a-f-]{36}$/i.test(bookmark.contentHash || '') ? bookmark.contentHash : null);
         if (want) {
             for (i = 0; i < map.rows.length; i++) {
                 p = map.pathOf[map.rows[i].dataIndex];
-                if (p !== null && p !== undefined && _ciFullPath[p].uuid === want) { land(map.rows[i].node); return; }
+                if (p !== null && p !== undefined && _ciFullPath[p].uuid === want) {
+                    // A far mounted answer lands (v12.16), re-found by its uuid the same way.
+                    land(map.rows[i].node, function () {
+                        var m2 = ciAnswerMap(), k, p2;
+                        for (k = 0; k < m2.rows.length; k++) {
+                            p2 = m2.pathOf[m2.rows[k].dataIndex];
+                            if (p2 !== null && p2 !== undefined && _ciFullPath[p2] &&
+                                _ciFullPath[p2].uuid === want) return m2.rows[k].node;
+                        }
+                        return null;
+                    });
+                    return;
+                }
             }
             var pathIdx = -1;
             if (ciIsReady() && _ciFullPath) {
@@ -11151,7 +11450,17 @@
             }
         }
 
-        orbScrollToMessage(targetEl);
+        // A far mounted message on Claude lands (v12.16), re-found by its uuid exactly as above.
+        // Only when the message found is that uuid's: one found by a legacy hash glides as before.
+        var landUuid = ciIsClaudeChat() ? (bookmark.msgUuid || wantUuid) : null;
+        if (landUuid && ciUuidForText(textOf(targetEl), targetEl) !== landUuid) landUuid = null;
+        orbScrollToMessage(targetEl, landUuid ? function () {
+            var live = Array.from(isUser ? getUserMessages() : getAIMessages());
+            for (var k = 0; k < live.length; k++) {
+                if (ciUuidForText(textOf(live[k]), live[k]) === landUuid) return live[k];
+            }
+            return null;
+        } : null);
     }
 
     function orbRefreshBookmarksPanel() {
@@ -12672,6 +12981,7 @@
             // and wrote it back permanently, onto a node the virtualizer then recycled
             // to an unrelated message. Convergence made that easy to hit: every item
             // from one response can now resolve to the same message node.
+            ciSupersedeLanding();
             orbMarkJumpTarget(el);
             el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
             orbFlashElement(el);
@@ -13406,6 +13716,7 @@
                 navBtn.addEventListener('click', (function (data) {
                     return function (e) {
                         e.stopPropagation();
+                        ciSupersedeLanding();
                         data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         data.msgElement.classList.add('acn-highlight-flash');
                         setTimeout(function () { data.msgElement.classList.remove('acn-highlight-flash'); }, 1500);
@@ -13427,6 +13738,7 @@
             if (!(imgData.msgIndex === -1 && platform.imagesOrphaned)) {
                 thumb.addEventListener('click', (function (data) {
                     return function () {
+                        ciSupersedeLanding();
                         data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         data.msgElement.classList.add('acn-highlight-flash');
                         setTimeout(function () { data.msgElement.classList.remove('acn-highlight-flash'); }, 1500);

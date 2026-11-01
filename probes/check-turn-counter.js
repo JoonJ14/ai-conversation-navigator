@@ -26,8 +26,12 @@
 //       schedules the next scan: an unconditional redraw produced 984 mutation records in A4's
 //       6 s (chromium and firefox, 2026-10-23), against 0 before and after the fix.
 //
-// Expected dots for 144 questions: 40 (the cap), coloured by position out of 40 with no
-// compaction data: 28 green, 6 yellow, 6 red (_renderTurnDots).
+// Expected dots for 144 questions: 40 (the cap). Through v12.15 they were coloured by position out
+// of 40 (28 green, 6 yellow, 6 red); since v12.16 a Claude dot takes its colour from the context
+// meter: dot i is the meter's share x (i+1)/40, with the bar's own thresholds (70%, 85%), so the
+// expected spread is computed from the percentage the meter drew (meterSpread).
+//   A6  [new, v12.16] no dot is redder than the meter above it (v12.15: red dots under a meter that
+//       reads far below 85%).
 //
 // CONTEXT of these results: Playwright <engine>, page realm, headless, this machine. The REAL
 // shipped functions are reached by driving the UI (opening Navigate, changing the route); the
@@ -146,7 +150,10 @@ const READ = `(function () {
     }
     var stat = document.getElementById('acn-nav-stat');
     var panel = document.getElementById('acn-panel-nav');
+    var pctEl = document.getElementById('acn-ctx-pct');
+    var pct = pctEl ? parseInt(pctEl.textContent, 10) : NaN;
     return { dots: dots.length, green: c.green, yellow: c.yellow, red: c.red, other: c.other,
+             pct: isNaN(pct) ? null : pct,
              count: stat ? stat.getAttribute('data-acn-count') : null,
              open: !!(panel && panel.getAttribute('data-acn-open') === 'true'),
              vis: document.visibilityState };
@@ -206,9 +213,25 @@ async function armFirstDrawRead(page, n) {
 const fmt = (r) => r ? ('dots=' + r.dots + ' (' + r.green + 'g/' + r.yellow + 'y/' + r.red + 'r' +
                         (r.other ? '/' + r.other + '?' : '') + ') count=' + r.count + ' open=' + r.open +
                         ' stable=' + r.stable + ' vis=' + r.vis) : 'no read';
-const fullSpread = (r) => !!r && r.stable === true && r.dots === FULL_SPREAD.dots &&
-    r.green === FULL_SPREAD.green && r.yellow === FULL_SPREAD.yellow && r.red === FULL_SPREAD.red &&
-    r.other === 0 && r.count === String(LONG);
+// The spread a v12.16 Claude meter at pct% draws over n dots (the bar's thresholds).
+const meterSpread = (pct, n) => {
+    const c = { green: 0, yellow: 0, red: 0 };
+    for (let i = 0; i < n; i++) {
+        const f = (pct / 100) * (i + 1) / n;
+        if (f < 0.70) c.green++; else if (f < 0.85) c.yellow++; else c.red++;
+    }
+    return c;
+};
+const fullSpread = (r) => {
+    if (!r || r.stable !== true || r.dots !== FULL_SPREAD.dots || r.other !== 0 || r.count !== String(LONG) ||
+        typeof r.pct !== 'number') return false;
+    const e = meterSpread(r.pct, r.dots);
+    return r.green === e.green && r.yellow === e.yellow && r.red === e.red;
+};
+// No dot redder than the meter's own colour band.
+const band = (pct) => pct < 70 ? 0 : pct < 85 ? 1 : 2;
+const notRedderThanMeter = (r) => !!r && r.stable === true && typeof r.pct === 'number' && r.dots > 0 &&
+    (band(r.pct) >= 2 || r.red === 0) && (band(r.pct) >= 1 || r.yellow === 0);
 
 (async () => {
     const engine = (process.argv.indexOf('--browser') !== -1
@@ -352,7 +375,11 @@ const fullSpread = (r) => !!r && r.stable === true && r.dots === FULL_SPREAD.dot
         await page.waitForTimeout(2500);
         await openNavigate(page);
         const r = await readStable(page, 10000, 700);
-        check('A3', 'normal load, Navigate opened after the index landed: the full 40-dot spread', fullSpread(r), fmt(r));
+        check('A3', 'normal load, Navigate opened after the index landed: the full 40-dot spread, coloured from the meter',
+            fullSpread(r), fmt(r) + ' meter=' + r.pct + '%' +
+            (typeof r.pct === 'number' ? ' expected ' + JSON.stringify(meterSpread(r.pct, 40)) : ''));
+        check('A6', '[new] the dots agree with the meter: none redder than its ' + r.pct + '%',
+            notRedderThanMeter(r), fmt(r) + ' meter=' + r.pct + '%');
 
         await page.waitForTimeout(2000);
         const idle = await page.evaluate(() => new Promise((resolve) => {
