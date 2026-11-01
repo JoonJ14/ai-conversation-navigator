@@ -3711,11 +3711,13 @@
         return true;
     }
 
-    // A direct glide on Claude (Summary, the gallery, a plain message scroll) supersedes a far
-    // landing still in flight: ixWatchUser sees only the user's own input, so without this the
-    // landing's next write would pull the view back to its target.
+    // A direct glide (Summary, the gallery, a plain message scroll) supersedes a far landing still
+    // in flight on Claude or Gemini: ixWatchUser sees only the user's own input, so without this the
+    // landing's next write would pull the view back to its target. Gemini's landing checks
+    // _ixJumpToken only (GitHub Codex, PR #90).
     function ciSupersedeLanding() {
         if (ciIsClaudeChat()) { _ixJumpToken++; _ciJumpToken++; }
+        else if (platform && platform.id === 'gemini') _ixJumpToken++;
     }
 
     // Claude (DEC-055). Claude keeps its latest rows mounted at every scroll position, so from the
