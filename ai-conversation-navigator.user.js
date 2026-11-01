@@ -2734,7 +2734,7 @@
                 textAt: null, inFlightCid: null, loadGen: (_ix.loadGen || 0) + 1, indexGen: (_ix.indexGen || 0) + 1,
                 reason: '', retryDelayMs: 0, lastFetchAt: 0, refreshFailed: '', truncated: 0,
                 actedSig: '', qIdx: null, idAtPos: null, answerOf: null, answerAt: null, wantRefresh: '',
-                wantActed: '', wantKeyless: false, answers: null };
+                wantActed: '', wantKeyless: false, answers: null, images: null };
     }
     ixInvalidate();
 
@@ -2829,7 +2829,25 @@
     // `answers`, when given, receives each turn's answer for bookmarks (v12.15):
     // { key: the turn's last shown assistant node, q: its question's index in the list
     // returned (-1 after a question the list skips), at: that question's node id }.
-    function ixGptEntries(j, answers) {
+    // An image part's identity, for the gallery (v12.17): its file id, the name the message's
+    // metadata.attachments gives that id (measured: the pointer's id matched 3 of 3, with name and
+    // mime_type), and its side and turn. Never a URL: the page fetches its own, and the gallery
+    // shows one only when the page already has (owner's decision, 2026-11-01).
+    function ixGptImages(msg, images, side, q, at) {
+        var c = msg.content || {};
+        if (!images || !Array.isArray(c.parts)) return;
+        var att = (msg.metadata && Array.isArray(msg.metadata.attachments)) ? msg.metadata.attachments : [];
+        for (var i = 0; i < c.parts.length; i++) {
+            var p = c.parts[i];
+            if (!p || typeof p !== 'object' || typeof p.asset_pointer !== 'string' ||
+                !/image/.test(p.content_type || '')) continue;
+            var id = p.asset_pointer.replace(/^[a-z-]+:\/\//i, ''), name = '';
+            for (var k = 0; k < att.length; k++) if (att[k] && att[k].id === id) { name = String(att[k].name || ''); break; }
+            images.push({ side: side, q: q, at: at, id: id, name: name });
+        }
+    }
+
+    function ixGptEntries(j, answers, images) {
         if (!j || typeof j !== 'object' || !j.mapping || typeof j.mapping !== 'object' ||
             typeof j.current_node !== 'string' || !j.mapping.hasOwnProperty(j.current_node)) {
             throw new Error('unexpected response shape');
@@ -2859,8 +2877,14 @@
         for (var i = 0; i < ids.length; i++) {
             var msg = m[ids[i]] && m[ids[i]].message;
             if (!msg || !msg.author) continue;
-            if (msg.author.role === 'assistant') {
-                if (turnAt !== null && ixGptShownText(msg)) { shown = ids[i]; texts.push(ixGptText(msg)); }
+            if (msg.author.role === 'assistant' || msg.author.role === 'tool') {
+                if (msg.author.role === 'assistant' && turnAt !== null && ixGptShownText(msg)) {
+                    shown = ids[i]; texts.push(ixGptText(msg));
+                }
+                // A generated image arrives in a tool message of the turn.
+                if (turnAt !== null && !(msg.metadata && msg.metadata.is_visually_hidden_from_conversation)) {
+                    ixGptImages(msg, images, 'ai', turnQ, turnAt);
+                }
                 continue;
             }
             if (msg.author.role !== 'user') continue;
@@ -2872,6 +2896,7 @@
             if (!t) continue;
             turnQ = out.length;
             out.push({ id: ids[i], text: t, position: out.length });
+            ixGptImages(msg, images, 'user', turnQ, turnAt);
         }
         endTurn();
         return out;
@@ -2924,8 +2949,8 @@
                         return;
                     }
                     if (!r.ok) { done(ixFailure(r)); return; }
-                    var entries, answers = [];
-                    try { entries = ixGptEntries(r.json, answers); }
+                    var entries, answers = [], images = [];
+                    try { entries = ixGptEntries(r.json, answers, images); }
                     catch (e) {
                         ixLog('chatgpt', r, 'conversation', '', ' questions=0');
                         done({ reason: 'unexpected response shape', permanent: true });
@@ -2933,7 +2958,7 @@
                     }
                     ixLog('chatgpt', r, 'conversation', '', ' questions=' + entries.length);
                     done(null, { entries: entries, total: entries.length, transport: r.transport,
-                                 answers: answers });
+                                 answers: answers, images: images });
                 });
         }
         withToken(false, function (err, tok) {
@@ -2964,6 +2989,23 @@
         return '';
     }
 
+    // An entry's attached images, for the gallery (v12.17): names only. Measured (Chrome, 2026-11-01):
+    // `attachments` holds signed links on ppl-ai-file-upload.s3.amazonaws.com (X-Amz-* query), a host
+    // the page itself never loaded (0 such images on the thread; it shows attachments as labels).
+    // The owner's decision: no new requests or hosts, so the link is read for its file name and
+    // dropped. An image is told by its extension; other attachments are not images.
+    var IX_IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|heic|heif|bmp|avif)$/i;
+    function ixPplxImages(e, images, q, k) {
+        var att = (e && Array.isArray(e.attachments)) ? e.attachments : [];
+        for (var i = 0; i < att.length; i++) {
+            if (typeof att[i] !== 'string') continue;
+            var path = att[i].split(/[?#]/)[0], name = path.slice(path.lastIndexOf('/') + 1);
+            try { name = decodeURIComponent(name); } catch (x) {}
+            if (!IX_IMAGE_EXT_RE.test(name)) continue;
+            images.push({ side: 'user', q: q, at: 'e' + k, id: 'e' + k + ':' + i, name: name });
+        }
+    }
+
     // Paging, measured: `from_first=true` starts at the oldest entry, `cursor=<next_cursor>`
     // continues, `offset` is ignored, and without from_first a short page holds the NEWEST
     // entries. So every request asks from the first entry and follows the cursor.
@@ -2972,7 +3014,7 @@
         var all = [], page = 0, seenCursors = {};
         function fail(r) { ixLog('perplexity', r, 'thread', ' page=' + page); }
         function finish(r, capped) {
-            var entries = [], answers = [];
+            var entries = [], answers = [], images = [];
             for (var k = 0; k < all.length; k++) {
                 var e = all[k];
                 var t = (e && typeof e.query_str === 'string') ? e.query_str.trim() : '';
@@ -2986,13 +3028,14 @@
                 // with no id of its own lists its answer too, with no key (never a position).
                 answers.push({ key: own ? own + ':answer' : null, q: t ? entries.length : -1, at: 'e' + k,
                                text: ixPplxAnswerText(e), pos: k + 0.5 });
+                ixPplxImages(e, images, t ? entries.length : -1, k);
                 if (!t) continue;
                 // position is the RAW entry index: it is what [data-workflow-entry] carries.
                 entries.push({ id: String(e.backend_uuid || k), text: t, position: k, hasUuid: !!own });
             }
             ixLog('perplexity', r, 'thread', ' page=' + page, ' questions=' + entries.length);
             done(null, { entries: entries, total: all.length, transport: r.transport,
-                         truncated: capped ? all.length : 0, answers: answers });
+                         truncated: capped ? all.length : 0, answers: answers, images: images });
         }
         function next(cursor) {
             // The user left this thread: stop paging it. ixLoad drops the result as
@@ -3494,6 +3537,7 @@
             _ix.textAt        = textAt;
             // Every answer in conversation order, with its text (v12.17): Search, Export, Summary.
             _ix.answers       = an;
+            _ix.images        = res.images || [];
             _ix.entries       = res.entries;
             _ix.total         = res.total;
             _ix.idIndex       = idIndex;
@@ -13951,14 +13995,192 @@
             });
     }
 
+    // ── The gallery from the index (v12.17) ─────────────────────
+    // Claude, ChatGPT and Perplexity know every image's message from their index, so the gallery
+    // lists them all, a far message's included. The owner's decision (2026-11-01): no new request or
+    // host for it. A card shows a real thumbnail only when the PAGE has already loaded that image,
+    // and otherwise a placeholder with the file name; a click lands on the message.
+    // Each item: { label, name, src (a URL the page loaded, or null), jump() }.
+
+    // An <img> the page itself shows, loaded, whose src passes `test`; never one of our own thumbs.
+    function _galPageSrc(test, scope) {
+        var imgs = (scope || document).querySelectorAll('img');
+        for (var i = 0; i < imgs.length; i++) {
+            var im = imgs[i];
+            if (im.classList.contains('acn-gallery-thumb') || im.closest('#acn-zone')) continue;
+            if (im.complete && im.naturalWidth > 0 && test(im.currentSrc || im.src || '')) return im.currentSrc || im.src;
+        }
+        return null;
+    }
+
+    // A Claude path entry, wherever it is: mounted and far lands, near glides, unmounted through the
+    // settle loop and lands (the routes Summary's items take).
+    function _galClaudeJump(p) {
+        ciSupersedeLanding();
+        var live = ciResolveMountedByPathIndex(p);
+        function done(n) { orbMarkJumpTarget(n); orbFlashElement(n); }
+        if (live) {
+            orbMarkJumpTarget(live);
+            if (ciLandFar(live, function () { return ciResolveMountedByPathIndex(p); }, done)) return;
+            live.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+            done(live);
+            return;
+        }
+        ciJumpToFullPathIndex(p, function (ok, el, reason) {
+            if (ok && el) { orbMarkJumpTarget(el); ciLandSettled(el, p, done); }
+            else if (reason !== 'superseded' && reason !== 'user') {
+                showToast('That message is not currently rendered \u2014 scroll toward it and try again');
+            }
+        });
+    }
+
+    function orbIndexedImages() {
+        var out = [], i, k;
+        function qLabel(qi) { return qi >= 0 ? 'Q#' + (qi + 1) : i18n('questionUnresolved'); }
+        function aLabel(qi) { return qi >= 0 ? i18n('answerToQuestion', { n: qi + 1 }) : i18n('answerNoQuestion'); }
+        if (ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
+            // Measured (Chrome, 2026-11-01, a 147-question chat): each image is a `files` entry of
+            // file_kind "image" on its message, and the page's own files panel loads its /preview.
+            var byUuid = {}, lastQ = -1;
+            for (i = 0; i < _questions.length; i++) if (_questions[i].uuid) byUuid[_questions[i].uuid] = i;
+            for (var p = 0; p < _ciFullPath.length; p++) {
+                var e = _ciFullPath[p];
+                var qi = (e.sender === 'human' && byUuid.hasOwnProperty(e.uuid)) ? byUuid[e.uuid] : -1;
+                if (e.sender === 'human') lastQ = qi;
+                var files = e.files || [];
+                for (k = 0; k < files.length; k++) {
+                    var f = files[k];
+                    if (!f || f.file_kind !== 'image') continue;
+                    var fid = String(f.file_uuid || f.uuid || '');
+                    (function (pathIdx, q, human, id, name) {
+                        out.push({ label: human ? qLabel(q) : aLabel(q), name: name,
+                                   src: id ? _galPageSrc(function (u) { return u.indexOf('/files/' + id + '/') !== -1; }) : null,
+                                   jump: function () {
+                                       if (human && q >= 0 && _questions[q]) orbScrollToQuestion(_questions[q]);
+                                       else _galClaudeJump(pathIdx);
+                                   } });
+                    }(p, e.sender === 'human' ? qi : lastQ, e.sender === 'human', fid, String(f.file_name || '')));
+                }
+            }
+            return out;
+        }
+        var a = ixReadyAdapter();
+        if (!a || !_ix.images) return null;
+        var root = a.id === 'chatgpt' ? ixGptRoot() : null;
+        var perTurn = {};
+        for (i = 0; i < _ix.images.length; i++) perTurn[_ix.images[i].at] = (perTurn[_ix.images[i].at] || 0) + 1;
+        var seenTurn = {};
+        for (i = 0; i < _ix.images.length; i++) {
+            var im = _ix.images[i], src = null;
+            if (root && IX_UUID_RE.test(im.at || '')) {
+                // ChatGPT shows a mounted turn's images as blob: URLs it made itself (measured, Chrome,
+                // 2026-11-01). Matched by order, only when the turn shows exactly as many as the index
+                // holds: anything else could put one image's picture on another's card.
+                var turn = root.querySelector('[data-turn-key="' + im.at + '"]');
+                if (turn) {
+                    var shown = [], timgs = turn.querySelectorAll('img');
+                    for (k = 0; k < timgs.length; k++) {
+                        var u = timgs[k].currentSrc || timgs[k].src || '';
+                        if ((u.indexOf('blob:') === 0 || u.indexOf('backend-api/estuary') !== -1) &&
+                            timgs[k].complete && timgs[k].naturalWidth > 0) shown.push(u);
+                    }
+                    var nth = seenTurn[im.at] || 0;
+                    if (shown.length === perTurn[im.at] && shown[nth]) src = shown[nth];
+                }
+            }
+            seenTurn[im.at] = (seenTurn[im.at] || 0) + 1;
+            (function (it, thumb) {
+                out.push({ label: it.side === 'user' ? qLabel(it.q) : aLabel(it.q), name: it.name, src: thumb,
+                           jump: function () {
+                               var q = it.q >= 0 ? _questions[it.q] : null;
+                               if (q && ixReadyAdapter()) {
+                                   if (it.side === 'ai' && _ix.answerAt && _ix.answerAt[it.at]) {
+                                       _bmIxJump(ixReadyAdapter(), { msgUuid: _ix.answerAt[it.at], entityType: 'ai-msg' });
+                                   } else orbScrollToQuestion(q);
+                                   return;
+                               }
+                               showToast('That message is not currently rendered \u2014 scroll toward it and try again');
+                           } });
+            }(im, src));
+        }
+        return out;
+    }
+
+    function _renderIndexedGallery(container, items) {
+        var header = document.createElement('div');
+        header.className = 'acn-tool-section-header';
+        header.textContent = '\uD83D\uDDBC\uFE0F ' + (i18n('imageGallery') || 'Image Gallery') + ' (' + items.length + ')';
+        container.appendChild(header);
+        if (!items.length) {
+            var empty = document.createElement('div');
+            empty.className = 'acn-gallery-empty';
+            empty.textContent = i18n('noImages') || 'No images in this conversation';
+            container.appendChild(empty);
+            return;
+        }
+        var grid = document.createElement('div');
+        grid.className = 'acn-gallery-grid';
+        items.forEach(function (it, i) {
+            var card = document.createElement('div');
+            card.className = 'acn-gallery-card';
+            card.setAttribute('data-acn-gallery-label', it.label);
+            card.setAttribute('data-acn-gallery-thumb', it.src ? 'page' : 'placeholder');
+            var thumb;
+            if (it.src) {
+                thumb = document.createElement('img');
+                thumb.className = 'acn-gallery-thumb';
+                thumb.src = it.src;
+                thumb.alt = it.name || ('Image ' + (i + 1));
+            } else {
+                // Not loaded by the page: its name, and nothing is requested for it.
+                thumb = document.createElement('div');
+                thumb.className = 'acn-gallery-thumb-fallback acn-gallery-placeholder';
+                thumb.textContent = '\uD83D\uDDBC\uFE0F ' + (it.name || 'Image');
+                thumb.title = (it.name || 'Image') + ' \u2014 ' + (i18n('goToMessage') || 'Go to message');
+            }
+            thumb.style.cursor = 'pointer';
+            thumb.addEventListener('click', function () { it.jump(); });
+            var label = document.createElement('div');
+            label.className = 'acn-gallery-label';
+            label.textContent = it.label;
+            var actions = document.createElement('div');
+            actions.className = 'acn-gallery-actions';
+            var navBtn = document.createElement('span');
+            navBtn.className = 'acn-gallery-btn';
+            navBtn.textContent = '\u2197';
+            navBtn.title = i18n('goToMessage') || 'Go to message';
+            navBtn.setAttribute('data-acn-role', 'gallery-go');
+            navBtn.addEventListener('click', function (e) { e.stopPropagation(); it.jump(); });
+            actions.appendChild(navBtn);
+            if (it.src) {
+                var dlBtn = document.createElement('span');
+                dlBtn.className = 'acn-gallery-btn';
+                dlBtn.textContent = '\u2B07';
+                dlBtn.title = i18n('downloadImage') || 'Download image';
+                dlBtn.addEventListener('click', function (e) { e.stopPropagation(); downloadImage(it.src, 'image-' + (i + 1)); });
+                actions.appendChild(dlBtn);
+            }
+            card.appendChild(thumb);
+            card.appendChild(label);
+            card.appendChild(actions);
+            grid.appendChild(card);
+        });
+        container.appendChild(grid);
+    }
+
     function renderImageGallery(container) {
         while (container.firstChild) container.removeChild(container.firstChild);
+        var indexed = orbIndexedImages();
+        if (indexed) { _renderIndexedGallery(container, indexed); return; }
         var images = getConversationImages();
         var header = document.createElement('div');
         header.className = 'acn-tool-section-header';
         header.textContent = '\uD83D\uDDBC\uFE0F ' + (i18n('imageGallery') || 'Image Gallery') +
                              ' (' + images.length + ')';
         container.appendChild(header);
+        // Gemini: images of the loaded part only, until the start is loaded (v12.17).
+        var gmNote = gmHistNote();
+        if (gmNote) container.appendChild(gmNote);
         if (images.length === 0) {
             var empty = document.createElement('div');
             empty.className = 'acn-gallery-empty';
@@ -14011,10 +14233,7 @@
                 navBtn.addEventListener('click', (function (data) {
                     return function (e) {
                         e.stopPropagation();
-                        ciSupersedeLanding();
-                        data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        data.msgElement.classList.add('acn-highlight-flash');
-                        setTimeout(function () { data.msgElement.classList.remove('acn-highlight-flash'); }, 1500);
+                        _galGoDom(data);
                     };
                 })(imgData));
             }
@@ -14032,12 +14251,7 @@
             actions.appendChild(dlBtn);
             if (!(imgData.msgIndex === -1 && platform.imagesOrphaned)) {
                 thumb.addEventListener('click', (function (data) {
-                    return function () {
-                        ciSupersedeLanding();
-                        data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        data.msgElement.classList.add('acn-highlight-flash');
-                        setTimeout(function () { data.msgElement.classList.remove('acn-highlight-flash'); }, 1500);
-                    };
+                    return function () { _galGoDom(data); };
                 })(imgData));
             }
             card.appendChild(thumb);
@@ -14046,6 +14260,32 @@
             grid.appendChild(card);
         });
         container.appendChild(grid);
+    }
+
+    // A DOM gallery card's message. Gemini: a question lands through Navigate's jump, an answer
+    // through gmLandFarEl, re-found by its turn's id (v12.17); elsewhere the glide, as before.
+    function _galGoDom(data) {
+        if (platform && platform.id === 'gemini' && data.msgElement) {
+            if (data.isUserMsg) {
+                for (var i = 0; i < _questions.length; i++) {
+                    if (_questions[i].element === data.msgElement) { orbScrollToQuestion(_questions[i]); return; }
+                }
+            }
+            var t = gmTurnOf(data.msgElement);
+            if (t) {
+                var tid = t.id, user = data.isUserMsg;
+                orbMarkJumpTarget(data.msgElement);
+                orbScrollToMessage(data.msgElement, function () {
+                    var tt = gmTurnById(tid);
+                    return tt ? (user ? gmQuestionIn(tt) : gmAnswerIn(tt)) : null;
+                });
+                return;
+            }
+        }
+        ciSupersedeLanding();
+        data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        data.msgElement.classList.add('acn-highlight-flash');
+        setTimeout(function () { data.msgElement.classList.remove('acn-highlight-flash'); }, 1500);
     }
 
     function buildTimeline(questions, aiMsgs) {
