@@ -41,6 +41,18 @@ with a labelled 200K fallback (DEC-056; step 1 of item 12). The turn dots on Cla
 complete once the history is, and says so while it is not (DEC-057). The agent's live check in Chrome + Tampermonkey
 passed all three (DEC-031). Grok is out of scope (its own PR after the owner's testing).
 
+**Next, in the owner's order (2026-11-01; DEC-058).** No release for v12.15 or v12.16: a release only once every
+platform works on all supported browsers.
+1. **The feature gaps, one PR (priority; the owner writes the spec).** In the owner's words: Search, Export, Summary
+   and the image gallery on ChatGPT, Perplexity, Gemini and Claude still read only on-screen messages, and Gemini
+   bookmarks are still positional. All of it goes in one PR. Known pieces already logged: Export and Summary drop
+   unmounted questions on ChatGPT and Perplexity (item 14), positional Gemini bookmarks (item 13).
+2. **The context meter: make model-dependent limits clear to the user** (item 12), its own PR, after the feature
+   gaps. It starts with a live measurement run by the agent in Chrome: does the navigator see a mid-chat model
+   change, through the conversation's stored `model` or the composer's model picker? Then the design, chosen by the
+   owner from HTML mockups.
+3. **Grok** on all three browsers (item 13), its own PR.
+
 **v12.15 (PR #88, merged 2026-10-31 as `6baac2e`, on the owner's OK before their acceptance: a waiver, DEC-031).**
 One combined PR in three parts. B: jumps on Perplexity and ChatGPT land in one click, instantly and checked
 (DEC-052). A: ChatGPT and Perplexity bookmarks key to the messages' own ids, read "Q#n" / "Answer to Q#n", and keep
@@ -95,7 +107,8 @@ and one merge. Its process changes: Tier 3 is capped at 5 rounds, and new issues
 for a later PR unless they block this one. **The owner gives the full spec** as the first message of that session;
 nothing here pre-writes its scope.
 
-Later; the owner decides the order (2026-10-24; the last two added 2026-10-31):
+Later; the owner decides the order (2026-10-24; the last two added 2026-10-31; the first three PRs are now fixed
+by the owner's order above, 2026-11-01):
 - Grok on all three browsers (item 13).
 - ~~Claude: a jump to the latest question from the top ends at the bottom, past it~~ — v12.16 part A (DEC-055).
 - `check-ix-jumps` J15's timing race in CI (TROUBLESHOOTING, OPEN): make the fixture's pin deterministic.
@@ -695,6 +708,19 @@ Numbering below is stable (items keep their historical numbers):
        [code].
      - The help center gives no per-model window for the Free plan; the Team plan page still says "200k context
        window" (2026-10-30). The table is the paid-plan one.
+   - **Decided 2026-11-01 (owner): keep the per-model table** (it matches the help center: in a chat, 1M for Fable
+     5.1, Opus 5.5, Opus 5, Sonnet 5.5, Sonnet 5, Haiku 5.5; 500K for Fable 5, Opus 4.6–4.8, Sonnet 4.6; 200K for any
+     other model. Claude Code gives 1M for every listed model, which is where "1M for every chat" came from). Not a
+     fix for now.
+   - **Planned feature (owner, 2026-11-01): "context meter: make model-dependent limits clear to the user."** Its own
+     PR, after the feature-gaps PR (DEC-058). Ideas, design TBD and decided from HTML mockups: a fixed-scale bar with
+     limit markers; the model and its limit as text; a notice when the model changes.
+     - **First, a measurement, run by the agent live in Chrome:** does the navigator see a mid-chat model change,
+       through the conversation's stored `model` or the composer's model picker? Known so far: the stored `model` is
+       one per conversation, present on 60 of 60 recent chats, and no message carries one (DEC-056); whether it
+       follows a switch is unmeasured. The help center says a change "at any point in a conversation" applies from
+       Claude's next response (article 8664678, read 2026-11-01). Switching a model changes the conversation, so the
+       run needs the owner's go-ahead for that account action.
 
 **v12.0 Accomplishments (2026-07-26):**
 - **API-Backed Conversation Index (DEC-021):** Claude virtualized its message list with recycling — only ~3 of 147 user turns are mounted at any moment (~3% coverage), so `document.querySelectorAll()` stopped being a complete record of the conversation. Navigate, Search, Summary and Export were all operating on a fraction of the data, and Export was silently writing truncated files under an authoritative-looking message count. Fixed by reading Claude's own conversation JSON endpoint via `GM_xmlhttpRequest` and walking the message tree from `current_leaf_message_uuid` to isolate the active branch. This is an ordinary outbound request, not fetch interception — no Firefox cross-compartment exposure (DEC-019/DEC-020).
@@ -1106,13 +1132,13 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         guarded; `bookmarkUrl`, `pathId` and `origins` are called unguarded (corrected there).
       - The i18n convention's rationale (`agent_docs/conventions.md`) was wrong: `i18n()` returns the key name for an
         absent key, so an `|| 'English'` fallback never fires (corrected there; whether to keep the convention is below).
-      - **Owner decisions open** (unanswered as of 2026-11-01):
-        - Read every Claude chat as 1M instead of the help center's per-model 500K for Opus 4.6–4.8, Sonnet 4.6 and
-          Fable 5: a `CLAUDE_CTX_BY_MODEL` table change only; offered 2026-10-31 and again at the PR's close
-          (2026-11-01).
-        - Keep or drop the `i18n('key') || 'English'` convention, now that the fallback is shown unreachable.
-        - CI's 30-minute job cap: the ubuntu jobs, which also run the probes, took 23.5–24 minutes on v12.16 (run
-          41257520872), about 6 minutes under it; flagged, not raised.
+      - **Owner decisions, answered 2026-11-01:**
+        - Every Claude chat as 1M: **no**; keep the per-model table, and plan the meter feature (item 12, DEC-058).
+        - The `i18n('key') || 'English'` convention: **leave it** (agent_docs/conventions.md).
+        - CI's 30-minute job cap (the ubuntu jobs took 23.5–24 minutes on v12.16, run 41257520872): **OK for now**;
+          it is part of the CI rebuild (item 0e).
+        - CLAUDE.md: the exit-127 lesson, "a mock takes its numbers from live measurements" and the line count,
+          **approved**; committed on its own in PR #91.
       - **A stale code comment** (found by PR #91's docs check): the comment above `gmLandFar` in the userscript still
         says the glide "left the target 4,240 px below the view, 2 of 4 times"; the first miss was 6,139 px and the
         4,240 px one was a later run (DEC-057). Fix it in the next code PR (a docs-only PR does not touch the script).

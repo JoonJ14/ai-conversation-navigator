@@ -109,6 +109,12 @@ is still owed on all three browsers.
 - **New lessons** in `agent_docs/conventions.md` and TESTING.md, the probes README's two gate rows and the review
   record's GitHub Codex count (6 reviews, not 5).
 - **HANDOFF** rewritten for v12.16; v12.15's moved to `docs/handoffs/`.
+- **The owner's decisions (2026-11-01), DEC-058:** the per-model context table stays; a meter feature that makes the
+  model-dependent limit clear is planned after a live model-switch measurement; the next PRs are the feature gaps
+  (priority), then that meter feature, then Grok; no release for v12.15 or v12.16 until every platform works on all
+  supported browsers. The i18n fallback convention stays; CI's 30-minute cap is fine for now.
+- **The Q62 CI flake** on `firefox on macos-latest` happened again on this PR's first run (TROUBLESHOOTING).
+- **CLAUDE.md** (its own commit, approved by the owner): the line count, the exit-127 lesson and the mock-fidelity rule.
 
 ---
 

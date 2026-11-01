@@ -22,8 +22,9 @@ was this session's first message, and the owner's v12.16 spec was its second).
   https://github.com/JoonJ14/ai-conversation-navigator/pull/90#issuecomment-6550538381. v12.15's is owed too.
 - **Left for the owner:** Chrome has `5bcd18d` (12.16) installed through Tampermonkey; two test tabs are open, Claude
   `3d7b6dc1` and Gemini `96b519c112c5d099`. No test bookmark remains (the panel read "No bookmarks yet" after each run).
-- **Next session:** no spec yet. The owner's acceptance of v12.15 and v12.16, the open owner decisions (§G.2), then
-  whichever item the owner picks.
+- **Next session:** the feature-gaps PR, the owner's priority (DEC-058, §G.3); its spec comes from the owner. The
+  owner's acceptance of v12.15 and v12.16 is still owed. No release until every platform works on all supported
+  browsers.
 
 ---
 
@@ -81,7 +82,8 @@ none was done then; the merge came later, on the owner's explicit OK (§B.6).
   70% and 85% thresholds; `check-turn-counter` A3 and A6 gate it.
 - **1M:** kept per model, as the spec asked for an authoritative per-model limit. The owner's current chats
   (`claude-opus-5-5`, `claude-opus-5`) read 1M; the help center's 500K models (Fable 5, Opus 4.6–4.8, Sonnet 4.6)
-  read 500K. Reading every chat as 1M is a small `CLAUDE_CTX_BY_MODEL` table change (the five 500K entries; offered as "one line"), offered twice, **unanswered** (§G).
+  read 500K. Reading every chat as 1M is a small `CLAUDE_CTX_BY_MODEL` table change (the five 500K entries; offered as "one line"), offered twice. **Decided 2026-11-01: keep the per-model table**; a feature that makes the limit clear is planned
+  (DEC-058, §G).
 
 ### 4. The pre-approved final run
 
@@ -127,8 +129,9 @@ audited the transcript against the repo (CHANGELOG 12.16, "Docs follow-up"): amo
   center's table); **a closed Navigate keeps the previous chat's `data-acn-count`**; `json.dumps` escapes non-ASCII
   unless `ensure_ascii=False`.
 
-All are in `agent_docs/conventions.md` → "Lessons Learned" and `agent_docs/git-workflow.md`. CLAUDE.md candidates
-await the owner's approval (§G.2).
+All are in `agent_docs/conventions.md` → "Lessons Learned" and `agent_docs/git-workflow.md`. The owner approved
+the CLAUDE.md candidates on 2026-11-01 (the exit-127 lesson, the mock-fidelity rule, the line count): committed on
+their own in PR #91 (§G.2).
 
 ---
 
@@ -213,19 +216,26 @@ Changed (agent_docs/architecture.md has the details):
    jump and bookmark from the top, mid jumps, the meter, its `data-acn-ctx-*` values and console line, the dots; the
    Gemini note, its jumps, a short chat. **And v12.15's** (PR #88's first comment). Record results in DEC-031 exactly
    as reported (the `<!-- V12.16 ACCEPTANCE -->` placeholder).
-2. **Owner decisions open** (ROADMAP 14; none answered as of 2026-11-01):
-   - **1M for every Claude chat** instead of the help center's 500K for Opus 4.6–4.8, Sonnet 4.6 and Fable 5 (the
-     owner asked for 1M on 2026-10-31; a small `CLAUDE_CTX_BY_MODEL` table change, the five 500K entries).
-   - **Gemini's automatic "load the full history" action** (it scrolls the page for the user; proposed, not built).
-   - **The i18n `|| 'English'` convention**: keep or drop, now that the fallback is shown unreachable.
-   - **CI's 30-minute cap**: about 6 minutes of headroom; flagged, not raised.
-   - **CLAUDE.md candidates** (show the diff; commit only on approval): the mock-fidelity rule in "Measurement
-     Context" (`tailAtEnd`, H10); the `timeout` rc=127 case under "a success signal from a wrapper"; "~12,700 lines"
-     is stale (the file has 15,815).
-3. **Then the owner picks the next item.** No spec exists; do not pre-write one. The "Later" list (ROADMAP, Current
-   Status): Grok on all three browsers; J15's CI race; Perplexity attachment images; the CI rebuild (0e); the meter's
-   step 2, the estimate itself (12); the stale "Turn N" badge; the "reset, keeping a backup copy" action and the
-   AbortController follow-up (0d); Chrome's v12.9-era 403 (logged, not active); someday, a Windows spot-check.
+2. **Owner decisions, answered 2026-11-01** (DEC-058, ROADMAP 14):
+   - **1M for every Claude chat: no.** The per-model table stays (it matches the help center); not a fix for now.
+   - **The i18n `|| 'English'` convention: leave it.**
+   - **CI's 30-minute cap: OK for now**, part of the CI rebuild (0e).
+   - **CLAUDE.md:** the exit-127 lesson, the mock-fidelity rule and the line count, approved and committed on their own
+     in PR #91.
+   - **Gemini's automatic "load the full history" action:** proposed, not built; not decided.
+3. **The next PRs, in the owner's order (DEC-058).** No release for v12.15 or v12.16; a release only once every
+   platform works on all supported browsers.
+   1. **The feature gaps, one PR (priority):** Search, Export, Summary and the image gallery on ChatGPT, Perplexity,
+      Gemini and Claude still read only on-screen messages; Gemini bookmarks are still positional. **The owner writes
+      the spec**; do not pre-write one.
+   2. **The context meter: make model-dependent limits clear to the user** (ROADMAP 12): first a live measurement by
+      the agent in Chrome (does the navigator see a mid-chat model change, through the stored `model` or the
+      composer's picker? It changes the conversation's model, so ask before running it), then mockups for the owner.
+   3. **Grok** on all three browsers, its own PR.
+   The rest of the "Later" list (ROADMAP, Current Status) is unordered: J15's CI race; Perplexity attachment images;
+   the CI rebuild (0e); the meter's step 2, the estimate itself (12); the stale "Turn N" badge; the "reset, keeping a
+   backup copy" action and the AbortController follow-up (0d); Chrome's v12.9-era 403 (logged, not active); the Q62
+   CI flake (TROUBLESHOOTING, twice now); someday, a Windows spot-check.
 4. **Owed acceptance from earlier releases** (DEC-031): PR #85's steps 2–7; PR #86's steps 4–5 on Chrome and
    Firefox; the v12.12 items never reported; v12.11's ChatGPT dots; v12.10's Safari Perplexity jump (now v12.15's).
 
@@ -301,7 +311,8 @@ Not queued; §G comes first. Each is logged where named.
 
 ```
 Pick up AI Conversation Navigator from the handoff at HANDOFF.md
-(2026-11-01, v12.16 merged as a9ecb14 before acceptance; next: the owner's call).
+(2026-11-01, v12.16 merged as a9ecb14 before acceptance; next: the feature-gaps PR,
+spec from the owner).
 
 CLAUDE.md auto-loads. Read HANDOFF.md before touching anything, especially §G (what
 comes next), §H (owner rules) and §J (risk caveats).
@@ -310,18 +321,18 @@ FIRST, CHECK STATE — do not assume:
   git fetch origin
   git log --oneline --first-parent -4 origin/main
   gh pr list --state open
-main should be v12.16 and include the merge of PR #90 (a9ecb14). If PR #91
-(branch docs/v12.16-merge-waiver) is still open, HANDOFF.md, ROADMAP.md and
-DECISIONS.md on main are the OLD ones: read them from that branch
-(git show origin/docs/v12.16-merge-waiver:HANDOFF.md, and the same for the others)
-and ask me whether to merge it before you branch.
+main should be v12.16 and include the merges of PR #90 (a9ecb14) and PR #91 (the
+docs follow-up, this handoff, DEC-058). If PR #91 is still open, the docs on main are
+the OLD ones: read them from origin/docs/v12.16-merge-waiver and ask me before you
+branch.
 
-THIS SESSION: no spec yet. Ask me which of these comes first:
-  - my acceptance results for v12.16 and v12.15 (I report; you record them in
-    DEC-031 exactly as I report them), or
-  - one of the open decisions in HANDOFF §G.2 (1M for every Claude chat first), or
-  - an item from ROADMAP "Current Status" → "Later" (HANDOFF §G.3), or
-  - something new I describe.
+THIS SESSION: the feature-gaps PR (DEC-058; HANDOFF §G.3), one PR: Search, Export,
+Summary and the image gallery on ChatGPT, Perplexity, Gemini and Claude still read
+only on-screen messages, and Gemini bookmarks are still positional. I give the full
+spec as my first message; do not pre-write one. If I report acceptance results for
+v12.16 or v12.15 instead, record them in DEC-031 exactly as I report them.
+After it: the context meter feature (ROADMAP 12), then Grok. No release until every
+platform works on all supported browsers.
 For any code change: a read-only Phase 1 first, measure before reasoning, and wait
 for my decision before code. Before any live measurement, confirm which userscript
 version is installed in that browser (DEC-027).

@@ -3907,10 +3907,10 @@ Phase 1). PR #90, merged 2026-11-01 as `a9ecb14` before acceptance (a waiver, DE
 
 ### Alternatives considered
 - **One new 1M constant** (rejected: three of the owner's recent models, `claude-opus-4-8`, `claude-opus-4-7` and
-  `claude-fable-5`, are 500K on claude.ai, though 1M on the API). **Open, the owner's decision:** on 2026-10-31 the
-  owner asked that the window read 1M, not 500K. It was kept per-model, and the owner's current models read 1M;
-  reading the five 500K models as 1M is a small `CLAUDE_CTX_BY_MODEL` change (offered as "one line"), offered twice
-  and not yet answered. An unknown model would still fall back to 200K.
+  `claude-fable-5`, are 500K on claude.ai, though 1M on the API). On 2026-10-31 the owner asked that the window
+  read 1M, not 500K; it was kept per-model, and the owner's current models read 1M. **Decided 2026-11-01 (owner):
+  keep the per-model table**, since it matches the help center (Claude Code, not chat, gives 1M for every listed
+  model). Not a fix for now; a feature that makes the model-dependent limit clear is planned (DEC-058).
 - **The model from the DOM's model selector** (rejected: a new Layer 1 dependency, and it shows the next message's
   model, not the conversation's).
 - **The SSE `message_start` model** (rejected: measured empty in v10.9, and SSE never runs on Firefox and, inferred,
@@ -4023,3 +4023,42 @@ chats.
   live computed CSS was copied in (`content-visibility: auto`, `contain-intrinsic-size: auto 500px`,
   `overflow-anchor: auto`) and reveals settled to a fixed point within half a view. The half-view margin is a
   modelling choice, not measured live. [Playwright page realm, headless, this Mac, 2026-10-31.]
+
+
+## DEC-058: The Next Three PRs, and No Release Until Every Platform Works on Every Supported Browser (2026-11-01)
+**Date:** 2026-11-01 | **Stage:** after v12.16 (PR #90 merged, PR #91 docs). The owner's decisions, 2026-11-01.
+
+### Decision
+- **No release for v12.15 or v12.16.** A release happens only once every platform works on all supported browsers
+  (Safari + Userscripts, Chrome + Tampermonkey, Firefox + Tampermonkey, equal priority: DEC-047).
+- **The order of the next PRs:**
+  1. **The feature gaps, one PR (priority).** Search, Export, Summary and the image gallery on ChatGPT, Perplexity,
+     Gemini and Claude still read only on-screen messages; Gemini bookmarks are still positional. The owner writes
+     the spec.
+  2. **The context meter: make model-dependent limits clear to the user** (ROADMAP 12). It starts with a live
+     measurement by the agent in Chrome (does the navigator see a mid-chat model change, through the conversation's
+     stored `model` or the composer's model picker?); the design is chosen by the owner from HTML mockups.
+  3. **Grok** on all three browsers, its own PR.
+- **The per-model context table stays** (DEC-056); the meter feature is about showing it, not changing it.
+- Smaller calls the same day: the i18n `|| 'English'` convention stays (agent_docs/conventions.md); CI's 30-minute job
+  cap is fine for now and part of the CI rebuild (ROADMAP 0e).
+
+### Context
+v12.16 fixed what its spec named, and the session's walkthrough and transcript audit logged what it did not: features
+that still read only the mounted messages on windowing or lazy-loading sites (ROADMAP 13, 14). Merging v12.15 and
+v12.16 before their acceptance (waivers, DEC-031) made "merged" and "works everywhere" two different states; the
+owner's release rule names which one a release needs.
+
+### Alternatives considered
+- **Release v12.16 now, as the newest build.** Rejected by the owner: features still fail on some platforms, and a
+  release should mean every platform works on every supported browser.
+- **The context meter before the feature gaps.** Rejected: the meter's numbers already follow the help center; the
+  gaps are wrong results.
+- **Every Claude chat read as 1M.** Rejected: the help center gives 500K for Fable 5, Opus 4.6–4.8 and Sonnet 4.6 in
+  chat, and 1M would let those meters under-warn.
+
+### Key properties
+- The feature-gaps PR has no spec until the owner writes it; nothing here pre-writes its scope.
+- The model-switch measurement changes a conversation's model in the owner's account, so it runs only with the
+  owner's go-ahead for that action, in the owner's real Chrome profile.
+- Owner acceptance of v12.15 and v12.16 is still owed (DEC-031); this decision does not waive it.

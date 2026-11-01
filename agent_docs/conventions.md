@@ -124,9 +124,8 @@ wording it can never render.
 `(I18N[lang] && I18N[lang][key]) || I18N.en[key] || key`, so an absent key (or an empty `en` value)
 returns the key name, which is truthy, and `|| 'English'` is unreachable in every case. The `en`
 table is the only fallback. The rationale this rule used to give ("the `||` fires only when the key
-is ABSENT") was wrong. Whether to keep the convention, now that its fallback is shown to be
-unreachable, is the owner's decision; until then, keep writing it and keep it matching the `en`
-value.
+is ABSENT") was wrong. The owner decided on 2026-11-01 to leave the convention as it is
+(DEC-058): keep writing it and keep it matching the `en` value.
 
 **Not everything should be translated — this is the owner's standing position, not a one-off.**
 Verbatim (2026-08-02, after reviewing Korean mode live): *"some things are actually better to

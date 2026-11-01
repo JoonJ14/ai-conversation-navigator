@@ -1621,7 +1621,7 @@ repeats on a re-run, is a real finding about the jump's cap.
 
 ---
 
-## OPEN — CI: the Claude 294-row sweep gave up on one question on `firefox on macos-latest` (PR #89, found 2026-10-31)
+## OPEN — CI: the Claude 294-row sweep gave up on one question on `firefox on macos-latest` (PR #89, found 2026-10-31; again on PR #91, 2026-11-01)
 
 **Phase:** PR #89's CI (docs only) | **Severity:** Low — one sweep entry on one runner, no userscript change involved;
 one re-run cleared it | **Status:** open, logged only (no fix proposed yet)
@@ -1635,6 +1635,21 @@ green, and `firefox on macos-latest` failed `npm test` 559/560, on one assertion
 busySeen=true idx=null "Q#62Question number 62: how do" (2565ms, vis=visible, raf10=153ms)`
 
 in `Testing Claude (294 rows, N=10 unrendered)... FAIL (1 failed, 60.2s)`. Attempt 2 passed (owner's re-run).
+
+**Again on PR #91** (run 41317983916, attempt 1, on `9f9a6c9`, docs only; the userscript byte-identical to main's
+v12.16, so the first occurrence was on v12.15's script and this one on v12.16's): 8 of 9 jobs green, and
+`firefox on macos-latest` failed 559/560 on the same assertion, the same question and row, at nearly the same time:
+`Q62: expected row 122, got null busySeen=true idx=null … (2566ms, vis=visible, raf10=166ms)`, in `FAIL (1 failed,
+58.5s)`. The job ran 6m31s, a normal full run for a macOS job (they run `npm test` only; the 23–24-minute jobs are the
+ubuntu ones, which also run the probes), so it was not a stall or a timeout. Attempt 2 passed (6m34s). The other 146
+jumps averaged 339 ms.
+
+**What the repeat adds** [the cause is still not known]: the same question failing the same way at 2,565 and 2,566 ms on
+two different builds is not random runner noise; it points at something specific to Q62 in this fixture under CI's
+Firefox on macOS, and it is intermittent (it passed on PR #90's runs and on `3b183c7`). Per the rule below, the repeat
+makes it a real finding. Not run yet (the owner's call, estimated 20–30 minutes): the fixture locally on Firefox with
+`localStorage.acnJumpDebug = '1'`, repeated until Q62 fails, to read the settle loop's exit reason; it may not
+reproduce on the owner's Mac, whose Firefox build and timing differ from CI's.
 
 ### What the signature says [code; the cause is not known]
 
