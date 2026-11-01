@@ -626,6 +626,18 @@
                 return messages;
             },
             getAIMessages: function () {
+                // The app-shell markup (measured live, Chrome, 2026-11-01: 10 assistant units on 10
+                // mounted turns, while the selectors below matched 0): the answer units of the
+                // VISIBLE timeline, outermost only (a unit can hold another), as ixGptAnswerIn reads them.
+                var root = document.querySelector('[data-app-action-timeline-scroll][role="region"]');
+                if (root) {
+                    var units = root.querySelectorAll('[data-content-search-unit-key$=":assistant"]'), outer = [];
+                    for (var u = 0; u < units.length; u++) {
+                        if (outer.length && outer[outer.length - 1].contains(units[u])) continue;
+                        outer.push(units[u]);
+                    }
+                    if (outer.length) return outer;
+                }
                 var allMessages = document.querySelectorAll('[data-message-author-role]');
                 var messages = Array.from(allMessages).filter(function (msg) {
                     return msg.getAttribute('data-message-author-role') === 'assistant';
@@ -1112,6 +1124,11 @@
                 return messages;
             },
             getAIMessages: function () {
+                // One node per answer (Oct 2026 markup; DOM-REFERENCE). [class*="prose"] matched 22
+                // nodes for 2 mounted answers live, nested list items among them, so Search labelled
+                // the 12th answer A#18 and Export wrote 22 fragments (Chrome, v12.16, 2026-11-01).
+                var finals = document.querySelectorAll('[data-workflow-final-text]');
+                if (finals.length > 0) return finals;
                 var messages = document.querySelectorAll('[class*="prose"]');
                 if (messages.length === 0) messages = document.querySelectorAll('.col-span-8 .prose, .col-span-8 [class*="Answer"]');
                 if (messages.length === 0) {
@@ -2717,7 +2734,7 @@
                 textAt: null, inFlightCid: null, loadGen: (_ix.loadGen || 0) + 1, indexGen: (_ix.indexGen || 0) + 1,
                 reason: '', retryDelayMs: 0, lastFetchAt: 0, refreshFailed: '', truncated: 0,
                 actedSig: '', qIdx: null, idAtPos: null, answerOf: null, answerAt: null, wantRefresh: '',
-                wantActed: '', wantKeyless: false };
+                wantActed: '', wantKeyless: false, answers: null };
     }
     ixInvalidate();
 
@@ -2826,16 +2843,24 @@
         var top = ids.length ? m[ids[ids.length - 1]] : null;
         if (n || (n === undefined && top && top.message)) throw new Error('unexpected response shape');
         ids.reverse();
-        var out = [], turnQ = -1, turnAt = null, shown = null;
+        var out = [], turnQ = -1, turnAt = null, shown = null, texts = [];
+        // v12.17: an answer also carries its TEXT (every node the page shows as the turn's text,
+        // in order: a tool turn shows text, a tool call, then text) and `pos`, its place in the
+        // list's order: just after its question, or after the last listed question when its own
+        // is not listed. Search, Export and Summary read the whole conversation from it.
         function endTurn() {
-            if (answers && shown !== null) answers.push({ key: shown, q: turnQ, at: turnAt });
+            if (answers && shown !== null) {
+                answers.push({ key: shown, q: turnQ, at: turnAt, text: texts.join('\n\n'),
+                               pos: (turnQ >= 0 ? turnQ : out.length - 1) + 0.5 });
+            }
             shown = null;
+            texts = [];
         }
         for (var i = 0; i < ids.length; i++) {
             var msg = m[ids[i]] && m[ids[i]].message;
             if (!msg || !msg.author) continue;
             if (msg.author.role === 'assistant') {
-                if (turnAt !== null && ixGptShownText(msg)) shown = ids[i];
+                if (turnAt !== null && ixGptShownText(msg)) { shown = ids[i]; texts.push(ixGptText(msg)); }
                 continue;
             }
             if (msg.author.role !== 'user') continue;
@@ -2918,6 +2943,27 @@
     }
 
     // ── Perplexity ──────────────────────────────────────────────
+    // An entry's answer text, or ''. Measured (Chrome, page realm, the owner's 12-entry thread,
+    // 2026-11-01): `text` is a JSON list of steps (INITIAL_QUERY, SEARCH_WEB, ATTACHMENT, ...,
+    // FINAL); the FINAL step's content.answer is itself JSON whose `answer` is the markdown shown,
+    // 12 of 12 entries. The "Finished" label the page shows above it is not in the payload.
+    function ixPplxAnswerText(e) {
+        try {
+            var steps = (e && typeof e.text === 'string') ? JSON.parse(e.text) : null;
+            if (!Array.isArray(steps)) return '';
+            for (var i = steps.length - 1; i >= 0; i--) {
+                if (!steps[i] || steps[i].step_type !== 'FINAL' || !steps[i].content) continue;
+                var a = steps[i].content.answer;
+                if (typeof a === 'string') {
+                    try { var inner = JSON.parse(a); a = (inner && typeof inner.answer === 'string') ? inner.answer : a; }
+                    catch (x) { /* plain markdown */ }
+                } else if (a && typeof a.answer === 'string') a = a.answer;
+                return typeof a === 'string' ? a.trim() : '';
+            }
+        } catch (err) {}
+        return '';
+    }
+
     // Paging, measured: `from_first=true` starts at the oldest entry, `cursor=<next_cursor>`
     // continues, `offset` is ignored, and without from_first a short page holds the NEWEST
     // entries. So every request asks from the first entry and follows the cursor.
@@ -2936,7 +2982,10 @@
                            String(e.backend_uuid)) ? String(e.backend_uuid) : '';
                 // Its answer, for bookmarks: listed under the entry's own id even when the
                 // entry's question is not (an attachment-only question: "Answer (no question)").
-                if (own) answers.push({ key: own + ':answer', q: t ? entries.length : -1, at: 'e' + k });
+                // v12.17: with its text and place (pos), for Search, Export and Summary; an entry
+                // with no id of its own lists its answer too, with no key (never a position).
+                answers.push({ key: own ? own + ':answer' : null, q: t ? entries.length : -1, at: 'e' + k,
+                               text: ixPplxAnswerText(e), pos: k + 0.5 });
                 if (!t) continue;
                 // position is the RAW entry index: it is what [data-workflow-entry] carries.
                 entries.push({ id: String(e.backend_uuid || k), text: t, position: k, hasUuid: !!own });
@@ -3363,6 +3412,7 @@
         _ix.status  = 'degraded';
         _ix.reason  = reason;
         _ix.entries = null;
+        _ix.answers = null;
         console.warn('[ACN] conversation index unavailable \u2014 falling back to DOM scan. Reason: ' + reason);
     }
 
@@ -3373,7 +3423,7 @@
         _ix.lastFetchAt = Date.now();
         _ix.pid = a.id;
         _ix.cid = cid;
-        if (!keep) { _ix.status = 'loading'; _ix.entries = null; }
+        if (!keep) { _ix.status = 'loading'; _ix.entries = null; _ix.answers = null; }
         var finished = false;
         function finish(err, res) {
             if (finished) return;
@@ -3399,6 +3449,7 @@
                 idAtPos[res.entries[i].position] = res.entries[i].id;
             }
             for (var k = 0; k < an.length; k++) {
+                if (!an[k].key) continue;          // an answer with no key is listed, never bookmarked
                 answerOf[an[k].key] = an[k].q;
                 answerAt[an[k].at] = an[k].key;
             }
@@ -3421,6 +3472,8 @@
                 _ix.wantKeyless = false;
             }
             _ix.textAt        = textAt;
+            // Every answer in conversation order, with its text (v12.17): Search, Export, Summary.
+            _ix.answers       = an;
             _ix.entries       = res.entries;
             _ix.total         = res.total;
             _ix.idIndex       = idIndex;
@@ -3688,6 +3741,15 @@
         var vr = box.getBoundingClientRect(), vh = box.clientHeight, er = el.getBoundingClientRect();
         if (er.bottom >= vr.top - vh && er.top <= vr.bottom + vh) return false;
         ciPre('far landing: target ' + Math.round(er.top - vr.top) + ' px from the view top');
+        return orbLandIn(box, el, getEl, landed, a, stillValid);
+    }
+
+    // orbLandIn — orbLandFarIn's landing without its distance test (v12.17): for a target that a
+    // settle loop has just brought into the mounted window, where the closing smooth glide was
+    // never checked (Claude's Search, Summary and Navigate after ciJumpToFullPathIndex; ROADMAP 14).
+    // Same arguments; false only when it cannot start (no box, or the target is not in it).
+    function orbLandIn(box, el, getEl, landed, a, stillValid) {
+        if (!box || !el || !el.isConnected || !getEl || !box.contains(el)) return false;
         var ixTok = _ixJumpToken, ciTok = _ciJumpToken;
         var watch = ixWatchUser(box);
         ixLandOn(a, getEl, { container: box, check: function () {
@@ -3734,6 +3796,19 @@
         return orbLandFarIn(ciFindScrollContainerStable(), el, getEl, landed, IX_ADAPTERS.claude, ciIsReady);
     }
 
+    // The end of a Claude jump that went through the settle loop (ciJumpToFullPathIndex): `el` is
+    // the resolved node for path index `pathIdx`, now mounted. It lands (orbLandIn: instant writes,
+    // re-located by its path index, checked) instead of the smooth glide every caller used to end
+    // with, which nothing checked (v12.17; ROADMAP 14). No container: the glide, as before.
+    function ciLandSettled(el, pathIdx, landed) {
+        if (ciIsClaudeChat() && ciIsReady() &&
+            orbLandIn(ciFindScrollContainerStable(), el,
+                      function () { return ciResolveMountedByPathIndex(pathIdx); },
+                      landed, IX_ADAPTERS.claude, ciIsReady)) return;
+        el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+        landed(el);
+    }
+
     // Gemini (DEC-057). Off-screen turns carry turn-content-visibility, so their heights are
     // estimates until they render; a glide from the top to the latest question grew scrollHeight
     // under it (59,324 -> 63,126 px) and left the target 4,240 px below the view, 2 of 4 times
@@ -3742,12 +3817,52 @@
     // A switch to another chat ends it (GitHub Codex, PR #90): the scroller can be reused, and the
     // new chat may hold the same question text.
     function gmLandFar(el, q, landed) {
+        return gmLandFarEl(el, function () { return _relocateQuestionElement(q); }, landed);
+    }
+
+    // The same for any Gemini target its caller can re-find (v12.17): an answer, an image's turn,
+    // a bookmark by its turn id (gmTurnById).
+    function gmLandFarEl(el, getEl, landed) {
         if (!platform || platform.id !== 'gemini') return false;
         _ixJumpToken++;
         var path0 = location.pathname;
-        return orbLandFarIn(document.querySelector('infinite-scroller.chat-history'), el,
-                            function () { return _relocateQuestionElement(q); }, landed, {},
+        return orbLandFarIn(document.querySelector('infinite-scroller.chat-history'), el, getEl, landed, {},
                             function () { return location.pathname === path0; });
+    }
+
+    // ── Gemini turns by their own id (v12.17) ──────────────────
+    // Every turn is a div.conversation-container whose id is a stable 16-hex id, repeated in its
+    // message-content-id-r_<id> (live, Chrome, 2026-10-31 and 2026-11-01: 32 of 32 turns).
+    var GM_TURN_ID_RE = /^[0-9a-f]{16}$/;
+    function gmTurnOf(el) {
+        var t = el && el.closest ? el.closest('div.conversation-container') : null;
+        return (t && GM_TURN_ID_RE.test(t.id || '')) ? t : null;
+    }
+    function gmTurnById(id) {
+        if (!id || !GM_TURN_ID_RE.test(id)) return null;
+        var t = document.getElementById(id);
+        return (t && t.classList.contains('conversation-container')) ? t : null;
+    }
+    // A turn's question and answer, as getUserMessages / getAIMessages find them.
+    function gmQuestionIn(turn) {
+        return turn ? (turn.querySelector('div.query-text') || turn.querySelector('.query-text-line') ||
+                       turn.querySelector('.user-query')) : null;
+    }
+    function gmAnswerIn(turn) {
+        return turn ? (turn.querySelector('div.model-response-text') || turn.querySelector('.response-content') ||
+                       turn.querySelector('model-response')) : null;
+    }
+
+    // The "older history is not loaded" note (v12.16), for every panel that lists the chat.
+    function gmHistNote() {
+        if (!gmHistPartial()) return null;
+        var n = createElement('div', {
+            className: 'acn-ci-banner acn-ci-note',
+            textContent: '\u2191 ' + (i18n('olderHistoryNotLoaded') ||
+                         'Older messages are not loaded yet \u2014 scroll to the top of the chat to load them')
+        });
+        n.setAttribute('data-acn-history', 'partial');
+        return n;
     }
 
     // Resolve-on-arrival, the design of ciJumpToFullPathIndex at this seam's size: aim at
@@ -8364,15 +8479,8 @@
 
         orbRenderIndexBanner(list);
         // Gemini: the list is the loaded part of the chat only (v12.16, DEC-057).
-        if (gmHistPartial()) {
-            var histNote = createElement('div', {
-                className: 'acn-ci-banner acn-ci-note',
-                textContent: '\u2191 ' + (i18n('olderHistoryNotLoaded') ||
-                             'Older messages are not loaded yet \u2014 scroll to the top of the chat to load them')
-            });
-            histNote.setAttribute('data-acn-history', 'partial');
-            list.appendChild(histNote);
-        }
+        var histNote = gmHistNote();
+        if (histNote) list.appendChild(histNote);
 
         if (_questions.length === 0) {
             var empty = createElement('div', { className: 'acn-empty' },
@@ -8941,10 +9049,12 @@
                 q.pathIndex >= 0 && q.pathIndex < _ciFullPath.length) {
                 ciJumpToFullPathIndex(q.pathIndex, function (ok, el, reason) {
                     if (ok && el) {
+                        // Landed, not glided (v12.17): Search's and Summary's question clicks end here too.
                         q.element = el;
                         orbMarkJumpTarget(el);
-                        el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
-                        orbFlashElement(el);
+                        ciLandSettled(el, q.pathIndex, function (n) {
+                            q.element = n; orbMarkJumpTarget(n); orbFlashElement(n);
+                        });
                     } else if (reason !== 'superseded' && reason !== 'user') {
                         // Honest failure retained — but only for a genuine miss. A
                         // superseded jump or a user-initiated scroll is not a failure.
@@ -9080,7 +9190,8 @@
                 }
             }
             var sfp = q + '|' + _questions.length + '|' + (_aiResponses ? _aiResponses.length : 0) +
-                      '|g' + _ciIndexGen + '|L' + liveLen + '|x' + ixFingerprint();
+                      '|g' + _ciIndexGen + '|L' + liveLen + '|x' + ixFingerprint() +
+                      '|h' + (gmHistPartial() ? 1 : 0);
             if (sfp === _searchListFingerprint && list.firstChild) return;
             _searchListFingerprint = sfp;
         }
@@ -9096,6 +9207,10 @@
         }
 
         if (hint) hint.style.display = 'none';
+
+        // Gemini: only the loaded part of the chat can be searched; say so, as Navigate does (v12.17).
+        var gmNote = gmHistNote();
+        if (gmNote) list.appendChild(gmNote);
 
         var qLower = q.toLowerCase();
 
@@ -9211,6 +9326,47 @@
                     pathIndex: null
                 });
             }
+        } else if (ixReadyAdapter() && _ix.answers) {
+            // ChatGPT and Perplexity (v12.17): every answer, from the index's own text, in order.
+            // The mounted answers were all Search saw before: on ChatGPT none at all (its answer
+            // selectors matched nothing), on Perplexity 2 of 12, as fragments labelled up to A#18
+            // (Chrome + Tampermonkey, v12.16, 2026-11-01). Like the indexed questions, the text is
+            // markdown, flattened for matching and display.
+            var ixA = ixReadyAdapter(), ixAns = _ix.answers, ixSeq = 0, lastPos = -0.5;
+            // A mounted answer can be fresher than the snapshot (still being written when it was
+            // taken): its rendered text stands in when longer. One the index does not hold yet (sent
+            // after the snapshot) is listed after the last indexed answer, by its node.
+            var liveAns = {}, liveOther = [];
+            var bmk = ixA.bookmarkables ? ixA.bookmarkables() : [];
+            for (var lb = 0; lb < bmk.length; lb++) {
+                if (bmk[lb].type !== 'ai-msg') continue;
+                var lk = ixA.keyOf(bmk[lb].el, 'ai-msg');
+                if (!lk) continue;
+                if (_ix.answerOf && _ix.answerOf.hasOwnProperty(lk)) liveAns[lk] = bmk[lb].el;
+                else liveOther.push({ key: lk, el: bmk[lb].el });
+            }
+            for (var ia = 0; ia < ixAns.length; ia++) {
+                var ans = ixAns[ia];
+                var aText = _mdVisible(ans.text || '');
+                if (ans.key && liveAns[ans.key]) {
+                    var lt = _readAIText(liveAns[ans.key]);
+                    if (lt.length > aText.length) aText = lt;
+                }
+                if (!aText) continue;
+                ixSeq++;
+                if (ans.pos > lastPos) lastPos = ans.pos;
+                if (aText.toLowerCase().indexOf(qLower) === -1) continue;
+                aiMatches.push({ element: null, text: aText, labelText: 'A#' + ixSeq, isAI: true, qObj: null,
+                                 ixKey: ans.key, ixQ: ans.q, ixPos: ans.pos });
+            }
+            for (var lo = 0; lo < liveOther.length; lo++) {
+                var loText = _readAIText(liveOther[lo].el);
+                if (!loText) continue;
+                ixSeq++;
+                if (loText.toLowerCase().indexOf(qLower) === -1) continue;
+                aiMatches.push({ element: liveOther[lo].el, text: loText, labelText: 'A#' + ixSeq, isAI: true,
+                                 qObj: null, ixKey: liveOther[lo].key, ixQ: -1, ixPos: lastPos + 0.25 + lo / 1000 });
+            }
         } else if (typeof _aiResponses !== 'undefined') {
             _aiResponses.forEach(function (el, idx) {
                 var text = _readAIText(el);
@@ -9241,9 +9397,15 @@
         // match has element:null, so the DOM comparator returned 0 for them and the
         // list stayed in concatenation order — all questions, then all answers
         // (Codex round-1 P2). Path position is authoritative when either side has it.
+        // ChatGPT and Perplexity questions carry ixPosition and their answers ixPos, on one scale
+        // (v12.17): a question's pathIndex is undefined there, so every pair compared as 0.
+        function sortPos(m) {
+            if (m.qObj) return typeof m.qObj.ixPosition === 'number' ? m.qObj.ixPosition : m.qObj.pathIndex;
+            return typeof m.ixPos === 'number' ? m.ixPos : m.pathIndex;
+        }
         allMatches.sort(function (a, b) {
-            var ap = a.qObj ? a.qObj.pathIndex : a.pathIndex;
-            var bp = b.qObj ? b.qObj.pathIndex : b.pathIndex;
+            var ap = sortPos(a);
+            var bp = sortPos(b);
             if (typeof ap === 'number' && typeof bp === 'number' && ap !== bp) {
                 return ap - bp;
             }
@@ -9299,6 +9461,16 @@
                 return function () {
                     if (!m.isAI && m.qObj) {
                         orbScrollToQuestion(m.qObj);
+                        return;
+                    }
+                    // An index-backed answer on ChatGPT or Perplexity (v12.17): by its own key, as an
+                    // answer bookmark jumps (the index jump to its question, then the answer landed at
+                    // its start); an answer with no key goes to its question.
+                    if (m.ixKey !== undefined) {
+                        var ixj = ixReadyAdapter();
+                        if (ixj && m.ixKey) { _bmIxJump(ixj, { msgUuid: m.ixKey, entityType: 'ai-msg' }); return; }
+                        if (ixj && m.ixQ >= 0 && _questions[m.ixQ]) { orbScrollToQuestion(_questions[m.ixQ]); return; }
+                        showToast('That message is not currently rendered \u2014 scroll toward it and try again');
                         return;
                     }
                     // Index-backed AI matches carry no element — the message may not
@@ -9383,9 +9555,9 @@
                         if (jp !== null) {
                             ciJumpToFullPathIndex(jp, function (ok, el2, reason) {
                                 if (ok && el2) {
+                                    // Landed, not glided (v12.17): the last answer from the top ends here.
                                     orbMarkJumpTarget(el2);
-                                    el2.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
-                                    orbFlashElement(el2);
+                                    ciLandSettled(el2, jp, function (n) { orbMarkJumpTarget(n); orbFlashElement(n); });
                                 } else if (reason !== 'superseded' && reason !== 'user') {
                                     showToast('That message is not currently rendered — scroll toward it and try again');
                                 }
@@ -9394,6 +9566,14 @@
                         }
                         showToast('That message is not currently rendered — scroll toward it and try again');
                         return;
+                    }
+                    // Gemini: re-found by its turn's id, so a far answer lands (v12.17).
+                    if (!landGet && platform && platform.id === 'gemini') {
+                        var gmT = gmTurnOf(target);
+                        if (gmT) {
+                            var gmId = gmT.id;
+                            landGet = function () { return gmAnswerIn(gmTurnById(gmId)); };
+                        }
                     }
                     orbScrollToMessage(target, landGet);
                 };
@@ -11220,7 +11400,7 @@
             setTimeout(function () { n.classList.remove('acn-bm-flash'); }, 1600);
         }
         function doScroll() {
-            if (getEl && ciLandFar(el, getEl, flash)) return;
+            if (getEl && (ciLandFar(el, getEl, flash) || gmLandFarEl(el, getEl, flash))) return;
             // A glide without a landing still supersedes one in flight on Claude, or that
             // landing's next write would pull the view back to its own target (ciLandFar bumps
             // the tokens itself when it is called).
