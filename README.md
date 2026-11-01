@@ -11,7 +11,7 @@ I still think they should make a feature like this for each of their company, wh
 But until then, I'll just keep making, building, and improving this project. Stay tuned.
 
 
-![Version](https://img.shields.io/badge/version-12.15-blue)
+![Version](https://img.shields.io/badge/version-12.16-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Supported Platforms
@@ -158,7 +158,7 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 
 - **🪐 Orbital Button Cluster** — Six feature dots arranged in a compact orbital cluster at the edge of the screen. Hover to reveal; each dot opens its own panel. For app-builder platforms, the cluster anchors to the chat/workspace divider.
 - **3 Display Modes** — Switch between **Show All** (all six dots at equal brightness), **Arc** (polygon arc with scroll-driven focus), and **Wheel** (conveyor belt with Navigate always highlighted). Mode preference is saved across sessions.
-- **🎯 Navigate Panel** — Lists all your questions in the conversation with smart summaries. Click any entry to scroll directly to it and briefly highlight it.
+- **🎯 Navigate Panel** — Lists all your questions in the conversation with smart summaries. Click any entry to scroll directly to it and briefly highlight it. On Gemini, which loads a chat's older turns only as you scroll to the top, the panel says when older messages are not loaded yet (since v12.16; live confirmation status: DEC-031).
 - **🔍 Search Panel** — Type a keyword to filter your questions instantly. Narrows the question list in real time.
 - **🔖 Bookmarks Panel** — Bookmark specific messages for quick return. Bookmarks persist across page reloads and script updates via GM storage (on Safari's Userscripts app since v12.12 — see the Safari setup notes).
 - **Σ Summary Panel** — Auto-generates a summary of the conversation on panel open.
@@ -170,7 +170,7 @@ Click here to install: [ai-conversation-navigator.user.js](../../raw/main/ai-con
 - **🎨 Platform-Specific Themes** — Accent colors match each platform's branding (Claude orange, ChatGPT white, Grok red, Gemini blue, Perplexity teal)
 - **✨ Visual Feedback** — Briefly highlights the message when you navigate to it
 - **🛡️ SPA-Resilient** — DOM Guardian, SPA navigation hooks, and periodic health checks keep the UI alive through aggressive re-rendering (Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Firebase Studio, Perplexity)
-- **📊 Context Window Bar** — Claude: exact token count via SSE interception, labeled `(exact)` or `(last known)`. Non-Claude: turn dots and compaction prediction
+- **📊 Context Window Bar** — Claude: exact token count via SSE interception, labeled `(exact)` or `(last known)`. Since v12.16 the window is the conversation's model's (1M or 500K, per Anthropic's help center; a model the script does not know reads 200K, marked "limit assumed"), and Claude's turn dots take their colour from the bar. Non-Claude: turn dots and compaction prediction. (Live confirmation status: DEC-031.)
 - **💬 /Commands** — Typing `/commandname` in the chat input opens the command palette pre-filtered; updates live as you type
 - **🌐 i18n** — Korean language support. **Translation coverage is partial, and this line has twice promised more than the code delivers.** What actually happens on a language switch: dot labels and panel headers update live; **translated** strings built at injection apply after a page refresh, which the in-app toast tells you. **Untranslated strings never change, on any refresh** — most toasts are English literals, as are several Bookmarks controls. (An older version promised that *all* labels update live — they do not, and never did; a second version said "everything else applies after a page refresh", which is still false for any string that was never wired to the translation table in the first place. `docs/SETTINGS.md` §"Scope of translation" carries the measured, dated breakdown.) Some strings stay English on purpose — `/Commands` reads better untranslated, and three smaller surfaces are English by owner preference rather than oversight. Since **v12.7** the Summary's **topics and conversation map** read Korean too — before that its tokenizer kept only `a-z0-9`, so a Korean conversation produced zero tokens and every content-derived Summary section was silently empty. **Key Points is the exception and is still unavailable in Korean**: it matches a set of English phrase patterns, which no tokenizer change reaches. **v12.7a** additionally translated the **Tools** panel (Image Gallery, 파일 내보내기 and its three export options) and the **Plan usage** panel — thirteen Korean strings existed in the code but were never actually read, so those panels had rendered English regardless of the language setting. `/Commands` stays English on purpose: "slash command" reads better untranslated. (The tokenizer fix covers English and Korean specifically; Japanese and Chinese are not space-separated and would need word segmentation, not a wider character class.)
 - **📈 Plan Usage** — Fetches Claude plan utilization (session/weekly) and displays as progress bars in the Navigate panel

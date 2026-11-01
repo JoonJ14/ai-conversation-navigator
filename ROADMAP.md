@@ -672,7 +672,7 @@ Numbering below is stable (items keep their historical numbers):
    check (map renders sub-segments, segment and SUB-segment clicks land, export correct), not
    a measurement. The probe is not needed for it.
 12. **The context-window meter: recalibrate the limit, then the estimate — LOW PRIORITY, for later (owner,
-   2026-10-23; not in the next-session order).** The meter still assumes Claude's old ~200–250K window (the
+   2026-10-23; not in the next-session order).** (Before v12.16:) The meter still assumes Claude's old ~200–250K window (the
    userscript's `CTX_LIMITS.claude` is `200000`; `docs/CONTEXT-TRACKING.md` → "Context Window Limits
    Reference"), so long conversations read well over 100%.
    - **Step 1: recalibrate to the current limit** — 1M tokens, per the owner. Verify the limit per model and
@@ -869,8 +869,9 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       key per conversation (DEC-053). Gated on mocks [measured, Playwright page realm, headless] and checked live in
       Chrome + Tampermonkey by the agent (CHANGELOG 12.15); owner acceptance on all three browsers owed (a waiver,
       DEC-031).
-    - **Pending:** Grok, untested on all three browsers; Gemini, once its virtualization is measured. The
-      owner decides their order (ROADMAP, "Current Status"; HANDOFF.md, §G).
+    - **Pending:** Grok, untested on all three browsers. The owner decides the order (ROADMAP, "Current Status";
+      HANDOFF.md). Gemini: measured in v12.16; it keeps every turn, so it needs no index adapter (DEC-057). Its
+      bookmarks stay positional (logged below, v12.16).
     - **How to add the next one:** "Porting the Layer 4 response to another platform" below, then one
       `IX_ADAPTERS` entry and a mock that genuinely unmounts (`probes/check-index-adapters.js` has two).
     - **Logged from v12.10, outside its scope:**
@@ -914,7 +915,9 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       - Claude's jump callbacks and the legacy nav handler still end with an unchecked smooth glide [code]. *Measured
         2026-10-25:* Claude does resize during it, and a jump to the latest question from the top (mounted at every
         scroll position, so the fast path's glide) ends at the bottom, past it, on 12.15 and on v12.14 alike [measured
-        live, Chrome + Tampermonkey]: TROUBLESHOOTING, the OPEN Claude latest-question entry.
+        live, Chrome + Tampermonkey]: TROUBLESHOOTING, the Claude latest-question entry (FIXED IN v12.16). *Fixed in v12.16 part A
+        (DEC-055, `365d825`).* The settle loop's callbacks, Summary's mounted path and the gallery still glide
+        unchecked (item 14, logged from v12.16).
       - `orbScrollToMessage` has no `releaseScroll` [code].
       - B6: with fewer entries mounted than the live 5–8 (2–3) and an empty question slot, jumps fail on v12.14, on
         the part B build and on its bounded-wait prototype alike [measured, Playwright page realm, chromium, 1 run];
@@ -1043,7 +1046,8 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
     - **Found by v12.15's live check, pre-existing:** a jump to the latest question from the top (Navigate or its
       bookmark) ends at the bottom, past it, on 12.15 and on v12.14 [measured live, Chrome + Tampermonkey,
       2026-10-25]. TROUBLESHOOTING has the entry; a likely fix is `ixLandOn`-style instant writes for a far mounted
-      target.
+      target. *Fixed in v12.16 part A (DEC-055, `365d825`).* The settle loop's callbacks, Summary's mounted path and
+      the gallery still glide unchecked (logged below).
     - **Logged from v12.15, part C, outside its scope** (DEC-054's residuals):
       - C-O1: if a regenerate changes the row's key only when the stream ends (live fact L3, unmeasured), a bookmark
         made mid-stream keeps the superseded uuid and reads "A#?" after the resync; v12.14 does the same [measured,
@@ -1087,6 +1091,31 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       - CLAUDE.md says "~12,700 lines"; the file has about 15,700 (a CLAUDE.md change needs the owner's approval).
       - `agent_docs/architecture.md`'s jump section still describes `ciDeriveRowOffset` (no caller) and
         `ciVerifyLandedRow` (deleted with resolve-on-arrival).
+      - (the code walkthrough, 2026-10-31) **No jump-busy flag outside the settle loop:** only Claude's settle loop
+        calls `orbSetJumpBusyFor` (set and release); `ixJump`, `ixLandOn` (ChatGPT, Perplexity), `ciLandFar` and
+        `gmLandFar` never set `data-acn-jumping`, so the CSS rule that blocks panel clicks does not apply during them.
+      - **A shrinking question list wipes the meter's token state:** `updateTurnCounter`'s shrink guard (meant for an
+        SPA navigation) calls `resetTurnCounter()` whenever `_questions.length` drops, which also zeroes the SSE
+        thinking total and counts and the compaction history; for example when the index degrades to the 1–5 mounted
+        turns. Live effect unmeasured.
+      - **Landing writes follow the page's CSS `scroll-behavior`:** `ciMoveTo` uses `scrollTo` with `behavior: 'auto'`,
+        and `ixLandOn` (so `ciLandFar` and `gmLandFar`) assigns `scrollTop`; both follow the page's CSS
+        `scroll-behavior`. The existing "unmeasured live" caveat (DEC-052; TROUBLESHOOTING, the ChatGPT and Perplexity
+        entry) names ChatGPT and Perplexity only; Claude and Gemini are unmeasured too.
+      - The adapter contract in `agent_docs/architecture.md` is incomplete: only `extent` and `releaseScroll` are
+        guarded; `bookmarkUrl`, `pathId` and `origins` are called unguarded (corrected there).
+      - The i18n convention's rationale (`agent_docs/conventions.md`) was wrong: `i18n()` returns the key name for an
+        absent key, so an `|| 'English'` fallback never fires (corrected there; whether to keep the convention is below).
+      - **Owner decisions open** (unanswered as of 2026-11-01):
+        - Read every Claude chat as 1M instead of the help center's per-model 500K for Opus 4.6–4.8, Sonnet 4.6 and
+          Fable 5: a `CLAUDE_CTX_BY_MODEL` table change only; offered 2026-10-31 and again at the PR's close
+          (2026-11-01).
+        - Keep or drop the `i18n('key') || 'English'` convention, now that the fallback is shown unreachable.
+        - CI's 30-minute job cap: the ubuntu jobs, which also run the probes, took 23.5–24 minutes on v12.16 (run
+          41257520872), about 6 minutes under it; flagged, not raised.
+      - **A stale code comment** (found by PR #91's docs check): the comment above `gmLandFar` in the userscript still
+        says the glide "left the target 4,240 px below the view, 2 of 4 times"; the first miss was 6,139 px and the
+        4,240 px one was a later run (DEC-057). Fix it in the next code PR (a docs-only PR does not touch the script).
 
 ---
 

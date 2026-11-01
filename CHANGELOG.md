@@ -47,8 +47,10 @@ One combined PR in three parts, from the owner's spec (2026-10-31). Grok is out 
 - **C (DEC-057):** a tracker infers when a Gemini chat's start is loaded (a first page under 10, a load above the
   first turn under 10, or 8 s at the top with nothing loading); until then Navigate shows "↑ Older messages are not
   loaded yet — scroll to the top of the chat to load them" (`data-acn-history="partial"`, en + ko). Jumps unchanged
-  at first; the final live check found the glide failing on turns not yet rendered (Q32 from the top 4,240 px short,
-  2 of 4), so a far loaded question now lands through `ixLandOn` too (`gmLandFar`, the core shared with part A).
+  at first; the final live check found the glide failing on turns not yet rendered (Q32 from the top missed 2 of 4 on
+  `e252bd4`: 6,139 px below the view on the first jump after paging in, then 4,240 px below on one of three
+  consecutive runs), so a far loaded question now lands through `ixLandOn` too (`gmLandFar`, the core shared with
+  part A).
 
 ### Verification
 
@@ -66,8 +68,10 @@ One combined PR in three parts, from the owner's spec (2026-10-31). Grok is out 
   to GitHub Codex.
 - **The agent's live check before the PR** (Chrome + Tampermonkey, the owner's profile, visible tab, 2026-10-31;
   not owner acceptance): Navigate → Q140 from the top 3 of 3 and the Q#140 test bookmark 3 of 3 landed (deleted
-  afterwards); mid jumps unchanged; the meter 35%, "~353.6K / 1M", model `claude-opus-5`; a `claude-opus-4-7` chat
-  500K; the Gemini note at 10/20/30 loaded, gone at 32, right on 10-, 9- and 1-question chats.
+  afterwards); the mid jumps (the settle loop, unchanged) still land, though not all fully, on `365d825` [1 run each]:
+  Q70 from the top with the question's top 34 px above the view (2.5 s), Q100 from the bottom 7 px above (3.6 s), Q5
+  from the bottom fully in view at 271 px (3.0 s), no toast on any; the meter 35%, "~353.6K / 1M", model
+  `claude-opus-5`; a `claude-opus-4-7` chat 500K; the Gemini note at 10/20/30 loaded, gone at 32, right on 10-, 9- and 1-question chats.
 - **The pre-approved final run** on `0b2454c` [Playwright, headless, page realm, this Mac, 2026-10-31]: `npm test`
   chromium 560/560, firefox 560/560, webkit 556/560 (the four known local mac WebKit entries, same questions and
   shape, `got null busySeen=true` at 1,459–1,704 ms with `raf10` 137–164 ms; the 120-row entry failed 12 of 60
@@ -88,6 +92,23 @@ bookmarks by the turn's id; an automatic "load full history" action (proposed); 
 questions on ChatGPT and Perplexity; `run-answer-mutants` M14/M16 anchors; the i18n audit's ternary false positive;
 DEC-031's waiver count; CLAUDE.md's line count; the jump section of `agent_docs/architecture.md`. And the PR #89 CI
 flake (TROUBLESHOOTING, OPEN, beside J15).
+
+### Docs follow-up (PR #91, 2026-11-01)
+
+Docs only, no code change; from an audit of the session's transcript against the repo at `3b183c7`. Owner acceptance
+is still owed on all three browsers.
+
+- **TROUBLESHOOTING:** an entry for the Gemini far glide (found in the final A/B, fixed in `095a66c`, `61365d8`,
+  `5bcd18d`).
+- **The Q32 miss** corrected here, in DEC-031, DEC-057 and DOM-REFERENCE: the first miss was 6,139 px, not 4,240.
+- **The mid jumps on `365d825`** recorded with their numbers (above), not as "unchanged".
+- **DECISIONS:** DEC-055, DEC-056 and DEC-057 completed from the session (among them DEC-056's "four" 500K models,
+  which are three: `claude-opus-4-8`, `claude-opus-4-7`, `claude-fable-5`).
+- **Stale docs:** the turn dots (now coloured by the meter on Claude), the adapter contract, the i18n fallback's
+  rationale (`|| 'English'` is unreachable), and the registry's entry count (12, not 14).
+- **New lessons** in `agent_docs/conventions.md` and TESTING.md, the probes README's two gate rows and the review
+  record's GitHub Codex count (6 reviews, not 5).
+- **HANDOFF** rewritten for v12.16; v12.15's moved to `docs/handoffs/`.
 
 ---
 

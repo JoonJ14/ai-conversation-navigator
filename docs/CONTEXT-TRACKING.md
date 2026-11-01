@@ -671,7 +671,7 @@ Context    22,540 / 200K
 
 ```javascript
 var CTX_LIMITS = {
-    claude:     200000,   // Claude Opus 4.6, Sonnet 4.5
+    claude:     200000,   // no longer read since v12.16 (see the note below)
     chatgpt:    128000,   // GPT-4o (web app may cap at 32K for Plus users)
     grok:       131072,   // Grok 3 / Grok 4
     gemini:     1000000,  // Gemini 2.5 (1M), though web may use less
@@ -682,7 +682,12 @@ var CTX_LIMITS = {
 **Notes:**
 - ChatGPT's web app context varies by subscription: 8K (free), 32K (Plus), 128K (Pro/Enterprise)
 - Gemini's 1M context is the API limit; web app behavior may differ
-- These affect Claude's SSE bar only. Turn counter doesn't use these values directly.
+- These affect the context bar only. Turn counter doesn't use these values directly.
+- **Claude, since v12.16 (DEC-056):** the window comes from the conversation's model, not from `CTX_LIMITS.claude`:
+  `orbClaudeCtxLimit()` looks the conversation JSON's top-level `model` up in `CLAUDE_CTX_BY_MODEL` (1M or 500K, per
+  Anthropic's help center for claude.ai's paid plans; the table's comment cites it). A model the table does not know,
+  or none, reads `CLAUDE_CTX_FALLBACK` (200K) and the meter says "limit assumed". Claude's turn dots take their colour
+  from the meter's percentage; other platforms keep the positional colours [code].
 
 ---
 

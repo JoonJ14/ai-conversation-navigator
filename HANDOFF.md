@@ -1,174 +1,189 @@
-# Session Handoff — 2026-10-31 (v12.15: one-click jumps on Perplexity and ChatGPT, bookmarks by message id there, Claude rows by their data-turn-key)
+# Session Handoff — 2026-11-01 (v12.16: Claude's latest-question jump lands, Claude's context meter by model, Gemini's history note)
 
-**Scope:** the owner's v12.15 spec, one combined PR in three parts. **B:** Perplexity jumps took 2–3 clicks and
-ChatGPT's far jump landed near its target; they now land in one click. **A:** ChatGPT and Perplexity bookmarks were
-positional, and answers had no flags; they are now keyed by each message's own id. **C:** Claude refetched the
-whole conversation while you only scrolled, and regenerated answers went unnoticed; rows are now identified by their
-own `data-turn-key`. Built by a workflow, reviewed (Tier 3 at the owner's cap of 5), checked live in the owner's
-Chrome before the PR, babysat through GitHub Codex, retested live, merged.
+**Scope:** the owner's v12.16 spec (2026-10-31), one combined PR in three parts. **A:** on Claude, a jump to the
+latest question from the top ended at the bottom, past it; a far mounted target now lands. **B:** Claude's context
+meter assumed 200K for every chat; it now uses the window of the conversation's model, and (the owner's request,
+mid-session) the turn dots on Claude take their colour from the meter. **C:** Gemini keeps every turn it loads;
+Navigate now says when a chat's older history is not loaded yet, and (found in the final live A/B) a far loaded
+question lands instead of gliding. Grok was out of scope. Reviewed (Tier 3 at the owner's cap of 5), babysat
+through GitHub Codex while the owner was away, A/B-tested live against v12.15, merged before acceptance.
 
-**Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-10-24_v12.13-v12.14-bookmarks.md` (v12.13/v12.14; its §G
-was this session's plan, and the owner's spec was this session's first message).
+**Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-10-31_v12.15-jumps-bookmarks-turnkeys.md` (v12.15; its §G
+was this session's first message, and the owner's v12.16 spec was its second).
 
 **Status at close:**
-- **PR #88 (v12.15): MERGED** 2026-10-31 as `6baac2e`, on the owner's explicit OK, **before any acceptance step
-  was reported** (a waiver, DEC-031). Owner acceptance on Safari, Chrome and Firefox is owed; the steps are the PR's
-  first comment.
-- **PR #89** (`docs/v12.15-merge-followup`, docs only): the merge record and waiver, the J15 CI timing race, the
-  agent_docs and the gaps found re-reading the session, and this handoff. **The owner merges it**, or the next
-  session does on the owner's OK.
-- **Next session:** no spec yet. The owner's acceptance of v12.15, then whichever item the owner picks (§G).
+- **PR #90 (v12.16): MERGED** 2026-11-01 as `a9ecb14`, on the owner's explicit OK, **before any acceptance step was
+  reported** (a waiver, DEC-031). The owner will run the acceptance on the merged build. The userscript on main is
+  byte-identical to `5bcd18d`, the build of the final live test.
+- **PR #91** (`docs/v12.16-merge-waiver`, docs only): `3b183c7`, the merge record and waiver, then the docs
+  follow-up from a transcript audit, and this handoff (written in that follow-up at the owner's request to log
+  everything, not by `/baton-handoff`). **The owner merges it**, or the next session on the owner's OK.
+- **Owner acceptance owed** on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey: the steps on
+  https://github.com/JoonJ14/ai-conversation-navigator/pull/90#issuecomment-6550538381. v12.15's is owed too.
+- **Left for the owner:** Chrome has `5bcd18d` (12.16) installed through Tampermonkey; two test tabs are open, Claude
+  `3d7b6dc1` and Gemini `96b519c112c5d099`. No test bookmark remains (the panel read "No bookmarks yet" after each run).
+- **Next session:** no spec yet. The owner's acceptance of v12.15 and v12.16, the open owner decisions (§G.2), then
+  whichever item the owner picks.
 
 ---
 
 ## A. State in one paragraph
 
-main is v12.15. On ChatGPT and Perplexity, an index-backed jump (`ixJump`) steps toward its target and then lands
-through `ixLandOn`: instant `scrollTop` writes, each re-located by identity, until within 8 px or 4 writes; a target
-still out of view at that cap is `'cap-out'`, a toast (DEC-052). Bookmarks there are keyed by the message's own id
-(ChatGPT: the turn's `data-turn-key`, the answer unit's message id; Perplexity: `backend_uuid`, `backend_uuid:answer`),
-labelled "Q#n" / "Answer to Q#n", filed under one canonical key per conversation, and old positional records bind
-only on proof or read "Q#?" / "A#?" (DEC-053). Perplexity compares a question bubble with its `query_str` through
-`ixPplxTextKey`, which drops only the markdown the bubble renders. On Claude, rows take their identity from their one
-`data-turn-key`, cross-checked against position, with text matching only as the fallback, and staleness reads the ids
-('k', 'p', 'x'), so scrolling no longer refetches and a regenerate resyncs once (DEC-054). Open: the owner's
-acceptance; Claude's jump to the latest question from the top (pre-existing); the J15 CI race; the logged residuals
-(ROADMAP 13 and 14).
+main is v12.16. On Claude, a jump whose target is mounted but outside the view extended by one viewport each way
+lands through `ixLandOn` (`ciLandFar`, DEC-055): instant writes, re-located by the route's own resolver, within 8 px
+or 4 writes; near targets glide as before; every jump on Claude, and every direct glide, supersedes a landing in
+flight. The meter reads the chat's model from the conversation JSON the index already downloads (`_ciModel`) and
+looks it up in `CLAUDE_CTX_BY_MODEL` (1M / 500K, from Anthropic's help center, article 8606394, updated 2026-10-30);
+an unknown model reads 200K and says "limit assumed" (DEC-056). Claude's turn dots take their colour from the meter's
+share; other platforms keep positional colours. On Gemini, a tracker infers when a chat's start is loaded (a page
+under 10, or 8 s at the top), and until then Navigate shows "↑ Older messages are not loaded yet"; a far loaded
+question lands through the same core as Claude's (`gmLandFar` → `orbLandFarIn`), because off-screen turns are
+`content-visibility: auto` and grow under a glide (DEC-057). Open: the owner's acceptance; the 1M-for-every-chat
+decision; the logged residuals (ROADMAP 12, 13 and 14).
 
 ---
 
 ## B. What was accomplished
 
-### 1. Phase 1: one read-only investigation for all three parts
+### 1. A read-only pass, then Phase 1 for all three parts
 
-- **What.** A 9-agent workflow (two investigators and an adversarial verifier per part) on the code and mocks, plus
-  live measurements in the owner's Chrome (v12.14 installed, visible tab, read-only, GET reads of each site's JSON).
-  One report, one owner checkpoint.
-- **Findings** (all in DEC-052 to DEC-054, with their contexts):
-  - **B:** a jump counted "mounted" as "arrived", then ended with one smooth `scrollIntoView` that both sites cut
-    short: Perplexity 8 of 8 runs, −99 to −1255 px; an instant scroll landed within 16 px 8 of 8. ChatGPT's near-miss
-    was the same: a glide cut off when older turns were prepended. **No code regression since v12.10**: the jump code
-    is identical from `166a281`, and the mocks gave v12.10 and v12.14 the same result within 3 px.
-  - **A:** every id route was gated on Claude; ChatGPT's answer selectors matched 0 nodes live; Perplexity's
-    `[class*="prose"]` drew 5 flags into one answer. The answer ids exist: ChatGPT's
-    `data-chatgpt-search-message-ids` (10 of 10 turns, one with 22 assistant nodes); Perplexity's
-    `[data-workflow-final-text]` slot.
-  - **C:** every Claude row carries its message uuid on `[data-turn-key]` (294 of 294 rows), which DEC-023 had recorded
-    as absent in July; text comparison failed 31 of 129 questions, 27 within 200 characters.
-- **The owner's decisions:** B, A and C as proposed; "Save if id, else refresh" for a message the index does not hold
-  yet; two scope additions (one store key per conversation; bind hash-keyed Claude question records on proof).
+- **The pass** (before the spec; code and docs at `82d3a3c`, no tests or browser): a 26-agent workflow mapped the
+  script; its unlogged findings went to ROADMAP 13 and 14, and the owner's PR #89 CI flake to TROUBLESHOOTING.
+- **Phase 1** [code; web research; live, Chrome + Tampermonkey page realm, the owner's profile, visible tab, GET reads
+  only, 2026-10-31; the extension was down about 30+ minutes until the owner signed in again]. Both of the spec's stop
+  conditions cleared, so each part took its default:
+  - **A:** the latest question took the mounted fast path, one unchecked smooth `scrollIntoView` across ~200,000 px;
+    v12.15 missed Q140 of chat `3d7b6dc1` from the top 3 of 3 (285,576 px, 98,987 px, 875 px from the view).
+  - **B:** the conversation JSON carries the chat's `model` at its top level (60 of 60 conversations); the help
+    center's paid-plan table gives 1M or 500K per model, 200K outside it (every quote re-fetched independently).
+  - **C:** Gemini **keeps** every turn and pages history in 10 at a time (32-question chat: 10 → 20 → 30 → 32, all
+    mounted); 9 of 9 jumps landed on v12.15's code, three with history still loading.
 
-### 2. The build, integration and review
+### 2. The build, the review, the gates
 
-- **How.** A build workflow implemented B and C in parallel worktrees, then A on top of B, each with a review and a
-  fix round; the parts were cherry-picked onto `fix/v12.15-bookmarks-jumps-claude` in the order B, A, C, keeping
-  their own commits. Version 12.15; the three new probes joined `test:probes` and CI; the CI job cap went from 20 to
-  30 minutes.
-- **Review** (`reviews/review-2026-10-25-v12.15.md`): Tiers 1–2 in session; Tier 3 (Codex CLI) 5 rounds, the
-  owner's cap: 19 raw findings, 16 verified, 12 fixed, each gated except one (N1e, N1f, N1g, J15, G17/G17b).
-- **Verification:** the pre-approved three-engine run on `2ef0d80`: `npm test` Chromium and Firefox 560/560, WebKit
-  556/560 (the 4 known local jump entries); the new probes pass on all three engines; the known Firefox U10 timeout.
+- **Parts:** A `365d825`, version `6d632eb`, B `8129b9e`, C `48d9665`. Tier 2: 2 WARN fixed (`b681077`). Tier 3
+  (`cli:codex`, `gpt-5.6-terra`, xhigh) ran 5 rounds, the owner's cap: 12 raw, 10 fixed (`267e7df`, `4cad2b1`,
+  `dcabba2`, `ba1b8e4`, `f25e3e4`), 1 false positive, 1 accepted limitation (the 8 s rule against a load slower than
+  8 s). **The round-5 fixes had no Tier 3 round after them**; they went to GitHub Codex. One Stop-hook trigger
+  mid-build (an untracked gate probe still being written) was skipped with `review-skip`.
+- **Gates** (`147e063`, `f97fc46`; all three in `test:probes` and CI): `check-claude-far-jump` (the Claude mock's new
+  `tailAtEnd` knob), `check-ctx-limit`, `check-gemini-history` (new mock `gemini-history.html`); each [new] check
+  fails on v12.15, with mutants. Numbers: CHANGELOG 12.16 and DEC-055 to DEC-057.
 
-### 3. The live check in the owner's Chrome, before the PR (found one bug)
+### 3. The owner's away-mode order (2026-10-31)
 
-- **What.** Installed the build through Tampermonkey (TESTING.md, "The live check in the owner's Chrome") and ran the
-  owner's four checks on ChatGPT (24 questions), Perplexity (12) and Claude (147), with test bookmarks deleted
-  afterwards.
-- **Found:** Perplexity Q10, a pasted README, stopped 862 px short 4 of 4 times, and its flags had no key. Its bubble
-  renders markdown (images as alt text, tables without pipes, a "Read more" button), so it never matched its
-  `query_str`. Fixed (`989fe0a`) with `ixPplxTextKey` at all four compare sites; gated by J16/J16b.
-- **Found, pre-existing, logged:** on Claude, a jump to the latest question from the top ends at the bottom, past it,
-  on 12.15 and on v12.14 alike (measured by downgrading to v12.14 live, then reinstalling). TROUBLESHOOTING, OPEN.
-- **Recorded, unexplained:** four "out of sync" lines in about a second on the pre-fix build; the console reader later
-  repeated one line six times, which may explain it (TROUBLESHOOTING).
-- **Result:** all four checks passed on ChatGPT and Perplexity; on Claude the bookmarks read and jump and a full
-  202-step scroll printed no "out of sync" line.
+The owner left with this order: finish the Tier 3 round, open the PR, run the babysit cycle to clean plus one extra
+`@codex review`, then one last live test in Chrome showing v12.15 still has the Claude and Gemini problems and the
+final build fixes them; and **"the context window should be 1 million tokens, not a 500k"**, for the meter and the
+turn dots alike (a meter about halfway with red dots "would be weird"). The order did not include a merge, and
+none was done then; the merge came later, on the owner's explicit OK (§B.6).
+- **Dots:** brought into the PR (`0139896`): on Claude, dot i stands for the meter's share × (i+1)/40, with the bar's
+  70% and 85% thresholds; `check-turn-counter` A3 and A6 gate it.
+- **1M:** kept per model, as the spec asked for an authoritative per-model limit. The owner's current chats
+  (`claude-opus-5-5`, `claude-opus-5`) read 1M; the help center's 500K models (Fable 5, Opus 4.6–4.8, Sonnet 4.6)
+  read 500K. Reading every chat as 1M is a small `CLAUDE_CTX_BY_MODEL` table change (the five 500K entries; offered as "one line"), offered twice, **unanswered** (§G).
 
-### 4. The PR, the Codex cycle, the final retest, the merge
+### 4. The pre-approved final run
 
-- **GitHub Codex:** round 1 found that `989fe0a`'s letters-and-digits key read "10+2" and "10/2" as one question;
-  fixing it also caught `_mdFlatten` deleting parentheses (`1a6de53`, J17/J17b). Round 2: rendered single-marker
-  italics left an unchanged question stale (`12ad0a6`, J17c). Rounds 3 and 4 clean.
-- **Final live retest** on `12ad0a6` (reinstalled): the same checks passed on all three sites.
-- **CI:** `firefox on ubuntu-latest` failed J15 once after 16 min (a timing race in the probe's mock, not the code);
-  re-run at the owner's request, green. **Merged** on the owner's OK.
+On `0b2454c` [Playwright, headless, page realm, this Mac]: `npm test` chromium and firefox 560/560, webkit 556/560
+(the four known local mac WebKit entries); every probe passed on all three engines except J15 on firefox and webkit,
+its known race, which v12.15 fails here too. The first attempt was void: each probe was wrapped in `timeout 900`,
+which macOS lacks, so all 42 runs exited 127 in 0 s under a job that reported exit 0 (§B.7).
 
-### 5. The docs follow-up (PR #89)
+### 5. Live in the owner's Chrome, the PR, GitHub Codex, the final A/B
 
-The waiver in DEC-031 and CHANGELOG; every v12.15 status line set to merged; the J15 race (TROUBLESHOOTING, OPEN;
-TESTING.md); agent_docs (the bookmark key, the adapter hooks, `ixLandOn`, Claude row identity); and, from re-reading
-the whole session transcript at the owner's request: the live-check procedure in TESTING.md, v12.15's live markup in
-DOM-REFERENCE, the four probes missing from `probes/README.md`, and what to expect of old positional records
-(DEC-053).
+- **Before the PR** (`365d825` / `48d9665`, rechecked on `2527956`; Tampermonkey's Update, then Reinstall, `shasum`
+  matching): Q140 from the top and its test bookmark 3 of 3 each; the meter 35%, "~353.6K / 1M"; a `claude-opus-4-7`
+  chat 500K; the Gemini note at 10, 20, 30 loaded, gone at 32. Mid jumps landed, not all fully (CHANGELOG 12.16).
+- **PR #90** opened at `efbe143`; GitHub Codex clean on it and on `e252bd4` (a poll first credited `efbe143`'s 👍 to `e252bd4`, §B.7).
+- **The final A/B** (v12.15 by Downgrade, then `e252bd4` by Update): v12.15 landed Q140 0 of 3 and the bookmark 0 of
+  3, read 100% "/ 200K" with 28 green, 6 yellow, 6 red dots, and listed 10 of 32 Gemini questions with no note;
+  `e252bd4` landed 3 of 3 each, 35% "/ 1M", 40 green dots, and a `claude-opus-5-5` chat 61% "~607.6K / 1M". **It
+  found a bug every gate then passed:** Gemini's Q32 from the top missed 2 of 4 right after paging in (6,139 px below
+  the view, then 4,240 px below on one of three consecutive runs). Fixed in `095a66c` (`gmLandFar`), gated by H10
+  after two mock iterations (§B.7); TROUBLESHOOTING, the Gemini far-jump entry.
+- **GitHub Codex** then raised two P2s in that new code, both fixed: `61365d8` (a direct glide on Gemini supersedes
+  a far landing), `5bcd18d` (a chat switch ends one). No probe check targets either. Clean twice on `5bcd18d`.
+- **The final live test on `5bcd18d`** (Reinstall, `shasum` matching): Claude Q140 and its bookmark 3 of 3 each, fully
+  in view, Q70 and Q5 in view, 35% "/ 1M", 40 green dots; Gemini, the note right, Q32 twice, Q1 and Q16 landed
+  (DEC-031). **None of this is owner acceptance.**
+- **CI:** 9/9 on `2ace4b9` (run 41257520872); the ubuntu jobs took 23m28s–24m6s against the 30-minute cap.
 
-### 6. Mistakes, kept because they generalize
+### 6. The merge and the docs follow-up (PR #91)
 
-- **Loosening a compare to fix false mismatches broke its job of telling edits apart.** The letters-and-digits key
-  made Q10 match, and made "10+2" equal "10/2"; GitHub Codex caught it. When widening an identity compare, add a check
-  that it still rejects a meaningful edit (J17–J17c).
-- **A test helper's matcher must be unique before its results count.** A 60-character prefix matched three ChatGPT
-  questions, and Navigate's "..." truncation hid two more; the jumps were fine, the helper was wrong.
-- **A timing window in a mock is a race in CI.** J15's 1 ms pin lost once on a slow runner.
+Merged 2026-11-01 as `a9ecb14` on the owner's OK, before acceptance; `3b183c7` records the waiver. The follow-up
+audited the transcript against the repo (CHANGELOG 12.16, "Docs follow-up"): among others, the Q32 miss corrected
+(6,139 px first, not 4,240) and DEC-056's "four" 500K models corrected to three (`claude-opus-4-8`,
+`claude-opus-4-7`, `claude-fable-5`).
 
-All three are in `agent_docs/conventions.md` → "Lessons Learned", and CLAUDE.md's measurement-context table gained the
-Perplexity bubble row (both approved by the owner, 2026-10-31).
+### 7. Mistakes, kept because they generalize
+
+- **A mock that differs from the site makes a fix look broken or a broken build look fixed.** Without `tailAtEnd`
+  the far-jump mock moved the pinned tail with every write, and the correct fix chased it to the cap; H10's first
+  `content-visibility` model (a guessed 120 px, no anchoring) failed the fixed build, and with the live 500 px it
+  passed v12.15 too. Take a mock's parameters from live computed values.
+- **A wrapper's exit is not the work's** (`timeout`, rc=127); **a 👍 belongs to a commit** (confirm the Codex
+  summary's commit is the head); **quote external sources from the raw page** (a WebFetch summary misstated the help
+  center's table); **a closed Navigate keeps the previous chat's `data-acn-count`**; `json.dumps` escapes non-ASCII
+  unless `ensure_ascii=False`.
+
+All are in `agent_docs/conventions.md` → "Lessons Learned" and `agent_docs/git-workflow.md`. CLAUDE.md candidates
+await the owner's approval (§G.2).
 
 ---
 
 ## C. Architecture snapshot
 
 Changed (agent_docs/architecture.md has the details):
-- **The adapter seam** gained `bookmarkUrl`, `pathId`, `bookmarkables`, `keyOf` and `extent`; jumps land through
-  `ixLandOn`; Perplexity's question compare is `ixPplxTextKey` on `ixPplxBubbleText`.
-- **Bookmarks on ChatGPT and Perplexity:** `_bmIxInject`, `_bmIxJump`, `_bmIxRequestRefresh` / `_bmIxAllHeld`,
-  `_bmMergeSplitKeys`; one store key per conversation (agent_docs/conventions.md, storage keys).
-- **Claude:** `ciRowTurnKey`, `ciRowSender`, `ciRowIdPath`, `ciRowIdPathChecked`, `_ciKeyTextEdited`,
-  `_ciStreamToken`, `_ciReportTurnKeys`, `_bmProveQuestions`; `ciUuidForText` reads the row's id first.
-- **Mocks:** `jumpModel` and `bmModel` blocks in both windowed mocks (off by default); Claude mock turn-key knobs.
+- **Far landing:** `ciLandFar(el, getEl, landed)` in `orbScrollToQuestion`'s fast path and `orbScrollToMessage(el,
+  getEl)`; the shared core `orbLandFarIn`; Gemini's `gmLandFar` (its `stillValid` compares `location.pathname`);
+  `ciSupersedeLanding` for direct glides. A landing that does not land clears `data-acn-jump-resolved`; only a
+  superseded one leaves it. Only the settle loop sets `data-acn-jumping`.
+- **Meter:** `_ciModel` (set at `ciBuildIndex`'s commit, cleared by `ciInvalidate`), `CLAUDE_CTX_BY_MODEL`,
+  `CLAUDE_CTX_FALLBACK`, `orbClaudeCtxLimit`, `orbStampCtxLimit`, `orbFmtCtxLimit`; `#acn-ctx-pct` carries
+  `data-acn-ctx-limit`, `-limit-source`, `-model`; `_renderTurnDots` colours Claude's dots from the meter.
+- **Gemini:** `gmHistObserve` (keyed by the path), `gmHistPartial`, `GM_HISTORY_PAGE` (10), `GM_HISTORY_TOP_MS` (8 s);
+  the note `olderHistoryNotLoaded` (en, ko) with `data-acn-history="partial"`.
+- **Mocks:** the Claude mock's `tailAtEnd`; `gemini-history.html`'s `cv` model (H10 at `cvEstimate: 120`).
 
 ---
 
 ## D. Key principles established
 
-- **The owner's live-test-before-PR process** (2026-10-25): build → install in Chrome → the owner's checks → fix and
-  reinstall until they pass → PR → babysit → final reinstall and retest. It found a bug every mock passed.
-- **A mock models what was measured, not what was assumed.** The windowed mocks rendered `query_str` as plain text;
-  the live bubble renders markdown. Measure a live rendering before trusting a text compare against it.
-- **Assert where the target ended up**, not which entry resolved (DEC-052; the old P13 passed throughout).
-- **Measure "regression" before claiming it either way:** Claude's latest-question miss looked like part C's doing
-  and was the same on v12.14.
-- **Re-read the whole transcript before closing a long session** (the owner, 2026-10-31): it found five gaps in docs
-  that looked complete.
+- **A final live A/B against the previous version, after the babysit** (the owner's away-mode order): it found the
+  one bug the mocks and the pre-PR check passed (Phase 1's 9 of 9 Gemini jumps ran, by inference, after the turns had rendered).
+- **A mock models live computed values, not guesses**; check its geometry against the live measurement before
+  trusting either colour of a gate.
+- **The dots and the meter tell one story** (the owner, 2026-10-31). **A sourced per-model figure over one
+  constant**, an unknown model labelled, not hidden; the owner's 1M request is open (§G).
 
 ---
 
 ## E. Git state
 
-`main` is at `6baac2e` (the PR #88 merge) and holds v12.15.
+`main` is at `a9ecb14` (the PR #90 merge) and holds v12.16.
 
 | Commit | What |
 |---|---|
-| `d579600` | Phase 0: the owner's Chrome result and Safari bookmark findings in DEC-031 and ROADMAP 13 |
-| `2d29022`–`2e22c53` | **part B**: the landing, the gate, the review fix |
-| `59d4422`–`8b5b097` | **part A**: bookmarks by id, the store key, the review fix |
-| `3bdaf87`–`9b16225` | **part C**: rows by `data-turn-key`, the gate, the review round |
-| `71eda09` | version 12.15; probes in `test:probes` and CI |
-| `500ced6`, `f5a036e`, `92dd6c8` | Tier 3 fixes, rounds 1–5 |
-| `2ef0d80` | the review summary |
-| `989fe0a` | the live check's Perplexity text fix |
-| `6adde2f`, `353db37` | the v12.15 docs; the PR number |
-| `1a6de53`, `12ad0a6` | GitHub Codex rounds 1 and 2 |
-| `258c5c4` | the final live retest's record |
-| `6baac2e` | **merge of PR #88** |
-| `e5c32fc`, `d53fe16`, `360d59a`, this handoff | PR #89, `docs/v12.15-merge-followup` |
+| `365d825` | **part A**: a far mounted Claude target lands |
+| `6d632eb` | version 12.16 |
+| `8129b9e` | **part B**: the meter by the conversation's model |
+| `48d9665` | **part C**: Gemini's history note |
+| `b681077` | Tier 2 fixes |
+| `267e7df`, `4cad2b1`, `dcabba2`, `ba1b8e4`, `f25e3e4` | Tier 3 rounds 1–5 |
+| `147e063`, `f97fc46` | the gates; `tailAtEnd`; the probes in `test:probes` and CI |
+| `0139896` | the turn dots follow the meter (the owner's request) |
+| `0b2454c`–`e252bd4` | the docs, the final run, the pre-PR recheck, the PR's steps; PR #90 opened at `efbe143` |
+| `095a66c`, `09d4250` | the Gemini landing (found in the final A/B) and its docs |
+| `61365d8`, `5bcd18d` | GitHub Codex's two P2s |
+| `2ace4b9` | the final live test's record |
+| `a9ecb14` | **merge of PR #90** |
+| `3b183c7`, this follow-up | PR #91, `docs/v12.16-merge-waiver` |
 
-- **Remote branches:** `main`, `fix/v12.15-bookmarks-jumps-claude` (merged; left in place), `docs/v12.15-merge-followup`
-  (PR #89).
-- **Local-only branches** left by the build workflow, all merged through PR #88's cherry-picks: `v1215-A`,
-  `v1215-A-fix`, `v1215-B`, `v1215-B-fix`, `v1215-C`, `v1215-C-fix`, and six `worktree-wf_2be744b1-3b4-*`. Their
-  worktrees are removed. Delete the branches on the owner's OK.
+- **Remote branches:** `main`, `fix/v12.16-claude-jump-meter-gemini` (merged; left in place), `docs/v12.16-merge-waiver`
+  (PR #91), and v12.15's `fix/v12.15-bookmarks-jumps-claude` and `docs/v12.15-merge-followup` (merged; left in place).
+- **Local branches:** `main`, `fix/v12.16-claude-jump-meter-gemini`, `docs/v12.16-merge-waiver`; no worktrees.
 - **Merges use merge commits** (`gh pr merge --merge`); the ruleset requires all nine CI checks and allows no bypass.
-  PR #88 needed one re-run (J15).
 - **The owner's own untracked files: never `git add` them.** `.playwright-mcp/`, `docs/CONTEXT-TRACKING-AUDIT.md`,
   `docs/IMAGE-GALLERY-DOM-FIX.md`, `docs/V10.10-TASKS.md`, `docs/V10.11-TASKS.md`.
 
@@ -179,42 +194,40 @@ Changed (agent_docs/architecture.md has the details):
 | Path | Why |
 |---|---|
 | `HANDOFF.md` | this file |
-| `ROADMAP.md` "Current Status" | v12.15, the "Later" list, the owed list |
-| `DECISIONS.md` **DEC-052**, **DEC-053**, **DEC-054**, **DEC-031** | the three parts' designs and residuals; live status and the waiver |
-| `CHANGELOG.md` 12.15 | every result with its context, the live check, the Codex rounds, CI |
-| `TROUBLESHOOTING.md` → "OPEN — Claude: a jump to the latest question…", "OPEN — CI: `check-ix-jumps` J15…" | the two open items this session found |
-| `TESTING.md` → "The live check in the owner's Chrome" | how to install a build and measure live |
-| `agent_docs/architecture.md`, `agent_docs/conventions.md` | the adapter hooks, the landing, row identity, the store key; this session's three lessons |
-| `DOM-REFERENCE.md` → ChatGPT, Perplexity, Claude | the markup v12.15 reads |
-| `probes/check-ix-jumps.js`, `check-ix-bookmarks.js`, `check-claude-turnkeys.js`, `probes/README.md` | the gates |
-| `reviews/review-2026-10-25-v12.15.md` | the review record, Tier 3 and the Codex rounds |
-
-The Phase 1 reports and the build brief were session scratch files and no longer exist; their findings are in
-DEC-052 to DEC-054.
+| `ROADMAP.md` "Current Status"; items 12, 13, 14 | v12.16, the "Later" list, the owed list; the logged residuals and the open owner decisions (item 14) |
+| `DECISIONS.md` **DEC-055**, **DEC-056**, **DEC-057**, **DEC-031** | the three parts' designs and limits; live status and the waiver |
+| `CHANGELOG.md` 12.16 | every result with its context, the final run, the Codex rounds, PR #91 |
+| `TROUBLESHOOTING.md` → the two "FIXED IN v12.16" entries (Claude, Gemini); "OPEN — CI: … J15", "OPEN — CI: the Claude 294-row sweep…" | what was fixed and why; the two CI flakes |
+| `TESTING.md` → "The live check in the owner's Chrome" | install, the extension's sign-in failure, the tool's quirks |
+| `agent_docs/conventions.md`, `agent_docs/git-workflow.md` | this session's lessons; the 👍 trap |
+| `DOM-REFERENCE.md` → Claude (`model`), Gemini | the markup and paging v12.16 reads |
+| `probes/check-claude-far-jump.js`, `check-ctx-limit.js`, `check-gemini-history.js`, `check-turn-counter.js`, `probes/README.md` | the gates |
+| `reviews/review-2026-10-31-v12.16.md` | Tier 3 and the GitHub Codex rounds |
 
 ---
 
 ## G. What comes next
 
-1. **The owner's acceptance of v12.15** on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey: the
-   steps on PR #88's first comment
-   (https://github.com/JoonJ14/ai-conversation-navigator/pull/88#issuecomment-6399417237), plus the optional Claude
-   throwaway-chat step (send a message, regenerate an answer), which measures the facts no agent could without
-   writing to the account: whether a just-sent message's key is final at once, whether and when a regenerate changes
-   the row's key (L3), and whether an edit keeps it (L4). Record results in DEC-031 exactly as reported. Step 6
-   (ChatGPT) and step 11 (Perplexity) count old bookmarks that bind versus read "Q#?" (most are expected to read
-   "Q#?", DEC-053).
-2. **Then the owner picks the next item.** No spec exists; do not pre-write one. The "Later" list (ROADMAP, Current
-   Status):
-   - Claude's jump to the latest question from the top (TROUBLESHOOTING, OPEN; a likely fix is `ixLandOn`-style
-     instant writes for a far mounted target);
-   - `check-ix-jumps` J15's CI race (a clock-independent pin for its mock; probe only);
-   - Grok on all three browsers; Gemini (does it keep or slide older turns?);
-   - Perplexity attachment images; the CI rebuild (0e); the context-window meter's recalibration (12);
-   - the stale "Turn N" badge on non-Claude sites; the "reset, keeping a backup copy" action (0d); the AbortController
-     follow-up (0d); Chrome's v12.9-era 403 (logged, not active); someday, a Windows spot-check.
-3. **Owed acceptance from earlier releases** (DEC-031): PR #85's steps 2–7; PR #86's steps 4–5 on Chrome and Firefox;
-   the v12.12 items never reported; v12.11's ChatGPT dots; v12.10's Safari Perplexity jump (now v12.15's).
+1. **The owner's acceptance of v12.16** on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey: the
+   steps on PR #90 (https://github.com/JoonJ14/ai-conversation-navigator/pull/90#issuecomment-6550538381): the Claude
+   jump and bookmark from the top, mid jumps, the meter, its `data-acn-ctx-*` values and console line, the dots; the
+   Gemini note, its jumps, a short chat. **And v12.15's** (PR #88's first comment). Record results in DEC-031 exactly
+   as reported (the `<!-- V12.16 ACCEPTANCE -->` placeholder).
+2. **Owner decisions open** (ROADMAP 14; none answered as of 2026-11-01):
+   - **1M for every Claude chat** instead of the help center's 500K for Opus 4.6–4.8, Sonnet 4.6 and Fable 5 (the
+     owner asked for 1M on 2026-10-31; a small `CLAUDE_CTX_BY_MODEL` table change, the five 500K entries).
+   - **Gemini's automatic "load the full history" action** (it scrolls the page for the user; proposed, not built).
+   - **The i18n `|| 'English'` convention**: keep or drop, now that the fallback is shown unreachable.
+   - **CI's 30-minute cap**: about 6 minutes of headroom; flagged, not raised.
+   - **CLAUDE.md candidates** (show the diff; commit only on approval): the mock-fidelity rule in "Measurement
+     Context" (`tailAtEnd`, H10); the `timeout` rc=127 case under "a success signal from a wrapper"; "~12,700 lines"
+     is stale (the file has 15,815).
+3. **Then the owner picks the next item.** No spec exists; do not pre-write one. The "Later" list (ROADMAP, Current
+   Status): Grok on all three browsers; J15's CI race; Perplexity attachment images; the CI rebuild (0e); the meter's
+   step 2, the estimate itself (12); the stale "Turn N" badge; the "reset, keeping a backup copy" action and the
+   AbortController follow-up (0d); Chrome's v12.9-era 403 (logged, not active); someday, a Windows spot-check.
+4. **Owed acceptance from earlier releases** (DEC-031): PR #85's steps 2–7; PR #86's steps 4–5 on Chrome and
+   Firefox; the v12.12 items never reported; v12.11's ChatGPT dots; v12.10's Safari Perplexity jump (now v12.15's).
 
 ---
 
@@ -230,57 +243,57 @@ Carried over, still in force:
 - **CLAUDE.md changes:** show the diff; commit only on approval.
 - **Scope:** build the minimal version of the spec; log out-of-scope findings to ROADMAP or TROUBLESHOOTING. New
   issues found during acceptance are logged for a later PR unless they block this one.
-- **Proof:** a gate that fails without each mechanism; `npm test` and the probes after any code change;
-  `npm run test:probes` stops at the Firefox U10 timeout on this Mac, so run the rest directly; ask before any long
-  run, with an estimate.
+- **Proof:** a gate that fails on the previous version for each mechanism, a few targeted mutants; `npm test` and the
+  probes after any code change; `npm run test:probes` stops at the Firefox U10 timeout on this Mac, so run the rest
+  directly (no `timeout` wrapper); ask before any long run, with an estimate.
 - **Every claim carries its measurement context.** Safari + Userscripts can only be verified by the owner.
-- **CI is not real-browser evidence.** Re-run a stalled or flaky job; never override. A failure well inside the job
-  cap is not a stall: read the failing check first (the owner wants the logs if a re-run fails again).
-- **Review:** Tier 3 (Codex CLI) runs without asking; capped at 5 rounds when the owner says so (v12.15 did).
-- **`/babysit-pr-cycle`, `/baton-handoff`, `/update-project-docs`:** only when the owner names them. After a clean
-  Codex review, post `@codex review` once more.
-- **Git:** explicit `git add` paths; never push to `main`.
+- **CI is not real-browser evidence.** Re-run a stalled or flaky job; never override. Read a failing check first.
+- **Review:** Tier 3 (Codex CLI) runs without asking; capped at 5 rounds when the owner says so (v12.15 and v12.16
+  did). After a clean GitHub Codex review, post `@codex review` once more.
+- **`/babysit-pr-cycle`, `/baton-handoff`, `/update-project-docs`:** only when the owner names them.
+- **Live-test before the PR, and again after the babysit**; install in the owner's Chrome through Tampermonkey's
+  Update / Reinstall / Overwrite; confirm the installed version first (DEC-027).
+- **Re-read the whole transcript before closing a long session.** **Git:** explicit `git add` paths; never push to
+  `main`.
 
 New this session:
-- **Live-test before the PR, and again after the babysit** (the owner, 2026-10-25; §D; memory).
-- **Installing a build in the owner's Chrome** is allowed for these checks: press Tampermonkey's Reinstall / Update /
-  Overwrite (the owner: "click, both either of those buttons when you see it"); it needs the Mac unlocked.
-- **The claude-in-chrome extension** may need the owner to sign in again before it connects (2026-10-25; reported to
-  the Claude Code team through `/feedback`, receipt `a9ec2258-c3ae-463b-9c63-96521fa8d94b`).
-- **Before a session-close handoff, re-read the whole transcript** for undocumented facts (the owner, 2026-10-31).
+- **The owner may leave mid-session with an order** (2026-10-31): carry it through to the point it names; merge
+  authority stays per PR (above).
+- **The final live test is an A/B**: the previous version installed by Downgrade, then the final build, on the same
+  chats, so "still broken before, fixed after" is shown, not assumed (the owner's order).
+- **The claude-in-chrome extension** failed again (2026-10-31, 30+ min) until the owner signed in; ask early.
 
 ---
 
 ## I. Deferred / future work
 
 Not queued; §G comes first. Each is logged where named.
-- **ROADMAP 13's v12.15 lists:** short Perplexity threads (no scroll container); `getAIMessages`' other readers;
-  `ixJump` without a hidden-tab guard or wall-clock cap; `orbScrollToMessage` without `releaseScroll`; B6 (fewer
-  entries mounted than live); A-N1 to A-N3; the integrated review's residuals; the live check's ("Finished" in
-  Perplexity answer previews; the unexplained burst; the text fallback and legacy proof still on the old compares;
-  renderings the text key does not model).
-- **ROADMAP 14's part C list:** C-O1 (a mid-stream bookmark keeps the superseded uuid), C-O2 (unbound Claude question
-  records read "Q#1"), the renderer-change false edit, `ciDeriveRowOffset` dead code, the first refetch without a
-  cooldown, and the gate gaps.
-- **Earlier lists** (ROADMAP 14's v12.14 list, DEC-050's and DEC-051's residuals, ROADMAP 0d) are unchanged.
+- **ROADMAP 12, 13 and 14, each "Logged from v12.16":** the estimate past the window on summarized chats; the
+  compaction fields never written; Gemini bookmarks by the turn's id (a migration); Navigate ~5 s behind a Gemini
+  load; Export and Summary dropping unmounted ChatGPT and Perplexity questions; Claude's other unchecked glides;
+  Search to the last answer from the top; M14/M16 anchors; no jump-busy flag outside the settle loop; a shrinking
+  list wiping the meter's token state.
+- **Earlier lists** (ROADMAP 13's and 14's v12.15 lists, DEC-050's and DEC-051's residuals, ROADMAP 0d) are unchanged.
 
 ---
 
 ## J. Risk caveats / known limitations
 
-- **v12.15 is merged without owner acceptance.** Everything rests on mocks and the agent's Chrome + Tampermonkey
-  checks; Safari + Userscripts and Firefox + Tampermonkey have not been run on it at all.
-- **Unmeasured live facts** (DEC-053, DEC-054): a just-sent ChatGPT message's key and streaming answer ids; whether
-  `backend_uuid` changes on Rewrite; whether a Claude regenerate changes the row's key, and when (L3); whether an edit
-  keeps it (L4: `_ciKeyTextEdited` takes its baseline from the first observation, so an edit before the row's first
-  scan becomes the baseline).
-- **Perplexity's text key** models the renderings measured on one 12-question thread. Others (KaTeX math, a table
-  without leading pipes, intraword italics) read as stale, as before v12.15: one refetch and keyless flags for that
-  question.
-- **Claude's latest-question jump from the top** usually ends at the bottom, past the question (pre-existing).
-- **J15** can fail once in CI with `resolved=10 toast=no inView=true err=0px`; re-run.
-- **Test engines:** local mac WebKit fails the 4 known jump entries; `check-usage-state` U10 times out on Firefox on
-  this Mac, intermittently.
+- **v12.16 is merged without owner acceptance**, like v12.15. Everything rests on mocks and the agent's Chrome +
+  Tampermonkey checks; Safari + Userscripts and Firefox + Tampermonkey have not been run on it at all.
+- **Code no Tier 3 round saw:** the round-5 fixes, the turn dots, the Gemini landing and the two Codex fixes were
+  reviewed by GitHub Codex only; no probe check targets `61365d8` or `5bcd18d`.
+- **Gemini's constants** (page size 10, the 8 s wait) were measured on three chats in one browser. A smaller first
+  page would make a long chat read as complete (the note silently missing). A chat ending on a full page shows the
+  note until 8 s at the top; a load slower than 8 s can clear it early, and it returns when the load lands. The note
+  needs the turns to be the scroller's direct children (Layer 1). H10's half-view reveal margin is assumed.
+- **The meter's table is the paid-plan one**; a model the table does not list (a newer one included) reads 200K,
+  labelled "limit assumed". During a conversation switch the meter briefly reads the fallback until the index lands
+  [Playwright page realm, `check-ctx-limit` L6].
+- **Unmeasured live:** a refetch committing mid-landing (silently superseded); landing writes under a page's CSS
+  `scroll-behavior`; the shrinking-list reset of the meter's token state.
+- **CI headroom:** the ubuntu jobs take about 24 of 30 minutes. **J15** can fail once in CI, and locally on Firefox
+  and WebKit; re-run. Local mac WebKit fails the 4 known jump entries; U10 times out on Firefox here, intermittently.
 
 ---
 
@@ -288,7 +301,7 @@ Not queued; §G comes first. Each is logged where named.
 
 ```
 Pick up AI Conversation Navigator from the handoff at HANDOFF.md
-(2026-10-31, v12.15 merged as 6baac2e before acceptance; next: the owner's call).
+(2026-11-01, v12.16 merged as a9ecb14 before acceptance; next: the owner's call).
 
 CLAUDE.md auto-loads. Read HANDOFF.md before touching anything, especially §G (what
 comes next), §H (owner rules) and §J (risk caveats).
@@ -297,16 +310,17 @@ FIRST, CHECK STATE — do not assume:
   git fetch origin
   git log --oneline --first-parent -4 origin/main
   gh pr list --state open
-main should be v12.15 and include the merge of PR #88 (6baac2e). If PR #89
-(branch docs/v12.15-merge-followup) is still open, HANDOFF.md, ROADMAP.md and
+main should be v12.16 and include the merge of PR #90 (a9ecb14). If PR #91
+(branch docs/v12.16-merge-waiver) is still open, HANDOFF.md, ROADMAP.md and
 DECISIONS.md on main are the OLD ones: read them from that branch
-(git show origin/docs/v12.15-merge-followup:HANDOFF.md, and the same for the others)
+(git show origin/docs/v12.16-merge-waiver:HANDOFF.md, and the same for the others)
 and ask me whether to merge it before you branch.
 
 THIS SESSION: no spec yet. Ask me which of these comes first:
-  - my acceptance results for v12.15 (I report; you record them in DEC-031 exactly
-    as I report them), or
-  - an item from ROADMAP "Current Status" → "Later" (HANDOFF §G.2), or
+  - my acceptance results for v12.16 and v12.15 (I report; you record them in
+    DEC-031 exactly as I report them), or
+  - one of the open decisions in HANDOFF §G.2 (1M for every Claude chat first), or
+  - an item from ROADMAP "Current Status" → "Later" (HANDOFF §G.3), or
   - something new I describe.
 For any code change: a read-only Phase 1 first, measure before reasoning, and wait
 for my decision before code. Before any live measurement, confirm which userscript
@@ -317,7 +331,8 @@ STANDING RULE: Safari, Chrome and Firefox are equal priority; none is primary
 
 PROCESS (HANDOFF §H, §D): build, install in my Chrome through Tampermonkey and test
 live until it passes, then open the PR, run the babysit cycle when I name it, and
-install and retest the final build at the end.
+install and retest the final build at the end, as an A/B against the previous
+version.
 
 DO NOT:
 - Merge anything without my explicit OK for that PR, or push to main. The ruleset

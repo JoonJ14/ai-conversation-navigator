@@ -1539,7 +1539,10 @@ How to respond:
    a runner-specific failure is usually a real statement about an assertion).
 
 The workflow's `timeout-minutes` (20 until v12.15, 2× the slowest healthy job then; **30 since v12.15**, because
-the ubuntu jobs, which run every probe, now take about 22 minutes: 21m43s–22m8s on PR #88's run 40214646346) makes a
+the ubuntu jobs, which run every probe, took about 22 minutes then: 21m43s–22m8s on PR #88's run 40214646346; since
+v12.16, with its three new probes, about 24: 23m28s–24m6s on PR #90's run 41257520872 on `2ace4b9`, up from about
+21.5–22 minutes on main the same day, while macOS took 6m3s–6m55s and Windows 5m56s–9m32s. That leaves about 6 minutes
+of headroom; the agent flagged the margin rather than raise the cap, and the owner has not yet confirmed that choice) makes a
 wedged runner fail fast instead of blocking the check for up to GitHub's 6-hour default. A failure well inside the
 cap is not a wedge: read the failing check first (TROUBLESHOOTING, the J15 entry, is one that looked like a stall). Queue time doesn't count
 against it. The cap covers the whole job, installs included. On PR #75 a `firefox on ubuntu-latest`
@@ -1676,12 +1679,17 @@ only.
    `ask.html` tab to the front, set `AXManualAccessibility` to true on process "Google Chrome" (it exposes web
    content to accessibility), then `AXPress` the button named Reinstall, Update, Overwrite, Install or Downgrade (the
    owner: press whichever it shows). It needs an **unlocked screen**: while the Mac was locked, System Events could
-   not see Chrome's windows ("Can't get window 1").
+   not see Chrome's windows ("Can't get window 1"). On 2026-10-31 (v12.16) two more failures [same setup]: setting
+   `AXManualAccessibility` failed with -10006 (wrap it in `try`; web content was exposed anyway), and `first button
+   of entire contents … whose name is …` failed with -1700. What worked: iterate `entire contents of window 1`
+   (about 30 s), test role `AXButton` and the name inside a `try`, then `AXPress`. A higher version shows a
+   "Userscript update" page with Update / Cancel / Disable Updates.
 3. The build has the same `@name` and `@namespace`, so Tampermonkey treats it as an update of the installed script
    and keeps its GM storage, the owner's bookmarks included. A same-version build shows "Reinstall"; an older one
    "Downgrade" (used to measure v12.14 against v12.15 live, then reinstalled).
 4. Verify on a supported site: `[data-acn-version]` (DEC-027). It cannot tell two builds of one version apart, so
-   also compare the served file's `shasum` with the branch's.
+   also compare the served file's `shasum` with the branch's. The `ask.html` tab closing after the press is the
+   first sign the install went through.
 
 **Measuring** (page realm, through claude-in-chrome's `javascript_tool`):
 - Check `innerWidth`, `innerHeight` and `document.visibilityState` first. One tab reported a 0×0 viewport and timed
@@ -1697,13 +1705,28 @@ only.
   page load); log a marker of your own to confirm the channel, and count by timestamp.
 - Editing a text node does not trigger the navigator's scan, so a synthetic DOM edit does not test staleness.
 - GET reads of a site's own JSON (the requests the script makes) are fine; never send, edit, regenerate or delete.
+- `Runtime.evaluate … timed out after 45000ms … The renderer may be frozen or unresponsive` does not mean the page
+  died. On Gemini it came while the page rendered a page of history (it blocks for roughly 4.6 s per load) or while
+  polls overlapped [Chrome + Tampermonkey, the owner's profile, 2026-10-31]. Re-read the `window` variable, and poll
+  one call at a time.
+- Return one string (`JSON.stringify` it yourself): a script that returned a live structure failed with "Object
+  reference chain is too long".
+- `read_network_requests` records only requests made after its first call in that tab, and lists URL, method and
+  status without response bodies.
+- The tool redacts what it returns: hrefs come back as `[BLOCKED: Base64 encoded data]`, and some attribute strings
+  as `[BLOCKED: Cookie/query string data]`. Click by index, and log names and lengths instead of values.
 
 **Test bookmarks.** Read the conversation's existing bookmarks first; create test ones through the flags; delete
 exactly those through each card's ✕ (no dialog). Never use "Remove all": it opens a `window.confirm` dialog, which
 blocks the browser tools, and it would delete the owner's bookmarks too.
 
 **The connection.** If `tabs_context_mcp` reports no extension, launch Chrome and retry; on 2026-10-25 it connected
-only after the owner signed in to the extension again (reported to the Claude Code team through `/feedback`).
+only after the owner signed in to the extension again (reported to the Claude Code team through `/feedback`). It recurred
+on 2026-10-31 (v12.16), down for about 30+ minutes: `list_connected_browsers` returned `[]` and `switch_browser` found no
+browser while Chrome was running. Launching Chrome, opening a window through AppleScript and confirming the screen was
+unlocked did not help; `chrome-native-host` from `/Applications/Claude.app` was running throughout (whether it held the
+connection was not established). It reconnected only after the owner signed in to the extension and authorized it
+again. In this shape, ask the owner early and do the offline work meanwhile.
 
 ## Limitations and Caveats
 
@@ -1728,6 +1751,7 @@ only after the owner signed in to the extension again (reported to the Claude Co
 | Which transport a real manager lets through (v12.9) | The harness inlines the script into the page realm; `GM_xmlhttpRequest` is a shim and `fetch` is the page's. Whether a manager's `GM_xmlhttpRequest` carries the session (Userscripts' does not) only exists in the real extension | `probes/check-transport-ladder.js` proves the ladder's *decisions*; the owner's live check on Safari, Firefox and Chrome proves the *credentials*. The `[ACN] index: transport=…` console lines are the evidence |
 | Claude's answer markup and what a flag looks like (v12.14) | `tests/mock-pages/claude-virtualized.html` models October 2026's answers (`answerTestid`), the activity line (`answerHeaders`) and the project link (`decoy`) from one Chrome measurement; it does not recycle nodes (R6 moves them by hand), and DOM counts are not what the user sees on hover | `probes/check-answer-bookmarks.js` proves placement, labels, proof and the jump in the page realm; the owner's acceptance on Safari, Chrome and Firefox (DEC-031) proves the live markup and the visible flags |
 | How a live site renders a question's markdown (v12.15) | Mock bubbles hold the plain `query_str`; live, Perplexity shows images and links as their text, tables, lists and headings without their markers, and a "Read more" button, so a compare that passed every mock never matched one live question | `check-ix-jumps` J16 models the renderings measured live; the agent's live Chrome check (above) runs before every PR |
+| Where Claude's pinned tail sits (v12.16) | Without `tailAtEnd`, `claude-virtualized.html` appended the pinned tail rows right after the mounted window, so from the top row 292 started at 2,792 px and moved down with every scroll. v12.15 and the fix both failed F1 there: v12.15 stopped with the target 16,087 px below, and the fix chased the tail with 4 writes to 30,646 px, hit the cap and showed a toast. A mock that differs from live geometry made a correct fix look broken | `tailAtEnd: true` (off by default) puts the tail after `#mock-spacer-bottom`: row 292 starts at 330,542 px, v12.15 then ends at the bottom with Q147 3,018 px above the view (the live shape; live it was 1,136 px) and the fix lands at 0 px. `check-claude-far-jump`'s precondition P3 reports INVALID on the mock without it (DEC-055) |
 | Cross-browser differences | Chromium, Playwright-Gecko and Playwright-WebKit are all run, locally and in CI (WebKit locally since 2026-10-22) | `npx playwright install webkit`, then `--browser webkit`. Note none of these are the Tampermonkey sandbox — see the Firefox scope note above |
 
 ### The `--single-process` flag

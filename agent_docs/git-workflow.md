@@ -18,6 +18,13 @@
 
 - All changes go through PRs with clear descriptions
 - PRs are reviewed via CI (cross-platform tests) and Claude Code automated review
+- **A GitHub Codex "clean" signal can belong to an older commit.** On PR #90 the babysit poll reported
+  `CLEAN … signal=thumbs-up` against head `e252bd4`'s cutoff, but the 👍 and the summary's `commit_sha` were the
+  review of `efbe143`: the docs commits were pushed while that review ran. Before calling a round clean, confirm the
+  summary's `commit_sha` (the "Commit" column) is the head; if it is not, post `@codex review` again
+- Local Codex CLI rounds (the review pipeline's Tier 3, `gpt-5.6-terra` at `xhigh`) took about 3.5–11 minutes each on
+  v12.16. Run them in the background and wait on the `-o` output file: a 600 s foreground wait timed out. Uncommitted
+  files from parallel agents re-triggered the Stop hook mid-pipeline
 - Ensure the full suite (`npm test`) and the probes (`npm run test:probes`) pass before requesting merge
 - **List anything you cannot test yourself as owner acceptance in the PR** (today: Safari + Userscripts). Never
   report it as verified (CLAUDE.md, measurement context)
