@@ -15050,7 +15050,10 @@
         for (i = 0; i < (_ix.entries || []).length; i++) if (!answered[i]) unanswered++;
         for (i = 0; i < allAns.length; i++) {
             var mEl = allAns[i].key && a ? _bmIxFind(a, allAns[i].key, 'ai-msg') : null;
-            if (mEl && _readAIText(mEl).length > _mdVisible(allAns[i].text || '').length + 20) grown++;
+            // The same margin as the index's own staleness rule: a rendered answer carries labels its markdown
+            // has not ("Thought for 21s", code block headers), so a settled 49-question chat read one answer
+            // as "longer than the loaded history" at a 20-char margin (live, Chrome, 2026-11-01).
+            if (mEl && _readAIText(mEl).length > _mdVisible(allAns[i].text || '').length + IX_ANSWER_GROWTH) grown++;
         }
         var partial = _ix.truncated || _ix.refreshFailed || newer || noText || unanswered || grown;
         lines.push('**Source:** ' + (partial ? 'conversation history (API) \u2014 see warning below'
