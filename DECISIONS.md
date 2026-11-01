@@ -1306,6 +1306,12 @@ review record. Updated 2026-10-31:
     the dots 40 green; a `claude-opus-5-5` chat 61%, "~607.6K / 1M", 40 green dots; the Gemini note at 10, 20 and 30,
     gone at 32. It also found Gemini's Q32 from the top 4,240 px short on a not-yet-rendered chat (2 of 4); fixed in
     `095a66c` (DEC-057) and rechecked live: Q32 from the top 2 of 2, Q1 from the bottom and Q16 from the top landed.
+    **The final live test on the final build `5bcd18d`** (after GitHub Codex's two rounds; installed by Reinstall,
+    `shasum` matching): Claude, Navigate → Q140 from the top 3 of 3 and the Q#140 test bookmark 3 of 3, fully in view
+    (deleted afterwards); Q70 from the top and Q5 from the bottom landed; the meter 35%, "~353.6K / 1M tokens (est.)",
+    `claude-opus-5`, 40 green dots. Gemini, the 32-question chat from a fresh load: the note at 10, 20 and 30 loaded,
+    gone at 32; Q32 from the top (twice), Q1 from the bottom and Q16 from the top landed fully in view with 8 turns
+    still unrendered and `scrollHeight` unchanged.
   <!-- V12.16 ACCEPTANCE: filled in by the integrator, as reported -->
 - **v12.15 (PR #88, merged 2026-10-31 as `6baac2e` before acceptance, a waiver; ChatGPT and Perplexity jumps and
   bookmarks, Claude rows by `data-turn-key`; DEC-052, DEC-053, DEC-054).** Owner acceptance on Safari + Userscripts,

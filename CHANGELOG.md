@@ -75,6 +75,10 @@ One combined PR in three parts, from the owner's spec (2026-10-31). Grok is out 
   fails intermittently here (TROUBLESHOOTING, the J15 entry). `check-usage-state` U10 did not time out this time.
 - **After the Gemini landing fix** (`095a66c`, same Mac): `npm test` chromium 560/560; every probe on chromium passed,
   J15 included this time; the three new gates passed on firefox and webkit too.
+- **GitHub Codex** (PR #90): clean on the PR's opening head and on `e252bd4`; then, after the Gemini landing, two P2
+  findings, both fixed (`61365d8`: a direct glide on Gemini supersedes a far landing; `5bcd18d`: a chat switch ends
+  one), and clean twice on `5bcd18d`. `npm test` chromium 560/560 and the Gemini and far-jump gates after each fix.
+- **The final live test** on `5bcd18d` (the agent's Chrome + Tampermonkey; not owner acceptance): DEC-031.
 
 ### Logged, not fixed (ROADMAP 12, 13, 14)
 
