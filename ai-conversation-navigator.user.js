@@ -3388,6 +3388,26 @@
         return _ix.cid === a.getConversationId() ? a : null;
     }
 
+    // The open conversation in order, from the ready index (v12.17), or null: every listed
+    // question and every answer with text, each { type: 'user' | 'ai', text (markdown), pos (one
+    // scale for both), qIdx (the Navigate index of the question, or of the one it answers; -1),
+    // key (the bookmark key, or null) }. Export and Summary read it; Search reads the same fields.
+    function ixConversation() {
+        if (!ixReadyAdapter() || !_ix.entries) return null;
+        var out = [], i, e, an = _ix.answers || [];
+        for (i = 0; i < _ix.entries.length; i++) {
+            e = _ix.entries[i];
+            out.push({ type: 'user', text: e.text || '', pos: e.position, qIdx: i,
+                       key: e.hasUuid === false ? null : e.id, n: out.length });
+        }
+        for (i = 0; i < an.length; i++) {
+            if (!(an[i].text || '').trim()) continue;
+            out.push({ type: 'ai', text: an[i].text, pos: an[i].pos, qIdx: an[i].q, key: an[i].key, n: out.length });
+        }
+        out.sort(function (a, b) { return (a.pos - b.pos) || (a.n - b.n); });
+        return out;
+    }
+
     function ixDegrade(err, keep) {
         var reason = (err && err.reason) || 'unknown';
         // The load failed, so the stale signature that triggered it was NOT acted on:
@@ -14287,12 +14307,67 @@
         showToast('Saved: conversation-export.md (' + (path.length + pending.length) + ' messages)');
     }
 
+    // ChatGPT and Perplexity from their index (v12.17): every question and answer in order, the
+    // header counting exactly what the body holds. v12.16 wrote the DOM scan under an index-counted
+    // header: "Messages: 4 (49 user, 0 AI)" over 4 questions and no answer on ChatGPT, "24 (12 user,
+    // 22 AI)" over 2 questions and 22 answer fragments on Perplexity (Chrome, 2026-11-01).
+    function _exportFromIx() {
+        var conv = ixConversation() || [];
+        var users = 0, ais = 0, i;
+        for (i = 0; i < conv.length; i++) { if (conv[i].type === 'user') users++; else ais++; }
+        // A mounted question the index does not hold: sent after the snapshot. Named, not hidden.
+        var newer = 0, a = ixReadyAdapter(), mounted = a && a.mounted ? a.mounted() : [];
+        for (i = 0; i < mounted.length; i++) if (mounted[i].pos < 0) newer++;
+        var lines = [];
+        lines.push('# Conversation Export');
+        lines.push('**Platform:** ' + platform.title);
+        lines.push('**Date:** ' + new Date().toISOString().split('T')[0]);
+        lines.push('**Messages:** ' + conv.length + ' (' + users + ' user, ' + ais + ' AI)');
+        var partial = _ix.truncated || _ix.refreshFailed || newer;
+        lines.push('**Source:** ' + (partial ? 'conversation history (API) \u2014 see warning below'
+                                            : 'complete conversation history (API)'));
+        if (_ix.truncated) {
+            lines.push('');
+            lines.push('> \u26a0 **Incomplete:** only the first ' + _ix.truncated + ' entries of this thread ' +
+                       'were loaded, so later messages are missing.');
+        }
+        if (_ix.refreshFailed) {
+            lines.push('');
+            lines.push('> \u26a0 **This is the last snapshot that loaded successfully.** A refresh failed (' +
+                       _ix.refreshFailed + '), so messages edited or sent since may be missing or out of date.');
+        }
+        if (newer) {
+            lines.push('');
+            lines.push('> \u26a0 **' + newer + ' message' + (newer !== 1 ? 's' : '') + ' on screen ' +
+                       (newer !== 1 ? 'are' : 'is') + ' newer than the loaded history** and not in this file. ' +
+                       'Export again in a moment.');
+        }
+        lines.push('');
+        lines.push('---');
+        var qn = 0, an = 0;
+        for (i = 0; i < conv.length; i++) {
+            lines.push('');
+            if (conv[i].type === 'user') { qn++; lines.push('## User (Q#' + qn + ')'); }
+            else                         { an++; lines.push('## Assistant (A#' + an + ')'); }
+            lines.push('');
+            lines.push(conv[i].text || '*(no text content)*');
+            lines.push('');
+            lines.push('---');
+        }
+        downloadFile('conversation-export.md', lines.join('\n'));
+        showToast('Saved: conversation-export.md (' + conv.length + ' messages)');
+    }
+
     function exportFullConversation() {
         try {
         // Prefer the complete index; fall back to the DOM scan, which on a
         // virtualized platform can only see what is mounted.
         if (ciIsClaudeChat() && ciIsReady() && _ciFullPath && _ciFullPath.length) {
             _exportFromIndex();
+            return;
+        }
+        if (ixReadyAdapter() && _ix.entries) {
+            _exportFromIx();
             return;
         }
         var questions = typeof _questions !== 'undefined' ? _questions : [];
@@ -14311,17 +14386,34 @@
         lines.push('# Conversation Export');
         lines.push('**Platform:** ' + platformTitle);
         lines.push('**Date:** ' + dateStr);
+        // The header counts what the body holds (v12.17): the timeline keeps only mounted
+        // questions, so counting _questions claimed messages the file did not have.
+        var tlUsers = 0;
+        for (var tu = 0; tu < timeline.length; tu++) if (timeline[tu].type === 'user') tlUsers++;
         lines.push('**Messages:** ' + timeline.length +
-            ' (' + questions.length + ' user, ' + aiMsgsArr.length + ' AI)');
+            ' (' + tlUsers + ' user, ' + (timeline.length - tlUsers) + ' AI)');
         // Never let a DOM-scraped export imply completeness on a platform that
-        // only mounts a window of the conversation.
-        if (ciIsClaudeChat()) {
+        // only mounts a window of the conversation: Claude, and since v12.17 ChatGPT and
+        // Perplexity, whose index failed or has not loaded yet.
+        var ixD = ixAdapter(), ixOn = !!(ixD && ixD.getConversationId());
+        if (ciIsClaudeChat() || ixOn) {
+            var why = ciIsClaudeChat() ? _ciDegradedReason
+                    : (_ix.status === 'degraded' ? _ix.reason : 'the history is still loading');
             lines.push('**Source:** on-screen messages only — DEGRADED');
             lines.push('');
             lines.push('> \u26a0 **This export is incomplete.** The full conversation history could ' +
-                       'not be loaded' + (_ciDegradedReason ? ' (' + _ciDegradedReason + ')' : '') +
+                       'not be loaded' + (why ? ' (' + why + ')' : '') +
                        ', so only messages currently rendered on screen are included. ' +
-                       'Claude renders roughly 3\u20135 turns at a time.');
+                       (ciIsClaudeChat() ? 'Claude renders roughly 3\u20135 turns at a time.'
+                                         : platform.title + ' shows only part of a long conversation at a time.'));
+        } else if (gmHistPartial()) {
+            // Gemini keeps every turn it has loaded, and loads older ones as the view reaches the
+            // top (DEC-057): until the start is loaded, this file is the latest part only.
+            lines.push('**Source:** the loaded part of the conversation \u2014 see warning below');
+            lines.push('');
+            lines.push('> \u26a0 **Older messages were not loaded.** Gemini loads a long chat\u2019s history ' +
+                       'as you scroll up, so this file starts part-way through the conversation. Scroll to ' +
+                       'the top of the chat until nothing more loads, then export again.');
         }
         lines.push('');
         lines.push('---');
