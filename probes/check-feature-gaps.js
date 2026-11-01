@@ -142,6 +142,8 @@ const HELPERS = `(function () {
             seg.click(); return seg.className + ': ' + seg.textContent.slice(0, 60);
         },
         gallery: async function () {
+            // Through another panel, so an open Tools panel is drawn afresh, not toggled shut.
+            document.getElementById('acn-dot-nav').click(); await S(200);
             document.getElementById('acn-dot-tools').click(); await S(500);
             var G = document.getElementById('acn-gallery-section');
             return { header: (G.querySelector('.acn-tool-section-header') || {}).textContent || '',
@@ -183,6 +185,17 @@ const HELPERS = `(function () {
     };
 }())`;
 
+// The export's headings in order, and whether they alternate Q#1, A#1, Q#2, A#2 ... to the end.
+function exportOrder(f, n) {
+    const h = (f.match(/^## (User \(Q#\d+\)|Assistant \(A#\d+\))/gm) || []);
+    let ok = h.length === 2 * n;
+    for (let i = 0; ok && i < n; i++) {
+        ok = h[2 * i] === '## User (Q#' + (i + 1) + ')' && h[2 * i + 1] === '## Assistant (A#' + (i + 1) + ')';
+    }
+    return { ok, count: h.length };
+}
+const aiChars = (t) => parseInt(((t.match(/AI: ([0-9,]+) chars/) || [0, '0'])[1]).replace(/,/g, ''), 10);
+
 // Waits for a jump to finish: a resolution or a toast, then the scroller still for 800 ms.
 async function settle(pg, scSel, ms) {
     try {
@@ -208,6 +221,10 @@ function gptTurns() {
         if (i === 1) { q += ' quokka'; a += ' ocelot'; }
         if (i === 4) { q += ' lemur'; a += ' lemur'; }
         if (i === 19) q += ' lemur';
+        // Turn 6's answer has two shown text nodes, and the page names the FIRST on its unit (live: a
+        // "fallback-turn-0" turn showing Q45's first node, Chrome, 2026-11-01). aid is what the DOM
+        // names; lastAid is the turn's last shown node, the index's key for the answer.
+        if (i === 5) return { id: uuid(i), text: q, aid: uuid(i, 'dddddddd'), lastAid: uuid(i, 'cccccccc'), answer: a };
         return { id: uuid(i), text: q, aid: uuid(i, 'cccccccc'), answer: a };
     });
 }
@@ -228,6 +245,11 @@ function gptMapping(T) {
         add(t.id, prev, { id: t.id, author: { role: 'user' }, content: { content_type: i === 2 ? 'multimodal_text' : 'text', parts }, metadata: meta });
         add(t.aid, t.id, { id: t.aid, author: { role: 'assistant' }, recipient: 'all', content: { content_type: 'text', parts: [t.answer] }, metadata: {} });
         prev = t.aid;
+        if (t.lastAid) {
+            add(t.lastAid, t.aid, { id: t.lastAid, author: { role: 'assistant' }, recipient: 'all',
+                                    content: { content_type: 'text', parts: ['and the second part of answer ' + (i + 1)] }, metadata: {} });
+            prev = t.lastAid;
+        }
     });
     return { title: 'probe', conversation_id: GPT_CONV, mapping: m, current_node: prev };
 }
@@ -387,13 +409,14 @@ function claudeXhr(payload) {
         } catch (e) { return false; }
     }
 
+    const ready = (o) => o.ready;
     console.log('check-feature-gaps — engine=' + engine + ', script=' + path.basename(scriptPath));
 
     // ── ChatGPT ─────────────────────────────────────────────────────────────────────────────
-    async function gptOpen(failApi) {
+    async function gptOpen(failApi, store) {
         const T = gptTurns();
         const url = 'https://chatgpt.com/c/' + GPT_CONV;
-        const html = page('chatgpt-windowed.html', raw, { turns: T, bmModel: { h: 420, window: 6 } });
+        const html = page('chatgpt-windowed.html', raw, { turns: T, bmModel: { h: 420, window: 6 } }, store);
         const api = (u) => {
             if (u.endsWith('/api/auth/session')) return { status: 200, body: JSON.stringify({ accessToken: 'tok', expires: '2099-01-01T00:00:00.000Z' }) };
             if (u.indexOf('/backend-api/conversation/' + GPT_CONV) !== -1) return failApi ? { status: 500, body: '{}' } : { status: 200, body: JSON.stringify(gptMapping(T)) };
@@ -442,11 +465,10 @@ function claudeXhr(payload) {
             if (want('C3')) {
                 const f = await pg.evaluate("window.__h.exportFull()") || '';
                 const users = (f.match(/^## User \(Q#/gm) || []).length, ais = (f.match(/^## Assistant \(A#/gm) || []).length;
-                const heads = (f.match(/^## (User|Assistant)/gm) || []).slice(0, 4).join('|');
-                check('C3', 'new', 'ChatGPT full export: every question and answer, in order, the header counting the body',
-                      /\*\*Messages:\*\* 48 \(24 user, 24 AI\)/.test(f) && users === 24 && ais === 24 && /ocelot/.test(f) &&
-                      heads === '## User|## Assistant|## User|## Assistant',
-                      'header=' + ((f.match(/\*\*Messages:\*\*[^\n]*/) || [''])[0]) + ' body=' + users + '/' + ais + ' order=' + heads);
+                const ord = exportOrder(f, 24);
+                check('C3', 'new', 'ChatGPT full export: every question and answer, in order (Q#1, A#1 ... Q#24, A#24), the header counting the body',
+                      /\*\*Messages:\*\* 48 \(24 user, 24 AI\)/.test(f) && users === 24 && ais === 24 && /ocelot/.test(f) && ord.ok,
+                      'header=' + ((f.match(/\*\*Messages:\*\*[^\n]*/) || [''])[0]) + ' body=' + users + '/' + ais + ' in order=' + ord.ok);
             }
             if (want('C5')) {
                 const t = await pg.evaluate("window.__h.summary()");
@@ -458,8 +480,9 @@ function claudeXhr(payload) {
                 const m = await pg.evaluate((k) => Object.assign(window.__h.inView(document.getElementById('mock-scroller'),
                     document.querySelector('#mock-scroller [data-turn-key="' + k + '"] [data-user-message-bubble="true"]')),
                     { resolved: document.getElementById('acn-zone').getAttribute('data-acn-jump-resolved') }), o.T[0].id);
-                check('C5', 'new', 'ChatGPT Summary: complete and in order; the first segment, clicked from the bottom, lands on Q#1',
-                      /Total turns: 48 \(24 user, 24 AI\)/.test(t) && /^msgs 1–/.test(first) && m.inView && m.resolved === '0',
+                // Every answer's text is analysed, the unmounted ones included: 24 answers of about 60 chars.
+                check('C5', 'new', 'ChatGPT Summary: complete (24 answers\' text counted) and in order; the first segment, clicked from the bottom, lands on Q#1',
+                      /Total turns: 48 \(24 user, 24 AI\)/.test(t) && aiChars(t) > 24 * 50 && /^msgs 1–/.test(first) && m.inView && m.resolved === '0',
                       ((t.match(/Total turns:[^\n]*/) || [''])[0]) + ' first=' + first + ' landing=' + JSON.stringify(m));
             }
             if (want('C6')) {
@@ -471,13 +494,56 @@ function claudeXhr(payload) {
                 const m = await pg.evaluate((k) => Object.assign(window.__h.inView(document.getElementById('mock-scroller'),
                     document.querySelector('#mock-scroller [data-turn-key="' + k + '"] [data-user-message-bubble="true"]')),
                     { resolved: document.getElementById('acn-zone').getAttribute('data-acn-jump-resolved') }), o.T[2].id);
-                check('C6', 'new', 'ChatGPT gallery: the far Q3\'s two images listed from the index (placeholders, named); a click lands on Q#3',
-                      okCards && m.inView && m.resolved === '2', JSON.stringify(g.cards.map((c) => c.label + '/' + c.thumb)) + ' landing=' + JSON.stringify(m));
+                const fetched = o.requests.filter((u) => /backend-api\/(files|estuary)/.test(u)).length;
+                check('C6', 'new', 'ChatGPT gallery: the far Q3\'s two images listed from the index (placeholders, named), nothing requested for them; a click lands on Q#3',
+                      okCards && fetched === 0 && m.inView && m.resolved === '2',
+                      JSON.stringify(g.cards.map((c) => c.label + '/' + c.thumb)) + ' image requests=' + fetched + ' landing=' + JSON.stringify(m));
+                // Q3 is mounted now. The page shows its images as blob: URLs it made itself (live): the
+                // gallery uses those, and only those, as real thumbnails.
+                const shown = await pg.evaluate(async (k) => {
+                    const turn = document.querySelector('#mock-scroller [data-turn-key="' + k + '"]');
+                    if (!turn) return 0;
+                    const c = document.createElement('canvas'); c.width = 80; c.height = 60;
+                    c.getContext('2d').fillRect(0, 0, 80, 60);
+                    const blob = await new Promise((r) => c.toBlob(r));
+                    for (let n = 0; n < 2; n++) {
+                        const im = document.createElement('img');
+                        im.src = URL.createObjectURL(blob);
+                        turn.insertBefore(im, turn.firstChild);
+                        await new Promise((r) => { im.onload = r; im.onerror = r; });
+                    }
+                    return turn.querySelectorAll('img').length;
+                }, o.T[2].id);
+                const g2 = await pg.evaluate("window.__h.gallery()");
+                check('C8', 'new', 'ChatGPT gallery: with Q3 mounted and its two images shown by the page (blob:), both cards show the page\'s thumbnail',
+                      shown === 2 && g2.cards.length === 2 && g2.cards.every((c) => c.thumb === 'page'), 'page images=' + shown + ' ' + JSON.stringify(g2.cards.map((c) => c.thumb)));
             }
         } finally {
             if (showLogs) console.log(o.logs.filter((l) => /ACN/.test(l)).slice(-40).join('\n'));
             await o.context.close();
         }
+    }
+    if (want('C7')) {
+        // A record saved the way v12.16 saved it, on turn 6's answer: keyed by the node its unit names.
+        const T = gptTurns();
+        const store = { 'acn-bookmarks-v1': JSON.stringify({ ['https://chatgpt.com/c/' + GPT_CONV]: { bookmarks: [{
+            id: 'bm_fallback', schema: 2, entityType: 'ai-msg', contentHash: T[5].aid, msgUuid: T[5].aid,
+            preview: 'Answer 6: the window holds a few turns', msgIndex: 5, createdAt: 1, platform: 'chatgpt.com' }] } }) };
+        const o = await gptOpen(false, store);
+        try {
+            const pg = o.pg;
+            const b = await pg.evaluate("window.__h.bookmarks()");
+            await pg.evaluate(() => window.__mockWindow.userScrollTo(5));
+            await pg.waitForTimeout(1500);
+            const f = await pg.evaluate((k) => {
+                const u = document.querySelector('#mock-scroller [data-turn-key="' + k + '"] [data-content-search-unit-key$=":assistant"]');
+                const fl = u && u.querySelector('[data-acn-bookmark]');
+                return fl ? { key: fl.getAttribute('data-acn-bookmark'), lit: fl.classList.contains('acn-bm-active') } : null;
+            }, T[5].id);
+            check('C7', 'new', 'ChatGPT: an answer whose unit names its turn\'s first text node is the indexed answer: the flag carries the index\'s key, lit for a record saved under the first node, labelled "Answer to Q#6"',
+                  ready(o) && b.length === 1 && b[0].label === 'Answer to Q#6' && f && f.key === T[5].lastAid && f.lit,
+                  'panel=' + JSON.stringify(b) + ' flag=' + JSON.stringify(f) + ' indexKey=' + T[5].lastAid);
+        } finally { await o.context.close(); }
     }
     if (want('C4')) {
         const o = await gptOpen(true);
@@ -532,14 +598,16 @@ function claudeXhr(payload) {
             if (want('P3')) {
                 const f = await pg.evaluate("window.__h.exportFull()") || '';
                 const users = (f.match(/^## User \(Q#/gm) || []).length, ais = (f.match(/^## Assistant \(A#/gm) || []).length;
+                const ord = exportOrder(f, 12);
                 check('P3', 'new', 'Perplexity full export: 12 questions and 12 answers in order, the header counting the body, no "Finished"',
-                      /\*\*Messages:\*\* 24 \(12 user, 12 AI\)/.test(f) && users === 12 && ais === 12 && /manifest/.test(f) && !/Finished/.test(f),
-                      'header=' + ((f.match(/\*\*Messages:\*\*[^\n]*/) || [''])[0]) + ' body=' + users + '/' + ais);
+                      /\*\*Messages:\*\* 24 \(12 user, 12 AI\)/.test(f) && users === 12 && ais === 12 && ord.ok && /manifest/.test(f) && !/Finished/.test(f),
+                      'header=' + ((f.match(/\*\*Messages:\*\*[^\n]*/) || [''])[0]) + ' body=' + users + '/' + ais + ' in order=' + ord.ok);
             }
             if (want('P4')) {
                 const t = await pg.evaluate("window.__h.summary()");
-                check('P4', 'new', 'Perplexity Summary: 12 user and 12 AI messages, no "Finished"',
-                      /Total turns: 24 \(12 user, 12 AI\)/.test(t) && !/Finished/.test(t), (t.match(/Total turns:[^\n]*/) || [''])[0]);
+                check('P4', 'new', 'Perplexity Summary: 12 user and 12 AI messages, every answer\'s text counted, no "Finished"',
+                      /Total turns: 24 \(12 user, 12 AI\)/.test(t) && aiChars(t) > 12 * 30 && !/Finished/.test(t),
+                      ((t.match(/Total turns:[^\n]*/) || [''])[0]) + ' AI chars=' + aiChars(t));
             }
             if (want('P5')) {
                 const g = await pg.evaluate("window.__h.gallery()");
@@ -560,6 +628,25 @@ function claudeXhr(payload) {
                 check('P6', 'new', 'Perplexity: an answer bookmark saved with the "Finished" label shows its text without it',
                       b.length === 1 && !/^Finished/.test(b[0].text) && /^Answer 12/.test(b[0].text), JSON.stringify(b));
             }
+        } finally { await o.context.close(); }
+    }
+
+    if (want('P7')) {
+        // The thread's index fails: the DOM fallback writes what is mounted, stamped, without the label.
+        const E = pplxEntries();
+        const url = 'https://www.perplexity.ai/search/' + PPLX_CONV;
+        const html = page('perplexity-windowed.html', raw,
+            { entries: E.map((e) => ({ text: e.query_str, answer: e.answer })), bmModel: { q: 100, a: 500, around: 1, finished: true } });
+        const o = await open(url, html, (u) => u.indexOf('/rest/thread/') !== -1 ? { status: 500, body: '{}' } : null);
+        try {
+            const t0 = Date.now();
+            while (Date.now() - t0 < 15000 && !o.logs.some((l) => /falling back to DOM scan/.test(l))) await o.pg.waitForTimeout(200);
+            await o.pg.waitForTimeout(800);
+            const f = await o.pg.evaluate("window.__h.exportFull()") || '';
+            const ais = (f.match(/^## Assistant \(A#/gm) || []).length;
+            check('P7', 'new', 'Perplexity with its index failed: the DOM export is stamped DEGRADED, one section per mounted answer, no "Finished"',
+                  /DEGRADED/.test(f) && ais >= 1 && ais <= 4 && !/Finished/.test(f),
+                  ((f.match(/\*\*Messages:\*\*[^\n]*/) || ['(none)'])[0]) + ' answers=' + ais + ' finished=' + /Finished/.test(f));
         } finally { await o.context.close(); }
     }
 
@@ -659,14 +746,41 @@ function claudeXhr(payload) {
         const store = { 'acn-bookmarks-v1': JSON.stringify({ [url]: { bookmarks: [rec('bm_proof', 4, gmQuestion(5)), rec('bm_wrong', 6, gmQuestion(5))] } }) };
         const o = await gmOpen({}, store);
         try {
+            // While only the newest page is loaded, nothing binds: the place and the uniqueness are not the
+            // whole chat's yet (Q5 is not even loaded).
+            await o.pg.waitForTimeout(1500);
+            const early = await o.pg.evaluate(() => JSON.parse(window.__acnStore()['acn-bookmarks-v1'] || '{}'));
+            const earlyBound = (((early[url] || {}).bookmarks) || []).filter((r) => r.msgUuid).length;
             await gmLoadPages(o.pg);
             const b = await o.pg.evaluate("window.__h.bookmarks()");
             const st = await o.pg.evaluate(() => JSON.parse(window.__acnStore()['acn-bookmarks-v1'] || '{}'));
             const recs = (st[url] || {}).bookmarks || [];
             const proof = recs.find((r) => r.id === 'bm_proof') || {}, wrong = recs.find((r) => r.id === 'bm_wrong') || {};
             check('G6', 'new', 'Gemini: a positional record binds to its turn only on proof ("Q#5"); one that does not prove reads "Q#?"',
-                  proof.msgUuid === gmTurnIdNode(5) && !wrong.msgUuid && b.map((x) => x.label).sort().join('|') === 'Q#5|Q#?',
-                  'labels=' + b.map((x) => x.label).join('|') + ' proof.msgUuid=' + proof.msgUuid + ' turn5=' + gmTurnIdNode(5) + ' (preview ' + JSON.stringify(q5.slice(0, 10)) + ')');
+                  earlyBound === 0 && proof.msgUuid === gmTurnIdNode(5) && !wrong.msgUuid && b.map((x) => x.label).sort().join('|') === 'Q#5|Q#?',
+                  'bound while partial=' + earlyBound + ' labels=' + b.map((x) => x.label).join('|') + ' proof.msgUuid=' + proof.msgUuid + ' turn5=' + gmTurnIdNode(5) + ' (preview ' + JSON.stringify(q5.slice(0, 10)) + ')');
+        } finally { await o.context.close(); }
+    }
+    if (want('G9')) {
+        // A record made on Q5 with the whole history loaded (msgIndex 4), in a chat where Q27 asks Q5's
+        // question word for word. At load only turns 23-32 are in, and Q27 sits at index 4 with the same
+        // text: a proof run then would bind the record to Q27. Nothing may bind before the start is
+        // loaded, and once it is, the repeat makes the record unprovable: "Q#?" (Tier 3).
+        const url = 'https://gemini.google.com/app/' + GM_CHAT;
+        const rec = { id: 'bm_dup', schema: 1, entityType: 'user-msg', contentHash: contentHash(gmQuestion(5), 4), msgUuid: null,
+                      preview: gmQuestion(5).substring(0, 120), msgIndex: 4, createdAt: 1, platform: 'gemini.google.com' };
+        const o = await gmOpen({ sameText: { 27: 5 } }, { 'acn-bookmarks-v1': JSON.stringify({ [url]: { bookmarks: [rec] } }) });
+        try {
+            await o.pg.waitForTimeout(1500);
+            const early = await o.pg.evaluate(() => JSON.parse(window.__acnStore()['acn-bookmarks-v1'] || '{}'));
+            const e0 = ((early[url] || {}).bookmarks || [])[0] || {};
+            await gmLoadPages(o.pg);
+            const b = await o.pg.evaluate("window.__h.bookmarks()");
+            const st = await o.pg.evaluate(() => JSON.parse(window.__acnStore()['acn-bookmarks-v1'] || '{}'));
+            const r = ((st[url] || {}).bookmarks || [])[0] || {};
+            check('G9', 'new', 'Gemini: a positional record is never bound while history is partial (Q27 repeats its Q5 there), and the repeat leaves it "Q#?"',
+                  !e0.msgUuid && !r.msgUuid && b.length === 1 && b[0].label === 'Q#?',
+                  'bound at load=' + (e0.msgUuid || null) + ' (turn27=' + gmTurnIdNode(27) + ') after=' + (r.msgUuid || null) + ' label=' + (b[0] || {}).label);
         } finally { await o.context.close(); }
     }
     if (['G7', 'G8'].some(want)) {
@@ -703,11 +817,17 @@ function claudeXhr(payload) {
     }
 
     // ── Claude ──────────────────────────────────────────────────────────────────────────────
-    if (['L1', 'L2', 'L3'].some(want)) {
+    if (['L1', 'L2', 'L3', 'L5', 'L6'].some(want)) {
         const { payload, truth } = claudePayload();
         const cfg = { totalMessages: CL_TURNS * 2, tailRows: 3, answerTestid: true, answerHeaders: true,
                       turnKeys: truth.slice(), perfRow: true, tailAtEnd: true };
-        const html = page('claude-virtualized.html', raw, cfg, null, claudeXhr(payload));
+        // Bookmarks on Q147's answer, Q100 and Q100's answer (schema 2, by uuid), for L4-L6.
+        const bm = (id, row, type) => ({ id, schema: 2, entityType: type, contentHash: truth[row], msgUuid: truth[row],
+                                         preview: 'p', msgIndex: 0, createdAt: row, platform: 'claude.ai',
+                                         pendingHash: null, pendingSender: null, pendingOrdinal: -1, pendingRow: -1 });
+        const clStore = { 'acn-bookmarks-v1': JSON.stringify({ [CL_URL]: { bookmarks: [
+            bm('bm_a147', 293, 'ai-msg'), bm('bm_q100', 198, 'user-msg'), bm('bm_a100', 199, 'ai-msg')] } }) };
+        const html = page('claude-virtualized.html', raw, cfg, clStore, claudeXhr(payload));
         const o = await open(CL_URL, html, null);
         const SC = '#mock-scroll-container';
         try {
@@ -726,8 +846,9 @@ function claudeXhr(payload) {
                 await settle(pg, SC);
                 const m = await pg.evaluate(`Object.assign(window.__h.inView(document.querySelector('${SC}'), ${rowEl(198)}),
                     { resolved: document.getElementById('acn-zone').getAttribute('data-acn-jump-resolved') })`);
-                check('L1', 'new', 'Claude gallery: Q100\'s image listed from the index as "Q#100"; a click from the bottom lands on its row',
-                      g.cards.length === 1 && g.cards[0].label === 'Q#100' && m.resolved === '198' && m.inView,
+                const fetched = o.requests.filter((u) => /\/files\//.test(u)).length;
+                check('L1', 'new', 'Claude gallery: Q100\'s image listed from the index as "Q#100", nothing requested for it; a click from the bottom lands on its row',
+                      g.cards.length === 1 && g.cards[0].label === 'Q#100' && fetched === 0 && m.resolved === '198' && m.inView,
                       JSON.stringify(g.cards.map((c) => c.label + '/' + c.thumb)) + ' landing=' + JSON.stringify(m));
             }
             if (want('L2')) {
@@ -750,6 +871,41 @@ function claudeXhr(payload) {
                 const v = m.resolved !== null ? await pg.evaluate(`window.__h.inView(document.querySelector('${SC}'), document.querySelector('#mock-feed [data-index="${m.resolved}"]'))`) : { inView: false };
                 check('L3', 'guard', 'Claude Summary: the last segment, clicked from the top, lands on its first message',
                       m.resolved !== null && +m.resolved >= 200 && v.inView && !m.toasts.length, 'clicked ' + JSON.stringify(hit) + ' ' + JSON.stringify(Object.assign(m, v)));
+            }
+            // Bookmark jumps from the top: through the settle loop where the target cannot be placed from
+            // there, ending in a landing rather than an unchecked glide (v12.17).
+            // L4 (the last answer) is not here: it is mounted from the top and lands through v12.16's
+            // ciLandFar, which this PR did not change, and this measure puts it 218 px off on both builds
+            // (logged, ROADMAP 13). L5's short bubble lands on v12.16 too: a guard.
+            const bmRuns = [['L5', 'Q#100', 198, 'Q100', 'guard'], ['L6', 'Answer to Q#100', 199, 'Q100\'s answer', 'new']];
+            for (const [id, label, row, what, kind] of bmRuns) {
+                if (!want(id)) continue;
+                await toTop();
+                const clicked = await pg.evaluate((l) => window.__h.clickBookmark(l), label);
+                await settle(pg, SC, 30000);
+                // Where the marked target sits against where a landing puts it: a short one centred, one
+                // taller than 0.8 x the view at its start (ixLandOn). An unchecked glide centres a tall one.
+                // The landed element as check-claude-far-jump measures it (the mark itself does not survive
+                // the virtualizer re-rendering): an answer's row, a question's bubble; err is scrollTop minus
+                // the intended scrollTop, clamped at the scroll ends.
+                const m = await pg.evaluate(`(function () {
+                    var sc = document.querySelector('${SC}'), rowE = ${rowEl(row)};
+                    var land = rowE && (${row % 2} === 1 ? rowE : rowE.querySelector('[data-user-message-bubble="true"]'));
+                    var out = Object.assign(window.__h.inView(sc, rowE),
+                        { resolved: document.getElementById('acn-zone').getAttribute('data-acn-jump-resolved'), toasts: window.__acnToasts.slice(), err: null });
+                    if (land) {
+                        var r = sc.getBoundingClientRect(), e = land.getBoundingClientRect();
+                        var top = e.top - r.top - sc.clientTop + sc.scrollTop;
+                        var lead = e.height > sc.clientHeight * 0.8 ? 0 : (sc.clientHeight - e.height) / 2;
+                        var max = sc.scrollHeight - sc.clientHeight;
+                        out.err = Math.round(sc.scrollTop - Math.max(0, Math.min(max, top - lead)));
+                        out.landH = Math.round(e.height);
+                    }
+                    return out;
+                })()`);
+                check(id, kind, 'Claude bookmark: ' + what + ', clicked from the top, lands at its intended place',
+                      clicked && m.resolved === String(row) && m.inView && !m.toasts.length && m.err !== null && Math.abs(m.err) <= 24,
+                      'clicked=' + clicked + ' ' + JSON.stringify(m));
             }
         } finally { await o.context.close(); }
     }

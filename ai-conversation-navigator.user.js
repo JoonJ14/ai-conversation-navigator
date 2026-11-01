@@ -2739,6 +2739,8 @@
 
     function ixInvalidate() {
         _ixJumpToken++;
+        // A conversation left and opened again shows only its newest pages again (Tier 3).
+        _ixStartLoaded = null;
         _ixBmServed = _ixBmAsked;
         _ix = { pid: null, cid: null, status: 'idle', entries: null, total: 0, idIndex: null,
                 textAt: null, inFlightCid: null, loadGen: (_ix.loadGen || 0) + 1, indexGen: (_ix.indexGen || 0) + 1,
@@ -3318,7 +3320,9 @@
             keyOf: function (el, type) {
                 var root = ixGptRoot();
                 if (!IX_ADAPTERS.chatgpt.getConversationId() || !root || !root.contains(el)) return null;
-                if (type === 'ai-msg') return ixGptAnswerId(el);
+                // The answer's key as the index holds it (v12.17): a unit on a "fallback" turn names the
+                // turn's FIRST shown node, which keyed a bookmark the index never listed ("A#?").
+                if (type === 'ai-msg') return _bmIxCanon(ixGptAnswerId(el));
                 var t = el.closest('[data-turn-key]');
                 var k = t ? t.getAttribute('data-turn-key') : '';
                 return IX_UUID_RE.test(k || '') ? k : null;
@@ -4042,17 +4046,27 @@
             for (var j = 0; j < m.length; j++) if (m[j].pos >= 0 && m[j].pos < lo) lo = m[j].pos;
             return lo !== Infinity && lo > entry.position;
         }
+        // The lowest known position mounted now, or Infinity.
+        function lowestMounted() {
+            var m = a.mounted(), lo = Infinity;
+            for (var j = 0; j < m.length; j++) if (m[j].pos >= 0 && m[j].pos < lo) lo = m[j].pos;
+            return lo;
+        }
         function awaitPage() {
             pages++;
-            var h0 = container.scrollHeight, t0 = Date.now();
+            var h0 = container.scrollHeight, t0 = Date.now(), lo0 = lowestMounted();
             (function poll() {
                 var why = live();
                 if (why) { done(false, null, why); return; }
                 if (container.scrollHeight !== h0) {
-                    // A page arrived: the move that brought the view here is refunded, so the move cap
-                    // bounds the steps and pageCap the pages. Then the usual settle.
-                    if (moves > 0) moves--;
-                    setTimeout(arrive, IX_JUMP_SETTLE_MS);
+                    // The list grew. After the usual settle: if older turns are mounted now, a page
+                    // arrived, and the move that brought the view here is refunded, so the move cap bounds
+                    // the steps and pageCap the pages. Growth of another kind (an image, a streamed answer)
+                    // is refunded nothing (Tier 3).
+                    setTimeout(function () {
+                        if (lowestMounted() < lo0 && moves > 0) moves--;
+                        arrive();
+                    }, IX_JUMP_SETTLE_MS);
                     return;
                 }
                 // None came: the start is loaded. Ordinary moves from here.
@@ -7029,6 +7043,12 @@
             if (t.length !== n0 || (t.length ? t[0].id || null : null) !== id0) { gmHistOnScroll(); return; }
             _gmHist.complete = true;
             if (orbPanel === 'nav') orbPopulateNavigate();
+            // Every open panel that shows the note (v12.17).
+            else if (orbPanel === 'search' && typeof orbSearchQuery !== 'undefined') orbPopulateSearch(orbSearchQuery);
+            else if (orbPanel === 'tools') {
+                var gs = document.getElementById('acn-gallery-section');
+                if (gs) renderImageGallery(gs);
+            }
         }, GM_HISTORY_TOP_MS);
     }
 
@@ -10159,7 +10179,7 @@
                 ixt = (_ix.entries[_ix.qIdx[bm.msgUuid]] || {}).text || '';
             } else if (bm.entityType === 'ai-msg' && _ix.answers) {
                 for (j = 0; j < _ix.answers.length; j++) {
-                    if (_ix.answers[j].key === bm.msgUuid) { ixt = _ix.answers[j].text || ''; break; }
+                    if (_ix.answers[j].key === _bmIxCanon(bm.msgUuid)) { ixt = _ix.answers[j].text || ''; break; }
                 }
             }
             ixt = _mdVisible(ixt).replace(/\s+/g, ' ').trim();
@@ -10960,7 +10980,7 @@
     // isKey: a flag keyed by the message's own id (ChatGPT, Perplexity, v12.15) stands for
     // the records of that type and id, and nothing else: never a hash or an old text form.
     function _bmFlagMatches(b, entityId, legacyIds, entityType, rowIdx, isKey) {
-        if (isKey) return b.entityType === entityType && b.msgUuid === entityId;
+        if (isKey) return b.entityType === entityType && (b.msgUuid === entityId || _bmIxCanon(b.msgUuid) === entityId);
         if (entityType === 'ai-msg' && rowIdx >= 0 && ciIsClaudeChat()) {
             if (b.entityType !== 'ai-msg') return false;
             if (/^[0-9a-f-]{36}$/i.test(entityId)) return b.msgUuid === entityId || b.contentHash === entityId;
@@ -11335,7 +11355,16 @@
         return (_ix.status === 'degraded' && _ix.cid === cid) ? 'off' : 'loading';
     }
 
+    // A ChatGPT answer key as the index lists it (v12.17): any shown text node of an answer names it
+    // (_ix.answerIdOf); anything else unchanged. A record saved before v12.17 under a turn's first node
+    // (a "fallback" turn, DOM-REFERENCE) resolves to its answer through this.
+    function _bmIxCanon(key) {
+        if (!key || !_ix.answerIdOf || !ixReadyAdapter()) return key;
+        return _ix.answerIdOf.hasOwnProperty(key) ? _ix.answerIdOf[key] : key;
+    }
+
     function _bmIxIndexed(key, type) {
+        key = _bmIxCanon(key);
         if (_bmIxState() !== 'ready' || !key) return false;
         return type === 'user-msg' ? _ix.qIdx.hasOwnProperty(key) : _ix.answerOf.hasOwnProperty(key);
     }
@@ -11344,6 +11373,7 @@
     // the click, for a tab still on v12.14 only (its labels number by it); nothing here reads it.
     // The export labels by _bmLabel, not by msgIndex.
     function _bmIxNavIndex(key, type) {
+        key = _bmIxCanon(key);
         if (!_bmIxIndexed(key, type)) return -1;
         return type === 'user-msg' ? _ix.qIdx[key] : _ix.answerOf[key];
     }
@@ -11381,7 +11411,7 @@
     // while the index loads; "Q#?" / "A#?" for a record no message here holds, a positional
     // record from before v12.15 among them.
     function _bmIxLabel(bm) {
-        var st = _bmIxState(), key = bm.msgUuid;
+        var st = _bmIxState(), key = _bmIxCanon(bm.msgUuid);
         if (bm.entityType === 'user-msg') {
             if (!key) return i18n('questionUnresolved');
             if (st === 'loading') return 'Q#…';
@@ -11398,7 +11428,7 @@
     }
 
     function _bmIxSortKey(bm) {
-        var key = bm.msgUuid;
+        var key = _bmIxCanon(bm.msgUuid);
         if (!_bmIxIndexed(key, bm.entityType)) return 1e9;
         if (bm.entityType === 'user-msg') return _ix.qIdx[key];
         return _ix.answerOf[key] < 0 ? 1e9 - 1 : _ix.answerOf[key] + 0.5;
@@ -11522,7 +11552,7 @@
     // there, then the answer in that turn or entry by its key (one settle if it is not there
     // yet), landed at its start: 'center' puts a long answer's middle in view.
     function _bmIxJump(a, bm) {
-        var key = bm.msgUuid, type = bm.entityType;
+        var key = _bmIxCanon(bm.msgUuid), type = bm.entityType;
         var q = null;
         if (_bmIxIndexed(key, type)) {
             q = type === 'user-msg' ? _bmIxQuestion(key)
@@ -11598,8 +11628,12 @@
         return -1;
     }
     // Numbers are final only once the chat's start is loaded, and while the chat shows any turn.
+    // Positively complete, by the tracker's own record of this chat: before its first count (the scan
+    // draws flags before it observes) nothing is known, and a label or a proof must not read as final
+    // (Tier 3).
     function _bmGmFinal() {
-        return !gmHistPartial() && !!document.querySelector('div.conversation-container');
+        return !!(platform && platform.id === 'gemini' && _gmHist.key === location.pathname &&
+                  _gmHist.n > 0 && _gmHist.complete && document.querySelector('div.conversation-container'));
     }
     function _bmGmLabel(bm) {
         var user = bm.entityType === 'user-msg';
@@ -11817,9 +11851,9 @@
                 if (!node) { _bmFailToast(bookmark); return; }
                 var lp = ciAnswerMap().pathOf[parseInt(rowEl.getAttribute(CI_ROW_ATTR), 10)];
                 if (lp !== null && lp !== undefined && lp !== pathIdx) { _bmFailToast(bookmark); return; }
+                // Landed, not glided (v12.17, DEC-059), as Navigate's, Search's and Summary's settle results.
                 orbMarkJumpTarget(node);
-                node.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
-                orbFlashElement(node);
+                ciLandSettled(node, pathIdx, function (n) { orbMarkJumpTarget(n); orbFlashElement(n); });
             });
             return;
         }
@@ -11922,9 +11956,9 @@
             if (pathIdx >= 0) {
                 ciJumpToFullPathIndex(pathIdx, function (ok, el, reason) {
                     if (ok && el) {
+                        // Landed, not glided (v12.17, DEC-059).
                         orbMarkJumpTarget(el);
-                        el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
-                        orbFlashElement(el);
+                        ciLandSettled(el, pathIdx, function (n) { orbMarkJumpTarget(n); orbFlashElement(n); });
                     } else if (reason !== 'superseded' && reason !== 'user') {
                         // Not a failure when the user scrolled or started another jump.
                         _bmFailToast(bookmark);
@@ -14336,8 +14370,8 @@
                     var shown = [], timgs = turn.querySelectorAll('img');
                     for (k = 0; k < timgs.length; k++) {
                         var u = timgs[k].currentSrc || timgs[k].src || '';
-                        if ((u.indexOf('blob:') === 0 || u.indexOf('backend-api/estuary') !== -1) &&
-                            timgs[k].complete && timgs[k].naturalWidth > 0) shown.push(u);
+                        // blob: only: the page's own decoded copy, never a network URL to fetch again (Tier 3).
+                        if (u.indexOf('blob:') === 0 && timgs[k].complete && timgs[k].naturalWidth > 0) shown.push(u);
                     }
                     var nth = seenTurn[im.at] || 0;
                     if (shown.length === perTurn[im.at] && shown[nth]) src = shown[nth];
@@ -14924,7 +14958,11 @@
         lines.push('**Platform:** ' + platform.title);
         lines.push('**Date:** ' + new Date().toISOString().split('T')[0]);
         lines.push('**Messages:** ' + conv.length + ' (' + users + ' user, ' + ais + ' AI)');
-        var partial = _ix.truncated || _ix.refreshFailed || newer;
+        // An entry whose answer the history holds no text for (an unfinished or failed answer, or a
+        // payload shape this build cannot read): named, not dropped silently (Tier 3).
+        var noText = 0, allAns = _ix.answers || [];
+        for (i = 0; i < allAns.length; i++) if (!(allAns[i].text || '').trim()) noText++;
+        var partial = _ix.truncated || _ix.refreshFailed || newer || noText;
         lines.push('**Source:** ' + (partial ? 'conversation history (API) \u2014 see warning below'
                                             : 'complete conversation history (API)'));
         if (_ix.truncated) {
@@ -14936,6 +14974,12 @@
             lines.push('');
             lines.push('> \u26a0 **This is the last snapshot that loaded successfully.** A refresh failed (' +
                        _ix.refreshFailed + '), so messages edited or sent since may be missing or out of date.');
+        }
+        if (noText) {
+            lines.push('');
+            lines.push('> \u26a0 **' + noText + ' answer' + (noText !== 1 ? 's have' : ' has') + ' no text in the loaded ' +
+                       'history** (unfinished, failed, or in a form this version cannot read) and ' +
+                       (noText !== 1 ? 'are' : 'is') + ' not in this file.');
         }
         if (newer) {
             lines.push('');
