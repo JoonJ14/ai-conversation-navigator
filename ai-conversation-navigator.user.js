@@ -8945,6 +8945,15 @@
         return String(_ciConversationId) + '|g' + _ciIndexGen;
     }
 
+    // The same identity for ChatGPT's and Perplexity's index (v12.17), and the one a summary is
+    // stamped with: whichever index the open conversation has, or null (Gemini, a degraded one).
+    function ixIndexStamp() {
+        return ixReadyAdapter() ? _ix.pid + '|' + _ix.cid + '|x' + _ix.indexGen : null;
+    }
+    function sumIndexStamp() {
+        return ciIndexStamp() || ixIndexStamp();
+    }
+
     function ciResolveMountedByPathIndex(pathIdx) {
         if (!(ciIsClaudeChat() && ciIsReady() && _ciFullPath)) return null;
         // isFinite rejects NaN, which typeof calls a number and which both bounds
@@ -12370,13 +12379,33 @@
             return all;
         }
 
+        // ChatGPT and Perplexity (v12.17): the index's order, whole. The DOM branch below put the
+        // mounted messages first and appended the rest. Each entry carries jumpRef, the identity a
+        // click jumps by: a question by its Navigate index, an answer by its key.
+        var conv = ixConversation();
+        if (conv) {
+            var ixA = ixReadyAdapter();
+            for (i = 0; i < conv.length; i++) {
+                var cm = conv[i];
+                var cq = cm.type === 'user' ? _questions[cm.qIdx] : null;
+                var cel = cm.type === 'user' ? (cq && cq.element && cq.element.isConnected ? cq.element : null)
+                                             : (cm.key ? _bmIxFind(ixA, cm.key, 'ai-msg') : null);
+                all.push({ element: cel, text: cm.type === 'user' ? (cm.text || '') : _mdVisible(cm.text || ''),
+                           type: cm.type, elKey: _sumElKey(cel),
+                           jumpRef: cm.type === 'user' ? { kind: 'ixq', qIdx: cm.qIdx, id: cq ? cq.ixId : null }
+                                                       : { kind: 'ixa', key: cm.key, qIdx: cm.qIdx } });
+            }
+            all.forEach(function (m, idx) { m.globalIdx = idx; });
+            return all;
+        }
+
         questions.forEach(function (q) {
             all.push({ element: q.element, text: q.text || '', type: 'user',
-                       elKey: _sumElKey(q.element) });
+                       elKey: _sumElKey(q.element), jumpRef: _sumGmRef(q.element, 'user') });
         });
         aiResponses.forEach(function (r) {
             all.push({ element: r.element, text: r.text || '', type: 'ai',
-                       elKey: _sumElKey(r.element) });
+                       elKey: _sumElKey(r.element), jumpRef: _sumGmRef(r.element, 'ai') });
         });
 
         // compareDocumentPosition returns DOCUMENT_POSITION_DISCONNECTED for
@@ -12965,7 +12994,7 @@
         // exactly this conversation and index generation. Travels on the returned data;
         // renderSummaryResults is what commits it, because only a render puts these
         // indices somewhere the user can click.
-        var genStamp = ciIndexStamp();
+        var genStamp = sumIndexStamp();
 
         var aiMsgs;
         if (ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
@@ -13001,6 +13030,15 @@
                               pathIdx: ciEntryRenders(_ciFullPath[fp]) ? fp : null,
                               type: 'ai' });
             }
+        } else if (ixConversation()) {
+            // ChatGPT and Perplexity (v12.17): every answer from the index, its mounted node bound by
+            // its key. v12.16 analysed the mounted answers only: "49 user, 0 AI" on a 49-question
+            // ChatGPT chat, "12 user, 22 AI" on a 12-entry Perplexity thread (Chrome, 2026-11-01).
+            var ixA = ixReadyAdapter();
+            aiMsgs = ixConversation().filter(function (m) { return m.type === 'ai'; }).map(function (m) {
+                return { element: m.key ? _bmIxFind(ixA, m.key, 'ai-msg') : null, text: _mdVisible(m.text),
+                         type: 'ai', jumpRef: { kind: 'ixa', key: m.key, qIdx: m.qIdx } };
+            });
         } else {
             aiMsgs = Array.from(getAIMessages()).map(function (el) {
                 return { element: el, text: _readAIText(el), type: 'ai' };
@@ -13112,12 +13150,59 @@
     function _sumFirstJumpable(msgs) {
         if (!msgs || !msgs.length) return null;
         for (var i = 0; i < msgs.length; i++) {
-            if (typeof msgs[i].pathIdx === 'number' || msgs[i].element) return msgs[i];
+            if (typeof msgs[i].pathIdx === 'number' || msgs[i].element || msgs[i].jumpRef) return msgs[i];
         }
         return msgs[0];
     }
 
-    function _sumScrollToElement(el, pathIdx, elKey) {
+    // A Gemini message's identity for a summary click (v12.17): its turn's id and its side.
+    function _sumGmRef(el, type) {
+        if (!platform || platform.id !== 'gemini') return null;
+        var t = gmTurnOf(el);
+        return t ? { kind: 'gm', turnId: t.id, type: type } : null;
+    }
+
+    // jumpRef (v12.17): ChatGPT and Perplexity items jump by the index's identity, Gemini items by
+    // their turn's id, both through the landing their Navigate uses.
+    function _sumJumpRef(jumpRef) {
+        var gone = 'That message is not currently rendered \u2014 scroll toward it and try again';
+        if (jumpRef.kind === 'gm') {
+            var gt = gmTurnById(jumpRef.turnId);
+            var gEl = gt ? (jumpRef.type === 'user' ? gmQuestionIn(gt) : gmAnswerIn(gt)) : null;
+            if (!gEl) { showToast(gone); return; }
+            if (jumpRef.type === 'user') {
+                for (var k = 0; k < _questions.length; k++) {
+                    var qe = _questions[k].element;
+                    if (qe && (qe === gEl || gEl.contains(qe) || qe.contains(gEl))) { orbScrollToQuestion(_questions[k]); return; }
+                }
+            }
+            orbMarkJumpTarget(gEl);
+            orbScrollToMessage(gEl, function () {
+                var t = gmTurnById(jumpRef.turnId);
+                return t ? (jumpRef.type === 'user' ? gmQuestionIn(t) : gmAnswerIn(t)) : null;
+            });
+            return;
+        }
+        var a = ixReadyAdapter();
+        if (!a || _sumIndexStamp !== ixIndexStamp()) {
+            showToast('Summary is out of date \u2014 regenerate it to jump');
+            return;
+        }
+        if (jumpRef.kind === 'ixq') {
+            var q = _questions[jumpRef.qIdx];
+            if (q && q.ixId === jumpRef.id) { orbScrollToQuestion(q); return; }
+        } else if (jumpRef.key) {
+            _bmIxJump(a, { msgUuid: jumpRef.key, entityType: 'ai-msg' });
+            return;
+        } else if (jumpRef.qIdx >= 0 && _questions[jumpRef.qIdx]) {
+            orbScrollToQuestion(_questions[jumpRef.qIdx]);
+            return;
+        }
+        showToast(gone);
+    }
+
+    function _sumScrollToElement(el, pathIdx, elKey, jumpRef) {
+        if (jumpRef) { _sumJumpRef(jumpRef); return; }
         // A summary is a SNAPSHOT of one index generation, and the panel outlives it.
         // If the conversation changed underneath, or an edit/regenerate resync rebuilt
         // the index, then BOTH halves of every item are stale: the cached element points
@@ -13159,9 +13244,9 @@
             if (indexed) {
                 ciJumpToFullPathIndex(pathIdx, function (ok, jel, reason) {
                     if (ok && jel) {
+                        // Landed, not glided (v12.17).
                         orbMarkJumpTarget(jel);
-                        jel.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
-                        orbFlashElement(jel);
+                        ciLandSettled(jel, pathIdx, function (n) { orbMarkJumpTarget(n); orbFlashElement(n); });
                     } else if (reason !== 'superseded' && reason !== 'user') {
                         showToast('That message is not currently rendered — scroll toward it and try again');
                     }
@@ -13171,6 +13256,16 @@
                 showToast('That message is not currently rendered — scroll toward it and try again');
             }
             return;
+        }
+        // A far mounted item on Claude lands (v12.17), re-found by its path index: the message node,
+        // or the block inside it the item named, while that block is still inside it.
+        if (indexed) {
+            var keepEl = el;
+            orbMarkJumpTarget(el);
+            if (ciLandFar(el, function () {
+                    var lv = ciResolveMountedByPathIndex(pathIdx);
+                    return (lv && keepEl && lv.contains(keepEl)) ? keepEl : lv;
+                }, function (n) { orbMarkJumpTarget(n); orbFlashElement(n); })) return;
         }
         try {
             // Both routes now mark, scroll and flash identically. The flash MUST be
@@ -13345,7 +13440,7 @@
                         subEl.addEventListener('click', function (e) {
                             e.stopPropagation();
                             var firstMsg = _sumFirstJumpable(c.messages);
-                            if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx, firstMsg.elKey);
+                            if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx, firstMsg.elKey, firstMsg.jumpRef);
                         });
                     })(child);
                     // Highlight corresponding snapshot messages on hover
@@ -13369,7 +13464,7 @@
             (function (s) {
                 segEl.addEventListener('click', function () {
                     var firstMsg = _sumFirstJumpable(s.messages);
-                    if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx, firstMsg.elKey);
+                    if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx, firstMsg.elKey, firstMsg.jumpRef);
                 });
             })(seg);
             // For segments without sub-segments, hovering the block highlights all its messages
@@ -13648,7 +13743,7 @@
         // derivation nuance.
         if (_sumComputeCache &&
             _sumComputeCache.stamp !== null &&
-            _sumComputeCache.stamp === ciIndexStamp() &&
+            _sumComputeCache.stamp === sumIndexStamp() &&
             _sumComputeCache.provSig === _sumProvSig()) {
             return _sumComputeCache.data;
         }
