@@ -1298,6 +1298,14 @@ review record. Updated 2026-10-31:
     Rechecked before the PR on `2527956` (the review fixes and the turn dots in): Q140 from the top 3 of 3; the meter
     35%, "~353.6K / 1M tokens (est.)", model `claude-opus-5`, and all 40 dots green (v12.15 colours 40 dots by position, 28 green, 6 yellow,
     6 red, whatever the meter reads [code]; the final A/B measures it); the Gemini note at 10 and 20, gone at 32 through the 8 s rule (see DEC-057).
+    **The final A/B after the GitHub Codex cycle** (same profile and chats, 2026-10-31): v12.15 installed by Downgrade,
+    then the final build by Update. v12.15: Navigate → Q140 from the top 0 of 3 and the Q#140 test bookmark 0 of 3
+    landed (the question ended 325,139 px below and 273 px above the view; the bookmark 273 px above twice and 3,122 px
+    below); the meter 100%, "~353.6K / 200K tokens (est.)"; the dots 28 green, 6 yellow, 6 red; Gemini listed 10 of 32
+    with no note. `e252bd4`: Q140 3 of 3 and the bookmark 3 of 3, fully in view; the meter 35%, "/ 1M", `claude-opus-5`;
+    the dots 40 green; a `claude-opus-5-5` chat 61%, "~607.6K / 1M", 40 green dots; the Gemini note at 10, 20 and 30,
+    gone at 32. It also found Gemini's Q32 from the top 4,240 px short on a not-yet-rendered chat (2 of 4); fixed in
+    `095a66c` (DEC-057) and rechecked live: Q32 from the top 2 of 2, Q1 from the bottom and Q16 from the top landed.
   <!-- V12.16 ACCEPTANCE: filled in by the integrator, as reported -->
 - **v12.15 (PR #88, merged 2026-10-31 as `6baac2e` before acceptance, a waiver; ChatGPT and Perplexity jumps and
   bookmarks, Claude rows by `data-turn-key`; DEC-052, DEC-053, DEC-054).** Owner acceptance on Safari + Userscripts,
@@ -3791,6 +3799,8 @@ not persisted.
 ---
 
 ## DEC-055: A Far Mounted Claude Target Lands the Way the Adapter Sites' Targets Do (v12.16)
+
+(The landing core, `orbLandFarIn`, is shared with Gemini since the final live check: DEC-057.)
 **Date:** 2026-10-31 | **Stage:** v12.16, part A (the owner's spec, default fix). PR #90; owner acceptance pending
 on all three browsers (DEC-031)
 
@@ -3917,7 +3927,13 @@ acceptance pending (DEC-031)
   - the view sat at the top for `GM_HISTORY_TOP_MS` (8 s) with nothing loading.
   A sent message arrives below and keeps the first turn's id, so it counts as neither. Navigate's fingerprint carries
   the note's state, so it goes without a list change.
-- **Jumps unchanged:** v12.15's glide lands loaded questions, because Gemini re-anchors the view when it loads.
+- **A far loaded question lands through `ixLandOn`** (`gmLandFar`, found in the final live check, 2026-10-31): off-screen
+  turns are `content-visibility: auto` with `contain-intrinsic-size: auto 500px`, so a glide renders every turn it
+  passes and they grow under it. Live on v12.16 before this fix (the same glide as v12.15): Q32 from the top ended
+  4,240 px below the view, 2 of 4 times, `scrollHeight` 59,324 → 63,126; the times it landed, the turns had rendered
+  before. With the landing: Q32 from the top (2 of 2), Q1 from the bottom and Q16 from the top landed with one instant
+  write each, `scrollHeight` unchanged, 8 turns still unrendered [Chrome + Tampermonkey, the owner's profile]. The
+  core is shared with Claude's (`orbLandFarIn`, DEC-055).
 - **Bookmarks unchanged** (positional): each turn has a stable id, but moving them to it needs a migration of existing
   records; logged (ROADMAP 13).
 
@@ -3938,7 +3954,8 @@ chats.
   loaded).
 - **An automatic "load the full history" action** (not built: it scrolls the page for the user; proposed to the
   owner, who decides).
-- **Land Gemini jumps through `ixLandOn`** (not needed: 9 of 9 landed live; the gate keeps them as guards).
+- **Leave Gemini's jumps as they were** (Phase 1: 9 of 9 landed live). Rejected after the final live check: those nine
+  ran after the turns had rendered; right after paging history in, the glide failed 2 of 4.
 
 ### Key properties
 - The page size (10) and the 8 s wait are measured constants (three chats, one browser). A smaller first page from
@@ -3951,7 +3968,10 @@ chats.
   silently never shows, and the list is as before.
 - Gate: `tests/mock-pages/gemini-history.html`, `probes/check-gemini-history.js`: v12.15 failed H2, H3, H4, H6 and H6b;
   the build passes on chromium (twice), firefox and webkit, and HEAD; mutants M1–M5 and M3b (the path-keyed reset)
-  caught. After `loadAll` (22 turns arriving in one scan) the note stays until the 8 s rule, the conservative
+  caught. H10 [new] (the mock's `cv` model: estimated heights until a turn comes within half a view, settled like the
+  browser's, anchoring on, as live): Q32 from the top and Q1 from the bottom land; it fails on v12.15 (Q32 ends
+  4,520–5,024 px below the view) and on the mutant that turns `gmLandFar` off, and passes on chromium, firefox and
+  webkit. After `loadAll` (22 turns arriving in one scan) the note stays until the 8 s rule, the conservative
   direction. **Seen live too** (Chrome, 2026-10-31, on `2527956`, scrolling to the top every 8 s): Gemini's
   rendering delayed the scan past a second load (Navigate read 20 with 30 loaded), so the scan saw 20 → 32 at once,
   the short-page rule did not apply, and the note left only through the 8 s rule at the top. [Playwright page realm, headless, this Mac.]

@@ -46,7 +46,8 @@ One combined PR in three parts, from the owner's spec (2026-10-31). Grok is out 
 - **C (DEC-057):** a tracker infers when a Gemini chat's start is loaded (a first page under 10, a load above the
   first turn under 10, or 8 s at the top with nothing loading); until then Navigate shows "↑ Older messages are not
   loaded yet — scroll to the top of the chat to load them" (`data-acn-history="partial"`, en + ko). Jumps unchanged
-  (9 of 9 landed live on v12.15's code).
+  at first; the final live check found the glide failing on turns not yet rendered (Q32 from the top 4,240 px short,
+  2 of 4), so a far loaded question now lands through `ixLandOn` too (`gmLandFar`, the core shared with part A).
 
 ### Verification
 
@@ -55,6 +56,8 @@ One combined PR in three parts, from the owner's spec (2026-10-31). Grok is out 
   - `check-ctx-limit` (part B): v12.15 9 checks failed; the build passes on chromium (twice), firefox and webkit, and
     on HEAD `f25e3e4`; mutants M1, M3, M4 caught, M2 (the `ciInvalidate` clear) not catchable by design.
   - `check-turn-counter` A3/A6 (the dots follow the meter, the owner's request): fail on v12.15 and on the mutant.
+  - `check-gemini-history` H10 (the Gemini landing; the mock's `cv` model of content-visibility): fails on v12.15 and
+    on the mutant, passes on chromium, firefox and webkit.
   - `check-gemini-history` (part C, new mock `gemini-history.html`): v12.15 5 checks failed (H2, H3, H4, H6, H6b);
     the build passes on chromium (twice), firefox and webkit, and on HEAD `f25e3e4`; mutants M1–M5 and M3b caught.
 - **Review** (`reviews/review-2026-10-31-v12.16.md`): Tiers 1–2 in session (2 WARN fixed); Tier 3 `cli:codex`, 5
@@ -70,6 +73,8 @@ One combined PR in three parts, from the owner's spec (2026-10-31). Grok is out 
   against a recorded 9–11). Every probe passed on all three engines, the three new ones included, except
   `check-ix-jumps` J15 on firefox and webkit: its known timing race (`resolved=10 toast=no err=0px`), which v12.15 also
   fails intermittently here (TROUBLESHOOTING, the J15 entry). `check-usage-state` U10 did not time out this time.
+- **After the Gemini landing fix** (`095a66c`, same Mac): `npm test` chromium 560/560; every probe on chromium passed,
+  J15 included this time; the three new gates passed on firefox and webkit too.
 
 ### Logged, not fixed (ROADMAP 12, 13, 14)
 

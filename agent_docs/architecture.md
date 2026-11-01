@@ -66,7 +66,9 @@ first. Near targets return false and glide as before. Callers: `orbScrollToQuest
 reaches the top, nothing ever removed: the DOM scan's list is complete once the history is. `gmHistObserve` (called
 by the scan on Gemini) decides whether the chat's start is loaded, from the turn containers' count and the first
 one's id (a first page under 10, a load above the first turn under 10, or 8 s at the top with nothing loading); until
-then Navigate shows a note, `data-acn-history="partial"`.
+then Navigate shows a note, `data-acn-history="partial"`. A far loaded question lands through `ixLandOn`
+(`gmLandFar`, the core `orbLandFarIn` shared with Claude's `ciLandFar`): off-screen turns are
+`content-visibility: auto`, so a glide renders and grows every turn it passes.
 
 **Claude is not the only virtualized platform — Emergent recycles too** (Virtuoso), and it is **not** handled the same way. Emergent has only *passive accumulation*: `scanConversation` keeps messages the user has already scrolled past, so on a long session the Navigate list is the mounted window plus whatever they happened to scroll. `DOM-REFERENCE.md` claimed a panel-open sweep for five months; that code never existed (ROADMAP backlog item 7). **Beware the `virtualScroll` platform flag: it selects that accumulation behaviour, not the platform property, so `claude` — the most virtualized platform here — is `virtualScroll: false`.** The `DOM-REFERENCE.md` table is the record of which platforms virtualize.
 

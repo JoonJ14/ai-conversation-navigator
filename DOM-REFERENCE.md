@@ -671,13 +671,18 @@ infinite-scroller.chat-history            (the scroller; its only children are t
   top; a 12-question chat went 10 → 12.
 - **Nothing marks "more history above":** the scroller holds only turns, the first turn looks like
   every other, and `user-query-content-N` is render-relative. v12.16 infers it (DEC-057).
-- **Off-screen turns carry `turn-content-visibility`:** their `innerText` reads empty while scrolled
-  away (the first question read `""` at the bottom). `_cleanText` reads `textContent`, which is
-  unaffected.
-- **Jumps:** v12.15's glide landed loaded questions 9 of 9 (Q1 from the bottom 3/3 and Q32 from the
-  top 2/2 fully loaded; Q16; the earliest loaded question from the bottom 3/3 with history still
-  loading, where the glide's arrival at the top loaded the next page and Gemini's re-anchoring held
-  the target in view, 72 px from the top).
+- **Off-screen turns carry `turn-content-visibility`:** computed `content-visibility: auto` with
+  `contain-intrinsic-size: auto 500px` (an estimated 500 px until a turn renders); the scroller keeps
+  `overflow-anchor: auto`. Their `innerText` reads empty while scrolled away (the first question read `""`
+  at the bottom); `_cleanText` reads `textContent`, which is unaffected. A smooth glide renders every turn
+  it passes, so heights change under it: Q32 from the top ended 4,240 px below the view 2 of 4 times
+  (`scrollHeight` 59,324 → 63,126). An instant write skips the turns between: v12.16's landing put Q32,
+  Q1 and Q16 in view with one write each, `scrollHeight` unchanged (DEC-057).
+- **Jumps:** v12.15's glide landed loaded questions 9 of 9 in Phase 1 (Q1 from the bottom 3/3 and Q32
+  from the top 2/2 fully loaded; Q16; the earliest loaded question from the bottom 3/3 with history
+  still loading, where the glide's arrival at the top loaded the next page and Gemini's re-anchoring
+  held the target in view, 72 px from the top). All nine ran after the turns had rendered; right after
+  paging in, the glide failed (above).
 
 ### Debugging History
 - v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Real structure uses Angular custom elements (user-query, user-query-content, model-response), deep nesting with ngcontent hash attributes, horizontal-container spans, and Material Design icon buttons.
