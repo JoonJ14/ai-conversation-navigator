@@ -20,7 +20,10 @@ jobs:
     # v12.15: the ubuntu jobs, which run every probe, took 13m42s-13m59s on
     # 2026-10-25 before three more probes (about 5 minutes locally) joined them,
     # so 20 minutes no longer covers a healthy ubuntu job; 30 does, with room.
-    timeout-minutes: 30
+    # v12.17 (the owner, 2026-11-01): 40 on ubuntu, as a stopgap until the CI rebuild (ROADMAP
+    # 0e). Those jobs took 23m28s-24m6s on v12.16 (PR #90's run), and this PR's probes add about
+    # 4-5 minutes; macOS and Windows run no probes and keep 30.
+    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 40 || 30 }}
     strategy:
       fail-fast: false
       matrix:

@@ -508,7 +508,9 @@ Numbering below is stable (items keep their historical numbers):
    PR #75: the CI checks are outdated. They pass builds that fail in a real browser — v12.8 was green
    in CI while its index failed on Safari — so a green run says nothing about what breaks there. Nothing in the harness has a userscript manager: it inlines the
    script into the page realm with a `GM_xmlhttpRequest` shim (TESTING.md). Not started — scope it as
-   its own change. Inputs collected on PR #75:
+   its own change. **Stopgap (v12.17, the owner, 2026-11-01):** the ubuntu jobs' `timeout-minutes` went from 30 to
+   40 (they took about 24 minutes on v12.16, and v12.17's probes add about 4–5); macOS and Windows keep 30. Revisit
+   it in the rebuild. Inputs collected on PR #75:
    - **Engine drift.** The workflow installs Playwright at run time (`npm install playwright`). On
      2026-10-22 that meant WebKit build 2370 on CI and 2248 on the owner's Mac, so the "same" suite
      was not measuring the same engine (TROUBLESHOOTING, "OPEN — Local mac WebKit").
@@ -1119,7 +1121,8 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       - **Summary and the gallery look up each answer's mounted node one by one** (`_bmIxFind` per answer, each a
         fresh `bookmarkables()` walk) [code]: fine at 49 answers; unmeasured on a 2,000-entry Perplexity thread.
       - **CI headroom:** `check-feature-gaps` adds about 2.5 min (Chromium, this Mac) per ubuntu job, plus about 1 min
-        for `check-ix-jumps` K5–K8, on jobs that took 24 of their 30 minutes [estimate from local runs].
+        for `check-ix-jumps` K5–K8, on jobs that took 24 of their 30 minutes [estimate from local runs]. Handled in
+        v12.17: the ubuntu jobs' cap is 40 minutes, a stopgap until the CI rebuild (item 0e).
       - Navigate on ChatGPT showed the DOM's 4 questions about 7 s after a load before the index's 49 arrived [one
         observation, Chrome, 2026-11-01]; not measured further.
     - **Logged from v12.16** (not fixed; out of its spec; all [code] unless noted):
