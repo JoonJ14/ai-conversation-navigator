@@ -194,6 +194,10 @@ function exportOrder(f, n) {
     }
     return { ok, count: h.length };
 }
+// What every answer's text adds up to, as Summary counts it (ChatGPT: a turn's text nodes joined by a
+// blank line; Perplexity: the FINAL answer).
+const gptAnswerChars = (T) => T.reduce((n, t) => n + t.answer.length + (t.lastAid ? ('\n\n' + 'and the second part of answer ' + (T.indexOf(t) + 1)).length : 0), 0);
+const pplxAnswerChars = (E) => E.reduce((n, e) => n + e.answer.length, 0);
 const aiChars = (t) => parseInt(((t.match(/AI: ([0-9,]+) chars/) || [0, '0'])[1]).replace(/,/g, ''), 10);
 
 // Waits for a jump to finish: a resolution or a toast, then the scroller still for 800 ms.
@@ -220,6 +224,8 @@ function gptTurns() {
         let a = 'Answer ' + (i + 1) + ': the window holds a few turns and drops the rest.';
         if (i === 1) { q += ' quokka'; a += ' ocelot'; }
         if (i === 4) { q += ' lemur'; a += ' lemur'; }
+        // A fenced block in an answer that is never mounted at the bottom: Summary's code inventory must list it.
+        if (i === 2) a += '\n\n```python\nprint("kinkajou")\n```';
         if (i === 19) q += ' lemur';
         // Turn 6's answer has two shown text nodes, and the page names the FIRST on its unit (live: a
         // "fallback-turn-0" turn showing Q45's first node, Chrome, 2026-11-01). aid is what the DOM
@@ -474,10 +480,12 @@ function claudeXhr(payload) {
                       'header=' + ((f.match(/\*\*Messages:\*\*[^\n]*/) || [''])[0]) + ' body=' + users + '/' + ais + ' in order=' + ord.ok);
             }
             if (want('C5')) {
+                // From the bottom, so Q3's answer (with the fenced block) is not mounted: a mounted answer is
+                // inventoried from its DOM, which the mock renders as plain text.
+                await pg.evaluate("window.__mockWindow.userScrollTo('bottom')");
+                await pg.waitForTimeout(800);
                 const t = await pg.evaluate("window.__h.summary()");
                 const first = ((t.match(/msgs [0-9]+–[0-9]+/) || [''])[0]);
-                await pg.evaluate("window.__mockWindow.userScrollTo('bottom')");
-                await pg.waitForTimeout(400);
                 await pg.evaluate("window.__h.clickSegment('msgs 1\\u2013')");
                 await settle(pg, '#mock-scroller');
                 const m = await pg.evaluate((k) => Object.assign(window.__h.inView(document.getElementById('mock-scroller'),
@@ -485,10 +493,13 @@ function claudeXhr(payload) {
                     { resolved: document.getElementById('acn-zone').getAttribute('data-acn-jump-resolved') }), o.T[0].id);
                 // Every answer's text is analysed, the unmounted ones included: 24 answers of about 60 chars.
                 check('C5', 'new', 'ChatGPT Summary: complete (24 answers\' text counted) and in order; the first segment, clicked from the bottom, lands on Q#1',
-                      /Total turns: 48 \(24 user, 24 AI\)/.test(t) && aiChars(t) > 24 * 50 && /^msgs 1–/.test(first) && m.inView && m.resolved === '0',
-                      ((t.match(/Total turns:[^\n]*/) || [''])[0]) + ' first=' + first + ' landing=' + JSON.stringify(m));
+                      /Total turns: 48 \(24 user, 24 AI\)/.test(t) && aiChars(t) === gptAnswerChars(o.T) && /python \u2014 print\("kinkajou"\)/.test(t) &&
+                      /^msgs 1–/.test(first) && m.inView && m.resolved === '0',
+                      ((t.match(/Total turns:[^\n]*/) || [''])[0]) + ' AI chars=' + aiChars(t) + ' (expected ' + gptAnswerChars(o.T) + ')' +
+                      ' code=' + /python \u2014 print/.test(t) + ' [' + (t.match(/(CODE[\s\S]{0,160})/i) || ['', 'no CODE section'])[1].replace(/\n/g, ' / ') + '] first=' + first + ' landing=' + JSON.stringify(m));
             }
             if (want('C6')) {
+                const r0 = o.requests.length;
                 const g = await pg.evaluate("window.__h.gallery()");
                 const okCards = g.cards.length === 2 && g.cards.every((c) => c.label === 'Q#3' && c.thumb === 'placeholder') &&
                                 /hand-one\.jpg/.test(g.cards[0].text) && /hand-two\.jpg/.test(g.cards[1].text);
@@ -497,7 +508,7 @@ function claudeXhr(payload) {
                 const m = await pg.evaluate((k) => Object.assign(window.__h.inView(document.getElementById('mock-scroller'),
                     document.querySelector('#mock-scroller [data-turn-key="' + k + '"] [data-user-message-bubble="true"]')),
                     { resolved: document.getElementById('acn-zone').getAttribute('data-acn-jump-resolved') }), o.T[2].id);
-                const fetched = o.requests.filter((u) => /backend-api\/(files|estuary)/.test(u)).length;
+                const fetched = o.requests.slice(r0).filter((u) => !/\/(api|backend-api)\/(auth\/session|conversation\/)/.test(u)).length;
                 check('C6', 'new', 'ChatGPT gallery: the far Q3\'s two images listed from the index (placeholders, named), nothing requested for them; a click lands on Q#3',
                       okCards && fetched === 0 && m.inView && m.resolved === '2',
                       JSON.stringify(g.cards.map((c) => c.label + '/' + c.thumb)) + ' image requests=' + fetched + ' landing=' + JSON.stringify(m));
@@ -610,10 +621,11 @@ function claudeXhr(payload) {
             if (want('P4')) {
                 const t = await pg.evaluate("window.__h.summary()");
                 check('P4', 'new', 'Perplexity Summary: 12 user and 12 AI messages, every answer\'s text counted, no "Finished"',
-                      /Total turns: 24 \(12 user, 12 AI\)/.test(t) && aiChars(t) > 12 * 30 && !/Finished/.test(t),
-                      ((t.match(/Total turns:[^\n]*/) || [''])[0]) + ' AI chars=' + aiChars(t));
+                      /Total turns: 24 \(12 user, 12 AI\)/.test(t) && aiChars(t) === pplxAnswerChars(E) && !/Finished/.test(t),
+                      ((t.match(/Total turns:[^\n]*/) || [''])[0]) + ' AI chars=' + aiChars(t) + ' (expected ' + pplxAnswerChars(E) + ')');
             }
             if (want('P5')) {
+                const r0 = o.requests.length;
                 const g = await pg.evaluate("window.__h.gallery()");
                 const okCards = g.cards.length === 2 && g.cards.every((c) => c.label === 'Q#10' && c.thumb === 'placeholder') &&
                                 /Screenshot-one\.jpg/.test(g.cards[0].text) && /Screenshot-two\.png/.test(g.cards[1].text);
@@ -622,7 +634,8 @@ function claudeXhr(payload) {
                 const m = await pg.evaluate(() => Object.assign(window.__h.inView(document.getElementById('mock-scroller'),
                     document.querySelector('[data-workflow-entry="9"] [data-message-bubble="right"]')),
                     { resolved: document.getElementById('acn-zone').getAttribute('data-acn-jump-resolved') }));
-                const s3 = o.requests.filter((u) => /amazonaws\.com/.test(u)).length;
+                // Anything but the thread's own API, any host: the S3 links above all.
+                const s3 = o.requests.slice(r0).filter((u) => u.indexOf('/rest/thread/') === -1).length;
                 check('P5', 'new', 'Perplexity gallery: entry 10\'s two images listed by name (not the PDF), nothing requested from the S3 host; a click lands on Q#10',
                       okCards && s3 === 0 && m.inView && m.resolved === '9',
                       JSON.stringify(g.cards.map((c) => c.label + '/' + c.thumb)) + ' s3 requests=' + s3 + ' landing=' + JSON.stringify(m));
@@ -687,8 +700,10 @@ function claudeXhr(payload) {
             if (want('G1')) {
                 const s = await pg.evaluate("window.__h.search('question 31')");
                 const g = await pg.evaluate("window.__h.gallery()");
-                check('G1', 'new', 'Gemini, 10 of 32 turns loaded: Search and the gallery say older messages are not loaded',
-                      s.note && g.note, 'search note=' + s.note + ' gallery note=' + g.note);
+                await pg.evaluate("window.__h.summary()");
+                const sn = await pg.evaluate(() => !!document.querySelector('[data-acn-role="sum-results"] [data-acn-history="partial"]'));
+                check('G1', 'new', 'Gemini, 10 of 32 turns loaded: Search, the gallery and Summary say older messages are not loaded',
+                      s.note && g.note && sn, 'search note=' + s.note + ' gallery note=' + g.note + ' summary note=' + sn);
             }
             if (want('G2')) {
                 const f = await pg.evaluate("window.__h.exportFull()") || '';
@@ -787,6 +802,42 @@ function claudeXhr(payload) {
                   'bound at load=' + (e0.msgUuid || null) + ' (turn27=' + gmTurnIdNode(27) + ') after=' + (r.msgUuid || null) + ' label=' + (b[0] || {}).label);
         } finally { await o.context.close(); }
     }
+    if (want('G10')) {
+        // A 30-turn chat: pages of 10, 20, 30, the last one full, so nothing short proves the start; only
+        // 8 s at the top does (DEC-057). No scan follows that timer, and a provable positional record
+        // must still bind then (Tier 3 r3).
+        const C30 = 'ee30ee30ee30ee30';
+        const url = 'https://gemini.google.com/app/' + C30;
+        function tid(n) {
+            function fnv(x) { let h = 0x811c9dc5; for (let i = 0; i < x.length; i++) { h ^= x.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return ('0000000' + h.toString(16)).slice(-8); }
+            return fnv(C30 + '#' + n) + fnv(n + '@' + C30);
+        }
+        const rec = { id: 'bm_timer', schema: 1, entityType: 'user-msg', contentHash: contentHash(gmQuestion(5), 4), msgUuid: null,
+                      preview: gmQuestion(5).substring(0, 120), msgIndex: 4, createdAt: 1, platform: 'gemini.google.com' };
+        const html = page('gemini-history.html', raw, { chats: { [C30]: 30 }, page: 10, loadDelayMs: 300 },
+                          { 'acn-bookmarks-v1': JSON.stringify({ [url]: { bookmarks: [rec] } }) });
+        const o = await open(url, html, null);
+        try {
+            const pg = o.pg;
+            await pg.waitForFunction(() => window.__mockGemini && window.__mockGemini.loaded() === 10, null, { timeout: 20000 });
+            await pg.waitForTimeout(1500);
+            for (let k = 0; k < 4; k++) {
+                const n0 = await pg.evaluate(() => window.__mockGemini.loaded());
+                if (n0 >= 30) break;
+                await pg.evaluate(() => window.__mockGemini.userScroll('top'));
+                try { await pg.waitForFunction((n) => window.__mockGemini.loaded() > n && !window.__mockGemini.pending(), n0, { timeout: 5000 }); } catch (e) {}
+                await pg.waitForTimeout(1300);
+            }
+            const before = await pg.evaluate(() => JSON.parse(window.__acnStore()['acn-bookmarks-v1'] || '{}'));
+            const b0 = (((before[url] || {}).bookmarks) || [])[0] || {};
+            await pg.evaluate(() => window.__mockGemini.userScroll('top'));
+            await pg.waitForTimeout(10000);
+            const after = await pg.evaluate(() => JSON.parse(window.__acnStore()['acn-bookmarks-v1'] || '{}'));
+            const b1 = (((after[url] || {}).bookmarks) || [])[0] || {};
+            check('G10', 'new', 'Gemini: a chat whose last page is a full 10 completes by the 8 s rule, and a provable positional record binds then',
+                  !b0.msgUuid && b1.msgUuid === tid(5), 'before=' + (b0.msgUuid || null) + ' after=' + (b1.msgUuid || null) + ' turn5=' + tid(5));
+        } finally { await o.context.close(); }
+    }
     if (['G7', 'G8'].some(want)) {
         // The content-visibility model with the live 500 px estimate: a glide from the bottom to a
         // far turn grows the list under it (DEC-057).
@@ -845,12 +896,14 @@ function claudeXhr(payload) {
             };
             const rowEl = (row) => `document.querySelector('#mock-feed [data-index="${row}"]')`;
             if (want('L1')) {
+                const r0 = o.requests.length;
                 const g = await pg.evaluate("window.__h.gallery()");
                 await pg.evaluate("window.__h.clickGallery(0)");
                 await settle(pg, SC);
                 const m = await pg.evaluate(`Object.assign(window.__h.inView(document.querySelector('${SC}'), ${rowEl(198)}),
                     { resolved: document.getElementById('acn-zone').getAttribute('data-acn-jump-resolved') })`);
-                const fetched = o.requests.filter((u) => /\/files\//.test(u)).length;
+                // The page loaded no image here (no files panel in the mock): nothing at all may be requested.
+                const fetched = o.requests.slice(r0).length;
                 check('L1', 'new', 'Claude gallery: Q100\'s image listed from the index as "Q#100", nothing requested for it; a click from the bottom lands on its row',
                       g.cards.length === 1 && g.cards[0].label === 'Q#100' && fetched === 0 && m.resolved === '198' && m.inView,
                       JSON.stringify(g.cards.map((c) => c.label + '/' + c.thumb)) + ' landing=' + JSON.stringify(m));

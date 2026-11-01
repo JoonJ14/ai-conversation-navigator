@@ -7052,6 +7052,11 @@
             // load re-anchors the view away from the top, which stops the new wait at once.
             if (t.length !== n0 || (t.length ? t[0].id || null : null) !== id0) { gmHistOnScroll(); return; }
             _gmHist.complete = true;
+            // Bookmark labels and legacy proof wait for a complete history (v12.17): the timer is the only
+            // signal when the last page held a full 10, and no scan follows it (Tier 3 r3).
+            if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
+            var bmP = document.getElementById('acn-panel-bookmarks');
+            if (bmP && bmP.classList.contains('acn-open')) orbRefreshBookmarksPanel();
             if (orbPanel === 'nav') orbPopulateNavigate();
             // Every open panel that shows the note (v12.17).
             else if (orbPanel === 'search' && typeof orbSearchQuery !== 'undefined') orbPopulateSearch(orbSearchQuery);
@@ -13503,7 +13508,7 @@
     function _sumGmRef(el, type) {
         if (!platform || platform.id !== 'gemini') return null;
         var t = gmTurnOf(el);
-        return t ? { kind: 'gm', turnId: t.id, type: type } : null;
+        return t ? { kind: 'gm', turnId: t.id, type: type, path: location.pathname } : null;
     }
 
     // jumpRef (v12.17): ChatGPT and Perplexity items jump by the index's identity, Gemini items by
@@ -13511,6 +13516,8 @@
     function _sumJumpRef(jumpRef) {
         var gone = 'That message is not currently rendered \u2014 scroll toward it and try again';
         if (jumpRef.kind === 'gm') {
+            // Another chat's summary: its turns can linger in the DOM for a scan after an SPA switch (Tier 3 r3).
+            if (jumpRef.path !== location.pathname) { showToast('Summary is out of date \u2014 regenerate it to jump'); return; }
             var gt = gmTurnById(jumpRef.turnId);
             var gEl = gt ? (jumpRef.type === 'user' ? gmQuestionIn(gt) : gmAnswerIn(gt)) : null;
             if (!gEl) { showToast(gone); return; }
@@ -13995,6 +14002,9 @@
             container.appendChild(createElement('div', { className: 'acn-sum-empty', textContent: 'No data to display.' }));
             return;
         }
+        // Gemini: a summary of the loaded part only, until the start is loaded (v12.17, Tier 3 r3).
+        var gmNote = gmHistNote();
+        if (gmNote) container.appendChild(gmNote);
 
         var stats = summaryData.stats;
         if (!stats || stats.totalMessages === 0) {
