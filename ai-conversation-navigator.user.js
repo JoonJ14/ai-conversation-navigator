@@ -3739,11 +3739,15 @@
     // under it (59,324 -> 63,126 px) and left the target 4,240 px below the view, 2 of 4 times
     // (Chrome + Tampermonkey, 2026-10-31; the times it landed, the turns had rendered before).
     // Gemini keeps its turns, so the question re-locates through _relocateQuestionElement.
+    // A switch to another chat ends it (GitHub Codex, PR #90): the scroller can be reused, and the
+    // new chat may hold the same question text.
     function gmLandFar(el, q, landed) {
         if (!platform || platform.id !== 'gemini') return false;
         _ixJumpToken++;
+        var path0 = location.pathname;
         return orbLandFarIn(document.querySelector('infinite-scroller.chat-history'), el,
-                            function () { return _relocateQuestionElement(q); }, landed, {}, null);
+                            function () { return _relocateQuestionElement(q); }, landed, {},
+                            function () { return location.pathname === path0; });
     }
 
     // Resolve-on-arrival, the design of ciJumpToFullPathIndex at this seam's size: aim at
