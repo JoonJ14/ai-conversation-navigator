@@ -14386,6 +14386,16 @@
                 thumb.className = 'acn-gallery-thumb';
                 thumb.src = it.src;
                 thumb.alt = it.name || ('Image ' + (i + 1));
+                // A page's blob: URL can be revoked once its turn unmounts: then the name, as below.
+                thumb.addEventListener('error', function () {
+                    var ph = document.createElement('div');
+                    ph.className = 'acn-gallery-thumb-fallback acn-gallery-placeholder';
+                    ph.textContent = '\uD83D\uDDBC\uFE0F ' + (it.name || 'Image');
+                    ph.style.cursor = 'pointer';
+                    ph.addEventListener('click', function () { it.jump(); });
+                    if (thumb.parentNode) thumb.parentNode.replaceChild(ph, thumb);
+                    card.setAttribute('data-acn-gallery-thumb', 'placeholder');
+                });
             } else {
                 // Not loaded by the page: its name, and nothing is requested for it.
                 thumb = document.createElement('div');
