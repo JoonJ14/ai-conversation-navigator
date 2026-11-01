@@ -2744,7 +2744,7 @@
                 textAt: null, inFlightCid: null, loadGen: (_ix.loadGen || 0) + 1, indexGen: (_ix.indexGen || 0) + 1,
                 reason: '', retryDelayMs: 0, lastFetchAt: 0, refreshFailed: '', truncated: 0,
                 actedSig: '', qIdx: null, idAtPos: null, answerOf: null, answerAt: null, wantRefresh: '',
-                wantActed: '', wantKeyless: false, answers: null, images: null };
+                wantActed: '', wantKeyless: false, answers: null, images: null, answerIdOf: null };
     }
     ixInvalidate();
 
@@ -2871,25 +2871,29 @@
         var top = ids.length ? m[ids[ids.length - 1]] : null;
         if (n || (n === undefined && top && top.message)) throw new Error('unexpected response shape');
         ids.reverse();
-        var out = [], turnQ = -1, turnAt = null, shown = null, texts = [];
+        var out = [], turnQ = -1, turnAt = null, shown = null, texts = [], shownIds = [];
         // v12.17: an answer also carries its TEXT (every node the page shows as the turn's text,
         // in order: a tool turn shows text, a tool call, then text) and `pos`, its place in the
         // list's order: just after its question, or after the last listed question when its own
         // is not listed. Search, Export and Summary read the whole conversation from it.
         function endTurn() {
             if (answers && shown !== null) {
+                // ids: every shown node of the turn. The page can render an earlier one as a turn of its
+                // own with no question (live: data-turn-key="fallback-turn-0" holding Q45's first text
+                // node, Chrome, 2026-11-01), so a mounted unit may name any of them.
                 answers.push({ key: shown, q: turnQ, at: turnAt, text: texts.join('\n\n'),
-                               pos: (turnQ >= 0 ? turnQ : out.length - 1) + 0.5 });
+                               pos: (turnQ >= 0 ? turnQ : out.length - 1) + 0.5, ids: shownIds });
             }
             shown = null;
             texts = [];
+            shownIds = [];
         }
         for (var i = 0; i < ids.length; i++) {
             var msg = m[ids[i]] && m[ids[i]].message;
             if (!msg || !msg.author) continue;
             if (msg.author.role === 'assistant' || msg.author.role === 'tool') {
                 if (msg.author.role === 'assistant' && turnAt !== null && ixGptShownText(msg)) {
-                    shown = ids[i]; texts.push(ixGptText(msg));
+                    shown = ids[i]; texts.push(ixGptText(msg)); shownIds.push(ids[i]);
                 }
                 // A generated image arrives in a tool message of the turn.
                 if (turnAt !== null && !(msg.metadata && msg.metadata.is_visually_hidden_from_conversation)) {
@@ -3550,6 +3554,14 @@
             // Every answer in conversation order, with its text (v12.17): Search, Export, Summary.
             _ix.answers       = an;
             _ix.images        = res.images || [];
+            // Any shown node's id -> its answer's key (ChatGPT; an answer's own key maps to itself).
+            var answerIdOf = {};
+            for (var ai = 0; ai < an.length; ai++) {
+                if (!an[ai].key) continue;
+                answerIdOf[an[ai].key] = an[ai].key;
+                for (var aj = 0; an[ai].ids && aj < an[ai].ids.length; aj++) answerIdOf[an[ai].ids[aj]] = an[ai].key;
+            }
+            _ix.answerIdOf    = answerIdOf;
             _ix.entries       = res.entries;
             _ix.total         = res.total;
             _ix.idIndex       = idIndex;
@@ -3876,10 +3888,13 @@
     // the resolved node for path index `pathIdx`, now mounted. It lands (orbLandIn: instant writes,
     // re-located by its path index, checked) instead of the smooth glide every caller used to end
     // with, which nothing checked (v12.17; ROADMAP 14). No container: the glide, as before.
+    // Re-located by path index, or, where that cannot place it (a question that is only a file chip
+    // has no text to match: tests' "80 rows, Q#1 is a file chip"), the node the settle loop resolved,
+    // while it is still connected.
     function ciLandSettled(el, pathIdx, landed) {
         if (ciIsClaudeChat() && ciIsReady() &&
             orbLandIn(ciFindScrollContainerStable(), el,
-                      function () { return ciResolveMountedByPathIndex(pathIdx); },
+                      function () { return ciResolveMountedByPathIndex(pathIdx) || (el.isConnected ? el : null); },
                       landed, IX_ADAPTERS.claude, ciIsReady)) return;
         el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
         landed(el);
@@ -9478,7 +9493,11 @@
                 if (bmk[lb].type !== 'ai-msg') continue;
                 var lk = ixA.keyOf(bmk[lb].el, 'ai-msg');
                 if (!lk) continue;
-                if (_ix.answerOf && _ix.answerOf.hasOwnProperty(lk)) liveAns[lk] = bmk[lb].el;
+                // A unit naming any node of an indexed answer IS that answer (part of it, on ChatGPT).
+                if (_ix.answerIdOf && _ix.answerIdOf.hasOwnProperty(lk)) {
+                    var ak = _ix.answerIdOf[lk];
+                    if (!liveAns[ak] || ak === lk) liveAns[ak] = bmk[lb].el;
+                }
                 else liveOther.push({ key: lk, el: bmk[lb].el });
             }
             for (var ia = 0; ia < ixAns.length; ia++) {
