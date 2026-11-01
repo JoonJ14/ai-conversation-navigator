@@ -2728,6 +2728,7 @@
     var IX_PAGE_SIZE_MIN    = 5;       // the smallest page measured: bounds the pages a jump waits for
     var _ixStartLoaded      = null;    // the conversation whose start a page wait found loaded
     var IX_PAGE_IDLE_MAX    = 3;       // waits at the top that brought no older turn, per jump
+    var IX_ANSWER_GROWTH    = 2000;    // chars an answer on screen may outgrow its indexed text before a refetch
 
     var _ix = {};                      // the generic pipeline's state, one conversation
     var _ixJumpToken = 0;
@@ -3606,6 +3607,26 @@
                     byPos[mounted[i].pos] = mounted[i].el;
                     if (mounted[i].pos > maxPos) maxPos = mounted[i].pos;
                 } else if (!stale) stale = mounted[i].key;
+            }
+            // An answer the index holds too little of (v12.17, Tier 3 r4): mounted but not indexed (it
+            // arrived after the snapshot), or more than IX_ANSWER_GROWTH chars longer on screen (it was
+            // still being written). Signed per key and per IX_ANSWER_GROWTH step, so a streaming answer asks
+            // for at most one refetch per step, behind the usual cooldown.
+            if (!stale && a.bookmarkables && _ix.answers) {
+                var bk = a.bookmarkables();
+                for (var bi = 0; bi < bk.length && !stale; bi++) {
+                    if (bk[bi].type !== 'ai-msg') continue;
+                    var ak = a.keyOf(bk[bi].el, 'ai-msg');
+                    if (!ak) continue;
+                    var shownLen = _readAIText(bk[bi].el).length;
+                    var held = _ix.answerIdOf && _ix.answerIdOf.hasOwnProperty(ak) ? _ix.answerIdOf[ak] : null;
+                    if (!held) { if (shownLen) stale = 'a:' + ak; continue; }
+                    var heldLen = 0;
+                    for (var hi = 0; hi < _ix.answers.length; hi++) {
+                        if (_ix.answers[hi].key === held) { heldLen = _mdVisible(_ix.answers[hi].text || '').length; break; }
+                    }
+                    if (shownLen > heldLen + IX_ANSWER_GROWTH) stale = 'a:' + held + ':' + Math.floor(shownLen / IX_ANSWER_GROWTH);
+                }
             }
             // A SHORTER branch has no unknown ids: every mounted question is in the index,
             // which still lists the abandoned follow-ups. At the bottom of the scroller the
@@ -7414,6 +7435,8 @@
         window.addEventListener('resize', _orbResizeHandler);
     }
 
+    var _galGmPartial = null;   // Gemini's gmHistPartial() at the previous scan (orbOnScanComplete)
+
     // ── Orbital panel update hook (called by scanConversation) ──
     function orbOnScanComplete() {
         // Count before anything draws. After the draws, the dots always showed the
@@ -7421,6 +7444,14 @@
         updateTurnCounter();
         if (orbPanel === 'nav')    orbPopulateNavigate();
         if (orbPanel === 'search') orbPopulateSearch(orbSearchQuery);
+        // Gemini: an open gallery redraws when the chat's start becomes loaded (its note goes, its cards
+        // may change), not on every scan (v12.17, Tier 3 r4).
+        var gmPart = gmHistPartial();
+        if (orbPanel === 'tools' && _galGmPartial !== null && gmPart !== _galGmPartial) {
+            var galS = document.getElementById('acn-gallery-section');
+            if (galS) renderImageGallery(galS);
+        }
+        _galGmPartial = gmPart;
         var bmPanel = document.getElementById('acn-panel-bookmarks');
         if (bmPanel && bmPanel.classList.contains('acn-open')) {
             orbRefreshBookmarksPanel();
@@ -12596,13 +12627,14 @@
                     // the off-screen content this path recovers (Codex R6 :6619).
                     var lbl = (fm[1] ? fm[1] + ' — ' : '') +
                               body.split('\n')[0].substring(0, 40);
-                    codeBlocks.push({ label: lbl, element: null, msgIndex: msgIndex, pathIdx: pathIdx });
+                    // jumpRef: ChatGPT's and Perplexity's identity for the click (v12.17, Tier 3 r4).
+                    codeBlocks.push({ label: lbl, element: null, msgIndex: msgIndex, pathIdx: pathIdx, jumpRef: r.jumpRef || null });
                 }
                 var metas = (r.files || []).concat(r.attachments || []);
                 for (var mi = 0; mi < metas.length; mi++) {
                     var fn = metas[mi].file_name;
                     if (fn && !seenFiles[fn]) { seenFiles[fn] = true;
-                        files.push({ label: fn, element: null, msgIndex: msgIndex, pathIdx: pathIdx }); }
+                        files.push({ label: fn, element: null, msgIndex: msgIndex, pathIdx: pathIdx, jumpRef: r.jumpRef || null }); }
                 }
                 return;
             }
@@ -13965,7 +13997,7 @@
                 // from an unmounted response carry element:null, and calling the scroll
                 // helper without the index made every one of them a silent no-op even
                 // though the index can jump straight to its message.
-                item.addEventListener('click', function () { _sumScrollToElement(cb.element, cb.pathIdx, cb.elKey); });
+                item.addEventListener('click', function () { _sumScrollToElement(cb.element, cb.pathIdx, cb.elKey, cb.element ? null : cb.jumpRef); });
                 body.appendChild(item);
             });
         }
@@ -13976,7 +14008,7 @@
             inventory.files.slice(0, 10).forEach(function (f) {
                 var item = createElement('div', { className: 'acn-code-item', textContent: f.label });
                 if (f.element || typeof f.pathIdx === 'number') {
-                    item.addEventListener('click', function () { _sumScrollToElement(f.element, f.pathIdx, f.elKey); });
+                    item.addEventListener('click', function () { _sumScrollToElement(f.element, f.pathIdx, f.elKey, f.element ? null : f.jumpRef); });
                 }
                 body.appendChild(item);
             });

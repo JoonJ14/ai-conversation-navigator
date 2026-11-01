@@ -192,6 +192,13 @@ function exportOrder(f, n) {
     for (let i = 0; ok && i < n; i++) {
         ok = h[2 * i] === '## User (Q#' + (i + 1) + ')' && h[2 * i + 1] === '## Assistant (A#' + (i + 1) + ')';
     }
+    // And each body under its own heading: every fixture question reads "... question N ..." and every
+    // answer starts "Answer N:" (Tier 3 r4).
+    const parts = f.split(/^## /m).slice(1);
+    for (let i = 0; ok && i < n; i++) {
+        const qb = parts[2 * i] || '', ab = parts[2 * i + 1] || '';
+        ok = new RegExp('question ' + (i + 1) + '\\b').test(qb) && new RegExp('\\n\\s*Answer ' + (i + 1) + ':').test(ab);
+    }
     return { ok, count: h.length };
 }
 // What every answer's text adds up to, as Summary counts it (ChatGPT: a turn's text nodes joined by a
@@ -528,9 +535,12 @@ function claudeXhr(payload) {
                     }
                     return turn.querySelectorAll('img').length;
                 }, o.T[2].id);
+                const r1 = o.requests.length;
                 const g2 = await pg.evaluate("window.__h.gallery()");
+                const newReq = o.requests.slice(r1).filter((u) => !/\/(api|backend-api)\/(auth\/session|conversation\/)/.test(u)).length;
                 check('C8', 'new', 'ChatGPT gallery: with Q3 mounted and its two images shown by the page (blob:), both cards show the page\'s thumbnail',
-                      shown === 2 && g2.cards.length === 2 && g2.cards.every((c) => c.thumb === 'page'), 'page images=' + shown + ' ' + JSON.stringify(g2.cards.map((c) => c.thumb)));
+                      shown === 2 && g2.cards.length === 2 && g2.cards.every((c) => c.thumb === 'page') && newReq === 0,
+                      'page images=' + shown + ' ' + JSON.stringify(g2.cards.map((c) => c.thumb)) + ' requests=' + newReq);
             }
         } finally {
             if (showLogs) console.log(o.logs.filter((l) => /ACN/.test(l)).slice(-40).join('\n'));
@@ -830,12 +840,17 @@ function claudeXhr(payload) {
             }
             const before = await pg.evaluate(() => JSON.parse(window.__acnStore()['acn-bookmarks-v1'] || '{}'));
             const b0 = (((before[url] || {}).bookmarks) || [])[0] || {};
+            // The bookmarks panel open while the 8 s rule completes the chat: it must redraw too.
+            await pg.evaluate(() => document.getElementById('acn-dot-bookmarks').click());
+            await pg.waitForTimeout(300);
             await pg.evaluate(() => window.__mockGemini.userScroll('top'));
             await pg.waitForTimeout(10000);
+            const shownLabel = await pg.evaluate(() => (document.querySelector('#acn-panel-bookmarks .acn-bk-type') || {}).textContent || null);
             const after = await pg.evaluate(() => JSON.parse(window.__acnStore()['acn-bookmarks-v1'] || '{}'));
             const b1 = (((after[url] || {}).bookmarks) || [])[0] || {};
             check('G10', 'new', 'Gemini: a chat whose last page is a full 10 completes by the 8 s rule, and a provable positional record binds then',
-                  !b0.msgUuid && b1.msgUuid === tid(5), 'before=' + (b0.msgUuid || null) + ' after=' + (b1.msgUuid || null) + ' turn5=' + tid(5));
+                  !b0.msgUuid && b1.msgUuid === tid(5) && shownLabel === 'Q#5',
+                  'before=' + (b0.msgUuid || null) + ' after=' + (b1.msgUuid || null) + ' turn5=' + tid(5) + ' open panel=' + shownLabel);
         } finally { await o.context.close(); }
     }
     if (['G7', 'G8'].some(want)) {
