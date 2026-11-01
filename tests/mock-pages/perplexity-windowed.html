@@ -277,6 +277,8 @@
   Config: entries: [{ text, answer }] (text '' renders an empty bubble: an attachment-only entry)
   bmModel: {
     q: px, a: px  heights of every question / answer slot (default 100 / 500)
+    finished: true  (v12.17) the live "Finished" step header inside each answer's
+                  [data-workflow-final-text], before its text
     around: n     entries mounted beyond those in view, on each side (default 1)
     qLag: true    a mounted entry whose question slot lies wholly above the view keeps that slot
                   EMPTY while its answer stays mounted (live: slot 19's answer mounted, slot 18's
@@ -328,7 +330,12 @@
     slot.querySelector('p').textContent = entries[i].text;
   }
   function fillA(slot, i) {
-    slot.innerHTML = '<div class="prose dark:prose-invert"><div data-workflow-final-text="true">' +
+    // bm.finished (v12.17): the "Finished" step header the live page draws inside
+    // [data-workflow-final-text], above the answer (Chrome, 2026-11-01: 3 of 3 answers).
+    var fin = bm.finished ? '<div class="flex flex-col"><div class="group/step-header relative">' +
+                            '<button class="reset interactable"><div><span class="flex min-w-0"><div class="min-w-0">Finished</div>' +
+                            '</span></div></button></div></div>' : '';
+    slot.innerHTML = '<div class="prose dark:prose-invert"><div data-workflow-final-text="true">' + fin +
                      '<p class="bm-a"></p><ul><li class="prose-p:my-0">a nested point</li>' +
                      '<li class="prose-p:my-0">another nested point</li></ul>' +
                      '<span class="prose-inline">inline</span></div></div>' +

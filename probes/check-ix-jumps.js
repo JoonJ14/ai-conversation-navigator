@@ -144,6 +144,9 @@ const GPT_H24 = [1400, 900, 2100, 1300, 800, 1700, 1500, 2600, 900, 1200, 1800, 
 // 49 turns, about 2,770 px each), about 5 turns mounted. Heights spread over that mean.
 const GPT_H49 = Array.from({ length: 49 }, (_, i) => 1500 + ((i * 7919) % 2600));
 const GPT_PAGING = { h: GPT_H49, loaded: 10, batch: 5, prependDelay: 900, prependWithin: 1, minTurns: 5 };
+// The same paging on a 100-question chat: 18 pages to the start, past what the 12-move cap holds
+// when each page costs a move (K8).
+const GPT_PAGING_100 = Object.assign({}, GPT_PAGING, { h: Array.from({ length: 100 }, (_, i) => 1500 + ((i * 7919) % 2600)) });
 const GPT_C9 = [1701, 1078, 2116, 935, 1094, 1767, 2060, 1819, 382, 1612, 2064, 993, 2071, 414, 1921, 1663, 234, 2381, 1214, 2291];
 
 const LIVE_PPLX = Object.assign({ q: LIVE_Q, a: LIVE_A, drift: 8, anchor: true, around: 2 });
@@ -263,6 +266,8 @@ const FIXTURES = [
       site: 'chatgpt', n: 49, start: 'bottom', target: 14, model: GPT_PAGING, timeout: 40000 },
     { id: 'K6', label: 'new', desc: 'ChatGPT pages 5 turns at the top (live numbers): bottom -> Q1 of 49, nine pages',
       site: 'chatgpt', n: 49, start: 'bottom', target: 0, model: GPT_PAGING, timeout: 40000 },
+    { id: 'K8', label: 'new', desc: 'ChatGPT pages 5 turns at the top: bottom -> Q1 of 100, eighteen pages',
+      site: 'chatgpt', n: 100, start: 'bottom', target: 0, model: GPT_PAGING_100, timeout: 70000 },
     { id: 'K7', label: 'guard', desc: 'ChatGPT pages at the top: bottom -> Q42, already loaded',
       site: 'chatgpt', n: 49, start: 'bottom', target: 41, model: GPT_PAGING, timeout: 40000 },
     // No scroll container (a thread under 1.5 screens): the plain fast path, as in v12.14.

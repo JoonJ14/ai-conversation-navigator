@@ -137,3 +137,9 @@ jobs:
       - name: Run Gemini history probe
         if: matrix.os == 'ubuntu-latest'
         run: node probes/check-gemini-history.js --browser ${{ matrix.browser }}
+
+      # v12.17: Search, Export, Summary and the gallery read the whole conversation on Claude,
+      # ChatGPT, Perplexity and Gemini, and Gemini bookmarks key to the turn id (DEC-059).
+      - name: Run feature-gaps probe
+        if: matrix.os == 'ubuntu-latest'
+        run: node probes/check-feature-gaps.js --browser ${{ matrix.browser }}
