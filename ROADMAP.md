@@ -1125,6 +1125,15 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       - **A ChatGPT answer can be bookmarked twice under its two keys** (Tier 3 round 2): a tab whose index has not
         loaded saves a "fallback" unit's raw node id, an indexed tab the answer's key. Both records persist and show
         as one answer; removing one removes both (`_bmIxCanon` matches both). Not a wrong jump; logged.
+      - **Tier 3 round 5 (the last local round), logged for GitHub Codex and later work:**
+        - An answer regenerated during the 15 s resync cooldown: the old answer still marks its question answered and
+          its old key is no longer mounted for the growth check, so an export in that window can call the old
+          snapshot complete [code].
+        - Gemini after a `replaceState` switch: if the old chat's turns linger while the path names the new chat, a
+          flag drawn on them saves the old turn's id into the new chat's bookmarks [code; v12.16's positional flags
+          had the same exposure].
+        - `check-ix-jumps` K5–K8 model every growth as a page and run only in a visible tab: neither growth of another
+          kind during a page wait nor a hidden tab's timeout is gated (both are handled in code).
       - **No probe switches ChatGPT conversations and back** (A → B → A): `_ixStartLoaded` is cleared on the switch
         (Tier 3, v12.17), but the mock would need a rebuild to show only the newest pages again on return.
       - **Summary and the gallery look up each answer's mounted node one by one** (`_bmIxFind` per answer, each a

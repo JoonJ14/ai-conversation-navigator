@@ -493,6 +493,23 @@ function claudeXhr(payload) {
                 await pg.waitForTimeout(800);
                 const t = await pg.evaluate("window.__h.summary()");
                 const first = ((t.match(/msgs [0-9]+–[0-9]+/) || [''])[0]);
+                // The code item of Q3's unmounted answer, clicked: it lands on that answer (Tier 3 r4, r5).
+                const codeClicked = await pg.evaluate(() => {
+                    const R = document.querySelector('[data-acn-role="sum-results"]');
+                    const it = Array.prototype.filter.call(R.querySelectorAll('*'), (e) => /kinkajou/.test(e.textContent) && e.children.length < 3).pop();
+                    document.getElementById('acn-zone').removeAttribute('data-acn-jump-resolved');
+                    window.__acnToasts.length = 0;
+                    if (!it) return false;
+                    it.click(); return true;
+                });
+                await settle(pg, '#mock-scroller');
+                const cm = await pg.evaluate((k) => Object.assign(window.__h.inView(document.getElementById('mock-scroller'),
+                    document.querySelector('#mock-scroller [data-turn-key="' + k + '"] [data-content-search-unit-key$=":assistant"]')),
+                    { toasts: window.__acnToasts.slice() }), o.T[2].id);
+                check('C5b', 'new', 'ChatGPT Summary: the code item of an unmounted answer, clicked, lands on that answer',
+                      codeClicked && cm.inView && !cm.toasts.length, 'clicked=' + codeClicked + ' ' + JSON.stringify(cm));
+                await pg.evaluate("window.__mockWindow.userScrollTo('bottom')");
+                await pg.waitForTimeout(800);
                 await pg.evaluate("window.__h.clickSegment('msgs 1\\u2013')");
                 await settle(pg, '#mock-scroller');
                 const m = await pg.evaluate((k) => Object.assign(window.__h.inView(document.getElementById('mock-scroller'),

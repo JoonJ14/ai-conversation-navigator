@@ -4005,7 +4005,8 @@
         var moves = 0, lastDir = 0, factor = 1, waits = 0, pages = 0, idle = 0;
         // A conversation whose start is known to be loaded waits for no page (only the first jump
         // that reaches its start pays IX_PAGE_WAIT_MS).
-        var pageCap = _ixStartLoaded === cid ? 0 : Math.ceil(total / IX_PAGE_SIZE_MIN) + 2;
+        // Keyed by the index generation too: an edit or a branch refresh can show only recent pages again (Tier 3 r5).
+        var pageCap = _ixStartLoaded === cid + '|x' + _ix.indexGen ? 0 : Math.ceil(total / IX_PAGE_SIZE_MIN) + 2;
         var landing = { aligns: 0 };
         var watch = ixWatchUser(container), finished = false;
         function done(ok, el, reason) {
@@ -4098,7 +4099,7 @@
                 // throttled, can time out with older history still to come (Tier 3 r2).
                 if (Date.now() - t0 >= IX_PAGE_WAIT_MS) {
                     pages = pageCap;
-                    if (lowestMounted() === 0 && document.visibilityState === 'visible') _ixStartLoaded = cid;
+                    if (lowestMounted() === 0 && document.visibilityState === 'visible') _ixStartLoaded = cid + '|x' + _ix.indexGen;
                     arrive();
                     return;
                 }
@@ -12662,7 +12663,7 @@
                     if (preview.length === 60) preview += '...';
                     var label = (lang ? lang.toUpperCase() + ': ' : '') + preview;
                     codeBlocks.push({ label: label, element: pre, msgIndex: msgIndex,
-                                      pathIdx: pathIdx, elKey: _sumElKey(pre) });
+                                      pathIdx: pathIdx, elKey: _sumElKey(pre), jumpRef: r.jumpRef || null });
                 });
             } catch (e) {}
 
@@ -12677,7 +12678,7 @@
                             if (!seenFiles[fname]) {
                                 seenFiles[fname] = true;
                                 files.push({ label: fname, element: a, msgIndex: msgIndex,
-                                             pathIdx: pathIdx, elKey: _sumElKey(a) });
+                                             pathIdx: pathIdx, elKey: _sumElKey(a), jumpRef: r.jumpRef || null });
                             }
                         });
                     }
@@ -13997,7 +13998,7 @@
                 // from an unmounted response carry element:null, and calling the scroll
                 // helper without the index made every one of them a silent no-op even
                 // though the index can jump straight to its message.
-                item.addEventListener('click', function () { _sumScrollToElement(cb.element, cb.pathIdx, cb.elKey, cb.element ? null : cb.jumpRef); });
+                item.addEventListener('click', function () { _sumScrollToElement(cb.element, cb.pathIdx, cb.elKey, (cb.element && cb.element.isConnected) ? null : cb.jumpRef); });
                 body.appendChild(item);
             });
         }
@@ -14008,7 +14009,7 @@
             inventory.files.slice(0, 10).forEach(function (f) {
                 var item = createElement('div', { className: 'acn-code-item', textContent: f.label });
                 if (f.element || typeof f.pathIdx === 'number') {
-                    item.addEventListener('click', function () { _sumScrollToElement(f.element, f.pathIdx, f.elKey, f.element ? null : f.jumpRef); });
+                    item.addEventListener('click', function () { _sumScrollToElement(f.element, f.pathIdx, f.elKey, (f.element && f.element.isConnected) ? null : f.jumpRef); });
                 }
                 body.appendChild(item);
             });
@@ -14542,6 +14543,8 @@
         var indexed = orbIndexedImages();
         if (indexed) { _renderIndexedGallery(container, indexed); return; }
         var images = getConversationImages();
+        var galPath = location.pathname;
+        images.forEach(function (im) { im.galPath = galPath; });
         var header = document.createElement('div');
         header.className = 'acn-tool-section-header';
         header.textContent = '\uD83D\uDDBC\uFE0F ' + (i18n('imageGallery') || 'Image Gallery') +
@@ -14634,6 +14637,13 @@
     // A DOM gallery card's message. Gemini: a question lands through Navigate's jump, an answer
     // through gmLandFarEl, re-found by its turn's id (v12.17); elsewhere the glide, as before.
     function _galGoDom(data) {
+        // Drawn for another chat (an SPA switch, the gallery still open): redraw, never jump (Tier 3 r5).
+        if (data.galPath && data.galPath !== location.pathname) {
+            var gs = document.getElementById('acn-gallery-section');
+            if (gs) renderImageGallery(gs);
+            showToast('Gallery is out of date \u2014 it was refreshed, click again');
+            return;
+        }
         if (platform && platform.id === 'gemini' && data.msgElement) {
             if (data.isUserMsg) {
                 for (var i = 0; i < _questions.length; i++) {
