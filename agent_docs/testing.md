@@ -97,7 +97,8 @@ GitHub Actions runs on push/PR to `main`:
     Perplexity adapters against two mocks that genuinely unmount (`chatgpt-windowed.html`,
     `perplexity-windowed.html`). Run it with `ACN_SCRIPT=<old build>` to see the new fixtures fail there.
   - Every `ubuntu` job also runs `check-turn-counter` on its own engine (v12.11): Claude's turn-counter dots
-    when the index lands after Navigate opens, across a switch, and on an empty page.
+    when the index lands after Navigate opens, across a switch, and on an empty page; since v12.16 the expected
+    colours come from the meter's percentage, and A6 asserts no dot is redder than the meter (DEC-056).
   - Every `ubuntu` job also runs `check-gm-storage` on its own engine (v12.12): bookmarks and settings surviving a
     reload with only the async `GM.getValue` / `GM.setValue` (Safari's Userscripts), the sync path left untouched,
     and a load that never answers; since v12.13, two tabs saving the same collection, a stored value that cannot be
@@ -116,7 +117,8 @@ GitHub Actions runs on push/PR to `main`:
   - Every `ubuntu` job also runs three v12.16 probes on its own engine: `check-claude-far-jump` (Claude's latest
     question from the top lands in one click, on the virtualizing mock with `tailAtEnd`, DEC-055), `check-ctx-limit`
     (the context window by the conversation's model, DEC-056) and `check-gemini-history` (Gemini's history note on
-    `gemini-history.html`, DEC-057, about 45 s per engine with one real 8 s wait).
+    `gemini-history.html`, DEC-057, about 45 s per engine with one real 8 s wait). They took the ubuntu jobs to
+    about 24 minutes (23m28s–24m6s on PR #90's run 41257520872), against the 30-minute cap.
 
 **Windows is the runner that catches timing assumptions.** It is materially slower than
 the Ubuntu and macOS runners, so an assertion that races the virtualizer passes on two OSes

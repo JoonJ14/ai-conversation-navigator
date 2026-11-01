@@ -30,15 +30,28 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.16 IN REVIEW (PR #90); v12.15 MERGED (PR #88) — live confirmation status: DEC-031
+## Current Status: v12.16 MERGED (PR #90); v12.15 MERGED (PR #88) — live confirmation status: DEC-031
 
-**v12.16 (branch `fix/v12.16-claude-jump-meter-gemini`, PR #90; owner acceptance owed on all three browsers).**
+**v12.16 (PR #90, merged 2026-11-01 as `a9ecb14` before acceptance, a waiver; owner acceptance owed on all three
+browsers, DEC-031).**
 One combined PR in three parts, from the owner's spec (2026-10-31). A: on Claude, a jump to a far target that is
 already mounted (the latest question, from the top) lands instead of gliding past it (DEC-055; TROUBLESHOOTING, the
 entry it fixes). B: Claude's context meter uses the window of the conversation's model, from Anthropic's help center,
 with a labelled 200K fallback (DEC-056; step 1 of item 12). The turn dots on Claude follow the meter (the owner's request). C: Gemini keeps every turn it loads, so Navigate's list is
 complete once the history is, and says so while it is not (DEC-057). The agent's live check in Chrome + Tampermonkey
 passed all three (DEC-031). Grok is out of scope (its own PR after the owner's testing).
+
+**Next, in the owner's order (2026-11-01; DEC-058).** No release for v12.15 or v12.16: a release only once every
+platform works on all supported browsers.
+1. **The feature gaps, one PR (priority; the owner writes the spec).** In the owner's words: Search, Export, Summary
+   and the image gallery on ChatGPT, Perplexity, Gemini and Claude still read only on-screen messages, and Gemini
+   bookmarks are still positional. All of it goes in one PR. Known pieces already logged: Export and Summary drop
+   unmounted questions on ChatGPT and Perplexity (item 14), positional Gemini bookmarks (item 13).
+2. **The context meter: make model-dependent limits clear to the user** (item 12), its own PR, after the feature
+   gaps. It starts with a live measurement run by the agent in Chrome: does the navigator see a mid-chat model
+   change, through the conversation's stored `model` or the composer's model picker? Then the design, chosen by the
+   owner from HTML mockups.
+3. **Grok** on all three browsers (item 13), its own PR.
 
 **v12.15 (PR #88, merged 2026-10-31 as `6baac2e`, on the owner's OK before their acceptance: a waiver, DEC-031).**
 One combined PR in three parts. B: jumps on Perplexity and ChatGPT land in one click, instantly and checked
@@ -94,7 +107,8 @@ and one merge. Its process changes: Tier 3 is capped at 5 rounds, and new issues
 for a later PR unless they block this one. **The owner gives the full spec** as the first message of that session;
 nothing here pre-writes its scope.
 
-Later; the owner decides the order (2026-10-24; the last two added 2026-10-31):
+Later; the owner decides the order (2026-10-24; the last two added 2026-10-31; the first three PRs are now fixed
+by the owner's order above, 2026-11-01):
 - Grok on all three browsers (item 13).
 - ~~Claude: a jump to the latest question from the top ends at the bottom, past it~~ — v12.16 part A (DEC-055).
 - `check-ix-jumps` J15's timing race in CI (TROUBLESHOOTING, OPEN): make the fixture's pin deterministic.
@@ -671,7 +685,7 @@ Numbering below is stable (items keep their historical numbers):
    check (map renders sub-segments, segment and SUB-segment clicks land, export correct), not
    a measurement. The probe is not needed for it.
 12. **The context-window meter: recalibrate the limit, then the estimate — LOW PRIORITY, for later (owner,
-   2026-10-23; not in the next-session order).** The meter still assumes Claude's old ~200–250K window (the
+   2026-10-23; not in the next-session order).** (Before v12.16:) The meter still assumes Claude's old ~200–250K window (the
    userscript's `CTX_LIMITS.claude` is `200000`; `docs/CONTEXT-TRACKING.md` → "Context Window Limits
    Reference"), so long conversations read well over 100%.
    - **Step 1: recalibrate to the current limit** — 1M tokens, per the owner. Verify the limit per model and
@@ -694,6 +708,19 @@ Numbering below is stable (items keep their historical numbers):
        [code].
      - The help center gives no per-model window for the Free plan; the Team plan page still says "200k context
        window" (2026-10-30). The table is the paid-plan one.
+   - **Decided 2026-11-01 (owner): keep the per-model table** (it matches the help center: in a chat, 1M for Fable
+     5.1, Opus 5.5, Opus 5, Sonnet 5.5, Sonnet 5, Haiku 5.5; 500K for Fable 5, Opus 4.6–4.8, Sonnet 4.6; 200K for any
+     other model. Claude Code gives 1M for every listed model, which is where "1M for every chat" came from). Not a
+     fix for now.
+   - **Planned feature (owner, 2026-11-01): "context meter: make model-dependent limits clear to the user."** Its own
+     PR, after the feature-gaps PR (DEC-058). Ideas, design TBD and decided from HTML mockups: a fixed-scale bar with
+     limit markers; the model and its limit as text; a notice when the model changes.
+     - **First, a measurement, run by the agent live in Chrome:** does the navigator see a mid-chat model change,
+       through the conversation's stored `model` or the composer's model picker? Known so far: the stored `model` is
+       one per conversation, present on 60 of 60 recent chats, and no message carries one (DEC-056); whether it
+       follows a switch is unmeasured. The help center says a change "at any point in a conversation" applies from
+       Claude's next response (article 8664678, read 2026-11-01). Switching a model changes the conversation, so the
+       run needs the owner's go-ahead for that account action.
 
 **v12.0 Accomplishments (2026-07-26):**
 - **API-Backed Conversation Index (DEC-021):** Claude virtualized its message list with recycling — only ~3 of 147 user turns are mounted at any moment (~3% coverage), so `document.querySelectorAll()` stopped being a complete record of the conversation. Navigate, Search, Summary and Export were all operating on a fraction of the data, and Export was silently writing truncated files under an authoritative-looking message count. Fixed by reading Claude's own conversation JSON endpoint via `GM_xmlhttpRequest` and walking the message tree from `current_leaf_message_uuid` to isolate the active branch. This is an ordinary outbound request, not fetch interception — no Firefox cross-compartment exposure (DEC-019/DEC-020).
@@ -868,8 +895,9 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       key per conversation (DEC-053). Gated on mocks [measured, Playwright page realm, headless] and checked live in
       Chrome + Tampermonkey by the agent (CHANGELOG 12.15); owner acceptance on all three browsers owed (a waiver,
       DEC-031).
-    - **Pending:** Grok, untested on all three browsers; Gemini, once its virtualization is measured. The
-      owner decides their order (ROADMAP, "Current Status"; HANDOFF.md, §G).
+    - **Pending:** Grok, untested on all three browsers. The owner decides the order (ROADMAP, "Current Status";
+      HANDOFF.md). Gemini: measured in v12.16; it keeps every turn, so it needs no index adapter (DEC-057). Its
+      bookmarks stay positional (logged below, v12.16).
     - **How to add the next one:** "Porting the Layer 4 response to another platform" below, then one
       `IX_ADAPTERS` entry and a mock that genuinely unmounts (`probes/check-index-adapters.js` has two).
     - **Logged from v12.10, outside its scope:**
@@ -913,7 +941,9 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       - Claude's jump callbacks and the legacy nav handler still end with an unchecked smooth glide [code]. *Measured
         2026-10-25:* Claude does resize during it, and a jump to the latest question from the top (mounted at every
         scroll position, so the fast path's glide) ends at the bottom, past it, on 12.15 and on v12.14 alike [measured
-        live, Chrome + Tampermonkey]: TROUBLESHOOTING, the OPEN Claude latest-question entry.
+        live, Chrome + Tampermonkey]: TROUBLESHOOTING, the Claude latest-question entry (FIXED IN v12.16). *Fixed in v12.16 part A
+        (DEC-055, `365d825`).* The settle loop's callbacks, Summary's mounted path and the gallery still glide
+        unchecked (item 14, logged from v12.16).
       - `orbScrollToMessage` has no `releaseScroll` [code].
       - B6: with fewer entries mounted than the live 5–8 (2–3) and an empty question slot, jumps fail on v12.14, on
         the part B build and on its bounded-wait prototype alike [measured, Playwright page realm, chromium, 1 run];
@@ -1042,7 +1072,8 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
     - **Found by v12.15's live check, pre-existing:** a jump to the latest question from the top (Navigate or its
       bookmark) ends at the bottom, past it, on 12.15 and on v12.14 [measured live, Chrome + Tampermonkey,
       2026-10-25]. TROUBLESHOOTING has the entry; a likely fix is `ixLandOn`-style instant writes for a far mounted
-      target.
+      target. *Fixed in v12.16 part A (DEC-055, `365d825`).* The settle loop's callbacks, Summary's mounted path and
+      the gallery still glide unchecked (logged below).
     - **Logged from v12.15, part C, outside its scope** (DEC-054's residuals):
       - C-O1: if a regenerate changes the row's key only when the stream ends (live fact L3, unmeasured), a bookmark
         made mid-stream keeps the superseded uuid and reads "A#?" after the resync; v12.14 does the same [measured,
@@ -1086,6 +1117,31 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       - CLAUDE.md says "~12,700 lines"; the file has about 15,700 (a CLAUDE.md change needs the owner's approval).
       - `agent_docs/architecture.md`'s jump section still describes `ciDeriveRowOffset` (no caller) and
         `ciVerifyLandedRow` (deleted with resolve-on-arrival).
+      - (the code walkthrough, 2026-10-31) **No jump-busy flag outside the settle loop:** only Claude's settle loop
+        calls `orbSetJumpBusyFor` (set and release); `ixJump`, `ixLandOn` (ChatGPT, Perplexity), `ciLandFar` and
+        `gmLandFar` never set `data-acn-jumping`, so the CSS rule that blocks panel clicks does not apply during them.
+      - **A shrinking question list wipes the meter's token state:** `updateTurnCounter`'s shrink guard (meant for an
+        SPA navigation) calls `resetTurnCounter()` whenever `_questions.length` drops, which also zeroes the SSE
+        thinking total and counts and the compaction history; for example when the index degrades to the 1–5 mounted
+        turns. Live effect unmeasured.
+      - **Landing writes follow the page's CSS `scroll-behavior`:** `ciMoveTo` uses `scrollTo` with `behavior: 'auto'`,
+        and `ixLandOn` (so `ciLandFar` and `gmLandFar`) assigns `scrollTop`; both follow the page's CSS
+        `scroll-behavior`. The existing "unmeasured live" caveat (DEC-052; TROUBLESHOOTING, the ChatGPT and Perplexity
+        entry) names ChatGPT and Perplexity only; Claude and Gemini are unmeasured too.
+      - The adapter contract in `agent_docs/architecture.md` is incomplete: only `extent` and `releaseScroll` are
+        guarded; `bookmarkUrl`, `pathId` and `origins` are called unguarded (corrected there).
+      - The i18n convention's rationale (`agent_docs/conventions.md`) was wrong: `i18n()` returns the key name for an
+        absent key, so an `|| 'English'` fallback never fires (corrected there; whether to keep the convention is below).
+      - **Owner decisions, answered 2026-11-01:**
+        - Every Claude chat as 1M: **no**; keep the per-model table, and plan the meter feature (item 12, DEC-058).
+        - The `i18n('key') || 'English'` convention: **leave it** (agent_docs/conventions.md).
+        - CI's 30-minute job cap (the ubuntu jobs took 23.5–24 minutes on v12.16, run 41257520872): **OK for now**;
+          it is part of the CI rebuild (item 0e).
+        - CLAUDE.md: the exit-127 lesson, "a mock takes its numbers from live measurements" and the line count,
+          **approved**; committed on its own in PR #91.
+      - **A stale code comment** (found by PR #91's docs check): the comment above `gmLandFar` in the userscript still
+        says the glide "left the target 4,240 px below the view, 2 of 4 times"; the first miss was 6,139 px and the
+        4,240 px one was a later run (DEC-057). Fix it in the next code PR (a docs-only PR does not touch the script).
 
 ---
 

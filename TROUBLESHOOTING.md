@@ -215,9 +215,13 @@ Virtualization is not a Claude quirk. It is the standard answer to "our chat pag
 conversations", and every platform this userscript supports will eventually have that conversation
 internally. **Claude was not even the first here** — Emergent has used a Virtuoso recycling scroller
 since before this was recognised as a category, and is *not* adequately handled (backlog item 7).
-Gemini's status is contested: two docs say it virtualizes, the registry says it does not, and nobody
-has measured it. As of the last inspection (February 2026, before anyone was looking for this)
-ChatGPT, Grok and Gemini rendered long threads the naive way Claude used to — treat that as the last
+Gemini's status was contested (two docs said it virtualizes, the registry said it does not) until it
+was measured on 2026-10-31 [Chrome + Tampermonkey, the owner's profile, visible tab; DOM-REFERENCE, Gemini;
+DEC-057]: it keeps every loaded turn and pages history in 10 at a time as the view reaches the top. It
+lazy-renders off-screen turns (`content-visibility: auto`, an estimated 500 px) without unmounting them. That
+is not Layer 4 recycling, but it breaks an unchecked glide (the Gemini far-jump entry below). As of the last inspection (February 2026, before anyone was looking for this)
+Grok rendered long threads the naive way Claude used to (ChatGPT has windowed since v12.10, DEC-046; Gemini is
+measured above) — treat that as the last
 observation, not as current fact.
 
 **When one of them does it, the tool will not report an error.** It will quietly start describing
@@ -561,12 +565,12 @@ merged 2026-10-31 as `6baac2e` on the owner's OK, before their acceptance (a wai
 
 ---
 
-## FIXED IN v12.16 (PR #90), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Claude: a jump to the latest question from the top ends at the bottom, past it (found 2026-10-25)
+## FIXED IN v12.16 (MERGED, PR #90 as a9ecb14), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Claude: a jump to the latest question from the top ends at the bottom, past it (found 2026-10-25)
 
 **Phase:** v12.15's live check (Claude regression); fixed in v12.16 part A (DEC-055) | **Severity:** Medium (the
 latest question only; one more click lands) | **Status:** fixed in code, gated in the page realm
-(`probes/check-claude-far-jump.js`) and checked live in the agent's Chrome + Tampermonkey; owner acceptance on Safari,
-Chrome and Firefox pending (DEC-031)
+(`probes/check-claude-far-jump.js`) and checked live in the agent's Chrome + Tampermonkey; merged 2026-11-01 as
+`a9ecb14` before acceptance (a waiver, DEC-031); owner acceptance on Safari, Chrome and Firefox pending (DEC-031)
 
 ### Symptom [measured live, Chrome + Tampermonkey, the owner's profile, visible tab, 2026-10-25, the 147-question chat]
 
@@ -599,16 +603,85 @@ and Search's mounted answer use it; near targets glide as before.
 `3d7b6dc1` (140 questions on its active path; 147 counting every branch)]:
 - **v12.15, before the fix:** from the top, Navigate → Q140 failed 3 of 3, but not at the bottom this time: the
   question ended 285,576 px, 98,987 px and 875 px from the view (the glide stopped short twice). The unchecked glide's
-  end varies run to run; what does not vary is that nothing checks it.
+  end varies run to run; what does not vary is that nothing checks it. On the first miss `scrollHeight` shrank
+  348,652 → 345,138 during the glide.
 - **v12.16 (`365d825`, and again on the full build):** Navigate → Q140 3 of 3 and the Q#140 bookmark 3 of 3 landed
   from the top, the question fully in view, 269 px from the view's top, in about 1.4–1.6 s, no toast (the test
   bookmark was deleted afterwards). Q70 from the top and Q5 and Q100 from the bottom (the settle loop, unchanged)
-  still land.
+  still land, though not all fully [Navigate, `365d825`, 1 run each, no toast on any]: Q70 from the top with the
+  question's top 34 px above the view, 2.5 s; Q100 from the bottom 7 px above, 3.6 s; Q5 from the bottom fully in
+  view, 271 px from the view's top, 3.0 s.
 
 **Not changed, logged (ROADMAP 14):** the settle loop's success callbacks (Navigate, Search, both bookmark kinds,
 Summary) still end with a smooth `scrollIntoView`, short after a real arrival and not measured failing; Summary's
 mounted path and the gallery glide unchecked too (the gallery has no identity to re-locate by). The legacy panel's
 handler never runs on Claude (`useOrbital: true`).
+
+---
+
+## FIXED IN v12.16 (MERGED, PR #90 as a9ecb14), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Gemini: a jump to a far loaded question can end out of view (found 2026-10-31)
+
+**Phase:** v12.16's final live check (the A/B after the GitHub Codex cycle), on `e252bd4` | **Severity:** Medium (a
+far loaded question right after older history paged in; a repeat jump landed once the turns had rendered) |
+**Status:** fixed in code (`095a66c`, with GitHub Codex's `61365d8` and `5bcd18d`), gated in the page realm
+(`check-gemini-history` H10) and checked live in the agent's Chrome + Tampermonkey; merged 2026-11-01 as `a9ecb14`
+before acceptance (a waiver, DEC-031); owner acceptance on Safari, Chrome and Firefox pending (DEC-031). **Not a v12.16
+regression:** Gemini's jump on `e252bd4` was v12.15's glide, unchanged [code].
+
+### Symptom [measured live, Chrome + Tampermonkey, the owner's profile, visible tab, 2026-10-31, `e252bd4`, the 32-question chat `96b519c112c5d099`]
+
+From the top, Navigate → Q32 missed 2 of 4, the question out of view:
+- The first jump after paging the history in (10 → 20 → 30 → 32 loaded) ended 6,139 px below the view, no toast.
+- Three consecutive runs followed: 438 px into the view (`scrollHeight` unchanged at 59,324), 4,240 px below
+  (59,324 → 63,126), then 438 px into the view (63,126 unchanged).
+
+Q1 from the bottom landed. Phase 1's nine jumps on v12.15's code all landed (DOM-REFERENCE, Gemini); all nine ran after
+the turns had rendered [inferred].
+
+### Root cause [measured, same context; code]
+
+Computed live: each turn container (`div.conversation-container`, class `turn-content-visibility`) is
+`content-visibility: auto` with `contain-intrinsic-size: auto 500px`, and the scroller (`infinite-scroller.chat-history`)
+keeps `overflow-anchor: auto`. A turn that has not rendered since it paged in counts as an estimated 500 px. Gemini
+keeps every loaded turn, so Navigate's fast path (`orbScrollToQuestion`) found Q32 mounted and ran one smooth
+`scrollIntoView` that nothing checked. The glide renders every turn it passes, they take their real heights and
+`scrollHeight` grows under it, so the destination fixed when the glide started no longer holds the target [inferred
+from the measured heights; the Claude entry above is the same shape with heights that shrink]. The runs that landed
+started with `scrollHeight` unchanged: the turns had already rendered.
+
+### Solutions considered
+
+- **Leave Gemini's jumps as they were** (Phase 1: 9 of 9 landed live). Rejected after this check: those nine ran after
+  the turns had rendered.
+- **Land through the Claude fix's core** (chosen): an instant write skips the turns between, so nothing renders under
+  it, and every write is checked against the target re-located.
+
+### Fix (v12.16, DEC-057)
+
+- **`gmLandFar` → `orbLandFarIn`** (`095a66c`), the core `ciLandFar` uses (DEC-055): a far loaded question (outside
+  the view extended by one viewport each way) lands through `ixLandOn`, with instant writes, re-located on every step
+  by `_relocateQuestionElement`, within 8 px or capped at 4 writes, a toast when it cannot land. Near targets glide as
+  before. Called from Navigate's fast path.
+- **GitHub Codex's two P2s (PR #90):**
+  - `61365d8`: a direct glide (Summary, the gallery, a plain message scroll) supersedes a Gemini landing in flight
+    (`ciSupersedeLanding` bumps `_ixJumpToken`).
+  - `5bcd18d`: a switch to another chat ends one (`stillValid` compares `location.pathname` with the path at the
+    jump's start).
+  - No gate check covers either; each was verified by `npm test` chromium 560/560 and the Gemini and far-jump gates.
+
+### Results & verification
+
+- **Gate** [Playwright page realm, headless, this Mac]: `check-gemini-history` H10. The mock's `cv` model gives a turn
+  an estimated height until it comes within half a view, settled like the browser's, with anchoring on; H10 runs it at
+  a 120 px estimate, below the live 500 px (DEC-057). Q32 from the top and Q1 from the bottom land. H10 fails on v12.15
+  (Q32 4,520–5,024 px below the view) and on the mutant that turns `gmLandFar` off, and passes on chromium, firefox and
+  webkit.
+- **Live, `095a66c`** [Chrome + Tampermonkey, the owner's profile, visible tab, 2026-10-31; the tested build
+  byte-identical to the commit]: Q32 from the top 2 of 2, Q1 from the bottom and Q16 from the top landed fully in view
+  with one instant write each, `scrollHeight` unchanged, 8 turns still unrendered, no toast.
+- **Live, the final build `5bcd18d`** (DEC-031): from a fresh load, Q32 from the top twice, Q1 from the bottom and Q16
+  from the top landed fully in view, 8 turns still unrendered, `scrollHeight` unchanged.
+- These are the agent's checks, not owner acceptance: owed on all three browsers (DEC-031).
 
 ---
 
@@ -1214,7 +1287,10 @@ Labels: **[code]** read from the source; **[inferred]** reasoned from code or ea
 
 - The dots are `_turnCounter.turnsSinceCompact`, at most 40 (`_renderTurnDots`). With no compaction data a
   dot's colour is its position out of 40: about 28 green, 6 yellow, 6 red. So 144 questions show the full
-  spread and 21 show 21 green [code].
+  spread and 21 show 21 green [code]. *That is the colouring through v12.15. Since v12.16 (DEC-056, `0139896`,
+  the owner's request) a Claude dot takes its colour from the context meter instead: dot i is the meter's share ×
+  (i+1) / the dots drawn, with the bar's 70% and 85% thresholds, so none is redder than the meter. Other platforms
+  keep the positional colours [code].*
 - **The only input is `_questions.length`.** `updateTurnCounter()` keeps the highest value seen; a lower count
   resets it [code]. Once the index is ready, `_questions` is the whole list (144); before that, the DOM scan's
   mounted turns, about 1–5 on Claude [code].
@@ -1305,11 +1381,13 @@ the history-hook block. Changed, none of it on Claude's path:
     the index generation changes. This predates v12.11 [code; measured by the PR #81 review: 15% held after
     200,000 characters were appended with the index held back, 40% on a forced redraw; Playwright page realm,
     chromium].
-- **Gate:** `probes/check-turn-counter.js`, 8 checks. Measured on 2026-10-23, Playwright page realm, headless
+- **Gate:** `probes/check-turn-counter.js`, 8 checks (9 since v12.16: A6 asserts no dot is redder than the meter,
+  and A3's expected spread is computed from the meter's percentage; DEC-056). Measured on 2026-10-23, Playwright page realm, headless
   with `visibilityState` visible, this Mac.
   - **A1** (the index delayed 3 s, Navigate opened first), **A2** (switch 8 → 144 questions with Navigate open;
     no hook installed, the switch through `History.prototype.pushState`, 0 popstates) and **A2b** (then a close
-    and reopen) end at the full 40-dot spread (28 green, 6 yellow, 6 red).
+    and reopen) end at the full 40-dot spread (28 green, 6 yellow, 6 red: v12.11's positional colours; since
+    v12.16 the expected colours come from the meter).
   - **A1f / A2f** read the dots at the first draw that lists the 144 questions: a MutationObserver on the count
     attribute fires right after the drawing task.
   - **A5** leaves for an empty page (`/new`) with Navigate open: the dots must be 0 from the first draw on.
@@ -1389,14 +1467,15 @@ The four runs: v12.8 and v12.9 side by side under identical load, the final buil
   kept jumps unchanged. Real Safari did not reproduce it in the owner's acceptance (2026-10-23), so this is a
   Playwright engine-build question only.
 
-### Measured again 2026-10-23 — the v12.11 and v12.12 final runs, local, macOS arm64
+### Measured again — the v12.11 and v12.12 final runs (2026-10-23) and v12.16's (2026-10-31), local, macOS arm64
 
 | Run | Entries failed | `raf10` | Give-up |
 |---|---|---|---|
 | v12.11 final (`6f90d5a`, PR #81) | 3 of 4; the 150-row entry passed | ~150 ms | ~1.46 s |
 | v12.12 final (`e87aa27`, PR #82) | all 4 | 272–327 ms | 1460–1801 ms |
+| v12.16 pre-approved final run (`0b2454c`, PR #90; before the Gemini fix) | all 4; the 120-row entry 12 of 60, above the recorded 9–11 | 137–164 ms | 1459–1704 ms |
 
-Both show the same shape: `got null busySeen=true idx=null`, on "every targeted question reaches its exact row"
+All three rows show the same shape: `got null busySeen=true idx=null`, on "every targeted question reaches its exact row"
 only, for the last questions of each conversation. **Two elements of the v12.12 run differ from the record
 above:** its frames were about twice as slow, and one give-up came past the 1452–1701 ms range. Frame rate alone
 does not explain the failure, since the record's runs failed at 135–168 ms. The 150-row entry, which fails only 2
@@ -1542,7 +1621,7 @@ repeats on a re-run, is a real finding about the jump's cap.
 
 ---
 
-## OPEN — CI: the Claude 294-row sweep gave up on one question on `firefox on macos-latest` (PR #89, found 2026-10-31)
+## OPEN — CI: the Claude 294-row sweep gave up on one question on `firefox on macos-latest` (PR #89, found 2026-10-31; again on PR #91, 2026-11-01)
 
 **Phase:** PR #89's CI (docs only) | **Severity:** Low — one sweep entry on one runner, no userscript change involved;
 one re-run cleared it | **Status:** open, logged only (no fix proposed yet)
@@ -1556,6 +1635,21 @@ green, and `firefox on macos-latest` failed `npm test` 559/560, on one assertion
 busySeen=true idx=null "Q#62Question number 62: how do" (2565ms, vis=visible, raf10=153ms)`
 
 in `Testing Claude (294 rows, N=10 unrendered)... FAIL (1 failed, 60.2s)`. Attempt 2 passed (owner's re-run).
+
+**Again on PR #91** (run 41317983916, attempt 1, on `9f9a6c9`, docs only; the userscript byte-identical to main's
+v12.16, so the first occurrence was on v12.15's script and this one on v12.16's): 8 of 9 jobs green, and
+`firefox on macos-latest` failed 559/560 on the same assertion, the same question and row, at nearly the same time:
+`Q62: expected row 122, got null busySeen=true idx=null … (2566ms, vis=visible, raf10=166ms)`, in `FAIL (1 failed,
+58.5s)`. The job ran 6m31s, a normal full run for a macOS job (they run `npm test` only; the 23–24-minute jobs are the
+ubuntu ones, which also run the probes), so it was not a stall or a timeout. Attempt 2 passed (6m34s). The other 146
+jumps averaged 339 ms.
+
+**What the repeat adds** [the cause is still not known]: the same question failing the same way at 2,565 and 2,566 ms on
+two different builds is not random runner noise; it points at something specific to Q62 in this fixture under CI's
+Firefox on macOS, and it is intermittent (it passed on PR #90's runs and on `3b183c7`). Per the rule below, the repeat
+makes it a real finding. Not run yet (the owner's call, estimated 20–30 minutes): the fixture locally on Firefox with
+`localStorage.acnJumpDebug = '1'`, repeated until Q62 fails, to read the settle loop's exit reason; it may not
+reproduce on the owner's Mac, whose Firefox build and timing differ from CI's.
 
 ### What the signature says [code; the cause is not known]
 
@@ -1571,7 +1665,8 @@ signature lesson):
 - `idx=null` carries no information: the harness reads `data-acn-index-status` from the zone, and the userscript
   writes it only on the banner inside Navigate's list (agent_docs/architecture.md, test contract).
 - So the settle loop gave up honestly inside `arrive()` (iteration, nudge or no-progress cap, no local match,
-  container gone, or a throw); the harness does not record which. Which runner property made Q62 miss once was not
+  container gone, a hidden tab (`'hidden'`; the harness samples visibility only after the jump, so `vis=visible` does
+  not rule it out), or a throw); the harness does not record which. Which runner property made Q62 miss once was not
   measured.
 
 ### How to respond meanwhile

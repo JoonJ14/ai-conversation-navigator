@@ -79,6 +79,11 @@ console.log(dead.length? 'DEAD: '+dead.join(', ') : 'every key is called');"
 
 **Current state of that audit (updated 2026-08-05 for v12.8), so a hit is not mistaken for a
 regression:** **13** keys have no call site — and **a dead key is not automatically a defect.**
+**Since v12.15 the command prints 14** (re-run 2026-11-01 on v12.16): the extra hit,
+`questionUnresolvedToast`, is a false positive. It is called inside a ternary
+(`i18n(type === 'user-msg' ? 'questionUnresolvedToast' : 'answerUnresolvedToast')`), which the
+regex cannot see. The 9 + 3 + 1 baseline below holds, and v12.16's `olderHistoryNotLoaded` has a
+call site (ROADMAP 14 logs the false positive).
 - **Nine** — the `/Commands` section, deliberately English (DEC-042).
 - **Three** — `questionPrefix`, `noQuestions`, `noBookmarksToExport`. These render English in
   Korean mode and are a **review list, not a fix list** (ROADMAP 0c): the owner reviewed Korean
@@ -112,9 +117,15 @@ has supported this since it was written. Any sentence built from more than one v
 translation defect waiting to happen.
 
 **Every `i18n()` call needs an English fallback** (`i18n('key') || 'English'`), and the fallback
-must match the `en` table value. A fallback that differs is unreachable *and* misleading: the
-`||` fires only when the key is ABSENT, so a differing fallback makes the code claim a wording
-it can never render.
+must match the `en` table value. A fallback that differs is misleading: it makes the code claim a
+wording it can never render.
+
+**The `||` fallback never fires** [code, v12.16]. `i18n()` returns
+`(I18N[lang] && I18N[lang][key]) || I18N.en[key] || key`, so an absent key (or an empty `en` value)
+returns the key name, which is truthy, and `|| 'English'` is unreachable in every case. The `en`
+table is the only fallback. The rationale this rule used to give ("the `||` fires only when the key
+is ABSENT") was wrong. The owner decided on 2026-11-01 to leave the convention as it is
+(DEC-058): keep writing it and keep it matching the `en` value.
 
 **Not everything should be translated — this is the owner's standing position, not a one-off.**
 Verbatim (2026-08-02, after reviewing Korean mode live): *"some things are actually better to
@@ -359,9 +370,57 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 > code under test.
 
 > **Issue:** `check-ix-jumps` J15's mock released its scroll pin for 1 ms after a wheel event, keyed on `Date.now()`.
-> Locally the scroll always landed in a later millisecond; once in CI (`firefox on ubuntu-latest`) it landed in the
+> Locally the scroll usually landed in a later millisecond; once in CI (`firefox on ubuntu-latest`) it landed in the
 > same one, the pin never fired, the jump truly landed, and J15, which expects the cap-out, failed. A re-run passed.
+> Not CI-only: in v12.16's final run on this Mac [Playwright, headless, `--only J15`, three runs per build and engine],
+> J15 failed 1–2 of 3 on Firefox and WebKit, on v12.15 and v12.16 alike (TROUBLESHOOTING, "Seen locally too").
 > **Correct approach:** a mock's behaviour must not depend on how two events fall within a clock tick. Model the site's
 > rule as an ordering (pull back every scroll, or the next one), not a millisecond window.
 > **Why:** a window that is always open or always shut on a fast machine is a coin flip on a slow runner, and the
 > failure reads like a bug in the code under test (TROUBLESHOOTING, the J15 entry).
+
+> **Issue:** v12.16's final-run script wrapped each probe in `timeout 900`. macOS has no `timeout` command, so all 42
+> probe runs (14 probes × 3 engines) exited 127 in 0 s, and the background job still reported exit 0.
+> **Correct approach:** on this Mac use no wrapper (what the re-run did) or `gtimeout` (GNU coreutils; not part of
+> macOS). Read each probe's rc and its "all checks passed" line, never only the job's exit.
+> **Why:** a wrapper that cannot run fails before the work starts, and the job around it still looks green (the
+> "success signal from a wrapper" shape in CLAUDE.md).
+
+> **Issue:** Rewriting `package.json` with Python's `json.dumps(d, indent=2)` turned the description's em dash into
+> `\u2014`: the default `ensure_ascii=True` escapes every non-ASCII character, so the diff touched a line the change
+> was not about.
+> **Correct approach:** write JSON back with `ensure_ascii=False`, indent 2 and a trailing newline, then check that
+> `git diff` shows only the intended key.
+> **Why:** the file still parses, so nothing fails; the escape lands silently in the commit.
+
+> **Issue:** The v12.16 live check on Gemini [Chrome + Tampermonkey, the owner's profile, `48d9665`] read
+> `data-acn-count` after switching chats in the sidebar and got nav=1 with 9 turns mounted, unchanged for 12 s.
+> `pushState` closes the panel, and `orbPopulateNavigate` runs only while Navigate is the open panel, so a closed
+> panel keeps the previous chat's count; it read right once the Navigate dot was clicked. The same script picked chats
+> by sidebar position, and opened different chats from the ones intended.
+> **Correct approach:** open Navigate before reading `data-acn-count` or the item rows, and pick chats by title or
+> id, never by sidebar index.
+> **Why:** a stale count from a closed panel reads like a scan bug, and the hunt goes after code that is working.
+
+> **Issue:** On 2026-10-31 a WebFetch summary misstated claude.ai's context-window table (Opus 4.6 at 500K for Claude
+> Code, Haiku 4.5 at 200K in chat); the raw page said otherwise. Older help articles (7996848, 7996856) now return
+> 404, and third-party posts quoting them, such as "Sonnet 4.6 is 1M on the free tier", are stale and conflict with
+> the current article.
+> **Correct approach:** quote an external source from the raw page (curl the HTML or `.md`), never from a fetch
+> tool's summary, and record the page's modified date with the quote.
+> **Why:** a summary is a second model's reading; a wrong number in it looks exactly like a sourced one.
+
+> **Issue:** Two v12.16 gates went wrong through the mock, not the code. The Claude far-jump mock appended the pinned
+> tail right after the mounted window, so from the top row 292 sat 2,792 px away (with `tailAtEnd`, 330,542 px, where the tail sits live) and moved
+> with every write: the correct fix chased it to the 4-write cap and showed a toast, which made the fix look broken
+> (`tailAtEnd` puts the tail where it is live). Gemini's H10 first modelled `content-visibility` with a guessed
+> 120 px estimate and no scroll anchoring: the fixed build failed its own gate, hitting the cap 212 px off while
+> `scrollHeight` grew 5,168 → 6,284 under its writes. With the live computed CSS copied in (`contain-intrinsic-size:
+> auto 500px`, `overflow-anchor: auto`), H10 passed on v12.15 too, so it was not a gate at 500 px; it now runs at
+> `cvEstimate: 120` with the live anchoring, and the half-view reveal margin is assumed, not measured.
+> **Correct approach:** build a mock's model of a live behaviour from live computed values (the CSS, the geometry,
+> where the rows sit), not a guess. Before trusting a red or green gate, check the mock's geometry against the live
+> measurement, run the gate on the old build and the fixed one, and where a parameter departs from the live value to
+> make the gate discriminate, say so beside it.
+> **Why:** a mock that differs from the site can make a correct fix fail or a broken build pass, and either result
+> reads as a finding about the code under test.

@@ -104,7 +104,7 @@ The pre-v10.0 test suite (`tests/test-all-platforms.js`) was written against v9.
 | `data-acn-role="nav-item-text"` | Question display text | Must be non-empty for each question |
 | `data-acn-role="panel-close"` | Close buttons | Click must remove `data-acn-open` |
 | `data-acn-open="true"` | Open panels | Added on open, removed on close |
-| `data-acn-count="N"` | nav-stat | Numeric string, updated when questions change |
+| `data-acn-count="N"` | nav-stat | Numeric string, updated when questions change (while the panel is open) |
 | `data-acn-accent="#hex"` | Zone element | Current theme color |
 | `data-acn-version="X.Y"` | Zone element | Semantic version string |
 
@@ -1266,7 +1266,7 @@ is a live run on the commit actually being shipped.
   wrong, and the honest report is "not reproduced", never a fix asserted on plausibility.
 
 **Addendum — merged before the live confirm, on the owner's explicit call (2026-10-23).** The owner has waived
-this rule six times:
+this rule eight times:
 - PR #73 (v12.8), merged before its usage-panel confirm;
 - PR #75 (v12.9), merged as `4c72ca9` before its Safari, Firefox and Chrome confirms;
 - PR #78 (v12.10), merged as `166a281` before Safari's ChatGPT and Perplexity check;
@@ -1276,16 +1276,19 @@ this rule six times:
 - PR #86 (v12.14), merged 2026-10-24 with steps 1–3 passed on all three browsers and Chrome's and Firefox's steps 4–5
   not reported;
 - PR #88 (v12.15), merged 2026-10-31 as `6baac2e` on the owner's explicit OK, with none of its acceptance steps
-  reported on any browser. The agent's own live checks in Chrome + Tampermonkey (below) are not acceptance.
+  reported on any browser. The agent's own live checks in Chrome + Tampermonkey (below) are not acceptance;
+- PR #90 (v12.16), merged 2026-11-01 as `a9ecb14` on the owner's explicit OK, with none of its acceptance steps
+  reported on any browser; the owner will run them on the merged build. The agent's live checks and final A/B in
+  Chrome + Tampermonkey (below) are not acceptance.
 
 A waiver moves the merge, not the debt: each confirm stays owed on the merged build until it is run. Record
 every waiver here, and in the release's CHANGELOG entry.
 
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
-review record. Updated 2026-10-31:
-- **v12.16 (PR #90; Claude's far jump, Claude's context window by model, Gemini's history note; DEC-055,
-  DEC-056, DEC-057).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey:
+review record. Updated 2026-11-01:
+- **v12.16 (PR #90, merged 2026-11-01 as `a9ecb14` before acceptance, a waiver; Claude's far jump, Claude's context
+  window by model, Gemini's history note; DEC-055, DEC-056, DEC-057).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey:
   **owed**, nothing reported yet. The steps, as posted on the PR:
   https://github.com/JoonJ14/ai-conversation-navigator/pull/90#issuecomment-6550538381
   - **The agent's live check before the PR — not owner acceptance.** Chrome + Tampermonkey, the owner's real profile,
@@ -1304,13 +1307,15 @@ review record. Updated 2026-10-31:
     below); the meter 100%, "~353.6K / 200K tokens (est.)"; the dots 28 green, 6 yellow, 6 red; Gemini listed 10 of 32
     with no note. `e252bd4`: Q140 3 of 3 and the bookmark 3 of 3, fully in view; the meter 35%, "/ 1M", `claude-opus-5`;
     the dots 40 green; a `claude-opus-5-5` chat 61%, "~607.6K / 1M", 40 green dots; the Gemini note at 10, 20 and 30,
-    gone at 32. It also found Gemini's Q32 from the top 4,240 px short on a not-yet-rendered chat (2 of 4); fixed in
+    gone at 32 (through the 8 s rule). It also found Gemini's Q32 from the top short on a not-yet-rendered chat, 2 of 4 (the first jump after
+    paging in 6,139 px below the view, then 438 px in view, 4,240 px below, 438 px in view; DEC-057); fixed in
     `095a66c` (DEC-057) and rechecked live: Q32 from the top 2 of 2, Q1 from the bottom and Q16 from the top landed.
     **The final live test on the final build `5bcd18d`** (after GitHub Codex's two rounds; installed by Reinstall,
     `shasum` matching): Claude, Navigate → Q140 from the top 3 of 3 and the Q#140 test bookmark 3 of 3, fully in view
     (deleted afterwards); Q70 from the top and Q5 from the bottom landed; the meter 35%, "~353.6K / 1M tokens (est.)",
-    `claude-opus-5`, 40 green dots. Gemini, the 32-question chat from a fresh load: the note at 10, 20 and 30 loaded,
-    gone at 32; Q32 from the top (twice), Q1 from the bottom and Q16 from the top landed fully in view with 8 turns
+    `claude-opus-5`, 40 green dots. Gemini, the 32-question chat from a fresh load: the note at 10, 20 and 30 loaded;
+    at 32 it stayed one more 10 s poll and left through the 8 s rule (Navigate read 20 with 30 loaded, the known scan
+    lag; DEC-057); Q32 from the top (twice), Q1 from the bottom and Q16 from the top landed fully in view with 8 turns
     still unrendered and `scrollHeight` unchanged.
   <!-- V12.16 ACCEPTANCE: filled in by the integrator, as reported -->
 - **v12.15 (PR #88, merged 2026-10-31 as `6baac2e` before acceptance, a waiver; ChatGPT and Perplexity jumps and
@@ -3807,8 +3812,8 @@ not persisted.
 ## DEC-055: A Far Mounted Claude Target Lands the Way the Adapter Sites' Targets Do (v12.16)
 
 (The landing core, `orbLandFarIn`, is shared with Gemini since the final live check: DEC-057.)
-**Date:** 2026-10-31 | **Stage:** v12.16, part A (the owner's spec, default fix). PR #90; owner acceptance pending
-on all three browsers (DEC-031)
+**Date:** 2026-10-31 | **Stage:** v12.16, part A (the owner's spec, default fix). PR #90, merged 2026-11-01 as
+`a9ecb14` before acceptance (a waiver, DEC-031); owner acceptance pending on all three browsers
 
 ### Decision
 On a Claude chat, a jump whose target is already mounted but **far** from the view lands through `ixLandOn`
@@ -3825,7 +3830,14 @@ when it cannot land. `ciLandFar(el, getEl, landed)`:
   leaving ready, the container leaving the document, a hidden tab.
 - **Wired into** `orbScrollToQuestion`'s fast path and `orbScrollToMessage(el, getEl)`, which carries a question
   bookmark, an answer bookmark with a uuid and Search's mounted answer. `data-acn-jump-resolved` keeps its meaning
-  (the row's `data-index`): the landing re-marks through `orbMarkJumpTarget` only where the route marked before.
+  (the row's `data-index`): the landing re-marks through `orbMarkJumpTarget` only where the route marked before. A
+  far landing that does not land (lost, cap-out, a hidden tab, the container gone, or the user's own scroll, which
+  gets no toast) clears the mark; only a superseded one leaves it, for the newer jump to mark (Tier 3 rounds 4–5,
+  `ba1b8e4`, `f25e3e4`).
+- **A direct glide supersedes a landing in flight** (`ciSupersedeLanding`, Tier 3 rounds 1 and 5, `267e7df`,
+  `f25e3e4`): `orbScrollToMessage` without `getEl`, Summary's mounted path and the gallery bump both tokens before
+  their glide, since `ixWatchUser` sees only the user's own input and the landing's next write would pull the view
+  back. Summary's unmounted route already did, through `ciJumpToFullPathIndex`.
 
 ### Context
 Claude keeps its latest rows mounted at every scroll position, so from the top the latest question is mounted about
@@ -3859,7 +3871,7 @@ in about 1.4–1.6 s.
 
 ## DEC-056: Claude's Context Meter Uses the Window of the Conversation's Model (v12.16)
 **Date:** 2026-10-31 | **Stage:** v12.16, part B (the owner's spec, default fix; both stop conditions cleared in
-Phase 1). PR #90; owner acceptance pending (DEC-031)
+Phase 1). PR #90, merged 2026-11-01 as `a9ecb14` before acceptance (a waiver, DEC-031); owner acceptance pending
 
 ### Decision
 - **The model:** the conversation JSON the index already downloads names the chat's model at its top level
@@ -3888,11 +3900,17 @@ Phase 1). PR #90; owner acceptance pending (DEC-031)
   while claude.ai summarizes earlier messages near the limit (the same article's "automatic context management"),
   which the meter cannot see. That is calibration (ROADMAP 12), out of this spec's scope; logged.
 - Two web reports were cross-checked by an independent re-fetch of every cited page (2026-10-31): every quote and
-  number confirmed. The help center gives no per-model figure for the Free plan; the Team plan page still says "200k
-  context window" (a conflicting line, the same day). The table is the paid-plan table.
+  number confirmed. The help center gives no per-model figure for the Free plan; the plans page's Free column
+  (https://claude.com/pricing) lists Opus "No" and Fable "No", so a Free chat is Sonnet or Haiku (the re-fetch; not
+  re-checked since). The Team plan page still says "200k context window" (a conflicting line, the same day). The
+  table is the paid-plan table.
 
 ### Alternatives considered
-- **One new 1M constant** (rejected: four of the owner's recent models are 500K on claude.ai, though 1M on the API).
+- **One new 1M constant** (rejected: three of the owner's recent models, `claude-opus-4-8`, `claude-opus-4-7` and
+  `claude-fable-5`, are 500K on claude.ai, though 1M on the API). On 2026-10-31 the owner asked that the window
+  read 1M, not 500K; it was kept per-model, and the owner's current models read 1M. **Decided 2026-11-01 (owner):
+  keep the per-model table**, since it matches the help center (Claude Code, not chat, gives 1M for every listed
+  model). Not a fix for now; a feature that makes the model-dependent limit clear is planned (DEC-058).
 - **The model from the DOM's model selector** (rejected: a new Layer 1 dependency, and it shows the next message's
   model, not the conversation's).
 - **The SSE `message_start` model** (rejected: measured empty in v10.9, and SSE never runs on Firefox and, inferred,
@@ -3900,10 +3918,16 @@ Phase 1). PR #90; owner acceptance pending (DEC-031)
 - **Fallback 1M** (rejected: an unknown model would warn late; 200K warns early, and the label says it is assumed).
 
 ### Key properties
-- The turn-counter dots are unchanged: they turn red at the 35th question on a fixed count of 40 with no token input,
-  a different cause from the 200K limit (logged, ROADMAP 12). With the larger window their disagreement with the
-  meter grows.
+- As first built (`8129b9e`) the turn dots stayed positional; superseded the same day (`0139896`) by "The turn dots
+  follow the meter" below.
 - The "limit assumed" wording is an English literal like the rest of the meter; no i18n key.
+- During a conversation switch the meter briefly reads the DOM estimate with the fallback limit until the new index
+  arrives ("~30.2K / 200K tokens (est., limit assumed)" in `check-ctx-limit` L6; v12.15 reads "(est.)" at the same
+  moment) [Playwright page realm]. A Navigate opened before the index is ready logs one expected `model=(none)` line
+  [code; not seen in the probe, where Navigate opened after the index].
+- The `data-acn-ctx-*` attributes cannot start a scan loop: `startMessageObserver()` watches `document.body` with
+  `childList` and `subtree` only, so an attribute write schedules no scan [code]. Writing these values as nodes or
+  text would need a guard like `_ctxDrawnTurns`.
 - **The turn dots follow the meter (the owner's request, 2026-10-31).** Coloured by position out of 40 they turned
   red at the 35th question whatever the window held, so a 1M chat read red dots under a meter at about a third. On
   Claude, dot i now stands for the meter's share × (i+1)/dots, with the bar's thresholds (70%, 85%): the last dot is
@@ -3918,8 +3942,8 @@ Phase 1). PR #90; owner acceptance pending (DEC-031)
 ---
 
 ## DEC-057: Gemini Keeps What It Loads; Navigate Says When the Chat's Start Is Not Loaded Yet (v12.16)
-**Date:** 2026-10-31 | **Stage:** v12.16, part C (the owner's spec: KEEP measured, so the default). PR #90; owner
-acceptance pending (DEC-031)
+**Date:** 2026-10-31 | **Stage:** v12.16, part C (the owner's spec: KEEP measured, so the default). PR #90, merged
+2026-11-01 as `a9ecb14` before acceptance (a waiver, DEC-031); owner acceptance pending
 
 ### Decision
 - **No index, no accumulation:** Gemini keeps every turn it has loaded, so the DOM scan's list is complete once the
@@ -3935,11 +3959,18 @@ acceptance pending (DEC-031)
   the note's state, so it goes without a list change.
 - **A far loaded question lands through `ixLandOn`** (`gmLandFar`, found in the final live check, 2026-10-31): off-screen
   turns are `content-visibility: auto` with `contain-intrinsic-size: auto 500px`, so a glide renders every turn it
-  passes and they grow under it. Live on v12.16 before this fix (the same glide as v12.15): Q32 from the top ended
-  4,240 px below the view, 2 of 4 times, `scrollHeight` 59,324 → 63,126; the times it landed, the turns had rendered
-  before. With the landing: Q32 from the top (2 of 2), Q1 from the bottom and Q16 from the top landed with one instant
-  write each, `scrollHeight` unchanged, 8 turns still unrendered [Chrome + Tampermonkey, the owner's profile]. The
-  core is shared with Claude's (`orbLandFarIn`, DEC-055).
+  passes and they grow under it. Live on v12.16 before this fix (`e252bd4`, the same glide as v12.15): Q32 from the
+  top missed 2 of 4. The first jump after paging in ended 6,139 px below the view; three consecutive runs followed:
+  438 px in view (`scrollHeight` unchanged at 59,324), 4,240 px below (59,324 → 63,126), then 438 px in view; the
+  times it landed, the turns had rendered before. With the landing: Q32 from the top (2 of 2), Q1 from the bottom
+  and Q16 from the top landed with one instant write each, `scrollHeight` unchanged, 8 turns still unrendered
+  [Chrome + Tampermonkey, the owner's profile]. The core is shared with Claude's (`orbLandFarIn`, DEC-055).
+- **What ends a Gemini landing** (GitHub Codex, PR #90): a direct glide supersedes it, since `ciSupersedeLanding`
+  bumps `_ixJumpToken` on Gemini, the token its landing watches (`61365d8`); a chat switch ends it, since
+  `gmLandFar`'s `stillValid` compares `location.pathname` with the path at the jump's start (`5bcd18d`): the
+  history hooks bump neither token, the scroller can be reused, and the new chat may hold the same question text. No
+  probe check targets either fix; each was verified by `npm test` on chromium (560/560) and the Gemini and far-jump
+  gates [Playwright page realm, headless, this Mac], then the final live test on `5bcd18d` (DEC-031).
 - **Bookmarks unchanged** (positional): each turn has a stable id, but moving them to it needs a migration of existing
   records; logged (ROADMAP 13).
 
@@ -3970,6 +4001,9 @@ chats.
 - A load slower than 8 s at the top can be taken for the start (the note goes early); the load, when it lands above
   the first turn, recomputes the state and the note returns (Tier 3 round 1, accepted as a limitation). The wait
   compares the live turns and starts over when they change (rounds 2–3).
+- A chat whose history ends on a full page (exactly 10 questions, or a last load of exactly 10) shows the note
+  although it is complete, until the view has sat at the top for 8 s [code; the 10-question chat measured above].
+  This is the conservative direction.
 - The note depends on the turns being direct children of the scroller (Layer 1): if Gemini wraps them, the note
   silently never shows, and the list is as before.
 - Gate: `tests/mock-pages/gemini-history.html`, `probes/check-gemini-history.js`: v12.15 failed H2, H3, H4, H6 and H6b;
@@ -3981,3 +4015,50 @@ chats.
   direction. **Seen live too** (Chrome, 2026-10-31, on `2527956`, scrolling to the top every 8 s): Gemini's
   rendering delayed the scan past a second load (Navigate read 20 with 30 loaded), so the scan saw 20 → 32 at once,
   the short-page rule did not apply, and the note left only through the 8 s rule at the top. [Playwright page realm, headless, this Mac.]
+- **Testing note, H10's model.** H10 runs with `cvEstimate: 120` (`probes/check-gemini-history.js`), not the live
+  500 px: with the live 500 and anchoring on, H10 passed on v12.15 too, on all three engines, so it was no gate. The
+  first model (a guessed 120 px estimate, a turn revealed when it intersects the view, no anchoring) failed the fixed
+  build as well: the landing hit the 4-write cap 212 px off, chasing a `scrollHeight` that grew 5,168 → 6,284 across
+  its writes. The model discriminated (the build passes, v12.15 and the `gmLandFar`-off mutant fail) only once the
+  live computed CSS was copied in (`content-visibility: auto`, `contain-intrinsic-size: auto 500px`,
+  `overflow-anchor: auto`) and reveals settled to a fixed point within half a view. The half-view margin is a
+  modelling choice, not measured live. [Playwright page realm, headless, this Mac, 2026-10-31.]
+
+
+## DEC-058: The Next Three PRs, and No Release Until Every Platform Works on Every Supported Browser (2026-11-01)
+**Date:** 2026-11-01 | **Stage:** after v12.16 (PR #90 merged, PR #91 docs). The owner's decisions, 2026-11-01.
+
+### Decision
+- **No release for v12.15 or v12.16.** A release happens only once every platform works on all supported browsers
+  (Safari + Userscripts, Chrome + Tampermonkey, Firefox + Tampermonkey, equal priority: DEC-047).
+- **The order of the next PRs:**
+  1. **The feature gaps, one PR (priority).** Search, Export, Summary and the image gallery on ChatGPT, Perplexity,
+     Gemini and Claude still read only on-screen messages; Gemini bookmarks are still positional. The owner writes
+     the spec.
+  2. **The context meter: make model-dependent limits clear to the user** (ROADMAP 12). It starts with a live
+     measurement by the agent in Chrome (does the navigator see a mid-chat model change, through the conversation's
+     stored `model` or the composer's model picker?); the design is chosen by the owner from HTML mockups.
+  3. **Grok** on all three browsers, its own PR.
+- **The per-model context table stays** (DEC-056); the meter feature is about showing it, not changing it.
+- Smaller calls the same day: the i18n `|| 'English'` convention stays (agent_docs/conventions.md); CI's 30-minute job
+  cap is fine for now and part of the CI rebuild (ROADMAP 0e).
+
+### Context
+v12.16 fixed what its spec named, and the session's walkthrough and transcript audit logged what it did not: features
+that still read only the mounted messages on windowing or lazy-loading sites (ROADMAP 13, 14). Merging v12.15 and
+v12.16 before their acceptance (waivers, DEC-031) made "merged" and "works everywhere" two different states; the
+owner's release rule names which one a release needs.
+
+### Alternatives considered
+- **Release v12.16 now, as the newest build.** Rejected by the owner: features still fail on some platforms, and a
+  release should mean every platform works on every supported browser.
+- **The context meter before the feature gaps.** Rejected: the meter's numbers already follow the help center; the
+  gaps are wrong results.
+- **Every Claude chat read as 1M.** Rejected: the help center gives 500K for Fable 5, Opus 4.6–4.8 and Sonnet 4.6 in
+  chat, and 1M would let those meters under-warn.
+
+### Key properties
+- The feature-gaps PR has no spec until the owner writes it; nothing here pre-writes its scope.
+- The model-switch measurement changes a conversation's model in the owner's account, so it runs only with the
+  owner's go-ahead for that action, in the owner's real Chrome profile.
+- Owner acceptance of v12.15 and v12.16 is still owed (DEC-031); this decision does not waive it.

@@ -38,7 +38,7 @@ Line numbers are v12.9's and drift with every release. Search the `// ====` sect
 move less.
 
 1. **Initialization (~1–265):** duplicate guard, version, i18n strings, settings storage
-2. **Platform registry and detection (~265–1130):** `var PLATFORMS` (14 entries: hostname matching, selectors, theme colors, message extraction), detection, the DOM/toast helpers, chat-boundary detection
+2. **Platform registry and detection (~265–1130):** `var PLATFORMS` (12 entries; the 14 test targets include Claude Code, which runs as the `claude` entry, and Codex, which runs as `chatgpt`. Each entry: hostname matching, selectors, theme colors, message extraction), detection, the DOM/toast helpers, chat-boundary detection
 3. **Conversation Index (~1131–4060):** `ci*` functions. The API index and the v12.9 transport ladder (~1131–2440), the virtualizer bridge and row map (~2444–3050), and the jump settle loop (~3050–4060) — see below
 4. **Detection, observer, init, SSE, usage (~4062–5616):** question detection, the message observer, initialization, the SSE interceptor (~5111), turn counters, the Plan usage panel (~5356)
 5. **Orbital UI (~5617–12340):** CSS injection, the render engine, panels (Navigate ~6289, Search ~6922, Bookmarks ~7378, Summary ~8605, Tools ~10416), the zone builder, main injection (~12296)
@@ -50,7 +50,7 @@ move less.
 
 Claude virtualizes its message list with recycling — only ~3–5 user turns are mounted at any moment, so `document.querySelectorAll()` sees roughly 3% of a long conversation. `_questions` on `claude.ai/chat/<uuid>` is therefore populated from Claude's own conversation JSON, not from the DOM. See DEC-021 (the index) and DEC-022 (Layer 4: State Breaks).
 
-**ChatGPT and Perplexity window too, and since v12.10 have index adapters of their own (DEC-046).** The index is a seam: `IX_ADAPTERS` holds one entry per platform with `getConversationId()`, `fetchIndex(cid, done)` and `locate(entry)`, and since v12.15 the bookmark and landing hooks: `bookmarkUrl(cid)` (the conversation's one store key), `pathId(pathname)`, `bookmarkables()` (the mounted questions and answers a flag goes on), `keyOf(el, type)` (the message's own id as the node shows it now: ChatGPT's `data-turn-key` and answer message id, Perplexity's `backend_uuid` and `backend_uuid:answer`; null when it has none yet) and `extent(el)` (an entry's whole box, for "near the view"). Every caller guards on a hook before using it. Claude's entry wraps the v12.0 index below without changing it; ChatGPT's and Perplexity's run through the generic pipeline (`ixScan` in `scanConversation`, `ixLoad`, `ixJump`, `ixRenderBanner`). `ixAdapter()` is their exact-origin guard. Each request goes through `ciLadderGet`, the ladder's one-request form (same transports, order, fallback rule and winner). Adding a platform: ROADMAP item 13.
+**ChatGPT and Perplexity window too, and since v12.10 have index adapters of their own (DEC-046).** The index is a seam: `IX_ADAPTERS` holds one entry per platform with `getConversationId()`, `fetchIndex(cid, done)` and `locate(entry)`, and since v12.15 the bookmark and landing hooks: `bookmarkUrl(cid)` (the conversation's one store key), `pathId(pathname)`, `bookmarkables()` (the mounted questions and answers a flag goes on), `keyOf(el, type)` (the message's own id as the node shows it now: ChatGPT's `data-turn-key` and answer message id, Perplexity's `backend_uuid` and `backend_uuid:answer`; null when it has none yet) and `extent(el)` (an entry's whole box, for "near the view"). Not every hook is optional [code, v12.16]: the generic pipeline's entries (ChatGPT, Perplexity) must carry `id`, `origins`, `getConversationId`, `fetchIndex`, `locate`, `mounted`, and since v12.15 `bookmarkUrl`, `pathId`, `bookmarkables` and `keyOf`, all called without a guard (`ixAdapter()` reads `a.origins` directly). Only `extent` and `releaseScroll` are optional and guarded (`a.extent ?`, `if (a.releaseScroll)`); Perplexity has both, ChatGPT neither. Claude's entry is `native: true` and carries only `id`, `origins`, `getConversationId`, `fetchIndex` and `locate`; `ixAdapter()` returns null for it. The far landing (`orbLandFarIn`) hands `ixLandOn` Claude's entry, or `{}` on Gemini, with its own check, so on that path `ixLandOn` reads only the guarded `releaseScroll`. Claude's entry wraps the v12.0 index below without changing it; ChatGPT's and Perplexity's run through the generic pipeline (`ixScan` in `scanConversation`, `ixLoad`, `ixJump`, `ixRenderBanner`). `ixAdapter()` is their exact-origin guard. Each request goes through `ciLadderGet`, the ladder's one-request form (same transports, order, fallback rule and winner). Adding a platform: ROADMAP item 13.
 
 **Since v12.15, an index-backed jump lands and checks (DEC-052).** `ixJump` steps toward the target, then lands through `ixLandOn(a, getEl, opts, done)`: instant `scrollTop` writes, each after releasing the site's pin, re-locating the target by identity after a 350 ms settle, until it is within 8 px of its intended position or 4 writes are spent. At the cap it logs `[ACN] jump: alignment cap reached …`, and a target still outside the scroller's content box is `'cap-out'`: a toast, not a resolution. Never end a jump with an unchecked smooth `scrollIntoView` on these sites: live, the glide was cut short 8 of 8 times. Perplexity compares a mounted question bubble with its `query_str` through `ixPplxTextKey` (on `ixPplxBubbleText`, the bubble without its buttons and our flag): full length, without the markdown the bubble renders and without whitespace; every other character counts, so an edit still reads as a different question. `_normalizeCompareFull` cannot do this, since `_mdFlatten` deletes every bracket and parenthesis.
 
@@ -301,7 +301,9 @@ data-acn-accent="#hexcolor"              -> Platform accent colour (on the zone 
 data-acn-ui="orbital"|"legacy"          -> UI system (on zone; distinct from data-acn-mode which tracks arc/wheel/show-all)
 data-acn-dot="nav|search|bookmarks|…"   -> Feature ID on each orbital dot (orbital platforms only)
 data-acn-open="true"                    -> Present on nav-panel when open, absent when closed
-data-acn-count="N"                      -> Number of detected questions (on nav-stat element)
+data-acn-count="N"                      -> Number of detected questions (on nav-stat element). Refreshed only
+                                           while Navigate is the open panel: a closed panel keeps the
+                                           previous chat's count after an SPA navigation.
 data-acn-index-status="degraded|loading|ready-with-notes"
                                         -> Conversation-index banner state (Claude only, v12.0+).
                                            Absent when the index is healthy with nothing to report.
@@ -309,13 +311,20 @@ data-acn-index-status="degraded|loading|ready-with-notes"
                                            never on the zone — and only refreshed while Navigate
                                            is the open panel. Not a readiness signal otherwise
                                            (a zone-scoped probe was a 0ms no-op; Tier 3 v12.3).
-data-acn-jumping="true"                 -> On any panel with a jump in flight. Also blocks clicks via CSS.
+data-acn-jumping="true"                 -> On the Navigate, Bookmarks, Search and Summary panels while Claude's
+                                           settle loop runs (`orbSetJumpBusyFor` in `ciJumpToFullPathIndex`;
+                                           the only setter). Also blocks clicks on their rows via CSS. Index
+                                           jumps (`ixJump`, `ixLandOn`) and far landings (`ciLandFar`,
+                                           `gmLandFar`) do not set it, so clicks are not blocked during those.
 data-acn-jump-resolved="N"              -> On the ZONE: the data-index a completed jump actually
                                            resolved. Durable — the resolved ELEMENT is detached by
                                            the re-render scrollIntoView triggers, so marking only
                                            the element is unreadable by the time a test looks.
                                            Stamped by BOTH routes (orbMarkJumpTarget): it names the
-                                           resolution, never the route taken.
+                                           resolution, never the route taken. Since v12.16 a far landing
+                                           (`orbLandFarIn`, Claude and Gemini) that does not land, the
+                                           user's own scroll included, removes it; only a superseded
+                                           landing leaves it (DEC-055, DEC-057).
 data-acn-bookmark                       -> The bookmark flag itself (an injected element). Excluded from every
                                            text read (`_isExcludedFromText`).
 data-acn-bookmarked="<id>"              -> On the host element a flag was drawn for: the identity it stands for.

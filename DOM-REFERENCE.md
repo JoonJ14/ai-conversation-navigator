@@ -675,9 +675,11 @@ infinite-scroller.chat-history            (the scroller; its only children are t
   `contain-intrinsic-size: auto 500px` (an estimated 500 px until a turn renders); the scroller keeps
   `overflow-anchor: auto`. Their `innerText` reads empty while scrolled away (the first question read `""`
   at the bottom); `_cleanText` reads `textContent`, which is unaffected. A smooth glide renders every turn
-  it passes, so heights change under it: Q32 from the top ended 4,240 px below the view 2 of 4 times
-  (`scrollHeight` 59,324 → 63,126). An instant write skips the turns between: v12.16's landing put Q32,
-  Q1 and Q16 in view with one write each, `scrollHeight` unchanged (DEC-057).
+  it passes, so heights change under it: Q32 from the top missed 2 of 4 [v12.16 at `e252bd4`, Chrome +
+  Tampermonkey], 6,139 px below the view on the first jump after paging in, then 4,240 px below on one of three
+  consecutive runs (`scrollHeight` 59,324 → 63,126; the two that landed, 438 px into the view, left it unchanged).
+  An instant write skips the turns between: v12.16's landing put Q32, Q1 and Q16 in view with one write
+  each, `scrollHeight` unchanged (DEC-057).
 - **Jumps:** v12.15's glide landed loaded questions 9 of 9 in Phase 1 (Q1 from the bottom 3/3 and Q32
   from the top 2/2 fully loaded; Q16; the earliest loaded question from the bottom 3/3 with history
   still loading, where the glide's arrival at the top loaded the next page and Gemini's re-anchoring
