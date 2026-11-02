@@ -399,6 +399,9 @@ function claudeXhr(payload) {
         pg.on('console', (m) => logs.push(m.text()));
         await pg.route('**/*', (route) => {
             const u = route.request().url();
+            // A page's own blob: and data: URLs are not network requests (WebKit routes them here, and an
+            // abort left C8's page images undecoded): through, and not counted.
+            if (/^(blob|data):/.test(u)) { route.continue().catch(() => {}); return; }
             requests.push(u);
             if (u === url || (opts.urlPrefix && u.indexOf(opts.urlPrefix) === 0)) {
                 route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }).catch(() => {});
@@ -541,22 +544,24 @@ function claudeXhr(payload) {
                 const shown = await pg.evaluate(async (k) => {
                     const turn = document.querySelector('#mock-scroller [data-turn-key="' + k + '"]');
                     if (!turn) return 0;
-                    const c = document.createElement('canvas'); c.width = 80; c.height = 60;
-                    c.getContext('2d').fillRect(0, 0, 80, 60);
-                    const blob = await new Promise((r) => c.toBlob(r));
+                    // A real 80x60 PNG's bytes (a canvas's toBlob did not decode in WebKit headless).
+                    const bin = atob('iVBORw0KGgoAAAANSUhEUgAAAFAAAAA8CAIAAAB+RarbAAAAYElEQVR4nO3PAQkAIBDAQKMZzWhGM4awP1iA3drnjmp9PwAGBgYGBgYeE3A94HrA9YDrAdcDrgdcD7gecD3gesD1gOsB1wOuB1wPuB5wPeB6wPWA6wHXA64HXA+4HnC9ByVXIaVfNi0WAAAAAElFTkSuQmCC');
+                    const bytes = new Uint8Array(bin.length);
+                    for (let j = 0; j < bin.length; j++) bytes[j] = bin.charCodeAt(j);
+                    const blob = new Blob([bytes], { type: 'image/png' });
                     for (let n = 0; n < 2; n++) {
                         const im = document.createElement('img');
                         im.src = URL.createObjectURL(blob);
                         turn.insertBefore(im, turn.firstChild);
                         await new Promise((r) => { im.onload = r; im.onerror = r; });
                     }
-                    return turn.querySelectorAll('img').length;
+                    return Array.prototype.map.call(turn.querySelectorAll('img'), (im) => im.complete + '/' + im.naturalWidth + '/' + (im.currentSrc || im.src).slice(0, 5)).join(' ');
                 }, o.T[2].id);
                 const r1 = o.requests.length;
                 const g2 = await pg.evaluate("window.__h.gallery()");
                 const newReq = o.requests.slice(r1).filter((u) => !/\/(api|backend-api)\/(auth\/session|conversation\/)/.test(u)).length;
                 check('C8', 'new', 'ChatGPT gallery: with Q3 mounted and its two images shown by the page (blob:), both cards show the page\'s thumbnail',
-                      shown === 2 && g2.cards.length === 2 && g2.cards.every((c) => c.thumb === 'page') && newReq === 0,
+                      / \S+/.test(' ' + shown) && shown.split(' ').length === 2 && g2.cards.length === 2 && g2.cards.every((c) => c.thumb === 'page') && newReq === 0,
                       'page images=' + shown + ' ' + JSON.stringify(g2.cards.map((c) => c.thumb)) + ' requests=' + newReq);
             }
         } finally {
