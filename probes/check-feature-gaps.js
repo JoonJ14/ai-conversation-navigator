@@ -235,6 +235,8 @@ function gptTurns() {
         if (i === 4) { q += ' lemur'; a += ' lemur'; }
         // A fenced block in an answer that is never mounted at the bottom: Summary's code inventory must list it.
         if (i === 2) a += '\n\n```python\nprint("kinkajou")\n```';
+        // A file link, as ChatGPT writes one (GitHub Codex, PR #92: the inventory's files from indexed text).
+        if (i === 3) a += ' Download [report.csv](sandbox:/mnt/data/report.csv).';
         if (i === 19) q += ' lemur';
         // Turn 6's answer has two shown text nodes, and the page names the FIRST on its unit (live: a
         // "fallback-turn-0" turn showing Q45's first node, Chrome, 2026-11-01). aid is what the DOM
@@ -518,6 +520,8 @@ function claudeXhr(payload) {
                 await pg.evaluate(() => window.__mockWindow.userScrollTo(5));
                 await pg.waitForTimeout(1200);
                 const t6 = await pg.evaluate("window.__h.summary()");
+                check('C5d', 'new', 'ChatGPT Summary: a file linked in an answer\'s markdown is listed under files',
+                      /\nFILES[^\n]*\n[\s\S]*report\.csv/.test(t6), (t6.match(/\nFILES[\s\S]{0,120}/) || ['no files section'])[0].replace(/\n/g, ' / '));
                 check('C5c', 'new', 'ChatGPT Summary: a split answer whose first part is mounted still lists the code in its second part',
                       /js \u2014 console\.log\("okapi"\)/.test(t6), (t6.match(/CODE BLOCKS[^\n]*\n[^\n]*\n?[^\n]*/) || ['no code section'])[0].replace(/\n/g, ' / '));
                 await pg.evaluate("window.__mockWindow.userScrollTo('bottom')");

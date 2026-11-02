@@ -12631,6 +12631,19 @@
                     // jumpRef: ChatGPT's and Perplexity's identity for the click (v12.17, Tier 3 r4).
                     codeBlocks.push({ label: lbl, element: null, msgIndex: msgIndex, pathIdx: pathIdx, jumpRef: r.jumpRef || null });
                 }
+                // ChatGPT and Perplexity answers (they carry a jumpRef) have no node here at all: their markdown
+                // links are read as the DOM branch reads <a href> (GitHub Codex, PR #92).
+                if (r.jumpRef) {
+                    var linkRe = /\[([^\]]*)\]\(([^)\s]*)[^)]*\)/g, lm;
+                    while ((lm = linkRe.exec(txt)) !== null) {
+                        var lMatch = ((lm[2] || '') + ' ' + (lm[1] || '')).match(FILE_EXTENSION_RE);
+                        for (var lk = 0; lMatch && lk < lMatch.length; lk++) {
+                            if (seenFiles[lMatch[lk]]) continue;
+                            seenFiles[lMatch[lk]] = true;
+                            files.push({ label: lMatch[lk], element: null, msgIndex: msgIndex, pathIdx: pathIdx, jumpRef: r.jumpRef });
+                        }
+                    }
+                }
                 var metas = (r.files || []).concat(r.attachments || []);
                 for (var mi = 0; mi < metas.length; mi++) {
                     var fn = metas[mi].file_name;
