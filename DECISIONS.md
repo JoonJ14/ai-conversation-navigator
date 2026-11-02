@@ -4164,7 +4164,8 @@ owner's release rule names which one a release needs.
   chat live; `8a4b5a5`).
 - **Summary's inventory reads each indexed answer whole** (GitHub Codex, PR #92): code blocks from its markdown
   (fences on their own lines, any label such as `c++` or `c#`, backticks or `~~~`, a closing fence of the same kind
-  and at least as long, so a literal fence inside the code does not end it); files from markdown link targets and
+  and at least as long, so a literal fence inside the code does not end it; inside a blockquote, the closing line
+  repeats the opening's `>` prefix and the body loses that many levels, `7bf5a3d`); files from markdown link targets and
   from file names anywhere in the text (`FILE_EXTENSION_RE`, as the DOM branch reads `textContent`); then the `<pre>`
   and links of the answer's mounted units (`domEls`) that the markdown read missed (indented code), matched per
   answer by the whole block's whitespace-folded text (`codeKey`): a mounted copy of a markdown block is not listed

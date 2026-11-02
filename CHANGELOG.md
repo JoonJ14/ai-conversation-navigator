@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.17 — Every Feature Reads the Whole Conversation; Gemini Bookmarks by Turn; ChatGPT's Jump Through History Pages] — 2026-11-01
 
-**Branch:** `feat/v12.17-feature-gaps` | **Code head:** `a17413c` | **PR:** #92 | Not merged; owner acceptance owed
+**Branch:** `feat/v12.17-feature-gaps` | **Code head:** `7bf5a3d` | **PR:** #92 | Not merged; owner acceptance owed
 on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey (DEC-047, DEC-031). Diff at `a17413c`
 against `76fec11`: 16 files, +2,838 / −95.
 
@@ -63,7 +63,8 @@ And, found while measuring: **ChatGPT's jump to Q15 of 49 toasted "not currently
   and answers longer on screen than the snapshot. The last uses the same 2,000-character margin: round 2's 20-character
   margin flagged a settled chat (live retest; `8a4b5a5`).
 - **Summary's inventory from the indexed text** (GitHub Codex, `cc19e40`…`a17413c`): code blocks are read from each
-  answer's full markdown (fences on their own lines, any label, backtick or `~~~`, a closing fence as long or longer);
+  answer's full markdown (fences on their own lines, any label, backtick or `~~~`, a closing fence as long or longer,
+  inside a blockquote too: `7bf5a3d`);
   files from markdown links and from file names anywhere in the text (`FILE_EXTENSION_RE`, as the DOM branch reads
   `textContent`); plus the `<pre>` and links of the answer's mounted units (`domEls`) that the markdown read missed
   (indented code), matched per answer by the whole block's text (`codeKey`), so a mounted copy is never listed twice
@@ -98,21 +99,25 @@ And, found while measuring: **ChatGPT's jump to Q15 of 49 toasted "not currently
   positive, 5 logged (ROADMAP 13); `reviews/review-2026-11-01-v12.17.md`. **The cap:** the owner raised it to 10 for
   this PR during round 4, then withdrew that the same minute: GitHub Codex is more accurate (it can call the code), it
   saves tokens, and its findings live on GitHub instead of in the agent's context. So 5 rounds, then GitHub Codex.
-- **GitHub Codex on PR #92 (the babysit cycle):** 13 reviews with findings, 15 P2s in all (no P1), every one real and
-  fixed in 13 `fix: address Codex review —` commits (`cc19e40` … `a17413c`), each with a gate. Codex reported clean on
+- **GitHub Codex on PR #92 (the babysit cycle):** 14 reviews with findings, 16 P2s in all (no P1), every one real and
+  fixed in 14 `fix: address Codex review —` commits (`cc19e40` … `7bf5a3d`), each with a gate. Codex reported clean on
   `813659c`, `7f42a20`, `a85e501` and `16a610e`, and each time the confirming `@codex review` (the owner's rule) found
   one more P2: the confirming reviews caught 4 findings. `4f33990` was clean twice; the live A/B after it found
   `c88ed1c`'s flake. Seven replies were "Something went wrong"; each was re-triggered. Final: clean twice on
-  `a17413c` (after a re-trigger, then the confirming review).
+  `a17413c` (after a re-trigger, then the confirming review). The docs push (`63d7f88`) drew an automatic review that
+  found one more: a fenced block inside a blockquote vanished from Summary's inventory (`7bf5a3d`, gate C5; Chromium
+  `check-feature-gaps` and `npm test` 560/560 on it). Final: clean twice on `7bf5a3d`.
 - **The pre-approved final run** on `8a4b5a5` [Playwright, headless, page realm, this Mac, 20:23–21:47]: `npm test`
   560/560 on Chromium, Firefox and WebKit (WebKit's four known local jump entries did not fail this time). Probes:
   Chromium all 15 green; Firefox all but J15 (`check-ix-jumps`, the known race, TROUBLESHOOTING) and U10
   (`check-usage-state`, the known Firefox `TimeoutError` on this Mac); WebKit all but C8, a defect of the probe's
   own (its router aborted the page's `blob:` URLs, which Playwright's WebKit routes there), fixed in the next commit and
   rerun green on WebKit (`check-feature-gaps`, 189.6 s). The run took about 84 minutes, not the 30–40 estimated.
-  **No three-engine run covers the 15 code and probe commits after `8a4b5a5`** (`d0bda17`, the babysit fixes, `c88ed1c`): each was
+  **No three-engine run covers the 16 code and probe commits after `8a4b5a5`** (`d0bda17`, the babysit fixes, `c88ed1c`): each was
   checked with its gate and the related probes on Chromium. On `a17413c` [Playwright, headless, page realm, this Mac,
-  2026-11-02]: `npm test` on Chromium 560/560 (26 platform entries); every probe on Chromium: all 15 passed (`check-feature-gaps` 270.1 s).
+  2026-11-02]: `npm test` on Chromium 560/560 (26 platform entries); every probe on Chromium: all 15 passed (`check-feature-gaps` 270.1 s). On `7bf5a3d`: `check-feature-gaps` all
+  passed and `npm test` 560/560, both Chromium. **`7bf5a3d` was not reinstalled live**; the final A/B below ran on
+  `a17413c`, and `7bf5a3d` changes only Summary's parsing of fences inside blockquotes.
 - **Final A/B, live** [Chrome + Tampermonkey, the owner's profile, visible tab, 2026-11-02 UTC; the agent's check,
   not acceptance; DEC-031]: 12.16 installed by Tampermonkey's Downgrade, then the Codex-reviewed build. On 12.16:
   ChatGPT Search for A1's word found nothing and Q15 from a fresh load toasted; Perplexity Search for A1's word found

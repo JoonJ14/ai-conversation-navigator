@@ -37,7 +37,7 @@ Export, Summary and the image gallery read the whole conversation on Claude, Cha
 every loaded turn, with the "older messages not loaded" note); the gallery lists every image from the index, a real
 thumbnail only when the page has loaded it, and makes no new request; Gemini bookmarks key to the turn's id; ChatGPT's
 jump waits for the history pages ChatGPT now loads at the top (found while measuring, fixed in the PR on the owner's
-call). **PR #92**: Tier 3 at its 5-round cap, then GitHub Codex's babysit cycle, clean twice on `a17413c`; the
+call). **PR #92**: Tier 3 at its 5-round cap, then GitHub Codex's babysit cycle, clean twice on `7bf5a3d`; the
 agent's live checks in Chrome + Tampermonkey passed on all four sites before the PR, after the local review and on
 the final build, as an A/B against 12.16 (DEC-031). Owner acceptance on all three browsers is owed, and the merge is
 the owner's.
@@ -1150,7 +1150,7 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       - **No gate for `c88ed1c`** (a re-anchored view counts as an arrived ChatGPT page): the ChatGPT mock mounts each
         page's turns, so the live case (the view moves off the top, the new turns stay unmounted) is verified only live
         [Chrome, 2026-11-02]. A mock option that leaves a page's turns unmounted would gate it.
-      - **No three-engine run after `8a4b5a5`**: the 15 code and probe commits after it (`d0bda17`, the GitHub Codex
+      - **No three-engine run after `8a4b5a5`**: the 16 code and probe commits after it (`d0bda17`, the GitHub Codex
         fixes, `c88ed1c`) were checked on Chromium only (their gates, the related probes, and `npm test` on
         `a17413c`). Firefox and WebKit are owed a run before the release.
       - **Far ChatGPT jumps from a fresh load are slow** [Chrome, 2026-11-02]: Q15 of 49 took 15.1–15.9 s and Q1 17.6 s;
