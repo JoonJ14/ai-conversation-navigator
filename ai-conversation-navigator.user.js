@@ -12655,7 +12655,9 @@
                 var mdBlocks = {};
                 // Backtick or tilde fences, each closed by its own kind, with any label to the end of the fence
                 // line, so c++, c# and ~~~ blocks count too (GitHub Codex, PR #92).
-                var fenceRe = /(```|~~~)([^\n`~]*)\n([\s\S]*?)\1/g, fm;
+                // Opening and closing fences on their own lines, so a literal ``` inside the code does not end
+                // the block (GitHub Codex, PR #92).
+                var fenceRe = /(?:^|\n)[ \t]*(`{3,}|~{3,})([^\n`~]*)\n([\s\S]*?)\n[ \t]*\1[ \t]*(?=\n|$)/g, fm;
                 while ((fm = fenceRe.exec(txt)) !== null) {
                     var body = (fm[3] || '').trim();
                     if (!body) continue;
@@ -14529,6 +14531,20 @@
                                    // attachment-only question: Tier 3 r2), goes to the answer by its key.
                                    if (akey && (it.side === 'ai' || !q)) {
                                        _bmIxJump(ixReadyAdapter(), { msgUuid: akey, entityType: 'ai-msg' });
+                                   } else if (it.side === 'ai' && q && ixReadyAdapter().id === 'chatgpt') {
+                                       // An answer that is only an image (no text node, so no answer key): to its
+                                       // turn, then its answer unit, landed at its start (GitHub Codex, PR #92).
+                                       var ga = ixReadyAdapter();
+                                       _ixJumpToken++;
+                                       ixJump(ga, q, function (ok) {
+                                           if (!ok) return;
+                                           function unit() {
+                                               var r0 = ixGptRoot(), t0 = r0 && r0.querySelector('[data-turn-key="' + it.at + '"]');
+                                               return t0 ? ixGptAnswerIn(t0) : null;
+                                           }
+                                           if (!unit()) { orbScrollToQuestion(q); return; }
+                                           ixLandOn(ga, unit, { block: 'start' }, function (lok, n) { if (lok && n) { orbMarkJumpTarget(n); orbFlashElement(n); } });
+                                       }, { land: false });
                                    } else orbScrollToQuestion(q);
                                    return;
                                }

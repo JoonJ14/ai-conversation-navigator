@@ -237,6 +237,8 @@ function gptTurns() {
         if (i === 2) a += '\n\n```python\nprint("kinkajou")\n```\n\n```c++\nint quoll = 1;\n```\n\n~~~ruby\nputs :tamarin\n~~~';
         // A file link, as ChatGPT writes one (GitHub Codex, PR #92: the inventory's files from indexed text).
         if (i === 3) a += ' Download [report.csv](sandbox:/mnt/data/report.csv).';
+        // A literal ``` inside a block's code (GitHub Codex, PR #92): one block, not a cut one plus another.
+        if (i === 7) a += '\n\n```js\nconst fence = "```";\n```';
         if (i === 19) q += ' lemur';
         // Turn 6's answer has two shown text nodes, and the page names the FIRST on its unit (live: a
         // "fallback-turn-0" turn showing Q45's first node, Chrome, 2026-11-01). aid is what the DOM
@@ -245,7 +247,8 @@ function gptTurns() {
         return { id: uuid(i), text: q, aid: uuid(i, 'cccccccc'), answer: a };
     });
 }
-function gptMapping(T) {
+function gptMapping(T, opts) {
+    opts = opts || {};
     const m = {};
     const add = (id, parent, message) => { m[id] = { id, parent, children: [], message }; if (parent) m[parent].children.push(id); };
     add('client-created-root', null, null);
@@ -260,6 +263,14 @@ function gptMapping(T) {
                                 { id: 'file_bbb222', name: 'hand-two.jpg', mime_type: 'image/jpeg' }];
         }
         add(t.id, prev, { id: t.id, author: { role: 'user' }, content: { content_type: i === 2 ? 'multimodal_text' : 'text', parts }, metadata: meta });
+        if (opts.imageOnlyAt === i) {
+            // An answer that is only a generated image: a tool message with an image part, no text.
+            add(t.aid, t.id, { id: t.aid, author: { role: 'tool' }, content: { content_type: 'multimodal_text',
+                parts: [{ content_type: 'image_asset_pointer', asset_pointer: 'sediment://file_gen999', width: 512, height: 512 }] },
+                metadata: { attachments: [{ id: 'file_gen999', name: 'generated.png', mime_type: 'image/png' }] } });
+            prev = t.aid;
+            return;
+        }
         add(t.aid, t.id, { id: t.aid, author: { role: 'assistant' }, recipient: 'all', content: { content_type: 'text', parts: [t.answer] }, metadata: {} });
         prev = t.aid;
         if (t.lastAid) {
@@ -433,13 +444,13 @@ function claudeXhr(payload) {
     console.log('check-feature-gaps — engine=' + engine + ', script=' + path.basename(scriptPath));
 
     // ── ChatGPT ─────────────────────────────────────────────────────────────────────────────
-    async function gptOpen(failApi, store) {
+    async function gptOpen(failApi, store, mapOpts) {
         const T = gptTurns();
         const url = 'https://chatgpt.com/c/' + GPT_CONV;
         const html = page('chatgpt-windowed.html', raw, { turns: T, bmModel: { h: 420, window: 6 } }, store);
         const api = (u) => {
             if (u.endsWith('/api/auth/session')) return { status: 200, body: JSON.stringify({ accessToken: 'tok', expires: '2099-01-01T00:00:00.000Z' }) };
-            if (u.indexOf('/backend-api/conversation/' + GPT_CONV) !== -1) return failApi ? { status: 500, body: '{}' } : { status: 200, body: JSON.stringify(gptMapping(T)) };
+            if (u.indexOf('/backend-api/conversation/' + GPT_CONV) !== -1) return failApi ? { status: 500, body: '{}' } : { status: 200, body: JSON.stringify(gptMapping(T, mapOpts)) };
             return null;
         };
         const o = await open(url, html, api);
@@ -569,6 +580,7 @@ function claudeXhr(payload) {
                 check('C5', 'new', 'ChatGPT Summary: complete (24 answers\' text counted) and in order; the first segment, clicked from the bottom, lands on Q#1',
                       /Total turns: 48 \(24 user, 24 AI\)/.test(t) && aiChars(t) === gptAnswerChars(o.T) && /python \u2014 print\("kinkajou"\)/.test(t) &&
                       /c\+\+ \u2014 int quoll = 1;/.test(t) && /ruby \u2014 puts :tamarin/.test(t) &&
+                      (t.match(/const fence/g) || []).length === 1 && /js \u2014 const fence = "```";/.test(t) &&
                       /^msgs 1–/.test(first) && m.inView && m.resolved === '0',
                       ((t.match(/Total turns:[^\n]*/) || [''])[0]) + ' AI chars=' + aiChars(t) + ' (expected ' + gptAnswerChars(o.T) + ')' +
                       ' code=' + /python \u2014 print/.test(t) + ' [' + (t.match(/(CODE[\s\S]{0,160})/i) || ['', 'no CODE section'])[1].replace(/\n/g, ' / ') + '] first=' + first + ' landing=' + JSON.stringify(m));
@@ -637,6 +649,22 @@ function claudeXhr(payload) {
             check('C7', 'new', 'ChatGPT: an answer whose unit names its turn\'s first text node is the indexed answer: the flag carries the index\'s key, lit for a record saved under the first node, labelled "Answer to Q#6"',
                   ready(o) && b.length === 1 && b[0].label === 'Answer to Q#6' && f && f.key === T[5].lastAid && f.lit,
                   'panel=' + JSON.stringify(b) + ' flag=' + JSON.stringify(f) + ' indexKey=' + T[5].lastAid);
+        } finally { await o.context.close(); }
+    }
+    if (want('C11')) {
+        // Q10's answer is only a generated image. Its card reads "Answer to Q#10" and lands on the turn's
+        // answer unit, at its start, not on the question (GitHub Codex, PR #92).
+        const o = await gptOpen(false, null, { imageOnlyAt: 9 });
+        try {
+            const pg = o.pg;
+            const g = await pg.evaluate("window.__h.gallery()");
+            const i = g.cards.findIndex((c) => c.label === 'Answer to Q#10');
+            await pg.evaluate((n) => window.__h.clickGallery(n), i);
+            await settle(pg, '#mock-scroller', 25000);
+            const m = await pg.evaluate((k) => window.__h.inView(document.getElementById('mock-scroller'),
+                document.querySelector('#mock-scroller [data-turn-key="' + k + '"] [data-content-search-unit-key$=":assistant"]')), o.T[9].id);
+            check('C11', 'new', 'ChatGPT gallery: an answer that is only an image lands on that answer, at its start',
+                  i >= 0 && m.inView && m.top !== null && Math.abs(m.top) <= 24, 'card=' + i + ' ' + JSON.stringify(m));
         } finally { await o.context.close(); }
     }
     if (want('C10')) {
