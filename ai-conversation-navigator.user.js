@@ -7472,7 +7472,7 @@
         window.addEventListener('resize', _orbResizeHandler);
     }
 
-    var _galGmPartial = null;   // Gemini's gmHistPartial() at the previous scan (orbOnScanComplete)
+    var _galGmPartial = null;   // Gemini's gmHistPartial() and the index stamp at the previous scan (orbOnScanComplete)
 
     // ── Orbital panel update hook (called by scanConversation) ──
     function orbOnScanComplete() {
@@ -7483,7 +7483,10 @@
         if (orbPanel === 'search') orbPopulateSearch(orbSearchQuery);
         // Gemini: an open gallery redraws when the chat's start becomes loaded (its note goes, its cards
         // may change), not on every scan (v12.17, Tier 3 r4).
-        var gmPart = gmHistPartial();
+        // And on every site with an index, when the index arrives or is refetched: Tools opened before the
+        // first load, or left open while a new image refreshed it, kept its old cards ("No images") with no
+        // card to click for the stale-card redraw (GitHub Codex, PR #92).
+        var gmPart = (gmHistPartial() ? 'p' : 'c') + '|' + sumIndexStamp();
         if (orbPanel === 'tools' && _galGmPartial !== null && gmPart !== _galGmPartial) {
             var galS = document.getElementById('acn-gallery-section');
             if (galS) renderImageGallery(galS);

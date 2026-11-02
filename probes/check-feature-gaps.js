@@ -426,6 +426,7 @@ function claudeXhr(payload) {
                 return;
             }
             const a = api ? api(u) : null;
+            if (a && a.delay) { setTimeout(() => route.fulfill({ status: a.status, contentType: 'application/json', body: a.body }).catch(() => {}), a.delay); return; }
             if (a) { route.fulfill({ status: a.status, contentType: 'application/json', body: a.body }).catch(() => {}); return; }
             route.abort().catch(() => {});
         });
@@ -694,6 +695,33 @@ function claudeXhr(payload) {
             const f1 = o.requests.filter((u) => u.indexOf('/backend-api/conversation/') !== -1).length;
             check('C12', 'new', 'ChatGPT: a turn that shows a new image after the load (an image-only answer finishing) asks for one refetch',
                   f1 === f0 + 1, 'conversation fetches ' + f0 + ' -> ' + f1);
+        } finally { await o.context.close(); }
+    }
+    if (want('C13')) {
+        // Tools opened before the index arrives (the conversation answers 5 s late): the open gallery must
+        // redraw with the index's images once it lands (GitHub Codex, PR #92), not keep "No images".
+        const T = gptTurns();
+        const url = 'https://chatgpt.com/c/' + GPT_CONV;
+        const html = page('chatgpt-windowed.html', raw, { turns: T, bmModel: { h: 420, window: 6 } });
+        const api = (u) => {
+            if (u.endsWith('/api/auth/session')) return { status: 200, body: JSON.stringify({ accessToken: 'tok', expires: '2099-01-01T00:00:00.000Z' }) };
+            if (u.indexOf('/backend-api/conversation/' + GPT_CONV) !== -1) return { status: 200, body: JSON.stringify(gptMapping(T)), delay: 5000 };
+            return null;
+        };
+        const o = await open(url, html, api);
+        try {
+            const pg = o.pg;
+            const before = await pg.evaluate("window.__h.gallery()");
+            const cardsNow = () => pg.evaluate(() => Array.prototype.map.call(
+                document.querySelectorAll('#acn-gallery-section .acn-gallery-card'),
+                (c) => c.getAttribute('data-acn-gallery-label') || (c.querySelector('.acn-gallery-label') || {}).textContent));
+            let after = [];
+            const t0 = Date.now();
+            while (Date.now() - t0 < 15000) { after = await cardsNow(); if (after.length >= 2) break; await pg.waitForTimeout(250); }
+            const visible = await pg.evaluate("!!document.querySelector('#acn-gallery-section') && document.getElementById('acn-gallery-section').offsetParent !== null");
+            check('C13', 'new', 'ChatGPT gallery opened before the index arrives redraws with the index\'s images once it lands',
+                  before.cards.length === 0 && after.length === 2 && after.every((l) => l === 'Q#3') && visible,
+                  'before=' + before.cards.length + ' after=' + JSON.stringify(after) + ' stillOpen=' + visible);
         } finally { await o.context.close(); }
     }
     if (want('C10')) {
