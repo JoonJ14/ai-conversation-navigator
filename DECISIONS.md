@@ -1308,6 +1308,19 @@ review record. Updated 2026-11-01:
     messages were not loaded; with all loaded, the labels read Q#32, Q#1 and "Answer to Q#1" (also in the bookmarks
     export) and both Q1 bookmarks landed from the bottom; reloaded, all three read "Q#…" and Q1's said its turn is
     not loaded. The three test bookmarks were deleted afterwards ("No bookmarks yet"); test exports were deleted.
+  - **The agent's live retest after the local review (Tiers 1–3, five Codex rounds) — not owner acceptance.** Chrome +
+    Tampermonkey, the owner's profile, visible tab, 2026-11-01, Reinstall of `5a27631b…` (`71fb7e6`), then of
+    `ec9b53a0…` (`8a4b5a5`). Claude: the gallery's 7 cards and thumbnails as before; Search → A#147 from the top landed
+    with its start at the top; a test bookmark on Q5's answer landed from the bottom with its start at the top (the
+    owner's two bookmarks untouched). ChatGPT: Q15 from a fresh load landed; Search A#1, Q#1, A#49 and no A#50; Summary
+    98 (49, 49) with 67 code blocks; a test bookmark on the question-less "fallback" turn read "Answer to Q#45"; one
+    conversation fetch and no resync. **Found:** the export of that settled chat said "1 answer on screen is longer
+    than the loaded history" (round 2's 20-char margin), fixed in `8a4b5a5`; on the fixed build: "complete
+    conversation history (API)", 98 (49, 49). Perplexity: A#1 landed, the last answer A#12, nothing "Finished"; Summary
+    24 (12, 12); 6 named placeholders, 0 images from the S3 host. Gemini: the note in Search, Summary and the gallery
+    with 10 of 32 loaded; a test bookmark on Q32 read "Q#…", and after the history loaded it stayed partial (pages
+    asked for faster than the scan, DEC-057's known case) until 8 s at the top, then read "Q#32" with no further
+    scan (round 3's fix). All test bookmarks and test exports deleted.
   <!-- V12.17 ACCEPTANCE: filled in by the integrator, as reported -->
 - **v12.16 (PR #90, merged 2026-11-01 as `a9ecb14` before acceptance, a waiver; Claude's far jump, Claude's context
   window by model, Gemini's history note; DEC-055, DEC-056, DEC-057).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey:
