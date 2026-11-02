@@ -667,6 +667,30 @@ function claudeXhr(payload) {
                   i >= 0 && m.inView && m.top !== null && Math.abs(m.top) <= 24, 'card=' + i + ' ' + JSON.stringify(m));
         } finally { await o.context.close(); }
     }
+    if (want('C12')) {
+        // Turn 24 (mounted at the bottom) has no image in the index; after the load the page shows one
+        // (an image-only answer finishing): one refetch (GitHub Codex, PR #92).
+        const o = await gptOpen(false);
+        try {
+            const pg = o.pg;
+            await pg.waitForTimeout(1500);
+            const f0 = o.requests.filter((u) => u.indexOf('/backend-api/conversation/') !== -1).length;
+            await pg.evaluate(async (k) => {
+                const turn = document.querySelector('#mock-scroller [data-turn-key="' + k + '"]');
+                const bin = atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC');
+                const bytes = new Uint8Array(bin.length);
+                for (let j = 0; j < bin.length; j++) bytes[j] = bin.charCodeAt(j);
+                const im = document.createElement('img');
+                im.src = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+                turn.appendChild(im);
+                await new Promise((r) => { im.onload = r; im.onerror = r; });
+            }, o.T[GPT_N - 1].id);
+            await pg.waitForTimeout(18000);
+            const f1 = o.requests.filter((u) => u.indexOf('/backend-api/conversation/') !== -1).length;
+            check('C12', 'new', 'ChatGPT: a turn that shows a new image after the load (an image-only answer finishing) asks for one refetch',
+                  f1 === f0 + 1, 'conversation fetches ' + f0 + ' -> ' + f1);
+        } finally { await o.context.close(); }
+    }
     if (want('C10')) {
         // Turn 6's answer is split; its mounted unit gains new text while the index still holds the
         // longer, older whole (a stream in progress). Search finds the new words (GitHub Codex, PR #92).

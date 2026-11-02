@@ -3628,6 +3628,20 @@
                     }
                     if (shownLen > heldLen + IX_ANSWER_GROWTH) stale = 'a:' + held + ':' + Math.floor(shownLen / IX_ANSWER_GROWTH);
                 }
+                // Images (ChatGPT): a mounted turn showing more of the page's own images than the index lists
+                // for it gained some after the snapshot (an image-only answer has no text to grow), so one
+                // refetch per new count (GitHub Codex, PR #92).
+                if (!stale && a.id === 'chatgpt' && _ix.images) {
+                    var iroot = ixGptRoot(), iturns = iroot ? iroot.querySelectorAll('[data-turn-key]') : [];
+                    for (var it2 = 0; it2 < iturns.length && !stale; it2++) {
+                        var tk = iturns[it2].getAttribute('data-turn-key');
+                        if (!IX_UUID_RE.test(tk || '')) continue;
+                        var shownImgs = 0, held2 = 0, ims = iturns[it2].querySelectorAll('img');
+                        for (var ii = 0; ii < ims.length; ii++) if ((ims[ii].currentSrc || ims[ii].src || '').indexOf('blob:') === 0) shownImgs++;
+                        for (var ij = 0; ij < _ix.images.length; ij++) if (_ix.images[ij].at === tk) held2++;
+                        if (shownImgs > held2) stale = 'img:' + tk + ':' + shownImgs;
+                    }
+                }
                 // The latest answer, watched from the first scan after a load: a rendered length that CHANGES
                 // means it was being written when the snapshot was taken; once it has not changed for
                 // IX_SETTLE_MS, one refetch takes its final text, however little it grew. A length that never
