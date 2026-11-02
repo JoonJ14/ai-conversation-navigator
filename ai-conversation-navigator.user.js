@@ -4108,7 +4108,10 @@
                     setTimeout(function () {
                         // Only a page counts against pageCap (Tier 3 r2): growth of another kind spends one of
                         // the few idle waits instead.
-                        if (lowestMounted() < lo0) { pages++; idle--; if (moves > 0) moves--; }
+                        // A page: older turns mounted, or the view re-anchored off the top (ChatGPT keeps the
+                        // view on what it showed, and with ~5 turns mounted the new ones above may not be;
+                        // live, counting only the former stopped a 49-question chat's Q15 jump, 1 of 2).
+                        if (lowestMounted() < lo0 || container.scrollTop > 1) { pages++; idle--; if (moves > 0) moves--; }
                         arrive();
                     }, IX_JUMP_SETTLE_MS);
                     return;
