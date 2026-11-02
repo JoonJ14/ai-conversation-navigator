@@ -14024,7 +14024,8 @@
             body.appendChild(createElement('div', { className: 'acn-section-title', style: 'cursor:default', textContent: 'Files (' + inventory.files.length + ')' }));
             inventory.files.slice(0, 10).forEach(function (f) {
                 var item = createElement('div', { className: 'acn-code-item', textContent: f.label });
-                if (f.element || typeof f.pathIdx === 'number') {
+                // jumpRef: ChatGPT's and Perplexity's files have no node or path index (GitHub Codex, PR #92).
+                if (f.element || typeof f.pathIdx === 'number' || f.jumpRef) {
                     item.addEventListener('click', function () { _sumScrollToElement(f.element, f.pathIdx, f.elKey, (f.element && f.element.isConnected) ? null : f.jumpRef); });
                 }
                 body.appendChild(item);

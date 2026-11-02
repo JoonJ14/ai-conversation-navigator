@@ -522,6 +522,22 @@ function claudeXhr(payload) {
                 const t6 = await pg.evaluate("window.__h.summary()");
                 check('C5d', 'new', 'ChatGPT Summary: a file linked in an answer\'s markdown is listed under files',
                       /\nFILES[^\n]*\n[\s\S]*report\.csv/.test(t6), (t6.match(/\nFILES[\s\S]{0,120}/) || ['no files section'])[0].replace(/\n/g, ' / '));
+                // The file item, clicked from the bottom: it lands on Q4's answer (GitHub Codex, PR #92).
+                await pg.evaluate("window.__mockWindow.userScrollTo('bottom')");
+                await pg.waitForTimeout(800);
+                const fileClicked = await pg.evaluate(() => {
+                    const R = document.querySelector('[data-acn-role="sum-results"]');
+                    const it = Array.prototype.find.call(R.querySelectorAll('.acn-code-item'), (e) => e.textContent === 'report.csv');
+                    window.__acnToasts.length = 0;
+                    if (!it) return false;
+                    it.click(); return true;
+                });
+                await settle(pg, '#mock-scroller');
+                const fm = await pg.evaluate((k) => Object.assign(window.__h.inView(document.getElementById('mock-scroller'),
+                    document.querySelector('#mock-scroller [data-turn-key="' + k + '"] [data-content-search-unit-key$=":assistant"]')),
+                    { toasts: window.__acnToasts.slice() }), o.T[3].id);
+                check('C5e', 'new', 'ChatGPT Summary: the file item, clicked from the bottom, lands on its answer',
+                      fileClicked && fm.inView && !fm.toasts.length, 'clicked=' + fileClicked + ' ' + JSON.stringify(fm));
                 check('C5c', 'new', 'ChatGPT Summary: a split answer whose first part is mounted still lists the code in its second part',
                       /js \u2014 console\.log\("okapi"\)/.test(t6), (t6.match(/CODE BLOCKS[^\n]*\n[^\n]*\n?[^\n]*/) || ['no code section'])[0].replace(/\n/g, ' / '));
                 await pg.evaluate("window.__mockWindow.userScrollTo('bottom')");
