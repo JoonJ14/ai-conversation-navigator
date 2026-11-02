@@ -12675,14 +12675,25 @@
                 // Opening and closing fences on their own lines, so a literal ``` inside the code does not end
                 // the block (GitHub Codex, PR #92).
                 // A closing fence may be longer than its opening one, as Markdown allows (GitHub Codex, PR #92).
-                var fenceRe = /(?:^|\n)[ \t]*(`{3,}|~{3,})([^\n`~]*)\n([\s\S]*?)\n[ \t]*\1[`~]*[ \t]*(?=\n|$)/g, fm;
+                // A fence inside a blockquote carries the quote's `>` prefix on its opening and closing lines;
+                // the closing line must repeat the opening's prefix, and the body loses that many levels, so the
+                // label and the match against a mounted copy read the code itself (GitHub Codex, PR #92).
+                var fenceRe = /(?:^|\n)((?:[ \t]*>)*)[ \t]*(`{3,}|~{3,})([^\n`~]*)\n([\s\S]*?)\n\1[ \t]*\2[`~]*[ \t]*(?=\n|$)/g, fm;
                 while ((fm = fenceRe.exec(txt)) !== null) {
-                    var body = (fm[3] || '').trim();
+                    var body = fm[4] || '';
+                    var qDepth = (fm[1] || '').split('>').length - 1;
+                    if (qDepth) {
+                        body = body.split('\n').map(function (ln) {
+                            for (var qd = 0; qd < qDepth; qd++) ln = ln.replace(/^[ \t]*>[ \t]?/, '');
+                            return ln;
+                        }).join('\n');
+                    }
+                    body = body.trim();
                     if (!body) continue;
                     // Same `label` shape the mounted branch builds — the renderer reads
                     // cb.label, and {language,text} rendered as `undefined` for exactly
                     // the off-screen content this path recovers (Codex R6 :6619).
-                    var fl = (fm[2] || '').replace(/^\s+|\s+$/g, '');
+                    var fl = (fm[3] || '').replace(/^\s+|\s+$/g, '');
                     var lbl = (fl ? fl + ' — ' : '') +
                               body.split('\n')[0].substring(0, 40);
                     // jumpRef: ChatGPT's and Perplexity's identity for the click (v12.17, Tier 3 r4).
