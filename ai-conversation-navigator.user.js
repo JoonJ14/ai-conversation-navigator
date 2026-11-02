@@ -12608,6 +12608,7 @@
         var codeBlocks = [];
         var files      = [];
         var seenFiles  = {};
+        var seenCode   = {};   // first 40 chars of a block read from text, so a mounted copy is not listed twice
 
         aiResponses.forEach(function (r, msgIndex) {
             var el = r.element;
@@ -12633,6 +12634,7 @@
                               body.split('\n')[0].substring(0, 40);
                     // jumpRef: ChatGPT's and Perplexity's identity for the click (v12.17, Tier 3 r4).
                     codeBlocks.push({ label: lbl, element: null, msgIndex: msgIndex, pathIdx: pathIdx, jumpRef: r.jumpRef || null });
+                    seenCode[body.substring(0, 40).replace(/\s+/g, ' ')] = true;
                 }
                 // ChatGPT and Perplexity answers (they carry a jumpRef) have no node here at all: their markdown
                 // links are read as the DOM branch reads <a href> (GitHub Codex, PR #92).
@@ -12647,6 +12649,30 @@
                         }
                     }
                 }
+                // The answer's mounted units (ChatGPT, Perplexity): blocks and file links the markdown read
+                // missed, indented code among them; each jumps by the answer's jumpRef (GitHub Codex, PR #92).
+                (r.domEls || []).forEach(function (u) {
+                    try {
+                        Array.prototype.forEach.call(u.querySelectorAll('pre'), function (pre) {
+                            var cEl = pre.querySelector('code') || pre;
+                            var raw = (cEl.textContent || '').trim();
+                            var ck = raw.substring(0, 40).replace(/\s+/g, ' ');
+                            if (!raw || seenCode[ck]) return;
+                            seenCode[ck] = true;
+                            var lm2 = (cEl.className || pre.className || '').match(/language-(\w+)/);
+                            codeBlocks.push({ label: (lm2 ? lm2[1] + ' \u2014 ' : '') + raw.split('\n')[0].substring(0, 40),
+                                              element: null, msgIndex: msgIndex, pathIdx: pathIdx, jumpRef: r.jumpRef });
+                        });
+                        Array.prototype.forEach.call(u.querySelectorAll('a[href]'), function (a) {
+                            var em = ((a.getAttribute('href') || '') + ' ' + (a.textContent || '').trim()).match(FILE_EXTENSION_RE);
+                            for (var ek = 0; em && ek < em.length; ek++) {
+                                if (seenFiles[em[ek]]) continue;
+                                seenFiles[em[ek]] = true;
+                                files.push({ label: em[ek], element: null, msgIndex: msgIndex, pathIdx: pathIdx, jumpRef: r.jumpRef });
+                            }
+                        });
+                    } catch (e) {}
+                });
                 var metas = (r.files || []).concat(r.attachments || []);
                 for (var mi = 0; mi < metas.length; mi++) {
                     var fn = metas[mi].file_name;
@@ -13432,12 +13458,20 @@
             // its key. v12.16 analysed the mounted answers only: "49 user, 0 AI" on a 49-question
             // ChatGPT chat, "12 user, 22 AI" on a 12-entry Perplexity thread (Chrome, 2026-11-01).
             var ixA = ixReadyAdapter();
+            // Every mounted unit of each answer, by its key: the inventory reads them too, for what only the
+            // rendered DOM shows (an indented block, say), on top of the markdown (GitHub Codex, PR #92).
+            var unitsOf = {}, bks = ixA.bookmarkables ? ixA.bookmarkables() : [];
+            for (var ub = 0; ub < bks.length; ub++) {
+                if (bks[ub].type !== 'ai-msg') continue;
+                var uk = ixA.keyOf(bks[ub].el, 'ai-msg');
+                if (uk) (unitsOf[uk] = unitsOf[uk] || []).push(bks[ub].el);
+            }
             aiMsgs = ixConversation().filter(function (m) { return m.type === 'ai'; }).map(function (m) {
                 // Raw markdown, as Claude's: the code inventory reads its fences (Tier 3 r2). And no mounted
                 // node: a ChatGPT answer can be several units, and a node made the inventory read that one
                 // unit's DOM and drop the fences in the others; with none, every item also carries the
                 // answer's jumpRef, so its click passes the index check (GitHub Codex, PR #92).
-                return { element: null, text: m.text,
+                return { element: null, text: m.text, domEls: (m.key && unitsOf[m.key]) || [],
                          type: 'ai', jumpRef: { kind: 'ixa', key: m.key, qIdx: m.qIdx } };
             });
         } else {

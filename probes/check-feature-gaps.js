@@ -516,10 +516,17 @@ function claudeXhr(payload) {
                 check('C5b', 'new', 'ChatGPT Summary: the code item of an unmounted answer, clicked, lands on that answer',
                       codeClicked && cm.inView && !cm.toasts.length, 'clicked=' + codeClicked + ' ' + JSON.stringify(cm));
                 // With turn 6 mounted (its answer shown as one unit naming its first part), the fence in its
-                // SECOND part is still listed (GitHub Codex, PR #92).
+                // SECOND part is still listed (GitHub Codex, PR #92). And a block only the rendered DOM shows (an
+                // indented code block renders as a <pre> with no fence in the markdown) is listed once.
                 await pg.evaluate(() => window.__mockWindow.userScrollTo(5));
                 await pg.waitForTimeout(1200);
+                await pg.evaluate((k) => {
+                    const u = document.querySelector('#mock-scroller [data-turn-key="' + k + '"] [data-content-search-unit-key$=":assistant"]');
+                    if (u) { const pre = document.createElement('pre'); pre.innerHTML = '<code>print("aardvark")</code>'; u.appendChild(pre); }
+                }, o.T[5].id);
                 const t6 = await pg.evaluate("window.__h.summary()");
+                check('C5f', 'new', 'ChatGPT Summary: a code block only the mounted answer\'s DOM shows (an indented block) is listed, once',
+                      (t6.match(/print\("aardvark"\)/g) || []).length === 1, (t6.match(/CODE BLOCKS[\s\S]{0,200}/) || ['no code section'])[0].replace(/\n/g, ' / '));
                 check('C5d', 'new', 'ChatGPT Summary: a file linked in an answer\'s markdown is listed under files',
                       /\nFILES[^\n]*\n[\s\S]*report\.csv/.test(t6), (t6.match(/\nFILES[\s\S]{0,120}/) || ['no files section'])[0].replace(/\n/g, ' / '));
                 // The file item, clicked from the bottom: it lands on Q4's answer (GitHub Codex, PR #92).
