@@ -12674,7 +12674,8 @@
                 // line, so c++, c# and ~~~ blocks count too (GitHub Codex, PR #92).
                 // Opening and closing fences on their own lines, so a literal ``` inside the code does not end
                 // the block (GitHub Codex, PR #92).
-                var fenceRe = /(?:^|\n)[ \t]*(`{3,}|~{3,})([^\n`~]*)\n([\s\S]*?)\n[ \t]*\1[ \t]*(?=\n|$)/g, fm;
+                // A closing fence may be longer than its opening one, as Markdown allows (GitHub Codex, PR #92).
+                var fenceRe = /(?:^|\n)[ \t]*(`{3,}|~{3,})([^\n`~]*)\n([\s\S]*?)\n[ \t]*\1[`~]*[ \t]*(?=\n|$)/g, fm;
                 while ((fm = fenceRe.exec(txt)) !== null) {
                     var body = (fm[3] || '').trim();
                     if (!body) continue;
