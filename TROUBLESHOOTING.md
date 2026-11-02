@@ -626,7 +626,7 @@ on ChatGPT matched 0 nodes (its February selectors) and on Perplexity 22 nested 
 kept no answer text. The export's header counted `_questions` (indexed) over a body of mounted nodes.
 
 ### Fix and verification
-DEC-059. `probes/check-feature-gaps.js`: 41 checks (36 [new], 5 guards); the checks written before the PR fail on
+DEC-059. `probes/check-feature-gaps.js`: 42 checks (37 [new], 5 guards); the checks written before the PR fail on
 v12.16 and pass on v12.17, and those added during GitHub Codex's rounds fail on the commit before their fix; 21
 mutants. The live checks (before the PR, after the local review, and the final A/B) are in DEC-031.
 

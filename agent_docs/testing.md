@@ -121,7 +121,7 @@ GitHub Actions runs on push/PR to `main`:
     about 24 minutes (23m28s–24m6s on PR #90's run 41257520872), against the 30-minute cap.
   - Every `ubuntu` job also runs `check-feature-gaps` on its own engine (v12.17, DEC-059): Search, Export, Summary
     and the gallery reading the whole conversation on the windowed Claude, ChatGPT and Perplexity mocks and on
-    `gemini-history.html`, Gemini bookmarks by turn id, and the landings (41 checks; guards G7, G8, L3, L5, E). Its
+    `gemini-history.html`, Gemini bookmarks by turn id, and the landings (42 checks; guards G7, G8, L3, L5, E). Its
     mutants (21) ran from a scratch runner and are listed in the commit messages, not in the repo. With it the
     ubuntu jobs took about 29–30 minutes (29m1s–29m35s on PR #92's run 41388828440), so their cap is **40 since
     v12.17** (the owner's stopgap until the CI rebuild, ROADMAP 0e); macOS and Windows keep 30.

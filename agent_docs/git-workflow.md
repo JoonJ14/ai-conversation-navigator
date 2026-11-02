@@ -27,7 +27,9 @@
    Mac for v12.17, not the 30–40 first estimated). Then open the PR, with the owner's acceptance steps as its first
    comment.
 4. `/babysit-pr-cycle` with GitHub Codex until it reports no major issues, **plus one more `@codex review` on the clean
-   head**. On v12.17 that confirming review found a new P2 four times out of five. A "Something went wrong" reply is
+   head**. On v12.17 that confirming review found a new P2 four times out of five. **A docs push draws an automatic
+   review too**: on PR #92 two docs-only pushes each drew a real code finding, so poll after every push, docs included,
+   until it is clean. A "Something went wrong" reply is
    not a review: re-trigger with `@codex review` (seven times on PR #92, each worked).
 5. Reinstall the Codex-reviewed build and retest live as an A/B: the previous version by Tampermonkey's Downgrade,
    showing the old failures, then the final build. On v12.17 this found one more bug (`c88ed1c`).

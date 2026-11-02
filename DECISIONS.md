@@ -4222,7 +4222,10 @@ a fresh load; v12.15's 8 of 8 had been on a 24-question chat, which needs 5 page
   and a 30-turn chat's last page is exactly 10, so completion can come only from the 8 s rule, which now redraws
   flags and the bookmarks panel. Summary items and gallery cards are bound to their chat's path.
 - An image-only answer (no text) lands on the answer, not its question.
-- Gates: `probes/check-feature-gaps.js`, 41 checks (C1–C12, C5b–C5g, P1–P7, G1–G10, L1–L3, L5, L6, E; guards G7, G8,
+- An open gallery redraws when its conversation's index loads, refetches or changes (the redraw key is Gemini's
+  partial state plus `sumIndexStamp()`, `f5e2f52`); a streaming answer's refetch per 2,000-character step redraws it
+  once per step.
+- Gates: `probes/check-feature-gaps.js`, 42 checks (C1–C13, C5b–C5g, P1–P7, G1–G10, L1–L3, L5, L6, E; guards G7, G8,
   L3, L5, E), and `check-ix-jumps` K5–K8. The checks written before the PR fail on v12.16; each added in the GitHub
   rounds fails on the commit before its fix. `c88ed1c`'s re-anchor rule has no gate (the mock mounts each page's
   turns). Real-browser behaviour is the owner's acceptance (DEC-031).

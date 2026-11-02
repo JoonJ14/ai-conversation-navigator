@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.17 — Every Feature Reads the Whole Conversation; Gemini Bookmarks by Turn; ChatGPT's Jump Through History Pages] — 2026-11-01
 
-**Branch:** `feat/v12.17-feature-gaps` | **Code head:** `7bf5a3d` | **PR:** #92 | Not merged; owner acceptance owed
+**Branch:** `feat/v12.17-feature-gaps` | **Code head:** `f5e2f52` | **PR:** #92 | Not merged; owner acceptance owed
 on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey (DEC-047, DEC-031). Diff at `a17413c`
 against `76fec11`: 16 files, +2,838 / −95.
 
@@ -80,8 +80,8 @@ And, found while measuring: **ChatGPT's jump to Q15 of 49 toasted "not currently
 - Version 12.17 (`faeb031`); the pre-approved CLAUDE.md heading (`45188fb`: "Three more shapes of the same mistake").
 
 ### Verification
-- **Gates** [Playwright, page realm, headless, Chromium, this Mac]: `probes/check-feature-gaps.js` has 41 checks —
-  C1–C12, C5b–C5g, P1–P7, G1–G10, L1–L3, L5, L6 and E. G7, G8, L3, L5 and E are guards (pass on v12.16 too). The
+- **Gates** [Playwright, page realm, headless, Chromium, this Mac]: `probes/check-feature-gaps.js` has 42 checks —
+  C1–C13, C5b–C5g, P1–P7, G1–G10, L1–L3, L5, L6 and E. G7, G8, L3, L5 and E are guards (pass on v12.16 too). The
   checks written before the PR opened fail on v12.16 and pass here; each one added during the GitHub rounds (C5b–C5g,
   C9–C12, and C5's `c++`, `~~~` and literal-fence assertions) was shown failing on the commit before its fix.
   `check-ix-jumps` K5, K6, K8 [new] (K7 guard). 21 mutants (0–20), each turned its fixtures red. Probe defects found
@@ -99,25 +99,30 @@ And, found while measuring: **ChatGPT's jump to Q15 of 49 toasted "not currently
   positive, 5 logged (ROADMAP 13); `reviews/review-2026-11-01-v12.17.md`. **The cap:** the owner raised it to 10 for
   this PR during round 4, then withdrew that the same minute: GitHub Codex is more accurate (it can call the code), it
   saves tokens, and its findings live on GitHub instead of in the agent's context. So 5 rounds, then GitHub Codex.
-- **GitHub Codex on PR #92 (the babysit cycle):** 14 reviews with findings, 16 P2s in all (no P1), every one real and
-  fixed in 14 `fix: address Codex review —` commits (`cc19e40` … `7bf5a3d`), each with a gate. Codex reported clean on
+- **GitHub Codex on PR #92 (the babysit cycle):** 15 reviews with findings, 17 P2s in all (no P1), every one real and
+  fixed in 15 `fix: address Codex review —` commits (`cc19e40` … `f5e2f52`), each with a gate. Codex reported clean on
   `813659c`, `7f42a20`, `a85e501` and `16a610e`, and each time the confirming `@codex review` (the owner's rule) found
   one more P2: the confirming reviews caught 4 findings. `4f33990` was clean twice; the live A/B after it found
   `c88ed1c`'s flake. Seven replies were "Something went wrong"; each was re-triggered. Final: clean twice on
   `a17413c` (after a re-trigger, then the confirming review). The docs push (`63d7f88`) drew an automatic review that
   found one more: a fenced block inside a blockquote vanished from Summary's inventory (`7bf5a3d`, gate C5; Chromium
-  `check-feature-gaps` and `npm test` 560/560 on it). Final: clean twice on `7bf5a3d`.
+  `check-feature-gaps` and `npm test` 560/560 on it), clean twice. The next docs push (`ebab086`) drew one more: an open
+  gallery did not redraw when the index loaded or refreshed, so Tools opened early kept "No images" (`f5e2f52`, gate
+  C13; Chromium `check-feature-gaps`, `check-gemini-history`, `check-index-adapters` and `npm test` 560/560 on it).
+  Final: clean twice on `f5e2f52`. **Docs pushes draw automatic reviews too**, and both of these found real code
+  defects.
 - **The pre-approved final run** on `8a4b5a5` [Playwright, headless, page realm, this Mac, 20:23–21:47]: `npm test`
   560/560 on Chromium, Firefox and WebKit (WebKit's four known local jump entries did not fail this time). Probes:
   Chromium all 15 green; Firefox all but J15 (`check-ix-jumps`, the known race, TROUBLESHOOTING) and U10
   (`check-usage-state`, the known Firefox `TimeoutError` on this Mac); WebKit all but C8, a defect of the probe's
   own (its router aborted the page's `blob:` URLs, which Playwright's WebKit routes there), fixed in the next commit and
   rerun green on WebKit (`check-feature-gaps`, 189.6 s). The run took about 84 minutes, not the 30–40 estimated.
-  **No three-engine run covers the 16 code and probe commits after `8a4b5a5`** (`d0bda17`, the babysit fixes, `c88ed1c`): each was
+  **No three-engine run covers the 17 code and probe commits after `8a4b5a5`** (`d0bda17`, the babysit fixes, `c88ed1c`): each was
   checked with its gate and the related probes on Chromium. On `a17413c` [Playwright, headless, page realm, this Mac,
   2026-11-02]: `npm test` on Chromium 560/560 (26 platform entries); every probe on Chromium: all 15 passed (`check-feature-gaps` 270.1 s). On `7bf5a3d`: `check-feature-gaps` all
-  passed and `npm test` 560/560, both Chromium. **`7bf5a3d` was not reinstalled live**; the final A/B below ran on
-  `a17413c`, and `7bf5a3d` changes only Summary's parsing of fences inside blockquotes.
+  passed and `npm test` 560/560, both Chromium. On `f5e2f52`: `check-feature-gaps`, `check-gemini-history`, `check-index-adapters` and `npm test` 560/560, Chromium.
+  **Neither `7bf5a3d` nor `f5e2f52` was reinstalled live**; the final A/B below ran on `a17413c`. They change only
+  Summary's parsing of fences inside blockquotes and when an open gallery redraws.
 - **Final A/B, live** [Chrome + Tampermonkey, the owner's profile, visible tab, 2026-11-02 UTC; the agent's check,
   not acceptance; DEC-031]: 12.16 installed by Tampermonkey's Downgrade, then the Codex-reviewed build. On 12.16:
   ChatGPT Search for A1's word found nothing and Q15 from a fresh load toasted; Perplexity Search for A1's word found
