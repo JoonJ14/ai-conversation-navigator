@@ -203,7 +203,9 @@ function exportOrder(f, n) {
 }
 // What every answer's text adds up to, as Summary counts it (ChatGPT: a turn's text nodes joined by a
 // blank line; Perplexity: the FINAL answer).
-const gptAnswerChars = (T) => T.reduce((n, t) => n + t.answer.length + (t.lastAid ? ('\n\n' + 'and the second part of answer ' + (T.indexOf(t) + 1)).length : 0), 0);
+// Turn 6's second text node ends in a fenced block (GitHub Codex, PR #92: a split answer's other parts).
+const SPLIT_FENCE = '\n\n```js\nconsole.log("okapi")\n```';
+const gptAnswerChars = (T) => T.reduce((n, t) => n + t.answer.length + (t.lastAid ? ('\n\n' + 'and the second part of answer ' + (T.indexOf(t) + 1) + SPLIT_FENCE).length : 0), 0);
 const pplxAnswerChars = (E) => E.reduce((n, e) => n + e.answer.length, 0);
 const aiChars = (t) => parseInt(((t.match(/AI: ([0-9,]+) chars/) || [0, '0'])[1]).replace(/,/g, ''), 10);
 
@@ -260,7 +262,7 @@ function gptMapping(T) {
         prev = t.aid;
         if (t.lastAid) {
             add(t.lastAid, t.aid, { id: t.lastAid, author: { role: 'assistant' }, recipient: 'all',
-                                    content: { content_type: 'text', parts: ['and the second part of answer ' + (i + 1)] }, metadata: {} });
+                                    content: { content_type: 'text', parts: ['and the second part of answer ' + (i + 1) + SPLIT_FENCE] }, metadata: {} });
             prev = t.lastAid;
         }
     });
@@ -511,6 +513,13 @@ function claudeXhr(payload) {
                     { toasts: window.__acnToasts.slice() }), o.T[2].id);
                 check('C5b', 'new', 'ChatGPT Summary: the code item of an unmounted answer, clicked, lands on that answer',
                       codeClicked && cm.inView && !cm.toasts.length, 'clicked=' + codeClicked + ' ' + JSON.stringify(cm));
+                // With turn 6 mounted (its answer shown as one unit naming its first part), the fence in its
+                // SECOND part is still listed (GitHub Codex, PR #92).
+                await pg.evaluate(() => window.__mockWindow.userScrollTo(5));
+                await pg.waitForTimeout(1200);
+                const t6 = await pg.evaluate("window.__h.summary()");
+                check('C5c', 'new', 'ChatGPT Summary: a split answer whose first part is mounted still lists the code in its second part',
+                      /js \u2014 console\.log\("okapi"\)/.test(t6), (t6.match(/CODE BLOCKS[^\n]*\n[^\n]*\n?[^\n]*/) || ['no code section'])[0].replace(/\n/g, ' / '));
                 await pg.evaluate("window.__mockWindow.userScrollTo('bottom')");
                 await pg.waitForTimeout(800);
                 await pg.evaluate("window.__h.clickSegment('msgs 1\\u2013')");

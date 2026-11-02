@@ -13417,8 +13417,11 @@
             // ChatGPT chat, "12 user, 22 AI" on a 12-entry Perplexity thread (Chrome, 2026-11-01).
             var ixA = ixReadyAdapter();
             aiMsgs = ixConversation().filter(function (m) { return m.type === 'ai'; }).map(function (m) {
-                // Raw markdown, as Claude's: the code inventory reads its fences (Tier 3 r2).
-                return { element: m.key ? _bmIxFind(ixA, m.key, 'ai-msg') : null, text: m.text,
+                // Raw markdown, as Claude's: the code inventory reads its fences (Tier 3 r2). And no mounted
+                // node: a ChatGPT answer can be several units, and a node made the inventory read that one
+                // unit's DOM and drop the fences in the others; with none, every item also carries the
+                // answer's jumpRef, so its click passes the index check (GitHub Codex, PR #92).
+                return { element: null, text: m.text,
                          type: 'ai', jumpRef: { kind: 'ixa', key: m.key, qIdx: m.qIdx } };
             });
         } else {
