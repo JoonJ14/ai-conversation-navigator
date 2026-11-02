@@ -12619,15 +12619,16 @@
                 // Indexed, unmounted: derive from CONTENT. Fenced blocks give the
                 // code inventory; files/attachments metadata gives the file list.
                 var txt = r.text || '';
-                // Any label to the end of the fence line, so c++ and c# blocks count too (GitHub Codex, PR #92).
-                var fenceRe = /```([^\n`]*)\n([\s\S]*?)```/g, fm;
+                // Backtick or tilde fences, each closed by its own kind, with any label to the end of the fence
+                // line, so c++, c# and ~~~ blocks count too (GitHub Codex, PR #92).
+                var fenceRe = /(```|~~~)([^\n`~]*)\n([\s\S]*?)\1/g, fm;
                 while ((fm = fenceRe.exec(txt)) !== null) {
-                    var body = (fm[2] || '').trim();
+                    var body = (fm[3] || '').trim();
                     if (!body) continue;
                     // Same `label` shape the mounted branch builds — the renderer reads
                     // cb.label, and {language,text} rendered as `undefined` for exactly
                     // the off-screen content this path recovers (Codex R6 :6619).
-                    var fl = (fm[1] || '').replace(/^\s+|\s+$/g, '');
+                    var fl = (fm[2] || '').replace(/^\s+|\s+$/g, '');
                     var lbl = (fl ? fl + ' — ' : '') +
                               body.split('\n')[0].substring(0, 40);
                     // jumpRef: ChatGPT's and Perplexity's identity for the click (v12.17, Tier 3 r4).
