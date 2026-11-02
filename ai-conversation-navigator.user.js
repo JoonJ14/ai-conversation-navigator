@@ -12608,7 +12608,8 @@
         var codeBlocks = [];
         var files      = [];
         var seenFiles  = {};
-        var seenCode   = {};   // first 40 chars of a block read from text, so a mounted copy is not listed twice
+        // A block's text with its whitespace folded: the key a mounted copy of a markdown block is matched by.
+        function codeKey(t) { return String(t || '').replace(/\s+/g, ' ').replace(/^ | $/g, ''); }
 
         aiResponses.forEach(function (r, msgIndex) {
             var el = r.element;
@@ -12620,6 +12621,9 @@
                 // Indexed, unmounted: derive from CONTENT. Fenced blocks give the
                 // code inventory; files/attachments metadata gives the file list.
                 var txt = r.text || '';
+                // Blocks read from this answer's markdown, by their whole text, one per occurrence: a mounted
+                // unit's <pre> with the same text is that block, not another (GitHub Codex, PR #92).
+                var mdBlocks = {};
                 // Backtick or tilde fences, each closed by its own kind, with any label to the end of the fence
                 // line, so c++, c# and ~~~ blocks count too (GitHub Codex, PR #92).
                 var fenceRe = /(```|~~~)([^\n`~]*)\n([\s\S]*?)\1/g, fm;
@@ -12634,7 +12638,7 @@
                               body.split('\n')[0].substring(0, 40);
                     // jumpRef: ChatGPT's and Perplexity's identity for the click (v12.17, Tier 3 r4).
                     codeBlocks.push({ label: lbl, element: null, msgIndex: msgIndex, pathIdx: pathIdx, jumpRef: r.jumpRef || null });
-                    seenCode[body.substring(0, 40).replace(/\s+/g, ' ')] = true;
+                    mdBlocks[codeKey(body)] = (mdBlocks[codeKey(body)] || 0) + 1;
                 }
                 // ChatGPT and Perplexity answers (they carry a jumpRef) have no node here at all: their markdown
                 // links are read as the DOM branch reads <a href> (GitHub Codex, PR #92).
@@ -12656,9 +12660,9 @@
                         Array.prototype.forEach.call(u.querySelectorAll('pre'), function (pre) {
                             var cEl = pre.querySelector('code') || pre;
                             var raw = (cEl.textContent || '').trim();
-                            var ck = raw.substring(0, 40).replace(/\s+/g, ' ');
-                            if (!raw || seenCode[ck]) return;
-                            seenCode[ck] = true;
+                            var ck = codeKey(raw);
+                            if (!raw) return;
+                            if (mdBlocks[ck] > 0) { mdBlocks[ck]--; return; }   // the markdown's own block, mounted
                             var lm2 = (cEl.className || pre.className || '').match(/language-(\w+)/);
                             codeBlocks.push({ label: (lm2 ? lm2[1] + ' \u2014 ' : '') + raw.split('\n')[0].substring(0, 40),
                                               element: null, msgIndex: msgIndex, pathIdx: pathIdx, jumpRef: r.jumpRef });

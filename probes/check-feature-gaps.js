@@ -522,9 +522,20 @@ function claudeXhr(payload) {
                 await pg.waitForTimeout(1200);
                 await pg.evaluate((k) => {
                     const u = document.querySelector('#mock-scroller [data-turn-key="' + k + '"] [data-content-search-unit-key$=":assistant"]');
-                    if (u) { const pre = document.createElement('pre'); pre.innerHTML = '<code>print("aardvark")</code>'; u.appendChild(pre); }
+                    if (u) {
+                        const pre = document.createElement('pre'); pre.innerHTML = '<code>print("aardvark")</code>'; u.appendChild(pre);
+                        // Two different blocks whose first 40+ chars agree (GitHub Codex, PR #92): both are blocks.
+                        ['alpha', 'beta'].forEach((w) => {
+                            const p2 = document.createElement('pre');
+                            p2.textContent = 'import os\nimport sys\nimport json\nimport re\nprint("' + w + '")';
+                            u.appendChild(p2);
+                        });
+                    }
                 }, o.T[5].id);
                 const t6 = await pg.evaluate("window.__h.summary()");
+                check('C5g', 'new', 'ChatGPT Summary: two different mounted blocks that begin alike are both listed',
+                      ((t6.match(/CODE BLOCKS \((\d+)\)/) || [0, '0'])[1] | 0) >= 5 && (t6.match(/import os/g) || []).length === 2,
+                      (t6.match(/CODE BLOCKS[\s\S]{0,260}/) || ['no code section'])[0].replace(/\n/g, ' / '));
                 check('C5f', 'new', 'ChatGPT Summary: a code block only the mounted answer\'s DOM shows (an indented block) is listed, once',
                       (t6.match(/print\("aardvark"\)/g) || []).length === 1, (t6.match(/CODE BLOCKS[\s\S]{0,200}/) || ['no code section'])[0].replace(/\n/g, ' / '));
                 check('C5d', 'new', 'ChatGPT Summary: a file linked in an answer\'s markdown is listed under files',
