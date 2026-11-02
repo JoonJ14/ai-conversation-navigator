@@ -2729,6 +2729,7 @@
     var _ixStartLoaded      = null;    // the conversation whose start a page wait found loaded
     var IX_PAGE_IDLE_MAX    = 3;       // waits at the top that brought no older turn, per jump
     var IX_ANSWER_GROWTH    = 2000;    // chars an answer on screen may outgrow its indexed text before a refetch
+    var IX_SETTLE_MS        = 3000;    // a streamed latest answer unchanged this long is refetched once
 
     var _ix = {};                      // the generic pipeline's state, one conversation
     var _ixJumpToken = 0;
@@ -2748,7 +2749,7 @@
                 textAt: null, inFlightCid: null, loadGen: (_ix.loadGen || 0) + 1, indexGen: (_ix.indexGen || 0) + 1,
                 reason: '', retryDelayMs: 0, lastFetchAt: 0, refreshFailed: '', truncated: 0,
                 actedSig: '', qIdx: null, idAtPos: null, answerOf: null, answerAt: null, wantRefresh: '',
-                wantActed: '', wantKeyless: false, answers: null, images: null, answerIdOf: null };
+                wantActed: '', wantKeyless: false, answers: null, images: null, answerIdOf: null, watchLast: null };
     }
     ixInvalidate();
 
@@ -3626,6 +3627,24 @@
                         if (_ix.answers[hi].key === held) { heldLen = _mdVisible(_ix.answers[hi].text || '').length; break; }
                     }
                     if (shownLen > heldLen + IX_ANSWER_GROWTH) stale = 'a:' + held + ':' + Math.floor(shownLen / IX_ANSWER_GROWTH);
+                }
+                // The latest answer, watched from the first scan after a load: a rendered length that CHANGES
+                // means it was being written when the snapshot was taken; once it has not changed for
+                // IX_SETTLE_MS, one refetch takes its final text, however little it grew. A length that never
+                // changes (labels the markdown has not) asks for nothing (GitHub Codex, PR #92).
+                var lastBk = null;
+                for (var lb2 = bk.length - 1; lb2 >= 0 && !lastBk; lb2--) if (bk[lb2].type === 'ai-msg') lastBk = bk[lb2];
+                var lastKey = lastBk ? a.keyOf(lastBk.el, 'ai-msg') : null;
+                if (lastKey) {
+                    var lastLen = _readAIText(lastBk.el).length, w = _ix.watchLast, now = Date.now();
+                    if (!w || w.key !== lastKey || w.gen !== _ix.indexGen) {
+                        _ix.watchLast = { key: lastKey, gen: _ix.indexGen, len: lastLen, at: now, moved: false };
+                    } else if (lastLen !== w.len) {
+                        w.len = lastLen; w.at = now; w.moved = true;
+                        _ciScheduleRescan(IX_SETTLE_MS + 200);          // look again once it may have settled
+                    } else if (w.moved && !stale && now - w.at >= IX_SETTLE_MS) {
+                        stale = 'settled:' + lastKey + ':' + lastLen;
+                    }
                 }
             }
             // A SHORTER branch has no unknown ids: every mounted question is in the index,
@@ -15113,6 +15132,8 @@
             // as "longer than the loaded history" at a 20-char margin (live, Chrome, 2026-11-01).
             if (mEl && _readAIText(mEl).length > _mdVisible(allAns[i].text || '').length + IX_ANSWER_GROWTH) grown++;
         }
+        // The latest answer seen changing since the snapshot and not refetched yet: still being written.
+        if (_ix.watchLast && _ix.watchLast.moved && _ix.watchLast.gen === _ix.indexGen && !grown) grown = 1;
         var partial = _ix.truncated || _ix.refreshFailed || newer || noText || unanswered || grown;
         lines.push('**Source:** ' + (partial ? 'conversation history (API) \u2014 see warning below'
                                             : 'complete conversation history (API)'));

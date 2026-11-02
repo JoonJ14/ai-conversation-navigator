@@ -639,6 +639,27 @@ function claudeXhr(payload) {
                   'panel=' + JSON.stringify(b) + ' flag=' + JSON.stringify(f) + ' indexKey=' + T[5].lastAid);
         } finally { await o.context.close(); }
     }
+    if (want('C9')) {
+        // The latest answer, captured mid-stream: after the load it grows by a short tail (under the
+        // 2,000-char margin) and stops. One refetch once it settles; the export then has the tail
+        // (GitHub Codex, PR #92).
+        const o = await gptOpen(false);
+        try {
+            const pg = o.pg;
+            await pg.waitForTimeout(1500);
+            const fetches0 = o.requests.filter((u) => u.indexOf('/backend-api/conversation/') !== -1).length;
+            const tail = ' and the streamed ending, wallaby.';
+            o.T[GPT_N - 1].answer += tail;            // what the API holds once the answer is complete
+            await pg.evaluate((a) => window.__mockWindow.setAnswer(a.i, a.aid, a.text), { i: GPT_N - 1, aid: o.T[GPT_N - 1].aid, text: o.T[GPT_N - 1].answer });
+            // Settled after 3 s; the refetch then waits out the 15 s cooldown from the load.
+            await pg.waitForTimeout(18000);
+            const fetches1 = o.requests.filter((u) => u.indexOf('/backend-api/conversation/') !== -1).length;
+            const f = await pg.evaluate("window.__h.exportFull()") || '';
+            check('C9', 'new', 'ChatGPT: a latest answer that grows a little after the load and stops is refetched once settled; the export has its end',
+                  fetches1 === fetches0 + 1 && /wallaby/.test(f) && /complete conversation history/.test(f),
+                  'conversation fetches ' + fetches0 + ' -> ' + fetches1 + ' wallaby=' + /wallaby/.test(f) + ' ' + ((f.match(/\*\*Source:\*\*[^\n]*/) || [''])[0]));
+        } finally { await o.context.close(); }
+    }
     if (want('C4')) {
         const o = await gptOpen(true);
         try {
