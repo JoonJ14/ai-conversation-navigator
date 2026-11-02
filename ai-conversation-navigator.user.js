@@ -9580,23 +9580,33 @@
                 var lk = ixA.keyOf(bmk[lb].el, 'ai-msg');
                 if (!lk) continue;
                 // A unit naming any node of an indexed answer IS that answer (part of it, on ChatGPT).
+                // Every mounted unit of the answer: a split ChatGPT answer streams into its LAST unit, which
+                // alone is shorter than the whole indexed text (GitHub Codex, PR #92).
                 if (_ix.answerIdOf && _ix.answerIdOf.hasOwnProperty(lk)) {
                     var ak = _ix.answerIdOf[lk];
-                    if (!liveAns[ak] || ak === lk) liveAns[ak] = bmk[lb].el;
+                    (liveAns[ak] = liveAns[ak] || []).push(bmk[lb].el);
                 }
                 else liveOther.push({ key: lk, el: bmk[lb].el });
             }
             for (var ia = 0; ia < ixAns.length; ia++) {
                 var ans = ixAns[ia];
                 var aText = _mdVisible(ans.text || '');
-                if (ans.key && liveAns[ans.key]) {
-                    var lt = _readAIText(liveAns[ans.key]);
-                    if (lt.length > aText.length) aText = lt;
-                }
+                var units = (ans.key && liveAns[ans.key]) || [];
+                if (!aText && units.length) aText = _readAIText(units[0]);
                 if (!aText) continue;
                 ixSeq++;
                 if (ans.pos > lastPos) lastPos = ans.pos;
-                if (aText.toLowerCase().indexOf(qLower) === -1) continue;
+                // The indexed text, or else any mounted unit of the answer (fresher while it is written): the
+                // snippet comes from whichever matched.
+                if (aText.toLowerCase().indexOf(qLower) === -1) {
+                    var hitText = '';
+                    for (var ui = 0; ui < units.length && !hitText; ui++) {
+                        var ut = _readAIText(units[ui]);
+                        if (ut.toLowerCase().indexOf(qLower) !== -1) hitText = ut;
+                    }
+                    if (!hitText) continue;
+                    aText = hitText;
+                }
                 aiMatches.push({ element: null, text: aText, labelText: 'A#' + ixSeq, isAI: true, qObj: null,
                                  ixKey: ans.key, ixQ: ans.q, ixPos: ans.pos });
             }

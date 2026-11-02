@@ -639,6 +639,21 @@ function claudeXhr(payload) {
                   'panel=' + JSON.stringify(b) + ' flag=' + JSON.stringify(f) + ' indexKey=' + T[5].lastAid);
         } finally { await o.context.close(); }
     }
+    if (want('C10')) {
+        // Turn 6's answer is split; its mounted unit gains new text while the index still holds the
+        // longer, older whole (a stream in progress). Search finds the new words (GitHub Codex, PR #92).
+        const o = await gptOpen(false);
+        try {
+            const pg = o.pg;
+            await pg.evaluate(() => window.__mockWindow.userScrollTo(5));
+            await pg.waitForTimeout(1200);
+            await pg.evaluate((a) => window.__mockWindow.setAnswer(a.i, a.aid, 'and fresh-wallaby words'), { i: 5, aid: o.T[5].aid });
+            await pg.waitForTimeout(1200);
+            const r = await pg.evaluate("window.__h.search('fresh-wallaby')");
+            check('C10', 'new', 'ChatGPT Search: new text in a mounted unit of a split answer, shorter than the indexed whole, is found as that answer',
+                  r.labels.join() === 'A#6', 'labels=[' + r.labels + ']');
+        } finally { await o.context.close(); }
+    }
     if (want('C9')) {
         // The latest answer, captured mid-stream: after the load it grows by a short tail (under the
         // 2,000-char margin) and stops. One refetch once it settles; the export then has the tail
