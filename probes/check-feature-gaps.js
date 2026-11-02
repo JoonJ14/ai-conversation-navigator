@@ -238,6 +238,7 @@ function gptTurns() {
         // A file link, as ChatGPT writes one (GitHub Codex, PR #92: the inventory's files from indexed text).
         if (i === 3) a += ' Download [report.csv](sandbox:/mnt/data/report.csv).';
         // A literal ``` inside a block's code (GitHub Codex, PR #92): one block, not a cut one plus another.
+        if (i === 8) a += ' Save this as notes.txt before running analysis.py.';
         if (i === 7) a += '\n\n```js\nconst fence = "```";\n```\n\n```go\nvar numbat = 4\n````';
         if (i === 19) q += ' lemur';
         // Turn 6's answer has two shown text nodes, and the page names the FIRST on its unit (live: a
@@ -581,7 +582,7 @@ function claudeXhr(payload) {
                       /Total turns: 48 \(24 user, 24 AI\)/.test(t) && aiChars(t) === gptAnswerChars(o.T) && /python \u2014 print\("kinkajou"\)/.test(t) &&
                       /c\+\+ \u2014 int quoll = 1;/.test(t) && /ruby \u2014 puts :tamarin/.test(t) &&
                       (t.match(/const fence/g) || []).length === 1 && /js \u2014 const fence = "```";/.test(t) &&
-                      /go \u2014 var numbat = 4/.test(t) &&
+                      /go \u2014 var numbat = 4/.test(t) && /\nFILES[\s\S]*notes\.txt/.test(t) && /\nFILES[\s\S]*analysis\.py/.test(t) &&
                       /^msgs 1–/.test(first) && m.inView && m.resolved === '0',
                       ((t.match(/Total turns:[^\n]*/) || [''])[0]) + ' AI chars=' + aiChars(t) + ' (expected ' + gptAnswerChars(o.T) + ')' +
                       ' code=' + /python \u2014 print/.test(t) + ' [' + (t.match(/(CODE[\s\S]{0,160})/i) || ['', 'no CODE section'])[1].replace(/\n/g, ' / ') + '] first=' + first + ' landing=' + JSON.stringify(m));

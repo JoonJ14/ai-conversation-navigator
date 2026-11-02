@@ -12692,6 +12692,14 @@
                 // ChatGPT and Perplexity answers (they carry a jumpRef) have no node here at all: their markdown
                 // links are read as the DOM branch reads <a href> (GitHub Codex, PR #92).
                 if (r.jumpRef) {
+                    // File names mentioned anywhere in the text, as the DOM branch reads textContent (GitHub
+                    // Codex, PR #92), then the targets of markdown links.
+                    var tMatch = txt.match(FILE_EXTENSION_RE);
+                    for (var tm = 0; tMatch && tm < tMatch.length; tm++) {
+                        if (seenFiles[tMatch[tm]]) continue;
+                        seenFiles[tMatch[tm]] = true;
+                        files.push({ label: tMatch[tm], element: null, msgIndex: msgIndex, pathIdx: pathIdx, jumpRef: r.jumpRef });
+                    }
                     var linkRe = /\[([^\]]*)\]\(([^)\s]*)[^)]*\)/g, lm;
                     while ((lm = linkRe.exec(txt)) !== null) {
                         var lMatch = ((lm[2] || '') + ' ' + (lm[1] || '')).match(FILE_EXTENSION_RE);
