@@ -1544,7 +1544,8 @@ v12.16, with its three new probes, about 24: 23m28s–24m6s on PR #90's run 4125
 21.5–22 minutes on main the same day, while macOS took 6m3s–6m55s and Windows 5m56s–9m32s. That leaves about 6 minutes
 of headroom; the agent flagged the margin rather than raise the cap, and the owner confirmed on 2026-11-01: OK for now, part of
 the CI rebuild, ROADMAP 0e; **40 on ubuntu since v12.17**, the owner's call the same day, a stopgap until that rebuild:
-v12.17's probes add about 4–5 minutes to those jobs, which left too little room under 30; macOS and Windows keep 30) makes a
+v12.17's probes add about 4–5 minutes to those jobs, which left too little room under 30 — measured afterwards,
+29m1s–29m35s on PR #92's run 41388828440; macOS and Windows keep 30) makes a
 wedged runner fail fast instead of blocking the check for up to GitHub's 6-hour default. A failure well inside the
 cap is not a wedge: read the failing check first (TROUBLESHOOTING, the J15 entry, is one that looked like a stall). Queue time doesn't count
 against it. The cap covers the whole job, installs included. On PR #75 a `firefox on ubuntu-latest`
@@ -1686,6 +1687,20 @@ only.
    of entire contents … whose name is …` failed with -1700. What worked: iterate `entire contents of window 1`
    (about 30 s), test role `AXButton` and the name inside a `try`, then `AXPress`. A higher version shows a
    "Userscript update" page with Update / Cancel / Disable Updates.
+   On 2026-11-01/02 (v12.17) [same setup, the owner's Chrome with several windows]:
+   - **Pick the window by its title, not by "window 1" or a tab index.** The confirm page's window title contains
+     "Userscript" ("Userscript update", "Userscript re-installation", "Attention! Userscript downgrade"); loop over
+     the process's windows and take the one whose name contains it. A fixed tab index pressed nothing once the owner's
+     tabs moved, and a download bubble from an export is itself a window that can be the front one.
+   - **Escape on the confirm page cancels it.** Sending Escape to close a download bubble first, while the confirm page
+     was frontmost, closed the confirm page without installing. Escape only when the bubble is the front window, then
+     reopen the install URL if the confirm page is gone.
+   - **The confirm page may be in another window than the agent's tab.** The claude-in-chrome tab list does not show
+     it; the AppleScript window list does.
+   - The claude-in-chrome extension disconnected twice mid-check; reconnecting (`tabs_context_mcp` again) worked and
+     Chrome kept running. A `navigate` to the install URL can time out while the confirm page opened anyway.
+   - When the owner has said they are away, the agent takes over their Chrome windows for the install without asking
+     (the owner, 2026-11-02).
 3. The build has the same `@name` and `@namespace`, so Tampermonkey treats it as an update of the installed script
    and keeps its GM storage, the owner's bookmarks included. A same-version build shows "Reinstall"; an older one
    "Downgrade" (used to measure v12.14 against v12.15 live, then reinstalled).

@@ -6,8 +6,9 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.17 — Every Feature Reads the Whole Conversation; Gemini Bookmarks by Turn; ChatGPT's Jump Through History Pages] — 2026-11-01
 
-**Branch:** `feat/v12.17-feature-gaps` | **PR:** (opened after the live check) | Not merged; owner acceptance owed on
-Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey (DEC-047, DEC-031)
+**Branch:** `feat/v12.17-feature-gaps` | **Code head:** `a17413c` | **PR:** #92 | Not merged; owner acceptance owed
+on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey (DEC-047, DEC-031). Diff at `a17413c`
+against `76fec11`: 16 files, +2,838 / −95.
 
 One combined PR, separate commits per feature, from the owner's spec (2026-11-01; DEC-058's first PR). Platforms in
 scope: Claude, ChatGPT, Perplexity, Gemini. Design and limits: DEC-059.
@@ -45,28 +46,83 @@ And, found while measuring: **ChatGPT's jump to Q15 of 49 toasted "not currently
 - **F5 Gemini bookmarks** (`e7529ff`): keyed `<turn id>` / `<turn id>:answer`; "Q#…" while history is partial;
   positional records bind only on proof.
 - **F6** (`1ab3aed`): Perplexity's "Finished" label out of all text; the `gmLandFar` comment's 6,139 px.
-- **ChatGPT's jump** (`5437bc7`): waits for history pages without spending moves; lands after the top page.
+- **ChatGPT's jump** (`5437bc7`, then `2d67d99`, `9cd8b8c`, `c88ed1c`): waits for history pages without spending
+  moves; lands after the top page. A wait counts as a page only when older turns mount **or the view re-anchors off
+  the top** (`c88ed1c`, found by the final A/B: ChatGPT keeps the view on what it showed, and with ~5 turns mounted
+  the new ones above may stay unmounted); at most `IX_PAGE_IDLE_MAX` 3 waits that bring nothing; the "start is
+  loaded" memo (`_ixStartLoaded`) is keyed `cid|x<indexGen>` and set only with Q1 mounted in a visible tab.
+- **Pulled in by the owner** (`3cfce67`): ChatGPT answer bookmarks on a "fallback" turn key and resolve through
+  `_ix.answerIdOf` (`_bmIxCanon`, gate C7; 12.16 read "A#?"); Claude's bookmark jumps land through `ciLandSettled`
+  (gate L6; 12.16 ended 218 px short on Q100's answer).
+- **Index freshness** (`3ed8ccc`, `ede3223`, `a85e501`): a mounted answer the index lacks, or one more than
+  `IX_ANSWER_GROWTH` 2,000 characters longer on screen than in the snapshot, marks the index stale (one refetch per
+  2,000-character step, behind the 15 s cooldown); the latest answer is watched from the first scan (`_ix.watchLast`)
+  and refetched once when its length has changed and then held still for `IX_SETTLE_MS` 3 s; a mounted ChatGPT turn
+  showing more `blob:` images than the index lists for it asks for one refetch per new count.
+- **Export notes** (`2d67d99`, `3cfce67`, `8a4b5a5`): the file names answers with no text, questions with no answer,
+  and answers longer on screen than the snapshot. The last uses the same 2,000-character margin: round 2's 20-character
+  margin flagged a settled chat (live retest; `8a4b5a5`).
+- **Summary's inventory from the indexed text** (GitHub Codex, `cc19e40`…`a17413c`): code blocks are read from each
+  answer's full markdown (fences on their own lines, any label, backtick or `~~~`, a closing fence as long or longer);
+  files from markdown links and from file names anywhere in the text (`FILE_EXTENSION_RE`, as the DOM branch reads
+  `textContent`); plus the `<pre>` and links of the answer's mounted units (`domEls`) that the markdown read missed
+  (indented code), matched per answer by the whole block's text (`codeKey`), so a mounted copy is never listed twice
+  and two blocks with the same opening are both listed. Every item carries its answer's `jumpRef`.
+- **Search on a split ChatGPT answer** (`1f561e3`): every mounted unit of the answer is read, so text only on screen
+  (still streaming) is found. **Image-only answers** (`4f33990`) land on the answer, not its question.
+- **Gemini** (`3cfce67`, `3e96f32`, `3ed8ccc`, `9cd8b8c`): bookmark proof and final labels need a positively complete
+  history (`_bmGmFinal`; gate G9); the 8 s completion redraws flags and the bookmarks panel (G10); Summary shows the
+  note; Summary items and gallery cards are bound to their chat's path; an open gallery redraws on completion and on a
+  chat switch.
+- **CI** (`e398b49`): the ubuntu jobs' `timeout-minutes` 30 → 40, a stopgap until the CI rebuild (the owner's call;
+  ROADMAP 0e, TESTING). macOS and Windows keep 30.
 - Version 12.17 (`faeb031`); the pre-approved CLAUDE.md heading (`45188fb`: "Three more shapes of the same mistake").
 
 ### Verification
-- **Gates** [Playwright, page realm, headless, Chromium, this Mac]: `probes/check-feature-gaps.js` C1–C6, P1–P6,
-  G1–G8, L1–L3: 18 [new] checks fail on v12.16 and pass here; G7, G8 and L3 are guards (pass on both). `check-ix-jumps`
-  K5, K6, K8 [new] (K7 guard). Mutants, one or two per mechanism, 14 of 14 caught (the list in `ad6bf77`). Two gate
-  defects were the probe's own and were fixed before trusting it: ChatGPT measurements read the page's hidden copy of
-  the first turns, and the mock's `loadAll()` (22 turns in one step) proves nothing about Gemini's start.
+- **Gates** [Playwright, page realm, headless, Chromium, this Mac]: `probes/check-feature-gaps.js` has 41 checks —
+  C1–C12, C5b–C5g, P1–P7, G1–G10, L1–L3, L5, L6 and E. G7, G8, L3, L5 and E are guards (pass on v12.16 too). The
+  checks written before the PR opened fail on v12.16 and pass here; each one added during the GitHub rounds (C5b–C5g,
+  C9–C12, and C5's `c++`, `~~~` and literal-fence assertions) was shown failing on the commit before its fix.
+  `check-ix-jumps` K5, K6, K8 [new] (K7 guard). 21 mutants (0–20), each turned its fixtures red. Probe defects found
+  and fixed before trusting a result: ChatGPT measurements read the page's hidden copy of the first turns (scoped to
+  `#mock-scroller`); the mock's `loadAll()` (22 turns in one step) proves nothing about Gemini's start (pages now load
+  paced); the gallery helper toggled the Tools panel shut; C5 ran with a mounted plain-text DOM (now generated from
+  the bottom); WebKit's router aborted the page's `blob:` URLs (`d0bda17`).
+- **`c88ed1c` has no gate.** The ChatGPT mock mounts the new page's turns; the re-anchor case (view moved off the top,
+  new turns unmounted) was found and verified only live (ROADMAP 13).
 - **Found by the suite:** `ciLandSettled` broke "Claude (80 rows, Q#1 is a file chip)" (a file-chip question cannot be
   re-located by path index); fixed in `a10857f`, 3 of 3 runs.
 - **The agent's live check** (Chrome + Tampermonkey, build `77fc122b…`): DEC-031. It found ChatGPT Search listing an
   A#50 on 49 questions (a turn's first text node rendered as its own turn), fixed in `a10857f`.
-- **Review:** Tiers 1–2 (session) PASS; Tier 3 `cli:codex` five rounds (the owner's cap): 48 raw, 47 verified, 39
-  fixed, 1 false positive, 5 logged (ROADMAP 13); `reviews/review-2026-11-01-v12.17.md`. The round-5 fixes and the
-  export-margin fix (`8a4b5a5`, found in the live retest after the review) had no local Tier 3 round after them.
+- **Review:** Tiers 1–2 (session) PASS; Tier 3 `cli:codex` five rounds: 48 raw, 47 verified, 39 fixed, 1 false
+  positive, 5 logged (ROADMAP 13); `reviews/review-2026-11-01-v12.17.md`. **The cap:** the owner raised it to 10 for
+  this PR during round 4, then withdrew that the same minute: GitHub Codex is more accurate (it can call the code), it
+  saves tokens, and its findings live on GitHub instead of in the agent's context. So 5 rounds, then GitHub Codex.
+- **GitHub Codex on PR #92 (the babysit cycle):** 13 reviews with findings, 15 P2s in all (no P1), every one real and
+  fixed in 13 `fix: address Codex review —` commits (`cc19e40` … `a17413c`), each with a gate. Codex reported clean on
+  `813659c`, `7f42a20`, `a85e501` and `16a610e`, and each time the confirming `@codex review` (the owner's rule) found
+  one more P2: the confirming reviews caught 4 findings. `4f33990` was clean twice; the live A/B after it found
+  `c88ed1c`'s flake. Seven replies were "Something went wrong"; each was re-triggered. Final: clean twice on
+  `a17413c` (after a re-trigger, then the confirming review).
 - **The pre-approved final run** on `8a4b5a5` [Playwright, headless, page realm, this Mac, 20:23–21:47]: `npm test`
   560/560 on Chromium, Firefox and WebKit (WebKit's four known local jump entries did not fail this time). Probes:
   Chromium all 15 green; Firefox all but J15 (`check-ix-jumps`, the known race, TROUBLESHOOTING) and U10
   (`check-usage-state`, the known Firefox `TimeoutError` on this Mac); WebKit all but C8, a defect of the probe's
   own (its router aborted the page's `blob:` URLs, which Playwright's WebKit routes there), fixed in the next commit and
-  rerun green on WebKit (`check-feature-gaps`, 189.6 s).
+  rerun green on WebKit (`check-feature-gaps`, 189.6 s). The run took about 84 minutes, not the 30–40 estimated.
+  **No three-engine run covers the 15 code and probe commits after `8a4b5a5`** (`d0bda17`, the babysit fixes, `c88ed1c`): each was
+  checked with its gate and the related probes on Chromium. On `a17413c` [Playwright, headless, page realm, this Mac,
+  2026-11-02]: `npm test` on Chromium 560/560 (26 platform entries); every probe on Chromium: all 15 passed (`check-feature-gaps` 270.1 s).
+- **Final A/B, live** [Chrome + Tampermonkey, the owner's profile, visible tab, 2026-11-02 UTC; the agent's check,
+  not acceptance; DEC-031]: 12.16 installed by Tampermonkey's Downgrade, then the Codex-reviewed build. On 12.16:
+  ChatGPT Search for A1's word found nothing and Q15 from a fresh load toasted; Perplexity Search for A1's word found
+  nothing, the last answer read A#18, the gallery 0; Claude's 7 gallery cards read "Upload". On `4f33990` the A/B found
+  one more failure, Q15 toasting 1 of 2, fixed in `c88ed1c` (above). On the final `a17413c` (Reinstall, served build
+  `eb2a0b7c…`): ChatGPT Q15 from a fresh load landed (row 14, 15.1 s), "winners" → A#1, Summary 98 (49/49) with 65
+  code blocks and 42 files, the export 98 (49/49) "complete" with no notes; Perplexity "manifest" → A#1 and it landed,
+  "streams" → A#12, no "Finished", Summary 24 (12/12), 6 named placeholders and 0 S3 images; Claude's gallery Q#106 …
+  Q#139 with page thumbnails, A#147 from the top at row 293, 0 px; Gemini the note while partial, a test bookmark
+  "Q#…" then "Q#32" after loading and 8 s at the top. Test bookmarks and exports deleted.
 
 ---
 

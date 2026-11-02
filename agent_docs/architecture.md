@@ -81,8 +81,16 @@ placeholder; never a new request) and the DOM path on Gemini. Gemini's turns are
 (`gmTurnOf`, `gmTurnById`, `gmQuestionIn`, `gmAnswerIn`); bookmarks there are the `_bmGm*` functions, and a far
 answer lands through `gmLandFarEl`. `gmHistNote()` is the shared "older history not loaded" note. On Claude a
 settle-loop result lands through `ciLandSettled` (`orbLandIn`, `orbLandFarIn` without its distance test). On ChatGPT,
-`ixJump` waits for history pages (`pagesAtTop`, `IX_PAGE_WAIT_MS`, `_ixStartLoaded`). A platform's chrome inside a
-message (Perplexity's "Finished") is `platform.textExclude`, honoured by `_cleanText` and `extractMarkdownContent`.
+`ixJump` waits for history pages (`pagesAtTop`, `IX_PAGE_WAIT_MS` 2,500, `IX_PAGE_SIZE_MIN` 5, `IX_PAGE_IDLE_MAX`
+3, `_ixStartLoaded` keyed `cid|x<indexGen>`): a wait counts as a page when an older turn mounts or the view
+re-anchors off the top. A platform's chrome inside a message (Perplexity's "Finished") is `platform.textExclude`,
+honoured by `_cleanText` and `extractMarkdownContent`. The adapters' index refetches itself when it falls behind the
+page (`IX_ANSWER_GROWTH` 2,000 characters, the latest answer's settle watch `_ix.watchLast` with `IX_SETTLE_MS` 3,000,
+and on ChatGPT more `blob:` images on a turn than indexed). Summary's items carry a `jumpRef` (kinds `ixq`, `ixa`,
+`gm`) that `_sumJumpRef` resolves at click time; its code and file inventory for an indexed answer is the union of
+its markdown and its mounted units (`domEls`), matched by `codeKey`. `_bmIxCanon` maps a ChatGPT bookmark key to
+its answer's key through `_ix.answerIdOf`. On Gemini, `_bmGmFinal` (a positively complete history) gates final
+labels and proof binding (`_bmGmProveLegacy`).
 
 **Claude is not the only virtualized platform — Emergent recycles too** (Virtuoso), and it is **not** handled the same way. Emergent has only *passive accumulation*: `scanConversation` keeps messages the user has already scrolled past, so on a long session the Navigate list is the mounted window plus whatever they happened to scroll. `DOM-REFERENCE.md` claimed a panel-open sweep for five months; that code never existed (ROADMAP backlog item 7). **Beware the `virtualScroll` platform flag: it selects that accumulation behaviour, not the platform property, so `claude` — the most virtualized platform here — is `virtualScroll: false`.** The `DOM-REFERENCE.md` table is the record of which platforms virtualize.
 

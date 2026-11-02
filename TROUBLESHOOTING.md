@@ -592,6 +592,23 @@ the live numbers: all toast on v12.16, all land on v12.17; mutants without the w
 page each fail one. Live on the 12.17 build [Chrome + Tampermonkey, 2026-11-01]: Q15 from a fresh load 2 of 2, Q1 1 of
 1, Search's A#1 from the bottom through nine pages, a gallery card to Q15. Owner acceptance is owed (DEC-031).
 
+### It came back once: a page that arrives above the mounted window (found 2026-11-02, fixed in `c88ed1c`)
+**Symptom** [Chrome + Tampermonkey, the owner's profile, visible tab, build `4f33990`, the final A/B]: Q15 from a fresh
+load toasted again, 1 of 2. Every K fixture still passed.
+**Root cause** [the mechanism is inferred: the mounted set during the wait was not traced]. Tier 3 round 2 had
+narrowed what counts as a page: the list grew AND a turn older than the lowest mounted one is now mounted (so an image
+or a streamed answer growing during the wait spends no page budget). Live, ChatGPT keeps the view on what it was
+showing when a page arrives: the view moves down off the top, and with only ~5 turns mounted the new turns above can
+stay unmounted. That wait counted as idle; after `IX_PAGE_IDLE_MAX` (3) such
+waits the jump stopped waiting and ran out of moves. The mock mounts every page's turns, so no fixture saw it.
+**Considered.** Back to counting any growth (rejected: it is the round-2 defect); raising the idle cap (rejected: a
+number tuned to one chat's timing); counting a re-anchor as a page (chosen: the view leaving the top is the page's
+own signature, and an image growing below the view does not move it).
+**Fix.** A wait counts as a page if an older turn mounted **or** `scrollTop > 1` after the settle (`c88ed1c`).
+**Verification.** Live on the fix [same context]: Q15 from a fresh load 2 of 2 (about 15.6 s), Q1 1 of 1 (17.6 s);
+then on the final `a17413c`, Q15 landed (row 14, 15.1 s). The K fixtures pass. **No gate covers the re-anchor case**
+(ROADMAP 13): the mock would have to leave a page's turns unmounted.
+
 ---
 
 ## FIXED IN v12.17 (NOT MERGED), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Search, Export, Summary and the gallery read only on-screen messages (DEC-058)
@@ -609,8 +626,24 @@ on ChatGPT matched 0 nodes (its February selectors) and on Perplexity 22 nested 
 kept no answer text. The export's header counted `_questions` (indexed) over a body of mounted nodes.
 
 ### Fix and verification
-DEC-059. `probes/check-feature-gaps.js`: 18 [new] checks that fail on v12.16 and pass on v12.17, with a mutant per
-mechanism; the live check before the PR is in DEC-031.
+DEC-059. `probes/check-feature-gaps.js`: 41 checks (36 [new], 5 guards); the checks written before the PR fail on
+v12.16 and pass on v12.17, and those added during GitHub Codex's rounds fail on the commit before their fix; 21
+mutants. The live checks (before the PR, after the local review, and the final A/B) are in DEC-031.
+
+---
+
+## FIXED IN v12.17 (NOT MERGED), FOUND BY THE AGENT'S LIVE RETEST — a settled ChatGPT chat exported with "1 answer on screen is longer than the loaded history" (2026-11-01)
+
+**Symptom** [Chrome + Tampermonkey, the owner's profile, visible tab, build `5a27631b…` (`71fb7e6`), the 49-question
+chat, nothing streaming]: the full export carried the note that one answer was still being written, so it did not
+read "complete".
+**Root cause.** Tier 3 round 2 added the note with a 20-character margin between the answer's rendered text and its
+indexed markdown made visible (`_mdVisible`). The two differ by more than that on a finished answer (rendered labels
+and spacing the markdown lacks), while the index's own staleness rule uses `IX_ANSWER_GROWTH` (2,000).
+**Fix** (`8a4b5a5`). The export uses the same margin as the staleness rule, so a note means the index would also
+refetch. On the fixed build (`ec9b53a0…`): "complete conversation history (API)", 98 (49, 49).
+**Lesson.** Two rules that judge the same thing ("this answer outgrew its snapshot") must share one threshold; a gate
+on the mock could not catch it, because the mock's rendered text equals its markdown.
 
 ---
 

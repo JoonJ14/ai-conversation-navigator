@@ -1286,7 +1286,7 @@ every waiver here, and in the release's CHANGELOG entry.
 
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
-review record. Updated 2026-11-01:
+review record. Updated 2026-11-02:
 - **v12.17 (the feature-gaps PR, not merged; Search, Export, Summary and the gallery read the whole conversation,
   Gemini bookmarks by turn id, ChatGPT's jump through history pages; DEC-059).** Owner acceptance on Safari +
   Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey: **owed**, nothing reported yet. The steps: the PR's
@@ -1321,6 +1321,21 @@ review record. Updated 2026-11-01:
     with 10 of 32 loaded; a test bookmark on Q32 read "Q#…", and after the history loaded it stayed partial (pages
     asked for faster than the scan, DEC-057's known case) until 8 s at the top, then read "Q#32" with no further
     scan (round 3's fix). All test bookmarks and test exports deleted.
+  - **The agent's final A/B after GitHub Codex's review — not owner acceptance.** Chrome + Tampermonkey, the owner's
+    profile, visible tab, 2026-11-02 (UTC). **A, 12.16** (installed by Tampermonkey's Downgrade, page "Attention!
+    Userscript downgrade"): ChatGPT Search for "winners" (A1's word) found nothing, and Navigate → Q15 from a fresh
+    load toasted "not currently rendered"; Perplexity Search for "manifest" (A1's word) found nothing, the last answer
+    read A#18, the gallery listed 0; Claude's 7 gallery cards read "Upload". **B, `4f33990`** (Update, `2851f084…`):
+    Claude's gallery Q#106 … with page thumbnails, a card landed (row 210); ChatGPT A#1, Summary 98 (49/49), 65 code
+    blocks, 1 file; **Q15 from a fresh load toasted 1 of 2**, fixed in `c88ed1c` (DEC-059: a re-anchored view counts as
+    a page); on that build Q15 landed 2 of 2 (about 15.6 s) and Q1 1 of 1 (17.6 s). **B, final `a17413c`**
+    (Reinstall, served build `eb2a0b7c…`): ChatGPT Q15 from a fresh load landed (row 14, 15.1 s, no toast);
+    "winners" → A#1; Summary 98 (49/49) with 65 code blocks and 42 files; the export 98 (49/49), "complete
+    conversation history (API)", no notes. Perplexity: "manifest" → A#1, which landed (entry 0, top 56 px);
+    "streams" → A#12; "Finished" nowhere; Summary 24 (12/12); the gallery 6 named placeholders (Q#11, Q#12), 0 images
+    from the S3 host. Claude: the gallery Q#106 … Q#139 with page thumbnails; Search → A#147 from the top landed at row
+    293, 0 px. Gemini: the note while partial; a test bookmark on Q32 read "Q#…", then "Q#32" after the history loaded
+    and 8 s at the top. The test bookmark and the test export were deleted.
   <!-- V12.17 ACCEPTANCE: filled in by the integrator, as reported -->
 - **v12.16 (PR #90, merged 2026-11-01 as `a9ecb14` before acceptance, a waiver; Claude's far jump, Claude's context
   window by model, Gemini's history note; DEC-055, DEC-056, DEC-057).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey:
@@ -4129,7 +4144,32 @@ owner's release rule names which one a release needs.
   at the top (`pagesAtTop`); a move that ends at the top with the target above every mounted turn waits up to 2.5 s
   for the page, and a page that arrives refunds the move; pages have their own cap, from the conversation's length
   (5 a page). A landing whose position would be the top brings that page first. No page within the wait means the
-  start is loaded, and that conversation waits for none again.
+  start is loaded, and that conversation waits for none again. **What counts as a page** (Tier 3 r2, `c88ed1c`): the
+  list grew AND either a turn older than the lowest mounted one mounted, or the view re-anchored off the top. ChatGPT
+  keeps the view on what it showed, and with ~5 turns mounted the new ones above may stay unmounted, so counting only
+  mounted turns stopped Q15 of 49 live, 1 of 2 (the final A/B, 2026-11-02). Growth of another kind (an image, a
+  streamed answer) refunds nothing and spends one of `IX_PAGE_IDLE_MAX` 3 idle waits. **The start memo**
+  (`_ixStartLoaded`) is keyed `cid|x<indexGen>`, cleared on a conversation switch, and set only when Q1 is the turn
+  mounted at the top in a visible tab: a hidden tab's throttled page work can time out with history still to come,
+  and an edit or a branch refresh can show only recent pages again (Tier 3 r2, r5).
+- **The index notices it is stale** (Tier 3 r4, GitHub Codex): a mounted answer it does not list, or one more than
+  `IX_ANSWER_GROWTH` 2,000 characters longer on screen than its indexed text (one refetch per 2,000-character step,
+  behind the usual 15 s cooldown); the latest answer, watched from the first scan (`_ix.watchLast`), refetched once
+  when its rendered length changed and then held for `IX_SETTLE_MS` 3 s (a length that never changes asks for
+  nothing: labels the markdown lacks); and on ChatGPT a mounted turn showing more of the page's `blob:` images than
+  the index lists for it (an image-only answer has no text to grow), one refetch per new count. Until the refetch the
+  export says it is partial.
+- **The export names what the snapshot lacks**: answers with no text, questions with no answer record, and answers
+  longer on screen than the snapshot, by the same 2,000-character margin (a 20-character margin flagged a settled
+  chat live; `8a4b5a5`).
+- **Summary's inventory reads each indexed answer whole** (GitHub Codex, PR #92): code blocks from its markdown
+  (fences on their own lines, any label such as `c++` or `c#`, backticks or `~~~`, a closing fence of the same kind
+  and at least as long, so a literal fence inside the code does not end it); files from markdown link targets and
+  from file names anywhere in the text (`FILE_EXTENSION_RE`, as the DOM branch reads `textContent`); then the `<pre>`
+  and links of the answer's mounted units (`domEls`) that the markdown read missed (indented code), matched per
+  answer by the whole block's whitespace-folded text (`codeKey`): a mounted copy of a markdown block is not listed
+  twice, and two blocks with the same opening are both listed. Every item carries its answer's `jumpRef`, so a click
+  lands even after the unit unmounts. Search reads every mounted unit of a split ChatGPT answer.
 - Smaller: Perplexity's "Finished" step header is excluded from all text (`platform.textExclude`); bookmark text on
   ChatGPT and Perplexity comes from the index; the DOM fallback's answer selectors match the current markup.
 
@@ -4154,15 +4194,34 @@ a fresh load; v12.15's 8 of 8 had been on a 24-question chat, which needs 5 page
   load is the defect being fixed; "Q#…" says the number is not known yet.
 - **A larger move cap for ChatGPT.** Rejected: a cap sized for one chat length fails the next; pages are counted
   apart, against a cap from the conversation's own length.
+- **Count any growth of the list during a wait as a page** (`5437bc7`). Replaced in Tier 3 round 2: a streamed answer
+  or an image growing during the wait spent the page budget with no older turn arriving.
+- **Count only waits after which an older turn is mounted** (round 2's rule). Passed every K fixture and the first
+  live retest, then failed live on the final A/B (Q15 toasted 1 of 2 on `4f33990`): ChatGPT re-anchors the view on
+  what it showed, so a page can arrive with its turns above the mounted window. Kept, with "or the view moved off
+  the top" added (`c88ed1c`); live afterwards Q15 2 of 2 and Q1 1 of 1, then once more on `a17413c`.
+- **Refetch on any growth of the latest answer.** Rejected: a streaming answer would refetch on every scan. The
+  2,000-character steps bound a long stream; the settle watch takes the final text once.
+- **Summary inventory from the mounted DOM only, or from the markdown only.** Each misses blocks the other has: the
+  markdown has every block of an unmounted answer; the DOM has indented code and rendered links the fence parser
+  does not see. The union, matched per answer by the whole block, is what GitHub Codex's rounds converged on.
 
 ### Key properties and limits
 - The thumbnail rule means most far images show a placeholder; the click still lands. A ChatGPT turn whose shown
   images do not match the index's count gets placeholders. A Claude PDF's page thumbnail is no longer listed.
 - The first ChatGPT jump that reaches a conversation's loaded start waits 2.5 s for a page that never comes; later
-  ones do not. Page size 5, the 734–1,089 ms load and the 10-turn first page were measured on two chats in Chrome.
-- A ChatGPT answer bookmark made on a "fallback" turn (a turn's earlier text node shown as its own turn) is keyed by
-  that node's id, which the index does not list as an answer: its label reads "A#?" (v12.15's bookmark path; logged,
-  ROADMAP 13). Search maps such a unit to its answer.
-- Gemini: unproven positional records stay "Q#?" / "A#?"; a record's turn not loaded yet says so on click.
-- Gates: `probes/check-feature-gaps.js` (C1–C6, P1–P6, G1–G8, L1–L3) and `check-ix-jumps` K5–K8; every [new] check fails
-  on v12.16. Real-browser behaviour is the owner's acceptance (DEC-031).
+  ones do not. Page size 5, the 734–1,089 ms load and the 10-turn first page were measured on two chats in Chrome. A
+  far ChatGPT jump from a fresh load is slow: Q15 of 49 took 15.1–15.9 s live, Q1 17.6 s (it waits for every page).
+- A ChatGPT answer bookmark made on a "fallback" turn (a turn's earlier text node shown as its own turn) resolves
+  through `_ix.answerIdOf` (`_bmIxCanon`; pulled in by the owner, `3cfce67`): new flags save the answer's key, and
+  records saved under the node's id light and jump. A tab whose index has not loaded can still save the raw id, so
+  one answer can hold two records (logged, ROADMAP 13).
+- Gemini: unproven positional records stay "Q#?" / "A#?"; a record's turn not loaded yet says so on click. Proof and
+  final labels wait for a positively complete history (`_bmGmFinal`): the scan draws flags before the tracker counts,
+  and a 30-turn chat's last page is exactly 10, so completion can come only from the 8 s rule, which now redraws
+  flags and the bookmarks panel. Summary items and gallery cards are bound to their chat's path.
+- An image-only answer (no text) lands on the answer, not its question.
+- Gates: `probes/check-feature-gaps.js`, 41 checks (C1–C12, C5b–C5g, P1–P7, G1–G10, L1–L3, L5, L6, E; guards G7, G8,
+  L3, L5, E), and `check-ix-jumps` K5–K8. The checks written before the PR fail on v12.16; each added in the GitHub
+  rounds fails on the commit before its fix. `c88ed1c`'s re-anchor rule has no gate (the mock mounts each page's
+  turns). Real-browser behaviour is the owner's acceptance (DEC-031).

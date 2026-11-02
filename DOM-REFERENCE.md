@@ -521,6 +521,12 @@ DEC-052, DEC-053):**
   to its start: `scrollHeight` 13,647 → 24,066 → … → 135,879, and every loaded turn keeps its height while about 5
   stay mounted. A 24-question chat (`69a1e127`) needs 5 pages. This is what made v12.16's jump to Q15 of 49 toast
   2 of 2 from a fresh load (DEC-059).
+- **A page can arrive with its turns unmounted** [inferred from a live failure, same context, build `4f33990`,
+  2026-11-02; the mounted set during the wait was not traced]. The view is re-anchored on what it showed, so after a
+  page it sits below the top while only ~5 turns are mounted; the new turns above need not be among them. Measured:
+  a jump that counted a page only when an older turn mounted stopped waiting, and Q15 of 49 toasted 1 of 2; counting
+  the view leaving the top as a page too (`c88ed1c`) landed 2 of 2, then once more on `a17413c`. The ChatGPT mock
+  mounts each page's turns, so it does not model this.
 - **Answers.** v12.16's answer selectors (`[data-message-author-role]`, `.markdown.prose`) matched **0** nodes with 10
   answer units mounted. The answer is the outermost `[data-content-search-unit-key$=":assistant"]` of the visible
   timeline. A turn with two shown text nodes can render the first as a turn of its own with no question

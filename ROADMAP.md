@@ -37,7 +37,10 @@ Export, Summary and the image gallery read the whole conversation on Claude, Cha
 every loaded turn, with the "older messages not loaded" note); the gallery lists every image from the index, a real
 thumbnail only when the page has loaded it, and makes no new request; Gemini bookmarks key to the turn's id; ChatGPT's
 jump waits for the history pages ChatGPT now loads at the top (found while measuring, fixed in the PR on the owner's
-call). The agent's live check in Chrome + Tampermonkey passed on all four sites (DEC-031); owner acceptance is owed.
+call). **PR #92**: Tier 3 at its 5-round cap, then GitHub Codex's babysit cycle, clean twice on `a17413c`; the
+agent's live checks in Chrome + Tampermonkey passed on all four sites before the PR, after the local review and on
+the final build, as an A/B against 12.16 (DEC-031). Owner acceptance on all three browsers is owed, and the merge is
+the owner's.
 
 **v12.16 (PR #90, merged 2026-11-01 as `a9ecb14` before acceptance, a waiver; owner acceptance owed on all three
 browsers, DEC-031).**
@@ -509,7 +512,8 @@ Numbering below is stable (items keep their historical numbers):
    in CI while its index failed on Safari — so a green run says nothing about what breaks there. Nothing in the harness has a userscript manager: it inlines the
    script into the page realm with a `GM_xmlhttpRequest` shim (TESTING.md). Not started — scope it as
    its own change. **Stopgap (v12.17, the owner, 2026-11-01):** the ubuntu jobs' `timeout-minutes` went from 30 to
-   40 (they took about 24 minutes on v12.16, and v12.17's probes add about 4–5); macOS and Windows keep 30. Revisit
+   40 (they took about 24 minutes on v12.16, and v12.17's probes add about 4–5; measured on PR #92, 29m1s–29m35s
+   on run 41388828440); macOS and Windows keep 30. Revisit
    it in the rebuild. Inputs collected on PR #75:
    - **Engine drift.** The workflow installs Playwright at run time (`npm install playwright`). On
      2026-10-22 that meant WebKit build 2370 on CI and 2248 on the owner's Mac, so the "same" suite
@@ -1109,7 +1113,7 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       - No check covers a keyless request kept through a refresh already in flight (`wantKeyless` with
         `keep = true`), and none times a user scroll inside the answer jump's 350 ms retry.
       - The round-5 fixes had no Tier 3 round after them (the cap); they go to the PR's GitHub Codex review.
-    - **Logged from v12.17** (not fixed; out of its spec):
+    - **Logged from v12.17** (not fixed unless marked done; out of its spec):
       - **A ChatGPT answer bookmark on a "fallback" turn is labelled "A#?"** — **done in v12.17** (the owner pulled it
         into the PR; `_bmIxCanon`, gate C7) [measured, Chrome, 2026-11-01]: a turn with
         two shown text nodes can render the first as a turn of its own with no question (`data-turn-key=
@@ -1143,6 +1147,19 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         v12.17: the ubuntu jobs' cap is 40 minutes, a stopgap until the CI rebuild (item 0e).
       - Navigate on ChatGPT showed the DOM's 4 questions about 7 s after a load before the index's 49 arrived [one
         observation, Chrome, 2026-11-01]; not measured further.
+      - **No gate for `c88ed1c`** (a re-anchored view counts as an arrived ChatGPT page): the ChatGPT mock mounts each
+        page's turns, so the live case (the view moves off the top, the new turns stay unmounted) is verified only live
+        [Chrome, 2026-11-02]. A mock option that leaves a page's turns unmounted would gate it.
+      - **No three-engine run after `8a4b5a5`**: the 15 code and probe commits after it (`d0bda17`, the GitHub Codex
+        fixes, `c88ed1c`) were checked on Chromium only (their gates, the related probes, and `npm test` on
+        `a17413c`). Firefox and WebKit are owed a run before the release.
+      - **Far ChatGPT jumps from a fresh load are slow** [Chrome, 2026-11-02]: Q15 of 49 took 15.1–15.9 s and Q1 17.6 s;
+        the jump waits for every page (734–1,089 ms each) plus its settles. Correct, but slow enough to read as a hang.
+      - **Summary's counts on the 49-question ChatGPT chat moved during the GitHub rounds** [Chrome, live]: 67 code
+        blocks on `5a27631b`, 65 on `4f33990` and `a17413c` (the whole-block matching of mounted copies); files 1 on
+        `4f33990`, 42 on `a17413c` (file names in the prose now count, `a17413c`). Neither total was checked item by
+        item against the chat; a name in prose (e.g. an example `config.json`) is listed as a file, as the DOM branch
+        always did.
     - **Logged from v12.16** (not fixed; out of its spec; all [code] unless noted):
       - Claude's other unchecked glides: the settle loop's success callbacks (Navigate, Search, both bookmark kinds,
         Summary), Summary's mounted path and the gallery. Short after a real arrival, none measured failing; the
