@@ -1665,9 +1665,18 @@ Only the final run's pass was reported in the CHANGELOG and HANDOFF. Still inter
 Mac the U10 timeout ends the chain, and the probes after it do not run: run them directly (PR #85's and the
 answer-bookmark PR's final runs did).
 
+### Seen on Chromium in CI too (2026-11-02, PR #92)
+
+`chromium on ubuntu-latest`, run 41456107853 attempt 1, on the docs-only commit `ebab086`: U1–U9, U11 and U12 passed,
+then `page.waitForFunction: Timeout 30000ms exceeded` (13:55:19 UTC), U10's signature; the step failed and every probe
+after it was skipped. The same code had passed all nine jobs on `7bf5a3d` (run 41455054081) minutes earlier, and
+v12.17 does not touch the usage panel. So U10's timeout is not Firefox-only. The failed job was re-run on the
+owner's request once the run completed: attempt 2 passed (14:18–14:48 UTC). Still not investigated.
+
 ### Owed
 
-Repeated solo Firefox runs of the probe before reading anything into it (a single run is not a measurement).
+Repeated solo Firefox runs of the probe before reading anything into it (a single run is not a measurement), and
+now Chromium too.
 
 ---
 
