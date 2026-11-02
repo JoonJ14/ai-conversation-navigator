@@ -234,7 +234,7 @@ function gptTurns() {
         if (i === 1) { q += ' quokka'; a += ' ocelot'; }
         if (i === 4) { q += ' lemur'; a += ' lemur'; }
         // A fenced block in an answer that is never mounted at the bottom: Summary's code inventory must list it.
-        if (i === 2) a += '\n\n```python\nprint("kinkajou")\n```';
+        if (i === 2) a += '\n\n```python\nprint("kinkajou")\n```\n\n```c++\nint quoll = 1;\n```';
         // A file link, as ChatGPT writes one (GitHub Codex, PR #92: the inventory's files from indexed text).
         if (i === 3) a += ' Download [report.csv](sandbox:/mnt/data/report.csv).';
         if (i === 19) q += ' lemur';
@@ -550,6 +550,7 @@ function claudeXhr(payload) {
                 // Every answer's text is analysed, the unmounted ones included: 24 answers of about 60 chars.
                 check('C5', 'new', 'ChatGPT Summary: complete (24 answers\' text counted) and in order; the first segment, clicked from the bottom, lands on Q#1',
                       /Total turns: 48 \(24 user, 24 AI\)/.test(t) && aiChars(t) === gptAnswerChars(o.T) && /python \u2014 print\("kinkajou"\)/.test(t) &&
+                      /c\+\+ \u2014 int quoll = 1;/.test(t) &&
                       /^msgs 1–/.test(first) && m.inView && m.resolved === '0',
                       ((t.match(/Total turns:[^\n]*/) || [''])[0]) + ' AI chars=' + aiChars(t) + ' (expected ' + gptAnswerChars(o.T) + ')' +
                       ' code=' + /python \u2014 print/.test(t) + ' [' + (t.match(/(CODE[\s\S]{0,160})/i) || ['', 'no CODE section'])[1].replace(/\n/g, ' / ') + '] first=' + first + ' landing=' + JSON.stringify(m));
