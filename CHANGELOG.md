@@ -58,7 +58,15 @@ And, found while measuring: **ChatGPT's jump to Q15 of 49 toasted "not currently
   re-located by path index); fixed in `a10857f`, 3 of 3 runs.
 - **The agent's live check** (Chrome + Tampermonkey, build `77fc122b…`): DEC-031. It found ChatGPT Search listing an
   A#50 on 49 questions (a turn's first text node rendered as its own turn), fixed in `a10857f`.
-- <!-- V12.17 REVIEW AND FINAL RUN: filled in when they finish -->
+- **Review:** Tiers 1–2 (session) PASS; Tier 3 `cli:codex` five rounds (the owner's cap): 48 raw, 47 verified, 39
+  fixed, 1 false positive, 5 logged (ROADMAP 13); `reviews/review-2026-11-01-v12.17.md`. The round-5 fixes and the
+  export-margin fix (`8a4b5a5`, found in the live retest after the review) had no local Tier 3 round after them.
+- **The pre-approved final run** on `8a4b5a5` [Playwright, headless, page realm, this Mac, 20:23–21:47]: `npm test`
+  560/560 on Chromium, Firefox and WebKit (WebKit's four known local jump entries did not fail this time). Probes:
+  Chromium all 15 green; Firefox all but J15 (`check-ix-jumps`, the known race, TROUBLESHOOTING) and U10
+  (`check-usage-state`, the known Firefox `TimeoutError` on this Mac); WebKit all but C8, a defect of the probe's
+  own (its router aborted the page's `blob:` URLs, which Playwright's WebKit routes there), fixed in the next commit and
+  rerun green on WebKit (`check-feature-gaps`, 189.6 s).
 
 ---
 
