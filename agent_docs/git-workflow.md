@@ -16,6 +16,30 @@
 
 ## Pull Requests
 
+**The owner's procedure for a code PR** (2026-11-01, v12.17; one PR holds the code and its docs, no docs-only PR):
+1. The review pipeline: Tiers 1–2, then Tier 3 (`cli:codex`) **capped at 5 rounds**. The owner briefly allowed 10 and
+   withdrew it: GitHub Codex is more accurate (it can call the code), saves tokens, and keeps the open findings on
+   GitHub instead of in the agent's context. Whatever round 5 leaves goes to GitHub Codex; say in the PR that no
+   local round reviewed round 5's fixes.
+2. Reinstall the final build in the owner's Chrome through Tampermonkey and retest live once (TESTING.md, "Installing
+   a build"), not after every fix.
+3. The pre-approved final run (`npm test` and every probe on Chromium, Firefox and WebKit; about 84 minutes on this
+   Mac for v12.17, not the 30–40 first estimated). Then open the PR, with the owner's acceptance steps as its first
+   comment.
+4. `/babysit-pr-cycle` with GitHub Codex until it reports no major issues, **plus one more `@codex review` on the clean
+   head**. On v12.17 that confirming review found a new P2 four times out of five. **A docs push draws an automatic
+   review too**: on PR #92 two docs-only pushes each drew a real code finding, so poll after every push, docs included,
+   until it is clean. A "Something went wrong" reply is
+   not a review: re-trigger with `@codex review` (seven times on PR #92, each worked).
+5. Reinstall the Codex-reviewed build and retest live as an A/B: the previous version by Tampermonkey's Downgrade,
+   showing the old failures, then the final build. On v12.17 this found one more bug (`c88ed1c`).
+6. Re-read the session's whole transcript (`.jsonl`) and the memory files, not a compacted summary, then run
+   `/update-project-docs` and commit the docs into the same PR.
+7. Tell the owner. The owner watches CI and merges.
+
+When the owner has said they are away, take over their Chrome windows and tabs for installs and live tests without
+asking; stop only if they said they are using Chrome at that moment.
+
 - All changes go through PRs with clear descriptions
 - PRs are reviewed via CI (cross-platform tests) and Claude Code automated review
 - **A GitHub Codex "clean" signal can belong to an older commit.** On PR #90 the babysit poll reported

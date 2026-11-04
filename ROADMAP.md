@@ -30,7 +30,17 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.16 MERGED (PR #90); v12.15 MERGED (PR #88) — live confirmation status: DEC-031
+## Current Status: v12.17 IN REVIEW (the feature-gaps PR); v12.16 MERGED (PR #90); v12.15 MERGED (PR #88) — live confirmation status: DEC-031
+
+**v12.17 (the feature-gaps PR, not merged; DEC-058's first, from the owner's spec of 2026-11-01; DEC-059).** Search,
+Export, Summary and the image gallery read the whole conversation on Claude, ChatGPT, Perplexity and Gemini (Gemini:
+every loaded turn, with the "older messages not loaded" note); the gallery lists every image from the index, a real
+thumbnail only when the page has loaded it, and makes no new request; Gemini bookmarks key to the turn's id; ChatGPT's
+jump waits for the history pages ChatGPT now loads at the top (found while measuring, fixed in the PR on the owner's
+call). **PR #92**: Tier 3 at its 5-round cap, then GitHub Codex's babysit cycle, clean twice on `f5e2f52`; the
+agent's live checks in Chrome + Tampermonkey passed on all four sites before the PR, after the local review and on
+the final build, as an A/B against 12.16 (DEC-031). Owner acceptance on all three browsers is owed, and the merge is
+the owner's.
 
 **v12.16 (PR #90, merged 2026-11-01 as `a9ecb14` before acceptance, a waiver; owner acceptance owed on all three
 browsers, DEC-031).**
@@ -43,7 +53,7 @@ passed all three (DEC-031). Grok is out of scope (its own PR after the owner's t
 
 **Next, in the owner's order (2026-11-01; DEC-058).** No release for v12.15 or v12.16: a release only once every
 platform works on all supported browsers.
-1. **The feature gaps, one PR (priority; the owner writes the spec).** In the owner's words: Search, Export, Summary
+1. **The feature gaps, one PR (priority; the owner writes the spec) — v12.17, above.** In the owner's words: Search, Export, Summary
    and the image gallery on ChatGPT, Perplexity, Gemini and Claude still read only on-screen messages, and Gemini
    bookmarks are still positional. All of it goes in one PR. Known pieces already logged: Export and Summary drop
    unmounted questions on ChatGPT and Perplexity (item 14), positional Gemini bookmarks (item 13).
@@ -501,7 +511,10 @@ Numbering below is stable (items keep their historical numbers):
    PR #75: the CI checks are outdated. They pass builds that fail in a real browser — v12.8 was green
    in CI while its index failed on Safari — so a green run says nothing about what breaks there. Nothing in the harness has a userscript manager: it inlines the
    script into the page realm with a `GM_xmlhttpRequest` shim (TESTING.md). Not started — scope it as
-   its own change. Inputs collected on PR #75:
+   its own change. **Stopgap (v12.17, the owner, 2026-11-01):** the ubuntu jobs' `timeout-minutes` went from 30 to
+   40 (they took about 24 minutes on v12.16, and v12.17's probes add about 4–5; measured on PR #92, 29m1s–29m35s
+   on run 41388828440); macOS and Windows keep 30. Revisit
+   it in the rebuild. Inputs collected on PR #75:
    - **Engine drift.** The workflow installs Playwright at run time (`npm install playwright`). On
      2026-10-22 that meant WebKit build 2370 on CI and 2248 on the owner's Mac, so the "same" suite
      was not measuring the same engine (TROUBLESHOOTING, "OPEN — Local mac WebKit").
@@ -976,7 +989,7 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
           intraword italics such as `a*b*c` (single-marker emphasis is dropped only where it opens after a start,
           space or punctuation, so that "2*3*4" keeps its stars) [inferred; not measured].
     - **Logged from v12.16** (not fixed; out of its spec):
-      - **Gemini bookmarks by the turn's id.** Each turn has a stable 16-hex id (`div.conversation-container#…`, the
+      - **Gemini bookmarks by the turn's id** — **done in v12.17 (DEC-059).** Each turn has a stable 16-hex id (`div.conversation-container#…`, the
         same across two reloads; DOM-REFERENCE, Gemini), but bookmarks there are still `contentHash(text, position
         among loaded turns)`, and the position shifts by 10 whenever an older page loads above [code + measured
         paging]. Keying them to the id needs a migration of existing records, so it is not small.
@@ -984,7 +997,7 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         loaded): proposed to the owner, not built.
       - **Gemini: Navigate catches up with a history load about 5 s late** [measured, Chrome, 2026-10-31]: the scan
         waits for Gemini's DOM to go quiet (the 500 ms debounce restarts on each mutation).
-      - **Export and Summary drop unmounted questions on ChatGPT and Perplexity** [code]: `buildTimeline` keeps only
+      - **Export and Summary drop unmounted questions on ChatGPT and Perplexity** — **done in v12.17 (DEC-059)** [code]: `buildTimeline` keeps only
         `q.element` entries, and the adapters leave every unmounted one null, while the "Exporting N messages" toast
         counts them. Found reading the code at 82d3a3c; live effect unmeasured.
 
@@ -1100,12 +1113,60 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       - No check covers a keyless request kept through a refresh already in flight (`wantKeyless` with
         `keep = true`), and none times a user scroll inside the answer jump's 350 ms retry.
       - The round-5 fixes had no Tier 3 round after them (the cap); they go to the PR's GitHub Codex review.
+    - **Logged from v12.17** (not fixed unless marked done; out of its spec):
+      - **A ChatGPT answer bookmark on a "fallback" turn is labelled "A#?"** — **done in v12.17** (the owner pulled it
+        into the PR; `_bmIxCanon`, gate C7) [measured, Chrome, 2026-11-01]: a turn with
+        two shown text nodes can render the first as a turn of its own with no question (`data-turn-key=
+        "fallback-turn-0"`, Q45 of a 49-question chat). That unit names the first node's id, while the index keys the
+        answer by the turn's last; a flag drawn there saves under an id the index does not list as an answer. Search
+        maps such a unit to its answer (`_ix.answerIdOf`); bookmarks do not (v12.15's path).
+      - **Claude's bookmark jumps still end in an unchecked glide** after the settle loop (`_bmJumpToAnswer`, and
+        `orbScrollToBookmark`'s uuid path) — **done in v12.17** (pulled in by the owner; `ciLandSettled`, gate L6).
+      - **The last answer's bookmark on Claude, from the top, measures 218 px short on v12.16 and v12.17 alike** [Playwright,
+        page realm, `check-feature-gaps`'s former L4]: it is mounted from the top and lands through v12.16's
+        `ciLandFar` (unchanged here), and the probe's row measure and the landing's target disagree by the row's
+        top part. Not measured live; either the measure or the landed element is wrong.
+      - **A ChatGPT answer can be bookmarked twice under its two keys** (Tier 3 round 2): a tab whose index has not
+        loaded saves a "fallback" unit's raw node id, an indexed tab the answer's key. Both records persist and show
+        as one answer; removing one removes both (`_bmIxCanon` matches both). Not a wrong jump; logged.
+      - **Tier 3 round 5 (the last local round), logged for GitHub Codex and later work:**
+        - An answer regenerated during the 15 s resync cooldown: the old answer still marks its question answered and
+          its old key is no longer mounted for the growth check, so an export in that window can call the old
+          snapshot complete [code].
+        - Gemini after a `replaceState` switch: if the old chat's turns linger while the path names the new chat, a
+          flag drawn on them saves the old turn's id into the new chat's bookmarks [code; v12.16's positional flags
+          had the same exposure].
+        - `check-ix-jumps` K5–K8 model every growth as a page and run only in a visible tab: neither growth of another
+          kind during a page wait nor a hidden tab's timeout is gated (both are handled in code).
+      - **No probe switches ChatGPT conversations and back** (A → B → A): `_ixStartLoaded` is cleared on the switch
+        (Tier 3, v12.17), but the mock would need a rebuild to show only the newest pages again on return.
+      - **Summary and the gallery look up each answer's mounted node one by one** (`_bmIxFind` per answer, each a
+        fresh `bookmarkables()` walk) [code]: fine at 49 answers; unmeasured on a 2,000-entry Perplexity thread.
+      - **CI headroom:** `check-feature-gaps` adds about 2.5 min (Chromium, this Mac) per ubuntu job, plus about 1 min
+        for `check-ix-jumps` K5–K8, on jobs that took 24 of their 30 minutes [estimate from local runs]. Handled in
+        v12.17: the ubuntu jobs' cap is 40 minutes, a stopgap until the CI rebuild (item 0e).
+      - Navigate on ChatGPT showed the DOM's 4 questions about 7 s after a load before the index's 49 arrived [one
+        observation, Chrome, 2026-11-01]; not measured further.
+      - **No gate for `c88ed1c`** (a re-anchored view counts as an arrived ChatGPT page): the ChatGPT mock mounts each
+        page's turns, so the live case (the view moves off the top, the new turns stay unmounted) is verified only live
+        [Chrome, 2026-11-02]. A mock option that leaves a page's turns unmounted would gate it.
+      - **No three-engine run after `8a4b5a5`**: the 17 code and probe commits after it (`d0bda17`, the GitHub Codex
+        fixes, `c88ed1c`) were checked on Chromium only (their gates, the related probes, and `npm test` on
+        `a17413c`). Firefox and WebKit are owed a run before the release.
+      - **Far ChatGPT jumps from a fresh load are slow** [Chrome, 2026-11-02]: Q15 of 49 took 15.1–15.9 s and Q1 17.6 s;
+        the jump waits for every page (734–1,089 ms each) plus its settles. Correct, but slow enough to read as a hang.
+      - **Summary's counts on the 49-question ChatGPT chat moved during the GitHub rounds** [Chrome, live]: 67 code
+        blocks on `5a27631b`, 65 on `4f33990` and `a17413c` (the whole-block matching of mounted copies); files 1 on
+        `4f33990`, 42 on `a17413c` (file names in the prose now count, `a17413c`). Neither total was checked item by
+        item against the chat; a name in prose (e.g. an example `config.json`) is listed as a file, as the DOM branch
+        always did.
     - **Logged from v12.16** (not fixed; out of its spec; all [code] unless noted):
       - Claude's other unchecked glides: the settle loop's success callbacks (Navigate, Search, both bookmark kinds,
         Summary), Summary's mounted path and the gallery. Short after a real arrival, none measured failing; the
         gallery has no identity to re-locate by. `ciLandFar` drops into the first ones with one line each (DEC-055).
       - An index refetch committing during a far landing supersedes it silently (the commit bumps `_ciJumpToken`).
-      - Search's jump to the LAST answer from the top does not land through `ciLandFar`: no anchor lies below that
+      - Search's jump to the LAST answer from the top does not land through `ciLandFar` — **landed in v12.17** through
+        `ciLandSettled` (DEC-059; `check-feature-gaps` L2): no anchor lies below that
         row and its activity line keeps its text from matching, so Search cannot place it from the top and sends it
         through the settle loop and its final glide [measured, `check-claude-far-jump`, page realm].
       - `probes/run-answer-mutants.js`: M14's and M16's anchors no longer match main exactly once (v12.15 changed

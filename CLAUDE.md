@@ -108,7 +108,7 @@ In practice:
 
 **How it fixed it.** The `scrollTop` claim was corrected in `DOM-REFERENCE.md` and `TROUBLESHOOTING.md` to present both results with their contexts. It later turned out that even the "safe in every context" compromise (reposition **and** dispatch) was wrong — three repeated runs showed the dispatch causes a reproducible ~6-row overshoot, so it was removed entirely (DEC-024).
 
-**Two more shapes of the same mistake, both hit in v12.0:**
+**Three more shapes of the same mistake:**
 
 - **A single run is not a measurement.** Probe C run 1 supported "dispatch is harmless"; runs 2 and 3, with nothing changed, showed the opposite. The metric that mattered (landing *cluster identity*) only diverged in runs 2–3, while the metric being watched (pixel drift) straddled a threshold. **Repeat before concluding, and prefer a metric that is discrete over one that is continuous near a threshold.**
 - **A success signal from a wrapper is not a success signal from the work.** A background task reported `exit 0` for a review that had not started — the launcher had launched. Likewise `codex exec` printed a token count for a round that produced no output. Check the artifact the work was supposed to produce, not the exit code of whatever spawned it. A missing command counts too: a probe wrapped in a tool the machine lacks exits 127 in 0 s while the job around it reports success.

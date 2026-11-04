@@ -565,6 +565,104 @@ merged 2026-10-31 as `6baac2e` on the owner's OK, before their acceptance (a wai
 
 ---
 
+## FIXED IN v12.17 (NOT MERGED), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — ChatGPT: a jump to an early question of a long chat toasts "not currently rendered" (found 2026-11-01)
+
+### Symptom
+On a 49-question ChatGPT project chat, Navigate → Q15 from a fresh load ended near Q26–Q29 or Q11–Q14 with the toast
+"That message is not currently rendered", 2 of 2 [Chrome + Tampermonkey, 12.16, the owner's profile, visible tab,
+2026-11-01]. A second try often landed: the first had already loaded the pages above. Search's and Summary's
+question clicks use the same jump, so they failed the same way.
+
+### Root cause [measured live, same context; trace of `scrollTop` and the mounted turns every 100 ms]
+ChatGPT now loads a chat's newest ~10 turns and 5 older ones each time the view reaches the top, 734–1,089 ms per
+page (9 pages, 10.6 s, to the start of 49 questions; DOM-REFERENCE, ChatGPT). `ixJump` aims by share of the LOADED
+height, so its moves clamp at the top, and every 350 ms settle spent waiting there for a page counted against its
+12-move cap: 5 pages, then the toast at 5.2 s. v12.15's 8 of 8 had been on a 24-question chat, whose 5 pages fit.
+
+### Fix (DEC-059)
+The ChatGPT adapter says it pages at the top (`pagesAtTop`). With the view at the top and the target above every
+mounted turn, the jump waits up to 2.5 s for the page, and a page that arrives refunds the move; pages have their own
+cap from the conversation's length. A landing whose position would be the top first brings that page: aligned at the
+clamp, its own write brought a page that moved the target 272 px (the probe's K5). No page in the wait means the start
+is loaded, and that conversation waits for none again.
+
+### Verification
+`check-ix-jumps` K5 (Q15 of 49), K6 (Q1 of 49, nine pages) and K8 (Q1 of 100, eighteen pages) on the ChatGPT mock with
+the live numbers: all toast on v12.16, all land on v12.17; mutants without the wait, the refund or the pre-landing
+page each fail one. Live on the 12.17 build [Chrome + Tampermonkey, 2026-11-01]: Q15 from a fresh load 2 of 2, Q1 1 of
+1, Search's A#1 from the bottom through nine pages, a gallery card to Q15. Owner acceptance is owed (DEC-031).
+
+### It came back once: a page that arrives above the mounted window (found 2026-11-02, fixed in `c88ed1c`)
+**Symptom** [Chrome + Tampermonkey, the owner's profile, visible tab, build `4f33990`, the final A/B]: Q15 from a fresh
+load toasted again, 1 of 2. Every K fixture still passed.
+**Root cause** [the mechanism is inferred: the mounted set during the wait was not traced]. Tier 3 round 2 had
+narrowed what counts as a page: the list grew AND a turn older than the lowest mounted one is now mounted (so an image
+or a streamed answer growing during the wait spends no page budget). Live, ChatGPT keeps the view on what it was
+showing when a page arrives: the view moves down off the top, and with only ~5 turns mounted the new turns above can
+stay unmounted. That wait counted as idle; after `IX_PAGE_IDLE_MAX` (3) such
+waits the jump stopped waiting and ran out of moves. The mock mounts every page's turns, so no fixture saw it.
+**Considered.** Back to counting any growth (rejected: it is the round-2 defect); raising the idle cap (rejected: a
+number tuned to one chat's timing); counting a re-anchor as a page (chosen: the view leaving the top is the page's
+own signature, and an image growing below the view does not move it).
+**Fix.** A wait counts as a page if an older turn mounted **or** `scrollTop > 1` after the settle (`c88ed1c`).
+**Verification.** Live on the fix [same context]: Q15 from a fresh load 2 of 2 (about 15.6 s), Q1 1 of 1 (17.6 s);
+then on the final `a17413c`, Q15 landed (row 14, 15.1 s). The K fixtures pass. **No gate covers the re-anchor case**
+(ROADMAP 13): the mock would have to leave a page's turns unmounted.
+
+---
+
+## FIXED IN v12.17 (NOT MERGED), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Search, Export, Summary and the gallery read only on-screen messages (DEC-058)
+
+### Symptom [Chrome + Tampermonkey, 12.16, the owner's profile, visible tab, 2026-11-01]
+ChatGPT (49 questions): Search found no answer at all, Summary read "49 user, 0 AI", the export "Messages: 4 (49
+user, 0 AI)" over 4 questions, the gallery 0 of 3 images. Perplexity (12 entries): Search found 2 of 12 answers as
+fragments up to "A#18", Summary "12 user, 22 AI", the export "24 (12 user, 22 AI)" over 2 questions and 22
+fragments, the gallery marked unsupported. Gemini with 10 of 32 turns loaded: Search said "No matches" with no note,
+and bookmarks were positional. Claude's gallery labelled every image "Upload" with no link to its message.
+
+### Root cause [code; measured]
+Only Navigate, bookmarks and jumps had moved onto the index (v12.10–v12.16). The others read `getAIMessages()`, which
+on ChatGPT matched 0 nodes (its February selectors) and on Perplexity 22 nested nodes for 2 answers, and the indexes
+kept no answer text. The export's header counted `_questions` (indexed) over a body of mounted nodes.
+
+### Fix and verification
+DEC-059. `probes/check-feature-gaps.js`: 42 checks (37 [new], 5 guards); the checks written before the PR fail on
+v12.16 and pass on v12.17, and those added during GitHub Codex's rounds fail on the commit before their fix; 21
+mutants. The live checks (before the PR, after the local review, and the final A/B) are in DEC-031.
+
+---
+
+## FIXED IN v12.17 (NOT MERGED), FOUND BY THE AGENT'S LIVE RETEST — a settled ChatGPT chat exported with "1 answer on screen is longer than the loaded history" (2026-11-01)
+
+**Symptom** [Chrome + Tampermonkey, the owner's profile, visible tab, build `5a27631b…` (`71fb7e6`), the 49-question
+chat, nothing streaming]: the full export carried the note that one answer was still being written, so it did not
+read "complete".
+**Root cause.** Tier 3 round 2 added the note with a 20-character margin between the answer's rendered text and its
+indexed markdown made visible (`_mdVisible`). The two differ by more than that on a finished answer (rendered labels
+and spacing the markdown lacks), while the index's own staleness rule uses `IX_ANSWER_GROWTH` (2,000).
+**Fix** (`8a4b5a5`). The export uses the same margin as the staleness rule, so a note means the index would also
+refetch. On the fixed build (`ec9b53a0…`): "complete conversation history (API)", 98 (49, 49).
+**Lesson.** Two rules that judge the same thing ("this answer outgrew its snapshot") must share one threshold; a gate
+on the mock could not catch it, because the mock's rendered text equals its markdown.
+
+---
+
+## NOT A BUG — an export downloads nothing on ChatGPT and Gemini in an agent-driven Chrome tab (2026-11-01)
+
+**Symptom** [Chrome + Tampermonkey, the owner's profile, one long-lived claude-in-chrome tab]: Export → Full
+Conversation produced no file on chatgpt.com and gemini.google.com, even from a real mouse click, while claude.ai and
+perplexity.ai downloaded. A plain `<a download>` with a `blob:` or `data:` URL from the page itself failed too, and
+Chrome's History database recorded no download attempt at all.
+**Ruled out:** the site's CSP (no `sandbox` directive enforced, no Permissions-Policy), the page cancelling the click
+(`defaultPrevented` false), patched natives, and Chrome's per-site download settings (no exception in any profile).
+**Cause:** Chrome's multiple-download limiter, per tab. The exports were triggered by script clicks (no user gesture)
+after an earlier download in the same tab; Chrome then asks in the address bar, and an unanswered prompt blocks every
+later download in that tab, real clicks included. The owner's sign-in in that tab reset it, which is why Perplexity
+worked in between. In a fresh tab a real click downloaded on ChatGPT 2 of 2 and on Gemini (twice).
+**Not the navigator's:** a user's export is a real click. For live checks: export with a real click (TESTING.md).
+
+---
+
 ## FIXED IN v12.16 (MERGED, PR #90 as a9ecb14), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Claude: a jump to the latest question from the top ends at the bottom, past it (found 2026-10-25)
 
 **Phase:** v12.15's live check (Claude regression); fixed in v12.16 part A (DEC-055) | **Severity:** Medium (the
@@ -1567,9 +1665,18 @@ Only the final run's pass was reported in the CHANGELOG and HANDOFF. Still inter
 Mac the U10 timeout ends the chain, and the probes after it do not run: run them directly (PR #85's and the
 answer-bookmark PR's final runs did).
 
+### Seen on Chromium in CI too (2026-11-02, PR #92)
+
+`chromium on ubuntu-latest`, run 41456107853 attempt 1, on the docs-only commit `ebab086`: U1–U9, U11 and U12 passed,
+then `page.waitForFunction: Timeout 30000ms exceeded` (13:55:19 UTC), U10's signature; the step failed and every probe
+after it was skipped. The same code had passed all nine jobs on `7bf5a3d` (run 41455054081) minutes earlier, and
+v12.17 does not touch the usage panel. So U10's timeout is not Firefox-only. The failed job was re-run on the
+owner's request once the run completed: attempt 2 passed (14:18–14:48 UTC). Still not investigated.
+
 ### Owed
 
-Repeated solo Firefox runs of the probe before reading anything into it (a single run is not a measurement).
+Repeated solo Firefox runs of the probe before reading anything into it (a single run is not a measurement), and
+now Chromium too.
 
 ---
 

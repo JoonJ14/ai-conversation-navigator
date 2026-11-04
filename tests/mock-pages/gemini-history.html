@@ -34,6 +34,7 @@
        anchor:      re-anchor scrollTop on a prepend (default true)
        firstDelayMs: delay before the first page renders (default 200), so a script sees 0 then 10
        cv:          the content-visibility model above (default false); cvEstimate: its height (500)
+       sameText:    { n: m } turn n asks turn m's question, word for word (v12.17; default none)
 
      window.__mockGemini:
        loaded()        turns currently in the DOM
@@ -111,6 +112,8 @@
     }
     function turnId(chat, n) { return fnv(chat + '#' + n) + fnv(n + '@' + chat); }
     function questionText(n) {
+        // sameText (v12.17): { n: m } gives turn n turn m's question, a repeated question.
+        if (cfg.sameText && cfg.sameText[n]) n = cfg.sameText[n];
         var t = TOPICS[(n * 7) % TOPICS.length], u = TOPICS[(n * 5 + 3) % TOPICS.length];
         return 'Gemini question ' + n + ': how would you explain ' + t + ' to someone who already knows ' + u +
                ', and which everyday example makes the difference between them easiest to see?';

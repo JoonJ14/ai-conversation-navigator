@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.16
+// @version      12.17
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -51,7 +51,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.16';
+    var ACN_VERSION = '12.17';
 
     // ============================================================
     // i18n — internationalization string table
@@ -626,6 +626,18 @@
                 return messages;
             },
             getAIMessages: function () {
+                // The app-shell markup (measured live, Chrome, 2026-11-01: 10 assistant units on 10
+                // mounted turns, while the selectors below matched 0): the answer units of the
+                // VISIBLE timeline, outermost only (a unit can hold another), as ixGptAnswerIn reads them.
+                var root = document.querySelector('[data-app-action-timeline-scroll][role="region"]');
+                if (root) {
+                    var units = root.querySelectorAll('[data-content-search-unit-key$=":assistant"]'), outer = [];
+                    for (var u = 0; u < units.length; u++) {
+                        if (outer.length && outer[outer.length - 1].contains(units[u])) continue;
+                        outer.push(units[u]);
+                    }
+                    if (outer.length) return outer;
+                }
                 var allMessages = document.querySelectorAll('[data-message-author-role]');
                 var messages = Array.from(allMessages).filter(function (msg) {
                     return msg.getAttribute('data-message-author-role') === 'assistant';
@@ -1112,6 +1124,11 @@
                 return messages;
             },
             getAIMessages: function () {
+                // One node per answer (Oct 2026 markup; DOM-REFERENCE). [class*="prose"] matched 22
+                // nodes for 2 mounted answers live, nested list items among them, so Search labelled
+                // the 12th answer A#18 and Export wrote 22 fragments (Chrome, v12.16, 2026-11-01).
+                var finals = document.querySelectorAll('[data-workflow-final-text]');
+                if (finals.length > 0) return finals;
                 var messages = document.querySelectorAll('[class*="prose"]');
                 if (messages.length === 0) messages = document.querySelectorAll('.col-span-8 .prose, .col-span-8 [class*="Answer"]');
                 if (messages.length === 0) {
@@ -1122,6 +1139,11 @@
                 }
                 return messages;
             },
+            // The answer's "Finished" status label: a step header the page draws above the answer text,
+            // inside [data-workflow-final-text] (measured, Chrome, 2026-11-01: 3 of 3 mounted answers,
+            // div.group/step-header, sometimes inside a button). Never part of the answer's text
+            // (_cleanText, extractMarkdownContent; v12.17).
+            textExclude: '[class*="group/step-header"]',
             // Perplexity attachments are text labels in a dropdown, not inline <img> tags.
             // S3 URLs require programmatic modal clicks to access and have expiry params.
             // Gallery will correctly show "No images in this conversation" on Perplexity.
@@ -2700,6 +2722,14 @@
     var IX_JUMP_SETTLE_MS   = 350;
     var IX_JUMP_MAX_ALIGNS  = 4;       // instant alignment writes on arrival (ixLandOn)
     var IX_JUMP_ALIGN_TOL   = 8;       // px from the intended position that counts as landed
+    // ChatGPT pages its history at the top (v12.17): 5 older turns per page, 734-1,089 ms each,
+    // 9 pages from a 49-question chat's newest 10 turns to its start (Chrome, 2026-11-01).
+    var IX_PAGE_WAIT_MS     = 2500;    // the wait for one page at the top before calling it the start
+    var IX_PAGE_SIZE_MIN    = 5;       // the smallest page measured: bounds the pages a jump waits for
+    var _ixStartLoaded      = null;    // the conversation whose start a page wait found loaded
+    var IX_PAGE_IDLE_MAX    = 3;       // waits at the top that brought no older turn, per jump
+    var IX_ANSWER_GROWTH    = 2000;    // chars an answer on screen may outgrow its indexed text before a refetch
+    var IX_SETTLE_MS        = 3000;    // a streamed latest answer unchanged this long is refetched once
 
     var _ix = {};                      // the generic pipeline's state, one conversation
     var _ixJumpToken = 0;
@@ -2712,12 +2742,14 @@
 
     function ixInvalidate() {
         _ixJumpToken++;
+        // A conversation left and opened again shows only its newest pages again (Tier 3).
+        _ixStartLoaded = null;
         _ixBmServed = _ixBmAsked;
         _ix = { pid: null, cid: null, status: 'idle', entries: null, total: 0, idIndex: null,
                 textAt: null, inFlightCid: null, loadGen: (_ix.loadGen || 0) + 1, indexGen: (_ix.indexGen || 0) + 1,
                 reason: '', retryDelayMs: 0, lastFetchAt: 0, refreshFailed: '', truncated: 0,
                 actedSig: '', qIdx: null, idAtPos: null, answerOf: null, answerAt: null, wantRefresh: '',
-                wantActed: '', wantKeyless: false };
+                wantActed: '', wantKeyless: false, answers: null, images: null, answerIdOf: null, watchLast: null };
     }
     ixInvalidate();
 
@@ -2812,7 +2844,25 @@
     // `answers`, when given, receives each turn's answer for bookmarks (v12.15):
     // { key: the turn's last shown assistant node, q: its question's index in the list
     // returned (-1 after a question the list skips), at: that question's node id }.
-    function ixGptEntries(j, answers) {
+    // An image part's identity, for the gallery (v12.17): its file id, the name the message's
+    // metadata.attachments gives that id (measured: the pointer's id matched 3 of 3, with name and
+    // mime_type), and its side and turn. Never a URL: the page fetches its own, and the gallery
+    // shows one only when the page already has (owner's decision, 2026-11-01).
+    function ixGptImages(msg, images, side, q, at) {
+        var c = msg.content || {};
+        if (!images || !Array.isArray(c.parts)) return;
+        var att = (msg.metadata && Array.isArray(msg.metadata.attachments)) ? msg.metadata.attachments : [];
+        for (var i = 0; i < c.parts.length; i++) {
+            var p = c.parts[i];
+            if (!p || typeof p !== 'object' || typeof p.asset_pointer !== 'string' ||
+                !/image/.test(p.content_type || '')) continue;
+            var id = p.asset_pointer.replace(/^[a-z-]+:\/\//i, ''), name = '';
+            for (var k = 0; k < att.length; k++) if (att[k] && att[k].id === id) { name = String(att[k].name || ''); break; }
+            images.push({ side: side, q: q, at: at, id: id, name: name });
+        }
+    }
+
+    function ixGptEntries(j, answers, images) {
         if (!j || typeof j !== 'object' || !j.mapping || typeof j.mapping !== 'object' ||
             typeof j.current_node !== 'string' || !j.mapping.hasOwnProperty(j.current_node)) {
             throw new Error('unexpected response shape');
@@ -2826,16 +2876,34 @@
         var top = ids.length ? m[ids[ids.length - 1]] : null;
         if (n || (n === undefined && top && top.message)) throw new Error('unexpected response shape');
         ids.reverse();
-        var out = [], turnQ = -1, turnAt = null, shown = null;
+        var out = [], turnQ = -1, turnAt = null, shown = null, texts = [], shownIds = [];
+        // v12.17: an answer also carries its TEXT (every node the page shows as the turn's text,
+        // in order: a tool turn shows text, a tool call, then text) and `pos`, its place in the
+        // list's order: just after its question, or after the last listed question when its own
+        // is not listed. Search, Export and Summary read the whole conversation from it.
         function endTurn() {
-            if (answers && shown !== null) answers.push({ key: shown, q: turnQ, at: turnAt });
+            if (answers && shown !== null) {
+                // ids: every shown node of the turn. The page can render an earlier one as a turn of its
+                // own with no question (live: data-turn-key="fallback-turn-0" holding Q45's first text
+                // node, Chrome, 2026-11-01), so a mounted unit may name any of them.
+                answers.push({ key: shown, q: turnQ, at: turnAt, text: texts.join('\n\n'),
+                               pos: (turnQ >= 0 ? turnQ : out.length - 1) + 0.5, ids: shownIds });
+            }
             shown = null;
+            texts = [];
+            shownIds = [];
         }
         for (var i = 0; i < ids.length; i++) {
             var msg = m[ids[i]] && m[ids[i]].message;
             if (!msg || !msg.author) continue;
-            if (msg.author.role === 'assistant') {
-                if (turnAt !== null && ixGptShownText(msg)) shown = ids[i];
+            if (msg.author.role === 'assistant' || msg.author.role === 'tool') {
+                if (msg.author.role === 'assistant' && turnAt !== null && ixGptShownText(msg)) {
+                    shown = ids[i]; texts.push(ixGptText(msg)); shownIds.push(ids[i]);
+                }
+                // A generated image arrives in a tool message of the turn.
+                if (turnAt !== null && !(msg.metadata && msg.metadata.is_visually_hidden_from_conversation)) {
+                    ixGptImages(msg, images, 'ai', turnQ, turnAt);
+                }
                 continue;
             }
             if (msg.author.role !== 'user') continue;
@@ -2847,6 +2915,7 @@
             if (!t) continue;
             turnQ = out.length;
             out.push({ id: ids[i], text: t, position: out.length });
+            ixGptImages(msg, images, 'user', turnQ, turnAt);
         }
         endTurn();
         return out;
@@ -2899,8 +2968,8 @@
                         return;
                     }
                     if (!r.ok) { done(ixFailure(r)); return; }
-                    var entries, answers = [];
-                    try { entries = ixGptEntries(r.json, answers); }
+                    var entries, answers = [], images = [];
+                    try { entries = ixGptEntries(r.json, answers, images); }
                     catch (e) {
                         ixLog('chatgpt', r, 'conversation', '', ' questions=0');
                         done({ reason: 'unexpected response shape', permanent: true });
@@ -2908,7 +2977,7 @@
                     }
                     ixLog('chatgpt', r, 'conversation', '', ' questions=' + entries.length);
                     done(null, { entries: entries, total: entries.length, transport: r.transport,
-                                 answers: answers });
+                                 answers: answers, images: images });
                 });
         }
         withToken(false, function (err, tok) {
@@ -2918,6 +2987,44 @@
     }
 
     // ── Perplexity ──────────────────────────────────────────────
+    // An entry's answer text, or ''. Measured (Chrome, page realm, the owner's 12-entry thread,
+    // 2026-11-01): `text` is a JSON list of steps (INITIAL_QUERY, SEARCH_WEB, ATTACHMENT, ...,
+    // FINAL); the FINAL step's content.answer is itself JSON whose `answer` is the markdown shown,
+    // 12 of 12 entries. The "Finished" label the page shows above it is not in the payload.
+    function ixPplxAnswerText(e) {
+        try {
+            var steps = (e && typeof e.text === 'string') ? JSON.parse(e.text) : null;
+            if (!Array.isArray(steps)) return '';
+            for (var i = steps.length - 1; i >= 0; i--) {
+                if (!steps[i] || steps[i].step_type !== 'FINAL' || !steps[i].content) continue;
+                var a = steps[i].content.answer;
+                if (typeof a === 'string') {
+                    try { var inner = JSON.parse(a); a = (inner && typeof inner.answer === 'string') ? inner.answer : a; }
+                    catch (x) { /* plain markdown */ }
+                } else if (a && typeof a.answer === 'string') a = a.answer;
+                return typeof a === 'string' ? a.trim() : '';
+            }
+        } catch (err) {}
+        return '';
+    }
+
+    // An entry's attached images, for the gallery (v12.17): names only. Measured (Chrome, 2026-11-01):
+    // `attachments` holds signed links on ppl-ai-file-upload.s3.amazonaws.com (X-Amz-* query), a host
+    // the page itself never loaded (0 such images on the thread; it shows attachments as labels).
+    // The owner's decision: no new requests or hosts, so the link is read for its file name and
+    // dropped. An image is told by its extension; other attachments are not images.
+    var IX_IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|heic|heif|bmp|avif)$/i;
+    function ixPplxImages(e, images, q, k) {
+        var att = (e && Array.isArray(e.attachments)) ? e.attachments : [];
+        for (var i = 0; i < att.length; i++) {
+            if (typeof att[i] !== 'string') continue;
+            var path = att[i].split(/[?#]/)[0], name = path.slice(path.lastIndexOf('/') + 1);
+            try { name = decodeURIComponent(name); } catch (x) {}
+            if (!IX_IMAGE_EXT_RE.test(name)) continue;
+            images.push({ side: 'user', q: q, at: 'e' + k, id: 'e' + k + ':' + i, name: name });
+        }
+    }
+
     // Paging, measured: `from_first=true` starts at the oldest entry, `cursor=<next_cursor>`
     // continues, `offset` is ignored, and without from_first a short page holds the NEWEST
     // entries. So every request asks from the first entry and follows the cursor.
@@ -2926,7 +3033,7 @@
         var all = [], page = 0, seenCursors = {};
         function fail(r) { ixLog('perplexity', r, 'thread', ' page=' + page); }
         function finish(r, capped) {
-            var entries = [], answers = [];
+            var entries = [], answers = [], images = [];
             for (var k = 0; k < all.length; k++) {
                 var e = all[k];
                 var t = (e && typeof e.query_str === 'string') ? e.query_str.trim() : '';
@@ -2936,14 +3043,18 @@
                            String(e.backend_uuid)) ? String(e.backend_uuid) : '';
                 // Its answer, for bookmarks: listed under the entry's own id even when the
                 // entry's question is not (an attachment-only question: "Answer (no question)").
-                if (own) answers.push({ key: own + ':answer', q: t ? entries.length : -1, at: 'e' + k });
+                // v12.17: with its text and place (pos), for Search, Export and Summary; an entry
+                // with no id of its own lists its answer too, with no key (never a position).
+                answers.push({ key: own ? own + ':answer' : null, q: t ? entries.length : -1, at: 'e' + k,
+                               text: ixPplxAnswerText(e), pos: k + 0.5 });
+                ixPplxImages(e, images, t ? entries.length : -1, k);
                 if (!t) continue;
                 // position is the RAW entry index: it is what [data-workflow-entry] carries.
                 entries.push({ id: String(e.backend_uuid || k), text: t, position: k, hasUuid: !!own });
             }
             ixLog('perplexity', r, 'thread', ' page=' + page, ' questions=' + entries.length);
             done(null, { entries: entries, total: all.length, transport: r.transport,
-                         truncated: capped ? all.length : 0, answers: answers });
+                         truncated: capped ? all.length : 0, answers: answers, images: images });
         }
         function next(cursor) {
             // The user left this thread: stop paging it. ixLoad drops the result as
@@ -3168,6 +3279,8 @@
             // The bookmark store's key for a conversation: one per id, whichever URL shows it
             // (/g/<project>/c/<id> and /c/<id> are one chat). pathId reads an old key's id.
             bookmarkUrl: function (cid) { return 'https://chatgpt.com/c/' + cid; },
+            // Older turns arrive in pages when the view reaches the top (ixJump waits for them).
+            pagesAtTop: true,
             pathId: function (p) { return ixGptPathId(p) || null; },
             fetchIndex: ixGptFetch,
             // data-turn-key on the user turn equals the API node id. Positions come from
@@ -3210,7 +3323,9 @@
             keyOf: function (el, type) {
                 var root = ixGptRoot();
                 if (!IX_ADAPTERS.chatgpt.getConversationId() || !root || !root.contains(el)) return null;
-                if (type === 'ai-msg') return ixGptAnswerId(el);
+                // The answer's key as the index holds it (v12.17): a unit on a "fallback" turn names the
+                // turn's FIRST shown node, which keyed a bookmark the index never listed ("A#?").
+                if (type === 'ai-msg') return _bmIxCanon(ixGptAnswerId(el));
                 var t = el.closest('[data-turn-key]');
                 var k = t ? t.getAttribute('data-turn-key') : '';
                 return IX_UUID_RE.test(k || '') ? k : null;
@@ -3339,6 +3454,26 @@
         return _ix.cid === a.getConversationId() ? a : null;
     }
 
+    // The open conversation in order, from the ready index (v12.17), or null: every listed
+    // question and every answer with text, each { type: 'user' | 'ai', text (markdown), pos (one
+    // scale for both), qIdx (the Navigate index of the question, or of the one it answers; -1),
+    // key (the bookmark key, or null) }. Export and Summary read it; Search reads the same fields.
+    function ixConversation() {
+        if (!ixReadyAdapter() || !_ix.entries) return null;
+        var out = [], i, e, an = _ix.answers || [];
+        for (i = 0; i < _ix.entries.length; i++) {
+            e = _ix.entries[i];
+            out.push({ type: 'user', text: e.text || '', pos: e.position, qIdx: i,
+                       key: e.hasUuid === false ? null : e.id, n: out.length });
+        }
+        for (i = 0; i < an.length; i++) {
+            if (!(an[i].text || '').trim()) continue;
+            out.push({ type: 'ai', text: an[i].text, pos: an[i].pos, qIdx: an[i].q, key: an[i].key, n: out.length });
+        }
+        out.sort(function (a, b) { return (a.pos - b.pos) || (a.n - b.n); });
+        return out;
+    }
+
     function ixDegrade(err, keep) {
         var reason = (err && err.reason) || 'unknown';
         // The load failed, so the stale signature that triggered it was NOT acted on:
@@ -3363,6 +3498,7 @@
         _ix.status  = 'degraded';
         _ix.reason  = reason;
         _ix.entries = null;
+        _ix.answers = null;
         console.warn('[ACN] conversation index unavailable \u2014 falling back to DOM scan. Reason: ' + reason);
     }
 
@@ -3373,7 +3509,7 @@
         _ix.lastFetchAt = Date.now();
         _ix.pid = a.id;
         _ix.cid = cid;
-        if (!keep) { _ix.status = 'loading'; _ix.entries = null; }
+        if (!keep) { _ix.status = 'loading'; _ix.entries = null; _ix.answers = null; }
         var finished = false;
         function finish(err, res) {
             if (finished) return;
@@ -3399,6 +3535,7 @@
                 idAtPos[res.entries[i].position] = res.entries[i].id;
             }
             for (var k = 0; k < an.length; k++) {
+                if (!an[k].key) continue;          // an answer with no key is listed, never bookmarked
                 answerOf[an[k].key] = an[k].q;
                 answerAt[an[k].at] = an[k].key;
             }
@@ -3421,6 +3558,17 @@
                 _ix.wantKeyless = false;
             }
             _ix.textAt        = textAt;
+            // Every answer in conversation order, with its text (v12.17): Search, Export, Summary.
+            _ix.answers       = an;
+            _ix.images        = res.images || [];
+            // Any shown node's id -> its answer's key (ChatGPT; an answer's own key maps to itself).
+            var answerIdOf = {};
+            for (var ai = 0; ai < an.length; ai++) {
+                if (!an[ai].key) continue;
+                answerIdOf[an[ai].key] = an[ai].key;
+                for (var aj = 0; an[ai].ids && aj < an[ai].ids.length; aj++) answerIdOf[an[ai].ids[aj]] = an[ai].key;
+            }
+            _ix.answerIdOf    = answerIdOf;
             _ix.entries       = res.entries;
             _ix.total         = res.total;
             _ix.idIndex       = idIndex;
@@ -3460,6 +3608,58 @@
                     byPos[mounted[i].pos] = mounted[i].el;
                     if (mounted[i].pos > maxPos) maxPos = mounted[i].pos;
                 } else if (!stale) stale = mounted[i].key;
+            }
+            // An answer the index holds too little of (v12.17, Tier 3 r4): mounted but not indexed (it
+            // arrived after the snapshot), or more than IX_ANSWER_GROWTH chars longer on screen (it was
+            // still being written). Signed per key and per IX_ANSWER_GROWTH step, so a streaming answer asks
+            // for at most one refetch per step, behind the usual cooldown.
+            if (!stale && a.bookmarkables && _ix.answers) {
+                var bk = a.bookmarkables();
+                for (var bi = 0; bi < bk.length && !stale; bi++) {
+                    if (bk[bi].type !== 'ai-msg') continue;
+                    var ak = a.keyOf(bk[bi].el, 'ai-msg');
+                    if (!ak) continue;
+                    var shownLen = _readAIText(bk[bi].el).length;
+                    var held = _ix.answerIdOf && _ix.answerIdOf.hasOwnProperty(ak) ? _ix.answerIdOf[ak] : null;
+                    if (!held) { if (shownLen) stale = 'a:' + ak; continue; }
+                    var heldLen = 0;
+                    for (var hi = 0; hi < _ix.answers.length; hi++) {
+                        if (_ix.answers[hi].key === held) { heldLen = _mdVisible(_ix.answers[hi].text || '').length; break; }
+                    }
+                    if (shownLen > heldLen + IX_ANSWER_GROWTH) stale = 'a:' + held + ':' + Math.floor(shownLen / IX_ANSWER_GROWTH);
+                }
+                // Images (ChatGPT): a mounted turn showing more of the page's own images than the index lists
+                // for it gained some after the snapshot (an image-only answer has no text to grow), so one
+                // refetch per new count (GitHub Codex, PR #92).
+                if (!stale && a.id === 'chatgpt' && _ix.images) {
+                    var iroot = ixGptRoot(), iturns = iroot ? iroot.querySelectorAll('[data-turn-key]') : [];
+                    for (var it2 = 0; it2 < iturns.length && !stale; it2++) {
+                        var tk = iturns[it2].getAttribute('data-turn-key');
+                        if (!IX_UUID_RE.test(tk || '')) continue;
+                        var shownImgs = 0, held2 = 0, ims = iturns[it2].querySelectorAll('img');
+                        for (var ii = 0; ii < ims.length; ii++) if ((ims[ii].currentSrc || ims[ii].src || '').indexOf('blob:') === 0) shownImgs++;
+                        for (var ij = 0; ij < _ix.images.length; ij++) if (_ix.images[ij].at === tk) held2++;
+                        if (shownImgs > held2) stale = 'img:' + tk + ':' + shownImgs;
+                    }
+                }
+                // The latest answer, watched from the first scan after a load: a rendered length that CHANGES
+                // means it was being written when the snapshot was taken; once it has not changed for
+                // IX_SETTLE_MS, one refetch takes its final text, however little it grew. A length that never
+                // changes (labels the markdown has not) asks for nothing (GitHub Codex, PR #92).
+                var lastBk = null;
+                for (var lb2 = bk.length - 1; lb2 >= 0 && !lastBk; lb2--) if (bk[lb2].type === 'ai-msg') lastBk = bk[lb2];
+                var lastKey = lastBk ? a.keyOf(lastBk.el, 'ai-msg') : null;
+                if (lastKey) {
+                    var lastLen = _readAIText(lastBk.el).length, w = _ix.watchLast, now = Date.now();
+                    if (!w || w.key !== lastKey || w.gen !== _ix.indexGen) {
+                        _ix.watchLast = { key: lastKey, gen: _ix.indexGen, len: lastLen, at: now, moved: false };
+                    } else if (lastLen !== w.len) {
+                        w.len = lastLen; w.at = now; w.moved = true;
+                        _ciScheduleRescan(IX_SETTLE_MS + 200);          // look again once it may have settled
+                    } else if (w.moved && !stale && now - w.at >= IX_SETTLE_MS) {
+                        stale = 'settled:' + lastKey + ':' + lastLen;
+                    }
+                }
             }
             // A SHORTER branch has no unknown ids: every mounted question is in the index,
             // which still lists the abandoned follow-ups. At the bottom of the scroller the
@@ -3688,6 +3888,15 @@
         var vr = box.getBoundingClientRect(), vh = box.clientHeight, er = el.getBoundingClientRect();
         if (er.bottom >= vr.top - vh && er.top <= vr.bottom + vh) return false;
         ciPre('far landing: target ' + Math.round(er.top - vr.top) + ' px from the view top');
+        return orbLandIn(box, el, getEl, landed, a, stillValid);
+    }
+
+    // orbLandIn — orbLandFarIn's landing without its distance test (v12.17): for a target that a
+    // settle loop has just brought into the mounted window, where the closing smooth glide was
+    // never checked (Claude's Search, Summary and Navigate after ciJumpToFullPathIndex; ROADMAP 14).
+    // Same arguments; false only when it cannot start (no box, or the target is not in it).
+    function orbLandIn(box, el, getEl, landed, a, stillValid) {
+        if (!box || !el || !el.isConnected || !getEl || !box.contains(el)) return false;
         var ixTok = _ixJumpToken, ciTok = _ciJumpToken;
         var watch = ixWatchUser(box);
         ixLandOn(a, getEl, { container: box, check: function () {
@@ -3734,20 +3943,77 @@
         return orbLandFarIn(ciFindScrollContainerStable(), el, getEl, landed, IX_ADAPTERS.claude, ciIsReady);
     }
 
+    // The end of a Claude jump that went through the settle loop (ciJumpToFullPathIndex): `el` is
+    // the resolved node for path index `pathIdx`, now mounted. It lands (orbLandIn: instant writes,
+    // re-located by its path index, checked) instead of the smooth glide every caller used to end
+    // with, which nothing checked (v12.17; ROADMAP 14). No container: the glide, as before.
+    // Re-located by path index, or, where that cannot place it (a question that is only a file chip
+    // has no text to match: tests' "80 rows, Q#1 is a file chip"), the node the settle loop resolved,
+    // while it is still connected.
+    function ciLandSettled(el, pathIdx, landed) {
+        if (ciIsClaudeChat() && ciIsReady() &&
+            orbLandIn(ciFindScrollContainerStable(), el,
+                      function () { return ciResolveMountedByPathIndex(pathIdx) || (el.isConnected ? el : null); },
+                      landed, IX_ADAPTERS.claude, ciIsReady)) return;
+        el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+        landed(el);
+    }
+
     // Gemini (DEC-057). Off-screen turns carry turn-content-visibility, so their heights are
     // estimates until they render; a glide from the top to the latest question grew scrollHeight
-    // under it (59,324 -> 63,126 px) and left the target 4,240 px below the view, 2 of 4 times
-    // (Chrome + Tampermonkey, 2026-10-31; the times it landed, the turns had rendered before).
+    // under it (59,324 -> 63,126 px) and left the target below the view 2 of 4 times: 6,139 px the
+    // first time, 4,240 px on a later run (Chrome + Tampermonkey, 2026-10-31; DEC-057; the times it
+    // landed, the turns had rendered before).
     // Gemini keeps its turns, so the question re-locates through _relocateQuestionElement.
     // A switch to another chat ends it (GitHub Codex, PR #90): the scroller can be reused, and the
     // new chat may hold the same question text.
     function gmLandFar(el, q, landed) {
+        return gmLandFarEl(el, function () { return _relocateQuestionElement(q); }, landed);
+    }
+
+    // The same for any Gemini target its caller can re-find (v12.17): an answer, an image's turn,
+    // a bookmark by its turn id (gmTurnById).
+    function gmLandFarEl(el, getEl, landed) {
         if (!platform || platform.id !== 'gemini') return false;
         _ixJumpToken++;
         var path0 = location.pathname;
-        return orbLandFarIn(document.querySelector('infinite-scroller.chat-history'), el,
-                            function () { return _relocateQuestionElement(q); }, landed, {},
+        return orbLandFarIn(document.querySelector('infinite-scroller.chat-history'), el, getEl, landed, {},
                             function () { return location.pathname === path0; });
+    }
+
+    // ── Gemini turns by their own id (v12.17) ──────────────────
+    // Every turn is a div.conversation-container whose id is a stable 16-hex id, repeated in its
+    // message-content-id-r_<id> (live, Chrome, 2026-10-31 and 2026-11-01: 32 of 32 turns).
+    var GM_TURN_ID_RE = /^[0-9a-f]{16}$/;
+    function gmTurnOf(el) {
+        var t = el && el.closest ? el.closest('div.conversation-container') : null;
+        return (t && GM_TURN_ID_RE.test(t.id || '')) ? t : null;
+    }
+    function gmTurnById(id) {
+        if (!id || !GM_TURN_ID_RE.test(id)) return null;
+        var t = document.getElementById(id);
+        return (t && t.classList.contains('conversation-container')) ? t : null;
+    }
+    // A turn's question and answer, as getUserMessages / getAIMessages find them.
+    function gmQuestionIn(turn) {
+        return turn ? (turn.querySelector('div.query-text') || turn.querySelector('.query-text-line') ||
+                       turn.querySelector('.user-query')) : null;
+    }
+    function gmAnswerIn(turn) {
+        return turn ? (turn.querySelector('div.model-response-text') || turn.querySelector('.response-content') ||
+                       turn.querySelector('model-response')) : null;
+    }
+
+    // The "older history is not loaded" note (v12.16), for every panel that lists the chat.
+    function gmHistNote() {
+        if (!gmHistPartial()) return null;
+        var n = createElement('div', {
+            className: 'acn-ci-banner acn-ci-note',
+            textContent: '\u2191 ' + (i18n('olderHistoryNotLoaded') ||
+                         'Older messages are not loaded yet \u2014 scroll to the top of the chat to load them')
+        });
+        n.setAttribute('data-acn-history', 'partial');
+        return n;
     }
 
     // Resolve-on-arrival, the design of ciJumpToFullPathIndex at this seam's size: aim at
@@ -3769,7 +4035,11 @@
         var entry = { id: q.ixId, position: q.ixPosition, text: q.text };
         var total = Math.max(1, _ix.total);
         var cid = _ix.cid;
-        var moves = 0, lastDir = 0, factor = 1, waits = 0;
+        var moves = 0, lastDir = 0, factor = 1, waits = 0, pages = 0, idle = 0;
+        // A conversation whose start is known to be loaded waits for no page (only the first jump
+        // that reaches its start pays IX_PAGE_WAIT_MS).
+        // Keyed by the index generation too: an edit or a branch refresh can show only recent pages again (Tier 3 r5).
+        var pageCap = _ixStartLoaded === cid + '|x' + _ix.indexGen ? 0 : Math.ceil(total / IX_PAGE_SIZE_MIN) + 2;
         var landing = { aligns: 0 };
         var watch = ixWatchUser(container), finished = false;
         function done(ok, el, reason) {
@@ -3791,6 +4061,21 @@
         // to moving; the shared `landing` cap and IX_JUMP_MAX_MOVES bound the round trips.
         function land(el, getEl, reason) {
             if (opts.land === false) { done(true, el, reason); return; }
+            // On a site that pages at the top, a target whose landing position is the top (it sits
+            // near the start of what is loaded) would be aligned there, clamped, and that very write
+            // brings the next page, which moves the target's place from under it (the probe's K5:
+            // 272 px off). So bring that page first and land after it; none in IX_PAGE_WAIT_MS means
+            // the start is loaded, and then the top is the right place.
+            if (a.pagesAtTop && pages < pageCap && idle < IX_PAGE_IDLE_MAX) {
+                var cr = container.getBoundingClientRect(), er = el.getBoundingClientRect();
+                var lead = er.height > container.clientHeight * 0.8 ? 0 : (container.clientHeight - er.height) / 2;
+                if (container.scrollTop + (er.top - cr.top - container.clientTop) - lead <= 1) {
+                    if (a.releaseScroll) a.releaseScroll(container);
+                    container.scrollTop = 0;
+                    awaitPage();
+                    return;
+                }
+            }
             ixLandOn(a, getEl, { container: container, check: live, state: landing }, function (ok, landed, why) {
                 if (ok) done(true, landed, reason);
                 else if (why === 'lost') arrive();
@@ -3807,11 +4092,62 @@
             lastDir = dir;
             return factor;
         }
+        // A target above every mounted entry, with the view at the top, on a site that pages its
+        // history there (ChatGPT): its page is on the way. v12.16 counted each settle spent waiting
+        // as a move, so a 49-question chat's Q15 ran out of moves after ~5 pages and toasted, 2 of 2
+        // from a fresh load (Chrome, 2026-11-01; a 24-question chat needed 5 pages and landed).
+        function pagingAbove() {
+            if (!a.pagesAtTop || container.scrollTop > 1 || pages >= pageCap || idle >= IX_PAGE_IDLE_MAX) return false;
+            var m = a.mounted(), lo = Infinity;
+            for (var j = 0; j < m.length; j++) if (m[j].pos >= 0 && m[j].pos < lo) lo = m[j].pos;
+            return lo !== Infinity && lo > entry.position;
+        }
+        // The lowest known position mounted now, or Infinity.
+        function lowestMounted() {
+            var m = a.mounted(), lo = Infinity;
+            for (var j = 0; j < m.length; j++) if (m[j].pos >= 0 && m[j].pos < lo) lo = m[j].pos;
+            return lo;
+        }
+        function awaitPage() {
+            idle++;
+            var h0 = container.scrollHeight, t0 = Date.now(), lo0 = lowestMounted();
+            (function poll() {
+                var why = live();
+                if (why) { done(false, null, why); return; }
+                if (container.scrollHeight !== h0) {
+                    // The list grew. After the usual settle: if older turns are mounted now, a page
+                    // arrived, and the move that brought the view here is refunded, so the move cap bounds
+                    // the steps and pageCap the pages. Growth of another kind (an image, a streamed answer)
+                    // is refunded nothing (Tier 3).
+                    setTimeout(function () {
+                        // Only a page counts against pageCap (Tier 3 r2): growth of another kind spends one of
+                        // the few idle waits instead.
+                        // A page: older turns mounted, or the view re-anchored off the top (ChatGPT keeps the
+                        // view on what it showed, and with ~5 turns mounted the new ones above may not be;
+                        // live, counting only the former stopped a 49-question chat's Q15 jump, 1 of 2).
+                        if (lowestMounted() < lo0 || container.scrollTop > 1) { pages++; idle--; if (moves > 0) moves--; }
+                        arrive();
+                    }, IX_JUMP_SETTLE_MS);
+                    return;
+                }
+                // None came: ordinary moves from here. The start counts as loaded for later jumps only when
+                // the first question is the one mounted at the top: a hidden tab, whose page work is
+                // throttled, can time out with older history still to come (Tier 3 r2).
+                if (Date.now() - t0 >= IX_PAGE_WAIT_MS) {
+                    pages = pageCap;
+                    if (lowestMounted() === 0 && document.visibilityState === 'visible') _ixStartLoaded = cid + '|x' + _ix.indexGen;
+                    arrive();
+                    return;
+                }
+                setTimeout(poll, 100);
+            }());
+        }
         function arrive() {
             var why = live();
             if (why) { done(false, null, why); return; }
             var el = a.locate(entry);
             if (el) { land(el, function () { return a.locate(entry); }, 'locate'); return; }
+            if (pagingAbove()) { awaitPage(); return; }
             if (moves >= IX_JUMP_MAX_MOVES) {
                 // Text stands in for identity only if no other question in the WHOLE
                 // conversation reads the same, and never for a node the adapter already
@@ -5998,6 +6334,8 @@
     function _isExcludedFromText(n) {
         if (!n || n.nodeType !== 1) return false;
         if (n.getAttribute && n.getAttribute('data-acn-bookmark') !== null) return true;
+        // A platform's own chrome inside a message (Perplexity's "Finished" label, v12.17).
+        if (platform && platform.textExclude && n.matches && n.matches(platform.textExclude)) return true;
         return _isSrOnlyClassList(n.className);
     }
 
@@ -6008,7 +6346,8 @@
         // (sm:sr-only) that the slow path's regex excludes — otherwise the two paths
         // disagree and a variant label survives into the text.
         if (!el.querySelector ||
-            !el.querySelector('[data-acn-bookmark], .sr-only, [class*="sr-only"], .cdk-visually-hidden')) {
+            !el.querySelector('[data-acn-bookmark], .sr-only, [class*="sr-only"], .cdk-visually-hidden' +
+                              (platform && platform.textExclude ? ', ' + platform.textExclude : ''))) {
             return el.textContent || el.innerText || '';
         }
         var out = '';
@@ -6771,7 +7110,18 @@
             // load re-anchors the view away from the top, which stops the new wait at once.
             if (t.length !== n0 || (t.length ? t[0].id || null : null) !== id0) { gmHistOnScroll(); return; }
             _gmHist.complete = true;
+            // Bookmark labels and legacy proof wait for a complete history (v12.17): the timer is the only
+            // signal when the last page held a full 10, and no scan follows it (Tier 3 r3).
+            if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
+            var bmP = document.getElementById('acn-panel-bookmarks');
+            if (bmP && bmP.classList.contains('acn-open')) orbRefreshBookmarksPanel();
             if (orbPanel === 'nav') orbPopulateNavigate();
+            // Every open panel that shows the note (v12.17).
+            else if (orbPanel === 'search' && typeof orbSearchQuery !== 'undefined') orbPopulateSearch(orbSearchQuery);
+            else if (orbPanel === 'tools') {
+                var gs = document.getElementById('acn-gallery-section');
+                if (gs) renderImageGallery(gs);
+            }
         }, GM_HISTORY_TOP_MS);
     }
 
@@ -7122,6 +7472,8 @@
         window.addEventListener('resize', _orbResizeHandler);
     }
 
+    var _galGmPartial = null;   // Gemini's gmHistPartial() and the index stamp at the previous scan (orbOnScanComplete)
+
     // ── Orbital panel update hook (called by scanConversation) ──
     function orbOnScanComplete() {
         // Count before anything draws. After the draws, the dots always showed the
@@ -7129,6 +7481,17 @@
         updateTurnCounter();
         if (orbPanel === 'nav')    orbPopulateNavigate();
         if (orbPanel === 'search') orbPopulateSearch(orbSearchQuery);
+        // Gemini: an open gallery redraws when the chat's start becomes loaded (its note goes, its cards
+        // may change), not on every scan (v12.17, Tier 3 r4).
+        // And on every site with an index, when the index arrives or is refetched: Tools opened before the
+        // first load, or left open while a new image refreshed it, kept its old cards ("No images") with no
+        // card to click for the stale-card redraw (GitHub Codex, PR #92).
+        var gmPart = (gmHistPartial() ? 'p' : 'c') + '|' + sumIndexStamp();
+        if (orbPanel === 'tools' && _galGmPartial !== null && gmPart !== _galGmPartial) {
+            var galS = document.getElementById('acn-gallery-section');
+            if (galS) renderImageGallery(galS);
+        }
+        _galGmPartial = gmPart;
         var bmPanel = document.getElementById('acn-panel-bookmarks');
         if (bmPanel && bmPanel.classList.contains('acn-open')) {
             orbRefreshBookmarksPanel();
@@ -8364,15 +8727,8 @@
 
         orbRenderIndexBanner(list);
         // Gemini: the list is the loaded part of the chat only (v12.16, DEC-057).
-        if (gmHistPartial()) {
-            var histNote = createElement('div', {
-                className: 'acn-ci-banner acn-ci-note',
-                textContent: '\u2191 ' + (i18n('olderHistoryNotLoaded') ||
-                             'Older messages are not loaded yet \u2014 scroll to the top of the chat to load them')
-            });
-            histNote.setAttribute('data-acn-history', 'partial');
-            list.appendChild(histNote);
-        }
+        var histNote = gmHistNote();
+        if (histNote) list.appendChild(histNote);
 
         if (_questions.length === 0) {
             var empty = createElement('div', { className: 'acn-empty' },
@@ -8817,6 +9173,15 @@
         return String(_ciConversationId) + '|g' + _ciIndexGen;
     }
 
+    // The same identity for ChatGPT's and Perplexity's index (v12.17), and the one a summary is
+    // stamped with: whichever index the open conversation has, or null (Gemini, a degraded one).
+    function ixIndexStamp() {
+        return ixReadyAdapter() ? _ix.pid + '|' + _ix.cid + '|x' + _ix.indexGen : null;
+    }
+    function sumIndexStamp() {
+        return ciIndexStamp() || ixIndexStamp();
+    }
+
     function ciResolveMountedByPathIndex(pathIdx) {
         if (!(ciIsClaudeChat() && ciIsReady() && _ciFullPath)) return null;
         // isFinite rejects NaN, which typeof calls a number and which both bounds
@@ -8941,10 +9306,12 @@
                 q.pathIndex >= 0 && q.pathIndex < _ciFullPath.length) {
                 ciJumpToFullPathIndex(q.pathIndex, function (ok, el, reason) {
                     if (ok && el) {
+                        // Landed, not glided (v12.17): Search's and Summary's question clicks end here too.
                         q.element = el;
                         orbMarkJumpTarget(el);
-                        el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
-                        orbFlashElement(el);
+                        ciLandSettled(el, q.pathIndex, function (n) {
+                            q.element = n; orbMarkJumpTarget(n); orbFlashElement(n);
+                        });
                     } else if (reason !== 'superseded' && reason !== 'user') {
                         // Honest failure retained — but only for a genuine miss. A
                         // superseded jump or a user-initiated scroll is not a failure.
@@ -9080,7 +9447,8 @@
                 }
             }
             var sfp = q + '|' + _questions.length + '|' + (_aiResponses ? _aiResponses.length : 0) +
-                      '|g' + _ciIndexGen + '|L' + liveLen + '|x' + ixFingerprint();
+                      '|g' + _ciIndexGen + '|L' + liveLen + '|x' + ixFingerprint() +
+                      '|h' + (gmHistPartial() ? 1 : 0);
             if (sfp === _searchListFingerprint && list.firstChild) return;
             _searchListFingerprint = sfp;
         }
@@ -9096,6 +9464,10 @@
         }
 
         if (hint) hint.style.display = 'none';
+
+        // Gemini: only the loaded part of the chat can be searched; say so, as Navigate does (v12.17).
+        var gmNote = gmHistNote();
+        if (gmNote) list.appendChild(gmNote);
 
         var qLower = q.toLowerCase();
 
@@ -9211,6 +9583,61 @@
                     pathIndex: null
                 });
             }
+        } else if (ixReadyAdapter() && _ix.answers) {
+            // ChatGPT and Perplexity (v12.17): every answer, from the index's own text, in order.
+            // The mounted answers were all Search saw before: on ChatGPT none at all (its answer
+            // selectors matched nothing), on Perplexity 2 of 12, as fragments labelled up to A#18
+            // (Chrome + Tampermonkey, v12.16, 2026-11-01). Like the indexed questions, the text is
+            // markdown, flattened for matching and display.
+            var ixA = ixReadyAdapter(), ixAns = _ix.answers, ixSeq = 0, lastPos = -0.5;
+            // A mounted answer can be fresher than the snapshot (still being written when it was
+            // taken): its rendered text stands in when longer. One the index does not hold yet (sent
+            // after the snapshot) is listed after the last indexed answer, by its node.
+            var liveAns = {}, liveOther = [];
+            var bmk = ixA.bookmarkables ? ixA.bookmarkables() : [];
+            for (var lb = 0; lb < bmk.length; lb++) {
+                if (bmk[lb].type !== 'ai-msg') continue;
+                var lk = ixA.keyOf(bmk[lb].el, 'ai-msg');
+                if (!lk) continue;
+                // A unit naming any node of an indexed answer IS that answer (part of it, on ChatGPT).
+                // Every mounted unit of the answer: a split ChatGPT answer streams into its LAST unit, which
+                // alone is shorter than the whole indexed text (GitHub Codex, PR #92).
+                if (_ix.answerIdOf && _ix.answerIdOf.hasOwnProperty(lk)) {
+                    var ak = _ix.answerIdOf[lk];
+                    (liveAns[ak] = liveAns[ak] || []).push(bmk[lb].el);
+                }
+                else liveOther.push({ key: lk, el: bmk[lb].el });
+            }
+            for (var ia = 0; ia < ixAns.length; ia++) {
+                var ans = ixAns[ia];
+                var aText = _mdVisible(ans.text || '');
+                var units = (ans.key && liveAns[ans.key]) || [];
+                if (!aText && units.length) aText = _readAIText(units[0]);
+                if (!aText) continue;
+                ixSeq++;
+                if (ans.pos > lastPos) lastPos = ans.pos;
+                // The indexed text, or else any mounted unit of the answer (fresher while it is written): the
+                // snippet comes from whichever matched.
+                if (aText.toLowerCase().indexOf(qLower) === -1) {
+                    var hitText = '';
+                    for (var ui = 0; ui < units.length && !hitText; ui++) {
+                        var ut = _readAIText(units[ui]);
+                        if (ut.toLowerCase().indexOf(qLower) !== -1) hitText = ut;
+                    }
+                    if (!hitText) continue;
+                    aText = hitText;
+                }
+                aiMatches.push({ element: null, text: aText, labelText: 'A#' + ixSeq, isAI: true, qObj: null,
+                                 ixKey: ans.key, ixQ: ans.q, ixPos: ans.pos });
+            }
+            for (var lo = 0; lo < liveOther.length; lo++) {
+                var loText = _readAIText(liveOther[lo].el);
+                if (!loText) continue;
+                ixSeq++;
+                if (loText.toLowerCase().indexOf(qLower) === -1) continue;
+                aiMatches.push({ element: liveOther[lo].el, text: loText, labelText: 'A#' + ixSeq, isAI: true,
+                                 qObj: null, ixKey: liveOther[lo].key, ixQ: -1, ixPos: lastPos + 0.25 + lo / 1000 });
+            }
         } else if (typeof _aiResponses !== 'undefined') {
             _aiResponses.forEach(function (el, idx) {
                 var text = _readAIText(el);
@@ -9241,9 +9668,15 @@
         // match has element:null, so the DOM comparator returned 0 for them and the
         // list stayed in concatenation order — all questions, then all answers
         // (Codex round-1 P2). Path position is authoritative when either side has it.
+        // ChatGPT and Perplexity questions carry ixPosition and their answers ixPos, on one scale
+        // (v12.17): a question's pathIndex is undefined there, so every pair compared as 0.
+        function sortPos(m) {
+            if (m.qObj) return typeof m.qObj.ixPosition === 'number' ? m.qObj.ixPosition : m.qObj.pathIndex;
+            return typeof m.ixPos === 'number' ? m.ixPos : m.pathIndex;
+        }
         allMatches.sort(function (a, b) {
-            var ap = a.qObj ? a.qObj.pathIndex : a.pathIndex;
-            var bp = b.qObj ? b.qObj.pathIndex : b.pathIndex;
+            var ap = sortPos(a);
+            var bp = sortPos(b);
             if (typeof ap === 'number' && typeof bp === 'number' && ap !== bp) {
                 return ap - bp;
             }
@@ -9299,6 +9732,16 @@
                 return function () {
                     if (!m.isAI && m.qObj) {
                         orbScrollToQuestion(m.qObj);
+                        return;
+                    }
+                    // An index-backed answer on ChatGPT or Perplexity (v12.17): by its own key, as an
+                    // answer bookmark jumps (the index jump to its question, then the answer landed at
+                    // its start); an answer with no key goes to its question.
+                    if (m.ixKey !== undefined) {
+                        var ixj = ixReadyAdapter();
+                        if (ixj && m.ixKey) { _bmIxJump(ixj, { msgUuid: m.ixKey, entityType: 'ai-msg' }); return; }
+                        if (ixj && m.ixQ >= 0 && _questions[m.ixQ]) { orbScrollToQuestion(_questions[m.ixQ]); return; }
+                        showToast('That message is not currently rendered \u2014 scroll toward it and try again');
                         return;
                     }
                     // Index-backed AI matches carry no element — the message may not
@@ -9383,9 +9826,9 @@
                         if (jp !== null) {
                             ciJumpToFullPathIndex(jp, function (ok, el2, reason) {
                                 if (ok && el2) {
+                                    // Landed, not glided (v12.17): the last answer from the top ends here.
                                     orbMarkJumpTarget(el2);
-                                    el2.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
-                                    orbFlashElement(el2);
+                                    ciLandSettled(el2, jp, function (n) { orbMarkJumpTarget(n); orbFlashElement(n); });
                                 } else if (reason !== 'superseded' && reason !== 'user') {
                                     showToast('That message is not currently rendered — scroll toward it and try again');
                                 }
@@ -9394,6 +9837,14 @@
                         }
                         showToast('That message is not currently rendered — scroll toward it and try again');
                         return;
+                    }
+                    // Gemini: re-found by its turn's id, so a far answer lands (v12.17).
+                    if (!landGet && platform && platform.id === 'gemini') {
+                        var gmT = gmTurnOf(target);
+                        if (gmT) {
+                            var gmId = gmT.id;
+                            landGet = function () { return gmAnswerIn(gmTurnById(gmId)); };
+                        }
                     }
                     orbScrollToMessage(target, landGet);
                 };
@@ -9785,6 +10236,7 @@
     // while the index is not ready.
     function _bmLabel(bm) {
         if (ixAdapter()) return _bmIxLabel(bm);      // ChatGPT, Perplexity (v12.15)
+        if (platform && platform.id === 'gemini') return _bmGmLabel(bm);   // v12.17
         if (bm.entityType === 'user-msg') return 'Q#' + (_bmDisplayOrdinal(bm) + 1);
         if (bm.entityType !== 'ai-msg' || !ciIsClaudeChat()) return 'A#' + (_bmDisplayOrdinal(bm) + 1);
         if (!bm.msgUuid) return i18n('answerUnresolved');
@@ -9799,6 +10251,7 @@
     // answer with no listed question before it, then one that is not placed, go last.
     function _bmSortKey(bm) {
         if (ixAdapter()) return _bmIxSortKey(bm);
+        if (platform && platform.id === 'gemini') return _bmGmSortKey(bm);
         if (bm.entityType !== 'ai-msg' || !ciIsClaudeChat()) return _bmDisplayOrdinal(bm);
         var q = ciIsReady() ? _bmAnswerQuestionIndex(bm) : null;
         if (q === null) return 1e9;
@@ -9806,6 +10259,32 @@
     }
 
     function _bmDisplayText(bm) {
+        if (bm && bm.msgUuid && platform && platform.id === 'gemini') {
+            // The turn's own text while it is loaded (textContent: off-screen turns render nothing).
+            var gEl = _bmGmElement(bm.msgUuid, bm.entityType);
+            var gt = gEl ? (bm.entityType === 'user-msg' ? _readMessageText(gEl) : _readAIText(gEl)) : '';
+            gt = gt.replace(/\s+/g, ' ').trim();
+            if (gt) return gt.substring(0, 120);
+        }
+        // ChatGPT and Perplexity (v12.17): the message's text from the index, as Claude's below. A
+        // Perplexity answer's stored preview begins with the page's "Finished" label, glued to the
+        // text ("FinishedRight now, ..."): records made before v12.17 kept it.
+        if (bm && bm.msgUuid && ixReadyAdapter()) {
+            var ixt = '', j;
+            if (bm.entityType === 'user-msg' && _ix.qIdx && _ix.qIdx.hasOwnProperty(bm.msgUuid)) {
+                ixt = (_ix.entries[_ix.qIdx[bm.msgUuid]] || {}).text || '';
+            } else if (bm.entityType === 'ai-msg' && _ix.answers) {
+                for (j = 0; j < _ix.answers.length; j++) {
+                    if (_ix.answers[j].key === _bmIxCanon(bm.msgUuid)) { ixt = _ix.answers[j].text || ''; break; }
+                }
+            }
+            ixt = _mdVisible(ixt).replace(/\s+/g, ' ').trim();
+            if (ixt) return ixt.substring(0, 120);
+        }
+        if (bm && bm.entityType === 'ai-msg' && platform && platform.id === 'perplexity' &&
+            typeof bm.preview === 'string' && /^Finished\S/.test(bm.preview)) {
+            return bm.preview.substring('Finished'.length);
+        }
         if (bm && bm.msgUuid && ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
             for (var i = 0; i < _ciFullPath.length; i++) {
                 if (_ciFullPath[i].uuid !== bm.msgUuid) continue;
@@ -10597,7 +11076,7 @@
     // isKey: a flag keyed by the message's own id (ChatGPT, Perplexity, v12.15) stands for
     // the records of that type and id, and nothing else: never a hash or an old text form.
     function _bmFlagMatches(b, entityId, legacyIds, entityType, rowIdx, isKey) {
-        if (isKey) return b.entityType === entityType && b.msgUuid === entityId;
+        if (isKey) return b.entityType === entityType && (b.msgUuid === entityId || _bmIxCanon(b.msgUuid) === entityId);
         if (entityType === 'ai-msg' && rowIdx >= 0 && ciIsClaudeChat()) {
             if (b.entityType !== 'ai-msg') return false;
             if (/^[0-9a-f-]{36}$/i.test(entityId)) return b.msgUuid === entityId || b.contentHash === entityId;
@@ -10904,6 +11383,8 @@
         // ChatGPT and Perplexity: by the messages' own ids, never by position (v12.15).
         var ixa = ixAdapter();
         if (ixa) { _bmIxInject(ixa); return; }
+        // Gemini: by the turn's own id, never by position (v12.17).
+        if (platform && platform.id === 'gemini') { _bmGmInject(); return; }
         // Question records that wait on proof bind first, so their flags are drawn from the bound record.
         if (ciIsClaudeChat()) _bmProveQuestions();
         Array.from(getUserMessages()).forEach(function (el, idx) {
@@ -10970,7 +11451,16 @@
         return (_ix.status === 'degraded' && _ix.cid === cid) ? 'off' : 'loading';
     }
 
+    // A ChatGPT answer key as the index lists it (v12.17): any shown text node of an answer names it
+    // (_ix.answerIdOf); anything else unchanged. A record saved before v12.17 under a turn's first node
+    // (a "fallback" turn, DOM-REFERENCE) resolves to its answer through this.
+    function _bmIxCanon(key) {
+        if (!key || !_ix.answerIdOf || !ixReadyAdapter()) return key;
+        return _ix.answerIdOf.hasOwnProperty(key) ? _ix.answerIdOf[key] : key;
+    }
+
     function _bmIxIndexed(key, type) {
+        key = _bmIxCanon(key);
         if (_bmIxState() !== 'ready' || !key) return false;
         return type === 'user-msg' ? _ix.qIdx.hasOwnProperty(key) : _ix.answerOf.hasOwnProperty(key);
     }
@@ -10979,6 +11469,7 @@
     // the click, for a tab still on v12.14 only (its labels number by it); nothing here reads it.
     // The export labels by _bmLabel, not by msgIndex.
     function _bmIxNavIndex(key, type) {
+        key = _bmIxCanon(key);
         if (!_bmIxIndexed(key, type)) return -1;
         return type === 'user-msg' ? _ix.qIdx[key] : _ix.answerOf[key];
     }
@@ -11016,7 +11507,7 @@
     // while the index loads; "Q#?" / "A#?" for a record no message here holds, a positional
     // record from before v12.15 among them.
     function _bmIxLabel(bm) {
-        var st = _bmIxState(), key = bm.msgUuid;
+        var st = _bmIxState(), key = _bmIxCanon(bm.msgUuid);
         if (bm.entityType === 'user-msg') {
             if (!key) return i18n('questionUnresolved');
             if (st === 'loading') return 'Q#…';
@@ -11033,7 +11524,7 @@
     }
 
     function _bmIxSortKey(bm) {
-        var key = bm.msgUuid;
+        var key = _bmIxCanon(bm.msgUuid);
         if (!_bmIxIndexed(key, bm.entityType)) return 1e9;
         if (bm.entityType === 'user-msg') return _ix.qIdx[key];
         return _ix.answerOf[key] < 0 ? 1e9 - 1 : _ix.answerOf[key] + 0.5;
@@ -11157,7 +11648,7 @@
     // there, then the answer in that turn or entry by its key (one settle if it is not there
     // yet), landed at its start: 'center' puts a long answer's middle in view.
     function _bmIxJump(a, bm) {
-        var key = bm.msgUuid, type = bm.entityType;
+        var key = _bmIxCanon(bm.msgUuid), type = bm.entityType;
         var q = null;
         if (_bmIxIndexed(key, type)) {
             q = type === 'user-msg' ? _bmIxQuestion(key)
@@ -11207,6 +11698,148 @@
         }, { land: false });
     }
 
+    // ── Gemini bookmarks by the turn's id (v12.17) ─────────────
+    // v12.16 still keyed a Gemini record by contentHash(text, its place among the LOADED turns) and
+    // labelled it by that place, so a record changed meaning as older history loaded above it. Now
+    // a question is keyed by its turn's 16-hex id and its answer by <id>:answer (DEC-053's form, as
+    // Perplexity's), labelled "Q#n" / "Answer to Q#n" by the question's place in Navigate. Until the
+    // chat's start is loaded no number is final: "Q#…". Once it is, a record whose turn is not in
+    // the chat reads "Q#?" / "A#?". A positional record binds to a question only on proof
+    // (_bmGmProveLegacy), never an answer; otherwise it reads "Q#?" / "A#?" and stays deletable.
+    function _bmGmTurnId(key) {
+        return String(key || '').replace(/:answer$/, '');
+    }
+    function _bmGmElement(key, type) {
+        var t = gmTurnById(_bmGmTurnId(key));
+        return t ? (type === 'user-msg' ? gmQuestionIn(t) : gmAnswerIn(t)) : null;
+    }
+    // The Navigate index of the record's question (an answer's: the question of its turn), or -1.
+    function _bmGmNavIndex(key, type) {
+        var q = gmQuestionIn(gmTurnById(_bmGmTurnId(key)));
+        if (!q) return -1;
+        for (var i = 0; i < _questions.length; i++) {
+            var e = _questions[i].element;
+            if (e && (e === q || q.contains(e) || e.contains(q))) return i;
+        }
+        return -1;
+    }
+    // Numbers are final only once the chat's start is loaded, and while the chat shows any turn.
+    // Positively complete, by the tracker's own record of this chat: before its first count (the scan
+    // draws flags before it observes) nothing is known, and a label or a proof must not read as final
+    // (Tier 3).
+    function _bmGmFinal() {
+        return !!(platform && platform.id === 'gemini' && _gmHist.key === location.pathname &&
+                  _gmHist.n > 0 && _gmHist.complete && document.querySelector('div.conversation-container'));
+    }
+    function _bmGmLabel(bm) {
+        var user = bm.entityType === 'user-msg';
+        if (!bm.msgUuid) return i18n(user ? 'questionUnresolved' : 'answerUnresolved');
+        var qi = _bmGmNavIndex(bm.msgUuid, bm.entityType);
+        if (!_bmGmFinal()) return user ? 'Q#\u2026' : i18n('answerToQuestion', { n: '\u2026' });
+        if (qi >= 0) return user ? 'Q#' + (qi + 1) : i18n('answerToQuestion', { n: qi + 1 });
+        if (!user && gmTurnById(_bmGmTurnId(bm.msgUuid))) return i18n('answerNoQuestion');
+        return i18n(user ? 'questionUnresolved' : 'answerUnresolved');
+    }
+    function _bmGmSortKey(bm) {
+        var qi = bm.msgUuid ? _bmGmNavIndex(bm.msgUuid, bm.entityType) : -1;
+        if (qi < 0) return 1e9;
+        return bm.entityType === 'user-msg' ? qi : qi + 0.5;
+    }
+
+    // A positional question record (contentHash(text, msgIndex), msgIndex its place among the
+    // questions then loaded) binds to a turn only on proof, the v12.15 standard (DEC-053), and only
+    // once the chat's start is loaded, so that the place and the uniqueness are the whole chat's:
+    //   P1  the stored hash reproduces from the question's text at the stored msgIndex;
+    //   P2  that msgIndex is the question's Navigate index;
+    //   U   no other question in the chat shares its first 200 characters (normalized).
+    var _bmGmProveSeen = '';
+    function _bmGmProveLegacy() {
+        if (!_bmGmFinal()) return false;
+        var list = getConversationBookmarks(), i, any = false;
+        for (i = 0; i < list.length; i++) {
+            if (list[i].entityType === 'user-msg' && !list[i].msgUuid) { any = true; break; }
+        }
+        if (!any) return false;
+        var sig = location.pathname + '|' + _questions.length + '|' + String(acnGetValue(BOOKMARK_KEY, '{}'));
+        if (sig === _bmGmProveSeen) return false;
+        _bmGmProveSeen = sig;
+        var changed = false;
+        for (i = 0; i < list.length; i++) {
+            var b = list[i];
+            if (b.entityType !== 'user-msg' || b.msgUuid || typeof b.msgIndex !== 'number') continue;
+            var q = _questions[b.msgIndex], el = q && q.element;
+            var turn = el ? gmTurnOf(el) : null;
+            if (!turn) continue;                                                        // P2
+            if (_bmLegacyIdSet(el, b.msgIndex).indexOf(b.contentHash) === -1) continue; // P1
+            var pre = _normalizeCompare(_readMessageText(el)), same = 0;
+            for (var k = 0; k < _questions.length; k++) {
+                if (_questions[k].element && _normalizeCompare(_readMessageText(_questions[k].element)) === pre) same++;
+            }
+            if (same !== 1) continue;                                                   // U
+            if (!_bmBindAnswer(b.id, turn.id, 'user-msg')) { _bmGmProveSeen = ''; continue; }
+            el.removeAttribute('data-acn-bookmarked');   // redrawn lit
+            changed = true;
+        }
+        if (changed) {
+            var bmPanel = document.getElementById('acn-panel-bookmarks');
+            if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
+        }
+        return changed;
+    }
+
+    // One flag per loaded question and answer, keyed by its turn's id.
+    function _bmGmInject() {
+        _bmGmProveLegacy();
+        var drawnIn = location.pathname;
+        var turns = document.querySelectorAll('div.conversation-container');
+        for (var i = 0; i < turns.length; i++) {
+            if (!GM_TURN_ID_RE.test(turns[i].id || '')) continue;
+            var pair = [[gmQuestionIn(turns[i]), 'user-msg', turns[i].id],
+                        [gmAnswerIn(turns[i]), 'ai-msg', turns[i].id + ':answer']];
+            for (var k = 0; k < 2; k++) {
+                (function (el, type, key) {
+                    if (!el) return;
+                    if (!(type === 'user-msg' ? _readMessageText(el) : _readAIText(el))) return;
+                    if (el.getAttribute('data-acn-bookmarked') === key) return;
+                    var stale = el.querySelector('[data-acn-bookmark]');
+                    if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
+                    el.setAttribute('data-acn-bookmarked', key);
+                    createBookmarkIcon(el, type, key, Math.max(0, _bmGmNavIndex(key, type)), null, {
+                        keyless: false,
+                        // The key the node shows now: its turn's id, while the chat is the one it was
+                        // drawn in (an SPA switch can leave the old turns on screen for a scan).
+                        keyNow: function () {
+                            if (location.pathname !== drawnIn) return null;
+                            var t = gmTurnOf(el);
+                            return t ? (type === 'user-msg' ? t.id : t.id + ':answer') : null;
+                        },
+                        moved: function () { return location.pathname !== drawnIn; },
+                        navIndex: function () { return Math.max(0, _bmGmNavIndex(key, type)); }
+                    });
+                }(pair[k][0], pair[k][1], pair[k][2]));
+            }
+        }
+    }
+
+    // A question through Navigate's jump (gmLandFar); an answer through gmLandFarEl, re-found by its
+    // turn's id, so it lands on that turn after more history loaded above it.
+    function _bmGmJump(bm) {
+        var user = bm.entityType === 'user-msg';
+        if (!bm.msgUuid) { showToast(i18n(user ? 'questionUnresolvedToast' : 'answerUnresolvedToast')); return; }
+        var el = _bmGmElement(bm.msgUuid, bm.entityType);
+        if (!el) {
+            showToast(_bmGmFinal() ? i18n(user ? 'questionUnresolvedToast' : 'answerUnresolvedToast')
+                                   : (i18n('olderHistoryNotLoaded') || 'Older messages are not loaded yet'));
+            return;
+        }
+        if (user) {
+            var qi = _bmGmNavIndex(bm.msgUuid, 'user-msg');
+            if (qi >= 0) { orbScrollToQuestion(_questions[qi]); return; }
+        }
+        orbMarkJumpTarget(el);
+        orbScrollToMessage(el, function () { return _bmGmElement(bm.msgUuid, bm.entityType); });
+    }
+
     // getEl (optional, Claude): re-locates the same message by the caller's own resolver, so a
     // far mounted target lands through ciLandFar instead of gliding (v12.16). Without it, or for
     // a near target, the glide is unchanged.
@@ -11220,7 +11853,7 @@
             setTimeout(function () { n.classList.remove('acn-bm-flash'); }, 1600);
         }
         function doScroll() {
-            if (getEl && ciLandFar(el, getEl, flash)) return;
+            if (getEl && (ciLandFar(el, getEl, flash) || gmLandFarEl(el, getEl, flash))) return;
             // A glide without a landing still supersedes one in flight on Claude, or that
             // landing's next write would pull the view back to its own target (ciLandFar bumps
             // the tokens itself when it is called).
@@ -11314,9 +11947,9 @@
                 if (!node) { _bmFailToast(bookmark); return; }
                 var lp = ciAnswerMap().pathOf[parseInt(rowEl.getAttribute(CI_ROW_ATTR), 10)];
                 if (lp !== null && lp !== undefined && lp !== pathIdx) { _bmFailToast(bookmark); return; }
+                // Landed, not glided (v12.17, DEC-059), as Navigate's, Search's and Summary's settle results.
                 orbMarkJumpTarget(node);
-                node.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
-                orbFlashElement(node);
+                ciLandSettled(node, pathIdx, function (n) { orbMarkJumpTarget(n); orbFlashElement(n); });
             });
             return;
         }
@@ -11347,6 +11980,7 @@
     function orbScrollToBookmark(bookmark) {
         var ixJumpA = ixAdapter();
         if (ixJumpA) { _bmIxJump(ixJumpA, bookmark); return; }       // ChatGPT, Perplexity (v12.15)
+        if (platform && platform.id === 'gemini') { _bmGmJump(bookmark); return; }   // v12.17
         if (bookmark.entityType === 'ai-msg' && ciIsClaudeChat()) { _bmJumpToAnswer(bookmark); return; }
         var targetEl = null;
         var isUser   = bookmark.entityType === 'user-msg';
@@ -11418,9 +12052,9 @@
             if (pathIdx >= 0) {
                 ciJumpToFullPathIndex(pathIdx, function (ok, el, reason) {
                     if (ok && el) {
+                        // Landed, not glided (v12.17, DEC-059).
                         orbMarkJumpTarget(el);
-                        el.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
-                        orbFlashElement(el);
+                        ciLandSettled(el, pathIdx, function (n) { orbMarkJumpTarget(n); orbFlashElement(n); });
                     } else if (reason !== 'superseded' && reason !== 'user') {
                         // Not a failure when the user scrolled or started another jump.
                         _bmFailToast(bookmark);
@@ -11492,7 +12126,11 @@
         }).join('|') + '||g' + _ciIndexGen + '|r' + (ciIsReady() ? 1 : 0) +
             // ChatGPT and Perplexity label from their index (v12.15): a panel drawn before it
             // landed must redraw when it does.
-            '|x' + ixFingerprint() + '|' + (_ix.cid || '');
+            '|x' + ixFingerprint() + '|' + (_ix.cid || '') +
+            // Gemini labels follow the loaded turns and whether the start is loaded (v12.17).
+            (platform && platform.id === 'gemini'
+                ? '|gm' + (gmHistPartial() ? 1 : 0) + ':' + document.querySelectorAll('div.conversation-container').length
+                : '');
         if (bfp === _bmListFingerprint && panel.children.length > 1) return;
         _bmListFingerprint = bfp;
 
@@ -12019,6 +12657,8 @@
         var codeBlocks = [];
         var files      = [];
         var seenFiles  = {};
+        // A block's text with its whitespace folded: the key a mounted copy of a markdown block is matched by.
+        function codeKey(t) { return String(t || '').replace(/\s+/g, ' ').replace(/^ | $/g, ''); }
 
         aiResponses.forEach(function (r, msgIndex) {
             var el = r.element;
@@ -12030,22 +12670,89 @@
                 // Indexed, unmounted: derive from CONTENT. Fenced blocks give the
                 // code inventory; files/attachments metadata gives the file list.
                 var txt = r.text || '';
-                var fenceRe = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, fm;
+                // Blocks read from this answer's markdown, by their whole text, one per occurrence: a mounted
+                // unit's <pre> with the same text is that block, not another (GitHub Codex, PR #92).
+                var mdBlocks = {};
+                // Backtick or tilde fences, each closed by its own kind, with any label to the end of the fence
+                // line, so c++, c# and ~~~ blocks count too (GitHub Codex, PR #92).
+                // Opening and closing fences on their own lines, so a literal ``` inside the code does not end
+                // the block (GitHub Codex, PR #92).
+                // A closing fence may be longer than its opening one, as Markdown allows (GitHub Codex, PR #92).
+                // A fence inside a blockquote carries the quote's `>` prefix on its opening and closing lines;
+                // the closing line must repeat the opening's prefix, and the body loses that many levels, so the
+                // label and the match against a mounted copy read the code itself (GitHub Codex, PR #92).
+                var fenceRe = /(?:^|\n)((?:[ \t]*>)*)[ \t]*(`{3,}|~{3,})([^\n`~]*)\n([\s\S]*?)\n\1[ \t]*\2[`~]*[ \t]*(?=\n|$)/g, fm;
                 while ((fm = fenceRe.exec(txt)) !== null) {
-                    var body = (fm[2] || '').trim();
+                    var body = fm[4] || '';
+                    var qDepth = (fm[1] || '').split('>').length - 1;
+                    if (qDepth) {
+                        body = body.split('\n').map(function (ln) {
+                            for (var qd = 0; qd < qDepth; qd++) ln = ln.replace(/^[ \t]*>[ \t]?/, '');
+                            return ln;
+                        }).join('\n');
+                    }
+                    body = body.trim();
                     if (!body) continue;
                     // Same `label` shape the mounted branch builds — the renderer reads
                     // cb.label, and {language,text} rendered as `undefined` for exactly
                     // the off-screen content this path recovers (Codex R6 :6619).
-                    var lbl = (fm[1] ? fm[1] + ' — ' : '') +
+                    var fl = (fm[3] || '').replace(/^\s+|\s+$/g, '');
+                    var lbl = (fl ? fl + ' — ' : '') +
                               body.split('\n')[0].substring(0, 40);
-                    codeBlocks.push({ label: lbl, element: null, msgIndex: msgIndex, pathIdx: pathIdx });
+                    // jumpRef: ChatGPT's and Perplexity's identity for the click (v12.17, Tier 3 r4).
+                    codeBlocks.push({ label: lbl, element: null, msgIndex: msgIndex, pathIdx: pathIdx, jumpRef: r.jumpRef || null });
+                    mdBlocks[codeKey(body)] = (mdBlocks[codeKey(body)] || 0) + 1;
                 }
+                // ChatGPT and Perplexity answers (they carry a jumpRef) have no node here at all: their markdown
+                // links are read as the DOM branch reads <a href> (GitHub Codex, PR #92).
+                if (r.jumpRef) {
+                    // File names mentioned anywhere in the text, as the DOM branch reads textContent (GitHub
+                    // Codex, PR #92), then the targets of markdown links.
+                    var tMatch = txt.match(FILE_EXTENSION_RE);
+                    for (var tm = 0; tMatch && tm < tMatch.length; tm++) {
+                        if (seenFiles[tMatch[tm]]) continue;
+                        seenFiles[tMatch[tm]] = true;
+                        files.push({ label: tMatch[tm], element: null, msgIndex: msgIndex, pathIdx: pathIdx, jumpRef: r.jumpRef });
+                    }
+                    var linkRe = /\[([^\]]*)\]\(([^)\s]*)[^)]*\)/g, lm;
+                    while ((lm = linkRe.exec(txt)) !== null) {
+                        var lMatch = ((lm[2] || '') + ' ' + (lm[1] || '')).match(FILE_EXTENSION_RE);
+                        for (var lk = 0; lMatch && lk < lMatch.length; lk++) {
+                            if (seenFiles[lMatch[lk]]) continue;
+                            seenFiles[lMatch[lk]] = true;
+                            files.push({ label: lMatch[lk], element: null, msgIndex: msgIndex, pathIdx: pathIdx, jumpRef: r.jumpRef });
+                        }
+                    }
+                }
+                // The answer's mounted units (ChatGPT, Perplexity): blocks and file links the markdown read
+                // missed, indented code among them; each jumps by the answer's jumpRef (GitHub Codex, PR #92).
+                (r.domEls || []).forEach(function (u) {
+                    try {
+                        Array.prototype.forEach.call(u.querySelectorAll('pre'), function (pre) {
+                            var cEl = pre.querySelector('code') || pre;
+                            var raw = (cEl.textContent || '').trim();
+                            var ck = codeKey(raw);
+                            if (!raw) return;
+                            if (mdBlocks[ck] > 0) { mdBlocks[ck]--; return; }   // the markdown's own block, mounted
+                            var lm2 = (cEl.className || pre.className || '').match(/language-(\w+)/);
+                            codeBlocks.push({ label: (lm2 ? lm2[1] + ' \u2014 ' : '') + raw.split('\n')[0].substring(0, 40),
+                                              element: null, msgIndex: msgIndex, pathIdx: pathIdx, jumpRef: r.jumpRef });
+                        });
+                        Array.prototype.forEach.call(u.querySelectorAll('a[href]'), function (a) {
+                            var em = ((a.getAttribute('href') || '') + ' ' + (a.textContent || '').trim()).match(FILE_EXTENSION_RE);
+                            for (var ek = 0; em && ek < em.length; ek++) {
+                                if (seenFiles[em[ek]]) continue;
+                                seenFiles[em[ek]] = true;
+                                files.push({ label: em[ek], element: null, msgIndex: msgIndex, pathIdx: pathIdx, jumpRef: r.jumpRef });
+                            }
+                        });
+                    } catch (e) {}
+                });
                 var metas = (r.files || []).concat(r.attachments || []);
                 for (var mi = 0; mi < metas.length; mi++) {
                     var fn = metas[mi].file_name;
                     if (fn && !seenFiles[fn]) { seenFiles[fn] = true;
-                        files.push({ label: fn, element: null, msgIndex: msgIndex, pathIdx: pathIdx }); }
+                        files.push({ label: fn, element: null, msgIndex: msgIndex, pathIdx: pathIdx, jumpRef: r.jumpRef || null }); }
                 }
                 return;
             }
@@ -12073,7 +12780,7 @@
                     if (preview.length === 60) preview += '...';
                     var label = (lang ? lang.toUpperCase() + ': ' : '') + preview;
                     codeBlocks.push({ label: label, element: pre, msgIndex: msgIndex,
-                                      pathIdx: pathIdx, elKey: _sumElKey(pre) });
+                                      pathIdx: pathIdx, elKey: _sumElKey(pre), jumpRef: r.jumpRef || null });
                 });
             } catch (e) {}
 
@@ -12088,7 +12795,7 @@
                             if (!seenFiles[fname]) {
                                 seenFiles[fname] = true;
                                 files.push({ label: fname, element: a, msgIndex: msgIndex,
-                                             pathIdx: pathIdx, elKey: _sumElKey(a) });
+                                             pathIdx: pathIdx, elKey: _sumElKey(a), jumpRef: r.jumpRef || null });
                             }
                         });
                     }
@@ -12170,13 +12877,33 @@
             return all;
         }
 
+        // ChatGPT and Perplexity (v12.17): the index's order, whole. The DOM branch below put the
+        // mounted messages first and appended the rest. Each entry carries jumpRef, the identity a
+        // click jumps by: a question by its Navigate index, an answer by its key.
+        var conv = ixConversation();
+        if (conv) {
+            var ixA = ixReadyAdapter();
+            for (i = 0; i < conv.length; i++) {
+                var cm = conv[i];
+                var cq = cm.type === 'user' ? _questions[cm.qIdx] : null;
+                var cel = cm.type === 'user' ? (cq && cq.element && cq.element.isConnected ? cq.element : null)
+                                             : (cm.key ? _bmIxFind(ixA, cm.key, 'ai-msg') : null);
+                all.push({ element: cel, text: cm.text || '',
+                           type: cm.type, elKey: _sumElKey(cel),
+                           jumpRef: cm.type === 'user' ? { kind: 'ixq', qIdx: cm.qIdx, id: cq ? cq.ixId : null }
+                                                       : { kind: 'ixa', key: cm.key, qIdx: cm.qIdx } });
+            }
+            all.forEach(function (m, idx) { m.globalIdx = idx; });
+            return all;
+        }
+
         questions.forEach(function (q) {
             all.push({ element: q.element, text: q.text || '', type: 'user',
-                       elKey: _sumElKey(q.element) });
+                       elKey: _sumElKey(q.element), jumpRef: _sumGmRef(q.element, 'user') });
         });
         aiResponses.forEach(function (r) {
             all.push({ element: r.element, text: r.text || '', type: 'ai',
-                       elKey: _sumElKey(r.element) });
+                       elKey: _sumElKey(r.element), jumpRef: _sumGmRef(r.element, 'ai') });
         });
 
         // compareDocumentPosition returns DOCUMENT_POSITION_DISCONNECTED for
@@ -12765,7 +13492,7 @@
         // exactly this conversation and index generation. Travels on the returned data;
         // renderSummaryResults is what commits it, because only a render puts these
         // indices somewhere the user can click.
-        var genStamp = ciIndexStamp();
+        var genStamp = sumIndexStamp();
 
         var aiMsgs;
         if (ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
@@ -12801,6 +13528,27 @@
                               pathIdx: ciEntryRenders(_ciFullPath[fp]) ? fp : null,
                               type: 'ai' });
             }
+        } else if (ixConversation()) {
+            // ChatGPT and Perplexity (v12.17): every answer from the index, its mounted node bound by
+            // its key. v12.16 analysed the mounted answers only: "49 user, 0 AI" on a 49-question
+            // ChatGPT chat, "12 user, 22 AI" on a 12-entry Perplexity thread (Chrome, 2026-11-01).
+            var ixA = ixReadyAdapter();
+            // Every mounted unit of each answer, by its key: the inventory reads them too, for what only the
+            // rendered DOM shows (an indented block, say), on top of the markdown (GitHub Codex, PR #92).
+            var unitsOf = {}, bks = ixA.bookmarkables ? ixA.bookmarkables() : [];
+            for (var ub = 0; ub < bks.length; ub++) {
+                if (bks[ub].type !== 'ai-msg') continue;
+                var uk = ixA.keyOf(bks[ub].el, 'ai-msg');
+                if (uk) (unitsOf[uk] = unitsOf[uk] || []).push(bks[ub].el);
+            }
+            aiMsgs = ixConversation().filter(function (m) { return m.type === 'ai'; }).map(function (m) {
+                // Raw markdown, as Claude's: the code inventory reads its fences (Tier 3 r2). And no mounted
+                // node: a ChatGPT answer can be several units, and a node made the inventory read that one
+                // unit's DOM and drop the fences in the others; with none, every item also carries the
+                // answer's jumpRef, so its click passes the index check (GitHub Codex, PR #92).
+                return { element: null, text: m.text, domEls: (m.key && unitsOf[m.key]) || [],
+                         type: 'ai', jumpRef: { kind: 'ixa', key: m.key, qIdx: m.qIdx } };
+            });
         } else {
             aiMsgs = Array.from(getAIMessages()).map(function (el) {
                 return { element: el, text: _readAIText(el), type: 'ai' };
@@ -12912,12 +13660,61 @@
     function _sumFirstJumpable(msgs) {
         if (!msgs || !msgs.length) return null;
         for (var i = 0; i < msgs.length; i++) {
-            if (typeof msgs[i].pathIdx === 'number' || msgs[i].element) return msgs[i];
+            if (typeof msgs[i].pathIdx === 'number' || msgs[i].element || msgs[i].jumpRef) return msgs[i];
         }
         return msgs[0];
     }
 
-    function _sumScrollToElement(el, pathIdx, elKey) {
+    // A Gemini message's identity for a summary click (v12.17): its turn's id and its side.
+    function _sumGmRef(el, type) {
+        if (!platform || platform.id !== 'gemini') return null;
+        var t = gmTurnOf(el);
+        return t ? { kind: 'gm', turnId: t.id, type: type, path: location.pathname } : null;
+    }
+
+    // jumpRef (v12.17): ChatGPT and Perplexity items jump by the index's identity, Gemini items by
+    // their turn's id, both through the landing their Navigate uses.
+    function _sumJumpRef(jumpRef) {
+        var gone = 'That message is not currently rendered \u2014 scroll toward it and try again';
+        if (jumpRef.kind === 'gm') {
+            // Another chat's summary: its turns can linger in the DOM for a scan after an SPA switch (Tier 3 r3).
+            if (jumpRef.path !== location.pathname) { showToast('Summary is out of date \u2014 regenerate it to jump'); return; }
+            var gt = gmTurnById(jumpRef.turnId);
+            var gEl = gt ? (jumpRef.type === 'user' ? gmQuestionIn(gt) : gmAnswerIn(gt)) : null;
+            if (!gEl) { showToast(gone); return; }
+            if (jumpRef.type === 'user') {
+                for (var k = 0; k < _questions.length; k++) {
+                    var qe = _questions[k].element;
+                    if (qe && (qe === gEl || gEl.contains(qe) || qe.contains(gEl))) { orbScrollToQuestion(_questions[k]); return; }
+                }
+            }
+            orbMarkJumpTarget(gEl);
+            orbScrollToMessage(gEl, function () {
+                var t = gmTurnById(jumpRef.turnId);
+                return t ? (jumpRef.type === 'user' ? gmQuestionIn(t) : gmAnswerIn(t)) : null;
+            });
+            return;
+        }
+        var a = ixReadyAdapter();
+        if (!a || _sumIndexStamp !== ixIndexStamp()) {
+            showToast('Summary is out of date \u2014 regenerate it to jump');
+            return;
+        }
+        if (jumpRef.kind === 'ixq') {
+            var q = _questions[jumpRef.qIdx];
+            if (q && q.ixId === jumpRef.id) { orbScrollToQuestion(q); return; }
+        } else if (jumpRef.key) {
+            _bmIxJump(a, { msgUuid: jumpRef.key, entityType: 'ai-msg' });
+            return;
+        } else if (jumpRef.qIdx >= 0 && _questions[jumpRef.qIdx]) {
+            orbScrollToQuestion(_questions[jumpRef.qIdx]);
+            return;
+        }
+        showToast(gone);
+    }
+
+    function _sumScrollToElement(el, pathIdx, elKey, jumpRef) {
+        if (jumpRef) { _sumJumpRef(jumpRef); return; }
         // A summary is a SNAPSHOT of one index generation, and the panel outlives it.
         // If the conversation changed underneath, or an edit/regenerate resync rebuilt
         // the index, then BOTH halves of every item are stale: the cached element points
@@ -12959,9 +13756,9 @@
             if (indexed) {
                 ciJumpToFullPathIndex(pathIdx, function (ok, jel, reason) {
                     if (ok && jel) {
+                        // Landed, not glided (v12.17).
                         orbMarkJumpTarget(jel);
-                        jel.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
-                        orbFlashElement(jel);
+                        ciLandSettled(jel, pathIdx, function (n) { orbMarkJumpTarget(n); orbFlashElement(n); });
                     } else if (reason !== 'superseded' && reason !== 'user') {
                         showToast('That message is not currently rendered — scroll toward it and try again');
                     }
@@ -12971,6 +13768,16 @@
                 showToast('That message is not currently rendered — scroll toward it and try again');
             }
             return;
+        }
+        // A far mounted item on Claude lands (v12.17), re-found by its path index: the message node,
+        // or the block inside it the item named, while that block is still inside it.
+        if (indexed) {
+            var keepEl = el;
+            orbMarkJumpTarget(el);
+            if (ciLandFar(el, function () {
+                    var lv = ciResolveMountedByPathIndex(pathIdx);
+                    return (lv && keepEl && lv.contains(keepEl)) ? keepEl : lv;
+                }, function (n) { orbMarkJumpTarget(n); orbFlashElement(n); })) return;
         }
         try {
             // Both routes now mark, scroll and flash identically. The flash MUST be
@@ -13145,7 +13952,7 @@
                         subEl.addEventListener('click', function (e) {
                             e.stopPropagation();
                             var firstMsg = _sumFirstJumpable(c.messages);
-                            if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx, firstMsg.elKey);
+                            if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx, firstMsg.elKey, firstMsg.jumpRef);
                         });
                     })(child);
                     // Highlight corresponding snapshot messages on hover
@@ -13169,7 +13976,7 @@
             (function (s) {
                 segEl.addEventListener('click', function () {
                     var firstMsg = _sumFirstJumpable(s.messages);
-                    if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx, firstMsg.elKey);
+                    if (firstMsg) _sumScrollToElement(firstMsg.element, firstMsg.pathIdx, firstMsg.elKey, firstMsg.jumpRef);
                 });
             })(seg);
             // For segments without sub-segments, hovering the block highlights all its messages
@@ -13319,7 +14126,7 @@
                 // from an unmounted response carry element:null, and calling the scroll
                 // helper without the index made every one of them a silent no-op even
                 // though the index can jump straight to its message.
-                item.addEventListener('click', function () { _sumScrollToElement(cb.element, cb.pathIdx, cb.elKey); });
+                item.addEventListener('click', function () { _sumScrollToElement(cb.element, cb.pathIdx, cb.elKey, (cb.element && cb.element.isConnected) ? null : cb.jumpRef); });
                 body.appendChild(item);
             });
         }
@@ -13329,8 +14136,9 @@
             body.appendChild(createElement('div', { className: 'acn-section-title', style: 'cursor:default', textContent: 'Files (' + inventory.files.length + ')' }));
             inventory.files.slice(0, 10).forEach(function (f) {
                 var item = createElement('div', { className: 'acn-code-item', textContent: f.label });
-                if (f.element || typeof f.pathIdx === 'number') {
-                    item.addEventListener('click', function () { _sumScrollToElement(f.element, f.pathIdx, f.elKey); });
+                // jumpRef: ChatGPT's and Perplexity's files have no node or path index (GitHub Codex, PR #92).
+                if (f.element || typeof f.pathIdx === 'number' || f.jumpRef) {
+                    item.addEventListener('click', function () { _sumScrollToElement(f.element, f.pathIdx, f.elKey, (f.element && f.element.isConnected) ? null : f.jumpRef); });
                 }
                 body.appendChild(item);
             });
@@ -13356,6 +14164,9 @@
             container.appendChild(createElement('div', { className: 'acn-sum-empty', textContent: 'No data to display.' }));
             return;
         }
+        // Gemini: a summary of the loaded part only, until the start is loaded (v12.17, Tier 3 r3).
+        var gmNote = gmHistNote();
+        if (gmNote) container.appendChild(gmNote);
 
         var stats = summaryData.stats;
         if (!stats || stats.totalMessages === 0) {
@@ -13448,7 +14259,7 @@
         // derivation nuance.
         if (_sumComputeCache &&
             _sumComputeCache.stamp !== null &&
-            _sumComputeCache.stamp === ciIndexStamp() &&
+            _sumComputeCache.stamp === sumIndexStamp() &&
             _sumComputeCache.provSig === _sumProvSig()) {
             return _sumComputeCache.data;
         }
@@ -13656,14 +14467,235 @@
             });
     }
 
+    // ── The gallery from the index (v12.17) ─────────────────────
+    // Claude, ChatGPT and Perplexity know every image's message from their index, so the gallery
+    // lists them all, a far message's included. The owner's decision (2026-11-01): no new request or
+    // host for it. A card shows a real thumbnail only when the PAGE has already loaded that image,
+    // and otherwise a placeholder with the file name; a click lands on the message.
+    // Each item: { label, name, src (a URL the page loaded, or null), jump() }.
+
+    // An <img> the page itself shows, loaded, whose src passes `test`; never one of our own thumbs.
+    function _galPageSrc(test, scope) {
+        var imgs = (scope || document).querySelectorAll('img');
+        for (var i = 0; i < imgs.length; i++) {
+            var im = imgs[i];
+            if (im.classList.contains('acn-gallery-thumb') || im.closest('#acn-zone')) continue;
+            if (im.complete && im.naturalWidth > 0 && test(im.currentSrc || im.src || '')) return im.currentSrc || im.src;
+        }
+        return null;
+    }
+
+    // A Claude path entry, wherever it is: mounted and far lands, near glides, unmounted through the
+    // settle loop and lands (the routes Summary's items take).
+    function _galClaudeJump(p) {
+        ciSupersedeLanding();
+        var live = ciResolveMountedByPathIndex(p);
+        function done(n) { orbMarkJumpTarget(n); orbFlashElement(n); }
+        if (live) {
+            orbMarkJumpTarget(live);
+            if (ciLandFar(live, function () { return ciResolveMountedByPathIndex(p); }, done)) return;
+            live.scrollIntoView({ behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+            done(live);
+            return;
+        }
+        ciJumpToFullPathIndex(p, function (ok, el, reason) {
+            if (ok && el) { orbMarkJumpTarget(el); ciLandSettled(el, p, done); }
+            else if (reason !== 'superseded' && reason !== 'user') {
+                showToast('That message is not currently rendered \u2014 scroll toward it and try again');
+            }
+        });
+    }
+
+    function orbIndexedImages() {
+        var out = [], i, k;
+        function qLabel(qi) { return qi >= 0 ? 'Q#' + (qi + 1) : i18n('questionUnresolved'); }
+        function aLabel(qi) { return qi >= 0 ? i18n('answerToQuestion', { n: qi + 1 }) : i18n('answerNoQuestion'); }
+        if (ciIsClaudeChat() && ciIsReady() && _ciFullPath) {
+            // Measured (Chrome, 2026-11-01, a 147-question chat): each image is a `files` entry of
+            // file_kind "image" on its message, and the page's own files panel loads its /preview.
+            var byUuid = {}, lastQ = -1;
+            for (i = 0; i < _questions.length; i++) if (_questions[i].uuid) byUuid[_questions[i].uuid] = i;
+            for (var p = 0; p < _ciFullPath.length; p++) {
+                var e = _ciFullPath[p];
+                var qi = (e.sender === 'human' && byUuid.hasOwnProperty(e.uuid)) ? byUuid[e.uuid] : -1;
+                if (e.sender === 'human') lastQ = qi;
+                var files = e.files || [];
+                for (k = 0; k < files.length; k++) {
+                    var f = files[k];
+                    if (!f || f.file_kind !== 'image') continue;
+                    var fid = String(f.file_uuid || f.uuid || '');
+                    (function (pathIdx, q, human, id, name) {
+                        out.push({ label: human ? qLabel(q) : aLabel(q), name: name,
+                                   src: id ? _galPageSrc(function (u) { return u.indexOf('/files/' + id + '/') !== -1; }) : null,
+                                   jump: function () {
+                                       if (human && q >= 0 && _questions[q]) orbScrollToQuestion(_questions[q]);
+                                       else _galClaudeJump(pathIdx);
+                                   } });
+                    }(p, e.sender === 'human' ? qi : lastQ, e.sender === 'human', fid, String(f.file_name || '')));
+                }
+            }
+            return out;
+        }
+        var a = ixReadyAdapter();
+        if (!a || !_ix.images) return null;
+        var root = a.id === 'chatgpt' ? ixGptRoot() : null;
+        var perTurn = {};
+        for (i = 0; i < _ix.images.length; i++) perTurn[_ix.images[i].at] = (perTurn[_ix.images[i].at] || 0) + 1;
+        var seenTurn = {};
+        for (i = 0; i < _ix.images.length; i++) {
+            var im = _ix.images[i], src = null;
+            if (root && IX_UUID_RE.test(im.at || '')) {
+                // ChatGPT shows a mounted turn's images as blob: URLs it made itself (measured, Chrome,
+                // 2026-11-01). Matched by order, only when the turn shows exactly as many as the index
+                // holds: anything else could put one image's picture on another's card.
+                var turn = root.querySelector('[data-turn-key="' + im.at + '"]');
+                if (turn) {
+                    var shown = [], timgs = turn.querySelectorAll('img');
+                    for (k = 0; k < timgs.length; k++) {
+                        var u = timgs[k].currentSrc || timgs[k].src || '';
+                        // blob: only: the page's own decoded copy, never a network URL to fetch again (Tier 3).
+                        if (u.indexOf('blob:') === 0 && timgs[k].complete && timgs[k].naturalWidth > 0) shown.push(u);
+                    }
+                    var nth = seenTurn[im.at] || 0;
+                    if (shown.length === perTurn[im.at] && shown[nth]) src = shown[nth];
+                }
+            }
+            seenTurn[im.at] = (seenTurn[im.at] || 0) + 1;
+            (function (it, thumb) {
+                out.push({ label: it.side === 'user' ? qLabel(it.q) : aLabel(it.q), name: it.name, src: thumb,
+                           jump: function () {
+                               var q = it.q >= 0 ? _questions[it.q] : null;
+                               var akey = _ix.answerAt ? _ix.answerAt[it.at] : null;
+                               if (ixReadyAdapter() && (q || akey)) {
+                                   // An answer's image, or an entry with no listed question (Perplexity, an
+                                   // attachment-only question: Tier 3 r2), goes to the answer by its key.
+                                   if (akey && (it.side === 'ai' || !q)) {
+                                       _bmIxJump(ixReadyAdapter(), { msgUuid: akey, entityType: 'ai-msg' });
+                                   } else if (it.side === 'ai' && q && ixReadyAdapter().id === 'chatgpt') {
+                                       // An answer that is only an image (no text node, so no answer key): to its
+                                       // turn, then its answer unit, landed at its start (GitHub Codex, PR #92).
+                                       var ga = ixReadyAdapter();
+                                       _ixJumpToken++;
+                                       ixJump(ga, q, function (ok) {
+                                           if (!ok) return;
+                                           function unit() {
+                                               var r0 = ixGptRoot(), t0 = r0 && r0.querySelector('[data-turn-key="' + it.at + '"]');
+                                               return t0 ? ixGptAnswerIn(t0) : null;
+                                           }
+                                           if (!unit()) { orbScrollToQuestion(q); return; }
+                                           ixLandOn(ga, unit, { block: 'start' }, function (lok, n) { if (lok && n) { orbMarkJumpTarget(n); orbFlashElement(n); } });
+                                       }, { land: false });
+                                   } else orbScrollToQuestion(q);
+                                   return;
+                               }
+                               showToast('That message is not currently rendered \u2014 scroll toward it and try again');
+                           } });
+            }(im, src));
+        }
+        return out;
+    }
+
+    function _renderIndexedGallery(container, items) {
+        // A card belongs to the index it was drawn from: after a switch or a refetch its message may be
+        // another one, so a click redraws the gallery instead of jumping (Tier 3 r2).
+        var stamp = sumIndexStamp() + '|' + location.pathname;
+        items.forEach(function (it) {
+            var go = it.jump;
+            it.jump = function () {
+                if (sumIndexStamp() + '|' + location.pathname !== stamp) {
+                    renderImageGallery(container);
+                    showToast('Gallery is out of date \u2014 it was refreshed, click again');
+                    return;
+                }
+                go();
+            };
+        });
+        var header = document.createElement('div');
+        header.className = 'acn-tool-section-header';
+        header.textContent = '\uD83D\uDDBC\uFE0F ' + (i18n('imageGallery') || 'Image Gallery') + ' (' + items.length + ')';
+        container.appendChild(header);
+        if (!items.length) {
+            var empty = document.createElement('div');
+            empty.className = 'acn-gallery-empty';
+            empty.textContent = i18n('noImages') || 'No images in this conversation';
+            container.appendChild(empty);
+            return;
+        }
+        var grid = document.createElement('div');
+        grid.className = 'acn-gallery-grid';
+        items.forEach(function (it, i) {
+            var card = document.createElement('div');
+            card.className = 'acn-gallery-card';
+            card.setAttribute('data-acn-gallery-label', it.label);
+            card.setAttribute('data-acn-gallery-thumb', it.src ? 'page' : 'placeholder');
+            var thumb;
+            if (it.src) {
+                thumb = document.createElement('img');
+                thumb.className = 'acn-gallery-thumb';
+                thumb.src = it.src;
+                thumb.alt = it.name || ('Image ' + (i + 1));
+                // A page's blob: URL can be revoked once its turn unmounts: then the name, as below.
+                thumb.addEventListener('error', function () {
+                    var ph = document.createElement('div');
+                    ph.className = 'acn-gallery-thumb-fallback acn-gallery-placeholder';
+                    ph.textContent = '\uD83D\uDDBC\uFE0F ' + (it.name || 'Image');
+                    ph.style.cursor = 'pointer';
+                    ph.addEventListener('click', function () { it.jump(); });
+                    if (thumb.parentNode) thumb.parentNode.replaceChild(ph, thumb);
+                    card.setAttribute('data-acn-gallery-thumb', 'placeholder');
+                });
+            } else {
+                // Not loaded by the page: its name, and nothing is requested for it.
+                thumb = document.createElement('div');
+                thumb.className = 'acn-gallery-thumb-fallback acn-gallery-placeholder';
+                thumb.textContent = '\uD83D\uDDBC\uFE0F ' + (it.name || 'Image');
+                thumb.title = (it.name || 'Image') + ' \u2014 ' + (i18n('goToMessage') || 'Go to message');
+            }
+            thumb.style.cursor = 'pointer';
+            thumb.addEventListener('click', function () { it.jump(); });
+            var label = document.createElement('div');
+            label.className = 'acn-gallery-label';
+            label.textContent = it.label;
+            var actions = document.createElement('div');
+            actions.className = 'acn-gallery-actions';
+            var navBtn = document.createElement('span');
+            navBtn.className = 'acn-gallery-btn';
+            navBtn.textContent = '\u2197';
+            navBtn.title = i18n('goToMessage') || 'Go to message';
+            navBtn.setAttribute('data-acn-role', 'gallery-go');
+            navBtn.addEventListener('click', function (e) { e.stopPropagation(); it.jump(); });
+            actions.appendChild(navBtn);
+            if (it.src) {
+                var dlBtn = document.createElement('span');
+                dlBtn.className = 'acn-gallery-btn';
+                dlBtn.textContent = '\u2B07';
+                dlBtn.title = i18n('downloadImage') || 'Download image';
+                dlBtn.addEventListener('click', function (e) { e.stopPropagation(); downloadImage(it.src, 'image-' + (i + 1)); });
+                actions.appendChild(dlBtn);
+            }
+            card.appendChild(thumb);
+            card.appendChild(label);
+            card.appendChild(actions);
+            grid.appendChild(card);
+        });
+        container.appendChild(grid);
+    }
+
     function renderImageGallery(container) {
         while (container.firstChild) container.removeChild(container.firstChild);
+        var indexed = orbIndexedImages();
+        if (indexed) { _renderIndexedGallery(container, indexed); return; }
         var images = getConversationImages();
+        var galPath = location.pathname;
+        images.forEach(function (im) { im.galPath = galPath; });
         var header = document.createElement('div');
         header.className = 'acn-tool-section-header';
         header.textContent = '\uD83D\uDDBC\uFE0F ' + (i18n('imageGallery') || 'Image Gallery') +
                              ' (' + images.length + ')';
         container.appendChild(header);
+        // Gemini: images of the loaded part only, until the start is loaded (v12.17).
+        var gmNote = gmHistNote();
+        if (gmNote) container.appendChild(gmNote);
         if (images.length === 0) {
             var empty = document.createElement('div');
             empty.className = 'acn-gallery-empty';
@@ -13716,10 +14748,7 @@
                 navBtn.addEventListener('click', (function (data) {
                     return function (e) {
                         e.stopPropagation();
-                        ciSupersedeLanding();
-                        data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        data.msgElement.classList.add('acn-highlight-flash');
-                        setTimeout(function () { data.msgElement.classList.remove('acn-highlight-flash'); }, 1500);
+                        _galGoDom(data);
                     };
                 })(imgData));
             }
@@ -13737,12 +14766,7 @@
             actions.appendChild(dlBtn);
             if (!(imgData.msgIndex === -1 && platform.imagesOrphaned)) {
                 thumb.addEventListener('click', (function (data) {
-                    return function () {
-                        ciSupersedeLanding();
-                        data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        data.msgElement.classList.add('acn-highlight-flash');
-                        setTimeout(function () { data.msgElement.classList.remove('acn-highlight-flash'); }, 1500);
-                    };
+                    return function () { _galGoDom(data); };
                 })(imgData));
             }
             card.appendChild(thumb);
@@ -13751,6 +14775,39 @@
             grid.appendChild(card);
         });
         container.appendChild(grid);
+    }
+
+    // A DOM gallery card's message. Gemini: a question lands through Navigate's jump, an answer
+    // through gmLandFarEl, re-found by its turn's id (v12.17); elsewhere the glide, as before.
+    function _galGoDom(data) {
+        // Drawn for another chat (an SPA switch, the gallery still open): redraw, never jump (Tier 3 r5).
+        if (data.galPath && data.galPath !== location.pathname) {
+            var gs = document.getElementById('acn-gallery-section');
+            if (gs) renderImageGallery(gs);
+            showToast('Gallery is out of date \u2014 it was refreshed, click again');
+            return;
+        }
+        if (platform && platform.id === 'gemini' && data.msgElement) {
+            if (data.isUserMsg) {
+                for (var i = 0; i < _questions.length; i++) {
+                    if (_questions[i].element === data.msgElement) { orbScrollToQuestion(_questions[i]); return; }
+                }
+            }
+            var t = gmTurnOf(data.msgElement);
+            if (t) {
+                var tid = t.id, user = data.isUserMsg;
+                orbMarkJumpTarget(data.msgElement);
+                orbScrollToMessage(data.msgElement, function () {
+                    var tt = gmTurnById(tid);
+                    return tt ? (user ? gmQuestionIn(tt) : gmAnswerIn(tt)) : null;
+                });
+                return;
+            }
+        }
+        ciSupersedeLanding();
+        data.msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        data.msgElement.classList.add('acn-highlight-flash');
+        setTimeout(function () { data.msgElement.classList.remove('acn-highlight-flash'); }, 1500);
     }
 
     function buildTimeline(questions, aiMsgs) {
@@ -13815,6 +14872,7 @@
             // exactly the content those utilities exist to show. Two predicates that
             // disagreed on the same class list; now one.
             if (_isSrOnlyClassList(rawCls)) return true;
+            if (platform && platform.textExclude && node.matches && node.matches(platform.textExclude)) return true;
             var chromeFragments = ['copy-button', 'action-bar', 'toolbar', 'btn', 'button',
                                    'avatar', 'feedback', 'thumb', 'vote', 'tooltip'];
             for (var i = 0; i < chromeFragments.length; i++) {
@@ -14107,12 +15165,103 @@
         showToast('Saved: conversation-export.md (' + (path.length + pending.length) + ' messages)');
     }
 
+    // ChatGPT and Perplexity from their index (v12.17): every question and answer in order, the
+    // header counting exactly what the body holds. v12.16 wrote the DOM scan under an index-counted
+    // header: "Messages: 4 (49 user, 0 AI)" over 4 questions and no answer on ChatGPT, "24 (12 user,
+    // 22 AI)" over 2 questions and 22 answer fragments on Perplexity (Chrome, 2026-11-01).
+    function _exportFromIx() {
+        var conv = ixConversation() || [];
+        var users = 0, ais = 0, i;
+        for (i = 0; i < conv.length; i++) { if (conv[i].type === 'user') users++; else ais++; }
+        // A mounted question the index does not hold: sent after the snapshot. Named, not hidden.
+        var newer = 0, a = ixReadyAdapter(), mounted = a && a.mounted ? a.mounted() : [];
+        for (i = 0; i < mounted.length; i++) if (mounted[i].pos < 0) newer++;
+        var lines = [];
+        lines.push('# Conversation Export');
+        lines.push('**Platform:** ' + platform.title);
+        lines.push('**Date:** ' + new Date().toISOString().split('T')[0]);
+        lines.push('**Messages:** ' + conv.length + ' (' + users + ' user, ' + ais + ' AI)');
+        // An entry whose answer the history holds no text for (an unfinished or failed answer, or a
+        // payload shape this build cannot read): named, not dropped silently (Tier 3).
+        var noText = 0, allAns = _ix.answers || [];
+        for (i = 0; i < allAns.length; i++) if (!(allAns[i].text || '').trim()) noText++;
+        // A listed question with no answer in the loaded history (not answered yet, or still being written
+        // when it was loaded: ChatGPT lists an answer only once it has text), and an answer on screen that
+        // is longer than its loaded text (written since): both named (Tier 3 r2).
+        var answered = {}, unanswered = 0, grown = 0;
+        for (i = 0; i < allAns.length; i++) if (allAns[i].q >= 0) answered[allAns[i].q] = true;   // no-text ones: noText
+        for (i = 0; i < (_ix.entries || []).length; i++) if (!answered[i]) unanswered++;
+        for (i = 0; i < allAns.length; i++) {
+            var mEl = allAns[i].key && a ? _bmIxFind(a, allAns[i].key, 'ai-msg') : null;
+            // The same margin as the index's own staleness rule: a rendered answer carries labels its markdown
+            // has not ("Thought for 21s", code block headers), so a settled 49-question chat read one answer
+            // as "longer than the loaded history" at a 20-char margin (live, Chrome, 2026-11-01).
+            if (mEl && _readAIText(mEl).length > _mdVisible(allAns[i].text || '').length + IX_ANSWER_GROWTH) grown++;
+        }
+        // The latest answer seen changing since the snapshot and not refetched yet: still being written.
+        if (_ix.watchLast && _ix.watchLast.moved && _ix.watchLast.gen === _ix.indexGen && !grown) grown = 1;
+        var partial = _ix.truncated || _ix.refreshFailed || newer || noText || unanswered || grown;
+        lines.push('**Source:** ' + (partial ? 'conversation history (API) \u2014 see warning below'
+                                            : 'complete conversation history (API)'));
+        if (_ix.truncated) {
+            lines.push('');
+            lines.push('> \u26a0 **Incomplete:** only the first ' + _ix.truncated + ' entries of this thread ' +
+                       'were loaded, so later messages are missing.');
+        }
+        if (_ix.refreshFailed) {
+            lines.push('');
+            lines.push('> \u26a0 **This is the last snapshot that loaded successfully.** A refresh failed (' +
+                       _ix.refreshFailed + '), so messages edited or sent since may be missing or out of date.');
+        }
+        if (noText) {
+            lines.push('');
+            lines.push('> \u26a0 **' + noText + ' answer' + (noText !== 1 ? 's have' : ' has') + ' no text in the loaded ' +
+                       'history** (unfinished, failed, or in a form this version cannot read) and ' +
+                       (noText !== 1 ? 'are' : 'is') + ' not in this file.');
+        }
+        if (unanswered) {
+            lines.push('');
+            lines.push('> \u26a0 **' + unanswered + ' question' + (unanswered !== 1 ? 's have' : ' has') + ' no answer in the ' +
+                       'loaded history** (not answered yet, or still being written when it was loaded).');
+        }
+        if (grown) {
+            lines.push('');
+            lines.push('> \u26a0 **' + grown + ' answer' + (grown !== 1 ? 's on screen are' : ' on screen is') + ' longer than the ' +
+                       'loaded history** (still being written when it was loaded): this file has the shorter text. ' +
+                       'Export again once it has finished.');
+        }
+        if (newer) {
+            lines.push('');
+            lines.push('> \u26a0 **' + newer + ' message' + (newer !== 1 ? 's' : '') + ' on screen ' +
+                       (newer !== 1 ? 'are' : 'is') + ' newer than the loaded history** and not in this file. ' +
+                       'Export again in a moment.');
+        }
+        lines.push('');
+        lines.push('---');
+        var qn = 0, an = 0;
+        for (i = 0; i < conv.length; i++) {
+            lines.push('');
+            if (conv[i].type === 'user') { qn++; lines.push('## User (Q#' + qn + ')'); }
+            else                         { an++; lines.push('## Assistant (A#' + an + ')'); }
+            lines.push('');
+            lines.push(conv[i].text || '*(no text content)*');
+            lines.push('');
+            lines.push('---');
+        }
+        downloadFile('conversation-export.md', lines.join('\n'));
+        showToast('Saved: conversation-export.md (' + conv.length + ' messages)');
+    }
+
     function exportFullConversation() {
         try {
         // Prefer the complete index; fall back to the DOM scan, which on a
         // virtualized platform can only see what is mounted.
         if (ciIsClaudeChat() && ciIsReady() && _ciFullPath && _ciFullPath.length) {
             _exportFromIndex();
+            return;
+        }
+        if (ixReadyAdapter() && _ix.entries) {
+            _exportFromIx();
             return;
         }
         var questions = typeof _questions !== 'undefined' ? _questions : [];
@@ -14131,17 +15280,34 @@
         lines.push('# Conversation Export');
         lines.push('**Platform:** ' + platformTitle);
         lines.push('**Date:** ' + dateStr);
+        // The header counts what the body holds (v12.17): the timeline keeps only mounted
+        // questions, so counting _questions claimed messages the file did not have.
+        var tlUsers = 0;
+        for (var tu = 0; tu < timeline.length; tu++) if (timeline[tu].type === 'user') tlUsers++;
         lines.push('**Messages:** ' + timeline.length +
-            ' (' + questions.length + ' user, ' + aiMsgsArr.length + ' AI)');
+            ' (' + tlUsers + ' user, ' + (timeline.length - tlUsers) + ' AI)');
         // Never let a DOM-scraped export imply completeness on a platform that
-        // only mounts a window of the conversation.
-        if (ciIsClaudeChat()) {
+        // only mounts a window of the conversation: Claude, and since v12.17 ChatGPT and
+        // Perplexity, whose index failed or has not loaded yet.
+        var ixD = ixAdapter(), ixOn = !!(ixD && ixD.getConversationId());
+        if (ciIsClaudeChat() || ixOn) {
+            var why = ciIsClaudeChat() ? _ciDegradedReason
+                    : (_ix.status === 'degraded' ? _ix.reason : 'the history is still loading');
             lines.push('**Source:** on-screen messages only — DEGRADED');
             lines.push('');
             lines.push('> \u26a0 **This export is incomplete.** The full conversation history could ' +
-                       'not be loaded' + (_ciDegradedReason ? ' (' + _ciDegradedReason + ')' : '') +
+                       'not be loaded' + (why ? ' (' + why + ')' : '') +
                        ', so only messages currently rendered on screen are included. ' +
-                       'Claude renders roughly 3\u20135 turns at a time.');
+                       (ciIsClaudeChat() ? 'Claude renders roughly 3\u20135 turns at a time.'
+                                         : platform.title + ' shows only part of a long conversation at a time.'));
+        } else if (gmHistPartial()) {
+            // Gemini keeps every turn it has loaded, and loads older ones as the view reaches the
+            // top (DEC-057): until the start is loaded, this file is the latest part only.
+            lines.push('**Source:** the loaded part of the conversation \u2014 see warning below');
+            lines.push('');
+            lines.push('> \u26a0 **Older messages were not loaded.** Gemini loads a long chat\u2019s history ' +
+                       'as you scroll up, so this file starts part-way through the conversation. Scroll to ' +
+                       'the top of the chat until nothing more loads, then export again.');
         }
         lines.push('');
         lines.push('---');
