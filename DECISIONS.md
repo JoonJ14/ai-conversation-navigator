@@ -1266,7 +1266,7 @@ is a live run on the commit actually being shipped.
   wrong, and the honest report is "not reproduced", never a fix asserted on plausibility.
 
 **Addendum — merged before the live confirm, on the owner's explicit call (2026-10-23).** The owner has waived
-this rule eight times:
+this rule nine times:
 - PR #73 (v12.8), merged before its usage-panel confirm;
 - PR #75 (v12.9), merged as `4c72ca9` before its Safari, Firefox and Chrome confirms;
 - PR #78 (v12.10), merged as `166a281` before Safari's ChatGPT and Perplexity check;
@@ -1279,18 +1279,22 @@ this rule eight times:
   reported on any browser. The agent's own live checks in Chrome + Tampermonkey (below) are not acceptance;
 - PR #90 (v12.16), merged 2026-11-01 as `a9ecb14` on the owner's explicit OK, with none of its acceptance steps
   reported on any browser; the owner will run them on the merged build. The agent's live checks and final A/B in
-  Chrome + Tampermonkey (below) are not acceptance.
+  Chrome + Tampermonkey (below) are not acceptance;
+- PR #92 (v12.17), merged 2026-11-04 as `8909d92` (head `2deca12`) on the owner's explicit OK, with none of its
+  acceptance steps reported on any browser; the acceptance is the owner's one combined pass (the spec). The agent's
+  live checks and final A/B in Chrome + Tampermonkey (below) are not acceptance, and the last two code fixes
+  (`7bf5a3d`, `f5e2f52`) were not installed live at all.
 
 A waiver moves the merge, not the debt: each confirm stays owed on the merged build until it is run. Record
 every waiver here, and in the release's CHANGELOG entry.
 
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
-review record. Updated 2026-11-02:
-- **v12.17 (the feature-gaps PR, not merged; Search, Export, Summary and the gallery read the whole conversation,
+review record. Updated 2026-11-04:
+- **v12.17 (PR #92, merged 2026-11-04 as `8909d92` before acceptance, a waiver; Search, Export, Summary and the gallery read the whole conversation,
   Gemini bookmarks by turn id, ChatGPT's jump through history pages; DEC-059).** Owner acceptance on Safari +
-  Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey: **owed**, nothing reported yet. The steps: the PR's
-  first comment.
+  Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey: **owed**, nothing reported yet. The steps, as posted
+  on the PR: https://github.com/JoonJ14/ai-conversation-navigator/pull/92#issuecomment-6567898472
   - **The agent's live check before the PR — not owner acceptance.** Chrome + Tampermonkey, the owner's real profile,
     visible tab, 2026-11-01, 12.17 installed through Tampermonkey's Update (page "Userscript update"; build
     `77fc122b…` as served). Claude (`65dfa4f2`, 147 questions): the gallery listed 7 images as Q#106, Q#107, Q#115,
@@ -4116,7 +4120,7 @@ owner's release rule names which one a release needs.
 ---
 
 ## DEC-059: Every Feature Reads the Whole Conversation; Gemini Bookmarks Key to the Turn (v12.17)
-**Date:** 2026-11-01 | **Stage:** v12.17, the feature-gaps PR (DEC-058's first). The owner's spec and decisions of 2026-11-01.
+**Date:** 2026-11-01 | **Stage:** v12.17, the feature-gaps PR (DEC-058's first). The owner's spec and decisions of 2026-11-01. PR #92, merged 2026-11-04 as `8909d92` before acceptance (a waiver, DEC-031); owner acceptance pending on all three browsers.
 
 ### Decision
 - **Search, Export and Summary read the index on ChatGPT and Perplexity**, as Claude's already did. The adapters keep

@@ -30,17 +30,18 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.17 IN REVIEW (the feature-gaps PR); v12.16 MERGED (PR #90); v12.15 MERGED (PR #88) — live confirmation status: DEC-031
+## Current Status: v12.17 MERGED (PR #92); v12.16 MERGED (PR #90); v12.15 MERGED (PR #88); next: the context meter PR — live confirmation status: DEC-031
 
-**v12.17 (the feature-gaps PR, not merged; DEC-058's first, from the owner's spec of 2026-11-01; DEC-059).** Search,
+**v12.17 (PR #92, merged 2026-11-04 as `8909d92` before acceptance, a waiver; DEC-058's first, from the owner's spec
+of 2026-11-01; DEC-059).** Search,
 Export, Summary and the image gallery read the whole conversation on Claude, ChatGPT, Perplexity and Gemini (Gemini:
 every loaded turn, with the "older messages not loaded" note); the gallery lists every image from the index, a real
 thumbnail only when the page has loaded it, and makes no new request; Gemini bookmarks key to the turn's id; ChatGPT's
 jump waits for the history pages ChatGPT now loads at the top (found while measuring, fixed in the PR on the owner's
 call). **PR #92**: Tier 3 at its 5-round cap, then GitHub Codex's babysit cycle, clean twice on `f5e2f52`; the
 agent's live checks in Chrome + Tampermonkey passed on all four sites before the PR, after the local review and on
-the final build, as an A/B against 12.16 (DEC-031). Owner acceptance on all three browsers is owed, and the merge is
-the owner's.
+the final build, as an A/B against 12.16 (DEC-031). Owner acceptance on all three browsers is owed (the steps:
+PR #92's first comment).
 
 **v12.16 (PR #90, merged 2026-11-01 as `a9ecb14` before acceptance, a waiver; owner acceptance owed on all three
 browsers, DEC-031).**
@@ -51,14 +52,14 @@ with a labelled 200K fallback (DEC-056; step 1 of item 12). The turn dots on Cla
 complete once the history is, and says so while it is not (DEC-057). The agent's live check in Chrome + Tampermonkey
 passed all three (DEC-031). Grok is out of scope (its own PR after the owner's testing).
 
-**Next, in the owner's order (2026-11-01; DEC-058).** No release for v12.15 or v12.16: a release only once every
+**Next, in the owner's order (2026-11-01; DEC-058).** No release for v12.15, v12.16 or v12.17: a release only once every
 platform works on all supported browsers.
-1. **The feature gaps, one PR (priority; the owner writes the spec) — v12.17, above.** In the owner's words: Search, Export, Summary
+1. **The feature gaps, one PR — done: v12.17, above (merged 2026-11-04).** In the owner's words: Search, Export, Summary
    and the image gallery on ChatGPT, Perplexity, Gemini and Claude still read only on-screen messages, and Gemini
    bookmarks are still positional. All of it goes in one PR. Known pieces already logged: Export and Summary drop
    unmounted questions on ChatGPT and Perplexity (item 14), positional Gemini bookmarks (item 13).
-2. **The context meter: make model-dependent limits clear to the user** (item 12), its own PR, after the feature
-   gaps. It starts with a live measurement run by the agent in Chrome: does the navigator see a mid-chat model
+2. **The context meter: make model-dependent limits clear to the user** (item 12), its own PR — **next** (branch
+   `feat/v12.18-context-meter`, which carries the v12.17 handoff). It starts with a live measurement run by the agent in Chrome: does the navigator see a mid-chat model
    change, through the conversation's stored `model` or the composer's model picker? Then the design, chosen by the
    owner from HTML mockups.
 3. **Grok** on all three browsers (item 13), its own PR.

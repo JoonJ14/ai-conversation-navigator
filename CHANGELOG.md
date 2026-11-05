@@ -6,8 +6,9 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.17 — Every Feature Reads the Whole Conversation; Gemini Bookmarks by Turn; ChatGPT's Jump Through History Pages] — 2026-11-01
 
-**Branch:** `feat/v12.17-feature-gaps` | **Code head:** `f5e2f52` | **PR:** #92 | Not merged; owner acceptance owed
-on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey (DEC-047, DEC-031). Diff at `a17413c`
+**Branch:** `feat/v12.17-feature-gaps` | **Code head:** `f5e2f52` | **PR:** #92 | **Merged** 2026-11-04 as `8909d92`
+(head `2deca12`) on the owner's explicit OK, before their acceptance on Safari + Userscripts, Chrome + Tampermonkey
+and Firefox + Tampermonkey (a waiver: every step is still owed on the merged build, DEC-047, DEC-031). Diff at `a17413c`
 against `76fec11`: 16 files, +2,838 / −95.
 
 One combined PR, separate commits per feature, from the owner's spec (2026-11-01; DEC-058's first PR). Platforms in

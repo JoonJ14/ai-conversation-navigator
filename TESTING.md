@@ -1656,6 +1656,14 @@ signature: `Claude`, `Claude Code` and `Claude (virtualized)` fail with `page.go
 `firefox on windows-latest` only; the other eight jobs green. The userscript was byte-identical to the previous
 commit's. One `gh run rerun --failed` went 9/9, and PR #78 merged on that run.
 
+**Fourth occurrence, 2026-11-02: PR #92's docs-only commit `2deca12`; run 41465504011, attempt 1 — and wider.** The
+same opening (`[retry] Claude: first navigation exceeded 20s, retrying at 60s`), then **16 consecutive entries**,
+`Claude` through `Codex Web`, each failing one `No runtime errors` check with `page.goto … interrupted by another
+navigation` in 0.1–1.1 s: "Platforms: 10 passed, 16 failed (26 total); Tests: 154 passed, 16 failed (170 total)",
+the suite cut short. Not three entries, as before: the cascade can run through every entry until one navigation
+wins. The other eight jobs green; the previous commit's identical userscript (`f5e2f52`, run 41458671636) 9/9. One
+`gh run rerun --failed` (after the run completed) went 9/9, and PR #92 merged on that run.
+
 Response when this variant appears: do **not** keep requeuing (three attempts is already past
 useful), and do not read it as a code finding — but do not silently discount it either. Record
 the pass/wedge pairs with their commits, note that a required check is red for environmental
