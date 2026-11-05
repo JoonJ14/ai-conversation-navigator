@@ -35,6 +35,9 @@
        firstDelayMs: delay before the first page renders (default 200), so a script sees 0 then 10
        cv:          the content-visibility model above (default false); cvEstimate: its height (500)
        sameText:    { n: m } turn n asks turn m's question, word for word (v12.17; default none)
+       bigAnswers:  { n: chars } turn n's answer carries one more paragraph of that many characters
+                    (v12.18; default none): input for the context meter's size dots, not a live
+                    measurement
 
      window.__mockGemini:
        loaded()        turns currently in the DOM
@@ -124,6 +127,9 @@
             out += '<p>Answer ' + n + ', part ' + (i + 1) + ': the short version is that the motion is set by ' +
                    'energy and angular momentum, and everything else follows from how those two trade off over ' +
                    'one orbit. A worked example helps more than a formula here, so consider a ball on a string.</p>';
+        }
+        if (cfg.bigAnswers && cfg.bigAnswers[n]) {
+            out += '<p>' + new Array(Math.ceil(cfg.bigAnswers[n] / 10) + 1).join('orbit data').slice(0, cfg.bigAnswers[n]) + '</p>';
         }
         return out;
     }
