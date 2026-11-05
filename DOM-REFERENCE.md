@@ -343,6 +343,23 @@ Every summary is recorded in the conversation JSON `ciLoadIndex` already downloa
   April: 200K (107–279K); June: 201K (197–218K); October, the two on Opus 5.5 (1M): 323K and 333K. By model: Opus
   4.6 (500K in today's table) median 93K (57), Opus 4.7 median 183K (20). Neither a fixed size nor a fixed share of
   today's window; the windows in force then are unknown, and so is the estimate's accuracy (ROADMAP 12, step 2).
+- **Today's figure against the context since the last summary** (v12.18 Phase 1, 2026-11-05, the same context; a replica
+  of the meter's formula that reproduces its "~600.1K" on `ccf551fb` exactly: overhead from the URL, 30K on `/chat/`,
+  not the chat's `project_uuid`; a message with no text block counts its attachments' bodies, as `ciExtractText`):
+
+  | Chat | Window | Summaries | Last at | Today | After the carrier (the spec's text) | With the carrier and its question (built) |
+  |---|---|---|---|---|---|---|
+  | 23f0a483 | 500K | 3 | Q#183/240 | 773.1K | 258K (52%) | 264K (53%) |
+  | e7bb2a99 | 500K | 3 | Q#115/159 | 724.3K | 206K (41%) | 215K (43%) |
+  | f22c4865 | 500K | 5 | Q#116/132 | 696.9K | 127K (25%) | 134K (27%) |
+  | b3c603a4 | 500K | 3 | Q#105/149 | 690.1K | 260K (52%) | 271K (54%) |
+  | c90ff09f | 500K | 3 | Q#113/153 | 662.7K | 201K (40%) | 208K (42%) |
+  | ccf551fb | 500K | 3 | Q#72/90 | 600.1K | 191K (38%) | 227K (45%) |
+  | 3de6c5a9 | 500K | 2 | Q#52/89 | 487.9K | 185K (37%) | — |
+
+  The question that triggered a summary and the answer that carries it stay in the context after it: the owner chose
+  to count them (2026-11-05). The 2026-11-04 screen above used the chat's `project_uuid` for the overhead (50K), which
+  is why it put `ccf551fb` at 620K and `3de6c5a9` over its window.
 
 ### Images and full text for v12.17's features (measured live, Chrome + Tampermonkey (12.16 installed), the owner's profile, visible tab, page realm, 2026-11-01)
 
@@ -585,7 +602,8 @@ DEC-052, DEC-053):**
   answer units mounted. The answer is the outermost `[data-content-search-unit-key$=":assistant"]` of the visible
   timeline. A turn with two shown text nodes can render the first as a turn of its own with no question
   (`data-turn-key="fallback-turn-0"`, Q45 of the 49-question chat): that unit names the first node's id, not the
-  turn's last.
+  turn's last. **Re-measured 2026-11-05** (below, "A fallback turn, re-measured"): on that chat the turn now has one
+  shown text node, so the unit names the turn's only node, the index's key.
 - **Images** are content parts `{ content_type: "image_asset_pointer", asset_pointer: "sediment://file_…" }` with no
   URL; the message's `metadata.attachments` names each by id (3 of 3: `name`, `mime_type`, `width`, `height`). The
   page shows a mounted turn's images as `blob:https://chatgpt.com/<id>` URLs it made itself, and loads none of a turn
@@ -620,6 +638,42 @@ DEC-052, DEC-053):**
   looked for further).
 - **Finding:** no summary mechanism for chats in the loaded code and no marker in the owner's chats; what ChatGPT does
   past the window is invisible to the page.
+
+### Models by mode, and a fallback turn re-measured (v12.18 Phase 1; measured live, Chrome + Tampermonkey (12.17, `a17413c`'s build), the owner's profile, signed in, visible tab, page realm, GET reads only, 2026-11-05)
+
+- **`metadata.model_slug` by mode**, over the final answers (author `assistant`, content `text` or `multimodal_text`,
+  recipient `all`) of 196 of the owner's 299 conversations (the other 103 returned no `mapping`; not looked into).
+  "Thoughts" is the share of answers whose turn has a `thoughts` or `reasoning_recap` node before the answer. No
+  metadata key names a mode: the only mode-like keys are `model_slug`, `default_model_slug`, `model_switcher_deny`.
+
+  | Slug | Answers | Chats | Thoughts | Seen | Mode (owner, 2026-11-05) |
+  |---|---|---|---|---|---|
+  | `gpt-4o` | 601 | 77 | 5% | 2024-05..2025-07 | Instant |
+  | `gpt-4` | 158 | 30 | 0% | 2024-03..2024-05 | Instant |
+  | `gpt-5-1` | 118 | 21 | 2% | 2025-11..2025-12 | Instant |
+  | `gpt-5` | 81 | 19 | 0% | 2025-09..2025-11 | Instant |
+  | `gpt-5-2` | 69 | 13 | 1% | 2025-12..2026-02 | Instant |
+  | `gpt-5-3` | 3 | 2 | 0% | 2026-03 | Instant |
+  | `gpt-6` | 1 | 1 | 0% | 2026-10 | Instant (the owner's call on one answer) |
+  | `gpt-5-2-thinking` | 58 | 4 | 98% | 2026-02 | Thinking |
+  | `gpt-5-4-thinking` | 25 | 5 | 100% | 2026-03..2026-04 | Thinking |
+  | `gpt-5-thinking` | 15 | 2 | 100% | 2025-09 | Thinking |
+  | `gpt-5-1-thinking` | 5 | 5 | 100% | 2025-11..2025-12 | Thinking |
+  | `o3` | 38 | 6 | 100% | 2025-04..2025-05 | Thinking |
+  | `o3-mini-high` | 31 | 6 | 19% | 2025-02..2025-06 | Thinking (by name) |
+  | `o1-preview` / `o1` | 58 / 7 | 16 / 3 | 0% | 2024-09..2025-01 | Thinking (by name: they showed no thoughts) |
+  | `text-davinci-002-render-sha`, none | 32, 2 | 1, 2 | — | 2024-02; 2025-03..2026-02 | unknown |
+
+- **A fallback turn, re-measured.** On the 49-question chat (`69a0c6f8`), Q45's answer is mounted as a turn of its
+  own while Q45's own turn is not: `[data-turn-key="fallback-turn-0"]` > `[data-content-search-turn-key="fallback-turn-0"]`
+  > `div` > `[data-talvt-turn-state="complete"]` > ONE element carrying `data-content-search-unit-key` and
+  `data-chatgpt-search-unit-key` (both `fallback-turn-0:1:assistant`) and `data-chatgpt-search-message-ids` (the node's
+  id, twice); no user bubble; 4,325 characters. Two such wrappers in `main` (the same unit twice); the other 8 mounted
+  turns kept uuid `data-turn-key`s. The turn's data now reads question → `thoughts` → `reasoning_recap` → ONE shown text
+  node (4,497 characters) → Q46: the unit names the turn's only node, which is the index's key, and the navigator's
+  flag there carried that key. **The 2026-11-01 case (the unit naming a first node the index does not key) did not
+  reproduce on this chat today**; both results stand, each in its context. v12.18 keeps the fix for the two-node case
+  (`_bmIxCanon`, `_bmSyncFlags`, `_bmIxCanonicalize`) and gates it on a mock of today's wrapper holding a two-node turn.
 
 ### Historical: Feb 2026 structure (superseded)
 

@@ -772,6 +772,17 @@ Numbering below is stable (items keep their historical numbers):
      - **Sites without a summary marker (decided 2026-11-05, DEC-060):** ChatGPT, a plan setting (a real percentage
        once set); Gemini and Perplexity, a token estimate with no percentage, dots against a 1M reference, and the
        estimate caption (artboard H). Grok in its own PR.
+   - **v12.18 builds this (docs/specs/v12.18-spec.md, Part 1).** Out of its scope, logged here (the spec):
+     - The live `compaction_status` stream event (Chrome only; its wire format unmeasured).
+     - The pre-send preview from the composer's picker (option E).
+     - Displays C (window ruler) and D (three tiers): later candidates.
+     - Step 2, recalibrating the token estimate. The Phase 1 replica (DOM-REFERENCE, Claude, "Compaction") is a
+       starting point: it reproduces the meter exactly, so a recalibration can be measured against it.
+   - **Choices v12.18 made where the spec was silent, for the owner to confirm in acceptance:** ChatGPT's turn dots
+     follow its meter when a percentage shows, and otherwise stay positional as on v12.17 (a 1M scale without the
+     caption read all green past every ChatGPT window: the review, 2026-11-05);
+     Gemini and Perplexity's meter heading reads "Context size", ChatGPT's "Context window". Path B's 85% "Context
+     nearly full" line still never shows (the residual above); the new 95% fallback alert shows on both paths.
 
 **v12.0 Accomplishments (2026-07-26):**
 - **API-Backed Conversation Index (DEC-021):** Claude virtualized its message list with recycling — only ~3 of 147 user turns are mounted at any moment (~3% coverage), so `document.querySelectorAll()` stopped being a complete record of the conversation. Navigate, Search, Summary and Export were all operating on a fraction of the data, and Export was silently writing truncated files under an authoritative-looking message count. Fixed by reading Claude's own conversation JSON endpoint via `GM_xmlhttpRequest` and walking the message tree from `current_leaf_message_uuid` to isolate the active branch. This is an ordinary outbound request, not fetch interception — no Firefox cross-compartment exposure (DEC-019/DEC-020).
