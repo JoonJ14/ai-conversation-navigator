@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Conversation Navigator
 // @namespace    http://tampermonkey.net/
-// @version      12.17
+// @version      12.18
 // @description  Orbital navigation interface for AI chat platforms — Claude, ChatGPT, Grok, Gemini, Bolt, Lovable, Replit, V0, Base44, Emergent, Perplexity, and Firebase Studio
 // @match        https://claude.ai/*
 // @match        https://chatgpt.com/*
@@ -51,7 +51,7 @@
     // ============================================================
     // VERSION
     // ============================================================
-    var ACN_VERSION = '12.17';
+    var ACN_VERSION = '12.18';
 
     // ============================================================
     // i18n — internationalization string table
@@ -476,6 +476,9 @@
         orbMode: 'show-all',
         scrollInverted: false,
         language: 'en',
+        // The user's ChatGPT plan, for the context meter's window (v12.18, DEC-060): '' (not
+        // set), 'free', 'go', 'plus' or 'pro'. Never guessed: the meter trusts the last pick.
+        chatgptPlan: '',
         platforms: {
             claude: true,
             chatgpt: true,
@@ -497,6 +500,9 @@
         if (stored.orbMode) settings.orbMode = stored.orbMode;
         if (stored.scrollInverted !== undefined) settings.scrollInverted = stored.scrollInverted;
         if (stored.language) settings.language = stored.language;
+        // Copied explicitly like the rest: a field loadSettings drops is erased by the next
+        // saveSettings of a copy it returned (the language and platform toggles save one).
+        if (/^(free|go|plus|pro)$/.test(stored.chatgptPlan || '')) settings.chatgptPlan = stored.chatgptPlan;
         if (stored.platforms) {
             Object.keys(stored.platforms).forEach(function (key) {
                 settings.platforms[key] = stored.platforms[key];
@@ -2269,7 +2275,9 @@
                 thinkSummaries: ciExtractThinkingSummaries(path[p]),
                 truncated: !!path[p].truncated,
                 files:     path[p].files || [],
-                attachments: path[p].attachments || []
+                attachments: path[p].attachments || [],
+                // claude.ai's summary of the messages before this one (v12.18, DEC-060), or -1.
+                summaryChars: ciSummaryChars(path[p])
             });
         }
 
@@ -2876,7 +2884,7 @@
         var top = ids.length ? m[ids[ids.length - 1]] : null;
         if (n || (n === undefined && top && top.message)) throw new Error('unexpected response shape');
         ids.reverse();
-        var out = [], turnQ = -1, turnAt = null, shown = null, texts = [], shownIds = [];
+        var out = [], turnQ = -1, turnAt = null, shown = null, texts = [], shownIds = [], slug = '';
         // v12.17: an answer also carries its TEXT (every node the page shows as the turn's text,
         // in order: a tool turn shows text, a tool call, then text) and `pos`, its place in the
         // list's order: just after its question, or after the last listed question when its own
@@ -2886,12 +2894,15 @@
                 // ids: every shown node of the turn. The page can render an earlier one as a turn of its
                 // own with no question (live: data-turn-key="fallback-turn-0" holding Q45's first text
                 // node, Chrome, 2026-11-01), so a mounted unit may name any of them.
+                // slug: the model that wrote the turn's last shown node (metadata.model_slug), for
+                // the context meter's mode (v12.18, DEC-060); '' when the message names none.
                 answers.push({ key: shown, q: turnQ, at: turnAt, text: texts.join('\n\n'),
-                               pos: (turnQ >= 0 ? turnQ : out.length - 1) + 0.5, ids: shownIds });
+                               pos: (turnQ >= 0 ? turnQ : out.length - 1) + 0.5, ids: shownIds, slug: slug });
             }
             shown = null;
             texts = [];
             shownIds = [];
+            slug = '';
         }
         for (var i = 0; i < ids.length; i++) {
             var msg = m[ids[i]] && m[ids[i]].message;
@@ -2899,6 +2910,7 @@
             if (msg.author.role === 'assistant' || msg.author.role === 'tool') {
                 if (msg.author.role === 'assistant' && turnAt !== null && ixGptShownText(msg)) {
                     shown = ids[i]; texts.push(ixGptText(msg)); shownIds.push(ids[i]);
+                    slug = (msg.metadata && typeof msg.metadata.model_slug === 'string') ? msg.metadata.model_slug : '';
                 }
                 // A generated image arrives in a tool message of the turn.
                 if (turnAt !== null && !(msg.metadata && msg.metadata.is_visually_hidden_from_conversation)) {
@@ -3675,6 +3687,8 @@
                          ixPosition: e.position, ixId: e.id };
             });
             _aiResponses = Array.from(getAIMessages());
+            _bmIxCanonicalize();
+            orbCtxTrack();   // the ChatGPT meter's notices, while Navigate is closed too (v12.18)
             if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
             if (typeof orbOnScanComplete === 'function') orbOnScanComplete();
             // A mounted question the index does not know: a new message, an edit or a
@@ -4221,10 +4235,48 @@
     // Total characters across the whole active path. Replaces reading innerText
     // off the scroll container, which on a virtualized list only ever sees the
     // mounted window.
-    function ciTotalChars() {
+    function ciTotalChars() { return ciCharsFrom(0); }
+    function ciTotalThinkingChars() { return ciThinkingCharsFrom(0); }
+
+    // ── Summaries (compaction), v12.18 (DEC-060) ────────────────
+    // claude.ai summarizes earlier messages when a chat grows long and records each summary on
+    // the assistant message where it happened: `compaction_summary`, a one-element array holding
+    // a text block (87 of 87 in the owner's 236 chats, Chrome + Tampermonkey, 2026-11-04;
+    // DOM-REFERENCE, Claude, "Compaction"). It carries no token count. A message without one: -1.
+    function ciSummaryChars(msg) {
+        var cs = msg && msg.compaction_summary;
+        if (!Array.isArray(cs) || !cs.length) return -1;
+        var n = 0;
+        for (var i = 0; i < cs.length; i++) {
+            if (cs[i] && typeof cs[i].text === 'string') n += cs[i].text.length;
+        }
+        return n;
+    }
+
+    // The summaries on the active path: { n, at, from, chars, q }. `at` is the path index of the
+    // last one's message; `from` is where the context counted after it starts: the question that
+    // triggered it, which stays in the context with its answer (owner's call, 2026-11-05: the
+    // answer and its question are context after the summary). `q` is that question's Navigate
+    // number (Q#q), counted over the index's questions. n === 0: no summary, from 0.
+    function ciCompaction() {
+        var none = { n: 0, at: -1, from: 0, chars: 0, q: 0 };
+        if (!ciIsReady() || !_ciFullPath) return none;
+        var n = 0, at = -1, i;
+        for (i = 0; i < _ciFullPath.length; i++) {
+            if (_ciFullPath[i].summaryChars >= 0) { n++; at = i; }
+        }
+        if (at < 0) return none;
+        var from = (at > 0 && _ciFullPath[at - 1].sender === 'human') ? at - 1 : at;
+        var q = 0;
+        for (i = 0; i < _ciIndex.length; i++) if (_ciIndex[i].pathIndex <= from) q++;
+        return { n: n, at: at, from: from, chars: _ciFullPath[at].summaryChars, q: q };
+    }
+
+    // ciTotalChars from path index `start` on (0: the whole history).
+    function ciCharsFrom(start) {
         if (!ciIsReady() || !_ciFullPath) return 0;
         var n = 0;
-        for (var i = 0; i < _ciFullPath.length; i++) {
+        for (var i = Math.max(0, start || 0); i < _ciFullPath.length; i++) {
             var e = _ciFullPath[i];
             n += (e.text || '').length + (e.toolChars || 0);
             // "summarize this" + an uploaded document consumes the document's context
@@ -4240,10 +4292,10 @@
         return n;
     }
 
-    function ciTotalThinkingChars() {
+    function ciThinkingCharsFrom(start) {
         if (!ciIsReady() || !_ciFullPath) return 0;
         var n = 0;
-        for (var i = 0; i < _ciFullPath.length; i++) n += (_ciFullPath[i].thinkingChars || 0);
+        for (var i = Math.max(0, start || 0); i < _ciFullPath.length; i++) n += (_ciFullPath[i].thinkingChars || 0);
         return n;
     }
 
@@ -6842,6 +6894,7 @@
                 indexed.sort(function (a, b) { return a.pathIndex - b.pathIndex; });
                 _ciBindMountedElements(indexed);
                 _questions = indexed;
+                orbCtxTrack();   // notices see a refetch while Navigate is closed too (v12.18)
 
                 // MIGRATION RUNS AFTER _questions IS INSTALLED. _bmDisplayOrdinal numbers a
                 // HUMAN bookmark by its position in _questions (so the badge agrees with the
@@ -7284,8 +7337,8 @@
     // Claude", which covers Pro, Max, Ultra, Team and Enterprise: "Outside of these models,
     // Claude's context window size is 200K". It gives no per-model figure for the Free plan, and
     // the API's windows differ (several are 1M there and 500K here). A model this table does not
-    // know (a newer one, or none in the payload) reads the smallest window, and the meter says the
-    // limit is assumed.
+    // list reads 200K, the page's rule for every other model; only a chat with no model in the
+    // payload reads an ASSUMED 200K, and the meter says so (v12.18).
     var CLAUDE_CTX_BY_MODEL = {
         'claude-fable-5-1':  1000000, 'claude-fable-5':    500000,
         'claude-opus-5-5':   1000000, 'claude-opus-5':     1000000,
@@ -7295,15 +7348,36 @@
     };
     var CLAUDE_CTX_FALLBACK = 200000;
 
-    // { limit, model, known }: known is true only for a model in the table. A dated id
-    // (claude-x-y-YYYYMMDD) is looked up without its date.
+    // The meter's label names the model (v12.18, DEC-060, display A). Keys are dateless API ids;
+    // an id not listed shows as the id itself.
+    var CLAUDE_MODEL_NAMES = {
+        'claude-fable-5-1': 'Fable 5.1', 'claude-fable-5': 'Fable 5',
+        'claude-opus-5-5': 'Opus 5.5', 'claude-opus-5': 'Opus 5',
+        'claude-opus-4-8': 'Opus 4.8', 'claude-opus-4-7': 'Opus 4.7', 'claude-opus-4-6': 'Opus 4.6',
+        'claude-opus-4-5': 'Opus 4.5', 'claude-opus-4-1': 'Opus 4.1', 'claude-opus-4': 'Opus 4',
+        'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-sonnet-5': 'Sonnet 5', 'claude-sonnet-4-6': 'Sonnet 4.6',
+        'claude-sonnet-4-5': 'Sonnet 4.5', 'claude-sonnet-4': 'Sonnet 4',
+        'claude-haiku-5-5': 'Haiku 5.5', 'claude-haiku-4-5': 'Haiku 4.5',
+        'claude-3-opus': 'Opus 3', 'claude-opus-3': 'Opus 3', 'claude-3-7-sonnet': 'Sonnet 3.7',
+        'claude-3-5-sonnet': 'Sonnet 3.5', 'claude-3-5-haiku': 'Haiku 3.5'
+    };
+    function orbClaudeModelName(id) {
+        if (!id) return '';
+        var key = id.replace(/-[0-9]{8}$/, '');
+        return Object.prototype.hasOwnProperty.call(CLAUDE_MODEL_NAMES, key) ? CLAUDE_MODEL_NAMES[key] : id;
+    }
+
+    // { limit, model, known }. A dated id (claude-x-y-YYYYMMDD) is looked up without its date.
+    // known: the conversation names a model. Its window is the table's, else 200K: the help
+    // center's "Outside of these models, Claude's context window size is 200K" (Opus 3, for
+    // example). Only an unidentified model is an ASSUMED 200K (v12.18, the owner's spec).
     function orbClaudeCtxLimit() {
         var m = (ciIsClaudeChat() && ciIsReady() && typeof _ciModel === 'string') ? _ciModel : null;
         var key = m ? m.replace(/-[0-9]{8}$/, '') : null;
         if (key && Object.prototype.hasOwnProperty.call(CLAUDE_CTX_BY_MODEL, key)) {
             return { limit: CLAUDE_CTX_BY_MODEL[key], model: m, known: true };
         }
-        return { limit: CLAUDE_CTX_FALLBACK, model: m, known: false };
+        return { limit: CLAUDE_CTX_FALLBACK, model: m, known: !!m };
     }
 
     // 1000000 -> '1M', 500000 -> '500K' (a 1M window used to read "1000K").
@@ -8219,6 +8293,24 @@
             '.acn-ctx-warn{font-size:10px;color:#f87171;margin-top:3px}',
             '.acn-ctx-dots{display:flex;gap:3px;margin-top:5px;flex-wrap:wrap}',
             '.acn-ctx-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}',
+            // v12.18 (DEC-060): the label, summaries, plan control, alert, notices and caption
+            '.acn-ctx-model{font-size:10.5px;color:#bbb;margin-top:4px}',
+            '.acn-ctx-sum{font-size:10px;color:#a478f0;margin-top:2px}',
+            '.acn-ctx-plan{font-size:10px;color:#8ab4f8;margin-top:3px;cursor:pointer;display:inline-block}',
+            '.acn-ctx-plan:hover{text-decoration:underline}',
+            '.acn-ctx-alert{font-size:10px;color:#f87171;margin-top:4px;line-height:1.4}',
+            '.acn-ctx-notices{margin-top:6px;display:flex;flex-direction:column;gap:4px}',
+            '.acn-ctx-notice{display:flex;gap:6px;align-items:flex-start;font-size:10.5px;line-height:1.4;' +
+                'color:#d8c7ff;background:rgba(164,120,240,.10);border:1px solid rgba(164,120,240,.35);' +
+                'border-radius:4px;padding:5px 7px}',
+            '.acn-ctx-notice span{flex:1}',
+            '.acn-ctx-notice-x{background:none;border:0;color:#8f7bbd;cursor:pointer;font-size:11px;padding:0;line-height:1}',
+            '.acn-ctx-hist{font-size:10px;color:#999;margin-top:3px}',
+            '.acn-ctx-caption{font-size:10px;color:#888;margin-top:5px;line-height:1.4}',
+            '.acn-qtag{margin-left:6px;font-size:9px;color:#a478f0;border:1px solid rgba(164,120,240,.45);' +
+                'border-radius:3px;padding:0 4px;text-transform:uppercase;letter-spacing:.3px}',
+            '.acn-sum-divider{font-size:10px;color:#a478f0;text-align:center;margin:6px 14px;padding-top:4px;' +
+                'border-top:1px dashed rgba(164,120,240,.45)}',
             // Settings panel additions (Group C)
             '.acn-toggle-locked{opacity:.4;cursor:not-allowed}',
             '.acn-plat-lock{font-size:10px;margin-left:4px;vertical-align:middle}',
@@ -8717,7 +8809,7 @@
         // unconditionally: the panel sits inside document.body, so a redraw schedules the
         // next scan, and that scan the next redraw (v12.11).
         if (fp === _navListFingerprint && list.firstChild) {
-            if (_turnCounterSig() !== _ctxDrawnTurns) orbUpdateContextBar();
+            if (_turnCounterSig() !== _ctxDrawnTurns || orbCtxSizeSig() !== _ctxDrawnSize) orbUpdateContextBar();
             return;
         }
         _navListFingerprint = fp;
@@ -8745,8 +8837,26 @@
             stat.setAttribute('data-acn-count', String(_questions.length));
         }
 
+        // Claude's last summary (v12.18, DEC-060): questions before the question that triggered it
+        // reach Claude only through the summary; a divider marks the point. Navigate's list only.
+        var sumFrom = -1, dividerDrawn = false, anySummarized = false;
+        if (platform.id === 'claude' && ciIsReady()) {
+            var comp = ciCompaction();
+            if (comp.n) sumFrom = comp.from;
+        }
+
         _questions.forEach(function (q, idx) {
             var words = q.text.split(/\s+/).length;
+            var summarized = sumFrom >= 0 && typeof q.pathIndex === 'number' && q.pathIndex < sumFrom;
+            if (summarized) anySummarized = true;
+            if (anySummarized && !summarized && !dividerDrawn && typeof q.pathIndex === 'number') {
+                dividerDrawn = true;
+                var div = createElement('div', { className: 'acn-sum-divider',
+                    textContent: 'Summarized above \u00b7 word for word below' });
+                div.setAttribute('data-acn-role', 'summary-divider');
+                div.setAttribute('data-acn-before', String(idx + 1));
+                list.appendChild(div);
+            }
 
             var numEl  = createElement('div', { className: 'acn-qn', textContent: 'Q#' + (idx + 1) });
             var textEl = createElement('div', { className: 'acn-qt', textContent: q.summary });
@@ -8755,8 +8865,14 @@
             }
             textEl.setAttribute('data-acn-role', 'nav-item-text');
             var metaEl = createElement('div', { className: 'acn-qw', textContent: words + ' words' });
+            if (summarized) {
+                var tag = createElement('span', { className: 'acn-qtag', textContent: 'summary' });
+                tag.setAttribute('data-acn-role', 'summary-tag');
+                metaEl.appendChild(tag);
+            }
             var item   = createElement('div', { className: 'acn-qi' }, [numEl, textEl, metaEl]);
             item.setAttribute('data-acn-role', 'nav-item');
+            if (summarized) item.setAttribute('data-acn-summarized', 'true');
 
             item.addEventListener('click', function () {
                 orbScrollToQuestion(q);
@@ -8776,6 +8892,7 @@
         var meta = document.getElementById('acn-ctx-meta');
         if (!pct || !fill) return;
         _ctxDrawnTurns = _turnCounterSig();
+        _ctxDrawnSize = orbCtxSizeSig();
 
         var limit = (typeof CTX_LIMITS !== 'undefined' && platform && CTX_LIMITS[platform.id])
                     ? CTX_LIMITS[platform.id]
@@ -8803,11 +8920,15 @@
             // The old coverage correction could not save it either: _questions was
             // rebuilt from live DOM on every scan, so nInDOM always equalled
             // _questions.length and coverage was always exactly 1.0.
+            // v12.18 (DEC-060): after a summary, the context is the summary plus what follows it
+            // (ciCompaction); the whole history is shown beside it, not as the percentage.
+            var comp = ciCompaction();
             var domChars = 0;
-            var domTokens;
+            var domTokens, wholeTokens;
             if (ciIsReady()) {
-                domChars  = ciTotalChars();
+                domChars  = comp.n ? ciCharsFrom(comp.from) + comp.chars : ciTotalChars();
                 domTokens = Math.round(domChars / 4);
+                wholeTokens = Math.round(ciTotalChars() / 4);
             } else {
                 var scrollNode = ciFindScrollContainer();
                 if (scrollNode) domChars = (scrollNode.innerText || '').length;
@@ -8819,6 +8940,7 @@
                 }).length;
                 var coverage = nInDOM / Math.max(1, _questions.length);
                 domTokens = Math.round((domChars / 4) / Math.max(0.25, coverage));
+                wholeTokens = domTokens;
             }
 
             // ── SSE: cumulative thinking tokens (invisible in DOM) ──────
@@ -8837,9 +8959,11 @@
             // Add only the SSE growth SINCE the index was built. A refetch re-baselines, so
             // thinking that has been absorbed into the index is never counted twice.
             var thinkChars = _sseTokenData.cumulativeThinkingChars || 0;
+            var wholeThink = thinkChars;
             if (ciIsReady()) {
-                thinkChars = ciTotalThinkingChars() +
-                             Math.max(0, thinkChars - _sseThinkAtIndex);
+                var sseGrowth = Math.max(0, thinkChars - _sseThinkAtIndex);
+                wholeThink = ciTotalThinkingChars() + sseGrowth;
+                thinkChars = (comp.n ? ciThinkingCharsFrom(comp.from) : ciTotalThinkingChars()) + sseGrowth;
             }
             var thinkingTokens = Math.round(thinkChars / 4);
 
@@ -8850,6 +8974,7 @@
 
             // ── Total ───────────────────────────────────────────────────
             var totalTok = domTokens + thinkingTokens + systemOverhead;
+            var wholeTok = wholeTokens + Math.round(wholeThink / 4) + systemOverhead;
             var pctNum   = Math.min(100, Math.round((totalTok / limit) * 100));
             var color    = getBarColor(pctNum);
 
@@ -8870,8 +8995,10 @@
 
             // ── Also render turn dots + compaction info below the bar ───
             _ctxDrawnPct = pctNum;
+            _ctxDotMode = 'meter';
+            var alerted = orbRenderClaudeExtras(pct, ctxInfo, comp, totalTok, wholeTok);
             _renderTurnDots();
-            _renderCompactionInfo(pctNum);
+            _renderCompactionInfo(alerted ? 0 : pctNum);
             return;
         }
 
@@ -8879,15 +9006,37 @@
         // (Firefox: SSE interception disabled due to sandbox contamination — DEC-020)
         // (Chrome: SSE data not yet received, e.g. page just loaded)
         if (platform && platform.id === 'claude') {
-            _renderEstimatedBar(pct, fill, meta, limit, ctxInfo);
+            var est = _renderEstimatedBar(pct, fill, meta, limit, ctxInfo);
+            _ctxDotMode = 'meter';
+            orbRenderClaudeExtras(pct, ctxInfo, est.comp, est.eff, est.whole);
             _renderTurnDots();
             _renderCompactionInfo(0);
+            return;
+        }
+
+        // ── ChatGPT: the window from the user's plan and the answer's mode (v12.18, DEC-060) ──
+        if (platform && platform.id === 'chatgpt' && _questions.length) {
+            orbRenderGptMeter(pct, fill, meta);
+            _renderTurnDots();
+            _renderTurnCompactionInfo();
+            return;
+        }
+
+        // ── Gemini, Perplexity: a size estimate, no window (v12.18, DEC-060) ──
+        if (platform && CTX_SIZE_ONLY.indexOf(platform.id) !== -1 && _questions.length) {
+            orbRenderSizeMeter(pct, fill, meta);
+            _renderTurnDots();
+            _renderTurnCompactionInfo();
             return;
         }
 
         // ── Path C: Non-Claude — turn dots only ───────────────
         // DOM-based token estimation is too inaccurate (15-20x undercount).
         // Turn dots with weighted-average compaction prediction are more honest.
+        // No question (yet): none of the v12.18 lines apply.
+        _ctxDotMode = null;
+        _ctxDotSizes = null;
+        CTX_LINE_ORDER.forEach(function (id) { orbCtxSetLine(id, '', ''); });
         if (_questions.length === 0) {
             pct.textContent  = '\u2014';
             pct.style.color  = '';
@@ -8908,16 +9057,18 @@
 
     function _renderEstimatedBar(pct, fill, meta, limit, ctxInfo) {
         var totalChars = 0;
-        var estTokens;
+        var estTokens, wholeTokens = null;
         var node  = null;
         var found = false;
+        var comp  = ciCompaction();   // as in Path A (v12.18): counted from the last summary
 
         // Same correction as Path A — see the comment there. On Firefox this is the
         // ONLY path (SSE interception is disabled per DEC-020), so the undercount
         // was permanent for Firefox users.
         if (ciIsReady()) {
-            totalChars = ciTotalChars();
+            totalChars = comp.n ? ciCharsFrom(comp.from) + comp.chars : ciTotalChars();
             estTokens  = Math.round(totalChars / 4);
+            wholeTokens = Math.round(ciTotalChars() / 4);
             node       = ciFindScrollContainer();
             found      = !!node;
         } else {
@@ -8939,7 +9090,8 @@
         if (platform && platform.id === 'claude' && ciIsReady()) {
             // Real thinking content from the index — no heuristic needed.
             estTokens += _estimateClaudeOverhead();
-            estTokens += Math.round(ciTotalThinkingChars() / 4);
+            estTokens += Math.round((comp.n ? ciThinkingCharsFrom(comp.from) : ciTotalThinkingChars()) / 4);
+            wholeTokens += _estimateClaudeOverhead() + Math.round(ciTotalThinkingChars() / 4);
         } else if (platform && platform.id === 'claude' && found && node) {
             estTokens += _estimateClaudeOverhead();
             var uiKw = ['hide','show','expand','collapse','menu','chat','chats','project','artifact','recent','starred'];
@@ -8967,6 +9119,427 @@
                                ((ctxInfo && !ctxInfo.known) ? ', limit assumed)' : ')');
             meta.style.color = '#666';
         }
+        return { comp: comp, eff: estTokens, whole: wholeTokens === null ? estTokens : wholeTokens };
+    }
+
+    // ── The meter's extra lines (v12.18, DEC-060) ───────────────
+    // Created under the meta line in this order, each only while it has something to say, and
+    // written only when its text changes: every write is a mutation, and each mutation schedules
+    // a scan (startMessageObserver), which redraws the meter only when the turn counter changed.
+    var CTX_LINE_ORDER = ['acn-ctx-model', 'acn-ctx-sum', 'acn-ctx-plan', 'acn-ctx-alert',
+                          'acn-ctx-notices', 'acn-ctx-hist', 'acn-ctx-caption'];
+    function orbCtxLine(id, cls) {
+        var el = document.getElementById(id);
+        if (el) return el;
+        var meta = document.getElementById('acn-ctx-meta');
+        if (!meta || !meta.parentNode) return null;
+        var anchor = meta, idx = CTX_LINE_ORDER.indexOf(id);
+        for (var i = 0; i < idx; i++) {
+            var prev = document.getElementById(CTX_LINE_ORDER[i]);
+            if (prev && prev.parentNode === meta.parentNode) anchor = prev;
+        }
+        el = document.createElement('div');
+        el.id = id;
+        el.className = cls;
+        meta.parentNode.insertBefore(el, anchor.nextSibling);
+        return el;
+    }
+    // text '' removes the line.
+    function orbCtxSetLine(id, cls, text) {
+        if (!text) {
+            var old = document.getElementById(id);
+            if (old) old.remove();
+            return null;
+        }
+        var el = orbCtxLine(id, cls);
+        if (el && el.textContent !== text) el.textContent = text;
+        return el;
+    }
+
+    // 191400 -> '191K', 1250000 -> '1.25M': the notices' short token figures.
+    function orbFmtTok(n) {
+        if (n >= 1000000) return (Math.round(n / 10000) / 100) + 'M';
+        return Math.round(n / 1000) + 'K';
+    }
+    function orbCtxPct(tok, limit) { return Math.min(100, Math.round(tok / limit * 100)); }
+
+    // ── Notices (v12.18): a model or window change, a new summary ──
+    // For the open page and its conversation only: a reload or a switch to another conversation
+    // starts again with none (the owner's spec). Each is dismissed with its ✕. _ctxSeen holds what
+    // was last seen for the conversation `cid` (the URL's, ready or not, so one conversation's
+    // notices never show in the next while its index loads) and `pending`: changes seen but not
+    // yet written as notices (orbCtxTrack).
+    var _ctxNotices = [];
+    var _ctxNoticeSeq = 0;
+    var _ctxSeen = { cid: null, pending: [] };
+    function orbCtxSeenFor(cid) {
+        if (_ctxSeen.cid !== cid) {
+            _ctxSeen = { cid: cid, pending: [] };
+            _ctxNotices = [];
+        }
+        return _ctxSeen;
+    }
+
+    // Compares what the page holds now with what was last seen, on every scan that finds a ready
+    // index as well as on every draw: the meter is drawn by scans only while Navigate is open, and
+    // a change made while it was closed must not become the next draw's baseline unnoticed
+    // (Codex, Tier 3 round 1). A change is queued in `pending`; the draw writes its text with the
+    // context it has then. The first look at a conversation records, and never queues.
+    //   Claude: its model (the stored model follows the next message sent: DOM-REFERENCE, Claude,
+    //   measured 2026-11-04) and its number of summaries.
+    //   ChatGPT: the plan setting (on or off a ready index) and the newest answer's mode, compared on
+    //   ready indexes only, and only once the chat had an answer (its first answer is not a change).
+    //   An unknown mode counts: it takes the percentage away (Codex, Tier 3 round 2).
+    function orbCtxTrack() {
+        if (!platform) return;
+        if (platform.id === 'claude') {
+            var seen = orbCtxSeenFor(ciGetConversationUuid() || '');
+            if (!ciIsReady()) return;
+            var info = orbClaudeCtxLimit(), comp = ciCompaction();
+            if (seen.model && info.model && seen.model !== info.model) {
+                seen.pending.push({ kind: 'model', from: seen.model, fromLimit: seen.limit,
+                                    to: info.model, toLimit: info.limit });
+            }
+            if (typeof seen.n === 'number' && comp.n > seen.n) seen.pending.push({ kind: 'summary' });
+            if (info.model) { seen.model = info.model; seen.limit = info.limit; }
+            seen.n = comp.n;
+        } else if (platform.id === 'chatgpt') {
+            var gs = orbCtxSeenFor(IX_ADAPTERS.chatgpt.getConversationId() || '');
+            var plan = orbGptPlan();
+            if (gs.planSeen && gs.plan !== plan) gs.pending.push({ kind: 'plan', from: gs.plan, to: plan });
+            gs.plan = plan;
+            gs.planSeen = true;
+            if (!ixReadyAdapter()) return;
+            var mode = GPT_MODE_BY_SLUG[orbGptLatestSlug()] || null;
+            var answered = !!(_ix.answers && _ix.answers.length);
+            // An answer before AND now: a branch that ends on a question with no answer anywhere (an
+            // edited only question) has no newest answer, which is not a change of mode (Codex, round 4).
+            if (gs.modeAnswered && answered && gs.mode !== mode) gs.pending.push({ kind: 'mode', from: gs.mode, to: mode });
+            gs.mode = mode;
+            gs.modeAnswered = answered;
+        }
+    }
+    function orbCtxNotice(kind, text) {
+        _ctxNotices.push({ id: ++_ctxNoticeSeq, kind: kind, text: text });
+    }
+    function orbRenderCtxNotices() {
+        var box = document.getElementById('acn-ctx-notices');
+        if (!_ctxNotices.length) { if (box) box.remove(); return; }
+        box = orbCtxLine('acn-ctx-notices', 'acn-ctx-notices');
+        if (!box) return;
+        var sig = _ctxNotices.map(function (n) { return n.id; }).join(',');
+        if (box.getAttribute('data-acn-sig') === sig) return;
+        box.setAttribute('data-acn-sig', sig);
+        while (box.firstChild) box.removeChild(box.firstChild);
+        _ctxNotices.forEach(function (n) {
+            var x = createElement('button', { className: 'acn-ctx-notice-x', textContent: '\u2715' });
+            x.setAttribute('aria-label', 'Dismiss');
+            x.setAttribute('data-acn-role', 'ctx-notice-dismiss');
+            x.addEventListener('click', function (ev) {
+                ev.stopPropagation();
+                _ctxNotices = _ctxNotices.filter(function (o) { return o.id !== n.id; });
+                orbRenderCtxNotices();
+            });
+            var d = createElement('div', { className: 'acn-ctx-notice' },
+                                  [createElement('span', { textContent: n.text }), x]);
+            d.setAttribute('data-acn-notice', n.kind);
+            box.appendChild(d);
+        });
+    }
+
+    // Claude's lines (v12.18, DEC-060): the model and its window (display A), the summaries,
+    // the fallback alert and the notices. `eff` is the context the percentage uses (counted
+    // from the last summary), `whole` the whole history. Returns whether the alert shows.
+    function orbRenderClaudeExtras(pct, info, comp, eff, whole) {
+        pct.setAttribute('data-acn-ctx-effective', String(eff));
+        pct.setAttribute('data-acn-ctx-whole', String(whole));
+        pct.setAttribute('data-acn-ctx-summaries', String(comp.n));
+        var win = orbFmtCtxLimit(info.limit);
+        orbCtxSetLine('acn-ctx-model', 'acn-ctx-model', info.model
+            ? orbClaudeModelName(info.model) + ' \u00b7 ' + win + ' window'
+            : 'Model not identified \u00b7 ' + win + ' window assumed');
+        orbCtxSetLine('acn-ctx-sum', 'acn-ctx-sum', comp.n
+            ? 'Summarized ' + comp.n + '\u00d7 \u00b7 whole chat ~' + orbFmtTok(whole)
+            : '');
+
+        // No summary on the path, and the context at or past 95% of its window: claude.ai has
+        // likely summarized (or stopped) already, which this chat's data does not show.
+        var alert = !comp.n && eff >= 0.95 * info.limit;
+        orbCtxSetLine('acn-ctx-alert', 'acn-ctx-alert', alert
+            ? 'This chat has likely passed its context window. If code execution is on, Claude ' +
+              'summarizes earlier messages to continue, so early details may be lost; without it, ' +
+              'the chat stops at the limit.'
+            : '');
+
+        orbCtxTrack();
+        var pend = _ctxSeen.pending;
+        _ctxSeen.pending = [];
+        pend.forEach(function (c) {
+            if (c.kind === 'model') {
+                var t = 'Model changed: ' + orbClaudeModelName(c.from) + ' \u2192 ' + orbClaudeModelName(c.to) + '.';
+                t += c.fromLimit !== c.toLimit
+                    ? ' Window ' + orbFmtCtxLimit(c.fromLimit) + ' \u2192 ' + orbFmtCtxLimit(c.toLimit) + ', so ' +
+                      orbCtxPct(eff, c.fromLimit) + '% \u2192 ' + orbCtxPct(eff, c.toLimit) + '%.'
+                    : ' Window ' + orbFmtCtxLimit(c.toLimit) + ', unchanged.';
+                if (eff >= c.toLimit) t += ' Claude will summarize earlier messages to make room.';
+                orbCtxNotice('model', t);
+            } else if (c.kind === 'summary') {
+                var s = 'Claude summarized earlier messages at Q#' + comp.q + '. Context is now ~' +
+                        orbFmtTok(eff) + '.';
+                if (comp.q > 1) s += ' Q#1\u2013' + (comp.q - 1) + ' are kept as a summary.';
+                orbCtxNotice('summary', s);
+            }
+        });
+        orbRenderCtxNotices();
+        return alert;
+    }
+
+    // ── Sites without a summary marker (v12.18, DEC-060; the owner's decisions, 2026-11-05) ──
+    // Gemini and Perplexity publish no window: a size estimate, no percentage, and turn dots
+    // coloured by the estimated size against a 1M-token reference (the bar's 70% / 85%). From the
+    // owner's 87 Claude summaries (DOM-REFERENCE, Claude, "Compaction"), 1M of whole-chat history
+    // is about three summaries' worth on a 1M model.
+    var CTX_SIZE_ONLY = ['gemini', 'perplexity'];
+    // What Gemini's estimate reads, cheaply: its loaded turns and the last answer's length. An answer
+    // that arrives or grows after its question's scan changes neither the list nor the turn counter,
+    // so the redraw gate compares this too (review, 2026-11-05). The panel's own writes do not change
+    // it, so it cannot start a scan loop. ChatGPT and Perplexity redraw on their index's refetch.
+    var _ctxDrawnSize = '';
+    function orbCtxSizeSig() {
+        if (!platform || platform.id !== 'gemini') return '';
+        var turns = document.querySelectorAll('div.conversation-container');
+        var last = turns.length ? gmAnswerIn(turns[turns.length - 1]) : null;
+        return turns.length + ':' + (last ? (last.textContent || '').length : 0);
+    }
+    var CTX_SIZE_REF  = 1000000;
+    var _ctxDotMode   = null;     // 'meter' (Claude; ChatGPT with a window), 'size', or null (positional)
+    var _ctxDotSizes  = null;     // 'size': the estimated tokens up to each question
+
+    // ChatGPT's windows, by plan and mode. SOURCE: https://chatgpt.com/pricing/ (read live
+    // 2026-11-04): "GPT Instant total context window" 27K / 54K / 54K / 128K and "GPT Reasoning
+    // total context window" Varies / 256K / 256K / 400K, for Free / Go / Plus / Pro. The page
+    // adds that the part available for the user's input is smaller: system instructions and
+    // tools share the window. null: "Varies", no percentage.
+    var GPT_CTX = {
+        free: { instant: 27000,  thinking: null },
+        go:   { instant: 54000,  thinking: 256000 },
+        plus: { instant: 54000,  thinking: 256000 },
+        pro:  { instant: 128000, thinking: 400000 }
+    };
+    var GPT_PLAN_NAMES = { free: 'Free', go: 'Go', plus: 'Plus', pro: 'Pro' };
+    // The mode of an answer by its metadata.model_slug. Measured on 196 of the owner's chats
+    // (Chrome + Tampermonkey, 2026-11-05): a `thoughts` node in the turn for 98–100% of the
+    // *-thinking and o3 answers and 0–5% of the rest; o1 and o1-preview by name (they showed no
+    // thoughts). gpt-6 had one answer, with no thoughts: Instant, the owner's call. Any other
+    // slug is an unknown mode, with no percentage (the owner approved the table, 2026-11-05).
+    var GPT_MODE_BY_SLUG = {
+        'gpt-4': 'instant', 'gpt-4o': 'instant', 'gpt-5': 'instant', 'gpt-5-1': 'instant',
+        'gpt-5-2': 'instant', 'gpt-5-3': 'instant', 'gpt-6': 'instant',
+        'gpt-5-thinking': 'thinking', 'gpt-5-1-thinking': 'thinking', 'gpt-5-2-thinking': 'thinking',
+        'gpt-5-4-thinking': 'thinking', 'o1': 'thinking', 'o1-preview': 'thinking', 'o3': 'thinking',
+        'o3-mini-high': 'thinking'
+    };
+    var GPT_MODE_NAMES = { instant: 'Instant', thinking: 'Thinking' };
+
+    function orbGptPlan() {
+        var p = '';
+        try { p = loadSettings().chatgptPlan || ''; } catch (e) {}
+        return GPT_PLAN_NAMES.hasOwnProperty(p) ? p : '';
+    }
+    // The newest answer's slug, from the index, or ''.
+    function orbGptLatestSlug() {
+        var an = (ixReadyAdapter() && _ix.answers) || [], best = null;
+        for (var i = 0; i < an.length; i++) if (!best || an[i].pos >= best.pos) best = an[i];
+        return best ? (best.slug || '') : '';
+    }
+
+    // { total, cum }: the conversation's characters, and the characters up to and including each
+    // question's answer (cum[i] for Navigate's question i). ChatGPT and Perplexity read the
+    // index's full text (ixConversation); Gemini reads its loaded turns, which it keeps (DEC-057);
+    // anything else, the questions' own text. Characters ÷ 4 estimate tokens, as on Claude.
+    function orbConvSizes() {
+        var n = _questions.length, cum = [], i, run = 0;
+        var conv = (platform.id === 'chatgpt' || platform.id === 'perplexity') ? ixConversation() : null;
+        if (conv && conv.length) {
+            var perQ = [];
+            for (i = 0; i < n; i++) perQ.push(0);
+            var cur = 0;
+            for (i = 0; i < conv.length; i++) {
+                if (conv[i].type === 'user' && conv[i].qIdx >= 0) cur = conv[i].qIdx;
+                if (cur < n) perQ[cur] += (conv[i].text || '').length;
+            }
+            for (i = 0; i < n; i++) { run += perQ[i]; cum.push(run); }
+            return { total: run, cum: cum };
+        }
+        if (platform.id === 'gemini') {
+            var turns = document.querySelectorAll('div.conversation-container');
+            for (i = 0; i < turns.length; i++) {
+                var qEl = gmQuestionIn(turns[i]), aEl = gmAnswerIn(turns[i]);
+                if (!qEl) continue;
+                run += (qEl.textContent || '').length + (aEl ? (aEl.textContent || '').length : 0);
+                cum.push(run);
+            }
+            return { total: run, cum: cum };
+        }
+        for (i = 0; i < n; i++) { run += (_questions[i].text || '').length; cum.push(run); }
+        // ChatGPT and Perplexity without a ready index: the questions alone, which the meter says.
+        return { total: run, cum: cum, partial: platform.id === 'chatgpt' || platform.id === 'perplexity' };
+    }
+    var CTX_PARTIAL_NOTE = 'The full history is not loaded: the estimate counts the questions only';
+
+    // 12345 -> '12.3K', 1234567 -> '1.23M'.
+    function orbFmtEst(tok) {
+        return tok >= 1000000 ? (tok / 1000000).toFixed(2) + 'M' : (tok / 1000).toFixed(1) + 'K';
+    }
+
+    function orbCtxNoPct(pct, fill) {
+        pct.textContent = '';
+        pct.style.color = '';
+        fill.style.width = '0%';
+        _ctxDrawnPct = null;
+    }
+
+    // The caption under a size estimate (artboard H, the owner's final wording, 2026-11-05),
+    // with the current site's own name from the registry.
+    function orbSizeCaption() {
+        var site = (platform && platform.title) || 'This site';
+        return 'Estimated size (1M scale). ' + site + ' may summarize older messages to keep going, ' +
+               'so quality can drop. Red and weaker answers? Ask ' + site +
+               ' for a handoff summary, then start a new chat.';
+    }
+
+    // Gemini, Perplexity: "~X tokens (est.) · window not published", the size dots, the caption.
+    function orbRenderSizeMeter(pct, fill, meta) {
+        var sz = orbConvSizes();
+        var tok = Math.round(sz.total / 4);
+        orbCtxNoPct(pct, fill);
+        pct.setAttribute('data-acn-ctx-tokens', String(tok));
+        if (meta) {
+            var t = '~' + orbFmtEst(tok) + ' tokens (est.) \u00b7 window not published';
+            if (meta.textContent !== t) meta.textContent = t;
+            meta.style.color = '#666';
+        }
+        // Questions only (no ready index): the dots stay positional, as the size is not known.
+        _ctxDotMode = sz.partial ? null : 'size';
+        _ctxDotSizes = sz.partial ? null : sz.cum.map(function (c) { return c / 4; });
+        // Gemini: the estimate covers the loaded turns only while older history is not loaded.
+        orbCtxSetLine('acn-ctx-hist', 'acn-ctx-hist', (platform.id === 'gemini' && gmHistPartial())
+            ? '\u2191 Older messages are not loaded yet \u2014 the estimate covers the loaded part only'
+            : sz.partial ? CTX_PARTIAL_NOTE : '');
+        orbCtxSetLine('acn-ctx-caption', 'acn-ctx-caption', orbSizeCaption());
+    }
+
+    // ChatGPT: with a plan and a known mode, the percentage and "<mode> · <window> window (<plan>)";
+    // otherwise the estimate, "window depends on your plan" and a control to set the plan.
+    function orbRenderGptMeter(pct, fill, meta) {
+        var sz = orbConvSizes();
+        var tok = Math.round(sz.total / 4);
+        var plan = orbGptPlan();
+        var mode = GPT_MODE_BY_SLUG[orbGptLatestSlug()] || null;
+        var win = (plan && mode) ? GPT_CTX[plan][mode] : null;
+        pct.setAttribute('data-acn-ctx-tokens', String(tok));
+        pct.setAttribute('data-acn-ctx-limit', win ? String(win) : '');
+        pct.setAttribute('data-acn-ctx-plan', plan);
+        pct.setAttribute('data-acn-ctx-mode', mode || '');
+        var pctNum = 0;
+        if (win) {
+            pctNum = orbCtxPct(tok, win);
+            var color = getBarColor(pctNum);
+            if (pct.textContent !== pctNum + '%') pct.textContent = pctNum + '%';
+            pct.style.color = color;
+            fill.style.width = pctNum + '%';
+            fill.style.background = color;
+            _ctxDrawnPct = pctNum;
+            _ctxDotMode = 'meter';
+            _ctxDotSizes = null;
+            if (meta) {
+                var mt = '~' + orbFmtEst(tok) + ' / ' + orbFmtCtxLimit(win) + ' tokens (est.)';
+                if (meta.textContent !== mt) meta.textContent = mt;
+                meta.style.color = '#666';
+            }
+            orbCtxSetLine('acn-ctx-model', 'acn-ctx-model', GPT_MODE_NAMES[mode] + ' \u00b7 ' +
+                          orbFmtCtxLimit(win) + ' window (' + GPT_PLAN_NAMES[plan] + ')');
+        } else {
+            // No window: the dots stay positional, as on v12.17 (a 1M scale with no caption read
+            // all green past every ChatGPT window; review, 2026-11-05).
+            orbCtxNoPct(pct, fill);
+            _ctxDotMode = null;
+            _ctxDotSizes = null;
+            if (meta) {
+                var mt2 = '~' + orbFmtEst(tok) + ' tokens (est.) \u00b7 window depends on your plan';
+                if (meta.textContent !== mt2) meta.textContent = mt2;
+                meta.style.color = '#666';
+            }
+            orbCtxSetLine('acn-ctx-model', 'acn-ctx-model', '');
+        }
+        orbCtxSetLine('acn-ctx-hist', 'acn-ctx-hist', sz.partial ? CTX_PARTIAL_NOTE : '');
+
+        // The plan control: opens the setting.
+        var ctl = orbCtxLine('acn-ctx-plan', 'acn-ctx-plan');
+        var ctlText = plan ? GPT_PLAN_NAMES[plan] + ' \u00b7 change' : 'Set your plan';
+        if (ctl && ctl.textContent !== ctlText) {
+            ctl.textContent = ctlText;
+            ctl.setAttribute('role', 'button');
+            ctl.setAttribute('tabindex', '0');
+            ctl.setAttribute('data-acn-role', 'gpt-plan-control');
+            if (!ctl._acnBound) {
+                ctl._acnBound = true;
+                var openPlan = function (ev) {
+                    ev.stopPropagation();
+                    orbOpenPanel('settings');
+                    var sel = document.getElementById('acn-gptplan-sel');
+                    if (sel) sel.focus();
+                };
+                ctl.addEventListener('click', openPlan);
+                // A button to the keyboard too (role=button, tabindex=0): Enter and Space.
+                ctl.addEventListener('keydown', function (ev) {
+                    if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') { ev.preventDefault(); openPlan(ev); }
+                });
+            }
+        }
+
+        orbCtxSetLine('acn-ctx-alert', 'acn-ctx-alert', (win && tok >= 0.95 * win)
+            ? 'This chat has likely passed its context window. ChatGPT may drop or summarize earlier messages.'
+            : '');
+
+        // The change notice (orbCtxTrack): the plan setting changed, or the newest answer's mode
+        // changed the window. Written with this draw's estimate, once the index is ready: before
+        // it, the mode is unknown and the windows could not be named.
+        orbCtxTrack();
+        if (!ixReadyAdapter()) { orbRenderCtxNotices(); return; }
+        var pend = _ctxSeen.pending;
+        _ctxSeen.pending = [];
+        pend.forEach(function (c) {
+            var oldWin, newWin, what;
+            if (c.kind === 'plan') {
+                oldWin = (c.from && mode) ? GPT_CTX[c.from][mode] : null;
+                newWin = (c.to && mode) ? GPT_CTX[c.to][mode] : null;
+                what = 'Plan changed: ' + (GPT_PLAN_NAMES[c.from] || 'not set') + ' \u2192 ' +
+                       (GPT_PLAN_NAMES[c.to] || 'not set') + '.';
+            } else {
+                oldWin = (plan && c.from) ? GPT_CTX[plan][c.from] : null;
+                newWin = (plan && c.to) ? GPT_CTX[plan][c.to] : null;
+                if (oldWin === newWin) return;   // no window, or the same one: nothing changed for the meter
+                what = 'Mode changed: ' + (GPT_MODE_NAMES[c.from] || 'unknown') + ' \u2192 ' +
+                       (GPT_MODE_NAMES[c.to] || 'unknown') + '.';
+            }
+            if (oldWin && newWin) {
+                what += ' Window ' + orbFmtCtxLimit(oldWin) + ' \u2192 ' + orbFmtCtxLimit(newWin) + ', so ' +
+                        orbCtxPct(tok, oldWin) + '% \u2192 ' + orbCtxPct(tok, newWin) + '%.';
+            } else if (newWin) {
+                what += ' Window ' + orbFmtCtxLimit(newWin) + ': ' + orbCtxPct(tok, newWin) + '%.';
+            } else if (!c.to && c.kind === 'plan') {
+                what += ' With no plan set there is no percentage.';
+            } else if (c.kind === 'mode' ? !c.to : !mode) {
+                // A mode notice explains its own change (c.to), not the mode now: changes queued while
+                // Navigate was closed are written together (Codex, round 5).
+                what += ' The newest answer\u2019s mode is not known, so there is no percentage.';
+            } else {
+                what += ' No published window for this mode, so no percentage.';
+            }
+            orbCtxNotice('window', what);
+        });
+        orbRenderCtxNotices();
     }
 
     function _renderCompactionInfo(pctNum) {
@@ -9029,13 +9602,23 @@
         // held, so a 1M chat read red at 35% full. Dot i stands for the share of the window used by
         // the conversation up to that turn, estimated as the meter's share x (i+1)/dots: the last
         // dot is the meter's own colour, and none is redder. Same thresholds as the bar.
-        var meterShare = (platform && platform.id === 'claude' && typeof _ctxDrawnPct === 'number')
+        // v12.18 (DEC-060): ChatGPT with a known window follows its meter the same way; Gemini and
+        // Perplexity, and ChatGPT without a window, colour dot i by the estimated size of the chat
+        // up to its question against a 1M-token reference (_ctxDotSizes). With more questions than
+        // dots, dot i stands for question round((i+1) * n / dots) - 1, so the last dot is the latest.
+        var meterShare = (_ctxDotMode === 'meter' && typeof _ctxDrawnPct === 'number')
                          ? _ctxDrawnPct / 100 : null;
+        var sizes = (meterShare === null && _ctxDotMode === 'size' && _ctxDotSizes && _ctxDotSizes.length)
+                    ? _ctxDotSizes : null;
+        dotsEl.setAttribute('data-acn-dot-basis', meterShare !== null ? 'meter' : sizes ? 'size' : 'position');
         for (var i = 0; i < dotsToShow; i++) {
             var dot = document.createElement('div');
             dot.className = 'acn-ctx-dot';
 
+            var qi = sizes ? Math.min(sizes.length - 1,
+                         dotsToShow >= sizes.length ? i : Math.round((i + 1) * sizes.length / dotsToShow) - 1) : -1;
             var pct = meterShare !== null ? meterShare * (i + 1) / dotsToShow
+                    : sizes ? sizes[Math.max(0, qi)] / CTX_SIZE_REF
                     : predicted ? (i / predicted) : (i / total);
             if (pct < 0.70)      dot.style.background = '#22c55e';
             else if (pct < 0.85) dot.style.background = '#eab308';
@@ -9891,7 +10474,10 @@
         panel.appendChild(orbBuildPanelHeader('\u2733 ' + (i18n('navigate') || 'Navigate')));
 
         // Context bar
-        var ctxLabelText = (platform.id === 'claude') ? 'Context window' : 'Conversation turns';
+        // v12.18 (DEC-060): ChatGPT shows a window once its plan is set; Gemini and Perplexity an
+        // estimated size; the rest the turn counter.
+        var ctxLabelText = (platform.id === 'claude' || platform.id === 'chatgpt') ? 'Context window'
+                         : (CTX_SIZE_ONLY.indexOf(platform.id) !== -1) ? 'Context size' : 'Conversation turns';
         var ctxLabel = createElement('span', { className: 'acn-ctx-l', textContent: ctxLabelText });
         var ctxPct   = createElement('span', { id: 'acn-ctx-pct', className: 'acn-ctx-pct',
             textContent: '—' });
@@ -11113,6 +11699,20 @@
         return 'bm_' + Math.random().toString(16).substring(2, 10);
     }
 
+    // Every mounted flag that stands for `key` shows `on` (v12.18, Part 2). ChatGPT can show one
+    // answer in two units at once: a "fallback" turn holds its first shown node, the turn its last,
+    // and both flags carry the index's key (_bmIxCanon); a click on one left the other as it was.
+    // Key-identified flags only (ChatGPT, Perplexity): a Claude flag's legacy text hash can be
+    // shared by twin messages, which must not light together.
+    function _bmSyncFlags(key, on) {
+        var all = document.querySelectorAll('[data-acn-bookmark]');
+        for (var i = 0; i < all.length; i++) {
+            if (all[i].getAttribute('data-acn-bookmark') !== key) continue;
+            if (on) all[i].classList.add('acn-bm-active'); else all[i].classList.remove('acn-bm-active');
+            all[i].setAttribute('title', on ? 'Remove bookmark' : 'Bookmark this message');
+        }
+    }
+
     // isKey: entityId is the message's own id (ChatGPT, Perplexity, v12.15), whatever its
     // shape; a Perplexity answer's ends in ':answer', which the uuid test below would miss.
     function toggleBookmark(entityId, entityType, entityEl, msgIndex, legacyIds, isKey) {
@@ -11130,6 +11730,7 @@
         if (existing.length > 0) {
             existing.forEach(function (b) { removeBookmark(b.id); });
             if (icon) icon.classList.remove('acn-bm-active');
+            if (isKey) _bmSyncFlags(entityId, false);
             showToast(i18n('bookmarkRemoved'));
         } else {
             // Through the shared extractor like every other consumer: raw textContent
@@ -11175,6 +11776,7 @@
             // the flag must not claim a bookmark that was not saved.
             if (!saveBookmark(bm, true)) return;
             if (icon) icon.classList.add('acn-bm-active');
+            if (isKey) _bmSyncFlags(entityId, true);
             showToast(i18n('bookmarkAdded'));
             // An answer the index does not hold yet asks for one refresh (DEC-051); the proof
             // pass sees the new record by its stored text.
@@ -11457,6 +12059,65 @@
     function _bmIxCanon(key) {
         if (!key || !_ix.answerIdOf || !ixReadyAdapter()) return key;
         return _ix.answerIdOf.hasOwnProperty(key) ? _ix.answerIdOf[key] : key;
+    }
+
+    // v12.18 (Part 2): a ChatGPT answer record saved under one of its answer's other shown nodes
+    // (a "fallback" turn's first node, as v12.16 and earlier saved it) is REWRITTEN to the index's
+    // key once the index lists that node, so the store holds one key per answer, not a key that
+    // only resolves while the index is ready. One change to the store as it is stored now
+    // (_bmUpdateStore, acnUpdateValue: DEC-050). Of a legacy record and one already under the
+    // answer's key, the second stays: one bookmark per answer (records carry no notes, so nothing
+    // is lost). An id the index does not list is left as it is ("A#?"). Once per index build.
+    var _bmIxCanonStamp = '';
+    function _bmIxCanonicalize() {
+        if (!platform || platform.id !== 'chatgpt' || _bmIxState() !== 'ready' || !_ix.answerIdOf) return;
+        var stamp = ixIndexStamp();
+        if (!stamp || stamp === _bmIxCanonStamp) return;
+        // The mapping of THIS index, captured: acnUpdateValue applies the change again later on the
+        // persisted path (Safari's queue), when _ix may hold another conversation (Codex, Tier 3 round 1).
+        var map = _ix.answerIdOf;
+        var canon = function (k) { return (k && map.hasOwnProperty(k)) ? map[k] : k; };
+        var legacy = function (b) {
+            return b && b.entityType === 'ai-msg' && b.msgUuid && canon(b.msgUuid) !== b.msgUuid;
+        };
+        if (!getConversationBookmarks().some(legacy)) { _bmIxCanonStamp = stamp; return; }
+        var moved = 0, wrote;
+        try { wrote = _bmUpdateStore(function (cur) {
+            var held = {}, out = [];
+            cur.forEach(function (b) {
+                if (b && b.entityType === 'ai-msg' && b.msgUuid && !legacy(b)) held[b.msgUuid] = true;
+            });
+            cur.forEach(function (b) {
+                if (!legacy(b)) { out.push(b); return; }
+                var key = canon(b.msgUuid);
+                if (held[key]) return;
+                held[key] = true;
+                var c = {};
+                for (var f in b) if (Object.prototype.hasOwnProperty.call(b, f)) c[f] = b[f];
+                if (c.contentHash === c.msgUuid) c.contentHash = key;
+                c.msgUuid = key;
+                out.push(c);
+                moved++;
+            });
+            return out;
+        }); } catch (e) {
+            console.warn('[ACN] bookmarks: moving ChatGPT answer records to the index\'s key failed (' +
+                         (e && e.message) + '); the next scan tries again');
+            return;
+        }
+        // Done for this index: written, or refused (acnUpdateValue said why; the store is unreadable,
+        // and retrying would only refuse again).
+        _bmIxCanonStamp = stamp;
+        if (!wrote) return;
+        console.log('[ACN] bookmarks: ' + moved + ' ChatGPT answer record(s) moved to the index\'s key');
+        // A flag drawn before the index was ready, under the answer's key, was drawn dark (its record
+        // was under another key then), and the inject's identity check would skip it: dark while
+        // bookmarked, and a click on it would REMOVE the bookmark. Every mark is cleared, so the
+        // inject that follows this scan redraws every flag from the store (review, 2026-11-05).
+        var marked = document.querySelectorAll('[data-acn-bookmarked]');
+        for (var mi = 0; mi < marked.length; mi++) marked[mi].removeAttribute('data-acn-bookmarked');
+        var bmPanel = document.getElementById('acn-panel-bookmarks');
+        if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
     }
 
     function _bmIxIndexed(key, type) {
@@ -16174,6 +16835,33 @@
 
         scroll.appendChild(langGroup);
 
+        // ── Context meter group (v12.18, DEC-060) ──────────────────────
+        // ChatGPT's window depends on the plan, which the page does not say: the user picks it.
+        // Last write wins, like every setting.
+        var ctxGroup = createElement('div', { className: 'acn-set-group' });
+        ctxGroup.appendChild(createElement('div', { className: 'acn-set-gtitle', textContent: 'Context meter' }));
+        var planSel = createElement('select', { id: 'acn-gptplan-sel', className: 'acn-set-sel' });
+        planSel.setAttribute('data-acn-role', 'gpt-plan');
+        [['', 'Not set'], ['free', 'Free'], ['go', 'Go'], ['plus', 'Plus'], ['pro', 'Pro']].forEach(function (opt) {
+            var o = createElement('option', { value: opt[0] }, [opt[1]]);
+            if (opt[0] === (settings.chatgptPlan || '')) o.setAttribute('selected', '');
+            planSel.appendChild(o);
+        });
+        planSel.addEventListener('change', function () {
+            // The plan as it was, seen first: a page whose meter has not been drawn yet (its index
+            // still loading) would otherwise take the new plan as its baseline and say nothing.
+            orbCtxTrack();
+            var s = loadSettings();
+            s.chatgptPlan = planSel.value;
+            saveSettings(s);
+            orbUpdateContextBar();
+        });
+        ctxGroup.appendChild(createElement('div', { className: 'acn-set-row' }, [
+            createElement('div', { className: 'acn-set-label', textContent: 'ChatGPT plan' }),
+            planSel,
+        ]));
+        scroll.appendChild(ctxGroup);
+
         // ── Platforms group ────────────────────────────────────────────
         var platGroup = createElement('div', { className: 'acn-set-group' });
         platGroup.appendChild(createElement('div', {
@@ -16292,6 +16980,7 @@
             orbScrollInverted = false;
             orbSaveSettings();
 
+            orbCtxTrack();   // the plan before the reset, as the plan select's change does
             var fresh = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
             saveSettings(fresh);
 
@@ -16303,6 +16992,10 @@
 
             var langSelEl = document.getElementById('acn-lang-sel');
             if (langSelEl) langSelEl.value = DEFAULT_SETTINGS.language;
+
+            var planSelEl = document.getElementById('acn-gptplan-sel');
+            if (planSelEl) planSelEl.value = DEFAULT_SETTINGS.chatgptPlan;
+            orbUpdateContextBar();
 
             var rows = platGroup.querySelectorAll('.acn-plat-row');
             platList.forEach(function (p, idx) {

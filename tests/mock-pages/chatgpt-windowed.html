@@ -277,6 +277,16 @@
                   wrapper on even turns and the unit on odd ones (both readings of the live note)
     hidden: true  (default) a hidden second timeline, role="presentation", 0x0, holding a copy of
                   the first two turns, as live during a navigation (DOM-REFERENCE.md)
+    fallbackAt: i (v12.18) turn i also shows its FIRST shown text node as a turn of its own, with no
+                  question, as measured live (Chrome, 12.17, 2026-11-05: Q45 of the 49-question chat):
+                  [data-turn-key="fallback-turn-0"] > [data-content-search-turn-key="fallback-turn-0"]
+                  > div > [data-talvt-turn-state="complete"] > ONE element carrying
+                  data-content-search-unit-key and data-chatgpt-search-unit-key "fallback-turn-0:1:assistant"
+                  and data-chatgpt-search-message-ids "<id> <id>". turns[i].fbAid is that node's id and
+                  fbAnswer its text; the turn's own unit keeps aid, the last node (the 2026-11-01 case,
+                  a turn with two shown text nodes). Nested in the turn's container here, a sibling
+                  live: the navigator reads the unit's nearest [data-turn-key], the wrapper either way.
+    fallbackCopies: n (v12.18, default 1) the fallback wrapper n times: live, `main` held it twice
   }
   Test hooks: window.__mockWindow.mounted() (positions), .total, .userScrollTo(i|'top'|'bottom'),
   .recycle(i, j) (the mounted elements of turn i re-used, in place, to show turn j: key, text, ids;
@@ -316,9 +326,23 @@
         '</div>' +
       '</div>';
   }
+  function fallbackHtml(t) {
+    var ids = ' data-chatgpt-search-message-ids="' + t.fbAid + ' ' + t.fbAid + '"';
+    return '<div data-turn-key="fallback-turn-0"><div data-content-search-turn-key="fallback-turn-0"><div>' +
+        '<div data-talvt-turn-state="complete">' +
+          '<div data-content-search-unit-key="fallback-turn-0:1:assistant" data-chatgpt-search-unit-key="fallback-turn-0:1:assistant"' + ids + '>' +
+            '<h4 class="sr-only bm-sr" data-conversation-role="assistant">ChatGPT said:</h4>' +
+            '<div class="bm-md"><p class="bm-fb"></p></div>' +
+          '</div>' +
+        '</div></div></div></div>';
+  }
   function fill(node, i, t) {
     node.setAttribute('data-turn-key', t.id);
-    node.innerHTML = html(i, t);
+    var fbs = '';
+    if (bm.fallbackAt === i && t.fbAid) for (var c = 0; c < (bm.fallbackCopies || 1); c++) fbs += fallbackHtml(t);
+    node.innerHTML = fbs + html(i, t);
+    var fbEls = node.querySelectorAll('.bm-fb');
+    for (var f = 0; f < fbEls.length; f++) fbEls[f].textContent = t.fbAnswer || ('First part of answer ' + (i + 1));
     node.querySelector('[data-user-message-bubble]').textContent = t.text;
     node.querySelector('.bm-a').textContent = t.answer || ('Answer ' + (i + 1));
   }

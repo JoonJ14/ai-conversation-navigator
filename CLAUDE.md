@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-AI Conversation Navigator is a single-file browser userscript (Tampermonkey/Greasemonkey; Userscripts on Safari) that adds an orbital button cluster to 14 AI chat platforms, letting users jump to any previous question in one click. ~15,800 lines of ES5-compatible vanilla JavaScript, no build step, no dependencies.
+AI Conversation Navigator is a single-file browser userscript (Tampermonkey/Greasemonkey; Userscripts on Safari) that adds an orbital button cluster to 14 AI chat platforms, letting users jump to any previous question in one click. ~17,700 lines of ES5-compatible vanilla JavaScript, no build step, no dependencies.
 
 ## Tech Stack
 
 - **Language:** Vanilla JavaScript (ES5 compatible) — no arrow functions, no classes, no async/await
 - **Runtime:** a userscript manager — Tampermonkey (Chrome, Firefox), Userscripts (Safari), Greasemonkey (untested). Each ships its own `GM_*` implementation (v12.9, Layer 3)
 - **Build:** None — single file (`ai-conversation-navigator.user.js`), deployed as-is
-- **Testing:** Playwright (Chromium/Firefox/WebKit) across 14 platforms' mock pages (17 files, including the three virtualizing mocks: Claude, ChatGPT and Perplexity)
+- **Testing:** Playwright (Chromium/Firefox/WebKit) across 14 platforms' mock pages (18 files, including the three virtualizing mocks: Claude, ChatGPT and Perplexity)
 - **Storage:** GM storage + `localStorage`. Always go through `acnGetValue`/`acnSetValue`/`acnUpdateValue`, never `GM_getValue`/`GM_setValue` directly: Safari's Userscripts has only the async `GM.getValue`/`GM.setValue`, which the wrapper preloads at startup. A key that holds a collection saves through `acnUpdateValue`, never `acnSetValue`: writing back a copy read earlier erases what other tabs saved since. A new GM key must also be added to `acnStoreLoad`'s list, or it silently resets to its default on every Safari page load (agent_docs/conventions.md → Storage Keys; agent_docs/architecture.md → Runtime matrix).
 - **Browser APIs:** MutationObserver, TreeWalker, ResizeObserver
 

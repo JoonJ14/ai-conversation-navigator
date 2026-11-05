@@ -476,6 +476,270 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ---
 
+## FIXED IN v12.18 (PR #93, NOT MERGED), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Claude: a summarized chat read past its window ("~600.1K / 500K", 100%), and a model switch moved the meter with no explanation (found 2026-10-31 and 2026-11-04)
+
+**Phase:** v12.18, Part 1 (DEC-060) | **Severity:** Medium — the meter read wrong on every long chat; the host page
+was unaffected | **Status:** fixed in PR #93, not merged; owner acceptance owed on all three browsers (DEC-031)
+
+### Symptom
+[Chrome + Tampermonkey 12.17, the owner's profile, visible tab, page realm]
+- **A summarized chat pegged at 100%.** `ccf551fb` (90 questions, claude-opus-4-7) read "~600.1K / 500K tokens
+  (est.)", 100%, with 27 green, 6 yellow and 7 red dots (2026-11-05). DEC-056 had logged the same figure on
+  2026-10-31.
+- **Every over-window chat behaved this way.** The owner's 7 over-window chats on 500K models (by the 2026-11-04
+  screen) come to 488K–773K whole by a replica of the 12.17 estimate (it matches the meter's ~600.1K on `ccf551fb`;
+  the others were not opened on the meter), each 100% or close. The 8th over-window chat, `bfef43ad` (opus-4-5 against a 200K window), is one large
+  attachment, not a summary case.
+- **A model switch doubled the percentage with no new tokens.** In a throwaway chat (`73c209d8`, with the owner's
+  OK), a switch from Opus 5.5 to Opus 4.8 made the meter go from 3% "~30.0K / 1M" to 6% "~30.0K / 500K" on the next
+  message, and nothing on screen said why (2026-11-04).
+
+### Diagnosis / root cause [measured live, same context, GET only; code]
+- **claude.ai summarizes long chats, and marks its summaries** (87 found; that every summary leaves a marker is not
+  proven, DOM-REFERENCE). The key is `chat_messages[].compaction_summary` on
+  the assistant message where the summary happened:
+  - It is a one-element array holding one text block of 2,185–21,835 characters, with no token count.
+  - It is on 87 messages in 39 of the owner's 236 chats, including all 7 over-window chats on 500K models (not
+    `bfef43ad`), always on the active path.
+  - A key scan of all 236 chats found no other marker (no horizon, boundary or context key).
+- **The page shows it too, but only on mounted rows.** A persisted "Compacted conversation" pill appears inside the
+  carrier's row (row key `<carrier uuid>:t2000001`, found at scroll fraction 0.22). The bundle's `[data-compaction-
+  status]` attribute is absent when nothing is running.
+- **The stream has an event the parser drops.** It carries `compaction_status`, which `parseSSEEvent` ignores
+  (static bundle read; Chrome only, because Firefox has no interception, DEC-020).
+- **The estimator never looked.** `ciTotalChars` / `ciTotalThinkingChars` summed the whole active path, so a chat
+  summarized three times was measured as if nothing had been dropped.
+- **The model switch was followed, but silently.** The conversation's stored `model` changes only when the next
+  message is sent (a picker change alone sends a `PUT`, and the stored model was unchanged ~30 s later; a reload
+  reverts the picker). The navigator already refetched on that message and took the new window (500K). No message
+  records which model wrote it (0 of 885), so the only way to explain a switch is to notice it live, in the same page
+  session.
+
+### Solutions considered
+- **Count from after the message carrying the summary** (the spec's first wording). This is simple, but it leaves
+  out the carrying answer and the question that triggered it, which stay in the model's context. On `ccf551fb` that
+  gives 191K (38%) where 227K (45%) is the context. The owner chose to include them (2026-11-05).
+- **Show "distance to the next summary."** The owner asked for this to be checked. Over the 87 summaries, the size
+  just before each was scattered by date, not by window: February median 76K, April 200K, May 111K, June 201K, two on Opus
+  5.5 at 323K and 333K. Any prediction would be invented, so it was rejected (DEC-060).
+- **Read the page's "Compacted conversation" pill.** It is mounted only with its row (Layer 4), so Navigate could
+  never count the summaries of a long chat. Rejected as the source.
+- **Read the stream's `compaction_status` event.** It works on Chrome only, and its wire values were never observed.
+  Out of scope (the spec).
+- **Read the composer's model picker to anticipate a switch** (option E). That would be a new Layer 1 dependency,
+  which DEC-056 already rejected for the limit. It is kept as an idea only.
+- **Persist the switch history across reloads.** That would need a new per-conversation GM key, while the data holds
+  no history at all. Notices are for the open page only (the spec).
+
+### Fix (`aaa0d40`, which includes the Tier 3 round 1 fixes)
+- **Counting from the last summary.** `ciBuildIndex` records `summaryChars` per path entry. `ciCompaction()` finds
+  the last carrier and returns `from`, the human message before it. The percentage, the bar and the dots use
+  `ciCharsFrom(from)` plus thinking and overhead. "Summarized N× · whole chat ~X" keeps the whole history in view.
+- **Display A.** The model and window are named under the bar.
+- **Change notices.** A model switch or a new summary gives a dismissible notice. Changes are tracked on every scan
+  with a ready index, not only when the meter draws: the first build's draw-time baseline lost a change made while
+  Navigate was closed (Codex round 1; gate M12).
+- **The fallback alert.** At ≥ 95% with no marker on the path, an alert says the chat has likely passed its window.
+- **Navigate.** Summarized questions carry a "summary" tag, with a divider at the summary point.
+
+### Results & verification
+- **Gates** [Playwright, page realm, headless, this Mac]: `check-context-meter` M1–M16 fail on v12.17 where marked
+  `[new]`. Mutants for `from` at the carrier (M1, M4, M6), a notice on load (M3, M5), Path A on the whole history
+  (M15), the alert at 100% (M16) and the alert without the marker condition (M11d) are each caught.
+- **Live, the agent's check** [Chrome + Tampermonkey 12.18, the owner's profile, 2026-11-05; not acceptance]:
+  - `ccf551fb` 45% (227.3K / 500K), "Opus 4.7 · 500K window", "Summarized 3× · whole chat ~600K", Q1–Q70 tagged.
+  - `0ca88a77` 30%, 1 summary.
+  - The A/B: 12.17 on the same chat read 100% "~600.1K / 500K" (DEC-031).
+- **The switch notice was not run live**: it needs a message sent in the owner's account, so it is acceptance step 1.
+- **Remaining:** whether `compaction_summary` arrives through the `gmxhr` transport exactly as through `fetch` is
+  consistent with the live check but not measured; the estimate itself is still uncalibrated (ROADMAP 12, step 2).
+
+---
+
+## FIXED IN v12.18 (PR #93, NOT MERGED) ON MOCKS — ChatGPT: one answer's two bookmark flags disagree after a click, and a dark flag can delete the bookmark (found 2026-11-05)
+
+**Phase:** v12.18, Part 2 (DEC-061) | **Severity:** Medium — a click could remove a bookmark the user meant to keep |
+**Status:** fixed in PR #93, not merged; the live case is owner acceptance step 4
+
+### Symptom
+[Playwright Chromium, page realm, the `chatgpt-windowed.html` mock with `fallbackAt` and `fallbackCopies`; present on
+v12.17 too.]
+- **A click on one flag left the other as it was.** With one answer mounted in two units (a "fallback" turn showing
+  the answer's first text node, and the turn showing its last), a click lit or cleared only the clicked flag.
+- **A late index left a dark flag on a bookmarked answer.** When the index landed after the flags were drawn, a
+  bookmarked answer could keep a dark flag, and a click on it *removes* the bookmark.
+
+### Diagnosis / root cause [code]
+- **The click updated only its own element.** Since v12.17 both flags carry the index's key (`_bmIxCanon`), but
+  `toggleBookmark` changed only the element it was given.
+- **The inject skipped flags it had already drawn.** The inject's identity check (`data-acn-bookmarked`) skips a flag
+  drawn before. Such a flag may have been drawn dark when its record sat under another key (the first node's raw
+  id). It was not redrawn after the index arrived, or after v12.18's rewrite moved the record to the answer's key.
+
+### Solutions considered
+None were weighed: each fix followed directly from what found it. Gate F2 (both units mounted) showed the click
+updating one flag, so the click now updates every flag with the key. The multi-agent review's finding (a dark flag
+on a bookmarked answer deletes the bookmark when clicked) showed the stale mark, so every mark is cleared after a
+rewrite. The key is the flag's identity since v12.17 (`_bmIxCanon`), which is why matching by key is enough.
+
+### Fix (`08771f6`, Tier 3 fixes `e47aba2`, `55581c0`, `cebb015`)
+- **`_bmSyncFlags(key, on)`** runs from `toggleBookmark` for keyed flags (ChatGPT and Perplexity message keys, and
+  Gemini's turn ids). Claude is excluded: its legacy text hashes can be shared by twins.
+- **After `_bmIxCanonicalize` rewrites records** to the index's key, it clears every `data-acn-bookmarked` mark, so
+  the following inject redraws every flag from the store.
+
+### Results & verification
+- **Gates:** `check-gpt-fallback` F2 (both flags follow a click) and F7 (a flag drawn before the index landed is lit
+  after the rewrite) fail on v12.17 or without the redraw, and pass on the build.
+- **Live** [Chrome + Tampermonkey 12.17, `69a0c6f8`, 2026-11-05 04:56 UTC]: the fallback unit holds one node today,
+  and the id it names is the index's key (DOM-REFERENCE). On 12.18 (16:58 UTC) one fallback wrapper was mounted, with
+  one unlit flag.
+- **The test-bookmark click was blocked** by the agent's safety classifier, so the live click is acceptance step 4.
+
+---
+
+## RESOLVED UPSTREAM — CI: every job failed at "Install Playwright": `playwright-core@1.65.0` was not published yet (PR #93, 2026-11-05)
+
+**Phase:** v12.18's PR CI | **Severity:** Medium — no test ran on any job; no userscript code involved | **Status:**
+resolved upstream, and nothing in this repo changed. Run 42086675512 was never re-run (`run_attempt` 1); run
+42095450049 on `3ccf84b` superseded it.
+
+### Symptom
+Run 42086675512, the PR's first, on `1be3bd1`: all nine jobs (chromium, firefox and webkit × ubuntu, macOS and
+Windows) failed within 6–50 s, at the step "Install Playwright" (`npm install playwright`), with:
+
+`npm error code ETARGET … No matching version found for playwright-core@1.65.0`
+
+### Diagnosis / root cause [npm registry, read from this Mac at 18:47Z, 18:50Z and 18:53Z; the dependency was read at 18:53Z, when `playwright-core@1.65.0` still returned 404]
+- `playwright` latest was 1.65.0, published 2026-11-05T18:28:14Z, and depends on `playwright-core` 1.65.0.
+- `playwright-core` latest was still 1.64.1, and `playwright-core@1.65.0` returned 404.
+- So npm served the new `playwright` about 13 minutes before the PR's CI started, without the core package it needs:
+  an upstream publish race.
+- The workflow installs Playwright unpinned (`npm install playwright`, cross-platform-tests.yml:51), so every job
+  took the broken latest. Nothing in v12.18 caused it.
+
+### Solutions considered
+- **Override the required checks.** Not possible: `main`'s ruleset has no bypass actors (agent_docs/git-workflow.md),
+  and the owner re-runs stalled jobs rather than overriding them.
+- **Pin Playwright in this PR.** That fixes the cause, but it changes the CI's engine versions inside a feature PR,
+  outside what the owner chose for Part 3 (the ubuntu cap, plus the two new probes in CI). Logged for the CI rebuild (ROADMAP 0e) instead.
+- **Re-run at once.** That would fail the same way until `playwright-core@1.65.0` exists.
+
+### Response
+A background watcher polled npm every 120 s from 18:51Z, for up to 3 h, for `playwright-core@1.65.0`, so that it
+could run `gh run rerun 42086675512 --failed`. It was stopped at 19:36Z, when the docs push `3ccf84b` started run
+42095450049: a PR's checks come from the run on its newest head. A second watcher waited for the same publish and
+for that run to finish; it was stopped at 19:50Z.
+
+### Outcome [npm registry, read from this Mac at 19:36Z, 19:49–19:50Z and 21:41Z; GitHub Actions job logs of run 42095450049]
+- **Upstream moved `playwright`'s `latest` tag back to 1.64.1 before it published the missing package.**
+  - Run 42095450049's "Install Playwright" passed on all nine jobs in 3–16 s (19:36–19:37Z).
+  - Those jobs downloaded 1.64.1's browsers: Chrome for Testing 156.0.8078.4, Firefox 157.0 (build 1555) and WebKit
+    build 2370.
+  - At 19:50Z, `latest` read 1.64.1. `playwright-core@1.65.0` was still missing (read at 19:36Z and 19:49Z), and
+    `playwright@1.65.0` still depended on it.
+- **`playwright-core@1.65.0` was published at 20:17:40Z, and `latest` was back on 1.65.0 by 21:09Z.**
+  - That run's attempt 2 of `firefox on ubuntu-latest` (20:27Z) still got 1.64.1's Firefox 157.0.
+  - Attempt 3 (21:09Z) got Firefox 159.0 (build 1572), which is `playwright-core` 1.65.0's.
+- **Had the first watcher kept running, it would have fired at about 20:19Z, not waited out its 3 h** (inferred from
+  its 120 s poll).
+- **One run's nine green checks came from two Playwright versions:** eight jobs on 1.64.1, and
+  `firefox on ubuntu-latest`'s third attempt on 1.65.0. ROADMAP 0e: pin it.
+- That run's durations and stalls are in the stopgap entry's Results below.
+
+### How to recognize it next time
+- Every job failing within a minute at "Install Playwright" with `ETARGET` names an upstream version that is not on
+  the registry. Check `npm view playwright-core@<version> version` before reading anything into the failure.
+- Read `npm view playwright dist-tags` as well: upstream can fix the problem by moving the tag rather than publishing.
+- Read the new run's own install step before predicting how the run will go: the version a run installs can change
+  between attempts of the same run. At 19:41Z the agent told the owner the new run "will fail the same way until npm
+  publishes `playwright-core@1.65.0`", although its install had passed at 19:36Z; corrected at 19:50Z.
+
+---
+
+## STOPGAP IN v12.18 (PR #93) — CI: the `main` run after v12.17's merge lost two macOS jobs at 15m01s and webkit/ubuntu at 40m11s (2026-11-04)
+
+**Phase:** v12.18, Part 3 | **Severity:** Medium — `main`'s required checks went red on runner and mirror problems |
+**Status:** the ubuntu cap is raised; the runner-assignment cancels have no workflow fix; the CI rebuild remains
+(ROADMAP 0e)
+
+### Symptom
+The owner (2026-11-04): runs on `main` were cancelled at about 15 minutes while other jobs started late; on PRs
+re-runs got them green, and on `main` that had not worked. Merge run 41871676757 (`8909d92`) had:
+- two macOS jobs cancelled at 15m01s;
+- `webkit on ubuntu-latest` cancelled at 40m11s, at its 40-minute cap.
+
+### Diagnosis [run logs of v12.17's 21–22 runs, PR #92 and the merge; read-only]
+- **The workflow has no `concurrency` group**, so nothing cancelled one run for another.
+- **The 15m01s cancels never started.** GitHub never assigned a runner to those macOS jobs ("not acquired by Runner
+  … after multiple attempts"). That is runner capacity, and no setting in the workflow changes it.
+- **The webkit/ubuntu job ran out of time installing.** "Install browser engine" took 10m54s at 181 kB/s (normally
+  4 s), the apt mirror stall seen before (the RESOLVED entry below, PR #75). PR #92's run 41459811313 hit the same
+  stall, took 39.0 min, and passed just under the cap.
+- **Healthy ubuntu jobs took 27.3–30.3 min** (the suite about 6, the probes about 22). One stall can therefore take a
+  healthy job past 40 (30.3 + ~11 ≈ 41; PR #92's stalled job finished at 39.0).
+- **The re-run on `main` was never created** [GitHub API, read-only, 2026-11-05]. The spec asked why it failed.
+  - Run 41871676757 has only attempt 1 (`run_attempt` 1; asking for attempt 2 returns 404), so no re-run started and
+    failed.
+  - GitHub offers a re-run only once the whole run has finished. The macOS jobs were cancelled at 17:06:22Z, but
+    `webkit on ubuntu-latest` ran until 17:31:34Z (the run was last updated at 17:42:38Z). A re-run tried before then
+    had no button.
+  - The API records no attempt or error, so nothing more can be said. A permissions problem is not expected for the
+    repository owner (inferred, not measured).
+  - On PRs, the five attempt-2 runs were "re-run failed jobs" after real test failures, not after cancellations (for
+    example PR #92's 41465504011, firefox/windows, exit 1 after 2m45s).
+- **No job waited for a runner except the two that never got one** [GitHub API, read-only, 2026-11-05].
+  - In 41871676757 all nine jobs were created at 16:51:21Z, a second after the push. The seven that got a runner
+    started 2–14 s later. Across every job read from v12.17's runs, queue time was 1–21 s.
+  - GitHub's annotation on the two macOS jobs: "Due to capacity constraints, jobs targeting macOS arm64 runners may
+    experience longer queue times."
+  - So the data does not show "other jobs only start late". What started late was webkit/ubuntu's probes, behind its
+    10m54s install. The cap cut that job 4.6 min into its last probe (`check-feature-gaps`, normally 4.5–4.7 min).
+- **Job durations, successful jobs, min / median / max in minutes**: ROADMAP 0e (ubuntu 27.3–30.3 on v12.17, macOS
+  6.1–7.0, Windows 5.7–11.4). Only the ubuntu jobs come near their cap.
+
+### Solutions considered
+The owner chose from three options (2026-11-05):
+- **Raise the ubuntu cap to 50** (chosen; ROADMAP 0e, stopgap 2). This is the smallest change: the healthy maximum
+  30.3 min plus an 11-minute mirror stall is about 41, and the nine required check names stay as they are.
+- **Split the probes into their own jobs.** Suite jobs would take about 7 min and three new probe jobs about 23 min
+  in parallel, each with its own cap, so the wall clock is faster. But the new job names are not required checks
+  until the owner adds them to the ruleset.
+- **Both:** split the probes and give every job a realistic cap, with a ruleset update.
+
+The change adds no retries and weakens no check: either would hide a real failure. Nothing in the workflow can make
+GitHub assign a macOS runner, so those jobs are re-run once the whole run has finished.
+
+### Fix (`083defa`, then `b48996a`)
+- Ubuntu `timeout-minutes` 40 → 50, with the measured basis in the workflow comment. macOS and Windows stay at 30.
+- The two new probes join the ubuntu jobs: about 4.3–4.6 min per engine in v12.18's final local run (the comment's
+  "about 2 min" is from the first sweep). That gives an estimate of about 46 of 50 minutes with one stall.
+
+### Results [GitHub Actions, run 42095450049 on `3ccf84b`, 2026-11-05; job and step times from the API]
+- **All nine jobs passed**; `firefox on ubuntu-latest` passed on its third attempt. The run read `completed success` at
+  21:42:59Z.
+- **Attempt 1 (19:36Z): the other eight passed.**
+  - The healthy ubuntu jobs took 33m18s (chromium) and 33m51s (webkit), against 27.3–30.3 min on v12.17. Within those,
+    `check-context-meter` took 3m39s–3m43s and `check-gpt-fallback` 37–39 s.
+  - macOS took 6m17s–6m58s, and Windows 5m56s–9m45s.
+- **`firefox on ubuntu-latest` hit the cap at 50m19s.**
+  - "Install browser engine" took 25m00s: azure.archive.ubuntu.com served 46.8 MB in 24m10s (32.3 kB/s).
+  - Every step that ran passed. The job was cut 34 s into `check-feature-gaps`, so the two new probes did not run.
+- **Attempt 2 (that job only, 20:27Z).**
+  - The install took 16m13s (41.5 MB in 15m53s, 43.6 kB/s). The suite and every probe through `check-ctx-limit`
+    then passed.
+  - At minute 40 the owner asked for a restart. The agent projected about 9½ min of probes left, which would have
+    ended at about the cap (a projection, not measured), and cancelled the attempt at 21:08Z.
+- **Attempt 3 (21:09Z): the install took 18 s, and the job passed in 33m42s.** It ran on Playwright 1.65.0 (Firefox
+  159.0); the other eight jobs ran on 1.64.1 (the npm entry above).
+- **So healthy ubuntu jobs now take 33m18s–33m51s, and the 50-minute cap absorbs an install stall of about 16
+  minutes.** The cap's basis assumed an 11-minute stall (the 2026-11-04 one); this PR's stalls were 25 and 16
+  minutes. What followed: `b48996a`, the install bounded and retried (ROADMAP 0e, stopgap 3), with its own first CI run
+  on that commit.
+- Acceptance step 5 is still "the next `main` run after the merge completes".
+
+---
+
 ## FIXED IN v12.15 (MERGED, PR #88), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — ChatGPT and Perplexity: jumps stop short; bookmarks positional, answers unflagged (found 2026-10-24)
 
 **Phase:** v12.10's owed Safari check, run on v12.14 | **Severity:** High on Perplexity (a jump takes 2–3 clicks),
@@ -565,7 +829,7 @@ merged 2026-10-31 as `6baac2e` on the owner's OK, before their acceptance (a wai
 
 ---
 
-## FIXED IN v12.17 (NOT MERGED), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — ChatGPT: a jump to an early question of a long chat toasts "not currently rendered" (found 2026-11-01)
+## FIXED IN v12.17 (MERGED, PR #92 as 8909d92), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — ChatGPT: a jump to an early question of a long chat toasts "not currently rendered" (found 2026-11-01)
 
 ### Symptom
 On a 49-question ChatGPT project chat, Navigate → Q15 from a fresh load ended near Q26–Q29 or Q11–Q14 with the toast
@@ -611,7 +875,7 @@ then on the final `a17413c`, Q15 landed (row 14, 15.1 s). The K fixtures pass. *
 
 ---
 
-## FIXED IN v12.17 (NOT MERGED), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Search, Export, Summary and the gallery read only on-screen messages (DEC-058)
+## FIXED IN v12.17 (MERGED, PR #92 as 8909d92), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Search, Export, Summary and the gallery read only on-screen messages (DEC-058)
 
 ### Symptom [Chrome + Tampermonkey, 12.16, the owner's profile, visible tab, 2026-11-01]
 ChatGPT (49 questions): Search found no answer at all, Summary read "49 user, 0 AI", the export "Messages: 4 (49
@@ -632,7 +896,7 @@ mutants. The live checks (before the PR, after the local review, and the final A
 
 ---
 
-## FIXED IN v12.17 (NOT MERGED), FOUND BY THE AGENT'S LIVE RETEST — a settled ChatGPT chat exported with "1 answer on screen is longer than the loaded history" (2026-11-01)
+## FIXED IN v12.17 (MERGED, PR #92 as 8909d92), FOUND BY THE AGENT'S LIVE RETEST — a settled ChatGPT chat exported with "1 answer on screen is longer than the loaded history" (2026-11-01)
 
 **Symptom** [Chrome + Tampermonkey, the owner's profile, visible tab, build `5a27631b…` (`71fb7e6`), the 49-question
 chat, nothing streaming]: the full export carried the note that one answer was still being written, so it did not
@@ -1388,7 +1652,10 @@ Labels: **[code]** read from the source; **[inferred]** reasoned from code or ea
   spread and 21 show 21 green [code]. *That is the colouring through v12.15. Since v12.16 (DEC-056, `0139896`,
   the owner's request) a Claude dot takes its colour from the context meter instead: dot i is the meter's share ×
   (i+1) / the dots drawn, with the bar's 70% and 85% thresholds, so none is redder than the meter. Other platforms
-  keep the positional colours [code].*
+  keep the positional colours [code].* *Since v12.18 (DEC-060): Claude's dots follow the context since the last
+  summary (gate M11c); ChatGPT's follow its meter when a plan and mode give a window, and stay positional otherwise;
+  Gemini's and Perplexity's are coloured by the estimated size up to each question against 1M (70%, 85%). With no
+  ready index on ChatGPT or Perplexity, the dots stay positional and the meter says it counts the questions only.*
 - **The only input is `_questions.length`.** `updateTurnCounter()` keeps the highest value seen; a lower count
   resets it [code]. Once the index is ready, `_questions` is the whole list (144); before that, the DOM scan's
   mounted turns, about 1–5 on Claude [code].
@@ -1719,6 +1986,17 @@ The same race on this Mac [Playwright, headless, page realm, `--only J15`, three
 failed 1 of 3 on v12.16 and 1 of 3 on v12.15; WebKit 2 of 3 on v12.16 and 1 of 3 on v12.15; every failure read
 `resolved=10 toast=no err=0px`, every pass `resolved=null toast=yes err=2072px`. So it is not CI-only, and it is not
 v12.16's (that PR does not touch `ixJump` or `ixLandOn`'s adapter path). The probe-only fix above still stands.
+
+### Seen locally again, now on Chromium (2026-11-05, v12.18)
+[Playwright, headless, page realm, this Mac]
+- **Chromium, sweep 2 on `21912e9`:** J15 failed in two full runs of `check-ix-jumps` with the same signature
+  (`resolved=10 toast=no mounted=true inView=true err=0px scrollTop=9307/11379 window=[7,8,9,10,11] 1987ms`).
+- **The same full run on v12.17 passed**, and `--only J15` passed on `aaa0d40` and twice on `08771f6` (the same
+  userscript as `21912e9`). Sweep 3 (`e47aba2`) passed it.
+- **Firefox, the final run on `1be3bd1`:** failed again (same signature, 1664 ms). It was not re-run alone. Chromium
+  and WebKit passed it in that run.
+- v12.18 does not touch `ixJump` or the adapter landing. So the race is now seen on all three engines locally; the
+  probe-only fix is still unmade.
 
 ### How to respond meanwhile
 

@@ -23,7 +23,18 @@ jobs:
     # v12.17 (the owner, 2026-11-01): 40 on ubuntu, as a stopgap until the CI rebuild (ROADMAP
     # 0e). Those jobs took 23m28s-24m6s on v12.16 (PR #90's run), and this PR's probes add about
     # 4-5 minutes; macOS and Windows run no probes and keep 30.
-    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 40 || 30 }}
+    # v12.18 (the owner, 2026-11-05; still a stopgap until the rebuild): 50 on ubuntu. Measured on
+    # v12.17 (21-22 runs, PR #92 and 8909d92): healthy ubuntu jobs 27.3-30.3 min (suite ~6, probes
+    # ~22). The merge run 41871676757 lost webkit/ubuntu at 40m11s because a slow apt mirror made
+    # "Install browser engine" take 10m54s (181 kB/s; 4 s normally); PR #92's run 41459811313 hit
+    # the same stall (39.0 min) and passed. 30.3 + ~11 = ~41 min, plus this PR's two probes (about
+    # 4.3-4.6 min per engine in the final local run; ~2 min in the first sweep): ~46. Measured
+    # afterwards on PR #93's run 42095450049 (3ccf84b): healthy ubuntu jobs 33m18s-33m51s, so 50
+    # absorbs an install stall of only ~16 min; a 25-min stall cut firefox/ubuntu at 50m19s
+    # (hence the bounded install step below). The merge run's two macOS cancels at 15m01s were GitHub
+    # not assigning a runner ("not acquired by Runner ... after multiple attempts"), which no
+    # setting here changes: re-run the failed jobs once the whole run has finished.
+    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 50 || 30 }}
     strategy:
       fail-fast: false
       matrix:
@@ -43,7 +54,44 @@ jobs:
         run: npm install playwright
 
       - name: Install browser engine
+        if: matrix.os != 'ubuntu-latest'
         run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      # Ubuntu: the system packages come from the runner's apt mirror, which stalls. Measured on
+      # v12.17/v12.18 runs: "Need to get 48.8 MB" (Firefox) / "114 MB" (WebKit) fetched from
+      # azure.archive.ubuntu.com in 24m10s (32.3 kB/s), 15m53s (43.6 kB/s) and 10m30s (181 kB/s),
+      # while the package lists came at 7-9 MB/s, the browser from Playwright's CDN in 3-4 s, and a
+      # healthy install took 18-40 s. A stall past ~16 min ran a ~34-minute job into its 50-minute
+      # cap. So (the owner, 2026-11-05; ROADMAP 0e): the packages get up to 3 attempts of 4 minutes
+      # each, the later ones without the Azure mirror when the runner's mirror list has another, and
+      # a mirror that stays slow fails this step in ~13 minutes, visibly, instead of the whole job.
+      # No test or probe is retried; the browser download itself is unchanged.
+      - name: Install browser engine (ubuntu, bounded)
+        if: matrix.os == 'ubuntu-latest'
+        timeout-minutes: 16
+        env:
+          BROWSER: ${{ matrix.browser }}
+        run: |
+          ok=0
+          for attempt in 1 2 3; do
+            if timeout --kill-after=15s 240s npx playwright install-deps "$BROWSER"; then ok=1; break; fi
+            echo "::warning::system packages for $BROWSER, attempt $attempt: not done in 4 minutes (the apt mirror is slow)"
+            sudo pkill -TERM -x apt-get || true
+            sleep 3
+            sudo dpkg --configure -a || true
+            if [ "$attempt" = 1 ] && [ -f /etc/apt/apt-mirrors.txt ]; then
+              echo "apt mirror list:"; cat /etc/apt/apt-mirrors.txt
+              if awk '!/azure\.archive\.ubuntu\.com/ && NF { f = 1 } END { exit !f }' /etc/apt/apt-mirrors.txt; then
+                sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+                echo "attempts 2-3 use the next mirror in the list"
+              fi
+            fi
+          done
+          if [ "$ok" != 1 ]; then
+            echo "::error::system packages for $BROWSER: 3 attempts of 4 minutes did not finish; the Ubuntu apt mirror is stalled. Re-run this job."
+            exit 1
+          fi
+          npx playwright install "$BROWSER"
 
       - name: Run tests
         run: node tests/test-all-platforms.js --browser ${{ matrix.browser }}
@@ -146,3 +194,14 @@ jobs:
       - name: Run feature-gaps probe
         if: matrix.os == 'ubuntu-latest'
         run: node probes/check-feature-gaps.js --browser ${{ matrix.browser }}
+
+      # v12.18: the context meter on Claude, ChatGPT, Gemini and Perplexity (DEC-060), and ChatGPT
+      # answer bookmarks on a "fallback" turn. Placed like the ones above: both read the meter and
+      # the flags after scans, refetches and storage writes, which differ per engine.
+      - name: Run context-meter probe
+        if: matrix.os == 'ubuntu-latest'
+        run: node probes/check-context-meter.js --browser ${{ matrix.browser }}
+
+      - name: Run ChatGPT fallback-turn bookmark probe
+        if: matrix.os == 'ubuntu-latest'
+        run: node probes/check-gpt-fallback.js --browser ${{ matrix.browser }}

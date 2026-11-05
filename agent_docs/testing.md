@@ -113,7 +113,8 @@ GitHub Actions runs on push/PR to `main`:
     (ChatGPT and Perplexity bookmarks by message id, DEC-053) and `check-claude-turnkeys` (Claude rows by
     `data-turn-key`, DEC-054). They took the ubuntu jobs to about 22 minutes, so the job cap is 30 since v12.15.
     `check-ix-jumps` J15 has a known timing race in CI (TROUBLESHOOTING, OPEN): a failure reading
-    `resolved=10 toast=no inView=true err=0px` clears on one re-run.
+    `resolved=10 toast=no inView=true err=0px` clears on one re-run. It has also failed locally, on all three
+    engines by now (Chromium and Firefox in v12.18's runs).
   - Every `ubuntu` job also runs three v12.16 probes on its own engine: `check-claude-far-jump` (Claude's latest
     question from the top lands in one click, on the virtualizing mock with `tailAtEnd`, DEC-055), `check-ctx-limit`
     (the context window by the conversation's model, DEC-056) and `check-gemini-history` (Gemini's history note on
@@ -123,15 +124,24 @@ GitHub Actions runs on push/PR to `main`:
     and the gallery reading the whole conversation on the windowed Claude, ChatGPT and Perplexity mocks and on
     `gemini-history.html`, Gemini bookmarks by turn id, and the landings (42 checks; guards G7, G8, L3, L5, E). Its
     mutants (21) ran from a scratch runner and are listed in the commit messages, not in the repo. With it the
-    ubuntu jobs took about 29–30 minutes (29m1s–29m35s on PR #92's run 41388828440), so their cap is **40 since
+    ubuntu jobs took about 29–30 minutes (29m1s–29m35s on PR #92's run 41388828440), so their cap was **40 since
     v12.17** (the owner's stopgap until the CI rebuild, ROADMAP 0e); macOS and Windows keep 30.
+  - Every `ubuntu` job also runs two v12.18 probes on its own engine (DEC-060, DEC-061): `check-context-meter`
+    (M1–M16 Claude, C1–C10 ChatGPT, S1–S7 Gemini and Perplexity: summary awareness, the model label, notices, the
+    95% alert, the plan setting, the size estimate and its dots) and `check-gpt-fallback` (F1–F8: ChatGPT answer
+    records rewritten to the index's key, flags in sync, Safari's queued replay). They took about 4.3–4.6 min per
+    engine in the final local run, and 4m16s–4m22s in CI (run 42095450049 on `3ccf84b`, where healthy ubuntu jobs
+    took 33m18s–33m51s). Since `b48996a` the ubuntu jobs' browser install is bounded: the system packages get up to 3
+    attempts of 4 minutes (the apt mirror stalled for 10–25 minutes three times; ROADMAP 0e). The ubuntu cap is **50 since v12.18** (the owner's second stopgap: an apt-mirror
+    stall took `webkit on ubuntu-latest` past 40 on the `8909d92` merge run; ROADMAP 0e).
 
 **Windows is the runner that catches timing assumptions.** It is materially slower than
 the Ubuntu and macOS runners, so an assertion that races the virtualizer passes on two OSes
 and fails on the third. Treat a Windows-only failure as a real finding about the assertion,
 not as runner flakiness. The one documented exception is the harness's `page.goto … interrupted by another
-navigation` cascade on `firefox on windows-latest`: three Claude entries in a row, no userscript assertion
-among them, seen 2026-08-02 and 2026-10-23 (TESTING.md). A single re-run clears it. Do not add `--single-process` to the Chromium launcher — it removes
+navigation` cascade on `firefox on windows-latest`: usually three Claude entries in a row (16, through Codex Web,
+on 2026-11-02), no userscript assertion among them, seen 2026-08-02, 2026-10-23 and 2026-11-02 (TESTING.md). A
+single re-run clears it; GitHub allows `gh run rerun --failed` only once the whole run has completed. Do not add `--single-process` to the Chromium launcher — it removes
 crash isolation and reports one renderer fault as every-platform-after-it failing (DEC-026).
 
 **webkit-on-macos is the one exception with a known environment signature.** A job running
@@ -141,7 +151,7 @@ sibling entries stay exact at ~300ms is a degraded macOS runner episode, not cod
 lines (~160ms rAF sample = healthy; seconds = throttled; -1 = stopped) and the per-entry
 wall clocks, then re-run the job once. Full signature and procedure:
 `TESTING.md` → "CI: reading a webkit-on-macos failure or hang". The job `timeout-minutes` (30 since v12.15;
-40 on ubuntu since v12.17) exists for this; do not raise assertion budgets to make a sick runner green.
+40 on ubuntu since v12.17, 50 since v12.18) exists for this; do not raise assertion budgets to make a sick runner green.
 
 **A local mac WebKit failure is NOT that signature** (found 2026-10-22). On the owner's Mac, four acceptance
 entries fail on every run, on v12.8 and v12.9 alike. They give up at ~1.46s with healthy `raf10`, on jumps

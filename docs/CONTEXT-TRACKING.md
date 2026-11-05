@@ -13,6 +13,18 @@ Research, implementation plans, and technical reference for the context window u
 > Both paths now use `ciTotalChars()` over the full active path when the index is ready. Extended-thinking tokens come from real `content[]` blocks of type `thinking` via `ciTotalThinkingChars()`, replacing the `[aria-expanded] × 600 tokens` heuristic — which was itself doubly wrong here, since it could only count *mounted* thinking blocks.
 >
 > This matters most on Firefox, where SSE interception is disabled (DEC-020) and Path B is the only path, making the undercount permanent for those users.
+>
+> **v12.18 update — the meter reads claude.ai's summaries, and the other sites get an estimate (DEC-060).** This
+> document's non-Claude design (an adaptive turn counter; "Tier 2") and its compaction detection by a drop in
+> `input_tokens` are superseded:
+> - Claude marks its summaries in the conversation JSON (`compaction_summary`; 87 found, completeness unproven), and the meter counts the context
+>   from the last one ("Summarized N× · whole chat ~X").
+> - ChatGPT gets a plan setting and a percentage by plan and mode.
+> - Gemini and Perplexity get a size estimate, with dots coloured against 1M.
+> - The stream event `compaction_status` exists but is not read (Chrome only, values unmeasured).
+>
+> Current reference: DECISIONS DEC-060, DOM-REFERENCE (Claude, "Compaction", and each site's "Context and
+> summaries"), and agent_docs/architecture.md, "Context meter".
 
 
 ---
@@ -560,6 +572,17 @@ Deep in second cycle:
 
 ### How Compaction Actually Works
 
+> **Measured on claude.ai chats, 2026-11-04** [Chrome + Tampermonkey (12.17), the owner's profile, visible tab, page
+> realm, GET reads only; the screen's estimate, overhead + characters ÷ 4]: the estimated context just before each of
+> 87 summaries (39 of 236 chats) ranged from 35K to 333K: median 76K in February 2026, 200K in April, and 323K and
+> 333K on two Opus 5.5 (1M) chats, with a 50K project overhead. On that estimate, claude.ai chats were summarized well
+> below ~95% of today's windows, at no fixed size or share. The windows in force then and the estimate's accuracy are
+> unknown. The ~95% figure below has no source in this document; the floor figures are API cookbook data, not
+> claude.ai chats. Since v12.18 Claude's summaries are read from the conversation JSON (`compaction_summary`), not
+> from the DOM or an `input_tokens` drop. The table under "Non-Claude Platforms" is not the current method: code
+> searches found no summary marker on ChatGPT, Gemini (loaded code only) or Perplexity, and Grok was checked signed out
+> only (DOM-REFERENCE, Claude "Compaction" and each site's "Context and summaries").
+
 When a conversation approaches ~95% of the context window limit (~190K tokens for Claude's 200K):
 
 1. System triggers automatic summarization
@@ -680,14 +703,26 @@ var CTX_LIMITS = {
 ```
 
 **Notes:**
-- ChatGPT's web app context varies by subscription: 8K (free), 32K (Plus), 128K (Pro/Enterprise)
+- **ChatGPT, since v12.18 (DEC-060):** the meter does not read `CTX_LIMITS.chatgpt`. It uses `GPT_CTX`, from
+  https://chatgpt.com/pricing/ (read live 2026-11-04, Chrome): GPT Instant 27K / 54K / 54K / 128K and GPT Reasoning
+  "Varies" / 256K / 256K / 400K for Free / Go / Plus / Pro. The window is chosen by the `chatgptPlan` setting (the
+  conversation JSON does not hold the plan) and the newest answer's `model_slug` (`GPT_MODE_BY_SLUG`); with no plan or
+  an unknown mode there is no percentage. The 8K / 32K / 128K figures this note used to give are older and superseded.
+  Gemini and Perplexity publish no window: they show a token estimate with no percentage.
 - Gemini's 1M context is the API limit; web app behavior may differ
 - These affect the context bar only. Turn counter doesn't use these values directly.
 - **Claude, since v12.16 (DEC-056):** the window comes from the conversation's model, not from `CTX_LIMITS.claude`:
   `orbClaudeCtxLimit()` looks the conversation JSON's top-level `model` up in `CLAUDE_CTX_BY_MODEL` (1M or 500K, per
   Anthropic's help center for claude.ai's paid plans; the table's comment cites it). A model the table does not know,
-  or none, reads `CLAUDE_CTX_FALLBACK` (200K) and the meter says "limit assumed". Claude's turn dots take their colour
-  from the meter's percentage; other platforms keep the positional colours [code].
+  or none, reads `CLAUDE_CTX_FALLBACK` (200K). Through v12.17 the meter then said "limit assumed". Since v12.18 (the
+  owner's spec; `check-ctx-limit` L4) an identified model reads a plain 200K with source `model`, as the help center
+  says ("Outside of these models, Claude's context window size is 200K"), and "limit assumed" means only that no model
+  was identified.
+- **Turn dots, since v12.18 [code]:** they follow the meter where it shows a percentage (Claude; ChatGPT with a plan
+  and a known mode). On Gemini and Perplexity they follow the size estimate against a 1M reference when the estimate
+  covers the whole conversation. Elsewhere they stay positional. Live on 12.18 [Chrome + Tampermonkey, the owner's
+  profile, visible tab, 2026-11-05 ~16:57–16:59 UTC]: ChatGPT's `data-acn-dot-basis` was `position` with no plan (dots
+  28 / 6 / 6) and `meter` with Plus ("Thinking · 256K window (Plus)", 24%); Gemini's was `size`; Claude's was `meter`.
 
 ---
 

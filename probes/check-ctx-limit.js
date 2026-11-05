@@ -15,7 +15,7 @@
 // "[ACN] context limit: ..." line per change.
 //
 // Five conversations with byte-identical messages, differing only in the top-level `model`:
-//   A  'claude-haiku-4-5-20251001'  not in the table   -> 200K, assumed
+//   A  'claude-haiku-4-5-20251001'  not in the table   -> 200K, model (v12.18; v12.16: assumed)
 //   B  'claude-opus-5'                                  -> 1M,   model
 //   C  'claude-opus-4-8'                                -> 500K, model
 //   D  (no model field)                                 -> 200K, assumed
@@ -27,7 +27,9 @@
 //             and the percentage is the meta's tokens over 1M (+-1)
 //   L2 [new]  C: 500000 / model, meta "/ 500K tokens (est.)", same tokens as B, pct about 2x B's
 //   L3 [new]  D: 200000 / assumed / '', meta "(est., limit assumed)"
-//   L4 [new]  A: 200000 / assumed (a model the table does not know is not silently trusted)
+//   L4 [new]  A: 200000 / model, no "limit assumed": the help center's "Outside of these models,
+//             Claude's context window size is 200K" (v12.18, the owner's spec: "assumed" only for
+//             an unidentified model). v12.16–12.17 read it as 200000 / assumed, the rule this replaced
 //   L5 [new]  E: the dated id resolves to 500000 / model
 //   L6 [new]  B, then a switch to D in the same page with Navigate open (History.prototype.pushState,
 //             as check-turn-counter's A2): the bar returns to 200000 / assumed, not B's 1M
@@ -381,9 +383,10 @@ async function runEngine(engine, raw, quiet) {
     // A (L4)
     const a = await loadAndRead('A');
     if (precondition('L4', a.r)) {
-        check('L4', 'A (claude-haiku-4-5-20251001, not in the table): 200K, assumed',
-            a.r.limit === '200000' && a.r.source === 'assumed' && a.r.model === 'claude-haiku-4-5-20251001' &&
-            (a.r.meta || '').indexOf('/ 200K tokens (est., limit assumed)') !== -1 && pctAgrees(a.r, 200000), fmt(a.r));
+        check('L4', 'A (claude-haiku-4-5-20251001, not in the table): a plain 200K, from the model, no "limit assumed"',
+            a.r.limit === '200000' && a.r.source === 'model' && a.r.model === 'claude-haiku-4-5-20251001' &&
+            (a.r.meta || '').indexOf('/ 200K tokens (est.)') !== -1 && (a.r.meta || '').indexOf('limit assumed') === -1 &&
+            pctAgrees(a.r, 200000), fmt(a.r));
     }
     await finish(a);
 
