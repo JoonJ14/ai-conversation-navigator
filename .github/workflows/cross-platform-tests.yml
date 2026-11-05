@@ -51,7 +51,44 @@ jobs:
         run: npm install playwright
 
       - name: Install browser engine
+        if: matrix.os != 'ubuntu-latest'
         run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      # Ubuntu: the system packages come from the runner's apt mirror, which stalls. Measured on
+      # v12.17/v12.18 runs: "Need to get 48.8 MB" (Firefox) / "114 MB" (WebKit) fetched from
+      # azure.archive.ubuntu.com in 24m10s (32.3 kB/s), 15m53s (43.6 kB/s) and 10m30s (181 kB/s),
+      # while the package lists came at 7-9 MB/s, the browser from Playwright's CDN in 3-4 s, and a
+      # healthy install took 18-40 s. A stall past ~16 min ran a ~34-minute job into its 50-minute
+      # cap. So (the owner, 2026-11-05; ROADMAP 0e): the packages get up to 3 attempts of 4 minutes
+      # each, the later ones without the Azure mirror when the runner's mirror list has another, and
+      # a mirror that stays slow fails this step in ~13 minutes, visibly, instead of the whole job.
+      # No test or probe is retried; the browser download itself is unchanged.
+      - name: Install browser engine (ubuntu, bounded)
+        if: matrix.os == 'ubuntu-latest'
+        timeout-minutes: 16
+        env:
+          BROWSER: ${{ matrix.browser }}
+        run: |
+          ok=0
+          for attempt in 1 2 3; do
+            if timeout --kill-after=15s 240s npx playwright install-deps "$BROWSER"; then ok=1; break; fi
+            echo "::warning::system packages for $BROWSER, attempt $attempt: not done in 4 minutes (the apt mirror is slow)"
+            sudo pkill -TERM -x apt-get || true
+            sleep 3
+            sudo dpkg --configure -a || true
+            if [ "$attempt" = 1 ] && [ -f /etc/apt/apt-mirrors.txt ]; then
+              echo "apt mirror list:"; cat /etc/apt/apt-mirrors.txt
+              if awk '!/azure\.archive\.ubuntu\.com/ && NF { f = 1 } END { exit !f }' /etc/apt/apt-mirrors.txt; then
+                sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+                echo "attempts 2-3 use the next mirror in the list"
+              fi
+            fi
+          done
+          if [ "$ok" != 1 ]; then
+            echo "::error::system packages for $BROWSER: 3 attempts of 4 minutes did not finish; the Ubuntu apt mirror is stalled. Re-run this job."
+            exit 1
+          fi
+          npx playwright install "$BROWSER"
 
       - name: Run tests
         run: node tests/test-all-platforms.js --browser ${{ matrix.browser }}
