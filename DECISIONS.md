@@ -4233,3 +4233,59 @@ a fresh load; v12.15's 8 of 8 had been on a 24-question chat, which needs 5 page
   L3, L5, E), and `check-ix-jumps` K5–K8. The checks written before the PR fail on v12.16; each added in the GitHub
   rounds fails on the commit before its fix. `c88ed1c`'s re-anchor rule has no gate (the mock mounts each page's
   turns). Real-browser behaviour is the owner's acceptance (DEC-031).
+
+---
+
+## DEC-060: The Context Meter's Design: a Baseline Every Display Keeps, and Option A Next (2026-11-04)
+**Date:** 2026-11-04 | **Stage:** the context-meter PR (DEC-058's second; ROADMAP 12), after its read-only
+measurements and the owner's design review. Not yet built.
+
+### Decision
+- **The baseline, for every context-meter display, now and later:**
+  - **The change notice.** When the conversation's model changes, a dismissible notice explains it (for example
+    "Model changed: Opus 5 → Opus 4.8. Window 1M → 500K, so 35% → 71%"); when the chat no longer fits the new window,
+    it says Claude will summarize earlier messages.
+  - **Compaction awareness (Claude).** The context is counted from the last summary; the meter says "summarized N×";
+    a notice appears on a new summary; in Navigate, questions before the last summary carry a "summary" tag, with a
+    divider at the summary point.
+- **The display to implement next: A**, the percentage bar with the model and window named under it ("Opus 4.8 ·
+  500K window").
+- **Candidates for a later version:** C (the window ruler: a bar marked 0 · 200K · 500K · 1M with the model's limit as
+  a moving wall) and D (three tiers: this chat's share of a 1M, a 500K and a 200K window, the active row marked).
+- **Kept as ideas, not planned:** B (a ghost trail of the previous percentage), E (a pre-send preview from the model
+  picker), F (tokens left as the main number).
+- **Still open, decided in the implementation spec:** how the meter behaves on sites without a summary marker.
+- The options and the decision are drawn and written up in `docs/design/context-meter/` (`context-meter-options.html`,
+  `README.md`), from the owner's review.
+
+### Context
+Measured 2026-11-04, live, read-only except one throwaway chat made with the owner's OK [Chrome + Tampermonkey,
+12.17 `a17413c`'s build, the owner's profile, visible tab, page realm]; details in DOM-REFERENCE (Claude: the
+model-switch block and "Compaction"; each other platform's "Context and summaries") and ROADMAP 12.
+- claude.ai stores one model per conversation. A switch is saved only when the next message is sent, and the
+  navigator already follows on that message's refetch, but silently: the test chat went from 3% to 6% with nothing
+  saying why. That jump is what the change notice explains.
+- claude.ai marks each summary in the conversation JSON the index already downloads (`compaction_summary`, 87 in 39 of
+  the owner's 236 chats, every chat whose estimate exceeds its window among them). It reports no size after a summary;
+  the context since the last one can be estimated from the summary plus what follows. The estimated size just before
+  each summary moved with the date (February median 76K; April–June about 200K; two on Opus 5.5 at 323K and 333K), so
+  "distance to the next summary" is not predictable and the baseline counts from the last summary instead.
+- No summary marker on ChatGPT, Gemini or Perplexity (Grok checked signed out only). ChatGPT names each answer's
+  model, but OpenAI publishes windows per plan and mode, and the plan is not in the conversation data: the open
+  question above.
+
+### Alternatives considered
+- **A display without the baseline** (today's meter, or any option alone): a model switch or a summary moves the
+  percentage with no explanation, and a summarized chat reads past its window ("~600.1K / 500K"). Rejected: the
+  baseline is what makes the limits clear, whichever display carries it.
+- **C or D first:** richer, but more new UI before the baseline is proven; kept as candidates.
+- **E (the picker preview):** a new Layer 1 dependency on claude.ai's picker markup, which DEC-056 already rejected as
+  the source of the limit; as a hint only, kept as an idea.
+- **"Distance to the next summary":** the measured trigger sizes are scattered, so any prediction would be invented.
+
+### Key properties
+- The per-model window table stays (DEC-056); this decision is about showing it.
+- The compaction signal is data the index already has: no new request, and the same on every browser. The stream's
+  `compaction_status` event (Chrome only, values unmeasured) and the page's "Compacted conversation" pill (mounted
+  rows only) are not the source.
+- Any later display (C, D) keeps the baseline: the ruler moves its wall on a switch, and the change notice explains it.

@@ -288,7 +288,61 @@ request `ciLoadIndex` already makes) has a top-level **`model`**, the chat's mod
 Tampermonkey page realm, the owner's profile, GET reads only]: present on 60 of 60 recent conversations, equal to the
 conversation list's `model` every time; no message carries a model key. The context meter's window comes from it
 (DEC-056). The ids are the API's dateless form; whether a conversation switched to another model mid-way reports
-the newer one was not tested.
+the newer one was not tested (2026-10-31). **Tested 2026-11-04**, below: it does, from the next message sent.
+
+**A model switch, measured** [Chrome + Tampermonkey (12.17, `a17413c`'s build) page realm, the owner's profile, visible
+tab, a throwaway chat created for the test with the owner's OK, 2026-11-04]:
+- **The composer's picker** is `button[data-testid="model-selector-dropdown"]` in the composer's `fieldset`, its
+  `aria-label` "Model: Opus 5.5 High": a display name and an effort level, not the API id. On load it showed the
+  chat's stored model on 5 of 5 chats (Opus 5.5, Opus 4.8, Fable 5, Opus 5, Sonnet 5.5); on `/new`, "Opus 5.5 High".
+- **Switching in the picker and sending nothing:** the label changed at once; the page sent
+  `PUT …/chat_conversations/<id>?rendering_mode=raw` (202); the stored `model` stayed `claude-opus-5-5` for 30 s
+  (`updated_at` unchanged). A reload put the picker back to "Opus 5.5 High": an unsent switch lives in the page only.
+- **Switching and sending:** the stored `model` read `claude-opus-4-8` within 3 s of sending. The navigator followed
+  on the refetch its new-message check triggers (`[provisional]`, gmxhr 200): the meter went from "3%, ~30.0K / 1M
+  tokens (est.)" to "6%, ~30.0K / 500K", logging `model=claude-opus-4-8 limit=500000 source=model`.
+- Messages carry no model: 0 of 885 messages on 20 chats plus the test chat (the only "model" keys inside messages
+  were `io.modelcontextprotocol/serverInfo`). Which model wrote which answer is not stored.
+- The picker's "More models" lists Opus 3, which `CLAUDE_CTX_BY_MODEL` does not know (it would read 200K, "limit
+  assumed"); its stored id was not measured.
+
+### Compaction: claude.ai's summaries, in the data, the stream and the DOM (measured live, Chrome + Tampermonkey (12.17, `a17413c`'s build), the owner's profile, visible tab, page realm, GET reads only, 2026-11-04)
+
+claude.ai summarizes earlier messages when a chat grows long ("automatic context management", help article 8664678).
+Every summary is recorded in the conversation JSON `ciLoadIndex` already downloads.
+
+- **The data marker: `chat_messages[].compaction_summary`.** Present only on the message where a summary happened:
+  87 messages in 39 of the owner's 236 chats, every one from the assistant and on the active path. Always a
+  one-element array holding a text block, `{type: "text", text, citations, start_timestamp, stop_timestamp}` (`flags`
+  on 40 of 87); the text is 2,185–21,835 characters. **It carries no number** (no token count before or after). All 7
+  chats whose estimate exceeds their window have it (2–5 each), and so do 6 of 7 long chats under it.
+  Measured with `ciLoadIndex`'s URL and parameters, sent through the page's `fetch`, not the gmxhr transport (assumed
+  identical, not compared). `rendering_mode=raw` and the page's own query string add nothing; no other field marks a
+  summary: block types (text, thinking, tool_use, tool_result), senders, stop reasons, settings flags and top-level
+  keys match the controls. `ciBuildIndex` ignores the key [code].
+- **The persisted pill:** at a past summary the page renders "Compacted conversation" in a row
+  `data-item-key="<message uuid>:t2000001"`, `data-state="done"`, inside `[data-testid="assistant-message"]` of exactly
+  the message carrying `compaction_summary` (checked on one over-window chat, the first of its three). `data-compaction-status` was absent
+  at rest. Only mounted rows show it (Layer 4), and the label is English (Layer 1): the data is the signal.
+- **The stream** [code reading of claude.ai's bundle, 3,699 chunks]: the client's event list includes
+  **`compaction_status`** (`{status, message}`; any status other than `"failed"` marks the turn compacted, and it logs
+  `chat.sse_compaction_status`), beside `message_limit`, `model_update`, `model_fallback` and `cache_performance`.
+  `parseSSEEvent` acts on four types only (`message_start`, `content_block_delta`, `message_delta`, `message_stop`)
+  and drops these silently [code]. Its values and its order against `message_start` are unmeasured live (no fixture;
+  v10.9's capture predates it). It would only reach Chrome: no SSE on Firefox (DEC-020) and, inferred, Safari.
+- **Strings** [code]: "Compacting…", "Compacting our conversation so we can keep chatting...", "Compaction failed",
+  "Compacted conversation", "This chat can’t be compacted any further. Start a new chat to continue." The phrase
+  "organizing its thoughts" is in none of the 3,699 chunks. Token counts ("Compacted session · saved {tokens}
+  tokens") belong to *session* compaction, whose `CompactionDivider` (`pre_tokens`, `post_tokens`) is in the
+  `anthropic.bard.api.v1alpha` schema, not the chat API (inferred from the namespace).
+- **Size after a summary:** not reported. An estimate from the payload (overhead + the last summary ÷ 4 + the path
+  from the message before it): 154K–291K, 31–58% of the window, on the 7 over-window chats; one opus-4-7 chat reads 620K on
+  today's meter and about 247K (49%) from its last summary. Assumes the context is "summary + what follows".
+- **Where summaries happened** (the same formula, the context just before each of the 87, the window from the chat's
+  current `model`): scattered, and by date rather than window. February 2026: median 76K (35–160K, 48 summaries);
+  April: 200K (107–279K); June: 201K (197–218K); October, the two on Opus 5.5 (1M): 323K and 333K. By model: Opus
+  4.6 (500K in today's table) median 93K (57), Opus 4.7 median 183K (20). Neither a fixed size nor a fixed share of
+  today's window; the windows in force then are unknown, and so is the estimate's accuracy (ROADMAP 12, step 2).
 
 ### Images and full text for v12.17's features (measured live, Chrome + Tampermonkey (12.16 installed), the owner's profile, visible tab, page realm, 2026-11-01)
 
@@ -538,6 +592,35 @@ DEC-052, DEC-053):**
   that is not mounted. A URL for an unmounted image would need `/backend-api/files/download/<id>` (a signed link): a
   new request, which the owner declined (DEC-059).
 
+### Context windows, models and summaries (measured live, Chrome + Tampermonkey (12.17, `a17413c`'s build), the owner's profile, signed in, visible tab, page realm, GET reads only, 2026-11-04)
+
+- **Code search** (234 chunks from `cdn.oaistatic.com`, 27.2 MB, following every referenced `.js`; the chat app's code
+  was reached: `model_slug` ×190, `is_visually_hidden_from_conversation` ×47). Compaction strings exist ("Context
+  compacted", "Context automatically compacted", "Compacting context", "Compaction interrupted", "Context may
+  automatically compact."), but under i18n ids `localConversation.*`, beside "Optimized the conversation" and
+  "Can't steer while compacting": an agent surface (Codex or the desktop agent; inferred from the namespace), not a
+  chatgpt.com chat. `async_compaction`, `compaction_generation` and `showContextWindowUsage` sit in multi-agent and
+  Codex chunks. The one chat-side candidate, `is_context_truncation_continuation`, is a field of the completion
+  request beside `branching_from_conversation_id` / `branching_from_message_id`: a branch continuation, not a summary.
+  Chat-side context strings found: "Message is too long".
+- **Data** (`/backend-api/conversation/<id>`, the adapter's endpoint, 120 of the owner's 299 conversations, 3,217
+  nodes): roles user 484, assistant 772, tool 262; content types text, thoughts, reasoning_recap, multimodal_text,
+  super_widget, code, execution_output, tether_browsing_display, system_error (1). **No node** had
+  `is_visually_hidden_from_conversation` set, and no metadata key names a summary. Every conversation has top-level
+  `context_truncation_continuation` and `context_scopes`: `null` on all 25 checked, the longest included (130
+  questions, `gpt-4o`).
+- **The model is per message:** `metadata.model_slug` on assistant messages (`gpt-4o`, `o3`, `gpt-5`, `gpt-5-1`,
+  `gpt-5-2`, `gpt-5-2-thinking`, `gpt-5-4-thinking`, `gpt-6`, …), with the conversation's `default_model_slug`; 13 of
+  120 conversations carry more than one slug. Unlike Claude, a mid-chat switch is recorded.
+- **Published windows:** https://chatgpt.com/pricing/ (read live 2026-11-04) gives them per plan and mode, not per
+  model: GPT Instant 27K / 54K / 54K / 128K and GPT Reasoning "Varies" / 256K / 256K / 400K for Free / Go / Plus /
+  Pro, with the note that the part available for user input is smaller (system instructions and tools share it).
+  A web search's summary (not read directly) attributed older figures to https://openai.com/chatgpt/pricing/
+  (16K / 32K / 128K and 196K); third-party guides disagree by date. The plan is not in the conversation JSON (not
+  looked for further).
+- **Finding:** no summary mechanism for chats in the loaded code and no marker in the owner's chats; what ChatGPT does
+  past the window is invisible to the page.
+
 ### Historical: Feb 2026 structure (superseded)
 
 **Inspected:** Feb 16, 2026 (live site)
@@ -577,6 +660,18 @@ AI messages use `article[data-turn="assistant"]`, `data-message-author-role="ass
 
 **Inspected:** Feb 16, 2026 (live site)
 **Selector:** `div.message-bubble` filtered by class containing `user`/`human`, or parent class, or even index
+
+### Context and summaries: code search, signed out (Chrome, page realm, visible tab, not signed in, nothing sent, 2026-11-04)
+
+- 203 chunks from `grok.com` / `x.ai` (14.5 MB, following every referenced `.js`, queue emptied; no build manifest).
+  The signed-out page rendered a composer and the chat client's code loaded (`app-chat` ×170, `responseId` ×824,
+  `modelName` ×197); routes that load only signed in (history, a conversation's own page) may not be among them, and
+  Grok's i18n strings load outside the JS.
+- **No summary mechanism found.** `beyondContextLength` is an error kind, beside `userPromptTooLong`,
+  `modelNotAvailable`, `globalRateLimit` and `attachmentImageTooLarge`: a hard stop past the context, not a summary.
+  `contextWindow` ×8; `convoSummary` belongs to memory import; `summarized_thinking` to reasoning display.
+- **Partly conclusive:** the chat client was reachable, a signed-in session was not. Redo signed in, with the data
+  steps, in the Grok PR.
 
 ### Real DOM Structure (A→F nesting)
 
@@ -731,6 +826,16 @@ infinite-scroller.chat-history            (the scroller; its only children are t
 - The chat's 78 images ≥ 50 px are search-result product thumbnails (`rich-list-card`, `encrypted-tbn*.gstatic.com`)
   inside answers, none an upload; the gallery lists only `img[data-test-id="uploaded-img"]`.
 
+### Context and summaries: code search (measured live, Chrome + Tampermonkey (12.17, `a17413c`'s build), the owner's profile, signed in, visible tab, page realm, 2026-11-04)
+
+- 87 bundles (20.9 MB) from `gemini.gstatic.com` / `www.gstatic.com`, everything a chat page had loaded; Google loads
+  modules on demand, so this is the loaded part of the app, not all of it.
+- **No summary mechanism found:** no compaction or "conversation too long" string; the "Start a new chat to
+  continue" strings concern deleted Gems and tools. `gws_context_window` is a notice kind rendered in a turn, beside
+  `user-notice`, "Open Calendar" and "Open Tasks" (Workspace extensions, inferred; no string for it in the loaded
+  code). `memory_summary` is a "personal snapshot" artifact; `summarize_auto` has no string beside it.
+- With no marker to look for, the data step was not run.
+
 ### Debugging History
 - v7.7 (Feb 16, 2026): Rebuilt mock from live DevTools screenshot. Real structure uses Angular custom elements (user-query, user-query-content, model-response), deep nesting with ngcontent hash attributes, horizontal-container spans, and Material Design icon buttons.
 - v12.2 (Jul 30, 2026): Live probe found the hidden `cdk-visually-hidden` sender labels ("You
@@ -852,6 +957,17 @@ profile, 2026-10-24/25; DEC-052, DEC-053):**
   conversation images.
 - v12.16's `[class*="prose"]` matched 22 nodes for 2 mounted answers: Search labelled the 12th answer A#18, Summary
   counted 22 AI messages, and Export wrote 22 fragments. `[data-workflow-final-text]` is one per answer.
+
+### Context and summaries (measured live, Chrome + Tampermonkey (12.17, `a17413c`'s build), the owner's profile, signed in, visible tab, page realm, GET reads only, 2026-11-04)
+
+- **Code search** (2,090 chunks from `pplx-next-static-public.perplexity.ai` and `www.perplexity.ai`, 62.8 MB, queue
+  emptied; thread code reached: `rest/thread` ×49): no thread summary or compaction. The limits in the strings are on
+  inputs: "File content exceeds the token limit for processing", "File {filename} exceeds the model's token
+  limit.", "Content too long", "- note: content has been truncated"; `token_limit_exceeded` and `contextWindow` have
+  no string beside them.
+- **Data** (`/rest/thread/<id>`, the adapter's endpoint, every page): the owner's account has 3 threads, of 12, 2 and
+  5 entries. Matching keys: `context_uuid` / `frontend_context_uuid` (19 entries; identities) and one
+  `collection_info.project_status_summary_instruction`. **Too short to show anything.**
 
 ### Historical: Feb 2026 structure (superseded)
 

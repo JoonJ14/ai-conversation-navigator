@@ -735,6 +735,41 @@ Numbering below is stable (items keep their historical numbers):
        follows a switch is unmeasured. The help center says a change "at any point in a conversation" applies from
        Claude's next response (article 8664678, read 2026-11-01). Switching a model changes the conversation, so the
        run needs the owner's go-ahead for that account action.
+     - **Measured 2026-11-04** (a throwaway chat, the owner's OK; Chrome + Tampermonkey, 12.17 `a17413c`'s build; details
+       in DOM-REFERENCE → Claude): the stored `model` changes when the next message is sent, not when the picker
+       changes; the navigator already follows on that message's refetch (3% → 6%, 1M → 500K, with nothing saying why).
+       An unsent switch lives only in the picker (`[data-testid="model-selector-dropdown"]`, "Model: Opus 4.8 High").
+       Messages record no model.
+   - **Summaries (compaction), researched 2026-11-04, read-only** (DOM-REFERENCE → Claude "Compaction", and each site's
+     "Context and summaries"; every claim there with its context):
+     - **Claude: detectable from the data the index already has.** `chat_messages[].compaction_summary` marks each
+       summary (87 in 39 of 236 chats; all 7 over-window chats). No number: the size after a summary is estimable
+       (overhead + summary + what follows; e.g. 620K on today's meter → about 247K), not reported. The page draws a
+       persisted "Compacted conversation" pill in that message (DOM, mounted rows only). The stream has a
+       `compaction_status` event that `parseSSEEvent` drops (Chrome only; live values unmeasured). This explains the
+       "~600.1K / 500K" residual above.
+     - **Where Claude summarized:** scattered, by date more than by window (February median 76K; April–June about 200K;
+       two on Opus 5.5 at 323K and 333K). Not a fixed size or a fixed share of today's window, so "distance to the next
+       summary" cannot be predicted from these; "context since the last summary" can be shown.
+     - **ChatGPT:** no chat summary mechanism in the loaded code (the compaction strings are an agent surface's,
+       `localConversation.*`), no marker in 120 conversations. The model is per message (`metadata.model_slug`; 13 of 120
+       chats switched). Windows are published per plan and mode (https://chatgpt.com/pricing/, read 2026-11-04: Instant
+       27K / 54K / 54K / 128K, Reasoning "Varies" / 256K / 256K / 400K for Free / Go / Plus / Pro); the plan is not in
+       the conversation JSON.
+     - **Gemini:** nothing found in the loaded code (on-demand modules: partial). **Perplexity:** nothing found; the
+       owner's 3 threads (12, 2, 5 entries) are too short to show anything. **Grok:** signed out only; the chat client
+       loaded, no summary mechanism, a hard `beyondContextLength` error; redo signed in with the data steps in the Grok
+       PR.
+     - **Open, would need a real compaction** (a test that writes to the owner's account and uses heavy plan usage;
+       not run): when `compaction_summary` first appears on a refetch, the stream event's values and order, the live
+       pill's DOM. Not needed for a data-based design.
+   - **Design decided (owner, 2026-11-04): DEC-060**; options and write-up in `docs/design/context-meter/`.
+     - **Baseline for every display:** the change notice (a model switch explained when it happens) and compaction
+       awareness (Claude: context counted from the last summary, "summarized N×", a notice on a new summary, Navigate
+       "summary" tags and a divider at the last summary point).
+     - **Next:** A, the percentage bar with "<model> · <window> window" under it.
+     - **Later candidates:** C (window ruler), D (three tiers). **Ideas only:** B, E, F.
+     - **Open, for the spec:** the meter on sites without a summary marker.
 
 **v12.0 Accomplishments (2026-07-26):**
 - **API-Backed Conversation Index (DEC-021):** Claude virtualized its message list with recycling — only ~3 of 147 user turns are mounted at any moment (~3% coverage), so `document.querySelectorAll()` stopped being a complete record of the conversation. Navigate, Search, Summary and Export were all operating on a fraction of the data, and Export was silently writing truncated files under an authoritative-looking message count. Fixed by reading Claude's own conversation JSON endpoint via `GM_xmlhttpRequest` and walking the message tree from `current_leaf_message_uuid` to isolate the active branch. This is an ordinary outbound request, not fetch interception — no Firefox cross-compartment exposure (DEC-019/DEC-020).
