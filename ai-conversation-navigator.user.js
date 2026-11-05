@@ -9212,7 +9212,9 @@
             if (!ixReadyAdapter()) return;
             var mode = GPT_MODE_BY_SLUG[orbGptLatestSlug()] || null;
             var answered = !!(_ix.answers && _ix.answers.length);
-            if (gs.modeAnswered && gs.mode !== mode) gs.pending.push({ kind: 'mode', from: gs.mode, to: mode });
+            // An answer before AND now: a branch that ends on a question with no answer anywhere (an
+            // edited only question) has no newest answer, which is not a change of mode (Codex, round 4).
+            if (gs.modeAnswered && answered && gs.mode !== mode) gs.pending.push({ kind: 'mode', from: gs.mode, to: mode });
             gs.mode = mode;
             gs.modeAnswered = answered;
         }

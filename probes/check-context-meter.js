@@ -35,6 +35,7 @@
 //   C7  [new]   the meter's plan control opens the settings panel, the plan select focused: click, Enter, Space
 //   C8  [new]   the plan changed while the index is still loading: the notice once it is ready
 //   C9  [new]   a new answer in a mode the table does not list: "Mode changed: Instant → unknown", no percentage
+//   C10 [new]   Navigate never opened until after a new answer in Thinking: the mode notice is there when it opens
 // Gemini (gemini-history.html) and Perplexity (perplexity-windowed.html):
 //   S1  [new]   no percentage, "window not published"
 //   S2  [guard] short questions only: every dot green
@@ -81,6 +82,8 @@ const READ = `(function () {
     var stat = g('acn-nav-stat');
     return {
         pct: pct ? pct.textContent : null, pctColor: pct ? getComputedStyle(pct).color : null,
+        fillBg: g('acn-ctx-fill') ? getComputedStyle(g('acn-ctx-fill')).backgroundColor : null,
+        fillW: g('acn-ctx-fill') ? g('acn-ctx-fill').style.width : null,
         eff: A('data-acn-ctx-effective'), whole: A('data-acn-ctx-whole'), n: A('data-acn-ctx-summaries'),
         limit: A('data-acn-ctx-limit'), source: A('data-acn-ctx-limit-source'), model: A('data-acn-ctx-model'),
         tokens: A('data-acn-ctx-tokens'),
@@ -646,6 +649,13 @@ window.GM_setValue = function (k, v) { _s[k] = v; };
         const o = await open(url, html, api);
         o.T = T;
         if (opts.beforeReady) await opts.beforeReady(o);
+        if (opts.skipNav) {
+            // Navigate stays closed: the index is ready once its fetch was answered and a scan saw it.
+            o.ready = await waitFor(o.pg, async () => o.logs.some((l) => /\[ACN\] index: platform=chatgpt .*endpoint=conversation /.test(l)), 20000);
+            await o.pg.waitForTimeout(2000);
+            o.r = { stable: true };
+            return o;
+        }
         o.ready = await openNav(o.pg, GPT_N, opts.delayMs ? opts.delayMs + 20000 : 20000);
         await o.pg.waitForTimeout(1500);
         o.r = await readStable(o.pg);
@@ -780,9 +790,29 @@ window.GM_setValue = function (k, v) { _s[k] = v; };
             let want = '';
             for (let i = 0; i < GPT_N; i++) { const sh = (p / 100) * (i + 1) / GPT_N; want += sh < 0.70 ? 'G' : sh < 0.85 ? 'Y' : 'R'; }
             if (precondition('C6b', o.ready && o.r.stable, short(o.r))) {
-                check('C6b', 'new', 'Plus (54K) at ' + p + '%: the bar in the yellow band (rgb(234, 179, 8)), no alert, dots ' + want,
-                    p >= 70 && p < 85 && o.r.pct === p + '%' && o.r.pctColor === 'rgb(234, 179, 8)' && !o.r.alert && o.r.dots === want,
-                    'tok=' + tok + ' color=' + o.r.pctColor + ' ' + short(o.r));
+                check('C6b', 'new', 'Plus (54K) at ' + p + '%: the bar in the yellow band (rgb(234, 179, 8), its text and its fill, ' + p + '% wide), no alert, dots ' + want,
+                    p >= 70 && p < 85 && o.r.pct === p + '%' && o.r.pctColor === 'rgb(234, 179, 8)' && o.r.fillBg === 'rgb(234, 179, 8)' &&
+                    o.r.fillW === p + '%' && !o.r.alert && o.r.dots === want,
+                    'tok=' + tok + ' color=' + o.r.pctColor + ' fill=' + o.r.fillBg + ' ' + o.r.fillW + ' ' + short(o.r));
+            }
+            await o.context.close();
+        }
+        // C10: as C5, with Navigate never opened before the new answer.
+        {
+            const o = await gptOpen((i) => (i >= GPT_N ? 'gpt-5-4-thinking' : 'gpt-5-2'), plan('plus'), { skipNav: true });
+            const navClosed = await o.pg.evaluate("(document.getElementById('acn-panel-nav') || { getAttribute: function () {} }).getAttribute('data-acn-open') !== 'true'");
+            if (precondition('C10', o.ready && navClosed, 'ready=' + o.ready + ' navClosed=' + navClosed)) {
+                const t = gptTurn(GPT_N);
+                o.T.push(t);
+                await o.pg.evaluate((x) => window.__mockWindow.addTurn(x), t);
+                await o.pg.evaluate("window.__mockWindow.userScrollTo('bottom')");
+                const got = await waitFor(o.pg, async () => o.logs.filter((l) => /\[ACN\] index out of sync with DOM/.test(l)).length > 0, 40000);
+                await o.pg.waitForTimeout(4000);
+                await openNav(o.pg, GPT_N + 1, 30000);
+                const r = await readStable(o.pg);
+                check('C10', 'new', 'Navigate first opened after a new answer in Thinking: "Mode changed: Instant → Thinking" is there',
+                    got && r.limit === '256000' && r.notices.some((n) => n.kind === 'window' && n.text.indexOf('Mode changed: Instant → Thinking.') === 0),
+                    'refetched=' + got + ' ' + short(r));
             }
             await o.context.close();
         }
