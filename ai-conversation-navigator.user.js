@@ -9530,7 +9530,9 @@
                 what += ' Window ' + orbFmtCtxLimit(newWin) + ': ' + orbCtxPct(tok, newWin) + '%.';
             } else if (!c.to && c.kind === 'plan') {
                 what += ' With no plan set there is no percentage.';
-            } else if (!mode) {
+            } else if (c.kind === 'mode' ? !c.to : !mode) {
+                // A mode notice explains its own change (c.to), not the mode now: changes queued while
+                // Navigate was closed are written together (Codex, round 5).
                 what += ' The newest answer\u2019s mode is not known, so there is no percentage.';
             } else {
                 what += ' No published window for this mode, so no percentage.';
