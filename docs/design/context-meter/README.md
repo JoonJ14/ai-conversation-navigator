@@ -1,8 +1,11 @@
 # Context meter: design options and decision
 
-Mockups from the owner's design review, 2026-11-04. All seven options are drawn in `context-meter-options.html` in this folder, a self-contained page you can open in any browser.
+Mockups from the owner's design review, 2026-11-04 and 2026-11-05. All eight artboards are drawn in `context-meter-options.html` in this folder, a self-contained page you can open in any browser:
 
-Every option shows the same three moments:
+- A–G: the display options.
+- H: the decided caption for sites without a published window.
+
+Options A–F show the same three moments:
 
 1. A 353.6K-token chat on Opus 5 (1M).
 2. The same chat after switching to Opus 4.8 (500K).
@@ -50,7 +53,20 @@ These were measured live in Chrome + Tampermonkey (build 12.17), on the owner's 
   - ChatGPT records the model of each answer (`metadata.model_slug`), but OpenAI publishes context windows by plan and mode, not by model, and the plan isn't in the conversation data.
   - Details: DOM-REFERENCE, each platform's "Context and summaries" section, and ROADMAP 12.
 
-## Open, for the implementation spec
+## Sites without a summary marker (owner, 2026-11-05)
 
-- How the meter behaves on sites without a summary marker. The proposal: a ChatGPT plan setting so the percentage can be real; on Gemini and Perplexity, the token estimate with a caveat and no percentage; everywhere, a "likely past the window" alert. Not yet decided by the owner.
+- **ChatGPT: a plan setting.** The context window there depends on plan and mode (chatgpt.com/pricing: Plus 54K Instant and 256K Thinking; Pro 128K and 400K).
+  - The user picks a plan (Free / Go / Plus / Pro, "not set" by default) in the navigator's settings, or from a "change" control on the meter, and can change it anytime.
+  - With a plan set: a real percentage, the label and the change notice. Without one: the token estimate and "window depends on your plan".
+- **Gemini and Perplexity (Grok in its own PR): a token estimate, no percentage.**
+  - The meter shows "~X tokens (est.) · window not published".
+  - The turn dots keep green, yellow and red, but are coloured by estimated size against a **1M-token reference** (green below 700K, yellow below 850K, red from 850K), not by question count. From the owner's 87 Claude summaries, 1M of whole-chat history is about three summaries' worth on a 1M model.
+- **The estimate caption** (option H, decided), always visible near the dots, with `{Site}` replaced by the current site's name:
+
+  > "Estimated size (1M scale). {Site} may summarize older messages to keep going, so quality can drop. Red and weaker answers? Ask {Site} for a handoff summary, then start a new chat."
+
+  The reason: compaction no longer ends a chat; the model keeps answering at lower quality, so the dots and the caption tell the user when to move on.
+
+## Not in scope yet
+
 - The live "Compacting…" stream event (`compaction_status`) is visible only on Chrome, and its wire format is unmeasured.
