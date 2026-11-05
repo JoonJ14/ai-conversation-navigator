@@ -318,10 +318,10 @@ const CARDS = `(function () {
         const stored = await o.pg.evaluate((u) => { var t = _s['acn-bookmarks-v1']; if (!t) return null; var x = JSON.parse(JSON.parse(t));
             return (x[u] && x[u].bookmarks) || null; }, URL0);
         const line = o.logs.filter((l) => l.indexOf('[ACN] bookmarks: 1 ChatGPT answer record(s) moved') === 0).length;
-        if (precondition('F8', o.ready && line === 1, 'ready=' + o.ready + ' moved-lines=' + line)) {
+        if (precondition('F8', o.ready, 'ready=' + o.ready)) {
             check('F8', 'new', 'Safari\'s queued write, replayed after a switch to a conversation that does not list the ids: the stored record has the index\'s key',
-                !!stored && stored.length === 1 && stored[0].msgUuid === T[FB].aid && stored[0].contentHash === T[FB].aid,
-                'stored=' + JSON.stringify(stored && stored.map((r) => r.msgUuid.slice(0, 8))));
+                line === 1 && !!stored && stored.length === 1 && stored[0].msgUuid === T[FB].aid && stored[0].contentHash === T[FB].aid,
+                'moved-lines=' + line + ' stored=' + JSON.stringify(stored && stored.map((r) => r.msgUuid.slice(0, 8))));
         }
         await o.context.close();
     }
