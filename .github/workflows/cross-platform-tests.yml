@@ -23,7 +23,15 @@ jobs:
     # v12.17 (the owner, 2026-11-01): 40 on ubuntu, as a stopgap until the CI rebuild (ROADMAP
     # 0e). Those jobs took 23m28s-24m6s on v12.16 (PR #90's run), and this PR's probes add about
     # 4-5 minutes; macOS and Windows run no probes and keep 30.
-    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 40 || 30 }}
+    # v12.18 (the owner, 2026-11-05; still a stopgap until the rebuild): 50 on ubuntu. Measured on
+    # v12.17 (21-22 runs, PR #92 and 8909d92): healthy ubuntu jobs 27.3-30.3 min (suite ~6, probes
+    # ~22). The merge run 41871676757 lost webkit/ubuntu at 40m11s because a slow apt mirror made
+    # "Install browser engine" take 10m54s (181 kB/s; 4 s normally); PR #92's run 41459811313 hit
+    # the same stall (39.0 min) and passed. 30.3 + ~11 = ~41 min, plus this PR's two probes (about
+    # 2 min locally): 50 leaves headroom. The same run's two macOS cancels at 15m01s were GitHub
+    # not assigning a runner ("not acquired by Runner ... after multiple attempts"), which no
+    # setting here changes: re-run the failed jobs once the whole run has finished.
+    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 50 || 30 }}
     strategy:
       fail-fast: false
       matrix:
@@ -146,3 +154,14 @@ jobs:
       - name: Run feature-gaps probe
         if: matrix.os == 'ubuntu-latest'
         run: node probes/check-feature-gaps.js --browser ${{ matrix.browser }}
+
+      # v12.18: the context meter on Claude, ChatGPT, Gemini and Perplexity (DEC-060), and ChatGPT
+      # answer bookmarks on a "fallback" turn. Placed like the ones above: both read the meter and
+      # the flags after scans, refetches and storage writes, which differ per engine.
+      - name: Run context-meter probe
+        if: matrix.os == 'ubuntu-latest'
+        run: node probes/check-context-meter.js --browser ${{ matrix.browser }}
+
+      - name: Run ChatGPT fallback-turn bookmark probe
+        if: matrix.os == 'ubuntu-latest'
+        run: node probes/check-gpt-fallback.js --browser ${{ matrix.browser }}
