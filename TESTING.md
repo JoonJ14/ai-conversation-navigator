@@ -1545,7 +1545,10 @@ v12.16, with its three new probes, about 24: 23m28s–24m6s on PR #90's run 4125
 of headroom; the agent flagged the margin rather than raise the cap, and the owner confirmed on 2026-11-01: OK for now, part of
 the CI rebuild, ROADMAP 0e; **40 on ubuntu since v12.17**, the owner's call the same day, a stopgap until that rebuild:
 v12.17's probes add about 4–5 minutes to those jobs, which left too little room under 30 — measured afterwards,
-29m1s–29m35s on PR #92's run 41388828440; macOS and Windows keep 30) makes a
+29m1s–29m35s on PR #92's run 41388828440; macOS and Windows keep 30; **50 on ubuntu since v12.18**, the owner's call
+on 2026-11-05, still a stopgap: v12.17's healthy ubuntu jobs took 27.3–30.3 min, and a slow apt mirror stretched
+`webkit on ubuntu-latest`'s browser install to 10m54s, so the merge run 41871676757 lost it at 40m11s; ROADMAP 0e has
+the basis and TROUBLESHOOTING the entry) makes a
 wedged runner fail fast instead of blocking the check for up to GitHub's 6-hour default. A failure well inside the
 cap is not a wedge: read the failing check first (TROUBLESHOOTING, the J15 entry, is one that looked like a stall). Queue time doesn't count
 against it. The cap covers the whole job, installs included. On PR #75 a `firefox on ubuntu-latest`
@@ -1684,7 +1687,10 @@ only.
 **Installing a build** (measured 2026-10-24/25, macOS, Chrome + Tampermonkey, the owner's profile):
 1. Serve the build from localhost: `python3 -m http.server 8765 --bind 127.0.0.1` in a scratch directory holding the
    `.user.js`, then navigate a claude-in-chrome tab to `http://127.0.0.1:8765/ai-conversation-navigator.user.js`.
-   Tampermonkey opens its confirm page (`chrome-extension://…/ask.html`).
+   Tampermonkey opens its confirm page (`chrome-extension://…/ask.html`). **Check the port first** (2026-11-04): 8765
+   was held by another of the owner's Python processes, so the server failed with `Address already in use` while the
+   browser showed that process's 404. Use a free port (v12.18 used 127.0.0.1:8799) and pass `--directory <dir>`
+   rather than relying on the working directory.
 2. claude-in-chrome cannot read or click `chrome-extension://` pages, `screencapture` is not permitted from the
    terminal, and a blind Return closes the page **without** installing. What works is AppleScript: bring the
    `ask.html` tab to the front, set `AXManualAccessibility` to true on process "Google Chrome" (it exposes web
@@ -1709,6 +1715,15 @@ only.
      Chrome kept running. A `navigate` to the install URL can time out while the confirm page opened anyway.
    - When the owner has said they are away, the agent takes over their Chrome windows for the install without asking
      (the owner, 2026-11-02).
+   On 2026-11-05 (v12.18) [same setup]: the earlier script returned "no install button found" twice. The window
+   "Userscript update - Google Chrome - …" exposed only the browser's own buttons, so the page's buttons were not in
+   the accessibility tree. What worked:
+   - activate Chrome;
+   - set **`AXEnhancedUserInterface`** as well as `AXManualAccessibility` on the process, each inside a `try`;
+   - wait 2 s;
+   - search the window titled "Userscript…" for a button named Reinstall, Update, Overwrite, Install or Downgrade.
+   It pressed Update, then Downgrade and Update again for the A/B. A name match could hit the wrong control, so check
+   every press with `[data-acn-version]` and the served file's sha256.
 3. The build has the same `@name` and `@namespace`, so Tampermonkey treats it as an update of the installed script
    and keeps its GM storage, the owner's bookmarks included. A same-version build shows "Reinstall"; an older one
    "Downgrade" (used to measure v12.14 against v12.15 live, then reinstalled).
@@ -1746,7 +1761,22 @@ only.
 - `read_network_requests` records only requests made after its first call in that tab, and lists URL, method and
   status without response bodies.
 - The tool redacts what it returns: hrefs come back as `[BLOCKED: Base64 encoded data]`, and some attribute strings
-  as `[BLOCKED: Cookie/query string data]`. Click by index, and log names and lengths instead of values.
+  as `[BLOCKED: Cookie/query string data]`. Click by index, and log names and lengths instead of values. On
+  2026-11-04/05 the second block also hit code and JSON with `=` signs in them, with every URL stripped. What got
+  through: masking `=` → ` EQ `, `?` → ` Q `, `&` → ` AND `, or returning plain JSON of names and counts.
+- **A tool timeout does not stop an in-page loop** (2026-11-04). After a 45 s timeout the `async` loop kept running
+  in the page, and a second loop started on top of it gave one conversation twice and skipped another. Check
+  uniqueness, not only the count, and keep each call's own wait at 38 s or less, reading results in a separate call.
+- **Never name page-realm variables `top`, `name` or `status`.** They are window globals: `top.filter is not a
+  function`.
+- **An empty code search on an entry page proves nothing.** claude.ai lazy-loads its chunks: `/recents` held 2
+  scripts and 0 hits, while a crawl of the chunk graph from a chat page had fetched 3,020 chunks (89.7 MB) with 563 still queued
+  after 22 s, and finished at 3,699 chunks. Crawl to an
+  empty queue before calling a string absent.
+- **Claude Code's auto-mode classifier can block a click on a live site even when it only writes navigator data**
+  (2026-11-05: a test bookmark, which the spec allowed and which saves to Tampermonkey's GM storage, was refused as
+  "[Unrequested Commit in a Connected App]"). Do not work around it; leave that step to the owner's acceptance and say
+  so.
 
 **Test bookmarks.** Read the conversation's existing bookmarks first; create test ones through the flags; delete
 exactly those through each card's ✕ (no dialog). Never use "Remove all": it opens a `window.confirm` dialog, which

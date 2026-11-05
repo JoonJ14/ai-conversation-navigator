@@ -89,7 +89,9 @@ page (`IX_ANSWER_GROWTH` 2,000 characters, the latest answer's settle watch `_ix
 and on ChatGPT more `blob:` images on a turn than indexed). Summary's items carry a `jumpRef` (kinds `ixq`, `ixa`,
 `gm`) that `_sumJumpRef` resolves at click time; its code and file inventory for an indexed answer is the union of
 its markdown and its mounted units (`domEls`), matched by `codeKey`. `_bmIxCanon` maps a ChatGPT bookmark key to
-its answer's key through `_ix.answerIdOf`. On Gemini, `_bmGmFinal` (a positively complete history) gates final
+its answer's key through `_ix.answerIdOf`; since v12.18 `_bmIxCanonicalize` rewrites such records in the store to
+that key once per index build, and `_bmSyncFlags(key, on)` updates every mounted flag with the key on a click
+(DEC-061). On Gemini, `_bmGmFinal` (a positively complete history) gates final
 labels and proof binding (`_bmGmProveLegacy`).
 
 **Claude is not the only virtualized platform — Emergent recycles too** (Virtuoso), and it is **not** handled the same way. Emergent has only *passive accumulation*: `scanConversation` keeps messages the user has already scrolled past, so on a long session the Navigate list is the mounted window plus whatever they happened to scroll. `DOM-REFERENCE.md` claimed a panel-open sweep for five months; that code never existed (ROADMAP backlog item 7). **Beware the `virtualScroll` platform flag: it selects that accumulation behaviour, not the platform property, so `claude` — the most virtualized platform here — is `virtualScroll: false`.** The `DOM-REFERENCE.md` table is the record of which platforms virtualize.
@@ -115,7 +117,9 @@ If one of the other 12 flips, do **not** start from selectors. The order of oper
 | `ciRowIdPath(row)` / `ciRowIdPathChecked(row, di)` | The path index the row's id names: -1 when not on the fetched path (the page is ahead of the index), null when unusable. The checked form cross-checks the row's position where it is trusted: -2 on a disagreement, -3 for a question edited under the key it kept (`_ciKeyTextEdited`); both give the row no identity |
 | `ciAnswerNodeInRow(row)` / `ciAnswerMap()` | v12.14 (DEC-051): an answer node found inside a feed row only, and each mounted answer row placed on its path entry by position (anchors, the adjacent question, the last row), never by text. Bookmarks only; `getAIMessages` and `ciMessageNodeWithin` are unchanged |
 | `ciFindScrollContainer()` | Shared, class-name-free scroll-container locator |
-| `ciTotalChars()` / `ciTotalThinkingChars()` | Whole-conversation counts for context tracking |
+| `ciTotalChars()` / `ciTotalThinkingChars()` | Whole-conversation counts for context tracking (now `ciCharsFrom(0)` / `ciThinkingCharsFrom(0)`) |
+| `ciCompaction()` | v12.18 (DEC-060): the summaries on the active path, `{ n, at, from, chars, q }`. `ciBuildIndex` records each entry's `summaryChars` (`compaction_summary`'s text length, −1 when absent); `at` is the last carrier, `from` the question before it (the context counted after a summary starts there), `q` that question's Navigate number |
+| `ciCharsFrom(start)` / `ciThinkingCharsFrom(start)` | Counts from a path index. After a summary the effective context is `ciCharsFrom(c.from) + c.chars` (the summary's own text) plus `ciThinkingCharsFrom(c.from)`, with `c = ciCompaction()`, and the overhead on top (both Paths A and B) |
 
 State lives in `_ci*` module variables. `_ciIndex` holds human turns; `_ciFullPath` holds the full ordered path (human + assistant) and is what Export reads.
 
@@ -147,7 +151,7 @@ confirmation status: DEC-031.** A cell measured in the owner's v12.9 acceptance 
 | SSE / context-window bar | interceptor skipped: the bar reads `(est.)` from index totals [code] | `(hybrid)` / `(last known)` from SSE [code] | the interceptor sees only the content world's own calls: no SSE, the bar reads `(est.)` [inferred, not measured] |
 | SPA route hooks (the nine `spa:true` platforms; Claude is `spa:false`) | wrapped with `exportFunction` [code] | assigned to the page's `history` [code] | on the content world's `history`, so page navigations are not seen [inferred, not measured] |
 | Plan usage panel | the transport ladder since v12.12 (`ciLadderGet`, DEC-044's rules kept): gmxhr → fetch [code]; works through `GM_xmlhttpRequest` [measured: owner, v12.8 and v12.10, DEC-031] | same; works [measured: owner, v12.10, DEC-031] | **fetch → gmxhr** [code]. A content-world `fetch` of `/api/organizations/<org>/usage` with `credentials: 'include'`: **200, `application/json`** [measured: owner's B0 probe, Userscripts 4.8.6, 2026-10-23, `probes/safari-gm-storage-check.user.js`]. Through `GM_xmlhttpRequest` (v12.11 and before) it read "Usage data unavailable" [measured: owner, v12.10 and v12.11, DEC-031]. v12.12's panel on Safari: DEC-031 |
-| GM storage: `acn-settings` (language, platform toggles), bookmarks, `acn-commands`, `acn-zone-positions`, `acn_ctx_cache`, the org cache | the synchronous `GM_getValue`/`GM_setValue`, called as before v12.12 (`acnGetValue`/`acnSetValue`) [code]. Two tabs: each save of a collection reads with `GM_getValue` right before its `GM_setValue`, with no copy of ours in between, as before v12.13 (`acnUpdateValue`, DEC-050) [code]. `GM_getValue` in one tab returns another open tab's write without a reload: "write #1 from tab 2ae8b29a (ANOTHER tab), written 4 s ago", `GM.getValue` the same [measured: owner's C0, Tampermonkey 5.5.0, 2026-10-24, `probes/cross-tab-gm-check.user.js`] | same code. `GM_getValue` returns another open tab's write: "write #1 from tab 98f05d4b (ANOTHER tab), written 5 s ago", `GM.getValue` the same [measured: owner's C0, Tampermonkey 5.5.1, 2026-10-24] | **no synchronous `GM_getValue`/`GM_setValue`** (`typeof` both `'undefined'` despite their grants); **`GM.getValue`/`GM.setValue` work**: a value written with `GM.setValue` read back equal, and the value read before the write showed it had persisted across reloads [measured: owner's B0 probe, Userscripts 4.8.6, 2026-10-23]. Since v12.12 the six keys are loaded through `GM.getValue` before the script runs, kept in memory, and written through `GM.setValue`; a failed or slower-than-2 s load runs on defaults and saves nothing (owner) [code]. Two tabs: on v12.12 a save wrote the page's startup copy back, so a second tab erased the first tab's bookmark [measured: owner's two-tab test, v12.12, 2026-10-24]. Since v12.13 the four collections save one change applied to the value as stored at the save, through a queue per key that re-reads with `GM.getValue` (DEC-050) [code]; `GM.getValue` in one tab returns another open tab's write without a reload: "write #1 from tab 50a3dbfe (ANOTHER tab), written 4 s ago" [measured: owner's C0, Userscripts 4.8.6, 2026-10-24, `probes/cross-tab-gm-check.user.js`]. `acn-settings` and the org cache stay last-write-wins [code]. Before v12.12 every call failed silently [code]. v12.12 on Safari: DEC-031 |
+| GM storage: `acn-settings` (language, platform toggles, and since v12.18 `chatgptPlan`), bookmarks, `acn-commands`, `acn-zone-positions`, `acn_ctx_cache`, the org cache | the synchronous `GM_getValue`/`GM_setValue`, called as before v12.12 (`acnGetValue`/`acnSetValue`) [code]. Two tabs: each save of a collection reads with `GM_getValue` right before its `GM_setValue`, with no copy of ours in between, as before v12.13 (`acnUpdateValue`, DEC-050) [code]. `GM_getValue` in one tab returns another open tab's write without a reload: "write #1 from tab 2ae8b29a (ANOTHER tab), written 4 s ago", `GM.getValue` the same [measured: owner's C0, Tampermonkey 5.5.0, 2026-10-24, `probes/cross-tab-gm-check.user.js`] | same code. `GM_getValue` returns another open tab's write: "write #1 from tab 98f05d4b (ANOTHER tab), written 5 s ago", `GM.getValue` the same [measured: owner's C0, Tampermonkey 5.5.1, 2026-10-24] | **no synchronous `GM_getValue`/`GM_setValue`** (`typeof` both `'undefined'` despite their grants); **`GM.getValue`/`GM.setValue` work**: a value written with `GM.setValue` read back equal, and the value read before the write showed it had persisted across reloads [measured: owner's B0 probe, Userscripts 4.8.6, 2026-10-23]. Since v12.12 the six keys are loaded through `GM.getValue` before the script runs, kept in memory, and written through `GM.setValue`; a failed or slower-than-2 s load runs on defaults and saves nothing (owner) [code]. Two tabs: on v12.12 a save wrote the page's startup copy back, so a second tab erased the first tab's bookmark [measured: owner's two-tab test, v12.12, 2026-10-24]. Since v12.13 the four collections save one change applied to the value as stored at the save, through a queue per key that re-reads with `GM.getValue` (DEC-050) [code]; `GM.getValue` in one tab returns another open tab's write without a reload: "write #1 from tab 50a3dbfe (ANOTHER tab), written 4 s ago" [measured: owner's C0, Userscripts 4.8.6, 2026-10-24, `probes/cross-tab-gm-check.user.js`]. `acn-settings` and the org cache stay last-write-wins [code]. Before v12.12 every call failed silently [code]. v12.12 on Safari: DEC-031 |
 | `localStorage` (`_acnv10`: mode, scroll direction, panel width) | works | works | works [inferred: the page's storage is shared across worlds] |
 | Exact-origin guard | the index (`ciIsClaudeChat` on Claude; `ixAdapter()` for the ChatGPT and Perplexity adapters, v12.10) and, since v12.12, the usage panel (`maybeRefreshUsage`: `https://claude.ai` exactly). The SSE install is still gated by platform detection's `host.includes('claude.ai')` alone. OPEN, ROADMAP 0d [code] | same | same |
 | `@connect` hosts | `claude.ai`, `chatgpt.com`, `perplexity.ai` (v12.10). Tampermonkey asks the user to accept the two new hosts on update [code; TM's re-prompt per ROADMAP's porting Step 2, not measured] | same | Userscripts' handling of `@connect` not checked [unmeasured] |
@@ -257,6 +261,49 @@ user message that begins with those words.
 - **Degradation must be visible.** `orbRenderIndexBanner()` renders `data-acn-index-status`. Silent fallback is what hid this bug.
 - **Never refetch without the cooldown.** `_ciInFlightCid` prevents only *concurrent* fetches; `CI_REFETCH_COOLDOWN_MS` prevents a sequential loop of 3.3 MB downloads.
 
+### Context meter (v12.18, DEC-060)
+
+The meter sits in Navigate's panel (`#acn-ctx-pct`, the bar, `#acn-ctx-meta`) and is drawn by `orbUpdateContextBar`,
+one renderer per site. The heading reads "Context window" on Claude and ChatGPT, "Context size" on Gemini and
+Perplexity, and "Conversation turns" on the other platforms.
+
+- **Claude:**
+  - **Path A** (stream data, Chrome) and **Path B** (the index estimate, `_renderEstimatedBar` →
+    `{ comp, eff, whole }`) both take the effective context from `ciCompaction().from`.
+  - `orbRenderClaudeExtras(pct, info, comp, eff, whole)` writes the model line ("Opus 4.8 · 500K window", from
+    `CLAUDE_MODEL_NAMES`), the summary line and the 95% alert (no marker on the path). It returns whether the alert
+    shows, which suppresses Path A's 85% line.
+  - `orbClaudeCtxLimit()` gives `known: !!model`, so "assumed" means only that no model was identified.
+- **ChatGPT:** `orbRenderGptMeter`.
+  - The window is `GPT_CTX[plan][mode]`: the plan from `orbGptPlan()` (the `chatgptPlan` setting) and the mode from
+    `GPT_MODE_BY_SLUG[orbGptLatestSlug()]`, the newest answer's `slug`, which the adapter keeps per answer.
+  - With no window it shows the estimate and the plan control (`data-acn-role="gpt-plan-control"`; click, Enter or
+    Space opens Settings at `#acn-gptplan-sel`).
+- **Gemini and Perplexity** (`CTX_SIZE_ONLY`): `orbRenderSizeMeter` shows the estimate, the size dots against
+  `CTX_SIZE_REF` (1M) and the caption (`orbSizeCaption`, naming `platform.title`).
+  - `orbConvSizes()` reads the index's text on ChatGPT and Perplexity and the loaded turns on Gemini. With no ready
+    index it counts the questions only and sets `partial`, and the meter shows `CTX_PARTIAL_NOTE` with positional
+    dots.
+- **Dots:** `_ctxDotMode` is `'meter'`, `'size'` or `null` (positional out of 40); `_renderTurnDots` writes
+  `data-acn-dot-basis`.
+- **Notices:**
+  - `_ctxSeen` holds the last-seen model, summary count, plan and mode for the URL's conversation
+    (`orbCtxSeenFor(cid)`, reset on a conversation change, ready or not), plus `pending` changes.
+  - `orbCtxTrack()` runs on every scan with a ready index (Claude after `_questions = indexed`, the adapters after
+    `_bmIxCanonicalize()`), on every draw, and on a plan change before it is saved. The first look records and never
+    queues.
+  - The next draw turns `pending` into texts with its own figures, and `orbRenderCtxNotices()` draws them, each with
+    a ✕.
+  - ChatGPT's notices wait for a ready index.
+- **Lines:** `CTX_LINE_ORDER` fixes their order under the meta line. `orbCtxSetLine(id, cls, text)` writes only when
+  the text changed, and `''` removes the line.
+  - **Keep it that way:** any `childList` mutation in the body schedules a scan in 500 ms, so an unconditional write
+    would loop.
+  - The redraw gate compares `_turnCounterSig()` and, on Gemini, `orbCtxSizeSig()` (the loaded turns and the last
+    answer's length), because an answer that grows changes neither the list nor the count.
+- `CTX_LIMITS` is still read as `orbUpdateContextBar`'s starting limit; Claude replaces it with the model's window, and
+  no other site draws a percentage from it (measured on 12.17: only Claude's path drew one).
+
 ## Platform Registry Pattern
 
 Each platform is an entry in the `PLATFORMS` object with properties:
@@ -364,10 +411,29 @@ data-acn-role="sum-subsegment"          -> Sub-segment (child) inside a segment,
                                            data-acn-sub-start / -end timeline span (v12.5)
 data-acn-role="tool-export"             -> Tools export option, with data-acn-export="full|bookmarks|summary" (v12.3)
 data-acn-role="toast"                   -> The transient #acn-toast message (v12.3)
-data-acn-ctx-limit="N"                  -> On #acn-ctx-pct (Claude): the context window the meter used (v12.16, DEC-056)
-data-acn-ctx-limit-source="model|assumed" -> "model": the conversation's model is in the table; "assumed": the
-                                           200K fallback (no model, index not ready, or a model the table lacks)
+data-acn-ctx-limit="N"                  -> On #acn-ctx-pct (Claude): the context window the meter used (v12.16, DEC-056).
+                                           Since v12.18 also on ChatGPT: the plan's window for the newest answer's
+                                           mode, or empty when there is none
+data-acn-ctx-limit-source="model|assumed" -> "model": a model was identified (since v12.18 also one the table lacks,
+                                           which reads 200K); "assumed": no model identified (v12.16–v12.17: also
+                                           a model the table lacks)
 data-acn-ctx-model="<id>"               -> The conversation's model id from its JSON, or empty
+data-acn-ctx-effective / -whole / -summaries -> On #acn-ctx-pct (Claude, v12.18, DEC-060): the context counted from
+                                           the last summary, the whole history (both in tokens), the summaries on
+                                           the path
+data-acn-ctx-tokens / -plan / -mode     -> On #acn-ctx-pct (ChatGPT, Gemini, Perplexity, v12.18): the estimate;
+                                           ChatGPT also its plan setting ('' / free / go / plus / pro) and the
+                                           newest answer's mode (instant / thinking / '')
+data-acn-dot-basis="meter|size|position" -> On the turn dots (v12.18): coloured from the meter, by estimated size
+                                           against 1M, or by position out of 40
+data-acn-notice="model|summary|window"  -> A context-meter notice (v12.18): model and summary on Claude; window on
+                                           ChatGPT, for a plan change and a mode change alike. Its dismiss button is
+                                           data-acn-role="ctx-notice-dismiss"
+data-acn-role="summary-tag"             -> Navigate (Claude, v12.18): the "summary" tag on a question before the last
+                                           summary; the item carries data-acn-summarized="true"
+data-acn-role="summary-divider"         -> Navigate: the divider at the summary point, with data-acn-before="<Q#>"
+data-acn-role="gpt-plan-control"        -> The meter's "Set your plan" / "<Plan> · change" control (ChatGPT, v12.18)
+data-acn-role="gpt-plan"                -> Settings: the "ChatGPT plan" select (#acn-gptplan-sel)
 data-acn-history="partial"              -> Gemini (v12.16, DEC-057): the note in Navigate's list while the chat's
                                            start is not loaded. Absent once it is, and on every other platform
 ```

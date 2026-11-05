@@ -1290,7 +1290,48 @@ every waiver here, and in the release's CHANGELOG entry.
 
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
-review record. Updated 2026-11-04:
+review record. Updated 2026-11-05:
+- **v12.18 (PR #93, open, not merged; the context meter, ChatGPT fallback bookmarks, the CI stopgap; DEC-060,
+  DEC-061).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey: **owed**,
+  nothing reported yet. The steps, as posted on the PR:
+  https://github.com/JoonJ14/ai-conversation-navigator/pull/93#issuecomment-6666207324
+  - **The agent's live check before the PR — not owner acceptance.** Setup: Chrome + Tampermonkey, the owner's real
+    profile, visible tab, 2026-11-05 16:53–16:59 UTC. The build was installed through Tampermonkey's Update from
+    127.0.0.1:8799 (served sha256 `b8934332…`, the same userscript as `1be3bd1` and `64b54a8`), and
+    `data-acn-version` read 12.18.
+    - **Claude `ccf551fb`** (90 questions, claude-opus-4-7): "Context window" 45%, "~227.3K / 500K tokens (est.)",
+      "Opus 4.7 · 500K window", "Summarized 3× · whole chat ~600K" (effective 227,307, whole 600,109). No alert and
+      no notices; 40 green dots (basis meter). Q1–Q70 tagged "summary", with the divider "Summarized above · word for
+      word below" before Q71.
+    - **Claude `c9270096`** (18 questions, never summarized): 8%, "~76.0K / 1M", "Opus 5.5 · 1M window"; no summary
+      line, tags or divider.
+    - **Claude `0ca88a77`** (147 questions, claude-opus-5-5): 30%, "~297.7K / 1M" (whole 548,666), "Summarized 1× ·
+      whole chat ~549K", Q1–Q96 tagged, the divider before Q97.
+    - **ChatGPT `69a0c6f8`** (49 questions), plan unset: "~61.9K tokens (est.) · window depends on your plan", a
+      "Set your plan" control, no percentage, dots 28 / 6 / 6 by position. The control opened Settings with the
+      plan select focused.
+    - **ChatGPT, plan set to Plus** (the owner's OK, "Yes, set and restore"): 24%, "~61.9K / 256K", "Thinking · 256K
+      window (Plus)", the notice "Plan changed: not set → Plus. Window 256K: 24%.", 40 green dots (basis meter).
+      Restored to "Not set": no percentage, and the notice "Plan changed: Plus → not set. With no plan set there is
+      no percentage."
+    - **ChatGPT fallback bookmarks:** the owner has no bookmarks on that chat. One fallback wrapper was mounted, with
+      a single unlit flag. The click to make the Q45 test bookmark was **blocked by the agent's safety classifier**
+      and was not worked around, so acceptance step 4 stays the owner's.
+    - **Gemini `96b519c112c5d099`** (10 turns loaded): "Context size", "~7.1K tokens (est.) · window not published",
+      the partial-history line, the caption naming Gemini, 10 green dots (basis size).
+    - **Perplexity `de5dd7ce`** (12): "Context size", "~5.1K tokens (est.) · window not published", the caption
+      naming Perplexity, 12 green dots (basis size).
+  - **The agent's A/B after GitHub Codex's review — not owner acceptance.** Same setup, 18:48–18:50 UTC.
+    - **A, 12.17** (Tampermonkey's Downgrade, served sha256 `a6f8266d…`): Claude `ccf551fb` 100%, "~600.1K / 500K",
+      no model label, no summary line, no tags. ChatGPT "Conversation turns", no percentage, no plan control.
+      Gemini "Conversation turns", no caption. Only these three pages were checked on A.
+    - **B, 12.18** (Update, `b8934332…`): the same readings again on Claude `ccf551fb` (45%, "~227.3K / 500K", the
+      label, "Summarized 3×", 70 tags, the divider at Q71, 40 green dots), ChatGPT with the plan unset ("window
+      depends on your plan", "Set your plan", positional dots), Gemini and Perplexity ("Context size", the estimate,
+      the caption, size dots). Enter on ChatGPT's plan control opened Settings. Not repeated on B: `c9270096`,
+      `0ca88a77`, the Plus set and restore, and the fallback flag.
+    - 12.18 was left installed.
+  <!-- V12.18 ACCEPTANCE: filled in by the integrator, as reported -->
 - **v12.17 (PR #92, merged 2026-11-04 as `8909d92` before acceptance, a waiver; Search, Export, Summary and the gallery read the whole conversation,
   Gemini bookmarks by turn id, ChatGPT's jump through history pages; DEC-059).** Owner acceptance on Safari +
   Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey: **owed**, nothing reported yet. The steps, as posted
@@ -1340,6 +1381,11 @@ review record. Updated 2026-11-04:
     from the S3 host. Claude: the gallery Q#106 … Q#139 with page thumbnails; Search → A#147 from the top landed at row
     293, 0 px. Gemini: the note while partial; a test bookmark on Q32 read "Q#…", then "Q#32" after the history loaded
     and 8 s at the top. The test bookmark and the test export were deleted.
+  - **Since the merge (v12.18's session, 2026-11-05).** v12.17's owed three-engine run is covered only by a
+    descendant: v12.18's final run on `1be3bd1`, which contains every v12.17 commit (`npm test` 560/560 on all three
+    engines; probes Chromium 17/17, WebKit 14/14, Firefox 13/14 with J15; CHANGELOG 12.18). `7bf5a3d` and `f5e2f52`
+    are in the 12.18 build installed live above, but that check did not exercise them (Summary's blockquoted fences;
+    an open gallery redrawing when the index loads). Whether that discharges HANDOFF §G.2 is the owner's call.
   <!-- V12.17 ACCEPTANCE: filled in by the integrator, as reported -->
 - **v12.16 (PR #90, merged 2026-11-01 as `a9ecb14` before acceptance, a waiver; Claude's far jump, Claude's context
   window by model, Gemini's history note; DEC-055, DEC-056, DEC-057).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey:
@@ -3939,7 +3985,10 @@ Phase 1). PR #90, merged 2026-11-01 as `a9ecb14` before acceptance (a waiver, DE
   200K". The source is cited in the code comment.
 - **Unknown model** (none in the payload, the index not ready, or an id the table does not list, a newer model
   included): `CLAUDE_CTX_FALLBACK` 200K, the smallest window, and the meter says so: "(est., limit assumed)" /
-  "(hybrid, limit assumed)" / "(last known, limit assumed)".
+  "(hybrid, limit assumed)" / "(last known, limit assumed)". **Changed in v12.18 (the owner's spec,
+  `docs/specs/v12.18-spec.md`; CHANGELOG 12.18):** "assumed" now means
+  only that no model was identified; an identified id the table does not list reads a plain 200K with source
+  `model`, as the help center says ("Outside of these models … 200K"; gate `check-ctx-limit` L4).
 - **Observable:** `#acn-ctx-pct` carries `data-acn-ctx-limit`, `data-acn-ctx-limit-source` (`model` | `assumed`) and
   `data-acn-ctx-model`; one console line per change, `[ACN] context limit: model=… limit=… source=…`. The limit prints
   as "1M" / "500K" (it would have read "1000K").
@@ -3952,7 +4001,9 @@ Phase 1). PR #90, merged 2026-11-01 as `a9ecb14` before acceptance (a waiver, DE
 - The long chat (`claude-opus-5`): v12.15 read 100%, "~353.6K / 200K tokens (est.)"; this build reads 35%, "~353.6K
   / 1M tokens (est.)". A `claude-opus-4-7` chat reads 100%, "~600.1K / 500K": the estimate counts the whole history,
   while claude.ai summarizes earlier messages near the limit (the same article's "automatic context management"),
-  which the meter cannot see. That is calibration (ROADMAP 12), out of this spec's scope; logged.
+  which the meter cannot see. That is calibration (ROADMAP 12), out of this spec's scope; logged. **Since v12.18**
+  the meter reads each summary (`compaction_summary`) and counts from the last one: that chat reads 45%, "~227.3K /
+  500K", "Summarized 3× · whole chat ~600K" (DEC-060).
 - Two web reports were cross-checked by an independent re-fetch of every cited page (2026-10-31): every quote and
   number confirmed. The help center gives no per-model figure for the Free plan; the plans page's Free column
   (https://claude.com/pricing) lists Opus "No" and Fable "No", so a Free chat is Sonnet or Haiku (the re-fetch; not
@@ -3986,6 +4037,8 @@ Phase 1). PR #90, merged 2026-11-01 as `a9ecb14` before acceptance (a waiver, DE
   red at the 35th question whatever the window held, so a 1M chat read red dots under a meter at about a third. On
   Claude, dot i now stands for the meter's share × (i+1)/dots, with the bar's thresholds (70%, 85%): the last dot is
   the meter's colour, and none is redder. Other platforms have no token estimate and keep the positional colours.
+  (Since v12.18, DEC-060: Claude's dots follow the context since the last summary; ChatGPT's follow its meter when a
+  plan and mode give a window; Gemini's and Perplexity's are coloured by estimated size against 1M.)
   The compaction fields stay unwritten (ROADMAP 12).
 - Gate: `probes/check-ctx-limit.js`: v12.15 failed 9 checks; the build passes on chromium (twice), firefox and webkit,
   and HEAD; mutants M1, M3, M4 caught, M2 (the `ciInvalidate` clear) not catchable: the meter reads the model only
@@ -4220,7 +4273,9 @@ a fresh load; v12.15's 8 of 8 had been on a 24-question chat, which needs 5 page
 - A ChatGPT answer bookmark made on a "fallback" turn (a turn's earlier text node shown as its own turn) resolves
   through `_ix.answerIdOf` (`_bmIxCanon`; pulled in by the owner, `3cfce67`): new flags save the answer's key, and
   records saved under the node's id light and jump. A tab whose index has not loaded can still save the raw id, so
-  one answer can hold two records (logged, ROADMAP 13).
+  one answer can hold two records (logged, ROADMAP 13). **Since v12.18** such a record is rewritten to the index's key
+  once the index lists its node, and of two records for one answer the one already under the key stays (DEC-061;
+  gates F3, F4).
 - Gemini: unproven positional records stay "Q#?" / "A#?"; a record's turn not loaded yet says so on click. Proof and
   final labels wait for a positively complete history (`_bmGmFinal`): the scan draws flags before the tracker counts,
   and a 30-turn chat's last page is exactly 10, so completion can come only from the 8 s rule, which now redraws
@@ -4238,7 +4293,9 @@ a fresh load; v12.15's 8 of 8 had been on a 24-question chat, which needs 5 page
 
 ## DEC-060: The Context Meter's Design: a Baseline Every Display Keeps, and Option A Next (2026-11-04)
 **Date:** 2026-11-04, sites without a summary marker 2026-11-05 | **Stage:** the context-meter PR (DEC-058's second;
-ROADMAP 12), after its read-only measurements and the owner's design review. Not yet built.
+ROADMAP 12), after its read-only measurements and the owner's design review. **Built in v12.18** (PR #93, open;
+userscript head `64b54a8`, last fix `bf5c0c8`); owner acceptance owed on all three runtimes (DEC-031). The build's own decisions: "Implementation
+(v12.18)" below.
 
 ### Decision
 - **The baseline, for every context-meter display, now and later:**
@@ -4283,7 +4340,7 @@ model-switch block and "Compaction"; each other platform's "Context and summarie
 - claude.ai marks each summary in the conversation JSON the index already downloads (`compaction_summary`, 87 in 39 of
   the owner's 236 chats, every chat whose estimate exceeds its window among them). It reports no size after a summary;
   the context since the last one can be estimated from the summary plus what follows. The estimated size just before
-  each summary moved with the date (February median 76K; April–June about 200K; two on Opus 5.5 at 323K and 333K), so
+  each summary moved with the date (February median 76K; April 200K, May 111K, June 201K; two on Opus 5.5 at 323K and 333K), so
   "distance to the next summary" is not predictable and the baseline counts from the last summary instead.
 - No summary marker on ChatGPT, Gemini or Perplexity (Grok checked signed out only). ChatGPT names each answer's
   model, but OpenAI publishes windows per plan and mode, and the plan is not in the conversation data: hence the
@@ -4304,3 +4361,118 @@ model-switch block and "Compaction"; each other platform's "Context and summarie
   `compaction_status` event (Chrome only, values unmeasured) and the page's "Compacted conversation" pill (mounted
   rows only) are not the source.
 - Any later display (C, D) keeps the baseline: the ruler moves its wall on a switch, and the change notice explains it.
+
+### Implementation (v12.18, PR #93): the owner's calls during the build, and the choices left for acceptance
+The spec (`docs/specs/v12.18-spec.md`) decides the scope. Four questions it left open were put to the owner in Phase 1
+(2026-11-05) and answered the same day; the code and gates follow those answers. The spec's own text is the owner's
+file and is not edited: where an answer overrides it, the override is recorded here.
+- **What counts after a summary: the summary, plus the question that triggered it and the answer that carries it,
+  plus everything after** ("Include carrier + question"; the other option was "As the spec says"). This overrides the spec's "everything after the message that
+  carries it" (spec line 41). The reason: the carrying answer and its question stay in the model's context after the
+  summary, as the measured case shows. On `ccf551fb` [Chrome + Tampermonkey 12.17, the owner's profile, page fetch,
+  2026-11-05] the count from after the carrier is 191K (38%), and with the carrier and its question 227K (45%); the
+  36K difference is that one exchange. `ciCompaction().from` is the human message before the carrier.
+- **ChatGPT's mode by slug** (the owner approved the table): Thinking = the four `-thinking` slugs measured
+  (gpt-5, gpt-5-1, gpt-5-2 and gpt-5-4 `-thinking`, exact keys), o1, o1-preview, o3, o3-mini-high; Instant = gpt-4, gpt-4o, gpt-5, gpt-5-1, gpt-5-2, gpt-5-3; **gpt-6 Instant** (one answer measured, no
+  `thoughts` node); every other slug is an unknown mode with no percentage, and a change to or from one is a change
+  notice. Not chosen: gpt-6 "unknown until measured" (the owner's current chats would show no percentage), and
+  "use the turn's thoughts" per answer for unlisted slugs (data-driven, but a rule beyond the spec's table). Basis: a `thoughts` node in the turn for 98–100% of the `-thinking` and o3 answers and 0–5% of the slugs
+  mapped to Instant, on 196 of the owner's 299 chats; o3-mini-high (19%), o1 and o1-preview (0%) are Thinking by name
+  (DOM-REFERENCE, ChatGPT). The userscript's comment above `GPT_MODE_BY_SLUG` still says "0–5% of the rest" (logged,
+  ROADMAP 12). There is no "mode" field in the data. The window follows the
+  newest answer's mode.
+- **Part 2: "Rewrite + gate only"** (DEC-061): no new display, no migration UI.
+- **Part 3: the ubuntu cap 40 → 50** (ROADMAP 0e), a stopgap until the CI rebuild. Not chosen: splitting the probes
+  into their own jobs, or both (the new job names would need adding to the ruleset's required checks).
+- **Rejected while building:**
+  - **Baselining a notice at the draw** (the first build). The meter is drawn by scans only while Navigate is open,
+    so a model or summary change made while it was closed became the next draw's baseline, unnoticed (Codex round 1
+    and the multi-agent review). Now `orbCtxTrack()` runs on every scan with a ready index too, and queues the change
+    for the next draw.
+  - **Resetting the notice state when the next conversation's index is ready.** One chat's notices showed in the
+    next while its index loaded, and forever if it failed. The state is now keyed to the URL's conversation, ready
+    or not.
+  - **A ChatGPT plan notice computed before the index is ready.** It read "the newest answer's mode is not known".
+    ChatGPT's notices now wait for a ready index, and the plan select is tracked before the save (gate C8).
+- **Choices the spec left open, for the owner's acceptance (ROADMAP 12):**
+  - **ChatGPT's dots without a window stay positional**, as on v12.17. The first build coloured them against 1M, as on
+    Gemini and Perplexity. The multi-agent review reversed that: with no caption, a 1M scale reads all green past
+    every ChatGPT window (27K–400K). Codex round 3 called the positional dots a violation of "the settled 1M rule",
+    because its prompt still carried the first build's line; it was answered by this choice.
+  - **The heading reads "Context size"** on Gemini and Perplexity; "Context window" on Claude and ChatGPT.
+  - **The 95% alert shows on both Claude paths** (stream data and the estimate) and on ChatGPT with a window.
+
+---
+
+## DEC-061: A ChatGPT Answer Record Is Stored Under the Index's Key, and Every Flag With That Key Shows One State (v12.18)
+**Date:** 2026-11-05 | **Stage:** v12.18, Part 2 of the owner's spec ("ChatGPT answer bookmarks on 'fallback'
+turns"); the owner chose "Rewrite + gate only" (2026-11-05). PR #93, open; owner acceptance owed (DEC-031).
+
+### Decision
+- **A ChatGPT answer record saved under one of its answer's other shown nodes is rewritten to the index's key**
+  (`_bmIxCanonicalize`, `08771f6`). It runs on the adapter scan once per index build, keyed by
+  `ixIndexStamp()` (`pid|cid|x<indexGen>`), and only on ChatGPT with a ready index and `_ix.answerIdOf`. The write is
+  one change to the store as it is stored now (`_bmUpdateStore` → `acnUpdateValue`, DEC-050), which refuses to replace
+  an unreadable store.
+  - **Of a legacy record and one already under the answer's key, the second stays**: one bookmark per answer. Records
+    carry no notes, so nothing is lost. An id the index does not list stays as it is ("A#?").
+  - **The index's mapping is captured** in the closure before the write. On Safari the change is re-applied later from
+    the persist queue, when `_ix` may already hold another conversation.
+  - **The stamp is set only after the write went through or was refused.** A throw is logged ("…the next scan tries
+    again") and retried; a refusal means the store is unreadable, and retrying would only refuse again.
+  - **Every `data-acn-bookmarked` mark is cleared after a rewrite**, so the inject that follows redraws every flag
+    from the store, and an open bookmarks panel is refreshed. One line is logged: "[ACN] bookmarks: N ChatGPT answer
+    record(s) moved to the index's key".
+- **A click lights or clears every mounted flag with the same key** (`_bmSyncFlags(key, on)` from `toggleBookmark`
+  when the flag is keyed). This covers the keyed flags (ChatGPT and Perplexity message keys, and Gemini's turn ids
+  since v12.17) and not Claude: there a legacy text hash can be shared by twin messages, which must not light
+  together.
+
+### Context
+- ChatGPT can mount one answer twice. A "fallback" turn (`data-turn-key="fallback-turn-N"`) shows a turn's first
+  shown text node as a turn of its own, and the turn itself shows its last. Measured 2026-11-01 [Chrome +
+  Tampermonkey 12.16, the owner's profile]: Q45's fallback unit named the turn's FIRST node while the index keys the
+  answer by its LAST. v12.17 made both flags carry the index's key and made old records resolve at read time
+  (`_bmIxCanon`), but the store still held the raw id, and a tab without a ready index could save it again.
+- Re-measured 2026-11-05 [Chrome + Tampermonkey 12.17 (`a17413c`), the owner's profile, visible tab, chat
+  `69a0c6f8` after a Navigate click on Q45]: the fallback wrapper was mounted **twice** in `main`, each holding ONE unit
+  (`fallback-turn-0:1:assistant`, message ids = the node's id twice, 4,325 characters, no user bubble), and the turn
+  had a single shown text node (question → thoughts → reasoning_recap → one text node of 4,497 → Q46). So that
+  unit's id already IS the index's key, and the 2026-11-01 mismatch did not reproduce. Both results are kept in
+  DOM-REFERENCE.
+- Found while building the gate [the mock, and present on v12.17]: with both units mounted, a click lit or cleared only
+  the clicked flag. The other stayed as it was, and a click on a dark flag of a bookmarked answer *removes* the
+  bookmark.
+
+### Alternatives considered
+- **Resolve at read time only** (v12.17's `_bmIxCanon`). This works while the index is ready, but the record's key
+  means nothing without it: a degraded index, an export, another tab still on an old build. Rejected for the store
+  itself; the read-time path stays as the fallback.
+- **A rewrite at every scan.** This is redundant once the store is clean, and every write is a whole-store
+  read-modify-write. Once per index build is enough, because a new build is when a new mapping can appear.
+- **Setting the stamp before the write** (the first build). A synchronous throw aborted the scan, and every later
+  scan skipped that index build (Codex round 2). The stamp is now set after the write.
+- **Replaying with the live `_ix.answerIdOf`.** Safari's queued replay would then map conversation A's records with B's
+  index, or with none (Codex round 1; mutant m13 FAILs gate F8 with the legacy key still stored).
+- **"Log it, drop Part 2"** (one of the three options put to the owner). v12.17 already resolves old records at
+  read time, and the live case no longer reproduces, so there would be no code at all. Not chosen: the store would
+  keep keys that mean nothing without a ready index.
+- **"Full Part 2 as written."** This builds every item in the spec, including gates that cannot fail on v12.17
+  (they would pass already). Not chosen: a gate that cannot fail proves nothing. The owner chose "Rewrite + gate
+  only".
+
+### Key properties
+- Gates [Playwright, page realm, headless]: `probes/check-gpt-fallback.js`, run against the mock's knobs
+  `fallbackAt` (a turn's first node shown as its own turn) and `fallbackCopies` (the live wrapper, twice).
+  - F2: both units' flags follow a click.
+  - F3: a first-node record is rewritten, including while another tab writes.
+  - F4: the canonical record wins.
+  - F7: a flag drawn before the index landed is redrawn lit.
+  - F8: Safari's queued replay is held until a conversation switch is logged, and uses the captured mapping.
+  - All five fail on v12.17 or on their mutant. F1, F5 and F6 are guards.
+- **Not defects of this change** (Codex round 3; the review record has the reasoning):
+  - Safari's stamp is set when the write is queued: a failed persist stays queued for the next save by design
+    (DEC-050), and reads resolve the key meanwhile.
+  - Two tabs' whole-store read-modify-write can interleave: that is `acnUpdateValue`'s established semantics.
+- The live case of a two-node fallback turn has not been seen again since 2026-11-01. The gate is on a mock of the
+  live wrapper.

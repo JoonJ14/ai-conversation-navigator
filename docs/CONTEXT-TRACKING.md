@@ -13,6 +13,18 @@ Research, implementation plans, and technical reference for the context window u
 > Both paths now use `ciTotalChars()` over the full active path when the index is ready. Extended-thinking tokens come from real `content[]` blocks of type `thinking` via `ciTotalThinkingChars()`, replacing the `[aria-expanded] × 600 tokens` heuristic — which was itself doubly wrong here, since it could only count *mounted* thinking blocks.
 >
 > This matters most on Firefox, where SSE interception is disabled (DEC-020) and Path B is the only path, making the undercount permanent for those users.
+>
+> **v12.18 update — the meter reads claude.ai's summaries, and the other sites get an estimate (DEC-060).** This
+> document's non-Claude design (an adaptive turn counter; "Tier 2") and its compaction detection by a drop in
+> `input_tokens` are superseded:
+> - Claude records each summary in the conversation JSON (`compaction_summary`), and the meter counts the context
+>   from the last one ("Summarized N× · whole chat ~X").
+> - ChatGPT gets a plan setting and a percentage by plan and mode.
+> - Gemini and Perplexity get a size estimate, with dots coloured against 1M.
+> - The stream event `compaction_status` exists but is not read (Chrome only, values unmeasured).
+>
+> Current reference: DECISIONS DEC-060, DOM-REFERENCE (Claude, "Compaction", and each site's "Context and
+> summaries"), and agent_docs/architecture.md, "Context meter".
 
 
 ---

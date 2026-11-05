@@ -1,5 +1,16 @@
 # Session Handoff — 2026-11-04 (v12.17: every feature reads the whole conversation; Gemini bookmarks by turn; ChatGPT's jump through history pages)
 
+> **Superseded in part since 2026-11-05.** This handoff was committed in `2b4d931` and pushed with PR #93. Its "next
+> session" was built:
+> - v12.18 holds the context meter, ChatGPT fallback bookmarks and the CI stopgap.
+> - PR #93 is open and not merged. Owner acceptance is owed on all three browsers.
+> - 12.18 is installed in the owner's Chrome.
+> - The next PR after #93 is Grok.
+>
+> Current state: ROADMAP "Current Status", CHANGELOG 12.18 and DEC-031. No new handoff was written: baton-handoff was
+> not run. Read the sections below as the v12.17 record. §G.1 is done, and §G.2's v12.17 debts stand as DEC-031's
+> v12.17 note says.
+
 **Scope:** the owner's v12.17 spec (2026-11-01), the feature-gaps PR (DEC-058's first), one PR with separate commits
 per feature, on Claude, ChatGPT, Perplexity and Gemini:
 - **F1–F3:** Search, Export and Summary read the whole conversation.

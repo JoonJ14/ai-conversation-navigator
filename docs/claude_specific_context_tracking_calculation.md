@@ -22,6 +22,11 @@ A Claude Opus 4.6 Extended Thinking conversation with 83 user questions that had
 
 ### Path A — Claude with Exact SSE Data (most accurate)
 
+> **Contradicted (noted 2026-11-05):** the claim below that `message_start` carries `usage.input_tokens` does not
+> match the v10.9 capture, which found no usage field in `message_start`, `message_delta` or `message_stop`
+> (docs/FIX-V10.9-HYBRID-CONTEXT-TRACKING.md, "Dead end"). Do not cite it as fact; the stream's token counts are
+> unmeasured since then.
+
 When the user generates a new message in the current page session, the script intercepts Claude's streaming SSE events via XHR monitoring. The `message_start` event includes `usage.input_tokens` — the exact number of tokens in the full context window for that generation.
 
 ```javascript

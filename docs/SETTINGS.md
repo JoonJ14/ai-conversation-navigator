@@ -425,6 +425,25 @@ This is documented in TROUBLESHOOTING.md as a recovery procedure but should esse
 
 ---
 
+## Context Meter Group (v12.18, DEC-060)
+
+Placed after Language and before Platforms. One control so far:
+
+- **ChatGPT plan** (`#acn-gptplan-sel`, `data-acn-role="gpt-plan"`): Not set / Free / Go / Plus / Pro, stored as
+  `chatgptPlan` in `acn-settings` ('' / `free` / `go` / `plus` / `pro`; GM storage, last write wins).
+  - **Why it exists.** ChatGPT's context window depends on the user's plan and the answer's mode (chatgpt.com/pricing,
+    read 2026-11-04), and the conversation data does not say which plan the user has. The meter shows a percentage
+    only once a plan is set. The setting is never guessed: the meter trusts the last pick.
+  - **Loading.** `loadSettings()` copies only the fields it knows, so `chatgptPlan` is whitelisted there
+    (`/^(free|go|plus|pro)$/`); anything else reads as Not set.
+  - **Changes.** A change runs `orbCtxTrack()` before saving, so a page whose meter has not drawn yet still sees the
+    old plan, and a "Plan changed" notice explains the new window. Reset to Default restores Not set.
+  - **The meter's shortcut.** The meter's "Set your plan" / "<Plan> · change" control (`data-acn-role="gpt-plan-control"`;
+    click, Enter or Space) opens this panel with the select focused.
+  - The group title and label are English literals (not in the translation table).
+
+---
+
 ## About Group
 
 ### Version display

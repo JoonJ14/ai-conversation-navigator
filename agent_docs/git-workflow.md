@@ -24,10 +24,11 @@
 2. Reinstall the final build in the owner's Chrome through Tampermonkey and retest live once (TESTING.md, "Installing
    a build"), not after every fix.
 3. The pre-approved final run (`npm test` and every probe on Chromium, Firefox and WebKit; about 84 minutes on this
-   Mac for v12.17, not the 30–40 first estimated). Then open the PR, with the owner's acceptance steps as its first
+   Mac for v12.17, not the 30–40 first estimated; 1h42m for v12.18, with 17 probes on Chromium and 14 each on Firefox
+   and WebKit). Then open the PR, with the owner's acceptance steps as its first
    comment.
 4. `/babysit-pr-cycle` with GitHub Codex until it reports no major issues, **plus one more `@codex review` on the clean
-   head**. On v12.17 that confirming review found a new P2 four times out of five. **A docs push draws an automatic
+   head**. On v12.17 that confirming review found a new P2 four times out of five (on v12.18 it was clean). **A docs push draws an automatic
    review too**: on PR #92 two docs-only pushes each drew a real code finding, so poll after every push, docs included,
    until it is clean. A "Something went wrong" reply is
    not a review: re-trigger with `@codex review` (seven times on PR #92, each worked).

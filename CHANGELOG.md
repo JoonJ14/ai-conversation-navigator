@@ -4,6 +4,197 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [12.18 — The Context Meter Makes Model-Dependent Limits Clear; ChatGPT Fallback Bookmarks; a CI Stopgap] — 2026-11-05
+
+**Branch:** `feat/v12.18-context-meter` | **Userscript head:** `64b54a8` (the version bump; last fix `bf5c0c8`; review
+record `1be3bd1`, the PR's head before these docs) |
+**PR:** #93, **open, not merged**. Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox +
+Tampermonkey is owed (DEC-047, DEC-031). Diff at `1be3bd1` against `8909d92`: the userscript +719 / −26; the branch
+20 files, +3,919 / −316. The branch total includes the v12.17 handoff commit `2b4d931`, which the owner folded into
+this PR.
+
+One combined PR in three parts, with a commit for each. It follows the owner's spec (`docs/specs/v12.18-spec.md`,
+2026-11-05) and design (DEC-060, `docs/design/context-meter/`); it is DEC-058's second PR. Platforms in scope:
+Claude, ChatGPT, Gemini and Perplexity. Grok gets its own PR.
+
+### Problem [measured live, Chrome + Tampermonkey 12.17 (`a17413c`'s build), the owner's profile, visible tab, page realm, GET reads only except the model-switch row (two messages sent in a throwaway chat, with the owner's OK), 2026-11-04/05]
+
+| | What 12.17 showed | Why it was wrong |
+|---|---|---|
+| Claude, a model switch (throwaway chat `73c209d8`, the owner's OK) | 3% "~30.0K / 1M" → 6% "~30.0K / 500K" | the percentage doubled with no new tokens, and nothing said why |
+| Claude, a summarized chat (`ccf551fb`, 90 questions, opus-4-7) | 100%, "~600.1K / 500K tokens (est.)", 40 dots 27 green / 6 yellow / 7 red | claude.ai had summarized it three times; counted from the last summary it is ~227K (45%) |
+| ChatGPT (`69a0c6f8`, 49 questions) | "Conversation turns", no estimate, dots 28 / 6 / 6 by position out of 40 | the colours said nothing about size or window |
+| Gemini (`96b519c1…`, 10 turns loaded) and Perplexity (`de5dd7ce`, 12) | "Conversation turns", all dots green by position | same |
+| ChatGPT bookmarks [mock; also present on 12.17] | one answer shown in two units: a click lit or cleared only the clicked flag | the other flag stayed dark, and a click on it would *remove* the bookmark |
+
+### Root cause [code; measured]
+- **Claude's model.** The stored `model` changes only when the next message is sent (a picker change alone sends a
+  `PUT`, but the stored model stays put for ≥30 s, and a reload reverts the picker). The navigator already followed
+  that change on its refetch, but silently. No message records its model (0 of 885 messages in 21 chats, the throwaway one included), so a
+  switch can only be noticed live, in the same page session.
+- **Claude's summaries.** claude.ai records every summary on the assistant message where it happened:
+  `compaction_summary`, a one-element array holding one text block (2,185–21,835 characters, no token count). It
+  is on 87 messages in 39 of the owner's 236 chats, including 7 of the 8 over-window chats (the eighth, `bfef43ad`,
+  is one large attachment) (DOM-REFERENCE, Claude, "Compaction"). `ciTotalChars` / `ciTotalThinkingChars` summed the whole active path and nothing read the key.
+- **Other sites.** `CTX_LIMITS` had entries for all five chat sites (Claude, ChatGPT, Grok, Gemini, Perplexity), but only
+  Claude's path drew a percentage. ChatGPT
+  publishes windows per **plan and mode** (chatgpt.com/pricing, read 2026-11-04), not per model, and its JSON does
+  not hold the user's plan. Gemini and Perplexity publish none. No summary marker was found on any of the three:
+  ChatGPT's data has none (120 conversations read, the longest 130 questions); Gemini was searched in code only, its
+  data not read; Perplexity's threads are too short to tell.
+- **The flags.** `toggleBookmark` updated only the clicked flag. ChatGPT can mount one answer twice: a "fallback"
+  turn holding its first shown node, and the turn holding its last. Since v12.17 both flags carry the index's key
+  (`_bmIxCanon`).
+
+### Fix
+**Part 1, the context meter (DEC-060)** — `aaa0d40`, then `e47aba2`, `cebb015`, `bf5c0c8`
+- **Claude, summary awareness.** `ciBuildIndex` records `summaryChars` per path entry (`ciSummaryChars`, −1 when
+  absent). `ciCompaction()` returns `{ n, at, from, chars, q }`: `at` is the last carrier's path index, and `from`
+  is the human message before it (the question that triggered the summary). `ciCharsFrom(start)` and
+  `ciThinkingCharsFrom(start)` count from a path index. The percentage, the bar and the dots use the context from
+  `from`: the summary, its question, the carrying answer and everything after (the owner's call, 2026-11-05; on
+  `ccf551fb` that is 227K, not the 191K counted from after the carrier). The whole history moves to a second line,
+  "Summarized N× · whole chat ~X". Both paths do this: Path A (stream data, Chrome) and Path B (the estimate,
+  `_renderEstimatedBar` → `{ comp, eff, whole }`).
+- **Claude, display A.** "<model> · <window> window" under the bar (`CLAUDE_MODEL_NAMES`, `orbClaudeModelName`).
+  "limit assumed" now means only that no model was identified ("Model not identified · 200K window assumed"). An
+  identified model the table does not list reads a plain 200K, as the help center says. Opus 3 and Haiku 4.5 change
+  from 200K "assumed" to 200K "model".
+- **Claude, notices.** "Model changed: Opus 5 → Opus 4.8. Window 1M → 500K, so 35% → 71%." When the chat no longer
+  fits, it adds "Claude will summarize earlier messages to make room." A new summary gives "Claude summarized earlier
+  messages at Q#n. Context is now ~X. Q#1–(n−1) are kept as a summary." Notices are for the open page and its
+  conversation only: a reload, or a switch to another chat, starts with none. Each has a ✕.
+  `orbCtxTrack()` compares against the last-seen model and summary count on **every scan with a ready index** and on
+  every draw. It queues each change in `_ctxSeen.pending`, and the next draw writes the text with that draw's
+  figures. The state is keyed to the URL's conversation, ready or not (`orbCtxSeenFor`).
+- **Claude, the fallback alert.** No marker on the path and the context ≥ 95% of the window: "This chat has likely
+  passed its context window…" It shows on both paths.
+- **Navigate.** Questions before the last summary carry a "summary" tag (`data-acn-summarized`), with the divider
+  "Summarized above · word for word below" before Q#q (`data-acn-role="summary-divider"`). Both are drawn only when
+  a summarized question is listed above.
+- **ChatGPT, a plan setting.** `chatgptPlan` is stored in `acn-settings` ('' / free / go / plus / pro; whitelisted by
+  `loadSettings`, reset by Reset). It sits in a new "Context meter" group (`#acn-gptplan-sel`), and a control on the
+  meter opens it ("Set your plan" / "<Plan> · change"; click, Enter or Space). `GPT_CTX` comes from the pricing page:
+  Free 27K Instant / Thinking "Varies" (no percentage); Go and Plus 54K / 256K; Pro 128K / 400K. The mode comes from
+  the newest answer's `metadata.model_slug` (the adapter now keeps `slug` per answer) through the owner's table,
+  `GPT_MODE_BY_SLUG`:
+  - Thinking: gpt-5-thinking, gpt-5-1-thinking, gpt-5-2-thinking, gpt-5-4-thinking, o1, o1-preview, o3 and
+    o3-mini-high (exact slugs: another `-thinking` slug is an unknown mode).
+  - Instant: gpt-4, gpt-4o, gpt-5, gpt-5-1, gpt-5-2, gpt-5-3 and gpt-6.
+  - Anything else is an unknown mode, with no percentage.
+
+  With a window the meter shows the percentage, "Thinking · 256K window (Plus)", the 95% alert, and dots that follow
+  the meter. Without one it shows "~X tokens (est.) · window depends on your plan" and positional dots. A plan or
+  mode change that moves the window gives a notice. A change to or from an unknown mode counts, but a chat's first
+  answer does not, and neither does a branch with no answer.
+- **Gemini and Perplexity.** "~X tokens (est.) · window not published", with no percentage. The dots are coloured by
+  the estimated size up to each question against a 1M reference (`CTX_SIZE_REF`): green below 700K, yellow below
+  850K, red above. Under them is the artboard H caption, naming the site from the registry (`orbSizeCaption`).
+  Gemini also shows the partial-history line while older turns are not loaded. A size signature in the redraw gate
+  (`orbCtxSizeSig`) makes the meter follow an answer that grows.
+- **ChatGPT and Perplexity without a ready index** count the questions only, say so (`CTX_PARTIAL_NOTE`), and keep
+  positional dots.
+- **Plumbing.** Lines are written in a fixed order (`CTX_LINE_ORDER`), and `orbCtxSetLine` writes only when the
+  text changed: every DOM mutation schedules a scan, so an unconditional write would loop. The heading reads
+  "Context window" on Claude and ChatGPT, "Context size" on Gemini and Perplexity. Every new functional non-ASCII
+  character is a `\uXXXX` escape (Codex round 1 flagged literal characters in new
+  strings; a sweep found 19 new code lines holding them, all escaped; conventions.md).
+
+**Part 2, ChatGPT answer bookmarks on a "fallback" turn** — `08771f6`, then `e47aba2`, `55581c0`, `cebb015` (DEC-061)
+- `_bmIxCanonicalize()` rewrites a record saved under an answer's other shown node to the index's key. It runs once
+  per index build (stamp `ixIndexStamp()` = `pid|cid|x<indexGen>`) and writes through `_bmUpdateStore` /
+  `acnUpdateValue`. When a legacy record and a canonical one exist for the same answer, the canonical one stays.
+- The index's mapping is captured before the write, because Safari's queued replay may run after a conversation
+  switch. The stamp is set only after the write went through or was refused, and a throw is retried on the next scan.
+- Every `data-acn-bookmarked` mark is cleared afterwards, so the inject redraws every flag (without that, a flag
+  drawn dark before the index landed would delete the bookmark when clicked).
+- `_bmSyncFlags(key, on)`: a click lights or clears every mounted flag with the same key (the keyed flags:
+  ChatGPT and Perplexity message keys, and Gemini's turn ids; not Claude, whose text hash can be shared by twins).
+- Re-measured live on 2026-11-05: on `69a0c6f8`, Q45's fallback wrapper (mounted twice in `main`) holds ONE unit,
+  and the turn has one shown text node, so the unit already names the index's key. The 2026-11-01 mismatch did not
+  reproduce. DOM-REFERENCE keeps both results, and the gate models the live wrapper around a two-node turn.
+
+**Part 3, the CI stopgap** — `083defa`
+- Ubuntu `timeout-minutes` 40 → 50 (macOS and Windows stay at 30). `check-context-meter` and `check-gpt-fallback`
+  join CI's ubuntu jobs and `npm run test:probes`. No retries, and no check weakened.
+- The diagnosis came from the run logs of v12.17's 21–22 runs (PR #92 and the `8909d92` merge):
+  - The workflow has no `concurrency` group.
+  - The two macOS cancels at 15m01s in merge run 41871676757 were GitHub never assigning a runner ("not acquired by
+    Runner … after multiple attempts"), which no setting changes.
+  - webkit/ubuntu hit its 40-minute cap because a slow apt mirror stretched "Install browser engine" to 10m54s
+    (181 kB/s; normally 4 s). PR #92's run 41459811313 had the same stall (39.0 min) and passed.
+  - Healthy ubuntu jobs took 27.3–30.3 min (suite ~6, probes ~22), so 30.3 + ~11 + the new probes (~4.6 min per
+    engine in the final run) still fits 50.
+- Rationale and the CI rebuild: ROADMAP 0e.
+
+Docs commits: `2b4d931` (the v12.17 handoff and owed lines), `f2bf6d0` (the model-switch and compaction findings,
+DEC-060), `6e09fbb` (the owner's updated design files), `54048cf` (DEC-060's per-site decisions), `633d936` (the
+spec), `21912e9` (the Phase 1 measurements). Version 12.18 is `64b54a8`.
+
+### Verification
+- **Gates** [Playwright, page realm, headless, this Mac]:
+  - `probes/check-context-meter.js` (new) runs M1–M16, C1–C10 and S1–S7. Against v12.17
+    (`git show 8909d92:ai-conversation-navigator.user.js`, last run at 06:22 UTC) every `[new]` check of that version
+    failed or was INVALID: 31 FAIL, 3 INVALID (M14, C5, C8, whose preconditions need the feature). M3, M10, M11b, S2
+    and E are guards. The checks added in Tier 3 rounds 2 and 4 (C6b, C9, C10, and C5 and C8 as reworked) were shown
+    failing on targeted mutants, not re-run on v12.17.
+  - `probes/check-gpt-fallback.js` (new) runs F1–F8. F2, F3, F4, F7 and F8 are `[new]`; F8 has FAILed on v12.17
+    since `55581c0` (`moved-lines=0`, the legacy key stored).
+  - `check-ctx-limit` L4 now expects claude-haiku-4-5 to read 200000 / `model`.
+  - 16 targeted mutants (m1–m16), each caught by its intended check: `from` at the carrier, a notice on load,
+    a switch read as a change, a 2M reference, a hard-coded caption site, no scan-time tracking, the alert at 100%,
+    the alert without the marker condition, Path A on the whole history, no size signature, no pre-save plan
+    baseline, no keyboard handler, known modes only, the live index on Safari's replay, and no adapter-scan tracking.
+  - One mutant, no scan-time tracking on Claude, first survived because draw-time tracking masked it. M12 was
+    reworded so Navigate opens only after the refetch, and it now fails the mutant.
+- **`bf5c0c8` has no gate.** No check fails without it, because C9 does not exercise the queued
+  Instant → unknown → Thinking sequence. Logged in ROADMAP 12.
+- **Sweeps on Chromium.**
+  - Sweep 1 (the pre-fix tree): all 17 probes and `npm test` passed.
+  - Sweep 2 (`21912e9`): every probe passed except `check-ix-jumps` J15, which failed twice in full runs and passed
+    with `--only J15` on `aaa0d40` and twice on `08771f6`. That is the documented OPEN fixture race
+    (TROUBLESHOOTING), now seen on Chromium.
+  - Sweep 3 (`e47aba2`): 17/17 and 560/560.
+- **Review** (`reviews/review-2026-11-05-v12.18.md`):
+  - Tiers 1–2 were run in the session, together with an adversarial multi-agent review (57 agents: 28 raw findings,
+    16 distinct, 10 upheld and fixed).
+  - Tier 3 `cli:codex` ran at the owner's 5-round cap: 27 raw, 22 verified and fixed, 5 shown not to be defects.
+- **The pre-approved final run on `1be3bd1`** [Playwright, headless, this Mac, 16:59–18:41 UTC, 1h42m; about
+  84 min was expected]:
+  - `npm test` 560/560 on Chromium (346 s), Firefox (350 s) and WebKit (361 s).
+  - Probes: Chromium 17/17, WebKit 14/14, Firefox 13/14. The Firefox failure is J15, with the same signature
+    (`resolved=10 toast=no … err=0px`, 1664 ms). Tokenizer, subsegments and usage-state are Chromium-only, as in CI.
+  - The two new probes took 220–239 s and 38–40 s per engine.
+- **GitHub Codex on PR #93:**
+  - Round 1 on `1be3bd1` was clean (18:44:10Z, no findings).
+  - The confirming `@codex review` was clean too ("Didn't find any major issues", 18:46:42Z).
+  - Two rounds, no fixes.
+- **The agent's live check** [Chrome + Tampermonkey, the owner's profile, visible tab, served build `b8934332…` =
+  `1be3bd1`, `data-acn-version` 12.18, 2026-11-05 16:53–16:59 UTC; not acceptance; DEC-031]:
+  - `ccf551fb` 45% (227.3K of 500K), "Opus 4.7 · 500K window", "Summarized 3× · whole chat ~600K", tags Q1–Q70 and
+    the divider before Q71.
+  - `0ca88a77` 30%, 1 summary, the divider before Q97. `c9270096` 8%, with no summary.
+  - ChatGPT with the plan unset, then Plus (24%, "Thinking · 256K window (Plus)", a notice), then restored to "Not
+    set".
+  - Gemini and Perplexity: the estimate and the caption.
+  - The Q45 test bookmark was **blocked by the agent's safety classifier**, so that step is in acceptance.
+- **The A/B after Codex** [same setup, 18:48–18:50 UTC]:
+  - 12.17 (installed by Downgrade): Claude `ccf551fb` 100% "~600.1K / 500K" with no label, no summary line and no
+    tags; ChatGPT and Gemini showed "Conversation turns".
+  - 12.18 (installed by Update): the same results as the check above on all four sites; Enter on the plan control
+    opens Settings.
+- **CI** run 42086675512 failed all nine jobs at "Install Playwright": `playwright@1.65.0` was published before its
+  `playwright-core@1.65.0` (TROUBLESHOOTING). That is not this PR's code. The rerun waits on the npm publish.
+
+### Owed and known
+- Owner acceptance on all three runtimes (PR #93's first comment).
+- The CI rerun and the PR's "After" durations.
+- A gate for `bf5c0c8`.
+- The residuals and unmeasured points in ROADMAP 12.
+- `check-ix-jumps` J15 (TROUBLESHOOTING) is still open.
+
+---
+
 ## [12.17 — Every Feature Reads the Whole Conversation; Gemini Bookmarks by Turn; ChatGPT's Jump Through History Pages] — 2026-11-01
 
 **Branch:** `feat/v12.17-feature-gaps` | **Code head:** `f5e2f52` | **PR:** #92 | **Merged** 2026-11-04 as `8909d92`

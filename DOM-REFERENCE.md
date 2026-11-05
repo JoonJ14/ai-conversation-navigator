@@ -303,8 +303,9 @@ tab, a throwaway chat created for the test with the owner's OK, 2026-11-04]:
   tokens (est.)" to "6%, ~30.0K / 500K", logging `model=claude-opus-4-8 limit=500000 source=model`.
 - Messages carry no model: 0 of 885 messages on 20 chats plus the test chat (the only "model" keys inside messages
   were `io.modelcontextprotocol/serverInfo`). Which model wrote which answer is not stored.
-- The picker's "More models" lists Opus 3, which `CLAUDE_CTX_BY_MODEL` does not know (it would read 200K, "limit
-  assumed"); its stored id was not measured.
+- The picker's "More models" lists Opus 3, which `CLAUDE_CTX_BY_MODEL` does not know (on 12.17 it would read 200K,
+  "limit assumed"; since v12.18 an identified model the table lacks reads a plain 200K, DEC-060); its stored id was not
+  measured.
 
 ### Compaction: claude.ai's summaries, in the data, the stream and the DOM (measured live, Chrome + Tampermonkey (12.17, `a17413c`'s build), the owner's profile, visible tab, page realm, GET reads only, 2026-11-04)
 
@@ -319,7 +320,8 @@ Every summary is recorded in the conversation JSON `ciLoadIndex` already downloa
   Measured with `ciLoadIndex`'s URL and parameters, sent through the page's `fetch`, not the gmxhr transport (assumed
   identical, not compared). `rendering_mode=raw` and the page's own query string add nothing; no other field marks a
   summary: block types (text, thinking, tool_use, tool_result), senders, stop reasons, settings flags and top-level
-  keys match the controls. `ciBuildIndex` ignores the key [code].
+  keys match the controls. `ciBuildIndex` ignored the key through v12.17; since v12.18 it records each entry's
+  `summaryChars` and `ciCompaction()` reads them (DEC-060) [code].
 - **The persisted pill:** at a past summary the page renders "Compacted conversation" in a row
   `data-item-key="<message uuid>:t2000001"`, `data-state="done"`, inside `[data-testid="assistant-message"]` of exactly
   the message carrying `compaction_summary` (checked on one over-window chat, the first of its three). `data-compaction-status` was absent
@@ -337,12 +339,25 @@ Every summary is recorded in the conversation JSON `ciLoadIndex` already downloa
   `anthropic.bard.api.v1alpha` schema, not the chat API (inferred from the namespace).
 - **Size after a summary:** not reported. An estimate from the payload (overhead + the last summary ÷ 4 + the path
   from the message before it): 154K–291K, 31–58% of the window, on the 7 over-window chats; one opus-4-7 chat reads 620K on
-  today's meter and about 247K (49%) from its last summary. Assumes the context is "summary + what follows".
+  this screen's estimate and about 247K (49%) from its last summary. Assumes the context is "summary + what follows".
+  (The screen's 620K used a 50K project overhead; the meter itself read ~600.1K, and the count v12.18 builds is ~227K:
+  the v12.18 Phase 1 table below.)
 - **Where summaries happened** (the same formula, the context just before each of the 87, the window from the chat's
   current `model`): scattered, and by date rather than window. February 2026: median 76K (35–160K, 48 summaries);
   April: 200K (107–279K); June: 201K (197–218K); October, the two on Opus 5.5 (1M): 323K and 333K. By model: Opus
   4.6 (500K in today's table) median 93K (57), Opus 4.7 median 183K (20). Neither a fixed size nor a fixed share of
   today's window; the windows in force then are unknown, and so is the estimate's accuracy (ROADMAP 12, step 2).
+  More cuts of the same 87:
+  - By window: 500K median 171K, interquartile range 90–202K (from a partial run: 50 of the 83 summaries on
+    500K-window models, 26 of the 39 chats); 1M 323–333K (n=2); 200K 80–87K (n=2).
+  - First summaries against later ones: medians 106K and 98K.
+  - Thinking excluded (a partial run): medians 175K and 183K.
+- **The one over-window chat without a summary**, `bfef43ad` (opus-4-5, read against an assumed 200K: 247K, 2
+  messages), is one large attachment, not a summary case.
+- **Finding the pill takes a sweep.** On `ccf551fb` (one visible tab; a sweep of nine fractions, 900 ms waits)
+  "Compacted conversation" was found at 0.21, 0.22, 0.52 and 0.54, and not at 0.2, 0.5 or 0.76–0.8. A single read at
+  0.21 right afterwards missed it (probably recycled by the virtualizer; not checked), and a 0.18–0.26 sweep first
+  found it at 0.22. The third summary's pill was not found.
 - **Today's figure against the context since the last summary** (v12.18 Phase 1, 2026-11-05, the same context; a replica
   of the meter's formula that reproduces its "~600.1K" on `ccf551fb` exactly: overhead from the URL, 30K on `/chat/`,
   not the chat's `project_uuid`; a message with no text block counts its attachments' bodies, as `ciExtractText`):
@@ -359,7 +374,9 @@ Every summary is recorded in the conversation JSON `ciLoadIndex` already downloa
 
   The question that triggered a summary and the answer that carries it stay in the context after it: the owner chose
   to count them (2026-11-05). The 2026-11-04 screen above used the chat's `project_uuid` for the overhead (50K), which
-  is why it put `ccf551fb` at 620K and `3de6c5a9` over its window.
+  is why it put `ccf551fb` at 620K and `3de6c5a9` over its window. "Last at" is the first question after the
+  carrier; the built count starts one question earlier, at the question that triggered the summary, which is where
+  Navigate draws its divider (`ccf551fb`: the divider before Q#71, Q#1–70 tagged, live on 12.18, 2026-11-05).
 
 ### Images and full text for v12.17's features (measured live, Chrome + Tampermonkey (12.16 installed), the owner's profile, visible tab, page realm, 2026-11-01)
 
@@ -625,8 +642,9 @@ DEC-052, DEC-053):**
   nodes): roles user 484, assistant 772, tool 262; content types text, thoughts, reasoning_recap, multimodal_text,
   super_widget, code, execution_output, tether_browsing_display, system_error (1). **No node** had
   `is_visually_hidden_from_conversation` set, and no metadata key names a summary. Every conversation has top-level
-  `context_truncation_continuation` and `context_scopes`: `null` on all 25 checked, the longest included (130
-  questions, `gpt-4o`).
+  `context_truncation_continuation` and `context_scopes`: `null` on all 27 checked, the longest included (130
+  questions, `gpt-4o`). (This line read "25" until 2026-11-05: the check was announced for 25 chats, and its result
+  was `{"ctc":{"null":27},"scopes":{"null":27}}`.)
 - **The model is per message:** `metadata.model_slug` on assistant messages (`gpt-4o`, `o3`, `gpt-5`, `gpt-5-1`,
   `gpt-5-2`, `gpt-5-2-thinking`, `gpt-5-4-thinking`, `gpt-6`, …), with the conversation's `default_model_slug`; 13 of
   120 conversations carry more than one slug. Unlike Claude, a mid-chat switch is recorded.
