@@ -3687,6 +3687,8 @@
                          ixPosition: e.position, ixId: e.id };
             });
             _aiResponses = Array.from(getAIMessages());
+            _bmIxCanonicalize();
+            orbCtxTrack();   // the ChatGPT meter's notices, while Navigate is closed too (v12.18)
             if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
             if (typeof orbOnScanComplete === 'function') orbOnScanComplete();
             // A mounted question the index does not know: a new message, an edit or a
@@ -11689,6 +11691,20 @@
         return 'bm_' + Math.random().toString(16).substring(2, 10);
     }
 
+    // Every mounted flag that stands for `key` shows `on` (v12.18, Part 2). ChatGPT can show one
+    // answer in two units at once: a "fallback" turn holds its first shown node, the turn its last,
+    // and both flags carry the index's key (_bmIxCanon); a click on one left the other as it was.
+    // Key-identified flags only (ChatGPT, Perplexity): a Claude flag's legacy text hash can be
+    // shared by twin messages, which must not light together.
+    function _bmSyncFlags(key, on) {
+        var all = document.querySelectorAll('[data-acn-bookmark]');
+        for (var i = 0; i < all.length; i++) {
+            if (all[i].getAttribute('data-acn-bookmark') !== key) continue;
+            if (on) all[i].classList.add('acn-bm-active'); else all[i].classList.remove('acn-bm-active');
+            all[i].setAttribute('title', on ? 'Remove bookmark' : 'Bookmark this message');
+        }
+    }
+
     // isKey: entityId is the message's own id (ChatGPT, Perplexity, v12.15), whatever its
     // shape; a Perplexity answer's ends in ':answer', which the uuid test below would miss.
     function toggleBookmark(entityId, entityType, entityEl, msgIndex, legacyIds, isKey) {
@@ -11706,6 +11722,7 @@
         if (existing.length > 0) {
             existing.forEach(function (b) { removeBookmark(b.id); });
             if (icon) icon.classList.remove('acn-bm-active');
+            if (isKey) _bmSyncFlags(entityId, false);
             showToast(i18n('bookmarkRemoved'));
         } else {
             // Through the shared extractor like every other consumer: raw textContent
@@ -11751,6 +11768,7 @@
             // the flag must not claim a bookmark that was not saved.
             if (!saveBookmark(bm, true)) return;
             if (icon) icon.classList.add('acn-bm-active');
+            if (isKey) _bmSyncFlags(entityId, true);
             showToast(i18n('bookmarkAdded'));
             // An answer the index does not hold yet asks for one refresh (DEC-051); the proof
             // pass sees the new record by its stored text.
@@ -12033,6 +12051,58 @@
     function _bmIxCanon(key) {
         if (!key || !_ix.answerIdOf || !ixReadyAdapter()) return key;
         return _ix.answerIdOf.hasOwnProperty(key) ? _ix.answerIdOf[key] : key;
+    }
+
+    // v12.18 (Part 2): a ChatGPT answer record saved under one of its answer's other shown nodes
+    // (a "fallback" turn's first node, as v12.16 and earlier saved it) is REWRITTEN to the index's
+    // key once the index lists that node, so the store holds one key per answer, not a key that
+    // only resolves while the index is ready. One change to the store as it is stored now
+    // (_bmUpdateStore, acnUpdateValue: DEC-050). Of a legacy record and one already under the
+    // answer's key, the second stays: one bookmark per answer (records carry no notes, so nothing
+    // is lost). An id the index does not list is left as it is ("A#?"). Once per index build.
+    var _bmIxCanonStamp = '';
+    function _bmIxCanonicalize() {
+        if (!platform || platform.id !== 'chatgpt' || _bmIxState() !== 'ready' || !_ix.answerIdOf) return;
+        var stamp = ixIndexStamp();
+        if (!stamp || stamp === _bmIxCanonStamp) return;
+        _bmIxCanonStamp = stamp;
+        // The mapping of THIS index, captured: acnUpdateValue applies the change again later on the
+        // persisted path (Safari's queue), when _ix may hold another conversation (Codex, Tier 3 round 1).
+        var map = _ix.answerIdOf;
+        var canon = function (k) { return (k && map.hasOwnProperty(k)) ? map[k] : k; };
+        var legacy = function (b) {
+            return b && b.entityType === 'ai-msg' && b.msgUuid && canon(b.msgUuid) !== b.msgUuid;
+        };
+        if (!getConversationBookmarks().some(legacy)) return;
+        var moved = 0;
+        _bmUpdateStore(function (cur) {
+            var held = {}, out = [];
+            cur.forEach(function (b) {
+                if (b && b.entityType === 'ai-msg' && b.msgUuid && !legacy(b)) held[b.msgUuid] = true;
+            });
+            cur.forEach(function (b) {
+                if (!legacy(b)) { out.push(b); return; }
+                var key = canon(b.msgUuid);
+                if (held[key]) return;
+                held[key] = true;
+                var c = {};
+                for (var f in b) if (Object.prototype.hasOwnProperty.call(b, f)) c[f] = b[f];
+                if (c.contentHash === c.msgUuid) c.contentHash = key;
+                c.msgUuid = key;
+                out.push(c);
+                moved++;
+            });
+            return out;
+        });
+        console.log('[ACN] bookmarks: ' + moved + ' ChatGPT answer record(s) moved to the index\'s key');
+        // A flag drawn before the index was ready, under the answer's key, was drawn dark (its record
+        // was under another key then), and the inject's identity check would skip it: dark while
+        // bookmarked, and a click on it would REMOVE the bookmark. Every mark is cleared, so the
+        // inject that follows this scan redraws every flag from the store (review, 2026-11-05).
+        var marked = document.querySelectorAll('[data-acn-bookmarked]');
+        for (var mi = 0; mi < marked.length; mi++) marked[mi].removeAttribute('data-acn-bookmarked');
+        var bmPanel = document.getElementById('acn-panel-bookmarks');
+        if (bmPanel && bmPanel.classList.contains('acn-open')) orbRefreshBookmarksPanel();
     }
 
     function _bmIxIndexed(key, type) {
