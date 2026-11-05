@@ -17,6 +17,9 @@
 //   F4 [new]   that legacy record beside one already under the index's key: one record stays, the latter
 //   F5 [guard] the rewritten record's card jumps to turn 6's answer, in view
 //   F6 [guard] a record whose id the index does not list is left as it is, "A#?"
+//   F8 [new]   Safari's storage (async GM.getValue / GM.setValue only): the rewrite is applied again when
+//              its queued write runs, after a slow read (2.5 s), by which time the page shows another
+//              conversation whose index does not list these ids: the stored record still gets the key
 //   F7 [new]   turn 6 mounted while the index is still loading (its flags drawn under the raw ids): once
 //              the index lands and the legacy record is rewritten, the turn's own flag is lit too
 //              (a dark flag on a bookmarked answer would remove the bookmark when clicked)
@@ -70,7 +73,7 @@ const rec = (id, key, preview) => ({ id, schema: 2, entityType: 'ai-msg', conten
                                      msgIndex: FB, createdAt: 1, platform: 'chatgpt.com' });
 const storeWith = (list) => ({ 'acn-bookmarks-v1': JSON.stringify({ [URL0]: { bookmarks: list } }) });
 
-function page(script, cfg, store) {
+function page(script, cfg, store, safari) {
     const mock = fs.readFileSync(path.join(REPO, 'tests/mock-pages/chatgpt-windowed.html'), 'utf8');
     const head = (mock.match(/<head[^>]*>([\s\S]*)<\/head>/i) || [])[1] || '';
     const body = (mock.match(/<body[^>]*>([\s\S]*)<\/body>/i) || [])[1] || mock;
@@ -80,8 +83,23 @@ ${body}
 <script>
 delete window._aiNavAlreadyLoaded;
 var _s = ${JSON.stringify(store || {})};
-window.GM_getValue = function (k, d) { return _s.hasOwnProperty(k) ? _s[k] : d; };
-window.GM_setValue = function (k, v) { _s[k] = v; };
+if (${safari ? 'true' : 'false'}) {
+    // Safari's GM storage holds each value as JSON text (acnStoreLoad, acnPersist): the bookmark
+    // store's value is itself JSON text, so it is encoded once more here.
+    Object.keys(_s).forEach(function (k) { _s[k] = JSON.stringify(_s[k]); });
+    // Safari's Userscripts: only the async API (check-gm-storage's model). window.__slowRead makes the
+    // bookmark key's reads answer late, as a queued write's re-read can.
+    window.__slowRead = false;
+    window.GM = {
+        getValue: function (k) { return new Promise(function (r) {
+            setTimeout(function () { r(_s.hasOwnProperty(k) ? _s[k] : undefined); },
+                       (k === 'acn-bookmarks-v1' && window.__slowRead) ? 2500 : 5); }); },
+        setValue: function (k, v) { return new Promise(function (r) { setTimeout(function () { _s[k] = v; r(); }, 5); }); }
+    };
+} else {
+    window.GM_getValue = function (k, d) { return _s.hasOwnProperty(k) ? _s[k] : d; };
+    window.GM_setValue = function (k, v) { _s[k] = v; };
+}
 window.__records = function () { var t = _s['acn-bookmarks-v1']; if (!t) return []; var o = JSON.parse(t);
     return (o[${JSON.stringify(URL0)}] && o[${JSON.stringify(URL0)}].bookmarks) || []; };
 </script>
@@ -134,9 +152,9 @@ const CARDS = `(function () {
         console.log('  INVALID  ' + id + ' precondition failed' + (detail ? ' — ' + detail : ''));
         return false;
     }
-    async function open(store, onIndexRequest) {
+    async function open(store, onIndexRequest, safari, otherConv) {
         const T = turns();
-        const html = page(raw, { turns: T, bmModel: { h: 420, window: 6, fallbackAt: FB, fallbackCopies: 2 } }, store);
+        const html = page(raw, { turns: T, bmModel: { h: 420, window: 6, fallbackAt: FB, fallbackCopies: 2 } }, store, safari);
         const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
         const pg = await context.newPage();
         const logs = [];
@@ -145,6 +163,12 @@ const CARDS = `(function () {
         await pg.route('**/*', (route) => {
             const u = route.request().url();
             if (u === URL0) return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }).catch(() => {});
+            // Another conversation, whose index lists none of this one's ids.
+            if (otherConv && u.indexOf('/backend-api/conversation/' + otherConv) !== -1) {
+                const T2 = turns().map((t, i) => Object.assign({}, t, { id: uuid(i, 'eeee0000'), aid: uuid(i, 'eeee1111'), fbAid: t.fbAid ? uuid(i, 'eeee2222') : undefined }));
+                const m = mapping(T2); m.conversation_id = otherConv;
+                return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(m) }).catch(() => {});
+            }
             if (u.endsWith('/api/auth/session')) return route.fulfill({ status: 200, contentType: 'application/json',
                 body: JSON.stringify({ accessToken: 'tok', expires: '2099-01-01T00:00:00.000Z' }) }).catch(() => {});
             if (u.indexOf('/backend-api/conversation/' + GPT_CONV) !== -1) {
@@ -278,6 +302,26 @@ const CARDS = `(function () {
             check('F7', 'new', 'turn 6 drawn while the index loaded: after the rewrite, its own flag and both fallback flags are lit',
                 recs.length === 1 && recs[0].msgUuid === T[FB].aid && f.own.lit && f.own.key === T[FB].aid &&
                 f.copies.every((c) => c.lit && c.key === T[FB].aid), JSON.stringify(f) + ' records=' + JSON.stringify(recs.map((r) => r.msgUuid.slice(0, 8))));
+        }
+        await o.context.close();
+    }
+
+    // F8: Safari's storage; the queued write re-reads slowly, and the page moves to conversation B meanwhile.
+    {
+        const T = turns();
+        const B = '6994e2d6-ce6c-832a-aa7d-0000000000bb';
+        const o = await open(storeWith([rec('bm_legacy', T[FB].fbAid, 'First part of answer 6: the fallback unit.')]),
+            (pg) => pg.evaluate(() => { window.__slowRead = true; }), true, B);
+        await o.pg.waitForTimeout(300);
+        await o.pg.evaluate((b) => { history.pushState({}, '', '/c/' + b); var n = document.createElement('div'); document.body.appendChild(n); n.remove(); }, B);
+        await o.pg.waitForTimeout(5000);
+        const stored = await o.pg.evaluate((u) => { var t = _s['acn-bookmarks-v1']; if (!t) return null; var x = JSON.parse(JSON.parse(t));
+            return (x[u] && x[u].bookmarks) || null; }, URL0);
+        const line = o.logs.filter((l) => l.indexOf('[ACN] bookmarks: 1 ChatGPT answer record(s) moved') === 0).length;
+        if (precondition('F8', o.ready && line === 1, 'ready=' + o.ready + ' moved-lines=' + line)) {
+            check('F8', 'new', 'Safari\'s queued write, replayed after a switch to a conversation that does not list the ids: the stored record has the index\'s key',
+                !!stored && stored.length === 1 && stored[0].msgUuid === T[FB].aid && stored[0].contentHash === T[FB].aid,
+                'stored=' + JSON.stringify(stored && stored.map((r) => r.msgUuid.slice(0, 8))));
         }
         await o.context.close();
     }

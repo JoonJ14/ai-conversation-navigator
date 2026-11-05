@@ -31,8 +31,10 @@
 //   C4  [new]   an unknown slug, and Free + Thinking: no percentage
 //   C5  [new]   a new answer in another mode, with Navigate closed: "Mode changed: Instant → Thinking" and 256K
 //   C6  [new]   Free (27K) at 98%: the fallback alert, and dots that follow the meter (green, yellow, red)
-//   C7  [new]   the meter's plan control opens the settings panel, the plan select focused
+//   C6b [new]   Plus + Instant at about 76%: the meter's yellow band (bar colour), dots following it
+//   C7  [new]   the meter's plan control opens the settings panel, the plan select focused: click, Enter, Space
 //   C8  [new]   the plan changed while the index is still loading: the notice once it is ready
+//   C9  [new]   a new answer in a mode the table does not list: "Mode changed: Instant → unknown", no percentage
 // Gemini (gemini-history.html) and Perplexity (perplexity-windowed.html):
 //   S1  [new]   no percentage, "window not published"
 //   S2  [guard] short questions only: every dot green
@@ -78,7 +80,7 @@ const READ = `(function () {
     }).join('') : '';
     var stat = g('acn-nav-stat');
     return {
-        pct: pct ? pct.textContent : null,
+        pct: pct ? pct.textContent : null, pctColor: pct ? getComputedStyle(pct).color : null,
         eff: A('data-acn-ctx-effective'), whole: A('data-acn-ctx-whole'), n: A('data-acn-ctx-summaries'),
         limit: A('data-acn-ctx-limit'), source: A('data-acn-ctx-limit-source'), model: A('data-acn-ctx-model'),
         tokens: A('data-acn-ctx-tokens'),
@@ -700,7 +702,8 @@ window.GM_setValue = function (k, v) { _s[k] = v; };
         // C5: Plus, all Instant; then a new answer in Thinking, with Navigate closed.
         {
             const o = await gptOpen((i) => (i >= GPT_N ? 'gpt-5-4-thinking' : 'gpt-5-2'), plan('plus'));
-            if (precondition('C5', o.ready && o.r.stable && o.r.limit === '54000', short(o.r))) {
+            const before5 = o.r;
+            if (precondition('C5', o.ready && o.r.stable, short(o.r))) {
                 await o.pg.evaluate("document.getElementById('acn-dot-nav').click()");
                 await o.pg.waitForTimeout(600);
                 const t = gptTurn(GPT_N);
@@ -714,7 +717,7 @@ window.GM_setValue = function (k, v) { _s[k] = v; };
                 const tok = gptTokens(o.T);
                 const want5 = 'Mode changed: Instant → Thinking. Window 54K → 256K, so ' + pctOf(tok, 54000) + '% → ' + pctOf(tok, 256000) + '%.';
                 check('C5', 'new', 'a new answer in Thinking, with Navigate closed: "' + want5 + '" and 256K',
-                    got && r.limit === '256000' && r.notices.some((n) => n.kind === 'window' && n.text.indexOf(want5) === 0),
+                    before5.limit === '54000' && got && r.limit === '256000' && r.notices.some((n) => n.kind === 'window' && n.text.indexOf(want5) === 0),
                     'refetched=' + got + ' ' + short(r));
             }
             await o.context.close();
@@ -734,8 +737,20 @@ window.GM_setValue = function (k, v) { _s[k] = v; };
             await o.pg.evaluate("(function () { var c = document.querySelector('[data-acn-role=\"gpt-plan-control\"]'); if (c) c.click(); }())");
             await o.pg.waitForTimeout(800);
             const st = await o.pg.evaluate("({ open: (document.getElementById('acn-panel-settings') || { getAttribute: function () {} }).getAttribute('data-acn-open'), focus: document.activeElement && document.activeElement.id })");
-            check('C7', 'new', 'the plan control opens the settings panel, the plan select focused',
-                st.open === 'true' && st.focus === 'acn-gptplan-sel', JSON.stringify(st));
+            const viaKey = async (key) => {
+                await o.pg.evaluate("(function () { var p = document.getElementById('acn-panel-settings'); if (p && p.getAttribute('data-acn-open') === 'true') document.getElementById('acn-dot-settings').click(); }())");
+                await o.pg.waitForTimeout(500);
+                await openNav(o.pg, GPT_N);
+                await o.pg.evaluate("(function () { var c = document.querySelector('[data-acn-role=\"gpt-plan-control\"]'); if (c) c.focus(); }())");
+                await o.pg.keyboard.press(key);
+                await o.pg.waitForTimeout(800);
+                return o.pg.evaluate("({ open: (document.getElementById('acn-panel-settings') || { getAttribute: function () {} }).getAttribute('data-acn-open'), focus: document.activeElement && document.activeElement.id })");
+            };
+            const stE = await viaKey('Enter');
+            const stS = await viaKey('Space');
+            check('C7', 'new', 'the plan control opens the settings panel, the plan select focused: by click, Enter and Space',
+                [st, stE, stS].every((x) => x.open === 'true' && x.focus === 'acn-gptplan-sel'),
+                'click=' + JSON.stringify(st) + ' enter=' + JSON.stringify(stE) + ' space=' + JSON.stringify(stS));
             await o.context.close();
         }
         // C8: the plan changes from Plus to Pro while the index is still loading (it answers 6 s late).
@@ -748,9 +763,47 @@ window.GM_setValue = function (k, v) { _s[k] = v; };
             } });
             const tok = gptTokens(o.T);
             const want8 = 'Plan changed: Plus → Pro. Window 54K → 128K, so ' + pctOf(tok, 54000) + '% → ' + pctOf(tok, 128000) + '%.';
-            if (precondition('C8', o.ready && o.r.stable && changed, 'changed=' + changed + ' ' + short(o.r))) {
+            if (precondition('C8', o.ready && o.r.stable, 'changed=' + changed + ' ' + short(o.r))) {
                 check('C8', 'new', 'the plan changed while the index loads: "' + want8 + '" once it is ready',
-                    o.r.limit === '128000' && o.r.notices.some((n) => n.kind === 'window' && n.text.indexOf(want8) === 0), short(o.r));
+                    changed === true && o.r.limit === '128000' && o.r.notices.some((n) => n.kind === 'window' && n.text.indexOf(want8) === 0),
+                    'changed=' + changed + ' ' + short(o.r));
+            }
+            await o.context.close();
+        }
+    }
+
+    if (want('chatgpt')) {
+        // C6b: Plus (54K Instant) at about 76%.
+        {
+            const o = await gptOpen(() => 'gpt-5-2', plan('plus'), { pad: 6700 });
+            const tok = gptTokens(o.T), p = pctOf(tok, 54000);
+            let want = '';
+            for (let i = 0; i < GPT_N; i++) { const sh = (p / 100) * (i + 1) / GPT_N; want += sh < 0.70 ? 'G' : sh < 0.85 ? 'Y' : 'R'; }
+            if (precondition('C6b', o.ready && o.r.stable, short(o.r))) {
+                check('C6b', 'new', 'Plus (54K) at ' + p + '%: the bar in the yellow band (rgb(234, 179, 8)), no alert, dots ' + want,
+                    p >= 70 && p < 85 && o.r.pct === p + '%' && o.r.pctColor === 'rgb(234, 179, 8)' && !o.r.alert && o.r.dots === want,
+                    'tok=' + tok + ' color=' + o.r.pctColor + ' ' + short(o.r));
+            }
+            await o.context.close();
+        }
+        // C9: Plus, all Instant; then a new answer whose slug the table does not list.
+        {
+            const o = await gptOpen((i) => (i >= GPT_N ? 'gpt-9-preview' : 'gpt-5-2'), plan('plus'));
+            const before9 = o.r;
+            if (precondition('C9', o.ready && o.r.stable, short(o.r))) {
+                const t = gptTurn(GPT_N);
+                o.T.push(t);
+                await o.pg.evaluate((x) => window.__mockWindow.addTurn(x), t);
+                await o.pg.evaluate("window.__mockWindow.userScrollTo('bottom')");
+                const got = await waitFor(o.pg, async () => o.logs.filter((l) => /\[ACN\] index out of sync with DOM/.test(l)).length > 0, 40000);
+                await o.pg.waitForTimeout(4000);
+                await openNav(o.pg, GPT_N + 1, 30000);
+                const r = await readStable(o.pg);
+                check('C9', 'new', 'a new answer in a mode the table does not list: "Mode changed: Instant → unknown", no percentage',
+                    before9.limit === '54000' && got && r.pct === '' &&
+                    r.notices.some((n) => n.kind === 'window' && n.text.indexOf('Mode changed: Instant → unknown.') === 0 &&
+                                          /mode is not known, so there is no percentage\.$/.test(n.text)),
+                    'refetched=' + got + ' ' + short(r));
             }
             await o.context.close();
         }

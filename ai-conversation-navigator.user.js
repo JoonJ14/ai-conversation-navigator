@@ -9187,8 +9187,9 @@
     // context it has then. The first look at a conversation records, and never queues.
     //   Claude: its model (the stored model follows the next message sent: DOM-REFERENCE, Claude,
     //   measured 2026-11-04) and its number of summaries.
-    //   ChatGPT: the plan setting (on or off a ready index) and the newest answer's mode (between
-    //   two known modes: none is known before the index arrives, or on a chat with no answer).
+    //   ChatGPT: the plan setting (on or off a ready index) and the newest answer's mode, compared on
+    //   ready indexes only, and only once the chat had an answer (its first answer is not a change).
+    //   An unknown mode counts: it takes the percentage away (Codex, Tier 3 round 2).
     function orbCtxTrack() {
         if (!platform) return;
         if (platform.id === 'claude') {
@@ -9210,8 +9211,10 @@
             gs.planSeen = true;
             if (!ixReadyAdapter()) return;
             var mode = GPT_MODE_BY_SLUG[orbGptLatestSlug()] || null;
-            if (gs.mode && mode && gs.mode !== mode) gs.pending.push({ kind: 'mode', from: gs.mode, to: mode });
+            var answered = !!(_ix.answers && _ix.answers.length);
+            if (gs.modeAnswered && gs.mode !== mode) gs.pending.push({ kind: 'mode', from: gs.mode, to: mode });
             gs.mode = mode;
+            gs.modeAnswered = answered;
         }
     }
     function orbCtxNotice(kind, text) {
@@ -9512,10 +9515,11 @@
                 what = 'Plan changed: ' + (GPT_PLAN_NAMES[c.from] || 'not set') + ' \u2192 ' +
                        (GPT_PLAN_NAMES[c.to] || 'not set') + '.';
             } else {
-                oldWin = plan ? GPT_CTX[plan][c.from] : null;
-                newWin = plan ? GPT_CTX[plan][c.to] : null;
+                oldWin = (plan && c.from) ? GPT_CTX[plan][c.from] : null;
+                newWin = (plan && c.to) ? GPT_CTX[plan][c.to] : null;
                 if (oldWin === newWin) return;   // no window, or the same one: nothing changed for the meter
-                what = 'Mode changed: ' + GPT_MODE_NAMES[c.from] + ' \u2192 ' + GPT_MODE_NAMES[c.to] + '.';
+                what = 'Mode changed: ' + (GPT_MODE_NAMES[c.from] || 'unknown') + ' \u2192 ' +
+                       (GPT_MODE_NAMES[c.to] || 'unknown') + '.';
             }
             if (oldWin && newWin) {
                 what += ' Window ' + orbFmtCtxLimit(oldWin) + ' \u2192 ' + orbFmtCtxLimit(newWin) + ', so ' +
@@ -12065,7 +12069,6 @@
         if (!platform || platform.id !== 'chatgpt' || _bmIxState() !== 'ready' || !_ix.answerIdOf) return;
         var stamp = ixIndexStamp();
         if (!stamp || stamp === _bmIxCanonStamp) return;
-        _bmIxCanonStamp = stamp;
         // The mapping of THIS index, captured: acnUpdateValue applies the change again later on the
         // persisted path (Safari's queue), when _ix may hold another conversation (Codex, Tier 3 round 1).
         var map = _ix.answerIdOf;
@@ -12073,9 +12076,9 @@
         var legacy = function (b) {
             return b && b.entityType === 'ai-msg' && b.msgUuid && canon(b.msgUuid) !== b.msgUuid;
         };
-        if (!getConversationBookmarks().some(legacy)) return;
-        var moved = 0;
-        _bmUpdateStore(function (cur) {
+        if (!getConversationBookmarks().some(legacy)) { _bmIxCanonStamp = stamp; return; }
+        var moved = 0, wrote;
+        try { wrote = _bmUpdateStore(function (cur) {
             var held = {}, out = [];
             cur.forEach(function (b) {
                 if (b && b.entityType === 'ai-msg' && b.msgUuid && !legacy(b)) held[b.msgUuid] = true;
@@ -12093,7 +12096,15 @@
                 moved++;
             });
             return out;
-        });
+        }); } catch (e) {
+            console.warn('[ACN] bookmarks: moving ChatGPT answer records to the index\'s key failed (' +
+                         (e && e.message) + '); the next scan tries again');
+            return;
+        }
+        // Done for this index: written, or refused (acnUpdateValue said why; the store is unreadable,
+        // and retrying would only refuse again).
+        _bmIxCanonStamp = stamp;
+        if (!wrote) return;
         console.log('[ACN] bookmarks: ' + moved + ' ChatGPT answer record(s) moved to the index\'s key');
         // A flag drawn before the index was ready, under the answer's key, was drawn dark (its record
         // was under another key then), and the inject's identity check would skip it: dark while
