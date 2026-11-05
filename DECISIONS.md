@@ -4237,8 +4237,8 @@ a fresh load; v12.15's 8 of 8 had been on a 24-question chat, which needs 5 page
 ---
 
 ## DEC-060: The Context Meter's Design: a Baseline Every Display Keeps, and Option A Next (2026-11-04)
-**Date:** 2026-11-04 | **Stage:** the context-meter PR (DEC-058's second; ROADMAP 12), after its read-only
-measurements and the owner's design review. Not yet built.
+**Date:** 2026-11-04, sites without a summary marker 2026-11-05 | **Stage:** the context-meter PR (DEC-058's second;
+ROADMAP 12), after its read-only measurements and the owner's design review. Not yet built.
 
 ### Decision
 - **The baseline, for every context-meter display, now and later:**
@@ -4254,9 +4254,24 @@ measurements and the owner's design review. Not yet built.
   a moving wall) and D (three tiers: this chat's share of a 1M, a 500K and a 200K window, the active row marked).
 - **Kept as ideas, not planned:** B (a ghost trail of the previous percentage), E (a pre-send preview from the model
   picker), F (tokens left as the main number).
-- **Still open, decided in the implementation spec:** how the meter behaves on sites without a summary marker.
-- The options and the decision are drawn and written up in `docs/design/context-meter/` (`context-meter-options.html`,
-  `README.md`), from the owner's review.
+- **Sites without a summary marker (owner, 2026-11-05):**
+  - **ChatGPT: a plan setting.** Its window depends on plan and mode (chatgpt.com/pricing: Plus 54K Instant and 256K
+    Thinking; Pro 128K and 400K). The user picks a plan (Free / Go / Plus / Pro; "not set" by default) in the
+    navigator's settings or from a "change" control on the meter, and can change it anytime. With a plan set: a real
+    percentage, the label and the change notice. Without one: the token estimate and "window depends on your plan".
+  - **Gemini and Perplexity (Grok in its own PR): a token estimate, no percentage.** The meter shows "~X tokens (est.)
+    · window not published". The turn dots keep green, yellow and red, coloured by the estimated size against a **1M-token
+    reference** (green below 700K, yellow below 850K, red from 850K), not by question count. From the owner's 87 Claude
+    summaries, 1M of whole-chat history is about three summaries' worth on a 1M model.
+  - **The estimate caption (artboard H)**, always visible near the dots, `{Site}` replaced by the current site's name:
+    "Estimated size (1M scale). {Site} may summarize older messages to keep going, so quality can drop. Red and weaker
+    answers? Ask {Site} for a handoff summary, then start a new chat." The reason: compaction no longer ends a chat;
+    the model keeps answering at lower quality, so the dots and the caption tell the user when to move on.
+- **Not in scope yet:** the live "Compacting…" stream event (`compaction_status`): Chrome only, its wire format
+  unmeasured.
+- The options and the decisions are drawn and written up in `docs/design/context-meter/` (`context-meter-options.html`,
+  eight artboards: A–G the display options, H the caption; `README.md`), from the owner's review of 2026-11-04 and
+  2026-11-05.
 
 ### Context
 Measured 2026-11-04, live, read-only except one throwaway chat made with the owner's OK [Chrome + Tampermonkey,
@@ -4271,8 +4286,8 @@ model-switch block and "Compaction"; each other platform's "Context and summarie
   each summary moved with the date (February median 76K; April–June about 200K; two on Opus 5.5 at 323K and 333K), so
   "distance to the next summary" is not predictable and the baseline counts from the last summary instead.
 - No summary marker on ChatGPT, Gemini or Perplexity (Grok checked signed out only). ChatGPT names each answer's
-  model, but OpenAI publishes windows per plan and mode, and the plan is not in the conversation data: the open
-  question above.
+  model, but OpenAI publishes windows per plan and mode, and the plan is not in the conversation data: hence the
+  plan setting above.
 
 ### Alternatives considered
 - **A display without the baseline** (today's meter, or any option alone): a model switch or a summary moves the

@@ -769,7 +769,9 @@ Numbering below is stable (items keep their historical numbers):
        "summary" tags and a divider at the last summary point).
      - **Next:** A, the percentage bar with "<model> · <window> window" under it.
      - **Later candidates:** C (window ruler), D (three tiers). **Ideas only:** B, E, F.
-     - **Open, for the spec:** the meter on sites without a summary marker.
+     - **Sites without a summary marker (decided 2026-11-05, DEC-060):** ChatGPT, a plan setting (a real percentage
+       once set); Gemini and Perplexity, a token estimate with no percentage, dots against a 1M reference, and the
+       estimate caption (artboard H). Grok in its own PR.
 
 **v12.0 Accomplishments (2026-07-26):**
 - **API-Backed Conversation Index (DEC-021):** Claude virtualized its message list with recycling — only ~3 of 147 user turns are mounted at any moment (~3% coverage), so `document.querySelectorAll()` stopped being a complete record of the conversation. Navigate, Search, Summary and Export were all operating on a fraction of the data, and Export was silently writing truncated files under an authoritative-looking message count. Fixed by reading Claude's own conversation JSON endpoint via `GM_xmlhttpRequest` and walking the message tree from `current_leaf_message_uuid` to isolate the active branch. This is an ordinary outbound request, not fetch interception — no Firefox cross-compartment exposure (DEC-019/DEC-020).
