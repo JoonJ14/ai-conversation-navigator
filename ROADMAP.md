@@ -44,16 +44,21 @@ combined PR in three parts.
   - Gemini and Perplexity show a size estimate, with size-coloured dots against 1M and the artboard H caption.
 - **Part 2:** ChatGPT answer records on a "fallback" turn are rewritten to the index's key, and every flag of an answer
   follows a click (item 13).
-- **Part 3:** the ubuntu CI cap goes 40 → 50 (item 0e).
+- **Part 3:** the ubuntu CI cap goes 40 → 50, and the ubuntu browser install is bounded and retried (`b48996a`; item
+  0e).
 - **Proof:**
-  - Tier 3 ran at its 5-round cap, alongside a 57-agent adversarial review. GitHub Codex was clean twice on `1be3bd1`.
+  - Tier 3 ran at its 5-round cap, alongside a 57-agent adversarial review. GitHub Codex was clean twice on `1be3bd1`,
+    twice on the docs push `3ccf84b`, and on the CI change `b48996a`.
   - Final run: `npm test` 560/560 on three engines; probes 17/17, 14/14 and 13/14 (J15).
   - The agent's live meter checks in Chrome + Tampermonkey passed on all four sites before the PR. After Codex, an
     A/B against 12.17 covered Claude, ChatGPT and Gemini (12.18 on all four). The bookmark click and the switch
     notice are owner acceptance (DEC-031).
 - **Open:**
-  - CI run 42086675512 failed every job installing Playwright (an upstream publish race; TROUBLESHOOTING), and the
-    rerun waits on npm.
+  - CI [GitHub Actions; the mock suite, not real-browser evidence]: run 42086675512 failed every job installing
+    Playwright, an upstream publish race (TROUBLESHOOTING), and was never re-run. Run 42095450049 on `3ccf84b`
+    installed again once `playwright`'s `latest` tag was back on 1.64.1, and all nine jobs passed;
+    `firefox on ubuntu-latest` passed on its third attempt, after two apt-mirror install stalls (25m00s and 16m13s;
+    item 0e). The bounded install (`b48996a`) is in its first CI run.
   - Owner acceptance on all three browsers is owed (the steps: PR #93's first comment).
 
 **v12.17 (PR #92, merged 2026-11-04 as `8909d92` before acceptance, a waiver; DEC-058's first, from the owner's spec
@@ -84,7 +89,7 @@ platform works on all supported browsers.
    unmounted questions on ChatGPT and Perplexity (item 14), positional Gemini bookmarks (item 13).
 2. **The context meter: make model-dependent limits clear to the user** (item 12), its own PR — **built: v12.18,
    PR #93 (open), above.** The live measurement found that the stored `model` follows a switch on the next message
-   sent, and that claude.ai records every summary (`compaction_summary`). The owner chose the design from HTML
+   sent, and that claude.ai marks its summaries (`compaction_summary`; 87 found). The owner chose the design from HTML
    mockups (DEC-060).
 3. **Grok** on all three browsers (item 13), its own PR — **next after PR #93.** The code search must be redone
    signed in (2026-11-04's was signed out and only partly conclusive: the chat client loaded, a signed-in session
@@ -594,11 +599,50 @@ Numbering below is stable (items keep their historical numbers):
        min of the 50 for growth. v12.18's two new probes took about 4.3–4.6 min per engine in its final local run
        (2 min in the first sweep), so the estimate is about 46 of 50.
      - **The change adds no retries and weakens no check**; either would hide a real failure.
+   - **Measured on PR #93 (run 42095450049 on `3ccf84b`, GitHub Actions, 2026-11-05): the 50-minute cap holds an
+     install stall of only about 16 minutes.**
+     - Healthy ubuntu jobs took 33m18s–33m51s on all three engines; the two new probes account for 4m16s–4m22s.
+     - `firefox on ubuntu-latest`'s system packages stalled twice in a row on azure.archive.ubuntu.com: 25m00s at
+       32.3 kB/s (the job was cut at 50m19s with every step so far passed), then 16m13s at 43.6 kB/s (that attempt was
+       cancelled at minute 40 at the owner's request, projected to end at about the cap). The third attempt installed
+       in 18 s and passed in 33m42s.
+     - Package lists (7–9 MB/s) and the browser download from Playwright's CDN (3–4 s) were fast every time. A healthy
+       install takes 18–40 s.
+     - macOS and Windows install no system packages: over the last 25 runs (2026-11-01 to 11-05) their installs took
+       0–55 s, except Windows Chromium at a steady 135–262 s, and none stalled. Their jobs take 6–10 of their 30
+       minutes, so the owner left them as they are (no step timeout: it would only fail a slow install the cap lets
+       pass).
+   - **Stopgap 3 (v12.18, the owner, 2026-11-05): the ubuntu install is bounded and retried** (`b48996a`).
+     - The owner chose this from four options. The others: Playwright's container image, an apt cache, or log only.
+     - `npx playwright install-deps <browser>` gets up to 3 attempts of 4 minutes (GNU `timeout`, which kills the
+       process group, apt-get included). After the first, the Azure mirror is dropped from `/etc/apt/apt-mirrors.txt`
+       when the runner's mirror list has another (logged).
+     - A mirror that stays slow fails that step in about 13 minutes, with an error line, instead of running the job
+       into its cap. No test or probe is retried.
+     - Simulated on this Mac with stub `npx`/`sudo`, the timeout cut to 2 s, under `bash -eo pipefail` as Actions runs
+       it, with GNU `timeout`: two stalls then success (the mirror switched, no orphaned processes), and three stalls
+       (exit 1). That found a bug in the first draft: `grep -v … | grep -q` returned 141 under `pipefail`, so the
+       switch would have been skipped silently; replaced by one `awk` test. Whether the next mirror is faster from
+       GitHub's runners is unmeasured until its first CI run.
+     - Still for the rebuild: Playwright's container image (browsers and system packages preinstalled, Playwright
+       pinned) removes the apt download and the npm race together, but it changes the whole ubuntu test environment.
+   - **Job durations before v12.18: successful jobs, min / median / max in minutes** [GitHub job and step data,
+     read-only, 2026-11-05; v12.17: 21–22 runs, PR #92 and `8909d92`; v12.16: 5 runs]:
+     - ubuntu, v12.17: chromium 27.3 / 28.4 / 29.2 (install 0.3, suite 5.7, probes 21.3–22.9); firefox 27.8 / 29.0 /
+       30.3; webkit 27.7 / 28.6 / 39.0 (install 0.5 median; 39.0 is the stalled run 41459811313). v12.16: 23.1–24.2.
+     - macOS, any engine, no probes: 6.1–7.0 (v12.16: 6.0–7.0).
+     - Windows, no probes: chromium 8.4 / 9.6 / 11.4 (install 2.2–4.4); firefox and webkit 5.7–7.0. v12.16: chromium
+       9.5–9.8, the others 5.8–6.9.
+     - The longest probes are `check-feature-gaps` (about 4.6 min) and the ChatGPT/Perplexity bookmarks (about 4.0).
    - **New input (PR #93, 2026-11-05): the unpinned install failed every job.** Run 42086675512's nine jobs all
      failed in 6–50 s at "Install Playwright" with `ETARGET … No matching version found for playwright-core@1.65.0`:
      npm had published `playwright@1.65.0` (18:28:14Z) before its `playwright-core@1.65.0` (TROUBLESHOOTING). The
      same unpinned `npm install playwright` is behind the engine drift above. Pin the version (and its browsers) in
-     the rebuild.
+     the rebuild. **Resolved upstream, not here** (TROUBLESHOOTING): `playwright`'s `latest` tag was back on 1.64.1 by
+     19:36Z (run 42095450049 installed 1.64.1's browsers); `playwright-core@1.65.0` was published at 20:17:40Z, and
+     `latest` was back on 1.65.0 by 21:09Z. So that run's nine green checks came from two Playwright versions: eight
+     jobs on 1.64.1, and `firefox on ubuntu-latest`'s third attempt on 1.65.0 (Firefox 159.0). Pinning removes both
+     the race and that drift.
 
 1. ~~**Live-test and fine-tune the provisional bookmark mechanism** (DEC-030).~~ **Done in v12.1**
    — and it went considerably further than fine-tuning: the legacy path is now four channels with a
@@ -806,14 +850,15 @@ Numbering below is stable (items keep their historical numbers):
    - **Summaries (compaction), researched 2026-11-04, read-only** (DOM-REFERENCE → Claude "Compaction", and each site's
      "Context and summaries"; every claim there with its context):
      - **Claude: detectable from the data the index already has.** `chat_messages[].compaction_summary` marks each
-       summary (87 in 39 of 236 chats; all 7 over-window chats). No number: the size after a summary is estimable
+       summary (87 in 39 of 236 chats; 7 of the 8 over-window chats, the eighth one large attachment). No number: the size after a summary is estimable
        (overhead + summary + what follows; e.g. 620K → about 247K by the 2026-11-04 screen, which used a 50K project
        overhead; the meter read ~600.1K, and the count v12.18 builds is ~227K: DOM-REFERENCE, "Compaction"), not
        reported. The page draws a
        persisted "Compacted conversation" pill in that message (DOM, mounted rows only). The stream has a
        `compaction_status` event that `parseSSEEvent` drops (Chrome only; live values unmeasured). This explains the
        "~600.1K / 500K" residual above.
-     - **Where Claude summarized:** scattered, by date more than by window (February median 76K; April 200K, May 111K, June 201K;
+     - **Where Claude summarized:** scattered; by date or by model (the two go together in this data), not by today's
+       window (February median 76K; April 200K, May 111K, June 201K;
        two on Opus 5.5 at 323K and 333K). Not a fixed size or a fixed share of today's window, so "distance to the next
        summary" cannot be predicted from these; "context since the last summary" can be shown.
      - **ChatGPT:** no chat summary mechanism in the loaded code (the compaction strings are an agent surface's,
@@ -822,12 +867,19 @@ Numbering below is stable (items keep their historical numbers):
        27K / 54K / 54K / 128K, Reasoning "Varies" / 256K / 256K / 400K for Free / Go / Plus / Pro); the plan is not in
        the conversation JSON.
      - **Gemini:** nothing found in the loaded code (on-demand modules: partial). **Perplexity:** nothing found; the
-       owner's 3 threads (12, 2, 5 entries) are too short to show anything. **Grok:** signed out only; the chat client
+       3 threads the Library listed unscrolled (12, 2, 5 entries) are too short to show anything. **Grok:** signed out only; the chat client
        loaded, no summary mechanism, a hard `beyondContextLength` error; redo signed in with the data steps in the Grok
        PR.
      - **Open, would need a real compaction** (a test that writes to the owner's account and uses heavy plan usage;
-       not run): when `compaction_summary` first appears on a refetch, the stream event's values and order, the live
-       pill's DOM. Not needed for a data-based design.
+       not run): when `compaction_summary` first appears on a refetch, whether every summary leaves one, what a failed
+       or skipped summary leaves, the stream event's values and order, the live pill's DOM. Not needed for a data-based
+       design. The cheapest design, proposed to the owner 2026-11-04 and not given an OK:
+       - a new throwaway chat on Opus 3, the smallest window the picker offers (200K, the meter's fallback; its stored
+         id unmeasured, and past summaries came at scattered sizes, so the number of turns is a guess);
+       - about 400K characters of public-domain text per turn, until "Compacting…" (a code string) shows;
+       - a temporary read-only stream logger that a reload removes (Chrome only, where the fetch proxy runs);
+       - the conversation JSON refetched after each turn.
+       Every turn resends the whole history.
    - **Design decided (owner, 2026-11-04): DEC-060**; options and write-up in `docs/design/context-meter/`.
      - **Baseline for every display:** the change notice (a model switch explained when it happens) and compaction
        awareness (Claude: context counted from the last summary, "summarized N×", a notice on a new summary, Navigate
@@ -842,7 +894,10 @@ Numbering below is stable (items keep their historical numbers):
      - The pre-send preview from the composer's picker (option E).
      - Displays C (window ruler) and D (three tiers): later candidates.
      - Step 2, recalibrating the token estimate. The Phase 1 replica (DOM-REFERENCE, Claude, "Compaction") is a
-       starting point: it reproduces the meter exactly, so a recalibration can be measured against it.
+       starting point: it reproduces the meter exactly, so a recalibration can be measured against it. One candidate
+       for the scatter of summary points, from code only: claude.ai's tool-loading setting changes how often a chat is
+       summarized, and tool definitions are part of the 30K/50K overhead the estimate assumes (DOM-REFERENCE,
+       "Compaction", Strings).
    - **Choices v12.18 made where the spec was silent, for the owner to confirm in acceptance:** ChatGPT's turn dots
      follow its meter when a percentage shows, and otherwise stay positional as on v12.17 (a 1M scale without the
      caption read all green past every ChatGPT window: the review, 2026-11-05);
@@ -855,6 +910,17 @@ Numbering below is stable (items keep their historical numbers):
      - **Codex round 5, WARN 1, judged to be the spec's rule.** A branch switch to a branch with no answer on its
        current node, whose earlier answer was Instant, queues "Thinking → Instant": the window follows the newest
        answer on the path. No gate.
+     - **The multi-agent review's F7, judged by 2 of 3 skeptics to be the spec's rule** [code reading, 2026-11-05].
+       Going back to a Claude branch that holds more summaries (N 2, then 1, then 2) queues "Claude summarized earlier
+       messages at Q#n" for a summary that already existed: `orbCtxTrack()` compares `comp.n > seen.n`, and `seen`
+       resets only on a conversation change. The text is true of the branch shown, and the spec's trigger is "When N
+       grows on a refetch within the open page". One skeptic called it at most a spec gap, for the owner. No gate; a
+       branch switch on a summarized chat is unmeasured live.
+     - **Two ChatGPT notice rules with no gate.** The multi-agent review raised F8 and F9 against the first build; its
+       skeptics read the tree after Tier 3 round 1's rewrite and found neither there. A plan change that keeps the
+       window (Go ↔ Plus) now gives a notice. A plan change and a mode change seen before one draw give one notice
+       each, when the mode change moves the window. `check-context-meter.js` sets only Free, Plus and Pro; its plan
+       changes (C3, C8: Plus → Pro on Instant) move the window, and no check changes both before a draw.
      - **Codex round 3's items, shown not to be defects of this change** (the review record has the reasoning):
        - Safari's rewrite stamp is set when the write is queued (DEC-050).
        - Two tabs' whole-store read-modify-write can interleave.
@@ -865,7 +931,8 @@ Numbering below is stable (items keep their historical numbers):
        deterministic.
      - **Unmeasured:**
        - Whether `compaction_summary` arrives through the `gmxhr` transport exactly as through `fetch`. The Phase 1
-         reads used the page's `fetch`. The 12.18 live check counted 3 summaries on `ccf551fb` through the
+         reads used the page's `fetch` and omitted `consistency=strong`, which the navigator's request carries. The
+         12.18 live check counted 3 summaries on `ccf551fb` through the
          navigator's own request in Chrome + Tampermonkey, which is consistent with it, but that check did not log
          the transport.
        - Opus 3's stored model id.
@@ -1262,6 +1329,16 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       - No check covers a keyless request kept through a refresh already in flight (`wantKeyless` with
         `keep = true`), and none times a user scroll inside the answer jump's 350 ms retry.
       - The round-5 fixes had no Tier 3 round after them (the cap); they go to the PR's GitHub Codex review.
+    - **Logged from v12.18** (not fixed; out of its spec):
+      - **Literal non-ASCII in 31 code lines, all older than v12.18.** A Python sweep of the userscript's non-comment
+        lines (trailing `//` comments stripped) found 50 on the working tree at 2026-11-05 06:04 UTC: 19 were new, and
+        v12.18 escaped them. Re-run at HEAD (the userscript unchanged since `64b54a8`) it found 31, each byte-identical
+        to a line of `8909d92` (v12.17). They break conventions.md's `\uXXXX` rule:
+        - toasts: "That message is not currently rendered — scroll toward it and try again" ×8, "Summary is out of
+          date — regenerate it to jump" ×2 and "Export failed — see console" ×2;
+        - the "Q#…" and answer-label loading placeholders;
+        - Navigate's empty-state text;
+        - three export lines, a "—" placeholder, and console messages.
     - **Logged from v12.17** (not fixed unless marked done; out of its spec):
       - **A ChatGPT answer bookmark on a "fallback" turn is labelled "A#?"** — **done in v12.17** (the owner pulled it
         into the PR; `_bmIxCanon`, gate C7) [measured, Chrome, 2026-11-01]: a turn with
@@ -1331,7 +1408,10 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       - The i18n audit (agent_docs/conventions.md) lists `questionUnresolvedToast` as dead: a false positive, the key
         is called inside a ternary the audit's regex cannot see. The documented baseline is unchanged.
       - DEC-031's addendum says the owner waived the rule "six times" and lists seven merges.
-      - CLAUDE.md says "~12,700 lines"; the file has about 15,700 (a CLAUDE.md change needs the owner's approval).
+      - CLAUDE.md's figures. Its "~12,700 lines" became "~15,800" in `5bf2c22` (2026-11-01), and both of its figures
+        are stale again. At v12.18 (`1be3bd1`) the userscript has 17,674 lines (`wc -l`), and `tests/mock-pages/`
+        holds 18 `.html` files against "17 files" (18 since `gemini-history.html`, `147e063`, v12.16). A CLAUDE.md
+        change needs the owner's approval; a diff was offered on 2026-11-05, with no decision yet.
       - `agent_docs/architecture.md`'s jump section still describes `ciDeriveRowOffset` (no caller) and
         `ciVerifyLandedRow` (deleted with resolve-on-arrival).
       - (the code walkthrough, 2026-10-31) **No jump-busy flag outside the settle loop:** only Claude's settle loop

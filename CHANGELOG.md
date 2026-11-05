@@ -32,7 +32,8 @@ Claude, ChatGPT, Gemini and Perplexity. Grok gets its own PR.
   `PUT`, but the stored model stays put for ≥30 s, and a reload reverts the picker). The navigator already followed
   that change on its refetch, but silently. No message records its model (0 of 885 messages in 21 chats, the throwaway one included), so a
   switch can only be noticed live, in the same page session.
-- **Claude's summaries.** claude.ai records every summary on the assistant message where it happened:
+- **Claude's summaries.** claude.ai marks its summaries on the assistant message where each happened (87 found;
+  that every summary leaves one is not proven, DOM-REFERENCE):
   `compaction_summary`, a one-element array holding one text block (2,185–21,835 characters, no token count). It
   is on 87 messages in 39 of the owner's 236 chats, including 7 of the 8 over-window chats (the eighth, `bfef43ad`,
   is one large attachment) (DOM-REFERENCE, Claude, "Compaction"). `ciTotalChars` / `ciTotalThinkingChars` summed the whole active path and nothing read the key.
@@ -84,9 +85,11 @@ Claude, ChatGPT, Gemini and Perplexity. Grok gets its own PR.
   - Anything else is an unknown mode, with no percentage.
 
   With a window the meter shows the percentage, "Thinking · 256K window (Plus)", the 95% alert, and dots that follow
-  the meter. Without one it shows "~X tokens (est.) · window depends on your plan" and positional dots. A plan or
-  mode change that moves the window gives a notice. A change to or from an unknown mode counts, but a chat's first
-  answer does not, and neither does a branch with no answer.
+  the meter. Without one it shows "~X tokens (est.) · window depends on your plan" and positional dots. A plan change
+  gives a notice once the index is ready, even when the window stays the same (Go → Plus, whose windows are equal), as
+  the spec asks ("or when the plan setting changes"). A mode change gives one only when it moves the window, so with
+  no plan set it gives none. With a plan set, a change to or from an unknown mode counts. A chat's first answer is not
+  a mode change, and neither is a branch with no answer. (No gate uses Go.)
 - **Gemini and Perplexity.** "~X tokens (est.) · window not published", with no percentage. The dots are coloured by
   the estimated size up to each question against a 1M reference (`CTX_SIZE_REF`): green below 700K, yellow below
   850K, red above. Under them is the artboard H caption, naming the site from the registry (`orbSizeCaption`).
@@ -114,7 +117,7 @@ Claude, ChatGPT, Gemini and Perplexity. Grok gets its own PR.
   and the turn has one shown text node, so the unit already names the index's key. The 2026-11-01 mismatch did not
   reproduce. DOM-REFERENCE keeps both results, and the gate models the live wrapper around a two-node turn.
 
-**Part 3, the CI stopgap** — `083defa`
+**Part 3, the CI stopgap** — `083defa`, then `b48996a`
 - Ubuntu `timeout-minutes` 40 → 50 (macOS and Windows stay at 30). `check-context-meter` and `check-gpt-fallback`
   join CI's ubuntu jobs and `npm run test:probes`. No retries, and no check weakened.
 - The diagnosis came from the run logs of v12.17's 21–22 runs (PR #92 and the `8909d92` merge):
@@ -125,6 +128,18 @@ Claude, ChatGPT, Gemini and Perplexity. Grok gets its own PR.
     (181 kB/s; normally 4 s). PR #92's run 41459811313 had the same stall (39.0 min) and passed.
   - Healthy ubuntu jobs took 27.3–30.3 min (suite ~6, probes ~22), so 30.3 + ~11 + the new probes (~4.6 min per
     engine in the final run) still fits 50.
+- **Measured afterwards on PR #93's run 42095450049 (`3ccf84b`):** healthy ubuntu jobs took 33m18s–33m51s, so 50
+  holds an install stall of only about 16 minutes. `firefox on ubuntu-latest`'s install stalled for 25m00s (cut at
+  50m19s), then 16m13s (cancelled at minute 40 at the owner's request), and passed on its third attempt
+  (TROUBLESHOOTING, the stopgap entry).
+- **`b48996a`: the ubuntu install is bounded and retried** (the owner's choice, 2026-11-05, of four: bound and retry;
+  Playwright's container image; an apt cache; log only). All three stalls were the system packages from
+  azure.archive.ubuntu.com (32–181 kB/s), while the package lists (7–9 MB/s) and the browser from Playwright's CDN
+  (3–4 s) were fast. `npx playwright install-deps <browser>` gets up to 3 attempts of 4 minutes; after the first, the
+  Azure mirror is dropped when the runner's mirror list has another. A mirror that stays slow fails the step in about
+  13 minutes with an error line. macOS and Windows are unchanged: they install no system packages, and their installs
+  took 0–55 s (Windows Chromium 135–262 s) over 25 runs, never stalling; the owner declined a step timeout there.
+  Simulated on this Mac with stubs and GNU `timeout`; its first CI run is the first real measurement.
 - Rationale and the CI rebuild: ROADMAP 0e.
 
 Docs commits: `2b4d931` (the v12.17 handoff and owed lines), `f2bf6d0` (the model-switch and compaction findings,
@@ -134,10 +149,12 @@ spec), `21912e9` (the Phase 1 measurements). Version 12.18 is `64b54a8`.
 ### Verification
 - **Gates** [Playwright, page realm, headless, this Mac]:
   - `probes/check-context-meter.js` (new) runs M1–M16, C1–C10 and S1–S7. Against v12.17
-    (`git show 8909d92:ai-conversation-navigator.user.js`, last run at 06:22 UTC) every `[new]` check of that version
-    failed or was INVALID: 31 FAIL, 3 INVALID (M14, C5, C8, whose preconditions need the feature). M3, M10, M11b, S2
-    and E are guards. The checks added in Tier 3 rounds 2 and 4 (C6b, C9, C10, and C5 and C8 as reworked) were shown
-    failing on targeted mutants, not re-run on v12.17.
+    (`git show 8909d92:ai-conversation-navigator.user.js`; last run at 06:22 UTC, on the probe as it stood before Tier
+    3 round 2) the probe printed 31 FAIL, 3 INVALID. Every `[new]` check of that version failed or was INVALID: 31
+    FAIL, and C5 and C8 INVALID because their preconditions need the feature. M3, M10, M11b, M14, S2 and E are guards:
+    five passed, and M14 printed INVALID (its precondition, a notice shown before the switch, needs the feature). The
+    checks added in Tier 3 rounds 2 and 4 (C6b, C9, C10, and C5 and C8 as reworked) were shown failing on targeted
+    mutants, not re-run on v12.17.
   - `probes/check-gpt-fallback.js` (new) runs F1–F8. F2, F3, F4, F7 and F8 are `[new]`; F8 has FAILed on v12.17
     since `55581c0` (`moved-lines=0`, the legacy key stored).
   - `check-ctx-limit` L4 now expects claude-haiku-4-5 to read 200000 / `model`.
@@ -168,7 +185,9 @@ spec), `21912e9` (the Phase 1 measurements). Version 12.18 is `64b54a8`.
 - **GitHub Codex on PR #93:**
   - Round 1 on `1be3bd1` was clean (18:44:10Z, no findings).
   - The confirming `@codex review` was clean too ("Didn't find any major issues", 18:46:42Z).
-  - Two rounds, no fixes.
+  - On the docs push `3ccf84b`: the automatic review completed with no findings (19:38:01Z), and a confirming
+    `@codex review` (19:38:25Z) answered "Didn't find any major issues" at 19:40:31Z.
+  - Four clean reviews, no fixes.
 - **The agent's live check** [Chrome + Tampermonkey, the owner's profile, visible tab, served build `b8934332…` =
   `1be3bd1`, `data-acn-version` 12.18, 2026-11-05 16:53–16:59 UTC; not acceptance; DEC-031]:
   - `ccf551fb` 45% (227.3K of 500K), "Opus 4.7 · 500K window", "Summarized 3× · whole chat ~600K", tags Q1–Q70 and
@@ -181,14 +200,25 @@ spec), `21912e9` (the Phase 1 measurements). Version 12.18 is `64b54a8`.
 - **The A/B after Codex** [same setup, 18:48–18:50 UTC]:
   - 12.17 (installed by Downgrade): Claude `ccf551fb` 100% "~600.1K / 500K" with no label, no summary line and no
     tags; ChatGPT and Gemini showed "Conversation turns".
-  - 12.18 (installed by Update): the same results as the check above on all four sites; Enter on the plan control
-    opens Settings.
-- **CI** run 42086675512 failed all nine jobs at "Install Playwright": `playwright@1.65.0` was published before its
-  `playwright-core@1.65.0` (TROUBLESHOOTING). That is not this PR's code. The rerun waits on the npm publish.
+  - 12.18 (installed by Update, `b8934332…`): the same readings on `ccf551fb` (45%, "~227.3K / 500K", the label,
+    "Summarized 3×", 70 tags, the divider at Q71, 40 green dots), on ChatGPT `69a0c6f8` with the plan unset (Enter on
+    the plan control opens Settings), and on Gemini and Perplexity. Not repeated on B: `0ca88a77`, `c9270096`, the
+    Plus set and restore, and the fallback flag (DEC-031).
+- **CI** [GitHub Actions; the mock suite, not real-browser evidence]:
+  - Run 42086675512 on `1be3bd1` failed all nine jobs at "Install Playwright": `playwright@1.65.0` was published
+    before its `playwright-core@1.65.0` (TROUBLESHOOTING). Not this PR's code. It was never re-run.
+  - Run 42095450049 on `3ccf84b` installed `playwright` 1.64.1, because upstream had moved the `latest` tag back. All
+    nine jobs passed. `firefox on ubuntu-latest` passed on its third attempt, after two apt-mirror install stalls;
+    that attempt ran on Playwright 1.65.0 (Firefox 159.0, published at 20:17:40Z), the other eight on 1.64.1.
+    Durations: TROUBLESHOOTING, the stopgap entry's Results.
+- **The fact-check of these docs** (a workflow of four readers comparing the draft with the transcript, git and the
+  code; 19:25–19:33 UTC) found 33 errors in the agent's draft, all fixed in `3ccf84b`; a second, whole-transcript
+  audit (ten readers, a merge and skeptic verifiers; 2026-11-05) found 48 more gaps, fixed in the commit after
+  `b48996a` (review record, "After the pipeline").
 
 ### Owed and known
 - Owner acceptance on all three runtimes (PR #93's first comment).
-- The CI rerun and the PR's "After" durations.
+- The first CI run of the bounded install (`b48996a`).
 - A gate for `bf5c0c8`.
 - The residuals and unmeasured points in ROADMAP 12.
 - `check-ix-jumps` J15 (TROUBLESHOOTING) is still open.

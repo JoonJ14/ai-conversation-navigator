@@ -495,7 +495,8 @@ was unaffected | **Status:** fixed in PR #93, not merged; owner acceptance owed 
   message, and nothing on screen said why (2026-11-04).
 
 ### Diagnosis / root cause [measured live, same context, GET only; code]
-- **claude.ai summarizes long chats, and records each summary.** The key is `chat_messages[].compaction_summary` on
+- **claude.ai summarizes long chats, and marks its summaries** (87 found; that every summary leaves a marker is not
+  proven, DOM-REFERENCE). The key is `chat_messages[].compaction_summary` on
   the assistant message where the summary happened:
   - It is a one-element array holding one text block of 2,185–21,835 characters, with no token count.
   - It is on 87 messages in 39 of the owner's 236 chats, including all 7 over-window chats on 500K models (not
@@ -597,10 +598,11 @@ rewrite. The key is the flag's identity since v12.17 (`_bmIxCanon`), which is wh
 
 ---
 
-## OPEN — CI: every job failed at "Install Playwright": `playwright-core@1.65.0` was not published yet (PR #93, 2026-11-05)
+## RESOLVED UPSTREAM — CI: every job failed at "Install Playwright": `playwright-core@1.65.0` was not published yet (PR #93, 2026-11-05)
 
 **Phase:** v12.18's PR CI | **Severity:** Medium — no test ran on any job; no userscript code involved | **Status:**
-open until the rerun passes; the cause is upstream
+resolved upstream, and nothing in this repo changed. Run 42086675512 was never re-run (`run_attempt` 1); run
+42095450049 on `3ccf84b` superseded it.
 
 ### Symptom
 Run 42086675512, the PR's first, on `1be3bd1`: all nine jobs (chromium, firefox and webkit × ubuntu, macOS and
@@ -608,7 +610,7 @@ Windows) failed within 6–50 s, at the step "Install Playwright" (`npm install 
 
 `npm error code ETARGET … No matching version found for playwright-core@1.65.0`
 
-### Diagnosis / root cause [measured on the npm registry from this Mac, 18:47Z and 18:50Z]
+### Diagnosis / root cause [npm registry, read from this Mac at 18:47Z, 18:50Z and 18:53Z; the dependency was read at 18:53Z, when `playwright-core@1.65.0` still returned 404]
 - `playwright` latest was 1.65.0, published 2026-11-05T18:28:14Z, and depends on `playwright-core` 1.65.0.
 - `playwright-core` latest was still 1.64.1, and `playwright-core@1.65.0` returned 404.
 - So npm served the new `playwright` about 13 minutes before the PR's CI started, without the core package it needs:
@@ -624,12 +626,34 @@ Windows) failed within 6–50 s, at the step "Install Playwright" (`npm install 
 - **Re-run at once.** That would fail the same way until `playwright-core@1.65.0` exists.
 
 ### Response
-A background watcher polls npm every 120 s (up to 3 h) for `playwright-core@1.65.0`, then runs
-`gh run rerun 42086675512 --failed`. The outcome is recorded here when it finishes.
+A background watcher polled npm every 120 s from 18:51Z, for up to 3 h, for `playwright-core@1.65.0`, so that it
+could run `gh run rerun 42086675512 --failed`. It was stopped at 19:36Z, when the docs push `3ccf84b` started run
+42095450049: a PR's checks come from the run on its newest head. A second watcher waited for the same publish and
+for that run to finish; it was stopped at 19:50Z.
+
+### Outcome [npm registry, read from this Mac at 19:36Z, 19:49–19:50Z and 21:41Z; GitHub Actions job logs of run 42095450049]
+- **Upstream moved `playwright`'s `latest` tag back to 1.64.1 before it published the missing package.**
+  - Run 42095450049's "Install Playwright" passed on all nine jobs in 3–16 s (19:36–19:37Z).
+  - Those jobs downloaded 1.64.1's browsers: Chrome for Testing 156.0.8078.4, Firefox 157.0 (build 1555) and WebKit
+    build 2370.
+  - At 19:50Z, `latest` read 1.64.1. `playwright-core@1.65.0` was still missing (read at 19:36Z and 19:49Z), and
+    `playwright@1.65.0` still depended on it.
+- **`playwright-core@1.65.0` was published at 20:17:40Z, and `latest` was back on 1.65.0 by 21:09Z.**
+  - That run's attempt 2 of `firefox on ubuntu-latest` (20:27Z) still got 1.64.1's Firefox 157.0.
+  - Attempt 3 (21:09Z) got Firefox 159.0 (build 1572), which is `playwright-core` 1.65.0's.
+- **Had the first watcher kept running, it would have fired at about 20:19Z, not waited out its 3 h** (inferred from
+  its 120 s poll).
+- **One run's nine green checks came from two Playwright versions:** eight jobs on 1.64.1, and
+  `firefox on ubuntu-latest`'s third attempt on 1.65.0. ROADMAP 0e: pin it.
+- That run's durations and stalls are in the stopgap entry's Results below.
 
 ### How to recognize it next time
-Every job failing within a minute at "Install Playwright" with `ETARGET` names an upstream version that is not on
-the registry. Check `npm view playwright-core@<version> version` before reading anything into the failure.
+- Every job failing within a minute at "Install Playwright" with `ETARGET` names an upstream version that is not on
+  the registry. Check `npm view playwright-core@<version> version` before reading anything into the failure.
+- Read `npm view playwright dist-tags` as well: upstream can fix the problem by moving the tag rather than publishing.
+- Read the new run's own install step before predicting how the run will go: the version a run installs can change
+  between attempts of the same run. At 19:41Z the agent told the owner the new run "will fail the same way until npm
+  publishes `playwright-core@1.65.0`", although its install had passed at 19:36Z; corrected at 19:50Z.
 
 ---
 
@@ -654,6 +678,25 @@ re-runs got them green, and on `main` that had not worked. Merge run 41871676757
   stall, took 39.0 min, and passed just under the cap.
 - **Healthy ubuntu jobs took 27.3–30.3 min** (the suite about 6, the probes about 22). One stall can therefore take a
   healthy job past 40 (30.3 + ~11 ≈ 41; PR #92's stalled job finished at 39.0).
+- **The re-run on `main` was never created** [GitHub API, read-only, 2026-11-05]. The spec asked why it failed.
+  - Run 41871676757 has only attempt 1 (`run_attempt` 1; asking for attempt 2 returns 404), so no re-run started and
+    failed.
+  - GitHub offers a re-run only once the whole run has finished. The macOS jobs were cancelled at 17:06:22Z, but
+    `webkit on ubuntu-latest` ran until 17:31:34Z (the run was last updated at 17:42:38Z). A re-run tried before then
+    had no button.
+  - The API records no attempt or error, so nothing more can be said. A permissions problem is not expected for the
+    repository owner (inferred, not measured).
+  - On PRs, the five attempt-2 runs were "re-run failed jobs" after real test failures, not after cancellations (for
+    example PR #92's 41465504011, firefox/windows, exit 1 after 2m45s).
+- **No job waited for a runner except the two that never got one** [GitHub API, read-only, 2026-11-05].
+  - In 41871676757 all nine jobs were created at 16:51:21Z, a second after the push. The seven that got a runner
+    started 2–14 s later. Across every job read from v12.17's runs, queue time was 1–21 s.
+  - GitHub's annotation on the two macOS jobs: "Due to capacity constraints, jobs targeting macOS arm64 runners may
+    experience longer queue times."
+  - So the data does not show "other jobs only start late". What started late was webkit/ubuntu's probes, behind its
+    10m54s install. The cap cut that job 4.6 min into its last probe (`check-feature-gaps`, normally 4.5–4.7 min).
+- **Job durations, successful jobs, min / median / max in minutes**: ROADMAP 0e (ubuntu 27.3–30.3 on v12.17, macOS
+  6.1–7.0, Windows 5.7–11.4). Only the ubuntu jobs come near their cap.
 
 ### Solutions considered
 The owner chose from three options (2026-11-05):
@@ -667,14 +710,33 @@ The owner chose from three options (2026-11-05):
 The change adds no retries and weakens no check: either would hide a real failure. Nothing in the workflow can make
 GitHub assign a macOS runner, so those jobs are re-run once the whole run has finished.
 
-### Fix (`083defa`)
+### Fix (`083defa`, then `b48996a`)
 - Ubuntu `timeout-minutes` 40 → 50, with the measured basis in the workflow comment. macOS and Windows stay at 30.
 - The two new probes join the ubuntu jobs: about 4.3–4.6 min per engine in v12.18's final local run (the comment's
   "about 2 min" is from the first sweep). That gives an estimate of about 46 of 50 minutes with one stall.
 
-### Results
-Not yet measured: PR #93's own CI failed at the Playwright install (the OPEN entry above), and its job durations are
-owed. Acceptance step 5 is "the next `main` run after the merge completes".
+### Results [GitHub Actions, run 42095450049 on `3ccf84b`, 2026-11-05; job and step times from the API]
+- **All nine jobs passed**; `firefox on ubuntu-latest` passed on its third attempt. The run read `completed success` at
+  21:42:59Z.
+- **Attempt 1 (19:36Z): the other eight passed.**
+  - The healthy ubuntu jobs took 33m18s (chromium) and 33m51s (webkit), against 27.3–30.3 min on v12.17. Within those,
+    `check-context-meter` took 3m39s–3m43s and `check-gpt-fallback` 37–39 s.
+  - macOS took 6m17s–6m58s, and Windows 5m56s–9m45s.
+- **`firefox on ubuntu-latest` hit the cap at 50m19s.**
+  - "Install browser engine" took 25m00s: azure.archive.ubuntu.com served 46.8 MB in 24m10s (32.3 kB/s).
+  - Every step that ran passed. The job was cut 34 s into `check-feature-gaps`, so the two new probes did not run.
+- **Attempt 2 (that job only, 20:27Z).**
+  - The install took 16m13s (41.5 MB in 15m53s, 43.6 kB/s). The suite and every probe through `check-ctx-limit`
+    then passed.
+  - At minute 40 the owner asked for a restart. The agent projected about 9½ min of probes left, which would have
+    ended at about the cap (a projection, not measured), and cancelled the attempt at 21:08Z.
+- **Attempt 3 (21:09Z): the install took 18 s, and the job passed in 33m42s.** It ran on Playwright 1.65.0 (Firefox
+  159.0); the other eight jobs ran on 1.64.1 (the npm entry above).
+- **So healthy ubuntu jobs now take 33m18s–33m51s, and the 50-minute cap absorbs an install stall of about 16
+  minutes.** The cap's basis assumed an 11-minute stall (the 2026-11-04 one); this PR's stalls were 25 and 16
+  minutes. What followed: `b48996a`, the install bounded and retried (ROADMAP 0e, stopgap 3), with its own first CI run
+  on that commit.
+- Acceptance step 5 is still "the next `main` run after the merge completes".
 
 ---
 

@@ -130,6 +130,12 @@ State lives in `_ci*` module variables. `_ciIndex` holds human turns; `_ciFullPa
 - **The fetch request is exactly the measured one**: `fetch(location.origin + path, {credentials: 'include'})`, and only when the page origin is exactly `https://claude.ai`. No custom headers (Cache-Control would make it a non-simple, preflighted request) and no AbortSignal (an object crossing realms). The timeout is a timer plus a single-fire latch. A fetch is never cancelled, so two page-wide bounds apply before new attempts fail fast: two timed out and still pending (`CI_FETCH_STALL_MAX`) or six open at all (`CI_FETCH_OPEN_MAX`) — never a per-conversation count (DEC-045). Every path out of `ciFetchGet` must reach `ended()`, or a slot is held for the rest of the page; a response nobody will read goes through `discard()` first, which cancels its body.
 - **A refusal is never declared PERMANENT until both transports have failed** (one owner-chosen exception: if the FIRST transport's cheap candidates are refused and its org list answers 200 with an array holding no usable org, that walk keeps v12.8's "(HTTP 403)" reason and ends PERMANENT alone — DEC-045), and a second transport that met nothing explaining its failure — only refusals, throws or silence; no 5xx, 429 or bad body — upholds the first's refusal (otherwise a logged-out tab re-polls every ~16s). A 429 or a malformed body on one transport still gets v12.8's PERMANENT backoff without the other being tried — deliberately. `ciIsPermanentReason()` is the one classifier; the ladder passes its decision to `ciSetDegraded` explicitly.
 - **Every request logs one line naming its transport** (`[ACN] index: transport=… org=<8 chars>… status=…`), and every reason from the org walk starts with `[gmxhr]`/`[fetch]` (the two post-fetch validation reasons, `unexpected response shape` and `malformed message data`, carry none yet). Keep it that way: on a user's machine those lines are the only evidence of which transport failed.
+- **The index adapters (DEC-046) log their own line** (`ixLog`): `[ACN] index: platform=<chatgpt|perplexity>
+  transport=<gmxhr|fetch> endpoint=<session|conversation|thread>[ page=<n>] status=<n>`, plus ` questions=<n>` on the
+  request that completed the index. Claude's `[ACN] index: transport=… org=…` (`ciLogAttempt`) never prints on those
+  sites. Anything waiting for an adapter's index load matches `platform=<pid>` (the v12.18 probes wait on
+  `/\[ACN\] index: platform=chatgpt .*endpoint=conversation /`; their first draft matched Claude's line and would never
+  have fired).
 - **The index runs only on the exact origin `https://claude.ai`** (`ciIsClaudeChat`), not wherever platform detection's `host.includes('claude.ai')` matches, and not on claude.ai at another port (`@match` patterns ignore ports) — it sends credentialed requests and renders the answer into the page.
 
 ### Runtime matrix — what differs by userscript manager (v12.9)
@@ -295,6 +301,17 @@ Perplexity, and "Conversation turns" on the other platforms.
   - The next draw turns `pending` into texts with its own figures, and `orbRenderCtxNotices()` draws them, each with
     a ✕.
   - ChatGPT's notices wait for a ready index.
+  - A ChatGPT plan change is always a notice (even Go ↔ Plus, whose windows are equal). Its mode notices follow three
+    rules (Tier 3 rounds 2, 4 and 5); keep them:
+    - A mode change is a notice only when the plan's window differs between the two modes. With no plan set there is
+      no window on either side, so none fires.
+    - A change to or from a mode `GPT_MODE_BY_SLUG` does not list counts ("Mode changed: Instant → unknown.", no
+      percentage; `e47aba2`). A chat's first answer is not a change (`gs.modeAnswered`), nor is a branch whose path
+      has no answer now (`answered`, `cebb015`).
+    - Changes queued while Navigate was closed are written together at the next draw, so a mode notice's explanation
+      reads its own target mode (`c.to`), not the mode at the draw (`c.kind === 'mode' ? !c.to : !mode`, `bf5c0c8`).
+      **No check fails without `bf5c0c8`**: C9 does not run the queued Instant → unknown → Thinking sequence
+      (ROADMAP 12).
 - **Lines:** `CTX_LINE_ORDER` fixes their order under the meta line. `orbCtxSetLine(id, cls, text)` writes only when
   the text changed, and `''` removes the line.
   - **Keep it that way:** any `childList` mutation in the body schedules a scan in 500 ms, so an unconditional write

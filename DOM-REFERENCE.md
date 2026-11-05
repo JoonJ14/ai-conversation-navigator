@@ -291,7 +291,10 @@ conversation list's `model` every time; no message carries a model key. The cont
 the newer one was not tested (2026-10-31). **Tested 2026-11-04**, below: it does, from the next message sent.
 
 **A model switch, measured** [Chrome + Tampermonkey (12.17, `a17413c`'s build) page realm, the owner's profile, visible
-tab, a throwaway chat created for the test with the owner's OK, 2026-11-04]:
+tab, a throwaway chat created for the test with the owner's OK, 2026-11-04; n=1 each: one switch with nothing sent
+(read at about +2 s and four times to +30 s, then a reload) and one switch followed by a send (read every 3 s to
++26 s), both in that one chat, not repeated. Consistent with the help center (article 8664678, read 2026-11-01): a
+change applies from Claude's next response]:
 - **The composer's picker** is `button[data-testid="model-selector-dropdown"]` in the composer's `fieldset`, its
   `aria-label` "Model: Opus 5.5 High": a display name and an effort level, not the API id. On load it showed the
   chat's stored model on 5 of 5 chats (Opus 5.5, Opus 4.8, Fable 5, Opus 5, Sonnet 5.5); on `/new`, "Opus 5.5 High".
@@ -310,17 +313,28 @@ tab, a throwaway chat created for the test with the owner's OK, 2026-11-04]:
 ### Compaction: claude.ai's summaries, in the data, the stream and the DOM (measured live, Chrome + Tampermonkey (12.17, `a17413c`'s build), the owner's profile, visible tab, page realm, GET reads only, 2026-11-04)
 
 claude.ai summarizes earlier messages when a chat grows long ("automatic context management", help article 8664678).
-Every summary is recorded in the conversation JSON `ciLoadIndex` already downloads.
+The summaries found are recorded in the conversation JSON `ciLoadIndex` already downloads: 87 markers, all the same
+shape, and 7 of the 8 chats whose estimate exceeds their window carry one (the eighth, `bfef43ad`, is one large
+attachment). **Not proven** (there is no independent count to check against): that every summary leaves a marker,
+and what a failed or skipped summary leaves; nor whether the marker is present on the first refetch after the
+summarizing response (ROADMAP 12, "Open").
 
 - **The data marker: `chat_messages[].compaction_summary`.** Present only on the message where a summary happened:
   87 messages in 39 of the owner's 236 chats, every one from the assistant and on the active path. Always a
   one-element array holding a text block, `{type: "text", text, citations, start_timestamp, stop_timestamp}` (`flags`
   on 40 of 87); the text is 2,185–21,835 characters. **It carries no number** (no token count before or after). All 7
   chats whose estimate exceeds their window have it (2–5 each), and so do 6 of 7 long chats under it.
-  Measured with `ciLoadIndex`'s URL and parameters, sent through the page's `fetch`, not the gmxhr transport (assumed
-  identical, not compared). `rendering_mode=raw` and the page's own query string add nothing; no other field marks a
-  summary: block types (text, thinking, tool_use, tool_result), senders, stop reasons, settings flags and top-level
-  keys match the controls. `ciBuildIndex` ignored the key through v12.17; since v12.18 it records each entry's
+  Measured with `ciLoadIndex`'s path minus its `&consistency=strong` (the reads sent
+  `?tree=True&rendering_mode=messages&render_all_tools=true`), through the page's `fetch`, not the gmxhr transport;
+  Phase 1 compared neither difference. On `ccf551fb` the page's own query string (with `consistency=eventual`) added no
+  keys, and `rendering_mode=raw` returned fewer. The navigator's own request (`consistency=strong`, transport not
+  logged) later read 3 summaries on `ccf551fb` and 1 on `0ca88a77` [12.18 live check, Chrome + Tampermonkey, served
+  build `b8934332…`, visible tab, 2026-11-05]. No other field marks a summary. The 7 over-window chats against 7 long
+  controls (6 of which also carry summaries): the same block types (text, thinking, tool_use, tool_result; thinking
+  in 3 of 7 against 6 of 7), senders and top-level keys; stop reasons alike but for one `error` among the controls;
+  settings flags differing only in mode values (`paprika_mode`, `thinking_mode`, `effort_level`, `chat_memory_mode`),
+  none summary-related. A key-name scan of all 236 chats (compact, horizon, summar, context, boundary) found no other
+  marker. `ciBuildIndex` ignored the key through v12.17; since v12.18 it records each entry's
   `summaryChars` and `ciCompaction()` reads them (DEC-060) [code].
 - **The persisted pill:** at a past summary the page renders "Compacted conversation" in a row
   `data-item-key="<message uuid>:t2000001"`, `data-state="done"`, inside `[data-testid="assistant-message"]` of exactly
@@ -336,17 +350,32 @@ Every summary is recorded in the conversation JSON `ciLoadIndex` already downloa
   "Compacted conversation", "This chat can’t be compacted any further. Start a new chat to continue." The phrase
   "organizing its thoughts" is in none of the 3,699 chunks. Token counts ("Compacted session · saved {tokens}
   tokens") belong to *session* compaction, whose `CompactionDivider` (`pre_tokens`, `post_tokens`) is in the
-  `anthropic.bard.api.v1alpha` schema, not the chat API (inferred from the namespace).
+  `anthropic.bard.api.v1alpha` schema, not the chat API (inferred from the namespace). A setting's two descriptions
+  tie how often a chat is summarized to tool loading: "Chats compact less since tools aren't pre-loaded." / "Chats
+  compact more often since tools are always there." (with "Sessions …" twins). Skip and failure names:
+  `compaction_skipped_no_messages`, `compaction_skipped_credential_expiring`, `compaction_skipped_no_valid_horizon`,
+  `compaction_rate_limited`, `compaction_failed`, `chat_stream_compaction_failed`, and the properties
+  `compaction_skipped_exceeds_context_limit` and `compaction_skipped_forbidden_taint` (that read-out was truncated)
+  [code reading, the same 3,699 chunks, 2026-11-04]. Which apply to chats and which to sessions was not established,
+  and none was seen live.
 - **Size after a summary:** not reported. An estimate from the payload (overhead + the last summary ÷ 4 + the path
   from the message before it): 154K–291K, 31–58% of the window, on the 7 over-window chats; one opus-4-7 chat reads 620K on
   this screen's estimate and about 247K (49%) from its last summary. Assumes the context is "summary + what follows".
   (The screen's 620K used a 50K project overhead; the meter itself read ~600.1K, and the count v12.18 builds is ~227K:
   the v12.18 Phase 1 table below.)
 - **Where summaries happened** (the same formula, the context just before each of the 87, the window from the chat's
-  current `model`): scattered, and by date rather than window. February 2026: median 76K (35–160K, 48 summaries);
-  April: 200K (107–279K); June: 201K (197–218K); October, the two on Opus 5.5 (1M): 323K and 333K. By model: Opus
-  4.6 (500K in today's table) median 93K (57), Opus 4.7 median 183K (20). Neither a fixed size nor a fixed share of
-  today's window; the windows in force then are unknown, and so is the estimate's accuracy (ROADMAP 12, step 2).
+  current `model`): scattered, and not by today's window. February 2026: median 76K (35–160K, n=48); March: 90K and
+  244K (n=2); April: median 200K (107–279K, n=21); May: median 111K (54–226K, n=8); June: median 201K (197–218K, n=6);
+  October, the two on Opus 5.5 (1M): 323K and 333K. By model (window in today's table): Opus 4.6 (500K) median 93K
+  (50–279K, n=57); Opus 4.7 (500K) median 183K (54–226K, n=20); Fable 5 (500K) median 201K (197–206K, n=3); Opus 4.8
+  (500K) 212K (n=1); Sonnet 4.6 (500K) 35K and 50K (n=2); Opus 4.5 (200K, not in the table) 80K and 87K (n=2). Date and
+  model go together in this data: Opus 4.6's 57 summaries fall 2026-02-09..04-25 and Opus 4.7's 20 fall 04-16..06-03,
+  both 500K in today's table, so the shift by date may as well be a shift by model. Neither a fixed size nor a fixed
+  share of today's window; the windows in force then are unknown, and so is the estimate's accuracy (ROADMAP 12, step
+  2). (The screen's overhead was 50K for a chat with a `project_uuid` and 30K otherwise. The meter's
+  `_estimateClaudeOverhead` uses 50K only when the URL contains `/project/`, so a project chat opened at `/chat/<id>`
+  reads about 20K above the meter's formula here, as `ccf551fb` did, 620K against the meter's ~600.1K. The two Opus
+  5.5 summaries were the first in their chats: 273K and 283K of history, thinking included, before that 50K.)
   More cuts of the same 87:
   - By window: 500K median 171K, interquartile range 90–202K (from a partial run: 50 of the 83 summaries on
     500K-window models, 26 of the 39 chats); 1M 323–333K (n=2); 200K 80–87K (n=2).
@@ -583,6 +612,12 @@ main[data-codex-history-swipe-page="true"][data-app-shell-main-surface="browser"
 - **`data-content-search-turn-key` is not a reliable position.** While the page loaded it was
   window-relative (`fallback-turn-0` on question 5); after loading it equalled the 0-based position. Use
   `data-turn-key` against the index.
+- **The `fallback-turn-N` prefix does not mark a fallback turn.** Every unit's `data-content-search-unit-key` /
+  `data-chatgpt-search-unit-key`, and every `data-content-search-turn-key`, can read `fallback-turn-N…` on ordinary
+  turns too (live on `69a0c6f8` on 12.17, 2026-11-05: uuid turns carried `fallback-turn-1`…`4`). Only a
+  `data-turn-key` that is not a message id (`fallback-turn-0`) marks the wrapper that shows a turn's node on its own.
+  To find a unit's turn, use its nearest `[data-turn-key]`. (v12.18's `check-gpt-fallback` F1 selected on the prefix
+  and was INVALID on both builds until it did this, 2026-11-05.)
 - **A hidden second timeline** (`role="presentation"`, every bubble 0×0) sits beside the real one during a
   navigation, doubling every unscoped count. Scope to `role="region"`.
 - **Windowing:** 4–7 user turns mounted. Turn 0 mounted only after `scrollTop = 0` was set more than once,
@@ -629,8 +664,11 @@ DEC-052, DEC-053):**
 
 ### Context windows, models and summaries (measured live, Chrome + Tampermonkey (12.17, `a17413c`'s build), the owner's profile, signed in, visible tab, page realm, GET reads only, 2026-11-04)
 
-- **Code search** (234 chunks from `cdn.oaistatic.com`, 27.2 MB, following every referenced `.js`; the chat app's code
-  was reached: `model_slug` ×190, `is_visually_hidden_from_conversation` ×47). Compaction strings exist ("Context
+- **Code search** (234 chunks from `cdn.oaistatic.com`, 27.2 MB, crawled from `chatgpt.com/`, the new-chat page rather
+  than a `/c/<id>` conversation, following every referenced `.js` from 78 seeds to an empty queue. Chat code was
+  reached: `model_slug` ×190, `is_visually_hidden_from_conversation` ×47. But the literal `backend-api/conversation`
+  had 0 hits, so the conversation request's own code was not seen, or it builds its path at run time; the
+  120-conversation data check below is what carries the finding). Compaction strings exist ("Context
   compacted", "Context automatically compacted", "Compacting context", "Compaction interrupted", "Context may
   automatically compact."), but under i18n ids `localConversation.*`, beside "Optimized the conversation" and
   "Can't steer while compacting": an agent surface (Codex or the desktop agent; inferred from the namespace), not a
@@ -638,9 +676,11 @@ DEC-052, DEC-053):**
   Codex chunks. The one chat-side candidate, `is_context_truncation_continuation`, is a field of the completion
   request beside `branching_from_conversation_id` / `branching_from_message_id`: a branch continuation, not a summary.
   Chat-side context strings found: "Message is too long".
-- **Data** (`/backend-api/conversation/<id>`, the adapter's endpoint, 120 of the owner's 299 conversations, 3,217
-  nodes): roles user 484, assistant 772, tool 262; content types text, thoughts, reasoning_recap, multimodal_text,
-  super_widget, code, execution_output, tether_browsing_display, system_error (1). **No node** had
+- **Data** (`/backend-api/conversation/<id>`, the adapter's endpoint, the 120 most recently updated of the owner's 299
+  conversations, 3,217 nodes). The role and content-type counts come from the run's first 47 conversations (1,565
+  nodes; the final totals were not read out): roles user 484, assistant 772, tool 262; content types text 1,174,
+  super_widget 123, thoughts 82, reasoning_recap 82, multimodal_text 31, code 10, execution_output 10,
+  tether_browsing_display 5, system_error 1. Over all 120: **no node** had
   `is_visually_hidden_from_conversation` set, and no metadata key names a summary. Every conversation has top-level
   `context_truncation_continuation` and `context_scopes`: `null` on all 27 checked, the longest included (130
   questions, `gpt-4o`). (This line read "25" until 2026-11-05: the check was announced for 25 chats, and its result
@@ -692,6 +732,11 @@ DEC-052, DEC-053):**
   flag there carried that key. **The 2026-11-01 case (the unit naming a first node the index does not key) did not
   reproduce on this chat today**; both results stand, each in its context. v12.18 keeps the fix for the two-node case
   (`_bmIxCanon`, `_bmSyncFlags`, `_bmIxCanonicalize`) and gates it on a mock of today's wrapper holding a two-node turn.
+- **How many copies are mounted varies between loads.** On 12.18 [Chrome + Tampermonkey, the owner's profile, visible
+  tab, served build `b8934332…`, 2026-11-05 16:58 UTC] the same chat was opened the same way (a Navigate click on Q45,
+  then 9 s), and `main [data-turn-key^="fallback-turn"]` matched ONE wrapper, its flag unlit. 12.17's read at 04:55
+  UTC matched two. n=1 each, and both results stand. The mock covers both: `fallbackCopies` defaults to 1, and
+  `check-gpt-fallback` sets 2.
 
 ### Historical: Feb 2026 structure (superseded)
 
@@ -1037,8 +1082,9 @@ profile, 2026-10-24/25; DEC-052, DEC-053):**
   inputs: "File content exceeds the token limit for processing", "File {filename} exceeds the model's token
   limit.", "Content too long", "- note: content has been truncated"; `token_limit_exceeded` and `contextWindow` have
   no string beside them.
-- **Data** (`/rest/thread/<id>`, the adapter's endpoint, every page): the owner's account has 3 threads, of 12, 2 and
-  5 entries. Matching keys: `context_uuid` / `frontend_context_uuid` (19 entries; identities) and one
+- **Data** (`/rest/thread/<id>`, the adapter's endpoint, every page): the Library page (`/library`, read 4 s after load, not
+  scrolled) listed 3 threads, the same 3 the sidebar showed, with 12, 2 and 5 entries; whether the account holds more
+  was not checked. Matching keys: `context_uuid` / `frontend_context_uuid` (19 entries; identities) and one
   `collection_info.project_status_summary_instruction`. **Too short to show anything.**
 
 ### Historical: Feb 2026 structure (superseded)

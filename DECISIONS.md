@@ -1322,7 +1322,8 @@ review record. Updated 2026-11-05:
     - **Perplexity `de5dd7ce`** (12): "Context size", "~5.1K tokens (est.) · window not published", the caption
       naming Perplexity, 12 green dots (basis size).
   - **The agent's A/B after GitHub Codex's review — not owner acceptance.** Same setup, 18:48–18:50 UTC.
-    - **A, 12.17** (Tampermonkey's Downgrade, served sha256 `a6f8266d…`): Claude `ccf551fb` 100%, "~600.1K / 500K",
+    - **A, 12.17** (Tampermonkey's Downgrade, served sha256 `a6f8266d…`, byte-identical to `8909d92`'s userscript,
+      main's v12.17): Claude `ccf551fb` 100%, "~600.1K / 500K",
       no model label, no summary line, no tags. ChatGPT "Conversation turns", no percentage, no plan control.
       Gemini "Conversation turns", no caption. Only these three pages were checked on A.
     - **B, 12.18** (Update, `b8934332…`): the same readings again on Claude `ccf551fb` (45%, "~227.3K / 500K", the
@@ -4319,7 +4320,8 @@ userscript head `64b54a8`, last fix `bf5c0c8`); owner acceptance owed on all thr
   - **Gemini and Perplexity (Grok in its own PR): a token estimate, no percentage.** The meter shows "~X tokens (est.)
     · window not published". The turn dots keep green, yellow and red, coloured by the estimated size against a **1M-token
     reference** (green below 700K, yellow below 850K, red from 850K), not by question count. From the owner's 87 Claude
-    summaries, 1M of whole-chat history is about three summaries' worth on a 1M model.
+    summaries, 1M of whole-chat history is about three summaries' worth on a 1M model. (Its basis is the two summaries
+    on 1M models, n=2: 273–283K of history, 323–333K with a 50K project overhead.)
   - **The estimate caption (artboard H)**, always visible near the dots, `{Site}` replaced by the current site's name:
     "Estimated size (1M scale). {Site} may summarize older messages to keep going, so quality can drop. Red and weaker
     answers? Ask {Site} for a handoff summary, then start a new chat." The reason: compaction no longer ends a chat;
@@ -4334,17 +4336,22 @@ userscript head `64b54a8`, last fix `bf5c0c8`); owner acceptance owed on all thr
 Measured 2026-11-04, live, read-only except one throwaway chat made with the owner's OK [Chrome + Tampermonkey,
 12.17 `a17413c`'s build, the owner's profile, visible tab, page realm]; details in DOM-REFERENCE (Claude: the
 model-switch block and "Compaction"; each other platform's "Context and summaries") and ROADMAP 12.
-- claude.ai stores one model per conversation. A switch is saved only when the next message is sent, and the
+- claude.ai stores one model per conversation. A switch is saved only when the next message is sent (one throwaway
+  chat, n=1 each way; consistent with the help center), and the
   navigator already follows on that message's refetch, but silently: the test chat went from 3% to 6% with nothing
   saying why. That jump is what the change notice explains.
-- claude.ai marks each summary in the conversation JSON the index already downloads (`compaction_summary`, 87 in 39 of
-  the owner's 236 chats, every chat whose estimate exceeds its window among them). It reports no size after a summary;
-  the context since the last one can be estimated from the summary plus what follows. The estimated size just before
-  each summary moved with the date (February median 76K; April 200K, May 111K, June 201K; two on Opus 5.5 at 323K and 333K), so
+- claude.ai marks its summaries in the conversation JSON the index already downloads (`compaction_summary`, 87 in 39
+  of the owner's 236 chats, 7 of the 8 chats whose estimate exceeds their window among them; the eighth is one large
+  attachment; that every summary leaves a marker is not proven). It reports no size after a summary; the context
+  since the last one can be estimated from the summary plus what follows. The estimated size just before each summary
+  moved with the date (or the model: the two go together in this data) (February median 76K; April 200K, May 111K, June 201K; two on Opus 5.5 at 323K and 333K), so
   "distance to the next summary" is not predictable and the baseline counts from the last summary instead.
-- No summary marker on ChatGPT, Gemini or Perplexity (Grok checked signed out only). ChatGPT names each answer's
-  model, but OpenAI publishes windows per plan and mode, and the plan is not in the conversation data: hence the
-  plan setting above.
+- No summary marker was found on ChatGPT: none in its loaded code (234 chunks) or in 120 of the owner's 299
+  conversations. None on Perplexity: none in its code (2,090 chunks), and the 3 threads the Library listed (12, 2 and
+  5 entries) are too short to show one. Gemini's loaded code had none: 87 bundles from one chat page, and modules load
+  on demand, so the search is partial; its data was not read. Grok: code only, signed out. ChatGPT names each
+  answer's model, but OpenAI publishes windows per plan and mode, and the plan is not in the conversation data: hence
+  the plan setting above.
 
 ### Alternatives considered
 - **A display without the baseline** (today's meter, or any option alone): a model switch or a summary moves the
@@ -4394,6 +4401,12 @@ file and is not edited: where an answer overrides it, the override is recorded h
     or not.
   - **A ChatGPT plan notice computed before the index is ready.** It read "the newest answer's mode is not known".
     ChatGPT's notices now wait for a ready index, and the plan select is tracked before the save (gate C8).
+  - **A ChatGPT notice only when the window moved** (the first build, never committed). A plan change that kept the
+    window (Go ↔ Plus) gave none, against the spec's "or when the plan setting changes" (lines 75 and 121). A plan
+    change and a mode change seen together named only the plan. Tier 3 round 1's rewrite (`orbCtxTrack()`) queues each
+    change on its own: a plan change is always a notice, and a mode change is one when its window differs. The
+    multi-agent review raised both (F8, F9) against the first build; its skeptics read the rewritten tree and found
+    neither. Ungated (ROADMAP 12).
 - **Choices the spec left open, for the owner's acceptance (ROADMAP 12):**
   - **ChatGPT's dots without a window stay positional**, as on v12.17. The first build coloured them against 1M, as on
     Gemini and Perplexity. The multi-agent review reversed that: with no caption, a 1M scale reads all green past
@@ -4435,7 +4448,8 @@ turns"); the owner chose "Rewrite + gate only" (2026-11-05). PR #93, open; owner
   answer by its LAST. v12.17 made both flags carry the index's key and made old records resolve at read time
   (`_bmIxCanon`), but the store still held the raw id, and a tab without a ready index could save it again.
 - Re-measured 2026-11-05 [Chrome + Tampermonkey 12.17 (`a17413c`), the owner's profile, visible tab, chat
-  `69a0c6f8` after a Navigate click on Q45]: the fallback wrapper was mounted **twice** in `main`, each holding ONE unit
+  `69a0c6f8` after a Navigate click on Q45]: the fallback wrapper was mounted **twice** in `main` (once on 12.18's live check the same day, 16:58 UTC,
+  opened the same way; n=1 each, both stand), each holding ONE unit
   (`fallback-turn-0:1:assistant`, message ids = the node's id twice, 4,325 characters, no user bubble), and the turn
   had a single shown text node (question → thoughts → reasoning_recap → one text node of 4,497 → Q46). So that
   unit's id already IS the index's key, and the 2026-11-01 mismatch did not reproduce. Both results are kept in

@@ -130,7 +130,9 @@ GitHub Actions runs on push/PR to `main`:
     (M1–M16 Claude, C1–C10 ChatGPT, S1–S7 Gemini and Perplexity: summary awareness, the model label, notices, the
     95% alert, the plan setting, the size estimate and its dots) and `check-gpt-fallback` (F1–F8: ChatGPT answer
     records rewritten to the index's key, flags in sync, Safari's queued replay). They took about 4.3–4.6 min per
-    engine in the final local run. The ubuntu cap is **50 since v12.18** (the owner's second stopgap: an apt-mirror
+    engine in the final local run, and 4m16s–4m22s in CI (run 42095450049 on `3ccf84b`, where healthy ubuntu jobs
+    took 33m18s–33m51s). Since `b48996a` the ubuntu jobs' browser install is bounded: the system packages get up to 3
+    attempts of 4 minutes (the apt mirror stalled for 10–25 minutes three times; ROADMAP 0e). The ubuntu cap is **50 since v12.18** (the owner's second stopgap: an apt-mirror
     stall took `webkit on ubuntu-latest` past 40 on the `8909d92` merge run; ROADMAP 0e).
 
 **Windows is the runner that catches timing assumptions.** It is materially slower than
