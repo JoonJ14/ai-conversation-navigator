@@ -157,6 +157,11 @@ use literal characters.
   diff before committing it.
 - **Live-confirmation results live in DEC-031 only**, recorded exactly as the owner reports them, per browser and
   per site. Other docs point there.
+- **The repo and its PRs are public, so the owner's chats are named, never quoted** (owner, 2026-11-05). Name a
+  conversation by its 8-character id prefix (`ccf551fb`), never by its title or a line of its content, in docs, commit
+  messages, PR bodies and acceptance comments alike. A chat tab's title is the chat's title (the browser tools return
+  it with the tab list), so it stays out too. Research probes report key names, types and counts only, never message
+  content (owner, 2026-11-04).
 
 ## Debugging & Mistakes Policy
 
@@ -330,6 +335,13 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 > build that lacks it FAILS instead of skipping.
 > **Why:** a precondition that only the fixed build meets hides the gate's whole purpose: the old build reports
 > INVALID rather than red, and "v12.13 fails N" silently becomes a smaller N.
+> **Recurred in v12.18 (2026-11-05).** `check-context-meter` C5 and C8 needed the new ChatGPT meter and plan select as
+> preconditions. The run against v12.17 printed 31 FAIL and 3 INVALID (M14, C5, C8) [Playwright Chromium, headless,
+> this Mac, 06:22 UTC], and nothing was done about the INVALIDs until Codex Tier 3 round 2 flagged C5 and C8 (reworked
+> in `e47aba2` to fail on a build without the meter). Round 3 flagged `check-gpt-fallback` F8, whose precondition was
+> the migration's own log line; since `55581c0` the line is part of the check, and v12.17 FAILs it (`moved-lines=0`,
+> the legacy key stored). Treat every INVALID on the base build as a gate defect until shown otherwise. A gate that is
+> INVALID on both builds measures nothing (F1, the same session: it selected on a prefix every unit carries).
 
 > **Issue:** Phase 1 of the answer-bookmark PR counted `.acn-bm-icon` elements in the page and reported "older answers
 > get flags as they mount". The owner reported the opposite from hovering. Both were true: the flag sits at the
@@ -424,3 +436,44 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 > make the gate discriminate, say so beside it.
 > **Why:** a mock that differs from the site can make a correct fix fail or a broken build pass, and either result
 > reads as a finding about the code under test.
+
+> **Issue:** v12.18's multi-agent review was still verifying when the session applied Codex round 1's fixes to the same
+> working tree. The review was a Workflow of 57 agents, told it was reviewing "an uncommitted change" (2026-11-05,
+> launched 05:34 UTC, finished 06:09). The fixes changed the userscript at 06:04–06:05 UTC and `check-context-meter.js`
+> at 06:06. Three of the review's six refutations were measured on the edited tree: the skeptics of two findings could
+> not find the quoted ChatGPT notice code ("not in the file"), because round 1 had just rewritten it, and on a third a
+> skeptic wrote "Someone edited the file while I was reviewing". Both ChatGPT findings were real on the build the
+> finders read (a plan and a mode change named only the plan; a plan change that kept the window gave no notice).
+> Round 1's rewrite fixed both as a side effect, and the review record first counted them as "refuted", with no gate.
+> **Correct approach:** give a review a frozen tree. Commit (or copy to a worktree) before launching it, name that
+> commit in the prompt, and apply no fix to that tree until every reviewer has returned. If reviews must overlap,
+> check each refutation against the commit the finding was made on before recording it.
+> **Why:** a refutation measured on a different tree reads exactly like a false positive, so the defect drops out of
+> the record.
+
+> **Issue:** The v12.18 docs draft (2026-11-05) held reconstructions written as record. It said the owner chose the CI
+> stopgap "from four options"; three of them were never offered (the question offered three: raise the ubuntu cap to
+> 50, split the probes into their own jobs, or both). The digest the draft came from held only the chosen option, and
+> the agent recovered the real three from the session's `.jsonl` before committing. The flag-sync entry listed three
+> "solutions considered" that nobody weighed: the fix came straight from gate F2 and the multi-agent review's F5. Some
+> counts came from memory: "about 20" mutants where there were 16 (m1–m16), and an `n=82` that no output contains. A
+> four-reader fact-check of the draft against the transcript, git and the code found 33 errors before `3ccf84b`, and a
+> whole-transcript audit found 48 more gaps (`27af348`).
+> **Correct approach:** quote the options the owner was offered, and the answer, from the question's tool input and
+> result in the transcript, never from a digest, a summary or memory. List only the alternatives the session weighed,
+> or write that none were. Take every count from its artifact (the mutant files, the probe output). Fact-check a docs
+> draft against the raw transcript, git and the code before committing it.
+> **Why:** a record's numbers and alternatives are read as measured. A plausible reconstruction reads exactly like a
+> record, and every doc that quotes it repeats the error.
+
+> **Issue:** `check-gpt-fallback` F8 drives Safari's async GM path through a stub, and its first seed stored
+> `acn-bookmarks-v1` as is. On that path GM storage holds each value as JSON text (`acnStoreLoad`, `acnPersist`), and
+> the bookmark store's value is already JSON text, so its real stored form is encoded twice (DEC-049). With the seed
+> encoded once, F8 printed INVALID (`ready=true moved-lines=0`) on the FIXED build and on its mutant m13 [Playwright
+> Chromium, headless, this Mac, 2026-11-05 15:50 UTC]. With the seed encoded once more, F8 passed on the build and m13
+> FAILed it (`stored=["dddddddd"]`, 15:52 UTC).
+> **Correct approach:** a stub stores what the real code path stores. A probe that seeds the async (Safari) path
+> writes `JSON.stringify` of the value the sync path holds. Run a new gate on the fixed build first: INVALID there is a
+> harness defect.
+> **Why:** a seed in the wrong encoding leaves the build nothing to act on, so the gate cannot tell the fixed build
+> from the old one.

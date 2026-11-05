@@ -1266,7 +1266,7 @@ is a live run on the commit actually being shipped.
   wrong, and the honest report is "not reproduced", never a fix asserted on plausibility.
 
 **Addendum — merged before the live confirm, on the owner's explicit call (2026-10-23).** The owner has waived
-this rule nine times:
+this rule ten times:
 - PR #73 (v12.8), merged before its usage-panel confirm;
 - PR #75 (v12.9), merged as `4c72ca9` before its Safari, Firefox and Chrome confirms;
 - PR #78 (v12.10), merged as `166a281` before Safari's ChatGPT and Perplexity check;
@@ -1283,7 +1283,11 @@ this rule nine times:
 - PR #92 (v12.17), merged 2026-11-04 as `8909d92` (head `2deca12`) on the owner's explicit OK, with none of its
   acceptance steps reported on any browser; the acceptance is the owner's one combined pass (the spec). The agent's
   live checks and final A/B in Chrome + Tampermonkey (below) are not acceptance, and the last two code fixes
-  (`7bf5a3d`, `f5e2f52`) were not installed live at all.
+  (`7bf5a3d`, `f5e2f52`) were not installed live at all;
+- PR #93 (v12.18), approved for merge by the owner on 2026-11-05 "as soon as the CI test all come back green", with
+  none of its acceptance steps reported on any browser. The agent's live check and A/B in Chrome + Tampermonkey
+  (below) are not acceptance, and the CI change `b48996a` and the docs after `1be3bd1` were not installed live (the
+  userscript is unchanged since `64b54a8`, the build that was).
 
 A waiver moves the merge, not the debt: each confirm stays owed on the merged build until it is run. Record
 every waiver here, and in the release's CHANGELOG entry.
@@ -1291,8 +1295,8 @@ every waiver here, and in the release's CHANGELOG entry.
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
 review record. Updated 2026-11-05:
-- **v12.18 (PR #93, open, not merged; the context meter, ChatGPT fallback bookmarks, the CI stopgap; DEC-060,
-  DEC-061).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey: **owed**,
+- **v12.18 (PR #93; the merge approved by the owner on 2026-11-05 once CI is green, before acceptance, a waiver; the
+  context meter, ChatGPT fallback bookmarks, the CI stopgap; DEC-060, DEC-061).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey: **owed**,
   nothing reported yet. The steps, as posted on the PR:
   https://github.com/JoonJ14/ai-conversation-navigator/pull/93#issuecomment-6666207324
   - **The agent's live check before the PR — not owner acceptance.** Setup: Chrome + Tampermonkey, the owner's real

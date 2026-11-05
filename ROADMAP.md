@@ -30,7 +30,7 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.18 BUILT, PR #93 OPEN; v12.17 MERGED (PR #92); v12.16 MERGED (PR #90); next after #93: Grok — live confirmation status: DEC-031
+## Current Status: v12.18 BUILT, PR #93 MERGE APPROVED (once CI is green, before acceptance: a waiver); v12.17 MERGED (PR #92); v12.16 MERGED (PR #90); next after #93: Grok — live confirmation status: DEC-031
 
 **v12.18 (PR #93, open, not merged; DEC-058's second, from the owner's spec of 2026-11-05; DEC-060, DEC-061).** One
 combined PR in three parts.
@@ -1411,7 +1411,8 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       - CLAUDE.md's figures. Its "~12,700 lines" became "~15,800" in `5bf2c22` (2026-11-01), and both of its figures
         are stale again. At v12.18 (`1be3bd1`) the userscript has 17,674 lines (`wc -l`), and `tests/mock-pages/`
         holds 18 `.html` files against "17 files" (18 since `gemini-history.html`, `147e063`, v12.16). A CLAUDE.md
-        change needs the owner's approval; a diff was offered on 2026-11-05, with no decision yet.
+        change needs the owner's approval. **Fixed 2026-11-05 on the owner's approval** ("~17,700 lines", "18
+        files").
       - `agent_docs/architecture.md`'s jump section still describes `ciDeriveRowOffset` (no caller) and
         `ciVerifyLandedRow` (deleted with resolve-on-arrival).
       - (the code walkthrough, 2026-10-31) **No jump-busy flag outside the settle loop:** only Claude's settle loop

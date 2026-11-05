@@ -8,8 +8,9 @@ All notable changes to this project will be documented in this file. Each entry 
 
 **Branch:** `feat/v12.18-context-meter` | **Userscript head:** `64b54a8` (the version bump; last fix `bf5c0c8`; review
 record `1be3bd1`, the PR's head before these docs) |
-**PR:** #93, **open, not merged**. Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox +
-Tampermonkey is owed (DEC-047, DEC-031). Diff at `1be3bd1` against `8909d92`: the userscript +719 / −26; the branch
+**PR:** #93, the merge approved by the owner on 2026-11-05 once CI is green, **before** their acceptance on Safari +
+Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey (a waiver: every step is still owed on the merged build,
+DEC-047, DEC-031). Diff at `1be3bd1` against `8909d92`: the userscript +719 / −26; the branch
 20 files, +3,919 / −316. The branch total includes the v12.17 handoff commit `2b4d931`, which the owner folded into
 this PR.
 
