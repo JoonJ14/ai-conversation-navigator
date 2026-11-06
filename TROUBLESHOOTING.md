@@ -736,7 +736,15 @@ GitHub assign a macOS runner, so those jobs are re-run once the whole run has fi
   minutes.** The cap's basis assumed an 11-minute stall (the 2026-11-04 one); this PR's stalls were 25 and 16
   minutes. What followed: `b48996a`, the install bounded and retried (ROADMAP 0e, stopgap 3), with its own first CI run
   on that commit.
-- Acceptance step 5 is still "the next `main` run after the merge completes".
+- **The bounded install, measured** [GitHub Actions, run 42117334465 on `27af348`, `webkit on ubuntu-latest`,
+  2026-11-05]: attempt 1 on azure.archive.ubuntu.com got about 3 MB of the 114 MB needed in 4 minutes and was cut off
+  (the `::warning::` line). The runner's mirror list was azure (priority 1), `https://archive.ubuntu.com` (2) and
+  `https://security.ubuntu.com` (3); with azure dropped, archive.ubuntu.com served the remaining 111 MB in 36 s
+  (3.1 MB/s), keeping the 3 MB already fetched. The install took 303 s, and the job passed in 38.4 min, where an
+  unbounded stall had cost 10–25 minutes and twice ran a job into its cap.
+- **Acceptance step 5:** PR #93's checks finished 9/9 on `4cdc730`, and `main`'s first run after the merge
+  (`ab7ea21`, run 42123189982) was 9/9 green at 23:14 UTC with no install stall (ubuntu 32.9–34.8 min, installs
+  16–85 s; macOS 6.2–6.7; Windows 5.9–10.3). Observed by the agent; the mock suite, not real-browser evidence.
 
 ---
 

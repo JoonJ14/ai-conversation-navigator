@@ -1284,8 +1284,9 @@ this rule ten times:
   acceptance steps reported on any browser; the acceptance is the owner's one combined pass (the spec). The agent's
   live checks and final A/B in Chrome + Tampermonkey (below) are not acceptance, and the last two code fixes
   (`7bf5a3d`, `f5e2f52`) were not installed live at all;
-- PR #93 (v12.18), approved for merge by the owner on 2026-11-05 "as soon as the CI test all come back green", with
-  none of its acceptance steps reported on any browser. The agent's live check and A/B in Chrome + Tampermonkey
+- PR #93 (v12.18), merged 2026-11-05 22:38 UTC as `ab7ea21` (head `4cdc730`, all nine checks green) by the agent on
+  the owner's explicit OK ("as soon as the CI test all come back green, then merge the PR"), with none of its
+  acceptance steps reported on any browser. The agent's live check and A/B in Chrome + Tampermonkey
   (below) are not acceptance, and the CI change `b48996a` and the docs after `1be3bd1` were not installed live (the
   userscript is unchanged since `64b54a8`, the build that was).
 
@@ -1295,8 +1296,12 @@ every waiver here, and in the release's CHANGELOG entry.
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
 review record. Updated 2026-11-05:
-- **v12.18 (PR #93; the merge approved by the owner on 2026-11-05 once CI is green, before acceptance, a waiver; the
-  context meter, ChatGPT fallback bookmarks, the CI stopgap; DEC-060, DEC-061).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey: **owed**,
+- **Since DEC-062 (2026-11-05), owner acceptance is ONE consolidated pass at about v12.20**, on the build current then,
+  working from `docs/acceptance-checklist.md` (seeded from PRs #88, #90, #92 and #93; each PR appends its steps).
+  Until then a version's "owed" line below is expected, not an open problem; waivers are still recorded above. An
+  optional 5-minute Safari smoke check after each merge is recorded under its version as "Safari smoke check".
+- **v12.18 (PR #93, merged 2026-11-05 as `ab7ea21` before acceptance, a waiver; the context meter, ChatGPT fallback
+  bookmarks, the CI stopgap; DEC-060, DEC-061).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey: **owed**,
   nothing reported yet. The steps, as posted on the PR:
   https://github.com/JoonJ14/ai-conversation-navigator/pull/93#issuecomment-6666207324
   - **The agent's live check before the PR — not owner acceptance.** Setup: Chrome + Tampermonkey, the owner's real
@@ -1336,6 +1341,9 @@ review record. Updated 2026-11-05:
       the caption, size dots). Enter on ChatGPT's plan control opened Settings. Not repeated on B: `c9270096`,
       `0ca88a77`, the Plus set and restore, and the fallback flag.
     - 12.18 was left installed.
+  - **Step 5 (CI), observed by the agent; not a browser check:** PR #93's checks finished 9/9 on `4cdc730`, and
+    `main`'s first run after the merge (`ab7ea21`, run 42123189982) was 9/9 green at 23:14 UTC, with no install stall
+    (ubuntu 32.9–34.8 min, macOS 6.2–6.7, Windows 5.9–10.3).
   <!-- V12.18 ACCEPTANCE: filled in by the integrator, as reported -->
 - **v12.17 (PR #92, merged 2026-11-04 as `8909d92` before acceptance, a waiver; Search, Export, Summary and the gallery read the whole conversation,
   Gemini bookmarks by turn id, ChatGPT's jump through history pages; DEC-059).** Owner acceptance on Safari +
@@ -2987,6 +2995,8 @@ Each runtime is a different execution context (CLAUDE.md, Layer 3's second face;
 - A PR lists acceptance on **all three** as the owner's, and does not merge until the owner reports it.
 - Results are recorded in DEC-031 only.
 - The owner may still waive it for a given PR; record the waiver in DEC-031, as before.
+- **Since DEC-062 (2026-11-05):** the acceptance itself is deferred to one consolidated pass at about v12.20, so merges
+  until then are waivers by design. Equal priority is unchanged: the pass covers all three runtimes.
 - Agents cannot drive Safari + Userscripts; they can drive Chrome through the owner's real profile, read-only on
   the owner's accounts.
 
@@ -4174,6 +4184,12 @@ owner's release rule names which one a release needs.
 - The model-switch measurement changes a conversation's model in the owner's account, so it runs only with the
   owner's go-ahead for that action, in the owner's real Chrome profile.
 - Owner acceptance of v12.15 and v12.16 is still owed (DEC-031); this decision does not waive it.
+- **Addendum (owner, 2026-11-05): a fourth PR goes before Grok.** After the context meter (v12.18, merged as
+  `ab7ea21`), the next PR is **Gemini's full question list on open** (ROADMAP 13, Gemini): Navigate should list every
+  question of any Gemini chat at once, instead of only the loaded turns with the "older messages not loaded" note and
+  2–3 trips to the top. It starts with a read-only investigation of Gemini's own history request; the fallback is a
+  "Load full history" button. Grok follows, once the owner is back on the Linux machine to sign in (its code search
+  must be redone signed in).
 
 ---
 
@@ -4298,8 +4314,9 @@ a fresh load; v12.15's 8 of 8 had been on a 24-question chat, which needs 5 page
 
 ## DEC-060: The Context Meter's Design: a Baseline Every Display Keeps, and Option A Next (2026-11-04)
 **Date:** 2026-11-04, sites without a summary marker 2026-11-05 | **Stage:** the context-meter PR (DEC-058's second;
-ROADMAP 12), after its read-only measurements and the owner's design review. **Built in v12.18** (PR #93, open;
-userscript head `64b54a8`, last fix `bf5c0c8`); owner acceptance owed on all three runtimes (DEC-031). The build's own decisions: "Implementation
+ROADMAP 12), after its read-only measurements and the owner's design review. **Built in v12.18** (PR #93, merged
+2026-11-05 as `ab7ea21`; userscript head `64b54a8`, last fix `bf5c0c8`); owner acceptance in the consolidated pass
+(DEC-062, DEC-031). The build's own decisions: "Implementation
 (v12.18)" below.
 
 ### Decision
@@ -4423,7 +4440,8 @@ file and is not edited: where an answer overrides it, the override is recorded h
 
 ## DEC-061: A ChatGPT Answer Record Is Stored Under the Index's Key, and Every Flag With That Key Shows One State (v12.18)
 **Date:** 2026-11-05 | **Stage:** v12.18, Part 2 of the owner's spec ("ChatGPT answer bookmarks on 'fallback'
-turns"); the owner chose "Rewrite + gate only" (2026-11-05). PR #93, open; owner acceptance owed (DEC-031).
+turns"); the owner chose "Rewrite + gate only" (2026-11-05). PR #93, merged 2026-11-05 as `ab7ea21`; owner acceptance in the
+consolidated pass (DEC-062, DEC-031).
 
 ### Decision
 - **A ChatGPT answer record saved under one of its answer's other shown nodes is rewritten to the index's key**
@@ -4494,3 +4512,40 @@ turns"); the owner chose "Rewrite + gate only" (2026-11-05). PR #93, open; owner
   - Two tabs' whole-store read-modify-write can interleave: that is `acnUpdateValue`'s established semantics.
 - The live case of a two-node fallback turn has not been seen again since 2026-11-01. The gate is on a mock of the
   live wrapper.
+
+---
+
+## DEC-062: Owner Acceptance Is One Consolidated Pass at About v12.20, From One Checklist in the Repo (2026-11-05)
+**Date:** 2026-11-05 | **Stage:** after v12.18 (PR #93 merged as `ab7ea21`). The owner's decision.
+
+### Decision
+- **Owner acceptance is deferred to one consolidated pass at about v12.20.** It covers every feature on every site
+  and browser at once (Safari + Userscripts, Chrome + Tampermonkey, Firefox + Tampermonkey, equal priority: DEC-047),
+  on the build current then.
+- **One checklist in the repo:** `docs/acceptance-checklist.md`, seeded from the acceptance steps of PRs #88 (v12.15),
+  #90 (v12.16), #92 (v12.17) and #93 (v12.18). Each future PR appends its own steps there (and still posts them as its
+  first comment), so the final pass is one list.
+- **DEC-031 keeps recording waivers** as now. A version's "acceptance owed" is expected until the pass, not an open
+  problem to raise every session.
+- **After each merge, the agent reminds the owner of an optional 5-minute Safari smoke check** (Safari + Userscripts
+  is the one runtime the agent cannot drive): the question list loads, a bookmark survives a reload, the meter shows.
+  Recorded in DEC-031 under the merged version, exactly as reported.
+
+### Context
+Four releases in a row (v12.15–v12.18) were merged before any acceptance step was reported, each a waiver in DEC-031,
+and each left its own list of steps on its own PR. The owner's acceptance had become four separate passes owed on four
+builds, while each new build changed what the older steps would show. One pass on one later build, from one list,
+tests what will actually be released (DEC-058: no release until every platform works on every supported browser).
+
+### Alternatives considered
+- **Acceptance before every merge (DEC-047's rule).** It has been waived for every recent PR; keeping it as the rule
+  made every merge an exception and every session re-raise the debt.
+- **A pass per version, later.** Four passes on builds nobody will release, with steps already superseded in places
+  (the context meter's display changed in v12.18).
+
+### Key properties
+- The pass happens before any release; DEC-058's release rule is unchanged.
+- The checklist names chats by id prefix only (the repo is public; agent_docs/conventions.md).
+- Steps keep the version that introduced them; where a later version changes what a step shows, the checklist says so.
+- The agent still lists what it cannot verify (Safari + Userscripts) as owner acceptance in each PR, and never
+  reports it as verified (CLAUDE.md, measurement context).

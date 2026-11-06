@@ -37,6 +37,14 @@
 6. Re-read the session's whole transcript (`.jsonl`) and the memory files, not a compacted summary, then run
    `/update-project-docs` and commit the docs into the same PR.
 7. Tell the owner. The owner watches CI and merges.
+8. **After a merge, remind the owner of the optional 5-minute Safari smoke check** (`docs/acceptance-checklist.md`, at
+   the top: the question list loads, a bookmark survives a reload, the meter shows). Safari + Userscripts is the one
+   runtime the agent cannot drive.
+
+**Owner acceptance is one consolidated pass at about v12.20** (the owner, 2026-11-05; DEC-062), on the build current
+then. Each PR appends its acceptance steps to `docs/acceptance-checklist.md` as well as posting them as its first
+comment; a merge before the pass is a waiver, recorded in DEC-031 as before, and a version's "acceptance owed" is
+expected until the pass, not an open problem to raise every session.
 
 When the owner has said they are away, take over their Chrome windows and tabs for installs and live tests without
 asking; stop only if they said they are using Chrome at that moment.
@@ -53,7 +61,8 @@ asking; stop only if they said they are using Chrome at that moment.
   output file: 600 s foreground waits timed out on both releases. Uncommitted
   files from parallel agents re-triggered the Stop hook mid-pipeline
 - Ensure the full suite (`npm test`) and the probes (`npm run test:probes`) pass before requesting merge
-- **List anything you cannot test yourself as owner acceptance in the PR** (today: Safari + Userscripts). Never
+- **List anything you cannot test yourself as owner acceptance in the PR, and append it to
+  `docs/acceptance-checklist.md`** (today: Safari + Userscripts). Never
   report it as verified (CLAUDE.md, measurement context)
 - **Merging is the owner's call, per PR.** This repo merges with merge commits (`gh pr merge --merge`); auto-merge
   is disabled. To merge only the head that was checked, add `--match-head-commit` with the FULL SHA

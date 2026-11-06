@@ -132,8 +132,14 @@ GitHub Actions runs on push/PR to `main`:
     records rewritten to the index's key, flags in sync, Safari's queued replay). They took about 4.3–4.6 min per
     engine in the final local run, and 4m16s–4m22s in CI (run 42095450049 on `3ccf84b`, where healthy ubuntu jobs
     took 33m18s–33m51s). Since `b48996a` the ubuntu jobs' browser install is bounded: the system packages get up to 3
-    attempts of 4 minutes (the apt mirror stalled for 10–25 minutes three times; ROADMAP 0e). The ubuntu cap is **50 since v12.18** (the owner's second stopgap: an apt-mirror
-    stall took `webkit on ubuntu-latest` past 40 on the `8909d92` merge run; ROADMAP 0e).
+    attempts of 4 minutes (the apt mirror stalled for 10–25 minutes three times; ROADMAP 0e). Its first measured
+    switch: azure got about 3 MB in 4 minutes, then archive.ubuntu.com served 111 MB in 36 s (run 42117334465). The ubuntu cap is **50 since v12.18** (the owner's
+    second stopgap: an apt-mirror stall took `webkit on ubuntu-latest` past 40 on the `8909d92` merge run; ROADMAP 0e).
+  - **Why only the ubuntu jobs take ~34 minutes:** the 16 probe steps run on ubuntu only, one after another (about 27
+    minutes), after the same ~5¾-minute suite every job runs; macOS and Windows run the suite alone (6–10 minutes).
+    Measured on run 42118079878: every job started 2–3 s after it was created, and the ubuntu steps ran with 0 s
+    between them, so the time is work, not queueing. Splitting the probes into parallel jobs is the rebuild's option
+    (ROADMAP 0e).
 
 **Windows is the runner that catches timing assumptions.** It is materially slower than
 the Ubuntu and macOS runners, so an assertion that races the virtualizer passes on two OSes

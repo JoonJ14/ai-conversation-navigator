@@ -8,9 +8,9 @@ All notable changes to this project will be documented in this file. Each entry 
 
 **Branch:** `feat/v12.18-context-meter` | **Userscript head:** `64b54a8` (the version bump; last fix `bf5c0c8`; review
 record `1be3bd1`, the PR's head before these docs) |
-**PR:** #93, the merge approved by the owner on 2026-11-05 once CI is green, **before** their acceptance on Safari +
-Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey (a waiver: every step is still owed on the merged build,
-DEC-047, DEC-031). Diff at `1be3bd1` against `8909d92`: the userscript +719 / −26; the branch
+**PR:** #93 | **Merged** 2026-11-05 as `ab7ea21` (head `4cdc730`) on the owner's explicit OK, **before** their
+acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey (a waiver; since DEC-062 the
+acceptance is one consolidated pass at about v12.20, from `docs/acceptance-checklist.md`; DEC-031). Diff at `1be3bd1` against `8909d92`: the userscript +719 / −26; the branch
 20 files, +3,919 / −316. The branch total includes the v12.17 handoff commit `2b4d931`, which the owner folded into
 this PR.
 
@@ -140,7 +140,13 @@ Claude, ChatGPT, Gemini and Perplexity. Grok gets its own PR.
   Azure mirror is dropped when the runner's mirror list has another. A mirror that stays slow fails the step in about
   13 minutes with an error line. macOS and Windows are unchanged: they install no system packages, and their installs
   took 0–55 s (Windows Chromium 135–262 s) over 25 runs, never stalling; the owner declined a step timeout there.
-  Simulated on this Mac with stubs and GNU `timeout`; its first CI run is the first real measurement.
+  Simulated on this Mac with stubs and GNU `timeout`. Then the first measured mirror switch [GitHub Actions, run 42117334465 on `27af348`, `webkit on ubuntu-latest`]:
+  attempt 1 on azure.archive.ubuntu.com got about 3 MB of the 114 MB needed in 4 minutes and was cut off; the runner's
+  list was azure (priority 1), `https://archive.ubuntu.com` (2), `https://security.ubuntu.com` (3); with azure
+  dropped, archive.ubuntu.com served the remaining 111 MB in 36 s (3.1 MB/s). The install took 303 s and the job passed
+  in 38.4 min.
+  `main`'s first run after the merge (`ab7ea21`, run 42123189982) was 9/9 green with no stall: ubuntu 32.9–34.8 min
+  (installs 16–85 s), macOS 6.2–6.7, Windows 5.9–10.3.
 - Rationale and the CI rebuild: ROADMAP 0e.
 
 Docs commits: `2b4d931` (the v12.17 handoff and owed lines), `f2bf6d0` (the model-switch and compaction findings,
@@ -218,8 +224,8 @@ spec), `21912e9` (the Phase 1 measurements). Version 12.18 is `64b54a8`.
   `b48996a` (review record, "After the pipeline").
 
 ### Owed and known
-- Owner acceptance on all three runtimes (PR #93's first comment).
-- The first CI run of the bounded install (`b48996a`).
+- Owner acceptance on all three runtimes: now part of the consolidated pass at about v12.20 (DEC-062; the steps are
+  in `docs/acceptance-checklist.md`, steps 27–31).
 - A gate for `bf5c0c8`.
 - The residuals and unmeasured points in ROADMAP 12.
 - `check-ix-jumps` J15 (TROUBLESHOOTING) is still open.
