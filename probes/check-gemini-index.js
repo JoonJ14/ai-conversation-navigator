@@ -1,0 +1,1611 @@
+// Gates for v12.19 (DEC-063; the owner's spec docs/specs/v12.19-spec.md): Gemini's full question list
+// on open, from Gemini's own history read (hNvQHb, POSTed to batchexecute), its self-check against the
+// page, its failure classes, the refresh, jumps that page the DOM toward a question not loaded yet, and
+// the "Load full history" button where the index cannot run.
+//
+// Run: node probes/check-gemini-index.js [--browser chromium|firefox|webkit|all] [--quiet] [--only I1,F2]
+//      ACN_SCRIPT=/path/to/other.user.js node probes/check-gemini-index.js [--proof]
+// Exits non-zero on any failed or INVALID check. With --proof (meant for the v12.18 build): exits 0 iff
+// every [new] check FAILED, every [guard] check PASSED and nothing was INVALID, and prints the table.
+//
+// WHAT IS GATED, AND WHERE THE NUMBERS COME FROM.
+//   v12.18 lists the loaded part of a Gemini chat (10 of 32 at open) and says older messages are not
+//   loaded (DEC-057). v12.19 reads the whole chat from Gemini's own history request on open. Measured
+//   live, v12.19 Phase 1 (Chrome page realm, the owner's profile, visible tab, chat 96b519c1, 32
+//   questions, 2026-11-05): POST /_/BardChatUi/data/batchexecute?rpcids=hNvQHb with a form body f.req +
+//   at and the page's cookies; size 100 lists 32 turns in ONE call, cursor null, 6.2 s; the page's own
+//   size-10 pages 1.9-2.9 s; small chats 0.35-0.43 s; `at` is 42 chars (28, ':', 13 digits) in an inline
+//   script; a missing or wrong `at` answers 400; credentials omitted answer 200 with a null payload and
+//   [7]; the cursor is 145 chars. Phase 0 (G0): fetch returned the payload on Chrome + Tampermonkey
+//   5.5.1, Firefox + Tampermonkey 5.5.0 and Safari + Userscripts 4.8.6, so fetch is the one transport and
+//   no GM_xmlhttpRequest call is expected. Paging timings: DEC-057 (Chrome + Tampermonkey, v12.16): 10
+//   turns a page, each in 1.5-2.9 s, a ~4.6 s render block per page (the mock's blockMs).
+//   The mock (tests/mock-pages/gemini-history.html, its header lists what is modelled) serves the read
+//   through a route bridge: page.route sends each batchexecute request to the mock's rpc() in the page,
+//   so the request takes the real network path and the DOM and the payload come from one model.
+//
+// CONTRACT READ HERE (consolidated plan §3 and the button plan §2.6): `data-acn-index-check` (ok |
+// pending | mismatch) on #acn-zone; `[data-acn-role="paging-status"]` (data-acn-paging-pages / -loaded);
+// `[data-acn-role="history-load"]` (data-acn-history-load idle | loading | restoring, -loaded, -total);
+// the zone's data-acn-history-load-end / -anchor / -restore; data-acn-jump-resolved; the console lines
+// "[ACN] index: platform=gemini transport=fetch endpoint=hNvQHb page=N size=S[ retry=at-new|at-same]
+// status=C ..." (one per request), "[ACN] paging: platform=gemini via=jump|button start|end=..." and
+// "[ACN] history: ...". Landings are asserted by where the target ends (in view, marked resolved), never
+// by which landing function ran (owner amendment M1).
+//
+// CONTEXT of these results: Playwright, page realm, headless, viewport 1280x720, this machine, the
+// userscript inlined into the page; no real userscript manager and no real Gemini. Real-browser
+// behaviour on the three managers is the owner's acceptance.
+//
+// Proof rule: run v12.18 (git show ab7ea21:ai-conversation-navigator.user.js) with --proof: every check
+// marked [new] must FAIL there, for the reason its detail names; [guard] passes on both. A precondition
+// that fails (the page hidden, the mock's first page not as expected, no token script) prints INVALID:
+// it says the harness, not the build, is wrong.
+
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+
+const REPO = path.join(__dirname, '..');
+let playwright;
+try { playwright = require(path.join(REPO, 'node_modules', 'playwright')); }
+catch (e) { playwright = require('playwright'); }
+
+// ── Fixture constants ────────────────────────────────────────────────────────────────────────
+const C32 = 'aa32aa32aa32aa32', C230 = 'ab23ab23ab23ab23', C20 = 'dd20dd20dd20dd20', C10 = 'bb10bb10bb10bb10', C6 = 'cc06cc06cc06cc06';
+const CHATS = { [C32]: 32, [C230]: 230, [C20]: 20, [C10]: 10, [C6]: 6 };
+const PAGE = 10;               // DEC-057: 10 turns a page
+const LOAD_DELAY = 2000;       // live 1.5-2.9 s a page (DEC-057, Phase 1)
+// Tokens in Phase 1's shape: a 28-char head, ':', a 13-digit ms timestamp (42 chars). Synthetic values.
+const AT0 = 'APwZiaHprobeTokenHead0000AAA:1762380000000';
+const AT_FRESH = 'BQxYjbKprobeTokenHead1111BBB:1762380123456';
+const DECOY = 'DECOYxprobeDECOYxprobeDECOYx:1762380999999';
+const EP = 'https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=hNvQHb&rt=c';
+const CT = 'application/x-www-form-urlencoded;charset=UTF-8';
+const BE = '/_/BardChatUi/data/batchexecute';
+const KOREAN_Q7 = 'Gemini question 7: 조석 고정을 가장 쉽게 보여 주는 예는 무엇일까요 🌙?';
+const KO_STATUS = '이전 메시지를 불러오는 중…';   // the jumps plan's wording (C12)
+const ELL = '…';
+for (const t of [AT0, AT_FRESH, DECOY]) {
+    if (!/^[A-Za-z0-9]{28}:\d{13}$/.test(t)) { console.log('INVALID: a token constant is not in Phase 1\'s shape: ' + t.length); process.exit(1); }
+}
+
+function fnv(s) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return ('0000000' + h.toString(16)).slice(-8);
+}
+const turnId = (chat, n) => fnv(chat + '#' + n) + fnv(n + '@' + chat);   // the mock's turnId()
+const GM_TOPICS = ['orbital transfer windows', 'tidal locking of moons', 'the Roche limit', 'gravity assists',
+                   'Lagrange points', 'escape velocity', 'atmospheric drag on satellites', 'precession of orbits',
+                   'Hohmann transfers', 'the Oberth effect', 'synchronous orbits', 'three-body chaos'];
+function gmQuestion(n) {
+    const t = GM_TOPICS[(n * 7) % GM_TOPICS.length], u = GM_TOPICS[(n * 5 + 3) % GM_TOPICS.length];
+    return 'Gemini question ' + n + ': how would you explain ' + t + ' to someone who already knows ' + u +
+           ', and which everyday example makes the difference between them easiest to see?';
+}
+// A bookmark record exactly as v12.17/v12.18 write one for a Gemini turn (createBookmarkIcon's record,
+// schema 2, keyed by the turn's id or id + ':answer').
+function bmRecord(id, key, type, createdAt) {
+    return { id, schema: 2, entityType: type, contentHash: key, msgUuid: key, preview: 'p', msgIndex: 0,
+             createdAt, platform: 'gemini.google.com', pendingHash: null, pendingSender: null,
+             pendingOrdinal: -1, pendingRow: -1 };
+}
+function bmStore(chat, recs) {
+    return { 'acn-bookmarks-v1': JSON.stringify({ ['https://gemini.google.com/app/' + chat]: { bookmarks: recs } }) };
+}
+
+// ── Page pieces ──────────────────────────────────────────────────────────────────────────────
+const DOWNLOAD_SHIM = `<script>
+(function () {
+    var blobByUrl = {};
+    var origCreate = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = function (obj) { var u = origCreate(obj); blobByUrl[u] = obj; return u; };
+    var origClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+        if (this.hasAttribute('download')) {
+            window.__acnTestDownloads = window.__acnTestDownloads || [];
+            window.__acnTestDownloads.push({ filename: this.getAttribute('download'), blob: blobByUrl[this.href] || null });
+            return;
+        }
+        return origClick.apply(this, arguments);
+    };
+}());
+</script>`;
+const TOAST_SPY = `<script>
+window.__acnToasts = [];
+new MutationObserver(function (recs) {
+    for (var i = 0; i < recs.length; i++) for (var j = 0; j < recs[i].addedNodes.length; j++) {
+        var n = recs[i].addedNodes[j];
+        if (n.nodeType === 1 && n.getAttribute('data-acn-role') === 'toast') window.__acnToasts.push(n.textContent);
+    }
+}).observe(document.documentElement, { childList: true, subtree: true });
+</script>`;
+// The paging status, sampled every 50 ms (a render block delays the samples, never drops the state).
+const PAGING_SPY = `<script>
+window.__pg = { seen: [] };
+window.__pgNow = function () {
+    var e = document.querySelector('[data-acn-role="paging-status"]');
+    if (!e || !e.isConnected || e.hidden) return null;
+    var cs = getComputedStyle(e);
+    if (cs.display === 'none' || cs.visibility === 'hidden') return null;
+    return { text: e.textContent, pages: e.getAttribute('data-acn-paging-pages'), loaded: e.getAttribute('data-acn-paging-loaded') };
+};
+setInterval(function () {
+    var s = window.__pgNow();
+    if (!s) return;
+    s.t = Date.now();
+    s.loads = window.__mockGemini ? window.__mockGemini.loads() : -1;
+    window.__pg.seen.push(s);
+    if (window.__pg.seen.length > 3000) window.__pg.seen.shift();
+}, 50);
+</script>`;
+// Installed before the userscript, after the mock: the fetch SPY (url, method, sorted init keys,
+// headers, signal, body), optionally throwing for the history read; the POST-aware GM shim, which
+// answers through the mock's own server, with GM_info's scriptHandler; the GM storage stub.
+function harness(o) {
+    return `<script>
+delete window._aiNavAlreadyLoaded;
+(function () {
+    window.__fx = [];
+    var THROW = ${o.fetchThrow ? 'true' : 'false'};
+    var real = window.fetch;
+    window.fetch = function (input, init) {
+        var url = typeof input === 'string' ? input : String(input && input.url);
+        if (url.indexOf(${JSON.stringify(BE)}) !== -1) {
+            var h = init && init.headers;
+            window.__fx.push({ url: url, method: (init && init.method) || null, credentials: (init && init.credentials) || null,
+                keys: init ? Object.keys(init).sort().join(',') : '', headers: h === undefined ? null : JSON.stringify(h),
+                hasSignal: !!(init && init.signal), body: init && typeof init.body === 'string' ? init.body : null,
+                bodyType: init && init.body != null ? typeof init.body : 'none', t: Date.now() });
+            if (THROW) throw new TypeError('probe: this fetch throws');
+        }
+        return real.apply(this, arguments);
+    };
+}());
+window.__gmCalls = [];
+${o.gm ? `window.GM_xmlhttpRequest = function (opts) {
+    window.__gmCalls.push({ method: opts.method || 'GET', url: opts.url, hasData: opts.data != null });
+    var r = (window.__mockGemini && String(opts.url || '').indexOf(${JSON.stringify(BE)}) !== -1)
+        ? window.__mockGemini.rpc(String(opts.data || ''), opts.url, opts.method || 'GET') : { status: 404, text: '', delayMs: 5 };
+    if (r.kind === 'hang') return { abort: function () {} };
+    setTimeout(function () {
+        if (r.kind === 'abort') { if (opts.onerror) opts.onerror({ status: 0 }); return; }
+        if (opts.onload) opts.onload({ status: r.status, responseText: r.text });
+    }, r.delayMs || 5);
+    return { abort: function () {} };
+};
+window.GM_info = { scriptHandler: ${JSON.stringify(o.gm)}, version: 'probe' };` : '// no GM_xmlhttpRequest here'}
+var _s = ${JSON.stringify(o.store || {})};
+window.GM_getValue = function (k, d) { return _s.hasOwnProperty(k) ? _s[k] : d; };
+window.GM_setValue = function (k, v) { _s[k] = v; };
+window.__acnStore = function () { return _s; };
+</script>`;
+}
+function buildPage(raw, cfg, o) {
+    const mock = fs.readFileSync(path.join(REPO, 'tests/mock-pages/gemini-history.html'), 'utf8');
+    const body = (mock.match(/<body[^>]*>([\s\S]*)<\/body>/i) || [])[1] || mock;
+    const head = (mock.match(/<head[^>]*>([\s\S]*)<\/head>/i) || [])[1] || '';
+    return `<!DOCTYPE html><html><head>${head}</head><body>
+<script>window.__MOCK_CONFIG = ${JSON.stringify(cfg)};</script>
+${DOWNLOAD_SHIM}${TOAST_SPY}${PAGING_SPY}
+${body}
+${harness(o)}
+<script>${raw}</script></body></html>`;
+}
+
+// ── In-page readers ──────────────────────────────────────────────────────────────────────────
+const NAV = `(function () {
+    var s = document.querySelector('[data-acn-role="nav-stat"]');
+    var p = document.getElementById('acn-panel-nav');
+    var L = document.getElementById('acn-nav-list');
+    var b = L ? L.querySelector('[data-acn-index-status]') : null;
+    var btn = document.querySelector('[data-acn-role="history-load"]');
+    var z = document.getElementById('acn-zone');
+    var sc = document.querySelector('infinite-scroller.chat-history');
+    var M = window.__mockGemini;
+    var za = function (k) { return z ? z.getAttribute(k) : null; };
+    var hist = document.getElementById('acn-ctx-hist');
+    return {
+        open: !!(p && p.classList.contains('acn-open')),
+        count: s ? s.getAttribute('data-acn-count') : null,
+        note: !!(L && L.querySelector('[data-acn-history="partial"]')),
+        banner: b ? b.getAttribute('data-acn-index-status') : null,
+        bannerText: b ? b.textContent : null,
+        labels: L ? Array.prototype.map.call(L.querySelectorAll('[data-acn-role="nav-item"] .acn-qn'), function (e) { return e.textContent; }) : [],
+        items: L ? Array.prototype.map.call(L.querySelectorAll('[data-acn-role="nav-item-text"]'), function (e) { return e.textContent; }) : [],
+        button: btn ? { state: btn.getAttribute('data-acn-history-load'), loaded: btn.getAttribute('data-acn-history-loaded'),
+                        total: btn.getAttribute('data-acn-history-total'), text: btn.textContent, inNav: !!(L && L.contains(btn)) } : null,
+        check: za('data-acn-index-check'), loadEnd: za('data-acn-history-load-end'), anchor: za('data-acn-history-anchor'),
+        restore: za('data-acn-history-restore'), resolved: za('data-acn-jump-resolved'),
+        hist: hist ? hist.textContent : null,
+        loaded: M ? M.loaded() : -1, loads: M ? M.loads() : -1, pending: M ? M.pending() : null,
+        triggers: M && M.topTriggers ? M.topTriggers() : -1,
+        st: sc ? Math.round(sc.scrollTop) : null, max: sc ? sc.scrollHeight - sc.clientHeight : null,
+        toasts: (window.__acnToasts || []).slice(), status: window.__pgNow ? window.__pgNow() : null,
+        vis: document.visibilityState
+    };
+})()`;
+// Where turn n's question bubble (or answer) sits against the scroller's view.
+const SPOT = `(function (n, what) {
+    var sc = document.querySelector('infinite-scroller.chat-history');
+    var t = document.getElementById(window.__mockGemini.domId(n));
+    var el = t && (what === 'answer' ? t.querySelector('.response-content') : t.querySelector('div.query-text'));
+    var r = sc.getBoundingClientRect();
+    var mark = document.querySelector('[data-acn-jump-target]');
+    var out = { n: n, what: what, mounted: !!el, inView: false, st: Math.round(sc.scrollTop), loaded: window.__mockGemini.loaded(),
+                loads: window.__mockGemini.loads(), toasts: (window.__acnToasts || []).slice(),
+                resolved: (document.getElementById('acn-zone') || { getAttribute: function () { return null; } }).getAttribute('data-acn-jump-resolved'),
+                markIn: !!(mark && t && t.contains(mark)), mark: !!mark };
+    if (el) {
+        var q = el.getBoundingClientRect(), tall = q.height > sc.clientHeight * 0.8;
+        out.top = Math.round(q.top - r.top); out.h = Math.round(q.height);
+        out.inView = tall ? (q.top >= r.top - 2 && q.top <= r.bottom - 20) : (q.top >= r.top - 2 && q.bottom <= r.bottom + 2);
+    }
+    return out;
+})`;
+// The turn the view is on, by the button's anchor rule (gmViewAnchor): the first scroller turn with a
+// 16-hex id whose bottom is below the view's top, and its top's offset from that top.
+const ANCHOR = `(function () {
+    var sc = document.querySelector('infinite-scroller.chat-history');
+    var top = sc.getBoundingClientRect().top + sc.clientTop;
+    var t = sc.querySelectorAll(':scope > div.conversation-container');
+    for (var i = 0; i < t.length; i++) {
+        var r = t[i].getBoundingClientRect();
+        if (r.bottom > top && /^[0-9a-f]{16}$/.test(t[i].id || '')) return { id: t[i].id, offset: Math.round(r.top - top) };
+    }
+    return null;
+})()`;
+const ANCHOR_ERR = `(function (a) {
+    var sc = document.querySelector('infinite-scroller.chat-history');
+    var t = document.getElementById(a.id);
+    if (!t) return null;
+    return Math.round(t.getBoundingClientRect().top - (sc.getBoundingClientRect().top + sc.clientTop) - a.offset);
+})`;
+const STORAGE_DUMP = `(function () {
+    var ls = {};
+    try { for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); ls[k] = localStorage.getItem(k); } } catch (e) {}
+    return JSON.stringify({ gm: window.__acnStore ? window.__acnStore() : null, ls: ls });
+})()`;
+// The context meter's dots and basis (as check-context-meter.js reads them).
+const CTX = `(function () {
+    var dotsEl = document.getElementById('acn-ctx-dots');
+    var dots = dotsEl ? Array.prototype.map.call(dotsEl.children, function (d) {
+        var c = getComputedStyle(d).backgroundColor;
+        return c === 'rgb(34, 197, 94)' ? 'G' : c === 'rgb(234, 179, 8)' ? 'Y' : c === 'rgb(239, 68, 68)' ? 'R' : '?';
+    }).join('') : '';
+    var pct = document.getElementById('acn-ctx-pct');
+    return { dots: dots, basis: dotsEl ? dotsEl.getAttribute('data-acn-dot-basis') : null,
+             tokens: pct ? pct.getAttribute('data-acn-ctx-tokens') : null,
+             hist: (document.getElementById('acn-ctx-hist') || {}).textContent || null };
+})()`;
+
+// In-page helpers (feature-gaps' __h, plus the gallery's thumbnail srcs and an open-only bookmarks read).
+const HELPERS = `(function () {
+    var S = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+    window.__h = {
+        search: async function (w) {
+            document.getElementById('acn-dot-search').click(); await S(300);
+            var inp = document.getElementById('acn-search-input');
+            inp.value = w; inp.dispatchEvent(new Event('input', { bubbles: true })); await S(900);
+            var L = document.getElementById('acn-search-list');
+            return { labels: Array.prototype.map.call(L.querySelectorAll('.acn-qi'), function (i) { return i.querySelector('.acn-qn').textContent; }),
+                     note: !!L.querySelector('[data-acn-history="partial"]'), text: L.textContent.slice(0, 200) };
+        },
+        clickSearch: async function (w, label) {
+            await window.__h.search(w);
+            var it = Array.prototype.find.call(document.querySelectorAll('#acn-search-list .acn-qi'),
+                function (i) { return i.querySelector('.acn-qn').textContent === label; });
+            document.getElementById('acn-zone').removeAttribute('data-acn-jump-resolved');
+            window.__acnToasts.length = 0;
+            if (!it) return false;
+            it.click(); return true;
+        },
+        exportFull: async function () {
+            window.__acnTestDownloads = [];
+            document.getElementById('acn-dot-tools').click(); await S(400);
+            document.querySelectorAll('[data-acn-role="tool-export"]')[0].click(); await S(600);
+            var d = (window.__acnTestDownloads || [])[0];
+            return d && d.blob ? await d.blob.text() : null;
+        },
+        summary: async function () {
+            document.getElementById('acn-dot-summary').click(); await S(300);
+            document.querySelector('[data-acn-role="sum-generate"]').click(); await S(2500);
+            var R = document.querySelector('[data-acn-role="sum-results"]');
+            return { text: R ? R.innerText || '' : '', note: !!(R && R.querySelector('[data-acn-history="partial"]')) };
+        },
+        clickSegment: function (re) {
+            var R = document.querySelector('[data-acn-role="sum-results"]');
+            var segs = Array.prototype.filter.call(R.querySelectorAll('*'), function (e) {
+                return new RegExp(re).test(e.textContent) && e.children.length < 6; });
+            var seg = segs[segs.length - 1];
+            document.getElementById('acn-zone').removeAttribute('data-acn-jump-resolved');
+            window.__acnToasts.length = 0;
+            if (!seg) return 'no match';
+            seg.click(); return seg.className + ': ' + seg.textContent.slice(0, 40);
+        },
+        gallery: async function () {
+            document.getElementById('acn-dot-nav').click(); await S(200);
+            document.getElementById('acn-dot-tools').click(); await S(500);
+            var G = document.getElementById('acn-gallery-section');
+            return { header: (G.querySelector('.acn-tool-section-header') || {}).textContent || '',
+                     note: !!G.querySelector('[data-acn-history="partial"]'),
+                     cards: Array.prototype.map.call(G.querySelectorAll('.acn-gallery-card'), function (c) {
+                         var im = c.querySelector('img.acn-gallery-thumb');
+                         return { label: (c.querySelector('.acn-gallery-label') || {}).textContent || null, src: im ? im.getAttribute('src') : null }; }) };
+        },
+        clickGallery: function (i) {
+            var cards = document.querySelectorAll('#acn-gallery-section .acn-gallery-card');
+            document.getElementById('acn-zone').removeAttribute('data-acn-jump-resolved');
+            window.__acnToasts.length = 0;
+            if (!cards[i]) return false;
+            (cards[i].querySelector('[data-acn-role="gallery-go"]') || cards[i].querySelector('.acn-gallery-btn')).click();
+            return true;
+        },
+        bmLabels: async function () {
+            var P = document.getElementById('acn-panel-bookmarks');
+            if (!P || !P.classList.contains('acn-open')) { document.getElementById('acn-dot-bookmarks').click(); await S(400); }
+            return Array.prototype.map.call(document.querySelectorAll('#acn-panel-bookmarks .acn-bk'), function (c) {
+                return (c.querySelector('.acn-bk-type') || {}).textContent || ''; });
+        },
+        clickBookmark: async function (label) {
+            var P = document.getElementById('acn-panel-bookmarks');
+            if (!P || !P.classList.contains('acn-open')) { document.getElementById('acn-dot-bookmarks').click(); await S(400); }
+            var c = Array.prototype.find.call(document.querySelectorAll('#acn-panel-bookmarks .acn-bk'), function (c) {
+                return (c.querySelector('.acn-bk-type') || {}).textContent === label; });
+            document.getElementById('acn-zone').removeAttribute('data-acn-jump-resolved');
+            window.__acnToasts.length = 0;
+            if (!c) return false;
+            c.click(); return true;
+        }
+    };
+}())`;
+
+// The export's headings alternate Q#1, A#1, ... Q#n, A#n, each body under its own heading: a question
+// reads "question N", an answer starts "Answer N," (Gemini's mock answers read "Answer N, part 1:").
+function exportOrder(f, n) {
+    const h = (f.match(/^## (User \(Q#\d+\)|Assistant \(A#\d+\))/gm) || []);
+    let ok = h.length === 2 * n;
+    for (let i = 0; ok && i < n; i++) {
+        ok = h[2 * i] === '## User (Q#' + (i + 1) + ')' && h[2 * i + 1] === '## Assistant (A#' + (i + 1) + ')';
+    }
+    const parts = f.split(/^## /m).slice(1);
+    for (let i = 0; ok && i < n; i++) {
+        const qb = parts[2 * i] || '', ab = parts[2 * i + 1] || '';
+        ok = new RegExp('question ' + (i + 1) + '\\b').test(qb) && new RegExp('\\n\\s*Answer ' + (i + 1) + '[,:]').test(ab);
+    }
+    return { ok, count: h.length };
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const inOrder = (items, n, override) => items.length === n &&
+    items.every((t, i) => (override && override[i + 1]) ? t === override[i + 1] : t.indexOf('Gemini question ' + (i + 1) + ':') === 0);
+const qLabels = (labels, n) => labels.length === n && labels.every((l, i) => l === 'Q#' + (i + 1));
+// One request line, as ixLog writes it for Gemini (consolidated plan §3).
+const REQ_RE = /^\[ACN\] index: platform=gemini transport=(\S+) endpoint=hNvQHb page=(\d+) size=(\d+)( retry=at-(?:new|same))? status=(\d+)/;
+const PERM_RE = /index failure looks PERMANENT/;
+
+// ── The runner ───────────────────────────────────────────────────────────────────────────────
+async function runEngine(engine, raw, header, only, quiet, proof) {
+    const t00 = Date.now();
+    const browser = await playwright[engine].launch({
+        headless: true,
+        args: engine === 'chromium' ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--disable-dev-shm-usage'] : [],
+    });
+    const results = [];          // { id, label, result: 'PASS' | 'FAIL' | 'INVALID', desc }
+    const pageErrors = [];
+    const allHits = [];          // every batchexecute request of every fixture (R1)
+    const allOthers = [];        // every other request (R1)
+    const want = (id) => !only || only.some((o) => id === o || id.indexOf(o) === 0);
+
+    // Each fixture writes into its own record, flushed in a fixed order, so fixtures can share a
+    // window of real time (the 20 s "no second call" windows) without interleaving their output.
+    function makeRec() {
+        const r = { lines: [], res: [] };
+        r.check = (id, label, desc, ok, detail) => {
+            r.res.push({ id, label, result: ok ? 'PASS' : 'FAIL', desc });
+            r.lines.push({ pass: !!ok, text: '  ' + (ok ? 'PASS' : 'FAIL') + '  ' + id + ' [' + label + '] ' + desc + (detail ? ' — ' + detail : '') });
+        };
+        r.bad = (id, why) => {
+            r.res.push({ id, label: '?', result: 'INVALID', desc: why });
+            r.lines.push({ pass: false, text: '  INVALID  ' + id + ' ' + why });
+        };
+        return r;
+    }
+    function flush(r) {
+        for (const l of r.lines) if (!l.pass || !quiet) console.log(l.text);
+        for (const x of r.res) results.push(x);
+    }
+    // A fixture: the check ids it reports, and its body. A harness exception reports its ids INVALID.
+    function fixture(ids, fn) {
+        return async () => {
+            const r = makeRec();
+            if (!ids.some(want)) return r;
+            try { await fn(r); }
+            catch (e) {
+                const done = new Set(r.res.map((x) => x.id));
+                for (const id of ids) if (!done.has(id) && want(id)) r.bad(id, 'harness threw: ' + String(e && e.stack || e).split('\n').slice(0, 3).join(' | '));
+            }
+            return r;
+        };
+    }
+    async function seq(fx) { flush(await fx()); }
+    async function par(list) { const rs = await Promise.all(list.map((f) => f())); rs.forEach(flush); }
+
+    function rpcIdOf(post) {
+        try {
+            const p = new URLSearchParams(post);
+            const fr = JSON.parse(p.get('f.req'));
+            return fr[0][0][0];
+        } catch (e) { return null; }
+    }
+
+    // A fresh page on `chat` with the userscript inlined. cfgExtra: the mock's config (rpc merged over
+    // the defaults: token AT0, decoy global DECOY, mode 'ok'; rpc: null = no server, no token). o: { path,
+    // host, gm: scriptHandler (installs the POST-aware GM shim), fetchThrow, store, noWait (skip the
+    // first-page and scroll preconditions), first (expected first-page count) }. Null when a
+    // precondition fails (every id in `ids` reported INVALID).
+    async function open(r, ids, chat, cfgExtra, o) {
+        o = o || {};
+        cfgExtra = cfgExtra || {};
+        const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+        const page = await context.newPage();
+        const host = o.host || 'https://gemini.google.com';
+        const url = host + (o.path || ('/app/' + chat));
+        const cfg = Object.assign({ chats: CHATS, page: PAGE, loadDelayMs: LOAD_DELAY, anchor: true }, cfgExtra);
+        if (cfgExtra.rpc === null) delete cfg.rpc;
+        else cfg.rpc = Object.assign({ at: AT0, decoyAt: DECOY, freshAt: AT_FRESH, mode: 'ok' }, cfgExtra.rpc || {});
+        const html = buildPage(raw, cfg, o);
+        const h = { id: ids[0], page, context, url, cfg, logs: [], errors: [], hits: [], fulfilled: 0, others: [] };
+        page.on('console', (m) => h.logs.push(m.text()));
+        page.on('pageerror', (e) => { const s = ids[0] + ': ' + String(e && e.message || e); pageErrors.push(s); h.errors.push(s); });
+        await page.route('**/*', async (route) => {
+            const req = route.request(), u = req.url();
+            if (/^(blob|data):/.test(u)) { route.continue().catch(() => {}); return; }
+            if (u === url) { route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }).catch(() => {}); return; }
+            if (u.indexOf(BE) !== -1) {
+                const post = req.postData() || '';
+                const hit = { url: u, method: req.method(), rpc: rpcIdOf(post), t: Date.now() };
+                h.hits.push(hit);
+                allHits.push(Object.assign({ fixture: ids[0] }, hit));
+                let a;
+                try {
+                    a = await page.evaluate(([b, uu, m]) => (window.__mockGemini && window.__mockGemini.rpc)
+                        ? window.__mockGemini.rpc(b, uu, m) : { kind: 'abort' }, [post, u, req.method()]);
+                } catch (e) { a = { kind: 'abort' }; }
+                if (a.kind === 'hang') return;
+                if (a.kind === 'abort') { route.abort().catch(() => {}); return; }
+                setTimeout(() => {
+                    h.fulfilled++;
+                    route.fulfill({ status: a.status, contentType: 'application/json; charset=utf-8', body: a.text }).catch(() => {});
+                }, a.delayMs || 0);
+                return;
+            }
+            // The browser's own favicon request is not the script's (R1 counts only what the page asks for).
+            if (!/\/favicon\.ico$/.test(u)) { h.others.push(u); allOthers.push(ids[0] + ': ' + u); }
+            route.abort().catch(() => {});
+        });
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 });
+        const first = typeof o.first === 'number' ? o.first : Math.min(PAGE, CHATS[chat]);
+        if (!o.noWait) {
+            try { await page.waitForFunction('window.__mockGemini && window.__mockGemini.loaded() === ' + first, null,
+                                             { timeout: (cfg.firstDelayMs || 200) + 15000 }); } catch (e) {}
+        }
+        try { await page.waitForFunction("!!document.getElementById('acn-dot-nav')", null, { timeout: 30000 }); } catch (e) {}
+        const pre = await page.evaluate(() => ({
+            vis: document.visibilityState,
+            loaded: window.__mockGemini ? window.__mockGemini.loaded() : -1,
+            dot: !!document.getElementById('acn-dot-nav'),
+            st: (document.querySelector('infinite-scroller.chat-history') || {}).scrollTop,
+            token: Array.prototype.some.call(document.querySelectorAll('script:not([src])'),
+                function (s) { return /"SNlM0e"\s*:\s*"[^"]{8,}"/.test(s.textContent || ''); })
+        }));
+        const wantToken = !!cfg.rpc && !cfg.rpc.noToken;
+        if (pre.vis !== 'visible' || !pre.dot || (!o.noWait && (pre.loaded !== first || !(pre.st > 50))) || pre.token !== wantToken) {
+            for (const id of ids) if (want(id)) r.bad(id, 'precondition: visibility=' + pre.vis + ' loaded=' + pre.loaded + ' (want ' + first + ') dot=' +
+                                                      pre.dot + ' scrollTop=' + pre.st + ' token script=' + pre.token + ' (want ' + wantToken + ')');
+            await context.close().catch(() => {});
+            return null;
+        }
+        await page.evaluate(HELPERS);
+        h.nav = () => page.evaluate(NAV);
+        h.openNav = async () => { if (!(await h.nav()).open) await page.evaluate("document.getElementById('acn-dot-nav').click()"); };
+        // Polls Navigate's state until pred holds or ms pass; returns the last read.
+        h.until = async (pred, ms, step) => {
+            const t0 = Date.now();
+            for (;;) {
+                const v = await h.nav();
+                if (pred(v) || Date.now() - t0 > ms) return v;
+                await sleep(step || 200);
+            }
+        };
+        h.waitReady = (n, ms) => h.until((v) => v.count === String(n) || v.banner === 'degraded', ms);
+        h.waitDegraded = (ms) => h.until((v) => v.banner === 'degraded', ms);
+        h.calls = () => page.evaluate(() => window.__mockGemini.calls());
+        h.fx = () => page.evaluate(() => window.__fx.slice());
+        h.gmc = () => page.evaluate(() => window.__gmCalls.slice());
+        h.lines = (re) => h.logs.filter((l) => re.test(l));
+        h.req = () => h.logs.filter((l) => REQ_RE.test(l));
+        h.spot = (n, what) => page.evaluate(SPOT + '(' + n + ',' + JSON.stringify(what || 'q') + ')');
+        h.pgSeen = () => page.evaluate(() => window.__pg.seen.slice());
+        h.storage = () => page.evaluate(STORAGE_DUMP);
+        // Navigate's row for turn n, by its TEXT (so v12.18's Q23-first list reports "no row" rather than
+        // clicking another question). Clears the previous resolution and toasts first.
+        h.clickQ = (n) => page.evaluate((n) => {
+            var rows = document.querySelectorAll('#acn-nav-list [data-acn-role="nav-item"]');
+            for (var i = 0; i < rows.length; i++) {
+                var t = rows[i].querySelector('[data-acn-role="nav-item-text"]');
+                if (t && t.textContent.indexOf('Gemini question ' + n + ':') !== -1) {
+                    var z = document.getElementById('acn-zone');
+                    if (z) z.removeAttribute('data-acn-jump-resolved');
+                    window.__acnToasts.length = 0;
+                    rows[i].click();
+                    return (rows[i].querySelector('.acn-qn') || {}).textContent || '?';
+                }
+            }
+            return null;
+        }, n);
+        // A user's own scroll: a TRUSTED wheel over the scroller, away from the panel (the mock's
+        // userScroll() is untrusted, which ixWatchUser ignores by design).
+        h.wheel = async (dy) => { await page.mouse.move(200, 360); await page.mouse.wheel(0, dy); };
+        // The jump or load is over: the view still, nothing pending, no paging status, for 1.5 s.
+        h.settle = async (cap, min) => {
+            const t0 = Date.now();
+            let last = null, since = Date.now();
+            while (Date.now() - t0 < (cap || 60000)) {
+                const s = await page.evaluate(() => {
+                    var sc = document.querySelector('infinite-scroller.chat-history');
+                    return { st: sc ? Math.round(sc.scrollTop) : null, p: window.__mockGemini.pending(), s: !!window.__pgNow() };
+                });
+                const k = s.st + '|' + s.p + '|' + s.s;
+                if (k !== last || s.p || s.s) { last = k; since = Date.now(); }
+                if (Date.now() - t0 >= (min || 1500) && Date.now() - since >= 1500) return true;
+                await sleep(100);
+            }
+            return false;
+        };
+        h.close = () => context.close().catch(() => {});
+        return h;
+    }
+    const fmt = (v) => 'count=' + v.count + ' banner=' + v.banner + ' note=' + v.note + ' button=' +
+        (v.button ? v.button.state + '/"' + v.button.text + '"' : 'none') + ' check=' + v.check + ' loaded=' + v.loaded + ' loads=' + v.loads;
+    const callsBrief = (c) => 'calls full=' + c.full + ' next=' + c.next + ' newest=' + c.newest + ' other=' + c.other;
+    const noLeak = (texts, extra) => {
+        const needles = [AT0, AT0.slice(0, 28), AT_FRESH.slice(0, 28), DECOY, DECOY.slice(0, 28), 'f.req', 'SNlM0e', 'rpcids=', 'Gemini question'].concat(extra || []);
+        const hits = [];
+        for (const t of texts) for (const n of needles) if (n && t.indexOf(n) !== -1) hits.push(n.slice(0, 12) + '… in "' + t.slice(0, 50) + '"');
+        return hits;
+    };
+
+    // ── I1, I2, I4, I5, I18, I20, R2: the 32-question chat on open (Phase 1's 6.2 s full read) ────
+    let r2gm = null;          // GM calls in the gm-shim run of I1, for R2
+    await seq(fixture(['I1', 'I2', 'I4', 'I5', 'I18', 'I20', 'R2'], async (r) => {
+        const A2 = { gm: 'Userscripts' };
+        const h = await open(r, ['I1', 'I2', 'I4', 'I5', 'I18', 'I20', 'R2'], C32,
+                             { rpc: { delayMs: { full: 6200 } }, answerWords: { 2: 'quokka' } }, { gm: 'Tampermonkey' });
+        if (!h) return;
+        await h.openNav();
+        // From open to ready + 2 s, every 250 ms: no "Load full history" button may show.
+        const t0 = Date.now();
+        let readyAt = null, buttonSeen = null, v = null;
+        while (Date.now() - t0 < 6200 + 6000 && !(readyAt && Date.now() - readyAt >= 2000)) {
+            v = await h.nav();
+            if (v.button && !buttonSeen) buttonSeen = (Date.now() - t0) + ' ms: ' + v.button.state;
+            if (!readyAt && v.count === '32') readyAt = Date.now();
+            await sleep(250);
+        }
+        v = await h.nav();
+        const ctx0 = await h.page.evaluate(CTX);
+        const calls0 = await h.calls();
+        const fx = await h.fx();
+        const gm = await h.gmc();
+        r2gm = gm.length;
+        const reqLines = h.req();
+        const openLine = h.lines(/^\[ACN\] index: platform=gemini transport=fetch endpoint=hNvQHb page=1 size=100 status=200 turns=32 cursor=no questions=32/);
+
+        // I2: the request's shape, its token, and no GM call (scriptHandler Tampermonkey here).
+        const shape = [];
+        let args = null, at = null, keysOrder = null;
+        for (const c of fx) {
+            if (c.url !== EP) shape.push('url ' + c.url);
+            if (c.method !== 'POST') shape.push('method ' + c.method);
+            if (c.keys !== 'body,credentials,headers,method') shape.push('init keys ' + c.keys);
+            if (c.credentials !== 'include') shape.push('credentials ' + c.credentials);
+            if (c.headers !== JSON.stringify({ 'Content-Type': CT })) shape.push('headers ' + c.headers);
+            if (c.hasSignal) shape.push('a signal');
+            try {
+                const p = new URLSearchParams(c.body || '');
+                keysOrder = Array.from(p.keys()).join(',');
+                if (keysOrder !== 'f.req,at') shape.push('body keys ' + keysOrder);
+                const fr = JSON.parse(p.get('f.req'));
+                if (!(fr.length === 1 && fr[0].length === 1 && fr[0][0].length === 4 && fr[0][0][0] === 'hNvQHb' &&
+                      fr[0][0][2] === null && fr[0][0][3] === 'generic')) shape.push('f.req frame');
+                if (!args) args = JSON.parse(fr[0][0][1]);
+                at = p.get('at');
+                if (at !== AT0) shape.push(at === DECOY ? 'the DECOY global was sent' : 'at is not the inline token');
+            } catch (e) { shape.push('body did not parse'); }
+        }
+        const argsOk = JSON.stringify(args) === JSON.stringify(['c_' + C32, 100, null, 1, [1], [4], null, 1]);
+        // The same page under Userscripts' scriptHandler: still fetch, still no GM call.
+        let us = null;
+        {
+            const h2 = await open(r, ['I2'], C32, {}, A2);
+            if (h2) {
+                await h2.openNav();
+                await h2.waitReady(32, 8000);
+                us = { fx: (await h2.fx()).length, gm: (await h2.gmc()).length };
+                await h2.close();
+            }
+        }
+        const store = await h.storage();
+        const leaks = noLeak(h.logs.concat([store]));
+
+        // I4: Search finds an early answer's word, with nothing paged in.
+        const s4 = await h.page.evaluate("window.__h.search('quokka')");
+        const loads4 = (await h.nav()).loads;
+        r.check('I4', 'new', 'Search for a word only answer 2 holds finds "A#2" with no history paged in',
+                s4.labels.indexOf('A#2') !== -1 && loads4 === 0,
+                'labels=' + JSON.stringify(s4.labels) + ' loads=' + loads4 + (s4.labels.length ? '' : ' text="' + s4.text.slice(0, 40) + '"'));
+        const searchNote = s4.note;
+
+        // I20 (part): the gallery keeps its own note (it lists the loaded part); read through Tools.
+        const g20 = await h.page.evaluate('window.__h.gallery()');
+
+        // I18 + I20: Summary over the whole chat, with no note.
+        const sum = await h.page.evaluate('window.__h.summary()');
+        r.check('I18', 'new', 'Summary counts the whole chat: "Total turns: 64 (32 user, 32 AI)"',
+                /Total turns: 64 \(32 user, 32 AI\)/.test(sum.text), ((sum.text.match(/Total turns:[^\n]*/) || ['(no Total turns line)'])[0]));
+
+        // I5: Export holds every question and answer, alternating, with no warning.
+        const f = await h.page.evaluate('window.__h.exportFull()') || '';
+        const ord = exportOrder(f, 32);
+        const loads5 = (await h.nav()).loads;
+        r.check('I5', 'new', 'Export holds Q#1..Q#32 and A#1..A#32 in order, no "Older messages", no DEGRADED, nothing paged in',
+                ord.ok && !/Older messages were not loaded/.test(f) && !/DEGRADED/.test(f) && loads5 === 0,
+                'headings=' + ord.count + ' older=' + /Older messages were not loaded/.test(f) + ' degraded=' + /DEGRADED/.test(f) +
+                ' loads=' + loads5 + ' ' + ((f.match(/\*\*Source:\*\*[^\n]*/) || ['(no Source line)'])[0]));
+
+        r.check('I20', 'new', 'with the index ready, no "older messages" note in Navigate, Search or Summary and no partial line beside ' +
+                'the estimate; the gallery (the loaded part) keeps its note',
+                !v.note && !searchNote && !sum.note && !(ctx0.hist && ctx0.hist.trim()) && g20.note,
+                'nav=' + v.note + ' search=' + searchNote + ' summary=' + sum.note + ' ctx-hist=' + JSON.stringify(ctx0.hist) + ' gallery=' + g20.note);
+
+        // I1, finished 20 s after ready: still exactly one read (no idle loop).
+        if (readyAt) { const left = readyAt + 20000 - Date.now(); if (left > 0) await sleep(left); }
+        const calls1 = await h.calls();
+        r.check('I1', 'new', 'on open: Navigate lists all 32 (Q#1..Q#32, in order) with no scroll, no note and never the button; ' +
+                'exactly ONE read (size 100, no cursor), still one 20 s after ready; its line names fetch, page 1, size 100, 32 turns',
+                v.count === '32' && qLabels(v.labels, 32) && inOrder(v.items, 32) && v.loads === 0 && v.triggers === 0 &&
+                v.st >= v.max - 2 && !v.note && !buttonSeen && calls0.full === 1 && calls0.list.length === 1 &&
+                calls0.list[0].size === 100 && calls0.list[0].cursorIn === null && h.hits.length === 1 &&
+                calls1.list.length === 1 && openLine.length === 1,
+                fmt(v) + ' labelsOk=' + qLabels(v.labels, 32) + ' ordered=' + inOrder(v.items, 32) + ' st=' + v.st + '/' + v.max +
+                ' button seen=' + (buttonSeen || 'never') + ' ready=' + (readyAt ? (readyAt - t0) + ' ms' : 'never') + ' ' + callsBrief(calls0) +
+                ' hits=' + h.hits.length + ' after 20 s=' + calls1.list.length + ' lines=' + JSON.stringify(reqLines.slice(0, 2)));
+        r.check('I2', 'new', 'the read is fetch POST to the exact endpoint, init {body,credentials:include,headers:Content-Type form,method}, ' +
+                'body f.req + at with the page\'s argument list, at = the inline token (never the decoy global), no GM call under ' +
+                'Tampermonkey or Userscripts, and no token, f.req, query string or question text in the console or storage',
+                fx.length >= 1 && shape.length === 0 && argsOk && at === AT0 && gm.length === 0 &&
+                !!us && us.fx >= 1 && us.gm === 0 && leaks.length === 0,
+                'fetches=' + fx.length + ' problems=' + JSON.stringify(shape.slice(0, 3)) + ' args=' + JSON.stringify(args) +
+                ' at=' + (at === AT0 ? 'inline' : at === DECOY ? 'DECOY' : at ? 'other' : 'none') + ' gm(TM)=' + gm.length +
+                ' userscripts=' + JSON.stringify(us) + ' leaks=' + JSON.stringify(leaks.slice(0, 3)));
+        // R2: @connect gemini.google.com in the header iff a GM transport was used (owner decision 3).
+        const hasConnect = /^\/\/\s*@connect\s+gemini\.google\.com\s*$/m.test(header);
+        r.check('R2', 'guard', '@connect gemini.google.com is in the header iff the gm-shim run used GM_xmlhttpRequest',
+                hasConnect === (r2gm > 0), '@connect=' + hasConnect + ' gm calls=' + r2gm);
+        await h.close();
+    }));
+
+    // ── I2b, I3r, I3e, I3b, I7c, I8, I9b: failures and shapes with short windows, side by side ─────
+    await par([
+        fixture(['I2b'], async (r) => {
+            // The fetch throws for the read: the one transport cannot run here -> PERMANENT, never GM.
+            const h = await open(r, ['I2b'], C32, {}, { gm: 'Tampermonkey', fetchThrow: true });
+            if (!h) return;
+            await h.openNav();
+            const v = await h.waitDegraded(8000);
+            await sleep(500);
+            const gm = await h.gmc();
+            r.check('I2b', 'new', 'fetch throws for the read: degraded "[fetch] fetch threw", PERMANENT, no GM call, no page error',
+                    v.banner === 'degraded' && /\[fetch\] fetch threw/.test(v.bannerText || '') && h.lines(PERM_RE).some((l) => /\[fetch\] fetch threw/.test(l)) &&
+                    gm.length === 0 && h.errors.length === 0,
+                    fmt(v) + ' bannerText=' + JSON.stringify(v.bannerText) + ' permanent=' + h.lines(PERM_RE).length + ' gm=' + gm.length + ' errors=' + h.errors.length);
+            await h.close();
+        }),
+        fixture(['I3r'], async (r) => {
+            const h = await open(r, ['I3r'], C230, { rpc: { mode: 'cursor-repeat' } });
+            if (!h) return;
+            await h.openNav();
+            const v = await h.waitDegraded(10000);
+            await sleep(1000);
+            const c = await h.calls();
+            r.check('I3r', 'new', 'a page that repeats the previous cursor: degraded as an unexpected shape, PERMANENT, after 2 reads',
+                    v.banner === 'degraded' && /unexpected response shape/.test(v.bannerText || '') && h.lines(PERM_RE).length >= 1 && c.list.length === 2,
+                    fmt(v) + ' ' + callsBrief(c) + ' bannerText=' + JSON.stringify(v.bannerText));
+            await h.close();
+        }),
+        fixture(['I3e'], async (r) => {
+            const h = await open(r, ['I3e'], C32, { rpc: { mode: 'empty-cursor' } });
+            if (!h) return;
+            await h.openNav();
+            const v = await h.waitDegraded(8000);
+            await sleep(1000);
+            const c = await h.calls();
+            r.check('I3e', 'new', 'a page of no turns that still has a cursor: degraded as an unexpected shape, PERMANENT, after 1 read',
+                    v.banner === 'degraded' && /unexpected response shape/.test(v.bannerText || '') && h.lines(PERM_RE).length >= 1 && c.list.length === 1,
+                    fmt(v) + ' ' + callsBrief(c) + ' bannerText=' + JSON.stringify(v.bannerText));
+            await h.close();
+        }),
+        fixture(['I3b'], async (r) => {
+            // The length lines counted in UTF-8 bytes, and turn 7's question in Korean with an emoji: a
+            // reader that trusted the lengths as UTF-16 units would cut the frame.
+            const h = await open(r, ['I3b'], C32, { rpc: { lenUnit: 'bytes' }, qText: { 7: KOREAN_Q7 } });
+            if (!h) return;
+            await h.openNav();
+            const v = await h.waitReady(32, 8000);
+            r.check('I3b', 'new', 'length lines in bytes and a Korean + emoji question: 32 listed, turn 7\'s row reads exactly its question',
+                    v.count === '32' && qLabels(v.labels, 32) && inOrder(v.items, 32, { 7: KOREAN_Q7 }),
+                    fmt(v) + ' row7=' + JSON.stringify(v.items[6] || null));
+            await h.close();
+        }),
+        fixture(['I7c'], async (r) => {
+            const h = await open(r, ['I7c'], C32, { rpc: { mode: 'null5' } });
+            if (!h) return;
+            await h.openNav();
+            const v = await h.waitDegraded(8000);
+            await sleep(1500);
+            r.check('I7c', 'new', 'a null payload with code [5]: degraded, NOT permanent (retried on the cooldown)',
+                    v.banner === 'degraded' && h.lines(PERM_RE).length === 0 && h.lines(/payload=null code=5/).length === 1,
+                    fmt(v) + ' permanent=' + h.lines(PERM_RE).length + ' lines=' + JSON.stringify(h.req().slice(0, 2)));
+            await h.close();
+        }),
+        fixture(['I8'], async (r) => {
+            // The first read is refused 400 and the page's token rotates: ONE re-read, ONE retry with the
+            // new token, then the list.
+            const h = await open(r, ['I8'], C32, { rpc: { mode: 'stale-at' } });
+            if (!h) return;
+            await h.openNav();
+            await h.waitReady(32, 10000);
+            await sleep(3000);
+            const v = await h.nav();
+            const c = await h.calls();
+            const fx = await h.fx();
+            const ats = fx.map((x) => { try { return new URLSearchParams(x.body || '').get('at'); } catch (e) { return null; } })
+                          .map((a) => a === AT0 ? 'AT0' : a === AT_FRESH ? 'FRESH' : a === DECOY ? 'DECOY' : String(a).slice(0, 6));
+            const rl = h.req();
+            r.check('I8', 'new', 'a 400, then the page\'s fresh token: exactly 2 reads (AT0, then the fresh one, "retry=at-new"), 32 listed, no degrade',
+                    c.list.length === 2 && c.list[0].status === 400 && c.list[1].status === 200 && ats.join(',') === 'AT0,FRESH' &&
+                    rl.length === 2 && / retry=at-new /.test(rl[1]) && v.count === '32' && v.banner !== 'degraded' && h.lines(PERM_RE).length === 0,
+                    fmt(v) + ' ' + callsBrief(c) + ' statuses=' + c.list.map((x) => x.status).join(',') + ' ats=' + ats.join(',') +
+                    ' lines=' + JSON.stringify(rl.map((l) => l.replace(/^\[ACN\] index: platform=gemini /, ''))));
+            await h.close();
+        }),
+        fixture(['I9b'], async (r) => {
+            const h = await open(r, ['I9b'], C32, { rpc: { noToken: true } });
+            if (!h) return;
+            await h.openNav();
+            const v = await h.waitDegraded(8000);
+            await sleep(1000);
+            const c = await h.calls();
+            r.check('I9b', 'new', 'no token in the page: nothing sent, degraded "no page token"',
+                    v.banner === 'degraded' && /no page token/.test(v.bannerText || '') && c.list.length === 0 && h.hits.length === 0,
+                    fmt(v) + ' ' + callsBrief(c) + ' hits=' + h.hits.length + ' bannerText=' + JSON.stringify(v.bannerText));
+            await h.close();
+        })
+    ]);
+
+    // ── I10: answers that do not parse (five shapes), side by side ────────────────────────────────
+    {
+        const modes = ['noprefix', 'garbage', 'noentry', 'badpayload', 'shape'];
+        const out = {};
+        await par(modes.map((m) => fixture(['I10'], async (r) => {
+            const h = await open(r, ['I10'], C32, { rpc: { mode: m } });
+            if (!h) { out[m] = null; return; }
+            await h.openNav();
+            const v = await h.waitDegraded(8000);
+            await sleep(1000);
+            out[m] = { ok: v.banner === 'degraded' && /unexpected response shape/.test(v.bannerText || '') &&
+                           h.lines(PERM_RE).some((l) => /unexpected response shape/.test(l)) && h.lines(/ payload=bad/).length >= 1 && h.errors.length === 0,
+                       d: m + ':' + v.banner + '/perm=' + h.lines(PERM_RE).length + '/bad=' + h.lines(/ payload=bad/).length + '/err=' + h.errors.length };
+            await h.close();
+        })));
+        if (want('I10')) {
+            const r = makeRec();
+            if (modes.every((m) => out[m] !== null && out[m] !== undefined)) {
+                r.check('I10', 'new', 'no prefix / a frame that is not JSON / no hNvQHb entry / a payload that does not parse / turns not a list: ' +
+                        'each degraded as an unexpected shape, PERMANENT, "payload=bad", no page error',
+                        modes.every((m) => out[m].ok), modes.map((m) => out[m].d).join(' '));
+            }
+            flush(r);
+        }
+    }
+
+    // ── I3: a 230-turn chat follows the cursor ───────────────────────────────────────────────────
+    await seq(fixture(['I3'], async (r) => {
+        const h = await open(r, ['I3'], C230, {});
+        if (!h) return;
+        await h.openNav();
+        const v = await h.waitReady(230, 15000);
+        await sleep(1000);
+        const c = await h.calls();
+        const L = c.list;
+        const chain = L.length === 3 && L[0].type === 'full' && L[0].cursorIn === null &&
+            L[1].type === 'next' && L[1].cursorIn === L[0].cursorOut && L[2].type === 'next' && L[2].cursorIn === L[1].cursorOut &&
+            L.every((x) => x.size === 100) && !!L[0].cursorOut && L[0].cursorOut.length === 145 && L[2].cursorOut === null;
+        const rl = h.req();
+        const store = await h.storage();
+        const leaks = noLeak(h.logs.concat([store]), L.map((x) => x.cursorOut).filter(Boolean).map((cur) => cur.slice(0, 40)));
+        r.check('I3', 'new', 'a 230-turn chat: 3 reads of 100 (no cursor, then each previous cursor sent back verbatim, the last null), ' +
+                '230 listed in order, one line per read, no cursor in the console or storage',
+                chain && v.count === '230' && inOrder(v.items, 230) && rl.length === 3 && leaks.length === 0,
+                fmt(v) + ' chain=' + chain + ' ' + L.map((x) => x.type + '(' + x.size + ',' + (x.cursorIn ? x.cursorIn.length : 'null') + '->' +
+                (x.cursorOut ? x.cursorOut.length : 'null') + ')').join(' ') + ' lines=' + rl.length + ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
+        await h.close();
+    }));
+
+    // ── I6, I6b, I7, I7b, I9: degrades whose retries are counted over 20-25 s, side by side ────────
+    // What a degraded Gemini index must show (spec: the v12.18 behaviour and the note): the banner,
+    // the loaded part listed (10 rows, Q23 first), the "older messages" note and the idle button.
+    const v1218 = (v) => v.banner === 'degraded' && v.count === '10' && /^Gemini question 23:/.test(v.items[0] || '') && v.note &&
+                         !!v.button && v.button.state === 'idle' && v.button.text === 'Load full history';
+    await par([
+        fixture(['I6'], async (r) => {
+            const h = await open(r, ['I6'], C32, { mismatch: { turn: 30, text: 'Gemini question 30: a question edited on the page, which the read does not hold?' } });
+            if (!h) return;
+            await h.openNav();
+            const v0 = await h.waitDegraded(10000);
+            const tDeg = Date.now();
+            await sleep(2000);
+            const v = await h.nav();
+            await sleep(Math.max(0, tDeg + 20000 - Date.now()));
+            const c = await h.calls();
+            r.check('I6', 'new', 'a loaded turn whose question differs from the read: degraded "Showing the loaded messages only", ' +
+                    'index-check "mismatch", the v12.18 list (10, Q23 first), the note and the idle button; at most 3 reads in 20 s',
+                    v0.banner === 'degraded' && /Showing the loaded messages only/.test(v.bannerText || '') && v1218(v) && v.check === 'mismatch' && c.list.length <= 3,
+                    fmt(v) + ' bannerText=' + JSON.stringify(v.bannerText) + ' first item=' + JSON.stringify((v.items[0] || '').slice(0, 22)) + ' ' + callsBrief(c));
+            await h.close();
+        }),
+        fixture(['I6b'], async (r) => {
+            const h = await open(r, ['I6b'], C32, { mismatch: { turn: 31, id: '0123456789abcdef' } });
+            if (!h) return;
+            await h.openNav();
+            const v0 = await h.waitDegraded(10000);
+            const tDeg = Date.now();
+            await sleep(2000);
+            const v = await h.nav();
+            await sleep(Math.max(0, tDeg + 20000 - Date.now()));
+            const c = await h.calls();
+            r.check('I6b', 'new', 'a loaded turn whose id the read does not hold, with a known turn after it: degraded as I6, ' +
+                    'index-check "mismatch", at most 3 reads in 20 s',
+                    v0.banner === 'degraded' && v1218(v) && v.check === 'mismatch' && c.list.length <= 3,
+                    fmt(v) + ' ' + callsBrief(c));
+            await h.close();
+        }),
+        fixture(['I7'], async (r) => {
+            const h = await open(r, ['I7'], C32, { rpc: { mode: 'null7' } });
+            if (!h) return;
+            await h.openNav();
+            await h.waitDegraded(8000);
+            const t1 = Date.now();
+            await sleep(1500);
+            const v = await h.nav();
+            await sleep(Math.max(0, t1 + 20000 - Date.now()));
+            const c = await h.calls();
+            r.check('I7', 'new', 'a null payload with code [7] (the session): degraded, PERMANENT, "payload=null code=7", the v12.18 list, ' +
+                    'the note and the button; no second read in 20 s',
+                    v1218(v) && h.lines(PERM_RE).length >= 1 && h.lines(/ payload=null code=7/).length === 1 && c.list.length === 1,
+                    fmt(v) + ' permanent=' + h.lines(PERM_RE).length + ' ' + callsBrief(c));
+            await h.close();
+        }),
+        fixture(['I7b'], async (r) => {
+            const h = await open(r, ['I7b'], C32, { rpc: { mode: 'null3' } });
+            if (!h) return;
+            await h.openNav();
+            await h.waitDegraded(8000);
+            const t1 = Date.now();
+            await sleep(1500);
+            const v = await h.nav();
+            await sleep(Math.max(0, t1 + 20000 - Date.now()));
+            const c = await h.calls();
+            r.check('I7b', 'new', 'a null payload with code [3] (the request changed): degraded, PERMANENT, "payload=null code=3", ' +
+                    'the v12.18 list, the note and the button; no second read in 20 s',
+                    v1218(v) && h.lines(PERM_RE).length >= 1 && h.lines(/ payload=null code=3/).length === 1 && c.list.length === 1,
+                    fmt(v) + ' permanent=' + h.lines(PERM_RE).length + ' ' + callsBrief(c));
+            await h.close();
+        }),
+        fixture(['I9'], async (r) => {
+            const h = await open(r, ['I9'], C32, { rpc: { mode: 'bad-at' } });
+            if (!h) return;
+            await h.openNav();
+            await h.waitDegraded(10000);
+            await sleep(1500);
+            const v = await h.nav();
+            const c0 = await h.calls();
+            const first = h.hits.length ? h.hits[0].t : Date.now();
+            await sleep(Math.max(0, first + 25000 - Date.now()));
+            const c = await h.calls();
+            const rl = h.req();
+            r.check('I9', 'new', 'every read refused 400: exactly 2 reads in 25 s (the 2nd "retry=at-same"), "HTTP 400 twice" PERMANENT ' +
+                    '(next retry in 60s), the v12.18 list, the note and the button',
+                    c.list.length === 2 && rl.length === 2 && / retry=at-same /.test(rl[1]) &&
+                    h.lines(/HTTP 400 twice.*next retry in 60s/).length >= 1 && v1218(v),
+                    fmt(v) + ' ' + callsBrief(c) + ' (at the degrade ' + c0.list.length + ') lines=' +
+                    JSON.stringify(rl.map((l) => l.replace(/^\[ACN\] index: platform=gemini /, ''))));
+            await h.close();
+        })
+    ]);
+
+    // ── I6c: the live order: the read (6.2 s) before the first page (~10 s) ───────────────────────
+    await seq(fixture(['I6c'], async (r) => {
+        const h = await open(r, ['I6c'], C32, { firstDelayMs: 10000, rpc: { delayMs: { full: 6200 } },
+                                                mismatch: { turn: 30, text: 'Gemini question 30: a question edited on the page, which the read does not hold?' } },
+                             { noWait: true });
+        if (!h) return;
+        await h.openNav();
+        const v0 = await h.nav();
+        if (v0.loaded !== 0) { r.bad('I6c', 'precondition: the first page was in before Navigate opened (loaded=' + v0.loaded + ')'); await h.close(); return; }
+        let indexFirst = false;
+        const t0 = Date.now();
+        let v = v0;
+        while (Date.now() - t0 < 30000) {
+            v = await h.nav();
+            if (v.count === '32' && v.loaded === 0) indexFirst = true;
+            if (v.loaded > 0 && v.banner === 'degraded') break;
+            await sleep(250);
+        }
+        await sleep(1500);
+        v = await h.nav();
+        r.check('I6c', 'new', 'the read arrives before any turn is on the page (32 listed with 0 loaded), and the chat still degrades ' +
+                'once the mismatched turns mount (index-check "mismatch", the v12.18 list)',
+                indexFirst && v.banner === 'degraded' && v.count === '10' && v.check === 'mismatch',
+                'index first=' + indexFirst + ' then ' + fmt(v));
+        await h.close();
+    }));
+
+    // ── I11: a sent message is ONE newest-page read, merged ──────────────────────────────────────
+    await seq(fixture(['I11'], async (r) => {
+        const SENT = 'A message sent now, asking about Kepler orbits around a binary pair?';
+        const h = await open(r, ['I11'], C32, { rpc: { delayMs: { newest: 1900 } } });
+        if (!h) return;
+        await h.openNav();
+        const v0 = await h.waitReady(32, 8000);
+        const c0 = (await h.calls()).list.length;
+        await h.page.evaluate((t) => window.__mockGemini.send(t), SENT);
+        const v = await h.until((x) => x.count === '33', 30000, 300);
+        const c1 = await h.calls();
+        await sleep(6000);
+        const c2 = await h.calls();
+        const added = c1.list.slice(c0);
+        r.check('I11', 'new', 'a message sent with the index ready: exactly ONE new read, the newest page (size 10, no cursor), ' +
+                '33 listed with the sent question last; still one 6 s later',
+                v0.count === '32' && v.count === '33' && v.items[32] === SENT && added.length === 1 && added[0].type === 'newest' &&
+                added[0].size === 10 && added[0].cursorIn === null && c2.list.length === c1.list.length,
+                'before: ' + fmt(v0) + '; after: ' + fmt(v) + ' last=' + JSON.stringify((v.items[v.items.length - 1] || '').slice(0, 30)) +
+                ' new reads=' + JSON.stringify(added.map((x) => x.type + '/' + x.size)) + ' 6 s later=' + (c2.list.length - c0));
+        await h.close();
+    }));
+
+    // ── I17: the size estimate and its dots from the read's text ─────────────────────────────────
+    await seq(fixture(['I17'], async (r) => {
+        const h = await open(r, ['I17'], C32, { bigAnswers: { 30: 1800000, 31: 1800000 } });
+        if (!h) return;
+        await h.openNav();
+        const v = await h.waitReady(32, 15000);
+        let m = null, prev = null;
+        for (let i = 0; i < 15; i++) {
+            m = await h.page.evaluate(CTX);
+            if (prev && JSON.stringify(prev) === JSON.stringify(m)) break;
+            prev = m;
+            await sleep(700);
+        }
+        r.check('I17', 'new', 'two huge answers (30, 31): 32 size dots, green to Q#30 and red from Q#31 (^G{30}RR$), basis "size"',
+                /^G{30}RR$/.test(m.dots) && m.basis === 'size',
+                fmt(v) + ' dots=' + m.dots + ' basis=' + m.basis + ' tokens=' + m.tokens);
+        await h.close();
+    }));
+
+    // Scroll to the top, a page arrives, again, until 32 are loaded (feature-gaps' gmLoadPages).
+    async function loadPages(h) {
+        for (let k = 0; k < 12; k++) {
+            const n0 = await h.page.evaluate(() => window.__mockGemini.loaded());
+            if (n0 >= 32) break;
+            await h.page.evaluate(() => window.__mockGemini.userScroll('top'));
+            try { await h.page.waitForFunction((n) => window.__mockGemini.loaded() > n && !window.__mockGemini.pending(), n0, { timeout: 8000 }); }
+            catch (e) {}
+            await sleep(1300);
+        }
+        await sleep(600);
+    }
+
+    // ── I19: the history tracker stays truthful while the index is ready ─────────────────────────
+    await seq(fixture(['I19'], async (r) => {
+        const store = bmStore(C32, [bmRecord('bm_q5', turnId(C32, 5), 'user-msg', 1), bmRecord('bm_a5', turnId(C32, 5) + ':answer', 'ai-msg', 2)]);
+        const h = await open(r, ['I19'], C32, { loadDelayMs: 600 }, { store });
+        if (!h) return;
+        await h.openNav();
+        const v0 = await h.waitReady(32, 8000);
+        const wasReady = v0.count === '32' && v0.loads === 0 && v0.banner !== 'degraded';
+        await loadPages(h);
+        const edited = await h.page.evaluate(() => window.__mockGemini.editQuestion(28, 'Gemini question 28: a question edited on the page after the read?'));
+        await h.openNav();
+        const v = await h.waitDegraded(10000);
+        await sleep(1500);
+        const v2 = await h.nav();
+        const labels = (await h.page.evaluate('window.__h.bmLabels()')).sort();
+        r.check('I19', 'new', 'ready, every page loaded, then a mismatch: the fallback lists the 32 loaded turns with no note, and the ' +
+                'bookmarks read Q#5 / "Answer to Q#5" (the tracker saw the pages while the index was ready)',
+                wasReady && edited && v.banner === 'degraded' && v2.count === '32' && !v2.note && labels.join('|') === 'Answer to Q#5|Q#5',
+                'ready first=' + wasReady + ' (' + fmt(v0) + '); after the edit: ' + fmt(v2) + ' labels=' + labels.join('|'));
+        await h.close();
+    }));
+
+    // ── I13 [guard], I13b, I14: bookmarks on a degraded, a loading and a ready index ──────────────
+    await seq(fixture(['I13'], async (r) => {
+        // Degraded (null [7], answered after 2 s): exactly v12.18's labels: "Q#…" while partial, Q#n once
+        // the start is loaded; never "Q#?" because an adapter exists.
+        const k32 = turnId(C32, 32);
+        const store = bmStore(C32, [bmRecord('bm_q32', k32, 'user-msg', 1), bmRecord('bm_a32', k32 + ':answer', 'ai-msg', 2)]);
+        const h = await open(r, ['I13'], C32, { loadDelayMs: 600, rpc: { mode: 'null7', delayMs: { full: 2000 } } }, { store });
+        if (!h) return;
+        const samples = [];
+        const t0 = Date.now();
+        await h.page.evaluate('window.__h.bmLabels()');
+        let degAt = null;
+        while (Date.now() - t0 < 9000) {
+            const l = await h.page.evaluate(() => Array.prototype.map.call(document.querySelectorAll('#acn-panel-bookmarks .acn-bk .acn-bk-type'),
+                                                                         function (e) { return e.textContent; }));
+            samples.push(l.slice().sort().join('|'));
+            if (!degAt && h.lines(/conversation index unavailable/).length) degAt = Date.now();
+            if (degAt && Date.now() - degAt > 2000) break;
+            await sleep(250);
+        }
+        const early = Array.from(new Set(samples));
+        await loadPages(h);
+        await h.page.evaluate("document.getElementById('acn-dot-nav').click()");
+        await sleep(400);
+        const final = (await h.page.evaluate('window.__h.bmLabels()')).sort();
+        const never = samples.every((s) => s.indexOf('?') === -1);
+        r.check('I13', 'guard', 'bookmarks with the index degraded (null [7]): "Q#…" / "Answer to Q#…" while partial, then Q#32 / ' +
+                '"Answer to Q#32" once loaded; never "Q#?" or "A#?" (sampled every 250 ms from open)',
+                early.length >= 1 && early.every((s) => s === 'Answer to Q#…|Q#…' || s === '') && early.indexOf('Answer to Q#…|Q#…') !== -1 &&
+                never && final.join('|') === 'Answer to Q#32|Q#32',
+                'while partial=' + JSON.stringify(early) + ' after loading=' + final.join('|') + ' degraded seen=' + !!degAt);
+        await h.close();
+    }));
+    await seq(fixture(['I13b'], async (r) => {
+        // Loading (the read answers after 20 s), a 6-turn chat: a question bookmarked now reads "Q#6".
+        const h = await open(r, ['I13b'], C6, { rpc: { delayMs: { full: 20000 } } });
+        if (!h) return;
+        await h.openNav();
+        const v0 = await h.until((x) => x.banner === 'loading', 4000);
+        await sleep(800);
+        const key = await h.page.evaluate((id) => {
+            const f = document.querySelector('div.conversation-container[id="' + id + '"] div.query-text [data-acn-bookmark]');
+            if (f) f.click();
+            return f ? f.getAttribute('data-acn-bookmark') : null;
+        }, turnId(C6, 6));
+        await sleep(600);
+        const labels = await h.page.evaluate('window.__h.bmLabels()');
+        const pending = h.fulfilled === 0;
+        r.check('I13b', 'new', 'bookmarks while the index is still loading: the question flag of a 6-turn chat reads "Q#6" at once',
+                v0.banner === 'loading' && key === turnId(C6, 6) && labels.join('|') === 'Q#6' && pending,
+                'banner=' + v0.banner + ' key=' + key + ' labels=' + labels.join('|') + ' read still pending=' + pending);
+        await h.close();
+    }));
+    await seq(fixture(['I14'], async (r) => {
+        const k5 = turnId(C32, 5);
+        const store = bmStore(C32, [bmRecord('bm_q5', k5, 'user-msg', 1), bmRecord('bm_a5', k5 + ':answer', 'ai-msg', 2)]);
+        const h = await open(r, ['I14'], C32, {}, { store });
+        if (!h) return;
+        await h.openNav();
+        const v0 = await h.waitReady(32, 8000);
+        await sleep(800);
+        const labels = (await h.page.evaluate('window.__h.bmLabels()')).sort();
+        const loads0 = (await h.nav()).loads;
+        const st = await h.page.evaluate(() => JSON.parse(window.__acnStore()['acn-bookmarks-v1'] || '{}'));
+        const keys = Object.keys(st);
+        const recs = (st['https://gemini.google.com/app/' + C32] || {}).bookmarks || [];
+        const keysOk = keys.length === 1 && keys[0] === 'https://gemini.google.com/app/' + C32 &&
+                       recs.map((x) => x.msgUuid).sort().join('|') === [k5, k5 + ':answer'].sort().join('|');
+        await h.page.evaluate("window.__h.clickBookmark('Q#5')");
+        await h.settle(60000, 2000);
+        const s = await h.spot(5, 'q');
+        r.check('I14', 'new', 'bookmarks with the index ready: Q#5 / "Answer to Q#5" at once (nothing paged in), the stored keys unchanged, ' +
+                'and Q#5 clicked from the bottom pages in and lands',
+                v0.count === '32' && labels.join('|') === 'Answer to Q#5|Q#5' && loads0 === 0 && keysOk && s.inView && !s.toasts.length,
+                'labels=' + labels.join('|') + ' loads=' + loads0 + ' keys ok=' + keysOk + ' landing=' + JSON.stringify(s));
+        await h.close();
+    }));
+
+    // ── I15 [guard]: the gallery stays on the page's own images ──────────────────────────────────
+    await seq(fixture(['I15'], async (r) => {
+        const h = await open(r, ['I15'], C32, { images: { 25: 1, 31: 1 } });
+        if (!h) return;
+        await h.openNav();
+        await h.waitReady(32, 6000);
+        const srcs = await h.page.evaluate(() => Array.prototype.map.call(document.querySelectorAll('img[data-test-id="uploaded-img"]'), function (i) { return i.getAttribute('src'); }));
+        const g = await h.page.evaluate('window.__h.gallery()');
+        await h.page.evaluate('window.__h.clickGallery(0)');
+        await h.settle(30000, 1500);
+        const s = await h.spot(25, 'q');
+        r.check('I15', 'guard', 'the gallery with the index ready: the same 2 cards as the page\'s own images (turns 25, 31), card 1 lands on turn 25',
+                g.cards.length === 2 && srcs.length === 2 && g.cards[0].src === srcs[0] && g.cards[1].src === srcs[1] && s.inView && !s.toasts.length,
+                'cards=' + g.cards.length + ' labels=' + g.cards.map((c) => c.label).join(',') + ' note=' + g.note + ' landing=' + JSON.stringify(s));
+        await h.close();
+    }));
+
+    // ── I16 [guard]: a look-alike host never reads ───────────────────────────────────────────────
+    await seq(fixture(['I16'], async (r) => {
+        const h = await open(r, ['I16'], C32, {}, { host: 'https://gemini.google.com.probe.cloudworkstations.dev' });
+        if (!h) return;
+        await h.openNav();
+        await sleep(6000);
+        r.check('I16', 'guard', 'on a look-alike host (gemini.google.com.probe.cloudworkstations.dev) no read is sent and no gemini index line logged',
+                h.hits.length === 0 && h.lines(/^\[ACN\] index: platform=gemini/).length === 0,
+                'hits=' + h.hits.length + ' lines=' + h.lines(/^\[ACN\] index: platform=gemini/).length);
+        await h.close();
+    }));
+
+    // ── Jumps to a question not loaded yet (the index ready, 10 of 32 loaded, from the bottom) ─────
+    // The paging status must show while pages are asked for and go once the jump is over; the target
+    // ends in view and data-acn-jump-resolved marks it (its position), however it was landed (M1).
+    const statusSeenWith = (seen, re, maxLoads) => seen.some((s) => re.test(s.text || '') && (maxLoads === undefined || s.loads < maxLoads));
+    async function jumpQ1(r, id, cfgExtra, opts) {
+        const h = await open(r, [id], C32, cfgExtra, opts);
+        if (!h) return null;
+        await h.openNav();
+        const v0 = await h.waitReady(32, 8000);
+        const row = await h.clickQ(1);
+        return { h, v0, row };
+    }
+    for (const [id, cfgExtra, cap] of [['I12', { loadDelayMs: 1500 }, 60000], ['I12b', { loadDelayMs: 2900, blockMs: 4600 }, 150000]]) {
+        await seq(fixture([id], async (r) => {
+            const j = await jumpQ1(r, id, cfgExtra);
+            if (!j) return;
+            const { h, v0, row } = j;
+            if (!row) {
+                r.check(id, 'new', 'jump to unloaded Q1 (' + JSON.stringify(cfgExtra) + '): the status shows, pages in, lands', false,
+                        'no Q1 row in Navigate (' + fmt(v0) + ' first=' + JSON.stringify((v0.items[0] || '').slice(0, 22)) + ')');
+                await h.close();
+                return;
+            }
+            const settled = await h.settle(cap, 3000);
+            const s = await h.spot(1, 'q');
+            const seen = await h.pgSeen();
+            const now = await h.page.evaluate(() => window.__pgNow());
+            const starts = h.lines(/^\[ACN\] paging: platform=gemini via=jump start/).length;
+            const ends = h.lines(/^\[ACN\] paging: platform=gemini via=jump end=found pages=3\b/).length;
+            r.check(id, 'new', 'jump to unloaded Q1 (' + JSON.stringify(cfgExtra) + '): "Loading earlier messages…" while paging, then gone; ' +
+                    'Q1 in view, resolved "0", the mark inside turn 1, no toast, 3 pages, one start and one "end=found pages=3" line',
+                    settled && statusSeenWith(seen, /^Loading earlier messages…/, 3) && !now && s.inView && s.resolved === '0' && s.markIn &&
+                    !s.toasts.length && s.loads === 3 && starts === 1 && ends === 1,
+                    'row=' + row + ' settled=' + settled + ' status seen=' + seen.length + (seen[0] ? ' "' + seen[0].text + '"' : '') + ' now=' + JSON.stringify(now) +
+                    ' landing=' + JSON.stringify(s) + ' lines start=' + starts + ' end=' + ends);
+            await h.close();
+        }));
+    }
+    await seq(fixture(['I12c'], async (r) => {
+        // History that stops coming after one page: the jump ends honestly (a toast), the status goes,
+        // "end=no-page", and nothing writes the scroller afterwards.
+        const j = await jumpQ1(r, 'I12c', { loadDelayMs: 1500, stallAt: 20 });
+        if (!j) return;
+        const { h, v0, row } = j;
+        if (!row) { r.check('I12c', 'new', 'a jump whose history stops coming ends with a toast', false, 'no Q1 row (' + fmt(v0) + ')'); await h.close(); return; }
+        try { await h.page.waitForFunction(() => (window.__acnToasts || []).length > 0, null, { timeout: 45000 }); } catch (e) {}
+        const v = await h.nav();
+        const sts = [];
+        for (let i = 0; i < 30; i++) { sts.push((await h.nav()).st); await sleep(100); }
+        r.check('I12c', 'new', 'a jump whose history stops coming (stallAt 20): a toast, the status gone, "end=no-page", no scroll write for 3 s after',
+                v.toasts.length > 0 && !v.status && h.lines(/^\[ACN\] paging: platform=gemini via=jump end=no-page/).length === 1 &&
+                new Set(sts).size === 1,
+                fmt(v) + ' toasts=' + JSON.stringify(v.toasts) + ' status=' + JSON.stringify(v.status) + ' scrollTops=' + Array.from(new Set(sts)).join(','));
+        await h.close();
+    }));
+    await seq(fixture(['I12d'], async (r) => {
+        const j = await jumpQ1(r, 'I12d', {});
+        if (!j) return;
+        const { h, v0, row } = j;
+        if (!row) { r.check('I12d', 'new', 'a user scroll stops a paging jump', false, 'no Q1 row (' + fmt(v0) + ')'); await h.close(); return; }
+        try { await h.page.waitForFunction(() => window.__mockGemini.loads() >= 1, null, { timeout: 15000 }); } catch (e) {}
+        const atWheel = (await h.nav()).loads;
+        await h.wheel(600);
+        await h.settle(30000, 2000);
+        const v = await h.nav();
+        await sleep(10000);
+        const v2 = await h.nav();
+        r.check('I12d', 'new', 'a trusted wheel during the paging stops it: the status gone, no toast, at most one more page and none in 10 s, not resolved',
+                atWheel >= 1 && !v.status && !v.toasts.length && v.loads <= atWheel + 1 && v2.loads === v.loads && v.resolved !== '0',
+                'loads at the wheel=' + atWheel + ' then ' + v.loads + ' 10 s later ' + v2.loads + ' ' + fmt(v) + ' resolved=' + v.resolved +
+                ' status=' + JSON.stringify(v.status) + ' toasts=' + JSON.stringify(v.toasts));
+        await h.close();
+    }));
+    await seq(fixture(['I12e'], async (r) => {
+        const j = await jumpQ1(r, 'I12e', {});
+        if (!j) return;
+        const { h, v0, row } = j;
+        if (!row) { r.check('I12e', 'new', 'a Q32 click supersedes a paging jump', false, 'no Q1 row (' + fmt(v0) + ')'); await h.close(); return; }
+        try { await h.page.waitForFunction(() => window.__mockGemini.loads() >= 1 && !!window.__pgNow(), null, { timeout: 15000 }); } catch (e) {}
+        const pre = await h.nav();
+        const row32 = await h.clickQ(32);
+        const t0 = Date.now();
+        let goneMs = null;
+        while (Date.now() - t0 < 3000) { if (!(await h.page.evaluate(() => window.__pgNow()))) { goneMs = Date.now() - t0; break; } await sleep(50); }
+        await h.settle(30000, 2000);
+        const s = await h.spot(32, 'q');
+        r.check('I12e', 'new', 'Q32 clicked while the jump to Q1 pages: the status goes within a poll, Q32 lands (resolved "31"), no toast',
+                !!pre.status && !!row32 && goneMs !== null && goneMs <= 1000 && s.inView && s.resolved === '31' && s.markIn && !s.toasts.length,
+                'status before=' + JSON.stringify(pre.status) + ' row32=' + row32 + ' gone after=' + goneMs + ' ms landing=' + JSON.stringify(s));
+        await h.close();
+    }));
+    // I12f: the other routes to an unloaded turn, each from the bottom on a fresh page.
+    {
+        const k1 = turnId(C32, 1);
+        const bms = bmStore(C32, [bmRecord('bm_q1', k1, 'user-msg', 1), bmRecord('bm_a1', k1 + ':answer', 'ai-msg', 2)]);
+        const subs = [
+            ['search A#2', {}, async (h) => (await h.page.evaluate("window.__h.clickSearch('Answer 2, part 1', 'A#2')")) ? 'A#2' : null, 2, 'answer', null],
+            ['summary 1st segment', {}, async (h) => { await h.page.evaluate('window.__h.summary()');
+                const c = await h.page.evaluate("window.__h.clickSegment('msgs 1\\u2013')"); return c === 'no match' ? null : c; }, 1, 'q', '0'],
+            ['bookmark Q#1', { store: bms }, async (h) => (await h.page.evaluate("window.__h.clickBookmark('Q#1')")) ? 'Q#1' : null, 1, 'q', null],
+            ['bookmark answer', { store: bms }, async (h) => (await h.page.evaluate("window.__h.clickBookmark('Answer to Q#1')")) ? 'Answer to Q#1' : null, 1, 'answer', null]
+        ];
+        const outs = [];
+        for (const [name, o, act, n, what, resolved] of subs) {
+            const rr = await (fixture(['I12f'], async (r) => {
+                const h = await open(r, ['I12f'], C32, {}, o);
+                if (!h) { outs.push(null); return; }
+                await h.openNav();
+                await h.waitReady(32, 8000);
+                await sleep(500);
+                const did = await act(h);
+                if (!did) { outs.push({ ok: false, d: name + ': nothing to click' }); await h.close(); return; }
+                await h.settle(60000, 2500);
+                const s = await h.spot(n, what);
+                const seen = await h.pgSeen();
+                const ok = s.inView && !s.toasts.length && statusSeenWith(seen, /^Loading earlier messages…/) && (resolved === null || s.resolved === resolved);
+                outs.push({ ok, d: name + ': ' + (s.inView ? 'in' : 'OUT') + ' top=' + s.top + ' resolved=' + s.resolved + ' status seen=' + seen.length +
+                                   (s.toasts.length ? ' TOAST' : '') });
+                await h.close();
+            }))();
+            flush(rr);
+        }
+        if (want('I12f') && outs.length === subs.length && outs.every((x) => x !== null)) {
+            const r = makeRec();
+            r.check('I12f', 'new', 'Search\'s answer A#2, Summary\'s first segment, and the Q#1 and "Answer to Q#1" bookmarks, each from ' +
+                    'the bottom: the status shows, the target lands in view, no toast', outs.every((x) => x.ok), outs.map((x) => x.d).join(' | '));
+            flush(r);
+        }
+    }
+    await seq(fixture(['I12g'], async (r) => {
+        const j = await jumpQ1(r, 'I12g', {}, { store: { 'acn-settings': { language: 'ko' } } });
+        if (!j) return;
+        const { h, v0, row } = j;
+        if (!row) { r.check('I12g', 'new', 'the paging status in Korean', false, 'no Q1 row (' + fmt(v0) + ')'); await h.close(); return; }
+        await h.settle(60000, 3000);
+        const seen = await h.pgSeen();
+        r.check('I12g', 'new', 'with the language set to Korean the paging status reads "' + KO_STATUS + '"',
+                seen.some((s) => (s.text || '').indexOf(KO_STATUS) === 0), 'texts=' + JSON.stringify(Array.from(new Set(seen.map((s) => s.text)))));
+        await h.close();
+    }));
+    await seq(fixture(['I12h'], async (r) => {
+        const j = await jumpQ1(r, 'I12h', { cv: true, cvEstimate: 500 });
+        if (!j) return;
+        const { h, v0, row } = j;
+        if (!row) { r.check('I12h', 'new', 'a jump to unloaded Q1 under content-visibility', false, 'no Q1 row (' + fmt(v0) + ')'); await h.close(); return; }
+        await h.settle(60000, 3000);
+        const s = await h.spot(1, 'q');
+        r.check('I12h', 'new', 'turns content-visibility estimated at 500 px (the live value): Q1 from the bottom lands in view after 3 pages',
+                s.inView && s.loads === 3 && s.resolved === '0' && !s.toasts.length, 'landing=' + JSON.stringify(s));
+        await h.close();
+    }));
+    await seq(fixture(['I4b'], async (r) => {
+        const h = await open(r, ['I4b'], C32, { answerWords: { 2: 'quokka' } });
+        if (!h) return;
+        await h.openNav();
+        await h.waitReady(32, 8000);
+        const did = await h.page.evaluate("window.__h.clickSearch('quokka', 'A#2')");
+        if (did) await h.settle(60000, 2500);
+        const s = await h.spot(2, 'answer');
+        r.check('I4b', 'new', 'the Search hit A#2 (answer 2 not loaded) clicked from the bottom pages in and lands on turn 2\'s answer, no toast',
+                did && s.inView && !s.toasts.length, 'clicked=' + did + ' landing=' + JSON.stringify(s));
+        await h.close();
+    }));
+    // I21 [guard], owner amendment M2: a LOADED near target keeps v12.18's smooth glide with the index ready.
+    await seq(fixture(['I21'], async (r) => {
+        const h = await open(r, ['I21'], C32, {});
+        if (!h) return;
+        await h.openNav();
+        await h.waitReady(32, 8000);
+        await sleep(500);
+        const n = await h.page.evaluate(() => {
+            var sc = document.querySelector('infinite-scroller.chat-history'), r = sc.getBoundingClientRect(), vh = sc.clientHeight;
+            for (var k = 31; k >= 23; k--) {
+                var t = document.getElementById(window.__mockGemini.domId(k)), b = t && t.querySelector('div.query-text');
+                if (!b) continue;
+                var q = b.getBoundingClientRect();
+                var inView = q.top >= r.top && q.bottom <= r.bottom;
+                var near = q.bottom >= r.top - vh * 0.85 && q.top <= r.bottom + vh * 0.85;
+                if (!inView && near) return k;
+            }
+            return null;
+        });
+        if (!n) { r.bad('I21', 'precondition: no loaded question out of view yet within 0.85 of a view of it'); await h.close(); return; }
+        await h.page.evaluate(() => {
+            var sc = document.querySelector('infinite-scroller.chat-history');
+            window.__stv = [];
+            (function f() { window.__stv.push(Math.round(sc.scrollTop)); if (window.__stv.length < 150) requestAnimationFrame(f); }());
+        });
+        const row = await h.clickQ(n);
+        await sleep(2500);
+        await h.settle(15000, 500);
+        const stv = await h.page.evaluate(() => window.__stv.slice());
+        const distinct = new Set(stv).size;
+        const s = await h.spot(n, 'q');
+        r.check('I21', 'guard', 'a loaded near question (Q' + n + ') with the index ready: a smooth glide as on v12.18 (owner amendment M2), in view, marked, no toast',
+                !!row && distinct >= 4 && s.inView && s.markIn && !s.toasts.length,
+                'row=' + row + ' distinct scrollTops=' + distinct + ' (' + stv[0] + '->' + stv[stv.length - 1] + ') landing=' + JSON.stringify(s));
+        await h.close();
+    }));
+
+    // ── F1-F8: "Load full history", where the index cannot list the chat ──────────────────────────
+    // The read refused (403, PERMANENT) unless noted, so the button is the fallback.
+    async function buttonPage(r, id, chat, cfgExtra, opts) {
+        const h = await open(r, [id], chat, Object.assign({ rpc: { mode: 'refuse' } }, cfgExtra || {}), opts);
+        if (!h) return null;
+        await h.openNav();
+        const v0 = await h.until((v) => !!v.button, 10000);
+        return { h, v0 };
+    }
+    // The view placed with turn n's top 40 px below the view's top (a user scroll, before the click).
+    async function placeAt(h, n) {
+        await h.page.evaluate((n) => {
+            var sc = document.querySelector('infinite-scroller.chat-history');
+            var t = document.getElementById(window.__mockGemini.domId(n));
+            window.__mockGemini.userScroll(Math.round(sc.scrollTop + t.getBoundingClientRect().top - sc.getBoundingClientRect().top - 40));
+        }, n);
+        await sleep(800);
+        return h.page.evaluate(ANCHOR);
+    }
+    const clickButton = (h) => h.page.evaluate(() => {
+        var b = document.querySelector('[data-acn-role="history-load"]');
+        if (b) b.click();
+        return !!b;
+    });
+    // Samples the button's text every 250 ms until the zone records how the load ended (cap ms).
+    async function sampleLoad(h, ms) {
+        const texts = new Set(), t0 = Date.now();
+        let v = null;
+        while (Date.now() - t0 < ms) {
+            v = await h.nav();
+            if (v.button) texts.add(v.button.text);
+            if (v.loadEnd) break;
+            await sleep(250);
+        }
+        return { texts: Array.from(texts), v };
+    }
+    const noButton = (id, desc, v0) => [id, 'new', desc, false, 'no "Load full history" button (' + fmt(v0) + ')'];
+
+    for (const [id, cfgExtra, cap] of [['F1', {}, 60000], ['F5', { cv: true, cvEstimate: 500, blockMs: 4600, loadDelayMs: 2000 }, 120000]]) {
+        await seq(fixture([id], async (r) => {
+            const desc = 'Load full history ' + (id === 'F5' ? '(the live model: cv 500 px, a 4.6 s render block a page) ' : '') +
+                         'from turn 28: "Loading… 10 / 20 / 30 of ?", ends "start", 32 listed in order, the note and the button gone, ' +
+                         'the view back on the anchor turn within 8 px ("aligned"), 3 pages, no read sent';
+            const b = await buttonPage(r, id, C32, cfgExtra);
+            if (!b) return;
+            const { h, v0 } = b;
+            if (!v0.button) { r.check.apply(null, noButton(id, desc, v0)); await h.close(); return; }
+            const anchor = await placeAt(h, 28);
+            const reads0 = h.hits.length;
+            await clickButton(h);
+            const smp = await sampleLoad(h, cap);
+            await h.settle(cap, 1000);
+            const v = await h.nav();
+            const err = anchor ? await h.page.evaluate(ANCHOR_ERR + '(' + JSON.stringify(anchor) + ')') : null;
+            const wantTexts = ['Loading' + ELL + ' 10 of ?', 'Loading' + ELL + ' 20 of ?', 'Loading' + ELL + ' 30 of ?'];
+            r.check(id, 'new', desc,
+                    wantTexts.every((t) => smp.texts.indexOf(t) !== -1) && v.loadEnd === 'start' && v.count === '32' && inOrder(v.items, 32) &&
+                    !v.note && !v.button && !!anchor && v.anchor === anchor.id && v.restore === 'aligned' && err !== null && Math.abs(err) <= 8 &&
+                    v.loads === 3 && h.hits.length === reads0,
+                    'texts=' + JSON.stringify(smp.texts) + ' end=' + v.loadEnd + ' anchor=' + (anchor && anchor.id.slice(0, 8)) + '/' + (v.anchor || '').slice(0, 8) +
+                    ' restore=' + v.restore + ' err=' + err + ' ' + fmt(v) + ' reads during=' + (h.hits.length - reads0));
+            await h.close();
+        }));
+    }
+    await seq(fixture(['F2'], async (r) => {
+        const desc = 'a user scroll (trusted wheel) during the load stops it: end "user", no restore, at most 2 pages, nothing after, ' +
+                     'the view never pulled back to the top, the button idle and the note shown';
+        const b = await buttonPage(r, 'F2', C32);
+        if (!b) return;
+        const { h, v0 } = b;
+        if (!v0.button) { r.check.apply(null, noButton('F2', desc, v0)); await h.close(); return; }
+        await placeAt(h, 28);
+        await clickButton(h);
+        try { await h.page.waitForFunction(() => window.__mockGemini.loads() >= 1, null, { timeout: 15000 }); } catch (e) {}
+        await h.wheel(600);
+        // Sampled from the moment the wheel has moved the view off the top (the wheel's own scroll may
+        // land a frame later): a paging write after it would bring scrollTop back to 0.
+        const off = await h.until((x) => x.st > 50, 1500, 50);
+        let minSt = Infinity;
+        const t0 = Date.now();
+        while (Date.now() - t0 < 6000) { minSt = Math.min(minSt, (await h.nav()).st); await sleep(100); }
+        const v = await h.nav();
+        if (!(off.st > 50)) minSt = off.st;
+        r.check('F2', 'new', desc,
+                v.loadEnd === 'user' && v.restore === 'skipped' && v.loads <= 2 && !v.pending && minSt > 50 &&
+                !!v.button && v.button.state === 'idle' && v.button.text === 'Load full history' && v.note,
+                'end=' + v.loadEnd + ' restore=' + v.restore + ' min scrollTop=' + minSt + ' ' + fmt(v));
+        await h.close();
+    }));
+    await seq(fixture(['F3'], async (r) => {
+        const desc = 'a second click during the load stops it: end "click", at most 2 pages and none in 6 s, the view back on the anchor ' +
+                     '("aligned", within 8 px), the button idle and the note shown';
+        const b = await buttonPage(r, 'F3', C32);
+        if (!b) return;
+        const { h, v0 } = b;
+        if (!v0.button) { r.check.apply(null, noButton('F3', desc, v0)); await h.close(); return; }
+        const anchor = await placeAt(h, 28);
+        await clickButton(h);
+        try { await h.page.waitForFunction(() => window.__mockGemini.loads() >= 1, null, { timeout: 15000 }); } catch (e) {}
+        await sleep(300);
+        await clickButton(h);
+        await h.settle(20000, 1500);
+        const v1 = await h.nav();
+        await sleep(6000);
+        const v = await h.nav();
+        const err = anchor ? await h.page.evaluate(ANCHOR_ERR + '(' + JSON.stringify(anchor) + ')') : null;
+        r.check('F3', 'new', desc,
+                v.loadEnd === 'click' && v.loads <= 2 && v.loads === v1.loads && v.restore === 'aligned' && err !== null && Math.abs(err) <= 8 &&
+                !!v.button && v.button.state === 'idle' && v.note,
+                'end=' + v.loadEnd + ' restore=' + v.restore + ' err=' + err + ' loads ' + v1.loads + '->' + v.loads + ' ' + fmt(v));
+        await h.close();
+    }));
+    await seq(fixture(['F4'], async (r) => {
+        const desc = 'a 10-turn chat (a full last page): the button at load; a click brings no page, and DEC-057\'s 8 s rule ends it: ' +
+                     'the button gone 8-14 s after the click, no page, the note gone, the view restored';
+        const b = await buttonPage(r, 'F4', C10);
+        if (!b) return;
+        const { h, v0 } = b;
+        if (!v0.button) { r.check.apply(null, noButton('F4', desc, v0)); await h.close(); return; }
+        await clickButton(h);
+        const t0 = Date.now();
+        let gone = null, v = null;
+        while (Date.now() - t0 < 16000) { v = await h.nav(); if (!v.button) { gone = Date.now() - t0; break; } await sleep(250); }
+        await h.settle(10000, 1000);
+        v = await h.nav();
+        r.check('F4', 'new', desc,
+                gone !== null && gone >= 8000 && gone <= 14000 && v.loads === 0 && !v.note && v.loadEnd === 'start' &&
+                (v.restore === 'aligned' || v.restore === 'clamped'),
+                'gone after=' + gone + ' ms end=' + v.loadEnd + ' restore=' + v.restore + ' ' + fmt(v));
+        await h.close();
+    }));
+    for (const [id, p] of [['F6', '/u/1/app/' + C32], ['F6b', '/gem/g1/' + C32]]) {
+        await seq(fixture([id], async (r) => {
+            const desc = 'an unmeasured path (' + p.replace(C32, '<id>') + ', the read would answer): no read, one "platform=gemini … unmeasured" line, ' +
+                         'the button; a click loads all 32';
+            const h = await open(r, [id], C32, {}, { path: p });
+            if (!h) return;
+            await h.openNav();
+            const v0 = await h.until((v) => !!v.button, 8000);
+            const lines = h.lines(/platform=gemini.*unmeasured/);
+            let v = v0;
+            if (v0.button) {
+                await clickButton(h);
+                await sampleLoad(h, 60000);
+                await h.settle(30000, 1000);
+                v = await h.nav();
+            }
+            r.check(id, 'new', desc,
+                    h.hits.length === 0 && lines.length === 1 && !!v0.button && v0.button.state === 'idle' && v.count === '32' && inOrder(v.items, 32),
+                    'hits=' + h.hits.length + ' unmeasured lines=' + lines.length + ' button=' + (v0.button ? v0.button.state : 'none') + ' then ' + fmt(v));
+            await h.close();
+        }));
+    }
+    await seq(fixture(['F7'], async (r) => {
+        const desc = 'a chat switch during the load ends it "path" with no restore; the new chat is left at its bottom (no page in 4 s) ' +
+                     'and shows the idle button';
+        const b = await buttonPage(r, 'F7', C32);
+        if (!b) return;
+        const { h, v0 } = b;
+        if (!v0.button) { r.check.apply(null, noButton('F7', desc, v0)); await h.close(); return; }
+        await placeAt(h, 28);
+        await clickButton(h);
+        try { await h.page.waitForFunction(() => window.__mockGemini.loads() >= 1, null, { timeout: 15000 }); } catch (e) {}
+        await h.page.evaluate((id) => window.__mockGemini.switchTo(id), C20);
+        try { await h.page.waitForFunction('window.__mockGemini.loaded() === 10', null, { timeout: 10000 }); } catch (e) {}
+        await sleep(500);
+        let minSt = Infinity;
+        const t0 = Date.now();
+        while (Date.now() - t0 < 4000) { minSt = Math.min(minSt, (await h.nav()).st); await sleep(100); }
+        const z = await h.nav();
+        try { await h.page.waitForFunction("!document.getElementById('acn-panel-nav').classList.contains('acn-open')", null, { timeout: 3000 }); } catch (e) {}
+        await h.openNav();
+        const v = await h.until((x) => !!x.button && x.button.state === 'idle', 10000);
+        r.check('F7', 'new', desc,
+                z.loadEnd === 'path' && z.restore === 'skipped' && minSt > 50 && z.loads === 0 && !!v.button && v.button.state === 'idle',
+                'end=' + z.loadEnd + ' restore=' + z.restore + ' min scrollTop=' + minSt + ' new chat loads=' + z.loads + ' then ' + fmt(v));
+        await h.close();
+    }));
+    await seq(fixture(['F8'], async (r) => {
+        const desc = 'a Navigate click on Q25 during the load supersedes it: end "superseded", Q25 lands in view, no paging write after';
+        const b = await buttonPage(r, 'F8', C32);
+        if (!b) return;
+        const { h, v0 } = b;
+        if (!v0.button) { r.check.apply(null, noButton('F8', desc, v0)); await h.close(); return; }
+        await placeAt(h, 28);
+        await clickButton(h);
+        try { await h.page.waitForFunction(() => window.__mockGemini.loads() >= 1, null, { timeout: 15000 }); } catch (e) {}
+        await sleep(600);
+        const row = await h.clickQ(25);
+        // From the moment the landing has moved the view off the top: a paging write after it brings it back to 0.
+        const off = await h.until((x) => x.st > 50, 2000, 50);
+        let minSt = off.st > 50 ? Infinity : off.st;
+        const t0 = Date.now();
+        while (Date.now() - t0 < 4000) { minSt = Math.min(minSt, (await h.nav()).st); await sleep(100); }
+        await h.settle(20000, 500);
+        const v = await h.nav();
+        const s = await h.spot(25, 'q');
+        r.check('F8', 'new', desc,
+                !!row && v.loadEnd === 'superseded' && s.inView && !s.toasts.length && minSt > 50,
+                'row=' + row + ' end=' + v.loadEnd + ' min scrollTop after=' + minSt + ' landing=' + JSON.stringify(s));
+        await h.close();
+    }));
+
+    // ── R1 [guard], E [guard] ────────────────────────────────────────────────────────────────────
+    {
+        const r = makeRec();
+        if (want('R1')) {
+            const badHits = allHits.filter((x) => x.method !== 'POST' || !/[?&]rpcids=hNvQHb(&|$)/.test(x.url) || x.rpc !== 'hNvQHb');
+            r.check('R1', 'guard', 'across every fixture: each batchexecute request is a POST of hNvQHb (URL and f.req), and nothing else ' +
+                    'is requested but the page and data:/blob: URLs',
+                    badHits.length === 0 && allOthers.length === 0,
+                    'reads=' + allHits.length + ' bad=' + JSON.stringify(badHits.slice(0, 2)) + ' other requests=' + JSON.stringify(allOthers.slice(0, 3)));
+        }
+        r.check('E', 'guard', 'no page errors in any fixture', pageErrors.length === 0, pageErrors.slice(0, 3).join(' / '));
+        flush(r);
+    }
+
+    await browser.close();
+    const secs = ((Date.now() - t00) / 1000).toFixed(1);
+    const fails = results.filter((x) => x.result === 'FAIL').length, inval = results.filter((x) => x.result === 'INVALID').length;
+    console.log((fails || inval ? fails + ' check(s) FAILED' + (inval ? ', ' + inval + ' INVALID' : '') : 'all checks passed') +
+                ' (' + engine + ', ' + results.length + ' checks, ' + secs + ' s)');
+    if (proof) {
+        // The proof table: a [new] check must FAIL on the old build, a [guard] must PASS, none INVALID.
+        const label = (x) => x.label === '?' ? '?' : x.label;
+        let ok = 0, wrong = 0;
+        console.log('\nPROOF (' + engine + '): id | label | result | as the proof rule wants');
+        for (const x of results) {
+            const good = x.result !== 'INVALID' && ((x.label === 'new' && x.result === 'FAIL') || (x.label === 'guard' && x.result === 'PASS'));
+            if (good) ok++; else wrong++;
+            console.log('  ' + x.id + ' | ' + label(x) + ' | ' + x.result + ' | ' + (good ? 'ok' : 'WRONG'));
+        }
+        console.log('proof: ' + ok + ' as wanted, ' + wrong + ' not');
+        return wrong;
+    }
+    return fails + inval;
+}
+
+(async () => {
+    const argv = process.argv;
+    const arg = (k) => argv.indexOf(k) !== -1 ? argv[argv.indexOf(k) + 1] : null;
+    const which = arg('--browser') || 'chromium';
+    const engines = which === 'all' ? ['chromium', 'firefox', 'webkit'] : [which];
+    if (engines.some((e) => ['chromium', 'firefox', 'webkit'].indexOf(e) === -1)) {
+        console.log('INVALID: --browser takes chromium, firefox, webkit or all');
+        process.exit(1);
+    }
+    const quiet = argv.includes('--quiet');
+    const proof = argv.includes('--proof');
+    const only = arg('--only') ? arg('--only').split(',') : null;
+    const scriptPath = process.env.ACN_SCRIPT || path.join(REPO, 'ai-conversation-navigator.user.js');
+    const src = fs.readFileSync(scriptPath, 'utf8');
+    const header = (src.match(/\/\/ ==UserScript==[\s\S]*?\/\/ ==\/UserScript==/) || [''])[0];
+    const raw = src.replace(/\/\/ ==UserScript==[\s\S]*?\/\/ ==\/UserScript==\s*/, '');
+    let bad = 0;
+    for (const engine of engines) {
+        console.log('check-gemini-index — engine=' + engine + ', script=' + path.basename(scriptPath) + (proof ? ', --proof' : '') +
+                    ' (context: Playwright page realm, headless, 1280x720, the userscript inlined, no real manager)');
+        bad += await runEngine(engine, raw, header, only, quiet, proof);
+    }
+    process.exit(bad ? 1 : 0);
+})().catch((e) => { console.error(e); process.exit(2); });

@@ -189,6 +189,14 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: node probes/check-gemini-history.js --browser ${{ matrix.browser }}
 
+      # v12.19: Gemini's full question list from its own history read (DEC-063): the read's shape and
+      # failure classes, the self-check, the refresh, jumps that page the DOM in, and the "Load full
+      # history" fallback. Placed like the ones above: it asserts request counts over real-time windows
+      # (20-25 s), paging waits and trusted-wheel cancels, which differ per engine.
+      - name: Run Gemini index probe
+        if: matrix.os == 'ubuntu-latest'
+        run: node probes/check-gemini-index.js --browser ${{ matrix.browser }}
+
       # v12.17: Search, Export, Summary and the gallery read the whole conversation on Claude,
       # ChatGPT, Perplexity and Gemini, and Gemini bookmarks key to the turn id (DEC-059).
       - name: Run feature-gaps probe

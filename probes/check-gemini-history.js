@@ -2,6 +2,7 @@
 // history is not loaded yet, and stops saying it once the chat's start is known to be loaded.
 //
 // Run: node probes/check-gemini-history.js [--browser chromium|firefox|webkit|all] [--quiet] [--only H1,H8]
+//                                          [--gm-endpoint refuse|abort|none]
 //      ACN_SCRIPT=/path/to/other.user.js node probes/check-gemini-history.js
 // Exits non-zero on any failed or INVALID check.
 //
@@ -24,6 +25,16 @@
 // inlined into the page; no real userscript manager and no real Gemini. Real-browser behaviour is
 // the owner's acceptance.
 //
+// v12.19 (DEC-063): Gemini reads the whole chat from its own history request when it can; these
+// checks are the FALLBACK's, where it cannot. --gm-endpoint (default refuse) plants the page's token
+// in the mock (rpc: { at }), so v12.19's index really sends its read, and answers that read:
+//   refuse  HTTP 403 (")]}'"): the read is refused, a PERMANENT failure, the index degrades;
+//   abort   the request fails at the network level (the token planted);
+//   none    no token in the page and every request aborted: v12.18's exact page.
+// H1-H10 are unchanged in every mode. H0 [guard]: at most 2 history reads per page (no retry loop in
+// the fallback). HP [guard]: the jumps' paging status ([data-acn-role="paging-status"]) never shows
+// here: the fallback's jumps are v12.18's.
+//
 // Proof rule: run the old build (v12.15) against this file too — every check marked [new] must
 // FAIL there (on chromium; other engines are reported as measured). [guard] passes on both.
 // A precondition that fails (the page hidden, the mock's first page not as expected) prints
@@ -44,6 +55,9 @@ const C32 = 'aa32aa32aa32aa32', C20 = 'dd20dd20dd20dd20', C10 = 'bb10bb10bb10bb1
 const CHATS = { [C32]: 32, [C20]: 20, [C10]: 10, [C6]: 6 };
 const PAGE = 10;
 const LOAD_DELAY = 2000;
+// The page token in Phase 1's shape (v12.19; 28 chars, ':', a 13-digit timestamp). Synthetic.
+const AT0 = 'APwZiaHprobeTokenHead0000AAA:1762380000000';
+const BE = '/_/BardChatUi/data/batchexecute';
 
 function buildPage(scriptContent, mockConfig) {
     const mock = fs.readFileSync(path.join(REPO, 'tests/mock-pages/gemini-history.html'), 'utf8');
@@ -51,6 +65,10 @@ function buildPage(scriptContent, mockConfig) {
     const head = (mock.match(/<head[^>]*>([\s\S]*)<\/head>/i) || [])[1] || '';
     return `<!DOCTYPE html><html><head>${head}</head><body>
 <script>window.__MOCK_CONFIG = ${JSON.stringify(mockConfig)};</script>
+<script>
+window.__pgEver = 0;
+setInterval(function () { if (document.querySelector('[data-acn-role="paging-status"], #acn-paging-status')) window.__pgEver++; }, 50);
+</script>
 ${body}
 <script>
 delete window._aiNavAlreadyLoaded;
@@ -90,7 +108,7 @@ const NAV = `(function () {
              loaded: window.__mockGemini.loaded() };
 })()`;
 
-async function runEngine(engine, raw, only, quiet) {
+async function runEngine(engine, raw, only, quiet, endpoint) {
     const t0 = Date.now();
     const browser = await playwright[engine].launch({
         headless: true,
@@ -98,6 +116,8 @@ async function runEngine(engine, raw, only, quiet) {
     });
     let failures = 0, invalid = 0;
     const pageErrors = [];
+    const pageHits = [];     // history reads per page (H0)
+    const pagingSeen = [];   // pages where the paging status showed (HP)
     const want = (id) => !only || only.indexOf(id) !== -1;
     function check(id, desc, ok, detail) {
         if (ok) { if (!quiet) console.log('  PASS  ' + id + ' ' + desc + (detail ? ' — ' + detail : '')); }
@@ -112,11 +132,20 @@ async function runEngine(engine, raw, only, quiet) {
         const page = await context.newPage();
         page.on('pageerror', (e) => pageErrors.push(id + ': ' + String(e && e.message || e)));
         const url = 'https://gemini.google.com/app/' + chat;
-        const html = buildPage(raw, Object.assign({ chats: CHATS, page: PAGE, loadDelayMs: LOAD_DELAY, anchor: true }, cfgExtra || {}));
+        const cfg = Object.assign({ chats: CHATS, page: PAGE, loadDelayMs: LOAD_DELAY, anchor: true }, cfgExtra || {});
+        if (endpoint !== 'none') cfg.rpc = { at: AT0 };   // the token in the page (v12.19); the route answers the read
+        const html = buildPage(raw, cfg);
+        const hits = { id: id, n: 0 };
+        pageHits.push(hits);
         await page.route('**/*', (route) => {
-            if (route.request().url() === url) {
+            const u = route.request().url();
+            if (u === url) {
                 route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }).catch(() => {});
                 return;
+            }
+            if (u.indexOf(BE) !== -1) {
+                hits.n++;
+                if (endpoint === 'refuse') { route.fulfill({ status: 403, contentType: 'application/json; charset=utf-8', body: ")]}'" }).catch(() => {}); return; }
             }
             route.abort().catch(() => {});
         });
@@ -166,7 +195,10 @@ async function runEngine(engine, raw, only, quiet) {
             return !!row;
         }, i);
         h.bubble = (n) => page.evaluate(BUBBLE + '(' + n + ')');
-        h.close = () => context.close();
+        h.close = async () => {
+            try { if (await page.evaluate(() => window.__pgEver)) pagingSeen.push(id); } catch (e) {}
+            await context.close();
+        };
         return h;
     }
 
@@ -358,6 +390,11 @@ async function runEngine(engine, raw, only, quiet) {
         }
     }
 
+    const most = pageHits.reduce((m, x) => Math.max(m, x.n), 0);
+    check('H0', '[guard] at most 2 history reads per page in the fallback (no retry loop)', most <= 2,
+          'endpoint=' + endpoint + ' reads per page: ' + pageHits.map((x) => x.id + '=' + x.n).join(' '));
+    check('HP', '[guard] the jumps\' paging status never shows on the fallback', pagingSeen.length === 0,
+          pagingSeen.length ? 'seen in ' + pagingSeen.join(', ') : 'never seen');
     check('E', 'no page errors', pageErrors.length === 0, pageErrors.slice(0, 2).join(' / '));
     await browser.close();
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
@@ -378,12 +415,17 @@ async function runEngine(engine, raw, only, quiet) {
     }
     const quiet = argv.includes('--quiet');
     const only = arg('--only') ? arg('--only').split(',') : null;
+    const endpoint = arg('--gm-endpoint') || 'refuse';
+    if (['refuse', 'abort', 'none'].indexOf(endpoint) === -1) {
+        console.log('INVALID: --gm-endpoint takes refuse, abort or none');
+        process.exit(1);
+    }
     const scriptPath = process.env.ACN_SCRIPT || path.join(REPO, 'ai-conversation-navigator.user.js');
     const raw = fs.readFileSync(scriptPath, 'utf8').replace(/\/\/ ==UserScript==[\s\S]*?\/\/ ==\/UserScript==\s*/, '');
     let bad = 0;
     for (const engine of engines) {
-        console.log('check-gemini-history — engine=' + engine + ', script=' + path.basename(scriptPath));
-        bad += await runEngine(engine, raw, only, quiet);
+        console.log('check-gemini-history — engine=' + engine + ', script=' + path.basename(scriptPath) + ', gm-endpoint=' + endpoint);
+        bad += await runEngine(engine, raw, only, quiet, endpoint);
     }
     process.exit(bad ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

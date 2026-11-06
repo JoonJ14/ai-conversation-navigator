@@ -3,8 +3,16 @@
 // Gemini, and Gemini bookmarks key to the turn's own id.
 //
 // Run: node probes/check-feature-gaps.js [--browser chromium|firefox|webkit] [--quiet] [--only C1,P3]
+//                                         [--gm-endpoint refuse|abort|none]
 //      ACN_SCRIPT=/path/to/other.user.js node probes/check-feature-gaps.js
 // Exits non-zero on any failed check.
+//
+// v12.19 (DEC-063): Gemini reads the whole chat from its own history request when it can; the G checks
+// are the FALLBACK's, where it cannot. --gm-endpoint (default refuse) plants the page's token in the
+// Gemini mock (rpc: { at }), so v12.19's index really sends its read, and answers it: refuse = HTTP 403
+// (the index degrades, PERMANENT); abort = a network failure; none = no token, v12.18's exact page.
+// G1-G10 are unchanged in every mode. G0 [guard]: at most 2 history reads per Gemini page; GP [guard]:
+// the jumps' paging status never shows on the fallback.
 //
 // WHAT v12.16 DID, MEASURED LIVE (Chrome + Tampermonkey, the owner's profile, visible tab,
 // 2026-11-01): ChatGPT (49 questions) Search found no answer at all, Summary read "49 user, 0 AI",
@@ -316,6 +324,14 @@ function pplxPage(all, url) {
 
 // ── Gemini ────────────────────────────────────────────────────────────────────────────────────
 const GM_CHAT = 'aa32aa32aa32aa32';
+// v12.19: the page token in Phase 1's shape (28 chars, ':', a 13-digit timestamp; synthetic), the
+// history read's path, and a spy that counts any sample with the jumps' paging status shown.
+const GM_AT0 = 'APwZiaHprobeTokenHead0000AAA:1762380000000';
+const GM_BE = '/_/BardChatUi/data/batchexecute';
+const GM_PG_SPY = `<script>
+window.__pgEver = 0;
+setInterval(function () { if (document.querySelector('[data-acn-role="paging-status"], #acn-paging-status')) window.__pgEver++; }, 50);
+</script>`;
 function gmTurnIdNode(n) {   // the mock's turnId(), for seeding legacy records
     function fnv(s) { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return ('0000000' + h.toString(16)).slice(-8); }
     return fnv(GM_CHAT + '#' + n) + fnv(n + '@' + GM_CHAT);
@@ -395,6 +411,11 @@ function claudeXhr(payload) {
     const showLogs = argv.includes('--logs');    // print the page's [ACN] lines after each site
     const only = argv.indexOf('--only') !== -1 ? argv[argv.indexOf('--only') + 1].split(',') : null;
     const want = (id) => !only || only.some((o) => id === o || id.indexOf(o) === 0);
+    const GM_ENDPOINT = argv.indexOf('--gm-endpoint') !== -1 ? argv[argv.indexOf('--gm-endpoint') + 1] : 'refuse';
+    if (['refuse', 'abort', 'none'].indexOf(GM_ENDPOINT) === -1) {
+        console.log('INVALID: --gm-endpoint takes refuse, abort or none');
+        process.exit(1);
+    }
     const scriptPath = process.env.ACN_SCRIPT || path.join(REPO, 'ai-conversation-navigator.user.js');
     const raw = fs.readFileSync(scriptPath, 'utf8').replace(/\/\/ ==UserScript==[\s\S]*?\/\/ ==\/UserScript==\s*/, '');
     const browser = await playwright[engine].launch({
@@ -445,7 +466,7 @@ function claudeXhr(payload) {
     }
 
     const ready = (o) => o.ready;
-    console.log('check-feature-gaps — engine=' + engine + ', script=' + path.basename(scriptPath));
+    console.log('check-feature-gaps — engine=' + engine + ', script=' + path.basename(scriptPath) + ', gm-endpoint=' + GM_ENDPOINT);
 
     // ── ChatGPT ─────────────────────────────────────────────────────────────────────────────
     async function gptOpen(failApi, store, mapOpts) {
@@ -869,10 +890,19 @@ function claudeXhr(payload) {
     }
 
     // ── Gemini ──────────────────────────────────────────────────────────────────────────────
+    // v12.19: the token planted unless --gm-endpoint none; the read refused (403) or aborted.
+    const gmRpc = (cfg) => GM_ENDPOINT === 'none' ? cfg : Object.assign({ rpc: { at: GM_AT0 } }, cfg);
+    const gmApi = GM_ENDPOINT === 'refuse' ? (u) => (u.indexOf(GM_BE) !== -1 ? { status: 403, body: ")]}'" } : null) : null;
+    const gmSeen = [];   // per Gemini page: { id, reads, paging } (G0, GP)
+    async function gmDone(o, id) {
+        let pgEver = 0;
+        try { pgEver = await o.pg.evaluate(() => window.__pgEver || 0); } catch (e) {}
+        gmSeen.push({ id, reads: o.requests.filter((u) => u.indexOf(GM_BE) !== -1).length, paging: pgEver });
+    }
     async function gmOpen(cfg, store) {
         const url = 'https://gemini.google.com/app/' + GM_CHAT;
-        const html = page('gemini-history.html', raw, Object.assign({ chats: { [GM_CHAT]: 32 }, page: 10, loadDelayMs: 300 }, cfg || {}), store);
-        const o = await open(url, html, null);
+        const html = page('gemini-history.html', raw, gmRpc(Object.assign({ chats: { [GM_CHAT]: 32 }, page: 10, loadDelayMs: 300 }, cfg || {})), store, GM_PG_SPY);
+        const o = await open(url, html, gmApi);
         await o.pg.waitForFunction(() => window.__mockGemini && window.__mockGemini.loaded() === 10, null, { timeout: 20000 });
         await o.pg.waitForTimeout(1500);
         return o;
@@ -953,7 +983,7 @@ function claudeXhr(payload) {
                           m.inView && !m.toasts.length, JSON.stringify(m));
                 }
             }
-        } finally { await o.context.close(); }
+        } finally { await gmDone(o, 'G1-G5'); await o.context.close(); }
     }
     if (want('G6')) {
         // Two positional records from before v12.17, made with the whole history loaded: one that
@@ -979,7 +1009,7 @@ function claudeXhr(payload) {
             check('G6', 'new', 'Gemini: a positional record binds to its turn only on proof ("Q#5"); one that does not prove reads "Q#?"',
                   earlyBound === 0 && proof.msgUuid === gmTurnIdNode(5) && !wrong.msgUuid && b.map((x) => x.label).sort().join('|') === 'Q#5|Q#?',
                   'bound while partial=' + earlyBound + ' labels=' + b.map((x) => x.label).join('|') + ' proof.msgUuid=' + proof.msgUuid + ' turn5=' + gmTurnIdNode(5) + ' (preview ' + JSON.stringify(q5.slice(0, 10)) + ')');
-        } finally { await o.context.close(); }
+        } finally { await gmDone(o, 'G6'); await o.context.close(); }
     }
     if (want('G9')) {
         // A record made on Q5 with the whole history loaded (msgIndex 4), in a chat where Q27 asks Q5's
@@ -1001,7 +1031,7 @@ function claudeXhr(payload) {
             check('G9', 'new', 'Gemini: a positional record is never bound while history is partial (Q27 repeats its Q5 there), and the repeat leaves it "Q#?"',
                   !e0.msgUuid && !r.msgUuid && b.length === 1 && b[0].label === 'Q#?',
                   'bound at load=' + (e0.msgUuid || null) + ' (turn27=' + gmTurnIdNode(27) + ') after=' + (r.msgUuid || null) + ' label=' + (b[0] || {}).label);
-        } finally { await o.context.close(); }
+        } finally { await gmDone(o, 'G9'); await o.context.close(); }
     }
     if (want('G10')) {
         // A 30-turn chat: pages of 10, 20, 30, the last one full, so nothing short proves the start; only
@@ -1015,9 +1045,9 @@ function claudeXhr(payload) {
         }
         const rec = { id: 'bm_timer', schema: 1, entityType: 'user-msg', contentHash: contentHash(gmQuestion(5), 4), msgUuid: null,
                       preview: gmQuestion(5).substring(0, 120), msgIndex: 4, createdAt: 1, platform: 'gemini.google.com' };
-        const html = page('gemini-history.html', raw, { chats: { [C30]: 30 }, page: 10, loadDelayMs: 300 },
-                          { 'acn-bookmarks-v1': JSON.stringify({ [url]: { bookmarks: [rec] } }) });
-        const o = await open(url, html, null);
+        const html = page('gemini-history.html', raw, gmRpc({ chats: { [C30]: 30 }, page: 10, loadDelayMs: 300 }),
+                          { 'acn-bookmarks-v1': JSON.stringify({ [url]: { bookmarks: [rec] } }) }, GM_PG_SPY);
+        const o = await open(url, html, gmApi);
         try {
             const pg = o.pg;
             await pg.waitForFunction(() => window.__mockGemini && window.__mockGemini.loaded() === 10, null, { timeout: 20000 });
@@ -1042,7 +1072,7 @@ function claudeXhr(payload) {
             check('G10', 'new', 'Gemini: a chat whose last page is a full 10 completes by the 8 s rule, and a provable positional record binds then',
                   !b0.msgUuid && b1.msgUuid === tid(5) && shownLabel === 'Q#5',
                   'before=' + (b0.msgUuid || null) + ' after=' + (b1.msgUuid || null) + ' turn5=' + tid(5) + ' open panel=' + shownLabel);
-        } finally { await o.context.close(); }
+        } finally { await gmDone(o, 'G10'); await o.context.close(); }
     }
     if (['G7', 'G8'].some(want)) {
         // The content-visibility model with the live 500 px estimate: a glide from the bottom to a
@@ -1074,7 +1104,16 @@ function claudeXhr(payload) {
                 check('G8', 'guard', 'Gemini (content-visibility): Summary\'s first segment, clicked from the bottom, lands on Q#1',
                       m.inView && !m.toasts.length, JSON.stringify(m));
             }
-        } finally { await o.context.close(); }
+        } finally { await gmDone(o, 'G7-G8'); await o.context.close(); }
+    }
+
+    // v12.19: the Gemini fixtures above ran on the fallback (--gm-endpoint): no retry loop, no paging status.
+    if (gmSeen.length) {
+        const most = gmSeen.reduce((m, x) => Math.max(m, x.reads), 0);
+        check('G0', 'guard', 'Gemini fallback (gm-endpoint ' + GM_ENDPOINT + '): at most 2 history reads per page (no retry loop)',
+              most <= 2, gmSeen.map((x) => x.id + '=' + x.reads).join(' '));
+        check('GP', 'guard', 'Gemini fallback: the jumps\' paging status never shows', gmSeen.every((x) => !x.paging),
+              gmSeen.filter((x) => x.paging).map((x) => x.id).join(', ') || 'never seen');
     }
 
     // ── Claude ──────────────────────────────────────────────────────────────────────────────
