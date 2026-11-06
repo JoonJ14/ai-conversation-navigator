@@ -1603,12 +1603,20 @@
     // Shared by both transports, so a 200, an HTTP error and a bad body mean the same
     // thing whichever one answered. The error strings are v12.8's, verbatim: the walk
     // builds its degraded reasons from them and ciIsPermanentReason() reads that TEXT.
-    function ciReadResponse(status, text) {
+    // `raw` (v12.19, Gemini's hNvQHb read only): a 200's body is handed over as TEXT, unparsed.
+    // batchexecute answers ")]}'" and length-prefixed frames, which JSON.parse would turn into
+    // 'malformed JSON' (PERMANENT, no fallback). The Gemini adapter reads and classifies it.
+    function ciReadResponse(status, text, raw) {
         if (status !== 200) {
             // Status 0 through onload is a request that never got an HTTP answer — some
             // managers report a refused request that way. Not a verdict from the server.
             return ciFailure(status ? 'http' : 'network', status, 'HTTP ' + status,
                              status ? ciErrorType(text) : '');
+        }
+        if (raw) {
+            return { ok: true, kind: 'ok', status: 200, json: null,
+                     text: typeof text === 'string' ? text : '',
+                     errorType: '', error: '', detail: '' };
         }
         try {
             return { ok: true, kind: 'ok', status: 200, json: JSON.parse(text),
@@ -1631,10 +1639,16 @@
 
     // `opts` (v12.10, the index adapters only): { origin, headers }. Claude's calls pass
     // none, and then the request below is v12.9's, option for option.
+    // v12.19: a POST (Gemini's hNvQHb read) is refused here. Gemini reads through fetch only until a
+    // Phase 0 result needs this transport (the owner's decision 3, DEC-063). Enabling it: DEC-063.
     function ciGmxhrGet(path, done, opts) {
         var watchdog = null;
         if (typeof GM_xmlhttpRequest !== 'function') {
             done(ciFailure('threw', 0, 'GM_xmlhttpRequest unavailable'));
+            return;
+        }
+        if (opts && opts.method === 'POST') {
+            done(ciFailure('threw', 0, 'GM_xmlhttpRequest POST not enabled'));
             return;
         }
         function finish(r) {
@@ -1727,6 +1741,11 @@
     // `opts` (v12.10): { origin, headers }. `origin` is the exact origin this request
     // belongs to (an index adapter's, already matched against the page); the guard below
     // compares against it instead of claude.ai. Claude's calls pass none.
+    // v12.19: `opts` may also carry { method: 'POST', body, raw }: Gemini's hNvQHb read, nothing else.
+    // Its request is the one Phase 0 measured in this world (probes/gemini-transport-check.user.js,
+    // Chrome + Tampermonkey 5.5.1): POST, credentials 'include', ONE header (Content-Type:
+    // application/x-www-form-urlencoded;charset=UTF-8, CORS-safelisted, so the request stays simple),
+    // a form body carrying the page token. Without opts.method the init below is v12.9's (L1-shape).
     function ciFetchGet(path, done, opts) {
         var timer = null, stalled = false, open = false;
         var origin = ciFetchOrigin();
@@ -1778,6 +1797,7 @@
             open = true;
             _ciFetchOpen++;
             var init = { credentials: 'include' };
+            if (opts && opts.method === 'POST') { init.method = 'POST'; init.body = String(opts.body || ''); }
             if (opts && opts.headers) init.headers = opts.headers;
             fetch(origin + path, init).then(function (res) {
                 var status;
@@ -1790,7 +1810,7 @@
                     // class as gmxhr, and the parsed object belongs to this realm.
                     res.text().then(function (text) {
                         ended();
-                        finish(ciReadResponse(status, text));
+                        finish(ciReadResponse(status, text, !!(opts && opts.raw)));
                     }, function (e) {
                         ended();
                         finish(ciFailure('network', 0, 'network error', '', ciErrorName(e)));
@@ -1816,10 +1836,13 @@
 
     // ONE request over ONE transport, normalised so nothing above it needs to know
     // which transport answered:
-    //   { ok, kind, status, json, errorType, transport, error, detail }
+    //   { ok, kind, status, json, text (raw reads only), errorType, transport, error, detail }
     //   kind: 'ok' | 'http' (the server answered non-200) | 'parse' (200, bad JSON)
     //       | 'network' (no HTTP answer) | 'timeout' | 'threw' (the transport itself
     //         threw, or does not exist here)
+    // `opts` = { origin, headers } (v12.10), plus { method: 'POST', body, raw } (v12.19,
+    // Gemini only: ciFetchGet sends the POST and honours `raw`; ciGmxhrGet refuses a POST);
+    // the names keep 'Get' because the mutant anchors and every caller use them.
     // `cb` fires exactly once. If cb itself throws, the exception is rethrown on a
     // fresh stack — inside a promise chain it would otherwise vanish, or be reported
     // as a transport failure that never happened.
