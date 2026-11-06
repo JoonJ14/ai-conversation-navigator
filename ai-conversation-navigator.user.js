@@ -3278,6 +3278,35 @@
         return ixPplxSameText(b, _ix.textAt[n]);
     }
 
+    // ── Gemini's index (v12.19, DEC-063): its state, as the panels and the button read it ──
+    // gmHistPartial() keeps its v12.16 meaning in every index state: the DOM holds only the latest
+    // part. The index never writes _gmHist: its null cursor describes the server's history, not the
+    // DOM's, and a later fallback must find the DOM's own state (bookmark labels, the export, the
+    // gallery, the "Load full history" button). Each helper is defined here once.
+    function gmIxReady() {
+        var g = IX_ADAPTERS.gemini;
+        return !!g && ixReadyAdapter() === g;
+    }
+    // 'ready', 'loading', 'degraded' (a load failed, also while it is retried: ixLoad leaves
+    // _ix.reason alone until a load succeeds) or 'none' (no adapter, or no conversation id).
+    function gmIxState() {
+        var a = ixAdapter();
+        var cid = (a && a.id === 'gemini') ? a.getConversationId() : null;
+        if (!cid) return 'none';
+        if (ixReadyAdapter() === a) return 'ready';
+        if (_ix.cid === cid && (_ix.status === 'degraded' ||
+                                (_ix.status === 'loading' && !!_ix.reason))) return 'degraded';
+        return 'loading';
+    }
+    // The LIST a panel shows is the loaded part only (Navigate, Search, the size estimate's line):
+    // never while the index is ready, since the list then comes from the index.
+    function gmListPartial() {
+        return gmHistPartial() && !gmIxReady();
+    }
+    function gmListNote() {
+        return gmIxReady() ? null : gmHistNote();
+    }
+
     var IX_ADAPTERS = {
         // The v12.0 index, wrapped. Its scan branch, jump bridge and bookmarks call the
         // ci* functions directly; locate() is what _relocateQuestionElement uses.
@@ -3713,6 +3742,9 @@
             _bmIxCanonicalize();
             orbCtxTrack();   // the ChatGPT meter's notices, while Navigate is closed too (v12.18)
             if (typeof injectBookmarkIcons === 'function') injectBookmarkIcons();
+            // Gemini (v12.19): the history tracker follows the DOM while the index is ready too, in the
+            // DOM path's order (flags, tracker, panels), so a later fallback finds the DOM's own state.
+            if (a.id === 'gemini') gmHistObserve();
             if (typeof orbOnScanComplete === 'function') orbOnScanComplete();
             // A mounted question the index does not know: a new message, an edit or a
             // branch switch. Refetch once per such signature, behind the cooldown.
@@ -3773,8 +3805,12 @@
         if (_ix.status === 'degraded') {
             banner = createElement('div', {
                 className: 'acn-ci-banner acn-ci-degraded',
-                textContent: '\u26a0 Showing only on-screen messages \u2014 full history unavailable (' +
-                             _ix.reason + ')'
+                // Gemini keeps every turn it loads (DEC-057): its fallback lists the loaded part (v12.19).
+                textContent: a.id === 'gemini'
+                    ? '\u26a0 Showing the loaded messages only \u2014 full history unavailable (' +
+                      _ix.reason + ')'
+                    : '\u26a0 Showing only on-screen messages \u2014 full history unavailable (' +
+                      _ix.reason + ')'
             });
             banner.setAttribute('data-acn-index-status', 'degraded');
         } else if (_ix.status === 'loading') {
@@ -8825,7 +8861,7 @@
         // never appeared, including on reopening the panel (Codex).
         var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|') +
                  '||' + _ciStatus + '|g' + _ciIndexGen + '|r' + (_ciRefreshFailed ? '1' : '0') +
-                 '|x' + ixFingerprint() + '|h' + (gmHistPartial() ? '1' : '0');
+                 '|x' + ixFingerprint() + '|h' + (gmListPartial() ? '1' : '0');
         // The list is unchanged, but what is drawn may not match the counter: the SSE events
         // draw the bar without the list, so a later scan or a reopen can find dots drawn for
         // another count. Redraw only when the counter differs from what is drawn. Never
@@ -8841,8 +8877,9 @@
         while (list.firstChild) list.removeChild(list.firstChild);
 
         orbRenderIndexBanner(list);
-        // Gemini: the list is the loaded part of the chat only (v12.16, DEC-057).
-        var histNote = gmHistNote();
+        // Gemini: the list is the loaded part of the chat only (v12.16, DEC-057), while its index is
+        // not ready (v12.19).
+        var histNote = gmListNote();
         if (histNote) list.appendChild(histNote);
 
         if (_questions.length === 0) {
@@ -9377,12 +9414,14 @@
     }
 
     // { total, cum }: the conversation's characters, and the characters up to and including each
-    // question's answer (cum[i] for Navigate's question i). ChatGPT and Perplexity read the
-    // index's full text (ixConversation); Gemini reads its loaded turns, which it keeps (DEC-057);
-    // anything else, the questions' own text. Characters ÷ 4 estimate tokens, as on Claude.
+    // question's answer (cum[i] for Navigate's question i). ChatGPT, Perplexity and, since v12.19,
+    // Gemini read the index's full text (ixConversation) while it is ready; Gemini otherwise reads
+    // its loaded turns, which it keeps (DEC-057); anything else, the questions' own text.
+    // Characters ÷ 4 estimate tokens, as on Claude.
     function orbConvSizes() {
         var n = _questions.length, cum = [], i, run = 0;
-        var conv = (platform.id === 'chatgpt' || platform.id === 'perplexity') ? ixConversation() : null;
+        var conv = (platform.id === 'chatgpt' || platform.id === 'perplexity' || platform.id === 'gemini')
+                   ? ixConversation() : null;
         if (conv && conv.length) {
             var perQ = [];
             for (i = 0; i < n; i++) perQ.push(0);
@@ -9445,8 +9484,9 @@
         // Questions only (no ready index): the dots stay positional, as the size is not known.
         _ctxDotMode = sz.partial ? null : 'size';
         _ctxDotSizes = sz.partial ? null : sz.cum.map(function (c) { return c / 4; });
-        // Gemini: the estimate covers the loaded turns only while older history is not loaded.
-        orbCtxSetLine('acn-ctx-hist', 'acn-ctx-hist', (platform.id === 'gemini' && gmHistPartial())
+        // Gemini: the estimate covers the loaded turns only while older history is not loaded and
+        // its index is not ready (v12.19).
+        orbCtxSetLine('acn-ctx-hist', 'acn-ctx-hist', (platform.id === 'gemini' && gmListPartial())
             ? '\u2191 Older messages are not loaded yet \u2014 the estimate covers the loaded part only'
             : sz.partial ? CTX_PARTIAL_NOTE : '');
         orbCtxSetLine('acn-ctx-caption', 'acn-ctx-caption', orbSizeCaption());
@@ -10054,7 +10094,7 @@
             }
             var sfp = q + '|' + _questions.length + '|' + (_aiResponses ? _aiResponses.length : 0) +
                       '|g' + _ciIndexGen + '|L' + liveLen + '|x' + ixFingerprint() +
-                      '|h' + (gmHistPartial() ? 1 : 0);
+                      '|h' + (gmListPartial() ? 1 : 0);
             if (sfp === _searchListFingerprint && list.firstChild) return;
             _searchListFingerprint = sfp;
         }
@@ -10071,8 +10111,9 @@
 
         if (hint) hint.style.display = 'none';
 
-        // Gemini: only the loaded part of the chat can be searched; say so, as Navigate does (v12.17).
-        var gmNote = gmHistNote();
+        // Gemini: only the loaded part of the chat can be searched; say so, as Navigate does (v12.17),
+        // while its index is not ready (v12.19).
+        var gmNote = gmListNote();
         if (gmNote) list.appendChild(gmNote);
 
         var qLower = q.toLowerCase();
@@ -10844,7 +10885,7 @@
     // "A#?" when it is not bound to a message (or its message left the path); "Answer to Q#?"
     // while the index is not ready.
     function _bmLabel(bm) {
-        if (ixAdapter()) return _bmIxLabel(bm);      // ChatGPT, Perplexity (v12.15)
+        if (_bmIxAdapter()) return _bmIxLabel(bm);   // ChatGPT, Perplexity (v12.15); Gemini when ready (v12.19)
         if (platform && platform.id === 'gemini') return _bmGmLabel(bm);   // v12.17
         if (bm.entityType === 'user-msg') return 'Q#' + (_bmDisplayOrdinal(bm) + 1);
         if (bm.entityType !== 'ai-msg' || !ciIsClaudeChat()) return 'A#' + (_bmDisplayOrdinal(bm) + 1);
@@ -10859,7 +10900,7 @@
     // Export order: by the number the label shows, an answer right after its question; an
     // answer with no listed question before it, then one that is not placed, go last.
     function _bmSortKey(bm) {
-        if (ixAdapter()) return _bmIxSortKey(bm);
+        if (_bmIxAdapter()) return _bmIxSortKey(bm);
         if (platform && platform.id === 'gemini') return _bmGmSortKey(bm);
         if (bm.entityType !== 'ai-msg' || !ciIsClaudeChat()) return _bmDisplayOrdinal(bm);
         var q = ciIsReady() ? _bmAnswerQuestionIndex(bm) : null;
@@ -12005,8 +12046,9 @@
         function pathOrdinal(el, sender, fallbackIdx) {
             return _bmPathOrdinal(el, sender, fallbackIdx);
         }
-        // ChatGPT and Perplexity: by the messages' own ids, never by position (v12.15).
-        var ixa = ixAdapter();
+        // ChatGPT and Perplexity: by the messages' own ids, never by position (v12.15). Gemini too
+        // while its index is ready (v12.19); the same nodes and keys as _bmGmInject's.
+        var ixa = _bmIxAdapter();
         if (ixa) { _bmIxInject(ixa); return; }
         // Gemini: by the turn's own id, never by position (v12.17).
         if (platform && platform.id === 'gemini') { _bmGmInject(); return; }
@@ -12067,10 +12109,19 @@
         return !!key && _bmIxWaiting.hasOwnProperty(key) && _bmIxWaiting[key] > _ixBmServed;
     }
 
+    // The adapter bookmarks run on (v12.19). ChatGPT and Perplexity: whenever it exists (v12.15).
+    // Gemini: only while its index is ready. Loading, degraded or absent, v12.18's turn-id path
+    // (_bmGm*) runs unchanged: "Q#…" while the history is partial, Q#n once its start is loaded,
+    // never the index path's "Q#?" because an adapter merely exists (spec v12.19, Regressions).
+    function _bmIxAdapter() {
+        var a = ixAdapter();
+        return (a && a.id === 'gemini' && ixReadyAdapter() !== a) ? null : a;
+    }
+
     // 'ready' (the index of the open conversation is in), 'loading' (it is coming), or 'off'
     // (no conversation, or its index failed and the page runs on the DOM scan).
     function _bmIxState() {
-        var a = ixAdapter(), cid = a ? a.getConversationId() : null;
+        var a = _bmIxAdapter(), cid = a ? a.getConversationId() : null;
         if (!cid) return 'off';
         if (ixReadyAdapter() === a) return 'ready';
         return (_ix.status === 'degraded' && _ix.cid === cid) ? 'off' : 'loading';
@@ -12662,8 +12713,8 @@
     }
 
     function orbScrollToBookmark(bookmark) {
-        var ixJumpA = ixAdapter();
-        if (ixJumpA) { _bmIxJump(ixJumpA, bookmark); return; }       // ChatGPT, Perplexity (v12.15)
+        var ixJumpA = _bmIxAdapter();
+        if (ixJumpA) { _bmIxJump(ixJumpA, bookmark); return; }       // ChatGPT, Perplexity (v12.15); Gemini when ready (v12.19)
         if (platform && platform.id === 'gemini') { _bmGmJump(bookmark); return; }   // v12.17
         if (bookmark.entityType === 'ai-msg' && ciIsClaudeChat()) { _bmJumpToAnswer(bookmark); return; }
         var targetEl = null;
@@ -14849,7 +14900,9 @@
             return;
         }
         // Gemini: a summary of the loaded part only, until the start is loaded (v12.17, Tier 3 r3).
-        var gmNote = gmHistNote();
+        // A summary built from the index (its stamp is set) covers the whole chat (v12.19): the note
+        // describes the data the summary was built from, not the state at render time.
+        var gmNote = summaryData.indexStamp ? null : gmHistNote();
         if (gmNote) container.appendChild(gmNote);
 
         var stats = summaryData.stats;
@@ -15221,7 +15274,9 @@
             return out;
         }
         var a = ixReadyAdapter();
-        if (!a || !_ix.images) return null;
+        // Gemini's gallery stays on its DOM path (v12.19): its index lists no images, and ixLoad
+        // sets _ix.images to [] for it, which would draw an empty indexed gallery.
+        if (!a || a.id === 'gemini' || !_ix.images) return null;
         var root = a.id === 'chatgpt' ? ixGptRoot() : null;
         var perTurn = {};
         for (i = 0; i < _ix.images.length; i++) perTurn[_ix.images[i].at] = (perTurn[_ix.images[i].at] || 0) + 1;
@@ -15972,8 +16027,10 @@
             ' (' + tlUsers + ' user, ' + (timeline.length - tlUsers) + ' AI)');
         // Never let a DOM-scraped export imply completeness on a platform that
         // only mounts a window of the conversation: Claude, and since v12.17 ChatGPT and
-        // Perplexity, whose index failed or has not loaded yet.
-        var ixD = ixAdapter(), ixOn = !!(ixD && ixD.getConversationId());
+        // Perplexity, whose index failed or has not loaded yet. Gemini keeps every turn it loads
+        // (DEC-057): its DOM export is the loaded part, said by the gmHistPartial block below, never
+        // "on screen only" (v12.19).
+        var ixD = ixAdapter(), ixOn = !!(ixD && ixD.id !== 'gemini' && ixD.getConversationId());
         if (ciIsClaudeChat() || ixOn) {
             var why = ciIsClaudeChat() ? _ciDegradedReason
                     : (_ix.status === 'degraded' ? _ix.reason : 'the history is still loading');
