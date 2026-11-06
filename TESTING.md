@@ -1706,8 +1706,10 @@ only.
    On 2026-11-01/02 (v12.17) [same setup, the owner's Chrome with several windows]:
    - **Pick the window by its title, not by "window 1" or a tab index.** The confirm page's window title contains
      "Userscript" ("Userscript update", "Userscript re-installation", "Attention! Userscript downgrade"); loop over
-     the process's windows and take the one whose name contains it. A fixed tab index pressed nothing once the owner's
-     tabs moved, and a download bubble from an export is itself a window that can be the front one.
+     the process's windows and take the one whose name contains it, comparing case-sensitively (`considering
+     case`), and keep that title in a variable read BEFORE the press: a title read afterwards is the next tab's
+     (agent_docs/conventions.md, the G0 install lesson, 2026-11-05). A fixed tab index pressed nothing once the
+     owner's tabs moved, and a download bubble from an export is itself a window that can be the front one.
    - **Escape on the confirm page cancels it.** Sending Escape to close a download bubble first, while the confirm page
      was frontmost, closed the confirm page without installing. Escape only when the bubble is the front window, then
      reopen the install URL if the confirm page is gone.

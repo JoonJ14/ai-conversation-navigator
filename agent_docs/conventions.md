@@ -477,3 +477,19 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 > harness defect.
 > **Why:** a seed in the wrong encoding leaves the build nothing to act on, so the gate cannot tell the fixed build
 > from the old one.
+
+> **Issue:** Installing the v12.19 G0 probe in the owner's Chrome (macOS, Chrome + Tampermonkey 5.5.1, the owner's
+> profile, 2026-11-05), the AppleScript that presses Tampermonkey's confirm button reported "pressed Install in" the
+> window of the owner's Perplexity thread `de5dd7ce`, not the confirm page. Two defects in the script. AppleScript's
+> `contains` ignores case by default, so a window title that merely mentions a userscript passes a "Userscript"
+> test. And the script read `name of target` AFTER the press: the confirm tab had closed, so the window's title was
+> already the next active tab's. The press itself was Tampermonkey's Install (the script presses once, and G0 was
+> installed), but the report named the owner's thread and cost a read-only check of the accessibility tree before
+> that was known.
+> **Correct approach:** wrap the window-title test and the button-name test in `considering case … end considering`;
+> capture the matched window's title into a variable BEFORE the press and report that variable; then verify the
+> install on the site itself (`[data-acn-version]`, or the installed script's own marker), never by the window title
+> afterwards.
+> **Why:** the owner's windows hold their own chats, whose titles can mention this project; a case-insensitive match
+> can press a button in one of them, and a title read after the press names the wrong window even when the press was
+> right.
