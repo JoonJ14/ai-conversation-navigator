@@ -24,23 +24,38 @@
 //   through a route bridge: page.route sends each batchexecute request to the mock's rpc() in the page,
 //   so the request takes the real network path and the DOM and the payload come from one model.
 //
-// CONTRACT READ HERE (consolidated plan §3 and the button plan §2.6): `data-acn-index-check` (ok |
-// pending | mismatch) on #acn-zone; `[data-acn-role="paging-status"]` (data-acn-paging-pages / -loaded);
-// `[data-acn-role="history-load"]` (data-acn-history-load idle | loading | restoring, -loaded, -total);
-// the zone's data-acn-history-load-end / -anchor / -restore; data-acn-jump-resolved; the console lines
+// CONTRACT ASSERTED HERE (consolidated plan §3 and the button plan §2.6): `data-acn-index-check` on
+// #acn-zone ("ok" after a good load: I1; "pending" while nothing is compared, then "ok": I1b; "mismatch":
+// I6, I6b, I6c, I19); `[data-acn-role="paging-status"]` with data-acn-paging-pages / -loaded true to the
+// page at every change (I12, I12b); `[data-acn-role="history-load"]` inside the Navigate panel with
+// data-acn-history-load idle | loading, -loaded as its text says, -total "?" (F1, F5); the zone's
+// data-acn-history-load-end / -anchor / -restore (F1-F8); data-acn-jump-resolved; the console lines
 // "[ACN] index: platform=gemini transport=fetch endpoint=hNvQHb page=N size=S[ retry=at-new|at-same]
-// status=C ..." (one per request), "[ACN] paging: platform=gemini via=jump|button start|end=..." and
-// "[ACN] history: ...". Landings are asserted by where the target ends (in view, marked resolved), never
-// by which landing function ran (owner amendment M1).
+// status=C ..." (one per request), "[ACN] paging: platform=gemini via=jump start|end=..." (I12) and
+// "[ACN] history: load start|page|load end|view restored ..." (F1, F5; end and restore in F2, F3); no
+// token, request body, query string, cursor, question or answer text in the console or storage (I2, I3,
+// I12, F1, F5). Landings are asserted by where the target ends (in view, marked resolved), never by
+// which landing function ran (owner amendment M1).
 //
 // CONTEXT of these results: Playwright, page realm, headless, viewport 1280x720, this machine, the
 // userscript inlined into the page; no real userscript manager and no real Gemini. Real-browser
 // behaviour on the three managers is the owner's acceptance.
 //
+// THE PAGING STATUS is watched by a MutationObserver installed at document start (page.addInitScript,
+// before any page script): every insertion, removal and change of [data-acn-role="paging-status"] is
+// recorded when it happens, with the mock's page count and loaded turns at that moment, so a status
+// shown and removed between two timer samples is still seen. "Shown" in a record means connected and
+// displayed when the observer ran (the end of the task that changed it).
+//
 // Proof rule: run v12.18 (git show ab7ea21:ai-conversation-navigator.user.js) with --proof: every check
 // marked [new] must FAIL there, for the reason its detail names; [guard] passes on both. A precondition
 // that fails (the page hidden, the mock's first page not as expected, no token script) prints INVALID:
-// it says the harness, not the build, is wrong.
+// it says the harness, not the build, is wrong. PREMISES: a [guard] that is about the new build's index
+// (I13b: the read still loading; I15, I21, I21b: the index ready) asserts that premise on a normal run
+// and FAILS when it does not hold (a guard whose premise is unmet tested nothing); under --proof the
+// premise is reported in its detail but not required, because v12.18 has no index to be loading or
+// ready. Guards by construction (they cannot fail on v12.18, as the spec asks every gate to; the owner
+// is told, critic K16): I13, I13b, I15, I16, I21, I21b, R1, R2, E.
 
 'use strict';
 
@@ -122,25 +137,61 @@ new MutationObserver(function (recs) {
     }
 }).observe(document.documentElement, { childList: true, subtree: true });
 </script>`;
-// The paging status, sampled every 50 ms (a render block delays the samples, never drops the state).
-const PAGING_SPY = `<script>
-window.__pg = { seen: [] };
-window.__pgNow = function () {
-    var e = document.querySelector('[data-acn-role="paging-status"]');
-    if (!e || !e.isConnected || e.hidden) return null;
-    var cs = getComputedStyle(e);
-    if (cs.display === 'none' || cs.visibility === 'hidden') return null;
-    return { text: e.textContent, pages: e.getAttribute('data-acn-paging-pages'), loaded: e.getAttribute('data-acn-paging-loaded') };
-};
-setInterval(function () {
-    var s = window.__pgNow();
-    if (!s) return;
-    s.t = Date.now();
-    s.loads = window.__mockGemini ? window.__mockGemini.loads() : -1;
-    window.__pg.seen.push(s);
-    if (window.__pg.seen.length > 3000) window.__pg.seen.shift();
-}, 50);
-</script>`;
+// The paging status, watched by a MutationObserver installed at document start (page.addInitScript):
+// each insertion ('insert'), removal ('remove') and change of its text or attributes ('change') is one
+// record, taken when the observer runs (the end of the task that made the change), with the mock's
+// history loads and loaded turns at that moment. A status shown and removed between two samples of a
+// timer is still recorded; a 'change' identical to the record before it is dropped. __pgEver counts
+// the records (the fallback probes' "never shows"). __pgNow() reads the status as it is now.
+const PG_SPY_INIT = `(function () {
+    if (window.__pg) return;
+    var pg = window.__pg = { seen: [] };
+    window.__pgEver = 0;
+    var SEL = '#acn-paging-status, [data-acn-role="paging-status"]';
+    function isSt(n) { return !!n && n.nodeType === 1 && (n.id === 'acn-paging-status' || n.getAttribute('data-acn-role') === 'paging-status'); }
+    function inside(n) { while (n && n.nodeType === 1) { if (isSt(n)) return n; n = n.parentNode; } return null; }
+    function all(n) {
+        if (!n || n.nodeType !== 1) return [];
+        var out = isSt(n) ? [n] : [];
+        return out.concat(Array.prototype.slice.call(n.querySelectorAll(SEL)));
+    }
+    function shown(e) {
+        if (!e.isConnected || e.hidden) return false;
+        var cs = getComputedStyle(e);
+        return cs.display !== 'none' && cs.visibility !== 'hidden';
+    }
+    function rec(e, why) {
+        var M = window.__mockGemini;
+        var s = { why: why, text: e.textContent, pages: e.getAttribute('data-acn-paging-pages'),
+                  loaded: e.getAttribute('data-acn-paging-loaded'), shown: shown(e), t: Date.now(),
+                  loads: M && M.loads ? M.loads() : -1, domLoaded: M && M.loaded ? M.loaded() : -1 };
+        var last = pg.seen[pg.seen.length - 1];
+        if (why === 'change' && last && last.text === s.text && last.pages === s.pages &&
+            last.loaded === s.loaded && last.shown === s.shown) return;
+        pg.seen.push(s);
+        window.__pgEver++;
+        if (pg.seen.length > 5000) pg.seen.shift();
+    }
+    new MutationObserver(function (recs) {
+        var changed = [], i, j, k, l;
+        for (i = 0; i < recs.length; i++) {
+            var r = recs[i];
+            if (r.type === 'childList') {
+                for (j = 0; j < r.addedNodes.length; j++) { l = all(r.addedNodes[j]); for (k = 0; k < l.length; k++) rec(l[k], 'insert'); }
+                for (j = 0; j < r.removedNodes.length; j++) { l = all(r.removedNodes[j]); for (k = 0; k < l.length; k++) rec(l[k], 'remove'); }
+            }
+            var host = inside(r.type === 'characterData' ? r.target.parentNode : r.target);
+            if (host && changed.indexOf(host) === -1) changed.push(host);
+        }
+        for (i = 0; i < changed.length; i++) rec(changed[i], 'change');
+    }).observe(document, { childList: true, subtree: true, characterData: true, attributes: true,
+                           attributeFilter: ['id', 'data-acn-role', 'data-acn-paging-pages', 'data-acn-paging-loaded', 'hidden', 'style', 'class'] });
+    window.__pgNow = function () {
+        var e = document.querySelector(SEL);
+        if (!e || !shown(e)) return null;
+        return { text: e.textContent, pages: e.getAttribute('data-acn-paging-pages'), loaded: e.getAttribute('data-acn-paging-loaded') };
+    };
+})();`;
 // Installed before the userscript, after the mock: the fetch SPY (url, method, sorted init keys,
 // headers, signal, body), optionally throwing for the history read; the POST-aware GM shim, which
 // answers through the mock's own server, with GM_info's scriptHandler; the GM storage stub.
@@ -189,7 +240,7 @@ function buildPage(raw, cfg, o) {
     const head = (mock.match(/<head[^>]*>([\s\S]*)<\/head>/i) || [])[1] || '';
     return `<!DOCTYPE html><html><head>${head}</head><body>
 <script>window.__MOCK_CONFIG = ${JSON.stringify(cfg)};</script>
-${DOWNLOAD_SHIM}${TOAST_SPY}${PAGING_SPY}
+${DOWNLOAD_SHIM}${TOAST_SPY}
 ${body}
 ${harness(o)}
 <script>${raw}</script></body></html>`;
@@ -216,7 +267,7 @@ const NAV = `(function () {
         labels: L ? Array.prototype.map.call(L.querySelectorAll('[data-acn-role="nav-item"] .acn-qn'), function (e) { return e.textContent; }) : [],
         items: L ? Array.prototype.map.call(L.querySelectorAll('[data-acn-role="nav-item-text"]'), function (e) { return e.textContent; }) : [],
         button: btn ? { state: btn.getAttribute('data-acn-history-load'), loaded: btn.getAttribute('data-acn-history-loaded'),
-                        total: btn.getAttribute('data-acn-history-total'), text: btn.textContent, inNav: !!(L && L.contains(btn)) } : null,
+                        total: btn.getAttribute('data-acn-history-total'), text: btn.textContent, inNav: !!(p && p.contains(btn)) } : null,
         check: za('data-acn-index-check'), loadEnd: za('data-acn-history-load-end'), anchor: za('data-acn-history-anchor'),
         restore: za('data-acn-history-restore'), resolved: za('data-acn-jump-resolved'),
         hist: hist ? hist.textContent : null,
@@ -459,6 +510,7 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         const h = { id: ids[0], page, context, url, cfg, logs: [], errors: [], hits: [], fulfilled: 0, others: [] };
         page.on('console', (m) => h.logs.push(m.text()));
         page.on('pageerror', (e) => { const s = ids[0] + ': ' + String(e && e.message || e); pageErrors.push(s); h.errors.push(s); });
+        await page.addInitScript(PG_SPY_INIT);     // the paging-status observer, before any page script
         await page.route('**/*', async (route) => {
             const req = route.request(), u = req.url();
             if (/^(blob|data):/.test(u)) { route.continue().catch(() => {}); return; }
@@ -570,8 +622,19 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
     const fmt = (v) => 'count=' + v.count + ' banner=' + v.banner + ' note=' + v.note + ' button=' +
         (v.button ? v.button.state + '/"' + v.button.text + '"' : 'none') + ' check=' + v.check + ' loaded=' + v.loaded + ' loads=' + v.loads;
     const callsBrief = (c) => 'calls full=' + c.full + ' next=' + c.next + ' newest=' + c.newest + ' other=' + c.other;
+    // A guard's premise about the new build's index (see PREMISES in the header): required on a normal
+    // run, reported only under --proof (v12.18 has no index).
+    const premise = (ok) => proof || ok;
+    const premiseNote = (name, ok) => 'premise (' + name + ')=' + ok + (proof && !ok ? ' [not required under --proof]' : '');
+    // The index is ready: all 32 listed with nothing paged in, and not degraded.
+    const ready32 = (v) => v.count === '32' && v.loads === 0 && v.banner !== 'degraded';
+    // Nothing secret or private in the console or storage: the tokens, the request's body key and query
+    // string, the token's key, a question's text, and an answer's text (every mock answer's paragraphs
+    // share "the short version is that the motion is set by"; answer 2 names "quokka" where a fixture
+    // asks for it).
     const noLeak = (texts, extra) => {
-        const needles = [AT0, AT0.slice(0, 28), AT_FRESH.slice(0, 28), DECOY, DECOY.slice(0, 28), 'f.req', 'SNlM0e', 'rpcids=', 'Gemini question'].concat(extra || []);
+        const needles = [AT0, AT0.slice(0, 28), AT_FRESH.slice(0, 28), DECOY, DECOY.slice(0, 28), 'f.req', 'SNlM0e', 'rpcids=', 'Gemini question',
+                         'the short version is that the motion', 'quokka'].concat(extra || []);
         const hits = [];
         for (const t of texts) for (const n of needles) if (n && t.indexOf(n) !== -1) hits.push(n.slice(0, 12) + '… in "' + t.slice(0, 50) + '"');
         return hits;
@@ -674,8 +737,9 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         if (readyAt) { const left = readyAt + 20000 - Date.now(); if (left > 0) await sleep(left); }
         const calls1 = await h.calls();
         r.check('I1', 'new', 'on open: Navigate lists all 32 (Q#1..Q#32, in order) with no scroll, no note and never the button; ' +
+                'index-check "ok" (the loaded turns matched the read); ' +
                 'exactly ONE read (size 100, no cursor), still one 20 s after ready; its line names fetch, page 1, size 100, 32 turns',
-                v.count === '32' && qLabels(v.labels, 32) && inOrder(v.items, 32) && v.loads === 0 && v.triggers === 0 &&
+                v.count === '32' && v.check === 'ok' && qLabels(v.labels, 32) && inOrder(v.items, 32) && v.loads === 0 && v.triggers === 0 &&
                 v.st >= v.max - 2 && !v.note && !buttonSeen && calls0.full === 1 && calls0.list.length === 1 &&
                 calls0.list[0].size === 100 && calls0.list[0].cursorIn === null && h.hits.length === 1 &&
                 calls1.list.length === 1 && openLine.length === 1,
@@ -684,7 +748,7 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
                 ' hits=' + h.hits.length + ' after 20 s=' + calls1.list.length + ' lines=' + JSON.stringify(reqLines.slice(0, 2)));
         r.check('I2', 'new', 'the read is fetch POST to the exact endpoint, init {body,credentials:include,headers:Content-Type form,method}, ' +
                 'body f.req + at with the page\'s argument list, at = the inline token (never the decoy global), no GM call under ' +
-                'Tampermonkey or Userscripts, and no token, f.req, query string or question text in the console or storage',
+                'Tampermonkey or Userscripts, and no token, f.req, query string, question or answer text in the console or storage',
                 fx.length >= 1 && shape.length === 0 && argsOk && at === AT0 && gm.length === 0 &&
                 !!us && us.fx >= 1 && us.gm === 0 && leaks.length === 0,
                 'fetches=' + fx.length + ' problems=' + JSON.stringify(shape.slice(0, 3)) + ' args=' + JSON.stringify(args) +
@@ -936,8 +1000,34 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         })
     ]);
 
-    // ── I6c: the live order: the read (6.2 s) before the first page (~10 s) ───────────────────────
-    await seq(fixture(['I6c'], async (r) => {
+    // ── I6c, I1b: the live order: the read (6.2 s) before the first page (~10 s), side by side ──────
+    await par([fixture(['I1b'], async (r) => {
+        // The same order with nothing mismatched: the self-check has no turn to compare when the read
+        // lands ("pending"), then compares the first page when it mounts ("ok"); never "mismatch".
+        const h = await open(r, ['I1b'], C32, { firstDelayMs: 10000, rpc: { delayMs: { full: 6200 } } }, { noWait: true });
+        if (!h) return;
+        await h.openNav();
+        const v0 = await h.nav();
+        if (v0.loaded !== 0) { r.bad('I1b', 'precondition: the first page was in before Navigate opened (loaded=' + v0.loaded + ')'); await h.close(); return; }
+        const checks = [];
+        let pendingFirst = false, v = v0;
+        const t0 = Date.now();
+        while (Date.now() - t0 < 30000) {
+            v = await h.nav();
+            if (checks[checks.length - 1] !== v.check) checks.push(v.check);
+            if (v.check === 'pending' && v.count === '32' && v.loaded === 0) pendingFirst = true;
+            if (v.loaded > 0 && (v.check === 'ok' || v.check === 'mismatch' || v.banner === 'degraded')) break;
+            await sleep(200);
+        }
+        await sleep(1500);
+        v = await h.nav();
+        if (checks[checks.length - 1] !== v.check) checks.push(v.check);
+        r.check('I1b', 'new', 'the read lands before any turn is on the page: index-check "pending" with 32 listed and 0 loaded, then "ok" once ' +
+                'the first page mounts and matches; never "mismatch", never degraded',
+                pendingFirst && v.check === 'ok' && v.count === '32' && v.loaded === 10 && v.banner !== 'degraded' && checks.indexOf('mismatch') === -1,
+                'pending with 0 loaded=' + pendingFirst + ' index-check values in order=' + JSON.stringify(checks) + ' then ' + fmt(v));
+        await h.close();
+    }), fixture(['I6c'], async (r) => {
         const h = await open(r, ['I6c'], C32, { firstDelayMs: 10000, rpc: { delayMs: { full: 6200 } },
                                                 mismatch: { turn: 30, text: 'Gemini question 30: a question edited on the page, which the read does not hold?' } },
                              { noWait: true });
@@ -961,7 +1051,7 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
                 indexFirst && v.banner === 'degraded' && v.count === '10' && v.check === 'mismatch',
                 'index first=' + indexFirst + ' then ' + fmt(v));
         await h.close();
-    }));
+    })]);
 
     // ── I11: a sent message is ONE newest-page read, merged ──────────────────────────────────────
     await seq(fixture(['I11'], async (r) => {
@@ -1018,14 +1108,18 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         await sleep(600);
     }
 
-    // ── I19: the history tracker stays truthful while the index is ready ─────────────────────────
+    // ── I19: a question edited after the index was ready; the tracker kept truthful meanwhile ────────
+    // The spec's self-check runs on every load and refresh, not only the first: a loaded turn that stops
+    // reading as the index's must degrade it then too (fails on v12.18, which has no self-check). The DOM
+    // list it hands back to must be the page's own truth: the history tracker followed the pages while
+    // the index was ready, so the start is known to be loaded (32 listed, no note, final labels).
     await seq(fixture(['I19'], async (r) => {
         const store = bmStore(C32, [bmRecord('bm_q5', turnId(C32, 5), 'user-msg', 1), bmRecord('bm_a5', turnId(C32, 5) + ':answer', 'ai-msg', 2)]);
         const h = await open(r, ['I19'], C32, { loadDelayMs: 600 }, { store });
         if (!h) return;
         await h.openNav();
         const v0 = await h.waitReady(32, 8000);
-        const wasReady = v0.count === '32' && v0.loads === 0 && v0.banner !== 'degraded';
+        const wasReady = ready32(v0);
         await loadPages(h);
         const edited = await h.page.evaluate(() => window.__mockGemini.editQuestion(28, 'Gemini question 28: a question edited on the page after the read?'));
         await h.openNav();
@@ -1033,14 +1127,19 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         await sleep(1500);
         const v2 = await h.nav();
         const labels = (await h.page.evaluate('window.__h.bmLabels()')).sort();
-        r.check('I19', 'new', 'ready, every page loaded, then a mismatch: the fallback lists the 32 loaded turns with no note, and the ' +
-                'bookmarks read Q#5 / "Answer to Q#5" (the tracker saw the pages while the index was ready)',
-                wasReady && edited && v.banner === 'degraded' && v2.count === '32' && !v2.note && labels.join('|') === 'Answer to Q#5|Q#5',
-                'ready first=' + wasReady + ' (' + fmt(v0) + '); after the edit: ' + fmt(v2) + ' labels=' + labels.join('|'));
+        const caught = v.banner === 'degraded' && v2.banner === 'degraded' && v2.check === 'mismatch';
+        const truthful = v2.count === '32' && inOrder(v2.items, 32, { 28: 'Gemini question 28: a question edited on the page after the read?' }) &&
+                         !v2.note && labels.join('|') === 'Answer to Q#5|Q#5';
+        r.check('I19', 'new', 'a loaded question edited after the index was ready (every page loaded): the self-check catches it ' +
+                '(degraded, index-check "mismatch"), and the DOM list it hands back to is truthful: the 32 loaded turns as the page shows ' +
+                'them, no note, the bookmarks Q#5 / "Answer to Q#5" (the tracker followed the pages while the index was ready)',
+                wasReady && edited && caught && truthful,
+                'ready first=' + wasReady + ' (' + fmt(v0) + '); caught=' + caught + ' (banner=' + v.banner + '/' + v2.banner + ' check=' + v2.check +
+                '); truthful=' + truthful + ' (' + fmt(v2) + ' labels=' + labels.join('|') + ')');
         await h.close();
     }));
 
-    // ── I13 [guard], I13b, I14: bookmarks on a degraded, a loading and a ready index ──────────────
+    // ── I13 [guard], I13b [guard], I14: bookmarks on a degraded, a loading and a ready index ──────
     await seq(fixture(['I13'], async (r) => {
         // Degraded (null [7], answered after 2 s): exactly v12.18's labels: "Q#…" while partial, Q#n once
         // the start is loaded; never "Q#?" because an adapter exists.
@@ -1074,7 +1173,10 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         await h.close();
     }));
     await seq(fixture(['I13b'], async (r) => {
-        // Loading (the read answers after 20 s), a 6-turn chat: a question bookmarked now reads "Q#6".
+        // Loading (the read answers after 20 s), a 6-turn chat: a question bookmarked now reads "Q#6", as on
+        // v12.18 (every turn is loaded). A [guard] (K16): the spec asks nothing new of the loading state, so
+        // no assertion here can fail on v12.18; it guards against the adapter's path ("Q#?") taking the
+        // labels while the read is still out. Its premise (the read still loading) is the new build's.
         const h = await open(r, ['I13b'], C6, { rpc: { delayMs: { full: 20000 } } });
         if (!h) return;
         await h.openNav();
@@ -1088,9 +1190,11 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         await sleep(600);
         const labels = await h.page.evaluate('window.__h.bmLabels()');
         const pending = h.fulfilled === 0;
-        r.check('I13b', 'new', 'bookmarks while the index is still loading: the question flag of a 6-turn chat reads "Q#6" at once',
-                v0.banner === 'loading' && key === turnId(C6, 6) && labels.join('|') === 'Q#6' && pending,
-                'banner=' + v0.banner + ' key=' + key + ' labels=' + labels.join('|') + ' read still pending=' + pending);
+        const loading = v0.banner === 'loading' && pending;
+        r.check('I13b', 'guard', 'bookmarks while the index is still loading: the question flag of a 6-turn chat reads "Q#6" at once (as v12.18)',
+                premise(loading) && key === turnId(C6, 6) && labels.join('|') === 'Q#6',
+                premiseNote('the read still loading', loading) + ' banner=' + v0.banner + ' read still pending=' + pending +
+                ' key=' + key + ' labels=' + labels.join('|'));
         await h.close();
     }));
     await seq(fixture(['I14'], async (r) => {
@@ -1118,20 +1222,22 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         await h.close();
     }));
 
-    // ── I15 [guard]: the gallery stays on the page's own images ──────────────────────────────────
+    // ── I15 [guard]: the gallery stays on the page's own images (premise: the index ready) ─────────
     await seq(fixture(['I15'], async (r) => {
         const h = await open(r, ['I15'], C32, { images: { 25: 1, 31: 1 } });
         if (!h) return;
         await h.openNav();
-        await h.waitReady(32, 6000);
+        const v0 = await h.waitReady(32, 6000);
+        const rdy = ready32(v0);
         const srcs = await h.page.evaluate(() => Array.prototype.map.call(document.querySelectorAll('img[data-test-id="uploaded-img"]'), function (i) { return i.getAttribute('src'); }));
         const g = await h.page.evaluate('window.__h.gallery()');
         await h.page.evaluate('window.__h.clickGallery(0)');
         await h.settle(30000, 1500);
         const s = await h.spot(25, 'q');
         r.check('I15', 'guard', 'the gallery with the index ready: the same 2 cards as the page\'s own images (turns 25, 31), card 1 lands on turn 25',
-                g.cards.length === 2 && srcs.length === 2 && g.cards[0].src === srcs[0] && g.cards[1].src === srcs[1] && s.inView && !s.toasts.length,
-                'cards=' + g.cards.length + ' labels=' + g.cards.map((c) => c.label).join(',') + ' note=' + g.note + ' landing=' + JSON.stringify(s));
+                premise(rdy) && g.cards.length === 2 && srcs.length === 2 && g.cards[0].src === srcs[0] && g.cards[1].src === srcs[1] && s.inView && !s.toasts.length,
+                premiseNote('index ready', rdy) + ' (' + fmt(v0) + ') cards=' + g.cards.length + ' labels=' + g.cards.map((c) => c.label).join(',') +
+                ' note=' + g.note + ' landing=' + JSON.stringify(s));
         await h.close();
     }));
 
@@ -1150,7 +1256,21 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
     // ── Jumps to a question not loaded yet (the index ready, 10 of 32 loaded, from the bottom) ─────
     // The paging status must show while pages are asked for and go once the jump is over; the target
     // ends in view and data-acn-jump-resolved marks it (its position), however it was landed (M1).
-    const statusSeenWith = (seen, re, maxLoads) => seen.some((s) => re.test(s.text || '') && (maxLoads === undefined || s.loads < maxLoads));
+    const statusSeenWith = (seen, re, maxLoads) => seen.some((s) => s.shown && re.test(s.text || '') && (maxLoads === undefined || s.loads < maxLoads));
+    // The status's attributes while it shows (the contract: data-acn-paging-pages = pages in so far,
+    // data-acn-paging-loaded = turns in the DOM): each record agrees with the mock at that moment (a jump
+    // from the bottom starts at 0 history loads), and the page count steps 0, 1, 2, ... one at a time.
+    function pagingAttrs(seen) {
+        const sh = seen.filter((s) => s.shown);
+        const wrong = sh.filter((s) => s.pages !== String(s.loads) || s.loaded !== String(s.domLoaded));
+        const pages = [];
+        for (const s of sh) if (pages[pages.length - 1] !== s.pages) pages.push(s.pages);
+        const steps = pages.length >= 3 && pages.every((p, i) => p === String(i));
+        return { ok: sh.length > 0 && wrong.length === 0 && steps,
+                 d: 'attrs pages=' + JSON.stringify(pages) + ' loaded=' + JSON.stringify(Array.from(new Set(sh.map((s) => s.loaded)))) +
+                    ' disagreeing=' + wrong.length + (wrong[0] ? ' (first: pages=' + wrong[0].pages + '/loads=' + wrong[0].loads +
+                    ' loaded=' + wrong[0].loaded + '/dom=' + wrong[0].domLoaded + ')' : '') };
+    }
     async function jumpQ1(r, id, cfgExtra, opts) {
         const h = await open(r, [id], C32, cfgExtra, opts);
         if (!h) return null;
@@ -1176,12 +1296,16 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
             const now = await h.page.evaluate(() => window.__pgNow());
             const starts = h.lines(/^\[ACN\] paging: platform=gemini via=jump start/).length;
             const ends = h.lines(/^\[ACN\] paging: platform=gemini via=jump end=found pages=3\b/).length;
+            const at = pagingAttrs(seen);
+            const leaks = noLeak(h.logs.concat([await h.storage()]));
             r.check(id, 'new', 'jump to unloaded Q1 (' + JSON.stringify(cfgExtra) + '): "Loading earlier messages…" while paging, then gone; ' +
-                    'Q1 in view, resolved "0", the mark inside turn 1, no toast, 3 pages, one start and one "end=found pages=3" line',
-                    settled && statusSeenWith(seen, /^Loading earlier messages…/, 3) && !now && s.inView && s.resolved === '0' && s.markIn &&
-                    !s.toasts.length && s.loads === 3 && starts === 1 && ends === 1,
-                    'row=' + row + ' settled=' + settled + ' status seen=' + seen.length + (seen[0] ? ' "' + seen[0].text + '"' : '') + ' now=' + JSON.stringify(now) +
-                    ' landing=' + JSON.stringify(s) + ' lines start=' + starts + ' end=' + ends);
+                    'its data-acn-paging-pages / -loaded true to the page at every change (pages 0, 1, 2, ...); ' +
+                    'Q1 in view, resolved "0", the mark inside turn 1, no toast, 3 pages, one start and one "end=found pages=3" line; nothing leaked',
+                    settled && statusSeenWith(seen, /^Loading earlier messages…/, 3) && at.ok && !now && s.inView && s.resolved === '0' && s.markIn &&
+                    !s.toasts.length && s.loads === 3 && starts === 1 && ends === 1 && leaks.length === 0,
+                    'row=' + row + ' settled=' + settled + ' status records=' + seen.length + ' shown=' + seen.filter((x) => x.shown).length +
+                    (seen[0] ? ' "' + seen[0].text + '"' : '') + ' ' + at.d + ' now=' + JSON.stringify(now) +
+                    ' landing=' + JSON.stringify(s) + ' lines start=' + starts + ' end=' + ends + ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
             await h.close();
         }));
     }
@@ -1227,10 +1351,13 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         if (!row) { r.check('I12e', 'new', 'a Q32 click supersedes a paging jump', false, 'no Q1 row (' + fmt(v0) + ')'); await h.close(); return; }
         try { await h.page.waitForFunction(() => window.__mockGemini.loads() >= 1 && !!window.__pgNow(), null, { timeout: 15000 }); } catch (e) {}
         const pre = await h.nav();
+        // The click's time on the page's clock, then the first record after it in which the status no
+        // longer shows (its removal, or a change that hid it): the observer's time, not a poll's.
+        const tClick = await h.page.evaluate(() => Date.now());
         const row32 = await h.clickQ(32);
-        const t0 = Date.now();
-        let goneMs = null;
-        while (Date.now() - t0 < 3000) { if (!(await h.page.evaluate(() => window.__pgNow()))) { goneMs = Date.now() - t0; break; } await sleep(50); }
+        try { await h.page.waitForFunction(() => !window.__pgNow(), null, { timeout: 3000 }); } catch (e) {}
+        const gone = (await h.pgSeen()).find((x) => x.t >= tClick && !x.shown);
+        const goneMs = gone ? gone.t - tClick : null;
         await h.settle(30000, 2000);
         const s = await h.spot(32, 'q');
         r.check('I12e', 'new', 'Q32 clicked while the jump to Q1 pages: the status goes within a poll, Q32 lands (resolved "31"), no toast',
@@ -1284,7 +1411,8 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         await h.settle(60000, 3000);
         const seen = await h.pgSeen();
         r.check('I12g', 'new', 'with the language set to Korean the paging status reads "' + KO_STATUS + '"',
-                seen.some((s) => (s.text || '').indexOf(KO_STATUS) === 0), 'texts=' + JSON.stringify(Array.from(new Set(seen.map((s) => s.text)))));
+                seen.some((s) => s.shown && (s.text || '').indexOf(KO_STATUS) === 0),
+                'texts shown=' + JSON.stringify(Array.from(new Set(seen.filter((s) => s.shown).map((s) => s.text)))));
         await h.close();
     }));
     await seq(fixture(['I12h'], async (r) => {
@@ -1310,12 +1438,14 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
                 did && s.inView && !s.toasts.length, 'clicked=' + did + ' landing=' + JSON.stringify(s));
         await h.close();
     }));
-    // I21 [guard], owner amendment M2: a LOADED near target keeps v12.18's smooth glide with the index ready.
+    // I21 [guard], owner amendment M2: a LOADED near target keeps v12.18's smooth glide with the index ready
+    // (premise: the index ready).
     await seq(fixture(['I21'], async (r) => {
         const h = await open(r, ['I21'], C32, {});
         if (!h) return;
         await h.openNav();
-        await h.waitReady(32, 8000);
+        const v0 = await h.waitReady(32, 8000);
+        const rdy = ready32(v0);
         await sleep(500);
         const n = await h.page.evaluate(() => {
             var sc = document.querySelector('infinite-scroller.chat-history'), r = sc.getBoundingClientRect(), vh = sc.clientHeight;
@@ -1342,8 +1472,46 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         const distinct = new Set(stv).size;
         const s = await h.spot(n, 'q');
         r.check('I21', 'guard', 'a loaded near question (Q' + n + ') with the index ready: a smooth glide as on v12.18 (owner amendment M2), in view, marked, no toast',
-                !!row && distinct >= 4 && s.inView && s.markIn && !s.toasts.length,
-                'row=' + row + ' distinct scrollTops=' + distinct + ' (' + stv[0] + '->' + stv[stv.length - 1] + ') landing=' + JSON.stringify(s));
+                premise(rdy) && !!row && distinct >= 4 && s.inView && s.markIn && !s.toasts.length,
+                premiseNote('index ready', rdy) + ' (' + fmt(v0) + ') row=' + row + ' distinct scrollTops=' + distinct +
+                ' (' + stv[0] + '->' + stv[stv.length - 1] + ') landing=' + JSON.stringify(s));
+        await h.close();
+    }));
+    // I21b [guard], owner amendment M2: a LOADED FAR target with the index ready keeps v12.18's far landing
+    // (gmLandFar): it ends in view and marked with no paging status, nothing paged in and no history read
+    // caused by the click. The target is the oldest loaded question that is far (outside a view of the
+    // view, orbLandFarIn's test) and lies more than a view below the content's top, so no landing on it can
+    // reach the top and set off a history load (the mock loads at scrollTop <= 50).
+    await seq(fixture(['I21b'], async (r) => {
+        const h = await open(r, ['I21b'], C32, {});
+        if (!h) return;
+        await h.openNav();
+        const v0 = await h.waitReady(32, 8000);
+        const rdy = ready32(v0);
+        await sleep(500);
+        const far = await h.page.evaluate(() => {
+            var sc = document.querySelector('infinite-scroller.chat-history'), r = sc.getBoundingClientRect(), vh = sc.clientHeight;
+            for (var k = 23; k <= 32; k++) {
+                var t = document.getElementById(window.__mockGemini.domId(k)), b = t && t.querySelector('div.query-text');
+                if (!b) continue;
+                var q = b.getBoundingClientRect(), off = q.top - r.top + sc.scrollTop;
+                if ((q.bottom < r.top - vh || q.top > r.bottom + vh) && off > vh + 100) return { n: k, top: Math.round(q.top - r.top), off: Math.round(off) };
+            }
+            return null;
+        });
+        if (!far) { r.bad('I21b', 'precondition: no loaded question far from the bottom view and more than a view below the top'); await h.close(); return; }
+        const hits0 = h.hits.length, rec0 = (await h.pgSeen()).length;
+        const row = await h.clickQ(far.n);
+        await sleep(1000);
+        await h.settle(20000, 1500);
+        await sleep(1000);                       // a read the click asked for would have gone out by now
+        const s = await h.spot(far.n, 'q');
+        const recs = (await h.pgSeen()).slice(rec0);
+        r.check('I21b', 'guard', 'a loaded FAR question (Q' + far.n + ', ' + far.top + ' px from the view top) with the index ready: v12.18\'s far ' +
+                'landing (owner amendment M2): in view, marked, no toast, no paging status, nothing paged in, no history read caused by the click',
+                premise(rdy) && !!row && s.inView && s.markIn && !s.toasts.length && recs.length === 0 && s.loads === 0 && h.hits.length === hits0,
+                premiseNote('index ready', rdy) + ' (' + fmt(v0) + ') row=' + row + ' status records=' + recs.length + ' reads by the click=' +
+                (h.hits.length - hits0) + ' landing=' + JSON.stringify(s));
         await h.close();
     }));
 
@@ -1371,17 +1539,51 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         if (b) b.click();
         return !!b;
     });
-    // Samples the button's text every 250 ms until the zone records how the load ended (cap ms).
+    // Samples the button (text, state, loaded, total, in Navigate) every 250 ms until the zone records how
+    // the load ended (cap ms).
     async function sampleLoad(h, ms) {
-        const texts = new Set(), t0 = Date.now();
+        const texts = new Set(), snaps = [], t0 = Date.now();
         let v = null;
         while (Date.now() - t0 < ms) {
             v = await h.nav();
-            if (v.button) texts.add(v.button.text);
+            if (v.button) { texts.add(v.button.text); snaps.push(v.button); }
             if (v.loadEnd) break;
             await sleep(250);
         }
-        return { texts: Array.from(texts), v };
+        return { texts: Array.from(texts), snaps, v };
+    }
+    // The button's contract (button plan §2.6): idle before the click with the DOM's turn count and total
+    // "?"; while loading, data-acn-history-loaded is the number its text shows and the total stays "?";
+    // always inside the Navigate panel.
+    function buttonAttrs(idle, snaps) {
+        const ld = snaps.filter((b) => b.state === 'loading');
+        const idleOk = !!idle && idle.state === 'idle' && idle.loaded === '10' && idle.total === '?' && idle.inNav;
+        const ldOk = ld.length > 0 && ld.every((b) => b.total === '?' && b.inNav && b.text === 'Loading' + ELL + ' ' + b.loaded + ' of ?') &&
+                     ['10', '20', '30'].every((n) => ld.some((b) => b.loaded === n));
+        return { ok: idleOk && ldOk && snaps.every((b) => b.inNav),
+                 d: 'idle=' + (idle ? idle.state + '/' + idle.loaded + '/' + idle.total + '/inNav=' + idle.inNav : 'none') +
+                    ' loading loaded=' + JSON.stringify(Array.from(new Set(ld.map((b) => b.loaded)))) +
+                    ' states=' + JSON.stringify(Array.from(new Set(snaps.map((b) => b.state)))) +
+                    ' totals=' + JSON.stringify(Array.from(new Set(snaps.map((b) => b.total)))) + ' all in Navigate=' + snaps.every((b) => b.inNav) };
+    }
+    // The "[ACN] history:" lines of one load that reached the start (consolidated plan §3, the button plan's
+    // wording): one "load start loaded=10 anchor=<the anchor turn>", "page loaded=<n> of=? pages=<k>" lines
+    // reaching 20 and 30 with k never going back, one "load end reason=start loaded=32", and one
+    // "view restored to <the anchor turn> aligned".
+    function historyLines(h, anchorId) {
+        const st = h.lines(/^\[ACN\] history: load start loaded=10 anchor=[0-9a-f]{16}\b/);
+        const stId = st.length === 1 ? (st[0].match(/anchor=([0-9a-f]{16})/) || [])[1] : null;
+        const pg = h.lines(/^\[ACN\] history: page /);
+        const pgParsed = pg.map((l) => l.match(/^\[ACN\] history: page loaded=(\d+) of=(\S+) pages=(\d+)/));
+        const pgOk = pgParsed.length >= 2 && pgParsed.every((m) => !!m && m[2] === '?') &&
+                     ['20', '30'].every((n) => pgParsed.some((m) => m && m[1] === n)) &&
+                     pgParsed.every((m, i) => i === 0 || (m && pgParsed[i - 1] && +m[3] >= +pgParsed[i - 1][3]));
+        const end = h.lines(/^\[ACN\] history: load end reason=start loaded=32 pages=\d+/);
+        const rest = anchorId ? h.lines(new RegExp('^\\[ACN\\] history: view restored to ' + anchorId + ' aligned\\b')) : [];
+        return { ok: !!anchorId && stId === anchorId && pgOk && end.length === 1 && rest.length === 1,
+                 d: 'history lines: start=' + st.length + (stId === anchorId ? '' : ' (anchor ' + (stId || '').slice(0, 8) + ')') +
+                    ' page=' + pg.length + (pgOk ? '' : ' ' + JSON.stringify(pg.slice(0, 4).map((l) => l.replace(/^\[ACN\] history: /, '')))) +
+                    ' end=' + end.length + ' restored=' + rest.length };
     }
     const noButton = (id, desc, v0) => [id, 'new', desc, false, 'no "Load full history" button (' + fmt(v0) + ')'];
 
@@ -1389,7 +1591,9 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         await seq(fixture([id], async (r) => {
             const desc = 'Load full history ' + (id === 'F5' ? '(the live model: cv 500 px, a 4.6 s render block a page) ' : '') +
                          'from turn 28: "Loading… 10 / 20 / 30 of ?", ends "start", 32 listed in order, the note and the button gone, ' +
-                         'the view back on the anchor turn within 8 px ("aligned"), 3 pages, no read sent';
+                         'the view back on the anchor turn within 8 px ("aligned"), 3 pages, no read sent; the button in Navigate with ' +
+                         'data-acn-history-load / -loaded / -total as its text says; the "[ACN] history:" load start, page, load end and ' +
+                         'view restored lines; nothing leaked';
             const b = await buttonPage(r, id, C32, cfgExtra);
             if (!b) return;
             const { h, v0 } = b;
@@ -1402,12 +1606,16 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
             const v = await h.nav();
             const err = anchor ? await h.page.evaluate(ANCHOR_ERR + '(' + JSON.stringify(anchor) + ')') : null;
             const wantTexts = ['Loading' + ELL + ' 10 of ?', 'Loading' + ELL + ' 20 of ?', 'Loading' + ELL + ' 30 of ?'];
+            const ba = buttonAttrs(v0.button, smp.snaps);
+            const hl = historyLines(h, anchor ? anchor.id : null);
+            const leaks = noLeak(h.logs.concat([await h.storage()]));
             r.check(id, 'new', desc,
                     wantTexts.every((t) => smp.texts.indexOf(t) !== -1) && v.loadEnd === 'start' && v.count === '32' && inOrder(v.items, 32) &&
                     !v.note && !v.button && !!anchor && v.anchor === anchor.id && v.restore === 'aligned' && err !== null && Math.abs(err) <= 8 &&
-                    v.loads === 3 && h.hits.length === reads0,
+                    v.loads === 3 && h.hits.length === reads0 && ba.ok && hl.ok && leaks.length === 0,
                     'texts=' + JSON.stringify(smp.texts) + ' end=' + v.loadEnd + ' anchor=' + (anchor && anchor.id.slice(0, 8)) + '/' + (v.anchor || '').slice(0, 8) +
-                    ' restore=' + v.restore + ' err=' + err + ' ' + fmt(v) + ' reads during=' + (h.hits.length - reads0));
+                    ' restore=' + v.restore + ' err=' + err + ' ' + fmt(v) + ' reads during=' + (h.hits.length - reads0) + ' ' + ba.d + ' ' + hl.d +
+                    ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
             await h.close();
         }));
     }
@@ -1430,10 +1638,11 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         while (Date.now() - t0 < 6000) { minSt = Math.min(minSt, (await h.nav()).st); await sleep(100); }
         const v = await h.nav();
         if (!(off.st > 50)) minSt = off.st;
-        r.check('F2', 'new', desc,
+        const endL = h.lines(/^\[ACN\] history: load end reason=user\b/).length, restL = h.lines(/^\[ACN\] history: view restored/).length;
+        r.check('F2', 'new', desc + '; one "[ACN] history: load end reason=user" line and no "view restored" line',
                 v.loadEnd === 'user' && v.restore === 'skipped' && v.loads <= 2 && !v.pending && minSt > 50 &&
-                !!v.button && v.button.state === 'idle' && v.button.text === 'Load full history' && v.note,
-                'end=' + v.loadEnd + ' restore=' + v.restore + ' min scrollTop=' + minSt + ' ' + fmt(v));
+                !!v.button && v.button.state === 'idle' && v.button.text === 'Load full history' && v.note && endL === 1 && restL === 0,
+                'end=' + v.loadEnd + ' restore=' + v.restore + ' min scrollTop=' + minSt + ' ' + fmt(v) + ' end lines=' + endL + ' restored lines=' + restL);
         await h.close();
     }));
     await seq(fixture(['F3'], async (r) => {
@@ -1453,10 +1662,13 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         await sleep(6000);
         const v = await h.nav();
         const err = anchor ? await h.page.evaluate(ANCHOR_ERR + '(' + JSON.stringify(anchor) + ')') : null;
-        r.check('F3', 'new', desc,
+        const endL = h.lines(/^\[ACN\] history: load end reason=click\b/).length;
+        const restL = anchor ? h.lines(new RegExp('^\\[ACN\\] history: view restored to ' + anchor.id + ' aligned\\b')).length : 0;
+        r.check('F3', 'new', desc + '; one "[ACN] history: load end reason=click" and one "view restored to <the anchor> aligned" line',
                 v.loadEnd === 'click' && v.loads <= 2 && v.loads === v1.loads && v.restore === 'aligned' && err !== null && Math.abs(err) <= 8 &&
-                !!v.button && v.button.state === 'idle' && v.note,
-                'end=' + v.loadEnd + ' restore=' + v.restore + ' err=' + err + ' loads ' + v1.loads + '->' + v.loads + ' ' + fmt(v));
+                !!v.button && v.button.state === 'idle' && v.note && endL === 1 && restL === 1,
+                'end=' + v.loadEnd + ' restore=' + v.restore + ' err=' + err + ' loads ' + v1.loads + '->' + v.loads + ' ' + fmt(v) +
+                ' end lines=' + endL + ' restored lines=' + restL);
         await h.close();
     }));
     await seq(fixture(['F4'], async (r) => {

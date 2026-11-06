@@ -11,8 +11,15 @@
 // are the FALLBACK's, where it cannot. --gm-endpoint (default refuse) plants the page's token in the
 // Gemini mock (rpc: { at }), so v12.19's index really sends its read, and answers it: refuse = HTTP 403
 // (the index degrades, PERMANENT); abort = a network failure; none = no token, v12.18's exact page.
-// G1-G10 are unchanged in every mode. G0 [guard]: at most 2 history reads per Gemini page; GP [guard]:
-// the jumps' paging status never shows on the fallback.
+// G1-G10 are unchanged in every mode. GP [guard]: the jumps' paging status never shows on the fallback
+// (a MutationObserver installed at document start sees it even if it shows between two samples).
+// G0 [guard]: no retry loop, the limit set per mode by the v12.19 plan's failure classes (consolidated
+// plan R4, transport plan §3.6, adapter plan item 9): refuse = a 403, PERMANENT (60 s, then x4), so no
+// two reads of one chat less than 58 s apart; abort = the fetch rejects, a 'network' failure that stays
+// TRANSIENT (R4's permanent override is for 'threw' only), so the index may ask again behind the 15 s
+// cooldown: no two reads of one chat less than 13 s apart (a pace, not a count; these pages live up to
+// about a minute); none = no token, so no read at all. The 2 s below each gate absorbs the time between
+// a load's start and its request reaching the route.
 //
 // WHAT v12.16 DID, MEASURED LIVE (Chrome + Tampermonkey, the owner's profile, visible tab,
 // 2026-11-01): ChatGPT (49 questions) Search found no answer at all, Summary read "49 user, 0 AI",
@@ -325,13 +332,37 @@ function pplxPage(all, url) {
 // ── Gemini ────────────────────────────────────────────────────────────────────────────────────
 const GM_CHAT = 'aa32aa32aa32aa32';
 // v12.19: the page token in Phase 1's shape (28 chars, ':', a 13-digit timestamp; synthetic), the
-// history read's path, and a spy that counts any sample with the jumps' paging status shown.
+// history read's path, G0's gates per --gm-endpoint mode, and the paging-status observer installed at
+// document start (page.addInitScript): every insertion or change of the jumps' paging status counts in
+// __pgEver.
 const GM_AT0 = 'APwZiaHprobeTokenHead0000AAA:1762380000000';
 const GM_BE = '/_/BardChatUi/data/batchexecute';
-const GM_PG_SPY = `<script>
-window.__pgEver = 0;
-setInterval(function () { if (document.querySelector('[data-acn-role="paging-status"], #acn-paging-status')) window.__pgEver++; }, 50);
-</script>`;
+const GM_READ_GAP_MS = { refuse: 60000 - 2000, abort: 15000 - 2000 };
+const GM_PG_SPY_INIT = `(function () {
+    if (window.__pgSpy) return;
+    window.__pgSpy = true;
+    window.__pgEver = 0;
+    var SEL = '#acn-paging-status, [data-acn-role="paging-status"]';
+    function isSt(n) { return !!n && n.nodeType === 1 && (n.id === 'acn-paging-status' || n.getAttribute('data-acn-role') === 'paging-status'); }
+    function hit(n) { return !!n && n.nodeType === 1 && (isSt(n) || !!n.querySelector(SEL)); }
+    function inside(n) { while (n && n.nodeType === 1) { if (isSt(n)) return true; n = n.parentNode; } return false; }
+    new MutationObserver(function (recs) {
+        for (var i = 0; i < recs.length; i++) {
+            var r = recs[i], j;
+            for (j = 0; r.addedNodes && j < r.addedNodes.length; j++) if (hit(r.addedNodes[j])) window.__pgEver++;
+            if (inside(r.type === 'characterData' ? r.target.parentNode : r.target)) window.__pgEver++;
+        }
+    }).observe(document, { childList: true, subtree: true, characterData: true, attributes: true,
+                           attributeFilter: ['id', 'data-acn-role', 'data-acn-paging-pages', 'data-acn-paging-loaded', 'hidden', 'style'] });
+})();`;
+// The chat a history read asks for, from its f.req ('c_<id>' first in the argument list), or null.
+function gmReadChat(post) {
+    try {
+        const fr = JSON.parse(new URLSearchParams(post || '').get('f.req'));
+        const a = JSON.parse(fr[0][0][1]);
+        return typeof a[0] === 'string' ? a[0].replace(/^c_/, '') : null;
+    } catch (e) { return null; }
+}
 function gmTurnIdNode(n) {   // the mock's turnId(), for seeding legacy records
     function fnv(s) { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return ('0000000' + h.toString(16)).slice(-8); }
     return fnv(GM_CHAT + '#' + n) + fnv(n + '@' + GM_CHAT);
@@ -433,15 +464,17 @@ function claudeXhr(payload) {
         opts = opts || {};
         const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
         const pg = await context.newPage();
-        const logs = [], requests = [];
+        const logs = [], requests = [], gmReads = [];
         pg.on('pageerror', (e) => pageErrors.push(String(e && e.message || e)));
         pg.on('console', (m) => logs.push(m.text()));
+        if (opts.init) await pg.addInitScript(opts.init);   // before any page script (v12.19: the paging-status observer)
         await pg.route('**/*', (route) => {
             const u = route.request().url();
             // A page's own blob: and data: URLs are not network requests (WebKit routes them here, and an
             // abort left C8's page images undecoded): through, and not counted.
             if (/^(blob|data):/.test(u)) { route.continue().catch(() => {}); return; }
             requests.push(u);
+            if (u.indexOf(GM_BE) !== -1) gmReads.push({ t: Date.now(), chat: gmReadChat(route.request().postData()) });
             if (u === url || (opts.urlPrefix && u.indexOf(opts.urlPrefix) === 0)) {
                 route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }).catch(() => {});
                 return;
@@ -454,7 +487,7 @@ function claudeXhr(payload) {
         await pg.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 });
         await pg.waitForFunction("!!document.getElementById('acn-dot-nav')", null, { timeout: 30000 });
         await pg.evaluate(HELPERS);
-        return { context, pg, logs, requests };
+        return { context, pg, logs, requests, gmReads };
     }
     async function navCount(pg, n, ms) {
         await pg.evaluate("document.getElementById('acn-dot-nav').click()");
@@ -893,16 +926,16 @@ function claudeXhr(payload) {
     // v12.19: the token planted unless --gm-endpoint none; the read refused (403) or aborted.
     const gmRpc = (cfg) => GM_ENDPOINT === 'none' ? cfg : Object.assign({ rpc: { at: GM_AT0 } }, cfg);
     const gmApi = GM_ENDPOINT === 'refuse' ? (u) => (u.indexOf(GM_BE) !== -1 ? { status: 403, body: ")]}'" } : null) : null;
-    const gmSeen = [];   // per Gemini page: { id, reads, paging } (G0, GP)
+    const gmSeen = [];   // per Gemini page: { id, reads: [{ t, chat }], paging } (G0, GP)
     async function gmDone(o, id) {
         let pgEver = 0;
         try { pgEver = await o.pg.evaluate(() => window.__pgEver || 0); } catch (e) {}
-        gmSeen.push({ id, reads: o.requests.filter((u) => u.indexOf(GM_BE) !== -1).length, paging: pgEver });
+        gmSeen.push({ id, reads: o.gmReads.slice(), paging: pgEver });
     }
     async function gmOpen(cfg, store) {
         const url = 'https://gemini.google.com/app/' + GM_CHAT;
-        const html = page('gemini-history.html', raw, gmRpc(Object.assign({ chats: { [GM_CHAT]: 32 }, page: 10, loadDelayMs: 300 }, cfg || {})), store, GM_PG_SPY);
-        const o = await open(url, html, gmApi);
+        const html = page('gemini-history.html', raw, gmRpc(Object.assign({ chats: { [GM_CHAT]: 32 }, page: 10, loadDelayMs: 300 }, cfg || {})), store);
+        const o = await open(url, html, gmApi, { init: GM_PG_SPY_INIT });
         await o.pg.waitForFunction(() => window.__mockGemini && window.__mockGemini.loaded() === 10, null, { timeout: 20000 });
         await o.pg.waitForTimeout(1500);
         return o;
@@ -1046,8 +1079,8 @@ function claudeXhr(payload) {
         const rec = { id: 'bm_timer', schema: 1, entityType: 'user-msg', contentHash: contentHash(gmQuestion(5), 4), msgUuid: null,
                       preview: gmQuestion(5).substring(0, 120), msgIndex: 4, createdAt: 1, platform: 'gemini.google.com' };
         const html = page('gemini-history.html', raw, gmRpc({ chats: { [C30]: 30 }, page: 10, loadDelayMs: 300 }),
-                          { 'acn-bookmarks-v1': JSON.stringify({ [url]: { bookmarks: [rec] } }) }, GM_PG_SPY);
-        const o = await open(url, html, gmApi);
+                          { 'acn-bookmarks-v1': JSON.stringify({ [url]: { bookmarks: [rec] } }) });
+        const o = await open(url, html, gmApi, { init: GM_PG_SPY_INIT });
         try {
             const pg = o.pg;
             await pg.waitForFunction(() => window.__mockGemini && window.__mockGemini.loaded() === 10, null, { timeout: 20000 });
@@ -1109,9 +1142,26 @@ function claudeXhr(payload) {
 
     // v12.19: the Gemini fixtures above ran on the fallback (--gm-endpoint): no retry loop, no paging status.
     if (gmSeen.length) {
-        const most = gmSeen.reduce((m, x) => Math.max(m, x.reads), 0);
-        check('G0', 'guard', 'Gemini fallback (gm-endpoint ' + GM_ENDPOINT + '): at most 2 history reads per page (no retry loop)',
-              most <= 2, gmSeen.map((x) => x.id + '=' + x.reads).join(' '));
+        // G0: per page, each read against the one before it; a read of the same chat sooner than this
+        // mode's gate is a retry loop. none: no read at all.
+        const tooSoon = [];
+        let total = 0;
+        for (const p of gmSeen) {
+            total += p.reads.length;
+            for (let i = 1; i < p.reads.length; i++) {
+                const a = p.reads[i - 1], b = p.reads[i];
+                if (a.chat === b.chat && b.t - a.t < GM_READ_GAP_MS[GM_ENDPOINT]) tooSoon.push(p.id + ' ' + (b.t - a.t) + ' ms');
+            }
+        }
+        const gaps = gmSeen.filter((p) => p.reads.length > 1)
+            .map((p) => p.id + ':' + p.reads.slice(1).map((x, i) => (x.chat === p.reads[i].chat ? '' : 'switch,') + (x.t - p.reads[i].t)).join('/'));
+        check('G0', 'guard', 'Gemini fallback (gm-endpoint ' + GM_ENDPOINT + '), no retry loop: ' + (GM_ENDPOINT === 'none'
+                  ? 'no history read at all (no token in the page)'
+                  : 'no two reads of one chat less than ' + (GM_READ_GAP_MS[GM_ENDPOINT] / 1000) + ' s apart (' +
+                    (GM_ENDPOINT === 'refuse' ? 'a 403 is PERMANENT' : 'a network failure stays transient, behind the cooldown') + ')'),
+              GM_ENDPOINT === 'none' ? total === 0 : tooSoon.length === 0,
+              'reads per page: ' + gmSeen.map((x) => x.id + '=' + x.reads.length).join(' ') + (gaps.length ? ' gaps (ms): ' + gaps.join(' ') : '') +
+              (tooSoon.length ? ' TOO SOON: ' + tooSoon.join(', ') : ''));
         check('GP', 'guard', 'Gemini fallback: the jumps\' paging status never shows', gmSeen.every((x) => !x.paging),
               gmSeen.filter((x) => x.paging).map((x) => x.id).join(', ') || 'never seen');
     }

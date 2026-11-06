@@ -31,9 +31,19 @@
 //   refuse  HTTP 403 (")]}'"): the read is refused, a PERMANENT failure, the index degrades;
 //   abort   the request fails at the network level (the token planted);
 //   none    no token in the page and every request aborted: v12.18's exact page.
-// H1-H10 are unchanged in every mode. H0 [guard]: at most 2 history reads per page (no retry loop in
-// the fallback). HP [guard]: the jumps' paging status ([data-acn-role="paging-status"]) never shows
-// here: the fallback's jumps are v12.18's.
+// H1-H10 are unchanged in every mode. HP [guard]: the jumps' paging status ([data-acn-role=
+// "paging-status"]) never shows here: the fallback's jumps are v12.18's. It is watched by a
+// MutationObserver installed at document start (page.addInitScript), so a status inserted and removed
+// between two timer samples is still caught.
+// H0 [guard]: no retry loop in the fallback, the limit set per mode by the v12.19 plan's failure classes
+// (consolidated plan R4, transport plan §3.6, adapter plan item 9):
+//   refuse  a 403 is PERMANENT (60 s, then x4): no two reads of the same chat less than 58 s apart;
+//   abort   the fetch rejects, a 'network' failure, which stays TRANSIENT (R4's permanent override is
+//           for 'threw' only): the index may ask again behind the 15 s cooldown, so no two reads of the
+//           same chat less than 13 s apart (a pace, not a count: a page open longer asks more often);
+//   none    no token: nothing may be sent at all (0 reads).
+// The 2 s below each gate absorbs the time between a load's start (where the gate is counted from) and
+// its request reaching the route. Reads of different chats (an SPA switch) are not a retry.
 //
 // Proof rule: run the old build (v12.15) against this file too — every check marked [new] must
 // FAIL there (on chromium; other engines are reported as measured). [guard] passes on both.
@@ -58,6 +68,35 @@ const LOAD_DELAY = 2000;
 // The page token in Phase 1's shape (v12.19; 28 chars, ':', a 13-digit timestamp). Synthetic.
 const AT0 = 'APwZiaHprobeTokenHead0000AAA:1762380000000';
 const BE = '/_/BardChatUi/data/batchexecute';
+// H0's gates (see the header): the least time between two reads of one chat, per --gm-endpoint mode.
+const READ_GAP_MS = { refuse: 60000 - 2000, abort: 15000 - 2000 };
+// The jumps' paging status, watched from document start: every insertion, removal or change of it
+// counts in __pgEver (HP: it must never show on the fallback).
+const PG_SPY_INIT = `(function () {
+    if (window.__pgSpy) return;
+    window.__pgSpy = true;
+    window.__pgEver = 0;
+    var SEL = '#acn-paging-status, [data-acn-role="paging-status"]';
+    function isSt(n) { return !!n && n.nodeType === 1 && (n.id === 'acn-paging-status' || n.getAttribute('data-acn-role') === 'paging-status'); }
+    function hit(n) { return !!n && n.nodeType === 1 && (isSt(n) || !!n.querySelector(SEL)); }
+    function inside(n) { while (n && n.nodeType === 1) { if (isSt(n)) return true; n = n.parentNode; } return false; }
+    new MutationObserver(function (recs) {
+        for (var i = 0; i < recs.length; i++) {
+            var r = recs[i], j;
+            for (j = 0; r.addedNodes && j < r.addedNodes.length; j++) if (hit(r.addedNodes[j])) window.__pgEver++;
+            if (inside(r.type === 'characterData' ? r.target.parentNode : r.target)) window.__pgEver++;
+        }
+    }).observe(document, { childList: true, subtree: true, characterData: true, attributes: true,
+                           attributeFilter: ['id', 'data-acn-role', 'data-acn-paging-pages', 'data-acn-paging-loaded', 'hidden', 'style'] });
+})();`;
+// The chat a history read asks for, from its f.req ('c_<id>' first in the argument list), or null.
+function readChat(post) {
+    try {
+        const fr = JSON.parse(new URLSearchParams(post || '').get('f.req'));
+        const a = JSON.parse(fr[0][0][1]);
+        return typeof a[0] === 'string' ? a[0].replace(/^c_/, '') : null;
+    } catch (e) { return null; }
+}
 
 function buildPage(scriptContent, mockConfig) {
     const mock = fs.readFileSync(path.join(REPO, 'tests/mock-pages/gemini-history.html'), 'utf8');
@@ -65,10 +104,6 @@ function buildPage(scriptContent, mockConfig) {
     const head = (mock.match(/<head[^>]*>([\s\S]*)<\/head>/i) || [])[1] || '';
     return `<!DOCTYPE html><html><head>${head}</head><body>
 <script>window.__MOCK_CONFIG = ${JSON.stringify(mockConfig)};</script>
-<script>
-window.__pgEver = 0;
-setInterval(function () { if (document.querySelector('[data-acn-role="paging-status"], #acn-paging-status')) window.__pgEver++; }, 50);
-</script>
 ${body}
 <script>
 delete window._aiNavAlreadyLoaded;
@@ -135,8 +170,9 @@ async function runEngine(engine, raw, only, quiet, endpoint) {
         const cfg = Object.assign({ chats: CHATS, page: PAGE, loadDelayMs: LOAD_DELAY, anchor: true }, cfgExtra || {});
         if (endpoint !== 'none') cfg.rpc = { at: AT0 };   // the token in the page (v12.19); the route answers the read
         const html = buildPage(raw, cfg);
-        const hits = { id: id, n: 0 };
+        const hits = { id: id, n: 0, reads: [] };
         pageHits.push(hits);
+        await page.addInitScript(PG_SPY_INIT);     // the paging-status observer, before any page script
         await page.route('**/*', (route) => {
             const u = route.request().url();
             if (u === url) {
@@ -145,6 +181,7 @@ async function runEngine(engine, raw, only, quiet, endpoint) {
             }
             if (u.indexOf(BE) !== -1) {
                 hits.n++;
+                hits.reads.push({ t: Date.now(), chat: readChat(route.request().postData()) });
                 if (endpoint === 'refuse') { route.fulfill({ status: 403, contentType: 'application/json; charset=utf-8', body: ")]}'" }).catch(() => {}); return; }
             }
             route.abort().catch(() => {});
@@ -390,9 +427,26 @@ async function runEngine(engine, raw, only, quiet, endpoint) {
         }
     }
 
-    const most = pageHits.reduce((m, x) => Math.max(m, x.n), 0);
-    check('H0', '[guard] at most 2 history reads per page in the fallback (no retry loop)', most <= 2,
-          'endpoint=' + endpoint + ' reads per page: ' + pageHits.map((x) => x.id + '=' + x.n).join(' '));
+    // H0: per page, each read against the one before it; a read of the same chat sooner than this mode's
+    // gate is a retry loop. `none`: no read at all.
+    const tooSoon = [];
+    let total = 0;
+    for (const p of pageHits) {
+        total += p.reads.length;
+        for (let i = 1; i < p.reads.length; i++) {
+            const a = p.reads[i - 1], b = p.reads[i];
+            if (a.chat === b.chat && b.t - a.t < READ_GAP_MS[endpoint]) tooSoon.push(p.id + ' ' + (b.t - a.t) + ' ms');
+        }
+    }
+    const gaps = pageHits.filter((p) => p.reads.length > 1)
+        .map((p) => p.id + ':' + p.reads.slice(1).map((x, i) => (x.chat === p.reads[i].chat ? '' : 'switch,') + (x.t - p.reads[i].t)).join('/'));
+    check('H0', '[guard] no retry loop in the fallback: ' + (endpoint === 'none'
+              ? 'no history read at all (no token in the page)'
+              : 'no two reads of one chat less than ' + (READ_GAP_MS[endpoint] / 1000) + ' s apart (' +
+                (endpoint === 'refuse' ? 'a 403 is PERMANENT' : 'a network failure stays transient, behind the cooldown') + ')'),
+          endpoint === 'none' ? total === 0 : tooSoon.length === 0,
+          'endpoint=' + endpoint + ' reads per page: ' + pageHits.map((x) => x.id + '=' + x.n).join(' ') +
+          (gaps.length ? ' gaps (ms): ' + gaps.join(' ') : '') + (tooSoon.length ? ' TOO SOON: ' + tooSoon.join(', ') : ''));
     check('HP', '[guard] the jumps\' paging status never shows on the fallback', pagingSeen.length === 0,
           pagingSeen.length ? 'seen in ' + pagingSeen.join(', ') : 'never seen');
     check('E', 'no page errors', pageErrors.length === 0, pageErrors.slice(0, 2).join(' / '));

@@ -34,6 +34,13 @@ jobs:
     # (hence the bounded install step below). The merge run's two macOS cancels at 15m01s were GitHub
     # not assigning a runner ("not acquired by Runner ... after multiple attempts"), which no
     # setting here changes: re-run the failed jobs once the whole run has finished.
+    # v12.19 (cap unchanged; raising it is the owner's call): the "Run Gemini index probe" step adds
+    # about 8 minutes per engine, measured locally on chromium only (this machine, 2026-11-06: 489-502 s
+    # against v12.18 and against the branch before its adapter, where many fixtures end early, so the
+    # finished build will take longer; Firefox and WebKit not measured). 33m18s-33m51s + ~8 = ~42 of 50
+    # minutes, leaving ~8 for a slow install: a mirror stall that the bounded install step lets through
+    # at 8-13 minutes would now run a healthy job into the cap. Re-measure per engine once the adapter
+    # lands.
     timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 50 || 30 }}
     strategy:
       fail-fast: false
