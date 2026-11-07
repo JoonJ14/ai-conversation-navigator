@@ -18,7 +18,8 @@
 // two reads of one chat less than 58 s apart; abort = the fetch rejects, a 'network' failure that stays
 // TRANSIENT (R4's permanent override is for 'threw' only), so the index may ask again behind the 15 s
 // cooldown: no two reads of one chat less than 13 s apart (a pace, not a count; these pages live up to
-// about a minute); none = no token, so no read at all. The 2 s below each gate absorbs the time between
+// about a minute; each failed read is a strike, so a chat visit sends at most 5, gated by
+// check-gemini-index.js I26); none = no token, so no read at all. The 2 s below each gate absorbs the time between
 // a load's start and its request reaching the route.
 //
 // WHAT v12.16 DID, MEASURED LIVE (Chrome + Tampermonkey, the owner's profile, visible tab,

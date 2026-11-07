@@ -40,7 +40,8 @@
 //   refuse  a 403 is PERMANENT (60 s, then x4): no two reads of the same chat less than 58 s apart;
 //   abort   the fetch rejects, a 'network' failure, which stays TRANSIENT (R4's permanent override is
 //           for 'threw' only): the index may ask again behind the 15 s cooldown, so no two reads of the
-//           same chat less than 13 s apart (a pace, not a count: a page open longer asks more often);
+//           same chat less than 13 s apart (a pace, not a count: each failed read is a strike, so a
+//           chat visit sends at most 5, gated by check-gemini-index.js I26);
 //   none    no token: nothing may be sent at all (0 reads).
 // The 2 s below each gate absorbs the time between a load's start (where the gate is counted from) and
 // its request reaching the route. Reads of different chats (an SPA switch) are not a retry.

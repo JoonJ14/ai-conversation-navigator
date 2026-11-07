@@ -78,7 +78,10 @@ catch (e) { playwright = require('playwright'); }
 
 // ── Fixture constants ────────────────────────────────────────────────────────────────────────
 const C32 = 'aa32aa32aa32aa32', C230 = 'ab23ab23ab23ab23', C20 = 'dd20dd20dd20dd20', C10 = 'bb10bb10bb10bb10', C6 = 'cc06cc06cc06cc06';
-const CHATS = { [C32]: 32, [C230]: 230, [C20]: 20, [C10]: 10, [C6]: 6 };
+// I25's chat: 990 turns, so a full read is 10 pages of 100 (the most under the page cap) and ten of them make
+// 100 requests, GM_IX_CALLS_MAX. Synthetic: no chat over 32 turns was measured live.
+const C990 = 'ee99ee99ee99ee99';
+const CHATS = { [C32]: 32, [C230]: 230, [C20]: 20, [C10]: 10, [C6]: 6, [C990]: 990 };
 const PAGE = 10;               // DEC-057: 10 turns a page
 const LOAD_DELAY = 2000;       // live 1.5-2.9 s a page (DEC-057, Phase 1)
 // Tokens in Phase 1's shape: a 28-char head, ':', a 13-digit ms timestamp (42 chars). Synthetic values.
@@ -653,6 +656,11 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         return hits;
     };
 
+    // What a degraded Gemini index must show (spec: the v12.18 behaviour and the note): the banner,
+    // the loaded part listed (10 rows, Q23 first), the "older messages" note and the idle button.
+    const v1218 = (v) => v.banner === 'degraded' && v.count === '10' && /^Gemini question 23:/.test(v.items[0] || '') && v.note &&
+                         !!v.button && v.button.state === 'idle' && v.button.text === 'Load full history';
+
     // ── I22: a read that never answers in time (the server takes 47 s; CI_FETCH_TIMEOUT_MS is 45 s) ──
     // Started here and run beside every fixture below (its 3-minute window is idle but for the reads it
     // counts), flushed before R1. A timed-out read was still sent and still downloads in full, so it must
@@ -707,6 +715,181 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
                 h.hits.length >= 1 && before === 1 && between === 1 && perm[0] === 'next retry in 60s' && v.banner === 'degraded',
                 'reads at s=' + JSON.stringify(at.map((t) => Math.round(t / 100) / 10)) + ' (before 58 s: ' + before + ', 58-75 s: ' + between +
                 ') permanent=' + JSON.stringify(perm) + ' ' + fmt(v));
+        await h.close();
+    })();
+
+    // ── I3c: the page cap, FINAL for the chat visit, beside every fixture below (review round 1) ─────
+    // A history with no end (rpc.endless: every page a fresh cursor): the full load stops at GM_IX_MAX_PAGES
+    // (10 reads, 1,000 turns) and degrades. Never the truncated note: newest-first paging would list the
+    // newest 1,000 as if the chat began there. The chat only grows, so the cap is final for the visit: the
+    // retry after the 60 s backoff ends at once with no read ("next retry in 240s"), and the loaded part
+    // stays listed with the note and the idle button. a85ab2f read the same 10 pages again at every
+    // backoff (this fixture on it: 20 reads, the second 10 at 65-69 s; up to 100 per visit by its
+    // backstop; Playwright chromium, 2026-11-07). Watched until the retry's PERMANENT line, then 8 s more (the old
+    // retry's 10 reads take ~5 s here); flushed before R1. v12.18 sends none (fails "10 reads").
+    const i3cRun = fixture(['I3c'], async (r) => {
+        const h = await open(r, ['I3c'], C32, { rpc: { endless: true, heavyChars: 10 } });
+        if (!h) return;
+        await h.openNav();
+        try { await h.page.waitForFunction(() => window.__mockGemini.calls().list.length >= 1, null, { timeout: 15000 }); } catch (e) {}
+        const first = h.hits.length ? h.hits[0].t : Date.now();
+        const v0 = await h.waitDegraded(30000);
+        const capLines = () => h.lines(PERM_RE).filter((l) => /the page cap/.test(l));
+        while (capLines().length < 2 && Date.now() - first < 110000) await sleep(500);
+        await sleep(8000);
+        await h.openNav();
+        const v = await h.nav();
+        const c = await h.calls();
+        const perm = capLines().map((l) => (l.match(/next retry in \d+s/) || ['?'])[0]);
+        const at = h.hits.map((x) => Math.round((x.t - first) / 1000));
+        r.check('I3c', 'new', 'a history whose every page carries a fresh cursor: exactly 10 reads in the visit (one full, 9 by cursor, ' +
+                'one line each), degraded "longer than 1000 turns (the page cap)", PERMANENT, never the truncated note; the retry ' +
+                'after the 60 s backoff ends at once with no read ("next retry in 60s", then "240s"); the loaded part listed with ' +
+                'the note and the idle button',
+                v0.banner === 'degraded' && /longer than 1000 turns \(the page cap\)/.test(v.bannerText || '') &&
+                !/only the first/.test(v.bannerText || '') && c.list.length === 10 && c.full === 1 && c.next === 9 &&
+                h.hits.length === 10 && h.req().length === 10 && JSON.stringify(perm) === '["next retry in 60s","next retry in 240s"]' &&
+                v.count === '10' && v.note && !!v.button && v.button.state === 'idle',
+                fmt(v) + ' ' + callsBrief(c) + ' hits=' + h.hits.length + ' at s=' + JSON.stringify(at) + ' lines=' + h.req().length +
+                ' permanent=' + JSON.stringify(perm) + ' bannerText=' + JSON.stringify(v.bannerText));
+        await h.close();
+    })();
+
+    // ── I24: a refresh that fails PERMANENTLY drops the index, beside every fixture below (review round 1) ──
+    // The index ready, then the server answers every read with a null payload and code [7] (the session,
+    // PERMANENT), and the user sends one message: its id's refresh fails, and the index is DROPPED as a
+    // failed full load drops it: degraded, the v12.18 DOM list (the 10 loaded turns and the sent question,
+    // listed by the page's own DOM), the note and the idle button; one read (the newest page), no "REFRESH
+    // failed" snapshot kept, and data-acn-index-check removed with the index (its "ok" was the dropped
+    // index's). a85ab2f kept the old 32 'ready' with "refresh failed" and the sent question unlisted
+    // (this fixture on it, Playwright chromium, 2026-11-07), for as long as the session stayed out. v12.18 has no index (fails "ready first").
+    const i24Run = fixture(['I24'], async (r) => {
+        const SENT = 'A message sent after the session expired, about tidal locking?';
+        const h = await open(r, ['I24'], C32, {});
+        if (!h) return;
+        await h.openNav();
+        const v0 = await h.waitReady(32, 8000);
+        await sleep(16000);                   // past the open read's 15 s cooldown: the id's refresh goes at once
+        const c0 = (await h.calls()).list.length;
+        await h.page.evaluate(() => { window.__MOCK_CONFIG.rpc.mode = 'null7'; });
+        await h.page.evaluate((t) => window.__mockGemini.send(t), SENT);
+        const tSend = Date.now();
+        await h.until((x) => x.banner === 'degraded', 20000, 250);
+        const tDeg = Date.now();
+        await sleep(1500);
+        await h.openNav();
+        const v = await h.nav();
+        const c1 = await h.calls();
+        const added = c1.list.slice(c0).map((x) => x.type + '/' + x.size);
+        const kept = h.lines(/REFRESH failed/);
+        const perm = h.lines(PERM_RE).map((l) => (l.match(/next retry in \d+s/) || ['?'])[0]);
+        r.check('I24', 'new', 'the index ready, then every read answers a null payload [7] and one message is sent: its refresh (one read, ' +
+                'the newest page) fails PERMANENTLY and drops the index within 20 s: degraded, the v12.18 list (Q23 first, the sent ' +
+                'question last, 11 rows), the note and the idle button, no index-check left from the dropped index; no ' +
+                '"REFRESH failed" snapshot kept',
+                v0.count === '32' && v0.banner !== 'degraded' && v.banner === 'degraded' && tDeg - tSend <= 20000 &&
+                /session was not accepted/.test(v.bannerText || '') && v.count === '11' && /^Gemini question 23:/.test(v.items[0] || '') &&
+                v.items[10] === SENT && v.note && !!v.button && v.button.state === 'idle' && v.check === null &&
+                JSON.stringify(added) === '["newest/10"]' && kept.length === 0 && perm[0] === 'next retry in 60s',
+                'before: ' + fmt(v0) + '; after ' + Math.round((tDeg - tSend) / 100) / 10 + ' s: ' + fmt(v) + ' last=' +
+                JSON.stringify((v.items[v.items.length - 1] || '').slice(0, 30)) + ' reads after the send=' + JSON.stringify(added) +
+                ' REFRESH failed lines=' + kept.length + ' permanent=' + JSON.stringify(perm) + ' bannerText=' + JSON.stringify(v.bannerText));
+        await h.close();
+    })();
+
+    // ── I25: the calls backstop counts since the last load that succeeded (review round 1) ───────────
+    // GM_IX_CALLS_MAX (100) is a backstop against a loop of FAILURES, never a quota on normal use. A
+    // 990-turn chat (10 pages of 100 a full read) opened, then left for Gemini's home and opened again 9
+    // times (one chat visit: A -> home -> A keeps it), every load good: 100 requests. Then 12 messages
+    // sent 3 s apart: every one is listed (990 -> 1002), each refresh the newest page, with no failed
+    // refresh and the index still ready. a85ab2f counted every request of the visit, so the first send's
+    // refresh met "100 history reads" and Navigate kept the old 990 with "refresh failed" and none of the
+    // 12 sent (this fixture on it, Playwright chromium, 2026-11-07), for the rest of the visit. The 100 is the build's constant: a 990-turn chat is what reaches it here in
+    // ~1 minute. v12.18 has no index (fails "990 listed").
+    const i25Run = fixture(['I25'], async (r) => {
+        const SENT = (k) => 'Sent message ' + (k + 1) + ' of twelve, about the Roche limit?';
+        const desc = 'a 990-turn chat opened 10 times in one visit (via the home page), every load good: 100 requests; then 12 ' +
+                     'messages sent 3 s apart are all listed (1002, the 12 sent last, in order), each refresh the newest page, no ' +
+                     'refresh failed, still ready, index-check "ok"';
+        const h = await open(r, ['I25'], C990, { rpc: { heavyChars: 10 } });
+        if (!h) return;
+        await h.openNav();
+        let v = await h.waitReady(990, 30000);
+        const cycles = [];
+        if (v.count === '990') {
+            for (let k = 0; k < 9; k++) {
+                await h.page.evaluate(() => window.__mockGemini.goHome());
+                await sleep(1500);            // the userscript's scan after the path change (500 ms), and more
+                await h.page.evaluate((id) => window.__mockGemini.switchTo(id), C990);
+                try { await h.page.waitForFunction('window.__mockGemini.loaded() === 10', null, { timeout: 10000 }); } catch (e) {}
+                await sleep(800);
+                await h.openNav();
+                v = await h.waitReady(990, 30000);
+                cycles.push((await h.calls()).list.length);
+                if (v.count !== '990') break;
+            }
+        }
+        const cAfter = (await h.calls()).list.length;
+        if (v.count !== '990' || cAfter !== 100) {
+            r.check('I25', 'new', desc, false, 'never reached 100 good requests: ' + fmt(v) + ' requests after each reopen=' + JSON.stringify(cycles) +
+                    ' (all ' + cAfter + ')');
+            await h.close();
+            return;
+        }
+        await sleep(16000);                   // past the last load's 15 s cooldown: the first send's refresh goes at once
+        for (let k = 0; k < 12; k++) {
+            await h.page.evaluate((t) => window.__mockGemini.send(t), SENT(k));
+            await sleep(3000);
+        }
+        await h.openNav();
+        const vEnd = await h.until((x) => x.count === '1002' || x.banner === 'degraded' || x.banner === 'ready-with-notes', 90000, 500);
+        await sleep(1500);
+        const v2 = await h.nav();
+        const c2 = await h.calls();
+        const added = c2.list.slice(cAfter).map((x) => x.type + '/' + x.size + '/' + x.status);
+        const tail = v2.items.slice(-12);
+        const allSent = tail.length === 12 && tail.every((t, i) => t === SENT(i));
+        r.check('I25', 'new', desc,
+                vEnd.count === '1002' && v2.count === '1002' && allSent && v2.banner === null && v2.check === 'ok' && added.length >= 1 &&
+                added.every((x) => x === 'newest/10/200') && h.lines(/REFRESH failed|history reads in this chat/).length === 0,
+                'requests after each reopen=' + JSON.stringify(cycles) + ' then ' + fmt(v2) + ' banner text=' + JSON.stringify(v2.bannerText) +
+                ' the 12 sent listed last=' + allSent + ' reads for the sends=' + JSON.stringify(added));
+        await h.close();
+    })();
+
+    // ── I26: a read that fails at the network is a strike; five stop the visit (review round 1) ───────
+    // Every read aborted at the network (the mock's abort mode, the token planted): a TRANSIENT failure,
+    // retried at the ~16 s cooldown as every adapter's, but each failed read is a strike of the visit, so
+    // exactly GM_IX_STRIKES_MAX (5) reads ("load failed — strike 1..5 of 5"), then "stopped after 5
+    // failures" with nothing sent, degraded with the idle button. a85ab2f re-read the whole chat every
+    // ~16 s for as long as the tab stayed open (this fixture on it: 9 reads in 130 s, Playwright chromium,
+    // 2026-11-07; only the 100-request backstop ended it). Watched 130 s from the first read; flushed before R1. v12.18 sends none
+    // (fails "5 reads").
+    const i26Run = fixture(['I26'], async (r) => {
+        const WIN = 130000;
+        const h = await open(r, ['I26'], C32, { rpc: { mode: 'abort' } });
+        if (!h) return;
+        await h.openNav();
+        try { await h.page.waitForFunction(() => window.__mockGemini.calls().list.length >= 1, null, { timeout: 15000 }); } catch (e) {}
+        const first = h.hits.length ? h.hits[0].t : Date.now();
+        await sleep(Math.max(0, first + WIN - Date.now()));
+        await h.openNav();
+        const v = await h.nav();
+        const at = h.hits.map((x) => x.t - first);
+        const gaps = at.slice(1).map((t, i) => t - at[i]);
+        const strikes = h.lines(/load failed . strike \d of 5/).map((l) => (l.match(/strike \d of 5/) || [''])[0]);
+        const stopped = h.lines(PERM_RE).filter((l) => /stopped after 5 failures/.test(l));
+        const leaks = noLeak(h.logs.concat([await h.storage()]));
+        r.check('I26', 'new', 'every read aborted at the network (TRANSIENT): exactly 5 reads in 130 s, all full reads, none under 13 s ' +
+                'apart (the cooldown), each a strike ("strike 1..5 of 5"), then "stopped after 5 failures" PERMANENT with nothing ' +
+                'sent; degraded with the idle button; nothing leaked',
+                h.hits.length === 5 && h.hits.every((x) => x.rpc === 'hNvQHb') && Math.min.apply(null, gaps.concat([Infinity])) >= 13000 &&
+                strikes.join('|') === 'strike 1 of 5|strike 2 of 5|strike 3 of 5|strike 4 of 5|strike 5 of 5' && stopped.length >= 1 &&
+                v.banner === 'degraded' && /stopped after 5 failures/.test(v.bannerText || '') && !!v.button && v.button.state === 'idle' &&
+                leaks.length === 0,
+                'reads at s=' + JSON.stringify(at.map((t) => Math.round(t / 100) / 10)) + ' strikes=' + JSON.stringify(strikes) +
+                ' stopped lines=' + stopped.length + ' ' + fmt(v) + ' bannerText=' + JSON.stringify(v.bannerText) +
+                ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
         await h.close();
     })();
 
@@ -856,10 +1039,6 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         await h.close();
     }));
 
-    // What a degraded Gemini index must show (spec: the v12.18 behaviour and the note): the banner,
-    // the loaded part listed (10 rows, Q23 first), the "older messages" note and the idle button.
-    const v1218 = (v) => v.banner === 'degraded' && v.count === '10' && /^Gemini question 23:/.test(v.items[0] || '') && v.note &&
-                         !!v.button && v.button.state === 'idle' && v.button.text === 'Load full history';
     // ── I2b, I3r, I3e, I3b, I7c, I8, I4c, I9b: failures and shapes with short windows, side by side ─
     await par([
         fixture(['I2b'], async (r) => {
@@ -1179,31 +1358,8 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         await h.close();
     })]);
 
-    // ── I3c, I6d, I6e, I6f, I6h: the page cap and the self-check's other rules, side by side ───────
+    // ── I6d, I6e, I6f, I6h: the self-check's other rules, side by side (I3c runs beside them all) ──
     await par([
-        fixture(['I3c'], async (r) => {
-            // A history with no end (rpc.endless: every page a fresh cursor): the full load stops at
-            // GM_IX_MAX_PAGES (10 reads, 1,000 turns) and degrades. Never the truncated note: newest-first
-            // paging would list the newest 1,000 as if the chat began there.
-            const h = await open(r, ['I3c'], C32, { rpc: { endless: true, heavyChars: 10 } });
-            if (!h) return;
-            await h.openNav();
-            const v0 = await h.waitDegraded(30000);
-            await sleep(15000);                   // inside the 60 s backoff: no read may follow
-            const v = await h.nav();
-            const c = await h.calls();
-            const perm = h.lines(PERM_RE).filter((l) => /the page cap/.test(l));
-            r.check('I3c', 'new', 'a history whose every page carries a fresh cursor: exactly 10 reads (one full, 9 by cursor, one line ' +
-                    'each), degraded "longer than 1000 turns (the page cap)", PERMANENT, never the truncated note; the loaded part ' +
-                    'listed with the note; no read 15 s later',
-                    v0.banner === 'degraded' && /longer than 1000 turns \(the page cap\)/.test(v.bannerText || '') &&
-                    !/only the first/.test(v.bannerText || '') && c.list.length === 10 && c.full === 1 && c.next === 9 &&
-                    h.hits.length === 10 && h.req().length === 10 && perm.some((l) => /next retry in 60s/.test(l)) &&
-                    v.count === '10' && v.note,
-                    fmt(v) + ' ' + callsBrief(c) + ' hits=' + h.hits.length + ' lines=' + h.req().length + ' permanent=' +
-                    JSON.stringify(perm.map((l) => (l.match(/next retry in \d+s/) || [''])[0])) + ' bannerText=' + JSON.stringify(v.bannerText));
-            await h.close();
-        }),
         fixture(['I6d'], async (r) => {
             // Every turn's id removed after the index is ready: nothing on the page can be compared, so
             // "pending" for GM_IX_VERIFY_GRACE_MS (30 s), then a mismatch: never an index taken on trust.
@@ -2310,6 +2466,10 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
 
     flush(await i22Run);
     flush(await i23Run);
+    flush(await i3cRun);
+    flush(await i24Run);
+    flush(await i25Run);
+    flush(await i26Run);
     if (i6sRun) flush(await i6sRun);
 
     // ── R1 [guard], E [guard] ────────────────────────────────────────────────────────────────────

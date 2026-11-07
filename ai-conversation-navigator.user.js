@@ -3350,10 +3350,13 @@
     var GM_IX_CONTENT_TYPE = 'application/x-www-form-urlencoded;charset=UTF-8';   // CORS-safelisted: a simple request
     var GM_IX_PAGE_SIZE    = 100;   // a full load, following the cursor to null
     var GM_IX_NEWEST_SIZE  = 10;    // a refresh: the newest page only, merged by id (the page's own size, Phase 1)
-    var GM_IX_MAX_PAGES    = 10;    // a full load's call cap: 1,000 turns (no chat over 32 measured); past it, degrade
-    var GM_IX_STRIKES_MAX  = 5;     // strikes per chat visit (permanent failures, mismatches, merge misses), then no
-                                    // more full loads until a reload or a reopen
-    var GM_IX_CALLS_MAX    = 100;   // hNvQHb requests asked of the transport per chat visit, answered or not: a backstop
+    var GM_IX_MAX_PAGES    = 10;    // a full load's call cap: 1,000 turns (no chat over 32 measured); past it, degrade,
+                                    // final for the chat visit (gmIxFetch's capped)
+    var GM_IX_STRIKES_MAX  = 5;     // strikes per chat visit (every failed load but a superseded one and a refusal
+                                    // with nothing sent; mismatches; merge misses), then no more loads, full or
+                                    // refresh, until a reload or a reopen
+    var GM_IX_CALLS_MAX    = 100;   // hNvQHb requests asked of the transport since this visit's last load that
+                                    // SUCCEEDED, answered or not: a backstop against a loop of failures
     var GM_IX_VERIFY_GRACE_MS = 30000;   // turns shown that the self-check cannot compare: this long, then a mismatch
     // The page token's key and its quoted value, as the page's inline script text writes it. Never spell
     // the key's quoted form followed by its colon anywhere in this file: the probes inline this script
@@ -3361,14 +3364,17 @@
     // quoted key comes a backslash, not a colon).
     var GM_IX_AT_RE = /"SNlM0e"\s*:\s*"((?:[^"\\]|\\.){1,400})"/;
     var _gmIxAt = null;             // the page token: memory only; never logged, stored, or put in a URL
-    // Per chat visit, outside _ix: ixInvalidate must not reset the strikes or the call count. A change of
-    // chat starts afresh (gmIxFetch), so A -> B -> A reads A whole again, as the spec's "full refetch on a
-    // conversation change" asks; a load counts against the visit it started in (gmIxFetch's `st`).
-    // The self-check's share: strikes (its mismatches count with the permanent load failures),
+    // Per chat visit, outside _ix: ixInvalidate must not reset the strikes, the call count or the page
+    // cap's mark (A -> Gemini home -> A is one visit). A change of chat starts afresh (gmIxFetch), so
+    // A -> B -> A reads A whole again, as the spec's "full refetch on a conversation change" asks; a load
+    // counts against the visit it started in (gmIxFetch's `st`). The call count is the one thing a load
+    // that succeeds resets (gmIxFetch's end).
+    // The self-check's share: strikes (its mismatches count with the failed loads),
     // unverifiedAt (when shown turns first could not be compared, or -1), the id map of the index it
     // last read (mapKey: which index build) and okKey (the build whose "self-check ok" line is out).
+    // capped: a full load of this visit reached GM_IX_MAX_PAGES, so every later one ends at once.
     function gmIxChatState(cid) {
-        return { cid: cid, strikes: 0, calls: 0, unverifiedAt: -1, mapKey: '', map: null, okKey: '' };
+        return { cid: cid, strikes: 0, calls: 0, capped: false, unverifiedAt: -1, mapKey: '', map: null, okKey: '' };
     }
     var _gmIx = gmIxChatState(null);
     var _gmIxPathSeen = '';
@@ -3602,7 +3608,7 @@
     }
 
     // The adapter's fetchIndex: the whole chat, newest page first (size 100), following the cursor to null.
-    // done(err) with { reason, permanent[, noStrike] }, or done(null, { entries, answers, total, transport }):
+    // done(err) with { reason, permanent[, noStrike][, drop] }, or done(null, { entries, answers, total, transport }):
     // total is the turn count (the position scale), no images (the gallery stays on the page's own) and no
     // truncated (past the page cap it degrades: newest-first paging would drop the OLDEST turns).
     // A REFRESH (ixLoad's keep: this chat's index is ready and stays shown meanwhile) reads the newest page
@@ -3617,12 +3623,20 @@
     // more when its answer settles (unchanged for IX_SETTLE_MS). While the watch sees the latest answer
     // move, ixScan skips the IX_ANSWER_GROWTH rule for it, which would otherwise ask for one refresh per
     // 2,000 characters written (one per 15 s cooldown). An answer that pauses that long mid-stream
-    // settles once per pause. GM_IX_CALLS_MAX bounds it all. In the mock, an answer that arrives at once
-    // costs one read (probe I11); one written over 35 s costs two (I11d).
-    // Classes (permanent = ixDegrade's 60 s then x4 backoff; transient = the ~16 s cooldown):
+    // settles once per pause. The cooldown and the once-per-signature rule bound the refreshes that
+    // succeed; the strikes and GM_IX_CALLS_MAX bound the ones that fail. In the mock, an answer that
+    // arrives at once costs one read (probe I11); one written over 35 s costs two (I11d).
+    // Classes (permanent = ixDegrade's 60 s then x4 backoff; transient = the ~16 s cooldown). Every failed
+    // load is also a STRIKE of the chat visit (one per load, logged "load failed … strike N of 5"), except a
+    // load superseded meanwhile (a newer load, or the chat left: its failure says nothing about the chat now
+    // open) and an ending with nothing sent that is not the chat's (the transport's cap refusal, the calls
+    // backstop, the page cap, the strikes spent): transient failures still retry at the cooldown, but
+    // GM_IX_STRIKES_MAX strikes stop every later load of the visit, a refresh too, so no failure loops
+    // past it (at a85ab2f a network error read the whole chat every ~16 s for as long as the tab stayed
+    // open: 9 reads in 130 s, probe I26 on the mock's abort mode, Playwright chromium, 2026-11-07).
     //   HTTP 400          the token re-read ONCE from the current document and the request sent ONCE more
     //                     (" retry=at-new|at-same"); a second 400 is permanent. No ~16 s loop, as ChatGPT's
-    //                     token refresh.
+    //                     token refresh. A superseded load's 400 neither re-reads nor clears the token.
     //   no token          permanent, nothing sent.
     //   null payload      [7] and [3] permanent, [5] transient, any other code permanent.
     //   shape             no prefix, no hNvQHb frame, a payload or turn that does not read, a repeated cursor,
@@ -3642,12 +3656,21 @@
     //                     sent) is reported as a timeout too, and stays transient and strike-free (the ~16 s
     //                     retry); it counts toward GM_IX_CALLS_MAX, a backstop.
     //   401/403/429       permanent (ciIsPermanentReason); 404, 5xx and network transient, as every adapter's.
+    //   page cap          a full load past GM_IX_MAX_PAGES: permanent and final for the chat visit (capped):
+    //                     the chat only grows, so every later full load of the visit ends at once with nothing
+    //                     sent (never the same 10 pages again at each backoff, ~11 MB each by the estimate
+    //                     above), the index degraded and "Load full history" offered (probe I3c).
+    // A REFRESH that fails PERMANENTLY drops the index as a failed full load does (the error's drop, which
+    // ixLoad's finish honours): the banner, v12.18's DOM list, the note and the button, never a stale list
+    // kept 'ready' under a page that has moved on (probe I24). One that fails transiently keeps its
+    // snapshot, as every adapter's refresh does.
     // Gates on the calls, on top of ixScan's (one load at a time, the 15 s cooldown, the backoff): a full
     // load is at most GM_IX_MAX_PAGES calls, a refresh one (two after a 400), plus a full load on a merge
-    // miss; GM_IX_STRIKES_MAX strikes in a chat visit (permanent failures, self-check mismatches, merge
-    // misses) stop its full loads until a reload or a reopen, while a ready index's refresh still reads
-    // its newest page; GM_IX_CALLS_MAX requests asked per chat visit, answered or not, stop every read; a
-    // load superseded (a newer load, or the chat left) sends nothing more and parses nothing it gets.
+    // miss; GM_IX_STRIKES_MAX strikes in a chat visit stop its loads until a reload or a reopen;
+    // GM_IX_CALLS_MAX requests asked since the visit's last load that succeeded, answered or not, stop
+    // every read (a backstop: a load that succeeds resets the count, so normal use never reaches it,
+    // probe I25); a load superseded (a newer load, or the chat left) sends nothing more and parses nothing
+    // it gets.
     // ONE "[ACN] index: platform=gemini transport=… endpoint=hNvQHb page=N size=S[ retry=…] status=C" line
     // per request sent (ixLog), with one tail; one "measure" line per load that built an index.
     function gmIxFetch(cid, done) {
@@ -3673,10 +3696,33 @@
             return { reason: 'stopped after ' + st.strikes + ' failures in this chat (reload the page to try again)',
                      permanent: true, noStrike: true };
         }
+        function capped() {
+            return { reason: 'longer than ' + (GM_IX_MAX_PAGES * GM_IX_PAGE_SIZE) + ' turns (the page cap) \u2014 ' +
+                             'loaded turns only; Load full history',
+                     permanent: true, noStrike: true };
+        }
+        // Every failure a strike but those marked noStrike (see the classes above). A REFRESH's permanent
+        // failure carries drop: ixLoad's finish then drops the index instead of keeping its snapshot. A load
+        // that succeeds resets the calls backstop.
         function end(err, res) {
             if (ended) return;
             ended = true;
-            if (err && err.permanent && !err.noStrike) st.strikes++;
+            if (err) {
+                if (!err.noStrike) {
+                    st.strikes++;
+                    console.warn('[ACN] index: platform=gemini load failed \u2014 strike ' + st.strikes + ' of ' +
+                                 GM_IX_STRIKES_MAX);
+                }
+                if (base && err.permanent && !superseded()) {
+                    // The index is dropped (ixLoad's finish): the self-check's verdict and its grace clock
+                    // were about it, so they go with it, as ixInvalidate clears them.
+                    err.drop = true;
+                    gmIxMark('');
+                    st.unverifiedAt = -1;
+                }
+            } else {
+                st.calls = 0;
+            }
             done(err, res);
         }
         // Before-send endings and a transport that answers synchronously: never inside ixLoad's own call,
@@ -3697,9 +3743,10 @@
         }
         // ONE hNvQHb call; next(page, log) on a page that parsed, where log(tail) writes its line.
         function call(size, cursor, n, next, retryTag) {
-            if (superseded()) { endSoon({ reason: 'superseded', permanent: false }); return; }
+            if (superseded()) { endSoon({ reason: 'superseded', permanent: false, noStrike: true }); return; }
             if (st.calls >= GM_IX_CALLS_MAX) {
-                endSoon({ reason: GM_IX_CALLS_MAX + ' history reads in this chat (reload the page to read it again)',
+                endSoon({ reason: GM_IX_CALLS_MAX + ' history reads in this chat with none that loaded (reload the page ' +
+                                  'to read it again)',
                           permanent: true, noStrike: true });
                 return;
             }
@@ -3710,6 +3757,14 @@
             function answered(r) {
                 m.netMs += gmIxNow() - t0;
                 if (!r.ok) {
+                    // Superseded meanwhile (a newer load, or the chat left): its failure says nothing about
+                    // the chat now open, so no strike, no class, and a 400 neither re-reads nor clears the
+                    // token (the newer load has its own).
+                    if (superseded()) {
+                        ixLog('gemini', r, GM_IX_RPC, extra, ' superseded');
+                        end({ reason: 'superseded', permanent: false, noStrike: true });
+                        return;
+                    }
                     ixLog('gemini', r, GM_IX_RPC, extra);              // the one line for this request
                     if (r.kind === 'http' && r.status === 400) {
                         if (!retried) {                                // ONE re-read and ONE retry per load
@@ -3724,9 +3779,10 @@
                         return;
                     }
                     var f = ixFailure(r);
-                    // threw: one transport per manager. timeout: a strike and the backoff (see above), for
-                    // a request that was SENT; the transport's refusal at its caps sent nothing.
-                    if (gmIxCapRefusal(r)) f.reason += ' (' + r.detail + ', nothing sent)';
+                    // threw: one transport per manager. timeout: the backoff (see above), for a request that
+                    // was SENT. Every SENT request's failure is a strike (end); the transport's refusal at
+                    // its caps sent nothing, so it is none.
+                    if (gmIxCapRefusal(r)) { f.reason += ' (' + r.detail + ', nothing sent)'; f.noStrike = true; }
                     else if (r.kind === 'threw' || r.kind === 'timeout') f.permanent = true;
                     end(f);
                     return;
@@ -3739,7 +3795,7 @@
                     if (superseded()) {
                         holder.text = null;
                         ixLog('gemini', r, GM_IX_RPC, extra, ' superseded');   // answered, never read
-                        end({ reason: 'superseded', permanent: false });
+                        end({ reason: 'superseded', permanent: false, noStrike: true });
                         return;
                     }
                     var pg;
@@ -3792,6 +3848,8 @@
             end(null, { entries: b.entries, answers: b.answers, total: turns.length, transport: transport });
         }
         function full() {
+            // The page cap is final for the visit: the same pages would only be read again to the same end.
+            if (st.capped) { endSoon(capped()); return; }
             var acc = [], cursors = {};
             function page(n, cursor) {
                 call(GM_IX_PAGE_SIZE, cursor, n, function (pg, log) {
@@ -3806,8 +3864,8 @@
                     }
                     cursors['c' + pg.cursor] = true;                   // prefixed: a cursor is opaque text
                     if (n >= GM_IX_MAX_PAGES) {
-                        end({ reason: 'longer than ' + (GM_IX_MAX_PAGES * GM_IX_PAGE_SIZE) + ' turns (the page cap)',
-                              permanent: true, noStrike: true });
+                        st.capped = true;
+                        end(capped());
                         return;
                     }
                     page(n + 1, pg.cursor);
@@ -3815,6 +3873,8 @@
             }
             page(1, null);
         }
+        // The strikes stop every load of the visit, a refresh too (its stopped() then drops the index).
+        if (st.strikes >= GM_IX_STRIKES_MAX) { endSoon(stopped()); return; }
         if (base) {
             call(GM_IX_NEWEST_SIZE, null, 1, function (pg, log) {
                 var merged = gmIxMerge(base, pg);
@@ -3831,7 +3891,6 @@
             });
             return;
         }
-        if (st.strikes >= GM_IX_STRIKES_MAX) { endSoon(stopped()); return; }
         full();
     }
 
@@ -4284,7 +4343,8 @@
             _ix.retryDelayMs = 0;
         }
         if (keep) {
-            // A failed REFRESH keeps the snapshot it already had, as Claude's index does.
+            // A failed REFRESH keeps the snapshot it already had, as Claude's index does (Gemini: a
+            // transient one only; ixLoad passes keep false for a permanent one, its err.drop).
             _ix.status = 'ready';
             _ix.refreshFailed = reason;
             console.warn('[ACN] index REFRESH failed (' + reason + ') \u2014 keeping the existing snapshot');
@@ -4315,7 +4375,9 @@
                 done(false);
                 return;
             }
-            if (err) { ixDegrade(err, keep); done(false); return; }
+            // err.drop (Gemini's permanent REFRESH failure, v12.19): drop the index as a failed full load
+            // does, never a stale snapshot kept 'ready'. No other adapter sets it.
+            if (err) { ixDegrade(err, keep && !err.drop); done(false); return; }
             var idIndex = {}, textAt = {};
             // For bookmarks (v12.15): qIdx { id -> the Navigate index }, idAtPos { position ->
             // id } for entries with an id of their own (never the positional fallback), and

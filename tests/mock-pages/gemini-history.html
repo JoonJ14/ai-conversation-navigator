@@ -112,6 +112,9 @@
        loads()         history loads done in this chat
        loadAll()       synchronously prepend every remaining turn, anchored (one DOM step)
        switchTo(id)    history.pushState to /app/<id>, then render that chat's first page
+       goHome()        (v12.19, review round 1) history.pushState to /app, then an empty scroller: the chat
+                       left for Gemini's home, so going back to it is the same chat visit (live Gemini's
+                       home page is not modelled, only its path and that no turn is shown)
        send(text)      append a new turn at the bottom (a message the user sent), view to the bottom
        userScroll(w)   'top' | 'bottom' | <number>: a scroll as a user makes it (wheel, then the write)
        turnId(n)       the stable id of turn n (1-based) in the current chat
@@ -565,6 +568,10 @@
         switchTo: function (id) {
             history.pushState({}, '', '/app/' + id);
             render(id);
+        },
+        goHome: function () {
+            history.pushState({}, '', '/app');
+            render(null);
         },
         send: function (text) {
             state.sent++;
