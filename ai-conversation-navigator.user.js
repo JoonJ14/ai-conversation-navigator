@@ -2784,8 +2784,11 @@
         // A conversation left and opened again shows only its newest pages again (Tier 3).
         _ixStartLoaded = null;
         _ixBmServed = _ixBmAsked;
-        // Gemini's self-check verdict (data-acn-index-check, v12.19) was about the index dropped here.
+        // Gemini's self-check verdict (data-acn-index-check, v12.19) was about the index dropped here, and
+        // so was its grace clock: A -> Gemini home -> A starts a fresh grace (the strikes and calls stay
+        // the visit's). _gmIx is undefined on the first call, made before its initializer ran.
         gmIxMark('');
+        if (_gmIx) _gmIx.unverifiedAt = -1;
         _ix = { pid: null, cid: null, status: 'idle', entries: null, total: 0, idIndex: null,
                 textAt: null, inFlightCid: null, loadGen: (_ix.loadGen || 0) + 1, indexGen: (_ix.indexGen || 0) + 1,
                 reason: '', retryDelayMs: 0, lastFetchAt: 0, refreshFailed: '', truncated: 0,
@@ -3551,8 +3554,11 @@
     // The newest page merged into the snapshot BY ID. The page is the truth from its oldest turn on: a
     // changed answer, a new turn, a turn gone. null = it does not meet the snapshot (its oldest turn is
     // not in it, or a turn of the page is also listed before that one: more than a page arrived, or
-    // another history), and the caller reads the chat whole. No cursor: the whole chat fits in the page.
+    // another history), and the caller reads the chat whole. No cursor: the whole chat fits in the page,
+    // except a page with no turns at all where the snapshot has some (an answer nobody has measured:
+    // Phase 1 saw a null cursor only on a last page that had turns): a miss too, never an empty list.
     function gmIxMerge(base, page) {
+        if (!page.cursor && !page.turns.length && base.answers.length) return null;
         if (!page.cursor) return page.turns;
         if (!page.turns.length) return null;
         var old = gmIxTurnsOf(base), at = -1, i, seen = {};
@@ -3577,6 +3583,12 @@
         if (code === 5) return { reason: pre + ': conversation not found (new, or deleted?)', permanent: false };
         return { reason: pre + ': no payload', permanent: true };
     }
+    // ciFetchGet's refusal at its open or stall cap (CI_FETCH_OPEN_MAX, CI_FETCH_STALL_MAX): reported as a
+    // timeout at once, with nothing sent. Told apart by the detail that one call writes (ciFetchGet is
+    // unchanged); a sent request that timed out carries no detail.
+    function gmIxCapRefusal(r) {
+        return r.kind === 'timeout' && r.detail === 'earlier requests are still unanswered';
+    }
 
     // The adapter's fetchIndex: the whole chat, newest page first (size 100), following the cursor to null.
     // done(err) with { reason, permanent[, noStrike] }, or done(null, { entries, answers, total, transport }):
@@ -3584,14 +3596,18 @@
     // truncated (past the page cap it degrades: newest-first paging would drop the OLDEST turns).
     // A REFRESH (ixLoad's keep: this chat's index is ready and stays shown meanwhile) reads the newest page
     // only (GM_IX_NEWEST_SIZE, no cursor) and merges it by id (gmIxMerge). ixScan asks for one on its
-    // stale rules, unchanged: a turn with an id the index lacks (a message just sent: the mounted turns
+    // stale rules: a turn with an id the index lacks (a message just sent: the mounted turns
     // outgrow the index), an answer it does not hold or holds too little of, the latest answer settling,
     // the index listing more than the page's last turn at the bottom, a bookmark's request; each behind
     // the cooldown and once per signature. A full read only on a conversation change (ixInvalidate, then
     // an idle index), after a self-check mismatch or a failed load (the degraded retry), and when the
-    // newest page does not meet the snapshot (a merge miss: a strike, and logged). Read from the code,
-    // not measured live: a sent message can cost up to three refreshes there (its id, its answer, the
-    // answer settling: each its own signature); the mock answers at once, so it costs one (probe I11).
+    // newest page does not meet the snapshot (a merge miss: a strike, and logged). What a sent message
+    // costs (read from the code; streaming on the live site is unmeasured): its id's refresh, and one
+    // more when its answer settles (unchanged for IX_SETTLE_MS). While the watch sees the latest answer
+    // move, ixScan skips the IX_ANSWER_GROWTH rule for it, which would otherwise ask for one refresh per
+    // 2,000 characters written (one per 15 s cooldown). An answer that pauses that long mid-stream
+    // settles once per pause. GM_IX_CALLS_MAX bounds it all. In the mock, an answer that arrives at once
+    // costs one read (probe I11); one written over 35 s costs two (I11d).
     // Classes (permanent = ixDegrade's 60 s then x4 backoff; transient = the ~16 s cooldown):
     //   HTTP 400          the token re-read ONCE from the current document and the request sent ONCE more
     //                     (" retry=at-new|at-same"); a second 400 is permanent. No ~16 s loop, as ChatGPT's
@@ -3601,14 +3617,19 @@
     //   shape             no prefix, no hNvQHb frame, a payload or turn that does not read, a repeated cursor,
     //                     an empty page with a cursor: permanent.
     //   threw             permanent: one transport per manager, and one that cannot run here will not start to.
-    //   timeout           permanent, unlike every other adapter's: a read over CI_FETCH_TIMEOUT_MS still
+    //   timeout           a SENT read over CI_FETCH_TIMEOUT_MS: permanent, unlike every other adapter's: it still
     //                     downloads whole (ciFetchGet drops a body only when its headers come after the timer),
     //                     and ixScan's cooldown runs from the load's START, so a transient timeout re-read the
     //                     whole history every ~45 s for as long as the tab stayed open (the mock answering in
-    //                     47 s: 5 reads in 200 s, Playwright chromium, 2026-11-06). Estimated, not measured: a
-    //                     100-turn page is ~3x Phase 1's 13.5M chars for 32 turns, so a link under ~1 MB/s
-    //                     crosses 45 s. Permanent, it backs off (60 s, then x4) and is a strike: at most
-    //                     GM_IX_STRIKES_MAX timed-out reads per chat visit (probe I22).
+    //                     47 s: 5 reads in 200 s, Playwright chromium, 2026-11-06). Permanent, it backs off (60 s,
+    //                     then x4) and is a strike: at most GM_IX_STRIKES_MAX timed-out reads per chat visit
+    //                     (probe I22). The link that crosses 45 s is unmeasured. An estimate from Phase 1's
+    //                     transfer (Chrome page realm: one of the page's own history pages, 6.14M chars decoded
+    //                     from a 1.67 MB transfer, ~3.7:1): a 100-turn read of ~3x the 13.5M chars of 32 turns
+    //                     is ~11 MB on the wire, which takes over 45 s below ~0.25 MB/s (~2 Mbit/s), server
+    //                     time aside. ciFetchGet's refusal at its open or stall cap (gmIxCapRefusal: nothing
+    //                     sent) is reported as a timeout too, and stays transient and strike-free (the ~16 s
+    //                     retry); it counts toward GM_IX_CALLS_MAX, a backstop.
     //   401/403/429       permanent (ciIsPermanentReason); 404, 5xx and network transient, as every adapter's.
     // Gates on the calls, on top of ixScan's (one load at a time, the 15 s cooldown, the backoff): a full
     // load is at most GM_IX_MAX_PAGES calls, a refresh one (two after a 400), plus a full load on a merge
@@ -3692,8 +3713,10 @@
                         return;
                     }
                     var f = ixFailure(r);
-                    // threw: one transport per manager. timeout: a strike and the backoff (see above).
-                    if (r.kind === 'threw' || r.kind === 'timeout') f.permanent = true;
+                    // threw: one transport per manager. timeout: a strike and the backoff (see above), for
+                    // a request that was SENT; the transport's refusal at its caps sent nothing.
+                    if (gmIxCapRefusal(r)) f.reason += ' (' + r.detail + ', nothing sent)';
+                    else if (r.kind === 'threw' || r.kind === 'timeout') f.permanent = true;
                     end(f);
                     return;
                 }
@@ -3807,7 +3830,8 @@
     // "older messages" note), never a silently wrong list. ixScan asks it first in its ready branch, on
     // every scan, and ixAfterLoad scans as soon as a load lands. Test contract: data-acn-index-check on
     // #acn-zone, 'ok' (the turns shown matched), 'pending' (nothing to compare yet) or 'mismatch' (the
-    // last check failed; kept while the list is the DOM's), removed with the index (ixInvalidate).
+    // last check failed; kept while the list is the DOM's, on a zone the page re-injected too: ixScan's
+    // DOM path marks it again), removed with the index (ixInvalidate).
     // Normalization: every whitespace character removed, case kept, full length. Phase 1 (Chrome page
     // realm, the owner's profile, chat 96b519c1, 2026-11-05): the read's T[2][0][0] equalled the page's
     // p.query-text-line text after whitespace normalization on 32 of 32 turns. Removed rather than
@@ -3843,8 +3867,11 @@
         return _gmIx.map;
     }
     // The test contract's attribute; set again whenever it differs, so a zone the page re-injected
-    // carries it after the next scan. '' removes it.
+    // carries it after the next scan. '' removes it. The verdict is kept here too (_gmIxCheck): while
+    // the list is the DOM's no self-check runs, so ixScan's DOM path marks the zone from it.
+    var _gmIxCheck = '';
     function gmIxMark(v) {
+        _gmIxCheck = v || '';
         var z = document.getElementById('acn-zone');
         if (!z) return;
         if (!v) { if (z.hasAttribute('data-acn-index-check')) z.removeAttribute('data-acn-index-check'); }
@@ -3896,11 +3923,14 @@
             compared++;
         }
         if (why) return gmIxStrike(why);
-        // Shown but not comparable: none of the turns shown is in a non-empty index (another chat's,
-        // left on the page) or carries an id at all (the page's ids changed: never an index taken on
-        // trust), no question shown is readable, or questions shown where no turns are (the page
-        // changed). GM_IX_VERIFY_GRACE_MS for the page to catch up, then a mismatch.
-        var unverified = (known === 0 && (unknown > 0 || noId > 0) && map.n > 0) ||
+        // Shown but not comparable: none of the turns shown is in the index (another chat's, left on the
+        // page; or an EMPTY index under turns that carry ids: a read that listed nothing, never a ready
+        // empty list taken on trust), none carries an id at all where the index holds turns (the page's
+        // ids changed), no question shown is readable, or questions shown where no turns are (the page
+        // changed). GM_IX_VERIFY_GRACE_MS for the page to catch up (a chat's first message: its id's
+        // refresh lands well inside it), then a mismatch.
+        var unverified = (known === 0 && unknown > 0) ||
+                         (known === 0 && noId > 0 && map.n > 0) ||
                          (known > 0 && !compared && blank > 0) ||
                          (!turns.length && map.n > 0 && getUserMessages().length > 0);
         if (unverified) {
@@ -3908,6 +3938,7 @@
             if (_gmIx.unverifiedAt < 0) _gmIx.unverifiedAt = now;
             if (now - _gmIx.unverifiedAt >= GM_IX_VERIFY_GRACE_MS) {
                 return gmIxStrike(known ? 'no question on the page is readable'
+                                : (unknown && !map.n) ? 'the index is empty, with ' + unknown + ' turn(s) on the page'
                                 : unknown ? 'none of the ' + unknown + ' turns on the page is in the index'
                                 : noId ? 'none of the ' + noId + ' turns on the page carries an id'
                                 : 'questions on the page, but no turns where they were measured');
@@ -4377,6 +4408,27 @@
             // for at most one refetch per step, behind the usual cooldown.
             if (!stale && a.bookmarkables && _ix.answers) {
                 var bk = a.bookmarkables();
+                // Gemini (v12.19, DEC-063): every refresh is a newest page, ~6M chars on a rich chat live
+                // (Phase 1, Chrome page realm), so the LATEST answer is left to the settled rule below while
+                // the watch sees it still moving (its length changed since the watch's last look, or less
+                // than IX_SETTLE_MS ago): one read when it settles, not one per 2,000 characters written.
+                // An answer the watch has not seen move keeps the growth rule (one held short by a refresh
+                // that landed after it was finished). A skip asks for a look once it may have stopped: a
+                // load landing just after the answer stopped resets the watch (no longer moved), and with
+                // no mutation after it nothing else would scan. ChatGPT and Perplexity: unchanged.
+                var growthSkip = null;
+                if (a.id === 'gemini' && _ix.watchLast) {
+                    for (var gsi = bk.length - 1; gsi >= 0; gsi--) {
+                        if (bk[gsi].type !== 'ai-msg') continue;
+                        var gsk = a.keyOf(bk[gsi].el, 'ai-msg'), gw = _ix.watchLast;
+                        if (gsk && gw.key === gsk && (_readAIText(bk[gsi].el).length !== gw.len ||
+                                                       (gw.moved && Date.now() - gw.at < IX_SETTLE_MS))) {
+                            growthSkip = gsk;
+                            _ciScheduleRescan(IX_SETTLE_MS + 200);
+                        }
+                        break;
+                    }
+                }
                 for (var bi = 0; bi < bk.length && !stale; bi++) {
                     if (bk[bi].type !== 'ai-msg') continue;
                     var ak = a.keyOf(bk[bi].el, 'ai-msg');
@@ -4384,6 +4436,7 @@
                     var shownLen = _readAIText(bk[bi].el).length;
                     var held = _ix.answerIdOf && _ix.answerIdOf.hasOwnProperty(ak) ? _ix.answerIdOf[ak] : null;
                     if (!held) { if (shownLen) stale = 'a:' + ak; continue; }
+                    if (ak === growthSkip) continue;
                     var heldLen = 0;
                     for (var hi = 0; hi < _ix.answers.length; hi++) {
                         if (_ix.answers[hi].key === held) { heldLen = _mdVisible(_ix.answers[hi].text || '').length; break; }
@@ -4468,6 +4521,9 @@
             return true;
         }
 
+        // Gemini (v12.19): a self-check's 'mismatch' stays on the zone while the list is the DOM's, also on
+        // a zone the page re-injected (no self-check runs here; the ready branch marks on every scan).
+        if (a.id === 'gemini' && _gmIxCheck === 'mismatch') gmIxMark('mismatch');
         var retryDue = _ix.status === 'degraded' &&
             (Date.now() - _ix.lastFetchAt) > Math.max(CI_REFETCH_COOLDOWN_MS, _ix.retryDelayMs);
         if (_ix.inFlightCid !== cid && (_ix.status === 'idle' || _ix.cid !== cid || retryDue)) {
