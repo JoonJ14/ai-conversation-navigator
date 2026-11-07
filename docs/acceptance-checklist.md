@@ -188,9 +188,11 @@ messages not loaded" lines below show only where that read cannot run; the galle
     - Reload: all three read "Q#…" again, and Q#1's card says older messages are not loaded.
     - Old Gemini bookmarks from before 12.17 show their number (bound on proof) or "Q#?" / "A#?" (deletable).
     - Delete the test bookmarks.
-    - **Since v12.19:** with the history read working, labels are final at once (the latest reads **Q#32** right after
-      a reload, and Q#1's card has no "not loaded" line). The "Q#…" behaviour above is what a degraded or absent read
-      shows (a Gem or `/u/N/` chat).
+    - **Since v12.19:** with the history read working, labels are final once the index is ready (the latest reads
+      **Q#32** after a reload once the read has landed, and Q#1's card has no "not loaded" line). While the read is
+      still loading, the latest reads **"Q#…"** as above (the read took 6.2 s on `96b519c1` in Phase 1, Chrome page
+      realm), so check a few seconds after the reload. The "Q#…" behaviour above is also what a degraded or absent
+      read shows (a Gem or `/u/N/` chat).
     Safari [ ]  Chrome [ ]  Firefox [ ]
 25. **ChatGPT only, the jump fix:** reload `69a0c6f8`, then Navigate → Q15 and → Q1 from the bottom. Each lands in one
     click; the first may take several seconds while ChatGPT loads older turns.

@@ -6,12 +6,17 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [12.19 — Gemini Lists the Whole Chat on Open; Jumps Page Its Older History In; "Load Full History" Where That Cannot Run] — 2026-11-07
 
-**Branch:** `feat/v12.19-gemini-full-history` | **Userscript head:** `b13e36e` (the version bump; last code change
-`a9e6b81`) | **PR:** not opened yet | **Not merged.** Owner acceptance: the consolidated pass at about v12.20 (DEC-062;
-`docs/acceptance-checklist.md`, steps 33–37).
+**Branch:** `feat/v12.19-gemini-full-history` | **Userscript head:** `b13e36e` (the version bump), then review round
+1's code fixes (`0d8a00b`, `b9d413d`, `f0cce04`, `57cba35`) | **PR:** #94, open | **Not merged.** Owner acceptance: the
+consolidated pass at about v12.20 (DEC-062; `docs/acceptance-checklist.md`, steps 33–37).
 
 DEC-058's addendum PR (Gemini before Grok), from the owner's spec (`docs/specs/v12.19-spec.md`, `de77b26`, 2026-11-05)
-and the agent's amendments of 2026-11-06/07 (M1, M2, K5, K8), for the owner's review: the agent decided them under the
+with its four decisions of 2026-11-05 (1: option C, the index as the main path and "Load full history" as the
+fallback; 2: POSTing exactly `hNvQHb`, a read, is allowed, README's "all GET" line says so, and the `at` token may be
+read from the page's inline script text for this purpose only; 3: `@connect gemini.google.com` only if
+`GM_xmlhttpRequest` is the transport that works on some manager; 4: Phase 1's 30 live reads are fine, and up to about
+50 more are allowed for the rest of the PR), and the agent's amendments of 2026-11-06/07 (M1, M2, K5, K8), for the
+owner's review: the agent decided them under the
 owner's 2026-11-06 instruction to decide and move on without asking, and the owner has written and accepted none of
 them. One decision record, DEC-063, which supersedes DEC-057's "no adapter". Platforms touched: Gemini only; Claude's,
 ChatGPT's and Perplexity's requests and jumps are unchanged.
@@ -76,9 +81,11 @@ ChatGPT's and Perplexity's requests and jumps are unchanged.
   - shape and threw are permanent;
   - a sent read that times out is permanent and a strike (`0662d27`: at `3b68873` a 47 s server got a re-read every
     ~45 s);
-  - per chat visit: 5 strikes and 100 requests.
+  - per chat visit: 5 strikes, and 100 requests since the visit's last load that succeeded (a backstop; review round 1,
+    A2).
 - One `[ACN] index: platform=gemini transport=fetch endpoint=hNvQHb page=N size=S[ retry=…] status=C` line per
-  request, and one `measure` line per load (net time, the parse's split, heap where the browser reports it).
+  request, and one `measure` line per load whose payload built an index (net time, the parse's split, heap where the
+  browser reports it); a load that fails before that prints none.
 - `bookmarkUrl` is v12.17's store key, so no bookmark moves.
 
 **The self-check** — `172cc57`, on every scan of a ready index:
@@ -94,7 +101,10 @@ ChatGPT's and Perplexity's requests and jumps are unchanged.
   the owner's review.
 - `cf91e23` folds the stage-2 findings:
   - the growth rule is skipped for the latest answer while it streams, so a sent message costs its id's refresh plus
-    one when its answer settles (**K8, corrected** from "up to three");
+    one when its answer settles, and one per `IX_SETTLE_MS` pause mid-stream (**K8, corrected** from "up to three";
+    since review round 1 also one more when a refresh caught the answer mid-write, A5, and a full read with a strike
+    when a refresh left the sent turn out past the 30 s grace, A4; at most one per ~16 s; failures are bounded by
+    the 5 strikes and the calls backstop, refreshes that succeed only by that rate);
   - an empty newest page is a miss, never an empty list;
   - `ciFetchGet`'s cap refusal stays transient;
   - the timeout comment's link estimate comes from Phase 1's transfer: a 100-turn read crosses 45 s below about
@@ -110,7 +120,8 @@ ChatGPT's and Perplexity's requests and jumps are unchanged.
 - `gmPageUntil` takes the view to the top and waits for a page, until the target's turn id mounts. A page is counted
   by turns arriving above the old first turn, never by `scrollHeight`. The cap is `ceil(turns / 10) + 2` pages.
 - Meanwhile "Loading earlier messages…" shows (`#acn-paging-status`, en and ko). Then the jump lands with
-  `gmLandFarEl` when far and v12.18's glide when near.
+  `gmLandFarEl` when far and v12.18's glide when near (since review round 1, A6: a near target a page brought in lands
+  checked, through `gmLandInEl`; only a target mounted already glides).
 - `2a75498`: a pager that ends in a hidden tab lands only once the tab is visible.
 - **M2:** a mounted Gemini target keeps v12.18's path.
 
@@ -130,28 +141,80 @@ ChatGPT's and Perplexity's requests and jumps are unchanged.
 - `probes/check-gemini-index.js` holds every index-on gate.
 - `check-gemini-history.js` and `check-feature-gaps.js` gain `--gm-endpoint refuse|abort|none` and gate the fallback.
 
-Docs: this commit (CHANGELOG, DEC-063 and DEC-057's pointer, README's POST line and request list, ROADMAP,
+Docs: `546ab49` (CHANGELOG, DEC-063 and DEC-057's pointer, README's POST line and request list, ROADMAP,
 DOM-REFERENCE, agent_docs, the acceptance steps, probes/README, TESTING). Version 12.19 is `b13e36e`.
+
+### Review round 1 (2026-11-07, on `546ab49`)
+Tier 3 round 1 (Codex) found 6 WARNs, and an adversarial review 13 more; the fix plan's items are named below, each
+with its gate. Measured in the Playwright page realm (headless chromium, 1280x720, this Mac, the userscript inlined,
+no real manager) unless named; each new `[new]` gate failed on v12.18 (`--proof`), and the mutant runs (a build
+without the fix, failing its gate) are in each commit's message. One fix part has no gate of its own: the pager's
+hidden-tab start test (A7); F9 passes without it and gates the tracker's part.
+- **Tier 3 round 1's six:**
+  - a far landing that does not land after the pager ends the jump through `outerDone`, with one toast (`0d8a00b`;
+    I12j [guard]);
+  - `--proof` with no `[new]` check run is INVALID, and so is a selected check that never reports (`e7aa36f`);
+  - turns with two response candidates (the mock's `rpc.drafts`, unmeasured live): Search and Export read the one
+    `R[3]` names (`2ee3a2c`; I4c);
+  - I2b and I9b assert the "Load full history" fallback where the fetch throws or the page has no token (`c951c18`);
+  - I23 gates the 403's 60 s backoff on a page held open 75 s (`100cd0c`; H0's comment, `a85ab2f`);
+  - the ubuntu CI cap goes 50 → 60 minutes (`ffdabfb`): the owner chose 50 in v12.18, before this PR's own "Run
+    Gemini index probe" step existed, and with it the bounded install's worst passing case no longer fit.
+- **The failure loops are bounded** (`b9d413d`, `f0cce04`):
+  - A1: the page cap is final for the chat visit; later full loads send nothing (I3c, held past the first backoff;
+    before, every backoff read the same 10 pages);
+  - A2: the 100-request backstop counts since the visit's last good load, so normal use never reaches it (I25);
+  - A3: a PERMANENT refresh failure drops the index to v12.18's list, banner, note and button (I24);
+  - A8: every sent request that fails is a strike, a refresh too, and five stop the visit's loads; a superseded load
+    is none (I26: a network error, 5 reads; I27; I28).
+- **A sent message is read again when its refresh missed it** (`57cba35`):
+  - A4: a turn newer than the index is `pending` for the 30 s grace, then a mismatch and the chat read whole (I11f);
+  - A5: an answer a refresh caught mid-write gets one more newest-page read once it settles; the export says
+    partial until then (I11g).
+- **Jumps and the button** (`57cba35`):
+  - A6: a near target a page brought in lands checked (`gmLandInEl`); the mock's `cv` model left it 4,514 px below
+    the view with the glide, 3 of 3 runs (I12k);
+  - A7: a hidden tab decides no start, so the button's load no longer ends `start` with 30 of 32 in (F9);
+  - A9: the fast-path and poll-order comments match the code, and a restore stopped by a click writes nothing after
+    the stop (F11, below).
+- **Gates** (`b6f1aa2`): I12c samples the view after moving it off the top (sampled at the top, a mutant writing 0
+  for 6 s after the end passed); I22 counts the strikes; H0 and G0 are INVALID in `refuse` and `abort` mode when no
+  read was sent (a build before v12.19 runs with `--gm-endpoint none`); I12l, the per-jump cap (6 pages for 32 turns,
+  on the mock's new `endlessDom`); F10, the button's load ending `index` when the index becomes ready meanwhile; F11,
+  a second click while the view is being restored. The probe pages declare `<meta charset="utf-8">` (`f0cce04`, B1:
+  WebKit decoded I3b's Korean question as windows-1252 without it).
+- **G0's measurement script** prints only the error's name when it cannot parse an answer (`fa67846`, B4: a V8
+  `JSON.parse` message quotes the text it could not read).
+- **Docs:** M1, M2, K5 and K8 are the agent's amendments, for the owner's review (`f0cce04`, C1); README's privacy FAQ
+  says Gemini's read fetches the whole chat, older turns included (`dde0b1a`, C2); DEC-057's pointer, the stale
+  architecture lines and the acceptance step 24 note (this commit, C3–C5); the residuals (C6, ROADMAP item 13).
 
 ### Verification
 - **Gates** [Playwright page realm, headless chromium, 1280x720, the userscript inlined, no real manager, this Mac]:
-  - `probes/check-gemini-index.js` (new): 72 checks since review round 1, 62 `[new]` and 10 `[guard]`; 73 with `--slow`
-    (I6s, the 5-strike cap, 330 s). On the version commit's bytes (`b13e36e`, sha256 `6cc10827…`, 2026-11-07), with
-    64 then (55 `[new]`, 9 `[guard]`): **64/64**, 566.9 s. Review round 1's build: 72/72, 589.2 s (2026-11-07).
+  - `probes/check-gemini-index.js` (new): 79 checks since review round 1's last gates (`b6f1aa2`), 69 `[new]` and 10
+    `[guard]`; 80 with `--slow` (I6s, the 5-strike cap, 330 s). On the version commit's bytes (`b13e36e`, sha256
+    `6cc10827…`, 2026-11-07), with 64 then (55 `[new]`, 9 `[guard]`): **64/64**, 566.9 s. Review round 1: 72/72 after
+    its first fixes (589.2 s), and **79/79** on `b6f1aa2` (741.1 s; 2026-11-07).
   - **Proof against v12.18** (`git show ab7ea21:ai-conversation-navigator.user.js`, `--proof`): each `[new]` gate was
     shown failing there when it was added, and every `[guard]` passing:
     - `a3ae035`: 53 checks, 44 `[new]` FAIL, 9 `[guard]` PASS, 0 INVALID, 502 s;
     - `0662d27`: I22 (no read sent) and the reworked I12d FAIL;
     - `fd42664`, with `--slow`: the ten new gates, I11 and E as wanted ("12 as wanted, 0 not");
-    - `2a75498`: I12i FAIL.
+    - `2a75498`: I12i FAIL;
+    - review round 1: `b9d413d`, the whole probe then ("70 as wanted, 0 not", 60 `[new]` ran: Tier 3's I4c, I23, I2b
+      and I9b among them, and I3c, I24, I25, I26); I27 and I28 (`f0cce04`; proved on `b6f1aa2`: "3 as wanted, 0
+      not"); `57cba35`: I11f, I11g, I12k, F9 ("5 as wanted"); `b6f1aa2`: I12c, I12l, I22, F10, F11 ("6 as wanted, 0
+      not").
   - **The guards** cannot fail on v12.18 by construction; the spec asked that every gate fail there, and DEC-063 says
-    why each cannot: I13, I13b, I15, I16, I21, I21b, R1, R2, E, and Claude's L1-shape and L2-shape. M2's far half is
-    gated by outcome only (I21b).
+    why each cannot: I13, I13b, I15, I16, I21, I21b, I12j (Tier 3 round 1), R1, R2, E, and Claude's L1-shape and
+    L2-shape. M2's far half is gated by outcome only (I21b).
   - **Per stage, from the commit bodies:** `check-gemini-index` went 44 FAIL / 7 guards before the adapter (`7f2cce1`,
     `dd808c5`), 24 PASS / 29 FAIL with it (`3b68873`), 28/54 with the self-check (`172cc57`), 29 PASS / 25 FAIL with
     the refresh (`60516b1`). The 25 were the jumps', the button's and M2's, all passing since `a9e6b81`.
   - **The fallback probes:** `check-gemini-history` 14/14 in each of `--gm-endpoint refuse`, `abort` and `none`;
-    `check-feature-gaps` 44/44 (`refuse`).
+    `check-feature-gaps` 44/44 (`refuse` only). On `b6f1aa2`: `check-gemini-history` in all three modes, and
+    `check-feature-gaps --only G1` (G1, G10, G0, GP, E) in `refuse`; v12.18 in `refuse` mode now reads H0 and G0
+    INVALID (no read sent), and passes `check-gemini-history` with `none`.
 - **Everything else** on `b13e36e`'s bytes [same context]:
   - `npm test` 560/560 across 26 platforms.
   - tokenizer 12, subsegments 7, usage-state 13, transport-ladder 63 (L1-shape and L2-shape; the probe unmodified),
@@ -163,19 +226,23 @@ DOM-REFERENCE, agent_docs, the acceptance steps, probes/README, TESTING). Versio
 - **Review:** Tiers 1–2 of the review pipeline ran in the session whenever the expensive-test gate asked (one record
   per code step, the version bump's included). They are not independent of the code. The stage verifiers' rounds found the timeout loop (`0662d27`), the
   growth-rule cost (K8, `cf91e23`), the empty newest page and the hidden-tab landing (`2a75498`), among others. The
-  records are untracked under `reviews/review-2026-11-0{6,7}-*.md`, to be folded into the v12.19 record. Tier 3 is
-  owed (at most 5 rounds).
-- **Live** [Chrome + Tampermonkey, the owner's profile]: Phase 1 (30 reads, page realm) and G0 (3 reads) only. The
-  build itself has not run on the live site yet: the live A/B against 12.18 is owed before the PR.
+  records are untracked under `reviews/review-2026-11-0{6,7}-*.md`, to be folded into the v12.19 record. Tier 3's
+  round 1 (Codex) ran with an adversarial review; their fixes are under "Review round 1" above. At most 4 more rounds.
+- **Live** [Chrome + Tampermonkey 5.5.1, the owner's profile, visible tab]: Phase 1 (30 reads, page realm), G0 (3
+  reads), and one check of the build `dde0b1a` on `96b519c1` before the PR (the lead agent's notes, 2026-11-07): one
+  size-100 read listed 32 turns and 32 questions; its `measure` line read 13,526,824 characters, 136,005 kept, net
+  6,047 ms, parse 153 ms; Navigate listed Q#1–Q#32 with no note and no button; a jump to Q1 paged in and landed
+  (20.1 s); Export held 64 messages (32/32). The A/B against 12.18 and the three `measure` readings are still owed.
 
 ### Owed and known
-- **Before the PR** (the owner's order): Tier 3 (at most 5 rounds; Tiers 1–2 ran per commit in the session, which is
-  not independent of the code); the live A/B against 12.18 in Chrome + Tampermonkey on `96b519c1`, reading the
-  `measure` line three times in a visible tab, the heap, and the count of live `hNvQHb` reads (Phase 1 used 30 and G0
-  3 of the ~50 the owner allowed); the pre-approved three-engine run (`npm test` and every probe on Chromium, Firefox
-  and WebKit, with `--gm-endpoint abort` and `none` once each).
-- **After the PR:** GitHub Codex's babysit cycle and one confirming `@codex review`; the live retest; the project docs in
-  the same PR; the owner's merge decision; then the Safari smoke-check reminder (DEC-062).
+- **Owed** (the owner's order; PR #94 is open): Tier 3's later rounds (at most 4 more; Tiers 1–2 ran per commit in the
+  session, which is not independent of the code); the live A/B against 12.18 in Chrome + Tampermonkey on `96b519c1`,
+  reading the `measure` line three times in a visible tab, the heap, and the count of live `hNvQHb` reads (Phase 1's
+  30 were approved by the owner's decision 4, which allows up to about 50 MORE for the rest of the PR: 5 used by
+  2026-11-07, the lead agent's count, 3 of them G0's); the pre-approved three-engine run (`npm test` and every probe
+  on Chromium, Firefox and WebKit, with `--gm-endpoint abort` and `none` once each); GitHub Codex's babysit cycle and
+  one confirming `@codex review`; the live retest; the project docs in the same PR; the owner's merge decision; then
+  the Safari smoke-check reminder (DEC-062).
 - **Owner acceptance** on all three runtimes: steps 33–37, in the consolidated pass.
 - **A proposed CLAUDE.md line** (Data Source Awareness: Gemini's `/app/<id>` index), for the owner's approval; not
   applied.

@@ -133,22 +133,27 @@ GitHub Actions runs on push/PR to `main`:
     engine in the final local run, and 4m16s–4m22s in CI (run 42095450049 on `3ccf84b`, where healthy ubuntu jobs
     took 33m18s–33m51s). Since `b48996a` the ubuntu jobs' browser install is bounded: the system packages get up to 3
     attempts of 4 minutes (the apt mirror stalled for 10–25 minutes three times; ROADMAP 0e). Its first measured
-    switch: azure got about 3 MB in 4 minutes, then archive.ubuntu.com served 111 MB in 36 s (run 42117334465). The ubuntu cap is **50 since v12.18** (the owner's
-    second stopgap: an apt-mirror stall took `webkit on ubuntu-latest` past 40 on the `8909d92` merge run; ROADMAP 0e).
+    switch: azure got about 3 MB in 4 minutes, then archive.ubuntu.com served 111 MB in 36 s (run 42117334465). The ubuntu cap was **50 since v12.18** (the owner's
+    second stopgap: an apt-mirror stall took `webkit on ubuntu-latest` past 40 on the `8909d92` merge run; ROADMAP 0e),
+    and is **60 since v12.19** (`ffdabfb`, review round 1's fix for Tier 3's finding: this PR's own "Run Gemini index
+    probe" step did not fit under 50 with the bounded install's worst passing case).
   - Every `ubuntu` job also runs `check-gemini-index` on its own engine (v12.19, DEC-063): Gemini's full question
     list from its own history read (`hNvQHb`) on `gemini-history.html` with the mock's opt-in `rpc` server, answered
     through a route bridge in Phase 1's framing: the request's shape, the failure classes, the self-check, the
-    refresh, jumps that page the DOM in, and the "Load full history" fallback. 72 checks (62 `[new]`, 10 `[guard]`);
+    refresh, jumps that page the DOM in, and the "Load full history" fallback. 79 checks (69 `[new]`, 10 `[guard]`);
     `--slow` adds I6s (the 5-strike cap, 330 s), not run in CI. `--proof` with `ACN_SCRIPT` at v12.18
     (`git show ab7ea21:ai-conversation-navigator.user.js`) exits 0 iff every `[new]` fails there, every `[guard]`
-    passes and nothing is INVALID. It took about 567 s on chromium for the finished build (this Mac, 2026-11-07);
-    Firefox and WebKit, and its time in CI, are not measured yet. With it the ubuntu jobs' headroom under the
-    50-minute cap is about 7 minutes by the v12.18 figures (33m18s–33m51s + ~9.5); raising the cap is the owner's call.
+    passes and nothing is INVALID. It took 741.1 s on chromium for review round 1's last gates (`b6f1aa2`, 79 checks,
+    this Mac, 2026-11-07; about 567 s for the 64 of the finished build); Firefox and WebKit in full, and its time in
+    CI, are not measured on this build. By the v12.18 figures a healthy ubuntu job is then about 33m18s–33m51s +
+    ~12.4 = ~46 minutes, and the bounded install's worst passing case (~12.5–13 more) brings it to ~59 of the
+    60-minute cap.
     `check-gemini-history` and `check-feature-gaps` gate the FALLBACK since v12.19: `--gm-endpoint refuse|abort|none`
     (default `refuse`, the one CI runs) plants the page's token in the mock so the index really sends its read, then
     answers it with a 403 (`refuse`), a network failure (`abort`), or leaves the page as v12.18's (`none`, no token).
-    Their checks are unchanged in every mode, plus H0/G0 [guard] (no retry loop, by failure class) and HP/GP [guard]
-    (no paging status). Run `abort` and `none` once each in the final three-engine run.
+    Their checks are unchanged in every mode, plus H0/G0 [guard] (no retry loop, by failure class; in `refuse` and
+    `abort` a run that sent no read is INVALID, so a build before v12.19 runs with `none`) and HP/GP [guard] (no
+    paging status). Run `abort` and `none` once each in the final three-engine run.
   - **Why only the ubuntu jobs take ~34 minutes** (v12.18's figures; v12.19 adds `check-gemini-index`): the probe steps run on ubuntu only, one after another (about 27
     minutes), after the same ~5¾-minute suite every job runs; macOS and Windows run the suite alone (6–10 minutes).
     Measured on run 42118079878: every job started 2–3 s after it was created, and the ubuntu steps ran with 0 s

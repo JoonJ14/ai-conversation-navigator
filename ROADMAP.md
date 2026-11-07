@@ -41,20 +41,24 @@ This document tracks features and platform expansions we're considering but have
   - Navigate, Search, Export, Summary and the size estimate cover every turn with nothing scrolled.
   - A self-check against the page's own turns runs on every scan; a mismatch degrades visibly to v12.18's list.
   - A refresh reads the newest page and merges it by id.
-- **Jumps** to a question not loaded yet page the history in with "Loading earlier messages…", then land as v12.18
-  does (the agent's amendments M1, M2, for the owner's review).
+- **Jumps** to a question not loaded yet page the history in with "Loading earlier messages…", then land checked
+  (`gmLandFarEl` when far, `gmLandInEl` when near, review round 1); a question mounted already lands as v12.18 does
+  (the agent's amendments M1, M2, for the owner's review).
 - **"Load full history"** is the fallback where the index cannot run or has degraded (Gem and `/u/N/` paths, a failed
   read): it pages to the start and puts the view back.
 - **Proof so far** [Playwright page realm, headless chromium, the userscript inlined, this Mac]:
-  - `probes/check-gemini-index.js`: 72 checks since review round 1 (62 `[new]`, 10 `[guard]`; 73 with `--slow`),
-    72/72 on that build (2026-11-07); 64/64 on the version commit `b13e36e`, with 64 then. Each `[new]` gate was
+  - `probes/check-gemini-index.js`: 79 checks since review round 1's last gates (69 `[new]`, 10 `[guard]`; 80 with
+    `--slow`), 79/79 on `b6f1aa2` (741.1 s, 2026-11-07); 64/64 on the version commit `b13e36e`, with 64 then. Each `[new]` gate was
     shown failing on v12.18 when it was added. `npm test` 560/560 and every other probe green on `b13e36e` too
     (chromium only).
-  - The fallback probes pass in their three `--gm-endpoint` modes, and Claude's L1-shape and L2-shape pass with
-    `check-transport-ladder.js` unmodified.
-  - Tiers 1–2 ran per commit in the session. Owed: Tier 3, the live A/B in Chrome against 12.18, the three-engine
-    run, the PR, Codex, and the owner's acceptance in the consolidated pass (`docs/acceptance-checklist.md`, steps
-    33–37).
+  - The fallback probes, by mode and build: `check-gemini-history` passed in `refuse`, `abort` and `none` on the
+    version commit `b13e36e`, and again in all three on `b6f1aa2` (review round 1); `check-feature-gaps` ran in
+    `refuse` only (44/44 on `b13e36e`; on `b6f1aa2`, `--only G1`: G1, G10, G0, GP and E, 5/5). Claude's L1-shape and
+    L2-shape pass with `check-transport-ladder.js` unmodified.
+  - Tiers 1–2 ran per commit in the session; Tier 3's round 1 (Codex) and an adversarial review ran on `546ab49`, and
+    their fixes are in (DEC-063, "Review round 1"). PR #94 is open. Owed: Tier 3's later rounds, the live A/B in
+    Chrome against 12.18, the three-engine run, Codex's babysit cycle, and the owner's acceptance in the consolidated
+    pass (`docs/acceptance-checklist.md`, steps 33–37).
 - **Logged for later:** item 13, "Logged from v12.19": the spec's out-of-scope items, ChatGPT's own paging status,
   and the residuals.
 
@@ -1302,13 +1306,15 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
           number.
         - A bookmark record saved from a flag drawn by the other path (the `_bmGm*` path vs the adapter's) stores that
           path's Navigate index as `msgIndex`. No code reads it for keyed records.
-        - The banner flips degraded → loading → degraded on each retry after a failure, as on ChatGPT. The bookmark
-          labels and the note do not flip.
+        - The banner flips degraded → loading → degraded on each retry after a failure, as on ChatGPT, and Navigate's
+          list is rebuilt twice per retry, which v12.18 never did. The bookmark labels and the note do not flip.
         - A just-sent question bookmarked while the index is ready reads "Q#?" until the newest-page refresh lands,
           as on ChatGPT since v12.15. The spec's "never Q#?" is about the degraded and absent states.
         - The live refresh count per sent message is unmeasured. Since `cf91e23` the bound is its id's refresh, one
-          more when its answer settles, and one per `IX_SETTLE_MS` pause mid-stream, at most one per ~16 s (K8,
-          corrected). In the mock it is 2 reads for an answer written over 35 s.
+          more when its answer settles, and one per `IX_SETTLE_MS` pause mid-stream; since review round 1 also one
+          more when a refresh caught the answer mid-write (A5) and a full read with a strike when a refresh left the
+          sent turn out past the 30 s grace (A4); at most one per ~16 s (K8, corrected). In the mock it is 2 reads for
+          an answer written over 35 s (I11d), 2 for one caught mid-write (I11g).
         - Refreshes that SUCCEED have no count bound in a chat visit: the cooldown bounds their rate (one per ~16 s at
           most) and the once-per-signature rule stops one signature from repeating, but a latest answer whose
           rendered length keeps changing settles again after each pause, so it is refreshed once per pause for as long
@@ -1320,17 +1326,29 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
           one per ~16 s; I26, in the mock) stop its loads until a reload or a reopen, even once the network is back.
           The DOM list, the note and "Load full history" stay.
         - A signed-out `/app/<id>` page shows the degraded banner "no page token in the page (signed out?)" where
-          v12.18 showed none (the plan's visible-degrade choice). The v12.18 list, labels and note are unchanged
+          v12.18 showed none (a failure shown, never a silent one). The v12.18 list, labels and note are unchanged
           underneath.
         - The calls backstop's cap itself (100 requests since the visit's last load that succeeded) and `ciFetchGet`'s
           open/stall-cap refusal (transient, strike-free) are gated by code reading only; I25 gates that a good load
-          resets the count. The strikes are gated on every run by I26 (network errors), I27 (a refresh with the
-          strikes spent sends nothing and drops the index) and I28 (a superseded load's failure is none); the
+          resets the count. The strikes are gated on every run by I22 (timeouts), I26 (network errors), I27 (a refresh
+          with the strikes spent sends nothing and drops the index) and I28 (a superseded load's failure is none); the
           mismatch strike cap runs only with `--slow` (I6s, 330 s). That a superseded 400 neither re-reads nor
           clears the token is gated by code reading only: in the mock a build without it sends the same requests.
-        - The button stays hidden during the index's first load (the button plan's open question 3; the "Loading
-          full conversation history" banner shows then).
+        - The button stays hidden during the index's first load (the "Loading full conversation history" banner
+          shows then).
         - `check-ix-jumps` J15's known timing race (TROUBLESHOOTING, OPEN) can still turn a run red.
+        - Logged from review round 1 (not fixed; the review's reading of the code unless marked):
+          - An edited question that keeps its turn id reads as a self-check mismatch each time: a strike and a full
+            read. Five edits in one chat visit stop the index for the visit (the DOM list, the note and the button
+            stay). How live Gemini edits a question (in place, or as a new turn) is unmeasured.
+          - With the index ready, an old position-based Gemini bookmark (from before v12.17) is proved by comparing
+            the page's question text with the read's, so a multi-line question never matches and the record stays
+            unbound.
+          - `ciFetchGet`'s cap refusal (transient, nothing sent) resets the permanent backoff earlier timeouts built
+            up, so the next permanent failure backs off from 60 s again.
+          - The mock answers every size-100 read in 400 ms, Phase 1's small-chat figure; the one size-100
+            measurement is 6.2 s for 32 turns (Chrome page realm), so the gates' real-time windows run against reads
+            about 15x faster than that chat's.
       - **Unmeasured live**, owed to the live check or acceptance:
         - the parse time and heap on `96b519c1` (the `measure` line, read 3 times in a visible tab);
         - whether `gmIxOwn`'s copy is needed against V8 sliced strings (decided by the heap reading);
