@@ -4559,10 +4559,12 @@ tests what will actually be released (DEC-058: no release until every platform w
 
 ## DEC-063: Gemini Lists the Whole Chat From Its Own History Read; "Load Full History" Is the Fallback (v12.19)
 **Date:** 2026-11-05 (the owner's spec and Phase 0 decision) to 2026-11-07 (built) | **Stage:** v12.19, DEC-058's
-addendum PR, from the owner's spec `docs/specs/v12.19-spec.md` (2026-11-05) and the owner-lead amendments M1, M2,
-K5 and K8 (2026-11-06). **Supersedes DEC-057's "no index"** (its "no accumulation" still holds: Gemini keeps its
-turns). DEC-057's tracker, note and landing stay, as the fallback. Branch `feat/v12.19-gemini-full-history`, not
-merged; owner acceptance in the consolidated pass (DEC-062; `docs/acceptance-checklist.md`, steps 33–37).
+addendum PR, from the owner's spec `docs/specs/v12.19-spec.md` (2026-11-05) and the agent's amendments M1, M2, K5
+and K8 (2026-11-06/07), for the owner's review: the agent decided them under the owner's 2026-11-06 instruction to
+decide and move on without asking; the owner has written and accepted none of them. **Supersedes DEC-057's "no
+index"** (its "no accumulation" still holds: Gemini keeps its turns). DEC-057's tracker, note and landing stay, as the
+fallback. Branch `feat/v12.19-gemini-full-history`, not merged; owner acceptance in the consolidated pass (DEC-062;
+`docs/acceptance-checklist.md`, steps 33–37).
 
 ### Decision
 - **Option C, both** (the owner, 2026-11-05). An index adapter is the main path: on opening `/app/<16 hex>`, the
@@ -4630,9 +4632,14 @@ merged; owner acceptance in the consolidated pass (DEC-062; `docs/acceptance-che
     at most 2 reads in 3 minutes).
     `ciFetchGet`'s refusal at its open or stall cap (nothing sent) stays transient and strike-free (`cf91e23`;
     gated by code reading only).
-  - **Per chat visit:** 5 strikes (`GM_IX_STRIKES_MAX`: permanent failures, self-check mismatches, merge misses) stop
-    its full loads until a reload or a reopen. 100 requests asked of the transport, answered or not
-    (`GM_IX_CALLS_MAX`, a backstop gated by code reading only), stop every read.
+  - **Per chat visit** (review round 1, A2 and A8): 5 strikes (`GM_IX_STRIKES_MAX`) stop every later load, a refresh
+    too (I27), until a reload or a reopen. A strike is every failed load, transient ones included (I26: a network
+    error), a self-check mismatch or a merge miss; never a load superseded meanwhile (I28), an ending before anything
+    was sent (the cap refusal, the calls backstop, the strikes spent), or the page cap (final for the visit, I3c).
+    That a superseded 400 neither re-reads nor clears the token is gated by code reading only: in the mock a build
+    without it sends the same requests. 100 requests asked of the transport since the visit's last load that
+    succeeded, answered or not (`GM_IX_CALLS_MAX`, a backstop against a loop of failures; that a good load resets
+    it is gated by I25, the cap itself by code reading only), stop every read.
   - Endings before a send (no token, superseded, stopped, the calls cap) are deferred: never synchronously inside
     ixLoad's own call, where `done` would run a nested scan.
 - **The self-check** (`172cc57`, gmIxSelfCheck, first in ixScan's ready branch, so on every load and refresh).
@@ -4652,15 +4659,16 @@ merged; owner acceptance in the consolidated pass (DEC-062; `docs/acceptance-che
     page is the truth from its oldest turn on, and a page with no cursor is the whole chat.
   - ixScan's stale rules ask for it, each behind the 15 s cooldown and once per signature: an unknown id, an answer
     not held, the latest answer settling, the tail at the bottom, a bookmark's request.
-  - **K5, a recorded deviation, accepted by the owner:** the spec says a full refetch happens "only on a conversation
-    change or a self-check mismatch". The build also reads the chat whole when the newest page does not meet the
+  - **K5, a recorded deviation, the agent's (2026-11-06), for the owner's review:** the spec says a full refetch
+    happens "only on a conversation change or a self-check mismatch". The build also reads the chat whole when the newest page does not meet the
     snapshot (a merge miss, which is a page-vs-index mismatch): one strike, a warning line, then a full read in the
     same load. An empty newest page under a non-empty index is a miss too. Every retry after a failed load is a full
     read as well.
   - **K8, corrected bound.** The first estimate was "up to three newest-page reads per sent message". The stage-2
     verifier showed the growth rule could ask once per 15 s while an answer streamed. Since `cf91e23`, ixScan skips
     `IX_ANSWER_GROWTH` for the latest answer while the watch sees it move. A sent message costs its id's refresh,
-    one more when its answer settles, and one per `IX_SETTLE_MS` pause mid-stream, bounded by `GM_IX_CALLS_MAX`.
+    one more when its answer settles, and one per `IX_SETTLE_MS` pause mid-stream, at most one per ~16 s (no count
+    bound: a residual, below).
     Read from the code. In the mock (14,000 characters over 35 s in 1 s chunks, Playwright chromium) that is 2
     reads, where `60516b1` made 4 (I11d). Live streaming is unmeasured.
   - A load that ixLoad superseded sends nothing more and never parses its answer.
@@ -4727,15 +4735,16 @@ merged; owner acceptance in the consolidated pass (DEC-062; `docs/acceptance-che
   (2.5 s, a 5-turn minimum page, 3 idle waits) are ChatGPT's measurements. The approach is kept (scroll to the top,
   wait for a page, repeat, a per-jump cap from the turn count); the mechanism is Gemini's own pager.
 - **`ixLandOn` on the scroller instead of `gmLandFarEl`** (the jumps plan, K6). It would have landed every
-  near loaded target instantly once the index was ready (K7) instead of v12.18's glide. The owner's M1 follows the
-  spec's "then land (gmLandFarEl)", and M2 keeps mounted targets on v12.18's path.
+  near loaded target instantly once the index was ready (K7) instead of v12.18's glide. The agent's M1 (for the
+  owner's review) follows the spec's "then land (gmLandFarEl)", and M2 keeps mounted targets on v12.18's path.
 
 ### Key properties
 - **Gates** (`probes/check-gemini-index.js`, Playwright page realm, headless chromium, 1280x720, the userscript
   inlined, no real manager, this Mac):
-  - **The count:** 64 checks, 55 `[new]` and 9 `[guard]`; 65 with `--slow`, which adds I6s (the 5-strike cap,
-    330 s). The finished build passed all 64 (`a9e6b81`, and the version commit `b13e36e`, 2026-11-07). The mock serves batchexecute in Phase 1's framing with
-    synthetic content; its numbers come from the live measurements.
+  - **The count:** 72 checks since review round 1, 62 `[new]` and 10 `[guard]`; 73 with `--slow`, which adds I6s (the
+    5-strike cap, 330 s). Review round 1's build passed all 72 (589.2 s, 2026-11-07); the finished build passed the
+    64 it had then (`a9e6b81`, and the version commit `b13e36e`, 2026-11-07). The mock serves batchexecute in Phase
+    1's framing with synthetic content; its numbers come from the live measurements.
   - **Proof against v12.18** (`git show ab7ea21:ai-conversation-navigator.user.js`, `--proof`): every `[new]`
     gate was shown failing there when it was added, and every `[guard]` passing:
     - `a3ae035`: 53 checks, 44 `[new]` FAIL, 9 `[guard]` PASS, 0 INVALID, 502 s;
@@ -4769,7 +4778,12 @@ merged; owner acceptance in the consolidated pass (DEC-062; `docs/acceptance-che
   - A bookmark saved from a flag drawn by the other path stores that path's `msgIndex` (unread).
   - The banner flips degraded ↔ loading on each retry, as on ChatGPT.
   - The live refresh count per sent message (K8) is unmeasured.
-  - About 27 minutes offline (network errors, one load per ~16 s) uses up the 100-request cap; the DOM list stays.
+  - Network errors are strikes (A8): five failed loads (about 65 s offline, one per ~16 s; I26, in the mock) stop
+    the chat visit's loads until a reload or a reopen, even once the network is back; the DOM list stays.
+  - Refreshes that succeed have no count bound in a chat visit: the cooldown bounds their rate (one per ~16 s at
+    most), but a latest answer whose rendered length keeps changing settles again after each pause and is
+    refreshed once per pause for as long as that lasts (read from the code; unmeasured live). At `a85ab2f` the
+    100-request per-visit backstop capped it; a good load now resets that count (A2).
   - A just-sent question bookmarked while ready reads "Q#?" until the refresh lands, as on ChatGPT since v12.15
     (read from the code, `_bmIxLabel`).
   - `check-ix-jumps` J15's known race, if it recurs.

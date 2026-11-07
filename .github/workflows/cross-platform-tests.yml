@@ -36,7 +36,8 @@ jobs:
     # setting here changes: re-run the failed jobs once the whole run has finished.
     # v12.19 (Tier 3 r1): 60 on ubuntu. The owner chose 50 in v12.18, before this PR's "Run Gemini index
     # probe" step existed; that step is why. It takes ~9.8 minutes per engine, measured locally on chromium
-    # only (this machine, 2026-11-07: 588 s for the finished build's 67 checks; 489-502 s on 2026-11-06
+    # only (this machine, 2026-11-07: 588 s for the finished build's 67 checks, 589 s for review round 1's
+    # 72, its new fixtures running beside the rest; 489-502 s on 2026-11-06
     # against v12.18, where many fixtures end early; Firefox, WebKit and CI not measured). A healthy ubuntu
     # job: 33m18s-33m51s (PR #93's run 42095450049) + ~9.8 = ~43.6 minutes. The bounded install's worst
     # case that still passes is its third attempt finishing at the 4-minute limit: 3 x 240 s, plus up to

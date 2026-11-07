@@ -138,7 +138,7 @@ GitHub Actions runs on push/PR to `main`:
   - Every `ubuntu` job also runs `check-gemini-index` on its own engine (v12.19, DEC-063): Gemini's full question
     list from its own history read (`hNvQHb`) on `gemini-history.html` with the mock's opt-in `rpc` server, answered
     through a route bridge in Phase 1's framing: the request's shape, the failure classes, the self-check, the
-    refresh, jumps that page the DOM in, and the "Load full history" fallback. 64 checks (55 `[new]`, 9 `[guard]`);
+    refresh, jumps that page the DOM in, and the "Load full history" fallback. 72 checks (62 `[new]`, 10 `[guard]`);
     `--slow` adds I6s (the 5-strike cap, 330 s), not run in CI. `--proof` with `ACN_SCRIPT` at v12.18
     (`git show ab7ea21:ai-conversation-navigator.user.js`) exits 0 iff every `[new]` fails there, every `[guard]`
     passes and nothing is INVALID. It took about 567 s on chromium for the finished build (this Mac, 2026-11-07);

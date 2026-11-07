@@ -11,9 +11,10 @@ All notable changes to this project will be documented in this file. Each entry 
 `docs/acceptance-checklist.md`, steps 33–37).
 
 DEC-058's addendum PR (Gemini before Grok), from the owner's spec (`docs/specs/v12.19-spec.md`, `de77b26`, 2026-11-05)
-and the owner-lead amendments of 2026-11-06 (M1, M2; K5 accepted, K8 corrected). One decision record, DEC-063, which
-supersedes DEC-057's "no adapter". Platforms touched: Gemini only; Claude's, ChatGPT's and Perplexity's requests and
-jumps are unchanged.
+and the agent's amendments of 2026-11-06/07 (M1, M2, K5, K8), for the owner's review: the agent decided them under the
+owner's 2026-11-06 instruction to decide and move on without asking, and the owner has written and accepted none of
+them. One decision record, DEC-063, which supersedes DEC-057's "no adapter". Platforms touched: Gemini only; Claude's,
+ChatGPT's and Perplexity's requests and jumps are unchanged.
 
 ### Problem [measured live, Chrome + Tampermonkey 12.16, the owner's profile, visible tab, 2026-10-31 (DEC-057)]
 - Gemini loads a chat's newest 10 turns, then 10 more each time the view reaches the top, and keeps them all. On
@@ -89,7 +90,8 @@ jumps are unchanged.
 **The refresh** — `60516b1`, then `cf91e23`:
 - A ready index's refresh reads the newest page (size 10) and merges it by id.
 - A page that does not meet the snapshot (a merge miss) costs a strike and a full read. **K5:** the spec allowed a
-  full refetch only on a conversation change or a self-check mismatch; the owner accepted this deviation.
+  full refetch only on a conversation change or a self-check mismatch; a deviation the agent decided (2026-11-06), for
+  the owner's review.
 - `cf91e23` folds the stage-2 findings:
   - the growth rule is skipped for the latest answer while it streams, so a sent message costs its id's refresh plus
     one when its answer settles (**K8, corrected** from "up to three");
@@ -133,8 +135,9 @@ DOM-REFERENCE, agent_docs, the acceptance steps, probes/README, TESTING). Versio
 
 ### Verification
 - **Gates** [Playwright page realm, headless chromium, 1280x720, the userscript inlined, no real manager, this Mac]:
-  - `probes/check-gemini-index.js` (new): 64 checks, 55 `[new]` and 9 `[guard]`; 65 with `--slow` (I6s, the 5-strike
-    cap, 330 s). On the version commit's bytes (`b13e36e`, sha256 `6cc10827…`, 2026-11-07): **64/64**, 566.9 s.
+  - `probes/check-gemini-index.js` (new): 72 checks since review round 1, 62 `[new]` and 10 `[guard]`; 73 with `--slow`
+    (I6s, the 5-strike cap, 330 s). On the version commit's bytes (`b13e36e`, sha256 `6cc10827…`, 2026-11-07), with
+    64 then (55 `[new]`, 9 `[guard]`): **64/64**, 566.9 s. Review round 1's build: 72/72, 589.2 s (2026-11-07).
   - **Proof against v12.18** (`git show ab7ea21:ai-conversation-navigator.user.js`, `--proof`): each `[new]` gate was
     shown failing there when it was added, and every `[guard]` passing:
     - `a3ae035`: 53 checks, 44 `[new]` FAIL, 9 `[guard]` PASS, 0 INVALID, 502 s;

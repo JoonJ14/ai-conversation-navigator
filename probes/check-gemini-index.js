@@ -42,7 +42,7 @@
 // "[ACN] history: load start|page|load end|view restored ..." (F1, F5; end and restore in F2, F3); no
 // token, request body, query string, cursor, question or answer text in the console or storage (I2, I3,
 // I12, F1, F5). Landings are asserted by where the target ends (in view, marked resolved), never by
-// which landing function ran (owner amendment M1).
+// which landing function ran (the agent's amendment M1, 2026-11-06/07, for the owner's review).
 //
 // CONTEXT of these results: Playwright, page realm, headless, viewport 1280x720, this machine, the
 // userscript inlined into the page; no real userscript manager and no real Gemini. Real-browser
@@ -250,7 +250,7 @@ function buildPage(raw, cfg, o) {
     const mock = fs.readFileSync(path.join(REPO, 'tests/mock-pages/gemini-history.html'), 'utf8');
     const body = (mock.match(/<body[^>]*>([\s\S]*)<\/body>/i) || [])[1] || mock;
     const head = (mock.match(/<head[^>]*>([\s\S]*)<\/head>/i) || [])[1] || '';
-    return `<!DOCTYPE html><html><head>${head}</head><body>
+    return `<!DOCTYPE html><html><head><meta charset="utf-8">${head}</head><body>
 <script>window.__MOCK_CONFIG = ${JSON.stringify(cfg)};</script>
 ${DOWNLOAD_SHIM}${TOAST_SPY}
 ${body}
@@ -523,8 +523,20 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         if (cfgExtra.rpc === null) delete cfg.rpc;
         else cfg.rpc = Object.assign({ at: AT0, decoyAt: DECOY, freshAt: AT_FRESH, mode: 'ok' }, cfgExtra.rpc || {});
         const html = buildPage(raw, cfg, o);
-        const h = { id: ids[0], page, context, url, cfg, logs: [], errors: [], hits: [], fulfilled: 0, others: [] };
-        page.on('console', (m) => h.logs.push(m.text()));
+        const h = { id: ids[0], page, context, url, cfg, logs: [], notes: [], errors: [], hits: [], fulfilled: 0, others: [] };
+        // h.logs: what the page's scripts wrote (the userscript among them), every line the leak scan reads.
+        // WebKit writes a console line of its own for each request this harness aborts ("Web Inspector
+        // blocked <the request's URL> from loading", type info, no source location), which names the
+        // request's query string ("rpcids=", one of noLeak's needles) though no script wrote it: kept apart
+        // in h.notes (review round 1: I26 failed on every webkit run for that line alone, macOS, Playwright
+        // headless, 2026-11-07). A page script's line always carries its script's location, so one the
+        // userscript writes in those words still lands in h.logs. Chromium and Firefox write no such line
+        // with the URL in its text (chromium's "Failed to load resource" names it only in its location).
+        page.on('console', (m) => {
+            const t = m.text(), loc = m.location() || {};
+            if (!loc.url && /^Web Inspector blocked \S+ from loading$/.test(t)) { h.notes.push(t); return; }
+            h.logs.push(t);
+        });
         page.on('pageerror', (e) => { const s = ids[0] + ': ' + String(e && e.message || e); pageErrors.push(s); h.errors.push(s); });
         await page.addInitScript(PG_SPY_INIT);     // the paging-status observer, before any page script
         await page.route('**/*', async (route) => {
@@ -862,9 +874,10 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
     // retried at the ~16 s cooldown as every adapter's, but each failed read is a strike of the visit, so
     // exactly GM_IX_STRIKES_MAX (5) reads ("load failed — strike 1..5 of 5"), then "stopped after 5
     // failures" with nothing sent, degraded with the idle button. a85ab2f re-read the whole chat every
-    // ~16 s for as long as the tab stayed open (this fixture on it: 9 reads in 130 s, Playwright chromium,
-    // 2026-11-07; only the 100-request backstop ended it). Watched 130 s from the first read; flushed before R1. v12.18 sends none
-    // (fails "5 reads").
+    // ~16 s until its 100-request per-visit backstop, about 27 minutes by the arithmetic (100 x ~16 s; this
+    // fixture on it: 9 reads in its 130 s, Playwright chromium, 2026-11-07). Watched 130 s from the first
+    // read; flushed before R1. v12.18 sends none (fails "5 reads"). Its leak scan reads what the page's
+    // scripts wrote (h.logs), never WebKit's own line for each aborted request, which names the URL (open()).
     const i26Run = fixture(['I26'], async (r) => {
         const WIN = 130000;
         const h = await open(r, ['I26'], C32, { rpc: { mode: 'abort' } });
@@ -890,6 +903,131 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
                 'reads at s=' + JSON.stringify(at.map((t) => Math.round(t / 100) / 10)) + ' strikes=' + JSON.stringify(strikes) +
                 ' stopped lines=' + stopped.length + ' ' + fmt(v) + ' bannerText=' + JSON.stringify(v.bannerText) +
                 ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
+        await h.close();
+    })();
+
+    // ── I27: the strikes stop a REFRESH too, beside every fixture below (review round 1) ─────────────
+    // Four full reads aborted at the network (strikes 1-4 of the visit); then the server answers again and
+    // the fifth read makes the index ready. Past its cooldown the server aborts again and one message is
+    // sent: its refresh (the newest page) fails TRANSIENTLY, strike 5, keeping its snapshot ("REFRESH
+    // failed"); the next refresh, at the cooldown, ends "stopped after 5 failures" with NOTHING sent, and
+    // that permanent failure drops the index: degraded, the v12.18 list (Q23 first, the sent question last,
+    // 11 rows), the note, the idle button. All within 28 s of the send (fix-plan A4, not in this build yet,
+    // is to make a turn newer than the index a mismatch after a 30 s grace; 28 s keeps the drop seen here
+    // the stopped refresh's own once it lands). The strike check sits above gmIxFetch's refresh branch
+    // since review round 1; a mutant with it below (as at a85ab2f) read the newest page twice more with the
+    // strikes spent ("strike 6 of 5", "strike 7 of 5"), kept the stale 32 under "refresh failed" and never
+    // degraded in 40 s (Playwright chromium, 2026-11-07). a85ab2f strikes no network failure (fails
+    // "4 strikes"); v12.18 sends none. About 100 s; flushed before R1.
+    const i27Run = fixture(['I27'], async (r) => {
+        const SENT = 'A message sent with the strikes nearly spent, about orbital resonance?';
+        const desc = 'four full reads aborted (strikes 1-4), the fifth answered (ready 32); then every read aborted and one message ' +
+                     'sent: its refresh is ONE newest-page read, strike 5, the snapshot kept ("REFRESH failed"); the next refresh ' +
+                     'sends NOTHING, "stopped after 5 failures" PERMANENT, and drops the index within 28 s of the send: degraded, ' +
+                     'the v12.18 list (11 rows, Q23 first, the sent last), the note, the idle button, no index-check; nothing leaked';
+        const h = await open(r, ['I27'], C32, { rpc: { mode: 'abort' } });
+        if (!h) return;
+        await h.openNav();
+        const strikeLines = () => h.lines(/load failed . strike \d of 5/).map((l) => (l.match(/strike \d of 5/) || [''])[0]);
+        const t0 = Date.now();
+        while (strikeLines().length < 4 && Date.now() - t0 < 80000) await sleep(250);
+        if (strikeLines().length !== 4) {
+            r.check('I27', 'new', desc, false, 'not 4 strikes from the aborted full reads in 80 s: strikes=' + JSON.stringify(strikeLines()) +
+                    ' reads=' + h.hits.length + ' ' + fmt(await h.nav()));
+            await h.close();
+            return;
+        }
+        await h.page.evaluate(() => { window.__MOCK_CONFIG.rpc.mode = 'ok'; });
+        await h.openNav();
+        const v0 = await h.until((x) => x.count === '32' && x.banner !== 'degraded', 30000, 250);
+        const nReady = h.hits.length;
+        const lastT = nReady ? h.hits[nReady - 1].t : Date.now();
+        await sleep(Math.max(0, lastT + 16000 - Date.now()));   // past the ready load's 15 s cooldown
+        const c0 = (await h.calls()).list.length, iLog = h.logs.length;
+        await h.page.evaluate(() => { window.__MOCK_CONFIG.rpc.mode = 'abort'; });
+        await h.page.evaluate((t) => window.__mockGemini.send(t), SENT);
+        const tSend = Date.now();
+        await h.until((x) => x.banner === 'degraded', 40000, 250);
+        const tDeg = Date.now();
+        await sleep(1500);
+        await h.openNav();
+        const v = await h.nav();
+        const added = (await h.calls()).list.slice(c0).map((x) => x.type + '/' + x.size);
+        const after = h.logs.slice(iLog);
+        const kept = after.filter((l) => /REFRESH failed/.test(l));
+        const stopped = after.filter((l) => PERM_RE.test(l) && /stopped after 5 failures/.test(l));
+        const leaks = noLeak(h.logs.concat([await h.storage()]), ['orbital resonance']);
+        r.check('I27', 'new', desc,
+                v0.count === '32' && v0.banner !== 'degraded' && nReady === 5 &&
+                strikeLines().join('|') === 'strike 1 of 5|strike 2 of 5|strike 3 of 5|strike 4 of 5|strike 5 of 5' &&
+                JSON.stringify(added) === '["newest/10"]' && kept.length === 1 && stopped.length >= 1 &&
+                v.banner === 'degraded' && /stopped after 5 failures/.test(v.bannerText || '') && tDeg - tSend <= 28000 &&
+                v.count === '11' && /^Gemini question 23:/.test(v.items[0] || '') && v.items[10] === SENT && v.note &&
+                !!v.button && v.button.state === 'idle' && v.check === null && leaks.length === 0,
+                'ready: ' + fmt(v0) + ' after ' + nReady + ' reads; strikes=' + JSON.stringify(strikeLines()) + ' reads after the send=' +
+                JSON.stringify(added) + ' REFRESH failed lines=' + kept.length + ' stopped lines=' + stopped.length + '; degraded ' +
+                Math.round((tDeg - tSend) / 100) / 10 + ' s after the send: ' + fmt(v) + ' last=' +
+                JSON.stringify((v.items[v.items.length - 1] || '').slice(0, 30)) + ' bannerText=' + JSON.stringify(v.bannerText) +
+                ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
+        await h.close();
+    })();
+
+    // ── I28: a load superseded meanwhile costs no strike, beside every fixture below (review round 1) ──
+    // The open read is refused 403 (PERMANENT), answering 6 s late; the chat is left for Gemini's home
+    // before it answers, so the refusal reaches a SUPERSEDED load: its line ends " superseded", and it has
+    // no class (no PERMANENT line) and no strike: the refusal says nothing about the chat open by then.
+    // Back on the same chat (one visit: A -> home -> A keeps its strikes), every read now aborted at the
+    // network, the visit's first strike is "strike 1 of 5". A build that classes a superseded failure
+    // strikes the 403 ("strike 1 of 5" before the return, "strike 2 of 5" after it: a mutant without the
+    // superseded test on a failed answer, Playwright chromium, 2026-11-07). a85ab2f strikes no
+    // network failure and logs no strike line (fails "strike 1 of 5"); v12.18 sends none. Flushed before R1.
+    // The other half of the rule (a superseded 400 neither re-reads nor clears the token) is gated by code
+    // reading: the next call() of a superseded load sends nothing, and a token re-read from the same page
+    // reads the same value, so in the mock a build without it sends the same requests.
+    const i28Run = fixture(['I28'], async (r) => {
+        const DELAY = 6000;
+        const desc = 'the open read refused 403 but answering 6 s late, the chat left for the home page before it answers: ONE request, ' +
+                     'its line ending " superseded", no PERMANENT line, no strike; back on the same chat (one visit) with every read ' +
+                     'aborted, the visit\'s first strike is "strike 1 of 5"; nothing leaked';
+        const h = await open(r, ['I28'], C32, { rpc: { mode: 'refuse', delayMs: { full: DELAY } } });
+        if (!h) return;
+        try { await h.page.waitForFunction(() => window.__mockGemini.calls().list.length >= 1, null, { timeout: 15000 }); } catch (e) {}
+        await h.page.evaluate(() => window.__mockGemini.goHome());
+        const tHome = Date.now();
+        if (!h.hits.length) {                 // the build's own failure (v12.18 reads nothing), never the harness's
+            r.check('I28', 'new', desc, false, 'no read sent in 15 s after the page opened');
+            await h.close();
+            return;
+        }
+        if (tHome > h.hits[0].t + DELAY - 1500) {
+            r.bad('I28', 'precondition: the chat was not left while its one read was still unanswered (reads=' + h.hits.length +
+                  ', left ' + (h.hits.length ? (tHome - h.hits[0].t) : '?') + ' ms after the first, its answer due at ' + DELAY + ' ms)');
+            await h.close();
+            return;
+        }
+        const t1 = Date.now();
+        while (h.req().length < 1 && Date.now() - t1 < 15000) await sleep(200);   // the 403's one line
+        await sleep(1500);
+        const iBack = h.logs.length, nBack = h.hits.length;
+        await h.page.evaluate(() => { window.__MOCK_CONFIG.rpc.mode = 'abort'; });
+        await h.page.evaluate((id) => window.__mockGemini.switchTo(id), C32);
+        const t2 = Date.now();
+        while (!h.logs.slice(iBack).some((l) => /load failed . strike \d of 5/.test(l)) && Date.now() - t2 < 20000) await sleep(200);
+        await sleep(500);
+        const before = h.logs.slice(0, iBack), afterL = h.logs.slice(iBack);
+        const reqBefore = before.filter((l) => REQ_RE.test(l));
+        const permBefore = before.filter((l) => PERM_RE.test(l));
+        const strikesBefore = before.filter((l) => /strike \d of 5/.test(l)).map((l) => (l.match(/strike \d of 5/) || [''])[0]);
+        const strikesAfter = afterL.filter((l) => /load failed . strike \d of 5/.test(l)).map((l) => (l.match(/strike \d of 5/) || [''])[0]);
+        const leaks = noLeak(h.logs.concat([await h.storage()]));
+        r.check('I28', 'new', desc,
+                nBack === 1 && reqBefore.length === 1 && / status=403\b/.test(reqBefore[0]) && / superseded$/.test(reqBefore[0]) &&
+                permBefore.length === 0 && strikesBefore.length === 0 && h.hits.length > nBack && strikesAfter[0] === 'strike 1 of 5' &&
+                leaks.length === 0,
+                'left ' + (tHome - h.hits[0].t) + ' ms after the read; before the return: reads=' + nBack + ' lines=' +
+                JSON.stringify(reqBefore.map((l) => l.replace(/^\[ACN\] index: platform=gemini /, ''))) + ' PERMANENT=' + permBefore.length +
+                ' strikes=' + JSON.stringify(strikesBefore) + '; after it: reads=' + (h.hits.length - nBack) + ' strikes=' +
+                JSON.stringify(strikesAfter) + ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
         await h.close();
     })();
 
@@ -2129,7 +2267,7 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
                 did && s.inView && !s.toasts.length, 'clicked=' + did + ' landing=' + JSON.stringify(s));
         await h.close();
     }));
-    // I21 [guard], owner amendment M2: a LOADED near target keeps v12.18's smooth glide with the index ready
+    // I21 [guard], the agent's amendment M2 (for the owner's review): a LOADED near target keeps v12.18's smooth glide with the index ready
     // (premise: the index ready).
     await seq(fixture(['I21'], async (r) => {
         const h = await open(r, ['I21'], C32, {});
@@ -2162,13 +2300,13 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         const stv = await h.page.evaluate(() => window.__stv.slice());
         const distinct = new Set(stv).size;
         const s = await h.spot(n, 'q');
-        r.check('I21', 'guard', 'a loaded near question (Q' + n + ') with the index ready: a smooth glide as on v12.18 (owner amendment M2), in view, marked, no toast',
+        r.check('I21', 'guard', 'a loaded near question (Q' + n + ') with the index ready: a smooth glide as on v12.18 (the agent\'s amendment M2, for the owner\'s review), in view, marked, no toast',
                 premise(rdy) && !!row && distinct >= 4 && s.inView && s.markIn && !s.toasts.length,
                 premiseNote('index ready', rdy) + ' (' + fmt(v0) + ') row=' + row + ' distinct scrollTops=' + distinct +
                 ' (' + stv[0] + '->' + stv[stv.length - 1] + ') landing=' + JSON.stringify(s));
         await h.close();
     }));
-    // I21b [guard], owner amendment M2: a LOADED FAR target with the index ready keeps v12.18's far landing
+    // I21b [guard], the agent's amendment M2 (for the owner's review): a LOADED FAR target with the index ready keeps v12.18's far landing
     // (gmLandFar): it ends in view and marked with no paging status, nothing paged in and no history read
     // caused by the click. The target is the oldest loaded question that is far (outside a view of the
     // view, orbLandFarIn's test) and lies more than a view below the content's top, so no landing on it can
@@ -2199,7 +2337,7 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         const s = await h.spot(far.n, 'q');
         const recs = (await h.pgSeen()).slice(rec0);
         r.check('I21b', 'guard', 'a loaded FAR question (Q' + far.n + ', ' + far.top + ' px from the view top) with the index ready: v12.18\'s far ' +
-                'landing (owner amendment M2): in view, marked, no toast, no paging status, nothing paged in, no history read caused by the click',
+                'landing (the agent\'s amendment M2, for the owner\'s review): in view, marked, no toast, no paging status, nothing paged in, no history read caused by the click',
                 premise(rdy) && !!row && s.inView && s.markIn && !s.toasts.length && recs.length === 0 && s.loads === 0 && h.hits.length === hits0,
                 premiseNote('index ready', rdy) + ' (' + fmt(v0) + ') row=' + row + ' status records=' + recs.length + ' reads by the click=' +
                 (h.hits.length - hits0) + ' landing=' + JSON.stringify(s));
@@ -2470,6 +2608,8 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
     flush(await i24Run);
     flush(await i25Run);
     flush(await i26Run);
+    flush(await i27Run);
+    flush(await i28Run);
     if (i6sRun) flush(await i6sRun);
 
     // ── R1 [guard], E [guard] ────────────────────────────────────────────────────────────────────

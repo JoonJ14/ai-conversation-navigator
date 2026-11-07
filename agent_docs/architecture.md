@@ -77,10 +77,10 @@ script text (`gmIxReadAt`), page size 100 following the cursor, parsed by `gmIxP
 window). A refresh reads the newest page (10) and merges it by id (`gmIxMerge`). The self-check (`gmIxSelfCheck`)
 compares the page's turns with the index on every scan, by id, order and question text. Jumps to a turn not loaded
 page the DOM (`gmPageUntil`, counted by turns arriving above the old first one), then land through `gmLandFarEl` or
-the near glide (owner amendments M1, M2). Where the index is `none` or `degraded` (`gmIxState`), DEC-057's tracker and
-note stay, and Navigate offers "Load full history" (`gmLoad*`, `gmPageToStart`, `gmViewAnchor`). The readers that
-switch on it: `gmIxReady`, `gmListPartial`, `gmListNote`, `_bmIxAdapter` (bookmarks take the `_bmIx*` path only
-while ready). The gallery stays on its DOM path.
+the near glide (the agent's amendments M1, M2, for the owner's review). Where the index is `none` or `degraded`
+(`gmIxState`), DEC-057's tracker and note stay, and Navigate offers "Load full history" (`gmLoad*`,
+`gmPageToStart`, `gmViewAnchor`). The readers that switch on it: `gmIxReady`, `gmListPartial`, `gmListNote`,
+`_bmIxAdapter` (bookmarks take the `_bmIx*` path only while ready). The gallery stays on its DOM path.
 
 **Since v12.17, every feature reads the whole conversation (DEC-059).** The ChatGPT and Perplexity indexes keep each
 answer's text and place: `_ix.answers` (`{ key, q, at, text, pos, ids }`, in order), `_ix.answerIdOf` (any shown

@@ -3352,9 +3352,9 @@
     var GM_IX_NEWEST_SIZE  = 10;    // a refresh: the newest page only, merged by id (the page's own size, Phase 1)
     var GM_IX_MAX_PAGES    = 10;    // a full load's call cap: 1,000 turns (no chat over 32 measured); past it, degrade,
                                     // final for the chat visit (gmIxFetch's capped)
-    var GM_IX_STRIKES_MAX  = 5;     // strikes per chat visit (every failed load but a superseded one and a refusal
-                                    // with nothing sent; mismatches; merge misses), then no more loads, full or
-                                    // refresh, until a reload or a reopen
+    var GM_IX_STRIKES_MAX  = 5;     // strikes per chat visit (every failed load but a superseded one, one that sent
+                                    // nothing and the page cap; mismatches; merge misses), then no more loads, full
+                                    // or refresh, until a reload or a reopen
     var GM_IX_CALLS_MAX    = 100;   // hNvQHb requests asked of the transport since this visit's last load that
                                     // SUCCEEDED, answered or not: a backstop against a loop of failures
     var GM_IX_VERIFY_GRACE_MS = 30000;   // turns shown that the self-check cannot compare: this long, then a mismatch
@@ -3623,17 +3623,23 @@
     // more when its answer settles (unchanged for IX_SETTLE_MS). While the watch sees the latest answer
     // move, ixScan skips the IX_ANSWER_GROWTH rule for it, which would otherwise ask for one refresh per
     // 2,000 characters written (one per 15 s cooldown). An answer that pauses that long mid-stream
-    // settles once per pause. The cooldown and the once-per-signature rule bound the refreshes that
-    // succeed; the strikes and GM_IX_CALLS_MAX bound the ones that fail. In the mock, an answer that
-    // arrives at once costs one read (probe I11); one written over 35 s costs two (I11d).
+    // settles once per pause. The cooldown bounds the RATE of the refreshes that succeed (one per ~16 s
+    // at most) and the once-per-signature rule stops one signature from asking twice in a row; nothing
+    // bounds their NUMBER: a latest answer whose rendered length keeps changing settles again after each
+    // pause, so it is refreshed once per pause for as long as it does (read from the code, unmeasured live;
+    // a residual, DEC-063). The strikes and GM_IX_CALLS_MAX bound the refreshes that fail. In the mock, an
+    // answer that arrives at once costs one read (probe I11); one written over 35 s costs two (I11d).
     // Classes (permanent = ixDegrade's 60 s then x4 backoff; transient = the ~16 s cooldown). Every failed
-    // load is also a STRIKE of the chat visit (one per load, logged "load failed … strike N of 5"), except a
-    // load superseded meanwhile (a newer load, or the chat left: its failure says nothing about the chat now
-    // open) and an ending with nothing sent that is not the chat's (the transport's cap refusal, the calls
-    // backstop, the page cap, the strikes spent): transient failures still retry at the cooldown, but
-    // GM_IX_STRIKES_MAX strikes stop every later load of the visit, a refresh too, so no failure loops
-    // past it (at a85ab2f a network error read the whole chat every ~16 s for as long as the tab stayed
-    // open: 9 reads in 130 s, probe I26 on the mock's abort mode, Playwright chromium, 2026-11-07).
+    // load is also a STRIKE of the chat visit (one per load, logged "load failed … strike N of 5"), except:
+    // a load superseded meanwhile (a newer load, or the chat left: its failure says nothing about the chat
+    // now open); an ending before anything of the chat's was sent (the transport's cap refusal, the calls
+    // backstop, the strikes spent); and the page cap, which follows ten requests that were all answered but
+    // is final for the visit (capped: every later full load ends at once and sends nothing, so it never
+    // comes round again to strike). Transient failures still retry at the cooldown, but GM_IX_STRIKES_MAX
+    // strikes stop every later load of the visit, a refresh too (probe I27), so no failure loops past it.
+    // At a85ab2f a network error read the whole chat every ~16 s until the 100-request per-visit backstop,
+    // about 27 minutes by the arithmetic (100 x ~16 s; probe I26 on the mock's abort mode watched 130 s
+    // of it: 9 reads, Playwright chromium, 2026-11-07).
     //   HTTP 400          the token re-read ONCE from the current document and the request sent ONCE more
     //                     (" retry=at-new|at-same"); a second 400 is permanent. No ~16 s loop, as ChatGPT's
     //                     token refresh. A superseded load's 400 neither re-reads nor clears the token.
@@ -3947,11 +3953,13 @@
         if (!v) { if (z.hasAttribute('data-acn-index-check')) z.removeAttribute('data-acn-index-check'); }
         else if (z.getAttribute('data-acn-index-check') !== v) z.setAttribute('data-acn-index-check', v);
     }
-    // A mismatch: a strike of this chat visit (with the permanent load failures, GM_IX_STRIKES_MAX of
-    // them stop its loads until a reload or a reopen). The first is transient, so the full reload comes
-    // after the cooldown (~16 s: an edit the server holds by then reads true); from the second on it is
-    // permanent: 60 s (a load that succeeds resets ixDegrade's backoff, so each later one waits 60 s
-    // again), and the cap bounds them: at most GM_IX_STRIKES_MAX full reads in a chat that never matches.
+    // A mismatch: a strike of this chat visit, counted with the failed loads' strikes (every failed load,
+    // transient ones included: gmIxFetch's end), GM_IX_STRIKES_MAX of them stop its loads until a reload
+    // or a reopen. A mismatch that is the visit's FIRST strike is transient, so the full reload comes after
+    // the cooldown (~16 s: an edit the server holds by then reads true); any later one is permanent,
+    // whatever the strikes before it were, so a visit's first mismatch after a failed load waits 60 s, not
+    // ~16 s (a load that succeeds resets ixDegrade's backoff, so each later one waits 60 s again), and the
+    // cap bounds them: at most GM_IX_STRIKES_MAX full reads in a chat that never matches.
     // The reason names a turn by its id's first 8 characters and counts characters: never a text.
     function gmIxStrike(why) {
         _gmIx.strikes++;
@@ -4280,7 +4288,8 @@
                 var t = gmTurnOf(el);
                 return t ? (type === 'ai-msg' ? t.id + ':answer' : t.id) : null;
             },
-            // Jumps (v12.19, owner amendment M1): Gemini keeps every turn it loads, so a target that is not
+            // Jumps (v12.19, the agent's amendment M1, for the owner's review): Gemini keeps every turn it
+            // loads, so a target that is not
             // mounted is older than the oldest loaded turn and only pages bring it in. ixJump hands the whole
             // jump to gmIxJump, which pages (gmPageUntil) until the target's turn mounts, then lands it the
             // way v12.18 lands a loaded one. NOT pagesAtTop: awaitPage counts a page by scrollHeight, which
@@ -4937,7 +4946,8 @@
     // because "mounted" is not "in view" (v12.15). opts.land === false skips that: outerDone
     // gets the mounted question as found, for a caller that lands on something else itself.
     function ixJump(a, q, outerDone, opts) {
-        // Gemini (v12.19, owner amendment M1): its own pager and landing, before any container lookup.
+        // Gemini (v12.19, the agent's amendment M1, for the owner's review): its own pager and landing,
+        // before any container lookup.
         if (a.pageUntil) { gmIxJump(a, q, outerDone, opts); return; }
         opts = opts || {};
         var token = ++_ixJumpToken;
@@ -8325,7 +8335,8 @@
         if (el && el.parentNode) el.parentNode.removeChild(el);
     }
 
-    // ixJump for an adapter that pages its own history (Gemini, v12.19, owner amendment M1; DEC-063).
+    // ixJump for an adapter that pages its own history (Gemini, v12.19, the agent's amendment M1, for the
+    // owner's review; DEC-063).
     // ixJump hands the jump over before it looks for a container. Gemini keeps every turn it loads, so a
     // target that is not mounted is older than the oldest loaded turn: the pager brings pages in, with
     // "Loading earlier messages…", until the target's turn is in the DOM by its id (a target mounted
@@ -11246,8 +11257,8 @@
         // An index-backed target goes through the adapter jump even when it is mounted:
         // mounted is not in view, and only the jump lands and checks (v12.15). Not on a
         // thread too short to have a scroll container: ixJump would refuse it with a toast,
-        // and the plain fast path below lands it, as before. Not on Gemini (v12.19, owner
-        // amendment M2): a MOUNTED target keeps v12.18's landing below (gmLandFar when far, the
+        // and the plain fast path below lands it, as before. Not on Gemini (v12.19, the agent's
+        // amendment M2, for the owner's review): a MOUNTED target keeps v12.18's landing below (gmLandFar when far, the
         // smooth glide when near); only one that is not loaded yet goes through ixJump, which
         // pages the history toward it (gmIxJump).
         if (target && typeof q.ixPosition === 'number' && ixReadyAdapter() && ixReadyAdapter().id !== 'gemini') {

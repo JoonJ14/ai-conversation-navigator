@@ -42,13 +42,14 @@ This document tracks features and platform expansions we're considering but have
   - A self-check against the page's own turns runs on every scan; a mismatch degrades visibly to v12.18's list.
   - A refresh reads the newest page and merges it by id.
 - **Jumps** to a question not loaded yet page the history in with "Loading earlier messages…", then land as v12.18
-  does (owner amendments M1, M2).
+  does (the agent's amendments M1, M2, for the owner's review).
 - **"Load full history"** is the fallback where the index cannot run or has degraded (Gem and `/u/N/` paths, a failed
   read): it pages to the start and puts the view back.
 - **Proof so far** [Playwright page realm, headless chromium, the userscript inlined, this Mac]:
-  - `probes/check-gemini-index.js`: 64 checks (55 `[new]`, 9 `[guard]`; 65 with `--slow`), 64/64 on the version
-    commit `b13e36e`. Each `[new]` gate was shown failing on v12.18 when it was added. `npm test` 560/560 and every
-    other probe green there too (chromium only).
+  - `probes/check-gemini-index.js`: 72 checks since review round 1 (62 `[new]`, 10 `[guard]`; 73 with `--slow`),
+    72/72 on that build (2026-11-07); 64/64 on the version commit `b13e36e`, with 64 then. Each `[new]` gate was
+    shown failing on v12.18 when it was added. `npm test` 560/560 and every other probe green on `b13e36e` too
+    (chromium only).
   - The fallback probes pass in their three `--gm-endpoint` modes, and Claude's L1-shape and L2-shape pass with
     `check-transport-ladder.js` unmodified.
   - Tiers 1–2 ran per commit in the session. Owed: Tier 3, the live A/B in Chrome against 12.18, the three-engine
@@ -1306,17 +1307,27 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         - A just-sent question bookmarked while the index is ready reads "Q#?" until the newest-page refresh lands,
           as on ChatGPT since v12.15. The spec's "never Q#?" is about the degraded and absent states.
         - The live refresh count per sent message is unmeasured. Since `cf91e23` the bound is its id's refresh, one
-          more when its answer settles, and one per `IX_SETTLE_MS` pause mid-stream, under `GM_IX_CALLS_MAX` (K8,
+          more when its answer settles, and one per `IX_SETTLE_MS` pause mid-stream, at most one per ~16 s (K8,
           corrected). In the mock it is 2 reads for an answer written over 35 s.
+        - Refreshes that SUCCEED have no count bound in a chat visit: the cooldown bounds their rate (one per ~16 s at
+          most) and the once-per-signature rule stops one signature from repeating, but a latest answer whose
+          rendered length keeps changing settles again after each pause, so it is refreshed once per pause for as long
+          as that lasts (read from the code; unmeasured live; no mock knob makes an answer oscillate). At `a85ab2f` the
+          100-request per-visit backstop capped it; since review round 1 a good load resets that count (A2).
         - M2's far half is gated by outcome only (I21b): a build that sent a mounted far target through ixJump would
           pass it too. Only I21 (the near glide) can catch M2 skipped. A path discriminator is the owner's call.
-        - Network errors count toward `GM_IX_CALLS_MAX`: about 27 minutes offline (one load per ~16 s) uses it up,
-          and the index stays degraded until a reload or a reopen (the DOM list stays).
+        - Network errors are strikes since review round 1 (A8): five failed loads in a chat visit (about 65 s offline,
+          one per ~16 s; I26, in the mock) stop its loads until a reload or a reopen, even once the network is back.
+          The DOM list, the note and "Load full history" stay.
         - A signed-out `/app/<id>` page shows the degraded banner "no page token in the page (signed out?)" where
           v12.18 showed none (the plan's visible-degrade choice). The v12.18 list, labels and note are unchanged
           underneath.
-        - The calls cap (100 requests per chat visit) and `ciFetchGet`'s open/stall-cap refusal (transient,
-          strike-free) are gated by code reading only. The 5-strike cap runs only with `--slow` (I6s, 330 s).
+        - The calls backstop's cap itself (100 requests since the visit's last load that succeeded) and `ciFetchGet`'s
+          open/stall-cap refusal (transient, strike-free) are gated by code reading only; I25 gates that a good load
+          resets the count. The strikes are gated on every run by I26 (network errors), I27 (a refresh with the
+          strikes spent sends nothing and drops the index) and I28 (a superseded load's failure is none); the
+          mismatch strike cap runs only with `--slow` (I6s, 330 s). That a superseded 400 neither re-reads nor
+          clears the token is gated by code reading only: in the mock a build without it sends the same requests.
         - The button stays hidden during the index's first load (the button plan's open question 3; the "Loading
           full conversation history" banner shows then).
         - `check-ix-jumps` J15's known timing race (TROUBLESHOOTING, OPEN) can still turn a run red.
