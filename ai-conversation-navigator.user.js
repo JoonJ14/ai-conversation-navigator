@@ -145,6 +145,7 @@
             commandPalette: 'Commands',
             insertCommand: 'Insert',
             olderHistoryNotLoaded: 'Older messages are not loaded yet \u2014 scroll to the top of the chat to load them',
+            loadingEarlierMessages: 'Loading earlier messages\u2026',
         },
         ko: {
             navigate: '\ud0d0\uc0c9',
@@ -234,6 +235,7 @@
             commandPalette: '\ucee4\ub9e8\ub4dc',
             insertCommand: '\uc0bd\uc785',
             olderHistoryNotLoaded: '\uc774\uc804 \uba54\uc2dc\uc9c0\uac00 \uc544\uc9c1 \ub85c\ub4dc\ub418\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4 \u2014 \ucc44\ud305 \ub9e8 \uc704\ub85c \uc2a4\ud06c\ub864\ud558\uba74 \ubd88\ub7ec\uc635\ub2c8\ub2e4',
+            loadingEarlierMessages: '\uc774\uc804 \uba54\uc2dc\uc9c0\ub97c \ubd88\ub7ec\uc624\ub294 \uc911\u2026',
         }
     };
 
@@ -2742,6 +2744,9 @@
     //   locate(entry)         -> the mounted DOM node for an entry, or null
     //   selfCheck()           -> optional (v12.19, Gemini): null, or { reason, permanent } when the page
     //                            contradicts the ready index; ixScan then drops it for the DOM list
+    //   scroller()            -> optional (v12.19, Gemini): the scroll container its jumps land in
+    //   pageUntil(opts, done) -> optional (v12.19, Gemini): pages older history into the DOM (gmPageUntil).
+    //                            An adapter with one jumps through gmIxJump (ixJump hands it over first)
     // Claude is wrapped below WITHOUT changing its index: it keeps its own scan branch,
     // jump bridge and bookmark identity (scanConversation, ciJumpToFullPathIndex), which
     // carry far more than this seam does. ChatGPT, Perplexity and, since v12.19, Gemini run
@@ -4209,7 +4214,15 @@
                 if (!IX_ADAPTERS.gemini.getConversationId()) return null;
                 var t = gmTurnOf(el);
                 return t ? (type === 'ai-msg' ? t.id + ':answer' : t.id) : null;
-            }
+            },
+            // Jumps (v12.19, owner amendment M1): Gemini keeps every turn it loads, so a target that is not
+            // mounted is older than the oldest loaded turn and only pages bring it in. ixJump hands the whole
+            // jump to gmIxJump, which pages (gmPageUntil) until the target's turn mounts, then lands it the
+            // way v12.18 lands a loaded one. NOT pagesAtTop: awaitPage counts a page by scrollHeight, which
+            // content-visibility changes without one (DOM-REFERENCE, Gemini), and land()'s K5 rule would wait
+            // a full page for a start the index already knows.
+            scroller: gmScroller,
+            pageUntil: gmPageUntil
         }
     };
 
@@ -4852,6 +4865,8 @@
     // because "mounted" is not "in view" (v12.15). opts.land === false skips that: outerDone
     // gets the mounted question as found, for a caller that lands on something else itself.
     function ixJump(a, q, outerDone, opts) {
+        // Gemini (v12.19, owner amendment M1): its own pager and landing, before any container lookup.
+        if (a.pageUntil) { gmIxJump(a, q, outerDone, opts); return; }
         opts = opts || {};
         var token = ++_ixJumpToken;
         // Looked up fresh: the cache trusts any connected node, and ChatGPT keeps the
@@ -7997,6 +8012,298 @@
                   _gmHist.n > 0 && !_gmHist.complete);
     }
 
+    // ── Gemini: paging older history in (v12.19, DEC-063) ───────────────
+    // Gemini keeps every turn it loads and loads the previous GM_HISTORY_PAGE turns when the view reaches
+    // the top (DEC-057). Measured: the page's own hNvQHb answered in 1.5-2.9 s [Chrome, page realm, chat
+    // 96b519c1, 2026-11-05, Phase 1]; rendering a page then blocks the main thread ~4.6 s, so no timer of
+    // ours runs until the turns are in, and Gemini re-anchors scrollTop so the view stays on the same turn
+    // (5,975 -> 9,064); a chat's first page rendered ~10 s after a navigation [Chrome + Tampermonkey,
+    // v12.16, one 32-question chat, 2026-10-31, DEC-057]. Unmeasured: what sets a page off (a scroll event,
+    // an observer, a threshold), Firefox's and Safari's timings, slow links, chats over 100 turns.
+    // A page is counted DISCRETELY, as the history tracker counts it: turns arrived above the old first
+    // turn (its id moved down). Never by scrollHeight: off-screen turns are content-visibility:auto with
+    // 500 px estimates, so the height changes as turns render, page or not (DOM-REFERENCE, Gemini).
+    var GM_PAGE_WAIT_MS  = 8000;    // a request (<= 2.9 s) and a render block (~4.6 s), above: no page this long = none
+    var GM_FIRST_PAGE_MS = 15000;   // no turn yet: the first page (~10 s after a navigation) and a margin
+    var GM_PAGE_IDLE_MAX = 2;       // waits that brought no page, per run (the second after a nudge)
+    var GM_PAGE_POLL_MS  = 100;
+    var GM_PAGE_MAX      = 200;     // pages a run with no turn count may wait for (2,000 turns; unmeasured past 32)
+
+    // The scroller Gemini's landings write to (DEC-057) and the history tracker watches, or null.
+    function gmScroller() {
+        var sc = document.querySelector('infinite-scroller.chat-history');
+        return (sc && sc.isConnected) ? sc : null;
+    }
+
+    // The turn the view is on, for a caller that puts the view back after paging ("Load full history"):
+    // the first turn with an id whose bottom is below the view's top, and its top's distance from that
+    // top. Null without one.
+    function gmViewAnchor(sc) {
+        var t = gmHistTurns(sc), top = sc.getBoundingClientRect().top + sc.clientTop;
+        for (var i = 0; i < t.length; i++) {
+            var r = t[i].getBoundingClientRect();
+            if (r.bottom > top && GM_TURN_ID_RE.test(t[i].id || '')) return { id: t[i].id, offset: Math.round(r.top - top) };
+        }
+        return null;
+    }
+
+    // gmPageUntil(opts, done) -> { cancel(why) }: pages Gemini's history in (the view to the top, a page,
+    // again) until opts.until() holds, the chat's start is loaded, or it is stopped. It sends no request:
+    // Gemini sends its own hNvQHb when the view reaches the top.
+    //   container     the scroller (default gmScroller())
+    //   until()       truthy: stop, ok 'found'. Tested before every write and on every poll
+    //   startLoaded() truthy: the start is in the DOM (an index: its first entry's turn is mounted). With
+    //                 it, DEC-057's own rules count only when domRules is set; without it they decide: a
+    //                 first page or a page above of fewer than GM_HISTORY_PAGE turns, or pageWaitMs at the
+    //                 top (visible) with none
+    //   toStart       reaching the start is success (gmPageToStart)
+    //   total         a turn count: the cap is ceil(total / GM_HISTORY_PAGE) + 2 pages; maxPages overrides
+    //   pageWaitMs    the wait for one page (default GM_PAGE_WAIT_MS)
+    //   check()       a reason to stop, or null (gmIxJump passes its live()), and token: the jump token
+    //                 that owns the status. Without check the pager is its own owner: it takes a fresh
+    //                 _ixJumpToken (a newer jump supersedes it, and it supersedes older ones) and stops on
+    //                 the user's own scroll (ixWatchUser, 'user'), a path change ('path'), a newer jump
+    //                 ('superseded') or the scroller leaving the document; handle.cancel(why) stops it too
+    //   status        true: "Loading earlier messages…"; function (p): its text; falsy: none
+    //   onProgress(p) once at the start and after each page has settled, before the tests
+    //   via, target   for the log line only ('jump' | 'button'; an entry position)
+    //   done(ok, why, p)  never before gmPageUntil returns. ok: 'found', or 'start' with toStart. Not ok:
+    //                 'start' (loaded, until() never held), 'cap', 'no-page', 'user', 'path', 'superseded',
+    //                 'container-gone', 'no-container', cancel's reason ('cancelled'), or check()'s.
+    //                 p = { pages, loaded, added, anchor }: anchor is gmViewAnchor at the start (own mode)
+    // A hidden tab is no measurement (CLAUDE.md): the wait's clock stops while the tab is hidden, so it
+    // never decides 'no-page' or the start by time there; the run goes on once the tab is visible again.
+    function gmPageUntil(opts, done) {
+        opts = opts || {};
+        var sc = opts.container || gmScroller();
+        var p = { pages: 0, loaded: 0, added: 0, anchor: null };
+        var own = !opts.check;
+        // Own mode takes a fresh jump token only for a run that can start (no scroller: nothing supersedes).
+        var token = own ? (sc ? ++_ixJumpToken : _ixJumpToken) : (opts.token || _ixJumpToken);
+        var watch = (own && sc) ? ixWatchUser(sc) : null;
+        var path0 = location.pathname, t0 = Date.now(), via = opts.via || 'jump';
+        var waitMs = opts.pageWaitMs > 0 ? opts.pageWaitMs : GM_PAGE_WAIT_MS;
+        var maxPages = opts.maxPages > 0 ? opts.maxPages
+                     : (opts.total > 0 ? Math.ceil(opts.total / GM_HISTORY_PAGE) + 2 : GM_PAGE_MAX);
+        var idle = 0, cancelled = '', ended = false, showing = false, logged = false, progress = true;
+        var ruleStart = false;
+        var handle = { cancel: function (why) { cancelled = why || 'cancelled'; } };
+        if (sc) {
+            p.loaded = gmHistTurns(sc).length;
+            if (own) p.anchor = gmViewAnchor(sc);
+            // DEC-057 rule (b): a first page of fewer than a page of turns is the whole chat.
+            ruleStart = p.loaded > 0 && p.loaded < GM_HISTORY_PAGE;
+        }
+
+        function stopWhy() {
+            if (cancelled) return cancelled;
+            if (own) {
+                if (watch.scrolled) return 'user';
+                if (location.pathname !== path0) return 'path';
+                if (token !== _ixJumpToken) return 'superseded';
+            } else {
+                var r = opts.check();
+                if (r) return r;
+            }
+            return sc.isConnected ? null : 'container-gone';
+        }
+        function startKnown() {
+            if (opts.startLoaded && opts.startLoaded()) return true;
+            return (!opts.startLoaded || opts.domRules) ? ruleStart : false;
+        }
+        function finish(ok, why) {
+            if (ended) return;
+            ended = true;
+            if (watch) watch.stop();
+            if (showing) ixPagingStatusClear(token);
+            if (logged || !ok) {
+                console.log('[ACN] paging: platform=gemini via=' + via + ' end=' + why +
+                            ' pages=' + p.pages + ' loaded=' + p.loaded + ' ms=' + (Date.now() - t0));
+            }
+            done(ok, why, p);
+        }
+        // The tests every write and every poll makes; true when the run is over.
+        function over() {
+            var why = stopWhy();
+            if (why) { finish(false, why); return true; }
+            if (opts.until && opts.until()) { finish(true, 'found'); return true; }
+            if (startKnown()) { finish(!!opts.toStart, 'start'); return true; }
+            return false;
+        }
+        function step() {
+            if (ended) return;
+            var why = stopWhy();
+            if (why) { finish(false, why); return; }
+            var turns = gmHistTurns(sc), n0 = turns.length, id0 = n0 ? (turns[0].id || null) : null;
+            p.loaded = n0;
+            if (progress) {
+                progress = false;
+                if (opts.onProgress) { try { opts.onProgress(p); } catch (e) {} }
+            }
+            if (over()) return;
+            if (p.pages >= maxPages) { finish(false, 'cap'); return; }
+            if (idle >= GM_PAGE_IDLE_MAX) { finish(false, 'no-page'); return; }
+            if (!logged) {
+                logged = true;
+                console.log('[ACN] paging: platform=gemini via=' + via + ' start' +
+                            (typeof opts.target === 'number' ? ' target=' + opts.target : '') +
+                            ' loaded=' + n0 + ' cap=' + maxPages);
+            }
+            if (opts.status) {
+                ixPagingStatus(token, p, typeof opts.status === 'function' ? opts.status(p) : null);
+                showing = true;
+            }
+            if (!n0) { wait(0, null, GM_FIRST_PAGE_MS); return; }   // the chat's first page is not in yet
+            if (idle > 0 && sc.scrollTop <= 1) {
+                // A wait at the top brought nothing: off the top by a view and back, so the page sees the
+                // top reached again (writing 0 at 0 fires no scroll event). Unmeasured live; gated on the mock.
+                sc.scrollTop = Math.min(sc.clientHeight, Math.max(0, sc.scrollHeight - sc.clientHeight));
+                setTimeout(function () {
+                    var w2 = stopWhy();
+                    if (w2) { finish(false, w2); return; }
+                    sc.scrollTop = 0;
+                    wait(n0, id0, waitMs);
+                }, IX_JUMP_SETTLE_MS);
+                return;
+            }
+            sc.scrollTop = 0;
+            wait(n0, id0, waitMs);
+        }
+        // Turns above id0 (a page), or `ms` of visible time without one. The page test runs BEFORE the
+        // clock, so the first poll after a render block sees the page even past `ms`; and before until()
+        // and the start, so the page that brings the target in is counted and settles first.
+        function wait(n0, id0, ms) {
+            var w0 = Date.now();
+            (function poll() {
+                if (ended) return;
+                var why = stopWhy();
+                if (why) { finish(false, why); return; }
+                var t = gmHistTurns(sc), n = t.length, first = n ? (t[0].id || null) : null;
+                if (n > n0 && first !== id0) {
+                    // How many arrived ABOVE: the old first turn's new index. A message sent meanwhile
+                    // arrives below and keeps the first id, so it is never a page.
+                    var above = -1;
+                    if (n0) { for (var i = 1; i < n && above < 0; i++) if (t[i].id === id0) above = i; }
+                    if (above < 0) above = n - n0;       // the first page, or the old first turn re-rendered
+                    if (n0) p.pages++;
+                    p.added = above; p.loaded = n; idle = 0; progress = true;
+                    if (above < GM_HISTORY_PAGE) ruleStart = true;   // DEC-057 rules (b), (c)
+                    ciPre('gemini page ' + p.pages + ': +' + above + ' turns, ' + n + ' loaded, ' + (Date.now() - w0) + ' ms');
+                    setTimeout(step, IX_JUMP_SETTLE_MS);   // one settle: Gemini re-anchors after it renders
+                    return;
+                }
+                if (over()) return;
+                if (document.visibilityState !== 'visible') { w0 = Date.now(); setTimeout(poll, GM_PAGE_POLL_MS); return; }
+                if (Date.now() - w0 >= ms) {
+                    idle++;
+                    if (n0 && sc.scrollTop <= 2) ruleStart = true;   // DEC-057 rule: the wait at the top, none
+                    ciPre('gemini page wait: none in ' + ms + ' ms (idle ' + idle + ')');
+                    step();
+                    return;
+                }
+                setTimeout(poll, GM_PAGE_POLL_MS);
+            }());
+        }
+        setTimeout(sc ? step : function () { finish(false, 'no-container'); }, 0);
+        return handle;
+    }
+
+    // The history to its start ("Load full history"): no target, and reaching the start is success.
+    function gmPageToStart(opts, done) {
+        var o = {}, k;
+        for (k in opts) if (opts.hasOwnProperty(k)) o[k] = opts[k];
+        o.until = null;
+        o.toStart = true;
+        if (!o.via) o.via = 'button';
+        return gmPageUntil(o, done);
+    }
+
+    // The "Loading earlier messages…" status (v12.19): one element above the toast slot while a jump (or
+    // the history button) waits for Gemini's older pages, so a 10-20 s jump does not look frozen; its
+    // progress in data-acn-paging-pages (pages in so far) and data-acn-paging-loaded (turns in the DOM).
+    // Index jumps never set data-acn-jumping (they block no clicks: a second click supersedes); this is
+    // separate. Owned by the jump token that showed it: a newer jump takes it over, and only its owner, or
+    // a call made once its owner is no longer the live jump, removes it.
+    var _ixPagingOwner = 0;
+    function ixPagingStatus(token, p, text) {
+        var el = document.getElementById('acn-paging-status');
+        if (!el) {
+            el = createElement('div', {
+                id: 'acn-paging-status',
+                'data-acn-role': 'paging-status', role: 'status', 'aria-live': 'polite',
+                style: 'position:fixed;bottom:120px;right:20px;background:rgba(0,0,0,0.85);color:#fff;' +
+                       'padding:8px 14px;border-radius:8px;font-size:13px;z-index:2147483647;pointer-events:none;'
+            });
+            document.body.appendChild(el);
+        }
+        _ixPagingOwner = token;
+        var t = text || i18n('loadingEarlierMessages') || 'Loading earlier messages…';
+        if (el.textContent !== t) el.textContent = t;
+        el.setAttribute('data-acn-paging-pages', String(p ? p.pages : 0));
+        el.setAttribute('data-acn-paging-loaded', String(p ? p.loaded : 0));
+    }
+    function ixPagingStatusClear(token) {
+        if (!_ixPagingOwner) return;
+        if (token !== _ixPagingOwner && _ixPagingOwner === _ixJumpToken) return;   // a live jump owns it
+        _ixPagingOwner = 0;
+        var el = document.getElementById('acn-paging-status');
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+    }
+
+    // ixJump for an adapter that pages its own history (Gemini, v12.19, owner amendment M1; DEC-063).
+    // ixJump hands the jump over before it looks for a container. Gemini keeps every turn it loads, so a
+    // target that is not mounted is older than the oldest loaded turn: the pager brings pages in, with
+    // "Loading earlier messages…", until the target's turn is in the DOM by its id (a target mounted
+    // already needs none). Then it lands the way v12.18 lands a loaded question: gmLandFarEl when it is far,
+    // the smooth glide (block center) when it is near. gmLandFarEl bumps _ixJumpToken and owns its landing,
+    // so it runs only once the pager has ended; a far landing that fails toasts on its own (orbLandIn), and
+    // outerDone hears only its success. opts.land === false: outerDone(true, the question node) once its
+    // turn is in, nothing landed (_bmIxJump lands the answer itself). Not ok: 'not-found' (the start is
+    // loaded without it, or its turn left again), 'cap' (ceil(turns / GM_HISTORY_PAGE) + 2 pages: 6 for 32
+    // turns), 'no-page', 'user', 'superseded' (a newer jump, another chat), 'container-gone', 'no-container'.
+    function gmIxJump(a, q, outerDone, opts) {
+        opts = opts || {};
+        var token = ++_ixJumpToken;
+        ixPagingStatusClear(token);      // a status left by the jump this one supersedes goes now
+        var sc = a.scroller ? a.scroller() : null;
+        if (!sc) { outerDone(false, null, 'no-container'); return; }
+        var entry = { id: q.ixId, position: q.ixPosition, text: q.text };
+        var cid = _ix.cid;
+        // The index knows the start: it is loaded once its first entry's turn is in the DOM.
+        var firstId = (_ix.entries && _ix.entries.length) ? _ix.entries[0].id : null;
+        var watch = ixWatchUser(sc), stopped = false;
+        function find() { return a.locate(entry); }
+        function live() {
+            if (watch.scrolled) return 'user';
+            if (token !== _ixJumpToken) return 'superseded';
+            // Another chat before the next scan: a position from the old one must not resolve the new one's.
+            if (_ix.cid !== cid || a.getConversationId() !== cid) return 'superseded';
+            if (!sc.isConnected) return 'container-gone';
+            return null;
+        }
+        function stop() {
+            if (stopped) return false;
+            stopped = true;
+            watch.stop();
+            ixPagingStatusClear(token);
+            return true;
+        }
+        a.pageUntil({
+            container: sc, token: token, check: live, total: _ix.total, target: entry.position, via: 'jump',
+            until: function () { return !!find(); },
+            startLoaded: function () { return !!gmTurnById(firstId); },
+            status: true
+        }, function (ok, why) {
+            if (!stop()) return;
+            var el = ok ? find() : null;
+            if (!el) { outerDone(false, null, (ok || why === 'start') ? 'not-found' : why); return; }
+            if (opts.land === false) { outerDone(true, el, 'locate'); return; }
+            if (gmLandFarEl(el, find, function (n) { outerDone(true, n, 'locate'); })) return;
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            outerDone(true, el, 'locate');
+        });
+    }
+
     // ============================================================
     // MESSAGE OBSERVER
     // ============================================================
@@ -10657,8 +10964,11 @@
         // An index-backed target goes through the adapter jump even when it is mounted:
         // mounted is not in view, and only the jump lands and checks (v12.15). Not on a
         // thread too short to have a scroll container: ixJump would refuse it with a toast,
-        // and the plain fast path below lands it, as before.
-        if (target && typeof q.ixPosition === 'number' && ixReadyAdapter()) {
+        // and the plain fast path below lands it, as before. Not on Gemini (v12.19, owner
+        // amendment M2): a MOUNTED target keeps v12.18's landing below (gmLandFar when far, the
+        // smooth glide when near); only one that is not loaded yet goes through ixJump, which
+        // pages the history toward it (gmIxJump).
+        if (target && typeof q.ixPosition === 'number' && ixReadyAdapter() && ixReadyAdapter().id !== 'gemini') {
             _ciScrollContainer = null;
             if (ciFindScrollContainer()) target = null;
         }
@@ -10751,8 +11061,13 @@
                           function (n) { q.element = n; orbMarkJumpTarget(n); orbFlashElement(n); })) {
                 return;
             }
-            // Gemini: the same for a far loaded question (v12.16, DEC-057).
-            if (gmLandFar(target, q, function (n) { q.element = n; orbMarkJumpTarget(n); orbFlashElement(n); })) {
+            // Gemini: the same for a far loaded question (v12.16, DEC-057). With the index ready
+            // (v12.19, M2) the landing re-records the entry's position: orbMarkJumpTarget clears it.
+            if (gmLandFar(target, q, function (n) {
+                q.element = n; orbMarkJumpTarget(n);
+                if (typeof q.ixPosition === 'number') ixMarkResolved(q);
+                orbFlashElement(n);
+            })) {
                 return;
             }
             target.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -13146,9 +13461,11 @@
         }
         if (type === 'user-msg' && q) { orbScrollToQuestion(q); return; }
         _ixJumpToken++;
+        // An adapter that names its scroller (Gemini, v12.19) lands in it; the others look it up as before.
         function land(el) {
             ixLandOn(a, function () { return _bmIxFind(a, key, type); },
-                     { block: type === 'ai-msg' ? 'start' : undefined }, function (ok, landed, why) {
+                     { block: type === 'ai-msg' ? 'start' : undefined,
+                       container: a.scroller ? a.scroller() : null }, function (ok, landed, why) {
                 if (!ok && why === 'no-container' && el.isConnected) {
                     // A thread too short to scroll: in view already, as the question fast path.
                     ok = true;
@@ -13176,7 +13493,7 @@
             if (found) { land(found); return; }
             // ixJump's own watch has stopped: the user taking the scroll back during this
             // settle ends the jump too.
-            var token = _ixJumpToken, box = ciFindScrollContainer(), watch = box ? ixWatchUser(box) : null;
+            var token = _ixJumpToken, box = a.scroller ? a.scroller() : ciFindScrollContainer(), watch = box ? ixWatchUser(box) : null;
             setTimeout(function () {
                 if (watch) watch.stop();
                 if (token !== _ixJumpToken || (watch && watch.scrolled)) return;
