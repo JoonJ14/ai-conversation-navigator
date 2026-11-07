@@ -8234,9 +8234,12 @@
     //                 'start' (loaded, until() never held), 'cap', 'no-page', 'user', 'path', 'superseded',
     //                 'container-gone', 'no-container', cancel's reason ('cancelled'), or check()'s.
     //                 p = { pages, loaded, added, anchor }: anchor is gmViewAnchor at the start (own mode)
-    // A hidden tab is no measurement (CLAUDE.md): the wait's clock stops while the tab is hidden, so it
-    // never decides 'no-page' by time there, and the start is not tested there at all (over(), review round
-    // 1: the tracker's verdict could come from a hidden wait); the run goes on once the tab is visible again.
+    // A hidden tab is no measurement (CLAUDE.md): the wait's clock counts only the time between two
+    // VISIBLE polls, so it never decides 'no-page' by time there, and the start is not tested there at all
+    // (over(), review round 1: the tracker's verdict could come from a hidden wait); the run goes on once the
+    // tab is visible again. The first visible poll after a hidden one adds nothing: a background tab
+    // throttles or suspends timers, and the silent gap since its last hidden poll is not visible waiting
+    // (GitHub Codex, PR #94: a clock reset on each hidden poll counted that gap, and the run ended at once).
     // A run can still END in a hidden tab, on until() or the cap, when a page comes in there (the mock
     // inserts one; live Gemini unmeasured): a caller that lands holds its landing until the tab is visible
     // (gmIxJump).
@@ -8342,8 +8345,10 @@
         // Turns above id0 (a page), or `ms` of visible time without one. The page test runs BEFORE the
         // clock, so the first poll after a render block sees the page even past `ms`; and before until()
         // and the start, so the page that brings the target in is counted and settles first.
+        // The clock: `spent` sums the intervals from one visible poll to the next; `last` is the previous
+        // poll's time, or -1 after a hidden poll (the header's comment says why). w0 is for the log only.
         function wait(n0, id0, ms) {
-            var w0 = Date.now();
+            var w0 = Date.now(), spent = 0, last = w0;
             (function poll() {
                 if (ended) return;
                 var why = stopWhy();
@@ -8363,8 +8368,11 @@
                     return;
                 }
                 if (over()) return;
-                if (document.visibilityState !== 'visible') { w0 = Date.now(); setTimeout(poll, GM_PAGE_POLL_MS); return; }
-                if (Date.now() - w0 >= ms) {
+                if (document.visibilityState !== 'visible') { last = -1; setTimeout(poll, GM_PAGE_POLL_MS); return; }
+                var now = Date.now();
+                if (last >= 0) spent += now - last;
+                last = now;
+                if (spent >= ms) {
                     idle++;
                     if (n0 && sc.scrollTop <= 2) ruleStart = true;   // DEC-057 rule: the wait at the top, none
                     ciPre('gemini page wait: none in ' + ms + ' ms (idle ' + idle + ')');
@@ -8440,6 +8448,8 @@
     // 'no-container'.
     // A hidden tab: the end (the landing, the hand-over with land === false, or a failure) waits until the
     // tab is visible again; the user's scroll, a newer jump or another chat still end it meanwhile, silently.
+    // A target with gmTurnOnly (_bmIxTurnTarget: an answer whose turn has no question, an image-only prompt,
+    // GitHub Codex, PR #94) is found by its turn's id alone, the turn element; it comes with land === false.
     function gmIxJump(a, q, outerDone, opts) {
         opts = opts || {};
         var token = ++_ixJumpToken;
@@ -8451,7 +8461,7 @@
         // The index knows the start: it is loaded once its first entry's turn is in the DOM.
         var firstId = (_ix.entries && _ix.entries.length) ? _ix.entries[0].id : null;
         var watch = ixWatchUser(sc), stopped = false;
-        function find() { return a.locate(entry); }
+        function find() { return q.gmTurnOnly ? gmTurnById(entry.id) : a.locate(entry); }
         function live() {
             if (watch.scrolled) return 'user';
             if (token !== _ixJumpToken) return 'superseded';
@@ -8525,8 +8535,9 @@
     //   container-gone, no-container        the view
     // Closing Navigate does not stop it. The page wait is GM_HISTORY_TOP_MS + 1 s, so a last page of exactly
     // GM_HISTORY_PAGE turns completes by the tracker's own 8 s rule first (DEC-057), never by the pager's
-    // clock; a hidden tab decides no start (the tracker and the pager, review round 1). Gated on the mock only
-    // (Playwright page realm, check-gemini-index.js F1-F9); live paging past DEC-057's one 32-question chat
+    // clock; a hidden tab decides no start (the tracker and the pager, review round 1), and its time is no wait
+    // (F12, GitHub Codex PR #94). Gated on the mock only
+    // (Playwright page realm, check-gemini-index.js F1-F12); live paging past DEC-057's one 32-question chat
     // (Chrome + Tampermonkey, 2026-10-31) and live paging in a hidden tab are unmeasured.
     var GM_LOAD_MAX_PAGES = 50;   // one click: 500 turns at 10 a page (unmeasured past 32); past it the button stays
     var GM_LOAD_KEEP_VIEW = { user: 1, superseded: 1, path: 1, 'container-gone': 1, 'no-container': 1 };
@@ -13846,10 +13857,24 @@
         }
     }
 
+    // Gemini (v12.19): an answer whose turn has no question (an image-only prompt: q -1, no Navigate row,
+    // gmIxBuild) has no question to page in by, so the jump pages in by its own turn: the index's record of
+    // the answer (its key, as _bmIxIndexed resolved it) names the turn (at) and its place (pos). null when
+    // the record names no turn (GitHub Codex, PR #94).
+    function _bmIxTurnTarget(key) {
+        for (var i = 0; _ix.answers && i < _ix.answers.length; i++) {
+            var rec = _ix.answers[i];
+            if (rec.key !== key) continue;
+            return rec.at ? { ixId: rec.at, ixPosition: Math.floor(rec.pos), text: '', gmTurnOnly: true } : null;
+        }
+        return null;
+    }
+
     // A question through orbScrollToQuestion: the Navigate jump, with its landing. An answer: the
     // mounted node if there is one, otherwise the index jump to its question without landing
     // there, then the answer in that turn or entry by its key (one settle if it is not there
-    // yet), landed at its start: 'center' puts a long answer's middle in view.
+    // yet), landed at its start: 'center' puts a long answer's middle in view. A Gemini answer with
+    // no question pages in by its turn instead (_bmIxTurnTarget); no question is marked resolved.
     function _bmIxJump(a, bm) {
         var key = _bmIxCanon(bm.msgUuid), type = bm.entityType;
         var q = null;
@@ -13882,8 +13907,11 @@
         }
         var here = key ? _bmIxFind(a, key, type) : null;
         if (here) { land(here); return; }
-        if (!q || type === 'user-msg') { _bmIxFailToast(bm); return; }
-        ixJump(a, q, function (ok, el, reason) {
+        // The jump's target: the answer's question, or (Gemini, none) its turn. land() marks only q resolved.
+        var target = q;
+        if (!q && type === 'ai-msg' && a.pageUntil && _bmIxIndexed(key, type)) target = _bmIxTurnTarget(key);
+        if (!target || type === 'user-msg') { _bmIxFailToast(bm); return; }
+        ixJump(a, target, function (ok, el, reason) {
             if (!ok) {
                 if (reason !== 'superseded' && reason !== 'user') _bmIxFailToast(bm);
                 return;

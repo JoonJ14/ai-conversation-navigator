@@ -103,6 +103,10 @@
        mismatch:    { turn, text } | { turn, id }: the DOM shows another question text / container id for
                     that turn; the read's payload keeps the true one
        qText:       { n: text } turn n's question (DOM and payload)
+       noQuestion:  { n: true } turn n's question has no text (an image-only prompt; GitHub Codex, PR #94): the
+                    read's T[2][0][0] is '' and the DOM's p.query-text-line is empty (div.query-text keeps only
+                    its hidden "You said" label). Pair it with `images` for the upload. The live DOM of an
+                    image-only prompt is unmeasured: this shape is a model
        answerWords: { n: word } turn n's answer gains a paragraph naming that word (DOM and payload)
        images:      { n: k } k uploaded images (img[data-test-id="uploaded-img"], data: URLs) beside turn
                     n's question text, as live (a sibling of div.query-text)
@@ -215,6 +219,7 @@
     function turnId(chat, n) { return fnv(chat + '#' + n) + fnv(n + '@' + chat); }
     function questionText(n) {
         if (state.sentText.hasOwnProperty(n)) return state.sentText[n];
+        if (cfg.noQuestion && cfg.noQuestion[n]) return '';      // an image-only prompt (v12.19)
         if (cfg.qText && cfg.qText[n]) return cfg.qText[n];
         // sameText (v12.17): { n: m } gives turn n turn m's question, a repeated question.
         if (cfg.sameText && cfg.sameText[n]) n = cfg.sameText[n];

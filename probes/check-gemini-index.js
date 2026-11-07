@@ -37,7 +37,7 @@
 // with data-acn-paging-pages / -loaded true to the page at every change (I12, I12b);
 // `[data-acn-role="history-load"]` inside the Navigate panel with
 // data-acn-history-load idle | loading, -loaded as its text says, -total "?" (F1, F5); the zone's
-// data-acn-history-load-end / -anchor / -restore (F1-F11); data-acn-jump-resolved; the console lines
+// data-acn-history-load-end / -anchor / -restore (F1-F12); data-acn-jump-resolved; the console lines
 // "[ACN] index: platform=gemini transport=fetch endpoint=hNvQHb page=N size=S[ retry=at-new|at-same]
 // status=C ..." (one per request), "[ACN] paging: platform=gemini via=jump start|end=..." (I12) and
 // "[ACN] history: load start|page|load end|view restored ..." (F1, F5; end and restore in F2, F3); no
@@ -2141,6 +2141,37 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
                 ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
         await h.close();
     }));
+    // I12m (GitHub Codex, PR #94): the answer of a turn with no question. Turn 2's prompt is an image only (the mock's
+    // noQuestion + images: no question text in the read's T[2][0][0] or the DOM), so the index lists its answer (A#2 in
+    // Search) but no Navigate row (gmIxBuild's q -1). 3841805 took the jump's paging target from the answer's question
+    // only, and with none it toasted "not currently rendered" without paging; now the jump pages in by the turn's own id
+    // and lands the answer, marking no question resolved. From the bottom, turn 2 not loaded: 3 pages. A model: the live
+    // DOM of an image-only prompt is unmeasured. v12.18 lists no answer that is not loaded.
+    await seq(fixture(['I12m'], async (r) => {
+        const desc = 'Search\'s hit in the answer of an image-only turn (turn 2: no question text, one upload; its answer names ' +
+                     '"axolotl"; not loaded), clicked from the bottom: the paging status shows, 3 pages (one "end=found pages=3" line), ' +
+                     'turn 2\'s answer in view with the mark inside turn 2, no question marked resolved, no toast, the status gone; ' +
+                     'nothing leaked';
+        const h = await open(r, ['I12m'], C32, { noQuestion: { 2: true }, images: { 2: 1 }, answerWords: { 2: 'axolotl' } });
+        if (!h) return;
+        await h.openNav();
+        const v0 = await h.waitReady(31, 8000);
+        const did = await h.page.evaluate("window.__h.clickSearch('axolotl', 'A#2')");
+        const settled = did ? await h.settle(60000, 2500) : false;
+        const s = await h.spot(2, 'answer');
+        const seen = await h.pgSeen();
+        const now = await h.page.evaluate(() => window.__pgNow());
+        const ends = h.lines(/^\[ACN\] paging: platform=gemini via=jump end=/);
+        const leaks = noLeak(h.logs.concat([await h.storage()]), ['axolotl']);
+        r.check('I12m', 'new', desc,
+                did && settled && statusSeenWith(seen, /^Loading earlier messages…/) && !now && s.inView && s.markIn && s.resolved === null &&
+                !s.toasts.length && s.loads === 3 && ends.length === 1 && /^\[ACN\] paging: platform=gemini via=jump end=found pages=3\b/.test(ends[0]) &&
+                leaks.length === 0,
+                fmt(v0) + ' clicked=' + did + ' settled=' + settled + ' status records=' + seen.length + ' now=' + JSON.stringify(now) +
+                ' end=' + JSON.stringify(ends.map((l) => l.replace(/^\[ACN\] paging: platform=gemini via=jump /, '').replace(/ ms=\d+$/, ''))) +
+                ' landing=' + JSON.stringify(s) + ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
+        await h.close();
+    }));
     await seq(fixture(['I12d'], async (r) => {
         const j = await jumpQ1(r, 'I12d', {});
         if (!j) return;
@@ -2531,7 +2562,7 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         await h.close();
     }));
 
-    // ── F1-F11: "Load full history", where the index cannot list the chat ─────────────────────────
+    // ── F1-F12: "Load full history", where the index cannot list the chat ─────────────────────────
     // The read refused (403, PERMANENT) unless noted, so the button is the fallback.
     async function buttonPage(r, id, chat, cfgExtra, opts) {
         const h = await open(r, [id], chat, Object.assign({ rpc: { mode: 'refuse' } }, cfgExtra || {}), opts);
@@ -2926,6 +2957,60 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
                 'clicked=' + f11.clicked + ' at=' + f11.state + ' end=' + v.loadEnd + ' restore=' + v1.restore + '->' + v.restore +
                 ' restored lines=' + JSON.stringify(restL.map((l) => l.replace(anchor ? anchor.id : '#', '<anchor>'))) +
                 ' scrollTops=' + Array.from(new Set(sts)).join(',') + ' ' + fmt(v));
+        await h.close();
+    }));
+    // F12 (GitHub Codex, PR #94): the pager's clock after a hidden stretch. 3841805 reset its wait's clock on every
+    // HIDDEN poll and timed the wait from there, so the first visible poll counted the whole silent gap since the last
+    // hidden poll as visible waiting: a background tab throttles or suspends timers, and the load ended at once
+    // ("timeout", the view restored) before older history could come. Codex reproduced it with a controlled timer; here
+    // the gap is modelled by moving the page's Date.now 20 s ahead (the userscript is inlined in the page realm, so its
+    // clock is the page's) in the same task that makes the tab visible again, after polls have run hidden. History is
+    // stalled at the top (stallAt 10: no page comes), so only the clock could end the load within the window; the
+    // tracker's 8 s rule cannot (its timer runs on real time, and the return restarts its visible time). A model: live
+    // Gemini in a throttled background tab is unmeasured. v12.18 has no button.
+    await seq(fixture(['F12'], async (r) => {
+        const desc = 'a load that gets no page (stallAt 10), the tab hidden 1.5 s and then visible with the page\'s clock 20 s ' +
+                     'ahead (a background tab\'s suspended timers): the load does not end within 3 s of the return (the button ' +
+                     'loading throughout, the note shown, no load end, no restore, no "load end" line, no page)';
+        const b = await buttonPage(r, 'F12', C32, { stallAt: 10 });
+        if (!b) return;
+        const { h, v0 } = b;
+        if (!v0.button) { r.check.apply(null, noButton('F12', desc, v0)); await h.close(); return; }
+        await placeAt(h, 28);
+        await h.page.evaluate(() => {
+            window.__vis = 'visible';
+            Object.defineProperty(document, 'visibilityState', { configurable: true, get: function () { return window.__vis; } });
+            Object.defineProperty(document, 'hidden', { configurable: true, get: function () { return window.__vis !== 'visible'; } });
+        });
+        await clickButton(h);
+        // Premise: the load runs, visible, with the view at the top (the pager's first write).
+        const v1 = await h.until((x) => x.st === 0 && !!x.button && x.button.state === 'loading', 3000, 50);
+        await sleep(1500);
+        await h.page.evaluate(() => { window.__vis = 'hidden'; document.dispatchEvent(new Event('visibilitychange')); });
+        await sleep(1500);                           // the pager polls hidden (every 100 ms)
+        const vh = await h.nav();
+        await h.page.evaluate(() => {
+            var real = Date.now;
+            Date.now = function () { return real.call(Date) + 20000; };
+            window.__vis = 'visible';
+            document.dispatchEvent(new Event('visibilitychange'));
+        });
+        const tVis = Date.now();
+        let endAt = null, notLoading = 0, v = null;
+        while (Date.now() - tVis < 3000) {
+            v = await h.nav();
+            if (v.loadEnd && endAt === null) endAt = v.loadEnd + ' at ' + (Date.now() - tVis) + ' ms';
+            if (!v.button || v.button.state !== 'loading' || !v.note) notLoading++;
+            await sleep(100);
+        }
+        const endL = h.lines(/^\[ACN\] history: load end reason=/);
+        const premiseOk = v1.st === 0 && !!v1.button && v1.button.state === 'loading' && vh.vis === 'hidden' && !vh.loadEnd;
+        r.check('F12', 'new', desc,
+                premiseOk && endAt === null && notLoading === 0 && !v.loadEnd && !v.restore && endL.length === 0 && v.loads === 0,
+                'premise (running at the top, then hidden with no end)=' + premiseOk + ' (st=' + v1.st + ' state=' +
+                (v1.button && v1.button.state) + ' hidden=' + vh.vis + ' end while hidden=' + vh.loadEnd + ') | after the return: end=' +
+                endAt + ' samples not loading=' + notLoading + ' restore=' + v.restore + ' ' + fmt(v) +
+                ' end lines=' + JSON.stringify(endL.map((l) => l.replace(/ ms=\d+$/, ''))));
         await h.close();
     }));
 
