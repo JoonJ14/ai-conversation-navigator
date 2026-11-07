@@ -32,11 +32,12 @@
 //
 // CONTRACT ASSERTED HERE (consolidated plan §3 and the button plan §2.6): `data-acn-index-check` on
 // #acn-zone ("ok" after a good load: I1; "pending" while nothing is compared, then "ok": I1b; "mismatch":
-// I6-I6h, I19; "pending" for the grace, then "mismatch": I6d, I6h); `[data-acn-role="paging-status"]`
+// I6-I6h, I19; "pending" for the grace, then "mismatch": I6d, I6h, and a sent turn the refresh left out:
+// I11f); `[data-acn-role="paging-status"]`
 // with data-acn-paging-pages / -loaded true to the page at every change (I12, I12b);
 // `[data-acn-role="history-load"]` inside the Navigate panel with
 // data-acn-history-load idle | loading, -loaded as its text says, -total "?" (F1, F5); the zone's
-// data-acn-history-load-end / -anchor / -restore (F1-F8); data-acn-jump-resolved; the console lines
+// data-acn-history-load-end / -anchor / -restore (F1-F9); data-acn-jump-resolved; the console lines
 // "[ACN] index: platform=gemini transport=fetch endpoint=hNvQHb page=N size=S[ retry=at-new|at-same]
 // status=C ..." (one per request), "[ACN] paging: platform=gemini via=jump start|end=..." (I12) and
 // "[ACN] history: load start|page|load end|view restored ..." (F1, F5; end and restore in F2, F3); no
@@ -1738,6 +1739,112 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         })
     ]);
 
+    // ── I11f, I11g: a sent message's first newest page answers late (review round 1), side by side ──
+    // rpc.firstNewest (the mock): the FIRST newest page after a send answers late, once. How the live server
+    // answers right after a send is UNMEASURED (Phase 1 lists "a streaming turn" as unmeasured); both are
+    // models of what such a read could hold. Each sends past the open read's 15 s cooldown, so its id's read
+    // goes out at once (~0.5 s, the scan's debounce) and answers in 1.9 s (Phase 1's newest page).
+    await par([
+        fixture(['I11f'], async (r) => {
+            // 'drop': that page leaves the sent turn out. It still meets the index, so the refresh lands ready
+            // without the turn, and ixScan's stale rule asks once per turn. 546ab49-434a886 called the newer
+            // turn no mismatch: the question stayed unlisted for the visit with index-check "ok" (the review's
+            // scratch probe X1, Playwright chromium: 32 listed 45 s after one send and after a second). Now the
+            // newer turn is 'pending' for the 30 s grace (GM_IX_VERIFY_GRACE_MS, from the first scan that saw
+            // it), then a mismatch (strike 1 of 5, transient): the DOM list meanwhile, and the chat read whole
+            // after the 15 s cooldown (~47 s in all).
+            const SENT = 'A message the server lists late, about Kepler orbits around a binary pair?';
+            const h = await open(r, ['I11f'], C32, { rpc: { delayMs: { newest: 1900 }, firstNewest: 'drop' } });
+            if (!h) return;
+            await h.openNav();
+            const v0 = await h.waitReady(32, 8000);
+            await sleep(16000);                   // past the open read's 15 s cooldown: the id is read at once
+            const c0 = (await h.calls()).list.length;
+            const tSend = Date.now();
+            await h.page.evaluate((t) => window.__mockGemini.send(t), SENT);
+            const chk = [];
+            let v = null, done = null, mismatchAt = null, degradedAt = null;
+            while (Date.now() - tSend < 70000) {
+                v = await h.nav();
+                const t = Date.now() - tSend;
+                if (chk[chk.length - 1] !== v.check) chk.push(v.check);
+                if (v.check === 'mismatch' && mismatchAt === null) mismatchAt = t;
+                if (v.banner === 'degraded' && degradedAt === null) degradedAt = t;
+                if (v.count === '33' && v.banner !== 'degraded' && v.check === 'ok') { done = t; break; }
+                await sleep(250);
+            }
+            const c1 = await h.calls();
+            const added = c1.list.slice(c0).map((x) => x.type + '/' + x.size);
+            const strike = h.lines(/self-check FAILED \(turn [0-9a-f]{8} is newer than the index for 30 s\) . strike 1 of 5$/);
+            const leaks = noLeak(h.logs.concat([await h.storage()]), ['server lists late']);
+            // The verdicts in the order seen: "ok" (before the send's scan), then "pending", then "mismatch".
+            const iP = chk.indexOf('pending'), iM = chk.indexOf('mismatch');
+            r.check('I11f', 'new', 'a sent turn its first newest page leaves out (firstNewest "drop"): index-check "pending" for the 30 s grace ' +
+                    '(never "ok" meanwhile), then "mismatch" (one "self-check FAILED (turn <id> is newer than the index for 30 s) … strike 1 of 5" ' +
+                    'line) and the banner degraded, then the chat read whole: newest/10 then full/100, 33 listed with the sent question last ' +
+                    'and "ok" within 55 s of the send; nothing leaked',
+                    v0.count === '32' && done !== null && done <= 55000 && v.items[32] === SENT && iP >= 0 && iM === iP + 1 &&
+                    chk.slice(0, iP).every((x) => x === 'ok') &&
+                    mismatchAt !== null && mismatchAt >= 29000 && degradedAt !== null && JSON.stringify(added) === '["newest/10","full/100"]' &&
+                    strike.length === 1 && leaks.length === 0,
+                    fmt(v) + ' checks=' + JSON.stringify(chk) + ' mismatch at=' + mismatchAt + ' ms degraded at=' + degradedAt + ' ms listed at=' + done +
+                    ' ms reads=' + JSON.stringify(added) + ' at s=' + JSON.stringify(h.hits.filter((x) => x.t >= tSend).map((x) => Math.round((x.t - tSend) / 100) / 10)) +
+                    ' strike lines=' + strike.length + ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
+            await h.close();
+        }),
+        fixture(['I11g'], async (r) => {
+            // 'half': that page holds the first half of the sent turn's answer, as a read that caught it mid-write,
+            // while the page shows it whole (the mock's send() writes it at once). The shortfall (~600 characters)
+            // is under IX_ANSWER_GROWTH and the answer never moves again on the page, so 546ab49-434a886 never
+            // read it again and the export called itself complete without its end (the review's scratch probe
+            // X3, Playwright chromium, 2 of 2 runs, 40 s). Now the refresh's build starts the latest-answer watch
+            // as moved: the export says partial meanwhile, and ONE more newest page once the answer has not
+            // changed for 3 s (IX_SETTLE_MS), behind the 15 s cooldown from the first read (~16 s after the send).
+            const SENT = 'A message whose answer the server held half of, about Hohmann transfers?';
+            const h = await open(r, ['I11g'], C32, { rpc: { delayMs: { newest: 1900 }, firstNewest: 'half' } });
+            if (!h) return;
+            await h.openNav();
+            const v0 = await h.waitReady(32, 8000);
+            await sleep(16000);
+            const c0 = (await h.calls()).list.length;
+            const tSend = Date.now();
+            await h.page.evaluate((t) => window.__mockGemini.send(t), SENT);
+            const v1 = await h.until((x) => x.count === '33', 15000, 200);
+            const reads1 = (await h.calls()).list.length - c0;
+            await sleep(1000);
+            const f1 = await h.page.evaluate('window.__h.exportFull()') || '';
+            const reads1b = (await h.calls()).list.length - c0;
+            let second = null;
+            while (Date.now() - tSend < 30000) {
+                if ((await h.calls()).list.length - c0 >= 2) { second = Date.now() - tSend; break; }
+                await sleep(250);
+            }
+            await sleep(4000);                    // the second page answers in 1.9 s, then its scan
+            await h.openNav();                    // the tools panel closed first: exportFull opens it with one click
+            const f2 = await h.page.evaluate('window.__h.exportFull()') || '';
+            await sleep(18000);                   // past the 15 s cooldown from the second read: no third
+            await h.openNav();
+            const v = await h.nav();
+            const c1 = await h.calls();
+            const added = c1.list.slice(c0).map((x) => x.type + '/' + x.size);
+            const src = (f) => (f.match(/\*\*Source:\*\*[^\n]*/) || ['(no Source line)'])[0];
+            const END = 'Answer 33, part 5';
+            const leaks = noLeak(h.logs.concat([await h.storage()]), ['server held half']);
+            r.check('I11g', 'new', 'a sent turn whose first newest page holds half its answer (firstNewest "half"): the export after that page ' +
+                    'lacks the answer\'s end and says partial; ONE more newest page within 25 s of the send; then the export holds the end ' +
+                    'as complete; exactly 2 reads (newest/10 twice) 18 s later, 33 listed, index-check "ok"; nothing leaked',
+                    v0.count === '32' && v1.count === '33' && reads1 === 1 && reads1b === 1 && f1.indexOf(END) === -1 &&
+                    !/complete conversation history/.test(src(f1)) && second !== null && second <= 25000 && f2.indexOf(END) !== -1 &&
+                    /complete conversation history/.test(src(f2)) && JSON.stringify(added) === '["newest/10","newest/10"]' &&
+                    v.count === '33' && v.check === 'ok' && v.banner !== 'degraded' && leaks.length === 0,
+                    fmt(v) + ' reads=' + JSON.stringify(added) + ' at s=' + JSON.stringify(h.hits.filter((x) => x.t >= tSend).map((x) => Math.round((x.t - tSend) / 100) / 10)) +
+                    ' | after the first page: reads=' + reads1 + '/' + reads1b + ' end=' + (f1.indexOf(END) !== -1) + ' ' + src(f1) +
+                    ' | second read at=' + second + ' ms | then: end=' + (f2.indexOf(END) !== -1) + ' ' + src(f2) +
+                    ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
+            await h.close();
+        })
+    ]);
+
     // ── I17: the size estimate and its dots from the read's text ─────────────────────────────────
     await seq(fixture(['I17'], async (r) => {
         const h = await open(r, ['I17'], C32, { bigAnswers: { 30: 1800000, 31: 1800000 } });
@@ -2255,6 +2362,40 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
             flush(r);
         }
     }
+    // I12k (review round 1): a target the pager brings in NEAR the view lands checked. Q22 from the bottom: one
+    // page brings Q13-Q22, and Q22 sits right above the view, within one view of it, so orbLandFarIn calls it
+    // near. 546ab49-434a886 glided there (scrollIntoView smooth, unchecked) and reported success at once. The
+    // mock's cv model (live: content-visibility:auto, 500 px estimates, the scroller's overflow-anchor:auto,
+    // DOM-REFERENCE) with the two turns above the target answering long (bigAnswers 9,000 characters: real
+    // heights several times the estimate; synthetic, how often live answers do is unmeasured): the glide renders
+    // them as it passes, the browser's anchoring moves the content under it, and the glide ends where the
+    // target was. On 434a886 Q22 ended 4,514 px below the view's top, in view never (a scratch run of this
+    // fixture, Playwright chromium, 2026-11-07); the checked landing (gmLandInEl) re-measures after each write.
+    // Premise: the landing was the near one (no "[ACN pre] far landing" line: acnJumpDebug on).
+    await seq(fixture(['I12k'], async (r) => {
+        const desc = 'a target paged in NEAR the view (Q22 from the bottom, one page; cv 500 px, the turns above it long): ' +
+                     'lands in view, resolved "21", the mark inside turn 22, no toast, the status gone, 1 page, no read caused by the click';
+        const h = await open(r, ['I12k'], C32, { loadDelayMs: 1500, cv: true, cvEstimate: 500, bigAnswers: { 20: 9000, 21: 9000 } });
+        if (!h) return;
+        await h.openNav();
+        const v0 = await h.waitReady(32, 8000);
+        await h.page.evaluate(() => { try { localStorage.setItem('acnJumpDebug', '1'); } catch (e) {} });
+        const hits0 = h.hits.length;
+        const row = await h.clickQ(22);
+        if (!row) { r.check('I12k', 'new', desc, false, 'no Q22 row in Navigate (' + fmt(v0) + ')'); await h.close(); return; }
+        await h.settle(60000, 3000);
+        const s = await h.spot(22, 'q');
+        const now = await h.page.evaluate(() => window.__pgNow());
+        const ends = h.lines(/^\[ACN\] paging: platform=gemini via=jump end=found pages=1\b/).length;
+        const far = h.lines(/^\[ACN pre\] far landing:/).length;
+        const near = ends === 1 && far === 0;
+        r.check('I12k', 'new', desc + '; premise: the near landing (one "end=found pages=1" line, no far-landing line)',
+                premise(near) && s.inView && s.resolved === '21' && s.markIn && !s.toasts.length && !now && s.loads === 1 &&
+                h.hits.length === hits0,
+                premiseNote('near', near) + ' row=' + row + ' end lines=' + ends + ' far lines=' + far + ' status=' + JSON.stringify(now) +
+                ' reads by the click=' + (h.hits.length - hits0) + ' landing=' + JSON.stringify(s));
+        await h.close();
+    }));
     await seq(fixture(['I4b'], async (r) => {
         const h = await open(r, ['I4b'], C32, { answerWords: { 2: 'quokka' } });
         if (!h) return;
@@ -2344,7 +2485,7 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         await h.close();
     }));
 
-    // ── F1-F8: "Load full history", where the index cannot list the chat ──────────────────────────
+    // ── F1-F9: "Load full history", where the index cannot list the chat ──────────────────────────
     // The read refused (403, PERMANENT) unless noted, so the button is the fallback.
     async function buttonPage(r, id, chat, cfgExtra, opts) {
         const h = await open(r, [id], chat, Object.assign({ rpc: { mode: 'refuse' } }, cfgExtra || {}), opts);
@@ -2599,6 +2740,68 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         r.check('F8', 'new', desc,
                 !!row && v.loadEnd === 'superseded' && s.inView && !s.toasts.length && minSt > 50,
                 'row=' + row + ' end=' + v.loadEnd + ' min scrollTop after=' + minSt + ' landing=' + JSON.stringify(s));
+        await h.close();
+    }));
+    // F9 (review round 1): the tab hidden during the load, after its first page. A hidden tab never decides the
+    // start: the history tracker's 8 s rule is about a VISIBLE view at the top (DEC-057), and the pager does not
+    // test the start there. document.visibilityState is overridden in the page realm, and a hidden tab runs no
+    // frames, so the scroller's scroll events are held while it is hidden and ONE is dispatched when it is
+    // visible again (Chrome dispatches scroll events in the frame; a model, unmeasured live, as is whether live
+    // Gemini loads a page in a hidden tab). 546ab49-434a886 ended "start" in the hidden tab with 30 of 32 turns
+    // loaded: the tracker's timer completed there and the pager's next poll took it (the review's scratch
+    // probe, Playwright chromium). Held hidden 20 s (two of the tracker's 8 s waits), then visible: the load
+    // goes on and ends "start" with all 32 in.
+    await seq(fixture(['F9'], async (r) => {
+        const desc = 'the tab hidden 20 s during the load (after its first page): no end while hidden, the button still loading and ' +
+                     'the note shown; visible again: the load goes on and ends "start" with 32 loaded (one "load end reason=start ' +
+                     'loaded=32" line), 32 listed in order, the note and the button gone';
+        const b = await buttonPage(r, 'F9', C32);
+        if (!b) return;
+        const { h, v0 } = b;
+        if (!v0.button) { r.check.apply(null, noButton('F9', desc, v0)); await h.close(); return; }
+        await placeAt(h, 28);
+        await h.page.evaluate(() => {
+            window.__vis = 'visible';
+            window.__held = 0;
+            Object.defineProperty(document, 'visibilityState', { configurable: true, get: function () { return window.__vis; } });
+            Object.defineProperty(document, 'hidden', { configurable: true, get: function () { return window.__vis !== 'visible'; } });
+            var sc = document.querySelector('infinite-scroller.chat-history');
+            sc.addEventListener('scroll', function (e) {
+                if (window.__vis !== 'visible') { window.__held++; e.stopImmediatePropagation(); }
+            }, true);
+        });
+        await clickButton(h);
+        try { await h.page.waitForFunction(() => window.__mockGemini.loads() >= 1, null, { timeout: 15000 }); } catch (e) {}
+        await sleep(1500);
+        await h.page.evaluate(() => { window.__vis = 'hidden'; document.dispatchEvent(new Event('visibilitychange')); });
+        const tHide = Date.now();
+        let endHidden = null, vh = null, notLoading = 0;
+        while (Date.now() - tHide < 20000) {
+            vh = await h.nav();
+            if (vh.loadEnd && endHidden === null) endHidden = vh.loadEnd + ' at ' + (Date.now() - tHide) + ' ms, loaded ' + vh.loaded;
+            if (!vh.button || vh.button.state !== 'loading' || !vh.note) notLoading++;
+            await sleep(250);
+        }
+        const held = await h.page.evaluate(() => {
+            var n = window.__held;
+            window.__vis = 'visible';
+            document.dispatchEvent(new Event('visibilitychange'));
+            // The frame-tied delivery: the scroll the hidden tab held, once.
+            if (n) document.querySelector('infinite-scroller.chat-history').dispatchEvent(new Event('scroll'));
+            return n;
+        });
+        const smp = await sampleLoad(h, 60000);
+        await h.settle(30000, 1500);
+        await h.openNav();
+        const v = await h.nav();
+        const endL = h.lines(/^\[ACN\] history: load end reason=/);
+        r.check('F9', 'new', desc,
+                endHidden === null && notLoading === 0 && v.loadEnd === 'start' && endL.length === 1 &&
+                /^\[ACN\] history: load end reason=start loaded=32 /.test(endL[0]) && v.count === '32' && inOrder(v.items, 32) &&
+                !v.note && !v.button && v.loads === 3,
+                'hidden: loaded=' + (vh && vh.loaded) + ' end=' + endHidden + ' samples not loading=' + notLoading + ' scrolls held=' + held +
+                ' | visible: end=' + v.loadEnd + ' ' + fmt(v) + ' end lines=' + JSON.stringify(endL.map((l) => l.replace(/ ms=\d+$/, ''))) +
+                ' texts=' + JSON.stringify(smp.texts));
         await h.close();
     }));
 

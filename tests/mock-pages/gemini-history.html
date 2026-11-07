@@ -69,8 +69,9 @@
        cv:          the content-visibility model above (default false); cvEstimate: its height (500)
        sameText:    { n: m } turn n asks turn m's question, word for word (v12.17; default none)
        bigAnswers:  { n: chars } turn n's answer carries one more paragraph of that many characters
-                    (v12.18; default none): input for the context meter's size dots, not a live
-                    measurement
+                    (v12.18; default none): input for the context meter's size dots and (v12.19, review
+                    round 1, check-gemini-index I12k) turns whose real height is several times cv's
+                    estimate; not a live measurement
        (v12.19; every key below is off by default)
        rpc:         the history read's server, see above: { at, decoyAt, freshAt, noToken, mode, lenUnit,
                     delayMs: { full, next, newest }, heavyChars, drafts }. at: the token in the inline script;
@@ -92,6 +93,10 @@
                     synthetic, past the script's page cap); empty: 'newest' | 'full' | 'all', that kind of
                     request answers a page of no turns and no cursor (never seen live; Phase 1 saw a null
                     cursor only on a last page that had turns)
+                    firstNewest (review round 1; the server's view of a turn just sent is UNMEASURED live):
+                    the FIRST newest-page read after a send() answers late, once: 'drop' leaves the newest
+                    turn out (a turn the server does not list yet), 'half' holds the first half of the
+                    newest turn's answer markdown (an answer caught mid-write that has finished on the page)
        domOrder:    { drop: n } turn n is never rendered in the DOM (the read lists it); { swap: [a, b] }
                     turns a and b render in each other's place, each with its own id and text (the
                     self-check's gap and order rules; not live measurements)
@@ -384,7 +389,7 @@
     // ── The history read's server (v12.19, opt-in: cfg.rpc) ──────────────────────────────────
     var RPC = cfg.rpc || null;
     var AT = RPC && !RPC.noToken ? (RPC.at || null) : null;   // the page's token now, which the server accepts
-    var rpcLog = [], rotated = false, tokenScript = null, afId = 0;
+    var rpcLog = [], rotated = false, tokenScript = null, afId = 0, firstNewestDone = false;
     // The token script's text. JSON.stringify writes the token's key in its quoted form at run time;
     // this source never spells it that way, so a reader of inline script text finds only the page's.
     function tokenText(at) {
@@ -443,8 +448,9 @@
     }
     function fill(n) { var a = []; for (var i = 0; i < n; i++) a.push(null); return a; }
     function hex16(x) { return fnv(x + '~a') + fnv(x + '~b'); }
-    // One turn as the payload carries it (Phase 1's paths; synthetic content).
-    function rpcTurn(chat, n) {
+    // One turn as the payload carries it (Phase 1's paths; synthetic content). half: its answer's markdown
+    // cut to the first half (firstNewest 'half').
+    function rpcTurn(chat, n, half) {
         var id = turnId(chat, n), rc = 'rc_' + hex16('rc' + chat + '#' + n);
         var heavyN = typeof RPC.heavyChars === 'number' ? RPC.heavyChars : 2000;
         function candidate(rcId, text) {
@@ -455,15 +461,16 @@
             cand[12] = [['rich', new Array(Math.ceil(heavyN / 10) + 1).join('card-data;').slice(0, heavyN)]];
             return cand;
         }
-        var resp = fill(32);
+        var resp = fill(32), shownText = answerText(n);
+        if (half) shownText = shownText.slice(0, Math.floor(shownText.length / 2));
         if (RPC.drafts) {
             // drafts (unmeasured live): the draft first, the shown answer second, named by resp[3].
             var word = (typeof RPC.drafts === 'object' && RPC.drafts.word) || 'platypus';
             resp[0] = [candidate('rc_' + hex16('draft' + chat + '#' + n),
                                  'Draft ' + n + ': a draft the page does not show, about the ' + word + ' only.'),
-                       candidate(rc, answerText(n))];
+                       candidate(rc, shownText)];
         } else {
-            resp[0] = [candidate(rc, answerText(n))];
+            resp[0] = [candidate(rc, shownText)];
         }
         resp[3] = rc;
         var query = [[questionText(n), null, null, null, [[]]], 2, null, 1, hex16('q' + chat + '#' + n), null, null, null, false, null, []];
@@ -532,7 +539,13 @@
         var off = rec.cursorIn ? offsetOf(rec.cursorIn) : 0;
         if (off < 0) return answer(200, envelope([JSON.stringify([['wrb.fr', 'hNvQHb', null, null, null, [3], 'generic']]), diFrame()], url), rec.type);
         // endless (v12.19): a history with no end, so every page carries a fresh cursor.
-        var N = RPC.endless ? 1000000 : turnCount(chat), turns = [], P;
+        var N = RPC.endless ? 1000000 : turnCount(chat), turns = [], P, late = '';
+        // firstNewest (review round 1): the first newest page after a send answers late, once.
+        if (RPC.firstNewest && rec.type === 'newest' && chat === state.chat && state.sent > 0 && !firstNewestDone) {
+            firstNewestDone = true;
+            late = RPC.firstNewest;
+            if (late === 'drop') N--;
+        }
         if (mode === 'shape') {
             P = [{ turns: 'not a list' }, null, null, []];
         } else if (RPC.empty === 'all' || RPC.empty === rec.type) {
@@ -541,7 +554,7 @@
             rec.cursorOut = cursorFor(chat, off);
             P = [[], rec.cursorOut, null, []];
         } else {
-            for (var k = off; k < Math.min(N, off + size); k++) turns.push(rpcTurn(chat, N - k));   // newest first
+            for (var k = off; k < Math.min(N, off + size); k++) turns.push(rpcTurn(chat, N - k, late === 'half' && k === 0));   // newest first
             rec.cursorOut = off + size < N ? cursorFor(chat, off + size) : null;
             // cursor-repeat: the second page hands back the cursor the first one gave.
             if (mode === 'cursor-repeat' && rec.cursorIn && rec.cursorOut) rec.cursorOut = rec.cursorIn;

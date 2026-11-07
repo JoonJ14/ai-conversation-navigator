@@ -2804,7 +2804,8 @@
                 textAt: null, inFlightCid: null, loadGen: (_ix.loadGen || 0) + 1, indexGen: (_ix.indexGen || 0) + 1,
                 reason: '', retryDelayMs: 0, lastFetchAt: 0, refreshFailed: '', truncated: 0,
                 actedSig: '', qIdx: null, idAtPos: null, answerOf: null, answerAt: null, wantRefresh: '',
-                wantActed: '', wantKeyless: false, answers: null, images: null, answerIdOf: null, watchLast: null };
+                wantActed: '', wantKeyless: false, answers: null, images: null, answerIdOf: null, watchLast: null,
+                refreshed: false };
     }
     ixInvalidate();
 
@@ -3916,6 +3917,18 @@
     // '\n'. Never user-query's own text: it read 37-113 characters longer (the "You said" label, file
     // chips, button labels). Unmeasured: markdown or code in a question, attachments, edited questions.
     function gmIxQKey(t) { return String(t == null ? '' : t).replace(/\s+/g, ''); }
+    // The answer shown under `key` and the one the index holds for it differ in length, whitespace removed
+    // (ixScan's latest-answer watch, review round 1). False when the index holds none under that key: the
+    // stale rule asks for the newest page then. Lengths only: nothing is kept or logged.
+    function gmIxHeldDiffers(key, el) {
+        var held = (_ix.answerIdOf && _ix.answerIdOf.hasOwnProperty(key)) ? _ix.answerIdOf[key] : null;
+        if (!held || !_ix.answers) return false;
+        for (var i = 0; i < _ix.answers.length; i++) {
+            if (_ix.answers[i].key !== held) continue;
+            return gmIxQKey(_mdVisible(_ix.answers[i].text || '')).length !== gmIxQKey(_readAIText(el)).length;
+        }
+        return false;
+    }
     // The question as the page shows it: its p.query-text-line lines (Phase 1's comparator), else
     // v12.18's reader of the question node (which drops the "You said" label and our own flag).
     function gmIxShownQuestion(turn) {
@@ -3969,12 +3982,28 @@
                      _gmIx.strikes + ' of ' + GM_IX_STRIKES_MAX);
         return { reason: why, permanent: _gmIx.strikes > 1 };
     }
+    // The grace's own scan once it is over. Its own timer, one at a time (review round 1): _ciScheduleRescan
+    // keeps the FIRST pending rescan, and since a sent message's newer turn starts a grace, a 30 s one held
+    // back every sooner one meanwhile, the settle and cooldown rescans of that message's answer among them
+    // (the I11g run, Playwright chromium: its settled read went at 31 s instead of ~16 s).
+    var _gmIxGraceTimer = null;
+    function gmIxGraceRescan(ms) {
+        if (_gmIxGraceTimer !== null) return;
+        _gmIxGraceTimer = setTimeout(function () {
+            _gmIxGraceTimer = null;
+            try { scanConversation(true); } catch (e) {}
+        }, Math.max(1000, ms));
+    }
     // The adapter's selfCheck: null = nothing wrong; else { reason, permanent } and ixScan drops the
     // index. The page's turns, by their own ids, against the index: every turn shown is in it, in its
     // order, with no indexed turn missing between two shown ones, and each question reads as the
-    // index's. A turn NEWER than the index (after every known one: a message just sent) is no mismatch:
-    // mounted() reports it (pos -1), and ixScan's stale rule asks for the index again. A turn with no id
-    // yet (being created) and a question not rendered yet are not compared.
+    // index's. A turn NEWER than the index (after every known one: a message just sent) is no mismatch
+    // for GM_IX_VERIFY_GRACE_MS: mounted() reports it (pos -1), and ixScan's stale rule asks for the
+    // newest page ONCE per such turn (its signature), behind the cooldown. A refresh that lands without it
+    // (the server not listing a turn just sent yet: unmeasured live) would leave it unlisted for the visit,
+    // so past the grace it is a mismatch (review round 1): a strike, and the chat read whole after the
+    // cooldown. Meanwhile 'pending', never 'ok'. A turn with no id yet (being created) and a question not
+    // rendered yet are not compared.
     function gmIxSelfCheck() {
         var map = gmIxTurnMap();
         if (!map) return null;
@@ -4005,25 +4034,29 @@
         // page; or an EMPTY index under turns that carry ids: a read that listed nothing, never a ready
         // empty list taken on trust), none carries an id at all where the index holds turns (the page's
         // ids changed), no question shown is readable, or questions shown where no turns are (the page
-        // changed). GM_IX_VERIFY_GRACE_MS for the page to catch up (a chat's first message: its id's
-        // refresh lands well inside it), then a mismatch.
+        // changed), or turns NEWER than every known one (a message sent: see above). GM_IX_VERIFY_GRACE_MS
+        // for the page to catch up (a sent message's refresh lands well inside it: the 15 s cooldown at
+        // most, then 1.9-2.9 s for the newest page, Phase 1), then a mismatch. Unknown turns before a
+        // known one never reach here (the order rule above).
         var unverified = (known === 0 && unknown > 0) ||
                          (known === 0 && noId > 0 && map.n > 0) ||
                          (known > 0 && !compared && blank > 0) ||
+                         (known > 0 && unknown > 0) ||
                          (!turns.length && map.n > 0 && getUserMessages().length > 0);
         if (unverified) {
             var now = Date.now();
             if (_gmIx.unverifiedAt < 0) _gmIx.unverifiedAt = now;
             if (now - _gmIx.unverifiedAt >= GM_IX_VERIFY_GRACE_MS) {
-                return gmIxStrike(known ? 'no question on the page is readable'
+                return gmIxStrike((known && unknown) ? 'turn ' + String(turns[unknownAt].id).slice(0, 8) + ' is newer than the ' +
+                                                       'index for ' + Math.round(GM_IX_VERIFY_GRACE_MS / 1000) + ' s'
+                                : known ? 'no question on the page is readable'
                                 : (unknown && !map.n) ? 'the index is empty, with ' + unknown + ' turn(s) on the page'
                                 : unknown ? 'none of the ' + unknown + ' turns on the page is in the index'
                                 : noId ? 'none of the ' + noId + ' turns on the page carries an id'
                                 : 'questions on the page, but no turns where they were measured');
             }
-            // A scan when the grace is over, mutations or not (asked again by every scan meanwhile: one
-            // pending rescan is all _ciScheduleRescan keeps).
-            _ciScheduleRescan(_gmIx.unverifiedAt + GM_IX_VERIFY_GRACE_MS - now + 500);
+            // A scan when the grace is over, mutations or not (asked again by every scan meanwhile).
+            gmIxGraceRescan(_gmIx.unverifiedAt + GM_IX_VERIFY_GRACE_MS - now + 500);
             gmIxMark('pending');
             return null;
         }
@@ -4032,8 +4065,9 @@
         var okKey = _ix.cid + '|x' + _ix.indexGen;
         if (compared && _gmIx.okKey !== okKey) {
             _gmIx.okKey = okKey;
+            // No unknown turn reaches here (a newer one is 'pending' above).
             console.log('[ACN] index: platform=gemini self-check ok compared=' + compared + ' shown=' + turns.length +
-                        ' indexed=' + map.n + (unknown ? ' newer=' + unknown : ''));
+                        ' indexed=' + map.n);
         }
         return null;
     }
@@ -4443,6 +4477,7 @@
             _ix.reason        = '';
             _ix.retryDelayMs  = 0;
             _ix.refreshFailed = '';
+            _ix.refreshed     = keep;      // this build came from a refresh (Gemini's latest-answer watch reads it)
             _ix.indexGen++;
             // The transport that delivered a usable index goes first from now on.
             if (res.transport) _ciTransport = res.transport;
@@ -4557,7 +4592,21 @@
                 if (lastKey) {
                     var lastLen = _readAIText(lastBk.el).length, w = _ix.watchLast, now = Date.now();
                     if (!w || w.key !== lastKey || w.gen !== _ix.indexGen) {
-                        _ix.watchLast = { key: lastKey, gen: _ix.indexGen, len: lastLen, at: now, moved: false };
+                        // Gemini (v12.19, review round 1): a REFRESH that caught the latest answer mid-write and
+                        // landed after it finished on the page holds it short, and nothing would move it again.
+                        // So the first scan of a refresh's build starts the watch as moved when the answer shown
+                        // and the one held differ in length (whitespace removed, as the self-check compares
+                        // questions: the page drops the markdown's blank lines): one more newest page once it has
+                        // not changed for IX_SETTLE_MS (the settled rule), and the export calls itself partial
+                        // until then. Once per signature: a build whose settled read for this length was already
+                        // asked for starts unmoved, so labels the markdown has not (code block headers, icon
+                        // text) cost one read, not a loop. A full load's build (a chat opened) starts unmoved as
+                        // before. ChatGPT and Perplexity: unchanged.
+                        var caught = a.id === 'gemini' && _ix.refreshed &&
+                                     _ix.actedSig !== 'settled:' + lastKey + ':' + lastLen &&
+                                     gmIxHeldDiffers(lastKey, lastBk.el);
+                        _ix.watchLast = { key: lastKey, gen: _ix.indexGen, len: lastLen, at: now, moved: caught };
+                        if (caught) _ciScheduleRescan(IX_SETTLE_MS + 200);
                     } else if (lastLen !== w.len) {
                         w.len = lastLen; w.at = now; w.moved = true;
                         _ciScheduleRescan(IX_SETTLE_MS + 200);          // look again once it may have settled
@@ -4895,11 +4944,22 @@
     // The same for any Gemini target its caller can re-find (v12.17): an answer, an image's turn,
     // a bookmark by its turn id (gmTurnById). failed: orbLandFarIn's (gmIxJump passes one; v12.18's callers none).
     function gmLandFarEl(el, getEl, landed, failed) {
+        return gmLandElIn(el, getEl, landed, failed, orbLandFarIn);
+    }
+    // gmLandFarEl's landing without its distance test (v12.19, review round 1): a target the pager has just
+    // paged in (gmIxJump) lands near as well as far with instant writes, re-measured and checked, never the
+    // unchecked smooth glide. Right after a page, the turns around it are content-visibility estimates
+    // (500 px live, DOM-REFERENCE, Gemini) that render as a glide passes them, and the glide that ran right
+    // after paging in failed live (Q32 from the top, Chrome + Tampermonkey, v12.16, DOM-REFERENCE).
+    function gmLandInEl(el, getEl, landed, failed) {
+        return gmLandElIn(el, getEl, landed, failed, orbLandIn);
+    }
+    function gmLandElIn(el, getEl, landed, failed, landIn) {
         if (!platform || platform.id !== 'gemini') return false;
         _ixJumpToken++;
         var path0 = location.pathname;
-        return orbLandFarIn(document.querySelector('infinite-scroller.chat-history'), el, getEl, landed, {},
-                            function () { return location.pathname === path0; }, failed);
+        return landIn(document.querySelector('infinite-scroller.chat-history'), el, getEl, landed, {},
+                      function () { return location.pathname === path0; }, failed);
     }
 
     // ── Gemini turns by their own id (v12.17) ──────────────────
@@ -8018,6 +8078,18 @@
         if (_gmHist.timer !== null) { clearTimeout(_gmHist.timer); _gmHist.timer = null; }
     }
 
+    // Since when the tab has been visible, without a break (0: visible since before the tracker looked;
+    // Infinity: hidden now). One listener, for the page's life, added on the tracker's first wait.
+    var _gmHistVisibleSince = 0, _gmHistVisHooked = false;
+    function gmHistWatchVisibility() {
+        if (_gmHistVisHooked) return;
+        _gmHistVisHooked = true;
+        if (document.visibilityState !== 'visible') _gmHistVisibleSince = Infinity;
+        document.addEventListener('visibilitychange', function () {
+            _gmHistVisibleSince = document.visibilityState === 'visible' ? Date.now() : Infinity;
+        });
+    }
+
     function gmHistObserve() {
         var key = location.pathname;
         var sc = document.querySelector('infinite-scroller.chat-history');
@@ -8063,7 +8135,8 @@
         // The live turns, not the last scan's record: a turn added inside the scan's debounce would
         // otherwise make every wait compare against a stale count.
         var t0 = gmHistTurns(sc);
-        var key = _gmHist.key, n0 = t0.length, id0 = t0.length ? (t0[0].id || null) : null;
+        var key = _gmHist.key, n0 = t0.length, id0 = t0.length ? (t0[0].id || null) : null, armedAt = Date.now();
+        gmHistWatchVisibility();
         _gmHist.timer = setTimeout(function () {
             _gmHist.timer = null;
             if (sc !== _gmHist.scroller) { gmHistOnScroll(); return; }   // re-armed for the current one
@@ -8072,6 +8145,11 @@
             // The turns changed while it waited (a load, or a message sent): start over from now. A
             // load re-anchors the view away from the top, which stops the new wait at once.
             if (t.length !== n0 || (t.length ? t[0].id || null : null) !== id0) { gmHistOnScroll(); return; }
+            // DEC-057's rule is about a VISIBLE view at the top (review round 1): a hidden tab runs no frames,
+            // so Gemini may never have seen the view reach the top, and nothing loads there. A wait that ran
+            // in a hidden tab, all of it or a part, starts over from now (again and again while hidden), so
+            // the start is decided only after GM_HISTORY_TOP_MS of visible time.
+            if (document.visibilityState !== 'visible' || _gmHistVisibleSince > armedAt) { gmHistOnScroll(); return; }
             _gmHist.complete = true;
             // Bookmark labels and legacy proof wait for a complete history (v12.17): the timer is the only
             // signal when the last page held a full 10, and no scan follows it (Tier 3 r3).
@@ -8133,7 +8211,10 @@
     // again) until opts.until() holds, the chat's start is loaded, or it is stopped. It sends no request:
     // Gemini sends its own hNvQHb when the view reaches the top.
     //   container     the scroller (default gmScroller())
-    //   until()       truthy: stop, ok 'found'. Tested before every write and on every poll
+    //   until()       truthy: stop, ok 'found'. Tested before every write and on every poll that saw no page:
+    //                 a poll that sees a page counts it and lets it settle first (IX_JUMP_SETTLE_MS), and the
+    //                 step after the settle tests it (wait's comment; the jumps plan had the poll test until()
+    //                 and the start before the page, review round 1 keeps this order: it is observable)
     //   startLoaded() truthy: the start is in the DOM (an index: its first entry's turn is mounted). With
     //                 it, DEC-057's own rules count only when domRules is set; without it they decide: a
     //                 first page or a page above of fewer than GM_HISTORY_PAGE turns, or pageWaitMs at the
@@ -8154,10 +8235,11 @@
     //                 'container-gone', 'no-container', cancel's reason ('cancelled'), or check()'s.
     //                 p = { pages, loaded, added, anchor }: anchor is gmViewAnchor at the start (own mode)
     // A hidden tab is no measurement (CLAUDE.md): the wait's clock stops while the tab is hidden, so it
-    // never decides 'no-page' or the start by time there; the run goes on once the tab is visible again.
-    // A run can still END in a hidden tab, on until(), the start in the DOM or the cap, when a page comes
-    // in there (the mock inserts one; live Gemini unmeasured): a caller that lands holds its landing until
-    // the tab is visible (gmIxJump).
+    // never decides 'no-page' by time there, and the start is not tested there at all (over(), review round
+    // 1: the tracker's verdict could come from a hidden wait); the run goes on once the tab is visible again.
+    // A run can still END in a hidden tab, on until() or the cap, when a page comes in there (the mock
+    // inserts one; live Gemini unmeasured): a caller that lands holds its landing until the tab is visible
+    // (gmIxJump).
     function gmPageUntil(opts, done) {
         opts = opts || {};
         var sc = opts.container || gmScroller();
@@ -8207,12 +8289,15 @@
             }
             done(ok, why, p);
         }
-        // The tests every write and every poll makes; true when the run is over.
+        // The tests every write and every poll without a page makes; true when the run is over. A hidden tab
+        // never decides the start (review round 1): the tracker's 8 s rule is about a VISIBLE view at the top,
+        // and a hidden tab runs no frames, so Gemini may never have seen the view reach it; the stop reasons
+        // and until() still end a run there, and the start is tested again once the tab is visible.
         function over() {
             var why = stopWhy();
             if (why) { finish(false, why); return true; }
             if (opts.until && opts.until()) { finish(true, 'found'); return true; }
-            if (startKnown()) { finish(!!opts.toStart, 'start'); return true; }
+            if (document.visibilityState === 'visible' && startKnown()) { finish(!!opts.toStart, 'start'); return true; }
             return false;
         }
         function step() {
@@ -8340,9 +8425,12 @@
     // ixJump hands the jump over before it looks for a container. Gemini keeps every turn it loads, so a
     // target that is not mounted is older than the oldest loaded turn: the pager brings pages in, with
     // "Loading earlier messages…", until the target's turn is in the DOM by its id (a target mounted
-    // already needs none). Then it lands the way v12.18 lands a loaded question: gmLandFarEl when it is far,
-    // the smooth glide (block center) when it is near. gmLandFarEl bumps _ixJumpToken and owns its landing,
-    // so it runs only once the pager has ended; outerDone hears how the far landing ends, exactly once: its
+    // already needs none). A target that a page brought in lands checked: gmLandFarEl when it is far,
+    // gmLandInEl (the same instant, re-measured writes without the distance test) when it is near (review
+    // round 1: the glide that ran right after paging in failed live, DOM-REFERENCE). One mounted already
+    // lands as v12.18 lands a loaded question: gmLandFarEl when far, the smooth glide (block center) when
+    // near. Either landing bumps _ixJumpToken and owns its landing,
+    // so it runs only once the pager has ended; outerDone hears how the landing ends, exactly once: its
     // success, or its reason when it does not land (orbLandIn's failed: 'user', 'superseded', 'hidden',
     // 'lost', 'cap-out', 'container-gone'), and orbLandIn shows no toast of its own, so the caller shows its
     // one toast as for any other failure (Tier 3 r1). opts.land === false: outerDone(true, the question
@@ -8384,7 +8472,10 @@
             until: function () { return !!find(); },
             startLoaded: function () { return !!gmTurnById(firstId); },
             status: true
-        }, function (ok, why) {
+        }, function (ok, why, p) {
+            // Paged in: a page came in during this run (the target's own page among them). Otherwise the
+            // target was mounted already (the agent's amendment M2): v12.18's landing, unchanged.
+            var paged = !!(p && p.pages > 0);
             // A hidden tab lands nothing: orbLandIn refuses a landing there ('hidden', the caller's toast), and a
             // hidden tab is no measurement for the other landings either (CLAUDE.md). The pager can still end
             // while the tab is hidden (the target's page in, the settle after it, the start, the cap), so the
@@ -8410,8 +8501,11 @@
                 var el = ok ? find() : null;
                 if (!el) { outerDone(false, null, (ok || why === 'start') ? 'not-found' : why); return; }
                 if (opts.land === false) { outerDone(true, el, 'locate'); return; }
-                if (gmLandFarEl(el, find, function (n) { outerDone(true, n, 'locate'); },
-                                function (w2) { outerDone(false, null, w2); })) return;
+                var landed = function (n) { outerDone(true, n, 'locate'); };
+                var failed = function (w2) { outerDone(false, null, w2); };
+                // Far: gmLandFarEl. Paged in and near: gmLandInEl, the same checked landing (review round 1).
+                if (gmLandFarEl(el, find, landed, failed)) return;
+                if (paged && gmLandInEl(el, find, landed, failed)) return;
                 el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 outerDone(true, el, 'locate');
             }());
@@ -8431,8 +8525,9 @@
     //   container-gone, no-container        the view
     // Closing Navigate does not stop it. The page wait is GM_HISTORY_TOP_MS + 1 s, so a last page of exactly
     // GM_HISTORY_PAGE turns completes by the tracker's own 8 s rule first (DEC-057), never by the pager's
-    // clock. Gated on the mock only (Playwright page realm, check-gemini-index.js F1-F8); live paging past
-    // DEC-057's one 32-question chat (Chrome + Tampermonkey, 2026-10-31) is unmeasured.
+    // clock; a hidden tab decides no start (the tracker and the pager, review round 1). Gated on the mock only
+    // (Playwright page realm, check-gemini-index.js F1-F9); live paging past DEC-057's one 32-question chat
+    // (Chrome + Tampermonkey, 2026-10-31) and live paging in a hidden tab are unmeasured.
     var GM_LOAD_MAX_PAGES = 50;   // one click: 500 turns at 10 a page (unmeasured past 32); past it the button stays
     var GM_LOAD_KEEP_VIEW = { user: 1, superseded: 1, path: 1, 'container-gone': 1, 'no-container': 1 };
     var _gmLoad = { active: false, phase: 'idle', token: 0, path: null, anchor: null, loaded: 0, pages: 0, t0: 0, run: null };
@@ -8525,11 +8620,18 @@
         });
     }
     // A second click: the pager stops before its next write, and the view goes back. During the
-    // restore, it stops the restore where it is.
+    // restore, it stops the restore where it is, and records that now: the restore's own end comes up to
+    // IX_JUMP_SETTLE_MS later and writes nothing (gmLoadEnd's done checks its token), so it can never land
+    // on a load started meanwhile (review round 1).
     function gmLoadStop(reason) {
         if (!_gmLoad.active) return;
         if (_gmLoad.run) { _gmLoad.run.cancel(reason); _gmLoad.run = null; }
-        if (_gmLoad.phase === 'restoring') { gmLoadReset(); return; }
+        if (_gmLoad.phase === 'restoring') {
+            console.log('[ACN] history: view restored to ' + (_gmLoad.anchor ? _gmLoad.anchor.id : 'none') + ' superseded');
+            gmLoadZone('data-acn-history-restore', 'superseded');
+            gmLoadReset();
+            return;
+        }
         _gmLoad.token++;
         gmLoadEnd(reason, gmScroller());
     }
@@ -8549,9 +8651,11 @@
         gmRestoreView(sc, anchor, function () {
             return my === _gmLoad.token && ixTok === _ixJumpToken && location.pathname === path0;
         }, function (why, off) {
+            // Stopped by a click meanwhile (gmLoadStop recorded it then): nothing more from this restore.
+            if (my !== _gmLoad.token) return;
             console.log('[ACN] history: view restored to ' + anchor.id + ' ' + why + (off === null ? '' : ' off=' + off + ' px'));
             gmLoadZone('data-acn-history-restore', why);
-            if (my === _gmLoad.token) gmLoadReset();
+            gmLoadReset();
         });
     }
     function gmLoadReset() {
@@ -11335,8 +11439,10 @@
         // because each next target sat inside the mount window and resolved here.
         orbMarkJumpTarget(target);
         // An index-backed target reaches this path only without a scroll container (a short
-        // thread) or without a ready index (v12.15, above); the pin release it used to do
-        // here now happens in ixLandOn, before each of its writes.
+        // thread), without a ready index (v12.15, above), or on Gemini, where a MOUNTED target
+        // keeps v12.18's landing below with the index ready (v12.19, M2): gmLandFar when far, the
+        // smooth glide when near. The pin release it used to do here now happens in ixLandOn,
+        // before each of its writes.
         if (typeof q.ixPosition === 'number') ixMarkResolved(q);
 
         if (isLeftChat) {
