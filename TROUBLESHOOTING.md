@@ -476,6 +476,564 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ---
 
+## FIXED IN v12.19 (PR #94, NOT MERGED) ON MOCKS — Gemini: a history read that timed out was sent again every ~45 s, with no limit (found 2026-11-06)
+
+**Phase:** v12.19, stage 2, the adapter step (DEC-063) | **Severity:** High had it shipped — an unbounded loop of
+whole-chat reads against the user's own account; the host page was unaffected | **Status:** fixed in `0662d27`,
+PR #94, not merged; gated on the mock only
+
+### Symptom
+[Playwright page realm, headless chromium, the userscript inlined, no real manager, this Mac; the mock answering every
+read in 47 s]
+- The adapter step's verifier found it on `3b68873`: with a server slower than the 45 s timeout, the adapter read the
+  whole chat again and again. Gate I22, written for it, saw reads at 0, 45, 90, 135 and 180 s on `3b68873`. The
+  verifier's own run: 5 reads in 200 s, 4 of them delivered in full, and no PERMANENT line.
+- Nothing in the code bounded the loop (the verifier's reading at `3b68873`).
+
+### Diagnosis / root cause [code at `3b68873`]
+Three rules, each reasonable alone, made the loop together:
+- **A timeout was transient.** The ladder's permanent reasons are a malformed body and HTTP 401/403/429
+  (`ciIsPermanentReason`), so a timeout cost no strike and no backoff. That classification dates from the Claude
+  index (v12.0's review, 2026-07-27; `ciIsPermanentReason` since the v12.9 ladder) and was not revisited for a read
+  of 13.5M characters (Phase 1, `96b519c1`). For a read that size, a timeout is more likely the read's size on that
+  link than a passing fault, so it repeats [inferred].
+- **The cooldown ran from the load's start.** `ixScan`'s 15 s cooldown is measured from when the load began. By the
+  time the 45 s timeout (`CI_FETCH_TIMEOUT_MS`) fired, the cooldown had long passed, and the next read went out at
+  once.
+- **The calls cap counted only answered calls.** `GM_IX_CALLS_MAX` (100 per visit) counted `ok` and `http` outcomes,
+  so timed-out reads never spent it.
+- And each lap cost the whole transfer: a timed-out read still downloads in full, because `ciFetchGet` drops a body
+  only when its headers arrive after the timer (it has no `AbortSignal`).
+
+### Solutions considered
+- **One transient timeout, then permanent.** Rejected by the implementer: on the 47 s mock it made 3 reads in 3
+  minutes, past I22's bound of 2.
+- **Permanent from the first timeout** (chosen): the loop ends at the first strike's backoff, and the strike cap
+  bounds a visit.
+
+### Fix (`0662d27`)
+- `st.calls++` runs before every `ciApiGet`: every request asked of the transport counts toward `GM_IX_CALLS_MAX`.
+- A Gemini timeout is permanent from the first: a strike plus `ixDegrade`'s backoff (60 s, then ×4), at most
+  `GM_IX_STRIKES_MAX` (5) timed-out reads per chat visit. The banner names it ("([fetch] timeout)").
+- Gate I22 [new]: the 47 s server, at most 2 reads in 3 minutes, the PERMANENT "next retry in 60s" line, the banner.
+  Since `b6f1aa2` it also counts the strikes.
+
+### Results & verification [same context]
+- I22 on `0662d27`: reads at 0 and 106 s, backoff 60 s then 240 s: PASS. On `3b68873`: FAIL. On v12.18 under
+  `--proof`: no read sent, FAIL as a `[new]` gate must ("proof: 3 as wanted, 0 not").
+- The verifier's second round was clean, with three minors that shaped later steps:
+  - Every timeout was now permanent, including `ciFetchGet`'s own open/stall-cap refusal (`CI_FETCH_OPEN_MAX` 6), so
+    opening a seventh chat inside that window cost a strike, a 60 s backoff and the banner. `cf91e23` made the cap
+    refusal transient and strike-free.
+  - The commit's link-speed estimate (~1 MB/s) ignored compression. A 100-turn read is about 11 MB on the wire (about
+    three times `96b519c1`'s 13.5M characters, at Phase 1's 3.7:1), so it crosses 45 s only below about 0.25 MB/s.
+    `cf91e23` put that in the code comment, still labelled an estimate.
+  - No gate covered the page cap, the 5-strike stop or the calls cap. Review round 1 found defects behind two of
+    them, the page cap and the calls cap (the next entry).
+- Live: no read has timed out in the agent's checks. The one slow reading (29.4 s on a hotspot) has its own entry
+  below.
+
+---
+
+## FIXED IN v12.19 (PR #94, NOT MERGED) ON MOCKS — Gemini: the index's failure paths re-read the chat at every backoff, ran out of requests in normal use, and kept a stale list "ready" (found 2026-11-07)
+
+**Phase:** v12.19, review round 1 (fix-plan items A1, A2, A3 and A8; DEC-063) | **Severity:** High for A1 (repeated
+whole-chat reads), Medium for A2 and A3 (a stale list kept "ready") | **Status:** fixed in `b9d413d`, its verifier's
+findings in `f0cce04`, PR #94, not merged; gated on the mock only
+
+### Symptom
+Found on the frozen build `546ab49` by the 47-agent adversarial review (each finding upheld by 3 of 3 skeptics), each
+shown in a scratch run [Playwright page realm, headless chromium, the userscript inlined, this Mac]:
+- **A1, the page cap re-read the same pages at every backoff** (findings transport-1 and spec-2). The 10-page cap
+  (`GM_IX_MAX_PAGES`, 1,000 turns) ended `{permanent: true, noStrike: true}`, so every backoff (60 s, ×4, up to
+  1,800 s) read the same 10 pages again, until the calls cap: 10 loads over about 3.4 h. At the review's estimate of
+  about 11 MB per 100-turn page on the wire, that is about 110 MB per load and about 1.1 GB per chat visit. A scratch
+  I3c held 85 s logged `calls full=2 next=18 … hits=20 lines=20 permanent=["next retry in 60s","next retry in
+  240s"]`. I3c itself had waited only 15 s, inside the first backoff. A server that clamps the page size below 100
+  (unmeasured above 32 turns) would trip the cap early.
+- **A2, normal use reached the 100-request backstop** (transport-2). `GM_IX_CALLS_MAX` counted the whole visit and
+  reset only on a chat change or a reload. Each sent message costs 1–2 refreshes, so after about 50–99 messages every
+  refresh ended permanent with no strike. The status stayed `ready` with `refreshFailed`, the self-check stayed `ok`,
+  and new questions were never listed; the reload advice went to the console only. Scratch, cap scaled to 3, four
+  messages 22 s apart: the count stayed 34, the banner read "refresh failed — showing the last good snapshot", check
+  `ok`, calls 3.
+- **A3, a permanent refresh failure kept a stale list `ready`** (spec-1). A refresh ending in `[7]` or `[3]`, a bad
+  shape, two 400s or "stopped" after 5 strikes took `ixDegrade`'s keep path. The spec asks for a visible degrade. The
+  button and the DOM list were never offered, and new questions bookmarked "Q#?". Scratch, ready, `rpc.mode='null7'`,
+  one message, 30 s: count 32 (the sent question missing), 11 loaded.
+
+### Diagnosis / root cause [code at `546ab49`]
+- **A1.** The cap's ending was permanent (so it backed off) but strike-free (so it never counted toward the 5-strike
+  stop), and nothing remembered that the cap had been reached. After each backoff a fresh load read the same 10 pages
+  and hit the same cap.
+- **A2.** The backstop (`GM_IX_CALLS_MAX`, from the adapter step; counting every request since `0662d27`) was a
+  lifetime count for the visit, so a long visit spent it in normal use. Its ending was permanent, strike-free and
+  kept the snapshot, so the list went stale behind a "refresh failed" banner, with the reload advice in the console
+  only.
+- **A3.** The keep path is the one ChatGPT and Perplexity use for a failed refresh (they keep the last good snapshot).
+  Gemini's permanent refresh failures took it too.
+- **Why the gates missed all three:** I3c ended inside the first backoff, no gate sent enough messages to spend 100
+  requests, and no gate failed a refresh permanently. The adapter verifier's round 2 had already noted the missing
+  cap and backstop gates (the entry above).
+
+### Solutions considered
+No alternatives were weighed per finding. The fix plan (the lead agent's decisions, 2026-11-07; a session file,
+summarized in `reviews/review-2026-11-07-v12.19.md`) set one rule for each, from the mechanism the review measured.
+Two of its choices shape what remains; A8's cost is logged as a residual (ROADMAP 13):
+- A3 drops the index only on a PERMANENT refresh failure; a transient one keeps the snapshot. ChatGPT and Perplexity
+  stay byte-identical.
+- A8 makes every sent failure a strike. So five failed loads (about 65 s offline, one per ~16 s; I26 in the mock) stop
+  the index for the visit, even once the network is back. The DOM list, the note and "Load full history" stay.
+
+### Fix (`b9d413d`; its verifier's findings in `f0cce04`)
+- **A1:** the page cap is final for the chat visit (`st.capped`). Later full loads end at once, with nothing sent.
+- **A2:** `GM_IX_CALLS_MAX` counts requests since the visit's last load that succeeded.
+- **A3:** a PERMANENT refresh failure sets `err.drop`, and `ixLoad`'s finish drops the index: the banner, v12.18's DOM
+  list, the note and the button. ChatGPT and Perplexity never set it.
+- **A8:** every failed load is a strike, except a superseded one and endings that sent nothing of the chat's own (the
+  cap refusal, the calls backstop, the page cap, "stopped"). Refreshes check the strikes. A superseded 400 neither
+  re-reads nor clears the token.
+- Gates: I3c extended past the first backoff; I24 (`null7` on a refresh); I25 (a 990-turn chat, 100 good requests,
+  then 12 sends); I26 (the abort mode).
+
+### Results & verification [same context, 2026-11-07]
+- All four gates FAIL on `a85ab2f` and each on a mutant without its own fix, and PASS on `b9d413d`. Full run 70/70;
+  `--proof` against v12.18: 70 as wanted, 0 INVALID (the commit's record).
+- Before the fix, at `a85ab2f`, a network error was re-read about every 16 s until the 100 backstop (about 27 min, by
+  arithmetic); I26 in the abort mode counted 9 reads in 130 s. After it: 5 reads, then the index stops for the visit.
+- The step's verifier was **not** clean: 1 major (I26's leak scan checked the wrong text) and 6 minors (comments, the
+  moved strike check, the docs' counts). `f0cce04` fixed them with no verifier re-run: the owner had dropped
+  per-step verifiers (15:46Z), and the agent stopped the workflow before its verifier could run again (see the
+  attribution entry below). The milestone on `3841805` covered them: check-gemini-index 79/79 on three engines.
+- Not live: no failure of these kinds was provoked in a real browser.
+
+---
+
+## FIXED IN v12.19 (PR #94, NOT MERGED) ON MOCKS — Gemini: a sent question its first refresh missed was never listed, and an answer caught mid-write stayed short while Export said "complete" (found 2026-11-07)
+
+**Phase:** v12.19, review round 1 (A4, A5); GitHub Codex raised both too | **Severity:** Medium — a silently
+incomplete list or export | **Status:** fixed in `57cba35`, PR #94, not merged; gated on the mock only. The fix's
+cost depends on live Gemini's timing (NOTE N1, open).
+
+### Symptom
+[Playwright page realm, headless chromium, the userscript inlined, this Mac; found on `546ab49` by the adversarial
+review]
+- **A4** (selfcheck-refresh-1): a sent question missing from its first newest-page read was never listed for the rest
+  of the visit. Scratch: 32 listed; 45 s after a send, still 32, 1 read, check `ok`, no banner; the same after a
+  second send.
+- **A5** (selfcheck-refresh-2): an answer caught mid-write, which finished before the read landed, was held short for
+  the visit, and Export printed "complete conversation history (API)". Scratch, 2 of 2: one `newest/10` read at
+  0.51 s, the answer's fifth part missing (1,240 characters shown), and the "complete" source line 40 s after the
+  send.
+- GitHub Codex posted both on `434a886` after the PR opened (comments 4502861270 and 4502861273, P2). They were
+  already in the fix plan.
+
+### Diagnosis / root cause [code at `546ab49`]
+- **A4.** A refresh is triggered once per signature (`actedSig`), and nothing cleared the signature after a refresh
+  that missed the turn. The self-check accepted a page turn newer than the index (the `172cc57` rule: a just-sent turn
+  is newer than the index until its refresh lands). With nothing to retry and nothing to fail, the missed turn stayed
+  missing, and the check read `ok`.
+- **A5.** A refresh's build started the latest-answer watch as "unmoved", even when the answer on the page differed in
+  length from the one held. So an answer the read caught mid-write was never read again, and Export still printed
+  "complete conversation history (API)".
+- **Why the gates missed them:** no mock knob left a sent turn out of the newest page or caught an answer mid-write.
+  The fix added `rpc.firstNewest` (`'drop'`, `'half'`).
+
+### Solutions considered
+- **A4's rule** (the fix plan, the lead agent's): an unknown newer turn is fine only for the 30 s grace, then a
+  mismatch. Its cost is NOTE N1: if live Gemini shows a sent turn's id before the newest page lists it and the answer
+  streams past ~30 s, the self-check strikes mid-stream (ROADMAP 13; unmeasured live).
+- **The grace's timer.** The plan said to keep the grace on the shared rescan timer (`_ciScheduleRescan`). The build
+  gave it its own, because through the shared one the 30 s rescan held back the answer's settle and cooldown rescans
+  (I11g's second read went out at 31 s). That deviates from the plan's wording; the code comment gives the reason
+  (NOTE N3 of the milestone's Tiers 1–2, in `reviews/review-2026-11-07-v12.19.md`).
+
+### Fix (`57cba35`)
+- **A4:** a page turn newer than the index is `pending` for the 30 s grace, then a mismatch: a strike, and the chat is
+  read whole after the cooldown. The grace scans on its own timer.
+- **A5:** a refresh's build starts the latest-answer watch as moved when the answer shown and the answer held differ
+  in length (whitespace removed), once per signature, so the answer is read again when it settles. A full load's
+  build starts unmoved.
+- Gates I11f (the mock's `rpc.firstNewest: 'drop'`) and I11g (`'half'`).
+
+### Results & verification [same context, 2026-11-07]
+- I11f: the sent question listed at 47.6 s (`pending` through the grace, one "self-check FAILED (turn … newer than the
+  index for 30 s) … strike 1 of 5" line and the banner, then a whole read: 33 listed, `ok`). On `434a886`: never
+  listed.
+- I11g: the second read at 16 s, the export partial and then complete. On `434a886`: one read only.
+- The step's four new gates (I11f, I11g, I12k, F9) passed on Firefox and WebKit, 5 of 5 each with E; `--proof` against
+  v12.18: 4 `[new]` FAIL, E PASS.
+- Open: NOTE N1, and NOTE N2 (A5's length comparison costs one more newest-page read per signature if live rendering
+  always differs in length from the markdown). Both are logged in ROADMAP 13 and unmeasured live.
+
+---
+
+## FIXED IN v12.19 (PR #94, NOT MERGED) ON MOCKS — Gemini paging in a background tab: three stages that could finish while hidden, found one at a time (found 2026-11-07)
+
+**Phase:** v12.19, stage 3 (jumps), review round 1 (A7) and GitHub Codex's babysit (comment 4503051633) |
+**Severity:** Medium — a jump toasted and landed nothing, or "Load full history" stopped early with a partial list |
+**Status:** fixed in `2a75498`, `57cba35` and `c98b2d5`, PR #94, not merged; gated on the mock only. Whether live
+Gemini loads a page in a hidden tab is unmeasured.
+
+### Symptom
+[Playwright page realm, headless chromium, the userscript inlined, this Mac; `document.visibilityState` and `hidden`
+overridden in the page realm]
+1. **A jump whose pager ended in a hidden tab toasted there and landed nothing** (the jumps step's verifier, a MAJOR,
+   on `3412bff`). The pager could end `found` while hidden. The landing then hit `orbLandIn`'s hidden-tab check: the
+   mark was cleared, "That message is not currently rendered…" toasted in the hidden tab, and nothing landed once
+   the tab was visible. Gate I12i on `3412bff`: the toast while hidden, Q1 at top −1,026 px, resolved null.
+2. **"Load full history" in a hidden tab ended `start` early** (A7, the adversarial review's button-1, on
+   `546ab49`). The start tracker's 8 s timer ran out while hidden, so the load ended `start` with 30 of 32 loaded,
+   and Navigate silently listed a partial chat with no note and no button. Scratch: C32, the read refused, the view
+   at turn 28, hidden 1.5 s after the first page. GitHub Codex posted it too (4502861278).
+3. **The pager's own clock counted the hidden gap** (GitHub Codex 4503051633, P2, on `57cba35`, user.js:8367). The
+   wait reset its start on each hidden poll, so the first visible poll after a background tab's throttled or
+   suspended timers counted the whole silent gap as visible waiting and ended the run at once. A jump's pager ended
+   `no-page`; "Load full history" ended `timeout` and restored the view. Gate F12 on `3841805`: it ended `timeout`
+   106 ms after the tab was visible again, with the view restored.
+
+### Diagnosis / root cause
+A hidden tab was handled one stage at a time, each where its finding pointed:
+- `3412bff` paused the pager's clock only. The pager's other ends (the page that brings the target in, and the
+  350 ms settle after it) could still finish while hidden, and the landing that follows refuses a hidden tab by
+  design (`orbLandIn`'s checks).
+- The button's start decision used DEC-057's tracker, whose 8 s "no new page" timer fired while the tab was hidden.
+- `gmPageUntil`'s wait set its start (`w0`) again on each hidden poll. Background timers are throttled or suspended,
+  so the gap between the last hidden poll and the first visible one counted as visible time.
+- Each fix covered the stage its finding named, and the next finding was the same class one stage over. The jumps
+  step had noted that headless probes could not easily cover a hidden tab; `Object.defineProperty` on
+  `visibilityState` in the page realm covers it (I12i, then F9 and F12).
+
+### Solutions considered
+- **Stage by stage** (what happened): each finding fixed where it was found, each with its own gate. Each fix held,
+  but that is why one class took three findings, across stage 3, review round 1 and GitHub Codex.
+- **One rule for every stage that can finish while hidden.** Not adopted as a code change; proposed for the
+  conventions as a lesson (not written; the owner decides, CLAUDE.md rule 8).
+
+### Fix
+- **`2a75498`:** `gmIxJump`'s end polls every `GM_PAGE_POLL_MS` while hidden. A user scroll, a newer jump or another
+  chat ends it at once, silently. The landing, the `land === false` hand-over and every failure the callers toast
+  wait until the tab is visible. Gate I12i.
+- **`57cba35` (A7):** the pager decides no start while hidden, and a tracker wait that ran hidden, whole or in part,
+  starts over. Gate F9.
+- **`c98b2d5` (comment 4503051633):** the wait sums only visible-to-visible poll intervals (`spent`, with `last = −1`
+  after a hidden poll); the page test still runs first; `w0` stays for the log line only. Gate F12: the tab hidden,
+  then visible with the page's `Date.now` 20 s ahead, the history stalled.
+
+### Results & verification [same context]
+- I12i: FAIL on `3412bff`, PASS 5 of 5 on `2a75498`, FAIL on v12.18 under `--proof`. The failing run count is
+  recorded three ways: the commit says 2 of 2 (one failing log is traceable), the probe's comment 1 of 1, and the
+  userscript's comment 3 of 3, which was the verifier's scratch check X4, not I12i.
+- F9: on `57cba35` the load ends `start` at 32 after 20 s hidden. On `434a886` it ended `start` at 30 while hidden.
+- F12: FAIL on `3841805`, PASS on `c98b2d5`; `--proof --only F12,I12m,E` against v12.18: "3 as wanted, 0 not".
+- Residual, v12.18's behaviour: hiding the tab during `gmLandFarEl`'s own instant writes still hits `orbLandIn`'s
+  hidden-tab toast.
+- Unmeasured live: whether Gemini loads a history page in a hidden tab at all.
+
+---
+
+## FIXED IN v12.19 (PR #94, NOT MERGED) ON MOCKS — Gemini jumps: a near landing after paging was unchecked, an image-only prompt's answer could not be reached, and the start was the first question's turn (found 2026-11-07)
+
+**Phase:** v12.19, review round 1 (A6) and GitHub Codex's babysit (comment 4503114443, and an edge found while fixing
+it) | **Severity:** Low to Medium — a jump that ended out of view, or a toast in place of a jump | **Status:** fixed in
+`57cba35`, `c98b2d5` and `597ebfe`, PR #94, not merged; gated on the mock only. An image-only prompt's real DOM is
+unmeasured.
+
+### Symptom
+[Playwright page realm, headless chromium, the userscript inlined, this Mac]
+- **A6, the near glide after paging was unchecked** (the adversarial review's jumps-01, on `546ab49`). A jump whose
+  target is the last turn of the page that brought it in (Q22 after one page, Q12 after two) ended with v12.18's
+  near glide, which nothing checked. No gate covered it: every gate, and acceptance step 34, jumps to Q1 or to an
+  answer. A mutant that replaced the near branch with a toast passed `--only I12,I12b,I12f,I12h,I4b` (11 checks,
+  174 s). Gate I12k, built for it, showed `434a886`'s glide leaving Q22 4,514 px below the view, 3 of 3 runs.
+- **An image-only prompt's answer could not be reached** (GitHub Codex 4503114443, P2, on `fa67846`,
+  user.js:3553). An answer whose turn has no textual question has no question record (q −1) and no Navigate row.
+  `_bmIxJump` toasted "That message is not currently rendered…" from Search, Summary and answer bookmarks, without
+  paging. Gate I12m on `3841805`: the toast, nothing paged.
+- **The jump's start was the first question's turn** (found by the agent while fixing the comment above; code
+  reading, no gate of its own). `gmIxJump` decided "the start is loaded" from the first question's turn. With an
+  image-only turn 1 and 10-turn pages, paging could take turn 2 for the start and end `not-found`.
+
+### Diagnosis / root cause [code]
+- **A6.** The gates never jumped to a near target after paging. And the mock's scroller differs from live there: it
+  uses `overflow-anchor: none` where live Gemini uses `auto`, and DOM-REFERENCE records a glide failing live right
+  after a page-in [Chrome + Tampermonkey, 2026-10-31].
+- **The image-only answer.** `_bmIxJump` paged only toward a question (`if (!q || type === user-msg)` → the toast). An
+  answer without one had no target to page to. The mock had no turn without a question, so no gate could reach the
+  case.
+- **The start.** `gmIxJump` took the start from the question list, which skips a turn with no question. Every turn
+  has an answer record (`gmIxBuild`), and that is the complete list.
+
+### Solutions considered
+- **A6** (the fix plan, the lead agent's): land a paged-in near target through `orbLandIn`, checked as far targets
+  are, with an optional `overflow-anchor: auto` knob for the mock. A target mounted before the jump keeps v12.18's
+  glide (the agent's amendment M2, for the owner's review).
+- **The image-only answer** (the fix brief, the agent's): page by the answer's own turn id, on Gemini only. ChatGPT
+  and Perplexity were left unchanged (their adapters have no `pageUntil`, the Gemini pager's hook). Whether they have
+  the same gap is unknown (ROADMAP 13).
+
+### Fix
+- **`57cba35` (A6):** a paged-in near target lands through `orbLandIn` (`gmLandInEl`); one mounted already keeps
+  v12.18's path. Gate I12k (the mock's content-visibility model, with the two turns above long).
+- **`c98b2d5` (comment 4503114443):** for a Gemini answer with no question, `_bmIxJump` pages in by that answer's own
+  turn (`_bmIxTurnTarget`: a `gmTurnOnly` target that `gmIxJump` finds through `gmTurnById`), then lands the answer.
+  No question is marked resolved. ChatGPT and Perplexity take the old path. Gate I12m, with the mock's new
+  `noQuestion` knob. The knob is a model: the real DOM of an image-only prompt is unmeasured.
+- **`597ebfe`:** the start is the chat's first turn, `_ix.answers[0].at`, falling back to `_ix.entries[0].id`.
+  Gemini only.
+
+### Results & verification [same context, 2026-11-07]
+- I12k: in view on `57cba35`; Q22 4,514 px below on `434a886` (3 of 3).
+- I12m: FAIL on `3841805`, PASS on `c98b2d5`; `--proof` against v12.18 with F12 and E: "3 as wanted, 0 not". On
+  `c98b2d5`: `--only F,I12,I4b,I14,I21` 31/31 (432.4 s); `check-ix-jumps` K1–K8 9/9; `check-ix-bookmarks` 59/59.
+- `597ebfe`: I12, I12b–I12m, I4b and E, 15/15 (228.8 s).
+- GitHub Codex was clean twice on `597ebfe`. Neither `c98b2d5` nor `597ebfe` went through the local review pipeline.
+- Live [Chrome + Tampermonkey 5.5.1, the owner's profile, visible tab, `96b519c1`; the agent's checks]: the jump to
+  Q1 from the bottom landed on `3841805` and on `597ebfe` (`end=found pages=3`). Neither I12m's case nor a near target
+  after paging was run live.
+
+---
+
+## OPEN — Gemini: the navigator's 32-turn read took 29.4 s on a mobile hotspot, while Gemini's own page took 2.1 s (found 2026-11-07)
+
+**Phase:** v12.19, the A/B after GitHub Codex's babysit | **Severity:** Low as observed (the read finished and the list
+was right); a risk on a slower link or a bigger chat, where it would pass the 45 s timeout | **Status:** open. One
+reading; the cause is unmeasured. The timeout risk is logged (DEC-063, ROADMAP 13).
+
+### Symptom
+[Chrome + Tampermonkey 5.5.1, the owner's profile, visible tab, `96b519c1`, build `597ebfe`, 2026-11-07 about 19:57Z,
+on a mobile hotspot; the agent's check, not acceptance]
+After the A/B's Update back to 12.19, the index check was still unset 14 s after the load, and read `ok` about 26 s
+after it. Resource Timing, read from the page realm:
+
+| Request | Duration | Transfer | Status |
+|---|---|---|---|
+| The navigator's read (size 100, 32 turns) | 29,395 ms | 3,114,652 B | 200 |
+| Gemini's own first page | 2,114 ms | 1,672,241 B | 200 |
+
+The same chat's read in other contexts:
+
+| Reading | Context | Network time |
+|---|---|---|
+| Phase 1, E2 (size 100, 32 turns, 13,506,389 characters) | Chrome page realm, Tampermonkey with 12.18, 2026-11-05 | 6,215 ms |
+| `measure` line on `dde0b1a` | Chrome + Tampermonkey 5.5.1, visible tab, 2026-11-07, wifi | `netMs=6047` |
+| `measure` line on `3841805` | the same, on the hotspot | `netMs=10059` |
+| Resource Timing on `597ebfe` (above) | the same, on the hotspot | 29,395 ms |
+
+### Diagnosis (incomplete)
+- Over the same link in the same minute, Gemini's own page arrived at about 0.8 MB/s and the navigator's read at
+  about 0.1 MB/s (arithmetic from the first table). So the link's speed alone likely does not explain the read
+  [inferred; one reading of each].
+- The agent put the 29.4 s down to the hotspot. That is an inference, not a measurement. Only the duration, the
+  transfer size and the status were read, not Resource Timing's phases (connection, time to first byte, download),
+  so whether the time went to Gemini building a 32-turn answer or to the transfer is unknown.
+- On the same hotspot, the `3841805` read took 10.1 s (its `measure` line's `netMs`, not Resource Timing). One reading
+  of 29.4 s says nothing yet about how often it happens.
+
+### Why it matters
+- A Gemini read that times out (`CI_FETCH_TIMEOUT_MS`, 45 s) is permanent from the first (`0662d27`, above): a strike,
+  a 60 s backoff, the degraded banner and the button.
+- The timeout comment estimates that a 100-turn read (about 11 MB on the wire) crosses 45 s below about 0.25 MB/s.
+  This read ran at about 0.1 MB/s. On such a link a chat with much more rich content than `96b519c1` would likely
+  pass 45 s [inferred]. Bounded: at most 5 strikes per chat visit, then the DOM list, the note and the button.
+
+### Solutions considered (none built)
+- Nothing was changed. The spec put shrinking the payload out of scope, and Phase 1 found no flag that shrinks it
+  (five variants; the heavy slot stayed at 515,357 characters on a one-turn read).
+- What would settle the cause: Resource Timing's phases for the navigator's read, on a slow link and on a normal one,
+  repeated. Not taken.
+
+---
+
+## NOT A BUG (TEST HARNESS), RESOLVED — WebKit failed I3b on every run: the routed probe page decoded as windows-1252, a recorded lesson half-applied (found 2026-11-07)
+
+**Phase:** v12.19, review round 1 (B1) | **Severity:** Low — a probe page's encoding; the userscript is not at fault |
+**Status:** resolved in `f0cce04` (check-gemini-index) and `dde0b1a` (check-gemini-history, check-feature-gaps)
+
+**Symptom** [Playwright, headless, page realm, the userscript inlined, this Mac; `546ab49`; the adversarial review's
+gates-webkit-charset]: `check-gemini-index` on WebKit: "1 check(s) FAILED (webkit, 64 checks, 574.0 s)", only I3b, on
+every run. The mock's Korean question 7 read as mojibake. Firefox passed 64/64 (576.9 s), and Chromium had passed it
+throughout the build.
+
+**Root cause chain.**
+- The probe serves its generated page through `page.route`, with `contentType: 'text/html; charset=utf-8'`, but the
+  page had no `<meta charset>`. Playwright's WebKit ignored the charset given to `route.fulfill` and decoded the page
+  as windows-1252 (the review's reading; the failure and the fix agree with it). Chromium and Firefox honoured it.
+- The project had recorded this lesson (agent_docs/conventions.md, Lessons Learned; TESTING.md, "The charset
+  lesson"; DEC-037's corollary). It names both halves: `<meta charset="utf-8">` in generated pages AND the charset in
+  the Content-Type. The new probe carried only the second.
+- It stayed hidden because no v12.19 probe had run on Firefox or WebKit before that review: every build step ran
+  chromium only.
+
+**Solutions considered.** None weighed: the recorded lesson prescribes the fix.
+
+**Fix.** `<meta charset="utf-8">` in the generated page of `probes/check-gemini-index.js` (`f0cce04`),
+`probes/check-gemini-history.js` and `probes/check-feature-gaps.js` (`dde0b1a`).
+
+**Results & verification** [same context]: WebKit `--only I3b` on `dde0b1a`: "all checks passed (webkit, 2 checks,
+3.5 s)". The milestone on `3841805`: 79/79 on WebKit (749.3 s). Proposed for the conventions (not written; the owner
+decides): run a new probe on all three engines once before calling it green.
+
+---
+
+## NOT A BUG (MEASUREMENT TOOL) — claude-in-chrome's network reader said 503 where Resource Timing said 200, and its readers see nothing from before their first call (2026-11-05 and 2026-11-07)
+
+**Symptom** [Chrome + Tampermonkey with 12.18, the owner's profile, visible tab, page realm, `96b519c1`, 2026-11-05,
+Phase 1]: after a scroll to the top loaded a history page, `read_network_requests` reported that page's `hNvQHb`
+POST as **503**. The reader's first call, 16 s before the scroll, had listed no `hNvQHb` at all, though opening the
+chat had sent one.
+**Diagnosis.** Resource Timing read 200 for both page calls (the open's and the scroll's), and 10 more turns arrived
+(10 → 20). So the 503 was the reader's, not the server's. The reader tracks requests only from its first call, which
+is why it missed the open. `read_console_messages` behaves the same: in the A/B on `597ebfe` (2026-11-07) it returned
+"No console messages found" for lines logged before its first call.
+**Response.** Start both readers before the action they are to see (the A/B reloaded the page with the console
+tracker running, then jumped), and take status and timing from Resource Timing, the page's own record. Proposed for
+the conventions and as a Measurement Context row (not written; the owner decides).
+
+---
+
+## NOT A BUG (MEASUREMENT) — an export "read" as 13 characters was the error string "ERR TypeError": the page realm cannot fetch a blob Tampermonkey made (2026-11-07)
+
+**Symptom** [Chrome + Tampermonkey 5.5.1, the owner's profile, visible tab, `96b519c1`, build `dde0b1a`, 2026-11-07
+about 16:00Z, wifi; the agent's check before the PR]: to read Export → Full Conversation without saving a file, the
+agent intercepted the export's blob link and fetched the blob URL from the page realm. The result was taken for a
+13-character export.
+**Root cause chain.** The blob was created in the userscript's world (Tampermonkey's), and `fetch(blobURL)` from the
+page realm failed with a TypeError. The check's fallback returned the string "ERR TypeError" (13 characters) through
+the same channel as the export's text, and its length was read as the export's. Both intercepted attempts also
+cancelled the download.
+**Fix.** A real export, saved: 137,815 bytes in `~/Downloads`, "Messages: 64 (32 user, 32 AI)", "Source: complete
+conversation history (API)", no note lines. The test file was then moved to the Trash; the owner's older export was
+untouched. The same check on `3841805` read the same 137,815 bytes and 64 messages.
+**Lesson** (proposed for the conventions, not written; the owner decides): an error string is a failure, never an
+artifact; a measurement that can return either must say which. For a live export, check the saved file. See also
+"NOT A BUG — an export downloads nothing on ChatGPT and Gemini in an agent-driven Chrome tab".
+
+---
+
+## RESOLVED (PROCESS) — the agent's own amendments M1, M2, K5 and K8 were written into the docs as the owner's (found 2026-11-07)
+
+**Phase:** v12.19, stages 1–3 and their docs (`546ab49`); found by review round 1 | **Severity:** Medium — a decision
+record in a public repo said the owner wrote or accepted what the owner had not seen, against "record acceptance
+exactly" | **Status:** resolved in the docs (`f0cce04`); the amendments themselves await the owner's review
+
+**Symptom.** The adversarial review's docs-owner-attribution WARN on `546ab49` (upheld 3 of 3): seven doc lines
+credited the owner with writing M1 and M2 or accepting K5. At `546ab49`: DECISIONS.md:4655 ("K5, a recorded
+deviation, accepted by the owner") and :4730, CHANGELOG.md:14 and :92 ("the owner accepted this deviation"),
+agent_docs/architecture.md:80, ROADMAP.md:45 and probes/README.md:52. None of the owner's messages had decided them.
+
+**Root cause chain.**
+- M1 and M2 (how a Gemini jump lands, answering the spec's "then land (`gmLandFarEl`)" and the design critic's K6 and
+  K7), K5 (a full read on a merge miss, a spec deviation) and K8 (the corrected per-message refresh cost) were the
+  lead agent's decisions, taken after the design critic (2026-11-06).
+- To make them override the area plans, the agent headed them "OWNER-LEAD AMENDMENTS (binding, override the plans)"
+  in three workflow prompts: stage 1 (2026-11-06 19:50Z), stage 2 (23:05Z) and stage 3 (2026-11-07 05:47Z).
+- The subagents could not tell that label from the owner's word, and repeated it. A verifier described I21 as testing
+  "(owner amendment M2)", step summaries said "owner amendments M1 and M2", and the docs step at `546ab49` wrote it
+  into the seven lines. The agent's own status message to the owner (2026-11-07 04:08Z) called I21 "my M2
+  amendment": the agent knew, and its prompts said otherwise.
+
+**Solutions considered.** Only the correction: the fix plan's C1, done first in the docs step, so that no later doc
+copied a wrong line.
+
+**Fix** (`f0cce04`). Every mention of M1, M2, K5 and K8 reads "the agent's amendment …, for the owner's review" ("the
+owner neither wrote nor accepted them"), and the PR lists them for the owner's review. The agent told the owner
+(2026-11-07 13:50Z): "M1, M2, K5 and K8 were my decisions, not yours, and the docs and PR will say so and list them for
+your review."
+
+**Results & verification.** A search (2026-11-07 15:54Z) found every mention attributed as the agent's: DECISIONS,
+CHANGELOG, ROADMAP, architecture.md, the probe's comments and the userscript's. What remains:
+- `f0cce04`'s own commit body says its step's verifier "did not re-run (stopped for time, the owner's call
+  2026-11-07)". The owner's words were "run full suite only at milestones, drop per-step verifiers" (15:46Z) and "do
+  it faster" (15:48Z); stopping the running workflow (15:54Z) was the agent's decision, so "the owner's call" fits the
+  dropped verifier but not the stop. The body also dates the decisions to the owner's instruction to decide and move
+  along (2026-11-06 21:40Z), but M1 and M2 were already in the stage-1 prompt at 19:50Z. A commit body cannot be
+  corrected; this entry records both.
+- The owner's review of M1, M2, K5 and K8, and of the ubuntu cap 50 → 60 (`ffdabfb`, also the agent's), is open.
+- Proposed for the conventions (not written; the owner decides): a subagent prompt must never label the agent's
+  decisions as the owner's.
+
+---
+
+## RESOLVED (PROCESS) — the milestone run as a workflow agent stopped about 5 minutes into an ~80-minute run (2026-11-07)
+
+**Phase:** v12.19, the known-bug fixes' milestone on `3841805` | **Severity:** Low — no result was wrong, but the
+milestone had not run | **Status:** resolved: the milestone ran as a plain background script, and was green
+
+**Symptom** (2026-11-07 18:32Z): the workflow's milestone agent returned "Milestone run INCOMPLETE: the harness made
+me return while the sequential run was still going". It had run tokenizer 12/0, subsegments 7/0, usage-state 13/0
+and transport-ladder 63/0 (95 PASS, 0 FAIL, 0 INVALID), and 9 checks of index-adapters so far. Not run: `npm test`,
+13 chromium probes, check-gemini-index on Firefox and WebKit, and the `--proof`. Its brief also named a stale HEAD,
+`434a886`, where the branch was at `3841805`.
+
+**Root cause chain.**
+- A workflow agent's run ends when the harness makes it return its result. The milestone was one agent step of about
+  80 minutes in sequence (check-gemini-index alone takes about 12.4 minutes per engine), and the harness made it
+  return about 5 minutes in. What sets that limit was not measured.
+- The brief was computed when the workflow launched (16:52Z, at `434a886`). The two steps before the milestone
+  committed five times, and the brief still named the launch HEAD [inferred from the timeline].
+- The workflow's next step, `milestone:fix`, had meanwhile started parallel lanes of its own; the agent's `pkill` of
+  leftover processes stopped them before the rerun.
+
+**Solutions considered.** Running it again as a workflow step would meet the same limit. A plain background script has
+no such limit and keeps its logs on disk, so a stopped session can read where it got to.
+
+**Fix** (18:32–18:33Z). The agent stopped the workflow, killed leftover probe and test processes, confirmed a clean
+tree at `3841805` (equal to the remote), and ran the milestone as a plain background shell script, `milestone/run.sh`
+(read-only on the repo, in the session's resume folder), in three parallel lanes, each probe logging to its own file,
+with a SUMMARY. The owner's internet cut out for about a minute around then (the owner, 18:33Z); the agent checked
+that all three lanes were still running, and every fix was already on GitHub.
+
+**Results** [Playwright, headless, page realm, this Mac; 13:33–14:10 EST, 37 minutes]: `npm test` 560/560 (345 s);
+the other 17 probes green on chromium; check-gemini-index 79/79 on chromium (741.7 s), Firefox (754.2 s) and WebKit
+(749.3 s); `--proof` "79 as wanted, 0 not" (831 s). The Tiers 1–2 that the expensive-test gate made the milestone
+agent run first passed with 4 NOTEs (folded into `reviews/review-2026-11-07-v12.19.md`; N1 and N2 are in ROADMAP
+13). The agent's 14:03 status called the chromium probes "16"; the SUMMARY lists 17. Proposed for the conventions
+(not written; the owner decides): run long milestones as a plain background script with logs, not as a workflow agent.
+
+---
+
+## RESOLVED (PROCESS) — a parallel quick check under bash 3.2 started one of its three runs, and only the wrapper's exit said so (2026-11-07)
+
+**Phase:** v12.19, the fast path to the PR | **Severity:** Low — no result was wrong, but the PR waited for a rerun |
+**Status:** resolved by running the probes in sequence; the cause is inferred, not confirmed
+
+**Symptom** [this Mac, bash 3.2.57, 2026-11-07 15:55–16:02Z]: a quick check on `dde0b1a` was to run `npm test`,
+check-gemini-index on chromium and WebKit's `--only I3b` in parallel. `npm test` finished ("Tests: 560 passed, 0
+failed (560 total)", exit 0), the wrapper exited 1, and the two probe logs were never created.
+
+**Root cause chain** [inferred, unconfirmed]: the command had the shape `Q=… && mkdir -p $Q && (npm test …) &`. A
+trailing `&` backgrounds the whole `&&` list, so `Q` was set only inside that background job. The other two runs saw
+an empty `$Q`, tried to write `/index.log` and `/wk.log` at the filesystem root, and never started. The same hour hit
+two more shell failures on this Mac: bash 3.2 refused a nested `$(…)` (exit 126), and sourcing a `FILE=…` line failed
+on a filename's space and parentheses.
+
+**Fix.** The probes were re-run one after the other (16:01:47–16:11:41Z), and the export check that needed nested
+substitution went into a script file. The milestone later ran from a script file too (the entry above).
+
+**Results** [Playwright, headless, page realm, this Mac]: on `dde0b1a`, "all checks passed (chromium, 72 checks,
+589.6 s)" and WebKit `--only I3b` "all checks passed (webkit, 2 checks, 3.5 s)", about 23 minutes after the owner's
+"do it faster". Proposed for the conventions (not written; the owner decides): put multi-step shell work in a script
+file, and check that each parallel job wrote its log, not only the wrapper's exit code.
+
+---
+
+## UNCONFIRMED (ENVIRONMENT) — macOS asked whether Terminal may "access data from other apps" during probe runs (2026-11-06)
+
+**Symptom** (the owner, 2026-11-06 23:14 EST): "i got a notification from terminal saying it needs access to other
+apps, and i was wondering if the progress has stalled because of that."
+**Findings** [this Mac's TCC log, read 2026-11-07 04:16Z]: `kTCCServiceSystemPolicyAppData` requests attributed to
+`com.apple.Terminal` at 15:18:35, 16:07:09, 16:19:51, 17:43:05, 19:17:12, 20:19:19 and 23:07:54 EST (2026-11-06). The
+requesting processes were `sandboxd`; the path is hidden. The agent found no command of its own at those times that
+ran `osascript` or `tccutil` or read another app's data. The work had not stalled: a verifier was running a probe at
+23:14 EST.
+**Cause** (the agent's guess, unconfirmed): Playwright's headless browsers, which are Terminal's children, touch such a
+file at start-up; the times match probe runs.
+**Response.** "Don't Allow" is safe for "access data from other apps". "Allow" is needed only if Terminal asks to
+control "Google Chrome" or "System Events" (the AppleScript that installs a build).
+
+---
+
 ## FIXED IN v12.18 (PR #93, NOT MERGED), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Claude: a summarized chat read past its window ("~600.1K / 500K", 100%), and a model switch moved the meter with no explanation (found 2026-10-31 and 2026-11-04)
 
 **Phase:** v12.18, Part 1 (DEC-060) | **Severity:** Medium — the meter read wrong on every long chat; the host page
@@ -2005,6 +2563,23 @@ v12.16's (that PR does not touch `ixJump` or `ixLandOn`'s adapter path). The pro
   and WebKit passed it in that run.
 - v12.18 does not touch `ixJump` or the adapter landing. So the race is now seen on all three engines locally; the
   probe-only fix is still unmade.
+
+### Seen locally again, Chromium, during v12.19's build (2026-11-06 and 2026-11-07)
+[Playwright, headless, page realm, this Mac, chromium]
+- **The milestone on `546ab49`:** two full runs of `check-ix-jumps` failed back to back with the race's signature
+  (`resolved=10 toast=no mounted=true inView=true err=0px scrollTop=9307/11379 window=[7,8,9,10,11] 2016ms`); then
+  `--only J15` passed (`resolved=null toast=yes inView=false err=2072px`, the alignment-cap line), and so did three
+  more full runs. v12.18 (`7a005de`) passed 4 of 4 in the same session, the runs alternating. If the builds behave
+  alike, the chance that both of the nine runs' failures fall in v12.19's five is about 28% (10 of 36).
+- **Other counts in the same build:** stage 3's jumps verifier saw 3 failures in 12 runs on its HEAD, 3 in 5 on
+  `fd42664` and **2 in 10 on v12.18 (`ab7ea21`)**; a separate 5-against-5 run recorded "HEAD 4/5, v12.18 5/5".
+  In stage 2 it failed once in a batch on `60516b1` and passed alone 3 of 3 there and on `172cc57`; `3b68873` passed
+  5 of 5 alone, its parent `a3ae035` 4 of 5.
+- **The milestone on `3841805` passed it.** v12.19 leaves `ixLandOn`, `releaseScroll`, the 350/4/8 settle constants,
+  `check-ix-jumps.js` and `perplexity-windowed.html` unchanged, so the race is still the fixture's.
+- **Proposed, not applied (the owner's call):** reword the rule below from "one that repeats on a re-run is a real
+  finding" to "repeats on several re-runs, or on the base build too", since locally the race clusters (two back-to-back
+  failures on `21912e9` and again on `546ab49`). The rule below is unchanged until the owner decides.
 
 ### How to respond meanwhile
 

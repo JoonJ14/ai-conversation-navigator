@@ -133,6 +133,12 @@ NODE_PATH=/opt/node22/lib/node_modules node tests/test-all-platforms.js
 | `1`  | One or more tests failed (check the detailed report) |
 | `2`  | Fatal error (browser failed to launch, script file not found, etc.) |
 
+### When to run what (CLAUDE.md rule 7, since 2026-11-07)
+
+`npm test` and every probe run at each milestone (a build stage's end, before the live test, the final run); within
+a step, only the gates the change touches. The owner's decision, why it changed, how `--only` matches in each probe,
+and what a milestone costs on this Mac: `agent_docs/testing.md`, "When to run the whole suite".
+
 ---
 
 ## Architecture — How It Works Under the Hood
@@ -1734,6 +1740,19 @@ only.
 4. Verify on a supported site: `[data-acn-version]` (DEC-027). It cannot tell two builds of one version apart, so
    also compare the served file's `shasum` with the branch's. The `ask.html` tab closing after the press is the
    first sign the install went through.
+   On 2026-11-07 (v12.19) [same setup, Tampermonkey 5.5.1]: the served file's sha256 proves what was offered, not what
+   Chrome runs after a same-version Reinstall. Read a console line whose source line number differs between the two
+   builds (the console shows the userscript's own line numbers): Gemini's `self-check ok` line sits at line 4069 in both
+   `3841805` and `597ebfe`, so it proves nothing; `[ACN] paging: … end=` sits at 8287 and 8290, and the paging start
+   line at 8318 and 8321. A live `end=` line at 8290 confirmed `597ebfe`. Find the lines with
+   `git show <sha>:ai-conversation-navigator.user.js | grep -n`.
+5. **The A/B against the previous version** (v12.19, 2026-11-07, about 5 minutes for both passes): serve the build
+   and the previous release from the one server (127.0.0.1:8799), under different names: `acn-1219.user.js`, and
+   `acn-1218.user.js` from `git show ab7ea21:ai-conversation-navigator.user.js` (sha256 `b8934332…`). Install the
+   build (Reinstall, in "Userscript re-installation") and test; open the old file (Downgrade, in "Attention!
+   Userscript downgrade") and repeat the same steps; then put the build back (Update, in "Userscript update"). Match
+   each title case-sensitively and read it before the press (step 2); each press took about 10 s. Check every switch
+   with `[data-acn-version]`, and a same-version one with a source line (step 4).
 
 **Measuring** (page realm, through claude-in-chrome's `javascript_tool`):
 - Check `innerWidth`, `innerHeight` and `document.visibilityState` first. One tab reported a 0×0 viewport and timed
@@ -1753,7 +1772,9 @@ only.
   Identify the target by its own id or turn key, never by a text prefix: Navigate truncates long questions with
   "...", and a 60-character prefix matched three ChatGPT questions that open with the same shell prompt.
 - `read_console_messages` can return one line several times (six identical index lines with one timestamp, for one
-  page load); log a marker of your own to confirm the channel, and count by timestamp.
+  page load); log a marker of your own to confirm the channel, and count by timestamp. It also records only from its
+  first call in a tab: on 2026-11-07 it returned "No console messages found" for a jump made before that call, and the
+  agent reloaded and started it before the jump. Start it, and `read_network_requests`, before the action.
 - Editing a text node does not trigger the navigator's scan, so a synthetic DOM edit does not test staleness.
 - GET reads of a site's own JSON (the requests the script makes) are fine; never send, edit, regenerate or delete.
 - `Runtime.evaluate … timed out after 45000ms … The renderer may be frozen or unresponsive` does not mean the page
@@ -1763,7 +1784,17 @@ only.
 - Return one string (`JSON.stringify` it yourself): a script that returned a live structure failed with "Object
   reference chain is too long".
 - `read_network_requests` records only requests made after its first call in that tab, and lists URL, method and
-  status without response bodies.
+  status without response bodies. **Its status can be wrong** (2026-11-05, Gemini, Chrome + Tampermonkey with 12.18,
+  the owner's profile, visible tab): it reported 503 for a history page (`POST … rpcids=hNvQHb`) that Resource Timing
+  read as 200, and the page's 10 more turns arrived. Cross-check a status with
+  `performance.getEntriesByType('resource')`, which also gives `transferSize`, `decodedBodySize` and the duration (the
+  v12.19 A/B read the navigator's 3.1 MB read there). Enlarging its buffer
+  (`performance.setResourceTimingBufferSize(2000)`) lasts until the tab reloads: report it as a side effect.
+- **An export cannot be read from the page realm** (2026-11-07, Gemini, Chrome + Tampermonkey 5.5.1):
+  `fetch(blobURL)` from `javascript_tool` failed with a TypeError (the agent's reading: the blob was made in
+  Tampermonkey's world, not the page's), and intercepting the link cancelled the download. The agent's script
+  returned the fallback string "ERR TypeError" (13 characters), which was once read as a 13-character export. Let
+  the download happen, and read the file in `~/Downloads` (above).
 - The tool redacts what it returns: hrefs come back as `[BLOCKED: Base64 encoded data]`, and some attribute strings
   as `[BLOCKED: Cookie/query string data]`. Click by index, and log names and lengths instead of values. On
   2026-11-04/05 the second block also hit code and JSON with `=` signs in them, with every URL stripped. What got
@@ -1835,7 +1866,7 @@ again. In this shape, ask the owner early and do the offline work meanwhile.
 | Claude's answer markup and what a flag looks like (v12.14) | `tests/mock-pages/claude-virtualized.html` models October 2026's answers (`answerTestid`), the activity line (`answerHeaders`) and the project link (`decoy`) from one Chrome measurement; it does not recycle nodes (R6 moves them by hand), and DOM counts are not what the user sees on hover | `probes/check-answer-bookmarks.js` proves placement, labels, proof and the jump in the page realm; the owner's acceptance on Safari, Chrome and Firefox (DEC-031) proves the live markup and the visible flags |
 | How a live site renders a question's markdown (v12.15) | Mock bubbles hold the plain `query_str`; live, Perplexity shows images and links as their text, tables, lists and headings without their markers, and a "Read more" button, so a compare that passed every mock never matched one live question | `check-ix-jumps` J16 models the renderings measured live; the agent's live Chrome check (above) runs before every PR |
 | Where Claude's pinned tail sits (v12.16) | Without `tailAtEnd`, `claude-virtualized.html` appended the pinned tail rows right after the mounted window, so from the top row 292 started at 2,792 px and moved down with every scroll. v12.15 and the fix both failed F1 there: v12.15 stopped with the target 16,087 px below, and the fix chased the tail with 4 writes to 30,646 px, hit the cap and showed a toast. A mock that differs from live geometry made a correct fix look broken | `tailAtEnd: true` (off by default) puts the tail after `#mock-spacer-bottom`: row 292 starts at 330,542 px, v12.15 then ends at the bottom with Q147 3,018 px above the view (the live shape; live it was 1,136 px) and the fix lands at 0 px. `check-claude-far-jump`'s precondition P3 reports INVALID on the mock without it (DEC-055) |
-| Gemini's history read in a real manager, and Gemini's live paging (v12.19) | `probes/check-gemini-index.js` inlines the script into the page realm and answers `hNvQHb` through a route bridge to the mock's `rpc()`, with synthetic content in Phase 1's framing. The live payload's scale (12.66M characters for 32 turns, 85% in a slot the navigator never reads), what makes Gemini load a page, its render blocks and each manager's transport exist only on the live site and in the real extension | Phase 0's `probes/gemini-transport-check.user.js` measured the transport per manager (DEC-063: `fetch` first on all three). The agent's live A/B in Chrome reads the `measure` line (parse time, heap) and counts the reads; Firefox + Tampermonkey and Safari + Userscripts are owner acceptance (`docs/acceptance-checklist.md`, steps 33–37) |
+| Gemini's history read in a real manager, and Gemini's live paging (v12.19) | `probes/check-gemini-index.js` inlines the script into the page realm and answers `hNvQHb` through a route bridge to the mock's `rpc()`, with synthetic content in Phase 1's framing, in 400 ms where live took 6.2 s. The live payload's scale (12.66M characters for 32 turns, 85% in a slot the navigator never reads; 3,114,652 B on the wire, one reading), what makes Gemini load a page, its render blocks and each manager's transport exist only on the live site and in the real extension. Three mock knobs model what was never seen live: `rpc.drafts` (two answer candidates), `rpc.firstNewest` (a first newest page that answers late) and `noQuestion` (a prompt that is only an image, I12m) | Phase 0's `probes/gemini-transport-check.user.js` measured the transport per manager (DEC-063: `fetch` first on all three). The agent's live checks in Chrome (agent checks, not acceptance: DEC-031) read the `measure` line at `dde0b1a` and `3841805`, and the paging end line and Resource Timing at `597ebfe` in the A/B against v12.18; the reads are counted (9 of about 50 in this PR, the agent's count). Acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey is the owner's (`docs/acceptance-checklist.md`, steps 33–37). DOM-REFERENCE, Gemini, has the readings |
 | Cross-browser differences | Chromium, Playwright-Gecko and Playwright-WebKit are all run, locally and in CI (WebKit locally since 2026-10-22) | `npx playwright install webkit`, then `--browser webkit`. Note none of these are the Tampermonkey sandbox — see the Firefox scope note above |
 
 ### The `--single-process` flag
