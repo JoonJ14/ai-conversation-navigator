@@ -3333,7 +3333,7 @@
     var GM_IX_PAGE_SIZE    = 100;   // a full load, following the cursor to null
     var GM_IX_MAX_PAGES    = 10;    // a full load's call cap: 1,000 turns (no chat over 32 measured); past it, degrade
     var GM_IX_STRIKES_MAX  = 5;     // permanent load failures per chat visit, then no more loads until a reload or a reopen
-    var GM_IX_CALLS_MAX    = 100;   // answered hNvQHb calls per chat visit: a backstop
+    var GM_IX_CALLS_MAX    = 100;   // hNvQHb requests asked of the transport per chat visit, answered or not: a backstop
     // The page token's key and its quoted value, as the page's inline script text writes it. Never spell
     // the key's quoted form followed by its colon anywhere in this file: the probes inline this script
     // into the page, where gmIxReadAt scans, and this regex does not match its own source (after the
@@ -3553,11 +3553,18 @@
     //   shape             no prefix, no hNvQHb frame, a payload or turn that does not read, a repeated cursor,
     //                     an empty page with a cursor: permanent.
     //   threw             permanent: one transport per manager, and one that cannot run here will not start to.
-    //   401/403/429       permanent (ciIsPermanentReason); 404, 5xx, network and timeout transient, as every
-    //                     adapter's.
+    //   timeout           permanent, unlike every other adapter's: a read over CI_FETCH_TIMEOUT_MS still
+    //                     downloads whole (ciFetchGet drops a body only when its headers come after the timer),
+    //                     and ixScan's cooldown runs from the load's START, so a transient timeout re-read the
+    //                     whole history every ~45 s for as long as the tab stayed open (the mock answering in
+    //                     47 s: 5 reads in 200 s, Playwright chromium, 2026-11-06). Estimated, not measured: a
+    //                     100-turn page is ~3x Phase 1's 13.5M chars for 32 turns, so a link under ~1 MB/s
+    //                     crosses 45 s. Permanent, it backs off (60 s, then x4) and is a strike: at most
+    //                     GM_IX_STRIKES_MAX timed-out reads per chat visit (probe I22).
+    //   401/403/429       permanent (ciIsPermanentReason); 404, 5xx and network transient, as every adapter's.
     // Gates on the calls, on top of ixScan's (one load at a time, the 15 s cooldown, the backoff): a full
     // load is at most GM_IX_MAX_PAGES calls; GM_IX_STRIKES_MAX permanent failures in a chat visit stop its
-    // loads until a reload or a reopen; GM_IX_CALLS_MAX answered calls per chat visit.
+    // loads until a reload or a reopen; GM_IX_CALLS_MAX requests asked per chat visit, answered or not.
     // ONE "[ACN] index: platform=gemini transport=… endpoint=hNvQHb page=N size=S[ retry=…] status=C" line
     // per request sent (ixLog), with one tail; one "measure" line per load that built an index.
     function gmIxFetch(cid, done) {
@@ -3605,7 +3612,6 @@
             var sync = true;
             function answered(r) {
                 m.netMs += gmIxNow() - t0;
-                if (r.kind === 'ok' || r.kind === 'http') st.calls++;
                 if (!r.ok) {
                     ixLog('gemini', r, GM_IX_RPC, extra);              // the one line for this request
                     if (r.kind === 'http' && r.status === 400) {
@@ -3621,7 +3627,8 @@
                         return;
                     }
                     var f = ixFailure(r);
-                    if (r.kind === 'threw') f.permanent = true;        // one transport per manager
+                    // threw: one transport per manager. timeout: a strike and the backoff (see above).
+                    if (r.kind === 'threw' || r.kind === 'timeout') f.permanent = true;
                     end(f);
                     return;
                 }
@@ -3655,6 +3662,9 @@
                     });
                 }), 0);
             }
+            // Counted when the transport is asked, answered or not: a read that times out was still sent (and
+            // downloads in full). A stalled transport's refusal and a pre-send throw count too: a backstop.
+            st.calls++;
             ciApiGet(transport, GM_IX_ENDPOINT, guard(function (r) {
                 if (sync) { setTimeout(guard(function () { answered(r); }), 0); return; }
                 answered(r);

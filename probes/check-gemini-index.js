@@ -640,6 +640,35 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         return hits;
     };
 
+    // ── I22: a read that never answers in time (the server takes 47 s; CI_FETCH_TIMEOUT_MS is 45 s) ──
+    // Started here and run beside every fixture below (its 3-minute window is idle but for the reads it
+    // counts), flushed before R1. A timed-out read was still sent and still downloads in full, so it must
+    // cost a strike and the backoff: the first read, its timeout PERMANENT "next retry in 60s", at most
+    // ONE more read in 3 minutes. The adapter commit's transient timeout read every ~45 s (5 reads in
+    // 200 s, the reviewer's run of this harness, chromium); v12.18 sends none (fails "a first read").
+    const i22Run = fixture(['I22'], async (r) => {
+        const WIN = 180000;
+        const h = await open(r, ['I22'], C32, { rpc: { delayMs: { full: 47000 } } });
+        if (!h) return;
+        await h.openNav();
+        try { await h.page.waitForFunction(() => window.__mockGemini.calls().list.length >= 1, null, { timeout: 15000 }); } catch (e) {}
+        const first = h.hits.length ? h.hits[0].t : Date.now();
+        await sleep(Math.max(0, first + WIN - Date.now()));
+        const v = await h.nav();
+        const reads = h.hits.filter((x) => x.t - first <= WIN).map((x) => Math.round((x.t - first) / 1000));
+        const tl = h.req().filter((l) => / status=0 error=timeout\b/.test(l));
+        const perm = h.lines(PERM_RE).filter((l) => /\[fetch\] timeout/.test(l));
+        const leaks = noLeak(h.logs.concat([await h.storage()]));
+        r.check('I22', 'new', 'a read that times out (the server answers in 47 s): a first read, its timeout logged "status=0 error=timeout" ' +
+                'and PERMANENT ("next retry in 60s"), at most 2 reads in 3 minutes, degraded naming the timeout; nothing leaked',
+                reads.length >= 1 && reads.length <= 2 && tl.length >= 1 && perm.some((l) => /next retry in 60s/.test(l)) &&
+                v.banner === 'degraded' && /timeout/.test(v.bannerText || '') && leaks.length === 0,
+                'reads at s=' + JSON.stringify(reads) + ' (all ' + h.hits.length + ', answered ' + h.fulfilled + ') timeout lines=' + tl.length +
+                ' permanent=' + JSON.stringify(perm.map((l) => (l.match(/next retry in \d+s/) || [''])[0])) + ' ' + fmt(v) +
+                ' bannerText=' + JSON.stringify(v.bannerText) + ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
+        await h.close();
+    })();
+
     // ── I1, I2, I4, I5, I18, I20, R2: the 32-question chat on open (Phase 1's 6.2 s full read) ────
     let r2gm = null;          // GM calls in the gm-shim run of I1, for R2
     await seq(fixture(['I1', 'I2', 'I4', 'I5', 'I18', 'I20', 'R2'], async (r) => {
@@ -1331,16 +1360,28 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         if (!j) return;
         const { h, v0, row } = j;
         if (!row) { r.check('I12d', 'new', 'a user scroll stops a paging jump', false, 'no Q1 row (' + fmt(v0) + ')'); await h.close(); return; }
-        try { await h.page.waitForFunction(() => window.__mockGemini.loads() >= 1, null, { timeout: 15000 }); } catch (e) {}
+        // The pager must be running when the wheel comes: its status shown with at least one page in.
+        // Without this the check passed with no pager at all (any scroll plus the wheel met it).
+        try {
+            await h.page.waitForFunction(() => {
+                var s = window.__pgNow();
+                return window.__mockGemini.loads() >= 1 && !!s && parseInt(s.pages, 10) >= 1;
+            }, null, { timeout: 15000 });
+        } catch (e) {}
         const atWheel = (await h.nav()).loads;
+        const pgAtWheel = await h.page.evaluate(() => window.__pgNow());
+        const shownBefore = (await h.pgSeen()).filter((s) => s.shown).length;
+        const paging = !!pgAtWheel && parseInt(pgAtWheel.pages, 10) >= 1 && shownBefore > 0;
         await h.wheel(600);
         await h.settle(30000, 2000);
         const v = await h.nav();
         await sleep(10000);
         const v2 = await h.nav();
-        r.check('I12d', 'new', 'a trusted wheel during the paging stops it: the status gone, no toast, at most one more page and none in 10 s, not resolved',
-                atWheel >= 1 && !v.status && !v.toasts.length && v.loads <= atWheel + 1 && v2.loads === v.loads && v.resolved !== '0',
-                'loads at the wheel=' + atWheel + ' then ' + v.loads + ' 10 s later ' + v2.loads + ' ' + fmt(v) + ' resolved=' + v.resolved +
+        r.check('I12d', 'new', 'a trusted wheel during the paging (its status shown, data-acn-paging-pages >= 1) stops it: the status gone, ' +
+                'no toast, at most one more page and none in 10 s, not resolved',
+                paging && atWheel >= 1 && !v.status && !v.toasts.length && v.loads <= atWheel + 1 && v2.loads === v.loads && v.resolved !== '0',
+                'status at the wheel=' + JSON.stringify(pgAtWheel) + ' shown records before it=' + shownBefore +
+                ' loads at the wheel=' + atWheel + ' then ' + v.loads + ' 10 s later ' + v2.loads + ' ' + fmt(v) + ' resolved=' + v.resolved +
                 ' status=' + JSON.stringify(v.status) + ' toasts=' + JSON.stringify(v.toasts));
         await h.close();
     }));
@@ -1761,6 +1802,8 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
                 'row=' + row + ' end=' + v.loadEnd + ' min scrollTop after=' + minSt + ' landing=' + JSON.stringify(s));
         await h.close();
     }));
+
+    flush(await i22Run);
 
     // ── R1 [guard], E [guard] ────────────────────────────────────────────────────────────────────
     {
