@@ -4718,7 +4718,7 @@
         step();
     }
 
-    // orbLandFarIn(box, el, getEl, landed, a, stillValid) — a FAR mounted target lands the way
+    // orbLandFarIn(box, el, getEl, landed, a, stillValid, failed) — a FAR mounted target lands the way
     // ixLandOn lands the adapter sites' targets (v12.16, DEC-055, DEC-057): instant writes, the
     // target re-located before each by the caller's own resolver, within IX_JUMP_ALIGN_TOL px or
     // IX_JUMP_MAX_ALIGNS writes, a toast when it cannot land. Far is ixJump's own rule: outside the
@@ -4729,19 +4729,22 @@
     //   getEl()    the same target re-located by the CALLER'S OWN resolver, on every step
     //   landed(n)  the caller's success (mark, flash)
     //   stillValid optional: false ends the landing as superseded (Claude: the index left ready)
-    function orbLandFarIn(box, el, getEl, landed, a, stillValid) {
+    //   failed(why) optional: a landing that started and did not land hands its reason here instead of
+    //              showing the toast itself, after the same clean-up ('user' and 'superseded' included),
+    //              for a caller that owns the failure's toast (gmIxJump's outerDone, v12.19)
+    function orbLandFarIn(box, el, getEl, landed, a, stillValid, failed) {
         if (!box || !el || !el.isConnected || !getEl || !box.contains(el)) return false;
         var vr = box.getBoundingClientRect(), vh = box.clientHeight, er = el.getBoundingClientRect();
         if (er.bottom >= vr.top - vh && er.top <= vr.bottom + vh) return false;
         ciPre('far landing: target ' + Math.round(er.top - vr.top) + ' px from the view top');
-        return orbLandIn(box, el, getEl, landed, a, stillValid);
+        return orbLandIn(box, el, getEl, landed, a, stillValid, failed);
     }
 
     // orbLandIn — orbLandFarIn's landing without its distance test (v12.17): for a target that a
     // settle loop has just brought into the mounted window, where the closing smooth glide was
     // never checked (Claude's Search, Summary and Navigate after ciJumpToFullPathIndex; ROADMAP 14).
     // Same arguments; false only when it cannot start (no box, or the target is not in it).
-    function orbLandIn(box, el, getEl, landed, a, stillValid) {
+    function orbLandIn(box, el, getEl, landed, a, stillValid, failed) {
         if (!box || !el || !el.isConnected || !getEl || !box.contains(el)) return false;
         var ixTok = _ixJumpToken, ciTok = _ciJumpToken;
         var watch = ixWatchUser(box);
@@ -4759,6 +4762,7 @@
             // any mark its caller set up front, so data-acn-jump-resolved never reports it. A newer
             // jump marks its own.
             if (why !== 'superseded') orbMarkJumpTarget(null);
+            if (failed) { failed(why); return; }
             if (why !== 'superseded' && why !== 'user') {
                 showToast('That message is not currently rendered \u2014 scroll toward it and try again');
             }
@@ -4818,13 +4822,13 @@
     }
 
     // The same for any Gemini target its caller can re-find (v12.17): an answer, an image's turn,
-    // a bookmark by its turn id (gmTurnById).
-    function gmLandFarEl(el, getEl, landed) {
+    // a bookmark by its turn id (gmTurnById). failed: orbLandFarIn's (gmIxJump passes one; v12.18's callers none).
+    function gmLandFarEl(el, getEl, landed, failed) {
         if (!platform || platform.id !== 'gemini') return false;
         _ixJumpToken++;
         var path0 = location.pathname;
         return orbLandFarIn(document.querySelector('infinite-scroller.chat-history'), el, getEl, landed, {},
-                            function () { return location.pathname === path0; });
+                            function () { return location.pathname === path0; }, failed);
     }
 
     // ── Gemini turns by their own id (v12.17) ──────────────────
@@ -8265,11 +8269,14 @@
     // "Loading earlier messages…", until the target's turn is in the DOM by its id (a target mounted
     // already needs none). Then it lands the way v12.18 lands a loaded question: gmLandFarEl when it is far,
     // the smooth glide (block center) when it is near. gmLandFarEl bumps _ixJumpToken and owns its landing,
-    // so it runs only once the pager has ended; a far landing that fails toasts on its own (orbLandIn), and
-    // outerDone hears only its success. opts.land === false: outerDone(true, the question node) once its
-    // turn is in, nothing landed (_bmIxJump lands the answer itself). Not ok: 'not-found' (the start is
-    // loaded without it, or its turn left again), 'cap' (ceil(turns / GM_HISTORY_PAGE) + 2 pages: 6 for 32
-    // turns), 'no-page', 'user', 'superseded' (a newer jump, another chat), 'container-gone', 'no-container'.
+    // so it runs only once the pager has ended; outerDone hears how the far landing ends, exactly once: its
+    // success, or its reason when it does not land (orbLandIn's failed: 'user', 'superseded', 'hidden',
+    // 'lost', 'cap-out', 'container-gone'), and orbLandIn shows no toast of its own, so the caller shows its
+    // one toast as for any other failure (Tier 3 r1). opts.land === false: outerDone(true, the question
+    // node) once its turn is in, nothing landed (_bmIxJump lands the answer itself). Not ok: 'not-found' (the
+    // start is loaded without it, or its turn left again), 'cap' (ceil(turns / GM_HISTORY_PAGE) + 2 pages: 6
+    // for 32 turns), 'no-page', 'user', 'superseded' (a newer jump, another chat), 'container-gone',
+    // 'no-container'.
     // A hidden tab: the end (the landing, the hand-over with land === false, or a failure) waits until the
     // tab is visible again; the user's scroll, a newer jump or another chat still end it meanwhile, silently.
     function gmIxJump(a, q, outerDone, opts) {
@@ -8305,7 +8312,7 @@
             startLoaded: function () { return !!gmTurnById(firstId); },
             status: true
         }, function (ok, why) {
-            // A hidden tab lands nothing: orbLandIn refuses a landing there ('hidden', with its toast), and a
+            // A hidden tab lands nothing: orbLandIn refuses a landing there ('hidden', the caller's toast), and a
             // hidden tab is no measurement for the other landings either (CLAUDE.md). The pager can still end
             // while the tab is hidden (the target's page in, the settle after it, the start, the cap), so the
             // end waits until the tab is visible again, re-testing live() on every poll: the user's scroll, a
@@ -8330,7 +8337,8 @@
                 var el = ok ? find() : null;
                 if (!el) { outerDone(false, null, (ok || why === 'start') ? 'not-found' : why); return; }
                 if (opts.land === false) { outerDone(true, el, 'locate'); return; }
-                if (gmLandFarEl(el, find, function (n) { outerDone(true, n, 'locate'); })) return;
+                if (gmLandFarEl(el, find, function (n) { outerDone(true, n, 'locate'); },
+                                function (w2) { outerDone(false, null, w2); })) return;
                 el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 outerDone(true, el, 'locate');
             }());

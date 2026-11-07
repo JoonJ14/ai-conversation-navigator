@@ -54,11 +54,13 @@
 // marked [new] must FAIL there, for the reason its detail names; [guard] passes on both. A precondition
 // that fails (the page hidden, the mock's first page not as expected, no token script) prints INVALID:
 // it says the harness, not the build, is wrong. PREMISES: a [guard] that is about the new build's index
-// (I13b: the read still loading; I15, I21, I21b: the index ready) asserts that premise on a normal run
-// and FAILS when it does not hold (a guard whose premise is unmet tested nothing); under --proof the
-// premise is reported in its detail but not required, because v12.18 has no index to be loading or
-// ready. Guards by construction (they cannot fail on v12.18, as the spec asks every gate to; the owner
-// is told, critic K16): I13, I13b, I15, I16, I21, I21b, R1, R2, E.
+// (I13b: the read still loading; I15, I21, I21b: the index ready; I12j: a far landing after the pager)
+// asserts that premise on a normal run and FAILS when it does not hold (a guard whose premise is unmet
+// tested nothing); under --proof the premise is reported in its detail but not required, because v12.18
+// has no index to be loading or ready, and no pager (I12j then asserts nothing: v12.18 lists no Q13).
+// Guards by construction (they cannot fail on v12.18, as the spec asks every gate to; the owner is told,
+// critic K16): I13, I13b, I15, I16, I21, I21b, R1, R2, E; and I12j, which passes on 546ab49 too (its
+// header says why) and fails on a build that toasts twice or never ends the jump.
 
 'use strict';
 
@@ -1784,6 +1786,114 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
                 ' status=' + JSON.stringify(now) + ' lines=' + JSON.stringify(h.lines(/^\[ACN\] paging:/)));
         await h.close();
     }));
+    // I12j [guard] (Tier 3 r1): a far landing that starts after the pager and does not land. gmIxJump's far
+    // landing (gmLandFarEl) handed outerDone only its success, so a landing that failed never ended the jump
+    // (ixJump's contract: outerDone exactly once) and orbLandIn showed the toast itself; now orbLandIn hands
+    // its reason to outerDone and the caller (orbScrollToQuestion) shows the one toast. Q13 arrives with the
+    // first page, about ten turns above the view, so it is far when the pager ends and lands through
+    // gmLandFarEl. acnJumpDebug's "[ACN pre] far landing" line marks the landing's start (written just before
+    // its first write), and a page-side console hook ends the landing there, one way per fresh page:
+    //   hidden      the tab hides right after the first write ('hidden', a non-user failure): ONE toast
+    //   user        a trusted wheel over the scroller as soon as the line is in ('user'): no toast
+    //   superseded  Q32's row clicked right after the first write ('superseded'): no toast, Q32 lands
+    // In each, Q13 is not resolved or marked and the paging status is gone.
+    // A GUARD, not [new]: on 546ab49 orbLandIn shows the same toast itself, at the same moment, and clears the
+    // same mark, and every Gemini caller of the jump ends in orbScrollToQuestion, whose toast has the same text,
+    // so the page shows the same on both builds (the breach was the contract, not the page). The gate holds
+    // the fix to that page: one toast, never two, none for the user's scroll or a newer jump. Premises
+    // (required on a normal run, reported under --proof, where v12.18 has no pager and no Q13 row): the
+    // far-landing line came after the pager's "end=found" line, the hook acted, and (user) the wheel reached
+    // the scroller less than 300 ms after the landing started (its second step is 350 ms after its first
+    // write, so it was still in flight); a wheel that came later is reported INVALID (the harness was slow).
+    const FAR_HOOK = `(function (mode) {
+        try { localStorage.setItem('acnJumpDebug', '1'); } catch (e) {}
+        window.__vis = 'visible';
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: function () { return window.__vis; } });
+        Object.defineProperty(document, 'hidden', { configurable: true, get: function () { return window.__vis === 'hidden'; } });
+        var far = window.__far = { at: 0, acted: 0, wheelAt: 0 };
+        var sc = document.querySelector('infinite-scroller.chat-history');
+        sc.addEventListener('wheel', function (e) { if (e.isTrusted && !far.wheelAt) far.wheelAt = Date.now(); }, { capture: true, passive: true });
+        function act() {
+            if (mode === 'hidden') { window.__vis = 'hidden'; document.dispatchEvent(new Event('visibilitychange')); }
+            if (mode === 'superseded') {
+                var rows = document.querySelectorAll('#acn-nav-list [data-acn-role="nav-item"]');
+                for (var i = 0; i < rows.length; i++) {
+                    var t = rows[i].querySelector('[data-acn-role="nav-item-text"]');
+                    if (t && t.textContent.indexOf('Gemini question 32:') !== -1) { rows[i].click(); break; }
+                }
+            }
+            far.acted = Date.now();
+        }
+        var orig = console.log;
+        console.log = function () {
+            if (!far.at && String(arguments[0]).indexOf('[ACN pre] far landing:') === 0) {
+                far.at = Date.now();
+                if (mode !== 'user') setTimeout(act, 0);    // after the landing's first write, in this task
+            }
+            return orig.apply(console, arguments);
+        };
+    })`;
+    {
+        const outs = [];
+        for (const mode of ['hidden', 'user', 'superseded']) {
+            const rr = await (fixture(['I12j'], async (r) => {
+                const h = await open(r, ['I12j'], C32, {});
+                if (!h) { outs.push(null); return; }
+                await h.openNav();
+                const v0 = await h.waitReady(32, 8000);
+                await h.page.evaluate(FAR_HOOK + '(' + JSON.stringify(mode) + ')');
+                const row = await h.clickQ(13);
+                let far = null;
+                if (row) {
+                    try { await h.page.waitForFunction(() => window.__far.at > 0, null, { timeout: 30000, polling: 'raf' }); } catch (e) {}
+                    if (mode === 'user' && (await h.page.evaluate(() => window.__far.at)) > 0) await h.wheel(600);
+                    await sleep(1500);
+                    await h.page.evaluate(() => { window.__vis = 'visible'; document.dispatchEvent(new Event('visibilitychange')); });
+                    await h.settle(20000, 2000);
+                    far = await h.page.evaluate(() => window.__far);
+                }
+                const s13 = await h.spot(13, 'q');
+                const s32 = await h.spot(32, 'q');
+                const now = await h.page.evaluate(() => window.__pgNow());
+                const iEnd = h.logs.findIndex((l) => /^\[ACN\] paging: platform=gemini via=jump end=found pages=1\b/.test(l));
+                const iFar = h.logs.findIndex((l) => l.indexOf('[ACN pre] far landing:') === 0);
+                const wheelMs = far && far.wheelAt ? far.wheelAt - far.at : null;
+                const premiseOk = !!row && !!far && far.at > 0 && iEnd >= 0 && iFar > iEnd &&
+                                  (mode === 'user' ? wheelMs !== null && wheelMs >= 0 : far.acted > 0);
+                if (premiseOk && mode === 'user' && wheelMs >= 300) {
+                    outs.push({ invalid: 'precondition: the wheel reached the scroller ' + wheelMs + ' ms after the landing started (want < 300)' });
+                    await h.close();
+                    return;
+                }
+                const toasts = s13.toasts.length;
+                const q13Clean = s13.resolved !== '12' && !s13.markIn;
+                const ok = mode === 'hidden' ? toasts === 1 && q13Clean && s13.resolved === null && !now
+                         : mode === 'user' ? toasts === 0 && q13Clean && s13.resolved === null && !now
+                         : toasts === 0 && q13Clean && s32.inView && s32.resolved === '31' && s32.markIn && !now;
+                outs.push({ ok: premiseOk ? ok : proof, premiseOk,
+                            d: mode + ': ' + premiseNote('far landing after the pager, the hook acted', premiseOk) +
+                               ' row=' + row + ' toasts=' + toasts + ' resolved=' + s13.resolved + ' mark in turn 13=' + s13.markIn +
+                               (mode === 'superseded' ? ' Q32 ' + (s32.inView ? 'in' : 'OUT') + ' mark=' + s32.markIn : '') +
+                               (mode === 'user' ? ' wheel ' + wheelMs + ' ms after the start' : '') +
+                               ' status=' + JSON.stringify(now) + ' lines end/far=' + iEnd + '/' + iFar +
+                               (row ? '' : ' (' + fmt(v0) + ')') });
+                await h.close();
+            }))();
+            flush(rr);
+        }
+        if (want('I12j') && outs.length === 3 && outs.every((x) => x !== null)) {
+            const r = makeRec();
+            const inv = outs.filter((x) => x.invalid);
+            if (inv.length) r.bad('I12j', inv.map((x) => x.invalid).join(' | '));
+            else {
+                r.check('I12j', 'guard', 'a far landing that starts after the pager (Q13) and does not land: the tab hidden after its first ' +
+                        'write gives ONE toast; a trusted wheel during it, or a newer click (Q32, which lands), gives none; Q13 neither ' +
+                        'resolved nor marked, and the paging status gone, in each',
+                        outs.every((x) => x.ok), outs.map((x) => x.d).join(' | '));
+            }
+            flush(r);
+        }
+    }
     await seq(fixture(['I4b'], async (r) => {
         const h = await open(r, ['I4b'], C32, { answerWords: { 2: 'quokka' } });
         if (!h) return;
