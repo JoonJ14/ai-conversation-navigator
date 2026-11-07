@@ -1807,7 +1807,9 @@
                 try {
                     status = res.status;
                     // text() + OUR JSON.parse, not res.json(): the same 'malformed JSON'
-                    // class as gmxhr, and the parsed object belongs to this realm.
+                    // class as gmxhr, and the parsed object belongs to this realm. A raw read
+                    // (v12.19, Gemini's hNvQHb only) skips the parse: ciReadResponse hands a 200's
+                    // text over as it came, and the Gemini adapter reads it (gmIxParse).
                     res.text().then(function (text) {
                         ended();
                         finish(ciReadResponse(status, text, !!(opts && opts.raw)));
@@ -2735,12 +2737,16 @@
     // site's own JSON. One seam per platform:
     //   getConversationId()   -> the open conversation's id, or null
     //   fetchIndex(cid, done) -> done(err, { entries: [{ id, text, position }], total, transport })
+    //                            plus, optionally: answers ([{ key, q, at, text, pos }], every answer in
+    //                            order, v12.15/v12.17), images (v12.17, ChatGPT) and truncated (a page cap)
     //   locate(entry)         -> the mounted DOM node for an entry, or null
     // Claude is wrapped below WITHOUT changing its index: it keeps its own scan branch,
     // jump bridge and bookmark identity (scanConversation, ciJumpToFullPathIndex), which
-    // carry far more than this seam does. ChatGPT and Perplexity run through the generic
-    // pipeline (ixScan / ixLoad / ixJump). A platform without an adapter keeps the DOM
-    // scan; Gemini can be one more entry once its virtualization is measured.
+    // carry far more than this seam does. ChatGPT, Perplexity and, since v12.19, Gemini run
+    // through the generic pipeline (ixScan / ixLoad / ixJump). A platform without an adapter
+    // keeps the DOM scan. Gemini (v12.19, DEC-063) does not window its list: it keeps every
+    // turn it loads and pages older ones in at the top (DEC-057), so its DOM holds the latest
+    // part of a long chat and its index comes from its own history read (hNvQHb).
     //
     // Field names, the Perplexity paging model and the DOM ids below were measured in
     // Chrome, page realm, on the owner's account (2026-10-23). The script runs in its
@@ -3307,6 +3313,407 @@
         return gmIxReady() ? null : gmHistNote();
     }
 
+    // ── Gemini's history read (v12.19, DEC-063) ─────────────────
+    // ONE read, hNvQHb (a chat's turns): the request Gemini's own page sends when the view reaches the
+    // top of a chat (the owner's decision 2: no other RPC, never one that writes). POSTed through fetch,
+    // the one transport for every manager (Phase 0, gmIxTransport).
+    // Measured (Phase 1: Chrome page realm, the owner's profile, visible tab, chat 96b519c1, 32 questions,
+    // 2026-11-05): POST /_/BardChatUi/data/batchexecute?rpcids=hNvQHb, a form body f.req + at and the
+    // page's cookies; bl, f.sid, source-path, _reqid, x-same-domain and both x-goog-ext headers were
+    // ablated as not needed. The answer: ")]}'", then length lines and one-line JSON frames; the wrb.fr
+    // frame for hNvQHb carries the payload as JSON text: [turns NEWEST first, cursor (145 chars; null on
+    // the last page), null, []]. Size 100: the 32 turns in ONE call, cursor null, 6.2 s, 13.5M chars,
+    // ~85% of it one rich-content slot per answer that nothing here reads. Nothing below logs or stores
+    // (GM storage, localStorage) a body, the token, f.req, a cursor, the query string, or a question's or
+    // an answer's text; the token and the index live in memory only.
+    var GM_IX_ORIGIN       = 'https://gemini.google.com';
+    var GM_IX_RPC          = 'hNvQHb';
+    var GM_IX_ENDPOINT     = '/_/BardChatUi/data/batchexecute?rpcids=' + GM_IX_RPC + '&rt=c';   // as Phase 0 sent it
+    var GM_IX_CONTENT_TYPE = 'application/x-www-form-urlencoded;charset=UTF-8';   // CORS-safelisted: a simple request
+    var GM_IX_PAGE_SIZE    = 100;   // a full load, following the cursor to null
+    var GM_IX_MAX_PAGES    = 10;    // a full load's call cap: 1,000 turns (no chat over 32 measured); past it, degrade
+    var GM_IX_STRIKES_MAX  = 5;     // permanent load failures per chat visit, then no more loads until a reload or a reopen
+    var GM_IX_CALLS_MAX    = 100;   // answered hNvQHb calls per chat visit: a backstop
+    // The page token's key and its quoted value, as the page's inline script text writes it. Never spell
+    // the key's quoted form followed by its colon anywhere in this file: the probes inline this script
+    // into the page, where gmIxReadAt scans, and this regex does not match its own source (after the
+    // quoted key comes a backslash, not a colon).
+    var GM_IX_AT_RE = /"SNlM0e"\s*:\s*"((?:[^"\\]|\\.){1,400})"/;
+    var _gmIxAt = null;             // the page token: memory only; never logged, stored, or put in a URL
+    // Per chat visit, outside _ix: ixInvalidate must not reset the strikes or the call count. A change of
+    // chat starts afresh (gmIxFetch), so A -> B -> A reads A whole again, as the spec's "full refetch on a
+    // conversation change" asks; a load counts against the visit it started in (gmIxFetch's `st`).
+    function gmIxChatState(cid) { return { cid: cid, strikes: 0, calls: 0 }; }
+    var _gmIx = gmIxChatState(null);
+    var _gmIxPathSeen = '';
+
+    // /app/<16 hex> ONLY: the one form measured (29 of 29 sidebar links, Phase 1). No trailing slash,
+    // lower case: bookmarkUrl must give exactly v12.17's store key (origin + pathname), so no store moves.
+    function gmIxPathId(pathname) {
+        var m = /^\/app\/([0-9a-f]{16})$/.exec(String(pathname || ''));
+        return m ? m[1] : null;
+    }
+    // Gems and other accounts carry chats in forms no measurement has seen: no index there (v12.18's list
+    // and the "Load full history" button). Said once per path.
+    function gmIxNoteUnmeasured(p) {
+        if (p === _gmIxPathSeen) return;
+        var form = /^\/gem\//.test(p) ? '/gem/' : (/^\/u\/\d+\//.test(p) ? '/u/N/' : '');
+        if (!form) return;
+        _gmIxPathSeen = p;
+        console.log('[ACN] index: platform=gemini path form ' + form + '… unmeasured — no index; ' +
+                    'Navigate lists the loaded turns');
+    }
+    // Phase 0 (probes/gemini-transport-check.user.js: one hNvQHb read of page size 1 through each
+    // transport, chat 96b519c1, visible tab). Per manager, the FIRST transport that returned a payload, the
+    // ladder's rule decided once per manager, so no second transport is ever asked:
+    //   Chrome + Tampermonkey 5.5.1 (agent, 2026-11-05): fetch 200 + payload; GM_xmlhttpRequest and
+    //     GM.xmlHttpRequest 200 + payload too                                              -> fetch
+    //   Firefox + Tampermonkey 5.5.0 (owner, 2026-11-05): fetch, GM_xmlhttpRequest and
+    //     GM.xmlHttpRequest all 200 + payload                                              -> fetch
+    //   Safari + Userscripts 4.8.6 (owner, 2026-11-05): fetch 200 + payload; GM_xmlhttpRequest and
+    //     GM.xmlHttpRequest HTTP 403, no wrb.fr                                            -> fetch
+    // So fetch everywhere, and no @connect gemini.google.com: the owner's decision 3 allows it only where
+    // GM_xmlhttpRequest is the transport that works (G0 itself declared it; this script does not).
+    // Other managers (Violentmonkey, Greasemonkey) are unmeasured and get the same call. null would mean
+    // "none works here": no conversation id, so v12.18's list and the "Load full history" button.
+    function gmIxTransport() { return 'fetch'; }
+
+    // The page token, from the page's inline <script> TEXT, which every JavaScript world shares (never a
+    // page global: Safari's Userscripts has no unsafeWindow). Phase 1 (Chrome page realm): WIZ_global_data's
+    // token, 42 chars (a 28-char head, ':', the 13-digit issue time), in 4 of 18 inline scripts; the first
+    // match is taken, as G0 read it. '' when absent (signed out, a guest session, the page changed).
+    function gmIxReadAt() {
+        var ss;
+        try { ss = document.querySelectorAll('script:not([src])'); } catch (e) { return ''; }
+        for (var i = 0; i < ss.length; i++) {
+            var t = ss[i].textContent || '';
+            if (t.indexOf('SNlM0e') === -1) continue;
+            var m = GM_IX_AT_RE.exec(t);
+            if (!m) continue;
+            var v = m[1];
+            if (v.indexOf('\\') !== -1) {
+                try { v = JSON.parse('"' + v + '"'); } catch (e2) { continue; }
+            }
+            if (/^[\x21-\x7e]{8,400}$/.test(v)) return v;
+        }
+        return '';
+    }
+    // The page's own argument list, captured with a cursor (Phase 1): [c_<id>, size, cursor, 1, [1], [4],
+    // null, 1]. The token rides in the body only: no URL, Resource Timing entry or log line carries it.
+    function gmIxBody(cid, size, cursor, at) {
+        var args = ['c_' + cid, size, cursor || null, 1, [1], [4], null, 1];
+        return 'f.req=' + encodeURIComponent(JSON.stringify([[[GM_IX_RPC, JSON.stringify(args), null, 'generic']]])) +
+               '&at=' + encodeURIComponent(at);
+    }
+    function gmIxNow() {
+        try { if (typeof performance !== 'undefined' && performance.now) return performance.now(); } catch (e) {}
+        return Date.now();
+    }
+    // JS heap bytes, or -1 (Firefox, Safari). Chrome's performance.memory is coarse (quantized, refreshed
+    // rarely without --enable-precise-memory-info): a reading that does not move is NOT a small peak.
+    function gmIxHeap() {
+        try {
+            var pm = typeof performance !== 'undefined' ? performance.memory : null;
+            return (pm && typeof pm.usedJSHeapSize === 'number') ? pm.usedJSHeapSize : -1;
+        } catch (e) { return -1; }
+    }
+    function gmIxMB(b) { return b < 0 ? 'n/a' : (b / 1048576).toFixed(1); }
+    // A string of its own: what the parse keeps is copied out of the payload, so no kept string can be a
+    // view that holds the 13.5M-char answer alive (V8's sliced strings; unverified insurance, the live
+    // heap reading decides whether it stays).
+    function gmIxOwn(s) { return s ? JSON.parse(JSON.stringify(String(s))) : ''; }
+
+    // One answer -> { turns: [{ id, q, a }] in conversation order, cursor } | { nullPayload: true, code }.
+    // Throws only new Error('shape'), never a message built from the text (V8's JSON.parse SyntaxError
+    // quotes the source near the error). holder.text is released before the payload's tree is built, each
+    // turn's slot (and with it its rich-content slot) as soon as its strings are copied out.
+    function gmIxParse(holder, m) {
+        var text = holder.text, t0 = gmIxNow(), entry = null, from = 4, i;
+        holder.text = null;
+        if (typeof text !== 'string' || text.slice(0, 4) !== ")]}'") throw new Error('shape');
+        // Line by line, as G0 read it in every manager: a length line, then one JSON frame per line. The
+        // lengths are never used: their unit (bytes or UTF-16 units) is unmeasured. Works with and without rt=c.
+        while (from < text.length && !entry) {
+            var nl = text.indexOf('\n', from);
+            if (nl < 0) nl = text.length;
+            if (text.charAt(from) === '[') {
+                var arr = null;
+                try { arr = JSON.parse(text.substring(from, nl)); } catch (x) { arr = null; }
+                for (i = 0; Array.isArray(arr) && i < arr.length; i++) {
+                    if (Array.isArray(arr[i]) && arr[i][0] === 'wrb.fr' && arr[i][1] === GM_IX_RPC) { entry = arr[i]; break; }
+                }
+                arr = null;
+            }
+            from = nl + 1;
+        }
+        m.chars += text.length;
+        text = null;
+        var t1 = gmIxNow();
+        m.frameMs += t1 - t0;
+        if (!entry) throw new Error('shape');
+        if (entry[2] == null) {
+            // Measured: no session -> HTTP 200, payload null, error [7] (Phase 1, credentials omitted); G0
+            // reads the code at wrb.fr[5]. Only a small integer reaches a reason or a log line.
+            var c = Array.isArray(entry[5]) ? entry[5][0] : null;
+            return { nullPayload: true, code: (typeof c === 'number' && c >= 0 && c < 1000 && c % 1 === 0) ? c : null };
+        }
+        if (typeof entry[2] !== 'string') throw new Error('shape');
+        var P = null;
+        try { P = JSON.parse(entry[2]); } catch (e) { P = null; }   // the expected peak: the whole tree is alive here
+        entry = null;
+        m.heapMax = Math.max(m.heapMax, gmIxHeap());
+        var t2 = gmIxNow();
+        m.treeMs += t2 - t1;
+        if (!Array.isArray(P) || !Array.isArray(P[0]) || (P[1] != null && typeof P[1] !== 'string')) throw new Error('shape');
+        var raw = P[0], cursor = P[1] ? gmIxOwn(P[1]) : null, out = [];
+        P = null;
+        for (var k = raw.length - 1; k >= 0; k--) {               // newest first -> conversation order
+            var T = raw[k];
+            // T[0] = [c_<chat>, r_<16 hex>]: the hex equals the page's div.conversation-container#id (Phase 1:
+            // 10/10 and 32/32, order-exact). T[2][0][0] = the question's text (equal to the page's
+            // p.query-text-line text, 32/32; user-query's own text reads 37-113 chars longer).
+            var rid = (Array.isArray(T) && Array.isArray(T[0]) && typeof T[0][1] === 'string') ? T[0][1] : '';
+            var mm = /^r_([0-9a-f]{16})$/.exec(rid);
+            if (!mm || !Array.isArray(T[2]) || !Array.isArray(T[2][0])) throw new Error('shape');
+            out.push({ id: gmIxOwn(mm[1]), q: gmIxOwn(typeof T[2][0][0] === 'string' ? T[2][0][0] : ''),
+                       a: gmIxOwn(gmIxAnswer(T[3])) });
+            raw[k] = null;                                        // the turn's slot goes, its rich content with it
+            T = null;
+        }
+        raw = null;
+        m.extractMs += gmIxNow() - t2;
+        return { turns: out, cursor: cursor };
+    }
+
+    // A turn's answer text: turn[3][0][0][1][0]. MEASURED BY SHAPE ONLY (Phase 1, Chrome page realm,
+    // 96b519c1): T[3][0] lists the response candidates and T[3][3] names the one shown (rc_...); a
+    // candidate's [1] was a ONE-element array holding a string, the answer's markdown (731 chars on the
+    // turn inspected; 119K over the 32 turns). Its text was not compared with the page's. [3][0][0][12]
+    // (10.7M chars, 85% of the payload) is never read. Drafts are unmeasured: the candidate whose [0] is
+    // T[3][3], else the first; more than one string in [1] is joined. '' when there is none (an answer
+    // still being written, a failed one).
+    function gmIxAnswer(R) {
+        if (!Array.isArray(R) || !Array.isArray(R[0]) || !R[0].length) return '';
+        var c = R[0][0], j, out = [];
+        if (typeof R[3] === 'string') {
+            for (j = 0; j < R[0].length; j++) if (Array.isArray(R[0][j]) && R[0][j][0] === R[3]) { c = R[0][j]; break; }
+        }
+        var parts = Array.isArray(c) ? c[1] : null;
+        if (typeof parts === 'string') return parts;
+        for (j = 0; Array.isArray(parts) && j < parts.length; j++) if (typeof parts[j] === 'string') out.push(parts[j]);
+        return out.join('\n\n');
+    }
+
+    // ixLoad's shapes (as Perplexity's): position = the TURN's index, so a turn with no question text (an
+    // image only) keeps its place but is no Navigate row, as v12.18's scan skips it. Every turn has an
+    // answer record keyed <id>:answer (v12.17's bookmark key), q = its question's Navigate index or -1.
+    // Throws Error('shape') for a turn listed twice, and for a chat of 2+ turns with no question text or
+    // no answer text at all (a payload this build cannot read, never a silently empty list).
+    function gmIxBuild(turns) {
+        var entries = [], answers = [], seen = {}, kept = 0, withText = 0;
+        for (var k = 0; k < turns.length; k++) {
+            var t = turns[k];
+            if (seen['t' + t.id]) throw new Error('shape');
+            seen['t' + t.id] = true;
+            var q = t.q.replace(/^\s+|\s+$/g, ''), qi = -1;
+            if (q) { qi = entries.length; entries.push({ id: t.id, text: q, position: k }); }
+            answers.push({ key: t.id + ':answer', q: qi, at: t.id, text: t.a, pos: k + 0.5 });
+            if (t.a) withText++;
+            kept += q.length + t.a.length;
+        }
+        if (turns.length >= 2 && (!withText || !entries.length)) throw new Error('shape');
+        return { entries: entries, answers: answers, kept: kept };
+    }
+
+    // A turn the index holds, with or without a question (every turn has an answer record): mounted()
+    // must not read an image-only turn as newer than the index.
+    function gmIxKnownTurn(id) {
+        return !!(_ix.answerAt && _ix.answerAt.hasOwnProperty(id));
+    }
+
+    // A 200 whose hNvQHb payload is null. [7] measured (the session); [3] and [5] are public meanings only.
+    function gmIxRpcFailure(t, code) {
+        var pre = '[' + t + '] ' + GM_IX_RPC + ' error ' + (code === null ? '(none)' : code);
+        if (code === 7) return { reason: pre + ': the session was not accepted (signed out?)', permanent: true };
+        if (code === 3) return { reason: pre + ': the request was not accepted (Gemini changed it?)', permanent: true };
+        if (code === 5) return { reason: pre + ': conversation not found (new, or deleted?)', permanent: false };
+        return { reason: pre + ': no payload', permanent: true };
+    }
+
+    // The adapter's fetchIndex: the whole chat, newest page first (size 100), following the cursor to null.
+    // done(err) with { reason, permanent[, noStrike] }, or done(null, { entries, answers, total, transport }):
+    // total is the turn count (the position scale), no images (the gallery stays on the page's own) and no
+    // truncated (past the page cap it degrades: newest-first paging would drop the OLDEST turns).
+    // Classes (permanent = ixDegrade's 60 s then x4 backoff; transient = the ~16 s cooldown):
+    //   HTTP 400          the token re-read ONCE from the current document and the request sent ONCE more
+    //                     (" retry=at-new|at-same"); a second 400 is permanent. No ~16 s loop, as ChatGPT's
+    //                     token refresh.
+    //   no token          permanent, nothing sent.
+    //   null payload      [7] and [3] permanent, [5] transient, any other code permanent.
+    //   shape             no prefix, no hNvQHb frame, a payload or turn that does not read, a repeated cursor,
+    //                     an empty page with a cursor: permanent.
+    //   threw             permanent: one transport per manager, and one that cannot run here will not start to.
+    //   401/403/429       permanent (ciIsPermanentReason); 404, 5xx, network and timeout transient, as every
+    //                     adapter's.
+    // Gates on the calls, on top of ixScan's (one load at a time, the 15 s cooldown, the backoff): a full
+    // load is at most GM_IX_MAX_PAGES calls; GM_IX_STRIKES_MAX permanent failures in a chat visit stop its
+    // loads until a reload or a reopen; GM_IX_CALLS_MAX answered calls per chat visit.
+    // ONE "[ACN] index: platform=gemini transport=… endpoint=hNvQHb page=N size=S[ retry=…] status=C" line
+    // per request sent (ixLog), with one tail; one "measure" line per load that built an index.
+    function gmIxFetch(cid, done) {
+        var transport = gmIxTransport();
+        if (_gmIx.cid !== cid) _gmIx = gmIxChatState(cid);
+        // This visit's state, captured: a load still answering after a switch (A -> B) must not count
+        // against the chat now open.
+        var st = _gmIx;
+        var m = { kind: 'full', pages: 0, chars: 0, netMs: 0, frameMs: 0, treeMs: 0, extractMs: 0,
+                  heap0: gmIxHeap(), heapMax: -1 };
+        var retried = false, ended = false;
+        function end(err, res) {
+            if (ended) return;
+            ended = true;
+            if (err && err.permanent && !err.noStrike) st.strikes++;
+            done(err, res);
+        }
+        // Before-send endings and a transport that answers synchronously: never inside ixLoad's own call,
+        // where done would run a nested scan inside the scan in progress.
+        function endSoon(err) { setTimeout(function () { end(err); }, 0); }
+        // ixLoad catches only a synchronous throw, and ciApiGet rethrows a callback's on a fresh stack,
+        // which would leave the load in flight for good: every callback below ends the load on a throw.
+        // Only the error's name is kept: nothing from a response can reach a reason. A throw after the load
+        // ended (in what done ran) is not this load's: rethrown on a fresh stack, never swallowed.
+        function guard(fn) {
+            return function (x) {
+                try { fn(x); }
+                catch (e) {
+                    if (ended) { setTimeout(function () { throw e; }, 0); return; }
+                    end({ reason: 'index load threw: ' + String((e && e.name) || 'Error'), permanent: false });
+                }
+            };
+        }
+        // ONE hNvQHb call; next(page, log) on a page that parsed, where log(tail) writes its line.
+        function call(size, cursor, n, next, retryTag) {
+            if (IX_ADAPTERS.gemini.getConversationId() !== cid) { endSoon({ reason: 'superseded', permanent: false }); return; }
+            if (st.calls >= GM_IX_CALLS_MAX) {
+                endSoon({ reason: GM_IX_CALLS_MAX + ' history reads in this chat (reload the page to read it again)',
+                          permanent: true, noStrike: true });
+                return;
+            }
+            if (!_gmIxAt) _gmIxAt = gmIxReadAt();
+            if (!_gmIxAt) { endSoon({ reason: 'no page token in the page (signed out?)', permanent: true }); return; }
+            var sentAt = _gmIxAt, extra = ' page=' + n + ' size=' + size + (retryTag || ''), t0 = gmIxNow();
+            var sync = true;
+            function answered(r) {
+                m.netMs += gmIxNow() - t0;
+                if (r.kind === 'ok' || r.kind === 'http') st.calls++;
+                if (!r.ok) {
+                    ixLog('gemini', r, GM_IX_RPC, extra);              // the one line for this request
+                    if (r.kind === 'http' && r.status === 400) {
+                        if (!retried) {                                // ONE re-read and ONE retry per load
+                            retried = true;
+                            _gmIxAt = gmIxReadAt();
+                            call(size, cursor, n, next, (_gmIxAt && _gmIxAt !== sentAt) ? ' retry=at-new' : ' retry=at-same');
+                            return;
+                        }
+                        _gmIxAt = null;                                // the next load reads the page again
+                        end({ reason: '[' + r.transport + '] HTTP 400 twice (Gemini refused the request and its page token)',
+                              permanent: true });
+                        return;
+                    }
+                    var f = ixFailure(r);
+                    if (r.kind === 'threw') f.permanent = true;        // one transport per manager
+                    end(f);
+                    return;
+                }
+                var holder = { text: r.text };
+                r.text = null;
+                // Parsed on a fresh stack: the transport's frames, which held the response text, have
+                // returned by then, so the payload's tree is built without a second copy alive.
+                setTimeout(guard(function () {
+                    if (IX_ADAPTERS.gemini.getConversationId() !== cid) {
+                        holder.text = null;
+                        ixLog('gemini', r, GM_IX_RPC, extra, ' superseded');   // answered, never read
+                        end({ reason: 'superseded', permanent: false });
+                        return;
+                    }
+                    var pg;
+                    try { pg = gmIxParse(holder, m); }
+                    catch (e) {
+                        ixLog('gemini', r, GM_IX_RPC, extra, ' payload=bad');
+                        end({ reason: '[' + r.transport + '] unexpected response shape', permanent: true });
+                        return;
+                    }
+                    if (pg.nullPayload) {
+                        ixLog('gemini', r, GM_IX_RPC, extra, ' payload=null code=' + (pg.code === null ? '?' : pg.code));
+                        end(gmIxRpcFailure(r.transport, pg.code));
+                        return;
+                    }
+                    m.pages++;
+                    next(pg, function (tail) {
+                        ixLog('gemini', r, GM_IX_RPC, extra, ' turns=' + pg.turns.length +
+                              ' cursor=' + (pg.cursor ? 'yes' : 'no') + (tail || ''));
+                    });
+                }), 0);
+            }
+            ciApiGet(transport, GM_IX_ENDPOINT, guard(function (r) {
+                if (sync) { setTimeout(guard(function () { answered(r); }), 0); return; }
+                answered(r);
+            }), { origin: GM_IX_ORIGIN, method: 'POST', raw: true, headers: { 'Content-Type': GM_IX_CONTENT_TYPE },
+                  body: gmIxBody(cid, size, cursor, sentAt) });
+            sync = false;
+        }
+        function finish(turns, log) {
+            var b;
+            try { b = gmIxBuild(turns); }
+            catch (e) {
+                log(' payload=bad');
+                end({ reason: '[' + transport + '] unexpected response shape (turns)', permanent: true });
+                return;
+            }
+            log(' questions=' + b.entries.length);
+            // Where a load's time and memory go (the spec's parse time and peak memory): net, then the
+            // frame scan, the payload's tree and the extraction, and the heap before > at the tree > after.
+            console.log('[ACN] index: platform=gemini measure load=' + m.kind + ' transport=' + transport +
+                ' pages=' + m.pages + ' turns=' + turns.length + ' questions=' + b.entries.length +
+                ' chars=' + m.chars + ' kept=' + b.kept + ' netMs=' + Math.round(m.netMs) +
+                ' parseMs=' + Math.round(m.frameMs + m.treeMs + m.extractMs) + ' (frame=' + Math.round(m.frameMs) +
+                ' tree=' + Math.round(m.treeMs) + ' extract=' + Math.round(m.extractMs) + ')' +
+                ' heapMB=' + gmIxMB(m.heap0) + '>' + gmIxMB(m.heapMax) + '>' + gmIxMB(gmIxHeap()) +
+                (document.visibilityState === 'visible' ? '' : ' tab=hidden'));
+            end(null, { entries: b.entries, answers: b.answers, total: turns.length, transport: transport });
+        }
+        function full() {
+            var acc = [], cursors = {};
+            function page(n, cursor) {
+                call(GM_IX_PAGE_SIZE, cursor, n, function (pg, log) {
+                    acc = pg.turns.concat(acc);                         // an older page goes in front
+                    if (!pg.cursor) { finish(acc, log); return; }
+                    log('');
+                    // A repeated cursor would loop the same page to the cap; an empty page that still has a
+                    // cursor would page blind (Perplexity's rule). Unmeasured on hNvQHb: degrade visibly.
+                    if (!pg.turns.length || cursors.hasOwnProperty('c' + pg.cursor)) {
+                        end({ reason: '[' + transport + '] unexpected response shape (paging)', permanent: true });
+                        return;
+                    }
+                    cursors['c' + pg.cursor] = true;                   // prefixed: a cursor is opaque text
+                    if (n >= GM_IX_MAX_PAGES) {
+                        end({ reason: 'longer than ' + (GM_IX_MAX_PAGES * GM_IX_PAGE_SIZE) + ' turns (the page cap)',
+                              permanent: true, noStrike: true });
+                        return;
+                    }
+                    page(n + 1, pg.cursor);
+                });
+            }
+            page(1, null);
+        }
+        if (st.strikes >= GM_IX_STRIKES_MAX) {
+            endSoon({ reason: 'stopped after ' + st.strikes + ' failures in this chat (reload the page to try again)',
+                      permanent: true, noStrike: true });
+            return;
+        }
+        full();
+    }
+
     var IX_ADAPTERS = {
         // The v12.0 index, wrapped. Its scan branch, jump bridge and bookmarks call the
         // ci* functions directly; locate() is what _relocateQuestionElement uses.
@@ -3497,6 +3904,63 @@
                 if (p < 0 || !_ix.idAtPos.hasOwnProperty(p) || !_ix.textAt.hasOwnProperty(p)) return null;
                 if (!ixPplxSameText(el, _ix.textAt[p])) return null;
                 return _ix.idAtPos[p];
+            }
+        },
+        // Gemini (v12.19, DEC-063, superseding DEC-057's "no adapter"): it KEEPS every turn it loads and loads
+        // older ones 10 at a time at the top (DEC-057), so the DOM holds the latest part of a long chat; the
+        // index is the whole chat, from its own history read (gmIxFetch). Turns are identified by the page's
+        // own 16-hex container id, which equals the history's r_<id> (Phase 1, 32/32, order-exact).
+        gemini: {
+            id: 'gemini',
+            origins: [GM_IX_ORIGIN],
+            // /app/<16 hex> only (gmIxPathId); a Gem or /u/N/ path has no index (gmIxNoteUnmeasured), nor a
+            // manager without a working transport (gmIxTransport).
+            getConversationId: function () {
+                var p = window.location.pathname, id = gmIxPathId(p);
+                if (!id) { gmIxNoteUnmeasured(p); return null; }
+                return gmIxTransport() ? id : null;
+            },
+            // v12.17's store key, by construction: origin + pathname (normalizeConversationUrl), since the
+            // origin is exact (ixAdapter) and gmIxPathId accepts only /app/<16 lower-case hex>. Nothing moves.
+            bookmarkUrl: function (cid) { return GM_IX_ORIGIN + '/app/' + cid; },
+            pathId: gmIxPathId,
+            fetchIndex: gmIxFetch,
+            // By identity only: the turn whose id the entry carries, its question node (as getUserMessages finds it).
+            locate: function (entry) {
+                var t = gmTurnById(entry && entry.id);
+                return t ? gmQuestionIn(t) : null;
+            },
+            // The scroller's turns (its only children, DOM-REFERENCE), in DOM order. A turn the index holds
+            // with no question (an image only) is no Navigate row; a NEW turn (an id the index lacks) with a
+            // question is pos -1, keyed by its id: ixScan's stale rule then asks for the index again.
+            mounted: function () {
+                var out = [], turns = gmHistTurns(document.querySelector('infinite-scroller.chat-history'));
+                for (var i = 0; i < turns.length; i++) {
+                    var id = turns[i].id || '', q = gmQuestionIn(turns[i]);
+                    if (!GM_TURN_ID_RE.test(id) || !q) continue;
+                    var pos = (_ix.idIndex && _ix.idIndex.hasOwnProperty(id)) ? _ix.idIndex[id] : -1;
+                    if (pos < 0 && (gmIxKnownTurn(id) || !_readMessageText(q))) continue;
+                    out.push({ pos: pos, key: id, el: q });
+                }
+                return out;
+            },
+            // One question and one answer per turn with its own id: the nodes v12.17's _bmGmInject flags.
+            bookmarkables: function () {
+                var out = [], turns = document.querySelectorAll('div.conversation-container');
+                for (var i = 0; i < turns.length; i++) {
+                    if (!GM_TURN_ID_RE.test(turns[i].id || '')) continue;
+                    var q = gmQuestionIn(turns[i]), an = gmAnswerIn(turns[i]);
+                    if (q) out.push({ el: q, type: 'user-msg' });
+                    if (an) out.push({ el: an, type: 'ai-msg' });
+                }
+                return out;
+            },
+            // v12.17's keys, unchanged (_bmGmInject): the turn's id, and that + ':answer'. The page's own ids,
+            // so a new message has its key before the index holds it (as ChatGPT's).
+            keyOf: function (el, type) {
+                if (!IX_ADAPTERS.gemini.getConversationId()) return null;
+                var t = gmTurnOf(el);
+                return t ? (type === 'ai-msg' ? t.id + ':answer' : t.id) : null;
             }
         }
     };
