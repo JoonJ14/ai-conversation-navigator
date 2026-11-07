@@ -237,7 +237,7 @@ messages not loaded" lines below show only where that read cannot run; the galle
 
 ---
 
-## v12.19 (PR TBD): Gemini's full question list on open
+## v12.19 (PR #94): Gemini's full question list on open
 
 Chat: Gemini `96b519c1…` (32 questions). Confirm `data-acn-version` reads **12.19** first. Gemini's history read uses
 `fetch` on all three managers (Phase 0, DEC-063), so the "Load full history" fallback is expected only on a Gem chat or
