@@ -2740,6 +2740,8 @@
     //                            plus, optionally: answers ([{ key, q, at, text, pos }], every answer in
     //                            order, v12.15/v12.17), images (v12.17, ChatGPT) and truncated (a page cap)
     //   locate(entry)         -> the mounted DOM node for an entry, or null
+    //   selfCheck()           -> optional (v12.19, Gemini): null, or { reason, permanent } when the page
+    //                            contradicts the ready index; ixScan then drops it for the DOM list
     // Claude is wrapped below WITHOUT changing its index: it keeps its own scan branch,
     // jump bridge and bookmark identity (scanConversation, ciJumpToFullPathIndex), which
     // carry far more than this seam does. ChatGPT, Perplexity and, since v12.19, Gemini run
@@ -2782,6 +2784,8 @@
         // A conversation left and opened again shows only its newest pages again (Tier 3).
         _ixStartLoaded = null;
         _ixBmServed = _ixBmAsked;
+        // Gemini's self-check verdict (data-acn-index-check, v12.19) was about the index dropped here.
+        gmIxMark('');
         _ix = { pid: null, cid: null, status: 'idle', entries: null, total: 0, idIndex: null,
                 textAt: null, inFlightCid: null, loadGen: (_ix.loadGen || 0) + 1, indexGen: (_ix.indexGen || 0) + 1,
                 reason: '', retryDelayMs: 0, lastFetchAt: 0, refreshFailed: '', truncated: 0,
@@ -3334,6 +3338,7 @@
     var GM_IX_MAX_PAGES    = 10;    // a full load's call cap: 1,000 turns (no chat over 32 measured); past it, degrade
     var GM_IX_STRIKES_MAX  = 5;     // permanent load failures per chat visit, then no more loads until a reload or a reopen
     var GM_IX_CALLS_MAX    = 100;   // hNvQHb requests asked of the transport per chat visit, answered or not: a backstop
+    var GM_IX_VERIFY_GRACE_MS = 30000;   // turns shown that the self-check cannot compare: this long, then a mismatch
     // The page token's key and its quoted value, as the page's inline script text writes it. Never spell
     // the key's quoted form followed by its colon anywhere in this file: the probes inline this script
     // into the page, where gmIxReadAt scans, and this regex does not match its own source (after the
@@ -3343,7 +3348,12 @@
     // Per chat visit, outside _ix: ixInvalidate must not reset the strikes or the call count. A change of
     // chat starts afresh (gmIxFetch), so A -> B -> A reads A whole again, as the spec's "full refetch on a
     // conversation change" asks; a load counts against the visit it started in (gmIxFetch's `st`).
-    function gmIxChatState(cid) { return { cid: cid, strikes: 0, calls: 0 }; }
+    // The self-check's share: strikes (its mismatches count with the permanent load failures),
+    // unverifiedAt (when shown turns first could not be compared, or -1), the id map of the index it
+    // last read (mapKey: which index build) and okKey (the build whose "self-check ok" line is out).
+    function gmIxChatState(cid) {
+        return { cid: cid, strikes: 0, calls: 0, unverifiedAt: -1, mapKey: '', map: null, okKey: '' };
+    }
     var _gmIx = gmIxChatState(null);
     var _gmIxPathSeen = '';
 
@@ -3724,6 +3734,134 @@
         full();
     }
 
+    // ── Gemini's self-check (v12.19, DEC-063): the index proven against the page on every scan ──
+    // The spec: on every load and refresh, the turns on the page must match the index, by container id
+    // and by question text, 100%; any mismatch degrades VISIBLY (the banner, v12.18's DOM list, the
+    // "older messages" note), never a silently wrong list. ixScan asks it first in its ready branch, on
+    // every scan, and ixAfterLoad scans as soon as a load lands. Test contract: data-acn-index-check on
+    // #acn-zone, 'ok' (the turns shown matched), 'pending' (nothing to compare yet) or 'mismatch' (the
+    // last check failed; kept while the list is the DOM's), removed with the index (ixInvalidate).
+    // Normalization: every whitespace character removed, case kept, full length. Phase 1 (Chrome page
+    // realm, the owner's profile, chat 96b519c1, 2026-11-05): the read's T[2][0][0] equalled the page's
+    // p.query-text-line text after whitespace normalization on 32 of 32 turns. Removed rather than
+    // collapsed (desk reading, no multi-line question was in that chat): a question of several lines is
+    // several p elements whose text has no separator between them, where the read joins the lines with
+    // '\n'. Never user-query's own text: it read 37-113 characters longer (the "You said" label, file
+    // chips, button labels). Unmeasured: markdown or code in a question, attachments, edited questions.
+    function gmIxQKey(t) { return String(t == null ? '' : t).replace(/\s+/g, ''); }
+    // The question as the page shows it: its p.query-text-line lines (Phase 1's comparator), else
+    // v12.18's reader of the question node (which drops the "You said" label and our own flag).
+    function gmIxShownQuestion(turn) {
+        var q = gmQuestionIn(turn), scope = q || turn.querySelector('user-query');
+        if (!scope) return '';
+        var ps = scope.querySelectorAll('p.query-text-line'), out = [];
+        if (!ps.length) return q ? _readMessageText(q) : '';
+        for (var i = 0; i < ps.length; i++) out.push(ps[i].textContent || '');
+        return out.join('\n');
+    }
+    // id -> { k: the turn's index in the chat, q: its question's key ('' for a turn with no question
+    // text) }, read from _ix only and kept per index build. n: the turns the index holds.
+    function gmIxTurnMap() {
+        if (!_ix.answers || !_ix.entries) return null;
+        var key = _ix.cid + '|x' + _ix.indexGen;
+        if (_gmIx.mapKey === key && _gmIx.map) return _gmIx.map;
+        var byId = {}, qOf = {}, i;
+        for (i = 0; i < _ix.entries.length; i++) qOf[_ix.entries[i].id] = _ix.entries[i].text;
+        for (i = 0; i < _ix.answers.length; i++) {
+            var id = _ix.answers[i].at;
+            byId[id] = { k: Math.floor(_ix.answers[i].pos), q: gmIxQKey(qOf.hasOwnProperty(id) ? qOf[id] : '') };
+        }
+        _gmIx.map = { byId: byId, n: _ix.answers.length };
+        _gmIx.mapKey = key;
+        return _gmIx.map;
+    }
+    // The test contract's attribute; set again whenever it differs, so a zone the page re-injected
+    // carries it after the next scan. '' removes it.
+    function gmIxMark(v) {
+        var z = document.getElementById('acn-zone');
+        if (!z) return;
+        if (!v) { if (z.hasAttribute('data-acn-index-check')) z.removeAttribute('data-acn-index-check'); }
+        else if (z.getAttribute('data-acn-index-check') !== v) z.setAttribute('data-acn-index-check', v);
+    }
+    // A mismatch: a strike of this chat visit (with the permanent load failures, GM_IX_STRIKES_MAX of
+    // them stop its loads until a reload or a reopen). The first is transient, so the full reload comes
+    // after the cooldown (~16 s: an edit the server holds by then reads true); from the second on it is
+    // permanent: 60 s (a load that succeeds resets ixDegrade's backoff, so each later one waits 60 s
+    // again), and the cap bounds them: at most GM_IX_STRIKES_MAX full reads in a chat that never matches.
+    // The reason names a turn by its id's first 8 characters and counts characters: never a text.
+    function gmIxStrike(why) {
+        _gmIx.strikes++;
+        _gmIx.unverifiedAt = -1;
+        gmIxMark('mismatch');
+        console.warn('[ACN] index: platform=gemini self-check FAILED (' + why + ') — strike ' +
+                     _gmIx.strikes + ' of ' + GM_IX_STRIKES_MAX);
+        return { reason: why, permanent: _gmIx.strikes > 1 };
+    }
+    // The adapter's selfCheck: null = nothing wrong; else { reason, permanent } and ixScan drops the
+    // index. The page's turns, by their own ids, against the index: every turn shown is in it, in its
+    // order, with no indexed turn missing between two shown ones, and each question reads as the
+    // index's. A turn NEWER than the index (after every known one: a message just sent) is no mismatch:
+    // mounted() reports it (pos -1), and ixScan's stale rule asks for the index again. A turn with no id
+    // yet (being created) and a question not rendered yet are not compared.
+    function gmIxSelfCheck() {
+        var map = gmIxTurnMap();
+        if (!map) return null;
+        var turns = gmHistTurns(document.querySelector('infinite-scroller.chat-history'));
+        var lastK = -1, known = 0, unknown = 0, unknownAt = -1, noId = 0, compared = 0, blank = 0, why = '';
+        for (var i = 0; i < turns.length && !why; i++) {
+            var id = turns[i].id || '';
+            if (!GM_TURN_ID_RE.test(id)) { noId++; continue; }
+            if (!map.byId.hasOwnProperty(id)) { unknown++; if (unknownAt < 0) unknownAt = i; continue; }
+            var e = map.byId[id], id8 = id.slice(0, 8);
+            known++;
+            if (unknownAt >= 0) why = 'turn ' + id8 + ' follows a turn the index does not hold';
+            else if (e.k <= lastK) why = 'turn ' + id8 + ' is out of the index\'s order';
+            else if (lastK >= 0 && e.k !== lastK + 1) why = (e.k - lastK - 1) + ' indexed turn(s) missing above turn ' + id8;
+            if (why) break;
+            lastK = e.k;
+            var shown = gmIxQKey(gmIxShownQuestion(turns[i]));
+            if (!shown && e.q) { blank++; continue; }
+            if (shown !== e.q) {
+                why = 'the question of turn ' + id8 + ' differs from the index\'s (' + shown.length + ' vs ' +
+                      e.q.length + ' characters)';
+                break;
+            }
+            compared++;
+        }
+        if (why) return gmIxStrike(why);
+        // Shown but not comparable: none of the turns shown is in a non-empty index (another chat's,
+        // left on the page) or carries an id at all (the page's ids changed: never an index taken on
+        // trust), no question shown is readable, or questions shown where no turns are (the page
+        // changed). GM_IX_VERIFY_GRACE_MS for the page to catch up, then a mismatch.
+        var unverified = (known === 0 && (unknown > 0 || noId > 0) && map.n > 0) ||
+                         (known > 0 && !compared && blank > 0) ||
+                         (!turns.length && map.n > 0 && getUserMessages().length > 0);
+        if (unverified) {
+            var now = Date.now();
+            if (_gmIx.unverifiedAt < 0) _gmIx.unverifiedAt = now;
+            if (now - _gmIx.unverifiedAt >= GM_IX_VERIFY_GRACE_MS) {
+                return gmIxStrike(known ? 'no question on the page is readable'
+                                : unknown ? 'none of the ' + unknown + ' turns on the page is in the index'
+                                : noId ? 'none of the ' + noId + ' turns on the page carries an id'
+                                : 'questions on the page, but no turns where they were measured');
+            }
+            // A scan when the grace is over, mutations or not (asked again by every scan meanwhile: one
+            // pending rescan is all _ciScheduleRescan keeps).
+            _ciScheduleRescan(_gmIx.unverifiedAt + GM_IX_VERIFY_GRACE_MS - now + 500);
+            gmIxMark('pending');
+            return null;
+        }
+        _gmIx.unverifiedAt = -1;
+        gmIxMark(compared ? 'ok' : 'pending');
+        var okKey = _ix.cid + '|x' + _ix.indexGen;
+        if (compared && _gmIx.okKey !== okKey) {
+            _gmIx.okKey = okKey;
+            console.log('[ACN] index: platform=gemini self-check ok compared=' + compared + ' shown=' + turns.length +
+                        ' indexed=' + map.n + (unknown ? ' newer=' + unknown : ''));
+        }
+        return null;
+    }
+
     var IX_ADAPTERS = {
         // The v12.0 index, wrapped. Its scan branch, jump bridge and bookmarks call the
         // ci* functions directly; locate() is what _relocateQuestionElement uses.
@@ -3935,6 +4073,8 @@
             bookmarkUrl: function (cid) { return GM_IX_ORIGIN + '/app/' + cid; },
             pathId: gmIxPathId,
             fetchIndex: gmIxFetch,
+            // The index against the page's own turns, on every scan (gmIxSelfCheck).
+            selfCheck: gmIxSelfCheck,
             // By identity only: the turn whose id the entry carries, its question node (as getUserMessages finds it).
             locate: function (entry) {
                 var t = gmTurnById(entry && entry.id);
@@ -4139,6 +4279,23 @@
         if (!a || !cid) return false;
 
         if (_ix.status === 'ready' && _ix.cid === cid && _ix.entries) {
+            // v12.19: an adapter that proves its index against the page on every scan, and so on every
+            // load and refresh (ixAfterLoad scans at once): Gemini. A contradiction drops the index NOW,
+            // never a silently wrong list: a load in flight is superseded (its keep-path ixDegrade would
+            // otherwise set 'ready' over null entries), the retry waits the cooldown from now (then the
+            // backoff), and this scan takes the DOM list below. Its timer replaces any rescan pending:
+            // _ciScheduleRescan keeps one, and a sooner one would scan, find the retry not due yet and
+            // leave it to the next mutation. No selfCheck (ChatGPT, Perplexity): unchanged.
+            var selfBad = a.selfCheck ? a.selfCheck() : null;
+            if (selfBad) {
+                _ix.loadGen++;
+                _ix.inFlightCid = null;
+                _ix.lastFetchAt = Date.now();
+                ixDegrade({ reason: 'self-check: ' + selfBad.reason, permanent: !!selfBad.permanent }, false);
+                if (_ciRescanTimer !== null) { clearTimeout(_ciRescanTimer); _ciRescanTimer = null; }
+                _ciScheduleRescan(Math.max(CI_REFETCH_COOLDOWN_MS, _ix.retryDelayMs) + 1000);
+                return false;
+            }
             var mounted = a.mounted();
             var byPos = {}, stale = '', maxPos = -1;
             for (var i = 0; i < mounted.length; i++) {
