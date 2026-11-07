@@ -828,6 +828,10 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         await h.close();
     }));
 
+    // What a degraded Gemini index must show (spec: the v12.18 behaviour and the note): the banner,
+    // the loaded part listed (10 rows, Q23 first), the "older messages" note and the idle button.
+    const v1218 = (v) => v.banner === 'degraded' && v.count === '10' && /^Gemini question 23:/.test(v.items[0] || '') && v.note &&
+                         !!v.button && v.button.state === 'idle' && v.button.text === 'Load full history';
     // ── I2b, I3r, I3e, I3b, I7c, I8, I4c, I9b: failures and shapes with short windows, side by side ─
     await par([
         fixture(['I2b'], async (r) => {
@@ -835,13 +839,17 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
             const h = await open(r, ['I2b'], C32, {}, { gm: 'Tampermonkey', fetchThrow: true });
             if (!h) return;
             await h.openNav();
-            const v = await h.waitDegraded(8000);
+            await h.waitDegraded(8000);
+            // The fallback stays available (Tier 3 r1): v12.18's list, the note and the idle button, in Navigate.
+            const v = await h.until((x) => v1218(x) && x.button.inNav, 5000);
             await sleep(500);
             const gm = await h.gmc();
-            r.check('I2b', 'new', 'fetch throws for the read: degraded "[fetch] fetch threw", PERMANENT, no GM call, no page error',
+            r.check('I2b', 'new', 'fetch throws for the read: degraded "[fetch] fetch threw", PERMANENT, no GM call, no page error; ' +
+                    'the fallback shown: the v12.18 list (10, Q23 first), the note and the idle "Load full history" button in Navigate',
                     v.banner === 'degraded' && /\[fetch\] fetch threw/.test(v.bannerText || '') && h.lines(PERM_RE).some((l) => /\[fetch\] fetch threw/.test(l)) &&
-                    gm.length === 0 && h.errors.length === 0,
-                    fmt(v) + ' bannerText=' + JSON.stringify(v.bannerText) + ' permanent=' + h.lines(PERM_RE).length + ' gm=' + gm.length + ' errors=' + h.errors.length);
+                    gm.length === 0 && h.errors.length === 0 && v1218(v) && v.button.inNav,
+                    fmt(v) + ' bannerText=' + JSON.stringify(v.bannerText) + ' permanent=' + h.lines(PERM_RE).length + ' gm=' + gm.length + ' errors=' + h.errors.length +
+                    ' first item=' + JSON.stringify((v.items[0] || '').slice(0, 22)) + ' button in Navigate=' + !!(v.button && v.button.inNav));
             await h.close();
         }),
         fixture(['I3r'], async (r) => {
@@ -938,12 +946,17 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
             const h = await open(r, ['I9b'], C32, { rpc: { noToken: true } });
             if (!h) return;
             await h.openNav();
-            const v = await h.waitDegraded(8000);
+            await h.waitDegraded(8000);
+            // The fallback stays available (Tier 3 r1): v12.18's list, the note and the idle button, in Navigate.
+            const v = await h.until((x) => v1218(x) && x.button.inNav, 5000);
             await sleep(1000);
             const c = await h.calls();
-            r.check('I9b', 'new', 'no token in the page: nothing sent, degraded "no page token"',
-                    v.banner === 'degraded' && /no page token/.test(v.bannerText || '') && c.list.length === 0 && h.hits.length === 0,
-                    fmt(v) + ' ' + callsBrief(c) + ' hits=' + h.hits.length + ' bannerText=' + JSON.stringify(v.bannerText));
+            r.check('I9b', 'new', 'no token in the page: nothing sent, degraded "no page token"; the fallback shown: the v12.18 list ' +
+                    '(10, Q23 first), the note and the idle "Load full history" button in Navigate',
+                    v.banner === 'degraded' && /no page token/.test(v.bannerText || '') && c.list.length === 0 && h.hits.length === 0 &&
+                    v1218(v) && v.button.inNav,
+                    fmt(v) + ' ' + callsBrief(c) + ' hits=' + h.hits.length + ' bannerText=' + JSON.stringify(v.bannerText) +
+                    ' first item=' + JSON.stringify((v.items[0] || '').slice(0, 22)) + ' button in Navigate=' + !!(v.button && v.button.inNav));
             await h.close();
         })
     ]);
@@ -998,10 +1011,6 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
     }));
 
     // ── I6, I6b, I7, I7b, I9: degrades whose retries are counted over 20-25 s, side by side ────────
-    // What a degraded Gemini index must show (spec: the v12.18 behaviour and the note): the banner,
-    // the loaded part listed (10 rows, Q23 first), the "older messages" note and the idle button.
-    const v1218 = (v) => v.banner === 'degraded' && v.count === '10' && /^Gemini question 23:/.test(v.items[0] || '') && v.note &&
-                         !!v.button && v.button.state === 'idle' && v.button.text === 'Load full history';
     await par([
         fixture(['I6'], async (r) => {
             const h = await open(r, ['I6'], C32, { mismatch: { turn: 30, text: 'Gemini question 30: a question edited on the page, which the read does not hold?' } });
