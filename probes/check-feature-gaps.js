@@ -98,7 +98,7 @@ function mockParts(file) {
 }
 function page(file, script, cfg, store, extraHead) {
     const m = mockParts(file);
-    return `<!DOCTYPE html><html><head>${m.head}</head><body>
+    return `<!DOCTYPE html><html><head><meta charset="utf-8">${m.head}</head><body>
 <script>window.__MOCK_CONFIG = ${JSON.stringify(cfg || {})};</script>
 ${DOWNLOAD_SHIM}${TOAST_SPY}
 ${m.body}

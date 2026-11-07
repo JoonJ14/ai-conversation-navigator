@@ -108,7 +108,7 @@ function buildPage(scriptContent, mockConfig) {
     const mock = fs.readFileSync(path.join(REPO, 'tests/mock-pages/gemini-history.html'), 'utf8');
     const body = (mock.match(/<body[^>]*>([\s\S]*)<\/body>/i) || [])[1] || mock;
     const head = (mock.match(/<head[^>]*>([\s\S]*)<\/head>/i) || [])[1] || '';
-    return `<!DOCTYPE html><html><head>${head}</head><body>
+    return `<!DOCTYPE html><html><head><meta charset="utf-8">${head}</head><body>
 <script>window.__MOCK_CONFIG = ${JSON.stringify(mockConfig)};</script>
 ${body}
 <script>
