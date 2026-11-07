@@ -44,6 +44,10 @@
 //   none    no token: nothing may be sent at all (0 reads).
 // The 2 s below each gate absorbs the time between a load's start (where the gate is counted from) and
 // its request reaching the route. Reads of different chats (an SPA switch) are not a retry.
+// What H0 can see (Tier 3 r1): only the reads made while a fixture's page is open, and no fixture here
+// stays open to the end of a 60 s backoff, so in refuse mode a page shows one read and H0 catches a retry
+// loop faster than a fixture's life, not a backoff shorter than 60 s. The backoff's length is gated by
+// check-gemini-index.js I23 (a page open 75 s after a 403: one read before 58 s, one between 58 and 75 s).
 //
 // Proof rule: run the old build (v12.15) against this file too — every check marked [new] must
 // FAIL there (on chromium; other engines are reported as measured). [guard] passes on both.
@@ -428,7 +432,8 @@ async function runEngine(engine, raw, only, quiet, endpoint) {
     }
 
     // H0: per page, each read against the one before it; a read of the same chat sooner than this mode's
-    // gate is a retry loop. `none`: no read at all.
+    // gate is a retry loop. `none`: no read at all. Only reads while a page is open are seen (the header):
+    // the 403 backoff's length is check-gemini-index.js I23's.
     const tooSoon = [];
     let total = 0;
     for (const p of pageHits) {

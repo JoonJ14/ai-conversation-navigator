@@ -682,6 +682,34 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         await h.close();
     })();
 
+    // ── I23: a refused read (403) and its PERMANENT backoff, beside every fixture below (Tier 3 r1) ──
+    // Started here and flushed before R1, as I22. check-gemini-history's H0 counts reads only while its
+    // fixtures are open, and none stays open to the 60 s backoff's end, so a shorter backoff passed it.
+    // Here the page stays open 75 s after its first read: exactly one read before 58 s, then exactly one
+    // between 58 and 75 s (the 60 s backoff, the rescan 1 s after it, one read; the next waits 240 s), the
+    // first refusal logged PERMANENT "next retry in 60s". The 2 s under 60 is H0's own margin, for the time
+    // between a load's start (where the backoff is counted from) and its request reaching the route.
+    // v12.18 sends none (fails "a first read").
+    const i23Run = fixture(['I23'], async (r) => {
+        const WIN = 75000, GATE = 58000;
+        const h = await open(r, ['I23'], C32, { rpc: { mode: 'refuse' } });
+        if (!h) return;
+        await h.openNav();
+        try { await h.page.waitForFunction(() => window.__mockGemini.calls().list.length >= 1, null, { timeout: 15000 }); } catch (e) {}
+        const first = h.hits.length ? h.hits[0].t : Date.now();
+        await sleep(Math.max(0, first + WIN - Date.now()));
+        const v = await h.nav();
+        const at = h.hits.map((x) => x.t - first);
+        const before = at.filter((t) => t < GATE).length, between = at.filter((t) => t >= GATE && t <= WIN).length;
+        const perm = h.lines(PERM_RE).map((l) => (l.match(/next retry in \d+s/) || ['?'])[0]);
+        r.check('I23', 'new', 'a read refused 403 (PERMANENT), the page open 75 s after its first read: exactly one read before 58 s, ' +
+                'then exactly one between 58 and 75 s (the 60 s backoff, then one read), the first refusal "next retry in 60s", degraded',
+                h.hits.length >= 1 && before === 1 && between === 1 && perm[0] === 'next retry in 60s' && v.banner === 'degraded',
+                'reads at s=' + JSON.stringify(at.map((t) => Math.round(t / 100) / 10)) + ' (before 58 s: ' + before + ', 58-75 s: ' + between +
+                ') permanent=' + JSON.stringify(perm) + ' ' + fmt(v));
+        await h.close();
+    })();
+
     // ── I6s (--slow only): the strike cap, beside every fixture below, flushed before R1 ────────────
     // A mismatch that never clears (turn 30's question edited on the page) costs a strike per full read:
     // the first transient (~16 s), the rest permanent (60 s each: a read that succeeds resets the
@@ -2281,6 +2309,7 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
     }));
 
     flush(await i22Run);
+    flush(await i23Run);
     if (i6sRun) flush(await i6sRun);
 
     // ── R1 [guard], E [guard] ────────────────────────────────────────────────────────────────────
