@@ -30,7 +30,32 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.18 MERGED (PR #93, `ab7ea21`); v12.17 MERGED (PR #92); v12.16 MERGED (PR #90); next: Gemini's full question list on open, then Grok — owner acceptance: one consolidated pass at about v12.20 (DEC-062); live confirmation status: DEC-031
+## Current Status: v12.19 BUILT, NOT MERGED (Gemini's full question list on open, `feat/v12.19-gemini-full-history`); v12.18 MERGED (PR #93, `ab7ea21`); v12.17 MERGED (PR #92); v12.16 MERGED (PR #90); next: Grok — owner acceptance: one consolidated pass at about v12.20 (DEC-062); live confirmation status: DEC-031
+
+**v12.19 (built on `feat/v12.19-gemini-full-history`, not merged; DEC-058's addendum PR, from the owner's spec of
+2026-11-05, `docs/specs/v12.19-spec.md`; DEC-063).** Gemini's full question list on open (item 13, Gemini).
+- **The index adapter (the main path).** On `/app/<id>` the navigator reads the whole chat through Gemini's own
+  history read, `hNvQHb`. It is POSTed through `fetch` on every manager: Phase 0 found `fetch` the first transport
+  to return a payload on Chrome + Tampermonkey (the agent), Firefox + Tampermonkey and Safari + Userscripts (the
+  owner), 2026-11-05. No `@connect gemini.google.com`.
+  - Navigate, Search, Export, Summary and the size estimate cover every turn with nothing scrolled.
+  - A self-check against the page's own turns runs on every scan; a mismatch degrades visibly to v12.18's list.
+  - A refresh reads the newest page and merges it by id.
+- **Jumps** to a question not loaded yet page the history in with "Loading earlier messages…", then land as v12.18
+  does (owner amendments M1, M2).
+- **"Load full history"** is the fallback where the index cannot run or has degraded (Gem and `/u/N/` paths, a failed
+  read): it pages to the start and puts the view back.
+- **Proof so far** [Playwright page realm, headless chromium, the userscript inlined, this Mac]:
+  - `probes/check-gemini-index.js`: 64 checks (55 `[new]`, 9 `[guard]`; 65 with `--slow`), 64/64 on the version
+    commit `b13e36e`. Each `[new]` gate was shown failing on v12.18 when it was added. `npm test` 560/560 and every
+    other probe green there too (chromium only).
+  - The fallback probes pass in their three `--gm-endpoint` modes, and Claude's L1-shape and L2-shape pass with
+    `check-transport-ladder.js` unmodified.
+  - Tiers 1–2 ran per commit in the session. Owed: Tier 3, the live A/B in Chrome against 12.18, the three-engine
+    run, the PR, Codex, and the owner's acceptance in the consolidated pass (`docs/acceptance-checklist.md`, steps
+    33–37).
+- **Logged for later:** item 13, "Logged from v12.19": the spec's out-of-scope items, ChatGPT's own paging status,
+  and the residuals.
 
 **v12.18 (PR #93, merged 2026-11-05 as `ab7ea21` before acceptance, a waiver; DEC-058's second, from the owner's spec
 of 2026-11-05; DEC-060, DEC-061).** One
@@ -93,8 +118,10 @@ platform works on all supported browsers.
    PR #93, merged 2026-11-05 as `ab7ea21`, above.** The live measurement found that the stored `model` follows a switch on the next message
    sent, and that claude.ai marks its summaries (`compaction_summary`; 87 found). The owner chose the design from HTML
    mockups (DEC-060).
-3. **Gemini's full question list on open — NEXT** (the owner, 2026-11-05; DEC-058's addendum; item 13, Gemini). Its
-   own PR, on the branch `feat/v12.19-gemini-full-history`.
+3. **Gemini's full question list on open — built: v12.19, above (not merged; DEC-063)** (the owner, 2026-11-05;
+   DEC-058's addendum; item 13, Gemini). Its own PR, on the branch `feat/v12.19-gemini-full-history`. The owner chose
+   option C: the index (the investigation below found Gemini's own read returns the whole chat) and the button as
+   the fallback.
    - **Baseline today** (v12.16–v12.18, DEC-057): Navigate lists only the loaded turns (Gemini loads the newest 10,
      and 10 more each time the view reaches the top), the "older messages not loaded" note shows, and 2–3 trips to
      the top load the rest (32 questions: 10 → 20 → 30 → 32).
@@ -1177,8 +1204,9 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       Chrome + Tampermonkey by the agent (CHANGELOG 12.15); owner acceptance on all three browsers owed (a waiver,
       DEC-031).
     - **Pending:** Grok, untested on all three browsers. The owner decides the order (ROADMAP, "Current Status";
-      HANDOFF.md). Gemini: measured in v12.16; it keeps every turn, so it needs no index adapter (DEC-057). Its
-      bookmarks stay positional (logged below, v12.16).
+      HANDOFF.md). Gemini: measured in v12.16; it keeps every turn (DEC-057). Its bookmarks key to the turn's id
+      since v12.17 (DEC-059), and since v12.19 it has an index adapter of its own, reading Gemini's history request
+      (`hNvQHb`), with "Load full history" as the fallback (DEC-063, superseding DEC-057's "no adapter").
     - **How to add the next one:** "Porting the Layer 4 response to another platform" below, then one
       `IX_ADAPTERS` entry and a mock that genuinely unmounts (`probes/check-index-adapters.js` has two).
     - **Logged from v12.10, outside its scope:**
@@ -1256,6 +1284,54 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
           table written without leading pipes (the key handles rows that start with `|`, the shape measured live), or
           intraword italics such as `a*b*c` (single-marker emphasis is dropped only where it opens after a start,
           space or punctuation, so that "2*3*4" keeps its stars) [inferred; not measured].
+    - **Logged from v12.19** (not fixed; out of its spec or below its bar; DEC-063):
+      - **Out of scope, by the owner's spec** (2026-11-05):
+        - Grok (its own PR, next).
+        - Gem and `/u/N/` adapters: those paths get no index and show the fallback; they are logged once as
+          "unmeasured" (no such link was in the owner's account in Phase 1: 29 of 29 sidebar links were `/app/<id>`).
+        - How long `at` stays valid: measure opportunistically, never build on it. Phase 1 (Chrome page realm): a
+          second tab's token was accepted in the first, and the first's still after the second was issued.
+        - Streaming-turn edge cases beyond "the refresh merges by id".
+        - Shrinking the payload: no flag shrank it in Phase 1 (five variants; the heavy slot stayed 515K on the newest
+          turn).
+      - **ChatGPT's own paging status** (the v12.17 UX item): Gemini's jumps show "Loading earlier messages…" since
+        v12.19; ChatGPT's history-page jumps (`pagesAtTop`, v12.17) still wait without one.
+      - **Residuals** [code reading unless marked]:
+        - The gallery's labels while the index is ready count the loaded turns, while Navigate shows the chat's
+          number.
+        - A bookmark record saved from a flag drawn by the other path (the `_bmGm*` path vs the adapter's) stores that
+          path's Navigate index as `msgIndex`. No code reads it for keyed records.
+        - The banner flips degraded → loading → degraded on each retry after a failure, as on ChatGPT. The bookmark
+          labels and the note do not flip.
+        - A just-sent question bookmarked while the index is ready reads "Q#?" until the newest-page refresh lands,
+          as on ChatGPT since v12.15. The spec's "never Q#?" is about the degraded and absent states.
+        - The live refresh count per sent message is unmeasured. Since `cf91e23` the bound is its id's refresh, one
+          more when its answer settles, and one per `IX_SETTLE_MS` pause mid-stream, under `GM_IX_CALLS_MAX` (K8,
+          corrected). In the mock it is 2 reads for an answer written over 35 s.
+        - M2's far half is gated by outcome only (I21b): a build that sent a mounted far target through ixJump would
+          pass it too. Only I21 (the near glide) can catch M2 skipped. A path discriminator is the owner's call.
+        - Network errors count toward `GM_IX_CALLS_MAX`: about 27 minutes offline (one load per ~16 s) uses it up,
+          and the index stays degraded until a reload or a reopen (the DOM list stays).
+        - A signed-out `/app/<id>` page shows the degraded banner "no page token in the page (signed out?)" where
+          v12.18 showed none (the plan's visible-degrade choice). The v12.18 list, labels and note are unchanged
+          underneath.
+        - The calls cap (100 requests per chat visit) and `ciFetchGet`'s open/stall-cap refusal (transient,
+          strike-free) are gated by code reading only. The 5-strike cap runs only with `--slow` (I6s, 330 s).
+        - The button stays hidden during the index's first load (the button plan's open question 3; the "Loading
+          full conversation history" banner shows then).
+        - `check-ix-jumps` J15's known timing race (TROUBLESHOOTING, OPEN) can still turn a run red.
+      - **Unmeasured live**, owed to the live check or acceptance:
+        - the parse time and heap on `96b519c1` (the `measure` line, read 3 times in a visible tab);
+        - whether `gmIxOwn`'s copy is needed against V8 sliced strings (decided by the heap reading);
+        - the live paging trigger (what makes Gemini load a page);
+        - Firefox's and Safari's paging timings;
+        - chats over 100 turns and the server's largest page above 32;
+        - whether live Gemini inserts a page in a hidden tab;
+        - the self-check on questions with markdown, code, attachments, an edit or a collapsed long text. Any of
+          these would degrade visibly, at a cost of up to 5 full reads per chat visit.
+      - A pre-existing hazard found while building, not this PR's: on ChatGPT and Perplexity, `ixAfterLoad(false)`'s
+        retry rescan can be dropped by `_ciScheduleRescan`'s single timer when a sooner rescan is pending, so the
+        retry waits for a mutation (Gemini's self-check path replaces the pending timer).
     - **Logged from v12.16** (not fixed; out of its spec):
       - **Gemini bookmarks by the turn's id** — **done in v12.17 (DEC-059).** Each turn has a stable 16-hex id (`div.conversation-container#…`, the
         same across two reloads; DOM-REFERENCE, Gemini), but bookmarks there are still `contentHash(text, position
@@ -1264,7 +1340,8 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       - **Gemini: an automatic "load the full history" action** (scrolls the page for the user until the start is
         loaded): proposed to the owner, not built. **Now the next PR (the owner, 2026-11-05):** "Gemini's full
         question list on open", with this as the fallback (a "Load full history" button) if reading Gemini's own
-        history request is too fragile (Current Status, "Next").
+        history request is too fragile (Current Status, "Next"). **Built in v12.19** as the fallback beside the
+        index (DEC-063).
       - **Gemini: Navigate catches up with a history load about 5 s late** [measured, Chrome, 2026-10-31]: the scan
         waits for Gemini's DOM to go quiet (the 500 ms debounce restarts on each mutation).
       - **Export and Summary drop unmounted questions on ChatGPT and Perplexity** — **done in v12.17 (DEC-059)** [code]: `buildTimeline` keeps only

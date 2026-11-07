@@ -4067,6 +4067,11 @@ Phase 1). PR #90, merged 2026-11-01 as `a9ecb14` before acceptance (a waiver, DE
 **Date:** 2026-10-31 | **Stage:** v12.16, part C (the owner's spec: KEEP measured, so the default). PR #90, merged
 2026-11-01 as `a9ecb14` before acceptance (a waiver, DEC-031); owner acceptance pending
 
+**Superseded in part by DEC-063 (v12.19):** "no index" no longer holds. Since v12.19 Gemini's `/app/<id>` chats list
+the whole chat from Gemini's own history read (`hNvQHb`). The tracker, the note and the far landing below remain: they
+are the fallback where that index is degraded or cannot run (Gem and `/u/N/` paths), and the note is hidden while it is
+ready.
+
 ### Decision
 - **No index, no accumulation:** Gemini keeps every turn it has loaded, so the DOM scan's list is complete once the
   history is.
@@ -4549,3 +4554,234 @@ tests what will actually be released (DEC-058: no release until every platform w
 - Steps keep the version that introduced them; where a later version changes what a step shows, the checklist says so.
 - The agent still lists what it cannot verify (Safari + Userscripts) as owner acceptance in each PR, and never
   reports it as verified (CLAUDE.md, measurement context).
+
+---
+
+## DEC-063: Gemini Lists the Whole Chat From Its Own History Read; "Load Full History" Is the Fallback (v12.19)
+**Date:** 2026-11-05 (the owner's spec and Phase 0 decision) to 2026-11-07 (built) | **Stage:** v12.19, DEC-058's
+addendum PR, from the owner's spec `docs/specs/v12.19-spec.md` (2026-11-05) and the owner-lead amendments M1, M2,
+K5 and K8 (2026-11-06). **Supersedes DEC-057's "no index"** (its "no accumulation" still holds: Gemini keeps its
+turns). DEC-057's tracker, note and landing stay, as the fallback. Branch `feat/v12.19-gemini-full-history`, not
+merged; owner acceptance in the consolidated pass (DEC-062; `docs/acceptance-checklist.md`, steps 33–37).
+
+### Decision
+- **Option C, both** (the owner, 2026-11-05). An index adapter is the main path: on opening `/app/<16 hex>`, the
+  navigator reads the whole chat through Gemini's own history request (`hNvQHb`). The "Load full history" button is
+  the fallback wherever the index cannot run or has degraded. Jumps to a question that is not loaded page the DOM
+  either way, and the button reuses that pager.
+- **Phase 0's rule** (the spec's decision rule, the transport ladder's rule decided once per manager): each manager
+  uses the first transport, in G0's order, that returned a payload. G0 is `probes/gemini-transport-check.user.js`:
+  one page-size-1 `hNvQHb` read of chat `96b519c1` per transport, the token read from the page's inline script text,
+  a visible tab. The results:
+
+  | Manager | Who, when | `fetch` (content world) | `GM_xmlhttpRequest` | `GM.xmlHttpRequest` | Transport |
+  |---|---|---|---|---|---|
+  | Chrome + Tampermonkey 5.5.1 | the agent, the owner's profile, navigator 12.18 installed, 2026-11-05 | 200, payload (1 turn, a cursor), 532 ms | 200, payload, 900 ms | 200, payload, 687 ms | fetch |
+  | Firefox + Tampermonkey 5.5.0 | the owner, navigator 12.14 installed, 2026-11-05 (reported 2026-11-06) | 200, payload (1 turn, a cursor), 538 ms | 200, payload, 968 ms | 200, payload, 585 ms | fetch |
+  | Safari + Userscripts 4.8.6 | the owner, navigator turned off, 2026-11-05 (reported 2026-11-06) | 200, payload (1 turn, a cursor), 616 ms | HTTP 403, no `wrb.fr`, 208 ms | HTTP 403, no `wrb.fr`, 107 ms | fetch |
+
+  So **`fetch` on every manager, and no `@connect gemini.google.com`**: the owner's decision 3 allows that line only
+  where `GM_xmlhttpRequest` is the transport that works, and on no manager is it the first. G0 itself declared
+  `@connect gemini.google.com`, so its GM rows were measured with it; the navigator does not declare it. Other
+  managers (Violentmonkey, Greasemonkey) are unmeasured and get the same call (`gmIxTransport()` returns `'fetch'`).
+  Safari's GM 403 is the same shape as Claude's in v12.9 (DEC-045).
+- **The request** (Phase 1: Chrome page realm, the owner's profile, visible tab, chat `96b519c1`, 2026-11-05):
+  - `POST https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=hNvQHb&rt=c`, through `ciApiGet` →
+    `ciFetchGet` with `{ method: 'POST', raw: true, headers: { 'Content-Type':
+    'application/x-www-form-urlencoded;charset=UTF-8' } }` (a CORS-safelisted, simple request), the page's cookies.
+  - The form body is `f.req` (`[[["hNvQHb", "[\"c_<id>\",<size>,<cursor>,1,[1],[4],null,1]", null, "generic"]]]`,
+    the page's own argument list) and `at`, the page token.
+  - **Only `hNvQHb`**, a read, the request Gemini's own page sends when the view reaches the top of a chat (the
+    owner's decision 2). No other RPC, never one that writes.
+  - **The token** is read from the page's inline `<script>` text (`gmIxReadAt`), never a page global (Safari's
+    Userscripts has no `unsafeWindow`). It is kept in memory, sent only in that request's body, and never logged or
+    stored.
+  - The transport change is T1–T4 (`c36ec4d`). `ciReadResponse(status, text, raw)` hands a raw 200 over as text,
+    unparsed. `ciFetchGet` sends `method` and `body` for a POST. `ciGmxhrGet` refuses a POST as `threw` before
+    arming its watchdog. `ciLadderGet` is unchanged, and so are Claude's, ChatGPT's and Perplexity's requests: no
+    existing caller passes `method` or `raw`, and L1-shape and L2-shape pass with `check-transport-ladder.js`
+    unmodified.
+  - Bodies, the token, `f.req`, a cursor, the query string and question or answer text are never logged or stored.
+- **The read and the parse:**
+  - Page size 100, following the cursor to null. A cap of 10 pages (`GM_IX_MAX_PAGES`, 1,000 turns) **degrades**
+    ("longer than 1000 turns (the page cap)") and never sets `truncated`: paging is newest first, so a cut would drop
+    the oldest turns, which the generic "later messages are missing" wording would misdescribe.
+  - The parse reads `)]}'`, then the lines: a length line and one JSON frame per line, the lengths never used, as G0
+    read them. It finds the `wrb.fr` frame for `hNvQHb`, whose payload is `[turns newest first, cursor, null, []]`,
+    and reverses the turns into conversation order.
+  - Per turn: the id `turn[0][1]` (`r_<16 hex>`, equal to the page's `div.conversation-container#id`; Phase 1, 32/32,
+    order-exact), the question `turn[2][0][0]`, and the answer `turn[3][0][0][1][0]`. The answer path is measured
+    by shape only: the candidate named by `turn[3][3]`, else the first.
+  - Each turn's slot is nulled once its strings are copied out (`gmIxOwn`), so the rich-content slot
+    (`[3][0][0][12]`, 85% of the 12.66M-char payload in Phase 1) and the 13.5M-character answer are not kept.
+- **Classification and call gates** (`gmIxFetch`):
+  - **HTTP 400:** the token is re-read once from the current document and the request sent once more (` retry=at-new`
+    or ` retry=at-same` on its line). A second 400 is permanent. There is no ~16 s retry loop, as with ChatGPT's
+    token refresh.
+  - **No token:** permanent, and nothing is sent.
+  - **A null payload** (HTTP 200, code at `wrb.fr[5]`, G0's slot): `[7]` (the session; measured in Phase 1 with
+    credentials omitted) and `[3]` (the arguments, from the public record, unverified) are permanent, `[5]` (not
+    found, unverified) is transient, and any other code is permanent.
+  - **Shape** (no prefix, no frame, a payload or turn that does not read, a repeated cursor, an empty page with a
+    cursor) and **threw** (one transport per manager) are permanent.
+  - **A sent read that times out** (45 s) is permanent and a strike (`0662d27`). It still downloads whole, and
+    ixScan's cooldown runs from the load's start, so a transient timeout re-read the history every ~45 s. In the
+    mock answering in 47 s it read at 0, 45, 90, 135 and 180 s before the fix, and at 0 and 106 s after (gate I22:
+    at most 2 reads in 3 minutes).
+    `ciFetchGet`'s refusal at its open or stall cap (nothing sent) stays transient and strike-free (`cf91e23`;
+    gated by code reading only).
+  - **Per chat visit:** 5 strikes (`GM_IX_STRIKES_MAX`: permanent failures, self-check mismatches, merge misses) stop
+    its full loads until a reload or a reopen. 100 requests asked of the transport, answered or not
+    (`GM_IX_CALLS_MAX`, a backstop gated by code reading only), stop every read.
+  - Endings before a send (no token, superseded, stopped, the calls cap) are deferred: never synchronously inside
+    ixLoad's own call, where `done` would run a nested scan.
+- **The self-check** (`172cc57`, gmIxSelfCheck, first in ixScan's ready branch, so on every load and refresh).
+  - The rule: every 16-hex turn on the page must be in the index, in its order, with no indexed turn missing between
+    two shown ones. Its question (`p.query-text-line`, every whitespace character removed) must equal the read's
+    `turn[2][0][0]`.
+  - A turn newer than the index (a message just sent) is no mismatch.
+  - A mismatch drops the index at once: the banner reads "self-check: …" over v12.18's DOM list and its note, and a
+    full reload follows after the cooldown.
+  - Turns that cannot be compared (no id, nothing known) read `pending` for 30 s, then strike. An empty index under
+    turns with ids counts as unverified too (`cf91e23`).
+  - Test contract: `data-acn-index-check` on `#acn-zone` (`ok` | `pending` | `mismatch`), removed in ixInvalidate.
+  - The rule rests on Phase 1's 32/32 plain-text questions. Markdown, code, attachments, edited or collapsed
+    questions are unmeasured; any of them would degrade visibly, never list wrongly.
+- **Refresh and merge** (`60516b1`, `cf91e23`):
+  - A refresh of a ready index reads the newest page only (size 10, no cursor) and merges it by id (`gmIxMerge`). The
+    page is the truth from its oldest turn on, and a page with no cursor is the whole chat.
+  - ixScan's stale rules ask for it, each behind the 15 s cooldown and once per signature: an unknown id, an answer
+    not held, the latest answer settling, the tail at the bottom, a bookmark's request.
+  - **K5, a recorded deviation, accepted by the owner:** the spec says a full refetch happens "only on a conversation
+    change or a self-check mismatch". The build also reads the chat whole when the newest page does not meet the
+    snapshot (a merge miss, which is a page-vs-index mismatch): one strike, a warning line, then a full read in the
+    same load. An empty newest page under a non-empty index is a miss too. Every retry after a failed load is a full
+    read as well.
+  - **K8, corrected bound.** The first estimate was "up to three newest-page reads per sent message". The stage-2
+    verifier showed the growth rule could ask once per 15 s while an answer streamed. Since `cf91e23`, ixScan skips
+    `IX_ANSWER_GROWTH` for the latest answer while the watch sees it move. A sent message costs its id's refresh,
+    one more when its answer settles, and one per `IX_SETTLE_MS` pause mid-stream, bounded by `GM_IX_CALLS_MAX`.
+    Read from the code. In the mock (14,000 characters over 35 s in 1 s chunks, Playwright chromium) that is 2
+    reads, where `60516b1` made 4 (I11d). Live streaming is unmeasured.
+  - A load that ixLoad superseded sends nothing more and never parses its answer.
+- **Jumps to a question not loaded** (`3412bff`, `2a75498`):
+  - **M1:** ixJump's first statement hands an adapter with `pageUntil` to `gmIxJump`, before any container lookup.
+    ChatGPT's and Perplexity's paths through ixJump are byte-identical to v12.18's (ixJump differs from v12.18's by
+    that one line and its comment).
+  - **The pager** (`gmPageUntil`): the view to the top, then a wait for a page, repeated until the target's turn id
+    mounts.
+    - It counts a page discretely, by turns arriving above the old first turn, never by `scrollHeight`
+      (content-visibility changes that without a page).
+    - Cap: `ceil(turns / 10) + 2` pages (6 for 32). Page wait 8 s (`GM_PAGE_WAIT_MS`); 15 s for a first page.
+    - The user's scroll, a newer jump, another chat or a lost scroller ends it. A hidden tab pauses its clock. A run
+      that ends in a hidden tab lands only once the tab is visible (`2a75498`, gate I12i).
+    - Timings: pages answered in 1.5–2.9 s (Phase 1, page realm), ~4.6 s render blocks (DEC-057, Chrome +
+      Tampermonkey, v12.16).
+  - **Landing:** then the jump lands the way v12.18 lands a loaded question: `gmLandFarEl` when far, the smooth glide
+    (block center) when near. `gmLandFarEl` bumps `_ixJumpToken`, so it runs only after the pager has ended.
+    `opts.land === false` hands the question node back unlanded (`_bmIxJump` lands answers itself).
+    `done(ok, el, reason)` is ixJump's contract.
+  - **The status:** "Loading earlier messages…" (`#acn-paging-status`, `data-acn-role="paging-status"`,
+    `data-acn-paging-pages` / `-loaded`), owned by the jump token and cleared on every end. i18n in en and ko.
+  - **M2:** in `orbScrollToQuestion`, a MOUNTED Gemini target keeps v12.18's path (`gmLandFar` when far, the glide
+    when near). Only an unmounted target with a ready index goes through ixJump.
+- **The button** (`a9e6b81`, the spec's Part 2):
+  - **Where it shows:** in Navigate, below the "older messages" note, where older history is not loaded and the
+    index state is `none` or `degraded`: a degraded index, a manager without a working transport, Gem and `/u/N/`
+    paths. It is hidden during the index's first load, while the index is ready, and once the start is loaded
+    (DEC-057's rules).
+  - **A click** pages with the same pager (`gmPageToStart`, no request of ours) and shows "Loading… N of ?". It then
+    puts the view back on the turn the user was on, by its turn id (`gmViewAnchor`; at most 4 instant writes, 8 px).
+  - **How it ends:** a user scroll, a jump or another chat ends it with no restore. A second click ends it and
+    restores.
+  - **Limits:** the page wait is 9 s, so DEC-057's 8 s rule decides a full last page; at most 50 pages a click.
+  - **Test contract:** `data-acn-role="history-load"` with `data-acn-history-load` / `-loaded` / `-total`, and the
+    zone's `data-acn-history-load-end` / `-anchor` / `-restore`.
+
+### Context
+- **Baseline (v12.16–v12.18, DEC-057):** Navigate listed the loaded turns only (10 at open), with the "older
+  messages not loaded" note, and 2–3 trips to the top loaded the rest of a 32-question chat.
+- **Phase 1** (Chrome page realm, 2026-11-05): with page size 100, all 32 turns of `96b519c1` came back in one call,
+  with a null cursor, in 6.2 s and 13.5M characters. Four other chats came back whole in 0.35–0.43 s. Phase 1 used
+  30 live `hNvQHb` reads (approved by the owner's decision 4), and G0 on Chrome used 3 more; the PR's live checks
+  count against the ~50 the owner allowed.
+- **Phase 1's token ablation:** `at` and the session cookies are required. A missing or wrong `at` gives a 400, and
+  omitted credentials give a 200 with a null payload and `[7]`. Nothing else in the page's request is.
+- DEC-057 rejected an adapter because Gemini keeps its turns ("only for SLIDE"). That still holds for the DOM. What
+  it missed is the cost of the user's 2–3 trips to the top, which only the server's list avoids.
+
+### Alternatives considered
+- **Option A, the adapter only** (the agent's recommendation in the Phase 1 report, with the manager measurement
+  first). **Option B, the button only:** no token, no POST and no README change, but the list is complete only after
+  a click on every page load, which does not meet "immediately". The owner chose **C, both**.
+- **`GM_xmlhttpRequest` / `GM.xmlHttpRequest` as Gemini's transport, or a two-transport ladder.** They returned the
+  payload on Chrome and Firefox, but neither was first on any manager, and both returned 403 on Safari. A GM POST
+  would need `@connect gemini.google.com` (a Tampermonkey re-prompt) and a POST path in `ciGmxhrGet`. A Gemini
+  ladder would have changed the shared `ciLadderGet` (ChatGPT, Perplexity, the usage panel) for a second transport
+  the rule never asks. Rejected by the rule and the owner's decision 3. Enabling GM later is a checklist in the
+  transport plan: a real POST in `ciGmxhrGet` with `data` only for a POST, the exact host in `@connect`, and a
+  shape gate beside L2-shape.
+- **Reusing ChatGPT's `pagesAtTop` / `awaitPage` for Gemini's jumps** (the spec's wording: "ChatGPT's pagesAtTop
+  approach"). Not taken: `awaitPage` counts a page by a `scrollHeight` change, which Gemini's content-visibility
+  trips without one. `land()`'s K5 rule would wait a full page for a start the index already knows. Its constants
+  (2.5 s, a 5-turn minimum page, 3 idle waits) are ChatGPT's measurements. The approach is kept (scroll to the top,
+  wait for a page, repeat, a per-jump cap from the turn count); the mechanism is Gemini's own pager.
+- **`ixLandOn` on the scroller instead of `gmLandFarEl`** (the jumps plan, K6). It would have landed every
+  near loaded target instantly once the index was ready (K7) instead of v12.18's glide. The owner's M1 follows the
+  spec's "then land (gmLandFarEl)", and M2 keeps mounted targets on v12.18's path.
+
+### Key properties
+- **Gates** (`probes/check-gemini-index.js`, Playwright page realm, headless chromium, 1280x720, the userscript
+  inlined, no real manager, this Mac):
+  - **The count:** 64 checks, 55 `[new]` and 9 `[guard]`; 65 with `--slow`, which adds I6s (the 5-strike cap,
+    330 s). The finished build passed all 64 (`a9e6b81`, and the version commit `b13e36e`, 2026-11-07). The mock serves batchexecute in Phase 1's framing with
+    synthetic content; its numbers come from the live measurements.
+  - **Proof against v12.18** (`git show ab7ea21:ai-conversation-navigator.user.js`, `--proof`): every `[new]`
+    gate was shown failing there when it was added, and every `[guard]` passing:
+    - `a3ae035`: 53 checks, 44 `[new]` FAIL, 9 `[guard]` PASS, 0 INVALID, 502 s;
+    - `0662d27`: I22 and the reworked I12d FAIL;
+    - `fd42664` (with `--slow`): I3c, I6d, I6e, I6f, I6h, I6s, I11b, I11c, I11d and I11e FAIL ("12 as wanted, 0
+      not", I11 and E included);
+    - `2a75498`: I12i FAIL.
+  - `check-gemini-history.js` (H) and `check-feature-gaps.js` (G) gate the fallback with
+    `--gm-endpoint refuse|abort|none`, with guards H0/G0 (no retry loop, by failure class) and HP/GP (no paging
+    status).
+- **Guards, and why each cannot fail on v12.18** (the spec asked that every gate fail there; critic K16, told to the
+  owner):
+  - I13: degraded bookmarks behave exactly as v12.18's, which is the requirement itself.
+  - I13b: the spec asks nothing new of the loading state.
+  - I15: the gallery stays on its DOM path by design.
+  - I16: a look-alike host reads nothing, and v12.18 reads nothing anywhere.
+  - I21 and I21b: M2 keeps v12.18's landing for mounted targets.
+  - R1: v12.18 sends no batchexecute, so "each one is an `hNvQHb` POST" holds vacuously.
+  - R2: `@connect gemini.google.com` iff GM is used, and v12.18 uses neither.
+  - E: no page errors.
+  - Claude's L1-shape and L2-shape (`check-transport-ladder.js`, unmodified) are guards too.
+  - I13b, I15, I21 and I21b assert their premise (the read loading, or the index ready) and fail without it.
+- **M2's far half is gated by outcome only** (I21b). A build that sent a mounted far target through ixJump would
+  land it in view and marked, with no status and no read, exactly as `gmLandFar` does, so I21b would pass it too.
+  Only I21 (the near target's glide) can catch M2 skipped. A path discriminator would break the outcome-only rule
+  (M1); left to the owner.
+- **Behaviour changes a user can see:** a signed-out `/app/<id>` page now shows the degraded banner "no page token in
+  the page (signed out?)" over v12.18's list. Near loaded targets still glide (M2).
+- **Residuals, logged in ROADMAP (item 13, v12.19):**
+  - The gallery's labels while ready count the loaded turns, while Navigate shows the chat's number.
+  - A bookmark saved from a flag drawn by the other path stores that path's `msgIndex` (unread).
+  - The banner flips degraded ↔ loading on each retry, as on ChatGPT.
+  - The live refresh count per sent message (K8) is unmeasured.
+  - About 27 minutes offline (network errors, one load per ~16 s) uses up the 100-request cap; the DOM list stays.
+  - A just-sent question bookmarked while ready reads "Q#?" until the refresh lands, as on ChatGPT since v12.15
+    (read from the code, `_bmIxLabel`).
+  - `check-ix-jumps` J15's known race, if it recurs.
+- **Unmeasured:**
+  - the live paging trigger (what sets a page off);
+  - Firefox's and Safari's paging timings;
+  - chats over 100 turns and the server's largest page size above 32;
+  - how long `at` stays valid;
+  - Gem and `/u/N/` paths (the button's ground, logged "unmeasured");
+  - streaming edge cases beyond the merge by id;
+  - parse time and heap on `96b519c1` (the `measure` line, owed to the live check);
+  - whether `gmIxOwn`'s copy is needed against V8 sliced strings;
+  - whether live Gemini inserts a page in a hidden tab.
+- **Out of scope** (the spec; ROADMAP): Grok; Gem and `/u/N/` adapters; the `at` lifetime; streaming edge cases;
+  shrinking the payload (no flag shrank it in Phase 1); ChatGPT's own paging status.

@@ -41,7 +41,7 @@ Run on **Safari + Userscripts**, **Chrome + Tampermonkey** and **Firefox + Tampe
 | ChatGPT | `69a0c6f8` — 49 questions, in a project (Q15 has 3 images; Q45's answer is a "fallback" turn) | v12.17, v12.18 |
 | ChatGPT | any chat with 10 or more questions | v12.15 |
 | Perplexity | `de5dd7ce` — the 12-question thread (Q11 and Q12 have 6 image attachments) | v12.15, v12.17, v12.18 |
-| Gemini | `96b519c1…` — 32 questions (loads 10 at a time from the top) | v12.16, v12.17, v12.18 |
+| Gemini | `96b519c1…` — 32 questions (loads 10 at a time from the top) | v12.16, v12.17, v12.18, v12.19 |
 | Gemini | any chat under 10 questions | v12.16 |
 
 ---
@@ -149,6 +149,8 @@ Record a run in DEC-031 as "Safari smoke check" under the merged version, exactl
       load, or about 8 s after the view rests at the top).
     - c. One-click jumps to Q1 and Q32 land.
     - d. A short chat (under 10 questions) shows no note.
+    - **Since v12.19:** Navigate lists all 32 at once from Gemini's own history read, with no note (step 33). The note
+      and the count above apply only where that read cannot run or has degraded (step 37).
     Safari [ ]  Chrome [ ]  Firefox [ ]
 
 ---
@@ -156,7 +158,9 @@ Record a run in DEC-031 as "Safari smoke check" under the merged version, exactl
 ## v12.17 (PR #92): every feature reads the whole conversation; Gemini bookmarks by turn; ChatGPT's jump through history pages
 
 Chats: Claude `65dfa4f2`, ChatGPT `69a0c6f8`, Perplexity `de5dd7ce`, Gemini `96b519c1…` (load its history first:
-scroll to the top until nothing more loads). Steps 20–23 run on **each** of the four sites.
+scroll to the top until nothing more loads). Steps 20–23 run on **each** of the four sites. **Since v12.19** Gemini needs
+no loading first: Search, Export and Summary read the whole chat from its history read (steps 35–36), and the "older
+messages not loaded" lines below show only where that read cannot run; the gallery keeps its own note.
 
 20. **Search** (start at the bottom): search a word that appears only in an early question, then one only in an early
     answer. Both are found, in conversation order (Q#1, A#1, Q#2, …); each result lands in one click, with no "not
@@ -184,6 +188,9 @@ scroll to the top until nothing more loads). Steps 20–23 run on **each** of th
     - Reload: all three read "Q#…" again, and Q#1's card says older messages are not loaded.
     - Old Gemini bookmarks from before 12.17 show their number (bound on proof) or "Q#?" / "A#?" (deletable).
     - Delete the test bookmarks.
+    - **Since v12.19:** with the history read working, labels are final at once (the latest reads **Q#32** right after
+      a reload, and Q#1's card has no "not loaded" line). The "Q#…" behaviour above is what a degraded or absent read
+      shows (a Gem or `/u/N/` chat).
     Safari [ ]  Chrome [ ]  Firefox [ ]
 25. **ChatGPT only, the jump fix:** reload `69a0c6f8`, then Navigate → Q15 and → Q1 from the bottom. Each lands in one
     click; the first may take several seconds while ChatGPT loads older turns.
@@ -218,6 +225,8 @@ scroll to the top until nothing more loads). Steps 20–23 run on **each** of th
     published"**, no percentage; dots coloured by estimated size against 1M (a chat of short questions stays green);
     the caption names the site ("Estimated size (1M scale). Gemini may summarize older messages …"). Gemini, before
     the history is loaded: **"↑ Older messages are not loaded yet — the estimate covers the loaded part only"**.
+    **Since v12.19** the estimate covers the whole Gemini chat at once, and that line shows only where the history read
+    cannot run.
     Gemini [S / C / F]  Perplexity [S / C / F]
 31. **ChatGPT, a fallback turn** (`69a0c6f8`): bookmark Q45's answer. It reads **"Answer to Q#45"**, and the jump to it
     from the top lands. Delete the test bookmark afterwards. (The agent's live check could not do this step: its safety
@@ -225,6 +234,37 @@ scroll to the top until nothing more loads). Steps 20–23 run on **each** of th
     Safari [ ]  Chrome [ ]  Firefox [ ]
 32. **CI:** done by the agent, not a browser step. PR #93's checks finished 9/9 on `4cdc730`, and `main`'s first run
     after the merge (`ab7ea21`, run 42123189982) was 9/9 green (DEC-031).
+
+---
+
+## v12.19 (PR TBD): Gemini's full question list on open
+
+Chat: Gemini `96b519c1…` (32 questions). Confirm `data-acn-version` reads **12.19** first. Gemini's history read uses
+`fetch` on all three managers (Phase 0, DEC-063), so the "Load full history" fallback is expected only on a Gem chat or
+a `/u/N/` address (another signed-in account), or if the read fails. Step 37 needs one of those; if you have none, mark
+it "n/a".
+
+33. **Gemini, the full list on open** (`96b519c1…`): reload at the bottom and open Navigate without scrolling. It lists
+    **32** questions (Q#1–Q#32) within a few seconds, with **no** "↑ Older messages are not loaded yet" note and no
+    "Load full history" button. (On a manager or chat that falls back instead: the note and the **"Load full history"**
+    button, and Navigate lists only the loaded turns.)
+    Safari [ ]  Chrome [ ]  Firefox [ ]
+34. **Gemini, a jump to Q1 from the bottom:** in Navigate, click Q1. A small **"Loading earlier messages…"** status
+    shows while Gemini loads its older pages (3 pages for this chat; the spec expects 10–20 s), then the view lands on
+    Q1 and the status goes. A scroll of your own during the wait stops it.
+    Safari [ ]  Chrome [ ]  Firefox [ ]
+35. **Gemini, Search** (from the bottom, nothing loaded above): search a word that appears only in an early answer. It
+    is found at once (an "A#n" result for an early n), with no scrolling.
+    Safari [ ]  Chrome [ ]  Firefox [ ]
+36. **Gemini, Export → Full Conversation** (from the bottom, nothing loaded above): the file holds all **32** questions
+    and their **32** answers, in order, and does not say older messages were not loaded.
+    Safari [ ]  Chrome [ ]  Firefox [ ]
+37. **Gemini, the fallback** (a Gem chat or a `/u/N/` chat longer than 10 questions, if you have one): Navigate shows
+    the note and **"Load full history"**. Scroll a little way up among the loaded questions, then click the button: it reads
+    **"Loading… N of ?"** while it loads, the list reaches the chat's full count, the note and the button go, and the
+    view comes back to the question you were on. During a load, a second click stops it and brings the view back; a
+    scroll of your own stops it where you are.
+    Safari [ ]  Chrome [ ]  Firefox [ ]
 
 ---
 
