@@ -8458,8 +8458,11 @@
         if (!sc) { outerDone(false, null, 'no-container'); return; }
         var entry = { id: q.ixId, position: q.ixPosition, text: q.text };
         var cid = _ix.cid;
-        // The index knows the start: it is loaded once its first entry's turn is in the DOM.
-        var firstId = (_ix.entries && _ix.entries.length) ? _ix.entries[0].id : null;
+        // The index knows the start: it is loaded once the chat's FIRST TURN is in the DOM. Every turn has an
+        // answer record (gmIxBuild), so _ix.answers[0] is turn 1 even when it is image-only (no question entry):
+        // with the first QUESTION's turn, a jump to an image-only turn 1 could take turn 2 for the start.
+        var firstId = (_ix.answers && _ix.answers.length) ? _ix.answers[0].at
+                    : ((_ix.entries && _ix.entries.length) ? _ix.entries[0].id : null);
         var watch = ixWatchUser(sc), stopped = false;
         function find() { return q.gmTurnOnly ? gmTurnById(entry.id) : a.locate(entry); }
         function live() {
