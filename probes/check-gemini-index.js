@@ -7,6 +7,10 @@
 //      ACN_SCRIPT=/path/to/other.user.js node probes/check-gemini-index.js [--proof]
 // Exits non-zero on any failed or INVALID check. With --proof (meant for the v12.18 build): exits 0 iff
 // every [new] check FAILED, every [guard] check PASSED and nothing was INVALID, and prints the table.
+// Every check a fixture registers (its ids) and --only selects must report: one that never did is
+// INVALID ("never reported"), so without --only every registered check ran. A proof in which no [new]
+// check ran (--only naming nothing that exists, say) proves nothing: "proof: INVALID (no [new] check
+// ran)", exit 1 (Tier 3 r1).
 // --slow adds I6s, the strike cap (a mismatch that never clears, watched for 330 s beside the rest);
 // without it I6s is not run and not reported (the cap is gated by code reading there).
 //
@@ -453,6 +457,9 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
     const allHits = [];          // every batchexecute request of every fixture (R1)
     const allOthers = [];        // every other request (R1)
     const want = (id) => !only || only.some((o) => id === o || id.indexOf(o) === 0);
+    // Every check id a fixture declares, and the two reported outside one: each that --only selects must
+    // report by the end of the run, or it is INVALID (never reported).
+    const registered = new Set(['R1', 'E']);
 
     // Each fixture writes into its own record, flushed in a fixed order, so fixtures can share a
     // window of real time (the 20 s "no second call" windows) without interleaving their output.
@@ -474,6 +481,7 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
     }
     // A fixture: the check ids it reports, and its body. A harness exception reports its ids INVALID.
     function fixture(ids, fn) {
+        for (const id of ids) registered.add(id);
         return async () => {
             const r = makeRec();
             if (!ids.some(want)) return r;
@@ -2258,6 +2266,13 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         flush(r);
     }
 
+    {
+        const reported = new Set(results.map((x) => x.id));
+        const r = makeRec();
+        for (const id of registered) if (want(id) && !reported.has(id)) r.bad(id, 'never reported: a registered check that did not run');
+        flush(r);
+    }
+
     await browser.close();
     const secs = ((Date.now() - t00) / 1000).toFixed(1);
     const fails = results.filter((x) => x.result === 'FAIL').length, inval = results.filter((x) => x.result === 'INVALID').length;
@@ -2274,6 +2289,9 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
             console.log('  ' + x.id + ' | ' + label(x) + ' | ' + x.result + ' | ' + (good ? 'ok' : 'WRONG'));
         }
         console.log('proof: ' + ok + ' as wanted, ' + wrong + ' not');
+        const ranNew = results.filter((x) => x.label === 'new' && (x.result === 'PASS' || x.result === 'FAIL')).length;
+        if (!ranNew) { console.log('proof: INVALID (no [new] check ran)'); return wrong + 1; }
+        console.log('proof: ' + ranNew + ' [new] check(s) ran');
         return wrong;
     }
     return fails + inval;
