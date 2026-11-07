@@ -828,7 +828,7 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         await h.close();
     }));
 
-    // ── I2b, I3r, I3e, I3b, I7c, I8, I9b: failures and shapes with short windows, side by side ─────
+    // ── I2b, I3r, I3e, I3b, I7c, I8, I4c, I9b: failures and shapes with short windows, side by side ─
     await par([
         fixture(['I2b'], async (r) => {
             // The fetch throws for the read: the one transport cannot run here -> PERMANENT, never GM.
@@ -910,6 +910,28 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
                     rl.length === 2 && / retry=at-new /.test(rl[1]) && v.count === '32' && v.banner !== 'degraded' && h.lines(PERM_RE).length === 0,
                     fmt(v) + ' ' + callsBrief(c) + ' statuses=' + c.list.map((x) => x.status).join(',') + ' ats=' + ats.join(',') +
                     ' lines=' + JSON.stringify(rl.map((l) => l.replace(/^\[ACN\] index: platform=gemini /, ''))));
+            await h.close();
+        }),
+        fixture(['I4c'], async (r) => {
+            // Drafts (Tier 3 r1; the mock's rpc.drafts, unmeasured live: Phase 1 saw one candidate per turn):
+            // every turn's response lists a draft first ("platypus") and the shown answer second, named by
+            // R[3]; turn 2's shown answer names "quokka", and turn 2 is not loaded (10 of 32 are).
+            const h = await open(r, ['I4c'], C32, { rpc: { drafts: { word: 'platypus' } }, answerWords: { 2: 'quokka' } });
+            if (!h) return;
+            await h.openNav();
+            const v = await h.waitReady(32, 8000);
+            const sel = await h.page.evaluate("window.__h.search('quokka')");
+            const dec = await h.page.evaluate("window.__h.search('platypus')");
+            const f = await h.page.evaluate('window.__h.exportFull()') || '';
+            const loads = (await h.nav()).loads;
+            r.check('I4c', 'new', 'turns with two response candidates (a draft first, the shown one second, named by R[3]): Search for ' +
+                    'the shown answer\'s word of unloaded turn 2 finds "A#2", Search for the draft\'s word finds nothing, and Export ' +
+                    'holds the shown text and no draft, with nothing paged in',
+                    v.count === '32' && sel.labels.indexOf('A#2') !== -1 && dec.labels.length === 0 &&
+                    /A note on quokka as well\./.test(f) && !/platypus|Draft \d+:/.test(f) && loads === 0,
+                    fmt(v) + ' quokka=' + JSON.stringify(sel.labels) + ' platypus=' + JSON.stringify(dec.labels.slice(0, 4)) +
+                    (dec.labels.length > 4 ? '+' + (dec.labels.length - 4) : '') + ' export: shown=' + /A note on quokka as well\./.test(f) +
+                    ' draft=' + /platypus|Draft \d+:/.test(f) + ' (' + f.length + ' chars) loads=' + loads);
             await h.close();
         }),
         fixture(['I9b'], async (r) => {

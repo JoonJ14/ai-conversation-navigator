@@ -44,6 +44,9 @@
          nanos (9 digits)]]. The r_ hex equals the DOM container's id (32/32, order-exact): here the
          payload's ids ARE turnId(), the same FNV ids the DOM renders. A candidate's [1] holds the
          answer's markdown; its [12] is the heavy rich-content slot (10.7M of 12.66M chars live).
+         Phase 1 saw ONE candidate per turn (cands: 1 on every turn, Chrome page realm, chat 96b519c1);
+         a turn with drafts (several candidates, [3] naming one that is not the first) is unmeasured live:
+         rpc.drafts models it.
        - A null payload carries its code at wrb.fr[5] (G0 reads it there; [7] measured with the
          credentials omitted; [3] and [5] are public-only).
        - A missing or wrong `at` answers HTTP 400 with an "er" frame (its inner slots are synthetic).
@@ -70,7 +73,7 @@
                     measurement
        (v12.19; every key below is off by default)
        rpc:         the history read's server, see above: { at, decoyAt, freshAt, noToken, mode, lenUnit,
-                    delayMs: { full, next, newest }, heavyChars }. at: the token in the inline script;
+                    delayMs: { full, next, newest }, heavyChars, drafts }. at: the token in the inline script;
                     decoyAt: a later script sets the page GLOBAL to this other value (a reader of globals
                     sends it and is refused); noToken: the WIZ script carries no token; mode: 'ok' (default),
                     'refuse' (403), 'abort', 'hang', 'null7' / 'null3' / 'null5' (a null payload, the code at
@@ -80,6 +83,11 @@
                     (the payload's turns are not a list), 'cursor-repeat' (the second page repeats the first
                     cursor), 'empty-cursor' (a page of no turns with a cursor); lenUnit: 'chars' (default) or
                     'bytes'. Any request whose `at` is not the page's current token is refused 400.
+                    drafts (Tier 3 r1; UNMEASURED live, see the turn's shape above): true | { word }: each
+                    turn's response lists TWO candidates, [0] a draft the page does not show ("Draft n: ...",
+                    naming `word`, default 'platypus', and nothing else), [1] the answer the DOM shows, which
+                    R[3] names by its rc_ id: a reader that takes [0][0] instead of the one [3] names lists
+                    the draft.
                     endless: every page carries a fresh cursor (the read lists a chat of 1,000,000 turns,
                     synthetic, past the script's page cap); empty: 'newest' | 'full' | 'all', that kind of
                     request answers a page of no turns and no cursor (never seen live; Phase 1 saw a null
@@ -436,13 +444,24 @@
     function rpcTurn(chat, n) {
         var id = turnId(chat, n), rc = 'rc_' + hex16('rc' + chat + '#' + n);
         var heavyN = typeof RPC.heavyChars === 'number' ? RPC.heavyChars : 2000;
-        var cand = fill(38);
-        cand[0] = rc;
-        cand[1] = [answerText(n)];
-        // The rich-content slot: 85% of the live payload, read by nobody. Synthetic filler.
-        cand[12] = [['rich', new Array(Math.ceil(heavyN / 10) + 1).join('card-data;').slice(0, heavyN)]];
+        function candidate(rcId, text) {
+            var cand = fill(38);
+            cand[0] = rcId;
+            cand[1] = [text];
+            // The rich-content slot: 85% of the live payload, read by nobody. Synthetic filler.
+            cand[12] = [['rich', new Array(Math.ceil(heavyN / 10) + 1).join('card-data;').slice(0, heavyN)]];
+            return cand;
+        }
         var resp = fill(32);
-        resp[0] = [cand];
+        if (RPC.drafts) {
+            // drafts (unmeasured live): the draft first, the shown answer second, named by resp[3].
+            var word = (typeof RPC.drafts === 'object' && RPC.drafts.word) || 'platypus';
+            resp[0] = [candidate('rc_' + hex16('draft' + chat + '#' + n),
+                                 'Draft ' + n + ': a draft the page does not show, about the ' + word + ' only.'),
+                       candidate(rc, answerText(n))];
+        } else {
+            resp[0] = [candidate(rc, answerText(n))];
+        }
         resp[3] = rc;
         var query = [[questionText(n), null, null, null, [[]]], 2, null, 1, hex16('q' + chat + '#' + n), null, null, null, false, null, []];
         return [['c_' + chat, 'r_' + id], ['c_' + chat, 'r_' + id, rc], query, resp,
