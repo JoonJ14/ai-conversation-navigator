@@ -146,6 +146,9 @@
             insertCommand: 'Insert',
             olderHistoryNotLoaded: 'Older messages are not loaded yet \u2014 scroll to the top of the chat to load them',
             loadingEarlierMessages: 'Loading earlier messages\u2026',
+            loadFullHistory: 'Load full history',
+            loadingHistory: 'Loading\u2026 {n} of {total}',
+            loadHistoryStop: 'Click again to stop',
         },
         ko: {
             navigate: '\ud0d0\uc0c9',
@@ -236,6 +239,9 @@
             insertCommand: '\uc0bd\uc785',
             olderHistoryNotLoaded: '\uc774\uc804 \uba54\uc2dc\uc9c0\uac00 \uc544\uc9c1 \ub85c\ub4dc\ub418\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4 \u2014 \ucc44\ud305 \ub9e8 \uc704\ub85c \uc2a4\ud06c\ub864\ud558\uba74 \ubd88\ub7ec\uc635\ub2c8\ub2e4',
             loadingEarlierMessages: '\uc774\uc804 \uba54\uc2dc\uc9c0\ub97c \ubd88\ub7ec\uc624\ub294 \uc911\u2026',
+            loadFullHistory: '\uc804\uccb4 \uae30\ub85d \ubd88\ub7ec\uc624\uae30',
+            loadingHistory: '\ubd88\ub7ec\uc624\ub294 \uc911\u2026 {n} / {total}',
+            loadHistoryStop: '\ub2e4\uc2dc \ud074\ub9ad\ud558\uba74 \uc911\uc9c0\ud569\ub2c8\ub2e4',
         }
     };
 
@@ -8331,6 +8337,174 @@
         });
     }
 
+    // ── Gemini: "Load full history" (v12.19 Part 2, DEC-063) ─────────
+    // The fallback where the index cannot list the chat: a manager without a working transport, a degraded
+    // index, Gem and /u/N/ paths (gmIxState 'degraded' or 'none'). Hidden while the index's first load is in
+    // flight and while it is ready, and wherever the start is loaded. One click pages the history in at the
+    // top with the jumps' own pager (gmPageToStart; no request of ours: Gemini sends its own hNvQHb when the
+    // view reaches the top) until DEC-057's rules say the start is loaded, then puts the view back on the turn
+    // the user was on, by its id (gmViewAnchor). How a load ends, and whether the view goes back:
+    //   start, index, timeout, cap      yes: the user asked for the history, not for a move
+    //   click (a second click)          yes
+    //   user, superseded, path,         no: the user's own scroll, a jump or landing, or another chat owns
+    //   container-gone, no-container        the view
+    // Closing Navigate does not stop it. The page wait is GM_HISTORY_TOP_MS + 1 s, so a last page of exactly
+    // GM_HISTORY_PAGE turns completes by the tracker's own 8 s rule first (DEC-057), never by the pager's
+    // clock. Gated on the mock only (Playwright page realm, check-gemini-index.js F1-F8); live paging past
+    // DEC-057's one 32-question chat (Chrome + Tampermonkey, 2026-10-31) is unmeasured.
+    var GM_LOAD_MAX_PAGES = 50;   // one click: 500 turns at 10 a page (unmeasured past 32); past it the button stays
+    var GM_LOAD_KEEP_VIEW = { user: 1, superseded: 1, path: 1, 'container-gone': 1, 'no-container': 1 };
+    var _gmLoad = { active: false, phase: 'idle', token: 0, path: null, anchor: null, loaded: 0, pages: 0, t0: 0, run: null };
+
+    function gmLoadZone(attr, v) {
+        var z = document.getElementById('acn-zone');
+        if (!z) return;
+        if (v === null) z.removeAttribute(attr); else z.setAttribute(attr, v);
+    }
+    function gmLoadButtonWanted() {
+        if (!platform || platform.id !== 'gemini') return false;
+        if (_gmLoad.active) return _gmLoad.path === location.pathname;
+        if (!gmHistPartial()) return false;
+        var st = gmIxState();
+        return st === 'none' || st === 'degraded';
+    }
+    // Navigate's fingerprint part: the progress itself is painted in place (gmLoadPaint).
+    function gmLoadSig() { return gmLoadButtonWanted() ? (_gmLoad.active ? _gmLoad.phase : 'idle') : '-'; }
+    // The total is '?': the button runs exactly where no index knows it.
+    function gmLoadLabel() {
+        if (!_gmLoad.active) return i18n('loadFullHistory');
+        return i18n('loadingHistory', { n: String(_gmLoad.loaded), total: '?' });
+    }
+    function gmLoadStamp(b) {
+        b.setAttribute('data-acn-history-load', _gmLoad.active ? _gmLoad.phase : 'idle');
+        b.setAttribute('data-acn-history-loaded', String(_gmLoad.active ? _gmLoad.loaded : gmHistTurns(gmScroller()).length));
+        b.setAttribute('data-acn-history-total', '?');
+        b.title = _gmLoad.active ? i18n('loadHistoryStop') : '';
+    }
+    // Navigate's button, drawn from state: every scan redraws Navigate and replaces the node. A div with
+    // role=button, like the rows: a focused <button> takes Space, which ixWatchUser counts as the user's own
+    // scroll, so a keyboard "second click" would end the load as 'user' and start another.
+    function gmLoadRender() {
+        if (!gmLoadButtonWanted()) return null;
+        var b = createElement('div', { className: 'acn-gm-load', textContent: gmLoadLabel() });
+        b.setAttribute('role', 'button');
+        b.setAttribute('data-acn-role', 'history-load');
+        gmLoadStamp(b);
+        b.addEventListener('click', function (e) { if (e && e.stopPropagation) e.stopPropagation(); gmLoadToggle(); });
+        return b;
+    }
+    // The drawn button, updated in place: a page settles before the scan that redraws Navigate.
+    function gmLoadPaint() {
+        var b = document.querySelector('[data-acn-role="history-load"]');
+        if (!b) return;
+        var t = gmLoadLabel();
+        if (b.textContent !== t) b.textContent = t;
+        gmLoadStamp(b);
+    }
+    function gmLoadToggle() {
+        if (_gmLoad.active) { gmLoadStop('click'); return; }
+        gmLoadStart();
+    }
+    function gmLoadStart() {
+        var sc = gmScroller();
+        if (!sc || !gmLoadButtonWanted()) return;
+        gmHistObserve();                 // the tracker current for this scroller: its state, its scroll listener
+        if (!gmHistPartial()) { if (orbPanel === 'nav') orbPopulateNavigate(); return; }
+        var my = ++_gmLoad.token;
+        _gmLoad.active = true; _gmLoad.phase = 'loading'; _gmLoad.path = location.pathname;
+        _gmLoad.anchor = gmViewAnchor(sc); _gmLoad.loaded = gmHistTurns(sc).length;
+        _gmLoad.pages = 0; _gmLoad.t0 = Date.now();
+        gmLoadZone('data-acn-history-load-end', null);
+        gmLoadZone('data-acn-history-restore', null);
+        gmLoadZone('data-acn-history-anchor', _gmLoad.anchor ? _gmLoad.anchor.id : null);
+        console.log('[ACN] history: load start loaded=' + _gmLoad.loaded + ' anchor=' +
+                    (_gmLoad.anchor ? _gmLoad.anchor.id + ' offset=' + _gmLoad.anchor.offset : 'none'));
+        if (orbPanel === 'nav') orbPopulateNavigate();
+        _gmLoad.run = gmPageToStart({
+            container: sc,
+            status: false,                              // the button shows its own progress
+            pageWaitMs: GM_HISTORY_TOP_MS + 1000,       // the tracker's 8 s rule completes first
+            maxPages: GM_LOAD_MAX_PAGES,
+            domRules: true,
+            startLoaded: function () { return !gmHistPartial() || gmIxState() === 'ready'; },
+            onProgress: function (p) {
+                if (my !== _gmLoad.token) return;
+                gmHistObserve();                        // DEC-057 rule (c) sees every page by itself
+                _gmLoad.loaded = p.loaded; _gmLoad.pages = p.pages;
+                if (p.pages > 0) console.log('[ACN] history: page loaded=' + p.loaded + ' of=? pages=' + p.pages);
+                gmLoadPaint();
+            }
+        }, function (ok, why) {
+            if (my !== _gmLoad.token) return;           // a second click already ended it
+            _gmLoad.run = null;
+            // 'start' only where the tracker agrees: the pager's own rule (a wait at the top with no page)
+            // can decide before it, and then the note and the button stay, so the end is a timeout.
+            gmLoadEnd(ok ? (gmIxState() === 'ready' ? 'index' : (gmHistPartial() ? 'timeout' : 'start'))
+                         : (why === 'no-page' ? 'timeout' : why), sc);
+        });
+    }
+    // A second click: the pager stops before its next write, and the view goes back. During the
+    // restore, it stops the restore where it is.
+    function gmLoadStop(reason) {
+        if (!_gmLoad.active) return;
+        if (_gmLoad.run) { _gmLoad.run.cancel(reason); _gmLoad.run = null; }
+        if (_gmLoad.phase === 'restoring') { gmLoadReset(); return; }
+        _gmLoad.token++;
+        gmLoadEnd(reason, gmScroller());
+    }
+    function gmLoadEnd(reason, sc) {
+        var my = _gmLoad.token, path0 = _gmLoad.path, anchor = _gmLoad.anchor;
+        console.log('[ACN] history: load end reason=' + reason + ' loaded=' + gmHistTurns(sc).length +
+                    ' pages=' + _gmLoad.pages + ' ms=' + (Date.now() - _gmLoad.t0));
+        gmLoadZone('data-acn-history-load-end', reason);
+        if (!anchor || !sc || !sc.isConnected || location.pathname !== path0 || GM_LOAD_KEEP_VIEW[reason]) {
+            gmLoadZone('data-acn-history-restore', 'skipped');
+            gmLoadReset();
+            return;
+        }
+        _gmLoad.phase = 'restoring';
+        gmLoadPaint();
+        var ixTok = ++_ixJumpToken;     // a jump or landing from here on supersedes the restore
+        gmRestoreView(sc, anchor, function () {
+            return my === _gmLoad.token && ixTok === _ixJumpToken && location.pathname === path0;
+        }, function (why, off) {
+            console.log('[ACN] history: view restored to ' + anchor.id + ' ' + why + (off === null ? '' : ' off=' + off + ' px'));
+            gmLoadZone('data-acn-history-restore', why);
+            if (my === _gmLoad.token) gmLoadReset();
+        });
+    }
+    function gmLoadReset() {
+        _gmLoad.active = false; _gmLoad.phase = 'idle'; _gmLoad.token++; _gmLoad.run = null;
+        if (orbPanel === 'nav') orbPopulateNavigate();
+    }
+    // Turn anchor.id back at anchor.offset px from the view's top: instant writes, re-measured after each
+    // settle (ixLandOn's pattern; its own targets go only to 'center' or 'start'). Off-screen Gemini turns
+    // are content-visibility:auto with 500 px estimates until they render (live, DOM-REFERENCE, Gemini), so
+    // one write is not enough on its own.
+    // A hidden tab is no measurement (CLAUDE.md): the restore waits until the tab is visible.
+    // done(why, off): 'aligned' | 'clamped' | 'cap' | 'lost' | 'user' | 'superseded' | 'container-gone'.
+    function gmRestoreView(sc, anchor, stillMine, done) {
+        var writes = 0, watch = ixWatchUser(sc);
+        function finish(why, off) { watch.stop(); done(why, off); }
+        (function step() {
+            if (watch.scrolled) { finish('user', null); return; }
+            if (!stillMine()) { finish('superseded', null); return; }
+            if (!sc.isConnected) { finish('container-gone', null); return; }
+            if (document.visibilityState !== 'visible') { setTimeout(step, GM_PAGE_POLL_MS); return; }
+            var t = gmTurnById(anchor.id);
+            if (!t || !sc.contains(t)) { finish('lost', null); return; }
+            var off = Math.round(t.getBoundingClientRect().top - (sc.getBoundingClientRect().top + sc.clientTop) - anchor.offset);
+            if (Math.abs(off) <= IX_JUMP_ALIGN_TOL) { finish('aligned', off); return; }
+            var max = Math.max(0, sc.scrollHeight - sc.clientHeight);
+            var want = Math.max(0, Math.min(max, Math.round(sc.scrollTop + off)));
+            if (want === Math.round(sc.scrollTop)) { finish('clamped', off); return; }
+            if (writes >= IX_JUMP_MAX_ALIGNS) { finish('cap', off); return; }
+            writes++;
+            sc.scrollTop = want;
+            setTimeout(step, IX_JUMP_SETTLE_MS);
+        }());
+    }
+
     // ============================================================
     // MESSAGE OBSERVER
     // ============================================================
@@ -9364,6 +9538,13 @@
             '.acn-ci-degraded{background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3)}',
             '.acn-ci-loading{background:rgba(255,255,255,.05);color:#888}',
             '.acn-ci-note{background:rgba(234,179,8,.12);color:#eab308;border:1px solid rgba(234,179,8,.3)}',
+            // Gemini's "Load full history" (v12.19): not an .acn-qi row, so a jump's
+            // data-acn-jumping rule above never blocks the click that stops it.
+            '.acn-gm-load{display:block;margin:0 0 6px;padding:7px 10px;border-radius:6px;font-size:11px;line-height:1.45;',
+            'cursor:pointer;user-select:none;background:rgba(var(--acn-rgb),.10);color:var(--acn-accent);',
+            'border:1px solid rgba(var(--acn-rgb),.35);transition:background .15s}',
+            '.acn-gm-load:hover{background:rgba(var(--acn-rgb),.18)}',
+            '.acn-gm-load[data-acn-history-load="loading"],.acn-gm-load[data-acn-history-load="restoring"]{color:#aaa;border-style:dashed}',
 
             // Search input
             '.acn-search-wrap{padding:14px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0}',
@@ -9949,7 +10130,8 @@
         // never appeared, including on reopening the panel (Codex).
         var fp = _questions.map(function (q) { return q.text.substring(0, 100); }).join('|') +
                  '||' + _ciStatus + '|g' + _ciIndexGen + '|r' + (_ciRefreshFailed ? '1' : '0') +
-                 '|x' + ixFingerprint() + '|h' + (gmListPartial() ? '1' : '0');
+                 '|x' + ixFingerprint() + '|h' + (gmListPartial() ? '1' : '0') +
+                 (platform.id === 'gemini' ? '|L' + gmLoadSig() : '');
         // The list is unchanged, but what is drawn may not match the counter: the SSE events
         // draw the bar without the list, so a later scan or a reopen can find dots drawn for
         // another count. Redraw only when the counter differs from what is drawn. Never
@@ -9969,6 +10151,9 @@
         // not ready (v12.19).
         var histNote = gmListNote();
         if (histNote) list.appendChild(histNote);
+        // Its "Load full history" button, where the index cannot list the chat (v12.19, DEC-063).
+        var loadBtn = gmLoadRender();
+        if (loadBtn) list.appendChild(loadBtn);
 
         if (_questions.length === 0) {
             var empty = createElement('div', { className: 'acn-empty' },

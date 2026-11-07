@@ -2070,9 +2070,17 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
             await h.close();
         }));
     }
+    // F7's sensor for "nothing of ours paged the new chat" is the mock's top-trigger count from the new
+    // chat's first page on, not its loads(): the mock's switchTo empties the scroller, scrollTop clamps to 0,
+    // and that scroll event fires the mock's own load trigger. Measured on the BARE mock, no userscript
+    // (Playwright page realm, headless Chromium, visible, 2026-11-07): a switch from scrollTop 2180 paged
+    // one page into the new chat (loads 1, triggers 1); from scrollTop 0, none. So loads() === 0 failed with
+    // no click at all. While that load is pending the mock counts no trigger, so an early write to the top
+    // is caught by min scrollTop > 50 instead (a scratch mutant writing 0 1.5 s after the 'path' end failed
+    // on min scrollTop=0 with triggers 1->1). Live Gemini's chat switch is unmeasured.
     await seq(fixture(['F7'], async (r) => {
-        const desc = 'a chat switch during the load ends it "path" with no restore; the new chat is left at its bottom (no page in 4 s) ' +
-                     'and shows the idle button';
+        const desc = 'a chat switch during the load ends it "path" with no restore; the new chat is left at its bottom (no scroll ' +
+                     'to its top in 4 s) and shows the idle button';
         const b = await buttonPage(r, 'F7', C32);
         if (!b) return;
         const { h, v0 } = b;
@@ -2083,6 +2091,7 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         await h.page.evaluate((id) => window.__mockGemini.switchTo(id), C20);
         try { await h.page.waitForFunction('window.__mockGemini.loaded() === 10', null, { timeout: 10000 }); } catch (e) {}
         await sleep(500);
+        const trig0 = (await h.nav()).triggers;     // the switch's own clamp trigger, if any (see above)
         let minSt = Infinity;
         const t0 = Date.now();
         while (Date.now() - t0 < 4000) { minSt = Math.min(minSt, (await h.nav()).st); await sleep(100); }
@@ -2091,8 +2100,10 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         await h.openNav();
         const v = await h.until((x) => !!x.button && x.button.state === 'idle', 10000);
         r.check('F7', 'new', desc,
-                z.loadEnd === 'path' && z.restore === 'skipped' && minSt > 50 && z.loads === 0 && !!v.button && v.button.state === 'idle',
-                'end=' + z.loadEnd + ' restore=' + z.restore + ' min scrollTop=' + minSt + ' new chat loads=' + z.loads + ' then ' + fmt(v));
+                z.loadEnd === 'path' && z.restore === 'skipped' && minSt > 50 && trig0 >= 0 && z.triggers === trig0 &&
+                !!v.button && v.button.state === 'idle',
+                'end=' + z.loadEnd + ' restore=' + z.restore + ' min scrollTop=' + minSt + ' new chat top-triggers ' + trig0 + '->' + z.triggers +
+                ' (loads=' + z.loads + ', the switch\'s own) then ' + fmt(v));
         await h.close();
     }));
     await seq(fixture(['F8'], async (r) => {
