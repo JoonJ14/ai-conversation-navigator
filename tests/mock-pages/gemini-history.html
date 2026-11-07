@@ -108,6 +108,10 @@
                     n's question text, as live (a sibling of div.query-text)
        blockMs:     a synchronous busy-wait before each prepend: the live render block (~4.6 s, DEC-057)
        stallAt:     history stops loading once this many turns are in the DOM (a load that never comes)
+       endlessDom:  (review round 1) history never ends: once the chat's first turn is in, each load at the
+                    top prepends a page of OLDER turns the read does not list, their ids not 16-hex (so the
+                    self-check compares none of them). Synthetic: no live chat pages past its start; it lets
+                    a jump reach its per-jump page cap (with domOrder { drop: 1 }, turn 1 never mounts)
        Paths: /app/<id>, and the unmeasured /u/<N>/app/<id> and /gem/<gem>/<id>.
 
      window.__mockGemini:
@@ -193,6 +197,7 @@
     var CV_EST = typeof cfg.cvEstimate === 'number' ? cfg.cvEstimate : 500;
     var BLOCK = typeof cfg.blockMs === 'number' ? cfg.blockMs : 0;
     var STALL = typeof cfg.stallAt === 'number' ? cfg.stallAt : 0;
+    var ENDLESS = !!cfg.endlessDom;
     var sc = document.querySelector('infinite-scroller.chat-history');
 
     var TOPICS = ['orbital transfer windows', 'tidal locking of moons', 'the Roche limit', 'gravity assists',
@@ -200,7 +205,7 @@
                   'Hohmann transfers', 'the Oberth effect', 'synchronous orbits', 'three-body chaos'];
 
     var state = { chat: null, total: 0, first: 0, sent: 0, pending: false, gen: 0, loads: 0, triggers: 0, sentText: {},
-                  streamText: {} };
+                  streamText: {}, older: 0 };
 
     function fnv(s) {
         var h = 0x811c9dc5;
@@ -336,6 +341,23 @@
         if (ANCHOR) sc.scrollTop = top0 + (sc.scrollHeight - h0);
         state.loads++;
     }
+    // endlessDom (review round 1): a page of turns older than the chat's first, which the read does not list.
+    function prependOlder(count) {
+        var frag = document.createDocumentFragment();
+        for (var i = count; i >= 1; i--) {
+            var k = state.older + i;
+            var d = makeTurn(state.chat, 1, 0, 'An older turn the read does not list (' + k + ')');
+            d.id = 'mock-older-' + k;
+            d.setAttribute('data-mock-turn', 'older-' + k);
+            frag.appendChild(d);
+        }
+        state.older += count;
+        var h0 = sc.scrollHeight, top0 = sc.scrollTop;
+        sc.insertBefore(frag, sc.firstChild);
+        renumber();
+        if (ANCHOR) sc.scrollTop = top0 + (sc.scrollHeight - h0);
+        state.loads++;
+    }
 
     function render(chat) {
         state.gen++;
@@ -347,6 +369,7 @@
         state.streamText = {};
         state.loads = 0;
         state.triggers = 0;
+        state.older = 0;
         while (sc.firstChild) sc.removeChild(sc.firstChild);
         state.first = state.total + 1;
         var gen = state.gen;
@@ -364,7 +387,7 @@
     }
 
     sc.addEventListener('scroll', function () {
-        if (state.pending || state.first <= 1 || sc.scrollTop > 50) return;
+        if (state.pending || (state.first <= 1 && !ENDLESS) || sc.scrollTop > 50) return;
         // stallAt (v12.19): history that stops coming, e.g. a page load that fails.
         if (STALL && sc.querySelectorAll(':scope > .conversation-container').length >= STALL) return;
         state.pending = true;
@@ -376,7 +399,8 @@
             // timer of anyone's runs until the turns are in.
             if (BLOCK) { var b0 = Date.now(); while (Date.now() - b0 < BLOCK) { /* the render block */ } }
             state.pending = false;
-            prepend(Math.min(PAGE, state.first - 1));
+            if (state.first > 1) prepend(Math.min(PAGE, state.first - 1));
+            else prependOlder(PAGE);     // endlessDom only (the trigger above)
         }, DELAY);
     }, { passive: true });
 

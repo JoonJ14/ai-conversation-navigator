@@ -37,7 +37,7 @@
 // with data-acn-paging-pages / -loaded true to the page at every change (I12, I12b);
 // `[data-acn-role="history-load"]` inside the Navigate panel with
 // data-acn-history-load idle | loading, -loaded as its text says, -total "?" (F1, F5); the zone's
-// data-acn-history-load-end / -anchor / -restore (F1-F9); data-acn-jump-resolved; the console lines
+// data-acn-history-load-end / -anchor / -restore (F1-F11); data-acn-jump-resolved; the console lines
 // "[ACN] index: platform=gemini transport=fetch endpoint=hNvQHb page=N size=S[ retry=at-new|at-same]
 // status=C ..." (one per request), "[ACN] paging: platform=gemini via=jump start|end=..." (I12) and
 // "[ACN] history: load start|page|load end|view restored ..." (F1, F5; end and restore in F2, F3); no
@@ -692,12 +692,18 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         const reads = h.hits.filter((x) => x.t - first <= WIN).map((x) => Math.round((x.t - first) / 1000));
         const tl = h.req().filter((l) => / status=0 error=timeout\b/.test(l));
         const perm = h.lines(PERM_RE).filter((l) => /\[fetch\] timeout/.test(l));
+        // Each timed-out read is a strike of the chat visit (review round 1: the header promised the strike and
+        // asserted only the backoff): one "load failed — strike k of 5" line per timeout, k counting from 1.
+        const strikes = h.lines(/load failed . strike \d of 5/).map((l) => (l.match(/strike \d of 5/) || [''])[0]);
+        const strikesOk = strikes.length === tl.length && strikes.every((s, i) => s === 'strike ' + (i + 1) + ' of 5');
         const leaks = noLeak(h.logs.concat([await h.storage()]));
         r.check('I22', 'new', 'a read that times out (the server answers in 47 s): a first read, its timeout logged "status=0 error=timeout" ' +
-                'and PERMANENT ("next retry in 60s"), at most 2 reads in 3 minutes, degraded naming the timeout; nothing leaked',
-                reads.length >= 1 && reads.length <= 2 && tl.length >= 1 && perm.some((l) => /next retry in 60s/.test(l)) &&
+                'and PERMANENT ("next retry in 60s"), each timeout a strike ("strike 1 of 5", then 2), at most 2 reads in 3 minutes, ' +
+                'degraded naming the timeout; nothing leaked',
+                reads.length >= 1 && reads.length <= 2 && tl.length >= 1 && perm.some((l) => /next retry in 60s/.test(l)) && strikesOk &&
                 v.banner === 'degraded' && /timeout/.test(v.bannerText || '') && leaks.length === 0,
                 'reads at s=' + JSON.stringify(reads) + ' (all ' + h.hits.length + ', answered ' + h.fulfilled + ') timeout lines=' + tl.length +
+                ' strikes=' + JSON.stringify(strikes) +
                 ' permanent=' + JSON.stringify(perm.map((l) => (l.match(/next retry in \d+s/) || [''])[0])) + ' ' + fmt(v) +
                 ' bannerText=' + JSON.stringify(v.bannerText) + ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
         await h.close();
@@ -2080,19 +2086,59 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
     }
     await seq(fixture(['I12c'], async (r) => {
         // History that stops coming after one page: the jump ends honestly (a toast), the status goes,
-        // "end=no-page", and nothing writes the scroller afterwards.
+        // "end=no-page", and nothing writes the scroller afterwards. The sensor (review round 1): the jump
+        // ends with the view at the top, where a write of 0 changes nothing, so the view is first moved off
+        // the top by a user scroll (> 300 px) and then sampled for 3 s: a pager or jump still writing after
+        // its end pulls it back (min scrollTop > 50 fails) or moves it (more than one value). The sampling
+        // at the top passed a scratch mutant that wrote 0 every 100 ms for 6 s after the end (the review's
+        // run, Playwright chromium, 546ab49).
         const j = await jumpQ1(r, 'I12c', { loadDelayMs: 1500, stallAt: 20 });
         if (!j) return;
         const { h, v0, row } = j;
         if (!row) { r.check('I12c', 'new', 'a jump whose history stops coming ends with a toast', false, 'no Q1 row (' + fmt(v0) + ')'); await h.close(); return; }
         try { await h.page.waitForFunction(() => (window.__acnToasts || []).length > 0, null, { timeout: 45000 }); } catch (e) {}
         const v = await h.nav();
+        await h.page.evaluate(() => window.__mockGemini.userScroll(400));
+        const off = await h.until((x) => x.st > 300, 1500, 50);
         const sts = [];
         for (let i = 0; i < 30; i++) { sts.push((await h.nav()).st); await sleep(100); }
-        r.check('I12c', 'new', 'a jump whose history stops coming (stallAt 20): a toast, the status gone, "end=no-page", no scroll write for 3 s after',
+        const minSt = Math.min.apply(null, sts);
+        r.check('I12c', 'new', 'a jump whose history stops coming (stallAt 20): a toast, the status gone, "end=no-page"; then the view ' +
+                'moved off the top (> 300 px) stays there for 3 s (min scrollTop > 50, one value): no scroll write after the end',
                 v.toasts.length > 0 && !v.status && h.lines(/^\[ACN\] paging: platform=gemini via=jump end=no-page/).length === 1 &&
-                new Set(sts).size === 1,
-                fmt(v) + ' toasts=' + JSON.stringify(v.toasts) + ' status=' + JSON.stringify(v.status) + ' scrollTops=' + Array.from(new Set(sts)).join(','));
+                off.st > 300 && minSt > 50 && new Set(sts).size === 1,
+                fmt(v) + ' toasts=' + JSON.stringify(v.toasts) + ' status=' + JSON.stringify(v.status) + ' moved to=' + off.st +
+                ' min scrollTop=' + minSt + ' scrollTops=' + Array.from(new Set(sts)).join(','));
+        await h.close();
+    }));
+    // I12l (review round 1): the per-jump page cap (the spec: "a per-jump cap from the turn count"), ceil(32 / 10)
+    // + 2 = 6 pages for this chat. History that never ends (the mock's endlessDom: past the chat's start, each load
+    // brings ten older turns the read does not list) and a target that never mounts (domOrder drop 1: Q1 is in the
+    // read, never in the DOM), so neither until() nor the index's start ever ends the run: only the cap does.
+    // Synthetic (no live chat pages past its start); the pages at 1.5 s, DEC-057's live range. A build without the
+    // cap pages on (GM_PAGE_MAX, 200); v12.18 lists no Q1.
+    await seq(fixture(['I12l'], async (r) => {
+        const desc = 'a jump whose target never mounts, under history that never ends (endlessDom, Q1 never rendered): ' +
+                     'the per-jump cap ends it after ceil(32/10)+2 = 6 pages ("cap=6" at the start, one "end=cap pages=6" line), ' +
+                     'one toast, the status gone, no page after the end (3 s), nothing leaked';
+        const j = await jumpQ1(r, 'I12l', { loadDelayMs: 1500, endlessDom: true, domOrder: { drop: 1 } });
+        if (!j) return;
+        const { h, v0, row } = j;
+        if (!row) { r.check('I12l', 'new', desc, false, 'no Q1 row (' + fmt(v0) + ')'); await h.close(); return; }
+        try { await h.page.waitForFunction(() => (window.__acnToasts || []).length > 0, null, { timeout: 60000 }); } catch (e) {}
+        const v = await h.nav();
+        await sleep(3000);
+        const v2 = await h.nav();
+        const starts = h.lines(/^\[ACN\] paging: platform=gemini via=jump start\b/);
+        const ends = h.lines(/^\[ACN\] paging: platform=gemini via=jump end=/);
+        const leaks = noLeak(h.logs.concat([await h.storage()]));
+        r.check('I12l', 'new', desc,
+                starts.length === 1 && / cap=6\b/.test(starts[0]) && ends.length === 1 && /^\[ACN\] paging: platform=gemini via=jump end=cap pages=6\b/.test(ends[0]) &&
+                v.toasts.length === 1 && !v.status && v2.loads === v.loads && v2.toasts.length === 1 && !v2.status && leaks.length === 0,
+                fmt(v) + ' start=' + JSON.stringify(starts.map((l) => l.replace(/^\[ACN\] paging: platform=gemini via=jump /, ''))) +
+                ' end=' + JSON.stringify(ends.map((l) => l.replace(/^\[ACN\] paging: platform=gemini via=jump /, '').replace(/ ms=\d+$/, ''))) +
+                ' toasts=' + JSON.stringify(v.toasts) + ' status=' + JSON.stringify(v.status) + ' loads ' + v.loads + '->' + v2.loads +
+                ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
         await h.close();
     }));
     await seq(fixture(['I12d'], async (r) => {
@@ -2485,7 +2531,7 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         await h.close();
     }));
 
-    // ── F1-F9: "Load full history", where the index cannot list the chat ──────────────────────────
+    // ── F1-F11: "Load full history", where the index cannot list the chat ─────────────────────────
     // The read refused (403, PERMANENT) unless noted, so the button is the fallback.
     async function buttonPage(r, id, chat, cfgExtra, opts) {
         const h = await open(r, [id], chat, Object.assign({ rpc: { mode: 'refuse' } }, cfgExtra || {}), opts);
@@ -2802,6 +2848,84 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
                 'hidden: loaded=' + (vh && vh.loaded) + ' end=' + endHidden + ' samples not loading=' + notLoading + ' scrolls held=' + held +
                 ' | visible: end=' + v.loadEnd + ' ' + fmt(v) + ' end lines=' + JSON.stringify(endL.map((l) => l.replace(/ ms=\d+$/, ''))) +
                 ' texts=' + JSON.stringify(smp.texts));
+        await h.close();
+    }));
+    // F10 (review round 1): the index becomes ready while the button loads, so the load ends "index" and puts the
+    // view back. The read fails at the network first (mode abort: TRANSIENT, a strike, the button offered); the
+    // mode is set to 'ok' right after the click, so the index's next load after the cooldown (~16 s, I26's pace)
+    // succeeds while the button still pages (7 s a page, under its 9 s page wait, so 3 pages take ~22 s). A model:
+    // live Gemini's history and the read's recovery are unmeasured. A build whose load ignores the index's start
+    // pages on to the DOM's start and ends "start"; v12.18 has no button.
+    await seq(fixture(['F10'], async (r) => {
+        const desc = 'the index becomes ready during the load (the read failed at the network, then answers): the load ends "index" ' +
+                     'before the DOM\'s start (fewer than 3 pages), one "load end reason=index" line, the view back on the anchor turn ' +
+                     '("aligned", within 8 px), 32 listed from the index with index-check "ok", no banner, the note and the button gone';
+        const b = await buttonPage(r, 'F10', C32, { rpc: { mode: 'abort' }, loadDelayMs: 7000 });
+        if (!b) return;
+        const { h, v0 } = b;
+        if (!v0.button) { r.check.apply(null, noButton('F10', desc, v0)); await h.close(); return; }
+        const anchor = await placeAt(h, 28);
+        await clickButton(h);
+        await h.page.evaluate(() => { window.__mockGemini && (window.__MOCK_CONFIG.rpc.mode = 'ok'); });
+        const smp = await sampleLoad(h, 60000);
+        await h.settle(20000, 1000);
+        const v = await h.until((x) => x.count === '32' && x.check === 'ok', 10000);
+        const err = anchor ? await h.page.evaluate(ANCHOR_ERR + '(' + JSON.stringify(anchor) + ')') : null;
+        const endL = h.lines(/^\[ACN\] history: load end reason=/);
+        // Before the DOM's start, read from the end line (the turns and pages in when the load ended): the mock's
+        // own load, triggered by the pager's last write to the top, may still land after the end (loads() is 3
+        // then on the fixed build too: the first run of this gate, chromium).
+        const em = endL.length === 1 ? endL[0].match(/^\[ACN\] history: load end reason=index loaded=(\d+) pages=(\d+)\b/) : null;
+        r.check('F10', 'new', desc,
+                v.loadEnd === 'index' && !!em && +em[1] < 32 && +em[2] < 3 &&
+                !!anchor && v.restore === 'aligned' && err !== null && Math.abs(err) <= 8 &&
+                v.count === '32' && inOrder(v.items, 32) && v.check === 'ok' && !v.banner && !v.note && !v.button,
+                'end=' + v.loadEnd + ' end lines=' + JSON.stringify(endL.map((l) => l.replace(/ ms=\d+$/, ''))) + ' restore=' + v.restore +
+                ' err=' + err + ' ' + fmt(v) + ' reads=' + h.hits.length + ' texts=' + JSON.stringify(smp.texts));
+        await h.close();
+    }));
+    // F11 (review round 1): a second click while the view is being put back ('restoring'). gmLoadStop records the
+    // restore as superseded at once, and the restore's own end, which comes up to IX_JUMP_SETTLE_MS later, writes
+    // nothing (fix plan A9): one "view restored to <the anchor> superseded" line, and the view stays where the stop
+    // left it. The click comes from a MutationObserver in the page, in the microtask after the button turns
+    // 'restoring' (the restore's first write is made by then, its next step not yet). A build whose stopped restore
+    // still ends logs a second "view restored" line; v12.18 has no button.
+    await seq(fixture(['F11'], async (r) => {
+        const desc = 'a second click while the view is being restored: the load\'s end stays "start" (32 loaded), the restore ' +
+                     '"superseded", exactly one "view restored to <the anchor> superseded" line and no other "view restored" line, ' +
+                     'the view still for 2 s after, the button gone';
+        const b = await buttonPage(r, 'F11', C32);
+        if (!b) return;
+        const { h, v0 } = b;
+        if (!v0.button) { r.check.apply(null, noButton('F11', desc, v0)); await h.close(); return; }
+        const anchor = await placeAt(h, 28);
+        await h.page.evaluate(() => {
+            window.__f11 = { clicked: 0, state: null };
+            new MutationObserver(function () {
+                if (window.__f11.clicked) return;
+                var b = document.querySelector('[data-acn-role="history-load"][data-acn-history-load="restoring"]');
+                if (!b) return;
+                window.__f11.clicked++;
+                window.__f11.state = b.getAttribute('data-acn-history-load');
+                b.click();
+            }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-acn-history-load'] });
+        });
+        await clickButton(h);
+        await sampleLoad(h, 60000);
+        try { await h.page.waitForFunction(() => !!document.getElementById('acn-zone').getAttribute('data-acn-history-restore'), null, { timeout: 10000 }); } catch (e) {}
+        const v1 = await h.nav();
+        const sts = [];
+        for (let i = 0; i < 20; i++) { sts.push((await h.nav()).st); await sleep(100); }
+        const v = await h.nav();
+        const f11 = await h.page.evaluate(() => window.__f11);
+        const restL = h.lines(/^\[ACN\] history: view restored/);
+        const supL = anchor ? h.lines(new RegExp('^\\[ACN\\] history: view restored to ' + anchor.id + ' superseded$')) : [];
+        r.check('F11', 'new', desc,
+                f11.clicked === 1 && f11.state === 'restoring' && v.loadEnd === 'start' && v.loaded === 32 && v.restore === 'superseded' &&
+                restL.length === 1 && supL.length === 1 && new Set(sts).size === 1 && v1.restore === 'superseded' && !v.button,
+                'clicked=' + f11.clicked + ' at=' + f11.state + ' end=' + v.loadEnd + ' restore=' + v1.restore + '->' + v.restore +
+                ' restored lines=' + JSON.stringify(restL.map((l) => l.replace(anchor ? anchor.id : '#', '<anchor>'))) +
+                ' scrollTops=' + Array.from(new Set(sts)).join(',') + ' ' + fmt(v));
         await h.close();
     }));
 

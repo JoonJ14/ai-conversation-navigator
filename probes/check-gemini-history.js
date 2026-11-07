@@ -45,14 +45,18 @@
 //   none    no token: nothing may be sent at all (0 reads).
 // The 2 s below each gate absorbs the time between a load's start (where the gate is counted from) and
 // its request reaching the route. Reads of different chats (an SPA switch) are not a retry.
+// In refuse and abort mode H0 needs a read that was SENT (review round 1): with none in the run it is
+// INVALID, since the token plant broke or the build has no index, and the run then tested the no-token
+// path. A build before v12.19 (no index) runs with --gm-endpoint none.
 // What H0 can see (Tier 3 r1): only the reads made while a fixture's page is open, and no fixture here
 // stays open to the end of a 60 s backoff, so in refuse mode a page shows one read of each chat it opens
 // (H1 and H6b switch chats: 2) and H0 catches a retry loop faster than a fixture's life, not a backoff
 // shorter than 60 s. The backoff's length is gated by check-gemini-index.js I23 (a page open 75 s after a
 // 403: one read before 58 s, one between 58 and 75 s).
 //
-// Proof rule: run the old build (v12.15) against this file too — every check marked [new] must
-// FAIL there (on chromium; other engines are reported as measured). [guard] passes on both.
+// Proof rule: run the old build (v12.15) against this file too, with --gm-endpoint none (it has no
+// index to send a read) — every check marked [new] must FAIL there (on chromium; other engines are
+// reported as measured). [guard] passes on both.
 // A precondition that fails (the page hidden, the mock's first page not as expected) prints
 // INVALID: it says the harness, not the build, is wrong.
 
@@ -447,7 +451,12 @@ async function runEngine(engine, raw, only, quiet, endpoint) {
     }
     const gaps = pageHits.filter((p) => p.reads.length > 1)
         .map((p) => p.id + ':' + p.reads.slice(1).map((x, i) => (x.chat === p.reads[i].chat ? '' : 'switch,') + (x.t - p.reads[i].t)).join('/'));
-    check('H0', '[guard] no retry loop in the fallback: ' + (endpoint === 'none'
+    // refuse and abort test a read that was SENT and failed: with none sent, H0 would pass on the no-token path
+    // (the plant broke, or the build has no index) and test nothing (review round 1). Only with pages opened.
+    if (endpoint !== 'none' && pageHits.length && total === 0) {
+        bad('H0', 'no history read was sent in ' + endpoint + ' mode, so nothing was refused: the token plant broke, or the build ' +
+                  'has no index (a build before v12.19: run it with --gm-endpoint none)');
+    } else check('H0', '[guard] no retry loop in the fallback: ' + (endpoint === 'none'
               ? 'no history read at all (no token in the page)'
               : 'no two reads of one chat less than ' + (READ_GAP_MS[endpoint] / 1000) + ' s apart (' +
                 (endpoint === 'refuse' ? 'a 403 is PERMANENT' : 'a network failure stays transient, behind the cooldown') + ')'),

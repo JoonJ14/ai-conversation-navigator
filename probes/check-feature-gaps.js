@@ -20,7 +20,9 @@
 // cooldown: no two reads of one chat less than 13 s apart (a pace, not a count; these pages live up to
 // about a minute; each failed read is a strike, so a chat visit sends at most 5, gated by
 // check-gemini-index.js I26); none = no token, so no read at all. The 2 s below each gate absorbs the time between
-// a load's start and its request reaching the route.
+// a load's start and its request reaching the route. In refuse and abort mode G0 needs a read that was SENT (review
+// round 1): with none it prints INVALID (and the run fails), since the token plant broke or the build has no index;
+// a build before v12.19 runs with --gm-endpoint none.
 //
 // WHAT v12.16 DID, MEASURED LIVE (Chrome + Tampermonkey, the owner's profile, visible tab,
 // 2026-11-01): ChatGPT (49 questions) Search found no answer at all, Summary read "49 user, 0 AI",
@@ -1156,7 +1158,13 @@ function claudeXhr(payload) {
         }
         const gaps = gmSeen.filter((p) => p.reads.length > 1)
             .map((p) => p.id + ':' + p.reads.slice(1).map((x, i) => (x.chat === p.reads[i].chat ? '' : 'switch,') + (x.t - p.reads[i].t)).join('/'));
-        check('G0', 'guard', 'Gemini fallback (gm-endpoint ' + GM_ENDPOINT + '), no retry loop: ' + (GM_ENDPOINT === 'none'
+        // refuse and abort test a read that was SENT and failed: with none sent, G0 would pass on the no-token
+        // path (the plant broke, or the build has no index) and test nothing (review round 1).
+        if (GM_ENDPOINT !== 'none' && total === 0) {
+            failures++;
+            console.log('  INVALID  G0 no history read was sent in ' + GM_ENDPOINT + ' mode, so nothing was refused: the token plant ' +
+                        'broke, or the build has no index (a build before v12.19: run it with --gm-endpoint none)');
+        } else check('G0', 'guard', 'Gemini fallback (gm-endpoint ' + GM_ENDPOINT + '), no retry loop: ' + (GM_ENDPOINT === 'none'
                   ? 'no history read at all (no token in the page)'
                   : 'no two reads of one chat less than ' + (GM_READ_GAP_MS[GM_ENDPOINT] / 1000) + ' s apart (' +
                     (GM_ENDPOINT === 'refuse' ? 'a 403 is PERMANENT' : 'a network failure stays transient, behind the cooldown') + ')'),
