@@ -3335,8 +3335,10 @@
     var GM_IX_ENDPOINT     = '/_/BardChatUi/data/batchexecute?rpcids=' + GM_IX_RPC + '&rt=c';   // as Phase 0 sent it
     var GM_IX_CONTENT_TYPE = 'application/x-www-form-urlencoded;charset=UTF-8';   // CORS-safelisted: a simple request
     var GM_IX_PAGE_SIZE    = 100;   // a full load, following the cursor to null
+    var GM_IX_NEWEST_SIZE  = 10;    // a refresh: the newest page only, merged by id (the page's own size, Phase 1)
     var GM_IX_MAX_PAGES    = 10;    // a full load's call cap: 1,000 turns (no chat over 32 measured); past it, degrade
-    var GM_IX_STRIKES_MAX  = 5;     // permanent load failures per chat visit, then no more loads until a reload or a reopen
+    var GM_IX_STRIKES_MAX  = 5;     // strikes per chat visit (permanent failures, mismatches, merge misses), then no
+                                    // more full loads until a reload or a reopen
     var GM_IX_CALLS_MAX    = 100;   // hNvQHb requests asked of the transport per chat visit, answered or not: a backstop
     var GM_IX_VERIFY_GRACE_MS = 30000;   // turns shown that the self-check cannot compare: this long, then a mismatch
     // The page token's key and its quoted value, as the page's inline script text writes it. Never spell
@@ -3535,6 +3537,32 @@
         return { entries: entries, answers: answers, kept: kept };
     }
 
+    // The snapshot's turns, oldest first, as gmIxParse gives them, rebuilt from what ixLoad kept: every
+    // turn has an answer record (gmIxBuild), and its question is its entry's text ('' for a turn with none).
+    function gmIxTurnsOf(base) {
+        var qOf = {}, out = [], i;
+        for (i = 0; i < base.entries.length; i++) qOf[base.entries[i].id] = base.entries[i].text;
+        for (i = 0; i < base.answers.length; i++) {
+            var id = base.answers[i].at;
+            out.push({ id: id, q: qOf.hasOwnProperty(id) ? qOf[id] : '', a: base.answers[i].text || '' });
+        }
+        return out;
+    }
+    // The newest page merged into the snapshot BY ID. The page is the truth from its oldest turn on: a
+    // changed answer, a new turn, a turn gone. null = it does not meet the snapshot (its oldest turn is
+    // not in it, or a turn of the page is also listed before that one: more than a page arrived, or
+    // another history), and the caller reads the chat whole. No cursor: the whole chat fits in the page.
+    function gmIxMerge(base, page) {
+        if (!page.cursor) return page.turns;
+        if (!page.turns.length) return null;
+        var old = gmIxTurnsOf(base), at = -1, i, seen = {};
+        for (i = 0; i < old.length; i++) if (old[i].id === page.turns[0].id) { at = i; break; }
+        if (at < 0) return null;
+        for (i = 0; i < at; i++) seen['t' + old[i].id] = true;
+        for (i = 0; i < page.turns.length; i++) if (seen['t' + page.turns[i].id]) return null;
+        return old.slice(0, at).concat(page.turns);
+    }
+
     // A turn the index holds, with or without a question (every turn has an answer record): mounted()
     // must not read an image-only turn as newer than the index.
     function gmIxKnownTurn(id) {
@@ -3554,6 +3582,16 @@
     // done(err) with { reason, permanent[, noStrike] }, or done(null, { entries, answers, total, transport }):
     // total is the turn count (the position scale), no images (the gallery stays on the page's own) and no
     // truncated (past the page cap it degrades: newest-first paging would drop the OLDEST turns).
+    // A REFRESH (ixLoad's keep: this chat's index is ready and stays shown meanwhile) reads the newest page
+    // only (GM_IX_NEWEST_SIZE, no cursor) and merges it by id (gmIxMerge). ixScan asks for one on its
+    // stale rules, unchanged: a turn with an id the index lacks (a message just sent: the mounted turns
+    // outgrow the index), an answer it does not hold or holds too little of, the latest answer settling,
+    // the index listing more than the page's last turn at the bottom, a bookmark's request; each behind
+    // the cooldown and once per signature. A full read only on a conversation change (ixInvalidate, then
+    // an idle index), after a self-check mismatch or a failed load (the degraded retry), and when the
+    // newest page does not meet the snapshot (a merge miss: a strike, and logged). Read from the code,
+    // not measured live: a sent message can cost up to three refreshes there (its id, its answer, the
+    // answer settling: each its own signature); the mock answers at once, so it costs one (probe I11).
     // Classes (permanent = ixDegrade's 60 s then x4 backoff; transient = the ~16 s cooldown):
     //   HTTP 400          the token re-read ONCE from the current document and the request sent ONCE more
     //                     (" retry=at-new|at-same"); a second 400 is permanent. No ~16 s loop, as ChatGPT's
@@ -3573,8 +3611,11 @@
     //                     GM_IX_STRIKES_MAX timed-out reads per chat visit (probe I22).
     //   401/403/429       permanent (ciIsPermanentReason); 404, 5xx and network transient, as every adapter's.
     // Gates on the calls, on top of ixScan's (one load at a time, the 15 s cooldown, the backoff): a full
-    // load is at most GM_IX_MAX_PAGES calls; GM_IX_STRIKES_MAX permanent failures in a chat visit stop its
-    // loads until a reload or a reopen; GM_IX_CALLS_MAX requests asked per chat visit, answered or not.
+    // load is at most GM_IX_MAX_PAGES calls, a refresh one (two after a 400), plus a full load on a merge
+    // miss; GM_IX_STRIKES_MAX strikes in a chat visit (permanent failures, self-check mismatches, merge
+    // misses) stop its full loads until a reload or a reopen, while a ready index's refresh still reads
+    // its newest page; GM_IX_CALLS_MAX requests asked per chat visit, answered or not, stop every read; a
+    // load superseded (a newer load, or the chat left) sends nothing more and parses nothing it gets.
     // ONE "[ACN] index: platform=gemini transport=… endpoint=hNvQHb page=N size=S[ retry=…] status=C" line
     // per request sent (ixLog), with one tail; one "measure" line per load that built an index.
     function gmIxFetch(cid, done) {
@@ -3583,9 +3624,23 @@
         // This visit's state, captured: a load still answering after a switch (A -> B) must not count
         // against the chat now open.
         var st = _gmIx;
-        var m = { kind: 'full', pages: 0, chars: 0, netMs: 0, frameMs: 0, treeMs: 0, extractMs: 0,
+        // A refresh is ixLoad's keep (the same test): the snapshot is captured now, since a self-check may
+        // drop _ix, or a newer load replace it, before the page comes back (ixLoad and ixDegrade replace or
+        // null these arrays, never change them in place). gen is ixLoad's own number for this load: a
+        // self-check drop or a conversation change moves _ix.loadGen on, and this load is superseded.
+        var base = (_ix.status === 'ready' && _ix.pid === 'gemini' && _ix.cid === cid && _ix.entries && _ix.answers)
+                 ? { entries: _ix.entries, answers: _ix.answers } : null;
+        var gen = _ix.loadGen;
+        var m = { kind: base ? 'newest' : 'full', pages: 0, chars: 0, netMs: 0, frameMs: 0, treeMs: 0, extractMs: 0,
                   heap0: gmIxHeap(), heapMax: -1 };
         var retried = false, ended = false;
+        function superseded() {
+            return _ix.loadGen !== gen || IX_ADAPTERS.gemini.getConversationId() !== cid;
+        }
+        function stopped() {
+            return { reason: 'stopped after ' + st.strikes + ' failures in this chat (reload the page to try again)',
+                     permanent: true, noStrike: true };
+        }
         function end(err, res) {
             if (ended) return;
             ended = true;
@@ -3610,7 +3665,7 @@
         }
         // ONE hNvQHb call; next(page, log) on a page that parsed, where log(tail) writes its line.
         function call(size, cursor, n, next, retryTag) {
-            if (IX_ADAPTERS.gemini.getConversationId() !== cid) { endSoon({ reason: 'superseded', permanent: false }); return; }
+            if (superseded()) { endSoon({ reason: 'superseded', permanent: false }); return; }
             if (st.calls >= GM_IX_CALLS_MAX) {
                 endSoon({ reason: GM_IX_CALLS_MAX + ' history reads in this chat (reload the page to read it again)',
                           permanent: true, noStrike: true });
@@ -3647,7 +3702,7 @@
                 // Parsed on a fresh stack: the transport's frames, which held the response text, have
                 // returned by then, so the payload's tree is built without a second copy alive.
                 setTimeout(guard(function () {
-                    if (IX_ADAPTERS.gemini.getConversationId() !== cid) {
+                    if (superseded()) {
                         holder.text = null;
                         ixLog('gemini', r, GM_IX_RPC, extra, ' superseded');   // answered, never read
                         end({ reason: 'superseded', permanent: false });
@@ -3726,11 +3781,23 @@
             }
             page(1, null);
         }
-        if (st.strikes >= GM_IX_STRIKES_MAX) {
-            endSoon({ reason: 'stopped after ' + st.strikes + ' failures in this chat (reload the page to try again)',
-                      permanent: true, noStrike: true });
+        if (base) {
+            call(GM_IX_NEWEST_SIZE, null, 1, function (pg, log) {
+                var merged = gmIxMerge(base, pg);
+                if (merged) { finish(merged, log); return; }
+                log('');
+                // A merge miss is a page-vs-index mismatch (the spec's full refetch on a mismatch): a strike,
+                // then the chat read whole in this same load, unless the strikes are spent.
+                st.strikes++;
+                console.warn('[ACN] index: platform=gemini the newest page does not meet the index — ' +
+                             'loading it whole (strike ' + st.strikes + ' of ' + GM_IX_STRIKES_MAX + ')');
+                m.kind = 'newest+full';
+                if (st.strikes >= GM_IX_STRIKES_MAX) { end(stopped()); return; }
+                full();
+            });
             return;
         }
+        if (st.strikes >= GM_IX_STRIKES_MAX) { endSoon(stopped()); return; }
         full();
     }
 
