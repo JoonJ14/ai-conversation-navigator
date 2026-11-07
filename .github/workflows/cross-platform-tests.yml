@@ -34,14 +34,17 @@ jobs:
     # (hence the bounded install step below). The merge run's two macOS cancels at 15m01s were GitHub
     # not assigning a runner ("not acquired by Runner ... after multiple attempts"), which no
     # setting here changes: re-run the failed jobs once the whole run has finished.
-    # v12.19 (cap unchanged; raising it is the owner's call): the "Run Gemini index probe" step adds
-    # about 8 minutes per engine, measured locally on chromium only (this machine, 2026-11-06: 489-502 s
-    # against v12.18 and against the branch before its adapter, where many fixtures end early, so the
-    # finished build will take longer; Firefox and WebKit not measured). 33m18s-33m51s + ~8 = ~42 of 50
-    # minutes, leaving ~8 for a slow install: a mirror stall that the bounded install step lets through
-    # at 8-13 minutes would now run a healthy job into the cap. Re-measure per engine once the adapter
-    # lands.
-    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 50 || 30 }}
+    # v12.19 (Tier 3 r1): 60 on ubuntu. The owner chose 50 in v12.18, before this PR's "Run Gemini index
+    # probe" step existed; that step is why. It takes ~9.8 minutes per engine, measured locally on chromium
+    # only (this machine, 2026-11-07: 588 s for the finished build's 67 checks; 489-502 s on 2026-11-06
+    # against v12.18, where many fixtures end early; Firefox, WebKit and CI not measured). A healthy ubuntu
+    # job: 33m18s-33m51s (PR #93's run 42095450049) + ~9.8 = ~43.6 minutes. The bounded install's worst
+    # case that still passes is its third attempt finishing at the 4-minute limit: 3 x 240 s, plus up to
+    # 15 s of kill-after and a 3 s pause after each failed attempt, ~12.5-13 minutes where a healthy install
+    # takes 18-40 s (already in the 33 minutes). ~43.6 + ~13 = ~56.6 of 60 minutes; under 50 such a job was
+    # cut off. A stall past that fails the install step itself (3 attempts, then exit 1), visibly.
+    # macOS and Windows run no probes and keep 30.
+    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 60 || 30 }}
     strategy:
       fail-fast: false
       matrix:
