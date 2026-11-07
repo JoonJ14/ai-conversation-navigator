@@ -4850,18 +4850,21 @@ userscript inlined, this Mac; each `[new]` gate failed on v12.18, and the mutant
   F11 a click while restoring. `f0cce04` gave the probe pages `<meta charset="utf-8">` (WebKit read I3b's Korean
   question as windows-1252 without it). `fa67846`: G0's script prints only the error's name for an answer it cannot
   parse (a V8 `JSON.parse` message quotes the text).
+- **Commit messages that still credit the owner** (they are not rewritten; this record corrects them): `7f2cce1`
+  ("owner amendment M1"), `a3ae035` ("owner amendment M2") and `3412bff` ("owner amendment M1"). M1 and M2 are the
+  agent's amendments (2026-11-06), for the owner's review; the owner wrote neither.
 - **Docs:** the agent's amendments attributed (`f0cce04`); README's privacy FAQ (`dde0b1a`); this record's corrections
   (spec-3's deviation, the landing, the 400 retry's live token, the K8 bound, the residuals).
-- **How the round ran.** Tier 3 ran 1 of its 5 rounds; rounds 2–5 were not run (open, below). The agent opened PR #94
-  at `dde0b1a` (2026-11-07 16:11Z) with A4–A7, A9, B2–B4 and C3–C6 still open and listed in the PR, because the owner
-  needed the PR up before traveling ("do it faster, i need to travel and this computer will go to sleep and i need it
-  to be on at least PR before i travel soon"). They were fixed after it opened, on the owner's call the same day
-  ("let's try to fix some known bugs first, dont mind the codex comment yet"): `57cba35`, `b6f1aa2`, `fa67846`,
-  `7bf7bf4`, `3841805`. The owner also decided that day to "run full suite only at milestones, drop per-step
-  verifiers", now CLAUDE.md rule 7 (the owner's approved diff, `434a886`): each fix ran the gates it touched, and one
-  milestone ran on `3841805` (Key properties). `f0cce04`'s message says the classes step's verifier did not re-run
-  ("stopped for time, the owner's call"): the owner had dropped per-step verifiers (15:46Z) and asked for speed, but
-  stopping that step's workflow for time (15:54Z) was the agent's choice.
+- **How the round ran.** Tier 3 ran 1 of its 5 rounds; rounds 2–5 were not run (the owner's call, 2026-11-07, below).
+  The agent opened PR #94 at `dde0b1a` (2026-11-07 16:11Z) with A4–A7, A9, B2–B4 and C3–C6 still open and listed in
+  the PR, because the owner needed the PR up before traveling ("do it faster, i need to travel and this computer will
+  go to sleep and i need it to be on at least PR before i travel soon"). They were fixed after it opened, on the
+  owner's call the same day ("let's try to fix some known bugs first, dont mind the codex comment yet"): `57cba35`,
+  `b6f1aa2`, `fa67846`, `7bf7bf4`, `3841805`. The owner also decided that day to "run full suite only at milestones,
+  drop per-step verifiers", now CLAUDE.md rule 7 (the owner's approved diff, `434a886`): each fix ran the gates it
+  touched, and one milestone ran on `3841805` (Key properties). `f0cce04`'s message says the classes step's verifier
+  did not re-run ("stopped for time, the owner's call"): the owner had dropped per-step verifiers (15:46Z) and asked
+  for speed, but stopping that step's workflow for time (15:54Z) was the agent's choice.
 
 ### Babysit (GitHub Codex, PR #94, 2026-11-07)
 The owner named the babysit cycle at 14:14 EST (19:14Z); until then the owner had set Codex's comments aside for the
@@ -5047,12 +5050,13 @@ inlined, this Mac]:
   browser check: the ubuntu jobs took 45m38s–47m08s on `3841805` (run 42400157639) and 46m00s–47m21s on `597ebfe`
   (run 42407864961), with the Gemini index step at 12m23s–13m04s. That matches the CI comment's predicted healthy
   job (about 46.2 min); its worst-case install estimate (about 59 of 60 min) was not observed.
-- **Tier 3 rounds 2–5** (`codex exec`): 1 of 5 ran. PR #94's description lists the rest as still to do; the agent's
-  later next-step notes left them out.
+- **Tier 3 rounds 2–5** (`codex exec`): **decided by the owner, 2026-11-07: not run** ("no further Tier 3 rounds
+  (GitHub Codex was clean twice on the final head)"). 1 of 5 ran.
 - **The local three-engine final run** (`npm test` and every probe on Chromium, Firefox and WebKit, ~1h45m,
-  pre-approved by the spec) has not run. Nothing has run in full locally after `c98b2d5` (CI ran the index probe
-  whole on `597ebfe`, Key properties); `c98b2d5` and `597ebfe` also skipped the local review pipeline (GitHub Codex
-  reviewed them clean).
+  pre-approved by the spec): **decided by the owner, 2026-11-07: not run** ("no local three-engine run (CI ran all 81
+  gates on three engines)"). Nothing has run in full locally after `c98b2d5` (CI ran the index probe whole on
+  `597ebfe`, Key properties); `c98b2d5` and `597ebfe` also skipped the local review pipeline (GitHub Codex reviewed
+  them clean).
 - **M2's far half**, gated by outcome only (Key properties): a path discriminator, or not.
 - **Two optional acceptance steps**, for the owner's own pass: an image-only prompt's answer reached from Search or a
   bookmark while it is not loaded (`c98b2d5`; unmeasured live), and a long answer right after a send keeping the

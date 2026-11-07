@@ -274,7 +274,8 @@ was clean (the agent's first poll).
   - `--proof` against v12.18 (`ab7ea21`'s userscript, sha256 `b8934332…`): "proof: 79 as wanted, 0 not", 69 `[new]`
     ran, 831 s.
   - Not run: any probe other than `check-gemini-index` on Firefox or WebKit; `gemini-history` and `feature-gaps` in
-    the `abort` and `none` modes (`refuse` only); the pre-approved three-engine run. After `c98b2d5` and `597ebfe`
+    the `abort` and `none` modes (`refuse` only); the pre-approved three-engine run (not run: the owner's call,
+    2026-11-07, "no local three-engine run (CI ran all 81 gates on three engines)"). After `c98b2d5` and `597ebfe`
     only their targeted gates ran (Babysit, above), and CI (below).
   - Before review round 1, on `b13e36e`'s bytes: `npm test` 560/560 and the same counts for every probe above except
     `gemini-history` and `feature-gaps` (theirs are in the fallback probes' bullet), chromium only.
@@ -291,7 +292,8 @@ was clean (the agent's first poll).
   - The stage verifiers' rounds found the timeout loop (`0662d27`), the growth-rule cost (K8, `cf91e23`), the empty
     newest page and the hidden-tab landing (`2a75498`), among others.
   - Tier 3's round 1 (Codex CLI) ran with an adversarial review; their fixes are under "Review round 1" above. Rounds
-    2–5 were not run (1 of 5).
+    2–5 were not run (1 of 5): the owner's call, 2026-11-07, "no further Tier 3 rounds (GitHub Codex was clean twice
+    on the final head)".
   - GitHub Codex on PR #94: "Babysit" above. Clean twice on `597ebfe`.
 - **The agent's live checks** [Chrome + Tampermonkey 5.5.1, the owner's profile, visible tab, `96b519c1`, 2026-11-07;
   the agent's checks, not acceptance; DEC-031 has each in full]. Before them, on 2026-11-05: Phase 1 (30 reads, page
@@ -331,11 +333,9 @@ was clean (the agent's first poll).
 
 ### Owed and known
 - **Owed** (PR #94 is open): the owner's merge decision; after the merge, the Safari smoke-check reminder (DEC-062).
+- **Decided by the owner, 2026-11-07:** "no local three-engine run (CI ran all 81 gates on three engines)" and "no
+  further Tier 3 rounds (GitHub Codex was clean twice on the final head)": neither runs before the merge.
 - **For the owner to decide:**
-  - whether Tier 3's rounds 2–5 are still wanted (round 1 of 5 ran; GitHub Codex's babysit is done);
-  - the pre-approved three-engine run (`npm test` and every probe on Chromium, Firefox and WebKit, with
-    `--gm-endpoint abort` and `none` once each): never run, and nothing has run in full locally after `c98b2d5`
-    (only CI, above);
   - M1, M2, K5 (a spec deviation) and K8, and the ubuntu CI cap 50 → 60 (`ffdabfb`): all the agent's, for the
     owner's review.
 - **Owner acceptance** on all three runtimes: steps 33–37, in the consolidated pass.

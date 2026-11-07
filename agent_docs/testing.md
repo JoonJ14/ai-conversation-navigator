@@ -58,7 +58,8 @@ then `check-gemini-index --proof` against v12.18; `check-gemini-index` on Chromi
 (741.7 s, 754.2 s and 749.3 s, under the other lanes' load), and the proof "79 as wanted, 0 not", 69 `[new]` run
 (831 s). Nothing else ran on Firefox or WebKit, and `check-gemini-history` and `check-feature-gaps` ran in `refuse`
 mode only. The full three-engine final run
-(about 1h45m, pre-approved by the v12.19 spec) has not run for v12.19, and nothing has run in full locally after
+(about 1h45m, pre-approved by the v12.19 spec) did not run for v12.19, the owner's call (2026-11-07: "no local
+three-engine run (CI ran all 81 gates on three engines)"), and nothing has run in full locally after
 `c98b2d5` (GitHub Codex's fixes, gated by their own checks); CI ran its suite on `597ebfe` (run 42407864961, 9/9;
 below) [CI].
 
@@ -192,8 +193,8 @@ GitHub Actions runs on push/PR to `main`:
     answers it with a 403 (`refuse`), a network failure (`abort`), or leaves the page as v12.18's (`none`, no token).
     Their checks are unchanged in every mode, plus H0/G0 [guard] (no retry loop, by failure class; in `refuse` and
     `abort` a run that sent no read is INVALID, so a build before v12.19 runs with `none`) and HP/GP [guard] (no
-    paging status). Run `abort` and `none` once each in the final three-engine run; for v12.19 that is owed, since
-    the run has not run and the milestone on `3841805` used `refuse` only.
+    paging status). Run `abort` and `none` once each in the final three-engine run; for v12.19 they did not run (the
+    owner skipped the local three-engine run, 2026-11-07), and the milestone on `3841805` used `refuse` only.
   - **Why only the ubuntu jobs take ~34 minutes** (v12.18's figures; with `check-gemini-index`, v12.19's took
     45m38s–47m21s, above): the probe steps run on ubuntu only, one after another (about 27
     minutes), after the same ~5¾-minute suite every job runs; macOS and Windows run the suite alone (6–10 minutes).

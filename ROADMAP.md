@@ -85,9 +85,10 @@ from the owner's spec of 2026-11-05, `docs/specs/v12.19-spec.md`; DEC-063).** Ge
   page loads during jumps not counted).
 - **Still to do before or at the merge:**
   - The owner's merge decision (PR #94 is open and mergeable); after the merge, the Safari smoke-check reminder.
-  - Tier 3's rounds 2–5 were not run (1 of 5 used). Whether they are still wanted is the owner's call.
-  - The local three-engine final run (`npm test` and every probe on Chromium, Firefox and WebKit, ~1h45m,
-    pre-approved by the spec) was never run, and nothing has run in full locally after `c98b2d5` (CI did, above).
+  - Tier 3's rounds 2–5: **not run, the owner's call** (2026-11-07: "no further Tier 3 rounds (GitHub Codex was clean
+    twice on the final head)"); 1 of 5 ran.
+  - The local three-engine final run: **not run, the owner's call** (2026-11-07: "no local three-engine run (CI ran
+    all 81 gates on three engines)"); nothing has run in full locally after `c98b2d5` (CI did, above).
   - For the owner's review: the agent's amendments M1, M2, K5 (a spec deviation) and K8, and the ubuntu cap 50 → 60
     minutes (`ffdabfb`, the agent's change).
   - The owner's acceptance in the consolidated pass (`docs/acceptance-checklist.md`, steps 33–37, on all three
