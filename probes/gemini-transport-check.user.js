@@ -41,6 +41,12 @@
         try { return ((e && e.name) || 'Error') + ': ' + String((e && e.message) || e).slice(0, 120); }
         catch (x) { return 'unprintable error'; }
     }
+    // The name only, for a parse of the answer: a V8 JSON.parse error's message quotes the text it could
+    // not read, which here is the chat's own content (review round 1).
+    function errName(e) {
+        try { return String((e && e.name) || 'Error').slice(0, 40); }
+        catch (x) { return 'unprintable error'; }
+    }
 
     function line(s) {
         console.log(P + s);
@@ -98,7 +104,7 @@
                     return { ok: turns > 0, text: s };
                 }
             }
-        } catch (e) { payload = 'unreadable answer (' + errText(e) + ')'; }
+        } catch (e) { payload = 'unreadable answer (' + errName(e) + ')'; }
         return { ok: false, text: s + ' · ' + payload + ' · ' + ms + ' ms' };
     }
 
