@@ -8073,6 +8073,9 @@
     //                 p = { pages, loaded, added, anchor }: anchor is gmViewAnchor at the start (own mode)
     // A hidden tab is no measurement (CLAUDE.md): the wait's clock stops while the tab is hidden, so it
     // never decides 'no-page' or the start by time there; the run goes on once the tab is visible again.
+    // A run can still END in a hidden tab, on until(), the start in the DOM or the cap, when a page comes
+    // in there (the mock inserts one; live Gemini unmeasured): a caller that lands holds its landing until
+    // the tab is visible (gmIxJump).
     function gmPageUntil(opts, done) {
         opts = opts || {};
         var sc = opts.container || gmScroller();
@@ -8261,6 +8264,8 @@
     // turn is in, nothing landed (_bmIxJump lands the answer itself). Not ok: 'not-found' (the start is
     // loaded without it, or its turn left again), 'cap' (ceil(turns / GM_HISTORY_PAGE) + 2 pages: 6 for 32
     // turns), 'no-page', 'user', 'superseded' (a newer jump, another chat), 'container-gone', 'no-container'.
+    // A hidden tab: the end (the landing, the hand-over with land === false, or a failure) waits until the
+    // tab is visible again; the user's scroll, a newer jump or another chat still end it meanwhile, silently.
     function gmIxJump(a, q, outerDone, opts) {
         opts = opts || {};
         var token = ++_ixJumpToken;
@@ -8294,13 +8299,35 @@
             startLoaded: function () { return !!gmTurnById(firstId); },
             status: true
         }, function (ok, why) {
-            if (!stop()) return;
-            var el = ok ? find() : null;
-            if (!el) { outerDone(false, null, (ok || why === 'start') ? 'not-found' : why); return; }
-            if (opts.land === false) { outerDone(true, el, 'locate'); return; }
-            if (gmLandFarEl(el, find, function (n) { outerDone(true, n, 'locate'); })) return;
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            outerDone(true, el, 'locate');
+            // A hidden tab lands nothing: orbLandIn refuses a landing there ('hidden', with its toast), and a
+            // hidden tab is no measurement for the other landings either (CLAUDE.md). The pager can still end
+            // while the tab is hidden (the target's page in, the settle after it, the start, the cap), so the
+            // end waits until the tab is visible again, re-testing live() on every poll: the user's scroll, a
+            // newer jump or another chat end it at once, silently, as the callers treat them; anything else
+            // (a failure the callers toast, the landing) waits, so no toast is lost in a hidden tab. Without
+            // the wait the landing was dropped and the toast shown in the hidden tab, 3 of 3 runs (Playwright
+            // page realm, headless Chromium, visibilityState overridden in the page; whether live Gemini
+            // inserts a page in a hidden tab is unmeasured). Visible at the pager's end: no wait, as before.
+            var held = 0;
+            (function end() {
+                if (stopped) return;
+                var w = live();
+                if (w === 'user' || w === 'superseded') { stop(); outerDone(false, null, w); return; }
+                if (document.visibilityState !== 'visible') {
+                    if (!held) held = Date.now();
+                    setTimeout(end, GM_PAGE_POLL_MS);
+                    return;
+                }
+                stop();
+                if (held) ciPre('gemini jump: its end held ' + (Date.now() - held) + ' ms for a hidden tab');
+                if (w) { outerDone(false, null, w); return; }
+                var el = ok ? find() : null;
+                if (!el) { outerDone(false, null, (ok || why === 'start') ? 'not-found' : why); return; }
+                if (opts.land === false) { outerDone(true, el, 'locate'); return; }
+                if (gmLandFarEl(el, find, function (n) { outerDone(true, n, 'locate'); })) return;
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                outerDone(true, el, 'locate');
+            }());
         });
     }
 

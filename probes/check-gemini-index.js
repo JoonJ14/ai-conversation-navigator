@@ -1737,6 +1737,53 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
                 s.inView && s.loads === 3 && s.resolved === '0' && !s.toasts.length, 'landing=' + JSON.stringify(s));
         await h.close();
     }));
+    // I12i: the tab hidden while a jump pages (the jumps plan's lifecycle: "Hidden tab: not cleared; the
+    // pager's clock stops; resumes when visible"). document.visibilityState is overridden in the page realm
+    // once the status shows with a page in; the mock keeps inserting pages, so the pager ends 'found' while
+    // the tab is hidden. 3412bff tried to land at that moment: orbLandIn refused ('hidden'), the mark was
+    // cleared and the failure toast shown in the hidden tab, and nothing landed once it was visible (the
+    // jumps step's verifier, 3 of 3 runs; this gate on 3412bff, 1 of 1). Whether live Gemini inserts a page
+    // in a hidden tab is unmeasured; the settle after a page (the page in while visible, the pager's next
+    // step after the tab hides) ends the same way.
+    await seq(fixture(['I12i'], async (r) => {
+        const j = await jumpQ1(r, 'I12i', { loadDelayMs: 1500 });
+        if (!j) return;
+        const { h, v0, row } = j;
+        if (!row) { r.check('I12i', 'new', 'a jump paging while the tab is hidden', false, 'no Q1 row (' + fmt(v0) + ')'); await h.close(); return; }
+        await h.page.evaluate(() => {
+            window.__vis = 'visible';
+            Object.defineProperty(document, 'visibilityState', { configurable: true, get: function () { return window.__vis; } });
+            Object.defineProperty(document, 'hidden', { configurable: true, get: function () { return window.__vis === 'hidden'; } });
+        });
+        // Premise: the pager is running when the tab hides (its status shown, at least one page in).
+        try {
+            await h.page.waitForFunction(() => {
+                var s = window.__pgNow();
+                return window.__mockGemini.loads() >= 1 && !!s && parseInt(s.pages, 10) >= 1;
+            }, null, { timeout: 15000 });
+        } catch (e) {}
+        const pgAtHide = await h.page.evaluate(() => window.__pgNow());
+        await h.page.evaluate(() => { window.__vis = 'hidden'; document.dispatchEvent(new Event('visibilitychange')); });
+        try { await h.page.waitForFunction(() => window.__mockGemini.loads() >= 3, null, { timeout: 30000 }); } catch (e) {}
+        await sleep(4000);
+        const hid = await h.spot(1, 'q');
+        // The pager ended while hidden (else the hold was never tested): its "end=found pages=3" line is in.
+        const endedHidden = h.lines(/^\[ACN\] paging: platform=gemini via=jump end=found pages=3\b/).length === 1;
+        await h.page.evaluate(() => { window.__vis = 'visible'; document.dispatchEvent(new Event('visibilitychange')); });
+        const settled = await h.settle(30000, 3000);
+        const s = await h.spot(1, 'q');
+        const now = await h.page.evaluate(() => window.__pgNow());
+        const paging = !!pgAtHide && parseInt(pgAtHide.pages, 10) >= 1;
+        r.check('I12i', 'new', 'the tab hidden while the jump to unloaded Q1 pages (status shown, a page in): the pager ends while hidden; ' +
+                'nothing lands, no toast and nothing resolved while hidden; once visible Q1 lands in view, resolved "0", the mark inside turn 1, ' +
+                'no toast, the status gone',
+                paging && hid.loads === 3 && endedHidden && !hid.toasts.length && hid.resolved === null && !hid.mark &&
+                settled && s.inView && s.resolved === '0' && s.markIn && !s.toasts.length && !now,
+                'status at the hide=' + JSON.stringify(pgAtHide) + ' ended while hidden=' + endedHidden +
+                ' hidden: ' + JSON.stringify(hid) + ' | visible again: settled=' + settled + ' ' + JSON.stringify(s) +
+                ' status=' + JSON.stringify(now) + ' lines=' + JSON.stringify(h.lines(/^\[ACN\] paging:/)));
+        await h.close();
+    }));
     await seq(fixture(['I4b'], async (r) => {
         const h = await open(r, ['I4b'], C32, { answerWords: { 2: 'quokka' } });
         if (!h) return;
