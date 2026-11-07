@@ -3,10 +3,12 @@
 // page, its failure classes, the refresh, jumps that page the DOM toward a question not loaded yet, and
 // the "Load full history" button where the index cannot run.
 //
-// Run: node probes/check-gemini-index.js [--browser chromium|firefox|webkit|all] [--quiet] [--only I1,F2]
+// Run: node probes/check-gemini-index.js [--browser chromium|firefox|webkit|all] [--quiet] [--only I1,F2] [--slow]
 //      ACN_SCRIPT=/path/to/other.user.js node probes/check-gemini-index.js [--proof]
 // Exits non-zero on any failed or INVALID check. With --proof (meant for the v12.18 build): exits 0 iff
 // every [new] check FAILED, every [guard] check PASSED and nothing was INVALID, and prints the table.
+// --slow adds I6s, the strike cap (a mismatch that never clears, watched for 330 s beside the rest);
+// without it I6s is not run and not reported (the cap is gated by code reading there).
 //
 // WHAT IS GATED, AND WHERE THE NUMBERS COME FROM.
 //   v12.18 lists the loaded part of a Gemini chat (10 of 32 at open) and says older messages are not
@@ -26,8 +28,9 @@
 //
 // CONTRACT ASSERTED HERE (consolidated plan §3 and the button plan §2.6): `data-acn-index-check` on
 // #acn-zone ("ok" after a good load: I1; "pending" while nothing is compared, then "ok": I1b; "mismatch":
-// I6, I6b, I6c, I19); `[data-acn-role="paging-status"]` with data-acn-paging-pages / -loaded true to the
-// page at every change (I12, I12b); `[data-acn-role="history-load"]` inside the Navigate panel with
+// I6-I6h, I19; "pending" for the grace, then "mismatch": I6d, I6h); `[data-acn-role="paging-status"]`
+// with data-acn-paging-pages / -loaded true to the page at every change (I12, I12b);
+// `[data-acn-role="history-load"]` inside the Navigate panel with
 // data-acn-history-load idle | loading, -loaded as its text says, -total "?" (F1, F5); the zone's
 // data-acn-history-load-end / -anchor / -restore (F1-F8); data-acn-jump-resolved; the console lines
 // "[ACN] index: platform=gemini transport=fetch endpoint=hNvQHb page=N size=S[ retry=at-new|at-same]
@@ -437,7 +440,7 @@ const REQ_RE = /^\[ACN\] index: platform=gemini transport=(\S+) endpoint=hNvQHb 
 const PERM_RE = /index failure looks PERMANENT/;
 
 // ── The runner ───────────────────────────────────────────────────────────────────────────────
-async function runEngine(engine, raw, header, only, quiet, proof) {
+async function runEngine(engine, raw, header, only, quiet, proof, slow) {
     const t00 = Date.now();
     const browser = await playwright[engine].launch({
         headless: true,
@@ -666,6 +669,31 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
                 'reads at s=' + JSON.stringify(reads) + ' (all ' + h.hits.length + ', answered ' + h.fulfilled + ') timeout lines=' + tl.length +
                 ' permanent=' + JSON.stringify(perm.map((l) => (l.match(/next retry in \d+s/) || [''])[0])) + ' ' + fmt(v) +
                 ' bannerText=' + JSON.stringify(v.bannerText) + ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
+        await h.close();
+    })();
+
+    // ── I6s (--slow only): the strike cap, beside every fixture below, flushed before R1 ────────────
+    // A mismatch that never clears (turn 30's question edited on the page) costs a strike per full read:
+    // the first transient (~16 s), the rest permanent (60 s each: a read that succeeds resets the
+    // backoff), so exactly GM_IX_STRIKES_MAX (5) reads in 330 s, then "stopped after 5 failures", still
+    // degraded (the stage-2 scratch run of this fixture: reads at 0/16/78/139/201 s, chromium). Opt-in:
+    // its 330 s window is longer than the rest of the run on a fast machine.
+    const i6sRun = !slow ? null : fixture(['I6s'], async (r) => {
+        const h = await open(r, ['I6s'], C32, { mismatch: { turn: 30, text: 'Gemini question 30: a question edited on the page, which the read does not hold?' } });
+        if (!h) return;
+        await h.openNav();
+        await sleep(330000);
+        const v = await h.nav();
+        const reads = h.hits.map((x) => Math.round((x.t - h.hits[0].t) / 1000));
+        const strikes = h.logs.filter((l) => /self-check FAILED/.test(l)).map((l) => (l.match(/strike \d of 5/) || [''])[0]);
+        const stopped = h.logs.filter((l) => /stopped after 5 failures/.test(l));
+        const leaks = noLeak(h.logs.concat([await h.storage()]));
+        r.check('I6s', 'new', 'a mismatch that never clears: exactly 5 reads in 330 s (strikes 1-5), then "stopped after 5 failures", ' +
+                'degraded; nothing leaked',
+                reads.length === 5 && strikes.join('|') === 'strike 1 of 5|strike 2 of 5|strike 3 of 5|strike 4 of 5|strike 5 of 5' &&
+                stopped.length >= 1 && v.banner === 'degraded' && /stopped after 5 failures/.test(v.bannerText || '') && leaks.length === 0,
+                'reads at s=' + JSON.stringify(reads) + ' strikes=' + JSON.stringify(strikes) + ' stopped lines=' + stopped.length + ' ' + fmt(v) +
+                ' banner=' + JSON.stringify(v.bannerText) + ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
         await h.close();
     })();
 
@@ -1082,6 +1110,123 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         await h.close();
     })]);
 
+    // ── I3c, I6d, I6e, I6f, I6h: the page cap and the self-check's other rules, side by side ───────
+    await par([
+        fixture(['I3c'], async (r) => {
+            // A history with no end (rpc.endless: every page a fresh cursor): the full load stops at
+            // GM_IX_MAX_PAGES (10 reads, 1,000 turns) and degrades. Never the truncated note: newest-first
+            // paging would list the newest 1,000 as if the chat began there.
+            const h = await open(r, ['I3c'], C32, { rpc: { endless: true, heavyChars: 10 } });
+            if (!h) return;
+            await h.openNav();
+            const v0 = await h.waitDegraded(30000);
+            await sleep(15000);                   // inside the 60 s backoff: no read may follow
+            const v = await h.nav();
+            const c = await h.calls();
+            const perm = h.lines(PERM_RE).filter((l) => /the page cap/.test(l));
+            r.check('I3c', 'new', 'a history whose every page carries a fresh cursor: exactly 10 reads (one full, 9 by cursor, one line ' +
+                    'each), degraded "longer than 1000 turns (the page cap)", PERMANENT, never the truncated note; the loaded part ' +
+                    'listed with the note; no read 15 s later',
+                    v0.banner === 'degraded' && /longer than 1000 turns \(the page cap\)/.test(v.bannerText || '') &&
+                    !/only the first/.test(v.bannerText || '') && c.list.length === 10 && c.full === 1 && c.next === 9 &&
+                    h.hits.length === 10 && h.req().length === 10 && perm.some((l) => /next retry in 60s/.test(l)) &&
+                    v.count === '10' && v.note,
+                    fmt(v) + ' ' + callsBrief(c) + ' hits=' + h.hits.length + ' lines=' + h.req().length + ' permanent=' +
+                    JSON.stringify(perm.map((l) => (l.match(/next retry in \d+s/) || [''])[0])) + ' bannerText=' + JSON.stringify(v.bannerText));
+            await h.close();
+        }),
+        fixture(['I6d'], async (r) => {
+            // Every turn's id removed after the index is ready: nothing on the page can be compared, so
+            // "pending" for GM_IX_VERIFY_GRACE_MS (30 s), then a mismatch: never an index taken on trust.
+            const h = await open(r, ['I6d'], C32, {});
+            if (!h) return;
+            await h.openNav();
+            const v0 = await h.waitReady(32, 8000);
+            const t0 = Date.now();
+            await h.page.evaluate(() => {
+                document.querySelectorAll('infinite-scroller.chat-history > div.conversation-container').forEach(function (t) { t.id = ''; });
+            });
+            await sleep(3000);
+            const vMid = await h.nav();
+            const v = await h.until((x) => x.banner === 'degraded', 40000, 500);
+            const dt = Date.now() - t0;
+            r.check('I6d', 'new', 'every turn\'s id removed after the index is ready: index-check "pending" with 32 still listed for the 30 s ' +
+                    'grace, then degraded "none of the 10 turns on the page carries an id", index-check "mismatch"',
+                    v0.count === '32' && vMid.check === 'pending' && vMid.count === '32' && vMid.banner !== 'degraded' &&
+                    v.banner === 'degraded' && /none of the 10 turns on the page carries an id/.test(v.bannerText || '') &&
+                    v.check === 'mismatch' && dt >= 29000 && dt < 40000,
+                    'mid=' + fmt(vMid) + ' then after ' + dt + ' ms ' + fmt(v) + ' bannerText=' + JSON.stringify(v.bannerText));
+            await h.close();
+        }),
+        fixture(['I6e'], async (r) => {
+            // The DOM leaves turn 27 out (domOrder.drop): turn 28 follows turn 26, so a turn the index holds
+            // is missing between two shown ones (the gap rule). No note asserted: a first render of 9 turns
+            // reads to v12.18's tracker as the whole chat (DEC-057's short first page), a mock artifact.
+            const h = await open(r, ['I6e'], C32, { domOrder: { drop: 27 } }, { first: 9 });
+            if (!h) return;
+            await h.openNav();
+            const v0 = await h.waitDegraded(10000);
+            const tDeg = Date.now();
+            await sleep(1500);
+            const v = await h.nav();
+            await sleep(Math.max(0, tDeg + 20000 - Date.now()));
+            const c = await h.calls();
+            const wantText = 'self-check: 1 indexed turn(s) missing above turn ' + turnId(C32, 28).slice(0, 8);
+            r.check('I6e', 'new', 'a turn the index holds left out of the page between two shown ones (turn 27): degraded "1 indexed ' +
+                    'turn(s) missing above turn <28\'s id>", index-check "mismatch", the loaded part listed (9); at most 3 reads in 20 s',
+                    v0.banner === 'degraded' && (v.bannerText || '').indexOf(wantText) !== -1 && v.check === 'mismatch' && v.count === '9' &&
+                    c.list.length <= 3,
+                    fmt(v) + ' bannerText=' + JSON.stringify(v.bannerText) + ' ' + callsBrief(c));
+            await h.close();
+        }),
+        fixture(['I6f'], async (r) => {
+            // The DOM renders turns 23 and 24 in each other's place (domOrder.swap), each with its own id and
+            // text: turn 23 follows turn 24 (the order rule).
+            const h = await open(r, ['I6f'], C32, { domOrder: { swap: [23, 24] } });
+            if (!h) return;
+            await h.openNav();
+            const v0 = await h.waitDegraded(10000);
+            const tDeg = Date.now();
+            await sleep(1500);
+            const v = await h.nav();
+            await sleep(Math.max(0, tDeg + 20000 - Date.now()));
+            const c = await h.calls();
+            const wantText = 'self-check: turn ' + turnId(C32, 23).slice(0, 8) + ' is out of the index\'s order';
+            r.check('I6f', 'new', 'two turns shown in each other\'s place (24 above 23): degraded "turn <23\'s id> is out of the index\'s ' +
+                    'order", index-check "mismatch", the loaded part listed (10) with the note; at most 3 reads in 20 s',
+                    v0.banner === 'degraded' && (v.bannerText || '').indexOf(wantText) !== -1 && v.check === 'mismatch' && v.count === '10' &&
+                    v.note && c.list.length <= 3,
+                    fmt(v) + ' bannerText=' + JSON.stringify(v.bannerText) + ' ' + callsBrief(c));
+            await h.close();
+        }),
+        fixture(['I6h'], async (r) => {
+            // Every read lists no turns and no cursor (rpc.empty 'all') under 10 turns that carry ids: the
+            // ready index is empty, which the self-check never takes on trust: "pending" for the grace (the
+            // refresh it may ask for lists nothing either), then a mismatch, so an empty read degrades.
+            const h = await open(r, ['I6h'], C32, { rpc: { empty: 'all' } });
+            if (!h) return;
+            await h.openNav();
+            const t0 = Date.now();
+            let pendingSeen = false, v = null;
+            while (Date.now() - t0 < 45000) {
+                v = await h.nav();
+                if (v.check === 'pending' && v.banner !== 'degraded') pendingSeen = true;
+                if (v.banner === 'degraded') break;
+                await sleep(500);
+            }
+            const dt = Date.now() - t0;
+            await sleep(1500);
+            v = await h.nav();
+            r.check('I6h', 'new', 'every read lists no turns (no cursor) under 10 turns with ids: index-check "pending" for the 30 s grace, ' +
+                    'then degraded "the index is empty, with 10 turn(s) on the page", index-check "mismatch", the loaded part listed (10) ' +
+                    'with the note',
+                    pendingSeen && v.banner === 'degraded' && /the index is empty, with 10 turn\(s\) on the page/.test(v.bannerText || '') &&
+                    v.check === 'mismatch' && v.count === '10' && v.note && dt >= 25000 && dt < 45000,
+                    'pending seen=' + pendingSeen + ' degraded after ' + dt + ' ms ' + fmt(v) + ' bannerText=' + JSON.stringify(v.bannerText));
+            await h.close();
+        })
+    ]);
+
     // ── I11: a sent message is ONE newest-page read, merged ──────────────────────────────────────
     await seq(fixture(['I11'], async (r) => {
         const SENT = 'A message sent now, asking about Kepler orbits around a binary pair?';
@@ -1093,17 +1238,142 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
         await h.page.evaluate((t) => window.__mockGemini.send(t), SENT);
         const v = await h.until((x) => x.count === '33', 30000, 300);
         const c1 = await h.calls();
-        await sleep(6000);
+        // 20 s: past CI_REFETCH_COOLDOWN_MS (15 s) from the refresh, so a second, cooldown-gated read shows.
+        await sleep(20000);
         const c2 = await h.calls();
         const added = c1.list.slice(c0);
         r.check('I11', 'new', 'a message sent with the index ready: exactly ONE new read, the newest page (size 10, no cursor), ' +
-                '33 listed with the sent question last; still one 6 s later',
+                '33 listed with the sent question last; still one 20 s later (past the 15 s cooldown)',
                 v0.count === '32' && v.count === '33' && v.items[32] === SENT && added.length === 1 && added[0].type === 'newest' &&
                 added[0].size === 10 && added[0].cursorIn === null && c2.list.length === c1.list.length,
                 'before: ' + fmt(v0) + '; after: ' + fmt(v) + ' last=' + JSON.stringify((v.items[v.items.length - 1] || '').slice(0, 30)) +
-                ' new reads=' + JSON.stringify(added.map((x) => x.type + '/' + x.size)) + ' 6 s later=' + (c2.list.length - c0));
+                ' new reads=' + JSON.stringify(added.map((x) => x.type + '/' + x.size)) + ' 20 s later=' + (c2.list.length - c0));
         await h.close();
     }));
+
+    // ── I11b, I11c, I11d, I11e: the refresh's other paths and its cost, side by side ───────────────
+    await par([
+        fixture(['I11b'], async (r) => {
+            // Eleven messages at once: the newest page (10) does not reach the index's last turn, so it does
+            // not meet the index (a merge miss, K5 in DEC-063): a strike, logged, and the chat read whole in
+            // the same load.
+            const h = await open(r, ['I11b'], C32, { rpc: { delayMs: { newest: 500 } } });
+            if (!h) return;
+            await h.openNav();
+            const v0 = await h.waitReady(32, 8000);
+            const c0 = (await h.calls()).list.length;
+            for (let k = 0; k < 11; k++) await h.page.evaluate((t) => window.__mockGemini.send(t), 'Sent message number ' + k + ' about orbits?');
+            const v = await h.until((x) => x.count === '43', 40000, 300);
+            await sleep(6000);
+            const c1 = await h.calls();
+            const added = c1.list.slice(c0).map((x) => x.type + '/' + x.size);
+            const miss = h.logs.filter((l) => /does not meet the index/.test(l));
+            const leaks = noLeak(h.logs.concat([await h.storage()]), ['Sent message number']);
+            r.check('I11b', 'new', 'eleven messages sent at once (more than the newest page holds): the newest page (size 10), then the ' +
+                    'chat read whole (size 100) in the same load, one "does not meet the index … (strike 1 of 5)" line, 43 listed, ' +
+                    'index-check "ok", nothing leaked',
+                    v0.count === '32' && v.count === '43' && JSON.stringify(added) === '["newest/10","full/100"]' && miss.length === 1 &&
+                    /strike 1 of 5/.test(miss[0]) && leaks.length === 0 && v.banner !== 'degraded' && v.check === 'ok',
+                    fmt(v) + ' added=' + JSON.stringify(added) + ' miss=' + JSON.stringify(miss) + ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
+            await h.close();
+        }),
+        fixture(['I11c'], async (r) => {
+            // A self-check drop while a refresh is in flight (the newest page answers in 6 s; turn 30's
+            // question is edited meanwhile): the refresh's answer is superseded, logged so and never parsed,
+            // no full read follows inside that load, and the degraded list stays (no "REFRESH failed"
+            // snapshot is put back over it).
+            const h = await open(r, ['I11c'], C32, { rpc: { delayMs: { newest: 6000 } } });
+            if (!h) return;
+            await h.openNav();
+            const v0 = await h.waitReady(32, 8000);
+            const c0 = (await h.calls()).list.length;
+            await h.page.evaluate((t) => window.__mockGemini.send(t), 'A message sent before an edit?');
+            const t0 = Date.now();
+            while (Date.now() - t0 < 30000) { const c = await h.calls(); if (c.list.length > c0) break; await sleep(200); }
+            const tAsk = Date.now();
+            await h.page.evaluate(() => window.__mockGemini.editQuestion(30, 'An edited question thirty, not the index text'));
+            const vd = await h.until((x) => x.banner === 'degraded', 5000, 200);
+            await sleep(Math.max(0, tAsk + 6000 + 3000 - Date.now()));   // the in-flight page answered, and 3 s more
+            const c1 = await h.calls();
+            const v = await h.nav();
+            const addedSoon = c1.list.slice(c0).map((x) => x.type + '/' + x.size);
+            const sup = h.req().filter((l) => / superseded$/.test(l));
+            const refreshFailed = h.lines(/REFRESH failed/);
+            r.check('I11c', 'new', 'a self-check drop while a refresh is in flight: degraded at once; the refresh\'s answer logged ' +
+                    '"superseded" and never parsed, no full read after it inside the load, and the degraded list stays (no ' +
+                    '"REFRESH failed" snapshot over it)',
+                    v0.count === '32' && vd.banner === 'degraded' && JSON.stringify(addedSoon) === '["newest/10"]' && sup.length === 1 &&
+                    refreshFailed.length === 0 && v.banner === 'degraded',
+                    fmt(v) + ' addedSoon=' + JSON.stringify(addedSoon) + ' superseded=' + JSON.stringify(sup) + ' refreshFailed=' + refreshFailed.length);
+            await h.close();
+        }),
+        fixture(['I11d'], async (r) => {
+            // The refresh's cost while an answer is written (item K8 in DEC-063): a message sent past the open
+            // read's cooldown, its answer written evenly over 35 s to 14,000 characters (7 steps of
+            // IX_ANSWER_GROWTH). The growth rule would ask for a newest page per 2,000 characters, one per
+            // 15 s cooldown (3 or more reads); the latest answer is the settled rule's while it moves: its
+            // id's read, then one when it settles. The mock's server lists what is written so far (unmeasured
+            // live). The export then holds the whole answer, as complete. One chunk a second: the message
+            // observer's scan waits for 500 ms with no mutation (a trailing debounce), so a stream that
+            // mutates more often gets no scan at all until it stops, and only one read whatever the rules
+            // (this fixture's first run at 500 ms steps, chromium); live Gemini's cadence is unmeasured.
+            const SENT = 'A message whose answer is written slowly, about binary orbits?', TAIL = 'zebrafinch';
+            const h = await open(r, ['I11d'], C32, { rpc: { delayMs: { newest: 1900 } } });
+            if (!h) return;
+            await h.openNav();
+            const v0 = await h.waitReady(32, 8000);
+            await sleep(16000);                   // past the open read's 15 s cooldown: the id is read at once
+            const c0 = (await h.calls()).list.length;
+            const tSend = Date.now();
+            await h.page.evaluate(([t, tail]) => window.__mockGemini.sendStreaming(t, { chars: 14000, ms: 35000, stepMs: 1000, tail }), [SENT, TAIL]);
+            await sleep(35000 + 25000);           // the writing, then past a settle (3 s) and a cooldown (15 s)
+            const v = await h.nav();
+            const c1 = await h.calls();
+            const added = c1.list.slice(c0).map((x) => x.type + '/' + x.size);
+            const f = await h.page.evaluate('window.__h.exportFull()') || '';
+            const src = (f.match(/\*\*Source:\*\*[^\n]*/) || ['(no Source line)'])[0];
+            const leaks = noLeak(h.logs.concat([await h.storage()]), [TAIL, 'Stream note']);
+            r.check('I11d', 'new', 'a sent message whose answer is written over 35 s (14,000 characters): at most 2 reads, each the newest ' +
+                    'page (its id, then its answer settled), 33 listed, index-check "ok", and the export holds the whole answer (its last ' +
+                    'word) as complete; nothing leaked',
+                    v0.count === '32' && v.count === '33' && added.length >= 1 && added.length <= 2 && added.every((x) => x === 'newest/10') &&
+                    f.indexOf(TAIL) !== -1 && /complete conversation history/.test(src) && v.check === 'ok' && v.banner !== 'degraded' &&
+                    leaks.length === 0,
+                    fmt(v) + ' reads=' + JSON.stringify(added) + ' at s=' + JSON.stringify(h.hits.filter((x) => x.t >= tSend).map((x) => Math.round((x.t - tSend) / 1000))) +
+                    ' export has the last word=' + (f.indexOf(TAIL) !== -1) + ' ' + src + ' leaks=' + JSON.stringify(leaks.slice(0, 2)));
+            await h.close();
+        }),
+        fixture(['I11e'], async (r) => {
+            // The newest page comes back with no turns and no cursor (rpc.empty 'newest'), never seen live:
+            // a merge miss (a strike), then the chat read whole; never a ready EMPTY list.
+            const SENT = 'A message sent while the newest page answers empty, about orbits?';
+            const h = await open(r, ['I11e'], C32, { rpc: { empty: 'newest' } });
+            if (!h) return;
+            await h.openNav();
+            const v0 = await h.waitReady(32, 8000);
+            const c0 = (await h.calls()).list.length;
+            await h.page.evaluate((t) => window.__mockGemini.send(t), SENT);
+            let sawEmpty = false, v = null;
+            const t0 = Date.now();
+            while (Date.now() - t0 < 40000) {
+                v = await h.nav();
+                if (v.count === '0') sawEmpty = true;
+                if (v.count === '33') break;
+                await sleep(250);
+            }
+            await sleep(3000);
+            v = await h.nav();
+            const c1 = await h.calls();
+            const added = c1.list.slice(c0).map((x) => x.type + '/' + x.size);
+            const miss = h.lines(/does not meet the index/);
+            r.check('I11e', 'new', 'a newest page of no turns and no cursor: a merge miss ("does not meet the index … strike 1 of 5"), then ' +
+                    'the chat read whole: newest/10 then full/100, 33 listed, never an empty list, not degraded',
+                    v0.count === '32' && v.count === '33' && !sawEmpty && JSON.stringify(added) === '["newest/10","full/100"]' &&
+                    miss.length === 1 && /strike 1 of 5/.test(miss[0]) && v.banner !== 'degraded' && v.check === 'ok',
+                    fmt(v) + ' saw an empty list=' + sawEmpty + ' added=' + JSON.stringify(added) + ' miss=' + JSON.stringify(miss));
+            await h.close();
+        })
+    ]);
 
     // ── I17: the size estimate and its dots from the read's text ─────────────────────────────────
     await seq(fixture(['I17'], async (r) => {
@@ -1804,6 +2074,7 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
     }));
 
     flush(await i22Run);
+    if (i6sRun) flush(await i6sRun);
 
     // ── R1 [guard], E [guard] ────────────────────────────────────────────────────────────────────
     {
@@ -1851,6 +2122,7 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
     }
     const quiet = argv.includes('--quiet');
     const proof = argv.includes('--proof');
+    const slow = argv.includes('--slow');
     const only = arg('--only') ? arg('--only').split(',') : null;
     const scriptPath = process.env.ACN_SCRIPT || path.join(REPO, 'ai-conversation-navigator.user.js');
     const src = fs.readFileSync(scriptPath, 'utf8');
@@ -1859,8 +2131,8 @@ async function runEngine(engine, raw, header, only, quiet, proof) {
     let bad = 0;
     for (const engine of engines) {
         console.log('check-gemini-index — engine=' + engine + ', script=' + path.basename(scriptPath) + (proof ? ', --proof' : '') +
-                    ' (context: Playwright page realm, headless, 1280x720, the userscript inlined, no real manager)');
-        bad += await runEngine(engine, raw, header, only, quiet, proof);
+                    (slow ? ', --slow' : '') + ' (context: Playwright page realm, headless, 1280x720, the userscript inlined, no real manager)');
+        bad += await runEngine(engine, raw, header, only, quiet, proof, slow);
     }
     process.exit(bad ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

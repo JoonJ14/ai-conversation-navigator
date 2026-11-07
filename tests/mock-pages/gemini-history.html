@@ -25,7 +25,8 @@
          (`cvEstimate`, default 500 px, the live value) until it first comes within half a view of the
          scroller's view, settled on each scroll event (an ordering, not a timing window), and turns
          the scroller's anchoring on, as live.
-     NOT modelled: the main-thread block itself (unless blockMs is set), Gemini's real heights, streaming.
+     NOT modelled: the main-thread block itself (unless blockMs is set), Gemini's real heights, streaming
+     (beyond sendStreaming's even growth of one paragraph, v12.19).
 
      v12.19 (DEC-063): Gemini's history READ, opt-in through `rpc` (absent = no token, no server: the
      page is exactly the v12.18 mock). Measured live, v12.19 Phase 1 (Chrome page realm, the owner's
@@ -52,7 +53,8 @@
          chats 0.35-0.43 s (the default delay here, 400 ms).
      NOT modelled for the read: the payload's scale (heavyChars, default 2,000 per turn, is not the live
      10.7M), the live length-line unit (lenUnit picks one; a parser must ignore the numbers), the
-     candidate's slot count (38 here; only [0], [1] and [12] were measured), streaming answers, the Gem
+     candidate's slot count (38 here; only [0], [1] and [12] were measured), streaming answers (beyond
+     sendStreaming's "what is written so far"), the Gem
      and /u/N/ DOM (their paths are accepted here; both forms are guesses, unmeasured live).
 
      CONFIG (window.__MOCK_CONFIG, set before this body):
@@ -78,6 +80,13 @@
                     (the payload's turns are not a list), 'cursor-repeat' (the second page repeats the first
                     cursor), 'empty-cursor' (a page of no turns with a cursor); lenUnit: 'chars' (default) or
                     'bytes'. Any request whose `at` is not the page's current token is refused 400.
+                    endless: every page carries a fresh cursor (the read lists a chat of 1,000,000 turns,
+                    synthetic, past the script's page cap); empty: 'newest' | 'full' | 'all', that kind of
+                    request answers a page of no turns and no cursor (never seen live; Phase 1 saw a null
+                    cursor only on a last page that had turns)
+       domOrder:    { drop: n } turn n is never rendered in the DOM (the read lists it); { swap: [a, b] }
+                    turns a and b render in each other's place, each with its own id and text (the
+                    self-check's gap and order rules; not live measurements)
        mismatch:    { turn, text } | { turn, id }: the DOM shows another question text / container id for
                     that turn; the read's payload keeps the true one
        qText:       { n: text } turn n's question (DOM and payload)
@@ -101,6 +110,12 @@
        (v12.19)
        domId(n)        the id turn n's container carries in the DOM (turnId(n) unless `mismatch` moves it)
        editQuestion(n, text)  rewrite turn n's question text in the DOM (the payload keeps its own)
+       sendStreaming(text, { chars, ms, stepMs, tail })  send(text) whose answer is WRITTEN: one paragraph
+                       growing every stepMs (default 1,000: the script scans after 500 ms with no
+                       mutation, so a faster stream gets no scan until it stops) to `chars` characters
+                       (default 12,000) over `ms` (default 30,000), ending with the word `tail`; the
+                       read's server lists what is written so far (the live server's view of an answer
+                       being written is unmeasured, and so is Gemini's streaming cadence)
        rpc(body, url, method) the server's answer to one request: { status, text, delayMs } | { kind:
                        'abort' | 'hang' }; the probe's route bridge calls it, so the request takes the
                        real network path. Records the call (never the token's value).
@@ -168,7 +183,8 @@
                   'Lagrange points', 'escape velocity', 'atmospheric drag on satellites', 'precession of orbits',
                   'Hohmann transfers', 'the Oberth effect', 'synchronous orbits', 'three-body chaos'];
 
-    var state = { chat: null, total: 0, first: 0, sent: 0, pending: false, gen: 0, loads: 0, triggers: 0, sentText: {} };
+    var state = { chat: null, total: 0, first: 0, sent: 0, pending: false, gen: 0, loads: 0, triggers: 0, sentText: {},
+                  streamText: {} };
 
     function fnv(s) {
         var h = 0x811c9dc5;
@@ -188,6 +204,8 @@
     // An answer's paragraphs: the DOM renders each as a <p>; the read's payload carries them as
     // markdown joined by blank lines (v12.19), so both say the same thing.
     function answerParas(n) {
+        // sendStreaming (v12.19): what has been written so far, one paragraph.
+        if (state.streamText.hasOwnProperty(n)) return state.streamText[n] ? [state.streamText[n]] : [];
         var paras = 2 + (n * 3) % 4, out = [];
         for (var i = 0; i < paras; i++) {
             out.push('Answer ' + n + ', part ' + (i + 1) + ': the short version is that the motion is set by ' +
@@ -281,9 +299,20 @@
         for (var i = 0; i < q.length; i++) q[i].id = 'user-query-content-' + i;
     }
 
+    // domOrder (v12.19): the turns from..to as the DOM renders them, one left out or two swapped.
+    function shownTurns(from, to) {
+        var D = cfg.domOrder, ns = [], n;
+        for (n = from; n <= to; n++) if (!(D && D.drop === n)) ns.push(n);
+        if (D && D.swap) {
+            var i = ns.indexOf(D.swap[0]), j = ns.indexOf(D.swap[1]);
+            if (i >= 0 && j >= 0) { var t = ns[i]; ns[i] = ns[j]; ns[j] = t; }
+        }
+        return ns;
+    }
+
     function prepend(count) {
-        var from = state.first - count, frag = document.createDocumentFragment();
-        for (var n = from; n < state.first; n++) frag.appendChild(makeTurn(state.chat, n, 0));
+        var from = state.first - count, frag = document.createDocumentFragment(), ns = shownTurns(from, state.first - 1);
+        for (var i = 0; i < ns.length; i++) frag.appendChild(makeTurn(state.chat, ns[i], 0));
         var h0 = sc.scrollHeight, top0 = sc.scrollTop;
         sc.insertBefore(frag, sc.firstChild);
         state.first = from;
@@ -299,6 +328,7 @@
         state.total = CHATS[chat] || 0;
         state.sent = 0;
         state.sentText = {};
+        state.streamText = {};
         state.loads = 0;
         state.triggers = 0;
         while (sc.firstChild) sc.removeChild(sc.firstChild);
@@ -308,7 +338,8 @@
             if (gen !== state.gen) return;
             var k = Math.min(PAGE, state.total), frag = document.createDocumentFragment();
             state.first = state.total - k + 1;
-            for (var n = state.first; n <= state.total; n++) frag.appendChild(makeTurn(chat, n, 0));
+            var ns = shownTurns(state.first, state.total);
+            for (var i = 0; i < ns.length; i++) frag.appendChild(makeTurn(chat, ns[i], 0));
             sc.appendChild(frag);
             renumber();
             sc.scrollTop = sc.scrollHeight;
@@ -478,9 +509,12 @@
         var size = Math.max(1, Math.floor(Number(args[1]) || 0));
         var off = rec.cursorIn ? offsetOf(rec.cursorIn) : 0;
         if (off < 0) return answer(200, envelope([JSON.stringify([['wrb.fr', 'hNvQHb', null, null, null, [3], 'generic']]), diFrame()], url), rec.type);
-        var N = turnCount(chat), turns = [], P;
+        // endless (v12.19): a history with no end, so every page carries a fresh cursor.
+        var N = RPC.endless ? 1000000 : turnCount(chat), turns = [], P;
         if (mode === 'shape') {
             P = [{ turns: 'not a list' }, null, null, []];
+        } else if (RPC.empty === 'all' || RPC.empty === rec.type) {
+            P = [[], null, null, []];          // empty (v12.19): no turns, no cursor
         } else if (mode === 'empty-cursor') {
             rec.cursorOut = cursorFor(chat, off);
             P = [[], rec.cursorOut, null, []];
@@ -520,6 +554,31 @@
             sc.appendChild(makeTurn(state.chat, n, 0, text || questionText(n)));
             renumber();
             sc.scrollTop = sc.scrollHeight;
+        },
+        // v12.19: a sent message whose answer is written over o.ms, evenly (see the header).
+        sendStreaming: function (text, o) {
+            o = o || {};
+            var total = o.chars || 12000, ms = o.ms || 30000, step = o.stepMs || 1000, tail = o.tail || '';
+            state.sent++;
+            var n = state.total + state.sent, gen = state.gen, body = '', k;
+            if (text) state.sentText[n] = text;
+            state.streamText[n] = '';
+            for (k = 0; body.length < total; k++) body += 'Stream note ' + k + ' on the orbit, written a few words at a time. ';
+            body = body.slice(0, Math.max(0, total - tail.length - 1)) + ' ' + tail;
+            var t = makeTurn(state.chat, n, 0, text || questionText(n));
+            sc.appendChild(t);
+            renumber();
+            sc.scrollTop = sc.scrollHeight;
+            var p = document.createElement('p'), t0 = Date.now();
+            t.querySelector('structured-content-container').appendChild(p);
+            (function tick() {
+                if (gen !== state.gen) return;
+                var c = Math.min(body.length, Math.round(body.length * (Date.now() - t0) / ms));
+                state.streamText[n] = body.slice(0, c);
+                p.textContent = state.streamText[n];
+                if (c < body.length) setTimeout(tick, step);
+            }());
+            return n;
         },
         userScroll: function (where) {
             sc.dispatchEvent(new WheelEvent('wheel', { deltaY: where === 'top' ? -1000 : 1000, bubbles: true }));
