@@ -16,10 +16,11 @@ with its four decisions of 2026-11-05 (1: option C, the index as the main path a
 fallback; 2: POSTing exactly `hNvQHb`, a read, is allowed, README's "all GET" line says so, and the `at` token may be
 read from the page's inline script text for this purpose only; 3: `@connect gemini.google.com` only if
 `GM_xmlhttpRequest` is the transport that works on some manager; 4: Phase 1's 30 live reads are fine, and up to about
-50 more are allowed for the rest of the PR), and the agent's amendments of 2026-11-06/07 (M1, M2, K5, K8), for the
-owner's review: the agent decided them under the owner's 2026-11-06 instruction to decide and move on without asking,
-and the owner has written and accepted none of them. One decision record, DEC-063, which supersedes DEC-057's "no
-adapter". Platforms touched: Gemini only; Claude's, ChatGPT's and Perplexity's requests and jumps are unchanged.
+50 more are allowed for the rest of the PR), and the agent's amendments of 2026-11-06/07 (M1, M2, K5, K8), decided
+by the agent during the build (under the owner's 2026-11-06 instruction to decide and move on without asking) and
+approved by the owner on 2026-11-07; the owner wrote none of them. One decision record, DEC-063, which supersedes
+DEC-057's "no adapter". Platforms touched: Gemini only; Claude's, ChatGPT's and Perplexity's requests and jumps are
+unchanged.
 
 ### Problem [measured live, Chrome + Tampermonkey 12.16, the owner's profile, visible tab, 2026-10-31 (DEC-057)]
 - Gemini loads a chat's newest 10 turns, then 10 more each time the view reaches the top, and keeps them all. On
@@ -98,8 +99,8 @@ adapter". Platforms touched: Gemini only; Claude's, ChatGPT's and Perplexity's r
 **The refresh** — `60516b1`, then `cf91e23`:
 - A ready index's refresh reads the newest page (size 10) and merges it by id.
 - A page that does not meet the snapshot (a merge miss) costs a strike and a full read. **K5:** the spec allowed a
-  full refetch only on a conversation change or a self-check mismatch; a deviation the agent decided (2026-11-06), for
-  the owner's review.
+  full refetch only on a conversation change or a self-check mismatch; a deviation decided by the agent during the
+  build (2026-11-06), approved by the owner on 2026-11-07.
 - `cf91e23` folds the stage-2 findings:
   - the growth rule is skipped for the latest answer while it streams, so a sent message costs its id's refresh plus
     one when its answer settles, and one per `IX_SETTLE_MS` pause mid-stream (**K8, corrected** from "up to three";
@@ -172,7 +173,9 @@ hidden-tab start test (A7); F9 passes without it and gates the tracker's part.
   - I2b and I9b assert the "Load full history" fallback where the fetch throws or the page has no token (`c951c18`);
   - I23 gates the 403's 60 s backoff on a page held open 75 s (`100cd0c`; H0's comment, `a85ab2f`);
   - the ubuntu CI cap goes 50 → 60 minutes (`ffdabfb`): the owner chose 50 in v12.18, before this PR's own "Run
-    Gemini index probe" step existed, and with it the bounded install's worst passing case no longer fit.
+    Gemini index probe" step existed, and with it the bounded install's worst passing case no longer fit. Decided by
+    the agent during the build, approved by the owner on 2026-11-07, as a stopgap: the CI rebuild with parallel probe
+    jobs is the real fix (ROADMAP 0e).
 - **The failure loops are bounded** (`b9d413d`, `f0cce04`):
   - A1: the page cap is final for the chat visit; later full loads send nothing (I3c, held past the first backoff;
     before, every backoff read the same 10 pages);
@@ -198,9 +201,10 @@ hidden-tab start test (A7); F9 passes without it and gates the tracker's part.
   WebKit decoded I3b's Korean question as windows-1252 without it).
 - **G0's measurement script** prints only the error's name when it cannot parse an answer (`fa67846`, B4: a V8
   `JSON.parse` message quotes the text it could not read).
-- **Docs:** M1, M2, K5 and K8 are the agent's amendments, for the owner's review (`f0cce04`, C1); README's privacy FAQ
-  says Gemini's read fetches the whole chat, older turns included (`dde0b1a`, C2); DEC-057's pointer, the stale
-  architecture lines and the acceptance step 24 note (`3841805`, C3–C5); the residuals (C6, ROADMAP item 13).
+- **Docs:** M1, M2, K5 and K8 attributed to the agent (`f0cce04`, C1; the owner approved them on 2026-11-07);
+  README's privacy FAQ says Gemini's read fetches the whole chat, older turns included (`dde0b1a`, C2); DEC-057's
+  pointer, the stale architecture lines and the acceptance step 24 note (`3841805`, C3–C5); the residuals (C6, ROADMAP
+  item 13).
 
 ### Babysit (GitHub Codex on PR #94, 2026-11-07, 19:16–19:53Z, from `3841805` to `597ebfe`)
 The owner had asked for the known bugs first ("let's try to fix some known bugs first, dont mind the codex comment
@@ -335,9 +339,9 @@ was clean (the agent's first poll).
 - **Owed** (PR #94 is open): the owner's merge decision; after the merge, the Safari smoke-check reminder (DEC-062).
 - **Decided by the owner, 2026-11-07:** "no local three-engine run (CI ran all 81 gates on three engines)" and "no
   further Tier 3 rounds (GitHub Codex was clean twice on the final head)": neither runs before the merge.
-- **For the owner to decide:**
-  - M1, M2, K5 (a spec deviation) and K8, and the ubuntu CI cap 50 → 60 (`ffdabfb`): all the agent's, for the
-    owner's review.
+- **Approved by the owner, 2026-11-07:** M1, M2, K5 (a spec deviation) and K8, and the ubuntu CI cap 50 → 60
+  (`ffdabfb`), each decided by the agent during the build. The cap is a stopgap: the CI rebuild with parallel probe
+  jobs is the real fix (ROADMAP 0e, the next PR).
 - **Owner acceptance** on all three runtimes: steps 33–37, in the consolidated pass.
 - **A proposed CLAUDE.md line** (Data Source Awareness: Gemini's `/app/<id>` index), for the owner's approval; not
   applied.

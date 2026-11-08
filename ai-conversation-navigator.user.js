@@ -4322,8 +4322,8 @@
                 var t = gmTurnOf(el);
                 return t ? (type === 'ai-msg' ? t.id + ':answer' : t.id) : null;
             },
-            // Jumps (v12.19, the agent's amendment M1, for the owner's review): Gemini keeps every turn it
-            // loads, so a target that is not
+            // Jumps (v12.19, the agent's amendment M1, approved by the owner on 2026-11-07): Gemini keeps every
+            // turn it loads, so a target that is not
             // mounted is older than the oldest loaded turn and only pages bring it in. ixJump hands the whole
             // jump to gmIxJump, which pages (gmPageUntil) until the target's turn mounts, then lands it the
             // way v12.18 lands a loaded one. NOT pagesAtTop: awaitPage counts a page by scrollHeight, which
@@ -5006,8 +5006,8 @@
     // because "mounted" is not "in view" (v12.15). opts.land === false skips that: outerDone
     // gets the mounted question as found, for a caller that lands on something else itself.
     function ixJump(a, q, outerDone, opts) {
-        // Gemini (v12.19, the agent's amendment M1, for the owner's review): its own pager and landing,
-        // before any container lookup.
+        // Gemini (v12.19, the agent's amendment M1, approved by the owner on 2026-11-07): its own pager and
+        // landing, before any container lookup.
         if (a.pageUntil) { gmIxJump(a, q, outerDone, opts); return; }
         opts = opts || {};
         var token = ++_ixJumpToken;
@@ -8428,8 +8428,8 @@
         if (el && el.parentNode) el.parentNode.removeChild(el);
     }
 
-    // ixJump for an adapter that pages its own history (Gemini, v12.19, the agent's amendment M1, for the
-    // owner's review; DEC-063).
+    // ixJump for an adapter that pages its own history (Gemini, v12.19, the agent's amendment M1, approved
+    // by the owner on 2026-11-07; DEC-063).
     // ixJump hands the jump over before it looks for a container. Gemini keeps every turn it loads, so a
     // target that is not mounted is older than the oldest loaded turn: the pager brings pages in, with
     // "Loading earlier messages…", until the target's turn is in the DOM by its id (a target mounted
@@ -11376,9 +11376,9 @@
         // mounted is not in view, and only the jump lands and checks (v12.15). Not on a
         // thread too short to have a scroll container: ixJump would refuse it with a toast,
         // and the plain fast path below lands it, as before. Not on Gemini (v12.19, the agent's
-        // amendment M2, for the owner's review): a MOUNTED target keeps v12.18's landing below (gmLandFar when far, the
-        // smooth glide when near); only one that is not loaded yet goes through ixJump, which
-        // pages the history toward it (gmIxJump).
+        // amendment M2, approved by the owner on 2026-11-07): a MOUNTED target keeps v12.18's landing
+        // below (gmLandFar when far, the smooth glide when near); only one that is not loaded yet goes
+        // through ixJump, which pages the history toward it (gmIxJump).
         if (target && typeof q.ixPosition === 'number' && ixReadyAdapter() && ixReadyAdapter().id !== 'gemini') {
             _ciScrollContainer = null;
             if (ciFindScrollContainer()) target = null;

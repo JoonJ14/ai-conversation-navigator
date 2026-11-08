@@ -43,7 +43,7 @@
 // "[ACN] history: load start|page|load end|view restored ..." (F1, F5; end and restore in F2, F3); no
 // token, request body, query string, cursor, question or answer text in the console or storage (I2, I3,
 // I12, F1, F5). Landings are asserted by where the target ends (in view, marked resolved), never by
-// which landing function ran (the agent's amendment M1, 2026-11-06/07, for the owner's review).
+// which landing function ran (the agent's amendment M1, 2026-11-06/07, approved by the owner on 2026-11-07).
 //
 // CONTEXT of these results: Playwright, page realm, headless, viewport 1280x720, this machine, the
 // userscript inlined into the page; no real userscript manager and no real Gemini. Real-browser
@@ -2485,7 +2485,7 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
                 did && s.inView && !s.toasts.length, 'clicked=' + did + ' landing=' + JSON.stringify(s));
         await h.close();
     }));
-    // I21 [guard], the agent's amendment M2 (for the owner's review): a LOADED near target keeps v12.18's smooth glide with the index ready
+    // I21 [guard], the agent's amendment M2 (approved by the owner on 2026-11-07): a LOADED near target keeps v12.18's smooth glide with the index ready
     // (premise: the index ready).
     await seq(fixture(['I21'], async (r) => {
         const h = await open(r, ['I21'], C32, {});
@@ -2524,7 +2524,7 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
                 ' (' + stv[0] + '->' + stv[stv.length - 1] + ') landing=' + JSON.stringify(s));
         await h.close();
     }));
-    // I21b [guard], the agent's amendment M2 (for the owner's review): a LOADED FAR target with the index ready keeps v12.18's far landing
+    // I21b [guard], the agent's amendment M2 (approved by the owner on 2026-11-07): a LOADED FAR target with the index ready keeps v12.18's far landing
     // (gmLandFar): it ends in view and marked with no paging status, nothing paged in and no history read
     // caused by the click. The target is the oldest loaded question that is far (outside a view of the
     // view, orbLandFarIn's test) and lies more than a view below the content's top, so no landing on it can

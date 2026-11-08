@@ -4623,10 +4623,10 @@ tests what will actually be released (DEC-058: no release until every platform w
 ## DEC-063: Gemini Lists the Whole Chat From Its Own History Read; "Load Full History" Is the Fallback (v12.19)
 **Date:** 2026-11-05 (the owner's spec and option C), 2026-11-06 (the owner's Phase 0 decision) to 2026-11-07
 (built, reviewed, PR #94) | **Stage:** v12.19, DEC-058's addendum PR, from the owner's spec
-`docs/specs/v12.19-spec.md` (2026-11-05) and the agent's amendments M1, M2, K5 and K8 (2026-11-06/07), for the
-owner's review: the agent decided them under the owner's 2026-11-06 instruction to decide and move on without asking;
-the owner has written and accepted none of them. **Supersedes DEC-057's "no index"** (its "no accumulation" still
-holds: Gemini keeps its turns). Of DEC-057's tracker, note and far landing, only the note is the fallback's: the
+`docs/specs/v12.19-spec.md` (2026-11-05) and the agent's amendments M1, M2, K5 and K8 (2026-11-06/07), decided by
+the agent during the build (under the owner's 2026-11-06 instruction to decide and move on without asking), approved
+by the owner on 2026-11-07; the owner wrote none of them. **Supersedes DEC-057's "no index"** (its "no accumulation"
+still holds: Gemini keeps its turns). Of DEC-057's tracker, note and far landing, only the note is the fallback's: the
 tracker runs while the index is ready too, and the far landing lands jumps with it ready (DEC-057's pointer). Branch
 `feat/v12.19-gemini-full-history`, PR #94 (open, head `597ebfe`), not merged; owner acceptance in the consolidated
 pass (DEC-062; `docs/acceptance-checklist.md`, steps 33–37), owed on all three browsers (DEC-031).
@@ -4735,11 +4735,11 @@ pass (DEC-062; `docs/acceptance-checklist.md`, steps 33–37), owed on all three
     page is the truth from its oldest turn on, and a page with no cursor is the whole chat.
   - ixScan's stale rules ask for it, each behind the 15 s cooldown and once per signature: an unknown id, an answer
     not held, the latest answer settling, the tail at the bottom, a bookmark's request.
-  - **K5, a recorded deviation, the agent's (2026-11-06), for the owner's review:** the spec says a full refetch
-    happens "only on a conversation change or a self-check mismatch". The build also reads the chat whole when the newest page does not meet the
-    snapshot (a merge miss, which is a page-vs-index mismatch): one strike, a warning line, then a full read in the
-    same load. An empty newest page under a non-empty index is a miss too. Every retry after a failed load is a full
-    read as well.
+  - **K5, a recorded deviation, decided by the agent during the build (2026-11-06), approved by the owner on
+    2026-11-07:** the spec says a full refetch happens "only on a conversation change or a self-check mismatch". The
+    build also reads the chat whole when the newest page does not meet the snapshot (a merge miss, which is a
+    page-vs-index mismatch): one strike, a warning line, then a full read in the same load. An empty newest page
+    under a non-empty index is a miss too. Every retry after a failed load is a full read as well.
   - **K8, corrected bound.** The first estimate was "up to three newest-page reads per sent message". A verifier
     in the build session showed the growth rule could ask once per 15 s while an answer streamed. Since `cf91e23`, ixScan skips
     `IX_ANSWER_GROWTH` for the latest answer while the watch sees it move. Since review round 1 a sent message costs
@@ -4836,7 +4836,13 @@ userscript inlined, this Mac; each `[new]` gate failed on v12.18, and the mutant
   reports is INVALID (`e7aa36f`); two response candidates, the shown one named by `R[3]` (`2ee3a2c`, I4c; the mock's
   `rpc.drafts`, unmeasured live); I2b and I9b assert the fallback button (`c951c18`); I23 gates the 403's 60 s backoff
   (`100cd0c`); the ubuntu CI cap 50 → 60 minutes (`ffdabfb`): 50 was chosen in v12.18, before this PR's own "Run
-  Gemini index probe" step existed, and with that step the bounded install's worst passing case passed 50.
+  Gemini index probe" step existed, and with that step the bounded install's worst passing case passed 50. The cap
+  was decided by the agent during the build, approved by the owner on 2026-11-07, and is a stopgap, in the owner's
+  words: "The CI cap is a stopgap: the CI rebuild with parallel probe jobs is the real fix" (ROADMAP 0e, the next PR).
+  Observed in CI, not a browser check: the ubuntu jobs took 45m38s–47m08s on `3841805` (run 42400157639) and
+  46m00s–47m21s on `597ebfe` (run 42407864961), with the Gemini index step at 12m23s–13m04s. That matches the CI
+  comment's predicted healthy job (about 46.2 min); its worst-case install estimate (about 59 of 60 min) was not
+  observed.
 - **Loops bounded** (`b9d413d`, `f0cce04`): A1 the page cap final for the visit (I3c); A2 the calls backstop counted
   since the last good load (I25); A3 a permanent refresh failure drops the index (I24); A8 every sent request that
   fails is a strike, refreshes too, superseded loads never (I26, I27, I28).
@@ -4852,7 +4858,7 @@ userscript inlined, this Mac; each `[new]` gate failed on v12.18, and the mutant
   parse (a V8 `JSON.parse` message quotes the text).
 - **Commit messages that still credit the owner** (they are not rewritten; this record corrects them): `7f2cce1`
   ("owner amendment M1"), `a3ae035` ("owner amendment M2") and `3412bff` ("owner amendment M1"). M1 and M2 are the
-  agent's amendments (2026-11-06), for the owner's review; the owner wrote neither.
+  agent's amendments (2026-11-06), approved by the owner on 2026-11-07; the owner wrote neither.
 - **Docs:** the agent's amendments attributed (`f0cce04`); README's privacy FAQ (`dde0b1a`); this record's corrections
   (spec-3's deviation, the landing, the 400 retry's live token, the K8 bound, the residuals).
 - **How the round ran.** Tier 3 ran 1 of its 5 rounds; rounds 2–5 were not run (the owner's call, 2026-11-07, below).
@@ -4923,9 +4929,9 @@ inlined, this Mac]:
   (2.5 s, a 5-turn minimum page, 3 idle waits) are ChatGPT's measurements. The approach is kept (scroll to the top,
   wait for a page, repeat, a per-jump cap from the turn count); the mechanism is Gemini's own pager.
 - **`ixLandOn` on the scroller instead of `gmLandFarEl`.** It would have landed every near loaded target instantly
-  once the index was ready, instead of v12.18's glide. The agent's M1 (for the owner's review) follows the spec's
-  "then land (gmLandFarEl)", and M2 keeps mounted targets on v12.18's path; since review round 1 a near target a
-  page brought in lands with `gmLandInEl` (A6), the checked landing without the distance test.
+  once the index was ready, instead of v12.18's glide. The agent's M1 (approved by the owner, 2026-11-07) follows the
+  spec's "then land (gmLandFarEl)", and M2 keeps mounted targets on v12.18's path; since review round 1 a near target
+  a page brought in lands with `gmLandInEl` (A6), the checked landing without the distance test.
 
 ### Key properties
 - **Gates** (`probes/check-gemini-index.js`, Playwright page realm, headless chromium, 1280x720, the userscript
@@ -5044,12 +5050,10 @@ inlined, this Mac]:
 - **Out of scope** (the spec; ROADMAP): Grok; Gem and `/u/N/` adapters; the `at` lifetime; streaming edge cases;
   shrinking the payload (no flag shrank it in Phase 1); ChatGPT's own paging status.
 
-### Open, for the owner's decision (as of 2026-11-07; none of these is decided)
-- **The agent's amendments** M1, M2, K5 (a spec deviation) and K8, above.
-- **The ubuntu CI cap 50 → 60 minutes** (`ffdabfb`, the agent's change in Tier 3 round 1). Observed in CI, not a
-  browser check: the ubuntu jobs took 45m38s–47m08s on `3841805` (run 42400157639) and 46m00s–47m21s on `597ebfe`
-  (run 42407864961), with the Gemini index step at 12m23s–13m04s. That matches the CI comment's predicted healthy
-  job (about 46.2 min); its worst-case install estimate (about 59 of 60 min) was not observed.
+### Open, for the owner's decision (as of 2026-11-07; the two marked decided are the owner's calls)
+M1, M2, K5 (a spec deviation) and K8, and the ubuntu CI cap 50 → 60 minutes (`ffdabfb`), listed here until then, were
+decided by the agent during the build and approved by the owner on 2026-11-07 (the Stage line; Review round 1, which
+also records the cap as a stopgap until the CI rebuild).
 - **Tier 3 rounds 2–5** (`codex exec`): **decided by the owner, 2026-11-07: not run** ("no further Tier 3 rounds
   (GitHub Codex was clean twice on the final head)"). 1 of 5 ran.
 - **The local three-engine final run** (`npm test` and every probe on Chromium, Firefox and WebKit, ~1h45m,

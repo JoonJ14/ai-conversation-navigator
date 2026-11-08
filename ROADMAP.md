@@ -30,7 +30,7 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.19 BUILT, PR #94 OPEN, NOT MERGED (Gemini's full question list on open, `feat/v12.19-gemini-full-history`, head `597ebfe`); v12.18 MERGED (PR #93, `ab7ea21`); v12.17 MERGED (PR #92); v12.16 MERGED (PR #90); next: Grok — owner acceptance: one consolidated pass at about v12.20 (DEC-062); live confirmation status: DEC-031
+## Current Status: v12.19 BUILT, PR #94 OPEN, NOT MERGED (Gemini's full question list on open, `feat/v12.19-gemini-full-history`, head `597ebfe`); v12.18 MERGED (PR #93, `ab7ea21`); v12.17 MERGED (PR #92); v12.16 MERGED (PR #90); next: the CI rebuild (item 0e), then Grok (the owner's order, 2026-11-07) — owner acceptance: one consolidated pass at about v12.20 (DEC-062); live confirmation status: DEC-031
 
 **v12.19 (PR #94, open and not merged, head `597ebfe`, on `feat/v12.19-gemini-full-history`; DEC-058's addendum PR,
 from the owner's spec of 2026-11-05, `docs/specs/v12.19-spec.md`; DEC-063).** Gemini's full question list on open
@@ -44,8 +44,8 @@ from the owner's spec of 2026-11-05, `docs/specs/v12.19-spec.md`; DEC-063).** Ge
   - A refresh reads the newest page and merges it by id.
 - **Jumps** to a question not loaded yet page the history in with "Loading earlier messages…", then land checked
   (`gmLandFarEl` when far, `gmLandInEl` when near, review round 1); a question mounted already lands as v12.18 does
-  (the agent's amendments M1, M2, for the owner's review). Since GitHub Codex's babysit cycle the pager's wait counts
-  visible time only, an answer whose turn has no question (an image-only prompt) pages in by its own turn
+  (the agent's amendments M1, M2, approved by the owner on 2026-11-07). Since GitHub Codex's babysit cycle the pager's
+  wait counts visible time only, an answer whose turn has no question (an image-only prompt) pages in by its own turn
   (`c98b2d5`), and a jump takes the chat's first turn, not its first question's, for the start (`597ebfe`).
 - **"Load full history"** is the fallback where the index cannot run or has degraded (Gem and `/u/N/` paths, a failed
   read): it pages to the start and puts the view back.
@@ -68,7 +68,8 @@ from the owner's spec of 2026-11-05, `docs/specs/v12.19-spec.md`; DEC-063).** Ge
     `3841805` ran both in `refuse` only. Claude's L1-shape and L2-shape pass with `check-transport-ladder.js`
     unmodified.
   - CI [GitHub Actions; the mock suite, never real-browser evidence]: 9/9 on `3841805` (run 42400157639) and on
-    `597ebfe` (run 42407864961); the ubuntu jobs took 46m00s–47m21s on `597ebfe` against their 60-minute cap.
+    `597ebfe` (run 42407864961); the ubuntu jobs took 46m00s–47m21s on `597ebfe` against their 60-minute cap (a
+    stopgap until the CI rebuild, item 0e).
 - **Review.** Tier 3's round 1 (Codex CLI, REVISE, 6 WARNs) and a 47-agent adversarial review (13 WARNs) ran on
   `546ab49`; every one of those 19 WARNs is fixed (18 distinct: two lenses found the same page-cap loop; DEC-063,
   "Review round 1"). Tiers 1–2 ran on most code steps, not on each: `dd808c5`, `a3ae035`, `c98b2d5` and `597ebfe`
@@ -89,8 +90,9 @@ from the owner's spec of 2026-11-05, `docs/specs/v12.19-spec.md`; DEC-063).** Ge
     twice on the final head)"); 1 of 5 ran.
   - The local three-engine final run: **not run, the owner's call** (2026-11-07: "no local three-engine run (CI ran
     all 81 gates on three engines)"); nothing has run in full locally after `c98b2d5` (CI did, above).
-  - For the owner's review: the agent's amendments M1, M2, K5 (a spec deviation) and K8, and the ubuntu cap 50 → 60
-    minutes (`ffdabfb`, the agent's change).
+  - The agent's amendments M1, M2, K5 (a spec deviation) and K8, and the ubuntu cap 50 → 60 minutes (`ffdabfb`):
+    **decided by the agent during the build, approved by the owner on 2026-11-07.** The cap is a stopgap: the CI
+    rebuild with parallel probe jobs is the real fix (item 0e, the next PR).
   - The owner's acceptance in the consolidated pass (`docs/acceptance-checklist.md`, steps 33–37, on all three
     browsers; DEC-062).
 - **Logged for later:** item 13, "Logged from v12.19": the spec's out-of-scope items, ChatGPT's own paging status,
@@ -147,8 +149,8 @@ with a labelled 200K fallback (DEC-056; step 1 of item 12). The turn dots on Cla
 complete once the history is, and says so while it is not (DEC-057). The agent's live check in Chrome + Tampermonkey
 passed all three (DEC-031). Grok is out of scope (its own PR after the owner's testing).
 
-**Next, in the owner's order (2026-11-01; DEC-058).** No release for v12.15, v12.16 or v12.17: a release only once every
-platform works on all supported browsers.
+**Next, in the owner's order (2026-11-01; DEC-058; item 4 added before Grok, 2026-11-07).** No release for v12.15,
+v12.16 or v12.17: a release only once every platform works on all supported browsers.
 1. **The feature gaps, one PR — done: v12.17, above (merged 2026-11-04).** In the owner's words: Search, Export, Summary
    and the image gallery on ChatGPT, Perplexity, Gemini and Claude still read only on-screen messages, and Gemini
    bookmarks are still positional. All of it goes in one PR. Known pieces already logged: Export and Summary drop
@@ -173,10 +175,18 @@ platform works on all supported browsers.
        comes from, how often it changes, what breaks when it does)?
    - **Fallback, if that is too fragile:** a "Load full history" button the user clicks. It scrolls to the top until
      the start is loaded (DEC-057's completion rule), then restores the view.
-4. **Grok** on all three browsers (item 13), its own PR — **after the Gemini PR**, once the owner is back on the
-   Linux machine to sign in. The code search must be redone signed in (2026-11-04's was signed out and only partly
-   conclusive: the chat client loaded, a signed-in session did not), and data steps 2–3 follow it (DOM-REFERENCE,
-   Grok, "Context and summaries").
+4. **The CI rebuild (item 0e), its own PR — next, before Grok** (the owner, 2026-11-07). In this order:
+   - **Split the probes into parallel jobs** first. Target: the whole CI run near ~10 minutes again (the ubuntu jobs
+     took 46m00s–47m21s on `597ebfe`, under the 60-minute cap). The owner adds the new job names to `main`'s required
+     checks (the ruleset has no bypass actors).
+   - **Then the flaky tests:** `check-ix-jumps` J15 and `check-usage-state` U10 (TROUBLESHOOTING).
+   - **Then refresh the mocks.**
+   - The ubuntu jobs' 60-minute cap (`ffdabfb`, v12.19) is the stopgap this replaces ("the CI rebuild with parallel
+     probe jobs is the real fix", the owner, 2026-11-07).
+5. **Grok** on all three browsers (item 13), its own PR — **after the CI rebuild** (the owner, 2026-11-07; before
+   that, after the Gemini PR), once the owner is on the Linux machine to sign in. The code search must be redone
+   signed in (2026-11-04's was signed out and only partly conclusive: the chat client loaded, a signed-in session did
+   not), and data steps 2–3 follow it (DOM-REFERENCE, Grok, "Context and summaries").
 
 **v12.15 (PR #88, merged 2026-10-31 as `6baac2e`, on the owner's OK before their acceptance: a waiver, DEC-031).**
 One combined PR in three parts. B: jumps on Perplexity and ChatGPT land in one click, instantly and checked
@@ -233,20 +243,20 @@ for a later PR unless they block this one. **The owner gives the full spec** as 
 nothing here pre-writes its scope.
 
 Later; the owner decides the order (2026-10-24; the last two added 2026-10-31; the first three PRs are now fixed
-by the owner's order above, 2026-11-01):
-- Grok on all three browsers (item 13).
+by the owner's order above, 2026-11-01; the CI rebuild, then Grok, joined that order on 2026-11-07):
+- Grok on all three browsers (item 13): now "Next" item 5, after the CI rebuild (the owner, 2026-11-07).
 - ~~Claude: a jump to the latest question from the top ends at the bottom, past it~~ — v12.16 part A (DEC-055).
 - `check-ix-jumps` J15's timing race in CI (TROUBLESHOOTING, OPEN): make the fixture's pin deterministic. It has
   failed locally since 2026-10-31 (Firefox and WebKit, v12.15/v12.16); since v12.18 also on Chromium (sweep 2,
   twice), and again on Firefox (the final run); in v12.19's build, Chromium again (two back-to-back full runs at
-  `546ab49`; it passed the milestone on `3841805`).
+  `546ab49`; it passed the milestone on `3841805`). Now part of the CI rebuild ("Next" item 4, the flaky tests).
 - Pin Playwright in CI, or handle it in the rebuild (item 0e): the unpinned `npm install playwright` failed every job
   of PR #93's first run when npm had `playwright@1.65.0` but not yet its `playwright-core` (TROUBLESHOOTING).
 - ~~Gemini: does it keep or slide older turns (item 13)?~~ — it keeps them; v12.16 part C (DEC-057).
 - Perplexity attachment images. The gallery has marked Perplexity unsupported since v11.x, because its attachments
   render as text labels, not `<img>` tags ("Image Gallery Platform-Specific Selectors", below). There is no backlog
   item of its own yet.
-- The CI rebuild (item 0e).
+- The CI rebuild (item 0e): now "Next" item 4, the next PR (the owner, 2026-11-07).
 - ~~The context-window meter's recalibration to the current limit, after verifying the limit per model (item 12).~~
   The limit per model is v12.16 (DEC-056), and the display is v12.18 (DEC-060). Still open: calibrating the estimate
   itself (item 12, step 2).
@@ -644,7 +654,11 @@ Numbering below is stable (items keep their historical numbers):
    PR #75: the CI checks are outdated. They pass builds that fail in a real browser — v12.8 was green
    in CI while its index failed on Safari — so a green run says nothing about what breaks there. Nothing in the harness has a userscript manager: it inlines the
    script into the page realm with a `GM_xmlhttpRequest` shim (TESTING.md). Not started — scope it as
-   its own change. **Stopgap (v12.17, the owner, 2026-11-01):** the ubuntu jobs' `timeout-minutes` went from 30 to
+   its own change. **The next PR, before Grok (the owner, 2026-11-07; Current Status, "Next" item 4):** first split
+   the probes into parallel jobs (target: the whole CI run near ~10 minutes; the owner adds the new job names to
+   `main`'s required checks), then the flaky tests (`check-ix-jumps` J15, `check-usage-state` U10), then refresh the
+   mocks. It replaces the ubuntu jobs' 60-minute cap (stopgap 4, below).
+   **Stopgap (v12.17, the owner, 2026-11-01):** the ubuntu jobs' `timeout-minutes` went from 30 to
    40 (they took about 24 minutes on v12.16, and v12.17's probes add about 4–5; measured on PR #92, 29m1s–29m35s
    on run 41388828440); macOS and Windows keep 30. Revisit
    it in the rebuild. Inputs collected on PR #75:
@@ -737,12 +751,22 @@ Numbering below is stable (items keep their historical numbers):
        2m18s, the Claude turn keys 2m05s, the answer bookmarks 2m01s, and eight smaller ones about 5 min together
        (healthy chromium/ubuntu job on `3ccf84b`).
      - The history: 5m41s–9m47s for every job until July 2026; about 9 min with v12.9's transport-ladder probe; 14,
-       then 22 with v12.15's; 23–24 with v12.16's; 27–30 with v12.17's; 33–34 with v12.18's.
+       then 22 with v12.15's; 23–24 with v12.16's; 27–30 with v12.17's; 33–34 with v12.18's; 46–47 with v12.19's
+       (stopgap 4, below).
    - **Recommendation for the rebuild (the owner, 2026-11-05): split the probes into parallel jobs.** Run the probe
      steps as their own jobs (grouped so the longest group is a few minutes) beside the suite jobs, instead of one
      after another inside each ubuntu job. The wall clock then comes near 10 minutes again. The new job names must be
      added to `main`'s required checks in the ruleset (it has no bypass actors), or a PR could merge without them.
-     This was option 2 when the owner chose the 50-minute cap; it is logged here for the rebuild, not done.
+     This was option 2 when the owner chose the 50-minute cap; it is logged here for the rebuild, not done. **Since
+     2026-11-07 it is the rebuild's first step** (the owner: "target: the whole CI run near ~10 min"; the owner adds
+     the new job names to `main`'s required checks).
+   - **Stopgap 4 (v12.19, decided by the agent during the build, approved by the owner on 2026-11-07): the ubuntu cap
+     went 50 → 60** (`ffdabfb`, Tier 3 round 1; DEC-063, "Review round 1"); macOS and Windows keep 30. 50 was chosen
+     in v12.18, before v12.19's own "Run Gemini index probe" step existed; with that step the bounded install's worst
+     passing case passed 50. Observed [GitHub Actions; the mock suite, not real-browser evidence]: the ubuntu jobs took
+     45m38s–47m08s on `3841805` (run 42400157639) and 46m00s–47m21s on `597ebfe` (run 42407864961), the Gemini index
+     step 12m23s–13m04s of it. The owner, 2026-11-07: "The CI cap is a stopgap: the CI rebuild with parallel probe
+     jobs is the real fix."
    - **Job durations before v12.18: successful jobs, min / median / max in minutes** [GitHub job and step data,
      read-only, 2026-11-05; v12.17: 21–22 runs, PR #92 and `8909d92`; v12.16: 5 runs]:
      - ubuntu, v12.17: chromium 27.3 / 28.4 / 29.2 (install 0.3, suite 5.7, probes 21.3–22.9); firefox 27.8 / 29.0 /
@@ -1328,7 +1352,7 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
           space or punctuation, so that "2*3*4" keeps its stars) [inferred; not measured].
     - **Logged from v12.19** (not fixed; out of its spec or below its bar; DEC-063):
       - **Out of scope, by the owner's spec** (2026-11-05):
-        - Grok (its own PR, next).
+        - Grok (its own PR, after the CI rebuild: the owner's order of 2026-11-07, Current Status, "Next").
         - Gem and `/u/N/` adapters: those paths get no index and show the fallback; they are logged once as
           "unmeasured" (no such link was in the owner's account in Phase 1: 29 of 29 links on the page were
           `/app/<id>`, counted document-wide with `a[href*="/app/"]`, not in the sidebar alone).

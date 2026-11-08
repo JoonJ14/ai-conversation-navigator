@@ -955,6 +955,12 @@ POST /_/BardChatUi/data/batchexecute?rpcids=hNvQHb&source-path=/app/<id>&bl=<bui
          1, [1], [4], null, 1]
 ```
 
+- **The page calls `fetch` with a `Request` object**, not `fetch(url, init)` [Phase 1: Chrome page realm, ACN 12.18
+  installed, 2026-11-05]. The first capture assumed `(url, init)` and recorded a null body and no headers (parsing
+  `f.req` threw `TypeError: Cannot read properties of null (reading '0')`); the body and headers above are the
+  second capture's, which read `input.clone().text()` and `input.headers`. A wrapper that captures Gemini's requests
+  reads those two when its first argument is a `Request` (or handles both forms): the wrong form fails quietly, as an
+  empty capture, and each retry cost one more history page loaded in the owner's chat.
 - **Required** (one call each, page size 1): `at` (missing or wrong → HTTP 400 with an `er` frame) and the session
   cookies (credentials omitted → **HTTP 200 with a null payload and error `[7]`**, a failure inside a success status).
 - **Not required** (each removed alone, still 200): `bl` (absent, or two weeks stale), `f.sid`, `x-same-domain`,

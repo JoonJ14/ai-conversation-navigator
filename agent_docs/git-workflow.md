@@ -16,6 +16,15 @@
 
 ## Pull Requests
 
+**Building: each step runs its own gates, the full suite runs once per stage** (CLAUDE.md rule 7, `434a886`, and the
+owner, 2026-11-07: "each build step verifies with its OWN gates and related probes; the full suite and every probe run
+once per stage, not after every step"). A build step verifies with its own gates (`--only`) and the probes related to
+what it touched, plus `--proof` against the previous release for a new gate. `npm test` and every probe run once per
+stage: at a build stage's end, before the live test (step 2 below), and in the final run (step 3); never after every
+step. No verifier agent per step: the review gates are Tiers 1–3 (step 1) and GitHub Codex (step 4). On v12.19 the
+per-step reading made each step 60–90 minutes and the build about 15 hours (`agent_docs/testing.md`, "When to run the
+whole suite").
+
 **The owner's procedure for a code PR** (2026-11-01, v12.17; one PR holds the code and its docs, no docs-only PR):
 1. The review pipeline: Tiers 1–2, then Tier 3 (`cli:codex`) **capped at 5 rounds**. The owner briefly allowed 10 and
    withdrew it: GitHub Codex is more accurate (it can call the code), saves tokens, and keeps the open findings on

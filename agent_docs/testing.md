@@ -31,11 +31,16 @@ npm run test:screenshots
 
 ## When to run the whole suite (CLAUDE.md rule 7, since 2026-11-07)
 
-**The rule.** `npm test` and every probe (`npm run test:probes`) run at each **milestone**: a build stage's end,
-before the live test, and the final run. Within a step, run only the gates the change touches (`--only`), plus
-`--proof` against the previous release for any new gate. The owner, 2026-11-07, during v12.19's review round 1: "run
-full suite only at milestones, drop per-step verifiers. i thought i had it at every milestone already". Rule 7 said
-"after any change" until then; the owner approved the new wording, committed as `434a886`.
+**The rule.** Each build step verifies with its **own** gates (`--only`) and the probes related to what it touched
+(a Gemini index change: `check-gemini-index`, plus `check-gemini-history` and `check-feature-gaps` for the fallback),
+plus `--proof` against the previous release for any new gate. The full suite, `npm test` and every probe (`npm run
+test:probes`), runs **once per stage**: at a build stage's end, before the live test, and in the final run; never
+after every step. No verifier agent per step: the review gates are Tiers 1–3, then GitHub Codex (git-workflow.md,
+"Pull Requests"). The owner, 2026-11-07, during v12.19's review round 1: "run full suite only at milestones, drop
+per-step verifiers. i thought i had it at every milestone already". Rule 7 said "after any change" until then; the
+owner approved the new wording, committed as `434a886`. The same day the owner had the rule spelled out here and in
+git-workflow.md, where the process lives: "each build step verifies with its OWN gates and related probes; the full
+suite and every probe run once per stage, not after every step".
 
 **Why it changed.** The agent had read "after any change" literally, and added a verifier agent per step that ran
 the suite again. On v12.19 each build step then took 60–90 minutes (`npm test` about 6, `check-gemini-index` about
@@ -114,7 +119,8 @@ the check pass on Linux and fail on Windows for the same correct jump.
 When modifying the userscript, ensure:
 - All `data-acn-*` attributes remain intact
 - Mock pages match the real platform DOM structure
-- Tests pass across all 26 platform entries as of v12.9 (the 14 real platforms plus the Claude
+- The step's own gates pass after each step, and in each stage's full run ("When to run the whole suite", above) the
+  tests pass across all 26 platform entries as of v12.9 (the 14 real platforms plus the Claude
   fixture entries — among them the virtualized degraded, index-backed, and index-backed-with-markdown
   entries whose DOM/API text deliberately does NOT match)
 

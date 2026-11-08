@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-AI Conversation Navigator is a single-file browser userscript (Tampermonkey/Greasemonkey; Userscripts on Safari) that adds an orbital button cluster to 14 AI chat platforms, letting users jump to any previous question in one click. ~17,700 lines of ES5-compatible vanilla JavaScript, no build step, no dependencies.
+AI Conversation Navigator is a single-file browser userscript (Tampermonkey/Greasemonkey; Userscripts on Safari) that adds an orbital button cluster to 14 AI chat platforms, letting users jump to any previous question in one click. One large file of ES5-compatible vanilla JavaScript, no build step, no dependencies.
 
 ## Tech Stack
 
@@ -67,6 +67,7 @@ On `claude.ai/chat/<uuid>`, `_questions` is populated from the **API-backed conv
 - Never order messages with `compareDocumentPosition` across unmounted nodes — detached nodes compare as DISCONNECTED, the comparator returns 0, and the sort silently degrades to arbitrary order. Use the index order.
 - Never key persisted data to a DOM index. Use the message uuid (see the bookmarks schema-2 migration).
 - **Since v12.10 the same holds on `chatgpt.com/c/<id>` and `perplexity.ai/search/<id>`** through their index adapters (DEC-046): `q.element` is null outside the mounted window there too, and `q.ixPosition` / `q.ixId` are the identity.
+- **The same holds on `gemini.google.com/app/<id>`** through its index adapter (DEC-063): `q.element` is null outside the loaded part, and `q.ixId` (the 16-hex turn id) and `q.ixPosition` are the identity. Gem and `/u/N/` paths have no index: there the DOM scan is the data source, and Navigate shows the "older messages" note with the "Load full history" button.
 
 ## Measurement Context Is Part of the Finding (v12.0+)
 

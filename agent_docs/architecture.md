@@ -79,10 +79,10 @@ compares the page's turns with the index on every scan, by id, order and questio
 page the DOM (`gmPageUntil`, counted by turns arriving above the old first one), then land checked: `gmLandFarEl`
 when far, `gmLandInEl` (`orbLandIn` on the scroller: the same instant, re-measured writes without the distance test)
 when a page brought the target in near the view (review round 1); a target mounted already keeps v12.18's path,
-`gmLandFar` or the near glide (the agent's amendments M1, M2, for the owner's review). The pager's wait counts
-visible time only: `spent` sums the intervals between two visible polls, and a hidden poll sets `last` to −1, so a
-background tab's suspended timers never end a wait (GitHub Codex on PR #94, `c98b2d5`; gate F12). `gmIxJump` takes
-the start as loaded once the chat's first TURN is in the DOM, `_ix.answers[0].at` (every turn has an answer record,
+`gmLandFar` or the near glide (the agent's amendments M1, M2, approved by the owner on 2026-11-07). The pager's wait
+counts visible time only: `spent` sums the intervals between two visible polls, and a hidden poll sets `last` to −1,
+so a background tab's suspended timers never end a wait (GitHub Codex on PR #94, `c98b2d5`; gate F12). `gmIxJump`
+takes the start as loaded once the chat's first TURN is in the DOM, `_ix.answers[0].at` (every turn has an answer record,
 an image-only turn 1 included), falling back to `_ix.entries[0].id` (`597ebfe`). An answer whose turn has no question
 (a prompt that is only an image: q −1, no Navigate row) pages in by its own turn: `_bmIxJump` hands `ixJump` the
 turn-only target `_bmIxTurnTarget` builds (`{ ixId: rec.at, ixPosition, text: '', gmTurnOnly: true }`), which
