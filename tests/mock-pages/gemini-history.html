@@ -25,7 +25,40 @@
          (`cvEstimate`, default 500 px, the live value) until it first comes within half a view of the
          scroller's view, settled on each scroll event (an ordering, not a timing window), and turns
          the scroller's anchoring on, as live.
-     NOT modelled: the main-thread block itself, Gemini's real heights, streaming.
+     NOT modelled: the main-thread block itself (unless blockMs is set), Gemini's real heights, streaming
+     (beyond sendStreaming's even growth of one paragraph, v12.19).
+
+     v12.19 (DEC-063): Gemini's history READ, opt-in through `rpc` (absent = no token, no server: the
+     page is exactly the v12.18 mock). Measured live, v12.19 Phase 1 (Chrome page realm, the owner's
+     profile, visible tab, chat 96b519c1, 32 questions, 2026-11-05) and Phase 0 (G0, Chrome +
+     Tampermonkey 5.5.1, Firefox + Tampermonkey 5.5.0, Safari + Userscripts 4.8.6):
+       - POST /_/BardChatUi/data/batchexecute?rpcids=hNvQHb, a form body f.req + at, the page's cookies.
+         f.req = [[["hNvQHb", "<args JSON>", null, "generic"]]]; args = ["c_<chat>", size, cursor, ...].
+       - The answer: ")]}'", a blank line, then per frame a length line and a ONE-line JSON frame:
+         [["wrb.fr","hNvQHb","<payload JSON string>",null,null,null,"generic"]],
+         [["di",n],["af.httprm",n,"<id>",n]], and with rt=c a last [["e",4,null,null,<len>]] (without
+         rt=c the e frame is absent: Phase 1).
+       - payload = [turns NEWEST FIRST, cursor (145 chars) or null on the last page, null, []].
+       - turn = [[c_<chat>, r_<16 hex>], [c_<chat>, r_<16 hex>, rc_<16 hex>], query (11 slots, [0][0] the
+         question), response (32 slots: [0] the candidates, [3] the rc_ shown), [seconds (10 digits),
+         nanos (9 digits)]]. The r_ hex equals the DOM container's id (32/32, order-exact): here the
+         payload's ids ARE turnId(), the same FNV ids the DOM renders. A candidate's [1] holds the
+         answer's markdown; its [12] is the heavy rich-content slot (10.7M of 12.66M chars live).
+         Phase 1 saw ONE candidate per turn (cands: 1 on every turn, Chrome page realm, chat 96b519c1);
+         a turn with drafts (several candidates, [3] naming one that is not the first) is unmeasured live:
+         rpc.drafts models it.
+       - A null payload carries its code at wrb.fr[5] (G0 reads it there; [7] measured with the
+         credentials omitted; [3] and [5] are public-only).
+       - A missing or wrong `at` answers HTTP 400 with an "er" frame (its inner slots are synthetic).
+       - `at` = WIZ_global_data's token: 42 chars (a 28-char head, ':', a 13-digit ms timestamp), in
+         one of 4 (of 18) inline scripts that carry WIZ_global_data.
+       - Timing: size 100, 32 turns in ONE call, 6.2 s; the page's own size-10 pages 1.9-2.9 s; small
+         chats 0.35-0.43 s (the default delay here, 400 ms).
+     NOT modelled for the read: the payload's scale (heavyChars, default 2,000 per turn, is not the live
+     10.7M), the live length-line unit (lenUnit picks one; a parser must ignore the numbers), the
+     candidate's slot count (38 here; only [0], [1] and [12] were measured), streaming answers (beyond
+     sendStreaming's "what is written so far"), the Gem
+     and /u/N/ DOM (their paths are accepted here; both forms are guesses, unmeasured live).
 
      CONFIG (window.__MOCK_CONFIG, set before this body):
        chats:       { <16-hex chat id>: <turn count> }  the chat shown is location.pathname's /app/<id>
@@ -36,8 +69,54 @@
        cv:          the content-visibility model above (default false); cvEstimate: its height (500)
        sameText:    { n: m } turn n asks turn m's question, word for word (v12.17; default none)
        bigAnswers:  { n: chars } turn n's answer carries one more paragraph of that many characters
-                    (v12.18; default none): input for the context meter's size dots, not a live
-                    measurement
+                    (v12.18; default none): input for the context meter's size dots and (v12.19, review
+                    round 1, check-gemini-index I12k) turns whose real height is several times cv's
+                    estimate; not a live measurement
+       (v12.19; every key below is off by default)
+       rpc:         the history read's server, see above: { at, decoyAt, freshAt, noToken, mode, lenUnit,
+                    delayMs: { full, next, newest }, heavyChars, drafts }. at: the token in the inline script;
+                    decoyAt: a later script sets the page GLOBAL to this other value (a reader of globals
+                    sends it and is refused); noToken: the WIZ script carries no token; mode: 'ok' (default),
+                    'refuse' (403), 'abort', 'hang', 'null7' / 'null3' / 'null5' (a null payload, the code at
+                    wrb.fr[5]), 'stale-at' (the first request is refused 400 and the page's token rotates to
+                    freshAt), 'bad-at' (every request 400), 'noprefix', 'garbage' (the wrb.fr frame is not
+                    JSON), 'noentry' (no hNvQHb frame), 'badpayload' (the payload string is not JSON), 'shape'
+                    (the payload's turns are not a list), 'cursor-repeat' (the second page repeats the first
+                    cursor), 'empty-cursor' (a page of no turns with a cursor); lenUnit: 'chars' (default) or
+                    'bytes'. Any request whose `at` is not the page's current token is refused 400.
+                    drafts (Tier 3 r1; UNMEASURED live, see the turn's shape above): true | { word }: each
+                    turn's response lists TWO candidates, [0] a draft the page does not show ("Draft n: ...",
+                    naming `word`, default 'platypus', and nothing else), [1] the answer the DOM shows, which
+                    R[3] names by its rc_ id: a reader that takes [0][0] instead of the one [3] names lists
+                    the draft.
+                    endless: every page carries a fresh cursor (the read lists a chat of 1,000,000 turns,
+                    synthetic, past the script's page cap); empty: 'newest' | 'full' | 'all', that kind of
+                    request answers a page of no turns and no cursor (never seen live; Phase 1 saw a null
+                    cursor only on a last page that had turns)
+                    firstNewest (review round 1; the server's view of a turn just sent is UNMEASURED live):
+                    the FIRST newest-page read after a send() answers late, once: 'drop' leaves the newest
+                    turn out (a turn the server does not list yet), 'half' holds the first half of the
+                    newest turn's answer markdown (an answer caught mid-write that has finished on the page)
+       domOrder:    { drop: n } turn n is never rendered in the DOM (the read lists it); { swap: [a, b] }
+                    turns a and b render in each other's place, each with its own id and text (the
+                    self-check's gap and order rules; not live measurements)
+       mismatch:    { turn, text } | { turn, id }: the DOM shows another question text / container id for
+                    that turn; the read's payload keeps the true one
+       qText:       { n: text } turn n's question (DOM and payload)
+       noQuestion:  { n: true } turn n's question has no text (an image-only prompt; GitHub Codex, PR #94): the
+                    read's T[2][0][0] is '' and the DOM's p.query-text-line is empty (div.query-text keeps only
+                    its hidden "You said" label). Pair it with `images` for the upload. The live DOM of an
+                    image-only prompt is unmeasured: this shape is a model
+       answerWords: { n: word } turn n's answer gains a paragraph naming that word (DOM and payload)
+       images:      { n: k } k uploaded images (img[data-test-id="uploaded-img"], data: URLs) beside turn
+                    n's question text, as live (a sibling of div.query-text)
+       blockMs:     a synchronous busy-wait before each prepend: the live render block (~4.6 s, DEC-057)
+       stallAt:     history stops loading once this many turns are in the DOM (a load that never comes)
+       endlessDom:  (review round 1) history never ends: once the chat's first turn is in, each load at the
+                    top prepends a page of OLDER turns the read does not list, their ids not 16-hex (so the
+                    self-check compares none of them). Synthetic: no live chat pages past its start; it lets
+                    a jump reach its per-jump page cap (with domOrder { drop: 1 }, turn 1 never mounts)
+       Paths: /app/<id>, and the unmeasured /u/<N>/app/<id> and /gem/<gem>/<id>.
 
      window.__mockGemini:
        loaded()        turns currently in the DOM
@@ -46,9 +125,29 @@
        loads()         history loads done in this chat
        loadAll()       synchronously prepend every remaining turn, anchored (one DOM step)
        switchTo(id)    history.pushState to /app/<id>, then render that chat's first page
+       goHome()        (v12.19, review round 1) history.pushState to /app, then an empty scroller: the chat
+                       left for Gemini's home, so going back to it is the same chat visit (live Gemini's
+                       home page is not modelled, only its path and that no turn is shown)
        send(text)      append a new turn at the bottom (a message the user sent), view to the bottom
        userScroll(w)   'top' | 'bottom' | <number>: a scroll as a user makes it (wheel, then the write)
        turnId(n)       the stable id of turn n (1-based) in the current chat
+       (v12.19)
+       domId(n)        the id turn n's container carries in the DOM (turnId(n) unless `mismatch` moves it)
+       editQuestion(n, text)  rewrite turn n's question text in the DOM (the payload keeps its own)
+       sendStreaming(text, { chars, ms, stepMs, tail })  send(text) whose answer is WRITTEN: one paragraph
+                       growing every stepMs (default 1,000: the script scans after 500 ms with no
+                       mutation, so a faster stream gets no scan until it stops) to `chars` characters
+                       (default 12,000) over `ms` (default 30,000), ending with the word `tail`; the
+                       read's server lists what is written so far (the live server's view of an answer
+                       being written is unmeasured, and so is Gemini's streaming cadence)
+       rpc(body, url, method) the server's answer to one request: { status, text, delayMs } | { kind:
+                       'abort' | 'hang' }; the probe's route bridge calls it, so the request takes the
+                       real network path. Records the call (never the token's value).
+       calls()         { full, next, newest, other, list: [{ type, size, cursorIn, cursorOut, atOk, rt,
+                       status }] } (full: no cursor and size >= 100; newest: no cursor, smaller; next: a cursor)
+       setAt(v)        rewrite the token script's text (a script that ran does not run again) and make v
+                       the token the server accepts
+       topTriggers()   history loads scheduled by the view reaching the top
 -->
 <style>
   html, body { margin: 0; padding: 0; height: 100%; }
@@ -100,13 +199,17 @@
     var FIRST = typeof cfg.firstDelayMs === 'number' ? cfg.firstDelayMs : 200;
     var CV = !!cfg.cv;
     var CV_EST = typeof cfg.cvEstimate === 'number' ? cfg.cvEstimate : 500;
+    var BLOCK = typeof cfg.blockMs === 'number' ? cfg.blockMs : 0;
+    var STALL = typeof cfg.stallAt === 'number' ? cfg.stallAt : 0;
+    var ENDLESS = !!cfg.endlessDom;
     var sc = document.querySelector('infinite-scroller.chat-history');
 
     var TOPICS = ['orbital transfer windows', 'tidal locking of moons', 'the Roche limit', 'gravity assists',
                   'Lagrange points', 'escape velocity', 'atmospheric drag on satellites', 'precession of orbits',
                   'Hohmann transfers', 'the Oberth effect', 'synchronous orbits', 'three-body chaos'];
 
-    var state = { chat: null, total: 0, first: 0, sent: 0, pending: false, gen: 0, loads: 0 };
+    var state = { chat: null, total: 0, first: 0, sent: 0, pending: false, gen: 0, loads: 0, triggers: 0, sentText: {},
+                  streamText: {}, older: 0 };
 
     function fnv(s) {
         var h = 0x811c9dc5;
@@ -115,28 +218,64 @@
     }
     function turnId(chat, n) { return fnv(chat + '#' + n) + fnv(n + '@' + chat); }
     function questionText(n) {
+        if (state.sentText.hasOwnProperty(n)) return state.sentText[n];
+        if (cfg.noQuestion && cfg.noQuestion[n]) return '';      // an image-only prompt (v12.19)
+        if (cfg.qText && cfg.qText[n]) return cfg.qText[n];
         // sameText (v12.17): { n: m } gives turn n turn m's question, a repeated question.
         if (cfg.sameText && cfg.sameText[n]) n = cfg.sameText[n];
         var t = TOPICS[(n * 7) % TOPICS.length], u = TOPICS[(n * 5 + 3) % TOPICS.length];
         return 'Gemini question ' + n + ': how would you explain ' + t + ' to someone who already knows ' + u +
                ', and which everyday example makes the difference between them easiest to see?';
     }
-    function answerHtml(n) {
-        var paras = 2 + (n * 3) % 4, out = '';
+    // An answer's paragraphs: the DOM renders each as a <p>; the read's payload carries them as
+    // markdown joined by blank lines (v12.19), so both say the same thing.
+    function answerParas(n) {
+        // sendStreaming (v12.19): what has been written so far, one paragraph.
+        if (state.streamText.hasOwnProperty(n)) return state.streamText[n] ? [state.streamText[n]] : [];
+        var paras = 2 + (n * 3) % 4, out = [];
         for (var i = 0; i < paras; i++) {
-            out += '<p>Answer ' + n + ', part ' + (i + 1) + ': the short version is that the motion is set by ' +
-                   'energy and angular momentum, and everything else follows from how those two trade off over ' +
-                   'one orbit. A worked example helps more than a formula here, so consider a ball on a string.</p>';
+            out.push('Answer ' + n + ', part ' + (i + 1) + ': the short version is that the motion is set by ' +
+                     'energy and angular momentum, and everything else follows from how those two trade off over ' +
+                     'one orbit. A worked example helps more than a formula here, so consider a ball on a string.');
         }
+        if (cfg.answerWords && cfg.answerWords[n]) out.push('A note on ' + cfg.answerWords[n] + ' as well.');
         if (cfg.bigAnswers && cfg.bigAnswers[n]) {
-            out += '<p>' + new Array(Math.ceil(cfg.bigAnswers[n] / 10) + 1).join('orbit data').slice(0, cfg.bigAnswers[n]) + '</p>';
+            out.push(new Array(Math.ceil(cfg.bigAnswers[n] / 10) + 1).join('orbit data').slice(0, cfg.bigAnswers[n]));
         }
         return out;
+    }
+    function answerHtml(n) {
+        var p = answerParas(n), out = '';
+        for (var i = 0; i < p.length; i++) out += '<p>' + p[i] + '</p>';
+        return out;
+    }
+    function answerText(n) { return answerParas(n).join('\n\n'); }
+    // The id the turn's container carries in the DOM: turnId, unless `mismatch` moves it (v12.19).
+    function domId(chat, n) {
+        var m = cfg.mismatch;
+        return (m && m.turn === n && m.id) ? m.id : turnId(chat, n);
+    }
+    function shownQuestion(n) {
+        var m = cfg.mismatch;
+        return (m && m.turn === n && typeof m.text === 'string') ? m.text : questionText(n);
+    }
+    // Uploaded images beside the question text, as live (user-query-file-carousel is a sibling of
+    // div.query-text, which is why the script queries them document-wide).
+    function imagesHtml(n) {
+        var k = cfg.images && cfg.images[n], out = '';
+        if (!k) return '';
+        for (var j = 1; j <= k; j++) {
+            var svg = "<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96'><rect width='96' height='96' fill='#" +
+                      fnv('img' + n + '.' + j).slice(0, 6) + "'/><text x='10' y='56' font-size='22'>" + n + '.' + j + '</text></svg>';
+            out += '<img data-test-id="uploaded-img" width="96" height="96" alt="upload ' + n + '.' + j +
+                   '" src="data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) + '">';
+        }
+        return '<user-query-file-carousel class="file-carousel">' + out + '</user-query-file-carousel>';
     }
     function makeTurn(chat, n, idx, text) {
         var d = document.createElement('div');
         d.className = 'conversation-container';
-        d.id = turnId(chat, n);
+        d.id = domId(chat, n);
         d.setAttribute('data-mock-turn', String(n));
         d.innerHTML =
             '<user-query><span class="user-query-container">' +
@@ -145,6 +284,7 @@
             '<div id="user-query-content-' + idx + '" class="query-content ng-star-inserted" data-turn="user">' +
             '<div class="ng-star-inserted"></div>' +
             '<span class="user-query-bubble-with-background ng-star-inserted"><span class="horizontal-container">' +
+            imagesHtml(n) +
             '<div class="query-text gds-body-l query-text-animated" role="heading" aria-level="5" dir="ltr">' +
             '<span class="cdk-visually-hidden screen-reader-user-query-label">You said</span>' +
             '<p class="query-text-line ng-star-inserted"></p></div>' +
@@ -154,7 +294,7 @@
             '<div class="model-response-label-announcer"><h2 class="cdk-visually-hidden screen-reader-model-response-label">Gemini said</h2></div>' +
             '<structured-content-container class="model-response-text">' + answerHtml(n) + '</structured-content-container>' +
             '<div class="response-footer"></div></div></div></model-response>';
-        d.querySelector('p.query-text-line').textContent = text || questionText(n);
+        d.querySelector('p.query-text-line').textContent = text || shownQuestion(n);
         if (CV) { d.className += ' mock-cv-unseen'; d.style.height = CV_EST + 'px'; d.style.overflow = 'hidden'; }
         return d;
     }
@@ -185,12 +325,40 @@
         for (var i = 0; i < q.length; i++) q[i].id = 'user-query-content-' + i;
     }
 
+    // domOrder (v12.19): the turns from..to as the DOM renders them, one left out or two swapped.
+    function shownTurns(from, to) {
+        var D = cfg.domOrder, ns = [], n;
+        for (n = from; n <= to; n++) if (!(D && D.drop === n)) ns.push(n);
+        if (D && D.swap) {
+            var i = ns.indexOf(D.swap[0]), j = ns.indexOf(D.swap[1]);
+            if (i >= 0 && j >= 0) { var t = ns[i]; ns[i] = ns[j]; ns[j] = t; }
+        }
+        return ns;
+    }
+
     function prepend(count) {
-        var from = state.first - count, frag = document.createDocumentFragment();
-        for (var n = from; n < state.first; n++) frag.appendChild(makeTurn(state.chat, n, 0));
+        var from = state.first - count, frag = document.createDocumentFragment(), ns = shownTurns(from, state.first - 1);
+        for (var i = 0; i < ns.length; i++) frag.appendChild(makeTurn(state.chat, ns[i], 0));
         var h0 = sc.scrollHeight, top0 = sc.scrollTop;
         sc.insertBefore(frag, sc.firstChild);
         state.first = from;
+        renumber();
+        if (ANCHOR) sc.scrollTop = top0 + (sc.scrollHeight - h0);
+        state.loads++;
+    }
+    // endlessDom (review round 1): a page of turns older than the chat's first, which the read does not list.
+    function prependOlder(count) {
+        var frag = document.createDocumentFragment();
+        for (var i = count; i >= 1; i--) {
+            var k = state.older + i;
+            var d = makeTurn(state.chat, 1, 0, 'An older turn the read does not list (' + k + ')');
+            d.id = 'mock-older-' + k;
+            d.setAttribute('data-mock-turn', 'older-' + k);
+            frag.appendChild(d);
+        }
+        state.older += count;
+        var h0 = sc.scrollHeight, top0 = sc.scrollTop;
+        sc.insertBefore(frag, sc.firstChild);
         renumber();
         if (ANCHOR) sc.scrollTop = top0 + (sc.scrollHeight - h0);
         state.loads++;
@@ -202,7 +370,11 @@
         state.chat = chat;
         state.total = CHATS[chat] || 0;
         state.sent = 0;
+        state.sentText = {};
+        state.streamText = {};
         state.loads = 0;
+        state.triggers = 0;
+        state.older = 0;
         while (sc.firstChild) sc.removeChild(sc.firstChild);
         state.first = state.total + 1;
         var gen = state.gen;
@@ -210,7 +382,8 @@
             if (gen !== state.gen) return;
             var k = Math.min(PAGE, state.total), frag = document.createDocumentFragment();
             state.first = state.total - k + 1;
-            for (var n = state.first; n <= state.total; n++) frag.appendChild(makeTurn(chat, n, 0));
+            var ns = shownTurns(state.first, state.total);
+            for (var i = 0; i < ns.length; i++) frag.appendChild(makeTurn(chat, ns[i], 0));
             sc.appendChild(frag);
             renumber();
             sc.scrollTop = sc.scrollHeight;
@@ -219,19 +392,208 @@
     }
 
     sc.addEventListener('scroll', function () {
-        if (state.pending || state.first <= 1 || sc.scrollTop > 50) return;
+        if (state.pending || (state.first <= 1 && !ENDLESS) || sc.scrollTop > 50) return;
+        // stallAt (v12.19): history that stops coming, e.g. a page load that fails.
+        if (STALL && sc.querySelectorAll(':scope > .conversation-container').length >= STALL) return;
         state.pending = true;
+        state.triggers++;
         var gen = state.gen;
         setTimeout(function () {
             if (gen !== state.gen) return;
+            // blockMs (v12.19): rendering a page blocks the main thread (~4.6 s live, DEC-057), so no
+            // timer of anyone's runs until the turns are in.
+            if (BLOCK) { var b0 = Date.now(); while (Date.now() - b0 < BLOCK) { /* the render block */ } }
             state.pending = false;
-            prepend(Math.min(PAGE, state.first - 1));
+            if (state.first > 1) prepend(Math.min(PAGE, state.first - 1));
+            else prependOlder(PAGE);     // endlessDom only (the trigger above)
         }, DELAY);
     }, { passive: true });
 
     function chatFromPath() {
-        var m = location.pathname.match(/^\/app\/([0-9a-f]+)/);
+        // /app/<id>, and (v12.19, unmeasured guesses) /u/<N>/app/<id> and /gem/<gem>/<id>.
+        var m = location.pathname.match(/^(?:\/u\/\d+)?\/(?:app|gem\/[^\/]+)\/([0-9a-f]+)/);
         return m ? m[1] : null;
+    }
+
+    // ── The history read's server (v12.19, opt-in: cfg.rpc) ──────────────────────────────────
+    var RPC = cfg.rpc || null;
+    var AT = RPC && !RPC.noToken ? (RPC.at || null) : null;   // the page's token now, which the server accepts
+    var rpcLog = [], rotated = false, tokenScript = null, afId = 0, firstNewestDone = false;
+    // The token script's text. JSON.stringify writes the token's key in its quoted form at run time;
+    // this source never spells it that way, so a reader of inline script text finds only the page's.
+    function tokenText(at) {
+        var o = { cfb2h: 'boq_gemini-web-uiserver_20261103.01_p0', FdrFJe: '-4719302858137750912' };
+        if (at) o.SNlM0e = at;
+        return 'window.WIZ_global_data = Object.assign(window.WIZ_global_data || {}, ' + JSON.stringify(o) + ');';
+    }
+    // Live: 18 inline scripts, 4 of them carrying WIZ_global_data, one with the token (Phase 1).
+    // Appended to <head> before the userscript runs (it is inlined at the end of the body).
+    if (RPC) {
+        var head = document.head || document.getElementsByTagName('head')[0];
+        var addScript = function (text) {
+            var el = document.createElement('script');
+            el.textContent = text;
+            head.appendChild(el);
+            return el;
+        };
+        addScript('window.__mockBoot = (window.__mockBoot || 0) + 1;');
+        addScript('window.__mockFlags = { theme: "dark" };');
+        addScript('window.WIZ_global_data = window.WIZ_global_data || {}; window.WIZ_global_data.Im6cmf = "/_/BardChatUi";');
+        addScript('window.WIZ_global_data.qwAQke = "BardChatUi";');
+        addScript('window.WIZ_global_data.GWsdKe = "en";');
+        tokenScript = addScript(tokenText(AT));
+        // The decoy: a page GLOBAL holding another value, as a reader of globals would find it.
+        if (RPC.decoyAt) addScript('window.WIZ_global_data.SNlM0e = ' + JSON.stringify(RPC.decoyAt) + ';');
+    }
+    function rpcDelay(type) {
+        var d = (RPC && RPC.delayMs) || {};
+        return typeof d[type] === 'number' ? d[type] : 400;   // live, small chats: 0.35-0.43 s
+    }
+    function unitLen(str) {
+        if (!RPC || RPC.lenUnit !== 'bytes') return str.length;
+        var n = 0;
+        for (var i = 0; i < str.length; i++) {
+            var c = str.charCodeAt(i);
+            if (c < 0x80) n += 1; else if (c < 0x800) n += 2;
+            else if (c >= 0xd800 && c <= 0xdbff) { n += 4; i++; } else n += 3;
+        }
+        return n;
+    }
+    // ")]}'", a blank line, then a length line and a one-line frame per frame. The length counts the
+    // frame and the newlines around it (a public sample, Gemini-API issue #266); the live unit is
+    // unmeasured, which is why a reader must not trust it (lenUnit).
+    function envelope(frames, url) {
+        var out = ")]}'\n\n";
+        for (var i = 0; i < frames.length; i++) out += (unitLen(frames[i]) + 2) + '\n' + frames[i] + '\n';
+        if (/[?&]rt=c(&|$)/.test(url)) {
+            var e = JSON.stringify([['e', 4, null, null, unitLen(out)]]);
+            out += (unitLen(e) + 2) + '\n' + e + '\n';
+        }
+        return out;
+    }
+    function diFrame() {
+        afId++;
+        return JSON.stringify([['di', 40 + afId], ['af.httprm', 39 + afId, '-' + (5017310000000000000 + afId * 7919), 18]]);
+    }
+    function fill(n) { var a = []; for (var i = 0; i < n; i++) a.push(null); return a; }
+    function hex16(x) { return fnv(x + '~a') + fnv(x + '~b'); }
+    // One turn as the payload carries it (Phase 1's paths; synthetic content). half: its answer's markdown
+    // cut to the first half (firstNewest 'half').
+    function rpcTurn(chat, n, half) {
+        var id = turnId(chat, n), rc = 'rc_' + hex16('rc' + chat + '#' + n);
+        var heavyN = typeof RPC.heavyChars === 'number' ? RPC.heavyChars : 2000;
+        function candidate(rcId, text) {
+            var cand = fill(38);
+            cand[0] = rcId;
+            cand[1] = [text];
+            // The rich-content slot: 85% of the live payload, read by nobody. Synthetic filler.
+            cand[12] = [['rich', new Array(Math.ceil(heavyN / 10) + 1).join('card-data;').slice(0, heavyN)]];
+            return cand;
+        }
+        var resp = fill(32), shownText = answerText(n);
+        if (half) shownText = shownText.slice(0, Math.floor(shownText.length / 2));
+        if (RPC.drafts) {
+            // drafts (unmeasured live): the draft first, the shown answer second, named by resp[3].
+            var word = (typeof RPC.drafts === 'object' && RPC.drafts.word) || 'platypus';
+            resp[0] = [candidate('rc_' + hex16('draft' + chat + '#' + n),
+                                 'Draft ' + n + ': a draft the page does not show, about the ' + word + ' only.'),
+                       candidate(rc, shownText)];
+        } else {
+            resp[0] = [candidate(rc, shownText)];
+        }
+        resp[3] = rc;
+        var query = [[questionText(n), null, null, null, [[]]], 2, null, 1, hex16('q' + chat + '#' + n), null, null, null, false, null, []];
+        return [['c_' + chat, 'r_' + id], ['c_' + chat, 'r_' + id, rc], query, resp,
+                [1762300000 + n * 61, 100000000 + n * 7001]];
+    }
+    // The cursor: opaque, 145 chars (Phase 1), encoding the next offset into the newest-first list.
+    function cursorFor(chat, off) {
+        var s = 'Cq' + ('00000000' + off.toString(36)).slice(-8) + '_', k = 0;
+        while (s.length < 145) s += fnv(chat + ':' + off + ':' + (k++));
+        return s.slice(0, 145);
+    }
+    function offsetOf(cursor) {
+        if (typeof cursor !== 'string' || cursor.length !== 145 || cursor.slice(0, 2) !== 'Cq') return -1;
+        var v = parseInt(cursor.slice(2, 10), 36);
+        return isNaN(v) ? -1 : v;
+    }
+    function turnCount(chat) {
+        return (CHATS[chat] || 0) + (chat === state.chat ? state.sent : 0);
+    }
+    function errFrame() {
+        // Phase 1: a missing or wrong `at` -> HTTP 400 with an "er" frame. Its inner slots are synthetic.
+        return JSON.stringify([['er', null, null, null, null, 400, null, null, null, 3], ['di', 12], ['af.httprm', 11, '-1', 7]]);
+    }
+    function rpc(body, url, method) {
+        var rec = { type: 'other', size: null, cursorIn: null, cursorOut: null, atOk: false,
+                    rt: /[?&]rt=c(&|$)/.test(String(url || '')), status: 0 };
+        rpcLog.push(rec);
+        function answer(status, text, type) { rec.status = status; return { status: status, text: text, delayMs: rpcDelay(type) }; }
+        if (!RPC) return answer(404, '', 'full');
+        var params = null, freq = null, args = null;
+        try {
+            params = new URLSearchParams(String(body || ''));
+            freq = JSON.parse(params.get('f.req') || 'null');
+            args = JSON.parse(freq[0][0][1]);
+        } catch (e) { args = null; }
+        if (String(method).toUpperCase() !== 'POST' || !/[?&]rpcids=hNvQHb(&|$)/.test(String(url || '')) ||
+            !freq || !freq[0] || !freq[0][0] || freq[0][0][0] !== 'hNvQHb' || !Array.isArray(args)) {
+            return answer(400, envelope([errFrame()], url), 'full');
+        }
+        rec.size = args[1];
+        rec.cursorIn = args[2] == null ? null : String(args[2]);
+        rec.type = rec.cursorIn ? 'next' : (args[1] >= 100 ? 'full' : 'newest');
+        var mode = RPC.mode || 'ok';
+        if (mode === 'abort' || mode === 'hang') { rec.status = mode; return { kind: mode }; }
+        if (mode === 'refuse') return answer(403, ")]}'", rec.type);
+        var at = params.get('at');
+        rec.atOk = !!at && at === AT;
+        if (mode === 'stale-at' && !rotated) {
+            // The page's token was refused once and the page now carries a fresh one.
+            rotated = true;
+            setAt(RPC.freshAt);
+            return answer(400, envelope([errFrame()], url), rec.type);
+        }
+        if (mode === 'bad-at' || !rec.atOk) return answer(400, envelope([errFrame()], url), rec.type);
+        if (mode === 'noprefix') return answer(200, envelope([JSON.stringify([['wrb.fr', 'hNvQHb', '[[],null,null,[]]', null, null, null, 'generic']]), diFrame()], url).slice(6), rec.type);
+        if (mode === 'garbage') return answer(200, envelope(['[["wrb.fr","hNvQHb","[[[\\"c_', diFrame()], url), rec.type);
+        if (mode === 'noentry') return answer(200, envelope([diFrame()], url), rec.type);
+        if (mode === 'badpayload') return answer(200, envelope([JSON.stringify([['wrb.fr', 'hNvQHb', '[[["c_' + state.chat, null, null, null, 'generic']]), diFrame()], url), rec.type);
+        var m = /^c_([0-9a-f]+)$/.exec(String(args[0] || ''));
+        var chat = m ? m[1] : null;
+        var code = mode === 'null7' ? 7 : mode === 'null3' ? 3 : mode === 'null5' ? 5 : 0;
+        if (!code && (!chat || !CHATS.hasOwnProperty(chat))) code = 5;   // public: 5 = not found (unverified)
+        if (code) return answer(200, envelope([JSON.stringify([['wrb.fr', 'hNvQHb', null, null, null, [code], 'generic']]), diFrame()], url), rec.type);
+        var size = Math.max(1, Math.floor(Number(args[1]) || 0));
+        var off = rec.cursorIn ? offsetOf(rec.cursorIn) : 0;
+        if (off < 0) return answer(200, envelope([JSON.stringify([['wrb.fr', 'hNvQHb', null, null, null, [3], 'generic']]), diFrame()], url), rec.type);
+        // endless (v12.19): a history with no end, so every page carries a fresh cursor.
+        var N = RPC.endless ? 1000000 : turnCount(chat), turns = [], P, late = '';
+        // firstNewest (review round 1): the first newest page after a send answers late, once.
+        if (RPC.firstNewest && rec.type === 'newest' && chat === state.chat && state.sent > 0 && !firstNewestDone) {
+            firstNewestDone = true;
+            late = RPC.firstNewest;
+            if (late === 'drop') N--;
+        }
+        if (mode === 'shape') {
+            P = [{ turns: 'not a list' }, null, null, []];
+        } else if (RPC.empty === 'all' || RPC.empty === rec.type) {
+            P = [[], null, null, []];          // empty (v12.19): no turns, no cursor
+        } else if (mode === 'empty-cursor') {
+            rec.cursorOut = cursorFor(chat, off);
+            P = [[], rec.cursorOut, null, []];
+        } else {
+            for (var k = off; k < Math.min(N, off + size); k++) turns.push(rpcTurn(chat, N - k, late === 'half' && k === 0));   // newest first
+            rec.cursorOut = off + size < N ? cursorFor(chat, off + size) : null;
+            // cursor-repeat: the second page hands back the cursor the first one gave.
+            if (mode === 'cursor-repeat' && rec.cursorIn && rec.cursorOut) rec.cursorOut = rec.cursorIn;
+            P = [turns, rec.cursorOut, null, []];
+        }
+        return answer(200, envelope([JSON.stringify([['wrb.fr', 'hNvQHb', JSON.stringify(P), null, null, null, 'generic']]), diFrame()], url), rec.type);
+    }
+    function setAt(v) {
+        AT = v || null;
+        if (tokenScript) tokenScript.textContent = tokenText(AT);
     }
 
     window.__mockGemini = {
@@ -249,12 +611,42 @@
             history.pushState({}, '', '/app/' + id);
             render(id);
         },
+        goHome: function () {
+            history.pushState({}, '', '/app');
+            render(null);
+        },
         send: function (text) {
             state.sent++;
             var n = state.total + state.sent;
+            if (text) state.sentText[n] = text;   // the read's server lists it too (v12.19)
             sc.appendChild(makeTurn(state.chat, n, 0, text || questionText(n)));
             renumber();
             sc.scrollTop = sc.scrollHeight;
+        },
+        // v12.19: a sent message whose answer is written over o.ms, evenly (see the header).
+        sendStreaming: function (text, o) {
+            o = o || {};
+            var total = o.chars || 12000, ms = o.ms || 30000, step = o.stepMs || 1000, tail = o.tail || '';
+            state.sent++;
+            var n = state.total + state.sent, gen = state.gen, body = '', k;
+            if (text) state.sentText[n] = text;
+            state.streamText[n] = '';
+            for (k = 0; body.length < total; k++) body += 'Stream note ' + k + ' on the orbit, written a few words at a time. ';
+            body = body.slice(0, Math.max(0, total - tail.length - 1)) + ' ' + tail;
+            var t = makeTurn(state.chat, n, 0, text || questionText(n));
+            sc.appendChild(t);
+            renumber();
+            sc.scrollTop = sc.scrollHeight;
+            var p = document.createElement('p'), t0 = Date.now();
+            t.querySelector('structured-content-container').appendChild(p);
+            (function tick() {
+                if (gen !== state.gen) return;
+                var c = Math.min(body.length, Math.round(body.length * (Date.now() - t0) / ms));
+                state.streamText[n] = body.slice(0, c);
+                p.textContent = state.streamText[n];
+                if (c < body.length) setTimeout(tick, step);
+            }());
+            return n;
         },
         userScroll: function (where) {
             sc.dispatchEvent(new WheelEvent('wheel', { deltaY: where === 'top' ? -1000 : 1000, bubbles: true }));
@@ -263,6 +655,22 @@
         },
         turnId: function (n) { return turnId(state.chat, n); },
         questionText: questionText,
+        // v12.19
+        domId: function (n) { return domId(state.chat, n); },
+        editQuestion: function (n, text) {
+            var t = document.getElementById(domId(state.chat, n));
+            var p = t && t.querySelector('p.query-text-line');
+            if (p) p.textContent = text;
+            return !!p;
+        },
+        rpc: rpc,
+        calls: function () {
+            var c = { full: 0, next: 0, newest: 0, other: 0, list: rpcLog.slice() };
+            for (var i = 0; i < rpcLog.length; i++) c[rpcLog[i].type]++;
+            return c;
+        },
+        setAt: setAt,
+        topTriggers: function () { return state.triggers; },
     };
 
     render(chatFromPath());

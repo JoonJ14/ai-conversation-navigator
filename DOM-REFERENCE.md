@@ -41,7 +41,7 @@ follow — virtualization is the standard fix for a slow chat page, not a Claude
 |---|---|---|---|
 | **Claude** (`claude.ai/chat`) | **YES — Virtuoso-style recycling**, ~3–7 of N turns mounted | Jul 26, 2026 | **API-backed conversation index** (DEC-021). DOM is the labelled fallback. |
 | **Emergent** (`app.emergent.sh`) | **YES — Virtuoso recycling**, `[data-testid="virtuoso-scroller"]` | Feb 15, 2026 | **Accumulation only** — scans keep messages the user has already scrolled past, plus click-time re-resolution of stale references. **Nothing sweeps.** See the ⚠️ below. |
-| **Gemini** | **NO recycling — it KEEPS**, but **loads history in pages of 10** as the view reaches the top | Oct 31, 2026 | DOM, plus a "history not loaded yet" note in Navigate (v12.16, DEC-057). Measured live (Chrome + Tampermonkey, the owner's profile, visible tab, a 32-question chat, the longest of the 29 in the sidebar): 10 turns at load (rendered at once, 0 → 10), then 20, 30, 32 as the view reached the top; back at the bottom all 32 stayed mounted and every held node stayed `isConnected`; zero `cdk-virtual-scroll-viewport`. Gemini re-anchors `scrollTop` on a load (5,975 → 9,064 when 10 turns were prepended) and blocks the page for about 4.6 s while it renders them. Nothing in the DOM marks that older history exists. Jul 30, 2026 (Chromium page realm, a 10-turn chat): no recycling at n≤10; that measurement could not see paging, since the chat was a single page. |
+| **Gemini** | **NO recycling — it KEEPS**, but **loads history in pages of 10** as the view reaches the top | Oct 31, 2026; history read Nov 5, 2026 | **API-backed index adapter** since v12.19 (Gemini's own history read, `hNvQHb`; DEC-063; "The history read" in the Gemini section). DOM, with the "history not loaded yet" note and a "Load full history" button, is the labelled fallback (v12.16, DEC-057; the button v12.19). Measured live (Chrome + Tampermonkey, the owner's profile, visible tab, a 32-question chat, the longest of the 29 in the sidebar): 10 turns at load (rendered at once, 0 → 10), then 20, 30, 32 as the view reached the top; back at the bottom all 32 stayed mounted and every held node stayed `isConnected`; zero `cdk-virtual-scroll-viewport`. Gemini re-anchors `scrollTop` on a load (5,975 → 9,064 when 10 turns were prepended) and blocks the page for about 4.6 s while it renders them. Nothing in the DOM marks that older history exists. Jul 30, 2026 (Chromium page realm, a 10-turn chat): no recycling at n≤10; that measurement could not see paging, since the chat was a single page. |
 | **ChatGPT** (`chatgpt.com/c/<id>`) | **YES — a sliding window**, 4–7 user turns mounted, the rest removed | Oct 23, 2026 | **API-backed index adapter** (v12.10, DEC-046). DOM is the labelled fallback. Measured live (Chrome, page realm, owner's account, visible tab; 10- and 130-question conversations). |
 | **Perplexity** (`perplexity.ai/search/<id>`) | **YES — the entries in view plus the latest**, the rest removed | Oct 23, 2026 | **API-backed index adapter** (v12.10, DEC-046). DOM is the labelled fallback. Measured live (Chrome, page realm, owner's account; 12-entry thread). |
 | Grok | not observed | Feb 18, 2026 | DOM |
@@ -909,11 +909,13 @@ infinite-scroller.chat-history            (the scroller; its only children are t
 ```
 
 - **Each turn has a stable id:** the container's 16-hex `id`, repeated in the answer's
-  `message-content-id-r_<id>`. The first and last ids were the same across two reloads. Navigate
-  does not use it yet (Gemini bookmarks stay positional; ROADMAP 13).
+  `message-content-id-r_<id>`. The first and last ids were the same across two reloads. *Corrected
+  since this was written:* bookmarks key to it since v12.17 (DEC-059: `<id>` and `<id>:answer`), and
+  since v12.19 it is the index's identity too (`q.ixId`), equal to the history read's `r_<id>` (below).
 - **Paging:** 10 turns at load, rendered at once (0 → 10, ~10 s after navigation with the page
   blocked); each time the view reaches the top Gemini loads the previous 10 (`batchexecute`,
-  `rpcids=hNvQHb`, followed by `ESY5D`, `aPya6c`, `qpEbW`; bodies not inspected), blocks the page
+  `rpcids=hNvQHb`, followed by `ESY5D`, `aPya6c`, `qpEbW`; bodies not inspected then; `hNvQHb`'s were
+  in v12.19's Phase 1, "The history read" below), blocks the page
   for about 4.6 s while it renders them, and re-anchors `scrollTop` so the view stays on the same
   turn (5,975 → 9,064). 32 questions: 10 → 20 → 30 → 32. A 10-question chat stayed at 10 at the
   top; a 12-question chat went 10 → 12.
@@ -933,6 +935,136 @@ infinite-scroller.chat-history            (the scroller; its only children are t
   still loading, where the glide's arrival at the top loaded the next page and Gemini's re-anchoring
   held the target in view, 72 px from the top). All nine ran after the turns had rendered; right after
   paging in, the glide failed (above).
+
+### The history read: `batchexecute` `rpcids=hNvQHb` (v12.19; DEC-063)
+
+Measured live [Phase 1: Chrome + Tampermonkey with ACN 12.18 installed, the owner's profile, visible tab, **page realm**
+(claude-in-chrome's javascript_tool), Gemini build `boq_gemini-web-uiserver_20261103.01_p0`, 2026-11-05; chat
+`96b519c1` (32 questions) unless named; 30 read-only `hNvQHb` calls by the agent]. Contents are synthetic in the mock
+(`tests/mock-pages/gemini-history.html`, `rpc`); only the shapes, orders and sizes below come from the live site.
+
+**The page's own request** (captured twice by wrapping `fetch` briefly, then restored):
+
+```
+POST /_/BardChatUi/data/batchexecute?rpcids=hNvQHb&source-path=/app/<id>&bl=<build>&f.sid=<n>&hl=en&_reqid=<n>&rt=c
+  fetch(Request), credentials same-origin, mode cors
+  content-type: application/x-www-form-urlencoded;charset=UTF-8
+  x-same-domain: 1, x-goog-ext-525001261-jspb (235 chars), x-goog-ext-73010989-jspb (3 chars)
+  body: f.req=[[["hNvQHb","<args as a JSON string>",null,"generic"]]] & at=<the page token>
+  args: ["c_<chat id>", <page size>, <cursor: the previous page's P[1], 145 chars; null for the newest page>,
+         1, [1], [4], null, 1]
+```
+
+- **The page calls `fetch` with a `Request` object**, not `fetch(url, init)` [Phase 1: Chrome page realm, ACN 12.18
+  installed, 2026-11-05]. The first capture assumed `(url, init)` and recorded a null body and no headers (parsing
+  `f.req` threw `TypeError: Cannot read properties of null (reading '0')`); the body and headers above are the
+  second capture's, which read `input.clone().text()` and `input.headers`. A wrapper that captures Gemini's requests
+  reads those two when its first argument is a `Request` (or handles both forms): the wrong form fails quietly, as an
+  empty capture, and each retry cost one more history page loaded in the owner's chat.
+- **Required** (one call each, page size 1): `at` (missing or wrong → HTTP 400 with an `er` frame) and the session
+  cookies (credentials omitted → **HTTP 200 with a null payload and error `[7]`**, a failure inside a success status).
+- **Not required** (each removed alone, still 200): `bl` (absent, or two weeks stale), `f.sid`, `x-same-domain`,
+  `source-path`, `_reqid`, `rt` (without it the trailing `e` frame is absent), both `x-goog-ext` headers, and the
+  constant flags (`[c_id, size, cursor]` alone works on a first page; paging with it untested).
+- **The navigator sends** `POST /_/BardChatUi/data/batchexecute?rpcids=hNvQHb&rt=c` with the page's argument list,
+  through `fetch` with `credentials: 'include'` and only the Content-Type header (G0's shape, Phase 0, every manager).
+- **`at`** (`WIZ_global_data`'s token): 42 characters, a 28-character head, `:`, a 13-digit millisecond timestamp. The
+  timestamp matched the page's load time only at whole-minute rounding (both read 7 minutes old). It differs per page
+  load. A second tab's token was accepted in the first, and the first's still after the second was issued; lifetime
+  unmeasured. It is present in inline `<script>` text on both loads checked, which is where the navigator reads it
+  (never a page global). Only the first tab's inline text was examined further: 4 of its 18 inline scripts carried
+  `WIZ_global_data`, and `bl` and `f.sid` were in it too; the second tab's was checked for `at` alone.
+  Not recorded here: its value, and the key's quoted form (the probes inline the userscript as an inline script, where
+  the reader scans).
+- The open request was not captured: reopening a chat inside the app sent no `hNvQHb` within 15 s. That the app
+  reused an in-memory copy is an inference. The extension's network reader reported 503 for one page call where
+  Resource Timing read 200 for both, and the page's 10 more turns arrived (recorded as a contradiction; the reader
+  was wrong).
+
+**The response framing:**
+
+```
+)]}'                                       anti-XSSI prefix
+<blank line>
+<length>                                   a length line (its unit, bytes or UTF-16 units, unmeasured; never used)
+[["wrb.fr","hNvQHb","<payload as a JSON string>",…,"generic"]]      one JSON frame on one line
+<length>
+… a frame holding the "di" and "af.httprm" entries
+<length>
+… an "e" frame, present only with rt=c
+```
+
+The frames' other slots, as `tests/mock-pages/gemini-history.html` writes them, follow its header (synthetic values);
+Phase 1 recorded the entries' names and the `wrb.fr` payload, not every slot.
+
+- The payload is in `wrb.fr`'s third slot as JSON text; on a null payload the error code array is at `wrb.fr[5]`
+  (G0 reads it there; the slot of the `[7]` above was not recorded in Phase 1). Public record, unverified: `[3]` a bad
+  argument, `[5]` not found, `[7]` session invalid.
+- **Payload** `P = [turns[], cursor (a 145-character string, or null on the oldest page: an explicit end-of-history
+  marker), null, []]`, the turns **newest first**.
+- **Turn** `T`:
+  - `T[0] = [c_<chat>, r_<16 hex>]`: the hex equals the page's `div.conversation-container#id`, 10/10 on one page and
+    32/32 in exact order over the whole chat.
+  - `T[1] = [c_, r_, rc_]`.
+  - `T[2][0][0]`: the question's text. It equals the page's `p.query-text-line` text after whitespace normalization,
+    32/32; `user-query`'s own `textContent` reads 37–113 characters longer (the "You said" label, chips, buttons).
+  - `T[3]`: the response block. `T[3][0]` lists the candidates and `T[3][3]` names the shown one (`rc_…`). A
+    candidate's `[1]` was a one-element array holding the answer's markdown (731 characters on the turn inspected;
+    119K over the 32 turns). Its text was not compared with the page's: the path is **measured by shape only**.
+  - `T[4] = [seconds (10 digits), nanos (9 digits)]`.
+- **Size** (`96b519c1`, 32 turns): payload 12.66M characters; the response blocks 12.63M; the candidate slot
+  `[3][0][0][12]` 10.7M (85%, likely rich content; the navigator never reads it); the candidates' `[1]` slots (the
+  answer text, by shape) 119K; the `T[2]` blocks 22,831 characters (the question strings with their sibling slots,
+  not the questions alone). The page's own loads, by Resource Timing: 6,143,636 bytes decoded (`decodedBodySize`) from
+  a 1,671,810-byte transfer in 2.9 s, and 4,329,009 B from 1,169,351 B in 1.9 s (about 3.7:1, bytes to bytes). Five
+  flag variants (`args[5]=[]`, `args[4]=[]`, `args[3]=0`, `args[7]=0`, three arguments only) left the
+  heavy slot unchanged (515,357 characters on the newest turn).
+- **Paging:** page size 10 chained by the cursor gave 10 + 10 + 10 + 2 (the last cursor null), 32 unique ids in the
+  DOM's order, ~6 s and 13.5M characters in all; page size 100 gave all 32 in one call, cursor null, 6.2 s, 13.5M
+  characters. Four other chats (`f05be4c0`, `c023821d`, `027661f6`, `c95630b7`: 1, 1, 12 and 9 turns) came back whole
+  at size 100 in 0.35–0.43 s (1.9K–11K characters per turn). The server's largest page above 32 turns is unmeasured
+  (no longer chat in the account). The page's own history pages answered in 1.5–2.9 s.
+- **Paths:** the 29 links matching `a[href*="/app/"]`, counted over the whole document (not the sidebar alone), were
+  all `/app/<16 hex>`; no `/gem/` or `/u/N/` form was in the account (both unmeasured; the navigator gives them no
+  index).
+
+**Per manager (Phase 0, G0, page size 1, chat `96b519c1`, visible tab, 2026-11-05):** a content-world `fetch` returned
+the payload on Chrome + Tampermonkey 5.5.1 (the agent), Firefox + Tampermonkey 5.5.0 and Safari + Userscripts 4.8.6
+(the owner). `GM_xmlhttpRequest` and `GM.xmlHttpRequest` returned it on both Tampermonkeys, and HTTP 403 with no
+`wrb.fr` on Userscripts. The table with timings: DEC-063.
+
+**v12.19's own read and jumps on the live site** [the agent's checks, not owner acceptance (DEC-031): Chrome +
+Tampermonkey 5.5.1, the owner's profile, visible tab, chat `96b519c1`, 2026-11-07; build `dde0b1a` on the owner's wifi,
+`3841805` and `597ebfe` on a mobile hotspot; one reading each unless stated]:
+
+- **The open is one read.** `[ACN] index: platform=gemini transport=fetch endpoint=hNvQHb page=1 size=100 status=200
+  turns=32 cursor=no questions=32`, then `self-check ok compared=10 shown=10 indexed=32`: the whole chat in one call
+  with 10 turns loaded, as Phase 1 found. The `measure` line read `chars=13526824 kept=136005` both times it was read
+  (the index keeps about 1% of what it parses); `netMs=6047 parseMs=153 (frame=54 tree=95 extract=4)` at `dde0b1a`
+  [wifi] and `netMs=10059 parseMs=133 (56/73/3)` at `3841805` [hotspot]. Its heap figures (MB used before the load >
+  at the parsed tree > after) read 189.7>254.2>254.2 and 76.8>183.2>183.2, from Chrome's coarse `performance.memory`;
+  nobody has analysed them.
+- **On the wire** [Resource Timing, page realm, `597ebfe`, hotspot]: the navigator's size-100 read of the 32 turns
+  transferred 3,114,652 B (200) in 29,395 ms; Gemini's own first page in the same load, 1,672,241 B in 2,114 ms. The
+  agent put the 29.4 s down to the hotspot. That is an inference: Gemini's own page came at about 0.8 MB/s over the
+  same link and the read at about 0.1 MB/s, so the cause is unmeasured. The read's network time was 6.0 s at `dde0b1a`
+  (Phase 1: 6.2 s).
+- **Paging in for a jump.** Q1 from the bottom, with 10 turns loaded, paged 10 → 32 and landed with
+  `data-acn-jump-resolved` set in all four jumps. "Loading earlier messages…" showed and went in the three where the
+  status was watched; the first jump, the one where toasts were read, gave no toast. The script's own end line, read
+  at `597ebfe`: `[ACN] paging: platform=gemini via=jump end=found pages=3 loaded=32 ms=17650`, and after a reload
+  `pages=3 ms=15981`, the first live 3-page count from the script itself. The two earlier jumps were timed by the
+  agent's own loop: 20,065 ms at `dde0b1a` (it includes a fixed 1,200 ms wait and up to 500 ms of polling, so about
+  18.4–18.9 s) and 16,642 ms at `3841805`. Those two sampled `data-acn-paging-pages` every 50 ms and saw it peak at 2:
+  a sampled attribute understated the pages, so read the end line. Each page is Gemini's own `hNvQHb`, sent by the
+  page, not counted among the navigator's reads.
+- **v12.18 beside it** [the A/B, `597ebfe` against v12.18, minutes apart on the same hotspot]: v12.18 listed 10 rows
+  (Q#1–Q#10, "10 questions detected") with the older-messages note, and Search for a word only in the first answer
+  found nothing, with its note, where 12.19 had listed 32 and found the word as A#1. Resource Timing held one
+  `hNvQHb` entry, Gemini's own first page (the agent's reading): v12.18 sends none of its own.
+- **Not seen live:** a prompt that is only an image. v12.19 lets its answer page in by its own turn (GitHub Codex on
+  PR #94, `c98b2d5`), gated on the mock's `noQuestion` knob, which models it as an empty `p.query-text-line` and an
+  empty `T[2][0][0]`; that shape is a guess until measured.
 
 ### Text of turns that are not rendered (v12.17; measured live, Chrome + Tampermonkey (12.16 installed), the owner's profile, visible tab, page realm, 2026-11-01)
 
@@ -960,6 +1092,13 @@ infinite-scroller.chat-history            (the scroller; its only children are t
   Navigate row. Same probe: AI primary selector dead (class moved off `div`), `.user-query` and
   `[data-query-text]` fallbacks dead, no recycling at n=10. Mock rebuilt to the measured
   structure; `_cleanText` extended to strip `cdk-visually-hidden`.
+- v12.19 (Nov 5–7, 2026): "The history read" above was written at `546ab49` without six of the
+  corrections Phase 1's fact-check had made (Nov 5, before that commit), and they reached it only on
+  Nov 7: the 6.14M and 4.33M "characters decoded" are `decodedBodySize` **bytes**; the 29
+  `/app/` links were counted document-wide, not in the sidebar; "questions 23K" is the whole `T[2]`
+  block; the `at` timestamp equals the load time only at whole-minute rounding; the 4-of-18 script
+  count is the first tab's alone; and the app reusing its copy on a reopen is an inference. The
+  live v12.19 readings (above) were added the same day.
 
 ---
 

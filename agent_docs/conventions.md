@@ -196,6 +196,14 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 > **Why:** the mojibake is invisible to every ASCII assertion, so a green suite says nothing
 > about it — it is a context mismatch between the file's encoding and the page's decoding.
 > (DEC-037 corollary.)
+> **Recurred in v12.19 (2026-11-07).** `check-gemini-index` fulfilled its routed page with
+> `contentType: 'text/html; charset=utf-8'` but had no `<meta charset>`, and Playwright's WebKit decoded it as
+> windows-1252 anyway [the adversarial review on `546ab49`, this Mac]. The mock's Korean question read as mojibake,
+> and I3b failed on every WebKit run ("1 check(s) FAILED (webkit, 64 checks, 574.0 s)", I3b only), while Firefox
+> passed 64 of 64 (576.9 s); no v12.19 probe had run on Firefox or WebKit until then. Adding the meta tag fixed it
+> (`f0cce04` for this probe; `dde0b1a` for check-gemini-history and check-feature-gaps): on `dde0b1a` WebKit
+> `--only I3b` passed (2 checks, 3.5 s). The contentType alone does not reach WebKit, so declare both, and run a new
+> probe once on all three engines before calling it green.
 
 > **Issue:** A cache-key signature was built from normalized text — three separate review
 > rounds each found a collision class: a 200-char truncation cap, case/whitespace folding plus
@@ -477,3 +485,179 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 > harness defect.
 > **Why:** a seed in the wrong encoding leaves the build nothing to act on, so the gate cannot tell the fixed build
 > from the old one.
+
+> **Issue:** Installing the v12.19 G0 probe in the owner's Chrome (macOS, Chrome + Tampermonkey 5.5.1, the owner's
+> profile, 2026-11-05), the AppleScript that presses Tampermonkey's confirm button reported "pressed Install in" the
+> window of the owner's Perplexity thread `de5dd7ce`, not the confirm page. Two defects in the script. AppleScript's
+> `contains` ignores case by default, so a window title that merely mentions a userscript passes a "Userscript"
+> test. And the script read `name of target` AFTER the press: the confirm tab had closed, so the window's title was
+> already the next active tab's. The press itself was Tampermonkey's Install (the script presses once, and G0 was
+> installed), but the report named the owner's thread and cost a read-only check of the accessibility tree before
+> that was known.
+> **Correct approach:** wrap the window-title test and the button-name test in `considering case … end considering`;
+> capture the matched window's title into a variable BEFORE the press and report that variable; then verify the
+> install on the site itself (`[data-acn-version]`, or the installed script's own marker), never by the window title
+> afterwards.
+> **Why:** the owner's windows hold their own chats, whose titles can mention this project; a case-insensitive match
+> can press a button in one of them, and a title read after the press names the wrong window even when the press was
+> right.
+
+> **Issue:** Building v12.19 (2026-11-06/07), the agent put its own amendments to the owner's spec (M1, M2, K5, K8)
+> into three workflow prompts under the heading "OWNER-LEAD AMENDMENTS (binding, override the plans)". The owner had
+> not seen them. The subagents repeated the label: three commit messages say "owner amendment M1" (`7f2cce1`,
+> `3412bff`) or "M2" (`a3ae035`), and the docs commit `546ab49` carried it into 7 lines (DECISIONS, CHANGELOG,
+> architecture.md, ROADMAP, probes/README), two of them saying the owner accepted K5's deviation. The adversarial
+> review flagged it (WARN docs-owner-attribution) and `f0cce04` corrected every line, yet `f0cce04`'s own body calls
+> stopping a verifier for time "the owner's call"; the owner had said only "do it faster". DEC-063 corrects the
+> commit messages, which stay as they are. The owner approved the four amendments on 2026-11-07, after the build.
+> **Correct approach:** in every prompt, commit body and doc, name who made each decision, with the date ("the
+> agent's amendment (2026-11-06), for the owner's review"; once approved, "decided by the agent during the build,
+> approved by the owner on 2026-11-07"). Write "the owner's" only where an owner message says so, and quote it. A
+> prompt's binding heading names the owner only when the owner wrote what is under it.
+> **Why:** subagents copy a prompt's labels as facts, so one wrong label reaches every file the run writes, and a
+> pushed commit body cannot be corrected without rewriting history. Crediting the owner with a choice they never made
+> is the same overclaim as recording an acceptance more strongly than it was reported.
+
+> **Issue:** v12.19's read-only Phase 1 [Chrome page realm, the owner's profile, 2026-11-05] sent 30 POSTs of Gemini's
+> history read `hNvQHb` without asking (page sizes 1, 10 and 100; 4 of them read other chats). The handoff said "GETs
+> are fine … Ask before anything that sends". The desk review flagged it, and the owner approved the 30 afterwards
+> (spec decision 4: "Your 30 Phase 1 calls are fine").
+> **Correct approach:** treat any POST as sending, a read RPC included: ask before probing it live, with the number of
+> calls and what each one reads. A GET of the site's own JSON stays fine (TESTING.md, "Measuring").
+> **Why:** that a POSTed RPC only reads is a claim about the server, which the agent cannot check from the client; the
+> owner's rule is about what the agent sends from their account.
+
+> **Issue:** In v12.19 the owner's spec arrived queued while the agent was working (2026-11-06 04:02 UTC). Before
+> reading it, the agent wrote a draft probe (`probes/gemini-history-check.user.js`: `GM_xmlhttpRequest` and
+> `unsafeWindow` grants, `@connect gemini.google.com`, a paging check). The spec asked for a different probe (G0: one
+> page-size-1 read per transport, the token from inline script text, never page globals), and the untracked draft was
+> deleted two minutes later.
+> **Correct approach:** before writing anything after a long turn, read every queued owner message: a spec can arrive
+> mid-turn and change the scope.
+> **Why:** work built before the spec is read follows the agent's guess at it. Here it cost one deleted file; a draft
+> already committed or installed would have needed undoing in the owner's tree or browser.
+
+> **Issue:** v12.19's gate I11d streams an answer into the Gemini mock and counts the newest-page reads it costs. Its
+> first version wrote a chunk every 500 ms. The message observer's trailing debounce is also 500 ms, so no scan ran
+> until the stream stopped, and the gate passed on any build [Playwright Chromium, headless, this Mac, `fd42664`]. At
+> 1 s steps it discriminates: the build before the fix (`60516b1`) made 4 reads, and the fixed one (`cf91e23`) 2, at
+> 1 s and 39 s.
+> **Correct approach:** a gate for behaviour DURING a stream spaces its mutations wider than every debounce between
+> the mutation and the code under test. Prove it fails on the build without the fix before trusting it.
+> **Why:** a debounce turns a fast stream into one event at its end. The mid-stream path never runs, so the gate
+> passes without testing anything, like the stub lessons above.
+
+> **Issue:** v12.19's Gemini pager needed three hidden-tab fixes, each found after the one before was done
+> [Playwright Chromium, headless, this Mac]. The landing ran, and toasted, in a hidden tab (`2a75498`, gate I12i: FAIL
+> on `3412bff`, 2 of 2 runs by the commit's body, 1 of 1 by the probe's comment). "Load full history" let the
+> tracker's 8 s timer decide the start while hidden (`57cba35`, F9). The pager's wait clock counted the hidden gap at
+> the first visible poll (GitHub Codex comment 4503051633, `c98b2d5`, F12): on `3841805` the load ended `timeout`
+> 106 ms after the tab was visible again.
+> **Correct approach:** when a flow must not act in a hidden tab, list every stage that can finish while hidden (each
+> timer, clock, decision and landing), and gate each one. A headless probe can do it: override
+> `document.visibilityState` and `document.hidden` with `Object.defineProperty` in the page realm (I12i, F12).
+> **Why:** fixing one stage leaves the others, and each is found only by the next review. "Headless probes cannot
+> cover a hidden tab" no longer holds.
+
+> **Issue:** Two gate-id slips in PR #94. The babysit brief named two new gates F9 and I12l, but both ids were already
+> taken in `check-gemini-index.js` (F9: a hidden tab during a load; I12l: the per-jump page cap); the fix agent found
+> this and named them F12 and I12m (`c98b2d5`). And re-running the touched gates, `check-ix-jumps --only K` ran only
+> the E guard and printed a pass: that probe matches `--only` against exact fixture ids (`check-ix-jumps.js:401`), so
+> no K check ran. `check-gemini-index` matches by prefix (`:463`; `I1` also runs I10–I19), and its `--proof` mode
+> reports INVALID when no `[new]` check ran (`e7aa36f`).
+> **Correct approach:** before naming a gate in a brief, a commit or a doc, search the probe for the id. After any
+> `--only` run, check that the expected checks actually ran: compare the summary's check count with the ids asked for,
+> and on a probe that matches exactly, spell the ids out (`--only K1,K2,K3,K4,K5,K6,K7,K8`).
+> **Why:** both slips point a record at checks other than the ones named. A doc or a run that cites a reused id
+> points at the wrong gate, and the collision shows only when someone reads the probe. A filter that selects nothing
+> leaves only the always-on guard; the guard passes, so an empty run reads green.
+
+> **Issue:** Gate I12c asserted "no scroll write for 3 s" after a stalled Gemini jump, sampling `scrollTop` while the
+> view sat at 0. A pager mutant writing `scrollTop = 0` every 100 ms for 6 s passed it (`--only I12c`, 23.1 s): at 0,
+> a write of 0 changes nothing the sensor reads [the adversarial review on `546ab49`; Playwright Chromium, headless,
+> this Mac]. `b6f1aa2` moves the view 400 px off the top first and asserts that the minimum `scrollTop` stays above
+> 50; the mutant then fails (min 0).
+> **Correct approach:** put a "nothing writes X" sensor where the forbidden write would change X. Move the state off
+> any boundary (top, bottom, a clamp, an empty value) before sampling, and prove the gate with the mutant.
+> **Why:** at a boundary the forbidden write and no write read the same, so the gate passes on the bug it exists to
+> catch.
+
+> **Issue:** Two shell slips on this Mac (bash 3.2.57), 2026-11-07. A quick check launched as
+> `Q=… && mkdir -p $Q && (npm test …) & …` never started its two probe runs: Q was set only inside the backgrounded
+> list, so the other jobs wrote to `/index.log` and `/wk.log`, the logs never appeared, and only the wrapper's exit 1
+> said anything (this cause is inferred, not confirmed). Later a nested `$(…)` command was refused (exit 126), and
+> sourcing `FILE=…` failed on a filename with a space and parentheses.
+> **Correct approach:** put any multi-step or backgrounded shell in a script file in the scratchpad. Set variables on
+> their own line before anything is backgrounded, and quote every path. Then check that each job's log exists and ends
+> with its result line.
+> **Why:** a job that never starts looks like a slow one until the wrapper exits, and the work is simply missing
+> (CLAUDE.md, "a success signal from a wrapper").
+
+> **Issue:** PR #94's live checks reinstalled 12.19 over 12.19 twice [the agent's live checks: Chrome + Tampermonkey
+> 5.5.1, the owner's profile, visible tab, 2026-11-07]. `[data-acn-version]` and the served file's sha256 (TESTING.md,
+> "Installing a build") say which version runs and which file was served; neither proves which build the tab runs.
+> The self-check log line sits at user.js:4069 in both `3841805` and `597ebfe`, so it cannot tell them apart.
+> `[ACN] paging … end=` is at 8287 in `3841805` and 8290 in `597ebfe` (`… start` at 8318 and 8321), and the
+> console's 8290 confirmed that the A/B ran `597ebfe`.
+> **Correct approach:** before a same-version Reinstall, run
+> `git show <sha>:ai-conversation-navigator.user.js | grep -n` on both builds for the log lines the check will
+> produce, and pick one whose line number differs. After the install, reload and read that line's source position in
+> the console.
+> **Why:** a tab still running the previous build reports the same version and logs the same text. The check would
+> then record the old build's behaviour as the new one's.
+
+> **Issue:** Two readings from claude-in-chrome's readers were wrong or empty [Chrome, the owner's profile, Gemini].
+> In Phase 1 (2026-11-05, chat `96b519c1`) `read_network_requests` reported a scroll-triggered history page as 503;
+> Resource Timing in the same tab read 200 for both page calls, and 10 more turns arrived. In the A/B (2026-11-07)
+> `read_console_messages` returned "No console messages found" for a jump made before its first call. TESTING.md
+> already records the same first-call limit for the network reader.
+> **Correct approach:** call both readers once before the action under measurement. Cross-check any status or timing
+> with `performance.getEntriesByType('resource')` in the page realm.
+> **Why:** an empty or wrong tool reading looks like a reading of the page. The 503 would have read as Gemini refusing
+> the request.
+
+> **Issue:** PR #94's milestone (`npm test`, every probe, the Gemini index probe on three engines and `--proof`; about
+> 80 min) first ran as a workflow agent. The harness made it return about 5 min in ("Milestone run INCOMPLETE: the
+> harness made me return while the sequential run was still going"), and its task text named a stale HEAD
+> (`434a886`, not `3841805`). Re-run as `milestone/run.sh` (a read-only background script in the session's resume
+> folder: three lanes, a log per run and a SUMMARY), it finished green in 37 min (2026-11-07 13:33–14:10 EST).
+> **Correct approach:** run a long suite as a plain background script that writes one log per probe and a summary.
+> Name the commit it must run on inside the script, and check `git rev-parse HEAD` against it. Then read the logs.
+> **Why:** an agent's turn can end before the run does, and a brief written earlier can name the wrong commit. A
+> script outlives both and leaves an artifact to check.
+
+> **Issue:** Four times in v12.19 the agent wrote a time into its notes without reading a clock, and each was wrong:
+> "~23:20 EST" for an owner message sent at 23:57, "~11:10" for ~11:03, "~11:25 EST" for the PR's opening at
+> 11:11:59, and the resume notes' "~12:30 EST" for 12:18. It also told the owner a step was "about 45 minutes in"
+> when it was about 19.
+> **Correct approach:** take every time and duration from a clock and subtract: `date -u`, `git log --format=%ad`, or
+> the tool's or the transcript's own timestamps.
+> **Why:** a resumed session and the docs trust the notes, and a remembered time there is read as measured (the
+> lesson on the v12.18 docs draft above).
+
+> **Issue:** Two of the agent's live readings counted the wrong thing [the agent's live checks: Chrome + Tampermonkey
+> 5.5.1, the owner's profile, visible tab, chat `96b519c1`, 2026-11-07]. Jumping to Q1 on `dde0b1a` and `3841805`,
+> it sampled `data-acn-paging-pages` every 50 ms: the attribute peaked at 2 while the loaded count went 10 → 32, three
+> pages (+10, +10, +2). The script's own end line, read later at `597ebfe`, said `end=found pages=3 loaded=32`; why
+> the attribute read low is unmeasured. In the export check of `dde0b1a`, it intercepted the export's blob URL and
+> fetched it from the page realm. The blob had been made in Tampermonkey's world, so the fetch threw `TypeError`, and
+> the helper's fallback string "ERR TypeError" was read as a 13-character export. The real check came from the file
+> in `~/Downloads`: 137,815 bytes, "Messages: 64 (32 user, 32 AI)".
+> **Correct approach:** count with the authoritative signal, the script's own log line
+> (`[ACN] paging … end=… pages=N`), with the console reader started before the action; use a sampled attribute only
+> as a second reading, and say that it was sampled. A measuring helper reports failure in a field no result can take
+> (`{ok: false, err: …}`), and its caller checks that field before reading any value: a fallback or error string is
+> a failure, never data. For an export, check the file itself, by modification time and size.
+> **Why:** a sample misses any state shorter than its interval, so a sampled maximum is a lower bound, not a count.
+> And a fallback string has a length and a type like real data, so it passes a shape check and reads as a result.
+
+> **Issue:** CLAUDE.md rule 7 said to run `npm test` and the probes "after any change", and the v12.19 spec said
+> "after every code change". The agent applied both to every build step and, by its own choice, added a verifier per
+> step. Each step took 60–90 min, and the build about 15 h (2026-11-06/07); the verifiers did catch two majors (the
+> timeout loop and the hidden-tab landing). The owner meant milestones: "run full suite only at milestones, drop
+> per-step verifiers. i thought i had it at every milestone already" (2026-11-07). Rule 7 now says so (`434a886`).
+> **Correct approach:** when the literal reading of a written rule multiplies a task's time, give the owner the cost
+> of each reading before choosing one. For the suite the rule is now explicit (agent_docs/testing.md, "When to run the
+> whole suite"): each build step verifies with its own gates and the probes related to it, and the full suite and
+> every probe run once per stage, not after every step.
+> **Why:** the cost of a misread rule grows with every step it applies to, while the question costs one message.

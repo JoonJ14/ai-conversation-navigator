@@ -1,239 +1,235 @@
-# Session Handoff — 2026-11-04 (v12.17: every feature reads the whole conversation; Gemini bookmarks by turn; ChatGPT's jump through history pages)
+# Session Handoff — 2026-11-05 (v12.18: the context meter makes model-dependent limits clear; ChatGPT fallback bookmarks; a CI stopgap)
 
-> **Superseded in part since 2026-11-05.** This handoff was committed in `2b4d931` and pushed with PR #93. Its "next
-> session" was built:
-> - v12.18 holds the context meter, ChatGPT fallback bookmarks and the CI stopgap.
-> - PR #93 is open and not merged. Owner acceptance is owed on all three browsers.
-> - 12.18 is installed in the owner's Chrome.
-> - The next PR after #93 is Grok.
->
-> Current state: ROADMAP "Current Status", CHANGELOG 12.18 and DEC-031. No new handoff was written: baton-handoff was
-> not run. Read the sections below as the v12.17 record. §G.1 is done, and §G.2's v12.17 debts stand as DEC-031's
-> v12.17 note says.
+**Scope:** the owner's v12.18 spec (`docs/specs/v12.18-spec.md`) and design (DEC-060), DEC-058's second PR. One
+combined PR in three parts, on Claude, ChatGPT, Gemini and Perplexity:
+- **Part 1, the context meter:**
+  - Claude counts from its last summary, names the model and window, and gives change notices.
+  - ChatGPT gets a plan setting.
+  - Gemini and Perplexity show a size estimate.
+- **Part 2:** ChatGPT answer records on a "fallback" turn are stored under the index's key (DEC-061).
+- **Part 3:** a CI stopgap: the ubuntu cap 40 → 50, and later a bounded, retried browser install.
 
-**Scope:** the owner's v12.17 spec (2026-11-01), the feature-gaps PR (DEC-058's first), one PR with separate commits
-per feature, on Claude, ChatGPT, Perplexity and Gemini:
-- **F1–F3:** Search, Export and Summary read the whole conversation.
-- **F4:** the image gallery lists every image from the index, with no new requests.
-- **F5:** Gemini bookmarks key to the turn's 16-hex id.
-- **F6:** small leftovers.
-- **Added on the owner's calls:** ChatGPT's jump to an early question of a long chat, and two pulled-in bookmark
-  items.
+Reviewed:
+- Tier 3 at the owner's cap of 5 rounds, alongside a 57-agent adversarial review.
+- GitHub Codex was clean on every head it reviewed.
 
-Reviewed: Tier 3 at the owner's cap of 5 rounds, then GitHub Codex's babysit cycle (15 reviews with findings, 17
-P2s). Live-tested three times in the owner's Chrome, the last as an A/B against 12.16. Docs written from a re-read of
-the whole transcript. Merged before acceptance.
+Live-tested in the owner's Chrome before the PR, and again as an A/B against 12.17 after Codex. The docs were written
+from a re-read of the whole transcript, then fact-checked and audited twice. Merged before acceptance (a waiver).
 
-**Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-11-01_v12.16-jump-meter-gemini.md` (v12.16; its §G.3.1 was
-this session).
+**Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-11-04_v12.17-feature-gaps.md` (v12.17; its §G.1 was this
+session).
 
 **Status at close:**
-- **PR #92 (v12.17): MERGED** 2026-11-04 as `8909d92` (head `2deca12`), on the owner's explicit OK, **before any
-  acceptance step was reported** (a waiver, recorded in DEC-031 on this branch). The owner will run the acceptance
-  as one combined pass: the steps are on
-  https://github.com/JoonJ14/ai-conversation-navigator/pull/92#issuecomment-6567898472.
-- **This handoff is NOT on main, and NOT committed.** By the owner's call (no PR for a handoff), it sits as
-  uncommitted changes on the local branch `feat/v12.18-context-meter` (branched from `8909d92`, not pushed), with the
-  owed v12.17 doc lines: DEC-031's waiver; merge status in CHANGELOG, DEC-059 and ROADMAP; the 16-entry
-  Firefox-on-Windows cascade in TESTING. The next session starts **on that branch** and commits these with the
-  context-meter PR's own work (explicit paths).
-- **Owner acceptance owed** for v12.15, v12.16 and v12.17, on Safari + Userscripts, Chrome + Tampermonkey and
-  Firefox + Tampermonkey.
+- **PR #93 (v12.18): MERGED** 2026-11-05 22:38 UTC as `ab7ea21` (head `4cdc730`, all nine checks green), by the
+  agent on the owner's explicit OK, before any acceptance step (a waiver, DEC-031).
+- **`main`'s first run after the merge** (run 42123189982) was 9/9 green.
+- **Owner acceptance is now ONE consolidated pass at about v12.20** (DEC-062), from `docs/acceptance-checklist.md`.
+  Until then, "acceptance owed" per version is expected, not something to raise every session.
+- **This handoff is on the branch `feat/v12.19-gemini-full-history`**, cut from `ab7ea21`, together with the
+  post-merge doc lines. It rides along with that PR's code; no docs-only PR.
+- **Next PR: Gemini's full question list on open** (§G.1), then Grok.
 - **Left in the owner's Chrome:**
-  - Tampermonkey has `a17413c`'s build (served `eb2a0b7c…`), not main's: `7bf5a3d` and `f5e2f52` were never
-    installed.
-  - No test bookmark or test export remains.
-- **Next session: the context meter PR** (DEC-058's second; ROADMAP 12), then Grok. No release until every platform
-  works on all supported browsers.
+  - Tampermonkey has 12.18 (served sha256 `b8934332…`, the userscript of `64b54a8` through `ab7ea21`).
+  - The ChatGPT plan setting is back to "Not set".
+  - No test bookmark or export remains.
+  - The throwaway Claude chat `73c209d8` ("Test message confirmation") is the owner's to delete.
 
 ---
 
 ## A. State in one paragraph
 
-main is v12.17.
-- **ChatGPT and Perplexity:** Search, Export and Summary read the index adapters' full text (`_ix.answers`,
-  `ixConversation()`), in order, with Q and A interleaved on one position scale; an answer click jumps by its key.
-- **Claude:** its index already was complete; its remaining unchecked glides now land (`ciLandSettled`).
-- **Gemini:** reads every loaded turn and says when older history isn't loaded (`gmHistNote`). Its bookmarks key to
-  the turn's 16-hex id; numbers read "Q#…" until the history is positively complete, and positional records bind
-  only on proof.
-- **The gallery** lists every image from the index, labelled by its message. A real thumbnail appears only when the
-  page has already loaded it, otherwise a named placeholder; it never makes a request. Perplexity therefore shows
-  placeholders only, **by design**.
-- **ChatGPT's jump waits** for the 5-turn history pages ChatGPT loads at the top. A page counts when an older turn
-  mounts or the view re-anchors off the top.
-- **The index refreshes itself** when an answer outgrows its snapshot by 2,000 characters, when the latest answer
-  settles, or when a ChatGPT turn shows more images than indexed.
-- **Summary's inventory** is the union of each answer's markdown and its mounted units.
+`main` is v12.18. Since this release:
+- **Claude:** the context meter reads each summary claude.ai records (`compaction_summary`) and counts from the last
+  one (`ccf551fb`: 100% "~600.1K / 500K" on 12.17 → 45% on 12.18). It names the model and window ("Opus 4.7 · 500K
+  window"), explains a model change or a new summary in a dismissible notice, and raises a 95% alert when no summary
+  is recorded. Navigate tags the summarized questions, with a divider.
+- **ChatGPT:** it has a plan setting (windows by plan and mode, the mode from the newest answer's `model_slug`).
+- **Gemini and Perplexity:** they show "~X tokens (est.) · window not published", with dots coloured against 1M and
+  the artboard H caption.
+- **ChatGPT bookmarks:** records saved under an answer's other shown node are rewritten to the index's key, and
+  every flag with that key follows a click.
+- **CI:** ubuntu jobs have 50 minutes, and their browser install is bounded and retried. That retry made its first
+  real mirror switch on this PR.
 
-The design is in DEC-059. Still open: the owner's acceptance, and the residuals logged in ROADMAP 13 (§I, §J).
+The design is in DEC-060 (and its implementation notes), DEC-061 and DEC-062. CHANGELOG 12.18 is the full record.
 
 ---
 
 ## B. What was accomplished
 
-### 1. Phase 1: the matrix, measured live
-Feature × platform on 12.16 [Chrome + Tampermonkey, the owner's profile, visible tab, read-only GETs, 2026-11-01].
-The table is in CHANGELOG 12.17.
-- **ChatGPT (49 questions):** Search found no answer, Summary read "49 user, 0 AI", Export "4 (49 user, 0 AI)", and
-  the gallery showed 0 of 3.
-- **Perplexity (12):** answers were found as fragments up to "A#18"; Export read "24 (12 user, 22 AI)" over 2
-  questions.
-- **Gemini:** with 10 of 32 loaded, "No matches" and no note.
-- **Claude:** the gallery labelled every image "Upload".
-- **Also found:** ChatGPT's jump to Q15 of 49 toasted 2 of 2 from a fresh load.
-- **Payload findings:**
-  - ChatGPT's images are `sediment://` pointers with no URL; the page shows mounted ones as `blob:`.
-  - Perplexity's attachments are signed S3 links on a new host that the page never loads.
-  - Gemini's off-screen turns read 0 characters through `innerText`, but the navigator reads `textContent`.
+### 1. Phase 1 measurements, live and read-only
+[Chrome + Tampermonkey 12.17, the owner's profile, visible tab, page realm, GET reads; one throwaway chat with the
+owner's OK. Details in DOM-REFERENCE and ROADMAP 12.]
+- **A model switch:**
+  - The stored `model` changes only when the next message is sent. The navigator followed it silently (3% → 6%).
+  - No message records a model.
+  - Measured once each way, in one chat.
+- **claude.ai's summaries:**
+  - The marker is `compaction_summary`: 87 on 39 of the owner's 236 chats, including 7 of the 8 over-window chats.
+  - It carries no token count. That every summary leaves one is not proven.
+  - The size before each summary was scattered (by date or model, not by today's window), so "distance to the next
+    summary" can't be shown.
+  - The stream has a `compaction_status` event (Chrome only, never observed).
+- **ChatGPT:**
+  - Windows are per plan and mode (chatgpt.com/pricing, 2026-11-04), and the plan isn't in the data.
+  - `model_slug` is on each answer (196 of 299 chats read).
+  - No summary marker.
+- **Gemini, Perplexity and Grok:**
+  - No marker was found. Gemini: code only. Perplexity's threads are too short to show one.
+  - Grok was searched signed out, and the result is only partly conclusive.
+- **The design:**
+  - HTML mockups, then the owner's design files (`docs/design/context-meter/`) and DEC-060.
+  - The owner's Phase 1 calls:
+    - count the carrier and its question after a summary;
+    - the slug → mode table, with gpt-6 counted as Instant;
+    - Part 2 "rewrite + gate only";
+    - Part 3: the ubuntu cap 50.
 
-### 2. The owner's decisions (2026-11-01)
-- **The gallery:** cards from the index, a thumbnail only if the page loaded the image, otherwise a named
-  placeholder; **no new requests or hosts**.
-- **The ChatGPT jump:** fix it in this PR, measure first, and gate it.
-- **Downloads:** investigate. Result: Chrome's per-tab multiple-download limiter, tripped by the agent's script
-  clicks. Not a bug; TROUBLESHOOTING "NOT A BUG", TESTING.
-- **CI:** the ubuntu `timeout-minutes` goes from 30 to 40 (`e398b49`), a stopgap until the CI rebuild. Measured
-  afterwards: 29m1s–29m35s on PR #92.
-- **Pulled in:**
-  - ChatGPT "fallback"-turn answer bookmarks (`_bmIxCanon`, gate C7).
-  - Claude bookmark landings (`ciLandSettled`, gate L6).
-- **Tier 3 cap: 5.** The owner raised it to 10 and withdrew that the same minute: GitHub Codex is more accurate, it
-  saves tokens, and its findings live on GitHub.
+### 2. The build
+- **Commits:** Part 1 `aaa0d40`, Part 2 `08771f6`, Part 3 `083defa`, Phase 1 docs `21912e9`, the Tier 3 fixes
+  (`e47aba2`, `55581c0`, `cebb015`, `bf5c0c8`), version `64b54a8`, review record `1be3bd1`.
+- **Gates:**
+  - `probes/check-context-meter.js`: M1–M16, C1–C10, S1–S7.
+  - `probes/check-gpt-fallback.js`: F1–F8.
+  - `check-ctx-limit` L4.
+  - 16 targeted mutants (m1–m16), each caught by its intended check.
+  - Against v12.17, every `[new]` check of the first version failed or was INVALID. The checks added in rounds 2
+    and 4 were shown on mutants only.
+  - `bf5c0c8` has no gate.
+- **The final run on `1be3bd1`** (1h42m, this Mac):
+  - `npm test` 560/560 on three engines.
+  - Probes Chromium 17/17, WebKit 14/14, Firefox 13/14. The one failure is J15, the documented race.
 
-### 3. The build and the gates
-- **Commits:** F1 `6f187cd`, F2 `fbb9da2`, F3 `de0cae9`, F4 `7dcd066`, F5 `e7529ff`, F6 `1ab3aed`, the ChatGPT jump
-  `5437bc7`, version `faeb031`, and the pre-approved CLAUDE.md heading `45188fb`.
-- **Gates:** `probes/check-feature-gaps.js`, 42 checks: C1–C13, C5b–C5g, P1–P7, G1–G10, L1–L3, L5, L6, E (guards
-  G7, G8, L3, L5, E). Plus `check-ix-jumps` K5–K8.
-  - Checks written before the PR fail on 12.16.
-  - Each check added in the GitHub rounds fails on the commit before its fix.
-  - 21 mutants, each caught.
-- **Probe defects** fixed before trusting a result (CHANGELOG 12.17):
-  - a hidden ghost timeline;
-  - a gallery toggle;
-  - `loadAll()`;
-  - a mounted C5;
-  - WebKit's `blob:` routing.
+### 3. Review
+- **Tier 1–2 (session), plus a multi-agent review:** 57 agents, 28 raw findings, 10 upheld and fixed.
+  - Three of its six refutations were measured on a tree being edited at the time. Two of those were real, and
+    were fixed by Codex round 1's rewrite (review record).
+- **Tier 3 `cli:codex`, 5 rounds:** 27 raw findings, 22 verified and fixed, 5 shown not to be defects.
+- **GitHub Codex:** clean twice on `1be3bd1`, twice on `3ccf84b`, and on `b48996a`.
 
-### 4. Review
-- **Tier 3** (`cli:codex`, five rounds): 48 raw findings, 39 fixed, 1 false positive, 5 logged.
-- **GitHub Codex on PR #92:** 15 reviews with findings, 17 P2s, all fixed in 15 commits (`cc19e40` … `f5e2f52`),
-  each gated.
-  - The confirming `@codex review` (the owner's rule) found a new P2 4 times out of 5.
-  - Seven "Something went wrong" replies were each re-triggered.
-  - **Two docs-only pushes each drew an automatic review that found a real code defect:** fenced code inside a
-    blockquote (`7bf5a3d`), and an open gallery not redrawing when the index loaded (`f5e2f52`).
-  - Final: clean twice on `f5e2f52`, and clean on the docs heads after it.
-- The review record is `reviews/review-2026-11-01-v12.17.md`.
+### 4. Live checks (the agent's, never acceptance; DEC-031)
+- **Before the PR:**
+  - Claude: `ccf551fb` at 45% with 3 summaries; `0ca88a77` at 30%; `c9270096` with no summary.
+  - ChatGPT: the plan unset, then set to Plus (24%, "Thinking · 256K window (Plus)"), then restored.
+  - Gemini and Perplexity: the estimate and the caption.
+- **After Codex, an A/B against 12.17:** 12.17 read 100% "~600.1K / 500K" and "Conversation turns".
+- **Blocked:** the Q45 test bookmark, by the agent's safety classifier. It is acceptance step 31.
 
-### 5. Live checks in the owner's Chrome (the agent's, never acceptance; DEC-031)
-- **Before the PR.**
-- **After the local review.** Found the false "answer longer" export note, fixed in `8a4b5a5`.
-- **The final A/B:** 12.16 by Downgrade, still broken on the same chats; then the Codex-reviewed build.
-  - On `4f33990` it found Q15 toasting 1 of 2, fixed in `c88ed1c`: a re-anchored view counts as a page. The
-    mechanism is inferred, and no gate covers it.
-  - On the final `a17413c` everything passed:
-    - ChatGPT Q15 landed in 15.1 s.
-    - Summary and the export were 98 (49/49).
-    - Perplexity's A#1 landed; 6 placeholders, 0 S3 images.
-    - Claude's gallery Q#106…Q#139; A#147 from the top at 0 px.
-    - Gemini "Q#…" → "Q#32".
+### 5. CI, this PR
+- **Run 42086675512 failed every job at "Install Playwright":** `playwright@1.65.0` was published before its
+  `playwright-core`. Upstream resolved it by moving the `latest` tag back. One run's green checks then came from two
+  Playwright versions.
+- **Three apt-mirror stalls** (25m, 16m, and 10m on 11-04). The 50-minute cap absorbs only about 16 minutes of
+  stall.
+- **`b48996a`, the owner's choice of four options:**
+  - the ubuntu system packages get 3 attempts of 4 minutes, dropping the Azure mirror after the first;
+  - its first live switch: Azure got about 3 MB in 4 minutes, then archive.ubuntu.com served 111 MB in 36 s, and
+    the job passed;
+  - macOS and Windows are unchanged: 25 runs, no stall, so the owner declined a step timeout there.
+- **The ~34-minute ubuntu jobs are the probes, not queueing:**
+  - every job starts 2–3 s after creation;
+  - the steps run with 0 s gaps;
+  - the 16 probe steps are ubuntu-only.
+  - The owner wants splitting the probes into parallel jobs logged for the rebuild (ROADMAP 0e).
 
-### 6. Final run, docs, merge
-- **The pre-approved final run** on `8a4b5a5` (about 84 minutes, not the 30–40 estimated):
-  - `npm test` 560/560 on all three engines.
-  - Probes: Chromium green; Firefox all but J15 and U10 (both known); WebKit all but C8, a probe defect fixed in
-    `d0bda17`.
-- **No three-engine run covers the 17 code and probe commits after `8a4b5a5`.** Chromium only: `npm test` 560/560
-  and all 15 probes on `a17413c`; the related probes and `npm test` on `7bf5a3d` and `f5e2f52`.
-- **`/update-project-docs`** after re-reading the whole transcript: `63d7f88`, then `ebab086`, `0c4987c` and
-  `2deca12`.
-- **CI flakes, each cleared by one re-run:**
-  - U10's timeout, seen on Chromium in CI for the first time (TROUBLESHOOTING).
-  - The Firefox-on-Windows `page.goto … interrupted` cascade, 16 entries this time (TESTING).
-- **The merge** on the owner's OK.
+### 6. Docs, merge, and these post-merge lines
+- **`3ccf84b`:** `/update-project-docs`. A four-reader fact-check fixed 33 errors before it was committed.
+- **`27af348`:** a whole-transcript audit, the owner's request; 48 verified gaps fixed.
+- **`4cdc730`:** the owner's five approved conventions lessons, CLAUDE.md's figures, and the merge waiver.
+- **This branch:**
+  - "merged as `ab7ea21`";
+  - the mirror switch and `main`'s run;
+  - the probes-not-queueing measurement and the parallel-probes recommendation;
+  - DEC-058's addendum (Gemini before Grok);
+  - DEC-062 and `docs/acceptance-checklist.md`;
+  - this handoff.
 
-### 7. Mistakes, kept because they generalize
-- **A docs push is reviewed too.** Poll Codex after every push, not only code pushes (agent_docs/git-workflow.md).
-- **Two rules that judge the same thing must share one threshold.** The export's 20-character "longer" margin
-  against the refetch rule's 2,000 flagged a settled chat (TROUBLESHOOTING).
-- **A mock that mounts every page cannot show a page arriving unmounted.** `c88ed1c` was found only live.
-- **A paused install is a lost hour when the owner is away.** Take over Chrome (memory; TESTING).
-- **Pick Tampermonkey's confirm window by its title ("Userscript").** Escape on it cancels the install (TESTING).
+### 7. Mistakes, kept because they generalize (conventions.md has the approved ones)
+- **The review's moving tree.** A review was still verifying while its tree was edited. Give a review a frozen
+  tree.
+- **Reconstructed records.** The draft had three options the owner was never offered, a "solutions considered"
+  list nobody weighed, and counts from memory ("about 20" mutants for 16). Quote options and counts from the record,
+  and fact-check a docs draft before committing.
+- **INVALID on the base build** (C5, C8, F8) hid a gate's purpose. Treat it as a gate defect.
+- **The Safari stub** stored the bookmark store encoded once; the real store is encoded twice.
+- **A pipeline under `pipefail`.** A `grep | grep -q` pipeline would have silently skipped the mirror switch;
+  caught by simulating the step.
+- **Predicting a run without reading it.** The agent said a new run "will fail the same way" without reading its
+  install step, which had already passed.
+- **Gemini's long chat.** Phase 1 took `96b519c1…` (the 32-question chat) for a 10-turn one, because only 10
+  turns were loaded.
 
 ---
 
 ## C. Architecture snapshot
 
-Changed; agent_docs/architecture.md has the details.
-- **Index adapters:**
-  - `_ix.answers` (`{ key, q, at, text, pos, ids }`), `_ix.answerIdOf`, `_ix.images` (identities and names, never
-    URLs), `_ix.watchLast`.
-  - `ixConversation()`, `ixIndexStamp()`, `sumIndexStamp()`.
-  - Constants: `IX_PAGE_WAIT_MS` 2,500, `IX_PAGE_SIZE_MIN` 5, `IX_PAGE_IDLE_MAX` 3, `IX_ANSWER_GROWTH` 2,000,
-    `IX_SETTLE_MS` 3,000.
-  - `_ixStartLoaded` is keyed `cid|x<indexGen>`; the adapter flag is `pagesAtTop`.
-- **Summary:**
-  - `jumpRef` (kinds `ixq`, `ixa`, `gm`), resolved by `_sumJumpRef`.
-  - The inventory's `fenceRe`: own-line fences, any label, backtick or `~~~`, a longer closing fence, and a `>`
-    blockquote prefix repeated on the closing line.
-  - Plus `FILE_EXTENSION_RE` over the text, markdown links, and `domEls` matched by `codeKey`.
-- **Gallery:** `orbIndexedImages()`. The open-gallery redraw key in `orbOnScanComplete` is Gemini's partial state +
-  `sumIndexStamp()`.
-- **Gemini:** `gmTurnOf`, `gmTurnById`, `gmQuestionIn`, `gmAnswerIn`, `gmHistNote`; bookmarks `_bmGm*`, with
-  `_bmGmFinal` gating final labels and proof; `gmLandFarEl`.
-- **Claude:** `ciLandSettled`.
-- **Platforms:** `platform.textExclude` (Perplexity's "Finished").
-- **Mocks:** `perplexity-windowed.html` (`bmModel.finished`), `gemini-history.html` (`sameText`).
+Changed; agent_docs/architecture.md → "Context meter (v12.18, DEC-060)" has the details.
+- **Claude summaries:**
+  - `ciSummaryChars`, `ciCompaction()` → `{ n, at, from, chars, q }`, `ciCharsFrom` / `ciThinkingCharsFrom`.
+  - The effective context is `ciCharsFrom(from) + chars` plus thinking plus overhead.
+- **Lines under the meter:** `CTX_LINE_ORDER`; `orbCtxSetLine` writes only when the text changed (every mutation
+  schedules a scan).
+- **Notices:**
+  - `_ctxSeen` is keyed to the URL's conversation. `orbCtxTrack()` runs on every scan with a ready index and on
+    every draw.
+  - ChatGPT's notices wait for a ready index.
+  - The three mode-notice rules are in architecture.md.
+- **ChatGPT:** `GPT_CTX`, `GPT_MODE_BY_SLUG` (exact keys), `orbGptPlan()` (the `chatgptPlan` setting in
+  `acn-settings`), `orbRenderGptMeter`.
+- **Gemini and Perplexity:** `CTX_SIZE_ONLY`, `CTX_SIZE_REF` 1M, `orbConvSizes`, `orbRenderSizeMeter`,
+  `orbSizeCaption`, `orbCtxSizeSig`.
+- **Bookmarks:** `_bmIxCanonicalize` (once per index build, the mapping captured for Safari's replay), and
+  `_bmSyncFlags(key, on)`.
+- **CI:** the "Install browser engine (ubuntu, bounded)" step.
 
 ---
 
 ## D. Key principles established
 
 - **The owner's PR procedure** (agent_docs/git-workflow.md):
-  1. Tiers 1–3, Tier 3 capped at 5.
+  1. Tiers 1–3, Tier 3 capped at 5 rounds.
   2. Reinstall and retest live.
-  3. The pre-approved three-engine final run.
-  4. Open the PR.
+  3. The three-engine final run.
+  4. Open the PR, with the acceptance steps as its first comment **and appended to
+     `docs/acceptance-checklist.md`**.
   5. Babysit until clean, plus one confirming review.
-  6. Reinstall and retest live as an A/B against the previous version.
-  7. Re-read the whole transcript and the memory files.
-  8. `/update-project-docs` into the same PR.
-  9. The owner merges.
-- **A feature that reads "the conversation" reads the index**, never `querySelectorAll`, on every windowing site.
-  Where it falls back to the DOM, it says so (DEGRADED, or "older history not loaded").
-- **No new requests or hosts for the gallery** (the owner's privacy call). A placeholder names what is not loaded.
+  6. Reinstall and retest as an A/B against the previous version.
+  7. Re-read the whole transcript and memory, then `/update-project-docs` into the same PR.
+  8. The owner merges.
+  9. **The agent reminds the owner of the optional Safari smoke check.**
+- **Acceptance (DEC-062):** one consolidated pass at about v12.20, from one checklist. DEC-031 keeps waivers.
+- **The meter is honest about what it knows:**
+  - a percentage only where a window is known;
+  - "assumed" only when no model is identified;
+  - a summary counted from the record, never predicted.
+- **The repo is public:** name the owner's chats by id prefix, never by title or content.
 
 ---
 
 ## E. Git state
 
-`main` is at `8909d92` (the PR #92 merge) and holds v12.17; the userscript on main is `f5e2f52`'s.
+`main` is at `ab7ea21` (the PR #93 merge) and holds v12.18. The userscript there is `64b54a8`'s; later commits
+changed only CI and docs.
 
 | Commit | What |
 |---|---|
-| `45188fb`, `faeb031` | the pre-approved CLAUDE.md heading; version 12.17 |
-| `6f187cd` … `1ab3aed`, `5437bc7` | F1–F6; the ChatGPT jump |
-| `a10857f`, `ad6bf77`, `d89916f` | live-found fixes; the gates; the gallery's placeholder fallback |
-| `e398b49`, `3cfce67` | CI 40 min; the pulled-in items + Tier 3 round 1 |
-| `2d67d99`, `3e96f32`, `3ed8ccc`, `9cd8b8c` | Tier 3 rounds 2–5 |
-| `8a4b5a5`, `d0bda17` | the export margin (live); WebKit's `blob:` routing in the probe |
-| `cc19e40` … `a17413c`, `c88ed1c` | GitHub Codex rounds; the re-anchor page rule (the live A/B) |
-| `7bf5a3d`, `f5e2f52` | Codex's findings on the docs pushes (blockquoted fences; the gallery redraw) |
-| `63d7f88`, `ebab086`, `0c4987c`, `2deca12` | `/update-project-docs` and its follow-ups |
-| `8909d92` | **merge of PR #92** |
+| `2b4d931` | the v12.17 handoff and its owed lines (folded into PR #93) |
+| `f2bf6d0`, `6e09fbb`, `54048cf`, `633d936`, `21912e9` | findings, design files, DEC-060, the spec, Phase 1 docs |
+| `aaa0d40`, `08771f6`, `083defa` | Parts 1, 2 and 3 |
+| `e47aba2`, `55581c0`, `cebb015`, `bf5c0c8` | Tier 3 rounds 2–5 |
+| `64b54a8`, `1be3bd1` | version 12.18; the review record |
+| `3ccf84b`, `b48996a`, `27af348`, `4cdc730` | docs; the bounded install; the audit; lessons + CLAUDE.md + waiver |
+| `ab7ea21` | **merge of PR #93** |
 
-- **Current branch: `feat/v12.18-context-meter`** (local, from `8909d92`, not pushed). Its uncommitted changes are
-  this handoff, the v12.16 one moved to `docs/handoffs/` (`git mv`, staged as a rename), and the owed v12.17 doc
-  lines in CHANGELOG, DECISIONS, ROADMAP, TESTING and `agent_docs/testing.md`. Commit them in the context-meter PR
-  (explicit paths), which is opened from this branch.
-- **Remote branches:** `main`, `feat/v12.17-feature-gaps` (merged; left in place), `feat/v12.18-context-meter`, and
-  the older merged branches (`docs/v12.16-merge-waiver`, `fix/v12.16-…`, `docs/v12.15-…`, `fix/v12.15-…`).
-- **Merges use merge commits** (`gh pr merge --merge --match-head-commit <full sha>`); the ruleset requires all nine
+- **Current branch: `feat/v12.19-gemini-full-history`**, cut from `ab7ea21`. It holds this handoff (the v12.17 one
+  is moved to `docs/handoffs/`), `docs/acceptance-checklist.md`, and the post-merge lines in CHANGELOG, DECISIONS,
+  ROADMAP, TROUBLESHOOTING and agent_docs. The next PR is opened from it, with its code.
+- **Remote branches:** `main`, `feat/v12.18-context-meter` (merged; left in place), and the older merged ones.
+- **Merges use merge commits** (`gh pr merge --merge --match-head-commit <full sha>`). The ruleset requires all nine
   checks, with no bypass.
 - **The owner's own untracked files: never `git add` them.** `.playwright-mcp/`, `docs/CONTEXT-TRACKING-AUDIT.md`,
   `docs/IMAGE-GALLERY-DOM-FIX.md`, `docs/V10.10-TASKS.md`, `docs/V10.11-TASKS.md`.
+- **The owner's Python server on port 8765** (running for days) is theirs. Use another port to serve builds.
 
 ---
 
@@ -242,131 +238,124 @@ Changed; agent_docs/architecture.md has the details.
 | Path | Why |
 |---|---|
 | `HANDOFF.md` | this file |
-| `ROADMAP.md` "Current Status"; **item 12** (the context meter); item 13 "Logged from v12.17" | the next PR's ideas and its measurement; v12.17's residuals |
-| `DECISIONS.md` **DEC-056** (the per-model window), **DEC-058** (the order), **DEC-059** (v12.17), **DEC-031** | the meter's current design; why the meter is next; live status and waivers |
-| `docs/CONTEXT-TRACKING.md`, `docs/claude_specific_context_tracking_calculation.md` | how the meter estimates today (step 2 of item 12) |
-| `DOM-REFERENCE.md` → Claude (`model`) | what the conversation JSON carries |
-| `probes/check-ctx-limit.js`, `probes/check-turn-counter.js` | the meter's and the dots' gates |
-| `CHANGELOG.md` 12.17, `reviews/review-2026-11-01-v12.17.md` | what shipped, every result with its context |
-| `TESTING.md` → "The live check in the owner's Chrome" | install (window by title, Escape), exports by real click, downloads |
-| `agent_docs/git-workflow.md` | the owner's PR procedure; docs pushes draw reviews |
+| `ROADMAP.md` "Current Status" → "Next" item 3 (Gemini), item 13 → Gemini, item 0e | the next PR's goal and questions; the CI rebuild's inputs |
+| `DECISIONS.md` **DEC-057** (Gemini keeps what it loads; the completion rule), **DEC-046** (index adapters), **DEC-058** + addendum, **DEC-062**, **DEC-031** | how Gemini pages today; how an adapter reads a site's own JSON; the order; acceptance |
+| `DOM-REFERENCE.md` → Gemini ("Paging": `batchexecute`, `rpcids=hNvQHb`) | the request the investigation starts from |
+| `tests/mock-pages/gemini-history.html`, `probes/check-gemini-history.js` | Gemini's paging mock and its gate |
+| `docs/acceptance-checklist.md` | the one acceptance list; append the next PR's steps |
+| `CHANGELOG.md` 12.18, `reviews/review-2026-11-05-v12.18.md` | what shipped, every result with its context |
+| `agent_docs/architecture.md` → "Context meter"; `agent_docs/conventions.md` → the new lessons and the naming rule | |
+| `TESTING.md` → "The live check in the owner's Chrome" | install (`AXEnhancedUserInterface`, a free port), measuring lessons |
 
 ---
 
 ## G. What comes next
 
-1. **The context meter: make model-dependent limits clear to the user** (DEC-058's second; ROADMAP 12). The
-   per-model table stays (DEC-056: 1M for Fable 5.1, Opus 5.5, Opus 5, Sonnet 5.5, Sonnet 5, Haiku 5.5; 500K for
-   Fable 5, Opus 4.6–4.8, Sonnet 4.6; 200K otherwise, labelled "limit assumed"). The feature is about *showing* it.
-   - **First, a live measurement by the agent in the owner's Chrome. Ask before running it:** switching a model
-     changes the conversation in the owner's account. The question: does the navigator see a mid-chat model change?
-     Through the conversation JSON's stored `model` (one per conversation, present on 60 of 60 chats; no message
-     carries one), or through the composer's model picker?
-     - Known: the help center (article 8664678, read 2026-11-01) says a change "at any point in a conversation"
-       applies from Claude's next response.
-     - Measure: whether `model` follows the switch, when (on the next response? at once?), and whether the
-       picker's label is readable from the DOM. Record the context.
-   - **Then HTML mockups for the owner to choose from.** The ideas logged so far:
-     - a fixed-scale bar with limit markers;
-     - the model and its limit as text;
-     - a notice when the model changes.
-   - **Related residuals in ROADMAP 12** (scope them with the owner; don't fold them in silently):
-     - The estimate exceeds the window on chats claude.ai has summarized ("~600.1K / 500K").
-     - `predictedCycleLength` and the compaction fields are never written.
-     - Path B (Firefox; Safari inferred) never shows "Context nearly full".
-     - The help center gives no Free-plan window, and the Team page still says 200K.
-     - Step 2, the estimate's accuracy itself.
-2. **Before any release, owed from v12.17** (ROADMAP 13):
-   - A Firefox and WebKit run covering the 17 commits after `8a4b5a5`.
-   - A live check of `7bf5a3d` and `f5e2f52`.
-   - A gate for `c88ed1c` (a mock option that leaves a page's turns unmounted).
-3. **Owner acceptance** of v12.15, v12.16 and v12.17 on all three browsers. Record it in DEC-031 exactly as reported:
-   the `<!-- V12.17 ACCEPTANCE -->` placeholder, and the v12.16 and v12.15 ones.
-4. **Then Grok** on all three browsers, its own PR (DEC-058's third).
+1. **Gemini's full question list on open** (the owner, 2026-11-05; DEC-058's addendum; ROADMAP "Next" item 3). Its
+   own PR, on this branch.
+   - **Baseline today** (DEC-057): Navigate lists only the loaded turns. Gemini loads the newest 10, and 10 more
+     each time the view reaches the top. The "older messages not loaded" note shows, and 2–3 trips to the top load
+     the rest (`96b519c1…`: 10 → 20 → 30 → 32).
+   - **Goal:** the full question list immediately, in any Gemini chat.
+   - **Investigation first, read-only** (measure before reasoning; wait for the owner's decision before code):
+     - Can Gemini's own history request (`batchexecute`, `rpcids=hNvQHb`, seen in v12.16, its bodies never
+       inspected; DOM-REFERENCE, Gemini, "Paging") return the whole conversation, for an index adapter like
+       DEC-046's?
+     - What does the request carry? Its parameters, the response's shape, what it returns per call (10 turns? a
+       cursor?), and whether repeated calls reach the start.
+     - **What page tokens would the navigator need to make the call itself?** For each one: where it comes from (the
+       page's HTML, a global, a cookie), how often it changes, and what breaks when it does. **Note how fragile each
+       one is.**
+     - Report key names, types and counts only, never message content. Name the chat by id prefix.
+   - **Fallback, if that's too fragile:** a "Load full history" button the user clicks. It scrolls to the top until
+     the start is loaded (DEC-057's completion rule: the last load, or 8 s at the top), then restores the view.
+   - Then the procedure in §D. The acceptance steps go into `docs/acceptance-checklist.md`.
+2. **Then Grok** on all three browsers (DEC-058), once the owner is back on the Linux machine to sign in. The code
+   search must be redone signed in, then data steps 2–3 (DOM-REFERENCE, Grok, "Context and summaries").
+3. **The consolidated acceptance pass at about v12.20** (DEC-062). It is the owner's to run; the agent keeps the
+   checklist current.
+4. **The CI rebuild (ROADMAP 0e), when the owner schedules it:**
+   - parallel probe jobs (the owner's recommendation), with their names added to the required checks;
+   - pin Playwright;
+   - consider Playwright's container image.
 5. **The "Later" list** (ROADMAP, Current Status), unordered:
-   - J15's CI race and U10's timeout;
-   - the CI rebuild (0e), which should revisit the 40-minute stopgap;
+   - J15's race;
    - Perplexity attachment images;
    - the stale "Turn N" badge;
-   - Gemini's "load the full history" action (proposed, not decided).
+   - v12.18's ungated items (ROADMAP 12).
 
 ---
 
 ## H. Operational context + owner rules
 
 Carried over, still in force:
-- **Equal priority:** Safari, Chrome and Firefox (DEC-047). **Merge authority** is per PR and explicit; nothing here
-  authorizes a merge. **Acceptance** goes in DEC-031 only, exactly as reported; blanks are "not reported".
-- **Live work in the owner's accounts is read-only.** GETs are fine. Test bookmarks and exports are allowed only when
-  the spec allows them: delete exactly those, never the owner's.
-- **CLAUDE.md:** show the diff and commit only on approval; a spec may pre-approve one edit.
-- **Scope:** build the minimal version of the spec. Findings outside it get logged; new issues found in acceptance
-  get logged unless they block.
+- **Equal priority:** Safari, Chrome and Firefox (DEC-047). **Merge authority** is per PR and explicit. **Acceptance
+  results** go in DEC-031 only, exactly as reported; blanks are "not reported".
+- **Live work in the owner's accounts is read-only.** GETs are fine. Test bookmarks and exports only where the spec
+  allows them; delete exactly those. Ask before anything that sends, edits or switches in an account.
+- **CLAUDE.md:** show the diff, and commit only on approval.
+- **Scope:** build the minimal version of the spec. Log findings outside it.
 - **Proof:**
-  - A gate that fails on the previous version, plus a few mutants.
+  - A gate that fails on the previous version, plus mutants.
   - `npm test` and the probes after any code change.
-  - `npm run test:probes` stops at Firefox's U10 timeout here, so run the rest directly; there is no `timeout`
-    command.
-  - Ask before any long run, with an estimate. A three-engine run takes about 84 minutes on this Mac.
+  - `npm run test:probes` stops at Firefox's U10 timeout here, so run the rest directly.
+  - Ask before a long run, with an estimate: about 1h42m for three engines (v12.18).
 - **Every claim carries its measurement context.** Safari + Userscripts is the owner's to verify.
-- **CI is not real-browser evidence.** Read a failing log first, then re-run (`gh run rerun --failed`, only after
-  the whole run has completed). Never override.
+- **CI is not real-browser evidence.** Read a failing log first, then re-run. Never override.
+- **The Tier 3 cap is 5.** After a clean Codex review, post `@codex review` once more.
+- **If the owner says they're away,** take over their Chrome.
+- **Before docs or a handoff on a compacted session,** re-read the whole `.jsonl` and the memory files.
 - **`/babysit-pr-cycle`, `/baton-handoff`, `/update-project-docs`:** only when the owner names them.
 - **Git:** explicit `git add` paths; never push to `main`.
 
 New this session:
-- **The PR procedure in §D** is the standing order for code PRs. Docs go into the same PR; this handoff is folded
-  into the next PR on the owner's call.
-- **Tier 3 is capped at 5 rounds.** What remains goes to GitHub Codex.
-- **After a clean Codex review, post `@codex review` once more.** And poll after *every* push, docs included.
-- **When the owner says they're away, take over their Chrome** (tabs, windows, Tampermonkey's buttons) without
-  stopping to ask, and push through without questions.
-- **Re-read the whole transcript `.jsonl` and the memory files before `/update-project-docs` or a handoff** on a
-  compacted session (this one: `ed6d4e67-ecc4-44e1-bbe7-ba9bb8d9a835.jsonl`).
-- **The Mac sleeps with the lid shut,** and the agent's background watchers pause with it. GitHub's CI does not.
+- **Acceptance is deferred to one pass at about v12.20 (DEC-062).** Don't raise per-version "acceptance owed" every
+  session. Append each PR's steps to `docs/acceptance-checklist.md`. **Remind the owner of the 5-minute Safari smoke
+  check after each merge.**
+- **Next PR: Gemini's full question list, before Grok** (DEC-058's addendum).
+- **Codex on docs-only pushes:** for PR #93's last docs push the owner said not to call Codex ("our codes are all
+  good and its just docs change"). That was their call for that push. git-workflow's standing rule is still to poll
+  after every push, so ask if unsure.
+- **CI:** ubuntu jobs take ~34 minutes by design (the probes). Watch the install step: over a minute is a slow mirror,
+  and the bounded step caps it at about 13 minutes. Watch for jobs past ~36 minutes (ubuntu) or ~12 (macOS and
+  Windows).
+- **Chats by id prefix only** (the repo is public; conventions.md).
+- **The owner's process wants measurement, not reassurance:** when asked whether CI is "really running", answer with
+  timestamps (queue time, step gaps), not with reasoning.
 
 ---
 
 ## I. Deferred / future work
 
-Not queued; §G comes first. Everything is logged in ROADMAP 13, "Logged from v12.17":
-- Claude's last-answer bookmark measures 218 px short (both builds; the probe or the path).
-- No ChatGPT A→B→A switch probe.
-- One ChatGPT answer can be saved under two keys.
-- An answer regenerated during the cooldown.
-- Gemini turns lingering after `replaceState`.
-- K-gate model gaps (non-page growth, a hidden tab).
-- Summary and gallery performance on very long threads.
-- Navigate shows the DOM's 4 for about 7 s before ChatGPT's index arrives.
-- Summary's code and file counts moved during the GitHub rounds: 67 → 65 code blocks, 1 → 42 files, never checked
-  item by item.
-
-The earlier lists (ROADMAP 13 and 14 from v12.15 and v12.16) are unchanged.
+Not queued; §G comes first. All logged in ROADMAP 12 ("Logged from v12.18") and 13:
+- No gate for `bf5c0c8`, nor for two ChatGPT notice rules (Go ↔ Plus; plan and mode before one draw).
+- The review's F7: going back to a Claude branch with more summaries re-announces one.
+- 31 older code lines hold literal non-ASCII characters (conventions.md's `\uXXXX` rule).
+- A comment above `GPT_MODE_BY_SLUG` overstates its basis.
+- Never measured:
+  - `compaction_summary` through the gmxhr transport;
+  - Opus 3's stored id;
+  - a chat over 500K switched to a 500K model;
+  - the compaction test design (proposed, not run).
+- The estimate's own calibration (ROADMAP 12, step 2). One candidate cause of the scatter is claude.ai's tool-loading
+  setting.
 
 ---
 
 ## J. Risk caveats / known limitations
 
-- **Merged without acceptance:** v12.17, like v12.15 and v12.16. Safari + Userscripts and Firefox + Tampermonkey have
-  not run it at all; everything rests on mocks and the agent's Chrome + Tampermonkey checks.
-- **Not live, and not three-engine:** `7bf5a3d` and `f5e2f52` were never installed live. The 17 commits after
-  `8a4b5a5` ran on Chromium only.
-- **`c88ed1c` has no gate,** and its mechanism (a page arriving with its turns unmounted) is inferred from a live
-  failure, not traced.
-- **Far ChatGPT jumps from a fresh load take 15–18 s.** They wait for every page; that's correct, but slow enough to
-  read as a hang.
-- **The gallery thumbnail rule** means most far images show placeholders: on Perplexity always, by design. A
-  ChatGPT turn whose shown images don't match the index count gets placeholders. A Claude PDF's page thumbnail is no
-  longer listed.
-- **Gemini:** numbers read "Q#…" until the history is positively complete, which can take 8 s at the top after the
-  last page (DEC-057's case). The constants (page size 10, the 8 s rule) were measured on three chats in Chrome.
-- **Live measurements came from a handful of chats:** ChatGPT page size 5 and the 734–1,089 ms page time were
-  measured on two chats in Chrome.
+- **Merged without acceptance:** v12.15 through v12.18. Safari + Userscripts and Firefox + Tampermonkey have run none
+  of them. Everything rests on mocks and the agent's Chrome + Tampermonkey checks, until the consolidated pass.
+- **The meter's numbers are estimates** (characters ÷ 4 plus an overhead). The summary count is a record, but whether
+  every summary leaves a marker is unproven.
+- **ChatGPT's plan is the user's word:** a wrong setting gives a wrong percentage.
+- **ChatGPT's two-node fallback turn** hasn't been seen live since 2026-11-01; its gate is a mock.
+- **Gemini's investigation may find the request needs tokens** that change often or come from places a userscript
+  shouldn't read. The fallback button exists for that.
 - **CI:**
-  - The ubuntu jobs take about 29–30 of 40 minutes.
-  - U10's timeout now also strikes Chromium in CI.
-  - The Firefox-on-Windows cascade can take out every entry.
-  - Each cleared with one re-run.
+  - The apt mirror can stall for longer than the bounded step's ~13 minutes; the step then fails clearly. Re-run it.
+  - Unpinned Playwright can change engines between attempts of one run.
+  - macOS runners can be unavailable at times (a 15-minute cancel).
 
 ---
 
@@ -374,52 +363,51 @@ The earlier lists (ROADMAP 13 and 14 from v12.15 and v12.16) are unchanged.
 
 ```
 Pick up AI Conversation Navigator from the handoff at HANDOFF.md on the branch
-feat/v12.18-context-meter (2026-11-04: v12.17 merged as 8909d92 before acceptance;
-next: the context meter PR, DEC-058's second, ROADMAP 12).
+feat/v12.19-gemini-full-history (2026-11-05: v12.18 merged as ab7ea21 before acceptance;
+next: Gemini's full question list on open, then Grok).
 
 CLAUDE.md auto-loads. Read HANDOFF.md before touching anything, especially §G (what
-comes next), §H (owner rules) and §J (risk caveats). The handoff is NOT on main: it is
-on feat/v12.18-context-meter, and merges with this PR.
+comes next), §H (owner rules) and §J (risk caveats).
 
 FIRST, CHECK STATE — do not assume:
   git fetch origin
   git log --oneline --first-parent -3 origin/main
   git branch --show-current && git status --short
   gh pr list --state open
-main should be at 8909d92 (the merge of PR #92, v12.17). You should be on the local
-branch feat/v12.18-context-meter, level with main, holding UNCOMMITTED changes: this
-HANDOFF.md, the v12.16 handoff renamed into docs/handoffs/, and the v12.17 doc lines
-in CHANGELOG, DECISIONS, ROADMAP, TESTING and agent_docs/testing.md (plus my five
-untracked files, never added). Commit them with this PR's work, explicit paths. No
-PR should be open. If that is not what you see, stop and tell me.
+main should be at ab7ea21 (the merge of PR #93, v12.18). You should be on
+feat/v12.19-gemini-full-history, one docs commit ahead of main (this handoff, the
+v12.17 handoff moved to docs/handoffs/, docs/acceptance-checklist.md, and the post-merge
+lines), plus my five untracked files, never added. No PR should be open. If that is
+not what you see, stop and tell me.
 
-THIS SESSION: the context meter, "make model-dependent limits clear to the user"
-(ROADMAP 12, DEC-058). The per-model table stays (DEC-056); the feature is about
-showing it. Start with the read-only Phase 1 and the live measurement in my Chrome:
-does the navigator see a mid-chat model change, through the conversation's stored
-`model` or the composer's model picker? Switching a model changes a conversation in
-my account, so ASK ME before you switch anything, and tell me which chat. Then HTML
-mockups for me to choose from. I may give a spec as my first message; if so, it
-decides the scope. If I report acceptance results for v12.15, v12.16 or v12.17
-instead, record them in DEC-031 exactly as I report them.
-After this PR: Grok. No release until every platform works on all supported
-browsers. Before any release, v12.17 owes a Firefox/WebKit run after 8a4b5a5 and a
-live check of 7bf5a3d and f5e2f52 (HANDOFF §G.2).
-For any code change: a read-only Phase 1 first, measure before reasoning, and wait
-for my decision before code. Before any live measurement, confirm which userscript
-version is installed in that browser (DEC-027): Chrome has a17413c's build, not
-main's.
+THIS SESSION: Gemini's full question list on open (ROADMAP "Next" item 3; DEC-058's
+addendum). Today Navigate lists only the loaded turns, shows the "older messages not
+loaded" note, and needs 2–3 trips to the top. Goal: the full list immediately in any
+Gemini chat. Start with a READ-ONLY investigation in my Chrome: can Gemini's history
+request (batchexecute, rpcids=hNvQHb, seen in v12.16, DEC-057, DOM-REFERENCE Gemini
+"Paging") return the whole conversation for an index adapter? What page tokens would
+the navigator need to call it, and how fragile is each one? Report key names, types and
+counts only, never message content. Then wait for my decision. Fallback if too fragile:
+a "Load full history" button that scrolls to the top until the start is loaded, then
+restores the view. I may give a spec as my first message; if so, it decides the scope.
+After this PR: Grok, once I'm on my Linux machine to sign in. No release until every
+platform works on all supported browsers.
+
+ACCEPTANCE (DEC-062): one consolidated pass at about v12.20, from
+docs/acceptance-checklist.md. Append this PR's steps there. Don't raise per-version
+"acceptance owed"; after each merge, remind me of the optional 5-minute Safari smoke
+check.
 
 STANDING RULE: Safari, Chrome and Firefox are equal priority; none is primary
-(DEC-047). I work mostly on the Mac: Safari first, Chrome if Safari fails.
+(DEC-047). Before any live measurement, confirm which userscript version is installed
+in that browser (DEC-027): Chrome has 12.18.
 
-PROCESS (HANDOFF §D, agent_docs/git-workflow.md): Tier 3 capped at 5 rounds;
-reinstall in my Chrome and retest live; the three-engine final run (ask first, about
-84 min); open the PR; /babysit-pr-cycle when I name it, plus one confirming
-@codex review, and poll after every push, docs included; reinstall and retest as an
-A/B against the previous version; re-read the whole transcript and memory, then
-/update-project-docs into the same PR. If I say I'm away, take over my Chrome and
-push through without questions.
+PROCESS (HANDOFF §D, agent_docs/git-workflow.md): a read-only Phase 1 first, measure
+before reasoning, wait for my decision before code; Tier 3 capped at 5 rounds; reinstall
+in my Chrome and retest live; the three-engine final run (ask first, about 1h42m); open
+the PR; /babysit-pr-cycle when I name it, plus one confirming @codex review; reinstall
+and retest as an A/B; re-read the whole transcript and memory, then /update-project-docs
+into the same PR. If I say I'm away, take over my Chrome and push through.
 
 DO NOT:
 - Merge anything without my explicit OK for that PR, or push to main. The ruleset
@@ -430,12 +418,12 @@ DO NOT:
 - Fix findings outside the task's scope. Log them to ROADMAP or TROUBLESHOOTING.
 - Add long verification runs without asking first, with a time estimate.
 - Record an acceptance more strongly than I reported it.
-- Send, edit, regenerate, delete or share anything in my live accounts, or switch
-  a conversation's model, without asking.
-- Create or delete bookmarks (or other navigator data) in my real browser
-  profiles without asking.
+- Send, edit, regenerate, delete or share anything in my live accounts without asking.
+- Create or delete bookmarks (or other navigator data) in my real browser profiles
+  without asking.
 - Read or write GM storage except through acnGetValue / acnSetValue /
   acnUpdateValue (collections through acnUpdateValue).
+- Name my chats by title or quote their content: id prefixes only (the repo is public).
 
 RULES: execute and narrate. Explicit `git add` paths, never -A; never add my
 untracked files (HANDOFF §E). Run `npm test` and the probes after any code change

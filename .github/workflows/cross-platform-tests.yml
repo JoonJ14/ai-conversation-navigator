@@ -34,7 +34,19 @@ jobs:
     # (hence the bounded install step below). The merge run's two macOS cancels at 15m01s were GitHub
     # not assigning a runner ("not acquired by Runner ... after multiple attempts"), which no
     # setting here changes: re-run the failed jobs once the whole run has finished.
-    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 50 || 30 }}
+    # v12.19 (Tier 3 r1): 60 on ubuntu. The owner chose 50 in v12.18, before this PR's "Run Gemini index
+    # probe" step existed; that step is why. It took ~9.8 minutes per engine when the cap was set (588 s for
+    # 67 checks, 589 s for 72), and 741 s (~12.4 minutes) for review round 1's last gates (b6f1aa2, 79
+    # checks), measured locally on chromium only (this machine, 2026-11-07; 489-502 s on 2026-11-06
+    # against v12.18, where many fixtures end early; Firefox, WebKit and CI not measured). A healthy ubuntu
+    # job: 33m18s-33m51s (PR #93's run 42095450049) + ~12.4 = ~46.2 minutes. The bounded install's worst
+    # case that still passes is its third attempt finishing at the 4-minute limit: 3 x 240 s, plus up to
+    # 15 s of kill-after and a 3 s pause after each failed attempt, ~12.5-13 minutes where a healthy install
+    # takes 18-40 s (already in the 33 minutes). ~46.2 + ~13 = ~59.2 of 60 minutes: under 1 minute of
+    # headroom by these local figures; under 50 such a job was cut off. A stall past that fails the install
+    # step itself (3 attempts, then exit 1), visibly.
+    # macOS and Windows run no probes and keep 30.
+    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 60 || 30 }}
     strategy:
       fail-fast: false
       matrix:
@@ -188,6 +200,14 @@ jobs:
       - name: Run Gemini history probe
         if: matrix.os == 'ubuntu-latest'
         run: node probes/check-gemini-history.js --browser ${{ matrix.browser }}
+
+      # v12.19: Gemini's full question list from its own history read (DEC-063): the read's shape and
+      # failure classes, the self-check, the refresh, jumps that page the DOM in, and the "Load full
+      # history" fallback. Placed like the ones above: it asserts request counts over real-time windows
+      # (20-25 s), paging waits and trusted-wheel cancels, which differ per engine.
+      - name: Run Gemini index probe
+        if: matrix.os == 'ubuntu-latest'
+        run: node probes/check-gemini-index.js --browser ${{ matrix.browser }}
 
       # v12.17: Search, Export, Summary and the gallery read the whole conversation on Claude,
       # ChatGPT, Perplexity and Gemini, and Gemini bookmarks key to the turn id (DEC-059).

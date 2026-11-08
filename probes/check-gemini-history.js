@@ -2,6 +2,7 @@
 // history is not loaded yet, and stops saying it once the chat's start is known to be loaded.
 //
 // Run: node probes/check-gemini-history.js [--browser chromium|firefox|webkit|all] [--quiet] [--only H1,H8]
+//                                          [--gm-endpoint refuse|abort|none]
 //      ACN_SCRIPT=/path/to/other.user.js node probes/check-gemini-history.js
 // Exits non-zero on any failed or INVALID check.
 //
@@ -24,8 +25,38 @@
 // inlined into the page; no real userscript manager and no real Gemini. Real-browser behaviour is
 // the owner's acceptance.
 //
-// Proof rule: run the old build (v12.15) against this file too — every check marked [new] must
-// FAIL there (on chromium; other engines are reported as measured). [guard] passes on both.
+// v12.19 (DEC-063): Gemini reads the whole chat from its own history request when it can; these
+// checks are the FALLBACK's, where it cannot. --gm-endpoint (default refuse) plants the page's token
+// in the mock (rpc: { at }), so v12.19's index really sends its read, and answers that read:
+//   refuse  HTTP 403 (")]}'"): the read is refused, a PERMANENT failure, the index degrades;
+//   abort   the request fails at the network level (the token planted);
+//   none    no token in the page and every request aborted: v12.18's exact page.
+// H1-H10 are unchanged in every mode. HP [guard]: the jumps' paging status ([data-acn-role=
+// "paging-status"]) never shows here: the fallback's jumps are v12.18's. It is watched by a
+// MutationObserver installed at document start (page.addInitScript), so a status inserted and removed
+// between two timer samples is still caught.
+// H0 [guard]: no retry loop in the fallback, the limit set per mode by the v12.19 plan's failure classes
+// (consolidated plan R4, transport plan §3.6, adapter plan item 9):
+//   refuse  a 403 is PERMANENT (60 s, then x4): no two reads of the same chat less than 58 s apart;
+//   abort   the fetch rejects, a 'network' failure, which stays TRANSIENT (R4's permanent override is
+//           for 'threw' only): the index may ask again behind the 15 s cooldown, so no two reads of the
+//           same chat less than 13 s apart (a pace, not a count: each failed read is a strike, so a
+//           chat visit sends at most 5, gated by check-gemini-index.js I26);
+//   none    no token: nothing may be sent at all (0 reads).
+// The 2 s below each gate absorbs the time between a load's start (where the gate is counted from) and
+// its request reaching the route. Reads of different chats (an SPA switch) are not a retry.
+// In refuse and abort mode H0 needs a read that was SENT (review round 1): with none in the run it is
+// INVALID, since the token plant broke or the build has no index, and the run then tested the no-token
+// path. A build before v12.19 (no index) runs with --gm-endpoint none.
+// What H0 can see (Tier 3 r1): only the reads made while a fixture's page is open, and no fixture here
+// stays open to the end of a 60 s backoff, so in refuse mode a page shows one read of each chat it opens
+// (H1 and H6b switch chats: 2) and H0 catches a retry loop faster than a fixture's life, not a backoff
+// shorter than 60 s. The backoff's length is gated by check-gemini-index.js I23 (a page open 75 s after a
+// 403: one read before 58 s, one between 58 and 75 s).
+//
+// Proof rule: run the old build (v12.15) against this file too, with --gm-endpoint none (it has no
+// index to send a read) — every check marked [new] must FAIL there (on chromium; other engines are
+// reported as measured). [guard] passes on both.
 // A precondition that fails (the page hidden, the mock's first page not as expected) prints
 // INVALID: it says the harness, not the build, is wrong.
 
@@ -44,12 +75,44 @@ const C32 = 'aa32aa32aa32aa32', C20 = 'dd20dd20dd20dd20', C10 = 'bb10bb10bb10bb1
 const CHATS = { [C32]: 32, [C20]: 20, [C10]: 10, [C6]: 6 };
 const PAGE = 10;
 const LOAD_DELAY = 2000;
+// The page token in Phase 1's shape (v12.19; 28 chars, ':', a 13-digit timestamp). Synthetic.
+const AT0 = 'APwZiaHprobeTokenHead0000AAA:1762380000000';
+const BE = '/_/BardChatUi/data/batchexecute';
+// H0's gates (see the header): the least time between two reads of one chat, per --gm-endpoint mode.
+const READ_GAP_MS = { refuse: 60000 - 2000, abort: 15000 - 2000 };
+// The jumps' paging status, watched from document start: every insertion, removal or change of it
+// counts in __pgEver (HP: it must never show on the fallback).
+const PG_SPY_INIT = `(function () {
+    if (window.__pgSpy) return;
+    window.__pgSpy = true;
+    window.__pgEver = 0;
+    var SEL = '#acn-paging-status, [data-acn-role="paging-status"]';
+    function isSt(n) { return !!n && n.nodeType === 1 && (n.id === 'acn-paging-status' || n.getAttribute('data-acn-role') === 'paging-status'); }
+    function hit(n) { return !!n && n.nodeType === 1 && (isSt(n) || !!n.querySelector(SEL)); }
+    function inside(n) { while (n && n.nodeType === 1) { if (isSt(n)) return true; n = n.parentNode; } return false; }
+    new MutationObserver(function (recs) {
+        for (var i = 0; i < recs.length; i++) {
+            var r = recs[i], j;
+            for (j = 0; r.addedNodes && j < r.addedNodes.length; j++) if (hit(r.addedNodes[j])) window.__pgEver++;
+            if (inside(r.type === 'characterData' ? r.target.parentNode : r.target)) window.__pgEver++;
+        }
+    }).observe(document, { childList: true, subtree: true, characterData: true, attributes: true,
+                           attributeFilter: ['id', 'data-acn-role', 'data-acn-paging-pages', 'data-acn-paging-loaded', 'hidden', 'style'] });
+})();`;
+// The chat a history read asks for, from its f.req ('c_<id>' first in the argument list), or null.
+function readChat(post) {
+    try {
+        const fr = JSON.parse(new URLSearchParams(post || '').get('f.req'));
+        const a = JSON.parse(fr[0][0][1]);
+        return typeof a[0] === 'string' ? a[0].replace(/^c_/, '') : null;
+    } catch (e) { return null; }
+}
 
 function buildPage(scriptContent, mockConfig) {
     const mock = fs.readFileSync(path.join(REPO, 'tests/mock-pages/gemini-history.html'), 'utf8');
     const body = (mock.match(/<body[^>]*>([\s\S]*)<\/body>/i) || [])[1] || mock;
     const head = (mock.match(/<head[^>]*>([\s\S]*)<\/head>/i) || [])[1] || '';
-    return `<!DOCTYPE html><html><head>${head}</head><body>
+    return `<!DOCTYPE html><html><head><meta charset="utf-8">${head}</head><body>
 <script>window.__MOCK_CONFIG = ${JSON.stringify(mockConfig)};</script>
 ${body}
 <script>
@@ -90,7 +153,7 @@ const NAV = `(function () {
              loaded: window.__mockGemini.loaded() };
 })()`;
 
-async function runEngine(engine, raw, only, quiet) {
+async function runEngine(engine, raw, only, quiet, endpoint) {
     const t0 = Date.now();
     const browser = await playwright[engine].launch({
         headless: true,
@@ -98,6 +161,8 @@ async function runEngine(engine, raw, only, quiet) {
     });
     let failures = 0, invalid = 0;
     const pageErrors = [];
+    const pageHits = [];     // history reads per page (H0)
+    const pagingSeen = [];   // pages where the paging status showed (HP)
     const want = (id) => !only || only.indexOf(id) !== -1;
     function check(id, desc, ok, detail) {
         if (ok) { if (!quiet) console.log('  PASS  ' + id + ' ' + desc + (detail ? ' — ' + detail : '')); }
@@ -112,11 +177,22 @@ async function runEngine(engine, raw, only, quiet) {
         const page = await context.newPage();
         page.on('pageerror', (e) => pageErrors.push(id + ': ' + String(e && e.message || e)));
         const url = 'https://gemini.google.com/app/' + chat;
-        const html = buildPage(raw, Object.assign({ chats: CHATS, page: PAGE, loadDelayMs: LOAD_DELAY, anchor: true }, cfgExtra || {}));
+        const cfg = Object.assign({ chats: CHATS, page: PAGE, loadDelayMs: LOAD_DELAY, anchor: true }, cfgExtra || {});
+        if (endpoint !== 'none') cfg.rpc = { at: AT0 };   // the token in the page (v12.19); the route answers the read
+        const html = buildPage(raw, cfg);
+        const hits = { id: id, n: 0, reads: [] };
+        pageHits.push(hits);
+        await page.addInitScript(PG_SPY_INIT);     // the paging-status observer, before any page script
         await page.route('**/*', (route) => {
-            if (route.request().url() === url) {
+            const u = route.request().url();
+            if (u === url) {
                 route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }).catch(() => {});
                 return;
+            }
+            if (u.indexOf(BE) !== -1) {
+                hits.n++;
+                hits.reads.push({ t: Date.now(), chat: readChat(route.request().postData()) });
+                if (endpoint === 'refuse') { route.fulfill({ status: 403, contentType: 'application/json; charset=utf-8', body: ")]}'" }).catch(() => {}); return; }
             }
             route.abort().catch(() => {});
         });
@@ -166,7 +242,10 @@ async function runEngine(engine, raw, only, quiet) {
             return !!row;
         }, i);
         h.bubble = (n) => page.evaluate(BUBBLE + '(' + n + ')');
-        h.close = () => context.close();
+        h.close = async () => {
+            try { if (await page.evaluate(() => window.__pgEver)) pagingSeen.push(id); } catch (e) {}
+            await context.close();
+        };
         return h;
     }
 
@@ -358,6 +437,34 @@ async function runEngine(engine, raw, only, quiet) {
         }
     }
 
+    // H0: per page, each read against the one before it; a read of the same chat sooner than this mode's
+    // gate is a retry loop. `none`: no read at all. Only reads while a page is open are seen (the header):
+    // the 403 backoff's length is check-gemini-index.js I23's.
+    const tooSoon = [];
+    let total = 0;
+    for (const p of pageHits) {
+        total += p.reads.length;
+        for (let i = 1; i < p.reads.length; i++) {
+            const a = p.reads[i - 1], b = p.reads[i];
+            if (a.chat === b.chat && b.t - a.t < READ_GAP_MS[endpoint]) tooSoon.push(p.id + ' ' + (b.t - a.t) + ' ms');
+        }
+    }
+    const gaps = pageHits.filter((p) => p.reads.length > 1)
+        .map((p) => p.id + ':' + p.reads.slice(1).map((x, i) => (x.chat === p.reads[i].chat ? '' : 'switch,') + (x.t - p.reads[i].t)).join('/'));
+    // refuse and abort test a read that was SENT and failed: with none sent, H0 would pass on the no-token path
+    // (the plant broke, or the build has no index) and test nothing (review round 1). Only with pages opened.
+    if (endpoint !== 'none' && pageHits.length && total === 0) {
+        bad('H0', 'no history read was sent in ' + endpoint + ' mode, so nothing was refused: the token plant broke, or the build ' +
+                  'has no index (a build before v12.19: run it with --gm-endpoint none)');
+    } else check('H0', '[guard] no retry loop in the fallback: ' + (endpoint === 'none'
+              ? 'no history read at all (no token in the page)'
+              : 'no two reads of one chat less than ' + (READ_GAP_MS[endpoint] / 1000) + ' s apart (' +
+                (endpoint === 'refuse' ? 'a 403 is PERMANENT' : 'a network failure stays transient, behind the cooldown') + ')'),
+          endpoint === 'none' ? total === 0 : tooSoon.length === 0,
+          'endpoint=' + endpoint + ' reads per page: ' + pageHits.map((x) => x.id + '=' + x.n).join(' ') +
+          (gaps.length ? ' gaps (ms): ' + gaps.join(' ') : '') + (tooSoon.length ? ' TOO SOON: ' + tooSoon.join(', ') : ''));
+    check('HP', '[guard] the jumps\' paging status never shows on the fallback', pagingSeen.length === 0,
+          pagingSeen.length ? 'seen in ' + pagingSeen.join(', ') : 'never seen');
     check('E', 'no page errors', pageErrors.length === 0, pageErrors.slice(0, 2).join(' / '));
     await browser.close();
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
@@ -378,12 +485,17 @@ async function runEngine(engine, raw, only, quiet) {
     }
     const quiet = argv.includes('--quiet');
     const only = arg('--only') ? arg('--only').split(',') : null;
+    const endpoint = arg('--gm-endpoint') || 'refuse';
+    if (['refuse', 'abort', 'none'].indexOf(endpoint) === -1) {
+        console.log('INVALID: --gm-endpoint takes refuse, abort or none');
+        process.exit(1);
+    }
     const scriptPath = process.env.ACN_SCRIPT || path.join(REPO, 'ai-conversation-navigator.user.js');
     const raw = fs.readFileSync(scriptPath, 'utf8').replace(/\/\/ ==UserScript==[\s\S]*?\/\/ ==\/UserScript==\s*/, '');
     let bad = 0;
     for (const engine of engines) {
-        console.log('check-gemini-history — engine=' + engine + ', script=' + path.basename(scriptPath));
-        bad += await runEngine(engine, raw, only, quiet);
+        console.log('check-gemini-history — engine=' + engine + ', script=' + path.basename(scriptPath) + ', gm-endpoint=' + endpoint);
+        bad += await runEngine(engine, raw, only, quiet, endpoint);
     }
     process.exit(bad ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

@@ -30,9 +30,76 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.18 BUILT, PR #93 MERGE APPROVED (once CI is green, before acceptance: a waiver); v12.17 MERGED (PR #92); v12.16 MERGED (PR #90); next after #93: Grok — live confirmation status: DEC-031
+## Current Status: v12.19 BUILT, PR #94 OPEN, NOT MERGED (Gemini's full question list on open, `feat/v12.19-gemini-full-history`, head `597ebfe`); v12.18 MERGED (PR #93, `ab7ea21`); v12.17 MERGED (PR #92); v12.16 MERGED (PR #90); next: the CI rebuild (item 0e), then Grok (the owner's order, 2026-11-07) — owner acceptance: one consolidated pass at about v12.20 (DEC-062); live confirmation status: DEC-031
 
-**v12.18 (PR #93, open, not merged; DEC-058's second, from the owner's spec of 2026-11-05; DEC-060, DEC-061).** One
+**v12.19 (PR #94, open and not merged, head `597ebfe`, on `feat/v12.19-gemini-full-history`; DEC-058's addendum PR,
+from the owner's spec of 2026-11-05, `docs/specs/v12.19-spec.md`; DEC-063).** Gemini's full question list on open
+(item 13, Gemini).
+- **The index adapter (the main path).** On `/app/<id>` the navigator reads the whole chat through Gemini's own
+  history read, `hNvQHb`. It is POSTed through `fetch` on every manager: Phase 0 found `fetch` the first transport
+  to return a payload on Chrome + Tampermonkey (the agent), Firefox + Tampermonkey and Safari + Userscripts (the
+  owner), 2026-11-05. No `@connect gemini.google.com`.
+  - Navigate, Search, Export, Summary and the size estimate cover every turn with nothing scrolled.
+  - A self-check against the page's own turns runs on every scan; a mismatch degrades visibly to v12.18's list.
+  - A refresh reads the newest page and merges it by id.
+- **Jumps** to a question not loaded yet page the history in with "Loading earlier messages…", then land checked
+  (`gmLandFarEl` when far, `gmLandInEl` when near, review round 1); a question mounted already lands as v12.18 does
+  (the agent's amendments M1, M2, approved by the owner on 2026-11-07). Since GitHub Codex's babysit cycle the pager's
+  wait counts visible time only, an answer whose turn has no question (an image-only prompt) pages in by its own turn
+  (`c98b2d5`), and a jump takes the chat's first turn, not its first question's, for the start (`597ebfe`).
+- **"Load full history"** is the fallback where the index cannot run or has degraded (Gem and `/u/N/` paths, a failed
+  read): it pages to the start and puts the view back.
+- **Proof so far** [Playwright page realm, headless, the userscript inlined, no real manager, this Mac, unless marked]:
+  - **The milestone on `3841805`** (2026-11-07, 13:33–14:10 EST, three parallel lanes, so the times are under load):
+    `npm test` 560/560 (chromium, 345 s); the other 17 `test:probes` probes green on chromium;
+    `probes/check-gemini-index.js` 79/79 (69 `[new]`, 10 `[guard]`) on chromium (741.7 s), Firefox (754.2 s) and
+    WebKit (749.3 s); `--proof` against v12.18 (`ab7ea21`'s userscript): "proof: 79 as wanted, 0 not", 69 `[new]`
+    ran, 831 s. Every probe but check-gemini-index ran on chromium only.
+  - **After the milestone, targeted gates only** (chromium): `c98b2d5` added F12 and I12m, both FAIL on `3841805`
+    and PASS on `c98b2d5` (`--proof --only F12,I12m,E` against v12.18: "3 as wanted, 0 not");
+    `--only F,I12,I4b,I14,I21` 31/31 (432.4 s); `check-ix-jumps` K1–K8 9/9 (E included); `check-ix-bookmarks`
+    59/59. On `597ebfe`: I12, I12b–I12m, I4b and E, 15/15 (228.8 s). By code reading the probe now has 81 checks
+    (71 `[new]`, 10 `[guard]`; 82 with `--slow`); no full run has counted them.
+  - Earlier: 79/79 on `b6f1aa2` (741.1 s, 2026-11-07); 64/64 on the version commit `b13e36e`, with 64 then. Each
+    `[new]` gate was shown failing on v12.18 when it was added.
+  - The fallback probes, by mode and build: `check-gemini-history` passed in `refuse`, `abort` and `none` on the
+    version commit `b13e36e`, and again in all three on `b6f1aa2` (review round 1); `check-feature-gaps` ran in
+    `refuse` only (44/44 on `b13e36e`; on `b6f1aa2`, `--only G1`: G1, G10, G0, GP and E, 5/5). The milestone on
+    `3841805` ran both in `refuse` only. Claude's L1-shape and L2-shape pass with `check-transport-ladder.js`
+    unmodified.
+  - CI [GitHub Actions; the mock suite, never real-browser evidence]: 9/9 on `3841805` (run 42400157639) and on
+    `597ebfe` (run 42407864961); the ubuntu jobs took 46m00s–47m21s on `597ebfe` against their 60-minute cap (a
+    stopgap until the CI rebuild, item 0e).
+- **Review.** Tier 3's round 1 (Codex CLI, REVISE, 6 WARNs) and a 47-agent adversarial review (13 WARNs) ran on
+  `546ab49`; every one of those 19 WARNs is fixed (18 distinct: two lenses found the same page-cap loop; DEC-063,
+  "Review round 1"). Tiers 1–2 ran on most code steps, not on each: `dd808c5`, `a3ae035`, `c98b2d5` and `597ebfe`
+  have no per-step record, and `cf91e23` with `fd42664`, `0d8a00b..a85ab2f` and `f0cce04..7bf7bf4` each share one
+  (the folded record: `reviews/review-2026-11-07-v12.19.md`). GitHub Codex's babysit cycle (2026-11-07): its two
+  open P2 comments were fixed in `c98b2d5`, the start-of-chat edge in `597ebfe`, and Codex was clean twice on
+  `597ebfe` (the second time on the confirming `@codex review`). Neither of those two commits went through the local
+  review pipeline.
+- **The agent's live checks** [Chrome + Tampermonkey 5.5.1, the owner's profile, visible tab, `96b519c1`; agent
+  checks, not acceptance; DEC-031; all 2026-11-07]: on `dde0b1a` before the PR (wifi), on `3841805` after the
+  known-bug fixes (a mobile hotspot), and an A/B of `597ebfe` against 12.18 (the hotspot): 12.19 listed Q#1–Q#32 on
+  open with 10 turns loaded and found an answer-1 word as A#1; 12.18 listed Q#1–Q#10 with the note and found
+  nothing. Live `hNvQHb` reads: 9 of the ~50 the spec allowed beyond Phase 1's 30 (the agent's count; Gemini's own
+  page loads during jumps not counted).
+- **Still to do before or at the merge:**
+  - The owner's merge decision (PR #94 is open and mergeable); after the merge, the Safari smoke-check reminder.
+  - Tier 3's rounds 2–5: **not run, the owner's call** (2026-11-07: "no further Tier 3 rounds (GitHub Codex was clean
+    twice on the final head)"); 1 of 5 ran.
+  - The local three-engine final run: **not run, the owner's call** (2026-11-07: "no local three-engine run (CI ran
+    all 81 gates on three engines)"); nothing has run in full locally after `c98b2d5` (CI did, above).
+  - The agent's amendments M1, M2, K5 (a spec deviation) and K8, and the ubuntu cap 50 → 60 minutes (`ffdabfb`):
+    **decided by the agent during the build, approved by the owner on 2026-11-07.** The cap is a stopgap: the CI
+    rebuild with parallel probe jobs is the real fix (item 0e, the next PR).
+  - The owner's acceptance in the consolidated pass (`docs/acceptance-checklist.md`, steps 33–37, on all three
+    browsers; DEC-062).
+- **Logged for later:** item 13, "Logged from v12.19": the spec's out-of-scope items, ChatGPT's own paging status,
+  and the residuals.
+
+**v12.18 (PR #93, merged 2026-11-05 as `ab7ea21` before acceptance, a waiver; DEC-058's second, from the owner's spec
+of 2026-11-05; DEC-060, DEC-061).** One
 combined PR in three parts.
 - **Part 1, the context meter (item 12).**
   - Claude counts the context from the last summary (`compaction_summary`), including the summary's question and its
@@ -58,8 +125,9 @@ combined PR in three parts.
     Playwright, an upstream publish race (TROUBLESHOOTING), and was never re-run. Run 42095450049 on `3ccf84b`
     installed again once `playwright`'s `latest` tag was back on 1.64.1, and all nine jobs passed;
     `firefox on ubuntu-latest` passed on its third attempt, after two apt-mirror install stalls (25m00s and 16m13s;
-    item 0e). The bounded install (`b48996a`) is in its first CI run.
-  - Owner acceptance on all three browsers is owed (the steps: PR #93's first comment).
+    item 0e). The bounded install (`b48996a`) then made its first mirror switch on `27af348` (item 0e), and `main`'s
+    first run after the merge was 9/9 green.
+  - Owner acceptance: the consolidated pass at about v12.20 (DEC-062; `docs/acceptance-checklist.md`, steps 27–31).
 
 **v12.17 (PR #92, merged 2026-11-04 as `8909d92` before acceptance, a waiver; DEC-058's first, from the owner's spec
 of 2026-11-01; DEC-059).** Search,
@@ -81,20 +149,44 @@ with a labelled 200K fallback (DEC-056; step 1 of item 12). The turn dots on Cla
 complete once the history is, and says so while it is not (DEC-057). The agent's live check in Chrome + Tampermonkey
 passed all three (DEC-031). Grok is out of scope (its own PR after the owner's testing).
 
-**Next, in the owner's order (2026-11-01; DEC-058).** No release for v12.15, v12.16 or v12.17: a release only once every
-platform works on all supported browsers.
+**Next, in the owner's order (2026-11-01; DEC-058; item 4 added before Grok, 2026-11-07).** No release for v12.15,
+v12.16 or v12.17: a release only once every platform works on all supported browsers.
 1. **The feature gaps, one PR — done: v12.17, above (merged 2026-11-04).** In the owner's words: Search, Export, Summary
    and the image gallery on ChatGPT, Perplexity, Gemini and Claude still read only on-screen messages, and Gemini
    bookmarks are still positional. All of it goes in one PR. Known pieces already logged: Export and Summary drop
    unmounted questions on ChatGPT and Perplexity (item 14), positional Gemini bookmarks (item 13).
-2. **The context meter: make model-dependent limits clear to the user** (item 12), its own PR — **built: v12.18,
-   PR #93 (open), above.** The live measurement found that the stored `model` follows a switch on the next message
+2. **The context meter: make model-dependent limits clear to the user** (item 12), its own PR — **done: v12.18,
+   PR #93, merged 2026-11-05 as `ab7ea21`, above.** The live measurement found that the stored `model` follows a switch on the next message
    sent, and that claude.ai marks its summaries (`compaction_summary`; 87 found). The owner chose the design from HTML
    mockups (DEC-060).
-3. **Grok** on all three browsers (item 13), its own PR — **next after PR #93.** The code search must be redone
-   signed in (2026-11-04's was signed out and only partly conclusive: the chat client loaded, a signed-in session
-   did not), and data steps 2–3 follow it (DOM-REFERENCE, Grok,
-   "Context and summaries").
+3. **Gemini's full question list on open — built: v12.19, above (PR #94, not merged; DEC-063)** (the owner, 2026-11-05;
+   DEC-058's addendum; item 13, Gemini). Its own PR, on the branch `feat/v12.19-gemini-full-history`. The owner chose
+   option C: the index (the investigation below found Gemini's own read returns the whole chat) and the button as
+   the fallback.
+   - **Baseline today** (v12.16–v12.18, DEC-057): Navigate lists only the loaded turns (Gemini loads the newest 10,
+     and 10 more each time the view reaches the top), the "older messages not loaded" note shows, and 2–3 trips to
+     the top load the rest (32 questions: 10 → 20 → 30 → 32).
+   - **Goal:** the full question list immediately, in any Gemini chat.
+   - **Investigation first, read-only:**
+     - Can Gemini's own history request (`batchexecute` with `rpcids=hNvQHb`, seen in v12.16; bodies never inspected;
+       DOM-REFERENCE, Gemini, "Paging") return the whole conversation, for an index adapter like ChatGPT's and
+       Perplexity's (DEC-046)?
+     - What page tokens would the navigator need to make that call itself, and how fragile is each one (where it
+       comes from, how often it changes, what breaks when it does)?
+   - **Fallback, if that is too fragile:** a "Load full history" button the user clicks. It scrolls to the top until
+     the start is loaded (DEC-057's completion rule), then restores the view.
+4. **The CI rebuild (item 0e), its own PR — next, before Grok** (the owner, 2026-11-07). In this order:
+   - **Split the probes into parallel jobs** first. Target: the whole CI run near ~10 minutes again (the ubuntu jobs
+     took 46m00s–47m21s on `597ebfe`, under the 60-minute cap). The owner adds the new job names to `main`'s required
+     checks (the ruleset has no bypass actors).
+   - **Then the flaky tests:** `check-ix-jumps` J15 and `check-usage-state` U10 (TROUBLESHOOTING).
+   - **Then refresh the mocks.**
+   - The ubuntu jobs' 60-minute cap (`ffdabfb`, v12.19) is the stopgap this replaces ("the CI rebuild with parallel
+     probe jobs is the real fix", the owner, 2026-11-07).
+5. **Grok** on all three browsers (item 13), its own PR — **after the CI rebuild** (the owner, 2026-11-07; before
+   that, after the Gemini PR), once the owner is on the Linux machine to sign in. The code search must be redone
+   signed in (2026-11-04's was signed out and only partly conclusive: the chat client loaded, a signed-in session did
+   not), and data steps 2–3 follow it (DOM-REFERENCE, Grok, "Context and summaries").
 
 **v12.15 (PR #88, merged 2026-10-31 as `6baac2e`, on the owner's OK before their acceptance: a waiver, DEC-031).**
 One combined PR in three parts. B: jumps on Perplexity and ChatGPT land in one click, instantly and checked
@@ -151,19 +243,20 @@ for a later PR unless they block this one. **The owner gives the full spec** as 
 nothing here pre-writes its scope.
 
 Later; the owner decides the order (2026-10-24; the last two added 2026-10-31; the first three PRs are now fixed
-by the owner's order above, 2026-11-01):
-- Grok on all three browsers (item 13).
+by the owner's order above, 2026-11-01; the CI rebuild, then Grok, joined that order on 2026-11-07):
+- Grok on all three browsers (item 13): now "Next" item 5, after the CI rebuild (the owner, 2026-11-07).
 - ~~Claude: a jump to the latest question from the top ends at the bottom, past it~~ — v12.16 part A (DEC-055).
 - `check-ix-jumps` J15's timing race in CI (TROUBLESHOOTING, OPEN): make the fixture's pin deterministic. It has
   failed locally since 2026-10-31 (Firefox and WebKit, v12.15/v12.16); since v12.18 also on Chromium (sweep 2,
-  twice), and again on Firefox (the final run).
+  twice), and again on Firefox (the final run); in v12.19's build, Chromium again (two back-to-back full runs at
+  `546ab49`; it passed the milestone on `3841805`). Now part of the CI rebuild ("Next" item 4, the flaky tests).
 - Pin Playwright in CI, or handle it in the rebuild (item 0e): the unpinned `npm install playwright` failed every job
   of PR #93's first run when npm had `playwright@1.65.0` but not yet its `playwright-core` (TROUBLESHOOTING).
 - ~~Gemini: does it keep or slide older turns (item 13)?~~ — it keeps them; v12.16 part C (DEC-057).
 - Perplexity attachment images. The gallery has marked Perplexity unsupported since v11.x, because its attachments
   render as text labels, not `<img>` tags ("Image Gallery Platform-Specific Selectors", below). There is no backlog
   item of its own yet.
-- The CI rebuild (item 0e).
+- The CI rebuild (item 0e): now "Next" item 4, the next PR (the owner, 2026-11-07).
 - ~~The context-window meter's recalibration to the current limit, after verifying the limit per model (item 12).~~
   The limit per model is v12.16 (DEC-056), and the display is v12.18 (DEC-060). Still open: calibrating the estimate
   itself (item 12, step 2).
@@ -174,7 +267,14 @@ by the owner's order above, 2026-11-01):
 - Chrome's intermittent v12.9-era 403 (item 0d): never reproduced since, logged, not active.
 - Someday, at low priority: a spot-check of Chrome and Firefox on Windows. It is logged here only.
 
+**Owner acceptance: one consolidated pass at about v12.20** (the owner, 2026-11-05; DEC-062), every feature on every
+site and browser, on the build current then, from `docs/acceptance-checklist.md` (seeded from PRs #88, #90, #92 and
+#93; each PR appends its steps). Until then the items below are expected, not open problems to raise every session.
+After each merge the agent reminds the owner of the optional 5-minute Safari smoke check (the checklist's top).
+
 Owed meanwhile, "not reported" until the owner sends results (DEC-031):
+- PR #94's acceptance (v12.19, not merged yet), steps 33–37 on all three browsers (also PR #94's first comment).
+  The agent's three live checks in Chrome are agent checks, not these steps;
 - PR #93's acceptance (v12.18), every step on all three browsers, including step 4 (the Q45 test bookmark, which
   the agent's safety classifier blocked);
 - PR #92's acceptance (v12.17) and PR #90's (v12.16), every step on all three browsers (merged before acceptance,
@@ -554,7 +654,11 @@ Numbering below is stable (items keep their historical numbers):
    PR #75: the CI checks are outdated. They pass builds that fail in a real browser — v12.8 was green
    in CI while its index failed on Safari — so a green run says nothing about what breaks there. Nothing in the harness has a userscript manager: it inlines the
    script into the page realm with a `GM_xmlhttpRequest` shim (TESTING.md). Not started — scope it as
-   its own change. **Stopgap (v12.17, the owner, 2026-11-01):** the ubuntu jobs' `timeout-minutes` went from 30 to
+   its own change. **The next PR, before Grok (the owner, 2026-11-07; Current Status, "Next" item 4):** first split
+   the probes into parallel jobs (target: the whole CI run near ~10 minutes; the owner adds the new job names to
+   `main`'s required checks), then the flaky tests (`check-ix-jumps` J15, `check-usage-state` U10), then refresh the
+   mocks. It replaces the ubuntu jobs' 60-minute cap (stopgap 4, below).
+   **Stopgap (v12.17, the owner, 2026-11-01):** the ubuntu jobs' `timeout-minutes` went from 30 to
    40 (they took about 24 minutes on v12.16, and v12.17's probes add about 4–5; measured on PR #92, 29m1s–29m35s
    on run 41388828440); macOS and Windows keep 30. Revisit
    it in the rebuild. Inputs collected on PR #75:
@@ -626,6 +730,43 @@ Numbering below is stable (items keep their historical numbers):
        GitHub's runners is unmeasured until its first CI run.
      - Still for the rebuild: Playwright's container image (browsers and system packages preinstalled, Playwright
        pinned) removes the apt download and the npm race together, but it changes the whole ubuntu test environment.
+     - **Measured: the first measured mirror switch [GitHub Actions, run 42117334465 on `27af348`, `webkit on ubuntu-latest`]:
+       attempt 1 on azure.archive.ubuntu.com got about 3 MB of the 114 MB needed in 4 minutes and was cut off; the runner's
+       list was azure (priority 1), `https://archive.ubuntu.com` (2), `https://security.ubuntu.com` (3); with azure
+       dropped, archive.ubuntu.com served the remaining 111 MB in 36 s (3.1 MB/s). The install took 303 s and the job passed
+       in 38.4 min.** So a stall now costs about 5 minutes
+       instead of 10–25.
+     - **`main`'s first run after the merge** (`ab7ea21`, run 42123189982, 2026-11-05): 9/9 green at 23:14 UTC with no
+       stall: ubuntu 32.9 / 34.5 / 34.8 min (installs 16 / 34 / 85 s), macOS 6.2–6.7, Windows 5.9–10.3 (Chromium's
+       install 232 s, as always). Every job started 2–3 s after it was created.
+   - **Why the ubuntu jobs take ~34 minutes while macOS and Windows take 6–10: the probes, not queueing** [GitHub job
+     and step data, read-only, run 42118079878 on `4cdc730`, 2026-11-05; the owner asked]:
+     - All nine jobs were created at 22:03:00 and the three ubuntu jobs started 2 s later, with the others (only
+       `chromium on macos-latest` waited, 75 s, for a Mac runner).
+     - In `chromium on ubuntu-latest` the steps ran back to back: 15 steps from 22:03:03 to 22:23:58, 1,255 s busy,
+       0 s between any two steps.
+     - Every job runs the same test suite (about 5¾ min). The 16 probe steps run only on ubuntu
+       (`if: matrix.os == 'ubuntu-latest'`), one after another, about 27 minutes: `check-feature-gaps` 4m35s, the
+       ChatGPT/Perplexity bookmarks 3m53s, `check-context-meter` 3m39s, the index jumps 3m21s, the transport ladder
+       2m18s, the Claude turn keys 2m05s, the answer bookmarks 2m01s, and eight smaller ones about 5 min together
+       (healthy chromium/ubuntu job on `3ccf84b`).
+     - The history: 5m41s–9m47s for every job until July 2026; about 9 min with v12.9's transport-ladder probe; 14,
+       then 22 with v12.15's; 23–24 with v12.16's; 27–30 with v12.17's; 33–34 with v12.18's; 46–47 with v12.19's
+       (stopgap 4, below).
+   - **Recommendation for the rebuild (the owner, 2026-11-05): split the probes into parallel jobs.** Run the probe
+     steps as their own jobs (grouped so the longest group is a few minutes) beside the suite jobs, instead of one
+     after another inside each ubuntu job. The wall clock then comes near 10 minutes again. The new job names must be
+     added to `main`'s required checks in the ruleset (it has no bypass actors), or a PR could merge without them.
+     This was option 2 when the owner chose the 50-minute cap; it is logged here for the rebuild, not done. **Since
+     2026-11-07 it is the rebuild's first step** (the owner: "target: the whole CI run near ~10 min"; the owner adds
+     the new job names to `main`'s required checks).
+   - **Stopgap 4 (v12.19, decided by the agent during the build, approved by the owner on 2026-11-07): the ubuntu cap
+     went 50 → 60** (`ffdabfb`, Tier 3 round 1; DEC-063, "Review round 1"); macOS and Windows keep 30. 50 was chosen
+     in v12.18, before v12.19's own "Run Gemini index probe" step existed; with that step the bounded install's worst
+     passing case passed 50. Observed [GitHub Actions; the mock suite, not real-browser evidence]: the ubuntu jobs took
+     45m38s–47m08s on `3841805` (run 42400157639) and 46m00s–47m21s on `597ebfe` (run 42407864961), the Gemini index
+     step 12m23s–13m04s of it. The owner, 2026-11-07: "The CI cap is a stopgap: the CI rebuild with parallel probe
+     jobs is the real fix."
    - **Job durations before v12.18: successful jobs, min / median / max in minutes** [GitHub job and step data,
      read-only, 2026-11-05; v12.17: 21–22 runs, PR #92 and `8909d92`; v12.16: 5 runs]:
      - ubuntu, v12.17: chromium 27.3 / 28.4 / 29.2 (install 0.3, suite 5.7, probes 21.3–22.9); firefox 27.8 / 29.0 /
@@ -800,7 +941,8 @@ Numbering below is stable (items keep their historical numbers):
    a measurement. The probe is not needed for it.
 12. **The context-window meter: recalibrate the limit, then the estimate — LOW PRIORITY, for later (owner,
    2026-10-23; not in the next-session order).** **Status: step 1 done in v12.16 (DEC-056); the display, "make
-   model-dependent limits clear to the user", built in v12.18 (PR #93, open; DEC-060); step 2 still open.** (Before
+   model-dependent limits clear to the user", built in v12.18 (PR #93, merged as `ab7ea21`; DEC-060); step 2 still
+   open.** (Before
    v12.16:) The meter still assumes Claude's old ~200–250K window (the
    userscript's `CTX_LIMITS.claude` is `200000`; `docs/CONTEXT-TRACKING.md` → "Context Window Limits
    Reference"), so long conversations read well over 100%.
@@ -903,7 +1045,8 @@ Numbering below is stable (items keep their historical numbers):
      caption read all green past every ChatGPT window: the review, 2026-11-05);
      Gemini and Perplexity's meter heading reads "Context size", ChatGPT's "Context window". Path B's 85% "Context
      nearly full" line still never shows (the residual above); the new 95% fallback alert shows on both paths.
-   - **v12.18 built (PR #93, open; CHANGELOG 12.18).** Owner acceptance is owed on all three browsers. **Logged from
+   - **v12.18 built (PR #93, merged 2026-11-05 as `ab7ea21`; CHANGELOG 12.18).** Owner acceptance: the consolidated
+     pass (DEC-062). **Logged from
      v12.18, not fixed:**
      - **`bf5c0c8` has no gate.** It is Codex round 5's fix: a queued ChatGPT mode notice now explains its own change.
        No check fails without it, because C9 does not exercise the queued Instant → unknown → Thinking sequence.
@@ -943,7 +1086,9 @@ Numbering below is stable (items keep their historical numbers):
          load (12.17; the attributes are probably set only when the meter draws).
      - **Live coverage gaps:**
        - 103 of the owner's 299 ChatGPT conversations returned no `mapping`, and the slug census covers the other 196.
-       - Gemini's 32-question chat was not found among 31 chats in Phase 1, so only a 10-turn chat was checked live.
+       - Gemini: Phase 1 took `96b519c1…` for a 10-turn chat, but it is v12.17's 32-question chat with its newest 10
+         turns loaded (DEC-031, v12.17). Every live check here read it with 10 loaded, so the size dots and the
+         estimate on a fully loaded long Gemini chat were not checked live.
        - Perplexity's threads are too short (12, 2, 5) to test size colours.
      - **The live two-node fallback turn** (DEC-061) has not been seen since 2026-11-01. Its gate is on a mock.
      - **A comment that overstates its basis:** the userscript's comment above `GPT_MODE_BY_SLUG` says the other slugs
@@ -1125,8 +1270,9 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       Chrome + Tampermonkey by the agent (CHANGELOG 12.15); owner acceptance on all three browsers owed (a waiver,
       DEC-031).
     - **Pending:** Grok, untested on all three browsers. The owner decides the order (ROADMAP, "Current Status";
-      HANDOFF.md). Gemini: measured in v12.16; it keeps every turn, so it needs no index adapter (DEC-057). Its
-      bookmarks stay positional (logged below, v12.16).
+      HANDOFF.md). Gemini: measured in v12.16; it keeps every turn (DEC-057). Its bookmarks key to the turn's id
+      since v12.17 (DEC-059), and since v12.19 it has an index adapter of its own, reading Gemini's history request
+      (`hNvQHb`), with "Load full history" as the fallback (DEC-063, superseding DEC-057's "no adapter").
     - **How to add the next one:** "Porting the Layer 4 response to another platform" below, then one
       `IX_ADAPTERS` entry and a mock that genuinely unmounts (`probes/check-index-adapters.js` has two).
     - **Logged from v12.10, outside its scope:**
@@ -1204,13 +1350,115 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
           table written without leading pipes (the key handles rows that start with `|`, the shape measured live), or
           intraword italics such as `a*b*c` (single-marker emphasis is dropped only where it opens after a start,
           space or punctuation, so that "2*3*4" keeps its stars) [inferred; not measured].
+    - **Logged from v12.19** (not fixed; out of its spec or below its bar; DEC-063):
+      - **Out of scope, by the owner's spec** (2026-11-05):
+        - Grok (its own PR, after the CI rebuild: the owner's order of 2026-11-07, Current Status, "Next").
+        - Gem and `/u/N/` adapters: those paths get no index and show the fallback; they are logged once as
+          "unmeasured" (no such link was in the owner's account in Phase 1: 29 of 29 links on the page were
+          `/app/<id>`, counted document-wide with `a[href*="/app/"]`, not in the sidebar alone).
+        - How long `at` stays valid: measure opportunistically, never build on it. Phase 1 (Chrome page realm): a
+          second tab's token was accepted in the first, and the first's still after the second was issued.
+        - Streaming-turn edge cases beyond "the refresh merges by id".
+        - Shrinking the payload: no flag shrank it in Phase 1 (five variants; the heavy slot stayed 515K on the newest
+          turn).
+      - **ChatGPT's own paging status** (the v12.17 UX item): Gemini's jumps show "Loading earlier messages…" since
+        v12.19; ChatGPT's history-page jumps (`pagesAtTop`, v12.17) still wait without one.
+      - **Residuals** [code reading unless marked]:
+        - The gallery's labels while the index is ready count the loaded turns, while Navigate shows the chat's
+          number.
+        - A bookmark record saved from a flag drawn by the other path (the `_bmGm*` path vs the adapter's) stores that
+          path's Navigate index as `msgIndex`. No code reads it for keyed records.
+        - The banner flips degraded → loading → degraded on each retry after a failure, as on ChatGPT, and Navigate's
+          list is rebuilt twice per retry, which v12.18 never did. The bookmark labels and the note do not flip.
+        - A just-sent question bookmarked while the index is ready reads "Q#?" until the newest-page refresh lands,
+          as on ChatGPT since v12.15. The spec's "never Q#?" is about the degraded and absent states.
+        - The live refresh count per sent message is unmeasured. Since `cf91e23` the bound is its id's refresh, one
+          more when its answer settles, and one per `IX_SETTLE_MS` pause mid-stream; since review round 1 also one
+          more when a refresh caught the answer mid-write (A5) and a full read with a strike when a refresh left the
+          sent turn out past the 30 s grace (A4); at most one per ~16 s (K8, corrected). In the mock it is 2 reads for
+          an answer written over 35 s (I11d), 2 for one caught mid-write (I11g).
+        - Refreshes that SUCCEED have no count bound in a chat visit: the cooldown bounds their rate (one per ~16 s at
+          most) and the once-per-signature rule stops one signature from repeating, but a latest answer whose
+          rendered length keeps changing settles again after each pause, so it is refreshed once per pause for as long
+          as that lasts (read from the code; unmeasured live; no mock knob makes an answer oscillate). At `a85ab2f` the
+          100-request per-visit backstop capped it; since review round 1 a good load resets that count (A2).
+        - M2's far half is gated by outcome only (I21b): a build that sent a mounted far target through ixJump would
+          pass it too. Only I21 (the near glide) can catch M2 skipped. A path discriminator is the owner's call.
+        - Network errors are strikes since review round 1 (A8): five failed loads in a chat visit (about 65 s offline,
+          one per ~16 s; I26, in the mock) stop its loads until a reload or a reopen, even once the network is back.
+          The DOM list, the note and "Load full history" stay.
+        - A signed-out `/app/<id>` page shows the degraded banner "no page token in the page (signed out?)" where
+          v12.18 showed none (a failure shown, never a silent one). The v12.18 list, labels and note are unchanged
+          underneath.
+        - The calls backstop's cap itself (100 requests since the visit's last load that succeeded) and `ciFetchGet`'s
+          open/stall-cap refusal (transient, strike-free) are gated by code reading only; I25 gates that a good load
+          resets the count. The strikes are gated on every run by I22 (timeouts), I26 (network errors), I27 (a refresh
+          with the strikes spent sends nothing and drops the index) and I28 (a superseded load's failure is none); the
+          mismatch strike cap runs only with `--slow` (I6s, 330 s). That a superseded 400 neither re-reads nor
+          clears the token is gated by code reading only: in the mock a build without it sends the same requests.
+        - The button stays hidden during the index's first load (the "Loading full conversation history" banner
+          shows then).
+        - `check-ix-jumps` J15's known timing race (TROUBLESHOOTING, OPEN) can still turn a run red.
+        - Logged from review round 1 (not fixed; the review's reading of the code unless marked):
+          - An edited question that keeps its turn id reads as a self-check mismatch each time: a strike and a full
+            read. Five edits in one chat visit stop the index for the visit (the DOM list, the note and the button
+            stay). How live Gemini edits a question (in place, or as a new turn) is unmeasured.
+          - With the index ready, an old position-based Gemini bookmark (from before v12.17) is proved by comparing
+            the page's question text with the read's, so a multi-line question never matches and the record stays
+            unbound.
+          - `ciFetchGet`'s cap refusal (transient, nothing sent) resets the permanent backoff earlier timeouts built
+            up, so the next permanent failure backs off from 60 s again.
+          - The mock answers every size-100 read in 400 ms, Phase 1's small-chat figure; the one size-100
+            measurement is 6.2 s for 32 turns (Chrome page realm), so the gates' real-time windows run against reads
+            about 15x faster than that chat's.
+        - Logged after review round 1 (2026-11-07; not fixed, bounded):
+          - **NOTE N1** (the milestone's Tiers 1–2 on `3841805`, in `reviews/review-2026-11-07-v12.19.md`; unmeasured
+            live): since A4 a turn newer than the index is a mismatch after the 30 s grace. If live Gemini gives a
+            sent turn its 16-hex id on the page before the newest page lists it, and the answer streams for more than
+            about 30 s, the self-check strikes mid-stream: a transient degraded banner and a full read, up to 5 per
+            chat visit. Suggested as a live check for the acceptance pass (a long answer right after a send); adding
+            the step is the owner's call.
+          - **NOTE N2** (same record): A5 compares the answer's shown and held lengths, so if live rendering always
+            differs in length from the markdown (code-block labels, chips), every refresh costs one more newest-page
+            read per signature. Bounded by `actedSig`.
+          - **The timeout risk** [inferred from one live reading]: after the A/B, the 32-turn read of `96b519c1` took
+            29.4 s for 3.11 MB on the wire (about 0.1 MB/s) on a mobile hotspot [Chrome + Tampermonkey 5.5.1, the
+            agent's check, Resource Timing, 2026-11-07], below the 0.25 MB/s at which the timeout comment estimates a
+            100-turn read crosses 45 s. On such a link a chat with much more rich content than `96b519c1` would
+            likely pass 45 s: a permanent failure, a strike, the degraded banner and the button. Bounded by the 5
+            strikes. Why that read was slow is unmeasured (TROUBLESHOOTING, the v12.19 hotspot entry).
+          - **An image-only prompt's DOM is unmeasured.** The mock's `noQuestion` knob (`c98b2d5`, gate I12m) is a
+            model of it: an empty question in the read and an empty question line on the page.
+          - **ChatGPT and Perplexity:** whether an answer whose turn has no textual question is unreachable there too
+            (toasted, never paged in, as Gemini's was until `c98b2d5`) is unknown. `c98b2d5` is Gemini-only; v12.15's
+            A-N2 (an image answer is not in ChatGPT's `answerOf`) is the nearest logged case.
+      - **Unmeasured live**, owed to the live check or acceptance:
+        - the parse time and heap on `96b519c1` beyond two readings [Chrome + Tampermonkey 5.5.1, visible tab, the
+          agent's checks]: `dde0b1a` before the hotspot (`netMs=6047 parseMs=153`, heapMB 189.7>254.2>254.2) and
+          `3841805` on it (`netMs=10059 parseMs=133`, heapMB 76.8>183.2>183.2), plus one Resource Timing reading after
+          the A/B (29,395 ms for 3,114,652 B). The third `measure` reading was never taken, and the heap is Chrome's
+          coarse `performance.memory`;
+        - whether `gmIxOwn`'s copy is needed against V8 sliced strings: still undecided, since nobody analysed the
+          heap figures;
+        - the live paging trigger (what makes Gemini load a page);
+        - Firefox's and Safari's paging timings;
+        - chats over 100 turns and the server's largest page above 32;
+        - whether live Gemini inserts a page in a hidden tab;
+        - the self-check on questions with markdown, code, attachments, an edit or a collapsed long text. Any of
+          these would degrade visibly, at a cost of up to 5 full reads per chat visit.
+      - A pre-existing hazard found while building, not this PR's: on ChatGPT and Perplexity, `ixAfterLoad(false)`'s
+        retry rescan can be dropped by `_ciScheduleRescan`'s single timer when a sooner rescan is pending, so the
+        retry waits for a mutation (Gemini's self-check path replaces the pending timer).
     - **Logged from v12.16** (not fixed; out of its spec):
       - **Gemini bookmarks by the turn's id** — **done in v12.17 (DEC-059).** Each turn has a stable 16-hex id (`div.conversation-container#…`, the
         same across two reloads; DOM-REFERENCE, Gemini), but bookmarks there are still `contentHash(text, position
         among loaded turns)`, and the position shifts by 10 whenever an older page loads above [code + measured
         paging]. Keying them to the id needs a migration of existing records, so it is not small.
       - **Gemini: an automatic "load the full history" action** (scrolls the page for the user until the start is
-        loaded): proposed to the owner, not built.
+        loaded): proposed to the owner, not built. **Now the next PR (the owner, 2026-11-05):** "Gemini's full
+        question list on open", with this as the fallback (a "Load full history" button) if reading Gemini's own
+        history request is too fragile (Current Status, "Next"). **Built in v12.19** as the fallback beside the
+        index (DEC-063).
       - **Gemini: Navigate catches up with a history load about 5 s late** [measured, Chrome, 2026-10-31]: the scan
         waits for Gemini's DOM to go quiet (the 500 ms debounce restarts on each mutation).
       - **Export and Summary drop unmounted questions on ChatGPT and Perplexity** — **done in v12.17 (DEC-059)** [code]: `buildTimeline` keeps only

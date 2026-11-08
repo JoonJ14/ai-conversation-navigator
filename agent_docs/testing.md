@@ -29,6 +29,45 @@ npm run test:screenshots
 ./tests/run-tests.sh
 ```
 
+## When to run the whole suite (CLAUDE.md rule 7, since 2026-11-07)
+
+**The rule.** Each build step verifies with its **own** gates (`--only`) and the probes related to what it touched
+(a Gemini index change: `check-gemini-index`, plus `check-gemini-history` and `check-feature-gaps` for the fallback),
+plus `--proof` against the previous release for any new gate. The full suite, `npm test` and every probe (`npm run
+test:probes`), runs **once per stage**: at a build stage's end, before the live test, and in the final run; never
+after every step. No verifier agent per step: the review gates are Tiers 1–3, then GitHub Codex (git-workflow.md,
+"Pull Requests"). The owner, 2026-11-07, during v12.19's review round 1: "run full suite only at milestones, drop
+per-step verifiers. i thought i had it at every milestone already". Rule 7 said "after any change" until then; the
+owner approved the new wording, committed as `434a886`. The same day the owner had the rule spelled out here and in
+git-workflow.md, where the process lives: "each build step verifies with its OWN gates and related probes; the full
+suite and every probe run once per stage, not after every step".
+
+**Why it changed.** The agent had read "after any change" literally, and added a verifier agent per step that ran
+the suite again. On v12.19 each build step then took 60–90 minutes (`npm test` about 6, `check-gemini-index` about
+10, `check-feature-gaps` about 5, the proof about 10: a full pass about 45), and the build took about 15 hours over
+14 commits [the agent's accounting, 2026-11-07]. During the build the verifiers did catch two majors (a timed-out
+read re-read every 45 s, and a jump that toasted in a hidden tab); the review tiers (1–3, then GitHub Codex) are the
+gates now.
+
+**`--only` does not match the same way in every probe** [code; runs on 2026-11-06 and 2026-11-07]:
+`check-gemini-index` matches by prefix (`--only I1` runs I10–I19 too), `check-ix-jumps` exact ids only, so
+`--only K` ran nothing but the E guard and still "passed". Count the checks a run reports.
+`check-gemini-index --proof` with no `[new]` check run is INVALID (since `e7aa36f`). `npm run test:probes` stops
+at `check-usage-state`'s Firefox U10 timeout on this Mac (bare, that probe runs Firefox): run the probes one by one
+with `--browser`.
+
+**What a milestone costs** [Playwright, headless, page realm, this Mac]. The one on `3841805` (2026-11-07, 13:33–14:10
+EST, 37 minutes) ran three lanes in parallel: `npm test` then nine Chromium probes; the other eight Chromium probes
+then `check-gemini-index --proof` against v12.18; `check-gemini-index` on Chromium, Firefox and WebKit. All green:
+`npm test` 560/560 on Chromium (345 s), the 17 other probes on Chromium, `check-gemini-index` 79/79 on each engine
+(741.7 s, 754.2 s and 749.3 s, under the other lanes' load), and the proof "79 as wanted, 0 not", 69 `[new]` run
+(831 s). Nothing else ran on Firefox or WebKit, and `check-gemini-history` and `check-feature-gaps` ran in `refuse`
+mode only. The full three-engine final run
+(about 1h45m, pre-approved by the v12.19 spec) did not run for v12.19, the owner's call (2026-11-07: "no local
+three-engine run (CI ran all 81 gates on three engines)"), and nothing has run in full locally after
+`c98b2d5` (GitHub Codex's fixes, gated by their own checks); CI ran its suite on `597ebfe` (run 42407864961, 9/9;
+below) [CI].
+
 ## Test Architecture
 
 Tests use Playwright with route interception:
@@ -80,7 +119,8 @@ the check pass on Linux and fail on Windows for the same correct jump.
 When modifying the userscript, ensure:
 - All `data-acn-*` attributes remain intact
 - Mock pages match the real platform DOM structure
-- Tests pass across all 26 platform entries as of v12.9 (the 14 real platforms plus the Claude
+- The step's own gates pass after each step, and in each stage's full run ("When to run the whole suite", above) the
+  tests pass across all 26 platform entries as of v12.9 (the 14 real platforms plus the Claude
   fixture entries — among them the virtualized degraded, index-backed, and index-backed-with-markdown
   entries whose DOM/API text deliberately does NOT match)
 
@@ -132,8 +172,41 @@ GitHub Actions runs on push/PR to `main`:
     records rewritten to the index's key, flags in sync, Safari's queued replay). They took about 4.3–4.6 min per
     engine in the final local run, and 4m16s–4m22s in CI (run 42095450049 on `3ccf84b`, where healthy ubuntu jobs
     took 33m18s–33m51s). Since `b48996a` the ubuntu jobs' browser install is bounded: the system packages get up to 3
-    attempts of 4 minutes (the apt mirror stalled for 10–25 minutes three times; ROADMAP 0e). The ubuntu cap is **50 since v12.18** (the owner's second stopgap: an apt-mirror
-    stall took `webkit on ubuntu-latest` past 40 on the `8909d92` merge run; ROADMAP 0e).
+    attempts of 4 minutes (the apt mirror stalled for 10–25 minutes three times; ROADMAP 0e). Its first measured
+    switch: azure got about 3 MB in 4 minutes, then archive.ubuntu.com served 111 MB in 36 s (run 42117334465). The ubuntu cap was **50 since v12.18** (the owner's
+    second stopgap: an apt-mirror stall took `webkit on ubuntu-latest` past 40 on the `8909d92` merge run; ROADMAP 0e),
+    and is **60 since v12.19** (`ffdabfb`, review round 1's fix for Tier 3's finding: this PR's own "Run Gemini index
+    probe" step did not fit under 50 with the bounded install's worst passing case; the agent's change, for the
+    owner's review).
+  - Every `ubuntu` job also runs `check-gemini-index` on its own engine (v12.19, DEC-063): Gemini's full question
+    list from its own history read (`hNvQHb`) on `gemini-history.html` with the mock's opt-in `rpc` server, answered
+    through a route bridge in Phase 1's framing: the request's shape, the failure classes, the self-check, the
+    refresh, jumps that page the DOM in, and the "Load full history" fallback. 81 checks by code reading at `597ebfe`
+    (71 `[new]`, 10 `[guard]`): GitHub Codex's F12 and I12m (`c98b2d5`) on top of the 79 (69/10) that the last full
+    local run counted, at `3841805`; CI's run on `597ebfe` counted the 81 and passed them on each engine. `--slow`
+    adds I6s (the 5-strike cap, 330 s), not run in CI. `--proof` with
+    `ACN_SCRIPT` at v12.18 (`git show ab7ea21:ai-conversation-navigator.user.js`) exits 0 iff every `[new]` fails
+    there, every `[guard]` passes and nothing is INVALID. Locally [Playwright, headless, this Mac, 2026-11-07] the 79
+    took 741.1 s on Chromium alone (`b6f1aa2`), and 741.7 s, 754.2 s and 749.3 s on Chromium, Firefox and WebKit at
+    the `3841805` milestone, the engines in parallel lanes (about 567 s for the 64 of the finished build). In CI [GitHub
+    Actions; never browser evidence] the "Run Gemini index probe" step took 12m23s–12m46s per engine on `3841805` (run
+    42400157639) and 12m43s–13m04s on `597ebfe` (run 42407864961), and the ubuntu jobs 45m38s–47m08s and
+    46m00s–47m21s with browser installs of 18–39 s: the ~46 minutes the cap's comment predicted from the v12.18
+    figures (33m18s–33m51s + ~12.4). The bounded install's worst passing case (~12.5–13 minutes more, ~59 of the
+    60-minute cap) is that comment's estimate; no run has shown it.
+    `check-gemini-history` and `check-feature-gaps` gate the FALLBACK since v12.19: `--gm-endpoint refuse|abort|none`
+    (default `refuse`, the one CI runs) plants the page's token in the mock so the index really sends its read, then
+    answers it with a 403 (`refuse`), a network failure (`abort`), or leaves the page as v12.18's (`none`, no token).
+    Their checks are unchanged in every mode, plus H0/G0 [guard] (no retry loop, by failure class; in `refuse` and
+    `abort` a run that sent no read is INVALID, so a build before v12.19 runs with `none`) and HP/GP [guard] (no
+    paging status). Run `abort` and `none` once each in the final three-engine run; for v12.19 they did not run (the
+    owner skipped the local three-engine run, 2026-11-07), and the milestone on `3841805` used `refuse` only.
+  - **Why only the ubuntu jobs take ~34 minutes** (v12.18's figures; with `check-gemini-index`, v12.19's took
+    45m38s–47m21s, above): the probe steps run on ubuntu only, one after another (about 27
+    minutes), after the same ~5¾-minute suite every job runs; macOS and Windows run the suite alone (6–10 minutes).
+    Measured on run 42118079878: every job started 2–3 s after it was created, and the ubuntu steps ran with 0 s
+    between them, so the time is work, not queueing. Splitting the probes into parallel jobs is the rebuild's option
+    (ROADMAP 0e).
 
 **Windows is the runner that catches timing assumptions.** It is materially slower than
 the Ubuntu and macOS runners, so an assertion that races the virtualizer passes on two OSes
@@ -151,7 +224,8 @@ sibling entries stay exact at ~300ms is a degraded macOS runner episode, not cod
 lines (~160ms rAF sample = healthy; seconds = throttled; -1 = stopped) and the per-entry
 wall clocks, then re-run the job once. Full signature and procedure:
 `TESTING.md` → "CI: reading a webkit-on-macos failure or hang". The job `timeout-minutes` (30 since v12.15;
-40 on ubuntu since v12.17, 50 since v12.18) exists for this; do not raise assertion budgets to make a sick runner green.
+40 on ubuntu since v12.17, 50 since v12.18, 60 since v12.19) exists for this; do not raise assertion budgets to make a
+sick runner green.
 
 **A local mac WebKit failure is NOT that signature** (found 2026-10-22). On the owner's Mac, four acceptance
 entries fail on every run, on v12.8 and v12.9 alike. They give up at ~1.46s with healthy `raf10`, on jumps

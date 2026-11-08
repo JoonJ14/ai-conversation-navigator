@@ -16,6 +16,15 @@
 
 ## Pull Requests
 
+**Building: each step runs its own gates, the full suite runs once per stage** (CLAUDE.md rule 7, `434a886`, and the
+owner, 2026-11-07: "each build step verifies with its OWN gates and related probes; the full suite and every probe run
+once per stage, not after every step"). A build step verifies with its own gates (`--only`) and the probes related to
+what it touched, plus `--proof` against the previous release for a new gate. `npm test` and every probe run once per
+stage: at a build stage's end, before the live test (step 2 below), and in the final run (step 3); never after every
+step. No verifier agent per step: the review gates are Tiers 1–3 (step 1) and GitHub Codex (step 4). On v12.19 the
+per-step reading made each step 60–90 minutes and the build about 15 hours (`agent_docs/testing.md`, "When to run the
+whole suite").
+
 **The owner's procedure for a code PR** (2026-11-01, v12.17; one PR holds the code and its docs, no docs-only PR):
 1. The review pipeline: Tiers 1–2, then Tier 3 (`cli:codex`) **capped at 5 rounds**. The owner briefly allowed 10 and
    withdrew it: GitHub Codex is more accurate (it can call the code), saves tokens, and keeps the open findings on
@@ -37,6 +46,14 @@
 6. Re-read the session's whole transcript (`.jsonl`) and the memory files, not a compacted summary, then run
    `/update-project-docs` and commit the docs into the same PR.
 7. Tell the owner. The owner watches CI and merges.
+8. **After a merge, remind the owner of the optional 5-minute Safari smoke check** (`docs/acceptance-checklist.md`, at
+   the top: the question list loads, a bookmark survives a reload, the meter shows). Safari + Userscripts is the one
+   runtime the agent cannot drive.
+
+**Owner acceptance is one consolidated pass at about v12.20** (the owner, 2026-11-05; DEC-062), on the build current
+then. Each PR appends its acceptance steps to `docs/acceptance-checklist.md` as well as posting them as its first
+comment; a merge before the pass is a waiver, recorded in DEC-031 as before, and a version's "acceptance owed" is
+expected until the pass, not an open problem to raise every session.
 
 When the owner has said they are away, take over their Chrome windows and tabs for installs and live tests without
 asking; stop only if they said they are using Chrome at that moment.
@@ -53,7 +70,8 @@ asking; stop only if they said they are using Chrome at that moment.
   output file: 600 s foreground waits timed out on both releases. Uncommitted
   files from parallel agents re-triggered the Stop hook mid-pipeline
 - Ensure the full suite (`npm test`) and the probes (`npm run test:probes`) pass before requesting merge
-- **List anything you cannot test yourself as owner acceptance in the PR** (today: Safari + Userscripts). Never
+- **List anything you cannot test yourself as owner acceptance in the PR, and append it to
+  `docs/acceptance-checklist.md`** (today: Safari + Userscripts). Never
   report it as verified (CLAUDE.md, measurement context)
 - **Merging is the owner's call, per PR.** This repo merges with merge commits (`gh pr merge --merge`); auto-merge
   is disabled. To merge only the head that was checked, add `--match-head-commit` with the FULL SHA

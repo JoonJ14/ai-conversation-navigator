@@ -50,9 +50,9 @@ move less.
 
 Claude virtualizes its message list with recycling — only ~3–5 user turns are mounted at any moment, so `document.querySelectorAll()` sees roughly 3% of a long conversation. `_questions` on `claude.ai/chat/<uuid>` is therefore populated from Claude's own conversation JSON, not from the DOM. See DEC-021 (the index) and DEC-022 (Layer 4: State Breaks).
 
-**ChatGPT and Perplexity window too, and since v12.10 have index adapters of their own (DEC-046).** The index is a seam: `IX_ADAPTERS` holds one entry per platform with `getConversationId()`, `fetchIndex(cid, done)` and `locate(entry)`, and since v12.15 the bookmark and landing hooks: `bookmarkUrl(cid)` (the conversation's one store key), `pathId(pathname)`, `bookmarkables()` (the mounted questions and answers a flag goes on), `keyOf(el, type)` (the message's own id as the node shows it now: ChatGPT's `data-turn-key` and answer message id, Perplexity's `backend_uuid` and `backend_uuid:answer`; null when it has none yet) and `extent(el)` (an entry's whole box, for "near the view"). Not every hook is optional [code, v12.16]: the generic pipeline's entries (ChatGPT, Perplexity) must carry `id`, `origins`, `getConversationId`, `fetchIndex`, `locate`, `mounted`, and since v12.15 `bookmarkUrl`, `pathId`, `bookmarkables` and `keyOf`, all called without a guard (`ixAdapter()` reads `a.origins` directly). Only `extent` and `releaseScroll` are optional and guarded (`a.extent ?`, `if (a.releaseScroll)`); Perplexity has both, ChatGPT neither. Claude's entry is `native: true` and carries only `id`, `origins`, `getConversationId`, `fetchIndex` and `locate`; `ixAdapter()` returns null for it. The far landing (`orbLandFarIn`) hands `ixLandOn` Claude's entry, or `{}` on Gemini, with its own check, so on that path `ixLandOn` reads only the guarded `releaseScroll`. Claude's entry wraps the v12.0 index below without changing it; ChatGPT's and Perplexity's run through the generic pipeline (`ixScan` in `scanConversation`, `ixLoad`, `ixJump`, `ixRenderBanner`). `ixAdapter()` is their exact-origin guard. Each request goes through `ciLadderGet`, the ladder's one-request form (same transports, order, fallback rule and winner). Adding a platform: ROADMAP item 13.
+**ChatGPT and Perplexity window too, and since v12.10 have index adapters of their own (DEC-046).** The index is a seam: `IX_ADAPTERS` holds one entry per platform with `getConversationId()`, `fetchIndex(cid, done)` and `locate(entry)`, and since v12.15 the bookmark and landing hooks: `bookmarkUrl(cid)` (the conversation's one store key), `pathId(pathname)`, `bookmarkables()` (the mounted questions and answers a flag goes on), `keyOf(el, type)` (the message's own id as the node shows it now: ChatGPT's `data-turn-key` and answer message id, Perplexity's `backend_uuid` and `backend_uuid:answer`; null when it has none yet) and `extent(el)` (an entry's whole box, for "near the view"). Not every hook is optional [code, v12.16]: the generic pipeline's entries (ChatGPT, Perplexity) must carry `id`, `origins`, `getConversationId`, `fetchIndex`, `locate`, `mounted`, and since v12.15 `bookmarkUrl`, `pathId`, `bookmarkables` and `keyOf`, all called without a guard (`ixAdapter()` reads `a.origins` directly). Only `extent` and `releaseScroll` are optional and guarded (`a.extent ?`, `if (a.releaseScroll)`); Perplexity has both, ChatGPT neither. **Since v12.19 the seam has four adapters** (DEC-063): Gemini's entry runs through the generic pipeline too, with every required hook, no `extent` or `releaseScroll`, and three optional hooks of its own, each guarded where it is read: `selfCheck()` (null, or `{ reason, permanent }` when the page contradicts the ready index; ixScan asks it first in its ready branch, on every scan, and drops the index on a mismatch), `scroller()` (the scroll container its jumps land in, `gmScroller`) and `pageUntil(opts, done)` (pages older history into the DOM, `gmPageUntil`; an adapter with one is handed to `gmIxJump` by ixJump's first statement, before any container lookup, so ChatGPT's and Perplexity's paths are unchanged). Claude's entry is `native: true` and carries only `id`, `origins`, `getConversationId`, `fetchIndex` and `locate`; `ixAdapter()` returns null for it. The far landing (`orbLandFarIn`) hands `ixLandOn` Claude's entry, or `{}` on Gemini, with its own check, so on that path `ixLandOn` reads only the guarded `releaseScroll`. Claude's entry wraps the v12.0 index below without changing it; ChatGPT's, Perplexity's and (since v12.19) Gemini's run through the generic pipeline (`ixScan` in `scanConversation`, `ixLoad`, `ixJump`, `ixRenderBanner`). `ixAdapter()` is their exact-origin guard. ChatGPT's and Perplexity's requests go through `ciLadderGet`, the ladder's one-request form (same transports, order, fallback rule and winner); Gemini's does not: `gmIxFetch` calls `ciApiGet` directly with the one transport `gmIxTransport()` names (`'fetch'`, DEC-063). Adding a platform: ROADMAP item 13.
 
-**Since v12.15, an index-backed jump lands and checks (DEC-052).** `ixJump` steps toward the target, then lands through `ixLandOn(a, getEl, opts, done)`: instant `scrollTop` writes, each after releasing the site's pin, re-locating the target by identity after a 350 ms settle, until it is within 8 px of its intended position or 4 writes are spent. At the cap it logs `[ACN] jump: alignment cap reached …`, and a target still outside the scroller's content box is `'cap-out'`: a toast, not a resolution. Never end a jump with an unchecked smooth `scrollIntoView` on these sites: live, the glide was cut short 8 of 8 times. Perplexity compares a mounted question bubble with its `query_str` through `ixPplxTextKey` (on `ixPplxBubbleText`, the bubble without its buttons and our flag): full length, without the markdown the bubble renders and without whitespace; every other character counts, so an edit still reads as a different question. `_normalizeCompareFull` cannot do this, since `_mdFlatten` deletes every bracket and parenthesis.
+**Since v12.15, an index-backed jump lands and checks (DEC-052).** `ixJump` steps toward the target, then lands through `ixLandOn(a, getEl, opts, done)` (on ChatGPT and Perplexity; since v12.19 Gemini's jumps leave ixJump at its first statement for `gmIxJump`, which lands through `gmLandFarEl` or `gmLandInEl`, below): instant `scrollTop` writes, each after releasing the site's pin, re-locating the target by identity after a 350 ms settle, until it is within 8 px of its intended position or 4 writes are spent. At the cap it logs `[ACN] jump: alignment cap reached …`, and a target still outside the scroller's content box is `'cap-out'`: a toast, not a resolution. Never end a jump with an unchecked smooth `scrollIntoView` on these sites: live, the glide was cut short 8 of 8 times. Perplexity compares a mounted question bubble with its `query_str` through `ixPplxTextKey` (on `ixPplxBubbleText`, the bubble without its buttons and our flag): full length, without the markdown the bubble renders and without whitespace; every other character counts, so an edit still reads as a different question. `_normalizeCompareFull` cannot do this, since `_mdFlatten` deletes every bracket and parenthesis.
 
 **Since v12.16, a far mounted target on Claude lands the same way (DEC-055).** Claude keeps its latest rows mounted at
 every scroll position, so a jump to the latest question from the top finds it mounted about 200,000 px away.
@@ -70,6 +70,29 @@ then Navigate shows a note, `data-acn-history="partial"`. A far loaded question 
 (`gmLandFar`, the core `orbLandFarIn` shared with Claude's `ciLandFar`): off-screen turns are
 `content-visibility: auto`, so a glide renders and grows every turn it passes.
 
+**Since v12.19, Gemini's `/app/<id>` chats have an index of their own (DEC-063).** The whole chat comes from Gemini's
+own history read, `hNvQHb` (`gmIxFetch`): POSTed through `fetch` with a form body and the page token read from inline
+script text (`gmIxReadAt`), page size 100 following the cursor, parsed by `gmIxParse` (`)]}'`, line frames, the
+`wrb.fr` payload, newest first, reversed). Ids are the 16-hex turn ids (`q.ixId`; `q.element` is null outside the loaded
+window). A refresh reads the newest page (10) and merges it by id (`gmIxMerge`). The self-check (`gmIxSelfCheck`)
+compares the page's turns with the index on every scan, by id, order and question text. Jumps to a turn not loaded
+page the DOM (`gmPageUntil`, counted by turns arriving above the old first one), then land checked: `gmLandFarEl`
+when far, `gmLandInEl` (`orbLandIn` on the scroller: the same instant, re-measured writes without the distance test)
+when a page brought the target in near the view (review round 1); a target mounted already keeps v12.18's path,
+`gmLandFar` or the near glide (the agent's amendments M1, M2, approved by the owner on 2026-11-07). The pager's wait
+counts visible time only: `spent` sums the intervals between two visible polls, and a hidden poll sets `last` to −1,
+so a background tab's suspended timers never end a wait (GitHub Codex on PR #94, `c98b2d5`; gate F12). `gmIxJump`
+takes the start as loaded once the chat's first TURN is in the DOM, `_ix.answers[0].at` (every turn has an answer record,
+an image-only turn 1 included), falling back to `_ix.entries[0].id` (`597ebfe`). An answer whose turn has no question
+(a prompt that is only an image: q −1, no Navigate row) pages in by its own turn: `_bmIxJump` hands `ixJump` the
+turn-only target `_bmIxTurnTarget` builds (`{ ixId: rec.at, ixPosition, text: '', gmTurnOnly: true }`), which
+`gmIxJump` finds by `gmTurnById`, and then lands the answer, marking no question resolved; only an adapter with
+`pageUntil` takes that path, so ChatGPT's and Perplexity's are unchanged (`c98b2d5`; gate I12m, on a mock model of
+that DOM). Where the index is `none` or `degraded` (`gmIxState`), DEC-057's tracker and note stay, and Navigate
+offers "Load full history" (`gmLoad*`, `gmPageToStart`, `gmViewAnchor`). The readers that switch on it: `gmIxReady`,
+`gmListPartial`, `gmListNote`, `_bmIxAdapter` (bookmarks take the `_bmIx*` path only while ready). The gallery stays
+on its DOM path.
+
 **Since v12.17, every feature reads the whole conversation (DEC-059).** The ChatGPT and Perplexity indexes keep each
 answer's text and place: `_ix.answers` (`{ key, q, at, text, pos, ids }`, in order), `_ix.answerIdOf` (any shown
 node's id → its answer's key: a ChatGPT turn can render its first text node as a turn of its own), and `_ix.images`
@@ -78,8 +101,9 @@ Export (`_exportFromIx`) and Summary (`_sumBuildTimeline`, `generateFullSummary`
 `sumIndexStamp()` (Claude's or the adapters' index). An answer from Search, Summary or the gallery jumps by its key
 through `_bmIxJump`. The gallery is `orbIndexedImages()` on the three index sites (a page-loaded thumbnail or a named
 placeholder; never a new request) and the DOM path on Gemini. Gemini's turns are addressed by their 16-hex id
-(`gmTurnOf`, `gmTurnById`, `gmQuestionIn`, `gmAnswerIn`); bookmarks there are the `_bmGm*` functions, and a far
-answer lands through `gmLandFarEl`. `gmHistNote()` is the shared "older history not loaded" note. On Claude a
+(`gmTurnOf`, `gmTurnById`, `gmQuestionIn`, `gmAnswerIn`); bookmarks there are the `_bmGm*` functions (since v12.19
+only while the index is not ready: `_bmIxAdapter` sends them down the `_bmIx*` path while it is), and a far answer
+lands through `gmLandFarEl`. `gmHistNote()` is the shared "older history not loaded" note. On Claude a
 settle-loop result lands through `ciLandSettled` (`orbLandIn`, `orbLandFarIn` without its distance test). On ChatGPT,
 `ixJump` waits for history pages (`pagesAtTop`, `IX_PAGE_WAIT_MS` 2,500, `IX_PAGE_SIZE_MIN` 5, `IX_PAGE_IDLE_MAX`
 3, `_ixStartLoaded` keyed `cid|x<indexGen>`): a wait counts as a page when an older turn mounts or the view
@@ -132,7 +156,11 @@ State lives in `_ci*` module variables. `_ciIndex` holds human turns; `_ciFullPa
 - **Every request logs one line naming its transport** (`[ACN] index: transport=… org=<8 chars>… status=…`), and every reason from the org walk starts with `[gmxhr]`/`[fetch]` (the two post-fetch validation reasons, `unexpected response shape` and `malformed message data`, carry none yet). Keep it that way: on a user's machine those lines are the only evidence of which transport failed.
 - **The index adapters (DEC-046) log their own line** (`ixLog`): `[ACN] index: platform=<chatgpt|perplexity>
   transport=<gmxhr|fetch> endpoint=<session|conversation|thread>[ page=<n>] status=<n>`, plus ` questions=<n>` on the
-  request that completed the index. Claude's `[ACN] index: transport=… org=…` (`ciLogAttempt`) never prints on those
+  request that completed the index. Gemini's (v12.19): `[ACN] index: platform=gemini transport=fetch endpoint=hNvQHb
+  page=<n> size=<100|10>[ retry=at-new|at-same] status=<n>` with one tail (` turns=<k> cursor=yes|no[ questions=<q>]`,
+  ` payload=null code=<n>|?`, ` payload=bad`, or ixLog's own error), one `… measure load=full|newest|newest+full …`
+  line per load, and `… self-check ok …` / `… self-check FAILED (…) — strike n of 5`. None carries a body, the token,
+  `f.req`, a cursor, the query string or any question or answer text. Claude's `[ACN] index: transport=… org=…` (`ciLogAttempt`) never prints on those
   sites. Anything waiting for an adapter's index load matches `platform=<pid>` (the v12.18 probes wait on
   `/\[ACN\] index: platform=chatgpt .*endpoint=conversation /`; their first draft matched Claude's line and would never
   have fired).
@@ -159,8 +187,9 @@ confirmation status: DEC-031.** A cell measured in the owner's v12.9 acceptance 
 | Plan usage panel | the transport ladder since v12.12 (`ciLadderGet`, DEC-044's rules kept): gmxhr → fetch [code]; works through `GM_xmlhttpRequest` [measured: owner, v12.8 and v12.10, DEC-031] | same; works [measured: owner, v12.10, DEC-031] | **fetch → gmxhr** [code]. A content-world `fetch` of `/api/organizations/<org>/usage` with `credentials: 'include'`: **200, `application/json`** [measured: owner's B0 probe, Userscripts 4.8.6, 2026-10-23, `probes/safari-gm-storage-check.user.js`]. Through `GM_xmlhttpRequest` (v12.11 and before) it read "Usage data unavailable" [measured: owner, v12.10 and v12.11, DEC-031]. v12.12's panel on Safari: DEC-031 |
 | GM storage: `acn-settings` (language, platform toggles, and since v12.18 `chatgptPlan`), bookmarks, `acn-commands`, `acn-zone-positions`, `acn_ctx_cache`, the org cache | the synchronous `GM_getValue`/`GM_setValue`, called as before v12.12 (`acnGetValue`/`acnSetValue`) [code]. Two tabs: each save of a collection reads with `GM_getValue` right before its `GM_setValue`, with no copy of ours in between, as before v12.13 (`acnUpdateValue`, DEC-050) [code]. `GM_getValue` in one tab returns another open tab's write without a reload: "write #1 from tab 2ae8b29a (ANOTHER tab), written 4 s ago", `GM.getValue` the same [measured: owner's C0, Tampermonkey 5.5.0, 2026-10-24, `probes/cross-tab-gm-check.user.js`] | same code. `GM_getValue` returns another open tab's write: "write #1 from tab 98f05d4b (ANOTHER tab), written 5 s ago", `GM.getValue` the same [measured: owner's C0, Tampermonkey 5.5.1, 2026-10-24] | **no synchronous `GM_getValue`/`GM_setValue`** (`typeof` both `'undefined'` despite their grants); **`GM.getValue`/`GM.setValue` work**: a value written with `GM.setValue` read back equal, and the value read before the write showed it had persisted across reloads [measured: owner's B0 probe, Userscripts 4.8.6, 2026-10-23]. Since v12.12 the six keys are loaded through `GM.getValue` before the script runs, kept in memory, and written through `GM.setValue`; a failed or slower-than-2 s load runs on defaults and saves nothing (owner) [code]. Two tabs: on v12.12 a save wrote the page's startup copy back, so a second tab erased the first tab's bookmark [measured: owner's two-tab test, v12.12, 2026-10-24]. Since v12.13 the four collections save one change applied to the value as stored at the save, through a queue per key that re-reads with `GM.getValue` (DEC-050) [code]; `GM.getValue` in one tab returns another open tab's write without a reload: "write #1 from tab 50a3dbfe (ANOTHER tab), written 4 s ago" [measured: owner's C0, Userscripts 4.8.6, 2026-10-24, `probes/cross-tab-gm-check.user.js`]. `acn-settings` and the org cache stay last-write-wins [code]. Before v12.12 every call failed silently [code]. v12.12 on Safari: DEC-031 |
 | `localStorage` (`_acnv10`: mode, scroll direction, panel width) | works | works | works [inferred: the page's storage is shared across worlds] |
-| Exact-origin guard | the index (`ciIsClaudeChat` on Claude; `ixAdapter()` for the ChatGPT and Perplexity adapters, v12.10) and, since v12.12, the usage panel (`maybeRefreshUsage`: `https://claude.ai` exactly). The SSE install is still gated by platform detection's `host.includes('claude.ai')` alone. OPEN, ROADMAP 0d [code] | same | same |
-| `@connect` hosts | `claude.ai`, `chatgpt.com`, `perplexity.ai` (v12.10). Tampermonkey asks the user to accept the two new hosts on update [code; TM's re-prompt per ROADMAP's porting Step 2, not measured] | same | Userscripts' handling of `@connect` not checked [unmeasured] |
+| Gemini's history read (v12.19, DEC-063): `POST /_/BardChatUi/data/batchexecute?rpcids=hNvQHb&rt=c`, form body `f.req` + `at`, the page's cookies; one transport per manager, the first in G0's order that returned a payload (Phase 0, `probes/gemini-transport-check.user.js`, page size 1, chat `96b519c1`, visible tab) | **fetch** [code]. G0: `fetch` 200 + payload 538 ms; `GM_xmlhttpRequest` 200 + payload 968 ms; `GM.xmlHttpRequest` 200 + payload 585 ms [measured: owner, Tampermonkey 5.5.0, navigator 12.14 installed, 2026-11-05]. The navigator's own read in this runtime: owner acceptance (DEC-031) | **fetch** [code]. G0: `fetch` 200 + payload 532 ms; `GM_xmlhttpRequest` 200 + payload 900 ms; `GM.xmlHttpRequest` 200 + payload 687 ms [measured: agent, Tampermonkey 5.5.1, the owner's profile, navigator 12.18 installed, 2026-11-05]. The navigator's own read: `fetch`, 200, all 32 turns of `96b519c1` in one call, `self-check ok` [measured: the agent's live checks on 12.19 at `dde0b1a`, `3841805` and `597ebfe`, Tampermonkey 5.5.1, the owner's profile, visible tab, 2026-11-07; agent checks, not acceptance (DEC-031)] | **fetch** [code]. G0: `fetch` 200 + payload 616 ms; `GM_xmlhttpRequest` **HTTP 403**, no `wrb.fr`, 208 ms; `GM.xmlHttpRequest` **HTTP 403**, no `wrb.fr`, 107 ms [measured: owner, Userscripts 4.8.6, navigator turned off, 2026-11-05] — the same shape as Claude's GM 403 (v12.9). The page token comes from inline script text, which every world shares (no `unsafeWindow` here) [code]. The navigator's own read in this runtime: owner acceptance (DEC-031) |
+| Exact-origin guard | the index (`ciIsClaudeChat` on Claude; `ixAdapter()` for the ChatGPT and Perplexity adapters, v12.10, and Gemini's, v12.19: `https://gemini.google.com` exactly) and, since v12.12, the usage panel (`maybeRefreshUsage`: `https://claude.ai` exactly). The SSE install is still gated by platform detection's `host.includes('claude.ai')` alone. OPEN, ROADMAP 0d [code] | same | same |
+| `@connect` hosts | `claude.ai`, `chatgpt.com`, `perplexity.ai` (v12.10). Tampermonkey asks the user to accept the two new hosts on update [code; TM's re-prompt per ROADMAP's porting Step 2, not measured]. **No `gemini.google.com`** (v12.19): Gemini's read is `fetch` everywhere, and the owner's decision 3 allows the line only where `GM_xmlhttpRequest` is the transport that works (G0 itself declared it) [code] | same | Userscripts' handling of `@connect` not checked [unmeasured] |
 
 **Design rules that follow, for any new feature:**
 1. **Credentialed claude.ai requests** go through `ciApiGet`'s ladder and the exact-origin guard. `GM_xmlhttpRequest` alone is refused on Safari.
@@ -287,8 +316,9 @@ Perplexity, and "Conversation turns" on the other platforms.
     Space opens Settings at `#acn-gptplan-sel`).
 - **Gemini and Perplexity** (`CTX_SIZE_ONLY`): `orbRenderSizeMeter` shows the estimate, the size dots against
   `CTX_SIZE_REF` (1M) and the caption (`orbSizeCaption`, naming `platform.title`).
-  - `orbConvSizes()` reads the index's text on ChatGPT and Perplexity and the loaded turns on Gemini. With no ready
-    index it counts the questions only and sets `partial`, and the meter shows `CTX_PARTIAL_NOTE` with positional
+  - `orbConvSizes()` reads the index's text on ChatGPT and Perplexity, and on Gemini since v12.19 too while its index
+    is ready (`ixConversation()`); otherwise Gemini's loaded turns. With no ready index it counts the questions only
+    and sets `partial`, and the meter shows `CTX_PARTIAL_NOTE` with positional
     dots.
 - **Dots:** `_ctxDotMode` is `'meter'`, `'size'` or `null` (positional out of 40); `_renderTurnDots` writes
   `data-acn-dot-basis`.
@@ -410,7 +440,9 @@ data-acn-jump-resolved="N"              -> On the ZONE: the data-index a complet
                                            resolution, never the route taken. Since v12.16 a far landing
                                            (`orbLandFarIn`, Claude and Gemini) that does not land, the
                                            user's own scroll included, removes it; only a superseded
-                                           landing leaves it (DEC-055, DEC-057).
+                                           landing leaves it (DEC-055, DEC-057). Since v12.19 a Gemini
+                                           answer reached by its turn alone (no question: an image-only
+                                           prompt, `gmTurnOnly`) marks no question resolved (`c98b2d5`).
 data-acn-bookmark                       -> The bookmark flag itself (an injected element). Excluded from every
                                            text read (`_isExcludedFromText`).
 data-acn-bookmarked="<id>"              -> On the host element a flag was drawn for: the identity it stands for.
@@ -452,7 +484,32 @@ data-acn-role="summary-divider"         -> Navigate: the divider at the summary 
 data-acn-role="gpt-plan-control"        -> The meter's "Set your plan" / "<Plan> · change" control (ChatGPT, v12.18)
 data-acn-role="gpt-plan"                -> Settings: the "ChatGPT plan" select (#acn-gptplan-sel)
 data-acn-history="partial"              -> Gemini (v12.16, DEC-057): the note in Navigate's list while the chat's
-                                           start is not loaded. Absent once it is, and on every other platform
+                                           start is not loaded. Absent once it is, and on every other platform.
+                                           Since v12.19 not drawn while Gemini's index is ready (gmListNote)
+data-acn-index-check="ok|pending|mismatch" -> On #acn-zone (Gemini, v12.19, DEC-063): the self-check's verdict. ok:
+                                           the turns shown matched the index; pending: nothing to compare yet (30 s
+                                           grace); mismatch: the last check failed, kept while the list is the DOM's
+                                           (re-marked on a re-injected zone). Removed with the index (ixInvalidate)
+data-acn-role="paging-status"           -> #acn-paging-status (Gemini, v12.19): "Loading earlier messages…" while a jump
+                                           pages history in, with data-acn-paging-pages (pages in so far) and
+                                           data-acn-paging-loaded (turns in the DOM). Owned by the jump token; removed
+                                           on every end. Never shown by the "Load full history" button. Sampled every
+                                           50 ms in two live jumps that paged 10 -> 32 (3 pages), -pages peaked at 2
+                                           (the agent's checks at dde0b1a and 3841805, Chrome + Tampermonkey 5.5.1,
+                                           2026-11-07); the count of record is the script's own line,
+                                           "[ACN] paging: platform=gemini via=jump end=<why> pages=N" (pages=3 for
+                                           the same jump, Q1 from the bottom, at 597ebfe). Probes watch the
+                                           attribute with a MutationObserver
+data-acn-role="history-load"            -> Navigate's "Load full history" button (Gemini, v12.19): a div role=button,
+                                           with data-acn-history-load="idle|loading|restoring",
+                                           data-acn-history-loaded (turns in the DOM, or loaded so far) and
+                                           data-acn-history-total ("?": the button runs where no index knows it)
+data-acn-history-load-end="<reason>"    -> On #acn-zone: how the last load ended (start, index, timeout, cap, click,
+                                           user, superseded, path, container-gone, no-container)
+data-acn-history-anchor="<turn id>"     -> On #acn-zone: the turn the view was on when the load started
+data-acn-history-restore="<result>"     -> On #acn-zone: how the view went back: aligned, clamped, cap, lost, user,
+                                           superseded, container-gone; "skipped" when no restore was due (the
+                                           user's scroll, a jump or another chat owned the view, or no anchor)
 ```
 
 Never remove or rename these attributes — tests depend on them.
