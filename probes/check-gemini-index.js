@@ -4,7 +4,14 @@
 // the "Load full history" button where the index cannot run.
 //
 // Run: node probes/check-gemini-index.js [--browser chromium|firefox|webkit|all] [--quiet] [--only I1,F2] [--slow]
+//                                        [--part 1|2]
 //      ACN_SCRIPT=/path/to/other.user.js node probes/check-gemini-index.js [--proof]
+// --part runs one half of the checks, for CI's parallel probe jobs (the CI rebuild, ROADMAP 0e): the PARTS table
+// below names every check's half, split by CI time (run 42437401493, chromium: 375.5 s through I12b with the
+// background group beside it, 388.4 s from I12c). R1 and E run in both halves, each over its own fixtures, so
+// the two halves report 83 lines where a whole run reports 81. With --part, a registered check in neither half,
+// a check in both, or a table entry no fixture registers is INVALID, so a check added later cannot drop out of
+// CI unseen. Without --part the run is unchanged.
 // Exits non-zero on any failed or INVALID check. With --proof (meant for the v12.18 build): exits 0 iff
 // every [new] check FAILED, every [guard] check PASSED and nothing was INVALID, and prints the table.
 // Every check a fixture registers (its ids) and --only selects must report: one that never did is
@@ -450,7 +457,20 @@ const REQ_RE = /^\[ACN\] index: platform=gemini transport=(\S+) endpoint=hNvQHb 
 const PERM_RE = /index failure looks PERMANENT/;
 
 // ── The runner ───────────────────────────────────────────────────────────────────────────────
-async function runEngine(engine, raw, header, only, quiet, proof, slow) {
+// --part's halves (header). Part 1: the blocks through I12b in run order, the background group that starts at
+// t=0 (I22-I28, I3c; 182.2 s alone, chromium, this Mac, 2026-11-11), and I6s with --slow. Part 2: I12c to the end.
+// A new check goes in the half its block runs in; R1 and E are in neither list (both halves report them).
+const PARTS = {
+    1: ['I1', 'I2', 'I4', 'I5', 'I18', 'I20', 'R2', 'I2b', 'I3r', 'I3e', 'I3b', 'I7c', 'I8', 'I4c', 'I9b', 'I10', 'I3',
+        'I6', 'I6b', 'I7', 'I7b', 'I9', 'I1b', 'I6c', 'I6d', 'I6e', 'I6f', 'I6h', 'I11', 'I11b', 'I11c', 'I11d', 'I11e',
+        'I11f', 'I11g', 'I17', 'I19', 'I13', 'I13b', 'I14', 'I15', 'I16', 'I12', 'I12b',
+        'I22', 'I23', 'I3c', 'I24', 'I25', 'I26', 'I27', 'I28', 'I6s'],
+    2: ['I12c', 'I12l', 'I12m', 'I12d', 'I12e', 'I12f', 'I12g', 'I12h', 'I12i', 'I12j', 'I12k', 'I4b', 'I21', 'I21b',
+        'F1', 'F5', 'F2', 'F3', 'F4', 'F6', 'F6b', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'],
+};
+const BOTH_PARTS = ['R1', 'E'];
+
+async function runEngine(engine, raw, header, only, quiet, proof, slow, part) {
     const t00 = Date.now();
     const browser = await playwright[engine].launch({
         headless: true,
@@ -460,7 +480,8 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
     const pageErrors = [];
     const allHits = [];          // every batchexecute request of every fixture (R1)
     const allOthers = [];        // every other request (R1)
-    const want = (id) => !only || only.some((o) => id === o || id.indexOf(o) === 0);
+    const inPart = (id) => !part || BOTH_PARTS.indexOf(id) !== -1 || PARTS[part].indexOf(id) !== -1;
+    const want = (id) => (!only || only.some((o) => id === o || id.indexOf(o) === 0)) && inPart(id);
     // Every check id a fixture declares, and the two reported outside one: each that --only selects must
     // report by the end of the run, or it is INVALID (never reported).
     const registered = new Set(['R1', 'E']);
@@ -3045,11 +3066,26 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
         flush(r);
     }
 
+    // --part: every registered check is in exactly one half (R1 and E in both), and the table names only checks that
+    // exist (I6s registers only with --slow).
+    if (part) {
+        const r = makeRec();
+        const listed = PARTS[1].concat(PARTS[2]);
+        for (const id of registered) {
+            if (BOTH_PARTS.indexOf(id) !== -1) continue;
+            const n = listed.filter((x) => x === id).length;
+            if (n === 0) r.bad(id, 'in neither --part: add it to the PARTS table in this file');
+            else if (n > 1) r.bad(id, 'in both --parts (or listed twice): the PARTS table in this file');
+        }
+        for (const id of listed) if (!registered.has(id) && !(id === 'I6s' && !slow)) r.bad(id, 'in the PARTS table but registered by no fixture');
+        flush(r);
+    }
+
     await browser.close();
     const secs = ((Date.now() - t00) / 1000).toFixed(1);
     const fails = results.filter((x) => x.result === 'FAIL').length, inval = results.filter((x) => x.result === 'INVALID').length;
     console.log((fails || inval ? fails + ' check(s) FAILED' + (inval ? ', ' + inval + ' INVALID' : '') : 'all checks passed') +
-                ' (' + engine + ', ' + results.length + ' checks, ' + secs + ' s)');
+                ' (' + engine + (part ? ', part ' + part + ' of 2' : '') + ', ' + results.length + ' checks, ' + secs + ' s)');
     if (proof) {
         // The proof table: a [new] check must FAIL on the old build, a [guard] must PASS, none INVALID.
         const label = (x) => x.label === '?' ? '?' : x.label;
@@ -3082,6 +3118,11 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
     const proof = argv.includes('--proof');
     const slow = argv.includes('--slow');
     const only = arg('--only') ? arg('--only').split(',') : null;
+    const part = argv.includes('--part') ? arg('--part') : null;
+    if (part !== null && part !== '1' && part !== '2') {
+        console.log('INVALID: --part takes 1 or 2');
+        process.exit(1);
+    }
     const scriptPath = process.env.ACN_SCRIPT || path.join(REPO, 'ai-conversation-navigator.user.js');
     const src = fs.readFileSync(scriptPath, 'utf8');
     const header = (src.match(/\/\/ ==UserScript==[\s\S]*?\/\/ ==\/UserScript==/) || [''])[0];
@@ -3089,8 +3130,9 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow) {
     let bad = 0;
     for (const engine of engines) {
         console.log('check-gemini-index — engine=' + engine + ', script=' + path.basename(scriptPath) + (proof ? ', --proof' : '') +
-                    (slow ? ', --slow' : '') + ' (context: Playwright page realm, headless, 1280x720, the userscript inlined, no real manager)');
-        bad += await runEngine(engine, raw, header, only, quiet, proof, slow);
+                    (slow ? ', --slow' : '') + (part ? ', --part ' + part : '') +
+                    ' (context: Playwright page realm, headless, 1280x720, the userscript inlined, no real manager)');
+        bad += await runEngine(engine, raw, header, only, quiet, proof, slow, part ? Number(part) : null);
     }
     process.exit(bad ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });
