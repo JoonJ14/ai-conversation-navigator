@@ -5180,8 +5180,7 @@ untouched. **Replaces** the ubuntu jobs' 60-minute stopgap cap (stopgap 4, `ffda
   counts as passing a required check.
 - **The image tag is mutable** (not pinned by digest). Inside the container GitHub's default shell is `sh`; every
   step is POSIX or names bash.
-- **Not run for this PR:** the stage-end local suite and probes (the owner, 2026-11-11), and the `--slow` / `abort` /
-  `none` probe modes (CI never ran them).
+- **Not added to CI:** the `--slow` / `abort` / `none` probe modes (CI never ran them).
 
 ### Alternatives rejected
 - **Layout A** (one block per probe job, 18 probe jobs): ~9 minutes only with 28+ concurrent slots; on Free about 8
