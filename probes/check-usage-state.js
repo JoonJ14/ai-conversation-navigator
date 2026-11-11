@@ -104,6 +104,7 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
     window.__acnUsageMode = ${JSON.stringify(usageMode)};
     window.__acnUsageScript = ${JSON.stringify(respScript || null)};
     window.__acnUsageRequests = 0;
+    window.__acnIndexAnswered = {};
     window.GM_xmlhttpRequest = function (opts) {
         var url = opts.url || '';
         if (window.__acnUsageMode === 'refused-fresh') {
@@ -152,7 +153,16 @@ ${bodyMatch ? bodyMatch[1] : mockHTML}
             respond(200, JSON.stringify([{ uuid: ${JSON.stringify(ORG)}, name: 'Fixture Org', capabilities: ['chat'] }]));
             return;
         }
-        if (url.indexOf('/chat_conversations/') !== -1) { respond(200, JSON.stringify(CONV)); return; }
+        if (url.indexOf('/chat_conversations/') !== -1) {
+            // Counted per conversation id AFTER its onload ran, so a scenario can wait until a conversation's
+            // index has landed (U10 waits for it before routing back; TROUBLESHOOTING, the U10 entry).
+            var cid = url.split('/chat_conversations/')[1].split('?')[0];
+            setTimeout(function () {
+                if (opts.onload) opts.onload({ status: 200, responseText: JSON.stringify(CONV) });
+                window.__acnIndexAnswered[cid] = (window.__acnIndexAnswered[cid] || 0) + 1;
+            }, 10);
+            return;
+        }
         respond(404, '');
     };
     var _s = { 'acn-settings': { language: ${JSON.stringify(lang)} } };
@@ -439,6 +449,15 @@ async function openNavigate(page) {
             null, { timeout: 30000 });
         await routeChangeAndForceScan(page, otherURL);
         await page.waitForFunction('window.__acnUsageRequests >= 2', null, { timeout: 30000 });
+        // The other conversation's index must have LANDED before the route back. Request #1 goes out while that
+        // index is still loading; routing back before it lands leaves the userscript holding no conversation
+        // (its load is superseded, ciGetConversationUuid() !== cid), so the return is not a switch, the usage
+        // cooldown stays warm, request #2 is never sent, and #1 is never superseded: the case this check exists
+        // for does not happen, and the wait below timed out (U10's timeout, TROUBLESHOOTING). Traced on this
+        // scenario (Firefox, this Mac, 2026-11-11, 25 runs): the 3 failures routed back 6-10 ms after the other
+        // conversation's index request, before its 10 ms answer; the 22 passes 13-20 ms after it.
+        await page.waitForFunction("(window.__acnIndexAnswered['88888888-8888-4888-8888-888888888888'] || 0) >= 1",
+            null, { timeout: 30000 });
         await routeChangeAndForceScan(page, targetURL);
         await page.waitForFunction('window.__acnUsageRequests >= 3', null, { timeout: 30000 });
         await page.waitForTimeout(2200);   // past #1's landing time

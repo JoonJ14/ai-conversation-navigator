@@ -94,3 +94,17 @@ fixed.
   FAILS with the flake's signature (`resolved=10 toast=no`) and `pinEvery` PASSES; with `pinEvery`, J15 still
   FAILS on v12.14 (`79e4953`) and `71eda09`.
 - **Findings:** none.
+
+## Stage 2b — U10's precondition (`check-usage-state.js`; probe only)
+
+- **Diff:** 1 file, +20 / −1 (the GM stub counts delivered conversation responses; U10 waits for the other
+  conversation's before routing back).
+- **Tiers run:** 1 and 2 (adaptive: under 50 lines), `session`.
+- **Tier 1:** PASS. The counter is initialised in the stub's IIFE before any request; the conversation id is taken
+  with string splits, no backslash or backtick inside the template literal (the escaping trap the probe's own comments
+  record, hit once more by this session's scratch trace harness); the answer's 10 ms timing is unchanged; the
+  `refused-fresh` mode returns before this branch.
+- **Tier 2:** PASS. The wait is passive for every other scenario; if B's index were never requested, U10 now fails at
+  that wait, a more precise point, not a hidden one. U10 still discriminates: it FAILS (`pct=42`) on `5eee8ac` and on a
+  guard-reverted mutant, on all three engines, and PASSES (`pct=77`) on the current build.
+- **Findings:** none.
