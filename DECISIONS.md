@@ -5093,7 +5093,7 @@ also records the cap as a stopgap until the CI rebuild).
 ## DEC-064: CI Is 20 Parallel Jobs Behind One Required Check, `ci-ok`, in Playwright's Pinned Image (the CI rebuild, 2026-11-11)
 
 **Date:** 2026-11-11 | **Stage:** the CI rebuild (ROADMAP 0e; Current Status "Next" item 4), branch
-`ci/rebuild-parallel-probes`, its own PR, not yet opened (the owner, 2026-11-11: "don't open a PR"). The userscript is
+`ci/rebuild-parallel-probes`, its own PR (opened 2026-11-11, on the owner's instruction). The userscript is
 untouched. **Replaces** the ubuntu jobs' 60-minute stopgap cap (stopgap 4, `ffdabfb`) and the bounded apt install
 (stopgap 3, `b48996a`).
 
@@ -5118,7 +5118,9 @@ untouched. **Replaces** the ubuntu jobs' 60-minute stopgap cap (stopgap 4, `ffda
   `ci-ok` red both times; never in the final head.
 - **The flaky tests:** J15 by "the deterministic pin from HANDOFF §G.1", U10 "the cause first", each proved "with 30
   local runs per engine, before and after. No retries anywhere. If U10's cause is in the userscript, stop and tell me."
-- **The mocks:** scoping only (`docs/mock-refresh-scope.md`); live reads wait for the owner's OK, with a count.
+- **The mocks:** scoping only (`docs/mock-refresh-scope.md`), then (2026-11-11): "No other mock refresh for now: the
+  live verification layer (the next spec) is what will catch site drift"; `claude.html`'s suite entry is logged to be
+  retired or replaced in a later PR (ROADMAP, "Next" item 4).
 
 ### What was built (decided by the agent during the build, 2026-11-11, for the owner's review)
 - **Jobs** (`.github/workflows/cross-platform-tests.yml`):

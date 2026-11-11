@@ -44,6 +44,10 @@ nothing; a POST, a read RPC included, counts as sending (the owner's rule).
 | `gemini.html`, `chatgpt.html` | the same visits as above | none extra |
 | The Feb 2026 mocks (#8, #10, #11) | 1 chat each where the owner has an account | none (DOM only) |
 
+## The owner's decision (2026-11-11)
+
+"No other mock refresh for now: the live verification layer (the next spec) is what will catch site drift." `claude.html` (#5) is logged in ROADMAP ("Next" item 4): retire or replace its suite entry in a later PR. The recommendation below is kept as written.
+
 ## Recommendation (the agent's, for the owner's decision)
 
 Refresh #1–#5 in one pass, in that order, from the visits above (about 7 page visits, 2 POSTs, about 6 GETs), with

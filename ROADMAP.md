@@ -187,15 +187,20 @@ v12.16 or v12.17: a release only once every platform works on all supported brow
    - **Then refresh the mocks.**
    - The ubuntu jobs' 60-minute cap (`ffdabfb`, v12.19) is the stopgap this replaces ("the CI rebuild with parallel
      probe jobs is the real fix", the owner, 2026-11-07).
-   - **Built on the branch, 2026-11-11 (DEC-064; no PR yet, the owner: "don't open a PR"):**
+   - **Built 2026-11-11 on the branch (DEC-064); its own PR, opened 2026-11-11:**
      - **Step 1 done:** 20 jobs behind one required check, `ci-ok`; the probes in 9 two-lane jobs (layout B, the
        owner's choice for GitHub Free); Playwright 1.65.0 pinned, ubuntu in its image; a docs-only fast path; caps
        30/20; a PR-only concurrency group. Two dispatch runs took 9.23 and 9.98 minutes (46m53s before) with every
        count unchanged [GitHub Actions, mock evidence]. The gate went red on a cancel and on a forced failure.
      - **Step 2 done:** J15 (the pin has no clock, `pinEvery`) and U10 (a probe precondition race, not the
        userscript's); before and after, 30 runs per engine each (TROUBLESHOOTING).
-     - **Step 3 scoped:** `docs/mock-refresh-scope.md`, 18 mocks ranked by risk, with the live reads a refresh needs
-       (for the owner's OK). `claude.html` models a structure Claude no longer has (July 2026's drift).
+     - **Step 3 scoped, and closed without a refresh** (the owner, 2026-11-11: "No other mock refresh for now: the
+       live verification layer (the next spec) is what will catch site drift"). `docs/mock-refresh-scope.md` ranks the
+       18 mocks by risk and lists the live reads a refresh would need.
+     - **Logged for a later PR** (the owner, 2026-11-11): `claude.html` models Claude's pre-July markup
+       (`data-testid="user-human-turn"`, `user_message`; both measured at 0 live on 2026-07-26, DOM-REFERENCE) and
+       passes only through the userscript's fallback selectors; retire or replace that suite entry (the "Claude"
+       entry of `tests/test-all-platforms.js`). The current markup is covered by `claude-virtualized.html`.
      - **The owner's steps:** add `ci-ok` to the ruleset before the merge, remove the nine `<browser> on <os>` checks
        after `main`'s first green run (DEC-064).
 5. **Grok** on all three browsers (item 13), its own PR — **after the CI rebuild** (the owner, 2026-11-07; before
