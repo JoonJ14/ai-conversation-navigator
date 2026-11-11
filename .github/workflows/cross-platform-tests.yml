@@ -222,11 +222,21 @@ jobs:
             for b in chromium firefox webkit; do expected="$expected"$'\n'"probes $g ($b)"; done
           done
 
-          # Read this run's jobs; wait (up to ~30 s) only for the API to show every job completed.
+          # Read every attempt's jobs and keep each name's newest (highest run_attempt, then id), so a partial re-run
+          # (gh run rerun --failed) is judged by the re-run jobs and the earlier attempt's successes alike, whichever
+          # attempts the API lists them under (Tier 3 round 2). Wait (up to ~30 s) only for the API to show every
+          # job completed.
           jobs=""
           for try in 1 2 3 4 5 6 7; do
-            jobs=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs?filter=latest&per_page=100" \
-                     --jq '.jobs[] | select(.name != "ci-ok") | "\(.name)\t\(.status)\t\(.conclusion)"') || jobs=""
+            raw=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs?filter=all&per_page=100" \
+                    --jq '.jobs[] | select(.name != "ci-ok") | "\(.name)\t\(.run_attempt)\t\(.id)\t\(.status)\t\(.conclusion)"') || raw=""
+            # Per name: the newest attempt; the row with the highest id there, printed once per entry in that attempt,
+            # so two jobs with one name in one attempt still read "listed 2 times".
+            jobs=$(printf '%s\n' "$raw" | awk -F'\t' 'NF {
+                     att = $2 + 0; jid = $3 + 0
+                     if (!($1 in a) || att > a[$1]) { a[$1] = att; n[$1] = 0; best[$1] = -1 }
+                     if (att == a[$1]) { n[$1]++; if (jid > best[$1]) { best[$1] = jid; row[$1] = $1 "\t" $4 "\t" $5 } }
+                   } END { for (k in row) for (i = 0; i < n[k]; i++) print row[k] }' | sort)
             pending=$(printf '%s\n' "$jobs" | awk -F'\t' 'NF && $2 != "completed"' | wc -l)
             if [ -n "$jobs" ] && [ "$pending" -eq 0 ]; then break; fi
             sleep 5

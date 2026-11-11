@@ -485,6 +485,7 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow, part) {
     // Every check id a fixture declares, and the two reported outside one: each that --only selects must
     // report by the end of the run, or it is INVALID (never reported).
     const registered = new Set(['R1', 'E']);
+    const fixtureIds = new Set();   // the ids a fixture registers (R1 and E are reported outside any fixture)
 
     // Each fixture writes into its own record, flushed in a fixed order, so fixtures can share a
     // window of real time (the 20 s "no second call" windows) without interleaving their output.
@@ -506,7 +507,7 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow, part) {
     }
     // A fixture: the check ids it reports, and its body. A harness exception reports its ids INVALID.
     function fixture(ids, fn) {
-        for (const id of ids) registered.add(id);
+        for (const id of ids) { registered.add(id); fixtureIds.add(id); }
         return async () => {
             const r = makeRec();
             if (!ids.some(want)) return r;
@@ -3078,6 +3079,13 @@ async function runEngine(engine, raw, header, only, quiet, proof, slow, part) {
             else if (n > 1) r.bad(id, 'in both --parts (or listed twice): the PARTS table in this file');
         }
         for (const id of listed) if (!registered.has(id) && !(id === 'I6s' && !slow)) r.bad(id, 'in the PARTS table but registered by no fixture');
+        // BOTH_PARTS may name only the checks reported outside any fixture (R1, E): a fixture's check there would run
+        // in both halves unseen (Tier 3 round 2).
+        for (const id of BOTH_PARTS) {
+            if (fixtureIds.has(id)) r.bad(id, 'in BOTH_PARTS but a fixture\'s check: put it in one half of PARTS');
+            else if (!registered.has(id)) r.bad(id, 'in BOTH_PARTS but reported by nothing');
+            if (listed.indexOf(id) !== -1) r.bad(id, 'in BOTH_PARTS and in PARTS');
+        }
         flush(r);
     }
 
