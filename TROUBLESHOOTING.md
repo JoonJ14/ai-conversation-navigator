@@ -476,11 +476,11 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ---
 
-## FIXED IN v12.19 (PR #94, NOT MERGED) ON MOCKS — Gemini: a history read that timed out was sent again every ~45 s, with no limit (found 2026-11-06)
+## FIXED IN v12.19 (MERGED, PR #94 as b0fee35) ON MOCKS — Gemini: a history read that timed out was sent again every ~45 s, with no limit (found 2026-11-06)
 
 **Phase:** v12.19, stage 2, the adapter step (DEC-063) | **Severity:** High had it shipped — an unbounded loop of
 whole-chat reads against the user's own account; the host page was unaffected | **Status:** fixed in `0662d27`,
-PR #94, not merged; gated on the mock only
+PR #94, merged 2026-11-08 as `b0fee35`; gated on the mock only
 
 ### Symptom
 [Playwright page realm, headless chromium, the userscript inlined, no real manager, this Mac; the mock answering every
@@ -535,11 +535,11 @@ Three rules, each reasonable alone, made the loop together:
 
 ---
 
-## FIXED IN v12.19 (PR #94, NOT MERGED) ON MOCKS — Gemini: the index's failure paths re-read the chat at every backoff, ran out of requests in normal use, and kept a stale list "ready" (found 2026-11-07)
+## FIXED IN v12.19 (MERGED, PR #94 as b0fee35) ON MOCKS — Gemini: the index's failure paths re-read the chat at every backoff, ran out of requests in normal use, and kept a stale list "ready" (found 2026-11-07)
 
 **Phase:** v12.19, review round 1 (fix-plan items A1, A2, A3 and A8; DEC-063) | **Severity:** High for A1 (repeated
 whole-chat reads), Medium for A2 and A3 (a stale list kept "ready") | **Status:** fixed in `b9d413d`, its verifier's
-findings in `f0cce04`, PR #94, not merged; gated on the mock only
+findings in `f0cce04`, PR #94, merged 2026-11-08 as `b0fee35`; gated on the mock only
 
 ### Symptom
 Found on the frozen build `546ab49` by the 47-agent adversarial review (each finding upheld by 3 of 3 skeptics), each
@@ -609,11 +609,11 @@ Two of its choices shape what remains; A8's cost is logged as a residual (ROADMA
 
 ---
 
-## FIXED IN v12.19 (PR #94, NOT MERGED) ON MOCKS — Gemini: a sent question its first refresh missed was never listed, and an answer caught mid-write stayed short while Export said "complete" (found 2026-11-07)
+## FIXED IN v12.19 (MERGED, PR #94 as b0fee35) ON MOCKS — Gemini: a sent question its first refresh missed was never listed, and an answer caught mid-write stayed short while Export said "complete" (found 2026-11-07)
 
 **Phase:** v12.19, review round 1 (A4, A5); GitHub Codex raised both too | **Severity:** Medium — a silently
-incomplete list or export | **Status:** fixed in `57cba35`, PR #94, not merged; gated on the mock only. The fix's
-cost depends on live Gemini's timing (NOTE N1, open).
+incomplete list or export | **Status:** fixed in `57cba35`, PR #94, merged 2026-11-08 as `b0fee35`; gated on the
+mock only. The fix's cost depends on live Gemini's timing (NOTE N1, open).
 
 ### Symptom
 [Playwright page realm, headless chromium, the userscript inlined, this Mac; found on `546ab49` by the adversarial
@@ -668,12 +668,12 @@ review]
 
 ---
 
-## FIXED IN v12.19 (PR #94, NOT MERGED) ON MOCKS — Gemini paging in a background tab: three stages that could finish while hidden, found one at a time (found 2026-11-07)
+## FIXED IN v12.19 (MERGED, PR #94 as b0fee35) ON MOCKS — Gemini paging in a background tab: three stages that could finish while hidden, found one at a time (found 2026-11-07)
 
 **Phase:** v12.19, stage 3 (jumps), review round 1 (A7) and GitHub Codex's babysit (comment 4503051633) |
 **Severity:** Medium — a jump toasted and landed nothing, or "Load full history" stopped early with a partial list |
-**Status:** fixed in `2a75498`, `57cba35` and `c98b2d5`, PR #94, not merged; gated on the mock only. Whether live
-Gemini loads a page in a hidden tab is unmeasured.
+**Status:** fixed in `2a75498`, `57cba35` and `c98b2d5`, PR #94, merged 2026-11-08 as `b0fee35`; gated on the mock
+only. Whether live Gemini loads a page in a hidden tab is unmeasured.
 
 ### Symptom
 [Playwright page realm, headless chromium, the userscript inlined, this Mac; `document.visibilityState` and `hidden`
@@ -708,7 +708,8 @@ A hidden tab was handled one stage at a time, each where its finding pointed:
 - **Stage by stage** (what happened): each finding fixed where it was found, each with its own gate. Each fix held,
   but that is why one class took three findings, across stage 3, review round 1 and GitHub Codex.
 - **One rule for every stage that can finish while hidden.** Not adopted as a code change; proposed for the
-  conventions as a lesson (not written; the owner decides, CLAUDE.md rule 8).
+  conventions as a lesson, and written there on the owner's choice (2026-11-07, `221c02c`; agent_docs/conventions.md,
+  Lessons Learned).
 
 ### Fix
 - **`2a75498`:** `gmIxJump`'s end polls every `GM_PAGE_POLL_MS` while hidden. A user scroll, a newer jump or another
@@ -732,12 +733,12 @@ A hidden tab was handled one stage at a time, each where its finding pointed:
 
 ---
 
-## FIXED IN v12.19 (PR #94, NOT MERGED) ON MOCKS — Gemini jumps: a near landing after paging was unchecked, an image-only prompt's answer could not be reached, and the start was the first question's turn (found 2026-11-07)
+## FIXED IN v12.19 (MERGED, PR #94 as b0fee35) ON MOCKS — Gemini jumps: a near landing after paging was unchecked, an image-only prompt's answer could not be reached, and the start was the first question's turn (found 2026-11-07)
 
 **Phase:** v12.19, review round 1 (A6) and GitHub Codex's babysit (comment 4503114443, and an edge found while fixing
 it) | **Severity:** Low to Medium — a jump that ended out of view, or a toast in place of a jump | **Status:** fixed in
-`57cba35`, `c98b2d5` and `597ebfe`, PR #94, not merged; gated on the mock only. An image-only prompt's real DOM is
-unmeasured.
+`57cba35`, `c98b2d5` and `597ebfe`, PR #94, merged 2026-11-08 as `b0fee35`; gated on the mock only. An image-only
+prompt's real DOM is unmeasured.
 
 ### Symptom
 [Playwright page realm, headless chromium, the userscript inlined, this Mac]
@@ -767,7 +768,7 @@ unmeasured.
 ### Solutions considered
 - **A6** (the fix plan, the lead agent's): land a paged-in near target through `orbLandIn`, checked as far targets
   are, with an optional `overflow-anchor: auto` knob for the mock. A target mounted before the jump keeps v12.18's
-  glide (the agent's amendment M2, for the owner's review).
+  glide (the agent's amendment M2, approved by the owner on 2026-11-07).
 - **The image-only answer** (the fix brief, the agent's): page by the answer's own turn id, on Gemini only. ChatGPT
   and Perplexity were left unchanged (their adapters have no `pageUntil`, the Gemini pager's hook). Whether they have
   the same gap is unknown (ROADMAP 13).
@@ -871,8 +872,9 @@ throughout the build.
 `probes/check-gemini-history.js` and `probes/check-feature-gaps.js` (`dde0b1a`).
 
 **Results & verification** [same context]: WebKit `--only I3b` on `dde0b1a`: "all checks passed (webkit, 2 checks,
-3.5 s)". The milestone on `3841805`: 79/79 on WebKit (749.3 s). Proposed for the conventions (not written; the owner
-decides): run a new probe on all three engines once before calling it green.
+3.5 s)". The milestone on `3841805`: 79/79 on WebKit (749.3 s). Proposed for the conventions: run a new probe on all
+three engines once before calling it green. Written since, on the owner's choice, as a recurrence note on the charset
+lesson (2026-11-07, `221c02c`; agent_docs/conventions.md, Lessons Learned).
 
 ---
 
@@ -888,7 +890,8 @@ is why it missed the open. `read_console_messages` behaves the same: in the A/B 
 "No console messages found" for lines logged before its first call.
 **Response.** Start both readers before the action they are to see (the A/B reloaded the page with the console
 tracker running, then jumped), and take status and timing from Resource Timing, the page's own record. Proposed for
-the conventions and as a Measurement Context row (not written; the owner decides).
+the conventions and as a Measurement Context row: the conventions lesson is written, on the owner's choice
+(2026-11-07, `221c02c`; agent_docs/conventions.md, Lessons Learned); the CLAUDE.md row was not taken.
 
 ---
 
@@ -905,9 +908,10 @@ cancelled the download.
 **Fix.** A real export, saved: 137,815 bytes in `~/Downloads`, "Messages: 64 (32 user, 32 AI)", "Source: complete
 conversation history (API)", no note lines. The test file was then moved to the Trash; the owner's older export was
 untouched. The same check on `3841805` read the same 137,815 bytes and 64 messages.
-**Lesson** (proposed for the conventions, not written; the owner decides): an error string is a failure, never an
-artifact; a measurement that can return either must say which. For a live export, check the saved file. See also
-"NOT A BUG — an export downloads nothing on ChatGPT and Gemini in an agent-driven Chrome tab".
+**Lesson** (proposed for the conventions, and written there on the owner's choice, 2026-11-07, `221c02c`;
+agent_docs/conventions.md, Lessons Learned): an error string is a failure, never an artifact; a measurement that can
+return either must say which. For a live export, check the saved file. See also "NOT A BUG — an export downloads
+nothing on ChatGPT and Gemini in an agent-driven Chrome tab".
 
 ---
 
@@ -949,9 +953,11 @@ CHANGELOG, ROADMAP, architecture.md, the probe's comments and the userscript's. 
   dropped verifier but not the stop. The body also dates the decisions to the owner's instruction to decide and move
   along (2026-11-06 21:40Z), but M1 and M2 were already in the stage-1 prompt at 19:50Z. A commit body cannot be
   corrected; this entry records both.
-- The owner's review of M1, M2, K5 and K8, and of the ubuntu cap 50 → 60 (`ffdabfb`, also the agent's), is open.
-- Proposed for the conventions (not written; the owner decides): a subagent prompt must never label the agent's
-  decisions as the owner's.
+- The owner's review of M1, M2, K5 and K8, and of the ubuntu cap 50 → 60 (`ffdabfb`, also the agent's): done. The
+  owner approved all five on 2026-11-07, and the docs read "decided by the agent during the build, approved by the
+  owner on 2026-11-07" (`221c02c`).
+- Proposed for the conventions: a subagent prompt must never label the agent's decisions as the owner's. Written
+  there on the owner's choice (2026-11-07, `221c02c`; agent_docs/conventions.md, Lessons Learned).
 
 ---
 
@@ -988,8 +994,9 @@ that all three lanes were still running, and every fix was already on GitHub.
 the other 17 probes green on chromium; check-gemini-index 79/79 on chromium (741.7 s), Firefox (754.2 s) and WebKit
 (749.3 s); `--proof` "79 as wanted, 0 not" (831 s). The Tiers 1–2 that the expensive-test gate made the milestone
 agent run first passed with 4 NOTEs (folded into `reviews/review-2026-11-07-v12.19.md`; N1 and N2 are in ROADMAP
-13). The agent's 14:03 status called the chromium probes "16"; the SUMMARY lists 17. Proposed for the conventions
-(not written; the owner decides): run long milestones as a plain background script with logs, not as a workflow agent.
+13). The agent's 14:03 status called the chromium probes "16"; the SUMMARY lists 17. Proposed for the conventions:
+run long milestones as a plain background script with logs, not as a workflow agent. Written there on the owner's
+choice (2026-11-07, `221c02c`; agent_docs/conventions.md, Lessons Learned).
 
 ---
 
@@ -1013,8 +1020,9 @@ substitution went into a script file. The milestone later ran from a script file
 
 **Results** [Playwright, headless, page realm, this Mac]: on `dde0b1a`, "all checks passed (chromium, 72 checks,
 589.6 s)" and WebKit `--only I3b` "all checks passed (webkit, 2 checks, 3.5 s)", about 23 minutes after the owner's
-"do it faster". Proposed for the conventions (not written; the owner decides): put multi-step shell work in a script
-file, and check that each parallel job wrote its log, not only the wrapper's exit code.
+"do it faster". Proposed for the conventions: put multi-step shell work in a script file, and check that each
+parallel job wrote its log, not only the wrapper's exit code. Written there on the owner's choice (2026-11-07,
+`221c02c`; agent_docs/conventions.md, Lessons Learned).
 
 ---
 
@@ -1034,10 +1042,11 @@ control "Google Chrome" or "System Events" (the AppleScript that installs a buil
 
 ---
 
-## FIXED IN v12.18 (PR #93, NOT MERGED), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Claude: a summarized chat read past its window ("~600.1K / 500K", 100%), and a model switch moved the meter with no explanation (found 2026-10-31 and 2026-11-04)
+## FIXED IN v12.18 (MERGED, PR #93 as ab7ea21), CHECKED LIVE IN CHROME, OWNER ACCEPTANCE PENDING — Claude: a summarized chat read past its window ("~600.1K / 500K", 100%), and a model switch moved the meter with no explanation (found 2026-10-31 and 2026-11-04)
 
 **Phase:** v12.18, Part 1 (DEC-060) | **Severity:** Medium — the meter read wrong on every long chat; the host page
-was unaffected | **Status:** fixed in PR #93, not merged; owner acceptance owed on all three browsers (DEC-031)
+was unaffected | **Status:** fixed in PR #93, merged 2026-11-05 as `ab7ea21`; owner acceptance owed on all three
+browsers, in the consolidated pass (DEC-062, DEC-031)
 
 ### Symptom
 [Chrome + Tampermonkey 12.17, the owner's profile, visible tab, page realm]
@@ -1114,10 +1123,11 @@ was unaffected | **Status:** fixed in PR #93, not merged; owner acceptance owed 
 
 ---
 
-## FIXED IN v12.18 (PR #93, NOT MERGED) ON MOCKS — ChatGPT: one answer's two bookmark flags disagree after a click, and a dark flag can delete the bookmark (found 2026-11-05)
+## FIXED IN v12.18 (MERGED, PR #93 as ab7ea21) ON MOCKS — ChatGPT: one answer's two bookmark flags disagree after a click, and a dark flag can delete the bookmark (found 2026-11-05)
 
 **Phase:** v12.18, Part 2 (DEC-061) | **Severity:** Medium — a click could remove a bookmark the user meant to keep |
-**Status:** fixed in PR #93, not merged; the live case is owner acceptance step 4
+**Status:** fixed in PR #93, merged 2026-11-05 as `ab7ea21`; the live case is owner acceptance step 4 (PR #93's
+numbering)
 
 ### Symptom
 [Playwright Chromium, page realm, the `chatgpt-windowed.html` mock with `fallbackAt` and `fallbackCopies`; present on

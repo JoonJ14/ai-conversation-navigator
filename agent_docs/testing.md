@@ -176,8 +176,8 @@ GitHub Actions runs on push/PR to `main`:
     switch: azure got about 3 MB in 4 minutes, then archive.ubuntu.com served 111 MB in 36 s (run 42117334465). The ubuntu cap was **50 since v12.18** (the owner's
     second stopgap: an apt-mirror stall took `webkit on ubuntu-latest` past 40 on the `8909d92` merge run; ROADMAP 0e),
     and is **60 since v12.19** (`ffdabfb`, review round 1's fix for Tier 3's finding: this PR's own "Run Gemini index
-    probe" step did not fit under 50 with the bounded install's worst passing case; the agent's change, for the
-    owner's review).
+    probe" step did not fit under 50 with the bounded install's worst passing case; the agent's change, approved by the
+    owner on 2026-11-07 as a stopgap until the CI rebuild, ROADMAP 0e).
   - Every `ubuntu` job also runs `check-gemini-index` on its own engine (v12.19, DEC-063): Gemini's full question
     list from its own history read (`hNvQHb`) on `gemini-history.html` with the mock's opt-in `rpc` server, answered
     through a route bridge in Phase 1's framing: the request's shape, the failure classes, the self-check, the

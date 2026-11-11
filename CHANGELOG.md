@@ -8,8 +8,11 @@ All notable changes to this project will be documented in this file. Each entry 
 
 **Branch:** `feat/v12.19-gemini-full-history` | **Userscript head:** `597ebfe`: `b13e36e` (the version bump), then
 review round 1's code fixes (`0d8a00b`, `b9d413d`, `f0cce04`, `57cba35`) and the GitHub Codex babysit's (`c98b2d5`,
-`597ebfe`) | **PR:** #94, open | **Not merged.** Owner acceptance: the consolidated pass at about v12.20 (DEC-062;
-`docs/acceptance-checklist.md`, steps 33–37).
+`597ebfe`); after it, comment text only (`221c02c`) | **PR:** #94 | **Merged** 2026-11-08 02:10:39Z as `b0fee35`
+(head `221c02c`, all nine checks green) on the owner's explicit OK, **before** their acceptance on Safari +
+Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey (a waiver by design: the acceptance is the consolidated
+pass at about v12.20, DEC-062; `docs/acceptance-checklist.md`, steps 33–37; DEC-031). `main`'s first run after the
+merge (run 42437401493) was 9/9 green.
 
 DEC-058's addendum PR (Gemini before Grok), from the owner's spec (`docs/specs/v12.19-spec.md`, `de77b26`, 2026-11-05)
 with its four decisions of 2026-11-05 (1: option C, the index as the main path and "Load full history" as the
@@ -286,8 +289,8 @@ was clean (the agent's first poll).
   - The transport's mutant census (`c36ec4d`): 42 of 46 mutants build before and after, and the same four fail
     (M08, M09, M21, M34; ROADMAP 0d).
   - No real userscript manager runs in any of these.
-- **Review** (`reviews/review-2026-11-07-v12.19.md`, folded from the per-step records, which stay untracked under
-  `reviews/review-2026-11-0{6,7}-*.md`):
+- **Review** (`reviews/review-2026-11-07-v12.19.md`, folded from the per-step records
+  `review-2026-11-0{6,7}-<sha>.md`, which were never tracked and are no longer in `reviews/`):
   - Tiers 1–2 of the review pipeline ran in the session whenever the expensive-test gate asked. They are not
     independent of the code. Most code steps have a record, the version bump's included. `dd808c5` (the gating) and
     `a3ae035` (the gate hardening) have none. Tier 3 round 1's fixes (`0d8a00b` to `a85ab2f`) share one record, and so
@@ -334,17 +337,25 @@ was clean (the agent's first poll).
   step: 12m23s, 12m32s and 12m46s, then 12m43s, 12m52s and 13m04s. Installs 18–39 s. macOS and Windows
   5m45s–9m35s. The cap's comment (`7bf7bf4`) predicted a healthy ubuntu job at ~46.2 minutes, which matches; its worst
   passing case (~59.2 of 60, the bounded install's third attempt) was not observed.
+  After the docs commits, 9/9 on the final head `221c02c` (run 42428034723; ubuntu chromium, webkit and firefox
+  45m58s, 47m08s and 47m00s). `main`'s first run after the merge (`b0fee35`, run 42437401493, 2026-11-08, first
+  attempt) was 9/9 green with no install stall: ubuntu 46m10s, 46m50s and 46m45s (installs 19, 26 and 18 s; the
+  Gemini index step 12m44s, 12m56s and 12m58s), macOS 6m10s–6m58s, Windows 5m43s–8m31s.
 
 ### Owed and known
-- **Owed** (PR #94 is open): the owner's merge decision; after the merge, the Safari smoke-check reminder (DEC-062).
+- **Merged** 2026-11-08 as `b0fee35` on the owner's explicit OK ("Once CI on that head is green (all 9 jobs), merge
+  PR #94"), once all nine checks were green on `221c02c`. Right after the merge the agent reminded the owner of the
+  optional 5-minute Safari smoke check (DEC-062); no smoke check is reported (DEC-031).
 - **Decided by the owner, 2026-11-07:** "no local three-engine run (CI ran all 81 gates on three engines)" and "no
-  further Tier 3 rounds (GitHub Codex was clean twice on the final head)": neither runs before the merge.
+  further Tier 3 rounds (GitHub Codex was clean twice on the final head)": neither ran before the merge.
 - **Approved by the owner, 2026-11-07:** M1, M2, K5 (a spec deviation) and K8, and the ubuntu CI cap 50 → 60
   (`ffdabfb`), each decided by the agent during the build. The cap is a stopgap: the CI rebuild with parallel probe
   jobs is the real fix (ROADMAP 0e, the next PR).
 - **Owner acceptance** on all three runtimes: steps 33–37, in the consolidated pass.
-- **A proposed CLAUDE.md line** (Data Source Awareness: Gemini's `/app/<id>` index), for the owner's approval; not
-  applied.
+- **CLAUDE.md and the lessons** (the owner's choices of 2026-11-07, applied in `221c02c`): a Data Source Awareness
+  line for Gemini's `/app/<id>` index, and the line count dropped from the overview (a third proposal, two
+  Measurement Context rows, was not taken); the session's lessons in `agent_docs/conventions.md` (Lessons Learned),
+  and one in DOM-REFERENCE (Gemini's `fetch` takes a `Request` object).
 - The residuals, the spec's out-of-scope items and ChatGPT's own paging status: ROADMAP item 13, "Logged from v12.19".
   Among them since review round 1 (DEC-063):
   - the `3841805` record's N1, unmeasured live: if live Gemini puts a sent turn's id on the page before the newest

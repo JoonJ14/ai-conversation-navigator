@@ -30,10 +30,10 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.19 BUILT, PR #94 OPEN, NOT MERGED (Gemini's full question list on open, `feat/v12.19-gemini-full-history`, head `597ebfe`); v12.18 MERGED (PR #93, `ab7ea21`); v12.17 MERGED (PR #92); v12.16 MERGED (PR #90); next: the CI rebuild (item 0e), then Grok (the owner's order, 2026-11-07) — owner acceptance: one consolidated pass at about v12.20 (DEC-062); live confirmation status: DEC-031
+## Current Status: v12.19 MERGED (PR #94, `b0fee35`; Gemini's full question list on open); v12.18 MERGED (PR #93, `ab7ea21`); v12.17 MERGED (PR #92); v12.16 MERGED (PR #90); next: the CI rebuild (item 0e), then Grok (the owner's order, 2026-11-07) — owner acceptance: one consolidated pass at about v12.20 (DEC-062); live confirmation status: DEC-031
 
-**v12.19 (PR #94, open and not merged, head `597ebfe`, on `feat/v12.19-gemini-full-history`; DEC-058's addendum PR,
-from the owner's spec of 2026-11-05, `docs/specs/v12.19-spec.md`; DEC-063).** Gemini's full question list on open
+**v12.19 (PR #94, merged 2026-11-08 as `b0fee35` before acceptance, a waiver by design, DEC-062; DEC-058's addendum
+PR, from the owner's spec of 2026-11-05, `docs/specs/v12.19-spec.md`; DEC-063).** Gemini's full question list on open
 (item 13, Gemini).
 - **The index adapter (the main path).** On `/app/<id>` the navigator reads the whole chat through Gemini's own
   history read, `hNvQHb`. It is POSTed through `fetch` on every manager: Phase 0 found `fetch` the first transport
@@ -69,7 +69,8 @@ from the owner's spec of 2026-11-05, `docs/specs/v12.19-spec.md`; DEC-063).** Ge
     unmodified.
   - CI [GitHub Actions; the mock suite, never real-browser evidence]: 9/9 on `3841805` (run 42400157639) and on
     `597ebfe` (run 42407864961); the ubuntu jobs took 46m00s–47m21s on `597ebfe` against their 60-minute cap (a
-    stopgap until the CI rebuild, item 0e).
+    stopgap until the CI rebuild, item 0e). 9/9 on the final head `221c02c` (run 42428034723), and `main`'s first
+    run after the merge (`b0fee35`, run 42437401493) was 9/9 green, the ubuntu jobs 46m10s–46m50s.
 - **Review.** Tier 3's round 1 (Codex CLI, REVISE, 6 WARNs) and a 47-agent adversarial review (13 WARNs) ran on
   `546ab49`; every one of those 19 WARNs is fixed (18 distinct: two lenses found the same page-cap loop; DEC-063,
   "Review round 1"). Tiers 1–2 ran on most code steps, not on each: `dd808c5`, `a3ae035`, `c98b2d5` and `597ebfe`
@@ -84,8 +85,10 @@ from the owner's spec of 2026-11-05, `docs/specs/v12.19-spec.md`; DEC-063).** Ge
   open with 10 turns loaded and found an answer-1 word as A#1; 12.18 listed Q#1–Q#10 with the note and found
   nothing. Live `hNvQHb` reads: 9 of the ~50 the spec allowed beyond Phase 1's 30 (the agent's count; Gemini's own
   page loads during jumps not counted).
-- **Still to do before or at the merge:**
-  - The owner's merge decision (PR #94 is open and mergeable); after the merge, the Safari smoke-check reminder.
+- **The merge, and what it left:**
+  - Merged 2026-11-08 02:10:39Z as `b0fee35` by the agent on the owner's explicit OK, once all nine checks were green
+    on the final head `221c02c`. Right after it the agent reminded the owner of the optional 5-minute Safari smoke
+    check (DEC-062); no smoke check is reported.
   - Tier 3's rounds 2–5: **not run, the owner's call** (2026-11-07: "no further Tier 3 rounds (GitHub Codex was clean
     twice on the final head)"); 1 of 5 ran.
   - The local three-engine final run: **not run, the owner's call** (2026-11-07: "no local three-engine run (CI ran
@@ -159,10 +162,10 @@ v12.16 or v12.17: a release only once every platform works on all supported brow
    PR #93, merged 2026-11-05 as `ab7ea21`, above.** The live measurement found that the stored `model` follows a switch on the next message
    sent, and that claude.ai marks its summaries (`compaction_summary`; 87 found). The owner chose the design from HTML
    mockups (DEC-060).
-3. **Gemini's full question list on open — built: v12.19, above (PR #94, not merged; DEC-063)** (the owner, 2026-11-05;
-   DEC-058's addendum; item 13, Gemini). Its own PR, on the branch `feat/v12.19-gemini-full-history`. The owner chose
-   option C: the index (the investigation below found Gemini's own read returns the whole chat) and the button as
-   the fallback.
+3. **Gemini's full question list on open — done: v12.19, PR #94, merged 2026-11-08 as `b0fee35`, above (DEC-063)**
+   (the owner, 2026-11-05; DEC-058's addendum; item 13, Gemini). Its own PR, on the branch
+   `feat/v12.19-gemini-full-history`. The owner chose option C: the index (the investigation below found Gemini's own
+   read returns the whole chat) and the button as the fallback.
    - **Baseline today** (v12.16–v12.18, DEC-057): Navigate lists only the loaded turns (Gemini loads the newest 10,
      and 10 more each time the view reaches the top), the "older messages not loaded" note shows, and 2–3 trips to
      the top load the rest (32 questions: 10 → 20 → 30 → 32).
@@ -175,10 +178,11 @@ v12.16 or v12.17: a release only once every platform works on all supported brow
        comes from, how often it changes, what breaks when it does)?
    - **Fallback, if that is too fragile:** a "Load full history" button the user clicks. It scrolls to the top until
      the start is loaded (DEC-057's completion rule), then restores the view.
-4. **The CI rebuild (item 0e), its own PR — next, before Grok** (the owner, 2026-11-07). In this order:
+4. **The CI rebuild (item 0e), its own PR — NEXT, before Grok** (the owner, 2026-11-07), on the branch
+   `ci/rebuild-parallel-probes` (cut from `b0fee35`). In this order:
    - **Split the probes into parallel jobs** first. Target: the whole CI run near ~10 minutes again (the ubuntu jobs
-     took 46m00s–47m21s on `597ebfe`, under the 60-minute cap). The owner adds the new job names to `main`'s required
-     checks (the ruleset has no bypass actors).
+     took 46m00s–47m21s on `597ebfe`, and 46m10s–46m50s on `main`'s first run after the merge, under the 60-minute
+     cap). The owner adds the new job names to `main`'s required checks (the ruleset has no bypass actors).
    - **Then the flaky tests:** `check-ix-jumps` J15 and `check-usage-state` U10 (TROUBLESHOOTING).
    - **Then refresh the mocks.**
    - The ubuntu jobs' 60-minute cap (`ffdabfb`, v12.19) is the stopgap this replaces ("the CI rebuild with parallel
@@ -273,7 +277,8 @@ site and browser, on the build current then, from `docs/acceptance-checklist.md`
 After each merge the agent reminds the owner of the optional 5-minute Safari smoke check (the checklist's top).
 
 Owed meanwhile, "not reported" until the owner sends results (DEC-031):
-- PR #94's acceptance (v12.19, not merged yet), steps 33–37 on all three browsers (also PR #94's first comment).
+- PR #94's acceptance (v12.19, merged 2026-11-08 as `b0fee35` before acceptance, a waiver by design), steps 33–37 on
+  all three browsers (also PR #94's first comment).
   The agent's three live checks in Chrome are agent checks, not these steps;
 - PR #93's acceptance (v12.18), every step on all three browsers, including step 4 (the Q45 test bookmark, which
   the agent's safety classifier blocked);
@@ -767,6 +772,10 @@ Numbering below is stable (items keep their historical numbers):
      45m38s–47m08s on `3841805` (run 42400157639) and 46m00s–47m21s on `597ebfe` (run 42407864961), the Gemini index
      step 12m23s–13m04s of it. The owner, 2026-11-07: "The CI cap is a stopgap: the CI rebuild with parallel probe
      jobs is the real fix."
+     - **`main`'s first run after the merge** (`b0fee35`, run 42437401493, 2026-11-08, first attempt): 9/9 green
+       with no stall: ubuntu 46m10s / 46m45s / 46m50s (installs 19 / 18 / 26 s; the Gemini index step 12m44s–12m58s),
+       macOS 6m10s–6m58s, Windows 5m43s–8m31s. The final head `221c02c` before it (run 42428034723): ubuntu
+       45m58s–47m08s.
    - **Job durations before v12.18: successful jobs, min / median / max in minutes** [GitHub job and step data,
      read-only, 2026-11-05; v12.17: 21–22 runs, PR #92 and `8909d92`; v12.16: 5 runs]:
      - ubuntu, v12.17: chromium 27.3 / 28.4 / 29.2 (install 0.3, suite 5.7, probes 21.3–22.9); firefox 27.8 / 29.0 /
@@ -1269,10 +1278,11 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       key per conversation (DEC-053). Gated on mocks [measured, Playwright page realm, headless] and checked live in
       Chrome + Tampermonkey by the agent (CHANGELOG 12.15); owner acceptance on all three browsers owed (a waiver,
       DEC-031).
-    - **Pending:** Grok, untested on all three browsers. The owner decides the order (ROADMAP, "Current Status";
-      HANDOFF.md). Gemini: measured in v12.16; it keeps every turn (DEC-057). Its bookmarks key to the turn's id
-      since v12.17 (DEC-059), and since v12.19 it has an index adapter of its own, reading Gemini's history request
-      (`hNvQHb`), with "Load full history" as the fallback (DEC-063, superseding DEC-057's "no adapter").
+    - **Pending:** Grok, untested on all three browsers: its own PR after the CI rebuild, in the owner's order of
+      2026-11-07 (ROADMAP, "Current Status"; HANDOFF.md). Gemini: measured in v12.16; it keeps every turn (DEC-057).
+      Its bookmarks key to the turn's id since v12.17 (DEC-059), and since v12.19 it has an index adapter of its own,
+      reading Gemini's history request (`hNvQHb`), with "Load full history" as the fallback (DEC-063, superseding
+      DEC-057's "no adapter").
     - **How to add the next one:** "Porting the Layer 4 response to another platform" below, then one
       `IX_ADAPTERS` entry and a mock that genuinely unmounts (`probes/check-index-adapters.js` has two).
     - **Logged from v12.10, outside its scope:**
