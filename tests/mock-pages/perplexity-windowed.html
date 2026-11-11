@@ -120,6 +120,10 @@
     mountDelay: ms    the window re-renders this long after a scroll (default 0: at once)
     pinMs: ms         a wheel releases the pin for this long only; a later scroll away from the
                       bottom is pinned back (default: one wheel releases it for good, as above)
+    pinEvery: true    every scroll away from the bottom is pinned back 50 ms later, wheel or not:
+                      the pin with no clock in it. pinMs: 1 meant the same, except when a scroll
+                      shared the wheel's Date.now() millisecond: then nothing pulled it back and
+                      the jump truly landed (check-ix-jumps J15's flake, TROUBLESHOOTING)
     qLag: true        a mounted entry whose question slot lies wholly above the view keeps that
                       slot EMPTY while its answer stays mounted (live, Chrome, 2026-10-24: slot
                       19's answer mounted, slot 18's question empty); it fills again once the
@@ -242,8 +246,8 @@
   }
   scroller.addEventListener('wheel', function () { released = true; lastWheel = Date.now(); }, { passive: true });
   scroller.addEventListener('scroll', function () {
-    if (!isReleased() && scroller.scrollTop < bottom() - 2) {
-      setTimeout(function () { if (!isReleased()) { siteWrites++; scroller.scrollTop = bottom(); } }, 50);
+    if ((jm.pinEvery || !isReleased()) && scroller.scrollTop < bottom() - 2) {
+      setTimeout(function () { if (jm.pinEvery || !isReleased()) { siteWrites++; scroller.scrollTop = bottom(); } }, 50);
     }
     schedule();
   }, { passive: true });

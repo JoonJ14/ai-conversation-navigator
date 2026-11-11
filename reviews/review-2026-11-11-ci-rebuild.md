@@ -79,3 +79,18 @@ verified 8, fixed 6, not fixed 2 (one out of reach, one by design), false positi
 fixed.
 
 **Tier 3 rounds used: 4 of 5.** GitHub Codex rounds afterwards: to be recorded when the PR's babysit cycle ends.
+
+---
+
+## Stage 2a — J15's pin (`check-ix-jumps.js`, `perplexity-windowed.html`; probe and mock only)
+
+- **Diff:** 2 files, +12 / −5 (a `jumpModel.pinEvery` option; J15 uses it in place of `pinMs: 1`).
+- **Tiers run:** 1 and 2 (adaptive: under 50 lines, a config-level change), `session`. Triggered by the Stop hook.
+- **Tier 1:** PASS. `pinEvery` is read only where `jm` is defined and is documented in the options list; only J15
+  sets it; the `pinMs: 300` fixture and every suite entry (no `jumpModel`) are unchanged.
+- **Tier 2:** PASS. J15's verdict (`expect: 'cap-out'`) reads neither `released` nor `siteWrites`; with `pinEvery`
+  the pull-back fires exactly where `pinMs: 1` already pulled back, minus the same-millisecond hole, so no new loop
+  or state. Shown on all three engines: with the race forced lost (`pinMs: 100000`, a scratch copy) the old pin
+  FAILS with the flake's signature (`resolved=10 toast=no`) and `pinEvery` PASSES; with `pinEvery`, J15 still
+  FAILS on v12.14 (`79e4953`) and `71eda09`.
+- **Findings:** none.
