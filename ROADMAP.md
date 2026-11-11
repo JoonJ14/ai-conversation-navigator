@@ -187,6 +187,17 @@ v12.16 or v12.17: a release only once every platform works on all supported brow
    - **Then refresh the mocks.**
    - The ubuntu jobs' 60-minute cap (`ffdabfb`, v12.19) is the stopgap this replaces ("the CI rebuild with parallel
      probe jobs is the real fix", the owner, 2026-11-07).
+   - **Built on the branch, 2026-11-11 (DEC-064; no PR yet, the owner: "don't open a PR"):**
+     - **Step 1 done:** 20 jobs behind one required check, `ci-ok`; the probes in 9 two-lane jobs (layout B, the
+       owner's choice for GitHub Free); Playwright 1.65.0 pinned, ubuntu in its image; a docs-only fast path; caps
+       30/20; a PR-only concurrency group. Two dispatch runs took 9.23 and 9.98 minutes (46m53s before) with every
+       count unchanged [GitHub Actions, mock evidence]. The gate went red on a cancel and on a forced failure.
+     - **Step 2 done:** J15 (the pin has no clock, `pinEvery`) and U10 (a probe precondition race, not the
+       userscript's); before and after, 30 runs per engine each (TROUBLESHOOTING).
+     - **Step 3 scoped:** `docs/mock-refresh-scope.md`, 18 mocks ranked by risk, with the live reads a refresh needs
+       (for the owner's OK). `claude.html` models a structure Claude no longer has (July 2026's drift).
+     - **The owner's steps:** add `ci-ok` to the ruleset before the merge, remove the nine `<browser> on <os>` checks
+       after `main`'s first green run (DEC-064).
 5. **Grok** on all three browsers (item 13), its own PR — **after the CI rebuild** (the owner, 2026-11-07; before
    that, after the Gemini PR), once the owner is on the Linux machine to sign in. The code search must be redone
    signed in (2026-11-04's was signed out and only partly conclusive: the chat client loaded, a signed-in session did
@@ -655,7 +666,9 @@ Numbering below is stable (items keep their historical numbers):
      (fetch's origin guard) and **M34** (fetch drops the query). The other 42 still build. Re-anchor these four
      with the abort follow-up above, which reworks the same code, then re-run the battery and update the matrix.
 
-0e. **Rebuild CI around what it can and cannot show (owner, 2026-10-22).** The owner's read after
+0e. **Rebuild CI around what it can and cannot show (owner, 2026-10-22).** **Built 2026-11-11 on
+   `ci/rebuild-parallel-probes` (DEC-064; Current Status, "Next" item 4): its three steps, and stopgaps 3 and 4 below
+   replaced by the container and parallel jobs.** The owner's read after
    PR #75: the CI checks are outdated. They pass builds that fail in a real browser — v12.8 was green
    in CI while its index failed on Safari — so a green run says nothing about what breaks there. Nothing in the harness has a userscript manager: it inlines the
    script into the page realm with a `GM_xmlhttpRequest` shim (TESTING.md). Not started — scope it as

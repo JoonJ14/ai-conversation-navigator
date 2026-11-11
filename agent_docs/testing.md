@@ -126,8 +126,34 @@ When modifying the userscript, ensure:
 
 ## CI/CD
 
-GitHub Actions runs on push/PR to `main`:
-- **cross-platform-tests.yml:** 3 OS (Ubuntu, macOS, Windows) x 3 browsers (Chromium, Firefox, WebKit) = 9 test matrix jobs
+GitHub Actions runs on push/PR to `main`, and on `workflow_dispatch` (any branch).
+
+**The layout since the CI rebuild** (ROADMAP 0e; DEC-064; the owner's decisions of 2026-11-11) — 20 jobs:
+- **`changes`** — the docs-only fast path (`.github/scripts/docs-only.sh`, run from the BASE branch's copy). Only a
+  `pull_request` whose changed files (base...head, renames as delete + add) are all `*.md` or under `docs/` skips the
+  suite and the probes; pushes to `main` and manual runs always run everything.
+- **The suite, 9 jobs, the same names as before:** `<browser> on <os>`, each running `tests/test-all-platforms.js` on
+  its engine. The three ubuntu jobs run in `mcr.microsoft.com/playwright:v1.65.0-noble` (browsers and system packages
+  preinstalled, no apt); macOS and Windows install the browser on the host. Caps: 30 minutes each.
+- **The probes, 9 ubuntu jobs** in the same image: `probes <group> (<engine>)`, groups `gemini-index`,
+  `features+bookmarks`, `meter+jumps`, each running two lanes side by side (`.github/scripts/probe-lanes.sh` names
+  every probe and its CI time). Every probe in a lane runs even after one fails; nothing is retried. Engine placement
+  is unchanged: the string probes on chromium only, the rest on all three engines. Caps: 20 minutes.
+  `check-gemini-index` runs as its two `--part`s, one per lane.
+- **`ci-ok`** — the ONE required check (the owner, 2026-11-11). It needs every job, always runs, and fails unless each
+  succeeded or was skipped as docs-only; it also reads the run's jobs through the API and requires all 19 by name
+  (newest attempt each), because a matrix's aggregate result has been reported "success" with a leg cancelled before
+  it got a runner (DEC-064). A job added to the workflow must be added to its `needs:` and its expected list.
+- **Pinned:** Playwright 1.65.0 (`package.json`, `package-lock.json`, `npm ci` in every job; the image tag matches).
+  This Mac runs the same builds since 2026-11-11 (Chromium 1254, Firefox 1572, WebKit 2388).
+- **Timing** [GitHub Actions, mock evidence; dispatch runs 42946394211 and 42948220969 on `3e43e53`]: the whole run
+  9.23 and 9.98 minutes, against 46m53s before (run 42437401493); the longest job `chromium on windows-latest`
+  (9.05, 9.78); probe jobs 7.05–7.82; every probe x engine's PASS count equal to the old run's.
+- **A concurrency group** cancels a PR's superseded run (never `main`'s or a manual run).
+
+**History — where each probe ran until the rebuild, and what it gates** (the probes' placement by engine is
+unchanged; only the jobs are):
+- **cross-platform-tests.yml (until the CI rebuild):** 3 OS (Ubuntu, macOS, Windows) x 3 browsers (Chromium, Firefox, WebKit) = 9 test matrix jobs
   - Every job runs `tests/test-all-platforms.js` on its engine.
   - `ubuntu + chromium` also runs `check-tokenizer` and `check-subsegments` (string behaviour) and
     `check-usage-state` (the usage panel's network states; it has an open Firefox flake, TROUBLESHOOTING).
@@ -224,7 +250,8 @@ sibling entries stay exact at ~300ms is a degraded macOS runner episode, not cod
 lines (~160ms rAF sample = healthy; seconds = throttled; -1 = stopped) and the per-entry
 wall clocks, then re-run the job once. Full signature and procedure:
 `TESTING.md` → "CI: reading a webkit-on-macos failure or hang". The job `timeout-minutes` (30 since v12.15;
-40 on ubuntu since v12.17, 50 since v12.18, 60 since v12.19) exists for this; do not raise assertion budgets to make a
+40 on ubuntu since v12.17, 50 since v12.18, 60 since v12.19; since the CI rebuild 30 on every suite job and 20 on the
+probe jobs) exists for this; do not raise assertion budgets to make a
 sick runner green.
 
 **A local mac WebKit failure is NOT that signature** (found 2026-10-22). On the owner's Mac, four acceptance

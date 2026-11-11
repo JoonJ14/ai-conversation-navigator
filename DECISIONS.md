@@ -5087,3 +5087,105 @@ also records the cap as a stopgap until the CI rebuild).
   proposal, two Measurement Context rows, not taken); the session's lessons (in `agent_docs/conventions.md`, and one
   in DOM-REFERENCE, `221c02c`); TROUBLESHOOTING's J15 wording (still proposed there; the flaky tests are part of the
   CI rebuild, ROADMAP 0e); the per-step review files (never tracked, and no longer in `reviews/`).
+
+---
+
+## DEC-064: CI Is 20 Parallel Jobs Behind One Required Check, `ci-ok`, in Playwright's Pinned Image (the CI rebuild, 2026-11-11)
+
+**Date:** 2026-11-11 | **Stage:** the CI rebuild (ROADMAP 0e; Current Status "Next" item 4), branch
+`ci/rebuild-parallel-probes`, its own PR, not yet opened (the owner, 2026-11-11: "don't open a PR"). The userscript is
+untouched. **Replaces** the ubuntu jobs' 60-minute stopgap cap (stopgap 4, `ffdabfb`) and the bounded apt install
+(stopgap 3, `b48996a`).
+
+### The owner's decisions (2026-11-11, in the owner's words where quoted)
+- **Layout B:** "My GitHub plan: Free … Use layout B: two blocks per probe job, 19 jobs, within Free's 20 concurrent
+  jobs." (GitHub's limits page: Free, 20 concurrent jobs, 5 macOS; `claude-code-review.yml` takes one slot on every
+  PR push.)
+- **One required check:** "a final gate job (name it `ci-ok`) that `needs:` every suite job AND every probe job,
+  always runs, and fails unless every one succeeded (or was skipped by the docs-only rule below). I'll replace the
+  nine current required checks with just `ci-ok`." The owner changes the ruleset; the agent gives the steps.
+- **The container:** "The container image for ALL ubuntu jobs (suite and probes). If geometry- or font-sensitive
+  checks move on the first run, investigate and report; don't loosen any check." None moved (below).
+- **This Mac to Playwright 1.65.0,** and the four "local mac WebKit" entries re-run (TROUBLESHOOTING: not reproduced
+  on either build).
+- **The smaller changes:** "caps from the measured times (ubuntu 60 → 30, probe jobs 20), the concurrency group
+  cancelling superseded runs on PRs only (never on main), and actions/checkout and actions/setup-node to their current
+  versions."
+- **The docs-only fast path:** "a push whose changed files are ALL docs (*.md, docs/) skips the suite and probe jobs,
+  and `ci-ok` passes. Anything else runs everything; pushes to main always run everything. Detect it inside the
+  workflow (the base...head file list), not with paths-ignore."
+- **The gate proved** on a throwaway commit: one probe job failed on purpose by an env flag, another run cancelled;
+  `ci-ok` red both times; never in the final head.
+- **The flaky tests:** J15 by "the deterministic pin from HANDOFF §G.1", U10 "the cause first", each proved "with 30
+  local runs per engine, before and after. No retries anywhere. If U10's cause is in the userscript, stop and tell me."
+- **The mocks:** scoping only (`docs/mock-refresh-scope.md`); live reads wait for the owner's OK, with a count.
+
+### What was built (decided by the agent during the build, 2026-11-11, for the owner's review)
+- **Jobs** (`.github/workflows/cross-platform-tests.yml`):
+  - `changes`;
+  - the 9 suite jobs, their names unchanged (`test-ubuntu` in the image, `test-other` on macOS/Windows);
+  - 9 probe jobs `probes <group> (<engine>)`, groups `gemini-index`, `features+bookmarks` and `meter+jumps`, two lanes
+    each, grouped by CI's one-at-a-time step times (run 42437401493) so each lane is ~6.5–7 minutes;
+  - `ci-ok`.
+- **`probe-lanes.sh`** runs every probe in a lane even after one fails, and fails the job if any failed or did not
+  report (no retries). Each line is prefixed with its lane and probe; a table of exits and times ends the log.
+- **`check-gemini-index --part 1|2`** (the probe's only change): a PARTS table split by CI time (through I12b with
+  the background group, 375.5 s; from I12c, 388.4 s), R1 and E in both halves. With `--part`, a check in neither, in
+  both, a table id no fixture registers, or a fixture's id in BOTH_PARTS is INVALID. `--only` was not used: it
+  matches by prefix (`I1` selects I10–I19).
+- **The image:** `mcr.microsoft.com/playwright:v1.65.0-noble`, `--user 1001 --ipc=host --init`, setup-node 22 inside
+  it; `npm ci` everywhere against the pinned lockfile; `permissions: contents: read` (`ci-ok`: `actions: read`).
+- **Tier 3 round 1 (Codex), both verified:**
+  - The docs-only detector runs from the BASE branch's copy, so a PR's own edit to it cannot skip its tests; a base
+    without it runs everything.
+  - `ci-ok` also checks every leg by name through the jobs API, since GitHub community discussion 211624 (a user's
+    report, 2026-10-30, three runs, no staff reply) says a matrix leg cancelled before any runner picked it up leaves
+    `needs.<job>.result` at `success`.
+- **Round 2:** `ci-ok` reads `filter=all` and keeps each name's newest attempt, so a partial re-run is judged right
+  however the API lists carried-over jobs.
+- **The gate proof** ran on a throwaway branch (`ci/gate-proof-throwaway`, `9a6a23a`, deleted afterwards), so the PR
+  branch never carried the flag.
+- **J15:** the mock's `jumpModel.pinEvery`, a pin with no clock (TROUBLESHOOTING).
+- **U10:** the scenario waits for the other conversation's index to land before it routes back (TROUBLESHOOTING).
+  The agent judged the cause the probe's, not the userscript's (the reasoning is in that entry); the owner was told
+  before the fix was committed.
+
+### Measured
+- **[GitHub Actions; mock evidence, never browser evidence]** Dispatch runs 42946394211 and 42948220969 on `3e43e53`:
+  - 20/20 jobs green, the whole run 9.23 and 9.98 minutes, against 46m53s before (main's run 42437401493);
+  - the longest job `chromium on windows-latest` (9.05, 9.78); probe jobs 7.05–7.82; suite jobs 6.00–6.88 elsewhere;
+  - every probe x engine's PASS-line count equal to run 42437401493's (`check-gemini-index` 83 = 81 + R1 + E), and
+    the suite 560/560 in all 9;
+  - the image pull 14–20 s; ubuntu runners 4 CPUs, 16.8 GB; two lanes per runner moved no probe's time by more than
+    a few seconds against its one-at-a-time time.
+- **The gate:**
+  - cancel proof, run 42949425864 (cancelled with 18 jobs running): `ci-ok` ran (`always()`) and FAILED, naming all
+    18;
+  - forced failure, run 42949522716 (`probes meter+jumps (firefox)` failed by the flag): `ci-ok` FAILED, naming it;
+    the other 18 succeeded.
+- **Docs-only [this Mac]:** 18 edge cases in a scratch repo and the real docs-only commit `8f998c0` (true); PR #94's
+  diff, a push, a dispatch, an empty diff and a bad sha (false). **Its CI proof waits for the first docs-only PR
+  after the merge:** every PR to `main` before then includes the workflow change.
+- **J15 and U10** [this Mac, Playwright 1.65.0, headless, the three engines side by side]:
+  - J15 `--only J15`: before, chromium 3/30 failed, firefox and webkit 0/30; after, 0/90.
+  - U10, full probe runs: before, firefox 2/30 timed out, chromium and webkit 0/30; after, 0/90 (every check passing in every run).
+  - Each fix keeps its check a gate: J15 FAILS on v12.14 and `71eda09`; U10 FAILS on `5eee8ac` and on a mutant with
+    the generation guard reverted (`pct=42`).
+
+### Known limitations
+- **A PR can edit the workflow so `ci-ok` passes** (Tier 3 round 2, verified, not fixable in-repo): a `pull_request`
+  run uses the PR's own workflow. The nine checks it replaces had the same exposure. The guard is the human one: a
+  workflow diff is read before the owner merges.
+- **`ci-ok` keeps running on a cancelled run** (~10–40 s of one runner), by design: a job skipped by its own `if:`
+  counts as passing a required check.
+- **The image tag is mutable** (not pinned by digest). Inside the container GitHub's default shell is `sh`; every
+  step is POSIX or names bash.
+- **Not run for this PR:** the stage-end local suite and probes (the owner, 2026-11-11), and the `--slow` / `abort` /
+  `none` probe modes (CI never ran them).
+
+### Alternatives rejected
+- **Layout A** (one block per probe job, 18 probe jobs): ~9 minutes only with 28+ concurrent slots; on Free about 8
+  jobs queue (~14–16 minutes, an estimate).
+- **Sharding by `--only`:** prefix matching makes a shard list fragile.
+- **Adding more lanes inside `check-gemini-index`:** it changes the load profile of timing-sensitive checks.
+- **Retries anywhere:** they hide real failures.

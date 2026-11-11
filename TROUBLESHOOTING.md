@@ -2370,7 +2370,23 @@ the history-hook block. Changed, none of it on Claude's path:
 
 **Phase:** v12.9 verification (PR #75) | **Severity:** Low — real Safari does not reproduce it (owner,
 2026-10-23) | **Status:** Open as a Playwright engine-build issue only — fails identically on v12.8, so v12.9
-did not cause it
+did not cause it. **Not reproduced on 2026-11-11, on either WebKit build** (below): cause still unknown
+
+### Not reproduced, 2026-11-11 (the CI rebuild; before and after this Mac moved to Playwright 1.65.0)
+
+[this Mac, macOS arm64 (Darwin 25.6.0), headless, the userscript v12.19's as merged (`b0fee35`; this branch does not
+change it), runs one after another, nothing else running]
+
+| Build | The four entries alone (`--platform " rows"`) | The full WebKit suite (this entry's context) |
+|---|---|---|
+| Playwright 1.58.2, WebKit 2248 (01:27–01:45Z) | 3 of 3 runs 110/110 | 2 of 2 runs 560/560 |
+| Playwright 1.65.0, WebKit 2388 (01:47–02:05Z) | 3 of 3 runs 110/110 | 2 of 2 runs 560/560 |
+
+Entry times matched across builds (294 rows 56.0 s and 55.5 s; 120 rows 25.9 s and 25.8 s). So the upgrade the owner
+asked for (2026-11-11) cleared nothing: the failure no longer reproduces on the old build either. What changed since
+the last failing run (v12.16, 2026-10-31) is not established: v12.17–v12.19's userscript, the macOS version, or the
+machine's state are candidates, none tested. The older rows below stand with their contexts. This Mac and CI now run
+the same WebKit build (2388), so a future local failure can be compared with CI directly.
 
 ### Symptom
 
@@ -2455,10 +2471,50 @@ Owed, cheapest first:
 
 ---
 
-## OPEN — `check-usage-state` U10 times out on Firefox: every run on v12.8, intermittently on v12.9 (found 2026-10-22)
+## FIXED IN THE CI REBUILD (`ci/rebuild-parallel-probes`) ON MOCKS — `check-usage-state` U10 timed out: a probe precondition race, not the userscript (found 2026-10-22)
 
-**Phase:** v12.9 verification (PR #75) | **Severity:** Low — a probe flake; CI runs this probe on chromium
-only | **Status:** Open — pre-existing
+**Phase:** v12.9 verification (PR #75); fixed in the CI rebuild (ROADMAP 0e) | **Severity:** Low — a probe flake;
+CI runs this probe on chromium only | **Status:** fixed in the probe; the userscript is untouched
+
+### The cause (2026-11-11) [a trace of U10's scenario, Firefox, this Mac, Playwright 1.65.0, headless, page realm, and the code]
+
+A scratch copy of the scenario logged every mock request, `pushState`, Navigate repaint and usage text with the
+page's clock (25 runs, 3 failed):
+1. **A → B.** The scan sees a switch (`_ciConversationId` = A ≠ B): `ciInvalidate()` sets `_ciConversationId = null`
+   and zeroes the usage cooldown; B's index load starts, Navigate repaints, and usage request #1 goes out.
+2. **The probe routed back to A as soon as #1 was counted,** before B's index (answered 10 ms later by the mock) had
+   landed. B's load then finished superseded (`ciGetConversationUuid() !== cid`), so `_ciConversationId` stayed
+   `null`.
+3. **The scan on the return** found no conversation held (`_ciConversationId && … !== A` is false): no invalidate, so
+   the cooldown kept #1's time. A loaded fresh, Navigate repainted, `maybeRefreshUsage()` was inside its 5-minute
+   same-org cooldown, and **no third request was sent**. The probe waited for it (`__acnUsageRequests >= 3`) and
+   timed out.
+
+The three failures routed back 6, 7 and 10 ms after B's index request, at or before its 10 ms answer; the 22 passes
+13–20 ms after it. In the failing order #1's data still landed and showed (77%), so the user would have seen correct
+numbers: the missing request is the userscript's designed same-org cooldown. A multi-org switch is covered by the
+org check when A's load validates a different org (`_usageOrgUuid !== org` zeroes the cooldown). So the cause is the
+scenario's assumption that B became current before the route back, which nothing ensured. **The agent's judgment
+(2026-11-11), told to the owner before the fix was committed:** the cause is the probe's, not the userscript's.
+
+### Fixed (2026-11-11)
+
+The mock's GM stub counts each delivered conversation response per id (`window.__acnIndexAnswered`, after its
+`onload` ran), and U10 waits for B's before routing back. The scenario U10 exists for now happens every run: #2 is
+sent and hangs, #1 lands superseded and replaces the stale 42%.
+
+Measured [this Mac, Playwright 1.65.0, headless, the full probe, the three engines side by side]:
+
+| | chromium | firefox | webkit |
+|---|---|---|---|
+| before, 30 runs each (03:24–03:39Z) | 0 timed out | **2 timed out** (line 443, U10's signature) | 0 timed out |
+| after, 30 runs each (03:46–04:00Z) | 0 timed out | 0 timed out | 0 timed out |
+
+**U10 stays a gate:** with the fix, U10 FAILS (`pct=42`, the stale data kept, `requests=3`) on `5eee8ac` (before the
+generation guard, `5dbce77`) and on a mutant of the current build with only that guard reverted to truthiness, on
+all three engines; it PASSES (`pct=77`) on the current build.
+
+### The record before the fix
 
 ### Symptom
 
@@ -2523,10 +2579,39 @@ now Chromium too.
 
 ---
 
-## OPEN — CI: `check-ix-jumps` J15 lost a timing race on `firefox on ubuntu-latest` (PR #88, found 2026-10-31)
+## FIXED IN THE CI REBUILD (`ci/rebuild-parallel-probes`, `c5abeea`) ON MOCKS — `check-ix-jumps` J15 lost a timing race (CI on PR #88 and locally, found 2026-10-31)
 
-**Phase:** v12.15's PR CI | **Severity:** Low — a probe fixture's timing, no userscript code involved; one re-run
-cleared it | **Status:** open; a probe-only fix is proposed below, not yet made
+**Phase:** v12.15's PR CI; fixed in the CI rebuild (ROADMAP 0e) | **Severity:** Low — a probe fixture's timing, no
+userscript code involved | **Status:** fixed in the probe and its mock (`jumpModel.pinEvery`); the userscript is
+untouched
+
+### Fixed (2026-11-11, `c5abeea`; the proposed fix below, HANDOFF §G.1)
+
+The fixture's pin now has no clock in it. `tests/mock-pages/perplexity-windowed.html` gained `jumpModel.pinEvery`:
+every scroll away from the bottom is pulled back 50 ms later, wheel or not. J15 uses it in place of `pinMs: 1`, which
+pulled a scroll back unless the last wheel came within 1 ms, so a scroll in the wheel's own `Date.now()` millisecond
+was never pulled back and the jump truly landed.
+
+Measured [this Mac, Playwright 1.65.0, headless, page realm, the userscript inlined, `--only J15`, the three engines
+side by side, 2026-11-11]:
+
+| | chromium | firefox | webkit |
+|---|---|---|---|
+| before (`pinMs: 1`), 30 runs each, 03:08–03:11Z | **3 failed**, each `resolved=10 toast=no` | 0 failed | 0 failed |
+| after (`pinEvery`), 30 runs each, 03:12–03:15Z | 0 failed | 0 failed | 0 failed |
+
+- **The race forced lost** (a scratch copy, `pinMs: 100000`, so every scroll is inside the window): the old pin FAILS
+  with the flake's exact signature on all three engines; `pinEvery` PASSES on all three. So the flake was the scroll
+  falling inside the release window, and the new pin does not depend on it.
+- **J15 stays a [new] gate** (the check this entry asked for before adopting the fix): with `pinEvery` it FAILS on
+  v12.14 (`79e4953`) and `71eda09` on all three engines (`resolved=10 toast=no`, as those builds count the cap as
+  landed).
+- **The whole probe** with `pinEvery`: 29/29 on each engine. In CI the rebuilt workflow runs it in
+  `probes meter+jumps (<engine>)`.
+- The rule below ("re-run once") is history now: a J15 failure after `c5abeea` is a real finding.
+
+The owner's call on rewording "one that repeats on a re-run is a real finding" (below) is still open; with the race
+gone it matters less.
 
 ### Symptom
 
