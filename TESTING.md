@@ -1517,6 +1517,25 @@ To test just one platform, temporarily comment out the others in the `PLATFORMS`
 for (const platform of PLATFORMS.filter(p => p.name === 'Bolt.new')) {
 ```
 
+### CI: reading the rebuilt workflow (since the CI rebuild, DEC-064)
+
+- **`ci-ok` is the one required check.** When it is red, its log names each job that did not pass, twice: once from
+  `needs` (`probes: failure`) and once by name from the run's jobs (`probes meter+jumps (firefox): failure`). Open that
+  job; `ci-ok` itself only reports.
+- **A probe job runs two lanes at once,** so its log interleaves them. Every line carries its lane and probe
+  (`[A check-feature-gaps]   PASS  G1 …`), each probe logs `start` and `exit N after S s`, and the job ends with a
+  table: lane | probe | exit | seconds. A lane keeps going after a failed probe, so the table lists every probe's
+  result; nothing is retried.
+- **`check-gemini-index` runs as two halves** (`--part 1` in lane A, `--part 2` in lane B); together they report 83
+  lines, the whole run's 81 plus R1 and E once more (probes/README.md).
+- **A docs-only PR** shows the suite and probe jobs as skipped and `ci-ok` green; `changes` logs why ("all N changed
+  files are docs") and lists the files. Anything else, and every push to `main`, runs everything.
+- **Re-running** a failed job (`gh run rerun <run-id> --failed`, once the run has finished) re-runs `ci-ok` with it;
+  `ci-ok` judges each job by its newest attempt.
+- **The ubuntu jobs run in Playwright's image,** so there is no apt step to stall; their `Initialize containers` step
+  pulls the image (14–20 s on the first measured runs, 1.0 GB compressed). The bounded apt install and its retries
+  (ROADMAP 0e, stopgap 3) are gone with it.
+
 ### CI: reading a webkit-on-macos failure or hang (2026-07-30 incident signature)
 
 Healthy CI jobs run **5m41s–9m47s** (up to 10m02s on PR #75, 2026-10-22, where the transport-ladder probe

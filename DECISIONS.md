@@ -1266,7 +1266,7 @@ is a live run on the commit actually being shipped.
   wrong, and the honest report is "not reproduced", never a fix asserted on plausibility.
 
 **Addendum — merged before the live confirm, on the owner's explicit call (2026-10-23).** The owner has waived
-this rule ten times:
+this rule eleven times:
 - PR #73 (v12.8), merged before its usage-panel confirm;
 - PR #75 (v12.9), merged as `4c72ca9` before its Safari, Firefox and Chrome confirms;
 - PR #78 (v12.10), merged as `166a281` before Safari's ChatGPT and Perplexity check;
@@ -1288,24 +1288,30 @@ this rule ten times:
   the owner's explicit OK ("as soon as the CI test all come back green, then merge the PR"), with none of its
   acceptance steps reported on any browser. The agent's live check and A/B in Chrome + Tampermonkey
   (below) are not acceptance, and the CI change `b48996a` and the docs after `1be3bd1` were not installed live (the
-  userscript is unchanged since `64b54a8`, the build that was).
+  userscript is unchanged since `64b54a8`, the build that was);
+- PR #94 (v12.19), merged 2026-11-08 02:10 UTC as `b0fee35` (head `221c02c`, all nine checks green) by the agent on
+  the owner's explicit OK ("Once CI on that head is green (all 9 jobs), merge PR #94"), with none of its acceptance
+  steps reported on any browser: a waiver by design (DEC-062, the consolidated pass at about v12.20). The agent's
+  live checks and A/B in Chrome + Tampermonkey (below) are not acceptance, and the commits after `597ebfe` (docs, and
+  comment text in the userscript in `221c02c`) were not installed live (the userscript's code is unchanged since
+  `597ebfe`, the build that was).
 
 A waiver moves the merge, not the debt: each confirm stays owed on the merged build until it is run. Record
 every waiver here, and in the release's CHANGELOG entry.
 
 **Live confirmation status — kept here and nowhere else** (owner, 2026-10-23). CLAUDE.md and the other docs
 point here, so a status cannot go stale in a copy; each release's results are also in its CHANGELOG entry and
-review record. Updated 2026-11-07:
+review record. Updated 2026-11-10:
 - **Since DEC-062 (2026-11-05), owner acceptance is ONE consolidated pass at about v12.20**, on the build current then,
   working from `docs/acceptance-checklist.md` (seeded from PRs #88, #90, #92 and #93; each PR appends its steps).
   Until then a version's "owed" line below is expected, not an open problem; waivers are still recorded above. An
   optional 5-minute Safari smoke check after each merge is recorded under its version as "Safari smoke check".
-- **v12.19 (PR #94, open and not merged, head `597ebfe`; Gemini's full question list from its own history read, "Load
-  full history" as the fallback; DEC-063).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and
-  Firefox + Tampermonkey: **owed**, in the consolidated pass (DEC-062; `docs/acceptance-checklist.md`, steps 33–37),
-  nothing reported. The steps, as posted on the PR:
-  https://github.com/JoonJ14/ai-conversation-navigator/pull/94#issuecomment-6709614146. If PR #94 merges before
-  acceptance, its waiver goes in the list above.
+- **v12.19 (PR #94, merged 2026-11-08 as `b0fee35` before acceptance, a waiver by design, DEC-062; Gemini's full
+  question list from its own history read, "Load full history" as the fallback; DEC-063).** Owner acceptance on
+  Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey: **owed**, in the consolidated pass (DEC-062;
+  `docs/acceptance-checklist.md`, steps 33–37), nothing reported. The steps, as posted on the PR:
+  https://github.com/JoonJ14/ai-conversation-navigator/pull/94#issuecomment-6709614146. The waiver is in the list
+  above.
   - **Phase 0 (G0): a transport measurement, not acceptance.** One page-size-1 `hNvQHb` read of `96b519c1` per
     transport, in a visible tab: Chrome + Tampermonkey 5.5.1 by the agent; Firefox + Tampermonkey 5.5.0 and Safari +
     Userscripts 4.8.6 by the owner, measured 2026-11-05 and reported 2026-11-06. `fetch` returned the payload on all
@@ -1357,8 +1363,10 @@ review record. Updated 2026-11-07:
     this PR: G0 3; `dde0b1a` 2 (the open and a reload); `3841805` 1; the A/B 3 (A's open, A's reload and the restored
     12.19's open). Not counted: Gemini's own page loads during the 4 paging jumps (`pages=3` for each of the two at
     `597ebfe`).
-  - **CI, observed by the agent; not a browser check:** 9/9 on `3841805` (run 42400157639) and on `597ebfe` (run
-    42407864961).
+  - **CI, observed by the agent; not a browser check:** 9/9 on `3841805` (run 42400157639), on `597ebfe` (run
+    42407864961) and on the final head `221c02c` (run 42428034723). `main`'s first run after the merge (`b0fee35`, run
+    42437401493) was 9/9 green at 02:57 UTC on 2026-11-08, with no install stall (ubuntu 46m10s–46m50s, installs
+    18–26 s; macOS 6m10s–6m58s; Windows 5m43s–8m31s).
   <!-- V12.19 ACCEPTANCE: filled in by the integrator, as reported -->
 - **v12.18 (PR #93, merged 2026-11-05 as `ab7ea21` before acceptance, a waiver; the context meter, ChatGPT fallback
   bookmarks, the CI stopgap; DEC-060, DEC-061).** Owner acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey: **owed**,
@@ -4258,6 +4266,11 @@ owner's release rule names which one a release needs.
   2–3 trips to the top. It starts with a read-only investigation of Gemini's own history request; the fallback is a
   "Load full history" button. Grok follows, once the owner is back on the Linux machine to sign in (its code search
   must be redone signed in).
+- **Addendum (owner, 2026-11-07): the CI rebuild goes before Grok.** After Gemini's full question list (v12.19, merged
+  as `b0fee35`), the next PR is the CI rebuild (ROADMAP 0e; "Next" item 4): first the probes split into parallel jobs
+  (target: the whole CI run near ~10 minutes; the owner adds the new job names to `main`'s required checks), then the
+  flaky tests (`check-ix-jumps` J15, `check-usage-state` U10), then refreshed mocks. Grok follows, once the owner is
+  on the Linux machine.
 
 ---
 
@@ -4628,8 +4641,9 @@ the agent during the build (under the owner's 2026-11-06 instruction to decide a
 by the owner on 2026-11-07; the owner wrote none of them. **Supersedes DEC-057's "no index"** (its "no accumulation"
 still holds: Gemini keeps its turns). Of DEC-057's tracker, note and far landing, only the note is the fallback's: the
 tracker runs while the index is ready too, and the far landing lands jumps with it ready (DEC-057's pointer). Branch
-`feat/v12.19-gemini-full-history`, PR #94 (open, head `597ebfe`), not merged; owner acceptance in the consolidated
-pass (DEC-062; `docs/acceptance-checklist.md`, steps 33–37), owed on all three browsers (DEC-031).
+`feat/v12.19-gemini-full-history`, PR #94, **merged 2026-11-08 as `b0fee35`** (head `221c02c`; the userscript's last
+code change is `597ebfe`) before acceptance, a waiver by design (DEC-062); owner acceptance in the consolidated pass
+(`docs/acceptance-checklist.md`, steps 33–37), owed on all three browsers (DEC-031).
 
 ### Decision
 - **Option C, both** (the owner, 2026-11-05). An index adapter is the main path: on opening `/app/<16 hex>`, the
@@ -5065,8 +5079,114 @@ also records the cap as a stopgap until the CI rebuild).
 - **Two optional acceptance steps**, for the owner's own pass: an image-only prompt's answer reached from Search or a
   bookmark while it is not loaded (`c98b2d5`; unmeasured live), and a long answer right after a send keeping the
   index (NOTE N1).
-- **The merge of PR #94**, only on the owner's explicit OK; after it, the reminder of the optional Safari smoke check
-  (DEC-062).
-- Outside this record, proposed with the docs pass: CLAUDE.md's Data Source Awareness bullet and its line count, the
-  session's lessons for `agent_docs/conventions.md`, TROUBLESHOOTING's J15 wording, and whether to delete the
-  untracked per-step review files.
+- **The merge of PR #94: done.** Merged 2026-11-08 as `b0fee35` by the agent on the owner's explicit OK, once all nine
+  checks were green on `221c02c` (DEC-031's waiver list). Right after it the agent reminded the owner of the optional
+  Safari smoke check (DEC-062); no smoke check is reported.
+- Outside this record, proposed with the docs pass, and where each stands: CLAUDE.md's Data Source Awareness bullet
+  and its line count (the owner's approved diff, applied in `221c02c`: the bullet trimmed, the count dropped; a third
+  proposal, two Measurement Context rows, not taken); the session's lessons (in `agent_docs/conventions.md`, and one
+  in DOM-REFERENCE, `221c02c`); TROUBLESHOOTING's J15 wording (still proposed there; the flaky tests are part of the
+  CI rebuild, ROADMAP 0e); the per-step review files (never tracked, and no longer in `reviews/`).
+
+---
+
+## DEC-064: CI Is 20 Parallel Jobs Behind One Required Check, `ci-ok`, in Playwright's Pinned Image (the CI rebuild, 2026-11-11)
+
+**Date:** 2026-11-11 | **Stage:** the CI rebuild (ROADMAP 0e; Current Status "Next" item 4), branch
+`ci/rebuild-parallel-probes`, its own PR (opened 2026-11-11, on the owner's instruction). The userscript is
+untouched. **Replaces** the ubuntu jobs' 60-minute stopgap cap (stopgap 4, `ffdabfb`) and the bounded apt install
+(stopgap 3, `b48996a`).
+
+### The owner's decisions (2026-11-11, in the owner's words where quoted)
+- **Layout B:** "My GitHub plan: Free … Use layout B: two blocks per probe job, 19 jobs, within Free's 20 concurrent
+  jobs." (GitHub's limits page: Free, 20 concurrent jobs, 5 macOS; `claude-code-review.yml` takes one slot on every
+  PR push.)
+- **One required check:** "a final gate job (name it `ci-ok`) that `needs:` every suite job AND every probe job,
+  always runs, and fails unless every one succeeded (or was skipped by the docs-only rule below). I'll replace the
+  nine current required checks with just `ci-ok`." The owner changes the ruleset; the agent gives the steps.
+- **The container:** "The container image for ALL ubuntu jobs (suite and probes). If geometry- or font-sensitive
+  checks move on the first run, investigate and report; don't loosen any check." None moved (below).
+- **This Mac to Playwright 1.65.0,** and the four "local mac WebKit" entries re-run (TROUBLESHOOTING: not reproduced
+  on either build).
+- **The smaller changes:** "caps from the measured times (ubuntu 60 → 30, probe jobs 20), the concurrency group
+  cancelling superseded runs on PRs only (never on main), and actions/checkout and actions/setup-node to their current
+  versions."
+- **The docs-only fast path:** "a push whose changed files are ALL docs (*.md, docs/) skips the suite and probe jobs,
+  and `ci-ok` passes. Anything else runs everything; pushes to main always run everything. Detect it inside the
+  workflow (the base...head file list), not with paths-ignore."
+- **The gate proved** on a throwaway commit: one probe job failed on purpose by an env flag, another run cancelled;
+  `ci-ok` red both times; never in the final head.
+- **The flaky tests:** J15 by "the deterministic pin from HANDOFF §G.1", U10 "the cause first", each proved "with 30
+  local runs per engine, before and after. No retries anywhere. If U10's cause is in the userscript, stop and tell me."
+- **The mocks:** scoping only (`docs/mock-refresh-scope.md`), then (2026-11-11): "No other mock refresh for now: the
+  live verification layer (the next spec) is what will catch site drift"; `claude.html`'s suite entry is logged to be
+  retired or replaced in a later PR (ROADMAP, "Next" item 4).
+
+### What was built (decided by the agent during the build, 2026-11-11, for the owner's review)
+- **Jobs** (`.github/workflows/cross-platform-tests.yml`):
+  - `changes`;
+  - the 9 suite jobs, their names unchanged (`test-ubuntu` in the image, `test-other` on macOS/Windows);
+  - 9 probe jobs `probes <group> (<engine>)`, groups `gemini-index`, `features+bookmarks` and `meter+jumps`, two lanes
+    each, grouped by CI's one-at-a-time step times (run 42437401493) so each lane is ~6.5–7 minutes;
+  - `ci-ok`.
+- **`probe-lanes.sh`** runs every probe in a lane even after one fails, and fails the job if any failed or did not
+  report (no retries). Each line is prefixed with its lane and probe; a table of exits and times ends the log.
+- **`check-gemini-index --part 1|2`** (the probe's only change): a PARTS table split by CI time (through I12b with
+  the background group, 375.5 s; from I12c, 388.4 s), R1 and E in both halves. With `--part`, a check in neither, in
+  both, a table id no fixture registers, or a fixture's id in BOTH_PARTS is INVALID. `--only` was not used: it
+  matches by prefix (`I1` selects I10–I19).
+- **The image:** `mcr.microsoft.com/playwright:v1.65.0-noble`, `--user 1001 --ipc=host --init`, setup-node 22 inside
+  it; `npm ci` everywhere against the pinned lockfile; `permissions: contents: read` (`ci-ok`: `actions: read`).
+- **Tier 3 round 1 (Codex), both verified:**
+  - The docs-only detector runs from the BASE branch's copy, so a PR's own edit to it cannot skip its tests; a base
+    without it runs everything.
+  - `ci-ok` also checks every leg by name through the jobs API, since GitHub community discussion 211624 (a user's
+    report, 2026-10-30, three runs, no staff reply) says a matrix leg cancelled before any runner picked it up leaves
+    `needs.<job>.result` at `success`.
+- **Round 2:** `ci-ok` reads `filter=all` and keeps each name's newest attempt, so a partial re-run is judged right
+  however the API lists carried-over jobs.
+- **The gate proof** ran on a throwaway branch (`ci/gate-proof-throwaway`, `9a6a23a`, deleted afterwards), so the PR
+  branch never carried the flag.
+- **J15:** the mock's `jumpModel.pinEvery`, a pin with no clock (TROUBLESHOOTING).
+- **U10:** the scenario waits for the other conversation's index to land before it routes back (TROUBLESHOOTING).
+  The agent judged the cause the probe's, not the userscript's (the reasoning is in that entry); the owner was told
+  before the fix was committed.
+
+### Measured
+- **[GitHub Actions; mock evidence, never browser evidence]** Dispatch runs 42946394211 and 42948220969 on `3e43e53`:
+  - 20/20 jobs green, the whole run 9.23 and 9.98 minutes, against 46m53s before (main's run 42437401493);
+  - the longest job `chromium on windows-latest` (9.05, 9.78); probe jobs 7.05–7.82; suite jobs 6.00–6.88 elsewhere;
+  - every probe x engine's PASS-line count equal to run 42437401493's (`check-gemini-index` 83 = 81 + R1 + E), and
+    the suite 560/560 in all 9;
+  - the image pull 14–20 s; ubuntu runners 4 CPUs, 16.8 GB; two lanes per runner moved no probe's time by more than
+    a few seconds against its one-at-a-time time.
+- **The gate:**
+  - cancel proof, run 42949425864 (cancelled with 18 jobs running): `ci-ok` ran (`always()`) and FAILED, naming all
+    18;
+  - forced failure, run 42949522716 (`probes meter+jumps (firefox)` failed by the flag): `ci-ok` FAILED, naming it;
+    the other 18 succeeded.
+- **Docs-only [this Mac]:** 18 edge cases in a scratch repo and the real docs-only commit `8f998c0` (true); PR #94's
+  diff, a push, a dispatch, an empty diff and a bad sha (false). **Its CI proof waits for the first docs-only PR
+  after the merge:** every PR to `main` before then includes the workflow change.
+- **J15 and U10** [this Mac, Playwright 1.65.0, headless, the three engines side by side]:
+  - J15 `--only J15`: before, chromium 3/30 failed, firefox and webkit 0/30; after, 0/90.
+  - U10, full probe runs: before, firefox 2/30 timed out, chromium and webkit 0/30; after, 0/90 (every check passing in every run).
+  - Each fix keeps its check a gate: J15 FAILS on v12.14 and `71eda09`; U10 FAILS on `5eee8ac` and on a mutant with
+    the generation guard reverted (`pct=42`).
+
+### Known limitations
+- **A PR can edit the workflow so `ci-ok` passes** (Tier 3 round 2, verified, not fixable in-repo): a `pull_request`
+  run uses the PR's own workflow. The nine checks it replaces had the same exposure. The guard is the human one: a
+  workflow diff is read before the owner merges.
+- **`ci-ok` keeps running on a cancelled run** (~10–40 s of one runner), by design: a job skipped by its own `if:`
+  counts as passing a required check.
+- **The image tag is mutable** (not pinned by digest). Inside the container GitHub's default shell is `sh`; every
+  step is POSIX or names bash.
+- **Not added to CI:** the `--slow` / `abort` / `none` probe modes (CI never ran them).
+
+### Alternatives rejected
+- **Layout A** (one block per probe job, 18 probe jobs): ~9 minutes only with 28+ concurrent slots; on Free about 8
+  jobs queue (~14–16 minutes, an estimate).
+- **Sharding by `--only`:** prefix matching makes a shard list fragile.
+- **Adding more lanes inside `check-gemini-index`:** it changes the load profile of timing-sensitive checks.
+- **Retries anywhere:** they hide real failures.

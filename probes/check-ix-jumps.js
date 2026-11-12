@@ -204,13 +204,16 @@ const FIXTURES = [
     { id: 'J14', label: 'guard', desc: 'a question bubble taller than 0.8 x the view lands at its start: bottom -> Q5',
       site: 'perplexity', n: 12, start: 'bottom', target: 4,
       model: Object.assign({}, LIVE_PPLX, { q: LIVE_Q.map((h, i) => i === 4 ? 560 : h), bubble: LIVE_Q.map((h, i) => i === 4 ? 520 : 0) }) },
-    // A site that pulls every write back (the pin re-asserting 1 ms after each release): the
+    // A site that pulls every write back (the pin re-asserting after each release): the
     // landing spends its 4 writes and the target, mounted above the latest entry's long answer,
     // is still out of view. That is not a landing: a toast and no resolution (Tier 3). v12.14
-    // and a cap that always counts as landed both report it resolved.
+    // and a cap that always counts as landed both report it resolved. The pin is pinEvery, with
+    // no clock in it: until the CI rebuild it was pinMs: 1, which let a scroll that shared the
+    // wheel's Date.now() millisecond go unpinned, so the jump truly landed and J15 failed
+    // (`resolved=10 toast=no err=0px`; 3 of 30 alone on chromium, this Mac, 2026-11-11).
     { id: 'J15', label: 'new', desc: 'every write pulled back to the bottom: the cap with the target out of view is a toast, not a landing',
       site: 'perplexity', n: 12, start: 'bottom', target: 10, expect: 'cap-out',
-      model: Object.assign({}, LIVE_PPLX, { a: LIVE_A.map((h, i) => i === 11 ? 1500 : h), pinMs: 1 }) },
+      model: Object.assign({}, LIVE_PPLX, { a: LIVE_A.map((h, i) => i === 11 ? 1500 : h), pinEvery: true }) },
     // A question whose bubble renders its markdown (live, Chrome + Tampermonkey, 2026-10-25: Q10
     // of 12, a pasted README; from the top it stopped 862 px short 4 of 4 times, its flags had no
     // key, and a scan logged "index out of sync"). Measured on that thread, the bubble shows images

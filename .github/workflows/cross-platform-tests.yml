@@ -1,5 +1,19 @@
 name: Cross-Platform Tests
 
+# The CI rebuild (ROADMAP 0e; the owner's decisions of 2026-11-11). Until v12.19 every ubuntu job ran the suite and
+# then all 17 probe steps one after another (~46-47 minutes under a 60-minute stopgap cap). Now:
+#   - changes: the docs-only fast path (.github/scripts/docs-only.sh).
+#   - the suite: the same 9 jobs and names ("<browser> on <os>"); ubuntu in Playwright's container image.
+#   - probes: 9 ubuntu jobs, one engine and two lanes each (.github/scripts/probe-lanes.sh). Layout B, the owner's
+#     choice for GitHub Free's 20 concurrent jobs: 9 + 9, plus claude-code-review's one.
+#   - ci-ok: the one required check. It needs every job above and fails unless each succeeded, or was skipped by
+#     the docs-only rule.
+# Probe placement is unchanged: the string probes (tokenizer, subsegments, usage-state) on chromium only, since
+# they assert pure string behaviour; every other probe on all three engines, because each asserts fetch, timer,
+# scroll, storage or scan timing that varies by engine (webkit is Safari's); ubuntu only, since the runner OS adds
+# nothing to an engine question and Windows and macOS carry documented flake modes (DEC-036; TESTING.md).
+# History of the caps and the install stalls: ROADMAP 0e.
+
 on:
   push:
     branches: [main]
@@ -7,221 +21,250 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+# A newer push to a PR cancels that PR's run still in progress (two runs of 19 jobs would queue each other in 20
+# slots). Pushes to main and manual runs each get a group of their own, so they are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  test:
-    name: "${{ matrix.browser }} on ${{ matrix.os }}"
-    runs-on: ${{ matrix.os }}
-    # Healthy jobs run 5m41s-9m47s (observed across the 9-job matrix). Without
-    # a limit, GitHub lets a job run 6 HOURS - and a degraded macos runner
-    # burned 40+ minutes twice on 2026-07-30 (webkit/macos: same code, same
-    # image, same Playwright build as green runs minutes earlier). 20 minutes
-    # is 2x the slowest healthy job; a sick host now fails fast and visibly
-    # instead of blocking the PR for an hour. Queue time does not count.
-    # v12.15: the ubuntu jobs, which run every probe, took 13m42s-13m59s on
-    # 2026-10-25 before three more probes (about 5 minutes locally) joined them,
-    # so 20 minutes no longer covers a healthy ubuntu job; 30 does, with room.
-    # v12.17 (the owner, 2026-11-01): 40 on ubuntu, as a stopgap until the CI rebuild (ROADMAP
-    # 0e). Those jobs took 23m28s-24m6s on v12.16 (PR #90's run), and this PR's probes add about
-    # 4-5 minutes; macOS and Windows run no probes and keep 30.
-    # v12.18 (the owner, 2026-11-05; still a stopgap until the rebuild): 50 on ubuntu. Measured on
-    # v12.17 (21-22 runs, PR #92 and 8909d92): healthy ubuntu jobs 27.3-30.3 min (suite ~6, probes
-    # ~22). The merge run 41871676757 lost webkit/ubuntu at 40m11s because a slow apt mirror made
-    # "Install browser engine" take 10m54s (181 kB/s; 4 s normally); PR #92's run 41459811313 hit
-    # the same stall (39.0 min) and passed. 30.3 + ~11 = ~41 min, plus this PR's two probes (about
-    # 4.3-4.6 min per engine in the final local run; ~2 min in the first sweep): ~46. Measured
-    # afterwards on PR #93's run 42095450049 (3ccf84b): healthy ubuntu jobs 33m18s-33m51s, so 50
-    # absorbs an install stall of only ~16 min; a 25-min stall cut firefox/ubuntu at 50m19s
-    # (hence the bounded install step below). The merge run's two macOS cancels at 15m01s were GitHub
-    # not assigning a runner ("not acquired by Runner ... after multiple attempts"), which no
-    # setting here changes: re-run the failed jobs once the whole run has finished.
-    # v12.19 (Tier 3 r1): 60 on ubuntu. The owner chose 50 in v12.18, before this PR's "Run Gemini index
-    # probe" step existed; that step is why. It took ~9.8 minutes per engine when the cap was set (588 s for
-    # 67 checks, 589 s for 72), and 741 s (~12.4 minutes) for review round 1's last gates (b6f1aa2, 79
-    # checks), measured locally on chromium only (this machine, 2026-11-07; 489-502 s on 2026-11-06
-    # against v12.18, where many fixtures end early; Firefox, WebKit and CI not measured). A healthy ubuntu
-    # job: 33m18s-33m51s (PR #93's run 42095450049) + ~12.4 = ~46.2 minutes. The bounded install's worst
-    # case that still passes is its third attempt finishing at the 4-minute limit: 3 x 240 s, plus up to
-    # 15 s of kill-after and a 3 s pause after each failed attempt, ~12.5-13 minutes where a healthy install
-    # takes 18-40 s (already in the 33 minutes). ~46.2 + ~13 = ~59.2 of 60 minutes: under 1 minute of
-    # headroom by these local figures; under 50 such a job was cut off. A stall past that fails the install
-    # step itself (3 attempts, then exit 1), visibly.
-    # macOS and Windows run no probes and keep 30.
-    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 60 || 30 }}
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.diff.outputs.docs_only }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # The detector comes from the BASE branch, never from the PR: a PR's own edit to docs-only.sh is itself a
+      # non-doc change, so it cannot decide to skip its own tests (Tier 3 round 1). A base without the detector
+      # (before this workflow merged) runs everything.
+      - name: Docs-only fast path (the base branch's detector)
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" != pull_request ]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"; echo "event '$EVENT': everything runs"; exit 0
+          fi
+          if ! git show "$BASE:.github/scripts/docs-only.sh" > "$RUNNER_TEMP/docs-only.sh" 2>/dev/null; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"; echo "the base ($BASE) has no docs-only detector: everything runs"; exit 0
+          fi
+          bash "$RUNNER_TEMP/docs-only.sh" "$EVENT" "$BASE" "$HEAD"
+
+  # Ubuntu runs in Playwright's own image: the browsers and their system packages are preinstalled for exactly the
+  # pinned Playwright, so no job downloads apt packages (the mirror stalled for 10-25 minutes, ROADMAP 0e) or races
+  # npm for an unpinned release. --user 1001 is the runner's uid (Firefox refuses root); --ipc=host gives the
+  # browsers the host's shared memory; --init reaps the browsers' child processes.
+  test-ubuntu:
+    name: "${{ matrix.browser }} on ubuntu-latest"
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    # A healthy job: the suite (5m43s-5m47s on run 42437401493) and its setup. 30, as macOS and Windows.
+    timeout-minutes: 30
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
+      options: --user 1001 --ipc=host --init
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
         browser: [chromium, firefox, webkit]
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
-      - name: Install Playwright
-        run: npm install playwright
+      - name: Install Playwright (pinned by package-lock.json)
+        run: npm ci
 
-      - name: Install browser engine
-        if: matrix.os != 'ubuntu-latest'
-        run: npx playwright install --with-deps ${{ matrix.browser }}
-
-      # Ubuntu: the system packages come from the runner's apt mirror, which stalls. Measured on
-      # v12.17/v12.18 runs: "Need to get 48.8 MB" (Firefox) / "114 MB" (WebKit) fetched from
-      # azure.archive.ubuntu.com in 24m10s (32.3 kB/s), 15m53s (43.6 kB/s) and 10m30s (181 kB/s),
-      # while the package lists came at 7-9 MB/s, the browser from Playwright's CDN in 3-4 s, and a
-      # healthy install took 18-40 s. A stall past ~16 min ran a ~34-minute job into its 50-minute
-      # cap. So (the owner, 2026-11-05; ROADMAP 0e): the packages get up to 3 attempts of 4 minutes
-      # each, the later ones without the Azure mirror when the runner's mirror list has another, and
-      # a mirror that stays slow fails this step in ~13 minutes, visibly, instead of the whole job.
-      # No test or probe is retried; the browser download itself is unchanged.
-      - name: Install browser engine (ubuntu, bounded)
-        if: matrix.os == 'ubuntu-latest'
-        timeout-minutes: 16
-        env:
-          BROWSER: ${{ matrix.browser }}
-        run: |
-          ok=0
-          for attempt in 1 2 3; do
-            if timeout --kill-after=15s 240s npx playwright install-deps "$BROWSER"; then ok=1; break; fi
-            echo "::warning::system packages for $BROWSER, attempt $attempt: not done in 4 minutes (the apt mirror is slow)"
-            sudo pkill -TERM -x apt-get || true
-            sleep 3
-            sudo dpkg --configure -a || true
-            if [ "$attempt" = 1 ] && [ -f /etc/apt/apt-mirrors.txt ]; then
-              echo "apt mirror list:"; cat /etc/apt/apt-mirrors.txt
-              if awk '!/azure\.archive\.ubuntu\.com/ && NF { f = 1 } END { exit !f }' /etc/apt/apt-mirrors.txt; then
-                sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
-                echo "attempts 2-3 use the next mirror in the list"
-              fi
-            fi
-          done
-          if [ "$ok" != 1 ]; then
-            echo "::error::system packages for $BROWSER: 3 attempts of 4 minutes did not finish; the Ubuntu apt mirror is stalled. Re-run this job."
-            exit 1
-          fi
-          npx playwright install "$BROWSER"
+      - name: Versions
+        shell: bash
+        run: node -e "const os = require('os'); console.log('node ' + process.version + ', playwright ' + require('playwright/package.json').version + ', cpus ' + os.cpus().length + ', memory ' + (os.totalmem() / 1e9).toFixed(1) + ' GB')"
 
       - name: Run tests
         run: node tests/test-all-platforms.js --browser ${{ matrix.browser }}
 
-      # The probe assertions gate properties the Playwright suite structurally cannot
-      # see. Measured, not assumed (Tier 3 lens 3, PR #70): a build with the widened
-      # character class but the English `length > 2` filter restored — i.e. the variant
-      # v12.7 explicitly rejected — passes the Korean fixture 31/31, and so does a build
-      # with the two downstream length re-checks put back. The fixture's topic list is
-      # entirely bigrams drawn from its constant base text, so nothing that depends on
-      # 2-syllable Korean nouns ever reaches an assertion there. check-tokenizer T4 and
-      # T12 are what fail on those two builds.
-      #
-      # ONE job only (ubuntu + chromium). These probes assert pure string behaviour, which
-      # does not vary by runner or engine — the browser is used solely to execute the
-      # shipped function in situ. Running them in all 9 jobs would buy no coverage and add
-      # 9x the flake surface, on a matrix that already has two documented webkit-on-macos
-      # failure modes (DEC-036) and a page.goto race on Windows.
-      - name: Run probe assertions
-        if: matrix.os == 'ubuntu-latest' && matrix.browser == 'chromium'
+  test-other:
+    name: "${{ matrix.browser }} on ${{ matrix.os }}"
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ${{ matrix.os }}
+    # Healthy jobs take 6-10 minutes (macOS 6m10s-6m58s, Windows 5m43s-8m31s on run 42437401493). Without a limit
+    # GitHub lets a job run 6 hours, and a degraded macOS runner burned 40+ minutes twice on 2026-07-30.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+        browser: [chromium, firefox, webkit]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Install Playwright (pinned by package-lock.json)
+        run: npm ci
+
+      - name: Install browser engine
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Versions
+        shell: bash
+        run: node -e "const os = require('os'); console.log('node ' + process.version + ', playwright ' + require('playwright/package.json').version + ', cpus ' + os.cpus().length + ', memory ' + (os.totalmem() / 1e9).toFixed(1) + ' GB')"
+
+      - name: Run tests
+        run: node tests/test-all-platforms.js --browser ${{ matrix.browser }}
+
+  # Each job runs two lanes side by side; probe-lanes.sh names their probes and CI's time for each.
+  probes:
+    name: "probes ${{ matrix.group }} (${{ matrix.browser }})"
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    # The longest lane is ~7 minutes of probes (CI times, one probe at a time) plus setup: 20 is about 2.5x.
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
+      options: --user 1001 --ipc=host --init
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [gemini-index, features+bookmarks, meter+jumps]
+        browser: [chromium, firefox, webkit]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Install Playwright (pinned by package-lock.json)
+        run: npm ci
+
+      - name: Versions
+        shell: bash
+        run: node -e "const os = require('os'); console.log('node ' + process.version + ', playwright ' + require('playwright/package.json').version + ', cpus ' + os.cpus().length + ', memory ' + (os.totalmem() / 1e9).toFixed(1) + ' GB')"
+
+      - name: Run probes (two lanes)
+        env:
+          GROUP: ${{ matrix.group }}
+          BROWSER: ${{ matrix.browser }}
+        run: bash .github/scripts/probe-lanes.sh "$GROUP" "$BROWSER"
+
+  # The one required check (the owner, 2026-11-11). It always runs, and fails unless every job it needs succeeded,
+  # or was skipped because changes said docs-only. A skipped required check counts as passing on GitHub, which is
+  # why this gate exists and never skips itself. It checks twice:
+  #   1. each needed job's result (a matrix job's is the aggregate of its legs);
+  #   2. every leg by name, from this run's jobs (the latest attempt of each, so a re-run counts). A matrix leg
+  #      cancelled before any runner picked it up has been reported to leave the aggregate at "success" (GitHub
+  #      community discussion 211624, 2026-10-30, a user's report with three runs; this repo had such cancels on
+  #      macOS on 2026-11-05), so the aggregate alone is not enough (Tier 3 round 1).
+  # A job added to this workflow must be added to needs: and to the expected list below; an unknown job fails.
+  ci-ok:
+    name: ci-ok
+    needs: [changes, test-ubuntu, test-other, probes]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Every job succeeded (or was skipped as docs-only)
+        env:
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          CHANGES: ${{ needs.changes.result }}
+          TEST_UBUNTU: ${{ needs.test-ubuntu.result }}
+          TEST_OTHER: ${{ needs.test-other.result }}
+          PROBES: ${{ needs.probes.result }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          node probes/check-tokenizer.js --browser chromium
-          node probes/check-subsegments.js --browser chromium
-          node probes/check-usage-state.js --browser chromium
+          set -uo pipefail
+          bad=0
+          fail() { echo "::error::$1"; bad=1; }
+          echo "needs: docs_only=$DOCS_ONLY changes=$CHANGES test-ubuntu=$TEST_UBUNTU test-other=$TEST_OTHER probes=$PROBES"
+          [ "$CHANGES" = success ] || fail "changes: $CHANGES"
+          docs=false
+          if [ "$DOCS_ONLY" = true ] && [ "$CHANGES" = success ]; then docs=true; fi
+          for pair in "test-ubuntu=$TEST_UBUNTU" "test-other=$TEST_OTHER" "probes=$PROBES"; do
+            job=${pair%%=*}; result=${pair#*=}
+            if [ "$result" = success ]; then continue; fi
+            if [ "$result" = skipped ] && [ "$docs" = true ]; then continue; fi
+            fail "$job: $result"
+          done
 
-      # The transport-ladder probe is the exception to "one job only": it asserts fetch,
-      # promise and timer behaviour (a synchronous throw, a rejected fetch, the backoff
-      # schedule), and that is exactly what DOES vary by engine — webkit is the Safari
-      # engine the v12.9 fix exists for. So it runs on all three engines, on ubuntu only:
-      # the runner OS adds nothing to an engine question, and Windows/macOS carry the
-      # documented flake modes above. (v12.9, DEC-045)
-      - name: Run transport-ladder probe
-        if: matrix.os == 'ubuntu-latest'
-        run: node probes/check-transport-ladder.js --browser ${{ matrix.browser }}
+          expected=changes
+          for os in ubuntu-latest macos-latest windows-latest; do
+            for b in chromium firefox webkit; do expected="$expected"$'\n'"$b on $os"; done
+          done
+          for g in gemini-index features+bookmarks meter+jumps; do
+            for b in chromium firefox webkit; do expected="$expected"$'\n'"probes $g ($b)"; done
+          done
 
-      # The ChatGPT/Perplexity index-adapter probe (v12.10): placed like the ladder probe and
-      # for the same reason — it asserts fetch, timer and scroll-event behaviour (the
-      # Perplexity scroller's stick-to-bottom pin is released by a wheel event), which is
-      # what varies by engine.
-      - name: Run index-adapter probe
-        if: matrix.os == 'ubuntu-latest'
-        run: node probes/check-index-adapters.js --browser ${{ matrix.browser }}
+          # Read every attempt's jobs and keep each name's newest (highest run_attempt, then id), so a partial re-run
+          # (gh run rerun --failed) is judged by the re-run jobs and the earlier attempt's successes alike, whichever
+          # attempts the API lists them under (Tier 3 round 2). Wait (up to ~30 s) only for the API to show every
+          # job completed.
+          jobs=""
+          for try in 1 2 3 4 5 6 7; do
+            raw=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs?filter=all&per_page=100" \
+                    --jq '.jobs[] | select(.name != "ci-ok") | "\(.name)\t\(.run_attempt)\t\(.id)\t\(.status)\t\(.conclusion)"') || raw=""
+            # Per name: the newest attempt; the row with the highest id there, printed once per entry in that attempt,
+            # so two jobs with one name in one attempt still read "listed 2 times".
+            jobs=$(printf '%s\n' "$raw" | awk -F'\t' 'NF {
+                     att = $2 + 0; jid = $3 + 0
+                     if (!($1 in a) || att > a[$1]) { a[$1] = att; n[$1] = 0; best[$1] = -1 }
+                     if (att == a[$1]) { n[$1]++; if (jid > best[$1]) { best[$1] = jid; row[$1] = $1 "\t" $4 "\t" $5 } }
+                   } END { for (k in row) for (i = 0; i < n[k]; i++) print row[k] }' | sort)
+            pending=$(printf '%s\n' "$jobs" | awk -F'\t' 'NF && $2 != "completed"' | wc -l)
+            if [ -n "$jobs" ] && [ "$pending" -eq 0 ]; then break; fi
+            sleep 5
+          done
+          echo "this run's jobs (name, status, conclusion):"
+          printf '%s\n' "$jobs" | sed 's/^/  /'
+          [ -n "$jobs" ] || fail "could not read this run's jobs"
 
-      # Claude's turn-counter dots probe (v12.11): placed like the two above. It asserts an order of
-      # events (index latency, the observer's 500 ms debounce, MutationObserver delivery), and the
-      # bug it gates was seen only on Safari, so webkit runs it too.
-      - name: Run turn-counter probe
-        if: matrix.os == 'ubuntu-latest'
-        run: node probes/check-turn-counter.js --browser ${{ matrix.browser }}
+          if [ "$docs" = true ]; then
+            # Nothing ran but changes: every other job is skipped (a skipped matrix job is listed unexpanded).
+            while IFS=$'\t' read -r name status concl; do
+              [ -n "$name" ] || continue
+              if [ "$name" = changes ]; then [ "$concl" = success ] || fail "$name: $concl"
+              else [ "$concl" = skipped ] || fail "$name: $concl (docs-only: every job but changes should be skipped)"; fi
+            done <<< "$jobs"
+          else
+            while IFS= read -r want; do
+              n=$(printf '%s\n' "$jobs" | awk -F'\t' -v w="$want" '$1 == w' | wc -l)
+              c=$(printf '%s\n' "$jobs" | awk -F'\t' -v w="$want" '$1 == w { print $3; exit }')
+              if [ "$n" -ne 1 ]; then fail "$want: listed $n times in this run"
+              elif [ "$c" != success ]; then fail "$want: $c"; fi
+            done <<< "$expected"
+            while IFS=$'\t' read -r name status concl; do
+              [ -n "$name" ] || continue
+              printf '%s\n' "$expected" | grep -qxF -- "$name" || fail "$name ($concl): not in ci-ok's expected list (add it there and to needs:)"
+            done <<< "$jobs"
+          fi
 
-      # The GM storage probe (v12.12): placed like the three above. It asserts promise and timer
-      # behaviour (the async GM.getValue load at startup, its 2 s bound), and Safari, the runtime
-      # it exists for, is webkit's engine.
-      - name: Run GM storage probe
-        if: matrix.os == 'ubuntu-latest'
-        run: node probes/check-gm-storage.js --browser ${{ matrix.browser }}
-
-      # The answer-bookmark probe (v12.14, DEC-051): placed like the four above. It asserts scan timing
-      # (the 500 ms debounce), the jump, and both storage APIs, and the owner's answer bookmarks failed
-      # on all three browsers.
-      - name: Run answer-bookmark probe
-        if: matrix.os == 'ubuntu-latest'
-        run: node probes/check-answer-bookmarks.js --browser ${{ matrix.browser }}
-
-      # The v12.15 probes: placed like the five above. The jump probe asserts where one click lands
-      # under scroll, mount and timer behaviour (a smooth glide is cancelled differently per engine);
-      # the ChatGPT/Perplexity bookmark probe and the Claude turn-key probe assert scan timing, the
-      # refetch cooldown and both storage APIs, and the owner's failures were seen on all three browsers.
-      - name: Run index-jump probe
-        if: matrix.os == 'ubuntu-latest'
-        run: node probes/check-ix-jumps.js --browser ${{ matrix.browser }}
-
-      - name: Run ChatGPT/Perplexity bookmark probe
-        if: matrix.os == 'ubuntu-latest'
-        run: node probes/check-ix-bookmarks.js --browser ${{ matrix.browser }}
-
-      - name: Run Claude turn-key probe
-        if: matrix.os == 'ubuntu-latest'
-        run: node probes/check-claude-turnkeys.js --browser ${{ matrix.browser }}
-
-      # The v12.16 probes: placed like the ones above. The far-jump probe asserts where one click
-      # lands under scroll, mount and timer behaviour (a smooth glide is handled differently per
-      # engine); the context-limit probe asserts the meter's limit per conversation model across a
-      # conversation switch and SSE redraws; the Gemini probe asserts paging, the scan debounce and
-      # an 8 s real-time wait. The owner's acceptance covers all three browsers.
-      - name: Run Claude far-jump probe
-        if: matrix.os == 'ubuntu-latest'
-        run: node probes/check-claude-far-jump.js --browser ${{ matrix.browser }}
-
-      - name: Run context-limit probe
-        if: matrix.os == 'ubuntu-latest'
-        run: node probes/check-ctx-limit.js --browser ${{ matrix.browser }}
-
-      - name: Run Gemini history probe
-        if: matrix.os == 'ubuntu-latest'
-        run: node probes/check-gemini-history.js --browser ${{ matrix.browser }}
-
-      # v12.19: Gemini's full question list from its own history read (DEC-063): the read's shape and
-      # failure classes, the self-check, the refresh, jumps that page the DOM in, and the "Load full
-      # history" fallback. Placed like the ones above: it asserts request counts over real-time windows
-      # (20-25 s), paging waits and trusted-wheel cancels, which differ per engine.
-      - name: Run Gemini index probe
-        if: matrix.os == 'ubuntu-latest'
-        run: node probes/check-gemini-index.js --browser ${{ matrix.browser }}
-
-      # v12.17: Search, Export, Summary and the gallery read the whole conversation on Claude,
-      # ChatGPT, Perplexity and Gemini, and Gemini bookmarks key to the turn id (DEC-059).
-      - name: Run feature-gaps probe
-        if: matrix.os == 'ubuntu-latest'
-        run: node probes/check-feature-gaps.js --browser ${{ matrix.browser }}
-
-      # v12.18: the context meter on Claude, ChatGPT, Gemini and Perplexity (DEC-060), and ChatGPT
-      # answer bookmarks on a "fallback" turn. Placed like the ones above: both read the meter and
-      # the flags after scans, refetches and storage writes, which differ per engine.
-      - name: Run context-meter probe
-        if: matrix.os == 'ubuntu-latest'
-        run: node probes/check-context-meter.js --browser ${{ matrix.browser }}
-
-      - name: Run ChatGPT fallback-turn bookmark probe
-        if: matrix.os == 'ubuntu-latest'
-        run: node probes/check-gpt-fallback.js --browser ${{ matrix.browser }}
+          if [ "$bad" != 0 ]; then exit 1; fi
+          if [ "$docs" = true ]; then echo "ci-ok: docs-only, every other job skipped"
+          else echo "ci-ok: all $(printf '%s\n' "$expected" | wc -l | tr -d ' ') jobs succeeded"; fi
