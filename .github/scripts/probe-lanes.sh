@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One probe job of the CI rebuild (ROADMAP 0e): its two lanes run side by side, each lane's probes one after
-# another. Layout B, the owner's choice of 2026-11-11: two blocks per probe job, so the 9 suite jobs, the 9 probe
-# jobs and claude-code-review fit in GitHub Free's 20 concurrent jobs.
+# another. Layout B, the owner's choice of 2026-11-11: two blocks per probe job, so the 9 suite jobs and the 9 probe
+# jobs run at once (18; `changes` before them, `ci-ok` after) within GitHub Free's 20 concurrent jobs.
 #
 #   probe-lanes.sh <group> <browser>
 #

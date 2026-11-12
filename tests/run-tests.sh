@@ -16,7 +16,8 @@
 #   4. Verifies selectors, theme, icons, and navigation
 #   5. Prints a pass/fail report
 #
-# Requirements: Node.js, Playwright (npm install playwright)
+# Requirements: Node.js 20+, Playwright as pinned in package-lock.json: run `npm ci` (never `npm install playwright`,
+# which installs the latest release and rewrites the pin), then `npx playwright install`.
 
 set -euo pipefail
 

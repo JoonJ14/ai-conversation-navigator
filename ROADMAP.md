@@ -30,7 +30,7 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.19 MERGED (PR #94, `b0fee35`; Gemini's full question list on open); v12.18 MERGED (PR #93, `ab7ea21`); v12.17 MERGED (PR #92); v12.16 MERGED (PR #90); next: the CI rebuild (item 0e), then Grok (the owner's order, 2026-11-07) — owner acceptance: one consolidated pass at about v12.20 (DEC-062); live confirmation status: DEC-031
+## Current Status: the CI rebuild MERGED (PR #95, `d3f3d16`, 2026-11-12; `ci-ok` the one required check, DEC-064); v12.19 MERGED (PR #94, `b0fee35`; Gemini's full question list on open); v12.18 MERGED (PR #93, `ab7ea21`); v12.17 MERGED (PR #92); v12.16 MERGED (PR #90); next: the owner's next spec (a live verification layer), then Grok — owner acceptance: one consolidated pass at about v12.20 (DEC-062); live confirmation status: DEC-031
 
 **v12.19 (PR #94, merged 2026-11-08 as `b0fee35` before acceptance, a waiver by design, DEC-062; DEC-058's addendum
 PR, from the owner's spec of 2026-11-05, `docs/specs/v12.19-spec.md`; DEC-063).** Gemini's full question list on open
@@ -152,7 +152,7 @@ with a labelled 200K fallback (DEC-056; step 1 of item 12). The turn dots on Cla
 complete once the history is, and says so while it is not (DEC-057). The agent's live check in Chrome + Tampermonkey
 passed all three (DEC-031). Grok is out of scope (its own PR after the owner's testing).
 
-**Next, in the owner's order (2026-11-01; DEC-058; item 4 added before Grok, 2026-11-07).** No release for v12.15,
+**Next, in the owner's order (2026-11-01; DEC-058; item 4 added before Grok, 2026-11-07; item 5 added before Grok, 2026-11-11/12).** No release for v12.15,
 v12.16 or v12.17: a release only once every platform works on all supported browsers.
 1. **The feature gaps, one PR — done: v12.17, above (merged 2026-11-04).** In the owner's words: Search, Export, Summary
    and the image gallery on ChatGPT, Perplexity, Gemini and Claude still read only on-screen messages, and Gemini
@@ -178,8 +178,8 @@ v12.16 or v12.17: a release only once every platform works on all supported brow
        comes from, how often it changes, what breaks when it does)?
    - **Fallback, if that is too fragile:** a "Load full history" button the user clicks. It scrolls to the top until
      the start is loaded (DEC-057's completion rule), then restores the view.
-4. **The CI rebuild (item 0e), its own PR — NEXT, before Grok** (the owner, 2026-11-07), on the branch
-   `ci/rebuild-parallel-probes` (cut from `b0fee35`). In this order:
+4. **The CI rebuild (item 0e), its own PR — done: PR #95, merged 2026-11-12 as `d3f3d16` (DEC-064)** (the owner,
+   2026-11-07), on the branch `ci/rebuild-parallel-probes` (cut from `b0fee35`). In this order:
    - **Split the probes into parallel jobs** first. Target: the whole CI run near ~10 minutes again (the ubuntu jobs
      took 46m00s–47m21s on `597ebfe`, and 46m10s–46m50s on `main`'s first run after the merge, under the 60-minute
      cap). The owner adds the new job names to `main`'s required checks (the ruleset has no bypass actors).
@@ -201,10 +201,29 @@ v12.16 or v12.17: a release only once every platform works on all supported brow
        (`data-testid="user-human-turn"`, `user_message`; both measured at 0 live on 2026-07-26, DOM-REFERENCE) and
        passes only through the userscript's fallback selectors; retire or replace that suite entry (the "Claude"
        entry of `tests/test-all-platforms.js`). The current markup is covered by `claude-virtualized.html`.
-     - **The owner's steps:** add `ci-ok` to the ruleset before the merge, remove the nine `<browser> on <os>` checks
-       after `main`'s first green run (DEC-064).
-5. **Grok** on all three browsers (item 13), its own PR — **after the CI rebuild** (the owner, 2026-11-07; before
-   that, after the Gemini PR), once the owner is on the Linux machine to sign in. The code search must be redone
+     - **The owner's steps — done 2026-11-12:** `ci-ok` added before the merge; the nine `<browser> on <os>` checks
+       removed after `main`'s first green run. The ruleset is now `main-protection` (renamed by the owner) and
+       requires `ci-ok` only.
+     - **After the merge:** `main`'s first run lost two macOS jobs to GitHub never assigning a runner; `ci-ok` was red
+       until `gh run rerun --failed`, then green (TROUBLESHOOTING; 2 of the last 60 runs).
+     - **Logged, not built (the owner, 2026-11-12): an automatic re-run for runner-capacity failures only.**
+       - A small separate workflow with `actions: write`.
+       - It re-runs a run's failed jobs only when every failed job has 0 steps (it never got a runner).
+       - Once per run, on the first attempt only; never a job that ran and failed, so no test or probe is ever retried.
+       - Not chosen: fewer macOS jobs (e.g. WebKit only on macOS).
+     - **Still owed:** the docs-only fast path's first CI proof waits for the first docs-only PR to `main` (the owner
+       chose no docs-only PR for the handoff).
+     - **Also logged (DEC-064, the handoff's §G.4), unordered:** pin the container image by digest (the tag is
+       mutable); add `--slow` and the `abort` / `none` probe modes to CI (never run there); find what cleared the local
+       mac WebKit failure (not reproduced on 2026-11-11 on either build; v12.17–v12.19's userscript, the macOS version or
+       the machine's state are untested candidates); the owner's call on TROUBLESHOOTING's J15 rewording.
+5. **The owner's next spec: a live verification layer (a different CI approach) — NEXT, its own session and PR**
+   (the owner, 2026-11-11: "the live verification layer (the next spec) is what will catch site drift"). Not yet
+   shared; wait for it. The handoff rides on its branch, `ci/live-verification-layer` (cut from `d3f3d16`; the name
+   is the agent's, rename it if the spec names another).
+6. **Grok** on all three browsers (item 13), its own PR — **after the CI rebuild** (the owner, 2026-11-07; before
+   that, after the Gemini PR). The owner's next spec takes the next session (2026-11-11), so Grok follows it unless
+   the owner says otherwise (the agent's reading of the order, 2026-11-12). Grok waits until the owner is on the Linux machine to sign in. The code search must be redone
    signed in (2026-11-04's was signed out and only partly conclusive: the chat client loaded, a signed-in session did
    not), and data steps 2–3 follow it (DOM-REFERENCE, Grok, "Context and summaries").
 
@@ -264,9 +283,11 @@ nothing here pre-writes its scope.
 
 Later; the owner decides the order (2026-10-24; the last two added 2026-10-31; the first three PRs are now fixed
 by the owner's order above, 2026-11-01; the CI rebuild, then Grok, joined that order on 2026-11-07):
-- Grok on all three browsers (item 13): now "Next" item 5, after the CI rebuild (the owner, 2026-11-07).
+- Grok on all three browsers (item 13): now "Next" item 6, after the CI rebuild (the owner, 2026-11-07) and, by the
+  agent's reading, after the owner's next spec ("Next" item 5).
 - ~~Claude: a jump to the latest question from the top ends at the bottom, past it~~ — v12.16 part A (DEC-055).
-- `check-ix-jumps` J15's timing race in CI (TROUBLESHOOTING, OPEN): make the fixture's pin deterministic. It has
+- ~~`check-ix-jumps` J15's timing race in CI: make the fixture's pin deterministic~~ — **done in the CI rebuild**
+  (`c5abeea`, PR #95; `jumpModel.pinEvery`; chromium 3/30 failed before, 0/90 after; TROUBLESHOOTING). It had
   failed locally since 2026-10-31 (Firefox and WebKit, v12.15/v12.16); since v12.18 also on Chromium (sweep 2,
   twice), and again on Firefox (the final run); in v12.19's build, Chromium again (two back-to-back full runs at
   `546ab49`; it passed the milestone on `3841805`). Now part of the CI rebuild ("Next" item 4, the flaky tests).
@@ -671,9 +692,10 @@ Numbering below is stable (items keep their historical numbers):
      (fetch's origin guard) and **M34** (fetch drops the query). The other 42 still build. Re-anchor these four
      with the abort follow-up above, which reworks the same code, then re-run the battery and update the matrix.
 
-0e. **Rebuild CI around what it can and cannot show (owner, 2026-10-22).** **Built 2026-11-11 on
-   `ci/rebuild-parallel-probes` (DEC-064; Current Status, "Next" item 4): its three steps, and stopgaps 3 and 4 below
-   replaced by the container and parallel jobs.** The owner's read after
+0e. **Rebuild CI around what it can and cannot show (owner, 2026-10-22).** **Done: PR #95, merged 2026-11-12 as
+   `d3f3d16` (DEC-064; Current Status, "Next" item 4): its three steps, and stopgaps 3 and 4 below replaced by the
+   container and parallel jobs; `ci-ok` is `main-protection`'s one required check. The automatic re-run for
+   runner-capacity failures is logged there, not built.** The owner's read after
    PR #75: the CI checks are outdated. They pass builds that fail in a real browser — v12.8 was green
    in CI while its index failed on Safari — so a green run says nothing about what breaks there. Nothing in the harness has a userscript manager: it inlines the
    script into the page realm with a `GM_xmlhttpRequest` shim (TESTING.md). Not started — scope it as
@@ -1426,7 +1448,8 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
           clears the token is gated by code reading only: in the mock a build without it sends the same requests.
         - The button stays hidden during the index's first load (the "Loading full conversation history" banner
           shows then).
-        - `check-ix-jumps` J15's known timing race (TROUBLESHOOTING, OPEN) can still turn a run red.
+        - `check-ix-jumps` J15's known timing race (TROUBLESHOOTING, OPEN then) can still turn a run red. (Fixed since,
+          in the CI rebuild, `c5abeea`.)
         - Logged from review round 1 (not fixed; the review's reading of the code unless marked):
           - An edited question that keeps its turn id reads as a self-check mismatch each time: a strike and a full
             read. Five edits in one chat visit stop the index for the visit (the DOM list, the note and the button

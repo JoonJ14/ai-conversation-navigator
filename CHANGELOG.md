@@ -4,6 +4,74 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [The CI Rebuild — 20 Parallel Jobs Behind One Required Check, `ci-ok`; J15 and U10 Fixed (no userscript release)] — 2026-11-11
+
+**Branch:** `ci/rebuild-parallel-probes` | **PR:** #95 | **Merged** 2026-11-12 17:12:20Z as `d3f3d16` (head `116d10b`)
+on the owner's explicit OK, after the owner added `ci-ok` to the ruleset. **The userscript is unchanged** (no version,
+no acceptance steps, no DEC-031 waiver). Design and every decision: DEC-064. Review: `reviews/review-2026-11-11-ci-rebuild.md`.
+
+### Problem [CI, run 42437401493 on `b0fee35`]
+- Every ubuntu job ran the suite, then 17 probe steps one after another: 46m10s–46m50s each, the whole run 46m53s,
+  under a 60-minute stopgap cap. macOS and Windows ran the suite alone, in 6–9 minutes.
+- `check-gemini-index` alone took ~13 minutes per engine, longer than the ~10-minute target the owner set.
+- Playwright was installed unpinned at run time (one release raced its own core package on 2026-11-05), and the
+  ubuntu apt mirror stalled for 10–25 minutes several times.
+- Two probe checks were flaky: `check-ix-jumps` J15 and `check-usage-state` U10.
+
+### Approach (the owner's decisions of 2026-11-11; the build's details are the agent's, DEC-064)
+- **20 jobs:**
+  - `changes`, the docs-only fast path;
+  - the 9 suite jobs, names unchanged;
+  - 9 probe jobs `probes <group> (<engine>)`, each running two lanes side by side (layout B, for GitHub Free's 20
+    concurrent jobs);
+  - `ci-ok`, the one required check.
+- **`ci-ok`** fails unless every job succeeded, or was skipped as docs-only. It checks both the matrices' aggregate
+  results and each of the 19 jobs by name through the jobs API (`filter=all`, newest attempt each), because a matrix
+  leg cancelled before it got a runner has been reported to leave the aggregate at "success".
+- **Playwright 1.65.0 pinned** (`package.json`, the lockfile, `npm ci` everywhere). Every ubuntu job runs in
+  `mcr.microsoft.com/playwright:v1.65.0-noble`, which replaces the bounded apt install. This Mac moved to the same
+  builds.
+- **Caps** 30 (suite) and 20 (probes); a concurrency group cancels a PR's superseded run; checkout and setup-node v7;
+  `permissions: contents: read` (`ci-ok`: `actions: read`).
+- **The docs-only fast path:** only a `pull_request` whose base...head files are all `*.md` or under `docs/` skips the
+  suite and the probes. Renames count as a delete plus an add, and the detector runs from the base branch.
+- **`check-gemini-index --part 1|2`:** halves split by CI time (375.5 s / 388.4 s), with a PARTS table guard.
+- **J15:** the mock's pin has no clock in it (`jumpModel.pinEvery`); a scroll in the wheel's own millisecond had gone
+  unpinned.
+- **U10:** the scenario now waits for the other conversation's index to land before routing back. It had routed back
+  first, so request #2 was never sent. The agent judged this the probe's precondition race, not the userscript's.
+
+### Results
+- **[CI] Speed:** dispatch runs 42946394211 and 42948220969 took 9.23 and 9.98 minutes, against 46m53s before. Every
+  probe × engine's PASS count was unchanged (`check-gemini-index` 83 = 81 + R1 + E in both halves), and the suite
+  560/560 in all 9 jobs. The PR's run 43069811015 took 11.77 minutes, 5m03s of it a Mac runner wait.
+- **[CI] The gate:** a cancelled run and a forced failure each turned `ci-ok` red.
+- **[mock] J15:** chromium failed 3/30 before, 0/90 after.
+- **[mock] U10:** firefox failed 2/30 before, 0/90 after.
+- **Each fix stays a gate:** J15 fails on v12.14 and `71eda09`; U10 fails on `5eee8ac` and on a mutant.
+- **Review:**
+  - Tier 3 (Codex), 4 of 5 rounds: 3 CRITICAL and 3 WARN raised, 4 fixed, 1 out of reach (a PR can edit its own
+    workflow), 1 by design (`always()`). Tiers 1–2 (in session) found and fixed 2 more.
+  - GitHub Codex: 0 findings on opening and on the confirming review.
+
+### After the merge [CI, `main`'s first run 43266934908 on `d3f3d16`]
+- **Attempt 1:** GitHub never assigned a runner to `firefox` and `webkit on macos-latest` (15 minutes queued, 0 steps,
+  "not acquired by Runner"). `ci-ok` failed on both of its checks; the aggregate read `abandoned`, an undocumented
+  value.
+- **Attempt 2** (`gh run rerun --failed`): 20/20, `ci-ok` green.
+- The owner then removed the nine old checks, so `ci-ok` is `main-protection`'s only required check (the ruleset
+  renamed from `mian-protection` by the owner the same day).
+- In the last 60 runs, 2 lost a macOS job this way. An automatic re-run for runner-capacity failures only is logged in
+  ROADMAP, not built.
+
+### Not changed, logged
+- **No mock refresh** (the owner: the live verification layer, the next spec, will catch site drift).
+  `docs/mock-refresh-scope.md` ranks the 18 mocks.
+- **`claude.html`'s suite entry** models Claude's pre-July markup and passes only through fallback selectors; to be
+  retired or replaced in a later PR.
+
+---
+
 ## [12.19 — Gemini Lists the Whole Chat on Open; Jumps Page Its Older History In; "Load Full History" Where That Cannot Run] — 2026-11-07
 
 **Branch:** `feat/v12.19-gemini-full-history` | **Userscript head:** `597ebfe`: `b13e36e` (the version bump), then

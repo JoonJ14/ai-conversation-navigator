@@ -5,7 +5,8 @@ name: Cross-Platform Tests
 #   - changes: the docs-only fast path (.github/scripts/docs-only.sh).
 #   - the suite: the same 9 jobs and names ("<browser> on <os>"); ubuntu in Playwright's container image.
 #   - probes: 9 ubuntu jobs, one engine and two lanes each (.github/scripts/probe-lanes.sh). Layout B, the owner's
-#     choice for GitHub Free's 20 concurrent jobs: 9 + 9, plus claude-code-review's one.
+#     choice for GitHub Free's 20 concurrent jobs: the 9 + 9 run at once (18), with `changes` before them and
+#     `ci-ok` after. (claude-code-review.yml is disabled on GitHub and takes no slot.)
 #   - ci-ok: the one required check. It needs every job above and fails unless each succeeded, or was skipped by
 #     the docs-only rule.
 # Probe placement is unchanged: the string probes (tokenizer, subsegments, usage-state) on chromium only, since
@@ -24,7 +25,7 @@ on:
 permissions:
   contents: read
 
-# A newer push to a PR cancels that PR's run still in progress (two runs of 19 jobs would queue each other in 20
+# A newer push to a PR cancels that PR's run still in progress (two runs of 18 jobs at once would queue each other in 20
 # slots). Pushes to main and manual runs each get a group of their own, so they are never cancelled.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}

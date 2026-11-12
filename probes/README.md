@@ -7,6 +7,12 @@ Everything here follows the CLAUDE.md measurement-context rule: every number a
 probe produces is scoped to the context it was taken in, and the file that
 records it must say which.
 
+**Where the probes run in CI** (since the CI rebuild, PR #95, DEC-064): in 9 ubuntu jobs, `probes <group> (<engine>)`,
+each running two lanes side by side in Playwright's image. `.github/scripts/probe-lanes.sh` names every probe's group
+and lane, with its CI time; the string probes (`check-tokenizer`, `check-subsegments`, `check-usage-state`) run on
+chromium only, every other `check-*` probe on all three engines. A probe in a lane runs even after another fails, and
+nothing is retried. A new `check-*` probe joins CI only by being added to a lane there (and to `test:probes`).
+
 | File | What it is |
 |---|---|
 | `perf-instrument.js` | Inserts timing/count wrappers around the Summary pipeline into a copy of the userscript. One insertion point (before the "Inject now" init block); wrapped names are reassigned bindings, no function bodies edited. |

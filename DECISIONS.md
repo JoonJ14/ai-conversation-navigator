@@ -1295,6 +1295,8 @@ this rule eleven times:
   live checks and A/B in Chrome + Tampermonkey (below) are not acceptance, and the commits after `597ebfe` (docs, and
   comment text in the userscript in `221c02c`) were not installed live (the userscript's code is unchanged since
   `597ebfe`, the build that was).
+- PR #95 (the CI rebuild, DEC-064), merged 2026-11-12 as `d3f3d16`: **not a waiver**, since no userscript code
+  changed (CI, probes and mocks only), and it has no acceptance steps.
 
 A waiver moves the merge, not the debt: each confirm stays owed on the merged build until it is run. Record
 every waiver here, and in the release's CHANGELOG entry.
@@ -5093,14 +5095,16 @@ also records the cap as a stopgap until the CI rebuild).
 ## DEC-064: CI Is 20 Parallel Jobs Behind One Required Check, `ci-ok`, in Playwright's Pinned Image (the CI rebuild, 2026-11-11)
 
 **Date:** 2026-11-11 | **Stage:** the CI rebuild (ROADMAP 0e; Current Status "Next" item 4), branch
-`ci/rebuild-parallel-probes`, its own PR (opened 2026-11-11, on the owner's instruction). The userscript is
+`ci/rebuild-parallel-probes`, PR #95, **merged 2026-11-12 as `d3f3d16`** (head `116d10b`) on the owner's OK. The userscript is
 untouched. **Replaces** the ubuntu jobs' 60-minute stopgap cap (stopgap 4, `ffdabfb`) and the bounded apt install
 (stopgap 3, `b48996a`).
 
 ### The owner's decisions (2026-11-11, in the owner's words where quoted)
 - **Layout B:** "My GitHub plan: Free … Use layout B: two blocks per probe job, 19 jobs, within Free's 20 concurrent
-  jobs." (GitHub's limits page: Free, 20 concurrent jobs, 5 macOS; `claude-code-review.yml` takes one slot on every
-  PR push.)
+  jobs." (GitHub's limits page: Free, 20 concurrent jobs, 5 macOS. The agent's plan also counted a slot for
+  `claude-code-review.yml` on every PR push, from its trigger; measured 2026-11-12, that workflow is disabled
+  (`disabled_manually`, last run 2026-02-23) and takes none. The 18 suite and probe jobs run at once, `changes` before
+  them and `ci-ok` after, so a run's peak is 18 of the 20.)
 - **One required check:** "a final gate job (name it `ci-ok`) that `needs:` every suite job AND every probe job,
   always runs, and fails unless every one succeeded (or was skipped by the docs-only rule below). I'll replace the
   nine current required checks with just `ci-ok`." The owner changes the ruleset; the agent gives the steps.
@@ -5137,6 +5141,10 @@ untouched. **Replaces** the ubuntu jobs' 60-minute stopgap cap (stopgap 4, `ffda
   matches by prefix (`I1` selects I10–I19).
 - **The image:** `mcr.microsoft.com/playwright:v1.65.0-noble`, `--user 1001 --ipc=host --init`, setup-node 22 inside
   it; `npm ci` everywhere against the pinned lockfile; `permissions: contents: read` (`ci-ok`: `actions: read`).
+  `actions/checkout` and `actions/setup-node` v4 → v7, because the v4s ran on Node 20 and GitHub was forcing them onto
+  Node 24 with a deprecation warning in every job. Their release notes, read 2026-11-11, break nothing here:
+  v5 moved both to Node 24 (runner ≥ 2.327.1), checkout v6 keeps credentials in a separate file, and setup-node
+  caches automatically only when `package.json` has a `packageManager` field, which this one does not.
 - **Tier 3 round 1 (Codex), both verified:**
   - The docs-only detector runs from the BASE branch's copy, so a PR's own edit to it cannot skip its tests; a base
     without it runs everything.
@@ -5165,9 +5173,19 @@ untouched. **Replaces** the ubuntu jobs' 60-minute stopgap cap (stopgap 4, `ffda
     18;
   - forced failure, run 42949522716 (`probes meter+jumps (firefox)` failed by the flag): `ci-ok` FAILED, naming it;
     the other 18 succeeded.
-- **Docs-only [this Mac]:** 18 edge cases in a scratch repo and the real docs-only commit `8f998c0` (true); PR #94's
-  diff, a push, a dispatch, an empty diff and a bad sha (false). **Its CI proof waits for the first docs-only PR
-  after the merge:** every PR to `main` before then includes the workflow change.
+- **Docs-only [this Mac, git 2.27, `docs-only.sh` run on real commits and on a scratch repo, 2026-11-11]:**
+  - **docs-only (true):** the real handoff commit `b0fee35...8f998c0` (8 docs files, the v12.18 handoff's move among
+    them); a rename of a `.md` into `docs/`; a deleted `.md`; a path with spaces under `docs/`; `docs/design/p.html`
+    (anything under `docs/`); a mode change on a `.md`; code changed, then restored, plus a `.md` (the net diff is
+    docs); a docs-only branch whose base has moved on (three-dot: the PR's own changes only).
+  - **everything runs (false):** PR #94's diff (8 of 26 files not docs); a `push` and a `workflow_dispatch` (any
+    event but `pull_request`); no shas; a sha that does not exist (the list cannot be computed; a warning); an
+    empty diff (code changed and reverted: "no changed files"); a rename of code into `docs/` and of a `.md` into
+    code (each listed as a delete plus an add); a deleted code file; a `.md` plus a `.js`; `NOTES.MD` (case-sensitive);
+    `foo.md.js`; `probes/docs/x.js` (only a top-level `docs/`); a mode change on a `.js`; a workflow file.
+  - No test or probe reads a `.md` or anything under `docs/` (code reading, 2026-11-11), so skipping them cannot hide
+    a failure. **Its CI proof waits for the first docs-only PR after the merge:** every PR to `main` before then
+    includes the workflow change, and the owner chose no docs-only PR for this session's handoff.
 - **J15 and U10** [this Mac, Playwright 1.65.0, headless, the three engines side by side]:
   - J15 `--only J15`: before, chromium 3/30 failed, firefox and webkit 0/30; after, 0/90.
   - U10, full probe runs: before, firefox 2/30 timed out, chromium and webkit 0/30; after, 0/90 (every check passing in every run).
@@ -5183,6 +5201,31 @@ untouched. **Replaces** the ubuntu jobs' 60-minute stopgap cap (stopgap 4, `ffda
 - **The image tag is mutable** (not pinned by digest). Inside the container GitHub's default shell is `sh`; every
   step is POSIX or names bash.
 - **Not added to CI:** the `--slow` / `abort` / `none` probe modes (CI never ran them).
+- **GitHub's Mac capacity** (below): about 1 run in 30 loses a macOS job before it starts; `ci-ok` is red until a
+  re-run.
+
+### After the merge (2026-11-12)
+- **The ruleset:** the owner added `ci-ok` before the merge (keeping the nine `<browser> on <os>` checks), merged on
+  their OK, then removed the nine once `main`'s first run showed `ci-ok` green. The ruleset was renamed
+  `main-protection` (from `mian-protection`, the owner's typo) and requires `ci-ok` only (GitHub Actions, integration
+  15368), with no bypass actors.
+- **PR #95's checks** [GitHub Actions; mock evidence]: GitHub Codex clean on opening and on the confirming `@codex
+  review` (0 findings, 0 fixes). Run 43069811015 on `116d10b`: 20/20, `ci-ok` green, 11.77 minutes. Of that, 5m03s
+  was `webkit on macos-latest` waiting for a runner, with 3 of 5 macOS slots and 18 of 20 jobs in use.
+- **`main`'s first run** (43266934908 on `d3f3d16`):
+  - Attempt 1: GitHub never assigned a runner to `firefox` and `webkit on macos-latest` (15 minutes queued, 0 steps,
+    "not acquired by Runner", a macOS arm64 capacity notice). `ci-ok` failed on both checks:
+    `needs.test-other.result` was **`abandoned`**, a value outside the documented set, and the per-leg check named
+    both legs. So this time the aggregate did not read "success" (discussion 211624's case), but the gate accepts
+    only `success`, or `skipped` when docs-only, so any other value fails it.
+  - Attempt 2 (`gh run rerun --failed`): 20/20, `ci-ok` green.
+  - On that attempt `jobs?filter=latest` listed every job, the carried-over successes under `run_attempt` 2. That
+    settles round 2's open question; the newest-attempt logic handles either shape.
+- **How often** [the last 60 runs, 2026-10-31 → 11-12]: 2 runs lost a macOS job before it got a runner, both right
+  after a merge to `main`; macOS queue waits over 2 minutes in 19 of 201 jobs.
+- **Logged, not built** (the owner, 2026-11-12; ROADMAP): an automatic re-run for runner-capacity failures only.
+  Every failed job must have 0 steps (never got a runner); once per run, on the first attempt only; never a job that
+  ran and failed; a small separate workflow with `actions: write`. Offered alongside: fewer macOS jobs (not chosen).
 
 ### Alternatives rejected
 - **Layout A** (one block per probe job, 18 probe jobs): ~9 minutes only with 28+ concurrent slots; on Free about 8

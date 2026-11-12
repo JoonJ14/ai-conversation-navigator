@@ -121,9 +121,13 @@ NODE_PATH=/opt/node22/lib/node_modules node tests/test-all-platforms.js
 
 ### Requirements:
 
-- **Node.js** (v18+)
-- **Playwright** (`npm install -g playwright` or already globally installed)
-- **Chromium** browser downloaded (`npx playwright install chromium`)
+- **Node.js** 20+ (Playwright 1.65 requires it; CI uses 22)
+- **Playwright, pinned:** exactly 1.65.0 in `package.json` and `package-lock.json` since the CI rebuild (DEC-064).
+  Install with `npm ci`, never `npm install playwright` (that installs the latest release and rewrites the pin).
+- **Browsers** for that version: `npx playwright install` (all three; add `--with-deps` on Linux). This Mac and CI
+  run the same builds since 2026-11-11: Chromium 1254, Firefox 1572, WebKit 2388.
+- The `NODE_PATH` above is the old sandbox's global install (`/opt/node22/...`); with the project's own
+  `node_modules` it is not needed, and Node resolves `playwright` from the repo.
 
 ### Exit codes:
 
@@ -1532,6 +1536,10 @@ for (const platform of PLATFORMS.filter(p => p.name === 'Bolt.new')) {
   files are docs") and lists the files. Anything else, and every push to `main`, runs everything.
 - **Re-running** a failed job (`gh run rerun <run-id> --failed`, once the run has finished) re-runs `ci-ok` with it;
   `ci-ok` judges each job by its newest attempt.
+- **A job with 0 steps and "The job was not acquired by Runner of type hosted even after multiple attempts"** never
+  ran: GitHub had no runner for it (macOS arm64, about 1 run in 30, often right after a merge to `main`). `ci-ok` is
+  red with that job "cancelled" (the aggregate may read `abandoned`). It is not a finding: re-run the failed jobs
+  once the run has finished (TROUBLESHOOTING).
 - **The ubuntu jobs run in Playwright's image,** so there is no apt step to stall; their `Initialize containers` step
   pulls the image (14–20 s on the first measured runs, 1.0 GB compressed). The bounded apt install and its retries
   (ROADMAP 0e, stopgap 3) are gone with it.
@@ -1581,11 +1589,14 @@ cap is not a wedge: read the failing check first (TROUBLESHOOTING, the J15 entry
 against it. The cap covers the whole job, installs included. On PR #75 a `firefox on ubuntu-latest`
 job spent all 20 minutes in `npx playwright install --with-deps` on a slow apt mirror and never ran
 a test. Read which STEP was cancelled before reading anything into the job (TROUBLESHOOTING has
-the entry).
+the entry). **Since the CI rebuild (PR #95, merged 2026-11-12, DEC-064):** the suite jobs' cap is 30 on every OS and
+the probe jobs' 20; the ubuntu jobs run in Playwright's image, so there is no apt install left to stall. A job that
+never got a runner shows 0 steps and "not acquired by Runner" (the section above, "CI: reading the rebuilt workflow").
 
 **Not to be confused with a local failure that matches this one only by name (found 2026-10-22).**
-On the owner's Mac, Playwright's WebKit (build 2248) fails four acceptance entries on every run,
-on v12.8 and v12.9 alike. Each failure is a `got null` jump at ~1.46s with healthy `raf10`
+On the owner's Mac, Playwright's WebKit (build 2248) failed four acceptance entries on every run through
+2026-10-31, on v12.8 and v12.9 alike. **On 2026-11-11 it did not reproduce on either build** (2248 and 2388, the full
+suite twice on each; TROUBLESHOOTING), and the Mac now runs CI's builds (Playwright 1.65.0). Each failure is a `got null` jump at ~1.46s with healthy `raf10`
 (135–168ms), and every printed failure targets one of the last ~10 questions of its conversation.
 That is not this signature: no ceiling-length give-up, no CI runner, and it fails on every run. It
 was first misfiled as this signature in the v12.9 records — corrected in the repo docs and, on 2026-10-23,
@@ -1886,7 +1897,7 @@ again. In this shape, ask the owner early and do the offline work meanwhile.
 | How a live site renders a question's markdown (v12.15) | Mock bubbles hold the plain `query_str`; live, Perplexity shows images and links as their text, tables, lists and headings without their markers, and a "Read more" button, so a compare that passed every mock never matched one live question | `check-ix-jumps` J16 models the renderings measured live; the agent's live Chrome check (above) runs before every PR |
 | Where Claude's pinned tail sits (v12.16) | Without `tailAtEnd`, `claude-virtualized.html` appended the pinned tail rows right after the mounted window, so from the top row 292 started at 2,792 px and moved down with every scroll. v12.15 and the fix both failed F1 there: v12.15 stopped with the target 16,087 px below, and the fix chased the tail with 4 writes to 30,646 px, hit the cap and showed a toast. A mock that differs from live geometry made a correct fix look broken | `tailAtEnd: true` (off by default) puts the tail after `#mock-spacer-bottom`: row 292 starts at 330,542 px, v12.15 then ends at the bottom with Q147 3,018 px above the view (the live shape; live it was 1,136 px) and the fix lands at 0 px. `check-claude-far-jump`'s precondition P3 reports INVALID on the mock without it (DEC-055) |
 | Gemini's history read in a real manager, and Gemini's live paging (v12.19) | `probes/check-gemini-index.js` inlines the script into the page realm and answers `hNvQHb` through a route bridge to the mock's `rpc()`, with synthetic content in Phase 1's framing, in 400 ms where live took 6.2 s. The live payload's scale (12.66M characters for 32 turns, 85% in a slot the navigator never reads; 3,114,652 B on the wire, one reading), what makes Gemini load a page, its render blocks and each manager's transport exist only on the live site and in the real extension. Three mock knobs model what was never seen live: `rpc.drafts` (two answer candidates), `rpc.firstNewest` (a first newest page that answers late) and `noQuestion` (a prompt that is only an image, I12m) | Phase 0's `probes/gemini-transport-check.user.js` measured the transport per manager (DEC-063: `fetch` first on all three). The agent's live checks in Chrome (agent checks, not acceptance: DEC-031) read the `measure` line at `dde0b1a` and `3841805`, and the paging end line and Resource Timing at `597ebfe` in the A/B against v12.18; the reads are counted (9 of about 50 in this PR, the agent's count). Acceptance on Safari + Userscripts, Chrome + Tampermonkey and Firefox + Tampermonkey is the owner's (`docs/acceptance-checklist.md`, steps 33–37). DOM-REFERENCE, Gemini, has the readings |
-| Cross-browser differences | Chromium, Playwright-Gecko and Playwright-WebKit are all run, locally and in CI (WebKit locally since 2026-10-22) | `npx playwright install webkit`, then `--browser webkit`. Note none of these are the Tampermonkey sandbox — see the Firefox scope note above |
+| Cross-browser differences | Chromium, Playwright-Gecko and Playwright-WebKit are all run, locally and in CI (WebKit locally since 2026-10-22; the same pinned builds locally and in CI since 2026-11-11, Playwright 1.65.0) | `npx playwright install webkit`, then `--browser webkit`. Note none of these are the Tampermonkey sandbox — see the Firefox scope note above |
 
 ### The `--single-process` flag
 

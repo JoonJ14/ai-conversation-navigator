@@ -2,20 +2,24 @@
 
 ## Prerequisites
 
-- Node.js 22+
+- Node.js 22+ (Playwright 1.65 needs 20+; CI uses 22)
 - npm
 
 ## Setup
 
 ```bash
-npm install
-npx playwright install --with-deps
+npm ci                               # the lockfile's exact Playwright, 1.65.0 (pinned since the CI rebuild, DEC-064)
+npx playwright install --with-deps   # that version's browsers
 ```
+
+Never `npm install playwright`: it installs the latest release and rewrites the pin. To move the pin, change the
+version in `package.json`, run `npm install`, and change the container image tag in
+`.github/workflows/cross-platform-tests.yml` to match (`mcr.microsoft.com/playwright:v<version>-noble`).
 
 ## Running Tests
 
 ```bash
-# Run the whole suite: 26 platform entries, 560 tests as of v12.9 (2026-10-22)
+# Run the whole suite: 26 platform entries, 560 tests (v12.9 onward; 560/560 in CI on v12.19, 2026-11-11)
 npm test
 
 # Run on specific browsers
@@ -51,9 +55,12 @@ gates now.
 
 **`--only` does not match the same way in every probe** [code; runs on 2026-11-06 and 2026-11-07]:
 `check-gemini-index` matches by prefix (`--only I1` runs I10–I19 too), `check-ix-jumps` exact ids only, so
-`--only K` ran nothing but the E guard and still "passed". Count the checks a run reports.
-`check-gemini-index --proof` with no `[new]` check run is INVALID (since `e7aa36f`). `npm run test:probes` stops
-at `check-usage-state`'s Firefox U10 timeout on this Mac (bare, that probe runs Firefox): run the probes one by one
+`--only K` ran nothing but the E guard and still "passed". Count the checks a run reports. `check-gemini-index
+--part 1|2` (since the CI rebuild) runs one half by its PARTS table, as CI's two lanes do; with `--part`, a check in
+neither half, in both, or a table entry no fixture registers is INVALID, so a new check cannot drop out unseen.
+`check-gemini-index --proof` with no `[new]` check run is INVALID (since `e7aa36f`). Until the CI rebuild, `npm run test:probes` stopped
+at `check-usage-state`'s Firefox U10 timeout on this Mac (bare, that probe runs Firefox); U10 is fixed since `40ba5d5`
+(0 of 30 on Firefox after, 2 of 30 before; TROUBLESHOOTING). If a probe fails, the `&&` chain still stops: run the probes one by one
 with `--browser`.
 
 **What a milestone costs** [Playwright, headless, page realm, this Mac]. The one on `3841805` (2026-11-07, 13:33–14:10
@@ -150,6 +157,36 @@ GitHub Actions runs on push/PR to `main`, and on `workflow_dispatch` (any branch
   9.23 and 9.98 minutes, against 46m53s before (run 42437401493); the longest job `chromium on windows-latest`
   (9.05, 9.78); probe jobs 7.05–7.82; every probe x engine's PASS count equal to the old run's.
 - **A concurrency group** cancels a PR's superseded run (never `main`'s or a manual run).
+- **The PASS-line baseline** for checking that a layout change dropped no check [GitHub Actions; the PASS lines in
+  each probe job's log, prefixed `[A|B check-…]`; PR #95's run 43069811015 on `116d10b`, equal per probe x engine
+  to the old layout's run 42437401493 except `check-gemini-index`, whose two halves report R1 and E twice: 83 = 81
+  + 2]. A probe that gains or loses checks moves its row on purpose; any other change to a row is a finding.
+
+  | probe | job, lane | chromium | firefox | webkit |
+  |---|---|---|---|---|
+  | `check-gemini-index` | `probes gemini-index`, lanes A (`--part 1`) and B (`--part 2`) | 83 | 83 | 83 |
+  | `check-feature-gaps` | `probes features+bookmarks`, lane A | 44 | 44 | 44 |
+  | `check-transport-ladder` | `probes features+bookmarks`, lane A | 63 | 63 | 63 |
+  | `check-ix-bookmarks` | `probes features+bookmarks`, lane B | 59 | 59 | 59 |
+  | `check-answer-bookmarks` | `probes features+bookmarks`, lane B | 36 | 36 | 36 |
+  | `check-gemini-history` | `probes features+bookmarks`, lane B | 14 | 14 | 14 |
+  | `check-context-meter` | `probes meter+jumps`, lane A | 43 | 43 | 43 |
+  | `check-claude-turnkeys` | `probes meter+jumps`, lane A | 30 | 30 | 30 |
+  | `check-index-adapters` | `probes meter+jumps`, lane A | 26 | 26 | 26 |
+  | `check-ix-jumps` | `probes meter+jumps`, lane B | 29 | 29 | 29 |
+  | `check-gm-storage` | `probes meter+jumps`, lane B | 32 | 32 | 32 |
+  | `check-gpt-fallback` | `probes meter+jumps`, lane B | 9 | 9 | 9 |
+  | `check-turn-counter` | `probes meter+jumps`, lane B | 9 | 9 | 9 |
+  | `check-ctx-limit` | `probes meter+jumps`, lane B | 11 | 11 | 11 |
+  | `check-claude-far-jump` | `probes meter+jumps`, lane B | 8 | 8 | 8 |
+  | `check-tokenizer` | `probes meter+jumps`, lane B | 12 | — | — |
+  | `check-subsegments` | `probes meter+jumps`, lane B | 7 | — | — |
+  | `check-usage-state` | `probes meter+jumps`, lane B | 13 | — | — |
+
+- **Since 2026-11-12 `ci-ok` is `main-protection`'s only required check** (the owner removed the nine after `main`'s
+  first green run). On that run GitHub never gave two macOS jobs a runner: `ci-ok` went red (the aggregate read
+  `abandoned`), and `gh run rerun --failed` made it green. It happened in 2 of the last 60 runs (TROUBLESHOOTING); an
+  automatic re-run for that case only is logged in ROADMAP, not built.
 
 **History — where each probe ran until the rebuild, and what it gates** (the probes' placement by engine is
 unchanged; only the jobs are):
@@ -178,7 +215,7 @@ unchanged; only the jobs are):
     windowed ChatGPT and Perplexity mocks, and the Perplexity question compare, DEC-052), `check-ix-bookmarks`
     (ChatGPT and Perplexity bookmarks by message id, DEC-053) and `check-claude-turnkeys` (Claude rows by
     `data-turn-key`, DEC-054). They took the ubuntu jobs to about 22 minutes, so the job cap is 30 since v12.15.
-    `check-ix-jumps` J15 has a known timing race in CI (TROUBLESHOOTING, OPEN): a failure reading
+    `check-ix-jumps` J15 had a known timing race in CI (TROUBLESHOOTING; **fixed in the CI rebuild, `c5abeea`**): a failure reading
     `resolved=10 toast=no inView=true err=0px` clears on one re-run. It has also failed locally, on all three
     engines by now (Chromium and Firefox in v12.18's runs).
   - Every `ubuntu` job also runs three v12.16 probes on its own engine: `check-claude-far-jump` (Claude's latest
@@ -259,7 +296,8 @@ entries fail on every run, on v12.8 and v12.9 alike. They give up at ~1.46s with
 near the end of a conversation; CI's mac WebKit, a newer build, passes them. It was misfiled as the runner signature once. Match on timing,
 frequency and host, not on `got null`: TROUBLESHOOTING, "OPEN — Local mac WebKit".
 - **claude.yml:** Claude Code integration for automated issue/PR responses
-- **claude-code-review.yml:** Automated code review
+- **claude-code-review.yml:** Automated code review. **Disabled on GitHub** (`disabled_manually`; last run 2026-02-23),
+  so it runs nothing and takes no concurrency slot (checked 2026-11-12)
 
 ## Related Documentation
 

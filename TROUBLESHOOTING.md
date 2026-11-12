@@ -1223,6 +1223,10 @@ for that run to finish; it was stopped at 19:50Z.
   between attempts of the same run. At 19:41Z the agent told the owner the new run "will fail the same way until npm
   publishes `playwright-core@1.65.0`", although its install had passed at 19:36Z; corrected at 19:50Z.
 
+**Since the CI rebuild (PR #95, merged 2026-11-12 as `d3f3d16`; DEC-064):** Playwright is pinned to exactly 1.65.0
+(`package.json`, the lockfile, `npm ci` in every job), and the ubuntu jobs run in the matching container image, so a
+release published mid-run can no longer change what a job installs.
+
 ---
 
 ## STOPGAP IN v12.18 (PR #93) — CI: the `main` run after v12.17's merge lost two macOS jobs at 15m01s and webkit/ubuntu at 40m11s (2026-11-04)
@@ -1313,6 +1317,31 @@ GitHub assign a macOS runner, so those jobs are re-run once the whole run has fi
 - **Acceptance step 5:** PR #93's checks finished 9/9 on `4cdc730`, and `main`'s first run after the merge
   (`ab7ea21`, run 42123189982) was 9/9 green at 23:14 UTC with no install stall (ubuntu 32.9–34.8 min, installs
   16–85 s; macOS 6.2–6.7; Windows 5.9–10.3). Observed by the agent; the mock suite, not real-browser evidence.
+
+### Since the CI rebuild (PR #95, merged 2026-11-12 as `d3f3d16`; DEC-064)
+- **The install stall is gone:** every ubuntu job runs in `mcr.microsoft.com/playwright:v1.65.0-noble`, with the
+  browsers and system packages preinstalled. The image pull took 14–20 s on the first measured runs.
+- **The Mac runner cancels recurred** on `main`'s first run after PR #95 (run 43266934908, attempt 1, 2026-11-12):
+  - `firefox` and `webkit on macos-latest` were created at 17:12:34Z, queued 15 minutes with no runner and 0 steps,
+    and were cancelled at 17:27:36Z, annotated "The job was not acquired by Runner of type hosted even after multiple
+    attempts" and "Due to capacity constraints, jobs targeting macOS arm64 runners may experience longer queue
+    times". `chromium on macos-latest` got a runner after 10 minutes and passed.
+  - `ci-ok`, now the one required check, went red on both of its checks. GitHub reported `needs.test-other.result`
+    as **`abandoned`**, a value outside its documented set; the per-leg check named the two cancelled legs.
+  - `gh run rerun 43266934908 --failed` (17:30Z, once the run had finished): both jobs got runners, 20/20, `ci-ok`
+    green at 17:41:52Z. On the re-run attempt, `jobs?filter=latest` listed every job, the carried-over successes
+    under `run_attempt` 2.
+- **How often** [GitHub Actions, the last 60 runs of the workflow, 2026-10-31 → 11-12, 680 job executions, read
+  2026-11-12]:
+  - jobs that never got a runner in **2 of 60 runs**, all macOS, both right after a merge to `main` (2026-11-04 and
+    2026-11-12);
+  - queue waits over 2 minutes: macOS 19 of 201 jobs, Windows 12 of 201, ubuntu 5 of 278; over 10 minutes: 1
+    (macOS).
+  - The PR's own run 43069811015 also waited 5m03s for one Mac runner, then passed.
+- **How to respond:** a job with 0 steps and "not acquired by Runner" is GitHub's capacity, not a finding. Once the
+  whole run has finished, `gh run rerun <id> --failed`; never override. An automatic re-run for exactly this case,
+  only when every failed job never started, once and on the first attempt only, is logged in ROADMAP (the owner,
+  2026-11-12), not built.
 
 ---
 
@@ -2471,7 +2500,7 @@ Owed, cheapest first:
 
 ---
 
-## FIXED IN THE CI REBUILD (`ci/rebuild-parallel-probes`) ON MOCKS — `check-usage-state` U10 timed out: a probe precondition race, not the userscript (found 2026-10-22)
+## FIXED IN THE CI REBUILD (MERGED, PR #95 as `d3f3d16`; the fix `40ba5d5`) ON MOCKS — `check-usage-state` U10 timed out: a probe precondition race, not the userscript (found 2026-10-22)
 
 **Phase:** v12.9 verification (PR #75); fixed in the CI rebuild (ROADMAP 0e) | **Severity:** Low — a probe flake;
 CI runs this probe on chromium only | **Status:** fixed in the probe; the userscript is untouched
@@ -2579,7 +2608,7 @@ now Chromium too.
 
 ---
 
-## FIXED IN THE CI REBUILD (`ci/rebuild-parallel-probes`, `c5abeea`) ON MOCKS — `check-ix-jumps` J15 lost a timing race (CI on PR #88 and locally, found 2026-10-31)
+## FIXED IN THE CI REBUILD (MERGED, PR #95 as `d3f3d16`; the fix `c5abeea`) ON MOCKS — `check-ix-jumps` J15 lost a timing race (CI on PR #88 and locally, found 2026-10-31)
 
 **Phase:** v12.15's PR CI; fixed in the CI rebuild (ROADMAP 0e) | **Severity:** Low — a probe fixture's timing, no
 userscript code involved | **Status:** fixed in the probe and its mock (`jumpModel.pinEvery`); the userscript is
