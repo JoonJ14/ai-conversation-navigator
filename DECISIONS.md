@@ -5233,3 +5233,97 @@ untouched. **Replaces** the ubuntu jobs' 60-minute stopgap cap (stopgap 4, `ffda
 - **Sharding by `--only`:** prefix matching makes a shard list fragile.
 - **Adding more lanes inside `check-gemini-index`:** it changes the load profile of timing-sensitive checks.
 - **Retries anywhere:** they hide real failures.
+
+---
+
+## DEC-065: The Live Test System — Three Pieces (Public Navigator, Checker, Generated Admin Build), a Private Lab Repo, Phase A on the Mac (2026-11-16)
+
+**Date:** 2026-11-16 | **Stage:** the live test system, Phase A (spec: `docs/specs/live-test-system-spec.md`, the
+owner's, committed as `6911977`). Public docs on `ci/live-verification-layer`; all tooling in the private repo
+`ai-conversation-navigator-private-lab` (branch `phase-a/stage-0`). **The navigator is unchanged** unless Phase 1
+proves a change is needed, which would stop for the owner (spec). **Replaces** the "live verification layer (the next
+spec)" placeholder in ROADMAP and the 2026-11-12 handoff's "spec 1, a built-in self-test", which the owner rejected.
+
+### The owner's decisions (the spec; 2026-11-12 unless dated otherwise)
+- **Three separate pieces:** the public navigator (the only thing users get; never any test code), the checker (tests
+  outcomes on the exact public build, every cycle) and the admin navigator (the public build plus a read-only
+  diagnostics layer, *generated* from the public source by a build step, used only when the checker finds a new
+  failure). Fixes always go into the public source. In the owner's words: test-only changes must never push updates
+  to users, and an admin mode inside a public script "isn't really admin".
+- **The whole system now**, all 5 sites (Claude, ChatGPT, Gemini, Grok, Perplexity) on macOS (Safari, Chrome,
+  Firefox), Windows (Chrome, Edge, Firefox) and Linux (Chromium, Firefox): 40 runs per cycle.
+- **Phase A runs entirely on the Mac** (2026-11-16): macOS's own browsers plus two UTM VMs (Windows 11 ARM, Ubuntu
+  ARM) in every cycle, one VM at a time. The Windows PC and the DGX Spark join in Phase B, a later spec; everything is
+  built so Phase B only adds machines. Tool preference (2026-11-16): UTM, then VMware Fusion, then Parallels.
+- **A private repo** for the admin tooling; **one test Gmail** with free accounts on all 5 sites; **nothing about the
+  test accounts in either repo** (no email address, password, cookie, session file or webhook URL).
+- **Sends only in the test accounts:** the canaries once (from a question list the owner approves first) and the
+  live-send check's one templated question per cell per cycle.
+- **Discord** (a private server, one webhook); **auto-merge built and shipped OFF**, with trial labels on every fix
+  PR ("would auto-merge" / "needs approval, because …").
+- **Naming: "Navi"** for every new name; the public userscript's `@name` and `@namespace` stay (renaming the
+  product is a separate planned change, ROADMAP).
+- **This session (2026-11-16):** Phase 1's live read of the navigator's markers happens in the **test profiles**
+  after the canaries exist, **not in the owner's personal Chrome** (the owner chose it when asked; they had opened
+  an Incognito window to keep the testing apart from their own accounts).
+
+### The agent's decisions so far (2026-11-16, for the owner's review)
+- **Where the Mac's browser cells run:** a macOS Standard user `navi` ("Navi Test"), created by the owner. A
+  LaunchAgent in navi's own GUI session (`com.navi.lab.jobrunner`) runs jobs that the owner's account drops into
+  `/Users/Shared/navi-lab/jobs/inbox` (mode 700 plus an ACL for navi). The VMs belong to the owner's UTM, so the
+  orchestrator runs in the owner's account and dispatches the macOS cells to navi. Code runs from a copy of the
+  private repo without `.git` (`/Users/Shared/navi-lab/app`), because navi cannot read the owner's Desktop.
+- **Runtime:** a standalone Node v24.22.2 (`/Users/Shared/navi-lab/node`, SHA-256 checked) rather than the Mac's
+  Homebrew Node 25, which `selenium-webdriver` 4.52.0's engines range excludes. One driver library on every OS and
+  browser: `selenium-webdriver` 4.52.0 (exact pin).
+- **VM access:** the Windows VM is reached over SSH with a dedicated key, key-only, the firewall rule limited to UTM's
+  host subnet; automatic sign-in stores the password as the LSA secret Winlogon reads (never plain text), piped from
+  the Mac's Keychain. **Clipboard sharing turned off** in both VMs (the spec says sharing is off; both configs had
+  it on). **`utmctl` is never polled:** every call brings UTM forward, which the owner saw as UTM "firing up and
+  shutting down constantly" during a 2-second poll; VM state is read from the host process list instead.
+
+### Measured (Stage 0, item 5a — context: macOS 26.6.2 on the MacBook Air, UTM 5.0.8, VM "Navi Windows" = QEMU
+backend, Windows 11 Pro ARM64 build 26300, 2026-11-16)
+- `utmctl start --hide` fails with OSStatus -10004 (the hide request; the VM still starts, ~8 s to `started`, and
+  its window opens).
+- The UTM guest agent answers `utmctl ip-address` ~23 s after start; `utmctl exec` runs as `NT AUTHORITY\SYSTEM`
+  **at the login screen**, so setup needs no sign-in; output only through `utmctl file push/pull`, and `file pull`
+  exits 0 even for a missing file (check the content). The guest agent itself runs as x64 under emulation
+  (`PROCESSOR_ARCHITECTURE=AMD64` in its children); the OS is ARM64.
+- OpenSSH Server installed through the guest agent. It was unreachable at first: the VM's network is in Windows'
+  Public profile and the rule `OpenSSH-Server-In-TCP` allowed only Private. Fixed (all profiles, UTM's subnet only).
+- **Native ARM64 builds exist and run:** Chrome 157.0.8103.79, Edge 157.0.4341.60 (preinstalled), Firefox 160.0,
+  each `PE machine 0xAA64`; Chrome and Firefox from the vendors' own installers through winget (hashes verified).
+- **Shutdown from inside the guest:** `shutdown /s /t 0` over SSH → the VM process is gone in 8 s. The VM's window
+  stays open (as with `--force`); closing it through its window's close button works.
+- RAM: the QEMU process holds ~730 MB at the login screen (a browser run's peak: not measured yet).
+- **Automatic sign-in, proved from a cold start** (the owner asked for the proof, 2026-11-16): the VM off (its
+  process gone) at 22:46:39Z, started at 22:46:44Z, `sshd` up at +16 s, and `navi` active on the console with
+  `explorer.exe` and no `LogonUI.exe` at +23 s. The first sign-in opened Windows' "Get Started" window, which would take
+  focus from the browsers during a run; its first-run prompts are turned off for `navi` (the agent's decision).
+- **Time zone** (the owner, 2026-11-16: they meant Central; "Easter Island Standard Time" sits next to it in Windows'
+  list and is on summer time now): set to `Central Standard Time`, "(UTC-06:00) Central Time (US & Canada)", with
+  "Set time zone automatically" off (`tzautoupdate` Start=4); the VM's clock matched the Mac's to the second.
+- **The VM once stopped by itself** (~22:40Z, after a 220 s boot spent on update work): cause not found; the next
+  boots reached `sshd` in 16-18 s.
+
+### Measured (Stage 0, item 5a — VM "Navi Linux" = Apple Virtualization backend, Ubuntu 26.04.1 LTS aarch64,
+2026-11-16)
+- **The Mac cannot type a password into it.** UTM's `input keystroke` is QEMU-only, and the Apple VM view takes real
+  key codes but ignores every synthetic modifier: the Shift flag, a separate Shift key-down, a flags-changed event and
+  HID-state events alike. A test string `Ab1!@zZ.-_9(` arrived as `ab112zz.--99`. So the one-time SSH bootstrap was the
+  owner's (sign in, open Terminal, one `curl … | bash` line served from the Mac on UTM's host address only); a normal
+  macOS user cannot serve on port 80 there (`EACCES`), so the line carries a port.
+- **SSH:** key-only, `AllowUsers navi@192.168.64.1` (the Mac's UTM address). `sudo` is `sudo-rs` 0.2.13.
+- **Automatic sign-in, proved from a cold start:** the start command at 17:05:25 CST, the kernel at 17:05:27, `navi`'s
+  `gdm-autologin` Wayland session on `seat0` opened at 17:05:41 (+16 s); a clean desktop with no prompt. GNOME's login
+  keyring stays locked after an automatic sign-in (`gkr-pam: couldn't unlock the login keyring`), so Chromium must run
+  with `--password-store=basic`.
+- **Shutdown from inside:** `sudo -n systemctl poweroff -i` through a sudoers rule that allows exactly that command and
+  `reboot -i` (the agent's decision); the VM process is gone in 4 s. Screen lock off in the VM.
+- **Time zone:** already `America/Chicago` (CST, -0600), NTP active: nothing to change.
+- **Browsers:** Chromium 157.0.8103.50 (snap, with `chromium.chromedriver`) and Firefox 160.0 (snap, with
+  `geckodriver`), both native aarch64. The Firefox snap was at 154 (tracking `latest/stable/ubuntu-26.04`, last refreshed
+  2026-08-26) until refreshed by hand: the runner should refresh the browsers at the start of a cycle and record their
+  versions (Stage 2).
+- RAM: 2.0 of 3.4 GB in use at an idle desktop (a browser run's peak: not measured yet).
