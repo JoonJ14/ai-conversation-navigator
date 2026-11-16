@@ -5304,8 +5304,17 @@ backend, Windows 11 Pro ARM64 build 26300, 2026-11-16)
 - **Time zone** (the owner, 2026-11-16: they meant Central; "Easter Island Standard Time" sits next to it in Windows'
   list and is on summer time now): set to `Central Standard Time`, "(UTC-06:00) Central Time (US & Canada)", with
   "Set time zone automatically" off (`tzautoupdate` Start=4); the VM's clock matched the Mac's to the second.
-- **The VM once stopped by itself** (~22:40Z, after a 220 s boot spent on update work): cause not found; the next
-  boots reached `sshd` in 16-18 s.
+- **A start that never booted** (~22:39Z; first reported to the owner as "the VM stopped by itself", corrected after
+  the owner asked for the cause, 2026-11-16). The System log, read in RecordId order and anchored on each boot's
+  firmware time (UTM gives the guest the Mac's local time, so the logged UTC was off by the time-zone mismatch):
+  record 1197, the clean shutdown at 21:42:14Z, is followed directly by the boot at 22:45:41Z, which reports a clean
+  previous shutdown and a successful previous boot. No 1074, 6008, 41 or Windows Update event: **Windows never started
+  on that attempt; not update-related.** The "SSH up after 220 s" reported then was a wait loop that printed
+  unconditionally after timing out (each probe failed at once with "Host is down"). Host side: the QEMU process
+  launched at 22:39:46Z (UTM's helper logged "Operation not permitted" opening files) and was gone by 22:44Z, no crash
+  report; the host-side cause is not determined. Since then every wait fails loudly, a VM counts as booted only when
+  the guest reports a boot time after the start, and a VM that does not boot is reported, its cells skipped (no
+  retries). Later starts: booted at +18-26 s, five times.
 
 ### Measured (Stage 0, item 5a — VM "Navi Linux" = Apple Virtualization backend, Ubuntu 26.04.1 LTS aarch64,
 2026-11-16)
@@ -5327,3 +5336,19 @@ backend, Windows 11 Pro ARM64 build 26300, 2026-11-16)
   2026-08-26) until refreshed by hand: the runner should refresh the browsers at the start of a cycle and record their
   versions (Stage 2).
 - RAM: 2.0 of 3.4 GB in use at an idle desktop (a browser run's peak: not measured yet).
+
+### Measured (Stage 0, item 6 — the macOS test user; this Mac, macOS 26.6.2, 2026-11-16)
+- **FileVault is On** (`fdesetup status`). macOS then offers no automatic sign-in, so after any restart Navi Test stays
+  signed out until the owner signs it in. **Every cycle checks Navi Test's session** (its own `loginwindow` process,
+  then a heartbeat job its runner must answer) and the cycle's Discord message says **"Mac: Navi Test not signed in,
+  Mac cells skipped"** (the owner's wording, 2026-11-16) instead of staying silent; a missing user and a silent runner
+  have lines of their own. Measured so far: the "user missing" branch (the user is not created yet).
+
+### Rules the owner added for this work (2026-11-16)
+- No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
+  user. (The one full-screen capture, a permission test, was deleted unopened.)
+- Never type a secret (a password or key) through synthetic keystrokes into a window on the owner's desktop, even
+  with focus checks: a step that needs a typed password is the owner's. (The agent had typed the Linux VM's password
+  once that way; it typed wrongly and failed. The helper can no longer read the Keychain.)
+- Nothing the owner's account runs may live in a folder the test user can write; the test user's outputs are data
+  the owner's side reads, never executes.
