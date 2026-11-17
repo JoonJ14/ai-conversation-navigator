@@ -5368,6 +5368,32 @@ backend, Windows 11 Pro ARM64 build 26300, 2026-11-16)
   cycle (the spec's fallback).
 - macOS also protects the test user's Desktop from the runner; launchers live in `~/NaviLab/launchers`.
 
+### Measured (Stage 0 items 2-3 on the Mac — the Navi Test user, macOS 26.6.2, Chrome 157.0.8103.79, Firefox 160.0,
+Safari 26.6.2, Tampermonkey 5.5.1 (Chrome) / 5.5.0 (Firefox), Userscripts 4.8.6, the navigator NOT installed, free test
+accounts, Navi Test's session in the background, 2026-11-17 03:47-04:05Z)
+- **Tampermonkey installs:** Firefox with no click (geckodriver's add-on install of Mozilla's signed XPI into the test
+  profile). Chrome needs the Web Store's own confirmation box (the owner's two clicks, once) and "Allow User Scripts".
+- **Where the logins are:** the owner logged in to Navi Test's *default* Chrome and Firefox profiles. Chrome refuses
+  automation on its default data folder, so the runner's `release` profiles are copies of the defaults (the agent's
+  decision); a copy keeps the logins (Chrome's cookie key is per macOS user). chromedriver normally starts Chrome with
+  `--use-mock-keychain`, which cannot read those cookies: the runner drops that switch (measured on `chrome://version`).
+- **Signed in, unchallenged** (the runner's check: each site's own session GET, booleans only; Grok by its conversation
+  list's status):
+
+  | Site | Safari (AppleScript) | Chrome attached | Chrome WebDriver | Firefox WebDriver |
+  |---|---|---|---|---|
+  | ChatGPT | yes | yes | signed in, but the page stays on Cloudflare's "Just a moment" (25 s) | yes |
+  | Gemini | yes | yes | yes | yes |
+  | Grok | yes | yes | yes | yes |
+  | Perplexity | yes | yes | yes | yes |
+  | Claude | yes | **Cloudflare** (a 403 HTML page, then "Just a moment" that did not clear in 25 s) | **Cloudflare** | **Cloudflare** |
+
+  ChatGPT on Chrome: the attached path works, so Chrome cells use it (the agent's decision under the spec's rule).
+  **Claude blocks every measured automated path on Chrome, and Firefox's WebDriver path: the spec's "stop and ask"**
+  (raised with the owner 2026-11-17; Firefox's attached path not measured). The challenge grew stricter after about ten
+  automated Claude visits in twenty minutes, so no further Claude visits were made. The agent does not solve challenges,
+  hide automation, or pick a channel because a site's protection cannot see it.
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
