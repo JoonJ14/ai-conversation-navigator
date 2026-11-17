@@ -5444,6 +5444,34 @@ B the Windows VM, C the Linux VM), each on the owner's "go", one page load per s
 retries; stop rules per site (any challenge, forced sign-out, warning or unusual-activity notice stops that site
 everywhere), Claude at most one visit per browser, any account message about automated use stops everything.
 
+### Experiment 1, preparation: where the Mac's browsers render (measured 2026-11-17, local test page only; macOS
+26.6.2, Safari 26.6.2, Chrome 157.0.8103.79, Firefox 160.0; each browser opened normally, the way a bookmark opens)
+
+| Where | Safari | Firefox | Chrome |
+|---|---|---|---|
+| Navi Test in the background (the owner in their own session) | 24/48/48 fps, visible | 48/48/48 fps, visible | **4/8/8 fps, turns hidden** |
+| Navi Test in the background, Chrome's switches `--disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling` | — | — | 54/53/54 fps, visible |
+| The owner's account, a new dedicated Chrome profile, window visible but not focused | — | — | 53/54/54 fps, visible |
+| The same, window fully covered | — | — | 0 fps, hidden |
+
+**The owner's decisions (2026-11-17):** (1) Chrome's three switches in background Navi Test are acceptable under the
+"nothing hidden" rule: they change nothing a site can identify; results from those cells are labelled "background
+session, occlusion switches on". (2) Stage A runs in Navi Test: Safari and Firefox as they are, Chrome with the
+switches; the agent asks "ready for Stage A?" once the test chats, Navi v12.19 and the checker are in place. (3) Nothing
+runs in the owner's own account or with Navi Test as the active session: the active-session runs were dropped and the
+dedicated Chrome profile folder the agent had created in the owner's account was removed. (4) The owner is creating a
+macOS VM ("Navi Mac"); once at its desktop the agent evaluates it in parallel as a possible permanent home for the Mac's
+browsers (local test page; what Safari + Userscripts needs there). The owner chooses between Navi Test and the VM after
+Stage A, with results from both.
+
+**The VMs (measured 2026-11-17, local test page):** Tampermonkey installs by browser policy in all five VM browsers
+(the owner allowed it). Linux: Chromium and Firefox open in navi's GNOME Wayland session from SSH, render visibly (43
+and 46 fps on a second run; the first run's welcome tabs hid the page) and close normally (SIGTERM) in 2 s. Windows: a
+task pair runs in navi's interactive session (taskkill from SSH cannot reach another session's windows): Edge and
+Firefox open, render (49 and 35 fps, visible) and close normally in 2-4 s; Chrome stayed on its first-run screen and
+needed the forced last resort until its first start is done by hand. Firefox's first start shows a terms-of-use screen
+(the owner's to accept).
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
