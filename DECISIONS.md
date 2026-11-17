@@ -5342,7 +5342,9 @@ backend, Windows 11 Pro ARM64 build 26300, 2026-11-16)
   signed out until the owner signs it in. **Every cycle checks Navi Test's session** (its own `loginwindow` process,
   then a heartbeat job its runner must answer) and the cycle's Discord message says **"Mac: Navi Test not signed in,
   Mac cells skipped"** (the owner's wording, 2026-11-16) instead of staying silent; a missing user and a silent runner
-  have lines of their own. Measured so far: the "user missing" branch (the user is not created yet).
+  have lines of their own. Measured: the "user missing" branch (before the user existed), and the "not signed in"
+  branch (exit 11, the owner's wording) right after the owner created Navi Test (uid 503, a Standard user, 2026-11-17
+  02:43Z), before its first sign-in.
 
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
