@@ -5394,6 +5394,23 @@ accounts, Navi Test's session in the background, 2026-11-17 03:47-04:05Z)
   automated Claude visits in twenty minutes, so no further Claude visits were made. The agent does not solve challenges,
   hide automation, or pick a channel because a site's protection cannot see it.
 
+### The owner's decision on automated access (2026-11-16, local time; supersedes the agent's choice of paths above)
+Raised as the spec's stop-and-ask. The owner first chose "cool down, re-measure", then replaced it with this:
+- **No automated visits to claude.ai, on any path, Safari included.** In the owner's words: Anthropic's Consumer Terms
+  (section 3, effective 2025-10-08) prohibit accessing the Services "through automated or non-human means, whether
+  through a bot, script, or otherwise", except via an API key or explicit permission; the Cloudflare challenge is that
+  rule being enforced, "and an unchallenged path doesn't make it allowed".
+  - Claude cells are never scheduled. They run only on demand, started by the owner by hand in the test profiles
+    through the checker's manual userscript mode. The baseline marks scheduled Claude cells
+    `skip: not automated (site terms)`, never a failure.
+  - The owner creates the Claude canaries by hand. No live-send check on Claude.
+  - No Claude re-measurements or retries.
+- **Automated visits to ChatGPT, Gemini, Grok and Perplexity are paused** until the owner reviews each site's terms on
+  automated or programmatic access (the agent quotes the clauses with links). Stage 0 work that visits no site
+  continues.
+- Before this decision the agent's probes had made about ten automated claude.ai page visits (Chrome and Firefox) and
+  three session checks in a Safari tab the owner had opened (2026-11-17 03:47-04:05Z). None since.
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
