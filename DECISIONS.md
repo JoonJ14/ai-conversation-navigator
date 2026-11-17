@@ -5346,6 +5346,28 @@ backend, Windows 11 Pro ARM64 build 26300, 2026-11-16)
   branch (exit 11, the owner's wording) right after the owner created Navi Test (uid 503, a Standard user, 2026-11-17
   02:43Z), before its first sign-in.
 
+### Measured (Stage 0, items 1, 3 and 4 for Safari — the Navi Test user, macOS 26.6.2, Safari 26.6.2, Userscripts 4.8.6,
+2026-11-17 ~03:15Z; a harmless probe userscript on example.com and throwaway cookies, no real site)
+- **Installing without clicks (item 3):** Userscripts' default save folder sits in its app container, which macOS
+  protects from other programs ("Operation not permitted" for the runner). The owner pointed the save location at
+  `~/NaviLab/userscripts`; a script file written there ran on the next page load, with no click.
+- **Safari's two paths (item 1):**
+
+  | Path | Userscripts runs | Sees normal Safari's cookies | Keeps its own cookies next session |
+  |---|---|---|---|
+  | AppleScript `do JavaScript` in a normal window | yes | yes | yes |
+  | `safaridriver` (WebDriver) session | yes (`navigator.webdriver` true) | no: starts empty | no: gone in the next session |
+
+  The spec's rule is "use the first path that runs the navigator logged in". A WebDriver session can never be logged
+  in (an empty store each time, and logins are never automated), so **Safari cells run through AppleScript in a
+  normal Safari window** (the agent's decision under the spec's rule, 2026-11-17). `safaridriver` also needed a
+  one-time `safaridriver --enable` with an administrator's password (the owner's), beyond the "Allow remote
+  automation" checkbox.
+- **Profiles (item 4):** Userscripts has one save folder per app, so Safari cannot hold `release`, `candidate` and
+  `admin` side by side: the runner installs builds in sequence in one profile and restores `release` at the end of the
+  cycle (the spec's fallback).
+- macOS also protects the test user's Desktop from the runner; launchers live in `~/NaviLab/launchers`.
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
