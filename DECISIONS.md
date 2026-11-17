@@ -5411,6 +5411,39 @@ Raised as the spec's stop-and-ask. The owner first chose "cool down, re-measure"
 - Before this decision the agent's probes had made about ten automated claude.ai page visits (Chrome and Firefox) and
   three session checks in a Safari tab the owner had opened (2026-11-17 03:47-04:05Z). None since.
 
+### The redesign: attended live checks, no robots (the owner's decisions, 2026-11-17)
+Spec: `docs/specs/live-test-system-redesign.md` (the owner's). It supersedes, in the first spec: the 04:00 schedule,
+the scheduled wake, the stand-in deadline and every unattended run; WebDriver, `safaridriver`, attached remote debugging
+and AppleScript `do JavaScript` as ways to drive an AI site; the live-send check and scratch chats; canaries created by
+the runner; and the owner's earlier ideas of snapshot replay as the nightly system and a shape watcher in the owner's
+personal browser (both replaced by decision 8). Everything else stands. **Why** (the owner): all five sites' terms
+restrict automated access, and claude.ai challenged the WebDriver runs.
+1. The owner starts every live session and is at the computer while it runs: no schedule, timer, overnight run or
+   automatic wake (a morning Discord nudge is fine; the start is always the owner's).
+2. The matrix is unchanged: 5 sites × (macOS Safari, Chrome, Firefox; Windows VM Chrome, Edge, Firefox; Linux VM
+   Chromium, Firefox) = 40 runs per session.
+3. A run: the runner opens the site's test chat in a normal browser, the way a bookmark would; a small checker
+   userscript, installed once, runs the outcome checks on the page and sends its report to a receiver on the Mac; the
+   runner closes the browser. No WebDriver, no remote debugging, no agent on an AI site.
+4. Nothing is hidden from the sites: normal browsers and user agents, no stealth, no masking, no challenge solving. If
+   a site objects, that site stops.
+5. Read-only: no automatic message sending; the owner creates every test chat by hand.
+6. Claude is included, with a stop rule; the owner is asking Anthropic for permission separately.
+7. A session's duration does not matter: measure it, cut nothing.
+8. The CI against copies stays, kept current by the live sessions: each page's structure is saved with all chat text
+   replaced by filler; a difference from the CI's copy is reported on Discord, the copy replaced and the CI re-run. The
+   CI must check real outcomes and be proven with planted bugs (a later experiment; this one's capture is its first step).
+9. The fix loop, unchanged in spirit: a failure goes to the agent, who investigates (live in the owner's Chrome through
+   the Chrome connection when needed, at the owner's request), fixes, verifies in the CI and in the failing live cells
+   during a session the owner starts, and opens a PR. Auto-merge stays built-but-off.
+10. Later, not now: health checks inside Navi during real use; a remote data file for selectors and the model table; an
+    unknown model shows "context window not known yet", never a guessed number.
+
+**The next step is one experiment** (Experiment 1, a miniature of the whole pipeline), in three stages (A the Mac,
+B the Windows VM, C the Linux VM), each on the owner's "go", one page load per site per browser, no reloads, no
+retries; stop rules per site (any challenge, forced sign-out, warning or unusual-activity notice stops that site
+everywhere), Claude at most one visit per browser, any account message about automated use stops everything.
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
