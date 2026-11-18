@@ -5684,6 +5684,27 @@ Navi Test themselves.
 - **Left as found after this entry:** browsers quit; the two copied `release` profiles (339 MB and 284 MB) deleted at
   the owner's request; nothing else changed.
 
+### Navi Mac: Safari's manager installs by copying the app (2026-11-18 ~18:15-18:34Z, local test page only)
+- `/Applications/Userscripts.app` (4.8.6, Mac App Store signature) copied from the Mac into Navi Mac with `ditto`
+  over SSH: signature valid, accepted as App Store software with **no Apple Account** in the VM, `lsregister`ed; it
+  starts and stays running (no receipt failure), and macOS registers its Safari extension
+  (`com.userscripts.macos.Userscripts-Extension` 4.8.6). The owner's clicks in the VM window: enable it in Safari's
+  settings, allow it on all websites, set its save folder to `~/NaviLab/userscripts`. Safari's own settings then show
+  it enabled by a user gesture with `*://*/*` granted.
+- **A new script did not run at first** (4 loads, including after a Safari restart and after the owner's popup click):
+  Userscripts' injection index (`manifest.json` in the extension's container) had an empty `match` table. **From
+  Userscripts' own source (v4.8.6):** injection only reads that index; it is rebuilt on the extension's install and
+  whenever a Safari window gains focus (`browser.windows.onFocusChanged` → `NATIVE_CHECKS`), not by opening the popup.
+  After focus moved to Finder and back to Safari (`open -a Finder; open -a Safari`, no click), the index held
+  `http://192.168.64.1/exp1/*`, and the next load ran the script (`data-navi-diag-vm=ran`; visible, 53 fps).
+  Userscripts matches the host without the port and the path with its query, so a port-free `@match` fits the page.
+- **Correction:** the entry above saying each checker update in Safari needs the owner's popup click was not a clean
+  measurement: that checker's pre-check pattern carried a port, which Userscripts ignores. What reloads Userscripts'
+  index is a Safari window gaining focus; the runner can cause that itself.
+- A Safari killed with `killall` kept two of its old tabs at the next launch ("Google", "Userscripts page"), but the
+  killed test pages did not load again (none re-posted). The runner's Safari close must still be settled before any
+  AI-site cell, so that no closed site tab can come back.
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
