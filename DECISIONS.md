@@ -5705,6 +5705,29 @@ Navi Test themselves.
   killed test pages did not load again (none re-posted). The runner's Safari close must still be settled before any
   AI-site cell, so that no closed site tab can come back.
 
+### Navi Mac preparation, continued (2026-11-18 ~18:35-19:00Z, local pages and example.com only)
+- **The example.com probe** (checker 0.3.2, receiver, runner): every browser's required pre-check is now the local
+  round trip and then `https://example.com/` loaded once with the checker reporting from it. Mock regression of 0.3.2
+  (Chromium): every run passes, as for 0.3.0.
+- **Safari's full pre-check passed in Navi Mac:** Userscripts 4.8.6, checker 0.3.2; local page visible 53 fps,
+  example.com visible 59 fps, both reports received (`127.0.0.1` fails inside the VM as expected, `192.168.64.1`
+  answered). Navi v12.19 in its folder is byte-identical to the published build; Userscripts' index lists both scripts.
+- **Closing browsers in the VM: never SIGTERM for Safari.** A Safari killed with `killall` restored its last tab at
+  the next start and loaded it again (a closed test page re-reported 3.5 min later at the next launch; another when
+  the owner clicked in Safari). In a stage that would be a second load of the previous cell's site. After a normal
+  quit (the quit Apple Event, as Cmd-Q; macOS asked for no consent), no closed page loaded again: 3 pages each in
+  Safari, Chrome and Firefox, 40 s apart. The runner quits all three normally; a browser that does not quit cleanly
+  stops its remaining cells.
+- **The VM locked itself:** after 20 min without input, macOS 26 started the screen saver and locked the screen
+  (`kLWLockFromScreenSaverIdleLaunch`, 12:51:39 CST), although its screen-lock setting reads "off"; Chrome's pages
+  then reported hidden (Firefox ignores occlusion and kept drawing). The agent's decision (the VM's own setup, as on
+  the Linux VM): screen-saver idle time 0 (never) for navi; system sleep 0 (was 1 min; root over SSH with the password
+  piped from the Keychain, never typed). Gotcha: in the VM's zsh, `log` is a built-in; use `/usr/bin/log`.
+- **Chrome and Firefox in the VM:** a cold start takes 10-20 s before the page loads; frame rates 40 and 34 fps
+  (visible) with the Mac otherwise quiet, 18 and 22 while the agent's mock tests ran on the Mac at the same time.
+- **The Mac's memory so far** (Navi Test still signed in, the VM at 6 GB): 30-33% free, swap 18.7-18.8 of 19.5 GB in
+  use, the VM process resident at up to 1.6 GB. To be measured again per browser after the owner signs out of Navi Test.
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
