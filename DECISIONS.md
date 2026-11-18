@@ -5839,6 +5839,34 @@ Navi Windows (UTM, QEMU, Windows 11 ARM64, 4 cores, 6 GB): Chrome 157.0.8103.79,
   twice; Chrome and Edge 56-57 fps, Firefox 34-40 fps, all visible. Edge's page went hidden once during the first
   rehearsal (not reproduced in 4 later Edge pages).
 
+### Experiment 1, Stage B: the Windows VM (2026-11-18 22:36-22:48Z, the owner's go; run exp1-B-2026-11-18T2236)
+Navi Windows (Windows 11 ARM64, QEMU, 6 GB), Navi v12.19, checker 0.3.2 (unchanged, the owner's decision), free test
+accounts; Chrome 157 and Edge 157 with Tampermonkey ("Allow User Scripts" on), Firefox 160 with Tampermonkey; no
+switches. Before the go, the installs, toggles and sign-ins were verified from the VM's files (sign-in cookies for all
+five sites in all three browsers). **Pre-checks 6 of 6 passed** (local page and example.com, visible 45-65 fps).
+**15 of 15 site cells accepted, all signed in, no stop rule** (no challenge, warning or notice; Claude unchallenged in
+all three). Load and Navigate 15/15 pass. Classification per the owner's decision: uncalibrated checker, not confirmed.
+
+| | Claude | ChatGPT | Gemini | Grok | Perplexity |
+|---|---|---|---|---|---|
+| Chrome | all pass | jump fail: Navi refused, question already on screen | all pass | jump fail: landed 144 px above view | bookmark fail: no key |
+| Edge | all pass | jump fail: Navi refused, question already on screen | all pass | jump fail: landed 144 px above view | bookmark fail: no key |
+| Firefox | all pass | **all pass** (landed 136 px down) | all pass | all pass | bookmark fail: no key |
+
+- ChatGPT (Chrome, Edge): Navi's toast "That message is not currently rendered" within 1.9-2.0 s while the question was
+  in view (top 3 and 6 px): Navi's own refusal, not a timeout. Firefox: landed. Across Stages A and B, ChatGPT's jump
+  passed once in six browsers.
+- Grok: the Chromium browsers land exactly 144 px above the view on the checker's single click (Chrome on macOS and
+  Windows, Edge); Safari and Firefox land it. Fits the owner's hand observation (Chrome, Grok: the first click after
+  load needed a moment, later clicks landed).
+- Perplexity: no message key in all three (the `/session/` bug reserved for the first end-to-end test).
+- **The run:** 11 min 29 s including pre-checks; 21 receiver claims, no unexpected checker request; every browser
+  closed normally; the VM shut down and its window closed in 16 s; 15 structure captures saved (private, untracked).
+  The Mac: 31-33% free, swap 19.6-22.6 GB (falling), the VM process resident up to 1.4 GB; cells 25-48 s.
+  Discord (HTTP 204): "Pre-checks: 6 of 6 passed. 15 site cells: 15 accepted (8 with every check passing), 0 stopped,
+  0 without a report, 0 not visited. No site objected. Duration: 11 min 29 s." (Its header still said "Mac"; it now
+  names the stage's machine.)
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
