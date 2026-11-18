@@ -5615,6 +5615,28 @@ on 2026-11-17, before every run), and the Safari version was the same (26.6.2).
   every Safari window made since has been hidden. A read-only research and log-forensics workflow
   (wf_08b7a130-5aa) is checking it and ranking the alternatives.
 
+### Research and log forensics on Safari's background rendering (workflow wf_08b7a130-5aa, read-only, 2026-11-18)
+- **Mechanism (WebKit source, `main` f9968b516f1b; same log format as Safari 26.6.2, so inferred to match):** a page is
+  visible only while its window is not occluded (`PageClientImpl::isViewVisible`); occluded → `hidden`, rAF suspended.
+  Occlusion detection is on by default; only an embedding app can turn it off (private SPI
+  `_setWindowOcclusionDetectionEnabled:`). Safari exposes no setting or defaults key, so there is no Safari equivalent
+  of Chrome's switches. Firefox 160 ignores macOS occlusion for its key/main window (bug 2033230): the likely reason it
+  renders in the background session (inferred).
+- **The normal rule, measured in the Mac's logs:** leaving the console marks navi's windows occluded within ~160 ms
+  (Safari 26809's window, 2026-11-18 06:23:55Z), and windows created while navi is off console start occluded (both
+  periods). So hidden is the expected state; **the anomaly is 11-17**, when Safari 53256's window was not occluded.
+- **53256 left no window-state record:** macOS quarantined its logging 3 s after launch ("high logging volume"), so
+  its window's state on 11-17 cannot be read. It was launched on console 35 s before the owner switched away.
+- **Differences between the visible period and now that are not yet tested** (ranked by the skeptic, with tests):
+  (1) a wake, display sleep or lock/unlock re-evaluating existing windows (lid-closed sleep overnight, three full
+  wakes, the owner's screen lock and screensaver; none since); (2) the USB-C dock being plugged in at 20:41Z, 5 min
+  before the first visible run, which made macOS InstantView create three virtual displays; (3) a missed occlusion
+  update when the owner switched away 35 s after launch while Safari was busy (the owner's own observation fits: that
+  window held five pages they had just loaded); (4) something about that window (full screen, its own Space, media);
+  (5) 17 hours off console.
+- The job's (b2) step closed the owner's on-console window at 06:26:50Z (intended: Stage A's no-window state); the
+  window Safari has now was created off console.
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
