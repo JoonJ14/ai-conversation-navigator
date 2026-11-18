@@ -5643,6 +5643,47 @@ on 2026-11-17, before every run), and the Safari version was the same (26.6.2).
 - The job's (b2) step closed the owner's on-console window at 06:26:50Z (intended: Stage A's no-window state); the
   window Safari has now was created off console.
 
+### The owner's decision: the Mac's cells move to Navi Mac (2026-11-18)
+In the owner's words: "I'm done with Safari testing in Navi Test. The Mac's cells move to the Navi Mac VM, all three
+browsers, so every OS is tested in a VM. No lock, display-sleep, dock or sleep tests." Also: record Navi Test's state
+so it can be picked up later, then quit its browsers and change nothing else there; before anything else in the VM,
+prove Safari's manager can be installed (first by copying `/Applications/Userscripts.app` from the Mac; only if that
+fails, an App Store sign-in with a new Apple Account the owner creates with the test Gmail and types in themselves;
+if neither works, stop); then the rest of the preparation with no AI site; **add an example.com probe to every
+browser's pre-check** (a public page reaching the receiver: the real case, which the local page does not test; the
+same probe later in the Windows and Linux VMs); measure the Mac's memory pressure and swap with the VM at 6 GB.
+**Stage A in Navi Mac is a fresh 15 loads** (one per site per browser, same stop rules); the owner accepts one new
+Claude load each in Safari and Chrome there: ten Claude loads in total instead of eight. The 9 unvisited Chrome and
+Firefox cells are **not** run in Navi Test. The two copied `release` profiles are deleted; the owner signs out of
+Navi Test themselves.
+
+### Navi Test, frozen as of 2026-11-18 ~17:30Z (to pick up later)
+- **Installed (normal profiles, measured):** Chrome 157 `Default` profile: Tampermonkey 5.5.1 with "Allow User
+  Scripts" on, Navi v12.19 and checker 0.3.1 (names and version string in its storage; the pre-check passed at
+  06:03Z, 61 fps with the occlusion switches). Firefox 160 `*.default-release` profile: Tampermonkey 5.5.0, Navi
+  v12.19 and checker 0.3.1 (same evidence; pre-check passed, 61 fps). Safari 26.6.2: Userscripts 4.8.6, save folder
+  `~/NaviLab/userscripts` holding Navi 12.19 and checker 0.3.1, loaded (its pre-check report arrived through
+  Userscripts at 06:02Z, page hidden). All 15 site sign-ins were made by the owner on 2026-11-17; the five test chats
+  exist. Stage 0 leftovers: `~/NaviLab/stage0`, `~/NaviLab/downloads`; the job runner LaunchAgent.
+- **Stage A results:** the 6 cells in the table above (3 accepted, 3 lost to the harness); 9 cells never visited.
+- **Every Safari hypothesis tested, with its result** (local test page; Navi Test in the background):
+  | Hypothesis | Test | Result |
+  |---|---|---|
+  | Background Safari never renders | 11-17 runs | wrong: visible 24/48/48 and 53 fps in process 53256 |
+  | Who started Safari (owner vs runner) | 05:4xZ | invalid test: that Safari was the agent's |
+  | Who created the window | owner's window, 06:01Z | hidden 3/3 (but in an off-console Safari) |
+  | Safari launched on console | owner-launched 26809, 06:25Z | hidden 9/9: refuted |
+  | Busy at the switch / loaded pages (the owner's idea) | owner-launched 82025, 4 pages, switched at 57 s | hidden 4/4; WebKit logged the window covered the same second |
+- **Still untested** (the owner decided not to test them): lock/unlock, display sleep, the USB-C dock replug (macOS
+  InstantView virtual displays), a real sleep; also whether the 11-16 window was full screen, on its own Space or
+  playing media; and 17 h off console.
+- **Reproduce the hidden result:** with the receiver running and the owner in their own account, submit
+  `stage0/mac/27-safari-hidden-repro.sh` through `navijob.sh` (as navi); its header lists the log commands for
+  WebKit's view (`isViewVisible ... window occluded 1`), the launch line (`PID <pid> in session 258 on/off console`)
+  and WindowServer's window states.
+- **Left as found after this entry:** browsers quit; the two copied `release` profiles (339 MB and 284 MB) deleted at
+  the owner's request; nothing else changed.
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
