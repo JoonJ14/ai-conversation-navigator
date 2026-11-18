@@ -5497,6 +5497,30 @@ sign-in, FileVault off, no Apple Account. SSH key-only access added as on the ot
 - Side effect, disclosed: the agent's `lipo` call raised the developer-tools prompt; the owner chose to install the
   Command Line Tools in the VM.
 
+### Experiment 1, Stage A: stopped after 6 of 15 cells (2026-11-18, the owner's decision)
+Run `exp1-A-2026-11-18T0437` (Navi Test, background session; Navi 12.19; checker 0.2.0; free test accounts). **No
+stop rule triggered**: every site loaded signed in, with no challenge, warning or notice.
+
+| Cell | Outcome | Load | Navigate | Jump | Bookmark |
+|---|---|---|---|---|---|
+| Safari / Claude | accepted (24 s) | pass | pass (3/3, first/last ok) | skip: hidden-tab | pass (storage unchanged) |
+| Safari / ChatGPT | no report: the checker ran (claimed at +7 s) but the runner's 180 s cap closed the tab first | — | — | — | — |
+| Safari / Gemini | accepted (21 s) | pass | pass | skip: hidden-tab | pass |
+| Safari / Grok | accepted (109 s) | pass | pass (Navi's panel needed a second click: orb.reinject) | skip: hidden-tab | skip: snapshot not settled, no click |
+| Safari / Perplexity | no report: claimed at +9 s, cut off by the cap | — | — | — | — |
+| Chrome / Claude | no report: the checker never contacted the receiver | — | — | — | — |
+
+Harness faults, both the agent's: the runner's 180 s cap was shorter than the checker's own 5-minute deadline; and
+Chrome's checker never reached the receiver (cause under investigation). Safari's pages reported `hidden` during the
+stage although the earlier local measurement had them visible: recorded as a contradiction to resolve.
+**The owner's decision (2026-11-18):** stop Stage A here; the 6 cells stand. Before any further site visit: fix the cap
+(longer than the checker's deadline); prove the full round trip on the local test page under the real managers in Navi
+Test (Tampermonkey in Chrome and Firefox; the page opened the way the stage opens it), and find why Chrome's checker
+never reached the receiver; find why Safari reported hidden by reproducing the stage's exact conditions on the local
+page, and say plainly if background Safari cannot be relied on; make this local round trip **a required pre-check
+before every stage: no site visit in a browser until that browser has passed it**. The owner decides afterwards about
+the 9 remaining cells and about re-running the 3 cells the harness lost; none is re-run without the owner's go.
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
