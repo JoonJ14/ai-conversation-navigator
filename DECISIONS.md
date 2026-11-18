@@ -5823,6 +5823,22 @@ time." **Navi stays at v12.19 and the checker at 0.3.2, unchanged, through Stage
 - **Next:** Stage B preparation (the Windows VM), then the owner's go; same rules (pre-check and example.com probe per
   browser, one load per site per browser, the stop rules).
 
+### Stage B preparation: the Windows VM (2026-11-18 21:29-21:43Z, local pages only)
+Navi Windows (UTM, QEMU, Windows 11 ARM64, 4 cores, 6 GB): Chrome 157.0.8103.79, Edge 157.0.4341.60, Firefox 160.0.
+- **Found:** first runs done in all three; Tampermonkey installed by policy in all three; "Allow User Scripts" not yet
+  on in Chrome or Edge; Navi and the checker not installed; no browser reopens old tabs at startup (defaults).
+- **The agent's decisions (the VM's own setup, as on the other VMs):** display-off and sleep timers set to never (were
+  5 and 15 min: a stage outlasts both, and Chrome and Edge treat a dark display as covered). **Firefox had registered
+  itself to start at every Windows sign-in** (`-os-autostart`, windowless, 10 processes, its own default): ended (a
+  forced close, the only way for a windowless process; it had no site session to restore), its Run entry removed, and
+  `user.js` sets `browser.startup.windowsLaunchOnLogin.enabled` false. Otherwise, after the sign-ins, every VM boot
+  could have restored and loaded an AI site with nobody asking. Windows' own "restart apps at sign-in" is off.
+- **The runner's stage B** opens a page through the NaviOpen task in navi's desktop and closes it the normal way
+  (NaviClose: `taskkill` without `/f`); never forced (a browser that does not quit in 20 s stops its remaining cells).
+  Rehearsal: all three open, report and close. **Restore check:** 3 pages per browser over normal closes, none loaded
+  twice; Chrome and Edge 56-57 fps, Firefox 34-40 fps, all visible. Edge's page went hidden once during the first
+  rehearsal (not reproduced in 4 later Edge pages).
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
