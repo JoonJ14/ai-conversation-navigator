@@ -5560,6 +5560,30 @@ the 9 remaining cells and about re-running the 3 cells the harness lost; none is
   open one window in Navi Test, switch away, then three runs as tabs in it. **Userscripts ignores an `@match` with a port** (a test script matching `http://127.0.0.1:8790/exp1/*`
   did not run; one matching `http://127.0.0.1/exp1/*` did): checker 0.3.1 adds port-free pre-check patterns.
 
+### The Safari window test, and the pre-check with checker 0.3.1 (2026-11-18 ~06:00Z, local pages only)
+- **The window hypothesis is refuted.** The owner opened one Safari window while Navi Test was the active session, then
+  switched back to their own account. The local test page, opened the stage's way three times, landed each time as a
+  new tab in that window (1 window, 1 → 2 tabs; only the added tab closed afterwards): **hidden, 0 fps, 3 of 3.** So
+  who created the window does not explain the 2026-11-17 visible runs (24/48/48 fps); that result is **unexplained**.
+  Same Safari both times (user agent `Version/26.6.2 Safari/605.1.15`). Since 2026-11-18, every Safari page opened in
+  background Navi Test has been hidden at 0 fps: 15 of 15 across five setups (running with no window, not running, a
+  window created in the background, Safari started by the owner, the owner's own window), plus the Stage A pages.
+  Plainly: **Safari in background Navi Test cannot be relied on to render.**
+- **The required pre-check, all three browsers, checker 0.3.1** (the owner installed Navi v12.19 and the checker in
+  the normal Chrome and Firefox profiles; both scripts' names and the 0.3.1 version string are present in each
+  profile's Tampermonkey storage, read as files, nothing printed):
+
+  | Browser | Manager | Report | Page | Result |
+  |---|---|---|---|---|
+  | Chrome (occlusion switches on) | Tampermonkey 5.5.1 | received, 127.0.0.1 first try | visible, 61 fps | passed |
+  | Firefox | Tampermonkey 5.5.0 | received, 127.0.0.1 first try | visible, 61 fps | passed |
+  | Safari | Userscripts 4.8.6 | received (0.3.1 loaded after the owner's click) | hidden, 0 fps | **failed: no Safari site cell may run in Navi Test** |
+
+- **The runner gains `--cells`** (the agent's, 2026-11-18): it opens exactly the listed cells after pre-checking their
+  browsers. Before it, a run could only select whole browsers, so re-running Chrome's other sites would also have
+  reopened claude.ai in Chrome. Stage A's Chrome / Claude cell did load claude.ai once (its checker was missing), so
+  it counts as Chrome's one Claude visit; Safari / ChatGPT and Safari / Perplexity each had their one page load too.
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
