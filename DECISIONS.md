@@ -5770,6 +5770,36 @@ page and on the VM process's *resident* size, which is not its real memory.
   before its sites. (The runner's VM-memory sample read ~1 MB in that run: it had matched the agent's own shell, whose
   command line contained the same path; fixed to take the largest match.)
 
+### Experiment 1, Stage A in Navi Mac (2026-11-18 20:49-20:59Z, the owner's go; run exp1-A-navimac-2026-11-18T2049)
+Navi Mac VM (macOS 26.6.2, 6 GB), Navi v12.19, checker 0.3.2, free test accounts; Safari 26.6.2 + Userscripts 4.8.6,
+Chrome + Tampermonkey 5.5.1, Firefox + Tampermonkey 5.5.0; no switches. **Pre-checks 6 of 6 passed** (local page and
+example.com per browser, visible 60-61 fps). **15 of 15 site cells accepted, all signed in, no stop rule** (no
+challenge, warning or notice anywhere; Claude unchallenged in all three browsers). Load 15/15 and Navigate 15/15 pass.
+
+| | Claude | ChatGPT | Gemini | Grok | Perplexity |
+|---|---|---|---|---|---|
+| Safari | jump skip: window covered | **jump fail**: Navi refused | all pass | all pass | **bookmark fail**: no key |
+| Chrome | all pass | **jump fail**: landed 9 px above view | all pass | **jump fail**: landed 144 px above view | **bookmark fail**: no key |
+| Firefox | all pass | **jump fail**: Navi refused | all pass | all pass | **bookmark fail**: no key |
+
+- **None of the failures is lag** (the owner's concern): ChatGPT, Safari and Firefox: Navi itself refused within
+  0.3-3.7 s with its toast "That message is not currently rendered — scroll toward it and try again"; Chrome: Navi
+  found and flashed the right question but it settled 9 px above the top and stayed there 20 s. Chrome / Grok: settled
+  144 px above the top (Safari and Firefox landed it at 128 and ~90 px). Perplexity: Navi's bookmark flag had no message
+  key for 10 s in all three browsers: the test chat is at `/session/<id>`, which v12.19's index adapter does not
+  recognise (it matches `/search/` only), so Navi scans the page and has no stable key; the checker did not click.
+- **Safari / Claude's jump skip:** Safari's window for that cell stayed `occluded` in the VM for 33 s (14:50:27-14:51:00
+  CST) while the jump stage started; in the other four Safari cells the window turned visible within 1 s. Cause not
+  determined (the Mac's window tracker does not follow UTM's window).
+- **Findings for the fix loop** (not started: the owner decides): ChatGPT jumps fail in all three browsers; Chrome
+  lands past the question on ChatGPT and Grok; Perplexity bookmarks impossible on `/session/` chats (site drift).
+- **The run:** 9 min 54 s including pre-checks; 21 receiver claims (6 pre-checks, 15 cells) and **no unexpected
+  checker request**; every browser quit cleanly; the VM shut down and its window closed in 14 s; 15 structure captures
+  saved (private, untracked). Cell times 15-44 s; the Mac's memory 31-37% free, swap 17.4-18.4 GB, the VM resident
+  up to 2.5 GB. Discord posted (HTTP 204): "**Mac** — Navi live session, Experiment 1 Stage A-navimac (Mac (Navi Mac
+  VM)) / 21 cells: 15 accepted (7 with every check passing), 0 stopped, 0 without a report, 0 not visited. / No site
+  objected. / Duration: 9 min 54 s." ("21 cells" counted the 6 pre-checks; the message now counts them apart.)
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
