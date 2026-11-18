@@ -5472,6 +5472,31 @@ Firefox open, render (49 and 35 fps, visible) and close normally in 2-4 s; Chrom
 needed the forced last resort until its first start is done by hand. Firefox's first start shows a terms-of-use screen
 (the owner's to accept).
 
+### Experiment 1, preparation: the macOS VM "Navi Mac" evaluated (2026-11-17/18; local test page only)
+Created by the owner: UTM, Apple Virtualization, macOS 26.6.2, 4 cores, 8 GB, user `navi` (administrator), automatic
+sign-in, FileVault off, no Apple Account. SSH key-only access added as on the other VMs; `navi` may run exactly
+`shutdown -h now` / `-r now` without a password; clipboard sharing turned off (original settings backed up).
+- **Rendering, no switches needed** (Safari 26.6.2, Chrome 158.0.8127.37, Firefox 160.0.1 inside the VM; opened over SSH
+  with `open`; 3 runs each):
+
+  | | VM window shown on the owner's screen | VM window minimized |
+  |---|---|---|
+  | Safari | 43/36/46 fps, visible | 47/45/47 fps, visible |
+  | Chrome | 49/46/49 fps, visible | 49/49/46 fps, visible |
+  | Firefox | 33/49/45 fps, visible | 46/51/49 fps, visible |
+
+  Chrome's first runs reported nothing until its window was given 20 s: a slower cold start, not a rendering fault.
+  Apps copied in over SSH must be registered with `lsregister` before `open -a` finds them.
+- **Cold start:** booted 9 s after the start command, signed-in desktop 9 s later (18 s); shutdown from inside and the
+  window closed in 3-8 s.
+- **Cost on the host:** while it ran, the host showed 37% memory free, 18.1 of 19.5 GB swap in use and ~6.8 GB
+  compressed; inside, the VM had 79% of its 8 GB free. A smaller allocation (4-6 GB) looks sufficient; the owner's call.
+- **Safari + Userscripts in the VM needs:** an Apple Account signed in to the App Store (Userscripts is App Store-only)
+  to install it; enabling the extension and its website access in Safari; pointing its save folder outside its
+  container (as in Navi Test). Chrome and Firefox there need Tampermonkey and the 15 sign-ins, as in Navi Test.
+- Side effect, disclosed: the agent's `lipo` call raised the developer-tools prompt; the owner chose to install the
+  Command Line Tools in the VM.
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
