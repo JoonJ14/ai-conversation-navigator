@@ -5540,8 +5540,8 @@ the 9 remaining cells and about re-running the 3 cells the harness lost; none is
 ### The local investigation the owner required after Stage A (2026-11-18, local pages only, no site visit)
 - **Chrome's Stage A cell never reached the receiver because the runner's Chrome had no checker.** The agent had pointed
   the owner to launchers that open the *copied* `release` profiles, and later switched the runner to Navi Test's
-  *normal* profiles without withdrawing them. The owner's first installs (2026-11-17 22:20-22:30, by the launchers) went
-  into the copies; the 0.3.0 update (23:38) into the normal profiles, where Navi v12.19 was never installed. Evidence:
+  *normal* profiles without withdrawing them. The owner's first installs (2026-11-17 22:20-22:30 CST, by the launchers) went
+  into the copies; the 0.3.0 update (23:38 CST) into the normal profiles, where Navi v12.19 was never installed. Evidence:
   each profile's Tampermonkey storage times. The agent's fault; the launchers were deleted.
 - **The round trip works under the real managers in the normal profiles:** the pre-check passed in Chrome (Tampermonkey
   5.5.1; visible, 61 fps) and Firefox (Tampermonkey 5.5.0; visible, 60 fps); the receiver answered at 127.0.0.1 on the
