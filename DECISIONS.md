@@ -5743,6 +5743,24 @@ Navi Test themselves.
   6.8 GB in the owner's account and 2.2 GB in Navi Test, which was still signed in. The browsers in the VM were not
   slowed by it (56-61 fps).
 
+### Why the VM's browsers felt slow (the owner's report, 2026-11-18 ~19:45Z; measured, no AI site)
+The owner found the browsers in Navi Mac "slow and laggy" while installing and signing in. **Correction:** the entry
+above said the VM was "not tight" and its browsers "not slowed"; that rested on frame rates of a near-empty test
+page and on the VM process's *resident* size, which is not its real memory.
+- **The Mac had pushed the VM's memory out.** The VM process's footprint was 6.18 GB (its whole 6 GB), of which only
+  0.17 GB was in RAM; the rest was compressed or in swap (pressure level "warning", 17.5-17.9 GB swap in use, the
+  kernel's compressor at ~23% CPU in `kernel_task`).
+- **Causal test:** touching 1 GB inside the VM took **1.44 s** the first time (the Mac read back 178 MB from swap and
+  decompressed 1.7 GB) and **0.16 s** right after (18 MB, 0.4 GB): about 9x slower while evicted. After idling, the Mac
+  evicts it again. A browser touches hundreds of MB on each tab switch, keystroke burst or page load: seconds of stall.
+- **Why the Mac is short:** 16 GB for the owner's account (6.8 GB resident: Safari tabs ~2.9 GB, WindowServer ~2.2 GB),
+  Navi Test still signed in (2.2 GB), the system, and the 6 GB VM.
+- **Contributing, not separated:** CPU contention on the Mac with the VM idle (UPDD Daemon ~57%, macOS InstantView
+  ~45%, WindowServer ~43%, Creative Cloud ~20%; load 6.7-11 on 4 performance + 4 efficiency cores), and the display
+  path: the VM window sat on the X90G-T screen, an InstantView USB virtual display that captures and compresses
+  everything shown on it before sending it over USB, which adds delay and drops frames regardless of the VM's speed.
+- Inside the VM itself, memory and timers were fine when idle (73% free; a 10 ms timer woke 7-9 ms late, never more).
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
