@@ -5527,8 +5527,8 @@ the 9 remaining cells and about re-running the 3 cells the harness lost; none is
   not running, and Safari with a window already open: all 9 runs `hidden`, 0 fps. The same three rounds of the stage's
   commands: Chrome (switches) 54/54/54 fps and Firefox 54/54/54 fps, all visible. The earlier "visible" Safari runs
   (2026-11-17) most likely came from a Safari the owner had started while Navi Test was the active session (an
-  inference). Plainly: **background Safari in Navi Test cannot be relied on to render.** Navi Mac rendered Safari in
-  every run, even minimized.
+  inference; refined below: it is who created the window). Plainly: **Safari windows created in the background
+  session do not render.** Navi Mac rendered Safari in every run, even minimized.
 - **Userscripts in Safari does not load a replaced script file by itself:** after checker 0.3.0 was written into its
   folder, the pre-check page never contacted the receiver. Each checker update in Safari needs the owner's click on
   the Userscripts toolbar icon (its README's quirk, now measured).
@@ -5548,8 +5548,14 @@ the 9 remaining cells and about re-running the 3 cells the harness lost; none is
   first attempt. Also from a page served at 192.168.64.1 (a private address reaching loopback, the nearest local
   stand-in for a site reaching the Mac): both passed, 127.0.0.1 HTTP 200 first time, 60/61 fps.
 - **Safari:** a Safari the owner started inside Navi Test and left running (no window) still drew a hidden window (0
-  fps) when the runner opened one in the background session: background Safari in Navi Test cannot render, whoever
-  started it. **Userscripts ignores an `@match` with a port** (a test script matching `http://127.0.0.1:8790/exp1/*`
+  fps) when the runner opened one in the background session. **Corrected the same day, after the owner asked why the
+  first Safari runs had rendered:** the earlier conclusion "cannot render, whoever started it" was too broad. Across
+  every run, the difference is who created the window: the 2026-11-17 runs (visible, 24/48/48 fps) opened as tabs in
+  the window the owner had created while Navi Test was the active session; every 2026-11-18 run opened in a window
+  created while Navi Test was in the background (by the runner, or by the agent's script in the "window already open"
+  case, which the agent had wrongly called the earlier condition): hidden, 0 fps. Hypothesis, not yet measured: a
+  Safari window created in the active session keeps rendering after the owner switches away. Test proposed to the owner:
+  open one window in Navi Test, switch away, then three runs as tabs in it. **Userscripts ignores an `@match` with a port** (a test script matching `http://127.0.0.1:8790/exp1/*`
   did not run; one matching `http://127.0.0.1/exp1/*` did): checker 0.3.1 adds port-free pre-check patterns.
 
 ### Rules the owner added for this work (2026-11-16)
