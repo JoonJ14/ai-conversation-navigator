@@ -5760,6 +5760,15 @@ page and on the VM process's *resident* size, which is not its real memory.
   path: the VM window sat on the X90G-T screen, an InstantView USB virtual display that captures and compresses
   everything shown on it before sending it over USB, which adds delay and drops frames regardless of the VM's speed.
 - Inside the VM itself, memory and timers were fine when idle (73% free; a 10 ms timer woke 7-9 ms late, never more).
+- **After the owner signed out of Navi Test and moved the VM window to the built-in screen (20:33-20:46Z):** the Mac's
+  pressure level fell from "warning" to "normal" (43% free), but macOS still compressed the idle VM: 1.53 GB in RAM
+  after a warm-up, 0.20 GB ten minutes later; the 1 GB touch took 1.82 s cold vs 0.07 s warm. That is ordinary macOS
+  behavior (memory not in use is compressed for active apps), so the lag returns whenever the VM sits idle; the owner
+  keeps their apps open. A 4 GB VM would not stop it (it changes how much there is to compress, not whether), so the VM
+  stays at 6 GB. **For the stage it costs little:** the required pre-check on the idle, compressed VM passed in all
+  three browsers at 58-61 fps, 12-17 s per round trip, the same as warm (12-19 s); each browser's pre-check runs just
+  before its sites. (The runner's VM-memory sample read ~1 MB in that run: it had matched the agent's own shell, whose
+  command line contained the same path; fixed to take the largest match.)
 
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
