@@ -5521,6 +5521,22 @@ page, and say plainly if background Safari cannot be relied on; make this local 
 before every stage: no site visit in a browser until that browser has passed it**. The owner decides afterwards about
 the 9 remaining cells and about re-running the 3 cells the harness lost; none is re-run without the owner's go.
 
+### After Stage A: Safari in background Navi Test, and the required pre-check (2026-11-18, local test page only)
+- **Safari in background Navi Test does not render** when it is started while the session is in the background, as
+  the stage starts it. Reproduced with the stage's own `open` command, 3 runs each: Safari running with no window, Safari
+  not running, and Safari with a window already open: all 9 runs `hidden`, 0 fps. The same three rounds of the stage's
+  commands: Chrome (switches) 54/54/54 fps and Firefox 54/54/54 fps, all visible. The earlier "visible" Safari runs
+  (2026-11-17) most likely came from a Safari the owner had started while Navi Test was the active session (an
+  inference). Plainly: **background Safari in Navi Test cannot be relied on to render.** Navi Mac rendered Safari in
+  every run, even minimized.
+- **Userscripts in Safari does not load a replaced script file by itself:** after checker 0.3.0 was written into its
+  folder, the pre-check page never contacted the receiver. Each checker update in Safari needs the owner's click on
+  the Userscripts toolbar icon (its README's quirk, now measured).
+- **The required pre-check is built** (checker 0.3.0, the runner): before a browser's site cells, the receiver's local
+  page is opened the stage's way; the checker under the real manager must report, the page must be visible and draw
+  >= 20 fps, or none of that browser's site cells is visited. Every report now carries the manager's name and version
+  and the receiver addresses tried. The runner's cap is 420 s (the checker's own deadline is 300 s).
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
