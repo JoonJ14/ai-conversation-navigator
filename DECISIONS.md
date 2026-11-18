@@ -5584,6 +5584,28 @@ the 9 remaining cells and about re-running the 3 cells the harness lost; none is
   reopened claude.ai in Chrome. Stage A's Chrome / Claude cell did load claude.ai once (its checker was missing), so
   it counts as Chrome's one Claude visit; Safari / ChatGPT and Safari / Perplexity each had their one page load too.
 
+### Why Safari rendered on 2026-11-17 and never after: how its process was launched (found 2026-11-18, local pages)
+The owner asked why the first Safari runs worked and nothing since. From the Mac's own logs (RunningBoard process
+records, the window server's connection log, WebKit's ActivityState log) and the render results:
+
+| Safari process | Launched | Window server at launch | Render results in it |
+|---|---|---|---|
+| 53256 | 2026-11-17 03:43:19Z, by the owner inside Navi Test (two minutes before "logged in all 15") | **on console** | visible: 24/48/48 fps (20:46Z), 53 fps (the 22:08Z rehearsal) |
+| 89154 | 2026-11-18 04:35:06Z, by the runner's rehearsal (`open -a Safari`, Navi Test in the background) | **off console** | hidden, 0 fps: the rehearsal, Stage A's Safari pages, the first reproductions |
+| 97631 | 2026-11-18 05:08:38Z, by the agent's "not running" reproduction | **off console** | hidden, 0 fps: every later run |
+
+Process 53256 ended at 04:30:11Z, as the owner finished the pre-Stage-A steps; nothing launched Safari on console
+again. In the off-console processes WebKit logged `window occluded 1` for the page's window: an occluded window makes
+the page `hidden` and stops its frames. No sleep, wake or display-off happened in the whole period (last wake 16:45Z
+on 2026-11-17, before every run), and the Safari version was the same (26.6.2).
+- **Corrections:** the run recorded above as "a Safari the owner started inside Navi Test" and the "owner's window"
+  test ran in process 97631, which the agent's script had launched off console; the owner had only opened a window
+  in it. So neither tested an owner-launched Safari, and the window hypothesis was tested in the wrong process.
+- **The failure, replicated on request** (06:13Z): Safari quit and relaunched from the background three times: each
+  new process off console, each page hidden, 0 fps.
+- **The success half needs the owner** (a launch while Navi Test is on screen): predicted visible if the launch
+  context is the cause.
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
