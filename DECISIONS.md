@@ -5867,6 +5867,20 @@ all three). Load and Navigate 15/15 pass. Classification per the owner's decisio
   0 without a report, 0 not visited. No site objected. Duration: 11 min 29 s." (Its header still said "Mac"; it now
   names the stage's machine.)
 
+### Stage C preparation: the Linux VM (2026-11-18 22:55-23:08Z, the owner's go for preparation; local pages only)
+Navi Linux (UTM, Apple Virtualization, Ubuntu 26.04 aarch64, 2 cores, 4 GB: ~1 GB available at idle): Chromium
+157.0.8103.50 and Firefox 160.0-1 (snaps), Tampermonkey by policy in both, first starts done, "Allow User Scripts" not
+yet on in Chromium, Navi and the checker not installed. **Nothing starts a browser at sign-in** (no user or system
+autostart entries; GNOME does not save sessions) and neither browser reopens old tabs at startup (defaults).
+- **The agent's decisions (the VM's own setup):** GNOME's idle blank (5 min), dimming and idle screen-saver activation
+  turned off; sleep set to "nothing" (was "suspend", timeout 0); the lock stays off. **Chromium's menu entries now carry
+  `--password-store=basic`**, as the runner's Chromium does: GNOME's login keyring stays locked after the automatic
+  sign-in, so a Chromium started from the menu without it would have asked to unlock the keyring and stored the owner's
+  sign-ins under it, where the runner's Chromium could not read them.
+- **The runner's stage C:** opens a page in the GNOME (Wayland) session over SSH; quits the normal way (SIGTERM to the
+  browser's main process; both handle it as a clean quit); never forced (NOT-QUIT stops that browser's cells).
+  Rehearsal and restore check: 8 pages, none loaded twice, all visible 49-53 fps.
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
