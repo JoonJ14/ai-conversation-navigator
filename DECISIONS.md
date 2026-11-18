@@ -5800,6 +5800,29 @@ challenge, warning or notice anywhere; Claude unchallenged in all three browsers
   VM)) / 21 cells: 15 accepted (7 with every check passing), 0 stopped, 0 without a report, 0 not visited. / No site
   objected. / Duration: 9 min 54 s." ("21 cells" counted the 6 pre-checks; the message now counts them apart.)
 
+### The owner's decision after Stage A in Navi Mac (2026-11-18): build the whole pipeline first
+In the owner's words: "no fine-tuning of the checks now, and no Navi fixes. We build the whole pipeline first
+(Windows, Linux, the full session, the fix loop, the CI), then calibrate the checks, then run it as if for the first
+time." **Navi stays at v12.19 and the checker at 0.3.2, unchanged, through Stages B and C.**
+- **Found by an uncalibrated checker, not confirmed** (the owner's classification; not to be investigated now): the
+  ChatGPT jumps (Safari and Firefox: Navi's "not currently rendered"; Chrome: landed 9 px above the view), Chrome's
+  landing on Grok (144 px above the view), and Safari / Claude's skipped jump (window covered 33 s). **The owner's
+  observations, by hand:** in the owner's own Safari, ChatGPT's jump works and Claude's jump works; in Chrome, Grok's
+  jump works.
+- **Probable real bug, not to be fixed now:** Perplexity bookmarks on `/session/` chats (no message key in all three
+  browsers; v12.19's index adapter matches `/search/` only). **Reserved as the first end-to-end test of the finished
+  pipeline.**
+- **First items for the later fine-tuning** (the owner's observations; not acted on now):
+  a. **The test chats are too short.** Three one-line questions and answers fit on one screen, so a jump does not have
+     to move the page; watching the Mac VM during Stage A, the owner saw the click on the first question change nothing
+     on screen. Longer chats are needed on all five sites, designed together with the full check list.
+  b. **The checker acts too fast.** It should wait for the page to finish loading before clicking, retry the way a
+     person would, and judge the landing with tolerance. By hand on Grok in Chrome, the owner's first click after load
+     needed a moment; after that, one click went to the question every time. That first-click behavior is to be looked
+     at later; it may be Navi's, not only the checker's.
+- **Next:** Stage B preparation (the Windows VM), then the owner's go; same rules (pre-check and example.com probe per
+  browser, one load per site per browser, the stop rules).
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
