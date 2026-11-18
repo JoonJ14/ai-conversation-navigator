@@ -5728,6 +5728,21 @@ Navi Test themselves.
 - **The Mac's memory so far** (Navi Test still signed in, the VM at 6 GB): 30-33% free, swap 18.7-18.8 of 19.5 GB in
   use, the VM process resident at up to 1.6 GB. To be measured again per browser after the owner signs out of Navi Test.
 
+### Navi Mac ready for Stage A (2026-11-18 ~19:35Z; local pages and example.com only)
+- **Installed, verified from the files:** Chrome: Tampermonkey 5.5.1 with "Allow User Scripts" on, Navi v12.19 and
+  checker 0.3.2; Firefox (`*.default-release`, the profile `open` uses): Tampermonkey 5.5.0, Navi v12.19 and checker
+  0.3.2; Safari: Userscripts 4.8.6 with both scripts in its index. None reopens old tabs at startup (Chrome's default
+  new tab page, Firefox's default home page, Safari's default new window). The owner made all 15 sign-ins in the VM
+  (2026-11-18); every site has cookies in every browser (counts only).
+- **The required pre-check passed in all three, with the stage's own commands:** local page and example.com, visible
+  56-61 fps, every report through the real manager (Userscripts 4.8.6, Tampermonkey 5.5.1 / 5.5.0), checker 0.3.2.
+  The receiver now logs any checker request it did not ask for (host and time only); none appeared.
+- **The Mac's memory (the owner's question: too tight at 6 GB?):** the VM itself is not tight (75% free inside;
+  its process resident at up to 1.7 GB while a browser runs, 0.2 GB idle). The Mac is: 16 GB, macOS's pressure level
+  "warning", swap 17.4-17.9 GB in use and actively moving (~7 MB/s out, ~3 MB/s in), 31-33% free; resident memory
+  6.8 GB in the owner's account and 2.2 GB in Navi Test, which was still signed in. The browsers in the VM were not
+  slowed by it (56-61 fps).
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
