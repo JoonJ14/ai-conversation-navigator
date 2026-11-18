@@ -5537,6 +5537,21 @@ the 9 remaining cells and about re-running the 3 cells the harness lost; none is
   >= 20 fps, or none of that browser's site cells is visited. Every report now carries the manager's name and version
   and the receiver addresses tried. The runner's cap is 420 s (the checker's own deadline is 300 s).
 
+### The local investigation the owner required after Stage A (2026-11-18, local pages only, no site visit)
+- **Chrome's Stage A cell never reached the receiver because the runner's Chrome had no checker.** The agent had pointed
+  the owner to launchers that open the *copied* `release` profiles, and later switched the runner to Navi Test's
+  *normal* profiles without withdrawing them. The owner's first installs (2026-11-17 22:20-22:30, by the launchers) went
+  into the copies; the 0.3.0 update (23:38) into the normal profiles, where Navi v12.19 was never installed. Evidence:
+  each profile's Tampermonkey storage times. The agent's fault; the launchers were deleted.
+- **The round trip works under the real managers in the normal profiles:** the pre-check passed in Chrome (Tampermonkey
+  5.5.1; visible, 61 fps) and Firefox (Tampermonkey 5.5.0; visible, 60 fps); the receiver answered at 127.0.0.1 on the
+  first attempt. Also from a page served at 192.168.64.1 (a private address reaching loopback, the nearest local
+  stand-in for a site reaching the Mac): both passed, 127.0.0.1 HTTP 200 first time, 60/61 fps.
+- **Safari:** a Safari the owner started inside Navi Test and left running (no window) still drew a hidden window (0
+  fps) when the runner opened one in the background session: background Safari in Navi Test cannot render, whoever
+  started it. **Userscripts ignores an `@match` with a port** (a test script matching `http://127.0.0.1:8790/exp1/*`
+  did not run; one matching `http://127.0.0.1/exp1/*` did): checker 0.3.1 adds port-free pre-check patterns.
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
