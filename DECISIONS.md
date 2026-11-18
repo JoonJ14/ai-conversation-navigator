@@ -5605,6 +5605,15 @@ on 2026-11-17, before every run), and the Safari version was the same (26.6.2).
   new process off console, each page hidden, 0 fps.
 - **The success half needs the owner** (a launch while Navi Test is on screen): predicted visible if the launch
   context is the cause.
+- **Refuted the same hour (06:25-06:27Z).** The owner quit Safari in Navi Test, started it from the Dock (process
+  26809, logged **on console**) and switched back. Two minutes later: tabs in that window, a new window made in the
+  background, and the no-window case opened the runner's way: **hidden, 0 fps, 9 of 9.** So the launch context is
+  not the cause either; the on/off-console split in the record was a coincidence the agent reported as a cause too
+  early. Still standing: the WebKit mechanism (the window reported occluded). **Next hypothesis, untested:** the
+  Mac's sleep and wake. The lid was closed (`Clamshell Sleep`, 2026-11-17 05:00:44Z) after process 53256's launch,
+  the Mac woke fully at 16:45:30Z, and the visible runs followed; there has been no sleep or display-off since, and
+  every Safari window made since has been hidden. A read-only research and log-forensics workflow
+  (wf_08b7a130-5aa) is checking it and ranking the alternatives.
 
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
