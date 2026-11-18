@@ -5551,7 +5551,9 @@ the 9 remaining cells and about re-running the 3 cells the harness lost; none is
   fps) when the runner opened one in the background session. **Corrected the same day, after the owner asked why the
   first Safari runs had rendered:** the earlier conclusion "cannot render, whoever started it" was too broad. Across
   every run, the difference is who created the window: the 2026-11-17 runs (visible, 24/48/48 fps) opened as tabs in
-  the window the owner had created while Navi Test was the active session; every 2026-11-18 run opened in a window
+  the window the owner had created while Navi Test was the active session (inferred, not recorded at the time: the
+  owner had the five sites open in Safari from 2026-11-17 03:45Z and closed those tabs before Stage A; no window count
+  was taken during those runs); every 2026-11-18 run opened in a window
   created while Navi Test was in the background (by the runner, or by the agent's script in the "window already open"
   case, which the agent had wrongly called the earlier condition): hidden, 0 fps. Hypothesis, not yet measured: a
   Safari window created in the active session keeps rendering after the owner switches away. Test proposed to the owner:
