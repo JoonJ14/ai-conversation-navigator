@@ -5634,6 +5634,12 @@ on 2026-11-17, before every run), and the Safari version was the same (26.6.2).
   update when the owner switched away 35 s after launch while Safari was busy (the owner's own observation fits: that
   window held five pages they had just loaded); (4) something about that window (full screen, its own Space, media);
   (5) 17 hours off console.
+- **Test of (3), the owner's idea (17:09-17:13Z):** the owner quit Safari in Navi Test, started it (process 82025,
+  on console), opened four ordinary pages (no AI site) and switched away 57 s after launch while they loaded. Three
+  test-page tabs in that window and a new-window control: **hidden, 0 fps, 4 of 4.** WebKit's own log shows why:
+  the window was `occluded 0` while on console (11:10:40-11:10:51 CST) and turned `occluded 1` in the same second the
+  owner switched away (11:10:51). macOS delivered the update although Safari was busy, so (3) is weakened (one trial,
+  57 s rather than 35 s, ordinary pages rather than the five AI sites).
 - The job's (b2) step closed the owner's on-console window at 06:26:50Z (intended: Stage A's no-window state); the
   window Safari has now was created off console.
 
