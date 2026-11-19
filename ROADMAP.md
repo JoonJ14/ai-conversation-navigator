@@ -244,7 +244,7 @@ v12.16 or v12.17: a release only once every platform works on all supported brow
    - **Still owed:** the owner's plan; a new HANDOFF.md (the current one is the 2026-11-12 handoff; DEC-065's "Where
      this stands" is the state until then); Codex review on the private repo (the owner's step); Tampermonkey's
      update settings in the seven VM Tampermonkeys (DEC-065, "After the report"); the public docs ride on this branch,
-     `ci/live-verification-layer` (no PR yet).
+     `ci/live-verification-layer`, merged into `main` through PR #96 (docs only, the owner's request, 2026-11-19).
 6. **Grok** on all three browsers (item 13), its own PR — **after the CI rebuild** (the owner, 2026-11-07; before
    that, after the Gemini PR). The owner's next spec takes the next session (2026-11-11), so Grok follows it unless
    the owner says otherwise (the agent's reading of the order, 2026-11-12). That spec became the live test system

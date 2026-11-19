@@ -6,7 +6,8 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ## [The Live Test System, Phase A: the Owner's Spec, Stage 0, the Redesign, and Experiment 1 — 40 of 40 Live Page Loads Accepted (no userscript change)] — 2026-11-12 to 2026-11-19
 
-**Branch:** `ci/live-verification-layer` (public docs only: `6911977` … `c1b1062`, plus this docs pass; no PR yet) |
+**Branch:** `ci/live-verification-layer` (public docs only: `6911977` … `c1b1062`, plus this docs pass; merged into `main`
+through PR #96, docs only, on the owner's request of 2026-11-19) |
 **Private repo:** `ai-conversation-navigator-private-lab`, branch `phase-a/stage-0` (`ffa7bad` … `2eb2d8a`; all
 tooling) | **The userscript is unchanged** (v12.19, `b0fee35`). Design, every decision and every measurement: DEC-065
 (its "Where this stands" block first). Problems and their debugging: TROUBLESHOOTING's "live test system" entries.

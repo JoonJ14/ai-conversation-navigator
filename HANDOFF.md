@@ -18,8 +18,14 @@ was this session).
   for the rest of the pipeline." **The next session waits for that plan.**
 - **Frozen until the plan** (the owner, 2026-11-18): Navi v12.19 and checker 0.3.2; no Navi fixes and no check tuning
   until the whole pipeline is built.
-- **No PR is open.** Public docs on `ci/live-verification-layer` (pushed); all tooling on the private repo's
-  `phase-a/stage-0` (pushed, `bc4844b`).
+- **`main` is in sync with the branches** (the owner's request, 2026-11-19): public `main` takes
+  `ci/live-verification-layer` through **PR #96** (docs only, merged once `ci-ok` is green; `main` cannot take a direct
+  push); the private repo's `main` was fast-forwarded to `phase-a/stage-0` (`bc4844b`). No other PR is open.
+- **The macOS user name in the public repo** (found 2026-11-19): a path under `~/.claude/projects/` carries it. This
+  session's commit with it was rewritten away (the branch force-pushed); the one in the archived v12.19 handoff was made
+  generic (`d9389e5`, the owner's one exception to "archived handoffs are never edited"). **Older history keeps it**
+  (commit `8f998c0`, merged with PR #95), and the commit email on 626 older commits shows it too: the owner's choice was
+  "current files only"; from now on commits use the owner's GitHub noreply address.
 - **All three VMs are off.** The receiver still runs on this Mac (started with `nohup`; stop it with
   `pkill -f exp1/receiver.js`; it listens only on 127.0.0.1 and 192.168.64.1, port 8790).
 - **Navi Test** (the macOS test user) is frozen and signed out; the owner expects not to use it under the VM design.
@@ -288,17 +294,20 @@ DEC-065's "Standing harness rules" is the full list. In short:
 
 ## E. Git state
 
-**Public repo** (`ai-conversation-navigator`): `main` is at `d3f3d16` (PR #95), unchanged this session.
+**Public repo** (`ai-conversation-navigator`): `main` was at `d3f3d16` (PR #95) all session; **PR #96** merges this
+branch into it (docs only, the owner's request, 2026-11-19), after which `main` holds everything below.
 - **Current branch: `ci/live-verification-layer`**, cut from `d3f3d16`: `d6bddbd` (the prior handoff), then this
   session's docs only (35 commits, each pushed as it was written): the spec `6911977`, the redesign `9d146de`, 32
   DEC-065 drafts (`1f33619` … `c1b1062`), ROADMAP item 15 `1fd9b48`; then the docs-pass + handoff commit (this file, the prior handoff archived
-  unchanged, CHANGELOG, DECISIONS, TROUBLESHOOTING, DOM-REFERENCE, ROADMAP, TESTING.md, `agent_docs/testing.md`).
-  Pushed; no PR.
+  unchanged, CHANGELOG, DECISIONS, TROUBLESHOOTING, DOM-REFERENCE, ROADMAP, TESTING.md, `agent_docs/testing.md`;
+  `9d5b645`, which replaced three commits so the user name is not in the branch's new history); `d9389e5` (the archived
+  v12.19 path); this sync note. Pushed; PR #96.
 - **The owner's untracked files: never `git add` them:** `.playwright-mcp/`, `docs/CONTEXT-TRACKING-AUDIT.md`,
   `docs/IMAGE-GALLERY-DOM-FIX.md`, `docs/V10.10-TASKS.md`, `docs/V10.11-TASKS.md`; the stash `stash@{0}` is theirs.
 
 **Private repo** (`ai-conversation-navigator-private-lab`): branch **`phase-a/stage-0`**, `22b4465` (initial) …
-`2eb2d8a` (the last tooling commit) → **`bc4844b`** (the docs). Pushed; no PR; `main` is the initial commit.
+`2eb2d8a` (the last tooling commit) → **`bc4844b`** (the docs). Pushed; `main` fast-forwarded to `bc4844b` (the
+owner's request, 2026-11-19); no PR. Its files may name local paths with the user name (private repo).
 `local/` is git-ignored and holds the raw results, captures, logs, `chats.json` (the test chat addresses) and
 `control.key`; never commit it.
 
@@ -378,6 +387,9 @@ Carried over, still in force:
 - **Every claim carries its measurement context** (now also: OS, browser, manager + version, Navi version, account tier).
 - **Skills** (`/babysit-pr-cycle`, `/baton-handoff`, `/update-project-docs`): only when the owner names them.
 - **Git:** explicit `git add` paths, never `-A`; never the owner's untracked files. Port 8765 is the owner's.
+- **No machine paths with the user name in the public repo** (the agent's practice, after the owner asked for the
+  user name's removal, 2026-11-19): name `~/.claude/projects/...` folders generically (`<this project's folder>`).
+  Commits use the owner's GitHub noreply address from now on (the owner's choice, 2026-11-19).
 
 New this session (the owner's, 2026-11-16 to 11-19; DEC-065 has each with its date):
 - **No screenshots of the owner's screen or account without asking;** only VM windows (by window id) or the test user.
@@ -451,11 +463,11 @@ FIRST, CHECK STATE — do not assume:
   git branch --show-current && git status --short
   gh pr list --state open
   git -C ../ai-conversation-navigator-private-lab log --oneline -1
-main should be at d3f3d16. You should be on ci/live-verification-layer, ahead of main
-by docs-only commits ending with this handoff (2026-11-19), plus my five untracked
-files, never added. The private repo should be on phase-a/stage-0 at bc4844b
-or later. No PR should be open. All three VMs should be off. If that is not what you
-see, stop and tell me.
+main should be the merge of PR #96 (docs only, 2026-11-19), with
+ci/live-verification-layer even with it; you should be on that branch, plus my five
+untracked files, never added. The private repo's phase-a/stage-0 and main should both
+be at bc4844b or later. No PR should be open. All three VMs should be off. If that is
+not what you see (for example PR #96 still open), stop and tell me.
 
 THIS SESSION: wait for my plan for the rest of the pipeline. Do not start from guesses.
 When it arrives: a read-only Phase 1 first, measure before reasoning, and wait for my
