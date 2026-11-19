@@ -5244,16 +5244,18 @@ owner's, committed as `6911977`). Public docs on `ci/live-verification-layer`; a
 proves a change is needed, which would stop for the owner (spec). **Replaces** the "live verification layer (the next
 spec)" placeholder in ROADMAP and the 2026-11-12 handoff's "spec 1, a built-in self-test", which the owner rejected.
 
-### Where this stands (2026-11-19Z; Phase 1 of the build plan under way) — read this first
+### Where this stands (2026-11-19, about 13:30Z; Phase 1 built and rehearsed, its proof not run) — read this first
 This DEC is a running, chronological record (each section dated; corrections stay next to what they correct, both
 results kept). This block and the last sections are the current state.
 - **Status:** Experiment 1 is complete (2026-11-19 02:08Z): **40 of 40 page loads accepted**, signed in to the test
   account, Navi v12.19 loaded, no stop rule anywhere, 22 cells with every check passing, 12 Claude loads in total
   (the owner's accepted figure). **The owner's build plan for the rest of the pipeline arrived on 2026-11-18 at
   22:26 CST** (`docs/specs/live-test-pipeline-build-plan.md`; its decisions are recorded below under "The pipeline
-  build plan"): six phases, the first being "the full session from one start". **Phase 1 is being built** (private
-  repo, branch `pipeline/phase-1-full-session`; see "Phase 1 of the build plan" at the end of this DEC). No AI site
-  has been visited since Experiment 1; every site visit waits for a session the owner starts.
+  build plan"): six phases, the first being "the full session from one start". **Phase 1 is built, reviewed (71
+  findings, fixed) and rehearsed again in the three VMs on local pages** (private repo, branch
+  `pipeline/phase-1-full-session` at `b3eafff`; see the last two sections of this DEC). Its proof, a 40-cell session
+  on the five sites, waits for the owner. No AI site has been visited since Experiment 1; every site visit waits for a
+  session the owner starts.
 - **Frozen:** Navi v12.19 (the published build, byte-identical to `main`): no Navi fixes until Phase 6. The four
   checks of checker 0.3.2 (load, navigate, one jump, one bookmark): no tuning until Phase 5; Phase 1's checker carries
   them unchanged (a test compares the code line by line) and changes only how the checker is delivered and what it
@@ -5279,10 +5281,10 @@ results kept). This block and the last sections are the current state.
   chats (a probable real bug, reserved by the owner for Phase 6, the first real run); the jump findings of an
   uncalibrated checker (ChatGPT; Grok in Google Chrome and Edge; Safari / Claude), unconfirmed until Phase 5; the CI's
   mock pages are stale on all five sites (Phases 2 and 3); light/dark detection under "auto" (ROADMAP item 15).
-- **Not built yet:** Phase 1 (in progress); the CI from captures (Phase 2); the CI upkeep loop and the CI fix loop
-  (Phase 3); the loader, the admin build, the code fix loop and the auto-merge switch, off (Phase 4); the full check
-  list and the calibration (Phase 5). Superseded by the redesign: the schedule, WebDriver/remote debugging on AI
-  sites, runner-created canaries, the live-send check, scratch chats.
+- **Not built yet** (Phase 1 is built; its proof session has not run): the CI from captures (Phase 2); the CI upkeep
+  loop and the CI fix loop (Phase 3); the loader, the admin build, the code fix loop and the auto-merge switch, off
+  (Phase 4); the full check list and the calibration (Phase 5). Superseded by the redesign: the schedule,
+  WebDriver/remote debugging on AI sites, runner-created canaries, the live-send check, scratch chats.
 - **HANDOFF.md** is the 2026-11-19 handoff. It was written before the build plan arrived: where the two differ, the
   plan is the owner's decision (the owner, 2026-11-18). The differences are listed under "The pipeline build plan",
   "What this changes in the record above".
@@ -5291,9 +5293,12 @@ results kept). This block and the last sections are the current state.
   `ai-conversation-navigator-private-lab` if access is limited to selected repositories; then on chatgpt.com/codex,
   Settings → Code review → on for that repo; the agent could not check the app's access: `gh api /user/installations`
   needs a GitHub App token, HTTP 403); the build plan's Phase 3 depends on it (`/babysit-pr-cycle` on private-repo
-  PRs); a re-check of Navi Mac's reopen list (Phase 1's boot check now does it at every boot). **Closed:**
-  `chmod 700 ~` (the owner, 2026-11-18 20:55 CST; measured below); the owner's one-time steps for Phase 1 in the
-  seven VM Tampermonkeys (reported done 2026-11-19, 06:07 to 06:37Z; see "Phase 1 of the build plan").
+  PRs); a re-check of Navi Mac's reopen list (Phase 1's boot check now does it at every boot); the owner's steps
+  before Phase 1's proof (the display normal values or `--display-unchecked-ok`, the Mac's screen lock, Navi Windows
+  Firefox's Externals setting, a yes or no on the choices waiting for the owner): "Phase 1: the review, its fixes and
+  the rehearsals after them", part 6. **Closed:** `chmod 700 ~` (the owner, 2026-11-18 20:55 CST; measured below);
+  the owner's one-time steps for Phase 1 in the seven VM Tampermonkeys (reported done 2026-11-19, 06:07 to 06:37Z;
+  see "Phase 1 of the build plan").
 
 ### The owner's decisions (the spec; 2026-11-12 unless dated otherwise)
 - **Three separate pieces:** the public navigator (the only thing users get; never any test code), the checker (tests
@@ -6657,6 +6662,9 @@ The orchestrator's (Claude, 2026-11-19; none approved by the owner yet; "told" g
   task, every 7 hours) were seen only in the raw output.
 
 **6. What Phase 1's proof still needs.**
+- *Out of date since about 13:30Z: the review, the simulated session and the open fix-list items below were done
+  after this was written, except the boundary of Linux Chromium's 32 s and the three items for the owner; what is
+  still owed is in the next section, "Phase 1: the review, its fixes and the rehearsals after them", part 6.*
 - **The 40-cell session on the five sites,** which only the owner can start, with the owner at the computer. Before
   it: the open fix-list items below, the Phase 1 code review, and the simulated 40-cell session with planted faults
   (both delegated to Opus agents and running at the time of writing; their results are not in this record).
@@ -6691,3 +6699,184 @@ Tampermonkey settings that "After the report" lists as "not reported" were part 
 reported done on 2026-11-19 in all seven (the settings cannot be read from outside); Navi Mac's reopen list is read at
 every boot and removed before every Navi Mac shutdown, while its state after a stage without that removal is still
 unmeasured.
+
+### Phase 1: the review, its fixes and the rehearsals after them (2026-11-19)
+**State at the time of writing (2026-11-19, about 13:30Z):** after the section above (about 08:00Z) the Phase 1 code
+was reviewed, the findings were fixed, and the fixed code was rehearsed again in the three VMs. The proof, the 40-cell
+session on the five sites that only the owner starts, has not run, and no AI site has been visited since Experiment 1.
+The code is in the private lab repo under `pipeline/`, branch `pipeline/phase-1-full-session`, at `b3eafff`. Navi is
+unchanged (v12.19); the four checks are still checker 0.3.2's and uncalibrated, so no result here is a Navi result.
+Times are UTC. The review, the fixes and the tests were done by Opus agents under the orchestrator (the Claude Code
+session that built Phase 1). **The context of every VM run below:** real VMs; local pages, the local fixture and
+example.com only. The Mac's own screen locked itself between 11:58Z and 12:02Z and was still locked at the later runs
+(read with `ioreg` at about 12:20Z, and by the runner itself at 13:14Z and 13:18Z). While it was locked the runner
+found no VM window to place, and Navi Linux's screen read 3224×1764 instead of 1608×882. Every display value and
+window placement below carries that.
+
+**1. The review.** Opus reviewers read the Phase 1 code through six lenses: the owner's rules (15 findings), the
+plan's coverage (15), the session logic (18), the VM layer (8), the new checker code (8) and the receiver's contract
+with the checker (7). A skeptic agent then checked each finding, and upheld 71 of 73. All of them come from reading
+the code and the records, each with a worked scenario; none is a failure seen in a run. By kind: 22 break a rule of
+the owner's, 18 are bugs, 11 are gaps against the plan, 20 are minor. Many are one defect seen through two or three
+lenses (about 40 distinct). The 22 rule-breaking findings, by class:
+- **A VM shutdown that could end a browser still running** (8). A close that gave no clear answer (an SSH timeout, a
+  dropped connection) was read as a clean quit; Safari not quitting, or not answering, after Userscripts' index
+  refresh went on to the VM's shutdown; a boot check that ran only once, or could not read the process list, led to a
+  shutdown; `--cleanup` shut down any VM without looking for a running browser, including a VM left up because a
+  browser would not quit.
+- **More than one VM at a time** (4). A failed start, a failed shutdown and `--keep-vm` (which kept every stage's VM,
+  not only the last) each let the next stage start its VM beside one still running.
+- **A stop without its immediate message** (3). An objection on the reload after a re-sign-in stopped only that site:
+  an account message about automated use there did not stop everything, no stop message went out at once, and the end
+  message said "No site objected."
+- **The 48-load ask passable in mid-session** (3). The reload after a re-sign-in was checked as one more load, without
+  the site's cells still planned, so a session that started at exactly 48 loads for a site could end that site's day
+  at 49 without asking.
+- **A click granted after an objection** (2). A challenge on an earlier page of the same load did not stop a later
+  page's click; and on a signed-out chat page the click was decided on objection signals read before the 3 s settle,
+  with nothing reading them again before the click.
+- **Clicks after "Google itself"** (1). After the runner had itself classed a cell "Google itself", Google still
+  counted as signed in in that browser, so the next sites' re-sign-in clicks went on there.
+- **A challenge on Google's page that did not stop the site** (1). It stopped the re-sign-ins, but the site whose
+  sign-in had led there was opened again in every remaining browser.
+
+**2. The fixes.** Opus agents under the orchestrator fixed the findings in three lanes split by file ownership: the
+runner; the checker and the receiver; the VM scripts. One verifier (09:30 to 11:05Z) ran the whole harness, checked
+each finding against the code and repaired what fell between the lanes (for example, the runner did not yet know the
+checker's new error report). Three skeptic agents then re-read the fixes of the rule-breaking findings and reopened 14
+items, and a closing round fixed those (11:18 to 11:52Z). Committed as `d377dac` at 11:53Z. No VM, no AI site and no
+Discord post in any of it. The installed shell (1.0.0) and the four frozen checks are untouched, so nothing had to be
+reinstalled; the served logic changed (now build `4e2252a616c1c773`).
+
+The harness after the last round, in this context: the Mac (macOS 26.6.2), Node 24.22.2, Playwright 1.65.0 with
+Chromium 158.0.8127.18 (headless shell), Firefox 159.0 and WebKit 27.2; no userscript manager, no VM, throwaway
+folders, invented chat addresses. Unit tests 206 of 206 (twice); the receiver's HTTP tests 20 of 20; the mock-page
+specs 53 of 53 with the contract 13 of 13, in Chromium after the closing round and in all three engines in the
+verifier's round, Experiment 1's 16 reference specs giving checker 0.3.2's results; the test driver's smoke run 44 of
+44 (Chromium); the simulated 40-cell session 40 of 40 accepted and its second start the same (16 loads per site); 19
+planted faults each stopping what it should. Mock and test-driver evidence only, never browser evidence. Three later
+fixes (parts 4 and 5) took the unit tests to 210, 219 and 222 of 222 (`8cab78c`, `a0b918d`, `b3eafff`; unit tests
+at each commit; the VM runs after them are in part 4).
+
+What changed that the owner will notice:
+- **No live session without display values, unless the owner says so.** A session on the real VMs refuses to start
+  (exit 3) while no normal display values are recorded for a browser it would run, unless it is started with
+  `--display-unchecked-ok`; the display is then compared only within each browser's own stage. None is recorded yet,
+  so today every live session needs the values or the flag. Rehearsals only note it.
+- **A strict command line.** A flag without its value, an empty list, a flag given twice or an argument the runner
+  does not know refuses to start, so a `--cells` list lost in a copy can no longer mean all 40 cells.
+- **Exit codes.** 0: done, nothing left running. 1: a runner error, or a start refused by a check (another VM already
+  running, the port busy, a stage, browser or cell name it does not know). 2: something stopped everything (an account
+  message about automated use, a browser that did not quit or whose close gave no answer, a live session's screen
+  found locked at a stage's start, Ctrl-C) or something was left running; also a command line it refuses, before
+  anything starts. 3: nothing started (the ask-first rule; no display values without the flag; a live session's screen
+  locked at the start). `--cleanup` exits 2 when it leaves something running.
+- **Linux Chromium's wait.** Every site load in Navi Linux's Chromium is closed no earlier than 32 s after the load's
+  last page or report, so that its cookie store is written. In the fixture run of 12:20Z its cells took 36 to 82 s,
+  the other seven browsers' 5 to 33 s.
+- **The wait after a granted click.** In any browser, a load in which a re-sign-in click was granted is closed no
+  earlier than 32 s after its last report, so the browser can store the sign-in it just received. Where Linux
+  Chromium's wait also applies, the longer counts, not the sum; it is skipped once everything has stopped and never
+  runs past the load's cap.
+- **The warm-up stay.** When the local pre-check page ran nothing because the browser injected an older logic, and
+  another warm-up load follows, the browser stays open 30 s before its close, so the manager can refresh its copy.
+  Local page only; no page load added.
+- **The lock-state guard.** The runner reads the Mac's lock state at its start and at each stage's start, keeps every
+  read in `session.json`, and adds a line to the summary when the screen was locked or its state could not be read; a
+  window not placed while locked says so. A live session on the real VMs refuses to start on a locked screen and stops
+  before a stage whose start reads it locked. A rehearsal only notes it, and a state that cannot be read is a note,
+  never a refusal.
+- **Also:** a close counts as clean only when it answers exactly "closed"; anything else leaves the VM up and stops the
+  session. `--cleanup` shuts a VM down only when a process read shows no browser in it. Before every stage, a running
+  VM other than that stage's own stops the session, and `--keep-vm` keeps only the last stage's VM. The end message
+  says what was left running. The boot check's notes reach the run's log and summary. The first Ctrl-C finishes the
+  step in flight and closes down in order; a second one aborts, but only once the VM step in flight returns (each VM
+  step has its own limit, up to 10 min).
+
+**3. Choices made in the fixes that wait for the owner's confirmation.** Each one is the orchestrator's (Claude),
+2026-11-19, not approved:
+- **A challenge on Google's page also stops Gemini.** When a challenge, warning or unusual-activity notice shows on
+  Google's own page during another site's sign-in, that site stops in every remaining cell, re-sign-ins stop for the
+  session, and Gemini is not opened again either. The plan names only "that site"; the review proposed Gemini as the
+  fail-closed reading (the same account, on Google's own site).
+- **Windows Firefox's windowless background-update task is named and waited for.** At boot, a `firefox.exe` whose
+  command line carries `--backgroundtask` (or a child of one) is named as that task, and the boot check waits up to
+  60 s for it to end instead of stopping at once. Any other `firefox.exe`, or one whose command line cannot be read,
+  still stops the stage at once, and so does a task still running after 60 s.
+- **An unclassified Google page sets Google "unknown".** When a site's page went to Google's page without a click and
+  that page showed neither a usable chooser nor a sign-in ask, the cell is "needs sign-in (unknown)" and Google's state
+  in that browser becomes "unknown", so no further click is made there in that session.
+- **A live session refuses to start on a locked Mac screen,** and stops before a stage whose start reads it locked.
+- **The three waits:** 32 s for Linux Chromium after a load's last page or report (from one measurement of each case:
+  a cookie set 6 s before the close was lost, one set 45 s before was kept; the boundary is not measured); 32 s after
+  a granted click, in every browser (from that measurement and Safari's lost fixture cookie, part 4); 30 s for the
+  warm-up stay (from the pre-check run of 11:53Z, part 4). Each is to be measured again per browser.
+- **The proposal not applied:** counting a site that went straight to Google's account chooser as "site only" even
+  when Gemini in that browser said Google was out or gave no answer (the chooser may be a better sign of Google's
+  sign-in that needs no extra load, which the plan asks to be told about). As built, the chooser counts as "site only"
+  only when Gemini said "in"; otherwise the cell takes Gemini's kind.
+- Also the orchestrator's, named as the pipeline's choice in the code: a close is clean only on an exact "closed";
+  what the first and the second Ctrl-C do; and refusing a live session without display values (review findings 36 and
+  64; the plan asks for the comparison with the normal values and says nothing about running without them).
+
+**4. Measurements, 11:53 to 13:23Z.** Real VMs; local pages, the local fixture and example.com; no AI site. One run
+each unless the row says otherwise. The Mac's screen was locked from between 11:58 and 12:02Z on (the opening of this
+section).
+
+| What | Value | Context | Runs | UTC |
+|---|---|---|---|---|
+| The three rewritten boot checks | Passed at every boot: no browser running in either of its two reads, no problem. The notes now reach the run's log (Navi Mac: the reopen-apps list names Finder only; Navi Windows: Firefox's Background Update task is on; Navi Linux: Firefox counts its last session as crashed, 14 in a row, 2 tabs saved, none on an AI site). From the desktop to the result: Navi Mac 37 to 41 s, Navi Windows 25 to 26 s, Navi Linux 15 to 16 s, with the 15 s between the two reads. The Windows script's first real run: it had never been parsed (no PowerShell on the Mac). No background-task wait happened, so that path did not run | Navi Mac (macOS 26.6.2), Navi Windows (Windows 11 ARM64), Navi Linux (Ubuntu 26.04) | Navi Mac 5 boots, Navi Windows 2, Navi Linux 3; one check each | Navi Mac 11:54, 12:16, 12:21, 13:15, 13:19Z; Navi Windows 11:58, 12:30Z; Navi Linux 12:02, 12:18, 12:38Z |
+| Safari's preparation under the strict quit reading | The checker file copied, Userscripts' index listing it at the first focus round, and Safari's quit after it answered exactly "closed": the strict reading stopped nothing. Every other close in these runs (pre-checks, probes, cells, all eight browsers) answered exactly "closed" too | Navi Mac, Safari 26.6.2, Userscripts 4.8.6 | 4 | 11:54, 12:22, 13:15, 13:20Z |
+| Delivery measurement 3, with the strict content policy on the local pre-check page | The fixes changed the served logic to `4e2252a616c1c773`. Taken by the manager (`require`) after one warm-up load: Navi Mac Firefox and Linux Firefox (Tampermonkey 5.5.0), Windows Chrome and Edge (5.5.1). Safari by `file`, no warm-up. Windows Firefox (5.5.0): its old copy (`03437c37ad84caaf`) injected on all four loads; passed by its own fetch (`fetched`). Navi Mac Chrome and Linux Chromium (5.5.1): an older copy injected on all four loads and the checker ran nothing, so both pre-checks failed as stale; their loads were about 12 s and 8 s apart, Windows Chrome's and Edge's rounds about 33 s. 6 of 8 pre-checks passed | Local pre-check page and example.com, all eight browsers; run `precheck-2026-11-19T1153`, 631 s; Navi Mac's and Navi Windows' windows were placed (11:53, 11:58Z), Navi Linux's was not (12:02Z, the screen locked) | 1 per browser | 11:53:20 to 12:03:51Z |
+| The same two browsers with the 30 s stay | Navi Mac Chrome and Linux Chromium (Tampermonkey 5.5.1) took the changed logic by `require` after one warm-up load; both pre-checks passed (61/61 and 61/60 fps). This fits the hypothesis that the manager refreshes an external in the background and needs the browser open for a while; it does not prove it | Run `precheck-2026-11-19T1215`, those two browsers only, 245 s; the screen locked: no window placed, Navi Linux's screen 3224×1764 and Chromium's viewport 3157×1645 | 1 each | 12:15:38 to 12:19:43Z |
+| The local fixture over three VMs | 8 of 8 pre-checks (seven with no warm-up; Windows Firefox again by `fetched` after three, its old copy injected on all four loads). 40 fixture cells, 39 as expected: 15 accepted (8 Gemini signed in, 7 Claude re-signed in), 24 need sign-in, 1 without a usable report (Safari's Claude cell, next row), 0 stopped, 0 not visited. The proof's three cases: (a) Claude signed back in by the two clicks in 7 of 8 browsers, each reported with the age of the sign-in it replaced (0.8 days, against the ledger's seed); Linux Chromium's re-sign-in now stuck (the cell closed 32 s after its last report, 82 s in all), where at 06:57Z its reopened chat was signed out; (b) after the site's button, Google's stand-in page asked for a password: no further click, reported as the owner's step, in all eight browsers (the two-browser pause no longer carries across browsers in fixture mode); (c) Gemini on Google's stand-in sign-in page reported as the owner's step, and the signed-out Grok not clicked, in all eight. 1,475 s; afterwards no VM process and the receiver stopped | Run `fixture-2026-11-19T1220`, all eight browsers, the fixture's pages only; the screen locked from the start: no VM window placed, Navi Mac's screen 1614×1009, Navi Linux's 3224×1764 | 1 | 12:20:52 to 12:45:27Z |
+| Safari's Claude cell in that run | The runner wrote "not checked: re-signed in (…), but the reload of the test chat gave no usable report (no checks report: report)". The stored reports, read afterwards by an Opus agent: the first three pages as in Chrome (the site signed out and its click granted; Google's chooser and the account's click granted; the site signed in); the reload's one page was the signed-out page (state "out", one Google button, no checks run). The reload really was signed out, and the runner misread it (part 5). 12.5 s from the cookie being set (12:23:07.3 to 07.5Z) to the reload opening (12:23:19.98Z); the quit's own time is not logged (it came after the page after the clicks reported, 12:23:10.65Z). Not the cookie's age (it lives 90 s), not a clock jump in the VM (59, 62, 52 and 52 ms between the receiver's and the page's times), not a cached page (the fixture sends `no-store`). In the earlier fixture run, `fixture-2026-11-19T0657`, Safari kept the cookie, with 11.4 s from the page after the clicks to the reload. Why Safari lost it is not established; the likeliest cause, a hypothesis, is that the cookie was not yet on disk when Safari quit | Navi Mac, Safari 26.6.2, Userscripts 4.8.6; this time freshly booted (12:21:15Z) with the Mac's screen locked; the earlier time Navi Mac was already running and the lock state is not known | 1 (and the earlier run) | 12:23Z (06:57Z) |
+| Safari again, with the wait after a granted click | Both runs: Claude re-signed in (the sign-in it replaced 0.8 days old) and the reload showed the chat signed in. The load with the clicks closed 32 s after its last report (the cell 53 s, then 54 s); ChatGPT's load, also with a granted click, waited too (43 s, 42 s). Each run 2 of 5 accepted, 3 need sign-in, none without a usable report, as expected | Runs `fixture-2026-11-19T1314` (263 s) and `fixture-2026-11-19T1318` (272 s), Safari only, the fixture's pages; Navi Mac booted for each (13:14:43, 13:19:02Z); the screen locked (the runner's own read at the start and at the stage's start; a rehearsal only notes it), no window placed, Navi Mac's screen 1614×1009 | 2 | 13:14:19 to 13:18:42Z; 13:18:42 to 13:23:14Z |
+| Display readings | Before the lock (11:55 to 12:01Z): Navi Mac on 1118×819 with its window centred on screen 2: Safari 1118×676 and Firefox 1078×615, ratio 1 (Chrome stale, not measured); Navi Windows on 1107×857 with its window centred on screen 0 (78% of it showing): Chrome 1040×653, Edge 932×656, Firefox 878×618, ratio 1, as in the night's readings. While locked: Navi Linux on 3224×1764 (Chromium 3157×1645, Firefox 1280×708) at 12:03, 12:19 and 12:39 to 12:43Z; Navi Mac on 1118×819 at 12:17Z (Chrome 1118×641) but on 1614×1009 at 12:22 to 12:27Z and from 13:15Z (Safari 1324×844, Chrome 1118×641, Firefox 1280×721, ratio 1); Navi Windows unchanged at 12:30 to 12:35Z. Why Navi Mac's screen changed size is not established | The pre-check and fixture reports of the runs above | the runs above | 11:55 to 13:20Z |
+| The Mac's memory | Pressure "warning" or "normal", never "critical"; free at least 29%, swap 18.5 to 19.6 GB | The Mac, sampled during every load | the runs above | 11:53 to 13:23Z |
+
+**5. Mistakes of this stretch, and their lessons.**
+- **A scripted edit cut text from a design file.** An edit made by the orchestrator's script to the design draft for
+  Phases 2 to 6 (private lab repo; at the time an uncommitted rewrite), meant to settle one sentence on id stand-ins,
+  replaced its paragraph to the end and removed the sentences on constants, id collisions and secrets. The cut went
+  into the draft's v2 commit (08:42Z); the text was recovered from the writing agent's own record, checked against the
+  later edits and restored at 08:43Z. Lesson: a scripted edit replaces exactly the text it names, and its diff is read
+  before the file is kept.
+- **Times written without reading a clock.** Some times in this stretch's notes were written without reading a clock
+  or a log, and were corrected against the logs. Lesson: a time in any record comes from a log line or from a clock
+  read at that moment.
+- **One fix took away what another relied on, and only the VMs showed it.** The strict content policy on the local
+  pre-check page (fix-list item 4) was meant to make a checker that runs only by fetching fail locally in a
+  Chromium-family browser, as it might on a site. It did; but a stale load then ran nothing and was closed within
+  seconds, and in Navi Mac Chrome and Linux Chromium the manager did not refresh its copy within four loads (11:55 to
+  12:03Z). Before the policy, Linux Chromium had the new copy injected one load late in both earlier measurements (in
+  the first, its first load ran the fetched logic meanwhile). The harness could not show it: its test driver
+  bypasses the page's policy (the verifier's repair, so that its stand-in injection runs) and has no userscript
+  manager. Change: the 30 s warm-up stay (`8cab78c`), measured at 12:16 to 12:20Z. Lesson: a fix round is done only
+  after the VMs have run it.
+- **"no checks report: report".** The runner's reason for Safari's Claude cell said how its wait ended ("report")
+  instead of what the page showed, and so it hid a real sign-out: a signed-out page runs no checks, so the branch
+  written for a signed-out reload could never be reached. Change (`a0b918d`): the reload's sign-in state is read from
+  every page of the reload, and a signed-out reload counts as a sign-out (the two-browser pause, the ledger, the
+  needs-sign-in list); every "no report" reason names the pages that claimed and reported and what each showed (roles
+  and states, never an address). Lesson: a reason names what was seen, not how a wait ended.
+
+**6. What Phase 1's proof needs now.**
+- **The owner's steps.** Record the display normal values (a `--precheck-only` run with the Mac's screen unlocked and
+  the VM windows where the session will have them, then `node pipeline/display-record.js <runId> --owner-ok`), or start
+  the session with `--display-unchecked-ok`. Find which setting locks the Mac's screen after about three hours without
+  input (by the orchestrator's read at about 12:20Z, no display sleep is set and sleep is prevented). Look at Navi
+  Windows Firefox's Tampermonkey Externals setting (it injected the same old copy in three runs: 07:33, 12:00 and
+  12:34Z). A yes or no on the choices of part 3, and on the three told at 05:18Z (changes in the jump check listed as
+  "uncalibrated"; a cell with no report pausing its site; the re-sign-in off for every real site until the owner
+  switches it on). The other open steps of the previous section's part 6 stay open (the re-sign-in per site, the
+  nudge, Codex review on the private lab repo, the capture rule, Firefox's background update and crash-restore).
+- **The 40-cell session,** which only the owner can start, with the owner at the computer, and its second start right
+  after (as written a second 40-load session, 16 loads per site that day; the previous section's part 6 has the
+  alternative).
+- **Still not measured** (none of this may be read as known): anything on a real site with the new checker; the
+  checker's own fetch under a real site's content policy (Windows Firefox runs only by it today); a re-sign-in on a
+  real sign-in page; ChatGPT's and Grok's sign-in hosts; Ctrl-C in a real terminal; the three stand-in cases for
+  Windows Firefox's background task (none has been run); whether Safari and Linux Chromium keep a sign-in with the new
+  waits beyond these runs (Linux Chromium in one fixture run, Safari in two Safari-only runs); the boundary of Linux
+  Chromium's 32 s; the lock read with the Mac's screen unlocked.
