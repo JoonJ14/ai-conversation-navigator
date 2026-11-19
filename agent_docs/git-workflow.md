@@ -4,9 +4,15 @@
 
 - `main` is protected — **never push directly to main**
 - All changes must go through pull requests
-- CI must pass before merging. `main`'s ruleset requires all nine checks and has **no bypass actors**, so
-  `gh pr merge --admin` fails ("Repository rule violations found"). A job that a runner problem cancelled (the
-  ubuntu install stall, TROUBLESHOOTING) is re-run with `gh run rerun <id> --failed`; it cannot be skipped
+- CI must pass before merging. `main`'s ruleset, `main-protection`, requires **one check, `ci-ok`** (since
+  2026-11-12; DEC-064), and has **no bypass actors**, so `gh pr merge --admin` fails ("Repository rule violations
+  found"). `ci-ok` needs every suite and probe job. A job a runner problem cancelled (GitHub never assigning a Mac
+  runner: 0 steps, "not acquired by Runner"; TROUBLESHOOTING) is re-run with `gh run rerun <id> --failed` once the
+  whole run has finished, after reading why; it cannot be skipped. **The owner changes the ruleset; the agent gives
+  the steps.**
+- **Each fix gets its own check where one is possible** (the owner, 2026-11-11): a gate that fails without the fix,
+  or a stubbed test of the gate script. **Verify each review finding before fixing it** ("not every comment is a
+  defect"). **No retries anywhere:** no test or probe is retried to make CI green.
 
 ## Feature Branches
 

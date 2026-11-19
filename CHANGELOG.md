@@ -4,6 +4,197 @@ All notable changes to this project will be documented in this file. Each entry 
 
 ---
 
+## [The Live Test System, Phase A: the Owner's Spec, Stage 0, the Redesign, and Experiment 1 — 40 of 40 Live Page Loads Accepted (no userscript change)] — 2026-11-12 to 2026-11-19
+
+**Branch:** `ci/live-verification-layer` (public docs only: `6911977` … `c1b1062`, plus this docs pass; merged into `main`
+through PR #96, docs only, on the owner's request of 2026-11-19) |
+**Private repo:** `ai-conversation-navigator-private-lab`, branch `phase-a/stage-0` (`ffa7bad` … `2eb2d8a`; all
+tooling) | **The userscript is unchanged** (v12.19, `b0fee35`). Design, every decision and every measurement: DEC-065
+(its "Where this stands" block first). Problems and their debugging: TROUBLESHOOTING's "live test system" entries.
+
+### Problem
+- The CI runs the userscript against hand-made mock pages in Playwright. It proves nothing about the live sites in
+  real browsers under the real managers (the owner: it "approves builds that fail in real browsers"), and the mocks
+  drift silently: a green suite said nothing about Layers 1, 3 or 4 on the live pages.
+- The 2026-11-12 handoff expected a "built-in self-test" inside the script; the owner rejected it (test-only changes
+  must never push updates to users; an admin mode inside a public script "isn't really admin").
+
+### Approach, in four steps (the owner's decisions credited in DEC-065)
+1. **The owner's spec (2026-11-16, `docs/specs/live-test-system-spec.md`):** three pieces (the public navigator; a
+   checker of outcomes; an admin build generated from the public source), a private lab repo, the whole matrix (5 sites
+   × macOS Safari/Chrome/Firefox, Windows Chrome/Edge/Firefox, Linux Chromium/Firefox = 40 runs), Phase A on the Mac
+   alone with UTM VMs for Windows and Linux, a 04:00 schedule, canaries and a live-send check.
+2. **Stage 0 and Phase 1 (2026-11-16/17):** the VMs made unattended (automatic sign-in proven from a cold start,
+   in-guest shutdown, key-only SSH, clipboard sharing off, Central time); the macOS test user Navi Test with a job
+   runner and a security boundary; Safari/Chrome/Firefox automation paths measured; the read-only check inventory
+   (159 checks) and canary list (116 questions). **claude.ai showed Cloudflare's challenge on every measured
+   automated Chrome path and on Firefox under WebDriver** (Firefox's attached path was never measured: its one try
+   failed to connect), and a terms review found all five sites restrict automated access (DEC-065's table).
+3. **The owner's redesign (2026-11-17, `docs/specs/live-test-system-redesign.md`): attended live checks, no robots.**
+   The owner starts every session and is present; the runner opens each test chat in a normal browser the way a
+   bookmark would; a checker userscript, installed once per browser, checks outcomes on the page and reports to a
+   receiver on the Mac; no WebDriver, no remote debugging, nothing hidden from the sites; read-only (the owner makes the
+   test chats by hand); stop rules per site. Next step: one experiment.
+4. **Experiment 1 (2026-11-17 to 11-19):** one page load per site per browser, in three stages on the owner's "go":
+   A (the Mac), B (the Windows VM), C (the Linux VM). Stage A moved from Navi Test to a new macOS VM, **Navi Mac**,
+   after Safari proved unable to render in a background fast-user-switching session.
+
+### What was built (private repo unless noted)
+- **`exp1/receiver.js`** (Node 24.22.2 at `/Users/Shared/navi-lab/node`): HTTP on port 8790 at `127.0.0.1` and
+  `192.168.64.1` (UTM's host address; it re-tries `EADDRNOTAVAIL` every 10 s until the VM network exists). Endpoints:
+  `GET /exp1/config?host=&path=` (the checker asks whether it is armed; **one-shot claim**: exactly one config request
+  per arm gets `armed`, so a reload, a second tab or a second installed copy stays silent), `POST /exp1/report` (fixed
+  format, validated, stored as data under `local/exp1/results/<runId>/`, never executed), `/exp1/arm|disarm|status`
+  (the runner's control, guarded by `local/exp1/control.key`), `GET /exp1/precheck` (the local pre-check page),
+  `GET /exp1/render` + `POST /exp1/render-result` (the render test page: frames per second, visibility before/after,
+  and since `9a76dd5` viewport, pixel ratio and screen size). It accepts only the five sites' chat paths (Perplexity
+  `/search/` and `/session/`) and `example.com/`, and logs any checker request it did not ask for (the time, the
+  requesting address, and the host when it is a known site; `00e09be`). Started with `nohup`; stop with `pkill -f exp1/receiver.js`.
+- **`exp1/navi-checker.user.js` 0.3.2** (`@grant GM_xmlhttpRequest` / `GM.xmlHttpRequest`, `@connect 127.0.0.1` and
+  `192.168.64.1`, `@run-at document-idle`, `@noframes`; `@match` the five sites, the pre-check page with and without
+  the port, and `https://example.com/*`). Checks: **load** (`[data-acn-version]`, platform; cap 60 s), **navigate**
+  (opens Navigate only through `[data-acn-dot="nav"]`, reads `data-acn-count` and the items against the expected
+  count and first/last question; cap 50 s, 1 s of stability), **jump** (one click on the first item; observers on
+  `data-acn-jump-resolved`, the landing flash and Navi's toasts; pass = the landed element holds the first marker with
+  its top edge in view; cap 20 s; a hidden tab gives `skip`), **bookmark** (snapshot of Navi's bookmark cards, one flag
+  click on Q1 only when its key is not `nokey:` and the flag is unlit, read back, delete exactly that card, compare the
+  snapshot; never "clear all"). Signals as booleans: signed in (a visible "Log in"/"Sign in" control), challenge
+  (title, captcha iframes, Cloudflare elements), warning banners. The page **structure** is captured with every text
+  node replaced by filler and ids and attribute values removed (2 MB cap). Whole-run deadline 300 s. Clicks only on
+  Navi's own UI; no typing, navigation or reload; its only network traffic is to the receiver. Versions: **0.2.0**
+  (`8b99ceb`: the adversarial review's 2 blockers fixed — a bookmark could be left behind if a run failed, and
+  message ids could leak into the structure capture — and its 6 should-fix items; then 17 mock runs per engine in
+  Chromium, Firefox and WebKit, all passing; an earlier 36-run, 12-case table predates those fixes), **0.3.0** (`83b007b`: the pre-check mode, the manager's name and version and every receiver address
+  tried in each report), **0.3.1** (`e5d4e70`: port-free pre-check `@match` lines, because Userscripts ignores a
+  port), **0.3.2** (`f2928b0`: the example.com probe, the owner's addition).
+- **`exp1/run-stage.js`:** stages `A` (Navi Test; frozen), `A-navimac`, `B` (Navi Windows: chrome, edge, firefox) and
+  `C` (Navi Linux: chromium, firefox); options `--dry-run`, `--precheck-only`, `--keep-vm`, `--cells a,b`,
+  `--browsers a,b`, `--mechanics`, `--precheck-host`. A stage: start the VM (unless running) and wait for the
+  signed-in desktop → per browser, **the required pre-check** (the local page, then `https://example.com/`; each must
+  report through the real manager within 90 s, visible, >= 20 fps, or none of that browser's sites is visited) → per
+  site: quit the browser, arm the receiver, open the chat normally, wait up to **420 s** for the report, close the
+  browser **normally**, sample the Mac's memory and swap and the VM process's footprint, apply the stop rules → the
+  results table, one Discord message (webhook from the Keychain), VM shutdown from inside and its window closed.
+  Closing per OS: Navi Mac the quit Apple Event; Windows `stage-open.ps1`/`stage-close.ps1` through the
+  `NaviOpen`/`NaviClose` tasks in navi's session (`taskkill` without `/f`); Linux `stage-open.sh`/`stage-close.sh`
+  (SIGTERM to the main process, 20 s, else `NOT-QUIT`, which stops that browser's cells). Chrome in Navi Test got
+  `--disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling`.
+- **VM and machine tooling:** `machine/mac/vm-lib.sh` (`vm_start_and_wait`: SSH plus a guest boot time later than the
+  start; `vm_wait_desktop`; `vm_shutdown_and_close`; loud failures, no retries, never polling `utmctl`),
+  `navijob.sh`/`jobrunner.sh` (jobs into Navi Test's session; outputs read as data), `navi-session-check.sh` ("Mac:
+  Navi Test not signed in, Mac cells skipped"), `exp1/windows-vm/*` (policies installing Tampermonkey, the open/close
+  tasks, `no-autostart.ps1`), `exp1/linux-vm/*` (`root-policies.sh`, open/close, `verify.sh`: installs, Allow User
+  Scripts, sign-in cookie counts and store prefixes, idle settings), `exp1/mac-vm/*` (browser installs, the
+  password-free shutdown rule), `stage0/**` (Stage 0's probes, kept as history; `stage0/mac/27-safari-hidden-repro.sh`
+  reproduces Safari's hidden result in Navi Test).
+- **Per-VM settings** (DEC-065, "Standing harness rules"): idle lock/blank/sleep off everywhere; Firefox
+  `toolkit.startup.max_resumed_crashes` -1 in all three VMs; Windows Firefox autostart removed; Navi Mac's reopen list
+  removed; Chromium `--password-store=basic` in Linux, also in its menu entry.
+- **Public docs:** the two specs, DEC-065, ROADMAP items 5 and 15-20, TROUBLESHOOTING entries, DOM-REFERENCE's live
+  structure subsections.
+
+### Results
+- **[live, Experiment 1, 2026-11-18/19; free test accounts; Navi v12.19; checker 0.3.2; the VMs' browsers]** 40 of 40
+  page loads accepted, all signed in, **no stop rule anywhere** (no challenge, warning or notice; Claude unchallenged in
+  all 8 browsers, 12 Claude loads); every pre-check and example.com probe before a counted cell passed (in run
+  `exp1-C-2026-11-19T0147` Linux Firefox's probe was blocked by Firefox's Troubleshoot prompt, so its five cells were
+  not visited there; they ran in `exp1-C-2026-11-19T0205` after the fix). Load 40/40,
+  Navigate 40/40; jump: Gemini 8/8, Perplexity 8/8, Claude 7/8 (Safari skipped: window covered), Grok 5/8 (Google Chrome on
+  macOS and Windows and Edge landed 144 px above the view), ChatGPT 2/8 (Navi refused in 5, 9 px above in 1); bookmark: Perplexity 0/8 (no key
+  on `/session/`), the rest 8/8. **22 cells with every check passing.** The jump findings are the owner's
+  "uncalibrated, not confirmed"; Perplexity's is a probable bug, reserved (ROADMAP items 16-17).
+- **Durations** (the runner's start to the VM's shutdown, pre-checks included; the VM was already running at
+  each counted run's start, so no boot time is in them): Navi Mac 9 min 54 s, Windows 11 min 29 s, Linux 3 min
+  58 s + 2 min 18 s; **27 min 39 s** in total; cells 14-48 s each. Not counted: Stage A in Navi Test (stopped by the
+  owner after 6 cells) and Stage C's first run (stopped after a display change).
+- **Structure drift:** the 40 captures agree with each other across OSes and browsers (only Windows Chrome and Edge
+  get Gemini's narrow layout); Navi's main selectors match live on all five sites; the `npm test` mocks are stale on
+  all five (ROADMAP item 18).
+- **Harness faults found and fixed along the way** (TROUBLESHOOTING): the runner's 180 s cap; launchers that sent the
+  owner's installs to the wrong profiles; Userscripts' port blindness and index reload; a killed Safari reloading its
+  tab; the Navi Mac VM's idle lock; the memory sampler matching the agent's shell; Firefox's Troubleshoot prompt;
+  browsers starting at sign-in; Discord wording.
+- **Memory:** the 16 GB Mac compresses an idle 6 GB VM out of RAM (1 GB touch 1.82 s cold vs 0.07 s warm), which the
+  owner felt as lag by hand; the stages were not slowed (cold pre-check 12-17 s, 58-61 fps).
+
+### Follow-ups
+- The owner's plan for the rest of the pipeline (Windows, Linux, the full session, the fix loop, the CI against
+  copies), then the calibration, then a first full run (ROADMAP item 5).
+- Proposed, not built: a boot-time "no browser running" check; the VM's viewport in the pre-check; the checker's
+  update URL on the receiver and a version gate in the pre-check; a Windows Update policy in Navi Windows (none
+  is set, so an update restart during a session is possible).
+- Open with the owner: Codex review on the private repo; the Tampermonkey update settings in the seven VM
+  Tampermonkeys (advised: every 6 hours, Externals "always"); a re-check of Navi Mac's reopen list after its next stage.
+- HANDOFF.md is still the 2026-11-12 handoff; a new one is owed (DEC-065, "Where this stands").
+
+## [The CI Rebuild — 20 Parallel Jobs Behind One Required Check, `ci-ok`; J15 and U10 Fixed (no userscript release)] — 2026-11-11
+
+**Branch:** `ci/rebuild-parallel-probes` | **PR:** #95 | **Merged** 2026-11-12 17:12:20Z as `d3f3d16` (head `116d10b`)
+on the owner's explicit OK, after the owner added `ci-ok` to the ruleset. **The userscript is unchanged** (no version,
+no acceptance steps, no DEC-031 waiver). Design and every decision: DEC-064. Review: `reviews/review-2026-11-11-ci-rebuild.md`.
+
+### Problem [CI, run 42437401493 on `b0fee35`]
+- Every ubuntu job ran the suite, then 17 probe steps one after another: 46m10s–46m50s each, the whole run 46m53s,
+  under a 60-minute stopgap cap. macOS and Windows ran the suite alone, in 6–9 minutes.
+- `check-gemini-index` alone took ~13 minutes per engine, longer than the ~10-minute target the owner set.
+- Playwright was installed unpinned at run time (one release raced its own core package on 2026-11-05), and the
+  ubuntu apt mirror stalled for 10–25 minutes several times.
+- Two probe checks were flaky: `check-ix-jumps` J15 and `check-usage-state` U10.
+
+### Approach (the owner's decisions of 2026-11-11; the build's details are the agent's, DEC-064)
+- **20 jobs:**
+  - `changes`, the docs-only fast path;
+  - the 9 suite jobs, names unchanged;
+  - 9 probe jobs `probes <group> (<engine>)`, each running two lanes side by side (layout B, for GitHub Free's 20
+    concurrent jobs);
+  - `ci-ok`, the one required check.
+- **`ci-ok`** fails unless every job succeeded, or was skipped as docs-only. It checks both the matrices' aggregate
+  results and each of the 19 jobs by name through the jobs API (`filter=all`, newest attempt each), because a matrix
+  leg cancelled before it got a runner has been reported to leave the aggregate at "success".
+- **Playwright 1.65.0 pinned** (`package.json`, the lockfile, `npm ci` everywhere). Every ubuntu job runs in
+  `mcr.microsoft.com/playwright:v1.65.0-noble`, which replaces the bounded apt install. This Mac moved to the same
+  builds.
+- **Caps** 30 (suite) and 20 (probes); a concurrency group cancels a PR's superseded run; checkout and setup-node v7;
+  `permissions: contents: read` (`ci-ok`: `actions: read`).
+- **The docs-only fast path:** only a `pull_request` whose base...head files are all `*.md` or under `docs/` skips the
+  suite and the probes. Renames count as a delete plus an add, and the detector runs from the base branch.
+- **`check-gemini-index --part 1|2`:** halves split by CI time (375.5 s / 388.4 s), with a PARTS table guard.
+- **J15:** the mock's pin has no clock in it (`jumpModel.pinEvery`); a scroll in the wheel's own millisecond had gone
+  unpinned.
+- **U10:** the scenario now waits for the other conversation's index to land before routing back. It had routed back
+  first, so request #2 was never sent. The agent judged this the probe's precondition race, not the userscript's.
+
+### Results
+- **[CI] Speed:** dispatch runs 42946394211 and 42948220969 took 9.23 and 9.98 minutes, against 46m53s before. Every
+  probe × engine's PASS count was unchanged (`check-gemini-index` 83 = 81 + R1 + E in both halves), and the suite
+  560/560 in all 9 jobs. The PR's run 43069811015 took 11.77 minutes, 5m03s of it a Mac runner wait.
+- **[CI] The gate:** a cancelled run and a forced failure each turned `ci-ok` red.
+- **[mock] J15:** chromium failed 3/30 before, 0/90 after.
+- **[mock] U10:** firefox failed 2/30 before, 0/90 after.
+- **Each fix stays a gate:** J15 fails on v12.14 and `71eda09`; U10 fails on `5eee8ac` and on a mutant.
+- **Review:**
+  - Tier 3 (Codex), 4 of 5 rounds: 3 CRITICAL and 3 WARN raised, 4 fixed, 1 out of reach (a PR can edit its own
+    workflow), 1 by design (`always()`). Tiers 1–2 (in session) found and fixed 2 more.
+  - GitHub Codex: 0 findings on opening and on the confirming review.
+
+### After the merge [CI, `main`'s first run 43266934908 on `d3f3d16`]
+- **Attempt 1:** GitHub never assigned a runner to `firefox` and `webkit on macos-latest` (15 minutes queued, 0 steps,
+  "not acquired by Runner"). `ci-ok` failed on both of its checks; the aggregate read `abandoned`, an undocumented
+  value.
+- **Attempt 2** (`gh run rerun --failed`): 20/20, `ci-ok` green.
+- The owner then removed the nine old checks, so `ci-ok` is `main-protection`'s only required check (the ruleset
+  renamed from `mian-protection` by the owner the same day).
+- In the last 60 runs, 2 lost a macOS job this way. An automatic re-run for runner-capacity failures only is logged in
+  ROADMAP, not built.
+
+### Not changed, logged
+- **No mock refresh** (the owner: the live verification layer, the next spec, will catch site drift).
+  `docs/mock-refresh-scope.md` ranks the 18 mocks.
+- **`claude.html`'s suite entry** models Claude's pre-July markup and passes only through fallback selectors; to be
+  retired or replaced in a later PR.
+
+---
+
 ## [12.19 — Gemini Lists the Whole Chat on Open; Jumps Page Its Older History In; "Load Full History" Where That Cannot Run] — 2026-11-07
 
 **Branch:** `feat/v12.19-gemini-full-history` | **Userscript head:** `597ebfe`: `b13e36e` (the version bump), then

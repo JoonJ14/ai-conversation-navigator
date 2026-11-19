@@ -43,8 +43,8 @@ follow — virtualization is the standard fix for a slow chat page, not a Claude
 | **Emergent** (`app.emergent.sh`) | **YES — Virtuoso recycling**, `[data-testid="virtuoso-scroller"]` | Feb 15, 2026 | **Accumulation only** — scans keep messages the user has already scrolled past, plus click-time re-resolution of stale references. **Nothing sweeps.** See the ⚠️ below. |
 | **Gemini** | **NO recycling — it KEEPS**, but **loads history in pages of 10** as the view reaches the top | Oct 31, 2026; history read Nov 5, 2026 | **API-backed index adapter** since v12.19 (Gemini's own history read, `hNvQHb`; DEC-063; "The history read" in the Gemini section). DOM, with the "history not loaded yet" note and a "Load full history" button, is the labelled fallback (v12.16, DEC-057; the button v12.19). Measured live (Chrome + Tampermonkey, the owner's profile, visible tab, a 32-question chat, the longest of the 29 in the sidebar): 10 turns at load (rendered at once, 0 → 10), then 20, 30, 32 as the view reached the top; back at the bottom all 32 stayed mounted and every held node stayed `isConnected`; zero `cdk-virtual-scroll-viewport`. Gemini re-anchors `scrollTop` on a load (5,975 → 9,064 when 10 turns were prepended) and blocks the page for about 4.6 s while it renders them. Nothing in the DOM marks that older history exists. Jul 30, 2026 (Chromium page realm, a 10-turn chat): no recycling at n≤10; that measurement could not see paging, since the chat was a single page. |
 | **ChatGPT** (`chatgpt.com/c/<id>`) | **YES — a sliding window**, 4–7 user turns mounted, the rest removed | Oct 23, 2026 | **API-backed index adapter** (v12.10, DEC-046). DOM is the labelled fallback. Measured live (Chrome, page realm, owner's account, visible tab; 10- and 130-question conversations). |
-| **Perplexity** (`perplexity.ai/search/<id>`) | **YES — the entries in view plus the latest**, the rest removed | Oct 23, 2026 | **API-backed index adapter** (v12.10, DEC-046). DOM is the labelled fallback. Measured live (Chrome, page realm, owner's account; 12-entry thread). |
-| Grok | not observed | Feb 18, 2026 | DOM |
+| **Perplexity** (`perplexity.ai/search/<id>`) | **YES — the entries in view plus the latest**, the rest removed | Oct 23, 2026 | **API-backed index adapter** (v12.10, DEC-046). DOM is the labelled fallback. Measured live (Chrome, page realm, owner's account; 12-entry thread). **A chat at `/session/<id>`** (a free test account's, Nov 18–19, 2026, 8 browsers; see the Perplexity section) gets no adapter, since it accepts `/search/` only: DOM only there, with no bookmark key. |
+| Grok | not observed (Feb 18, 2026); **possible signs Nov 18–19, 2026**: message rows placed by absolute position between invisible marker rows, read from 3-question structure captures, so not confirmed either way (see the Grok section) | Feb 18, 2026; structure only Nov 19, 2026 | DOM |
 | Claude Code Web · Codex Web | not observed | Feb 18, 2026 | DOM |
 | Bolt · Lovable · Replit · V0 · Base44 · Firebase Studio | not observed | Feb 18, 2026 | DOM |
 
@@ -204,6 +204,77 @@ detach-and-remount usually produces a silent **no-op** on a disconnected node. T
 **Fallback:** `[data-testid="user-human-turn"]`, `.\!font-user-message`, `[data-testid="user_message"]`, `div.bg-bg-300` filtered by `.items-end`
 
 > ⚠️ **Claude virtualizes its message list with recycling.** Only ~3–5 user turns are mounted at any moment; the rest are unmounted. Selector counts here describe the *mounted window*, not the conversation. Message enumeration comes from the API-backed conversation index (DEC-021), not from these selectors. They remain the degraded fallback.
+
+### November 2026: Experiment 1's structure captures (measured live: 8 browser × OS pairs, free test accounts, Navi 12.19 installed, checker 0.3.2, one 3-question chat at `/chat/<uuid>`, text replaced by filler, 2026-11-18/19)
+
+**Context, shared by the November 2026 records of all five sites below.** Experiment 1 of the live test system
+(DEC-065) loaded each site's test chat once in eight browsers, on the owner's MacBook Air through UTM:
+- **Navi Mac VM** (macOS 26.6.2), 2026-11-18 20:51–20:59 UTC: Safari 26.6.2 + Userscripts 4.8.6, Chrome 158 +
+  Tampermonkey 5.5.1, Firefox 160.0.1 + Tampermonkey 5.5.0;
+- **Navi Windows VM** (Windows 11 ARM64), 22:37–22:47 UTC: Chrome 157 and Edge 157 + Tampermonkey 5.5.1, Firefox 160 +
+  Tampermonkey 5.5.0;
+- **Navi Linux VM** (Ubuntu 26.04 ARM), 2026-11-19 01:48–02:07 UTC: Chromium 157 + Tampermonkey 5.5.1, Firefox 160 +
+  Tampermonkey 5.5.0.
+
+Free test accounts; one test chat per site, three one-line questions and their answers, so **every turn was mounted**;
+visible windows (one Safari cell's window was covered, its jump skipped); one page load per cell. At the end of each
+cell, **after** its Navigate, jump and bookmark checks, the checker saved the page body with every text node replaced
+by `x` (length capped at 40), every `id` and `data-acn-*` attribute dropped, and attribute values kept only for
+`class`, `role`, `data-testid`, `type` and `dir`. So counts, tags, classes and attribute **names** are real; a value a
+selector matches (`="true"`, `="right"`, a uuid) is tested only for presence, or through a check that passed; there is
+no text, no geometry and no computed style; and the page is in its after-check state. Counts come from parsing each
+capture into an element tree. Three earlier captures (a Safari session in a second macOS user on the host, checker
+0.2.0, hidden tab, 2026-11-18 04:38–04:43 UTC) and seven from a stopped Linux run (2026-11-19 01:34–01:37 UTC, the
+display changed mid-run) are cited only where named. Navi's results in the 40 cells are in DEC-065; the jump checks
+are uncalibrated (the owner's classification, 2026-11-18). The line-by-line comparison with the CI's mock pages is
+the private lab's analysis; this record keeps what the public selectors need.
+
+**Claude, all 8 captures (and the 3 extra):** 3 questions, 3 answers, 6 rows, every count identical.
+
+| Selector | Navi's use | Nov 2026 (8 of 8) | July 2026 record | October 2026 record |
+|---|---|---|---|---|
+| `[data-testid="user-message"]` | `getUserMessages` first; row model | **3** | 3, the only live link | — |
+| `[data-testid="user-human-turn"]`, `.\!font-user-message` / `.font-user-message`, `[data-testid="user_message"]`, `div.bg-bg-300…` in `.items-end` | question fallbacks 2–5 | 0 each (the bubble is `bg-[var(--cds-bg-user-message)]`; `.items-end` is still there, 3) | 0, 0 (`!font-user-message` on the node), 0, the bubble `bg-bg-300` | — |
+| `.font-claude-response` | `getAIMessages` first | **0** | 5, the only live link | only on a project chat's project link |
+| `[data-testid="assistant-message"]` | answer fallback 4; `ciAnswerNodeInRow` first | **3** | 0 | the answer node |
+| `.\!font-claude-response`, `[data-testid="ai-turn"]`, `.font-claude-message`, `[data-testid$="-turn"]` | answer fallbacks | 0 each | 0 each | — |
+| `[role="feed"]` / `[data-index]` / `[aria-setsize]` / `[data-turn-key]` / `data-perf-row` | the row model, row identity | 1 / 6 / 6 / exactly 1 per row / 6 | the first three as in the virtualizer table below | as recorded (row testid, turn key five levels down) |
+| `[data-autoscroll-container]` | the scroller | 1 (value blanked) | `="true"` | — |
+| `data-test-render-count` | — | **0** | on the render wrapper, level 7 | — |
+| `div.ProseMirror[contenteditable]` | `/commands` input | 1 (`div.tiptap.ProseMirror`, `data-testid="chat-input"` on it, inside a `fieldset`; no `textarea` anywhere) | — | — |
+
+- **Each chain runs on one link**, as in July, with the answer side on the other link: questions on their first
+  selector, answers on their fourth, after three empty queries.
+- **The row, now:** `div[data-testid="transcript-row"]` > `div[role="article"]` (with `aria-setsize`, `aria-posinset`) >
+  `div[data-mini-claude-message].contents` > `div[data-transcript-row]` > `div[data-user-scope]` (question) or
+  `div[data-reply-scope]` (answer), the `.group.group/message-row` div > the message node. `user-message` is 9 levels
+  below the row; `assistant-message` 5 (October: 5). `data-turn-key` is 5 levels below the row for both senders: on the
+  question's message-row div, and on `assistant-message` itself. The feed's direct children are `p.sr-only.select-none`
+  and `[data-testid="transcript-sizer"]` (with `data-rocksteady-sizer`, `data-sizer-excess`), which holds
+  `transcript-spacer`, the rows, `transcript-spacer`.
+- **New markup:** `data-cap-unmeasured` on rows 0 and 2, every question but the newest (absent in the 04:38 capture);
+  a fold wrapper `not-print:data-[unmeasured]:max-h-[var(--user-message-fold,300px)]` + `overflow-hidden` around each
+  question, then `div.cds-user-message-body` (a long question is drawn at most 300 px tall until measured; its text
+  stays in the DOM); answers `assistant-message[data-is-streaming][data-cds-reply-type]` > … >
+  `div[data-transcript-engine-root]` > `div.prose` > `div.standard-markdown`; per row `user-message-actions` /
+  `message-actions` and a sr-only `role="status"` `failed-send-status-region` in each question row;
+  `[data-testid="pane-scroller"]` (`overflow-y-auto`) above the autoscroll container, whose classes are now
+  `… scroll-pt-frame-row pt-[calc(var(--frame-row-h,3rem)+0.5rem)] …` (July: `mt-12 pt-2`; Navi does not select on
+  these classes: it uses `data-autoscroll-container` or walks up, as the July note advises). No dialog in any capture.
+- **Between captures:** Firefox adds `data-perf-reply-text` to each answer's markdown block on macOS, on Windows and
+  in the stopped Linux run, but not in the counted Linux Firefox cell: Firefox-only, not on every load. `ground-next`
+  (fold wrappers) and `data-cds-ground` appear on Windows and Linux, not on macOS, which ran first; an OS difference
+  and a rollout between 20:57 and 22:37 UTC both fit. The question node's `style` attribute appears wherever Navi's
+  jump flashed it: Navi's own leftover (`orbFlashElement` writes `el.style`), not Claude's markup.
+- **Where the CI's mocks diverge:** `claude.html` (the `npm test` entry "Claude") carries only dead fallbacks
+  (`user-human-turn`, `user_message`, `font-user-message`, `assistant-turn`, `bg-bg-300`) and no row model;
+  `claude-virtualized.html` (12 `npm test` entries) uses the live question node but draws answers as
+  `.font-claude-response` by default, puts `!font-user-message` and `data-test-render-count` on its rows, and gets the
+  live answer node, `data-turn-key` and `data-perf-row` only through switches that only the probes set
+  (`answerTestid`, `turnKeys`, `perfRow`). **A green `npm test` covers the live question link, not the live answer
+  link.**
+- **Not testable here:** the project-link decoy (the test chat is in no project), images (none uploaded), every value
+  (a uuid, `="true"`, the row total), and unmounting (all 6 rows mounted).
 
 ### October 2026: answers, rows and the project link (measured live, Chrome page realm, 2026-10-23/24)
 
@@ -587,6 +658,60 @@ AI messages use `items-start` (left-aligned), no `bg-bg-300`, `data-testid="assi
 
 ## ChatGPT
 
+### November 2026: Experiment 1's structure captures (measured live: 8 browser × OS pairs, free test accounts, Navi 12.19 installed, checker 0.3.2, one 3-question chat at `/c/<uuid>`, text replaced by filler, 2026-11-18/19)
+
+Context: Claude's November 2026 record above (machines, versions, times, what a capture keeps). 8 counted captures,
+plus 2 from the stopped Linux run where named.
+
+**The October 2026 chain below still holds, in order, in all 8**, with more wrapper layers between its levels.
+Levels above the first bubble: `:user` unit 2, `data-chatgpt-search-unit-key` wrapper 3, `data-talvt-turn-state` 6,
+`data-content-search-turn-key` 8, `data-turn-key` 9, `data-measured-turn` 10 (new), selection target 14,
+navigation-content 15, the `role="region"` timeline 17, `main` 34.
+
+| Selector | Navi's use | Nov 2026 (8 of 8) |
+|---|---|---|
+| `[data-app-action-timeline-scroll][role="region"]` | the scope of every query | 1, `role="region"`; no hidden `role="presentation"` copy at rest (the October note puts it during a navigation) |
+| `[data-user-message-bubble="true"]` | questions | 3, all inside the region (value blanked; the checker's bookmark step found Q1 by this exact selector in 8 of 8) |
+| `[data-content-search-unit-key$=":user"]` | question fallback | the attribute is on 6 elements: 3 hold a bubble, 3 are answer blocks (suffix untestable) |
+| `[data-content-search-unit-key$=":assistant"]`, outermost | answers | 3: **one** element per turn carrying `data-content-search-unit-key`, `data-chatgpt-search-unit-key` and `data-chatgpt-search-message-ids`, holding `[data-response-body]` (the shape the 2026-11-05 "fallback turn" record below measured on one turn, here on every turn) |
+| `[data-turn-key]` | the turn's identity | 3, each holding 1 bubble and 1 answer block (values blanked; Q1's flag was keyed in 8 of 8, which needs a uuid there) |
+| `[data-message-author-role]`, `.markdown.prose`, `div.self-end.bg-token-bg-tertiary` | legacy fallbacks | 0 each |
+| `#prompt-textarea` and the other composer selectors | `/commands` input | no `textarea` at all; one `div.ProseMirror[contenteditable][role="textbox"][data-composer-markdown]` inside the region's footer; ids are dropped, so `#prompt-textarea` is **untested** |
+
+- **Signs of a virtual list (none in any mock):** `div[data-measured-turn]` wraps every turn except the newest (2 of 3),
+  and every `[data-turn-key]` carries the class `[&_[data-virtualized-turn-content]]:[content-visibility:visible]`
+  (no element carries `data-virtualized-turn-content` itself). A 3-question chat cannot show whether turns are
+  removed; the October windowing record stands.
+- **Other new markup:** `h4[data-conversation-role].sr-only` for each question ("You said:" by its filler length 9) and
+  each answer ("ChatGPT said:", 13); `span[hidden][data-chatgpt-agent-turn-start]` before each answer;
+  `data-user-message-has-prompt` on each bubble; `[data-search-result-target]` around each question's text; a date
+  divider `div[role="separator"]` > `time` in the first turn only; the composer, a disclaimer and a
+  `group/scroll-to-bottom` button inside the scroll area. Bubbles are `.bg-user-message.text-user-message`.
+- **Two answer renderers.** macOS and Windows (6 of 6): `.MarkdownRoot-*` >
+  `div[data-dil-source-message-id][data-chatgpt-copy-reference][data-markdown-copy]` > … >
+  `div.DilRenderer-*[data-dil-response][data-dil-message-id]` > `p.TextBase-*`. Linux (2 of 2, and both stopped-run
+  captures): `.MarkdownRoot-*` > `p.Paragraph-*` > `span` / `strong`, with no `DilRenderer` and no `data-dil-*`. Navi
+  reads neither (its answer is the outermost unit above). Whether OS, build or time (Linux ran 3–5 h later) decides it
+  is unknown.
+- **A lead on the refused jumps, not a proven cause.** An invisible 1-pixel
+  `div[aria-hidden].pointer-events-none.-mb-px.h-px.w-full.opacity-0` ends each turn's `[data-talvt-turn-state]` group
+  (3 per capture) in exactly the 5 cells where Navi refused the jump with "That message is not currently rendered"
+  (macOS Safari and Firefox, Windows Chrome and Edge, Linux Firefox), and is absent in the 3 counted cells where the
+  jump moved the page (macOS Chrome, which flashed Q1 but settled 9 px above the view; Windows Firefox and Linux
+  Chromium, landed) and in the stopped run's 2 (both landed). The bubble's `style` attribute is present in exactly
+  those other 5: Navi's flash leftover. Captures are taken after the jump, so the element may cause the refusal or
+  follow from the page not having moved; one load per cell. A capture before the jump would separate the two.
+- **Browser extras outside the conversation:** `focusgroup` / `interestfor` attributes in every Chromium-family
+  capture; a voice-orb canvas in macOS Chrome, Windows Chrome and Edge but not Linux Chromium; `role="tooltip"` hints
+  in Firefox and Safari; a hidden, inert "quick chat" `section[role="dialog"]` everywhere; no visible banner or dialog.
+- **Where the CI's mocks diverge:** `chatgpt.html` (`npm test`, `/c/test`) still draws answers the February way below
+  (`article` > `[data-message-author-role="assistant"]` > `.markdown.prose`, outside the turns), so `npm test` meets
+  answers only through the legacy fallback; and `/c/test` is not a uuid, so the index adapter does not start there
+  [code: `ixGptPathId`]. `chatgpt-windowed.html` (probes) wraps the scroll area in the navigation-content element
+  (live: the other way round), leaves `data-content-search-unit-key` off the answer in its default and jump modes, and
+  splits the answer's markers over two nested elements in its bookmark mode (live: one element). **A green `npm test`
+  covers the live question path, not the live answer path or the adapter.**
+
 ### Current structure (Oct 2026 app shell; measured live, Chrome, page realm, 2026-10-23)
 
 **Selector (v12.10):** `[data-user-message-bubble="true"]`, then `[data-content-search-unit-key$=":user"]`,
@@ -775,8 +900,58 @@ AI messages use `article[data-turn="assistant"]`, `data-message-author-role="ass
 
 ## Grok
 
-**Inspected:** Feb 16, 2026 (live site)
+**Inspected:** Feb 16, 2026 (live site); structure re-read from captures Nov 18–19, 2026 (below)
 **Selector:** `div.message-bubble` filtered by class containing `user`/`human`, or parent class, or even index
+
+### November 2026: Experiment 1's structure captures (measured live: 8 browser × OS pairs, free test accounts, Navi 12.19 installed, checker 0.3.2, one 3-question chat at `/c/<uuid>`, text replaced by filler, 2026-11-18/19)
+
+Context: Claude's November 2026 record (machines, versions, times, what a capture keeps). 8 counted captures, plus the
+host-user Safari capture (04:43 UTC, hidden tab) and one from the stopped Linux run where named.
+
+**The February record below is superseded.** Grok rebuilt the page with machine-generated class names (593–597
+distinct `grok-xxxxxx` classes per page) and added stable test hooks. In all 8 (and the 2 extra):
+
+| February record | Nov 2026 |
+|---|---|
+| bubble `div.message-bubble`, with `.user` on questions | `div.message-bubble` on all 6 bubbles; **no class on the page contains "user" or "human"** |
+| wrapper `items-end` / `items-start`; corners `rounded-br-lg` / `rounded-bl-lg` | 0 / 0; 0 / 0 |
+| `div.action-buttons` row beside each bubble; `p.break-words` | 0; 0 (the question's toolbar `[data-testid="user-message-actions"]` is now **inside** the bubble) |
+| `.response-content-markdown` in every bubble | only in the 3 answers; a question's text sits in `span[data-bubble-text]` |
+| `id="response-{uuid}"` wrappers | untestable (ids dropped) |
+| — | `data-testid="user-message"` / `"assistant-message"` with `role="article"` on the bubbles (3 / 3, alternating); `[data-user-message-row]` (3); `h2.sr-only` in each bubble |
+| — | the scroller `div[role="log"][data-testid="chat-transcript-scroller"][data-transcript-renderer]`, inside nested `role="presentation"` layers that flag `data-has-overflow-y` and `data-overflow-y-start` / `-end` |
+| — | 8 `[data-plane-row]` rows: the 6 messages, all with `grok-10l6tqk grok-13vifvy`, and 2 `aria-hidden` marker rows (`data-plane-row-kind`, `absolute inset-x-0 top-0`); every row has a `style` (blanked) |
+| — | the composer `div.tiptap.ProseMirror` in `[data-testid="chat-input"]`; and a hidden `<textarea tabindex aria-hidden>` that is a **direct child of `body`** |
+
+**What Navi's Grok code does with it** (its filters simulated on the captures, user.js `getUserMessages` /
+`getAIMessages`; not observed in a browser):
+- **Questions: only the last resort works.** The class test and the ancestor test match 0 of 6 bubbles, so the
+  even-index rule picks bubbles 0, 2, 4, which are exactly the 3 `user-message` bubbles: Navigate listed 3 of 3 in 8 of
+  8. That is right only while the page starts on a question and the bubbles alternate. `[data-role="user"]` and
+  `[class*="user-message"]` match 0 (live has `data-testid="user-message"`, which neither matches).
+- **Answers: all 6 bubbles.** The generated class `grok-1naib08`, on every question bubble, contains "ai", so the
+  answer filter's class test takes the 3 questions, and the odd-index rule adds the 3 answers. Answer flags, summaries
+  and export would then include the questions (inferred from the call sites; Navi's flags are stripped from captures).
+- **`/commands` input:** `findChatInput`'s first Grok selector, `textarea`, matches the hidden textarea under `body`
+  before the real composer (inferred from structure and code).
+- **Possible windowing (Layer 4):** in that atomic-CSS tool's usual naming, `grok-10l6tqk grok-13vifvy` is
+  `position: absolute; top: 0` (an inference), so the message rows look absolutely placed between invisible marker
+  rows, the shape of a windowed list. A 3-question chat can neither confirm nor rule it out; see the status table.
+- **The jump against the scroll state** (the capture is after the jump): Chrome 158 on macOS, Chrome 157 on Windows
+  and Edge 157 settled Q1 144 px above the view (~20 s, a fail); Safari, the three Firefoxes and **Linux Chromium 157**
+  landed it at 128 px in 1.2–1.8 s. The scroller's generated class follows the same split (`grok-198ggbj` with
+  `data-overflow-y-start` and an `inert` scroll-to-bottom button, against `grok-16n82f9` with `data-overflow-y-end`),
+  and the hidden-tab Safari capture, where no jump ran, has the "at the bottom" set: the class tracks the scroll
+  state, not the engine. What makes Google Chrome and Edge differ is not in the structure. The owner's hand check
+  (Chrome, 2026-11-18): the first click after load needed a moment, later clicks went to the question (DEC-065).
+- **Between captures:** Grok's own cookie dialog (`role="dialog"`, `data-cookie-banner`, fixed bottom-right) only in
+  Windows Chrome and Edge; a hidden OneTrust preference centre everywhere. Generated names changed between two Linux
+  loads 14 minutes apart (01:35 and 01:49 UTC: `grok-tfe5ea grok-1s8eo23` → `grok-yzexft grok-wctvdu` on the rows), a
+  deploy by the look of it; `grok-1naib08` survived it. Do not select on generated names.
+- **Where the CI's mock diverges:** `grok.html` is the February page: a `user` class on its question bubbles (lines
+  76, 133, 178; its own comment says the live site has none), so `npm test` exercises the class branch the live page
+  never takes; no "ai" in any class; no `data-testid`; no textarea; the path `/chat/test` (live `/c/<uuid>`). No
+  windowed mock or probe exists for Grok. **A green `npm test` shows nothing about the live Grok branches.**
 
 ### Context and summaries: code search, signed out (Chrome, page realm, visible tab, not signed in, nothing sent, 2026-11-04)
 
@@ -824,6 +999,64 @@ AI messages use `items-start` on element B, no `user` class on the bubble, `roun
 page realm, live site, owner's account, visible tab — ACN installed in the measurement browser,
 version unknown; probes read raw DOM and the findings below are Gemini's own nodes)
 **Selector:** `div.query-text`
+
+### November 2026: Experiment 1's structure captures (measured live: 8 browser × OS pairs, free test accounts, Navi 12.19 installed, checker 0.3.2, one 3-question chat at `/app/<16 hex>`, text replaced by filler, 2026-11-18/19)
+
+Context: Claude's November 2026 record (machines, versions, times, what a capture keeps). 8 counted captures, plus the
+host-user Safari capture (04:41 UTC, hidden tab) and one from the stopped Linux run where named.
+
+**The October 31 turn layout below holds in all 8:** `infinite-scroller.chat-history` whose only children are the 3
+`div.conversation-container` turns, each holding `user-query`, `model-response`,
+`div.restart-chat-button-scroll-placeholder` and `model-response-disclaimers`. The page has a second
+`infinite-scroller` (the sidebar's chat list) **before** it in page order; Navi always qualifies with `.chat-history`.
+
+| Selector | Navi's use | Nov 2026 (8 of 8) |
+|---|---|---|
+| `div.query-text` | questions (`getUserMessages`, `gmQuestionIn`) | **3** |
+| `.query-text-line`, `p.query-text-line` | fallbacks 2–3; the self-check's question text | 3 / 3 (the `p` now has a `dir` attribute) |
+| `[data-query-text]`, `.user-query` | fallbacks 4–5 | 0 / 0 |
+| `div.model-response-text` | answers, first choice | **0** (the class is on `structured-content-container`, as since July) |
+| `.response-content` | answers, the link in use | **3** |
+| `model-response` | answer fallback 3 | 3 (a second live link) |
+| `.conversation-container > div` with text | answer fallback 4 | its 3 matches are the empty restart placeholders, so it would return 0 |
+| `infinite-scroller.chat-history` > `.conversation-container` | scroller, history paging, mounted turns, landing | 1, holding 3 of 3 |
+| 16-hex `id` on each turn | turn identity | untestable (ids dropped). Navi's self-check marker (`data-acn-index-check`: `ok` = the turns shown matched the index by container id and question text, `pending` = nothing compared yet) read `ok` in macOS Chrome, macOS Safari and Linux Chromium (and the host-user Safari), `pending` in the other 5 counted cells |
+| `div.ql-editor[contenteditable="true"]` | `/commands` input | 1 (value blanked); `rich-textarea [contenteditable]` 2 (the editor, then `div.ql-clipboard`) |
+
+**What changed inside a turn since the July 30 record below** (all 8; none breaks a selector Navi uses):
+- **Question:** `data-turn` on `div.query-content` is gone (0); `div.query-text` lost `role="heading"`,
+  `aria-level="5"` and `query-text-animated` (no `role="heading"` anywhere on the page); the empty `div` (G) is replaced
+  by `div.query-bubble-anchor`, which **wraps** the bubble; the "Expand text" button (L) is gone (no button inside
+  `span.horizontal-container`); 2 `luminous-action-button`s per question.
+- **The "You said" label (K0) is now an `h5`**, still `cdk-visually-hidden screen-reader-user-query-label`, still the
+  first child of `div.query-text`, holding a `span` of 8 characters (the length of "You said") **followed by a second
+  text node of 40 or more** (capped). Probably the question repeated for screen readers (inference: the text is
+  filler). `_cleanText` strips the whole label, so Navigate's text is unaffected; the context-size fallback reads raw
+  `textContent` of the question element (used only while the index is not ready) and may count each question about
+  twice (inference).
+- **Answer:** the label is an `h6` (July: `h2`), 13 characters; `structured-content-container.model-response-text` sits
+  inside a new `model-response-content`, with `message-content` > `div.markdown.markdown-main-panel` below; the
+  wrappers are `model-response` > `div` > `response-container` (element) > `div.response-container…` >
+  `div.presented-response-container` > `div.response-container-content` > `div.response-content`; the footer now also
+  holds `finance-info-disclaimer`, and is text-empty, as the July close-out found. The newest turn alone carries
+  `response-container-has-multiple-responses` and a `regenerate-button`.
+- **`turn-content-visibility`** is on turns 1–2, never the newest, in all 10 captures, **including Q1 after Navi's jump
+  had put it in view** (8 of 8 jumped cells). The October 31 record calls these the off-screen turns (Chrome, the
+  owner's account, 32 questions, computed `content-visibility: auto`). Both stand in their contexts: in these captures
+  the class marks every turn but the newest; the computed value cannot be read from a capture.
+- **Windows Chrome 157 and Edge 157 got Gemini's narrow "mobile" layout:** `chat-app.mobile` instead of
+  `.side-nav-open`, no `bard-sidenav`, 77 `is-mobile` class tokens plus 1 `is-mobile-or-tablet`, larger icons
+  (`lm-icon-l`), one more button per answer's action bar. Navi's jump landed the question 112 px from the top there,
+  92 px in the six desktop-layout cells. Every count Navi matches is the same. Linux Chromium 157 and Linux Firefox got
+  the desktop layout. On Linux only, 47 Material controls carry `_mat-animation-noopable` (animations off).
+- The question box's `style` attribute is Navi's flash leftover (present wherever the jump ran).
+- **Where the CI's mocks diverge:** `gemini.html` (`npm test`, `/app/test`) has no `infinite-scroller` (only in a
+  comment), one `div.conversation-container` wrapping the whole chat, no turn ids, `input.prompt-input`, and 2 answers
+  for 3 questions; `/app/test` fails the index's path gate (`/^\/app\/([0-9a-f]{16})$/`). So `npm test` never runs the
+  Gemini index, bookmark keys, history paging or the self-check. `gemini-history.html` (probes) has the live outer
+  layout but, like `gemini.html`, the July inner-turn markup (`data-turn`, `role="heading"`, the `span` and `h2` labels,
+  the Expand button). **A green `npm test` covers `div.query-text` and `.response-content` on a static page, and the
+  "You said" strip; nothing turn-by-turn.**
 
 ### Real DOM Structure (A→L nesting, Jul 30 2026)
 
@@ -1169,6 +1402,60 @@ AI messages have NO `self-end` or `bg-token-bg-tertiary`. They use `markdown pro
 ---
 
 ## Perplexity
+
+### November 2026: Experiment 1's structure captures (measured live: 8 browser × OS pairs, free test accounts, Navi 12.19 installed, checker 0.3.2, one 3-question chat at `/session/<uuid>`, text replaced by filler, 2026-11-18/19)
+
+Context: Claude's November 2026 record (machines, versions, times, what a capture keeps). 8 counted captures, plus one
+from the stopped Linux run where named.
+
+**The address is the drift that breaks Navi.** The test chat lives at **`/session/<uuid>`** (8 of 8 reports, and the
+stopped run's). v12.19's index adapter and its bookmark key accept only `^/search/<id>/?$` (`ixPplxPathId`), so on
+this chat the adapter never starts: Navi scans the DOM, Navigate still listed 3 of 3, and every bookmark flag stayed
+`nokey` for 10 s (bookmark fail, 8 of 8). The owner classed this as a probable real bug and reserved it as the first
+end-to-end test of the finished pipeline (2026-11-18; not fixed). No mock, test or probe uses `/session/`: the
+`npm test` entry runs at `/search/test`, and the probes hold 10 `perplexity.ai/search/` URLs. How many of a free
+account's chats use `/session/` was not measured.
+
+**The October 2026 thread record below holds in all 8:**
+
+| Selector or rule | Navi's use | Nov 2026 (8 of 8) |
+|---|---|---|
+| `[data-message-bubble="right"]` | questions; the adapter's `locate` / `mounted` / `keyOf` | 3, each inside a `[data-workflow-entry]`, none inside a final-text (value blanked; Navigate's 3 of 3 with both fallbacks at 0 shows it matches) |
+| `.group\/query`, `.group\/title .select-text` | question fallbacks | 0 / 0 |
+| `[data-workflow-final-text]` | answers | 3, one per answer, 2 levels inside its answer slot, never inside an entry |
+| `[class*="prose"]` | answer fallback | 3, one `div.prose` per answer, inside the final-text (0 `li` in these short answers, so the October overcount cannot show) |
+| `.col-span-8 …`, `[class*="response"]` / `[class*="Result"]` | old fallbacks | 0 / 0 |
+| `[class*="group/step-header"]` (`textExclude`) | keeps "Finished" out of answer text | 3, inside the final-text; 2 of 3 contain a button (the newest none); each also holds a `span.tabular-nums` (probably a duration) |
+| two slots per entry | the adapter's positions | the list `div.flex.flex-col.gap-2` has exactly 6 children, question, answer, question, answer, question, answer; `[data-workflow-entry]` 2 levels inside each question slot |
+| `div.scrollable-container` | the scroller | 1, an ancestor of the list |
+| `textarea`, then `[contenteditable="true"]` | `/commands` input | 0 textarea; 1 `div[role="textbox"][contenteditable][data-lexical-editor]` (a Lexical editor; value blanked) |
+
+- **Hashed classes:** `_root_128yu_7` (the October record's example) is on all 6 `[data-renderer]` nodes, the 3
+  question renderers and the 3 answer `.prose` blocks. Still do not select on it.
+- **The bubble:** a clip box `div.max-h-[144px].overflow-hidden` (3 of 3) and beside it a **hidden**
+  `span[type="button"][aria-expanded][aria-haspopup][aria-controls][data-state]`. The October record has a
+  `<button aria-expanded>` "Read more" on a long question (the owner's account); these are one-line questions, and
+  both stand.
+- **A native question rail (Layer 2, inferred from structure):** inside the scroller,
+  `div.absolute.inset-y-0.left-0…hidden…@3xl/thread:flex` holds 3 `button.group/bar`, one per question, each a tiny
+  tick with no text. It looks like Perplexity's own jump-to-question control, shown only when the thread column is
+  wide; not confirmed visually.
+- **Other new markup:** `[data-workflow-text-footer]` (an action row under each answer), `[data-workflow-items-first]`
+  (6), `[data-workflow-items]` on one inner div of each slot (never on the list), `group/user-bubble`,
+  `group/final-text`, `group/partition` (on question and answer partitions), `[data-thread-scroll-to-end-visible]`
+  (7 of 8, not in Linux Chromium), `[data-upsell-slot]`; and an open popup at the end of the body (`data-radix-popper-content-wrapper` >
+  `div[role="dialog"]`, a short text, a close and a link button) in 7 of 8, all but Linux Chromium; what opened it is
+  unknown. The reports' `warningBanner` was false.
+- **Between captures:** the thread list is the same in all 8. On Linux only, the thread grid has a **context-pane
+  column** (`grid-cols-[1fr_var(--context-pane-width)]`, `div.group/context-pane-gutter`, a `[data-context-pane]`) where
+  macOS and Windows have `grid-cols-1`; likely width-driven (the layout uses container queries; window widths are not
+  recorded). macOS Chrome alone had a redesigned sidebar (`aside`, 9 session rows against 7). Navi reads neither.
+- **Where the CI's mocks diverge:** `perplexity.html` (`npm test`) keeps the February wrappers below, puts
+  `data-workflow-entry` on the slot itself with `hr.qa-divider`s between pairs (so the two-slots rule fails there),
+  has **no answer markers at all** (Navi finds 0 answers on it, live 3) and a textarea. `perplexity-windowed.html`
+  (probes) matches the live thread in its jump and bookmark modes, but in its default mode one `.entry` holds both
+  question and answer, and it puts `data-workflow-items` on the list. **A green `npm test` covers the question
+  selector only, and no test meets the `/session/` address.**
 
 ### Current structure (Oct 2026; measured live, Chrome, page realm, 2026-10-23)
 

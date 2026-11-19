@@ -30,7 +30,7 @@ This document tracks features and platform expansions we're considering but have
 
 ---
 
-## Current Status: v12.19 MERGED (PR #94, `b0fee35`; Gemini's full question list on open); v12.18 MERGED (PR #93, `ab7ea21`); v12.17 MERGED (PR #92); v12.16 MERGED (PR #90); next: the CI rebuild (item 0e), then Grok (the owner's order, 2026-11-07) — owner acceptance: one consolidated pass at about v12.20 (DEC-062); live confirmation status: DEC-031
+## Current Status: the CI rebuild MERGED (PR #95, `d3f3d16`, 2026-11-12; `ci-ok` the one required check, DEC-064); v12.19 MERGED (PR #94, `b0fee35`; Gemini's full question list on open); v12.18 MERGED (PR #93, `ab7ea21`); v12.17 MERGED (PR #92); v12.16 MERGED (PR #90); now: the live test system (DEC-065, item 5) — Experiment 1 complete 2026-11-19 (40/40 page loads accepted, no stop rule), waiting for the owner's plan for the rest of the pipeline; then Grok — owner acceptance: one consolidated pass at about v12.20 (DEC-062); live confirmation status: DEC-031
 
 **v12.19 (PR #94, merged 2026-11-08 as `b0fee35` before acceptance, a waiver by design, DEC-062; DEC-058's addendum
 PR, from the owner's spec of 2026-11-05, `docs/specs/v12.19-spec.md`; DEC-063).** Gemini's full question list on open
@@ -152,7 +152,7 @@ with a labelled 200K fallback (DEC-056; step 1 of item 12). The turn dots on Cla
 complete once the history is, and says so while it is not (DEC-057). The agent's live check in Chrome + Tampermonkey
 passed all three (DEC-031). Grok is out of scope (its own PR after the owner's testing).
 
-**Next, in the owner's order (2026-11-01; DEC-058; item 4 added before Grok, 2026-11-07).** No release for v12.15,
+**Next, in the owner's order (2026-11-01; DEC-058; item 4 added before Grok, 2026-11-07; item 5 added before Grok, 2026-11-11/12).** No release for v12.15,
 v12.16 or v12.17: a release only once every platform works on all supported browsers.
 1. **The feature gaps, one PR — done: v12.17, above (merged 2026-11-04).** In the owner's words: Search, Export, Summary
    and the image gallery on ChatGPT, Perplexity, Gemini and Claude still read only on-screen messages, and Gemini
@@ -178,8 +178,8 @@ v12.16 or v12.17: a release only once every platform works on all supported brow
        comes from, how often it changes, what breaks when it does)?
    - **Fallback, if that is too fragile:** a "Load full history" button the user clicks. It scrolls to the top until
      the start is loaded (DEC-057's completion rule), then restores the view.
-4. **The CI rebuild (item 0e), its own PR — NEXT, before Grok** (the owner, 2026-11-07), on the branch
-   `ci/rebuild-parallel-probes` (cut from `b0fee35`). In this order:
+4. **The CI rebuild (item 0e), its own PR — done: PR #95, merged 2026-11-12 as `d3f3d16` (DEC-064)** (the owner,
+   2026-11-07), on the branch `ci/rebuild-parallel-probes` (cut from `b0fee35`). In this order:
    - **Split the probes into parallel jobs** first. Target: the whole CI run near ~10 minutes again (the ubuntu jobs
      took 46m00s–47m21s on `597ebfe`, and 46m10s–46m50s on `main`'s first run after the merge, under the 60-minute
      cap). The owner adds the new job names to `main`'s required checks (the ruleset has no bypass actors).
@@ -201,12 +201,61 @@ v12.16 or v12.17: a release only once every platform works on all supported brow
        (`data-testid="user-human-turn"`, `user_message`; both measured at 0 live on 2026-07-26, DOM-REFERENCE) and
        passes only through the userscript's fallback selectors; retire or replace that suite entry (the "Claude"
        entry of `tests/test-all-platforms.js`). The current markup is covered by `claude-virtualized.html`.
-     - **The owner's steps:** add `ci-ok` to the ruleset before the merge, remove the nine `<browser> on <os>` checks
-       after `main`'s first green run (DEC-064).
-5. **Grok** on all three browsers (item 13), its own PR — **after the CI rebuild** (the owner, 2026-11-07; before
-   that, after the Gemini PR), once the owner is on the Linux machine to sign in. The code search must be redone
+     - **The owner's steps — done 2026-11-12:** `ci-ok` added before the merge; the nine `<browser> on <os>` checks
+       removed after `main`'s first green run. The ruleset is now `main-protection` (renamed by the owner) and
+       requires `ci-ok` only.
+     - **After the merge:** `main`'s first run lost two macOS jobs to GitHub never assigning a runner; `ci-ok` was red
+       until `gh run rerun --failed`, then green (TROUBLESHOOTING; 2 of the last 60 runs).
+     - **Logged, not built (the owner, 2026-11-12): an automatic re-run for runner-capacity failures only.**
+       - A small separate workflow with `actions: write`.
+       - It re-runs a run's failed jobs only when every failed job has 0 steps (it never got a runner).
+       - Once per run, on the first attempt only; never a job that ran and failed, so no test or probe is ever retried.
+       - Not chosen: fewer macOS jobs (e.g. WebKit only on macOS).
+     - **Still owed:** the docs-only fast path's first CI proof waits for the first docs-only PR to `main` (the owner
+       chose no docs-only PR for the handoff).
+     - **Also logged (DEC-064, the handoff's §G.4), unordered:** pin the container image by digest (the tag is
+       mutable); add `--slow` and the `abort` / `none` probe modes to CI (never run there); find what cleared the local
+       mac WebKit failure (not reproduced on 2026-11-11 on either build; v12.17–v12.19's userscript, the macOS version or
+       the machine's state are untested candidates); the owner's call on TROUBLESHOOTING's J15 rewording.
+5. **The live test system (DEC-065) — IN PROGRESS: Experiment 1 complete 2026-11-19; next: the owner's plan for the
+   rest of the pipeline.** The owner's spec (the "live verification layer" awaited since 2026-11-11) arrived
+   2026-11-16: `docs/specs/live-test-system-spec.md` (`6911977`). Three separate pieces (the public navigator, a
+   checker of outcomes, an admin build generated from the public source), a private lab repo
+   (`ai-conversation-navigator-private-lab`), Phase A entirely on the Mac with UTM VMs for Windows and Linux.
+   **The 2026-11-12 handoff's "spec 1, a built-in self-test" is retired:** the owner rejected test code inside the
+   public script ("test-only changes must never push updates to users"; an admin mode inside a public script "isn't
+   really admin").
+   - **Stage 0** (2026-11-16/17) measured the VMs, the macOS test user and the WebDriver paths. claude.ai showed
+     Cloudflare's challenge on every measured automated Chrome path and on Firefox under WebDriver, and the five
+     sites' terms restrict automated
+     access, so the owner stopped automated visits and **redesigned** (2026-11-17,
+     `docs/specs/live-test-system-redesign.md`): attended live checks, no robots. The owner starts every session and
+     stays; the runner opens each test chat in a normal browser, the way a bookmark does; a checker userscript reports
+     to a receiver on the Mac; nothing hidden from the sites; read-only (the owner makes every test chat by hand).
+   - **Experiment 1** (2026-11-18/19, one page load per site per browser): macOS in the **Navi Mac VM** (Navi Test, the
+     macOS test user, cannot render Safari in a background session), then the Windows VM, then the Linux VM.
+     **40/40 accepted**, signed in, no stop rule, 22 cells with every check passing, 12 Claude loads, 27 min 39 s.
+     Per-cell record: the private lab's `docs/experiment-1-results.md`; TROUBLESHOOTING's "live test system" entries.
+   - **The owner's order next (2026-11-18):** build the whole pipeline (Windows, Linux, the full session, the fix
+     loop, the CI against copies), **then** calibrate the checks (longer test chats on all five sites, waiting for the
+     page to finish loading, retrying as a person would, tolerance when judging a landing, the first-click behaviour),
+     **then** run it as if for the first time. Navi v12.19 and checker 0.3.2 are frozen until then. The finished
+     fix loop's first end-to-end test is item 16. The harness rules learned so far: DEC-065, "Standing harness rules".
+   - **Still owed:** the owner's plan; a new HANDOFF.md (the current one is the 2026-11-12 handoff; DEC-065's "Where
+     this stands" is the state until then); Codex review on the private repo (the owner's step); Tampermonkey's
+     update settings in the seven VM Tampermonkeys (DEC-065, "After the report"); the public docs ride on this branch,
+     `ci/live-verification-layer`, merged into `main` through PR #96 (docs only, the owner's request, 2026-11-19).
+6. **Grok** on all three browsers (item 13), its own PR — **after the CI rebuild** (the owner, 2026-11-07; before
+   that, after the Gemini PR). The owner's next spec takes the next session (2026-11-11), so Grok follows it unless
+   the owner says otherwise (the agent's reading of the order, 2026-11-12). That spec became the live test system
+   (item 5), still in progress (2026-11-19), so Grok follows it by the same reading. Grok waits until the owner is on the Linux machine to sign in
+   (the test account is now signed in to Grok in all eight VM browsers, 2026-11-18/19). The code search must be redone
    signed in (2026-11-04's was signed out and only partly conclusive: the chat client loaded, a signed-in session did
    not), and data steps 2–3 follow it (DOM-REFERENCE, Grok, "Context and summaries").
+   **Seen in Experiment 1 (2026-11-18/19, the test account, signed in, in all 8 VM browsers):** Grok's page has been
+   rebuilt with generated class names, and v12.19 found its 3 questions only through its last-resort rule; the jump
+   landed 144 px above the view in Chrome (macOS, Windows) and Edge (uncalibrated, item 17). DOM-REFERENCE, Grok,
+   "November 2026: Experiment 1's structure captures".
 
 **v12.15 (PR #88, merged 2026-10-31 as `6baac2e`, on the owner's OK before their acceptance: a waiver, DEC-031).**
 One combined PR in three parts. B: jumps on Perplexity and ChatGPT land in one click, instantly and checked
@@ -264,9 +313,11 @@ nothing here pre-writes its scope.
 
 Later; the owner decides the order (2026-10-24; the last two added 2026-10-31; the first three PRs are now fixed
 by the owner's order above, 2026-11-01; the CI rebuild, then Grok, joined that order on 2026-11-07):
-- Grok on all three browsers (item 13): now "Next" item 5, after the CI rebuild (the owner, 2026-11-07).
+- Grok on all three browsers (item 13): now "Next" item 6, after the CI rebuild (the owner, 2026-11-07) and, by the
+  agent's reading, after the owner's next spec ("Next" item 5: the live test system, in progress since 2026-11-16).
 - ~~Claude: a jump to the latest question from the top ends at the bottom, past it~~ — v12.16 part A (DEC-055).
-- `check-ix-jumps` J15's timing race in CI (TROUBLESHOOTING, OPEN): make the fixture's pin deterministic. It has
+- ~~`check-ix-jumps` J15's timing race in CI: make the fixture's pin deterministic~~ — **done in the CI rebuild**
+  (`c5abeea`, PR #95; `jumpModel.pinEvery`; chromium 3/30 failed before, 0/90 after; TROUBLESHOOTING). It had
   failed locally since 2026-10-31 (Firefox and WebKit, v12.15/v12.16); since v12.18 also on Chromium (sweep 2,
   twice), and again on Firefox (the final run); in v12.19's build, Chromium again (two back-to-back full runs at
   `546ab49`; it passed the milestone on `3841805`). Now part of the CI rebuild ("Next" item 4, the flaky tests).
@@ -671,9 +722,10 @@ Numbering below is stable (items keep their historical numbers):
      (fetch's origin guard) and **M34** (fetch drops the query). The other 42 still build. Re-anchor these four
      with the abort follow-up above, which reworks the same code, then re-run the battery and update the matrix.
 
-0e. **Rebuild CI around what it can and cannot show (owner, 2026-10-22).** **Built 2026-11-11 on
-   `ci/rebuild-parallel-probes` (DEC-064; Current Status, "Next" item 4): its three steps, and stopgaps 3 and 4 below
-   replaced by the container and parallel jobs.** The owner's read after
+0e. **Rebuild CI around what it can and cannot show (owner, 2026-10-22).** **Done: PR #95, merged 2026-11-12 as
+   `d3f3d16` (DEC-064; Current Status, "Next" item 4): its three steps, and stopgaps 3 and 4 below replaced by the
+   container and parallel jobs; `ci-ok` is `main-protection`'s one required check. The automatic re-run for
+   runner-capacity failures is logged there, not built.** The owner's read after
    PR #75: the CI checks are outdated. They pass builds that fail in a real browser — v12.8 was green
    in CI while its index failed on Safari — so a green run says nothing about what breaks there. Nothing in the harness has a userscript manager: it inlines the
    script into the page realm with a `GM_xmlhttpRequest` shim (TESTING.md). Not started — scope it as
@@ -1426,7 +1478,8 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
           clears the token is gated by code reading only: in the mock a build without it sends the same requests.
         - The button stays hidden during the index's first load (the "Loading full conversation history" banner
           shows then).
-        - `check-ix-jumps` J15's known timing race (TROUBLESHOOTING, OPEN) can still turn a run red.
+        - `check-ix-jumps` J15's known timing race (TROUBLESHOOTING, OPEN then) can still turn a run red. (Fixed since,
+          in the CI rebuild, `c5abeea`.)
         - Logged from review round 1 (not fixed; the review's reading of the code unless marked):
           - An edited question that keeps its turn id reads as a self-check mismatch each time: a strike and a full
             read. Five edits in one chat visit stop the index for the visit (the DOM list, the note and the button
@@ -1716,6 +1769,51 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
       - **A stale code comment** (found by PR #91's docs check): the comment above `gmLandFar` in the userscript still
         says the glide "left the target 4,240 px below the view, 2 of 4 times"; the first miss was 6,139 px and the
         4,240 px one was a later run (DEC-057). Fix it in the next code PR (a docs-only PR does not touch the script).
+
+15. **Light/dark detection when a site or the system is set to "auto" — for later (the owner, 2026-11-19).** The
+    owner's observation (not yet measured by the agent): setting up the test VMs, the owner chose "auto" appearance
+    (follow the system) where asked. Navi seemed not to pick that up well: especially on ChatGPT, the page background
+    was white and Navi's button was white too, hard to see. Until now the owner's sites were explicitly light or dark.
+    What is wanted: detect the colour actually drawn behind the button (in "auto" a page is light by day and dark by
+    night) rather than a light/dark setting, and keep the button and its glyph in contrast both ways (a dark button with
+    a light glyph on a light page, the reverse on a dark page). The owner did not recall whether Navi already flips the
+    button both ways; check before changing anything. Not investigated; no Navi change now (the owner's 2026-11-18
+    decision: build the live test pipeline first). Context: Navi v12.19, the VM browsers, during the sign-ins; the owner
+    had also noticed it "a couple of sessions ago" without mentioning it.
+
+16. **Perplexity bookmarks on `/session/` chats — a probable real bug, reserved (the owner, 2026-11-18).** In
+    Experiment 1 the test chat lives at `/session/<id>`; in all 8 browsers Navi's bookmark flag on the first question had
+    no message key after 10 s, so no bookmark could be made (Load, Navigate and the jump passed: with 3 questions the
+    page scan is enough). v12.19's Perplexity index adapter recognises `/search/<id>` only, and every mock, test and
+    probe uses `/search/`. **Not to be fixed now:** the owner reserved it as the first end-to-end test of the finished
+    pipeline (a live failure, the fix loop's diagnosis and fix PR, the CI, then a re-test in the failing live cells).
+17. **Experiment 1's jump findings — "found by an uncalibrated checker, not confirmed" (the owner, 2026-11-18).**
+    ChatGPT: Navi refused ("That message is not currently rendered") in 5 of 8 browsers within 0.29-3.7 s (the
+    question was in view in 3 of those 5; Navi Mac Safari's report found no question element, Navi Mac Firefox's had
+    it 9 px above the top), landed 9 px above the view in Navi Mac's Chrome, and passed in Windows Firefox and Linux
+    Chromium (Linux Firefox passed in a stopped run and failed in the counted one). Grok: exactly 144 px above the view in
+    Chrome on macOS and Windows and in Edge; Safari, Firefox and Linux Chromium landed it. Safari / Claude: skipped, the
+    window reported covered for 33 s. The owner's hand checks disagree: in the owner's own Safari, ChatGPT's and
+    Claude's jumps work; in Chrome, Grok's works (the first click after a load needed a moment, later clicks landed:
+    possibly Navi's behaviour, to look at). The checker is uncalibrated: 3-question chats fit one screen, it clicks
+    once right after load, and it counts a question in view only when its top edge is visible. Look again after the
+    calibration (item 5).
+18. **The CI's mock pages are stale on all five sites (Experiment 1's 40 structure captures, 2026-11-18/19).** Navi's
+    main selectors still match live, but a green `npm test` exercises paths the live sites no longer take: Claude's
+    static mock uses dead question markers and its virtualized mock draws answers in a dead style; ChatGPT's mock draws
+    answers the February way; Gemini's mock has no chat scroller and never starts the turn code; Grok's mock predates the
+    rebuild; Perplexity's mocks use `/search/` and its main mock has no answer markers. Several sites now hang on one
+    working selector. The redesign's decision 8 replaces hand-made mocks with **copies built from live captures** (text
+    replaced by filler), proven with planted bugs, refreshed whenever a session sees the structure change; the
+    redesign file names it as the next experiment once Experiment 1 passed. DOM-REFERENCE's "November 2026:
+    Experiment 1's structure captures" subsections; the private lab's `docs/exp1-structure-drift.md`.
+19. **Rename the product to "Navi" — a planned, separate change (the owner, 2026-11-12, the live test spec's
+    decision 10).** Every new name in the live test work already uses "Navi" (Discord, Keychain entries, the admin
+    build's name). **Never change the public userscript's `@name` or `@namespace`:** managers identify a script by
+    them, so changing either breaks updates for existing users. The `data-acn-*` markers and the repo names stay.
+20. **Later, from the redesign (the owner, 2026-11-17, decision 10):** health checks inside Navi during real use; a
+    remote data file for selectors and the model table; an unknown model shows "context window not known yet", never a
+    guessed number.
 
 ---
 

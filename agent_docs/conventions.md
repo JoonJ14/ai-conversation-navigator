@@ -162,6 +162,9 @@ use literal characters.
   messages, PR bodies and acceptance comments alike. A chat tab's title is the chat's title (the browser tools return
   it with the tab list), so it stays out too. Research probes report key names, types and counts only, never message
   content (owner, 2026-11-04).
+- **Archived handoffs (`docs/handoffs/`) are dated records: never edit them,** not even for a rename (owner,
+  2026-11-12: the ruleset's old name stays in them). Only the current `HANDOFF.md` is kept up to date; it moves to
+  `docs/handoffs/` unchanged when the next handoff replaces it.
 
 ## Debugging & Mistakes Policy
 
@@ -661,3 +664,49 @@ The user will decide whether it was a minor one-off or a recurring pattern worth
 > whole suite"): each build step verifies with its own gates and the probes related to it, and the full suite and
 > every probe run once per stage, not after every step.
 > **Why:** the cost of a misread rule grows with every step it applies to, while the question costs one message.
+
+> **Issue:** a U10 probe comment was drafted as "every failure routed back before that index landed, every pass after"
+> from 2 failing and 3 passing traces (the CI rebuild, 2026-11-11). A scripted check over 25 traced runs found a pass
+> that also routed back before Navigate's *repaint*, the stand-in the claim had used. The precise claim (the gap
+> from the index request: failures 6–10 ms, passes 13–20 ms) replaced it before the commit (`40ba5d5`).
+> **Correct approach:** write counts ("the 3 failures …, the 22 passes …"), not "every", and only after a scripted
+> check over the whole sample agrees. Measure the precondition itself (the response delivered), not a later signal
+> that follows it (a repaint).
+> **Why:** a universal claim from a handful of samples reads as a finding, and the one counter-example it hides is
+> exactly the case a future reader will hit.
+
+> **Issue:** DEC-064 first listed the skipped stage-end local run under "Not run for this PR", after the agent had told
+> the owner it would leave that out unless told otherwise (2026-11-11). Caught on re-reading the doc and removed
+> (`fc0f1f5`).
+> **Correct approach:** before committing docs, re-read them against what the conversation promised the owner, not
+> only against the code and the measurements.
+> **Why:** a doc that contradicts what the owner was told costs trust even when the fact in it is true, and the owner
+> may never re-read the line to notice.
+
+> **Issue:** the owner skipped the stage-end local run for one PR (2026-11-11); the agent saved that as a memory rule
+> for CI-only PRs. The owner: "don't, don't save it … just leave the setting as is, but just don't run it this time."
+> The memory was reverted entirely, its timestamp included.
+> **Correct approach:** a call the owner makes for one PR applies to that PR only. Do not turn it into a rule, a memory
+> or a doc line about future work unless the owner says to; record only what was done, as the owner phrased it.
+> **Why:** a one-time exception saved as a rule silently changes every later session's process, and the owner may
+> have reasons for the exception that the agent has not seen (here, a different approach to CI still to come).
+
+> **Issue:** a scratch trace harness injected a script into `check-usage-state`'s page through its template literal
+> with a regex `/^https:\/\/claude\.ai/`. Inside a template literal `\/` becomes `/`, the script threw a syntax error,
+> and every traced run "failed" with `window.__T is not a function` (2026-11-11). The probe's own comments record the
+> same trap twice before.
+> **Correct approach:** inside a template literal that becomes page code, use string methods (`split`, `indexOf`,
+> `String.fromCharCode`) instead of backslash regexes, and evaluate the block once on its own (`setContent` + a page
+> error listener) before trusting what it reports.
+> **Why:** the escape is consumed silently by JavaScript before the page ever sees the code, so the failure shows up
+> far from its cause, as a harness that "always fails".
+
+> **Issue:** the CI rebuild's plan, DEC-064, the workflow's comment and the lane script all counted a concurrency slot
+> for `claude-code-review.yml` on every PR push, from its `on: pull_request` trigger (2026-11-11). The docs sweep found
+> it `disabled_manually` on GitHub (last run 2026-02-23): it takes no slot. The same sweep found the peak was 18 jobs at
+> once, not 19, because `changes` runs before the others and `ci-ok` after (2026-11-12).
+> **Correct approach:** a workflow file's trigger is not evidence that it runs. Check its state with `gh workflow list`
+> (and its recent runs with `gh run list --workflow <file>`), and count concurrency from the jobs' `needs:`, before
+> building a capacity budget on either.
+> **Why:** a disabled workflow looks exactly like an active one in the repo, and a budget built on it is wrong in a
+> direction no CI run will ever flag.

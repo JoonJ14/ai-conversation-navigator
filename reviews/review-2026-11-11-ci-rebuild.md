@@ -108,3 +108,20 @@ fixed.
   that wait, a more precise point, not a hidden one. U10 still discriminates: it FAILS (`pct=42`) on `5eee8ac` and on a
   guard-reverted mutant, on all three engines, and PASSES (`pct=77`) on the current build.
 - **Findings:** none.
+
+## Post-merge — comment-only corrections from the `/update-project-docs` sweep (2026-11-12, on `ci/live-verification-layer`)
+
+- **Diff:** 3 files, +7 / −5, comments only: `.github/workflows/cross-platform-tests.yml` and
+  `.github/scripts/probe-lanes.sh` (`claude-code-review.yml` takes no concurrency slot, since it is `disabled_manually`
+  on GitHub, last run 2026-02-23; a run's peak is 18 jobs, not 19), `tests/run-tests.sh` (`npm ci`, never
+  `npm install playwright`, which would rewrite the pin).
+- **Tiers run:** all three (3 files changed), triggered by the Stop hook.
+- **Tier 1 (session):** PASS. No executable line changed (`git diff -U0` minus comment lines: none); `bash -n` clean;
+  actionlint 1.7.12 clean.
+- **Tier 2 (session):** PASS. Each comment's claim checked against the code: `test-ubuntu`, `test-other` and `probes`
+  need `changes` only and `ci-ok` needs all four (18 at once); the lockfile's playwright and playwright-core 1.65.0
+  require Node >=20; `package.json` pins `"1.65.0"`.
+- **Tier 3 (cli:codex, read-only, focused on comment-versus-code agreement):** APPROVED, no CRITICAL or WARN, 89,275
+  tokens. It confirmed the fan-out, the 36-slot queueing, the Node floor, the pin, and that no executable line or file
+  mode changed. It could not query GitHub, and treated "disabled" as the operator's measurement.
+- **Findings:** none.
