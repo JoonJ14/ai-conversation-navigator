@@ -5244,7 +5244,7 @@ owner's, committed as `6911977`). Public docs on `ci/live-verification-layer`; a
 proves a change is needed, which would stop for the owner (spec). **Replaces** the "live verification layer (the next
 spec)" placeholder in ROADMAP and the 2026-11-12 handoff's "spec 1, a built-in self-test", which the owner rejected.
 
-### Where this stands (2026-11-19, after 20:12Z; Phase 1 built and rehearsed, the owner's answers and instructions built in, two VM screens pinned, its proof not run) — read this first
+### Where this stands (2026-11-19, after 21:08Z; Phase 1 built, rehearsed with pinned displays and a recorded display setup, its proof waiting for the owner's go) — read this first
 This DEC is a running, chronological record (each section dated; corrections stay next to what they correct, both
 results kept). This block and the last sections are the current state.
 - **Status:** Experiment 1 is complete (2026-11-19 02:08Z): **40 of 40 page loads accepted**, signed in to the test
@@ -5253,16 +5253,20 @@ results kept). This block and the last sections are the current state.
   22:26 CST** (`docs/specs/live-test-pipeline-build-plan.md`; its decisions are recorded below under "The pipeline
   build plan"): six phases, the first being "the full session from one start". **Phase 1 is built, reviewed (71
   findings, fixed) and rehearsed again in the three VMs on local pages** (private repo, branch
-  `pipeline/phase-1-full-session`, committed up to `2268316`; see the last four sections of this DEC). **The pipeline's
+  `pipeline/phase-1-full-session`, committed up to `0869a8a`; see the last five sections of this DEC). **The pipeline's
   choices 1 to 13 were approved by the owner, 2026-11-19, and choice 14 was decided by the owner: no** ("The owner's
   answers to the pipeline's choices (2026-11-19)"). **The owner's seven instructions of 2026-11-19 (17:49Z) are built
-  and measured** (the last section): the VM windows go on an external monitor, with one home monitor per display setup
-  (the owner's desktop 20, the monitor X90G-R); a report from the three sign-in hosts can carry only numbers and fixed
-  kinds; Navi Linux's and Navi Mac's screens are pinned at scale 1 in UTM's settings (Navi Windows' cannot be, and its
-  window is to be set to the recorded size instead); a pre-check on the pinned screens passed 8 of 8 (19:46 to 20:02Z, local
-  pages and example.com, one run). Its proof, a 40-cell session on the five sites, waits for the owner's OK on the
-  eight display readings, the recording of the docked setup, and the owner's go. No AI site has been visited since
-  Experiment 1; every site visit waits for a session the owner starts.
+  and measured** (the section before the last): the VM windows go on an external monitor, with one home monitor per
+  display setup (the owner's desktop 20, the monitor X90G-R); a report from the three sign-in hosts can carry only
+  numbers and fixed kinds; Navi Linux's and Navi Mac's screens are pinned at scale 1 in UTM's settings (Navi Windows'
+  cannot be, and its window is to be set to the recorded size instead); a pre-check on the pinned screens passed 8 of 8
+  (19:46 to 20:02Z, local pages and example.com, one run). **The display setup "docked" is recorded** (20:57Z, the last section) on the owner's
+  conditional OK of 20:18Z: from a trial run that put all three windows on the home monitor, with Windows Firefox at a
+  page height of 618 and its cause beside it (Firefox's own saved window size, not a bar). The one planned pre-check
+  with the record in force passed 8 of 8 (20:57 to 21:08Z, local pages and example.com, one run). **Phase 1's proof, a
+  40-cell session on the five sites, waits for the owner's go** (the owner will check Navi Windows Firefox's Externals
+  setting before giving it). No AI site has been visited since Experiment 1; every site visit waits for a session the
+  owner starts.
 - **Frozen:** Navi v12.19 (the published build, byte-identical to `main`): no Navi fixes until Phase 6. The four
   checks of checker 0.3.2 (load, navigate, one jump, one bookmark): no tuning until Phase 5; Phase 1's checker carries
   them unchanged (a test compares the code line by line) and changes only how the checker is delivered and what it
@@ -5303,17 +5307,18 @@ results kept). This block and the last sections are the current state.
   Settings → Code review → on for that repo; the agent could not check the app's access: `gh api /user/installations`
   needs a GitHub App token, HTTP 403); the build plan's Phase 3 depends on it (`/babysit-pr-cycle` on private-repo
   PRs); a re-check of Navi Mac's reopen list (Phase 1's boot check now does it at every boot). **Still the owner's
-  before Phase 1's proof** (the last section, part 8): the OK on the eight display readings and the recording of the
-  docked setup with the right monitor, X90G-R (the owner's desktop 20), as every VM's home (or the session started
-  with `--display-unchecked-ok`); the owner's go for the session; a look at Navi Windows Firefox's Externals setting;
-  the nudge (installed, its time chosen); Codex review on the private lab repo (above). **Closed:** `chmod 700 ~` (the
+  before Phase 1's proof** (the last section, part 6): the owner's go for the session, after the owner's look at Navi
+  Windows Firefox's Externals setting; the nudge (installed, its time chosen); Codex review on the private lab repo
+  (above). **Left open by the owner:** the focus question (20:22Z). **Closed:** `chmod 700 ~` (the
   owner, 2026-11-18 20:55 CST; measured below); the owner's one-time steps for Phase 1 in the seven VM Tampermonkeys
   (reported done 2026-11-19, 06:07 to 06:37Z; see "Phase 1 of the build plan"); the pipeline's 14 items (choices 1 to
   13 approved by the owner, 2026-11-19; choice 14 decided by the owner: no; "The owner's answers to the pipeline's
   choices (2026-11-19)"); the owner's reply on question 4 (17:49Z: "option 1, keep the read-only look", with two
-  additions, both built; the last section, part 3); which setting locked the Mac's screen at about 12:00Z (its screen
-  saver after 10,800 s idle with the lock set to "immediately", not sleep: the orchestrator's read; changing it is the
-  owner's call; the last section, part 8).
+  additions, both built; the section before the last, part 3); which setting locked the Mac's screen at about 12:00Z
+  (its screen saver after 10,800 s idle with the lock set to "immediately", not sleep: the orchestrator's read;
+  changing it is the owner's call; the section before the last, part 8); the OK on the eight display readings (20:18Z,
+  its condition on Windows Firefox met as case c) and the recording of the docked setup (20:57Z); the installed
+  shell's path on the wire (20:18Z: "discarding it on the Mac is enough. No new shell."; the last section).
 
 ### The owner's decisions (the spec; 2026-11-12 unless dated otherwise)
 - **Three separate pieces:** the public navigator (the only thing users get; never any test code), the checker (tests
@@ -7558,6 +7563,8 @@ tightened it on the receiver side, as the owner said, and in the served logic as
    check by an agent that did not write it.
 
 **8. What is still open before the proof session.**
+(As of 20:12Z. Out of date since then: the OK, the recording, Windows Firefox's 65 px, the shell's path and the focus
+question are in the next section, "The docked display setup recorded, with the owner's conditional OK (2026-11-19)".)
 - **The owner's OK on the eight readings** (part 4), and then the **recording of the docked setup** with the right
   monitor, X90G-R (the owner's desktop 20), as every VM's home, and the size modes: `display-record.js <runId> --setup
   docked --home-monitor "X90G-R" --home-note "desktop 20" --size-mode navimac=pinned,navilinux=pinned,naviwin=window`,
@@ -7596,3 +7603,186 @@ built); which setting locks the Mac's screen (above).
 **Not measured** (none of it may be read as known): any of this on an AI site; the window rules with a recorded home
 on the real screens, with X90G-R unplugged, and with every external monitor unplugged; size mode "window" on a real
 window; the sign-in hosts' format against real sign-in pages; whether the pinned screens hold through a session.
+
+### The docked display setup recorded, with the owner's conditional OK (2026-11-19)
+**State at the time of writing (2026-11-19, after 21:08Z):** the owner gave a conditional OK on the eight display
+readings at 20:18:03Z. The condition on Windows Firefox was met as case c: its page height of 618 is Firefox's own
+saved window size, not a bar. A trial run showed all three VM windows going to the home monitor, and the display setup
+"docked" was recorded at 20:57:21Z in the private lab repo, branch `pipeline/phase-1-full-session`: `3557794` (a note
+beside one browser's values, 20:57:01Z) and `0869a8a` (the record). The one planned pre-check with the record in force
+passed 8 of 8. Everything in this section ran in the VMs on local pages and example.com only, each run once; nothing
+here ran on an AI site, and neither pre-check run posted to Discord. Navi is v12.19; the four checks are checker
+0.3.2's, unchanged and uncalibrated. The proof session has not run: it waits for the owner's go. Times are UTC.
+
+**1. The owner's words, quoted in full.** On the desktops, 20:09:18Z:
+
+> maybe just add one more to whatever variable you use to pin it to desktop, maybe its counted differently than how it
+> shows to me, maybe we have to call desktop 21 or something
+
+The question, 20:12:06Z:
+
+> what is the docked setup that needs my ok
+
+The conditional OK, 20:18:03Z (pasted as one block; item 3 is as the owner sent it, its brackets not filled in):
+
+> 1. The eight readings: OK to record them as the "docked" setup, with one condition on Windows Firefox.
+>    a. Its page height is 618 now against 683 in Experiment 1. "A bar inside Firefox" is a guess until you name it.
+>    Find out what the bar is (a screenshot of the VM window is fine) and whether it was there in Experiment 1.
+>    b. If it can be turned off to get back to 683, turn it off, read again, and record 683.
+>    c. If it can't or shouldn't be, record 618 and write the cause next to it.
+>    d. Tell me which it was. That one value needs no second OK.
+>
+> 2. Before you record: finish the trial run that shows all three windows going to the right monitor, and the Safari
+>    38 px measurement. If either shows something unexpected, stop and tell me instead of recording.
+>
+> 3. Focus: [I saw / I did not see] UTM or a VM window take focus from what I was doing during the pinning runs.
+>
+> 4. The shell's page path: discarding it on the Mac is enough. No new shell.
+>
+> 5. After recording, run the one pre-check you planned, then ask for my go for the proof session. I'll check Windows
+>    Firefox's Externals setting before I give it.
+
+The focus question, 20:22:42Z:
+
+> i left that focus issue for now so when i see it i was going to choose either one of them and send you but right now
+> the window just sits idel with vm inside it off so i thought id just leave that alone right now, but i know you can
+> build all the other stuff without that so lets just leave that for now. i think for right now whatever youve been
+> doing has been fine like it didnt bother me that much
+
+What the orchestrator answered to these messages is not in this section's sources, which hold the owner's side only.
+On the desktops: the pipeline holds no desktop number to change. A script can choose a monitor and a position, not a
+desktop (the section above, part 2), and the owner's desktop 20 is kept as the monitor X90G-R, the one the Mac's own
+records put it on. Item 3 is recorded as the owner left it: no answer on whether UTM or a VM window took focus, and the
+question left open for now. Item 4 closes the section above's open item on the installed shell's path: shell 1.0.0
+keeps sending the page's path in its assignment request, the receiver keeps reducing it on arrival and keeps and logs
+none of it, and no new shell is made.
+
+**2. Windows Firefox: what the 65 px are (items 1a to 1d).** By an agent under the orchestrator, 20:20 to 20:29Z, in
+Navi Windows (Firefox 160.0.1, installed 2026-11-18 before Stage B and not updated since); example.com only, Firefox
+opened and closed only through the pipeline's own tasks in the VM; pictures of the VM's window, one picture pixel per
+VM pixel; one session. Its finding, with three pictures, is in the resume pack.
+- **The records.** Experiment 1, Stage B (2026-11-18): Firefox's page height 683 in all 5 site cells (22:45:10 to
+  22:47:45Z), and no other display value for any Navi Windows cell (no width, outer window, screen or pixel ratio); no
+  picture of that window exists. Phase 1: 51 reports in 8 runs of 2026-11-19, from the first at 06:31:55Z
+  (`precheck-2026-11-19T0611`) to 19:58:42Z, all read a page of 878x618 in an outer window of 894x699 on 1107x857,
+  ratio 1. Chrome and Edge were constant in the same runs.
+- **The window's size.** Firefox's own saved window state, `xulstore.json` in its profile (read with Firefox closed,
+  20:23:37Z): the main window at 894x699, normal size mode, last written at 06:29:06Z, during the owner's one-time steps
+  in Navi Windows (reported done at 06:29Z). No state of the bookmarks bar or the menu bar is stored, and the
+  preferences for the bookmarks toolbar, tabs in the title bar, UI density, compact mode and vertical tabs are not set
+  (their defaults). Firefox does not rewrite that file at a close that changes nothing.
+- **What the picture shows** (20:24:02Z, saved height 699): from the window's top edge to the page, 73 px: a 1 px
+  border, the tab strip 35 px (it holds the window's minimise, maximise and close buttons; there is no separate title
+  bar), the navigation bar 36 px and a 1 px separator. Then the page, 618 px. Then 8 px of window border at the bottom
+  (the finding: 8 invisible px; the independent check below: 1 visible and 7 invisible). 73 + 8 = 81 = 699 - 618. No
+  bookmarks bar, menu bar, notification bar or sidebar shows. So there is no extra bar to turn off: the 73 px are
+  Firefox's normal tab strip and navigation bar, and the page's height follows the saved window size.
+- **The one change tried** (item 1b's test). With Firefox closed and a backup copy of the file taken first in the VM
+  (checked equal by hash), the saved height was set from 699 to 764 (699 + 65) at 20:25:34Z, and Firefox reopened at
+  20:25:38Z. The window came up 764 tall as set, but its bars took 85 px (tab strip 43, navigation bar 40, and the two
+  1 px lines), 12 more than at 699, and the page was 671, not 683: raising the height by 65 added 53 to the page.
+  Undone: Firefox closed at 20:26:59Z, the backup restored at 20:27:46Z (height 699, the file's time 06:29:06Z kept),
+  Firefox reopened at 20:27:51Z, and the picture at 20:28:02Z showed the bars at 1, 35, 36 and 1 px and the page at 618
+  again. Firefox closed at 20:28:11Z, the agent's helper scripts were deleted, the backup copy stays in the VM, and the
+  pipeline's helper shut the VM down at 20:28:25Z (10 s). No net change.
+- **Which case it was: c.** No bar can be turned off to get back to 683, so 618 is recorded with its cause next to it
+  (part 4); by item 1d this one value needs no second OK.
+- **Whether it was there in Experiment 1 (item 1a): not established.** Experiment 1 kept only the page height 683, so
+  no record holds that window's size. By arithmetic it was taller than 699: 764 with the 73 px of bars read at 699, 776
+  with the 85 px read at 764, and about 729 at least even with a navigation bar alone. Which of these it was, and what
+  the profile held before 06:29:06Z, is not established. A smaller window saved during the owner's one-time steps is
+  consistent with every record (the file written at 06:29:06Z, the first 618 at 06:31:55Z), but no record proves it.
+- **Also not established:** why Firefox's bars are 73 px at a height of 699 and 85 px at 764 (no density preference is
+  set and no update came between the opens; one open each, in the order 699, 764, 699); whether a saved height of 776
+  gives exactly 683 (by arithmetic yes, if the bars stay at 85 px; the window's saved top is at 48, and 48 + 776 = 824
+  fits the 857 px work area). 776 was not tried, since one change was allowed; trying it is the owner's call.
+- **The independent check** (an agent that did not write the finding, re-measuring the pictures; its verdict as the
+  orchestrator reported it): the outcome confirmed, with details corrected or stated more exactly: the bottom border is
+  1 px visible and 7 invisible, and raising the height by 65 added 53 to the page.
+
+**3. Safari's 38 px** (item 2) had been measured before the OK, 20:04 to 20:12Z: the section above, part 6.
+
+**4. The trial run (item 2) and the recording.**
+- **The trial run** `precheck-2026-11-19T2035`, 20:35:29 to 20:45:10Z (580 s), with a trial copy of the setup in a
+  temporary file outside the repo (the pipeline reads such a file when `NAVI_PIPELINE_DISPLAY` names it). The copy was
+  recorded at 20:35:16Z from the 19:46Z run's eight readings, with X90G-R as every VM's home ("desktop 20") and the size
+  modes Navi Mac "pinned", Navi Linux "pinned" and Navi Windows "window". Results:
+  - The setup matched by the Mac's screens (4 screens: 2940x1912 at scale 2 and three 1920x1080 at scale 1), the same
+    at the start and at each stage; the Mac's screen unlocked at all four reads.
+  - **Navi Mac's window came up on the built-in screen** (found at 59,70 on it); macOS and UTM brought it up there,
+    and the pipeline did not move it there. The placement, which runs once the VM's desktop is up (booted +11 s,
+    signed-in desktop +13 s), centred it on X90G-R at 20:35:57Z, 27 s after the stage's first reads (20:35:30Z; when
+    the window appeared is not recorded). Navi Windows' window (found at 202,31 on X90G-R) and Navi Linux's (at 99,101
+    on X90G-R) were already on that monitor and were centred on it.
+  - Every window's size was the same before and after: 1118x859, 1107x897 (already at the recorded size in mode
+    "window") and 1219x922 points.
+  - 8 of 8 pre-checks passed, each of the eight readings equal in every field to the trial values (the 19:46Z
+    readings); no display stop; nothing left running.
+  - **The frontmost application changed once:** Safari at every read through Navi Mac's stage, then UTM from the read
+    after Navi Windows' start to the end (the summary: "Focus: the Mac's frontmost app CHANGED across the pipeline's own
+    steps: Navi Windows VM start (Safari -> UTM)"). Whether a desktop switched was not watched.
+  - Windows Firefox again ran the served logic only by its own fetch, after three warm-up loads (its manager still
+    injecting `03437c37ad84caaf`).
+- **The two observations, and the orchestrator's judgement** (Claude, 2026-11-19). Item 2 says "If either shows
+  something unexpected, stop and tell me instead of recording." The orchestrator judged that neither observation, Navi
+  Mac's window coming up on the built-in screen and the frontmost change at Navi Windows' start, was the kind of
+  surprise that instruction was for: windows opening in other places is why homes exist, and the focus question was
+  left open by the owner (20:22:42Z). By its account it told the owner this before recording, and then recorded.
+- **The note option** (`3557794`, an Opus agent): `display-record.js … --note <env>-<browser>="<text>"` keeps one line
+  of at most 300 characters beside one browser's values. It is never read as a display value. It is printed next to
+  that browser's line, written only with the owner's OK flag, kept on a re-recording when that browser's values do not
+  change, and dropped, with a line saying so, when they change and `--note` does not give it again; a session lists a
+  setup's notes once, in its `session.json` and in the summary's Display line. Its commit message gives unit tests 301
+  pass, 1 skipped (harness only; not re-run for this record).
+- **The record** (`0869a8a`, 20:57:21Z, with the owner's OK of 20:18:03Z; `pipeline/vm/display-normal.json`, machine
+  facts only), the setup "docked" from the trial run:
+  - the Mac's four screens (above);
+  - the eight browsers' values as the trial run read them, equal to the readings in the section above, part 4: page
+    area, pixel ratio, VM screen and outer window, Windows Firefox at 878x618 in 894x699;
+  - every VM's home: the monitor X90G-R 1920x1080, with the owner's words "desktop 20" beside it;
+  - each VM's window: Navi Mac, size mode "pinned", 1118x859 points, no place of its own (its window was found on the
+    built-in screen in the trial run), so it is centred on X90G-R at each stage start; Navi Linux, "pinned", 1219x922,
+    its place 99,101 on X90G-R; Navi Windows, "window", 1107x897, the size set at each stage start, its place 202,31 on
+    X90G-R. Those two places are where the windows were found at the trial run's start, before it centred them: by the
+    code, a VM keeps a place of its own when its window was found on the home monitor.
+  - beside Windows Firefox's values, the note: "page height 618 against 683 in Experiment 1: Firefox's own saved
+    window size (outer 894x699, last saved 2026-11-19 06:29Z during the owner's one-time steps), not a bar; one try at a
+    taller saved window gave 671, not 683, and was undone".
+
+**5. The planned pre-check with the record in force (item 5).** `precheck-2026-11-19T2057`, 20:57:34 to 21:08:13Z
+(639 s), one run:
+- The setup "docked" matched by the Mac's screens, and its note listed in the summary's Display line; the Mac's
+  screen unlocked at all four reads.
+- 8 of 8 passed, each reading equal to the record; no display stop; nothing left running.
+- All three windows came up on X90G-R. Navi Mac's (found at 99,164) was centred; Navi Windows', which had come up at
+  99,351 with 81% of it showing, was put at its recorded place, 202,31; Navi Linux's was already at its recorded place,
+  99,101, and was not moved. Sizes unchanged: 1118x859, 1107x897, 1219x922.
+- The frontmost application was UTM at every read, already before the first start, so no change was recorded.
+- Windows Firefox again ran the served logic only by its own fetch, after three warm-up loads.
+
+**The dry run of the real session start** (21:08Z; the orchestrator's report, its output not among this section's
+sources): nothing would refuse a start; loads today 0 per site, and a start adds 8 per site; no re-sign-in switch file
+exists, so the re-sign-in click is off on every site.
+
+**6. What is open.**
+- **The owner's go for the proof session** (the 40-cell session on the five sites, with the owner at the computer):
+  not given. The owner, item 5: "I'll check Windows Firefox's Externals setting before I give it."
+- **Navi Windows Firefox's Tampermonkey Externals setting,** the owner's look: its manager injected the old copy
+  `03437c37ad84caaf` again in both runs of this section, and the checker there ran only by its own fetch.
+- **The focus question,** left open by the owner (20:22:42Z). What the runs read: the frontmost application changed to
+  UTM at Navi Windows' start in the trial run; whether the owner's focus or desktop changed has not been watched.
+- **A possible improvement, not built** (the orchestrator's): placing a VM's window right after its start as well, so
+  that a window macOS and UTM bring up on the built-in screen does not stay there until the desktop is up (up to 27 s
+  for Navi Mac in the trial run).
+- Windows Firefox at a saved height of 776 (part 2): not tried; the owner's call.
+- As before: the morning nudge, Codex review on the private lab repo, and the items the section above's part 8 lists
+  as not needed before the proof session, except the shell's path, which the owner closed (item 4).
+
+**Closed in this section:** the OK on the eight readings (20:18:03Z, with its condition met as case c) and the
+recording of the docked setup (20:57:21Z); which run to record from (the trial run); the installed shell's path on the
+wire (the owner: "No new shell.").
+
+**Not measured** (none of it may be read as known): any of this on an AI site; the window rules with X90G-R
+unplugged, and with every external monitor unplugged; size mode "window" changing a real window's size (both runs
+found Navi Windows' window already at 1107x897); whether the pinned screens and the recorded values hold through a
+session; the window size behind Experiment 1's 683.
