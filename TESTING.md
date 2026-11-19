@@ -26,7 +26,8 @@ This document explains **everything** about the automated test suite: what it do
 8. [Step-by-Step: Adding a New Platform](#step-by-step-adding-a-new-platform)
 9. [Debugging Failed Tests](#debugging-failed-tests)
 10. [The live check in the owner's Chrome (agent-driven, v12.15)](#the-live-check-in-the-owners-chrome-agent-driven-v1215)
-11. [Limitations and Caveats](#limitations-and-caveats)
+11. [Live sessions in the test VMs (the live test system, DEC-065)](#live-sessions-in-the-test-vms-the-live-test-system-dec-065)
+12. [Limitations and Caveats](#limitations-and-caveats)
 
 ---
 
@@ -1872,6 +1873,38 @@ unlocked did not help; `chrome-native-host` from `/Applications/Claude.app` was 
 connection was not established). It reconnected only after the owner signed in to the extension and authorized it
 again. In this shape, ask the owner early and do the offline work meanwhile.
 
+## Live sessions in the test VMs (the live test system, DEC-065)
+
+**What it is.** Since the owner's redesign of 2026-11-17 (the first live session ran 2026-11-18) the project has a
+second kind of live check, besides the agent's check in the owner's
+Chrome above: **attended live sessions on free test accounts**, in normal browsers inside three UTM VMs on the Mac
+(Navi Mac: Safari + Userscripts, Chrome and Firefox + Tampermonkey; Navi Windows: Chrome, Edge, Firefox; Navi Linux:
+Chromium, Firefox). The owner starts every session and stays at the computer. A runner opens each site's test chat in
+each browser the way a bookmark would; a small **checker userscript** (installed once next to Navi) checks outcomes on
+the page — Navi loaded and its version, Navigate's count and first/last question, one jump, one bookmark made, read back
+and deleted — records sign-in and challenge signals, saves the page's structure with all text replaced by filler, and
+reports to a receiver on the Mac. No WebDriver, no remote debugging, nothing hidden from the sites, nothing sent. The
+tooling lives in the private lab repo (its `README.md` and `docs/runbook.md`); the design and the owner's rules in
+DEC-065 ("Standing harness rules" lists what every session must respect).
+
+**What it proves, and what it does not (as of Experiment 1, 2026-11-18/19):**
+- It runs the published build in the real managers on the live sites, so it reaches what mocks cannot: Layer 3 (the
+  manager's transport and sandbox), the live DOM (Layer 1) and the live site's own behaviour. Experiment 1: 40 of 40
+  page loads accepted on all 8 browser × OS combinations, 22 with every check passing.
+- **The checker is not yet calibrated** (the owner, 2026-11-18): the test chats have 3 one-line questions (they fit one
+  screen, so a jump need not move the page), and it clicks once right after load and judges a landing strictly. Its
+  jump failures are "found by an uncalibrated checker, not confirmed" until the calibration (ROADMAP items 5, 17).
+- A session's results carry their context: the VM, OS, browser and version, the manager and version, Navi's version,
+  the checker's version, a free account, the page visible (the pre-check proves it at >= 20 fps before any site visit).
+  A Safari page in a background macOS fast-user-switching session reports hidden at 0 fps (TROUBLESHOOTING), which is
+  why the macOS cells run in a VM.
+- It is not acceptance (DEC-031 stays the owner's record) and not a substitute for the agent's check in the owner's
+  Chrome before a PR.
+
+**What it found about these mocks.** The structure captures show the `npm test` mocks stale on all five sites: green
+mock runs exercise paths the live sites no longer take (DOM-REFERENCE, each site's "November 2026: Experiment 1's structure captures";
+ROADMAP item 18). The redesign's plan is to build the CI's copies from those captures and prove them with planted bugs.
+
 ## Limitations and Caveats
 
 ### What mock testing catches
@@ -1887,7 +1920,7 @@ again. In this shape, ask the owner early and do the offline work meanwhile.
 
 | Limitation | Why | Mitigation |
 |-----------|-----|-----------|
-| Real site DOM changes | The mock is a static snapshot; the real site may have changed its HTML since the mock was built | Periodically open the real site in DevTools and compare against the mock; update the mock if selectors drift |
+| Real site DOM changes | The mock is a static snapshot; the real site may have changed its HTML since the mock was built | Periodically open the real site in DevTools and compare against the mock; update the mock if selectors drift. Since 2026-11-18 every live session saves each page's structure (text replaced by filler); Experiment 1's 40 captures found the mocks stale on all five sites (DOM-REFERENCE, "November 2026: Experiment 1's structure captures") |
 | Dynamic content loading | Real sites load messages via API calls and render them asynchronously; mocks have all messages pre-rendered | If a site lazy-loads messages, the userscript's `MutationObserver` handles it — but the test can't verify that path |
 | CSS-in-JS hash instability | Replit's Emotion classes change per deployment; our mock uses a frozen snapshot of `data-testid` attributes | The mock tests the "happy path" (data-testid exists). If Replit removes data-testid, the fallback selectors activate — test a separate mock for that path if needed |
 | SPA navigation | The test loads the page once; it doesn't simulate route changes or conversation switching | The SPA hooks (pushState/replaceState interception) are tested implicitly — they exist in the script — but their behavior on navigation isn't exercised |

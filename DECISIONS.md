@@ -5244,6 +5244,46 @@ owner's, committed as `6911977`). Public docs on `ci/live-verification-layer`; a
 proves a change is needed, which would stop for the owner (spec). **Replaces** the "live verification layer (the next
 spec)" placeholder in ROADMAP and the 2026-11-12 handoff's "spec 1, a built-in self-test", which the owner rejected.
 
+### Where this stands (2026-11-19) — read this first
+This DEC is a running, chronological record (each section dated; corrections stay next to what they correct, both
+results kept). This block and the last sections are the current state.
+- **Status:** Experiment 1 is complete (2026-11-19 02:08Z): **40 of 40 page loads accepted**, signed in to the test
+  account, Navi v12.19 loaded, no stop rule anywhere, 22 cells with every check passing, 12 Claude loads in total
+  (the owner's accepted figure). The owner's instruction after the report: start nothing; the owner returns with the
+  plan for the rest of the pipeline. The owner's order (2026-11-18): **build the whole pipeline first** (Windows,
+  Linux, the full session, the fix loop, the CI), **then calibrate the checks, then run it as if for the first time.**
+- **Frozen until the owner's plan:** Navi v12.19 (the published build, byte-identical to `main`) and checker 0.3.2.
+  No Navi fixes and no check tuning before the pipeline is built.
+- **Where the browsers run:** three UTM VMs on the MacBook Air, one at a time: **Navi Mac** (macOS 26.6.2: Safari +
+  Userscripts 4.8.6, Chrome + Tampermonkey 5.5.1, Firefox + Tampermonkey 5.5.0), **Navi Windows** (Windows 11 ARM64:
+  Chrome, Edge, Firefox, each with Tampermonkey) and **Navi Linux** (Ubuntu 26.04 aarch64: Chromium, Firefox, each
+  with Tampermonkey). Every browser holds Navi v12.19, checker 0.3.2 and the owner's sign-ins on all five sites. The
+  macOS test user **Navi Test** is frozen (its Safari cannot render in a background session); the owner expects not to
+  use it under the VM design (2026-11-19).
+- **Tooling (private repo `ai-conversation-navigator-private-lab`, branch `phase-a/stage-0`):** `exp1/receiver.js`,
+  `exp1/navi-checker.user.js`, `exp1/run-stage.js` and the per-VM scripts. How to run and maintain them:
+  `README.md` and `docs/runbook.md` there; the per-cell record: `docs/experiment-1-results.md`; the structure drift:
+  `docs/exp1-structure-drift.md`. Raw reports and captures stay untracked in `local/exp1/`.
+- **Public records of this work:** the owner's spec (`docs/specs/live-test-system-spec.md`, superseded in part) and
+  redesign (`docs/specs/live-test-system-redesign.md`); this DEC; TROUBLESHOOTING's "live test system" entries;
+  DOM-REFERENCE's "November 2026: Experiment 1's structure captures" subsections; ROADMAP item 5 (and items 15-20).
+- **Findings waiting for the pipeline** (none to be worked on before the owner's plan): Perplexity bookmarks on
+  `/session/` chats (a probable real bug, reserved by the owner as the first end-to-end test of the finished fix
+  loop); the jump findings of an uncalibrated checker (ChatGPT; Grok in Google Chrome and Edge; Safari / Claude); the
+  CI's mock pages are stale on all five sites; light/dark detection under "auto" (ROADMAP item 15).
+- **Not built yet from the first spec:** the admin build, the baseline, the fix loop and its Routine, the CI against
+  copies (decision 8 of the redesign), the full checker, auto-merge (built off). Superseded by the redesign: the
+  schedule, WebDriver/remote debugging on AI sites, runner-created canaries, the live-send check, scratch chats.
+- **HANDOFF.md is stale:** it is still the 2026-11-12 handoff (`d6bddbd`), which says to wait for this spec; a new
+  handoff is owed (the baton-handoff skill runs only when the owner names it). Until then, start here.
+- **Open with the owner:** Codex review on the private repo (asked 2026-11-16; not confirmed; the steps: on
+  github.com, avatar → Settings → Applications → Installed GitHub Apps → ChatGPT Codex Connector → Configure, add
+  `ai-conversation-navigator-private-lab` if access is limited to selected repositories; then on chatgpt.com/codex,
+  Settings → Code review → on for that repo; the agent could not check the app's access: `gh api /user/installations`
+  needs a GitHub App token, HTTP 403); Tampermonkey's update
+  settings in the seven VM Tampermonkeys (advised 2026-11-19, below); a re-check of Navi Mac's reopen list after its
+  next stage. **Closed:** `chmod 700 ~` (the owner, 2026-11-18 20:55 CST; measured below).
+
 ### The owner's decisions (the spec; 2026-11-12 unless dated otherwise)
 - **Three separate pieces:** the public navigator (the only thing users get; never any test code), the checker (tests
   outcomes on the exact public build, every cycle) and the admin navigator (the public build plus a read-only
@@ -5345,12 +5385,52 @@ backend, Windows 11 Pro ARM64 build 26300, 2026-11-16)
   have lines of their own. Measured: the "user missing" branch (before the user existed), and the "not signed in"
   branch (exit 11, the owner's wording) right after the owner created Navi Test (uid 503, a Standard user, 2026-11-17
   02:43Z), before its first sign-in.
+- **The test user's reach into the owner's account** (the owner's security boundary, 2026-11-16; the proof job
+  `stage0/mac/00-boundary.sh`, run as navi through the job runner, 2026-11-17 02:54Z): navi could write only
+  `/Users/Shared/navi-lab/jobs/out` (and its own home and the shared temporary folders); it could delete, not add, jobs
+  in `jobs/inbox`; nothing the owner's account runs (the orchestrator, Node, the app copy, anything with Keychain
+  access) was writable by navi. **But it could READ much of the owner's home**, which was mode 755: `~/.docker/config.json`
+  (644, can hold registry passwords), the `~/.claude` and `~/.gemini` folders, `~/Desktop` (including `side-projects`
+  and the private lab repo) and `~/Documents`. The GitHub token file and `~/.claude.json` were already private (600).
+  The agent recommended the owner's step `chmod 700 ~` (reversible with `chmod 755 ~`; it closes only the `~/Public`
+  drop box to other local users). **Done by the owner** (reported 2026-11-19: Navi Test cannot reach the home
+  folders); measured 2026-11-19: `drwx------` (700), changed 2026-11-18 20:55 CST. The boundary job itself was not
+  re-run as navi afterwards (Navi Test is signed out).
+- **The job runner's output is data, never executed** (the owner's rule): `navijob.sh` reads only regular files owned
+  by navi (no symlinks), strips control characters, and accepts only a number as the exit code. Before that fix it
+  printed navi's output with plain `cat`.
+
+### Phase 1: the read-only desk research (2026-11-16 21:25Z to 2026-11-17 00:02Z, committed 00:01:50Z and presented to the owner 00:02:20Z; v12.19's source and the repo docs only)
+Written by a workflow (run `wf_6f85ec9c-fc5`), reviewed by a critic, then reconciled; committed in the private repo
+as `960eca2`. Nothing was sent to any site.
+- **`docs/check-inventory.md`:** 159 check ids over 12 features on the 5 sites (2 preconditions, the spec's 10
+  starter checks broken into 38 sub-checks, 119 for later), each mapped to the `data-acn-*` markers it reads. Nine
+  reads rely on visible text, class names or ids rather than markers; they are labelled `fragile`.
+- **`canaries/questions-draft.md`:** 116 canary questions with numbered markers (`NAVIL01` … `NAVIL50` in `long`) and
+  planted words (e.g. `quillomap`, `lumivex`, the phrase `nibyeld harbor`), checked by `canaries/check-questions.js`.
+- **`docs/check-inventory-review.md`:** the critic's 1 blocker (sentinel bookmarks, plus one sentinel command per
+  profile, are required: without them the spec's Gate "a wrong bookmark delete must fail" cannot pass) and 15
+  should-fix items, each verified against the code before it was applied.
+- **`docs/owner-sitting-brief.md`:** 22 numbered decisions for the owner's one-sitting review (the ones flagged: 3, a
+  52-question Perplexity `long` chat to test paging past Navi's 50-entry read; 16, which extra canary chats; 18, 40
+  scratch chats now and 25 in Phase B; 21, approving Gemini's `hNvQHb` read, a POST, for the one-time read-back) and
+  the stop-and-ask items (Claude has no "index ready" marker; some jump endings leave no trace; the nine fragile
+  reads). The agent's recommendation: none blocks the start, so no Navi change. Creation would cost ~72 sends per
+  site at minimum, ~80-90 with the recommended extras.
+- Three reconciliation passes made the two drafts and the brief agree (13, then 10 mismatches; the last pass verified
+  only its own 10 items, then polishing stopped).
+- **Status (2026-11-19):** the owner's review sitting was never held. The redesign (2026-11-17, below) superseded the
+  runner-created canaries, the live-send check and the scratch chats; the inventory stays the reference list of
+  checks for the later calibration and the full checker. Each of the four files carries a status note under its title.
 
 ### Measured (Stage 0, items 1, 3 and 4 for Safari — the Navi Test user, macOS 26.6.2, Safari 26.6.2, Userscripts 4.8.6,
 2026-11-17 ~03:15Z; a harmless probe userscript on example.com and throwaway cookies, no real site)
 - **Installing without clicks (item 3):** Userscripts' default save folder sits in its app container, which macOS
-  protects from other programs ("Operation not permitted" for the runner). The owner pointed the save location at
-  `~/NaviLab/userscripts`; a script file written there ran on the next page load, with no click.
+  protects from other programs ("Operation not permitted" for the runner). The agent chose `~/NaviLab/userscripts`
+  (its job created the folder and checked it was writable) and the owner set it in Userscripts' folder picker; a
+  script file written there ran on the next page load, with no click. **Context: measured with Navi Test as the active
+  (on-console) session** (the watcher ran the probe only while the console user was navi, 03:15Z, right after the
+  owner had changed the settings by hand); see the later findings on background Safari and on Userscripts' index.
 - **Safari's two paths (item 1):**
 
   | Path | Userscripts runs | Sees normal Safari's cookies | Keeps its own cookies next session |
@@ -5409,7 +5489,25 @@ Raised as the spec's stop-and-ask. The owner first chose "cool down, re-measure"
   automated or programmatic access (the agent quotes the clauses with links). Stage 0 work that visits no site
   continues.
 - Before this decision the agent's probes had made about ten automated claude.ai page visits (Chrome and Firefox) and
-  three session checks in a Safari tab the owner had opened (2026-11-17 03:47-04:05Z). None since.
+  three reads of the owner's five Safari tabs, claude.ai among them (2026-11-17: an in-page read at 03:45:48Z, session
+  GETs at 03:47:18Z and 04:04:41Z). None since.
+
+### The five sites' terms on automated access (the review the owner asked for; 2026-11-17, private `docs/site-terms.md`, `ebaff73`)
+Two agents per site (one found the clauses, one checked them against the page independently). Perplexity, Google and
+Anthropic were read live; openai.com and x.ai refuse automated fetches, so their text was checked on the Internet
+Archive's copies of the official pages (2026-11-14 to 11-16) — the owner should open those two by hand before relying
+on them. The agent's plain reading, not legal advice:
+
+| Site | Where | What it bans | Exception it states | Reading |
+|---|---|---|---|---|
+| Claude | Anthropic Consumer Terms §3 item 7 (2025-10-08) | access by automated or non-human means; scraping; bypassing protective measures | API key, or explicit permission | prohibited (the owner's reading confirmed) |
+| Grok | xAI Acceptable Use Policy (2026-08-14), part of the consumer terms | "unauthorized automated or non-human means"; scraping inputs or outputs; circumventing protections | only "authorized" means; the API has separate terms | prohibited |
+| Perplexity | Terms of Service §5.2(d), (i), (m) (2026-01-23) | bots; automatic software that accesses the service to monitor, extract or collect data; anything not expressly permitted | written permission | prohibited (§5.2(i)'s "monitor" covers a checker) |
+| Gemini | Google Terms, "Don't abuse our services" (2026-07-30) | automated access against a page's machine-readable instructions (robots.txt) | none stated | prohibited for the chats: gemini.google.com's robots.txt (archived 2026-11-07) disallows `/app/` and `/chat/` for every bot |
+| ChatGPT | OpenAI Terms of Use, "What you cannot do" bullets 4 and 6 (2026-01-01) | automatically or programmatically extracting data or output; bypassing protective measures | none stated; the API has separate terms | unclear, leaning prohibited |
+
+The owner's answer was the redesign below: nothing unattended, nothing scripted on an AI site, the owner present and
+starting every session, normal browsers, read-only; the owner asks Anthropic for permission separately.
 
 ### The redesign: attended live checks, no robots (the owner's decisions, 2026-11-17)
 Spec: `docs/specs/live-test-system-redesign.md` (the owner's). It supersedes, in the first spec: the 04:00 schedule,
@@ -5451,7 +5549,7 @@ everywhere), Claude at most one visit per browser, any account message about aut
 |---|---|---|---|
 | Navi Test in the background (the owner in their own session) | 24/48/48 fps, visible | 48/48/48 fps, visible | **4/8/8 fps, turns hidden** |
 | Navi Test in the background, Chrome's switches `--disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling` | — | — | 54/53/54 fps, visible |
-| The owner's account, a new dedicated Chrome profile, window visible but not focused | — | — | 53/54/54 fps, visible |
+| The owner's account, a new dedicated Chrome profile, window visible but not focused (run 3 recorded focus = true; corrections) | — | — | 53/54/54 fps, visible |
 | The same, window fully covered | — | — | 0 fps, hidden |
 
 **The owner's decisions (2026-11-17):** (1) Chrome's three switches in background Navi Test are acceptable under the
@@ -5497,7 +5595,7 @@ sign-in, FileVault off, no Apple Account. SSH key-only access added as on the ot
 - Side effect, disclosed: the agent's `lipo` call raised the developer-tools prompt; the owner chose to install the
   Command Line Tools in the VM.
 
-### Experiment 1, Stage A: stopped after 6 of 15 cells (2026-11-18, the owner's decision)
+### Experiment 1, Stage A: stopped after 6 of 15 cells (2026-11-18: the agent paused the runner after the Chrome / Claude cell, 04:50:37Z; the owner then decided to end Stage A there)
 Run `exp1-A-2026-11-18T0437` (Navi Test, background session; Navi 12.19; checker 0.2.0; free test accounts). **No
 stop rule triggered**: every site loaded signed in, with no challenge, warning or notice.
 
@@ -5513,7 +5611,9 @@ stop rule triggered**: every site loaded signed in, with no challenge, warning o
 Harness faults, both the agent's: the runner's 180 s cap was shorter than the checker's own 5-minute deadline; and
 Chrome's checker never reached the receiver (cause under investigation). Safari's pages reported `hidden` during the
 stage although the earlier local measurement had them visible: recorded as a contradiction to resolve.
-**The owner's decision (2026-11-18):** stop Stage A here; the 6 cells stand. Before any further site visit: fix the cap
+The agent paused the runner after the sixth cell (no stop rule had fired; two cells lost to the cap and Chrome's
+unclaimed cell made the rest look wasteful) and asked the owner how to continue, recommending Firefox's 5 cells now and
+Chrome later. **The owner's decision (2026-11-18, "Option 4"):** stop Stage A here; the 6 cells stand. Before any further site visit: fix the cap
 (longer than the checker's deadline); prove the full round trip on the local test page under the real managers in Navi
 Test (Tampermonkey in Chrome and Firefox; the page opened the way the stage opens it), and find why Chrome's checker
 never reached the receiver; find why Safari reported hidden by reproducing the stage's exact conditions on the local
@@ -5566,7 +5666,8 @@ the 9 remaining cells and about re-running the 3 cells the harness lost; none is
   new tab in that window (1 window, 1 → 2 tabs; only the added tab closed afterwards): **hidden, 0 fps, 3 of 3.** So
   who created the window does not explain the 2026-11-17 visible runs (24/48/48 fps); that result is **unexplained**.
   Same Safari both times (user agent `Version/26.6.2 Safari/605.1.15`). Since 2026-11-18, every Safari page opened in
-  background Navi Test has been hidden at 0 fps: 15 of 15 across five setups (running with no window, not running, a
+  background Navi Test has been hidden at 0 fps: 15 of 15 (17 render rows plus a pre-check in the files; corrections
+  below) across five setups (running with no window, not running, a
   window created in the background, Safari started by the owner, the owner's own window), plus the Stage A pages.
   Plainly: **Safari in background Navi Test cannot be relied on to render.**
 - **The required pre-check, all three browsers, checker 0.3.1** (the owner installed Navi v12.19 and the checker in
@@ -5675,7 +5776,8 @@ Navi Test themselves.
   | Safari launched on console | owner-launched 26809, 06:25Z | hidden 9/9: refuted |
   | Busy at the switch / loaded pages (the owner's idea) | owner-launched 82025, 4 pages, switched at 57 s | hidden 4/4; WebKit logged the window covered the same second |
 - **Still untested** (the owner decided not to test them): lock/unlock, display sleep, the USB-C dock replug (macOS
-  InstantView virtual displays), a real sleep; also whether the 11-16 window was full screen, on its own Space or
+  InstantView virtual displays), a real sleep; also whether the window of Safari 53256 (launched 2026-11-16 21:43 CST,
+  2026-11-17 03:43Z) was full screen, on its own Space or
   playing media; and 17 h off console.
 - **Reproduce the hidden result:** with the receiver running and the owner in their own account, submit
   `stage0/mac/27-safari-hidden-repro.sh` through `navijob.sh` (as navi); its header lists the log commands for
@@ -5684,7 +5786,7 @@ Navi Test themselves.
 - **Left as found after this entry:** browsers quit; the two copied `release` profiles (339 MB and 284 MB) deleted at
   the owner's request; nothing else changed.
 
-### Navi Mac: Safari's manager installs by copying the app (2026-11-18 ~18:15-18:34Z, local test page only)
+### Navi Mac: Safari's manager installs by copying the app (2026-11-18 ~17:25-18:34Z, local test page only; the copy 17:25-17:28Z, the owner's four clicks 17:28-18:21Z, the script tests 18:21-18:34Z)
 - `/Applications/Userscripts.app` (4.8.6, Mac App Store signature) copied from the Mac into Navi Mac with `ditto`
   over SSH: signature valid, accepted as App Store software with **no Apple Account** in the VM, `lsregister`ed; it
   starts and stays running (no receipt failure), and macOS registers its Safari extension
@@ -5785,7 +5887,8 @@ challenge, warning or notice anywhere; Claude unchallenged in all three browsers
 - **None of the failures is lag** (the owner's concern): ChatGPT, Safari and Firefox: Navi itself refused within
   0.3-3.7 s with its toast "That message is not currently rendered — scroll toward it and try again"; Chrome: Navi
   found and flashed the right question but it settled 9 px above the top and stayed there 20 s. Chrome / Grok: settled
-  144 px above the top (Safari and Firefox landed it at 128 and ~90 px). Perplexity: Navi's bookmark flag had no message
+  144 px above the top (Safari and Firefox landed it at 128 and ~90 px; the reports say 128 px for both, corrections
+  below). Perplexity: Navi's bookmark flag had no message
   key for 10 s in all three browsers: the test chat is at `/session/<id>`, which v12.19's index adapter does not
   recognise (it matches `/search/` only), so Navi scans the page and has no stable key; the checker did not click.
 - **Safari / Claude's jump skip:** Safari's window for that cell stayed `occluded` in the VM for 33 s (14:50:27-14:51:00
@@ -5867,7 +5970,7 @@ all three). Load and Navigate 15/15 pass. Classification per the owner's decisio
   0 without a report, 0 not visited. No site objected. Duration: 11 min 29 s." (Its header still said "Mac"; it now
   names the stage's machine.)
 
-### Stage C preparation: the Linux VM (2026-11-18 22:55-23:08Z, the owner's go for preparation; local pages only)
+### Stage C preparation: the Linux VM (2026-11-18 ~23:02-23:10Z, after the owner's go at 23:01:38Z; local pages only)
 Navi Linux (UTM, Apple Virtualization, Ubuntu 26.04 aarch64, 2 cores, 4 GB: ~1 GB available at idle): Chromium
 157.0.8103.50 and Firefox 160.0-1 (snaps), Tampermonkey by policy in both, first starts done, "Allow User Scripts" not
 yet on in Chromium, Navi and the checker not installed. **Nothing starts a browser at sign-in** (no user or system
@@ -5923,21 +6026,218 @@ scripts, cookies for all five sites).
   9 px above the view in 1), Grok 5 of 8 (Chrome on macOS and Windows and Edge landed 144 px above), Claude 7 of 8
   (Safari skipped: window covered), Gemini 8/8, Perplexity 8/8. Bookmark: Perplexity 0 of 8 (no key, `/session/`),
   every other site 8/8. Uncalibrated, not confirmed, except Perplexity's (probable bug, reserved).
-- **Durations (runner, VM start to shutdown):** Stage A in Navi Mac 9 min 54 s; Stage B 11 min 29 s; Stage C 3 min
+- **Durations (runner's start to the VM's shutdown; see the corrections below):** Stage A in Navi Mac 9 min 54 s; Stage B 11 min 29 s; Stage C 3 min
   58 s + 2 min 18 s; counted total 27 min 39 s. Not counted: Stage A in Navi Test (stopped after 6 cells) and Stage C's
   first run (stopped, display change). Claude loads in the experiment: 12 (the owner's accepted total).
 - **Structure drift:** the 40 captures agree with each other on every verified marker across OSes and browsers (only
   Windows Chrome and Edge get Gemini's narrow layout); against the CI's mock pages, the `npm test` mocks are stale on all
   five sites (details in the report; per-site analysis `local/exp1/drift-*.{md,json}`, private).
 - **Discord messages posted: 4** (Stage A in Navi Mac, Stage B, Stage C re-run, Stage C Firefox). Two wording bugs in
-  them, both fixed in the runner: "21 cells" counted the pre-checks; "5 without a report" counted cells that were not
+  them (three in all with Stage B's "Mac" header; corrections below), fixed in the runner: "21 cells" counted the pre-checks; "5 without a report" counted cells that were not
   visited.
+- **The agent's recommendation in the report (the redesign asked for one): go, with changes.** Reasons: the design
+  worked end to end on all three systems (40/40 accepted, every report through the real managers, nothing hidden); no
+  site objected, over 12 Claude loads; the pre-check with its example.com probe caught a real fault (Firefox's prompt)
+  before any site visit; a 40-cell session takes about 28 minutes. The changes, in the agent's order: (1) calibrate the
+  checker before trusting its jump results; (2) build the CI's copies from the captures; (3) make the harness lessons
+  permanent (never force-close, a boot-time no-browser check, the viewport in the pre-check, the Troubleshoot prompt and
+  the idle timers off); (4) cut the recurring clicks (a checker update address; measure how long sign-ins last); (5)
+  keep Navi Mac for the Mac's cells; (6) Perplexity `/session/` as the fix loop's first test. **The owner's order
+  stands over the agent's:** build the whole pipeline first, then calibrate (2026-11-18).
+
+### After the report: keeping the scripts current in the VMs (2026-11-19, discussion only; nothing changed)
+- **The owner asked** whether the agent could install script updates itself in the VMs by typing the URL or clicking
+  through Tampermonkey. **The agent's answer:** Safari (Navi Mac) is already automatic: the runner copies the file into
+  Userscripts' folder over SSH and moves window focus (`open -a Finder; open -a Safari`) to rebuild its index. For
+  the seven Tampermonkeys, typing and clicking from the owner's desktop is the wrong tool: Apple Virtualization views
+  (Navi Mac, Navi Linux) drop synthetic modifier keys, so a URL's `:` cannot even be typed; synthetic clicks would move
+  the owner's real pointer, need the VM window in front and uncovered, and act on the owner's desktop. The no-click
+  routes: (1) Tampermonkey's own update check (recommended), (2) automating the Install button inside each VM (UI
+  Automation in Windows; Accessibility in Navi Mac after one permission grant; hardest on Linux), more fragile.
+- **The owner's choice:** Tampermonkey's own updates, at its most frequent setting. The owner's experience: Tampermonkey
+  has stayed on old code for a while after changes on GitHub.
+- **Why it can stay on old code** (Tampermonkey's documentation and user reports; not measured here): it updates only
+  when the remote `@version` is higher (a code change without a version bump is ignored); it checks only at its
+  interval and only while the browser runs; a script's own "Check for updates" box can be off (saving an edit in its
+  editor can turn it off); GitHub's raw files are cached for a few minutes.
+- **The settings the owner found** (Tampermonkey's settings page): "Userscript Update" — never, every 6 hours, every 12
+  hours, every day, every week; "Externals Update Interval" — always, every day, every week, every month, never.
+  "Externals" are the files a script pulls in with `@require` (code) or `@resource` (styles, images). **Measured
+  2026-11-19:** neither Navi v12.19 nor checker 0.3.2 has any `@require`, `@resource`, `@updateURL` or `@downloadURL`
+  line, so the Externals setting does nothing for them today. **Advised for the seven VM Tampermonkeys** (Navi Mac
+  Chrome and Firefox; Windows Chrome, Edge, Firefox; Linux Chromium, Firefox): Userscript Update **every 6 hours**,
+  Externals **always**. Whether the owner has set them is not reported.
+- **A correction:** the agent first said Navi's header "already has" an update address pointing at its GitHub build.
+  It has none; Tampermonkey then most likely checks the address the script was installed from (the GitHub raw URL),
+  which is a belief, not a measurement.
+- **Ideas for the plan, none built or measured:** every checker change bumps `@version` (already the practice); give
+  the checker `@updateURL`/`@downloadURL` on the receiver; make the pre-check refuse a browser still running an older
+  checker (the report already carries the version), so a missed update stops that browser before any site visit;
+  fallbacks for a missed update, in this order: Tampermonkey's own "Check for userscript updates" in its icon menu,
+  then the owner's click if it asks for one; a stable checker shell (addresses, grants, `@match`) plus its logic as an
+  `@require` file served by the receiver, with
+  Externals "always", so logic changes apply at the next session without a reinstall (measure first what "always"
+  really does). An update that adds permissions (a new `@connect`, `@match` or `@grant`) still asks for a click.
+  Unreleased Navi builds that the fix loop will test need their own route (Tampermonkey's update follows the published
+  build).
+
+### Corrections and additions from the docs pass (2026-11-19; the files in `local/exp1/` and the code re-read against this record; both values kept)
+- **Durations.** The sections above say "VM start to shutdown". In all four counted runs the runner found the VM
+  already running ("already running, signed-in desktop +0s" / "+1s" in each stage log), so the durations run from the
+  runner's start to the VM's shutdown and include no boot.
+- **Grok in Safari and Firefox (Stage A in Navi Mac):** "128 and ~90 px" above; both reports give 128 px.
+- **ChatGPT's "Navi refused while the question was on screen"** (the final report to the owner): true for 3 of the 5
+  refusals (Windows Chrome 3 px, Edge 6 px and Linux Firefox 58 px from the top); Navi Mac Safari's report found no
+  question element (`top` null), and Navi Mac Firefox's had it 9 px above the top.
+- **ChatGPT's 1-pixel element at the end of each turn:** the final report presented it from all 40 captures as "exactly
+  the 4 cells" where Navi refused; that analysis covered the 33 captures of Stages A and B. Over the 8 counted ChatGPT captures plus the 2 from Stage
+  C's stopped first run it is present in all 5 refusal cells and absent in the other 5. Captures are taken after the jump, so it may follow
+  from the page not moving rather than cause the refusal (the private lab's `docs/exp1-structure-drift.md`).
+- **"The 40 captures agree on every verified marker":** every marker Navi selects on has the same count in all 40.
+  Beyond them the Linux captures differ in places that touch no Navi selector: ChatGPT draws answers without the
+  `DilRenderer` / `data-dil-*` layer (4 of 4 Linux captures); Perplexity adds a context-pane column, and Linux Chromium
+  lacks the open popup; Claude's `ground-next` appears only on Windows and Linux, and `data-perf-reply-text` is missing
+  in the counted Linux Firefox cell; Grok's generated class names changed between 01:35 and 01:49Z. Grok's failing set
+  is Google Chrome (macOS, Windows) and Edge, not "the Chromium engine": Linux Chromium landed it.
+- **Discord wording bugs: three**, not two: also Stage B's header said "Mac" (fixed in `1b2cf20`).
+- **"15 of 15" hidden Safari pages in Navi Test** (the ~06:00Z section): `render.jsonl` holds 17 Safari render rows in
+  that window plus the 06:02Z pre-check, all hidden; the conclusion stands, the count was wrong.
+- **"No unexpected checker request appeared"** (Navi Mac ready, 19:35Z): the receiver logged one at 19:32:36Z
+  (example.com, from 127.0.0.1, i.e. from this Mac itself); its source is not determined. Outside the stages it also
+  logged 29 unarmed requests from the Windows VM and 15 from the Linux VM, in time with the owner's sign-ins there (an
+  inference: the checker asks on every matching page and stays silent when not armed). None during a stage.
+- **Navi Mac's Safari "none re-posted"** (the ~17:25-18:34Z section): `render.jsonl` has a second
+  `navimac-us-proof-2` report at 18:30:46Z (hidden, 0 fps, measured over 445 s); the next section's "never SIGTERM
+  Safari" finding is the explanation.
+- **Not recorded before (Stage 0, 2026-11-17 ~03:22Z, single runs):** the browsers' first runs in background Navi
+  Test gave Safari "hidden" once and "visible" once, before the owner launched Safari process 53256 (03:43Z); Chrome
+  under WebDriver drew 56 fps, visible; Firefox reported visible but drew 0 frames in 4 s. The Safari "visible" run
+  bears on the untested sleep/wake and display hypotheses.
+- **Navi Mac's reopen list:** setting the loginwindow defaults alone did not stop Firefox starting at boot; only
+  removing the persistent-apps list did.
+- **The agent's decisions (2026-11-16) say navi "cannot read the owner's Desktop":** the boundary proof (2026-11-17)
+  found `~/Desktop` readable through its POSIX mode (755); the macOS protection that blocked the runner applied to the
+  test user's own Desktop. Moot since the owner's `chmod 700 ~`.
+- **As implemented, against the rules** (the runner and checker read 2026-11-19; for the pipeline build and the
+  calibration): a site stop holds only within one run (carrying it to the next stage is the operator's step); an
+  account message about automated use has no code path of its own (such text trips the per-site unusual-activity
+  stop); Claude's visit cap is not enforced in code; `vm_start_and_wait` refuses to start a VM while one of the same host
+  process kind runs (so Navi Mac and Navi Linux, both Apple Virtualization, cannot run together), but Navi Windows
+  (QEMU) beside an Apple Virtualization VM is unguarded; two tracked helpers
+  the runner does not use (`exp1/windows-vm/close.sh`, `exp1/linux-vm/open-close.sh`) still force-kill as a last
+  resort; the checker reports "signed out" whenever Navigate counts 0, so a cell where Navi did not load would read as
+  a sign-out and stop that site for the run (code reading; it never happened).
+- **Credit:** `machine/mac/vm-lib.sh`'s header called "utmctl is never polled" the owner's rule; it is the agent's
+  practice (2026-11-16), which the owner told the agent to keep. The comment now says so.
+- **Safari 53256 was hidden too, two minutes after its launch** (found in the tool output, not reported at the time):
+  at 2026-11-17 03:45:48Z (an in-page read) and 03:47:18Z (the sign-in check), with the owner in their own account,
+  all five of the owner's AI-site tabs in that process returned `document.visibilityState = "hidden"`. The selected tab
+  and the window count were not recorded (a tab not in front is always hidden), so it is a strong hint, not proof,
+  that 53256's window was occluded after the switch and became un-occluded later, after the lid-closed sleep
+  (05:00:44Z), the wakes and the dock plug (20:41Z). This qualifies "the anomaly is 11-17 … its window's state cannot be
+  read" above, bears on the untested sleep/wake and dock hypotheses, and weakens "busy at the switch".
+- **The research skeptic's caveats** (workflow `wf_08b7a130-5aa`, not carried into the sections above): the record
+  cannot tell the wake/unlock candidate from the dock candidate, because (a) no Safari run fell between the 11-17
+  16:45Z full wake and the 20:41:04Z dock plug, when InstantView restarted and created the X90G displays; (b) the same
+  dock and InstantView event recurred on 2026-11-18 at 04:34:10-22Z (dock and MagSafe replugged after an unplug at
+  04:05:53Z) while no Navi Test Safari was running; (c) the one display data point counted "against a display change
+  alone" (26809, displays added 06:24:00-04Z) had no USB plug and no InstantView restart, 5 s after a console switch,
+  so it does not test the dock candidate. Its own ranking: a wake or unlock re-checking existing windows ~40%, the dock
+  plug ~15%, a missed update at the 35 s switch ~10%. Its test for the dock candidate: unplug the dock ~10 s, replug,
+  wait for the `virtualDisplayCreate` lines, then open a new tab in the existing window. (Not to be run: the owner
+  ended Safari testing in Navi Test, 2026-11-18.)
+- **The owner's "quit Safari, reopen it and visit the site"** (2026-11-18 06:07Z): the agent ran the replication on the
+  local test page instead of an AI site, because that page was the one that had rendered on 11-17 and a second AI-site
+  load would break the one-load rule; the owner did not object.
+- **The launcher mix-up had a signal before Stage A:** at 04:34Z the agent's read of Navi Test's normal profiles found
+  no Tampermonkey script names in either, and the agent told the owner the lists "can't be read: both browsers store
+  them compressed". At 06:00Z a fixed-string search of the same storage found both names and the version, so the
+  04:34Z result was most likely a true absence reported as "unreadable".
+- **The dedicated-profile Chrome test in the owner's account (2026-11-17 ~21:51-21:52Z):** run 3 recorded focus =
+  true (only runs 1-2 were unfocused). The owner's personal Chrome data folder showed a modification time in the same
+  minute (15:52 CST); the owner's Chrome was running, so whether the test touched it was not determined.
+- **Navi Windows' UTM config has a directory-sharing mode** (WebDAV, read-write) and the guest runs `spice-webdavd`;
+  only clipboard sharing was turned off. Whether a host folder is attached was not checked (the owner's setup said no
+  shared folders). Open. The two VMs' original UTM configs are backed up in the resume pack's `artifacts/`.
+- **The receiver's unarmed-request log** ("host and time only" in the Navi Mac ready section, and in `receiver.js`'s
+  comment): it also records the requesting address.
+- **Smaller additions** (all from the tool output): every branch of `navi-session-check.sh` was measured — exit 10
+  "user missing" (2026-11-16 23:20Z), 11 "not signed in" (2026-11-17 02:43Z), 12 "runner silent" (signed in, no runner
+  yet, every ~25 s from 02:50:08Z to 02:54:19Z, before the owner ran `bootstrap.sh`), 0 "ok" (02:54:42Z). The Linux
+  VM's first cold-start loop (2026-11-16 23:05Z) printed "+201s" through the same unconditional-print bug as the
+  Windows "220 s" (its pattern never matched `loginctl`'s field order); the +16 s reported came from the system
+  journal, and the `vm-lib.sh` helpers replaced the loop. The owner said at 2026-11-17 03:22Z they would install
+  Tampermonkey themselves; the Tampermonkey installs and all the sign-ins were later found in Navi Test's DEFAULT
+  profiles, not the copied `release` ones the agent had opened (the probable reason the first sign-in check found
+  every site signed out). Edge keeps Tampermonkey's entry and `user_scripts_enabled` in `Secure Preferences`, not
+  `Preferences`. The owner's own Mac (read 2026-11-18 06:29:55Z): screen lock "immediate", system sleep and display
+  sleep 0, so a display sleep locks the owner's screen; the two Safari tests that needed it (display sleep;
+  lock/unlock, reading WebKit's log first) were proposed and not run. Research references for the Safari mechanism:
+  WebKit bug 331092 (Safari 26.6.2, 2026-11-11: an occluded window makes the page hidden; the private SPI avoids it),
+  WebKit's TestWKWebView turning occlusion detection off (commit 2c08965, 2026-10-21), Firefox's `MOZ_WINDOW_OCCLUSION`
+  variable (bug 2079664), AppKit 10.9's definition of occluded (100% covered, off screen, minimized or another Space);
+  no documentation was found on occlusion in a background fast-user-switching session or after display sleep/wake.
+- **How the spec arrived** (a process note): the first message carried no attachment, and a paste copied from another
+  terminal screen arrived collapsed ("[...Truncated text #4 +333 lines...]"); the full text came in a third paste. A long
+  spec is safest as a file with its path.
+
+### Standing harness rules for live sessions (as of 2026-11-19; each one's reason is in the sections above)
+The owner's rules:
+- The owner starts every session and is present; nothing scheduled, unattended or overnight (2026-11-17).
+- One page load per site per browser per stage; no reloads, no retries; a failed cell is a result, not a reason to
+  retry; no re-run of any cell without the owner's go (2026-11-17/18).
+- Stop rules: a challenge page, forced sign-out, warning banner or unusual-activity notice stops that site in every
+  remaining browser and stage; any account message about automated use stops everything; Claude's visits are capped
+  per experiment (8 planned, 10 then 12 accepted by the owner in Experiment 1).
+- **No site visit in a browser until it has passed the required pre-check** (2026-11-18): the receiver's local page
+  and then `https://example.com/` (the public probe, 2026-11-18), each opened the stage's way, the checker reporting
+  through the real manager, the page visible and drawing >= 20 fps.
+- Nothing in the owner's own account or personal browsers unless asked at that moment; no screenshots of the owner's
+  screen (only VM windows, by window id); never type a secret through synthetic keystrokes; nothing about the test
+  accounts in either repo; example.com only as the pre-check probe and one-off probes.
+- No Navi fixes and no check tuning until the whole pipeline is built (2026-11-18).
+The agent's practices (from measured failures):
+- **Never force-close a browser.** A killed Safari restored and reloaded its last tab at the next start (a second load
+  of a closed site). Navi Mac: the quit Apple Event (as Cmd-Q); Windows: `taskkill` without `/f` from a task in
+  navi's session; Linux: SIGTERM to the browser's main process. A browser that does not quit stops its remaining cells.
+- **Quit every browser before a cell opens:** a still-running Chrome took the address without new switches.
+- **No browser may start by itself:** Windows Firefox's `-os-autostart` Run entry is removed and
+  `browser.startup.windowsLaunchOnLogin.enabled` is false; Navi Mac's persistent-apps list is removed and
+  `TALLogoutSavesState` is false; the restore check (3 pages per browser, none loaded twice) passed on every VM.
+  Proposed, not built: check at each VM boot that no browser is running, and stop if one is.
+- **Firefox never offers Troubleshoot Mode** (`toolkit.startup.max_resumed_crashes` -1 in each VM's `user.js`): rapid
+  open/quit cycles count as startup crashes and the prompt blocks the start.
+- **No idle lock, blank or sleep in any VM** (Navi Mac screen saver idleTime 0 and sleep 0; Windows display-off and
+  sleep never; Linux GNOME blank, dim and idle screen saver off, sleep "nothing"): a locked or dark screen makes
+  Chromium-family pages hidden.
+- **The display must not change during a session** (a dock unplug moved Chromium's viewport from 763 to 1,645 px and
+  spoiled a run). Proposed, not built: the pre-check records the VM's viewport and screen size and compares them with
+  that VM's normal values.
+- **The runner's cap per cell (420 s) is longer than the checker's own deadline (300 s).**
+- **Partial re-runs go through `--cells`**, which opens exactly the listed cells after pre-checking their browsers.
+- **The receiver logs any checker request it did not ask for** (the time, the requesting address, and the host only
+  when it is one of the known sites), so an unexpected site load shows in the record. During the stages there was
+  none; outside them it logged 45 (see "Corrections and additions from the docs pass" above).
+- **`utmctl` is never polled** (each call brings UTM forward; the owner told the agent to keep it); VM waits fail loudly
+  and a VM counts as booted only when it reports a boot time after the start. (One VM at a time is the owner's rule,
+  from the first spec: 16 GB.)
+- **No probing of a VM in the middle of a cell** (2026-11-18, after a screenshot taken between two cells led to a
+  wrong inference that the agent retracted): read the logs once a browser's cells are done, so the measurement is not
+  disturbed.
+- **Not covered yet:** Navi Windows has no Windows Update policy (read 2026-11-16 ~23:17Z: no `NoAutoUpdate`,
+  `AUOptions` or `NoAutoRebootWithLoggedOnUsers`; no reboot pending; updates incl. KB5132061 had installed that day),
+  so nothing stops an update restart during a session. The owner's instruction applied only if the 2026-11-16 stop had
+  been update-related, which it was not; the risk stays open.
 
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
-  user. (The one full-screen capture, a permission test, was deleted unopened.)
+  user. (The one full-screen capture, a permission test at 2026-11-16 21:28:22Z, was deleted unopened. Right after it
+  macOS asked to let the terminal bypass its private window picker and the owner allowed it, so that screen permission
+  exists in the owner's account; only this rule keeps it unused.)
 - Never type a secret (a password or key) through synthetic keystrokes into a window on the owner's desktop, even
-  with focus checks: a step that needs a typed password is the owner's. (The agent had typed the Linux VM's password
-  once that way; it typed wrongly and failed. The helper can no longer read the Keychain.)
+  with focus checks: a step that needs a typed password is the owner's. (The agent had sent the Linux VM's password that way
+  twice on 2026-11-16: keystroke text events, which the Apple VM view ignores, then key codes, which reached the field
+  and were submitted, and the sign-in failed. The helper can no longer read the Keychain.)
 - Nothing the owner's account runs may live in a folder the test user can write; the test user's outputs are data
-  the owner's side reads, never executes.
+  the owner's side reads, never executes. The owner's home folder, readable by the test user at first, is mode 700 since
+  2026-11-18 20:55 CST (the owner's `chmod 700 ~`).

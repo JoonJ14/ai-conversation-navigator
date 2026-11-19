@@ -1,278 +1,309 @@
-# Session Handoff — 2026-11-10 to 11-12 (the CI rebuild: 20 parallel jobs behind one required check, `ci-ok`; J15 and U10 fixed)
+# Session Handoff — 2026-11-12 to 11-19 (the live test system: the owner's spec, Stage 0, the redesign, and Experiment 1 — 40 of 40 live page loads accepted)
 
-**Scope:** ROADMAP item 0e ("Next" item 4), the owner's order of 2026-11-07: split the probes into parallel jobs, then
-the flaky tests (J15, U10), then the mocks. Its own PR, #95, CI and probes only: **the userscript is unchanged.**
-Design and every decision: DEC-064. Review record: `reviews/review-2026-11-11-ci-rebuild.md`.
+**Scope:** the "live verification layer" the prior handoff waited for. The owner's spec arrived on 2026-11-16
+(`docs/specs/live-test-system-spec.md`); Stage 0 measured it; the owner **redesigned** it on 2026-11-17
+(`docs/specs/live-test-system-redesign.md`: attended live checks, no robots) and asked for one experiment, which ran
+in three stages (macOS, Windows, Linux VMs) and finished on 2026-11-19. **The userscript is unchanged** (v12.19,
+`b0fee35`). Design, every decision and every measurement: **DEC-065** (read its "Where this stands" block first).
+Tooling: the private repo `ai-conversation-navigator-private-lab` (its `README.md` and `docs/runbook.md`).
 
-**Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-11-08_v12.19-gemini-full-history.md` (v12.19; its §G.1 was this
-session).
+**Prior handoff:** `docs/handoffs/SESSION_HANDOFF_2026-11-12_ci-rebuild-parallel-jobs.md` (the CI rebuild; its §G.1
+was this session).
 
 **Status at close:**
-- **PR #95: MERGED** 2026-11-12 17:12:20Z as `d3f3d16` (head `116d10b`), on the owner's explicit OK, after the owner
-  added `ci-ok` to the ruleset. GitHub Codex: clean on opening and on the one confirming `@codex review` (0 findings,
-  0 fixes). The PR's run 43069811015: 20/20 jobs, `ci-ok` green.
-- **`main`'s first run** (43266934908 on `d3f3d16`): attempt 1 lost `firefox` and `webkit on macos-latest` to GitHub
-  never assigning a Mac runner (`ci-ok` correctly red); attempt 2 (`gh run rerun --failed`) 20/20, `ci-ok` green
-  17:41:52Z. The owner then removed the nine old checks.
-- **The ruleset is now `main-protection`** (the owner renamed it from `mian-protection`, a typo, on 2026-11-12) and
-  requires **one check, `ci-ok`** (GitHub Actions, integration 15368), with no bypass actors.
-- **The Safari smoke-check reminder was given** after the merge (2026-11-12). This PR changed no userscript code.
-- **This handoff is on `ci/live-verification-layer`,** cut from `d3f3d16`, for the owner's next PR (the owner,
-  2026-11-12: "it should go on next PR's branch"; the name is the agent's, after the owner's "the live verification
-  layer (the next spec)"; rename it if the spec says otherwise). No docs-only PR (the owner).
-- **Next:** the owner's next spec (a live verification layer, a different CI approach) in a new session (the owner,
-  2026-11-11), then Grok (the owner put Grok after the CI rebuild; that it follows the new spec is the agent's
-  reading, 2026-11-12).
-- **Left in the owner's browsers:** unchanged from the prior handoff (Chrome's Tampermonkey: 12.19 at `597ebfe`, and
-  G0, inert; Firefox: 12.14). No live work happened this session.
-- **This Mac now runs Playwright 1.65.0** (the owner's call, 2026-11-11): Chromium 1254, Firefox 1572, WebKit 2388,
-  the same builds as CI. 1.58.2's browsers were removed by Playwright's install.
+- **Experiment 1 is complete** (2026-11-19 02:08Z): 40 of 40 page loads accepted, signed in to the test account, Navi
+  v12.19 loaded, **no stop rule anywhere** (no challenge, warning or notice on any site, 12 Claude loads in all), 22
+  cells with every check passing. The full report went to the owner at 02:10Z.
+- **The owner's instruction after the report:** "Don't start anything after the report. I'll come back with the plan
+  for the rest of the pipeline." **The next session waits for that plan.**
+- **Frozen until the plan** (the owner, 2026-11-18): Navi v12.19 and checker 0.3.2; no Navi fixes and no check tuning
+  until the whole pipeline is built.
+- **No PR is open.** Public docs on `ci/live-verification-layer` (pushed); all tooling on the private repo's
+  `phase-a/stage-0` (pushed, `bc4844b`).
+- **All three VMs are off.** The receiver still runs on this Mac (started with `nohup`; stop it with
+  `pkill -f exp1/receiver.js`; it listens only on 127.0.0.1 and 192.168.64.1, port 8790).
+- **Navi Test** (the macOS test user) is frozen and signed out; the owner expects not to use it under the VM design.
+  The owner ran `chmod 700 ~` (measured: mode 700 since 2026-11-18 20:55 CST), so the test user cannot read the owner's
+  home folder.
+- **The owner's own browsers:** unchanged (Chrome's Tampermonkey: 12.19 at `597ebfe`; Firefox: 12.14). Nothing ran in
+  them this session. One test ran in the owner's macOS account in a separate Chrome data folder (2026-11-17, since
+  deleted; DEC-065).
+- **`/baton-handoff` was changed at the owner's request (2026-11-19):** it no longer asks whether work happened in
+  another channel; the handoff covers this session only. The change is in `vibecoding-loadout`
+  (`skills/baton-handoff/`, branch `skills/user-requested-invocation`), uncommitted there.
 
 ---
 
 ## A. State in one paragraph
 
-`main` is v12.19's userscript under a rebuilt CI. Every PR and push now runs 20 jobs [CI]:
-- `changes`, the docs-only fast path;
-- the 9 suite jobs, names unchanged;
-- 9 probe jobs, `probes <group> (<engine>)`, two lanes each;
-- `ci-ok`, the one required check.
-
-The ubuntu jobs run in `mcr.microsoft.com/playwright:v1.65.0-noble` (Playwright pinned), so the apt-mirror stall is
-gone. Whole runs took 9.23 and 9.98 minutes on the measured dispatch runs, against 46m53s before, with every probe ×
-engine's PASS count unchanged. The PR's run took 11.77 minutes, 5m03s of it one macOS job waiting for a runner.
-
-`ci-ok` fails unless every job succeeded, or was skipped as docs-only. It checks the matrices' aggregate results and
-every one of the 19 jobs by name, so a leg GitHub cancels before it gets a runner turns it red; `main`'s first run
-proved it. J15 (a mock pin with a clock) and U10 (a probe precondition race) are fixed, each with 30 local runs per
-engine before and after.
+`main` is v12.19 under the rebuilt CI (unchanged since `d3f3d16`). Beside it now stands a working miniature of the
+owner's live test pipeline, all on this Mac: three UTM VMs (**Navi Mac**: macOS 26.6.2 with Safari + Userscripts 4.8.6,
+Chrome and Firefox + Tampermonkey; **Navi Windows**: Windows 11 ARM64 with Chrome, Edge, Firefox; **Navi Linux**: Ubuntu
+26.04 aarch64 with Chromium, Firefox), each browser holding Navi v12.19, the **checker** userscript 0.3.2 and the
+owner's sign-ins on the five sites. A **runner** on the Mac starts a VM, pre-checks each browser (a local page and
+`https://example.com/`, visible at >= 20 fps, the report through the real manager), opens each site's 3-question test
+chat the way a bookmark would, waits for the checker's report at the **receiver**, closes the browser normally, applies
+the stop rules, posts one Discord message and shuts the VM down. Experiment 1's results say the design works end to
+end and no site objected; the checker itself is **not yet calibrated** (its jump failures are unconfirmed), and the
+structure captures show the CI's mock pages stale on all five sites.
 
 ---
 
 ## B. What was accomplished
 
-Times are UTC. Context tags: **[CI]** GitHub Actions, mock evidence, never browser evidence; **[mock]** Playwright,
-headless, page realm, the userscript inlined, no real manager, this Mac (macOS arm64), Playwright 1.65.0 unless
-stated.
+Times are UTC unless marked CST. Context tags: **[live]** a real site in a real browser and manager, the test
+account; **[local]** the receiver's local pages only, no AI site; **[mock]** Playwright on the repo's mock pages; **[desk]**
+read-only reading of v12.19's source and the docs. Every measurement's full context is in DEC-065.
 
-### 1. The read-only plan and the owner's decisions (2026-11-11 00:53–01:25Z)
-- **Measured first** [CI, run 42437401493 on `b0fee35`, the job logs' per-line timestamps]:
-  - `check-gemini-index` is ~45 sequential blocks of 2.7–79 s plus a background group (I22–I28, I3c) from t=0. A
-    boundary after I12b splits it 375.5 s / 388.4 s on chromium. The background group alone took 182.2 s [mock,
-    1.58.2].
-  - The other 14 probes total ~1,600 s per engine.
-  - GitHub Free allows 20 concurrent jobs (5 macOS), so the floor is ~9.5 minutes for ~180 job-minutes.
-  - CI ran Playwright 1.65.0 while this Mac and the lockfile had 1.58.2; the 1.65.0 image is 1.0 GB compressed.
-- **Alternatives offered:**
-  - A: one block per probe job, 18 probe jobs; ~9 minutes only with 28+ slots.
-  - B: two blocks per job, 9 probe jobs: 18 at once (the plan also counted a slot for `claude-code-review.yml`;
-    measured 2026-11-12, that workflow is disabled and takes none).
-- **The owner (2026-11-11), each in their words in DEC-064:**
-  - Free plan, so layout B;
-  - one required gate named `ci-ok`, which also honours the docs-only rule;
-  - the container image for all ubuntu jobs ("don't loosen any check");
-  - this Mac to 1.65.0;
-  - caps 60 → 30 and 20 for probes, a PR-only concurrency group, current actions;
-  - a docs-only fast path from the base...head file list;
-  - the gate proved by a forced failure and a cancel;
-  - J15 by the HANDOFF's deterministic pin, and U10 "the cause first", each with 30 runs per engine before and after,
-    "no retries anywhere";
-  - the mocks scoped read-only.
+### 1. The spec arrives (2026-11-16 21:14-21:24Z)
+- **What:** the state check matched the prior handoff (nothing changed since 2026-11-12). The owner's first message
+  had no attachment (856 characters); the second paste was another terminal's screen with the spec collapsed
+  ("[...Truncated text #4 +333 lines...]"); the full text came in the third. Committed verbatim as
+  `docs/specs/live-test-system-spec.md` (`6911977`).
+- **The owner's setup, done before the session (2026-11-16):** the private repo, a test Gmail with free accounts on all
+  five sites, Discord (server "Navi Admin", channel `#navi-alerts`, webhook "Navi Live Test", URL in the Keychain as
+  `navi-discord-webhook`), UTM with "Navi Windows" and "Navi Linux".
+- **The spec's shape** (owner decisions 1-11, DEC-065): three pieces (the public navigator; a checker of outcomes; an
+  admin build generated from the public source), 40 runs per cycle (5 sites × 8 browser/OS cells), Phase A all on the
+  Mac with the VMs in every cycle, a 04:00 schedule, canaries and a live-send check, auto-merge built and off,
+  the name "Navi" for every new thing (never the userscript's `@name`/`@namespace`).
 
-### 2. Stage 1, the split (commits `68b9d19` … `3e43e53`, 2026-11-11 01:25–02:56Z)
-- **What:**
-  - `.github/workflows/cross-platform-tests.yml` rewritten, plus `.github/scripts/docs-only.sh` and
-    `.github/scripts/probe-lanes.sh`;
-  - `check-gemini-index --part 1|2` (a PARTS table, R1 and E in both halves, INVALID guards);
-  - Playwright pinned to exactly 1.65.0, with `npm ci` everywhere.
-  - The suite jobs split into `test-ubuntu` (container) and `test-other` (macOS, Windows), with the same check names.
-- **Why the lanes:** two probes per runner fit Free's 20 slots. Measured [CI], two lanes cost almost nothing: e.g.
-  feature-gaps 276 s vs 275 s alone, the gemini halves 375 s / 388 s vs 375.5 s / 388.4 s.
-- **Rejected:**
-  - Sharding by `--only`: it matches by prefix, so `I1` selects I10–I19.
-  - More lanes inside the gemini probe: that changes the load profile.
-  - Layout A: it queues on Free.
-- **Review:**
-  - Tiers 1–2 in session: one CRITICAL, the lockfile still at 1.58.2 (fixed by the pin), and one WARN (PowerShell
-    quoting, fixed with `shell: bash`).
-  - Tier 3 (Codex) round 1, 2 CRITICALs, both verified and fixed in `931ce64`:
-    - the detector runs from the BASE branch, so a PR's own edit cannot skip its tests;
-    - `ci-ok` checks every leg by name through the jobs API, after GitHub community discussion 211624 (a user's
-      report) said a leg cancelled before getting a runner leaves the aggregate at `success`.
-  - Round 2, fixed in `77f7fee`: `filter=all` with each name's newest attempt; BOTH_PARTS validated.
-    - Not changed: "a PR can edit the workflow" (true of every `pull_request` workflow) and "`always()` keeps `ci-ok`
-      running on a cancelled run" (by design: a job skipped by its own `if:` would pass a required check).
-  - Rounds 3 and 4 (post-fix): APPROVED. 4 of 5 rounds used.
-- **Verification:**
-  - **[CI] Dispatch runs 42946394211 and 42948220969 on `3e43e53`:** 20/20; 9.23 and 9.98 min; every count equal to
-    the baseline; the image pull 14–20 s; 4 CPUs and 16.8 GB on ubuntu.
-  - **[CI] The gate proofs:**
-    - cancel, run 42949425864: `ci-ok` ran and failed, naming all 18 legs;
-    - forced failure, run 42949522716, on a throwaway branch since deleted: `ci-ok` failed, naming the one job.
-  - **[mock] `--part`:** part 1 (54) + part 2 (29) = the whole 81 ids, R1 and E twice; 5 guard mutants each INVALID.
-  - **Docs-only [this Mac, git 2.27]:** 18 edge cases in a scratch repo and the real docs-only commit `8f998c0`.
-  - **`ci-ok`'s script** against a stub `gh`: 19 cases.
-  - **actionlint 1.7.12:** clean.
-- **This Mac's WebKit** (the owner asked for a re-run of the four "local mac WebKit" entries): on 2026-11-11 they
-  passed on BOTH builds, so the upgrade fixed nothing; the old failure no longer reproduces, cause unknown
-  (TROUBLESHOOTING).
+### 2. Phase 1, read-only desk research (2026-11-16 21:25Z to 11-17 00:02Z) [desk]
+- **What:** a workflow wrote, in the private repo (`960eca2`): `docs/check-inventory.md` (159 checks, the spec's 10
+  starters as 38 sub-checks), `canaries/questions-draft.md` (116 questions), `docs/check-inventory-review.md` (a critic:
+  1 blocker, sentinel bookmarks required by a spec Gate; 15 should-fix) and `docs/owner-sitting-brief.md` (22
+  decisions). Three reconciliation passes, then polishing stopped.
+- **The owner's choice (asked, 2026-11-16):** the live read of Navi's markers happens later in the test profiles,
+  never in the owner's personal Chrome (the owner had opened an Incognito window for privacy).
+- **Status:** never reviewed by the owner; the redesign superseded the canaries, live-send and scratch chats. The
+  inventory stays the reference list for the calibration (status notes added on top of the four files).
 
-| Build | The four entries alone | The full suite |
-|---|---|---|
-| 1.58.2, WebKit 2248 | 3/3 runs 110/110 | 2/2 runs 560/560 |
-| 1.65.0, WebKit 2388 | 3/3 runs 110/110 | 2/2 runs 560/560 |
+### 3. Stage 0: the VMs, the test user, the automation paths (2026-11-16/17) [local, then live]
+- **Windows VM** (QEMU): UTM's guest agent runs as SYSTEM at the login screen, so OpenSSH was installed without a
+  sign-in (key `~/.ssh/navi_lab_ed25519`, key-only; the firewall rule had to cover the Public profile); automatic sign-in
+  through the LSA secret, **proven from a cold start** (signed-in desktop at +23 s); time zone Central (it was "Easter
+  Island", next to Central in the list); Windows' "Get Started" first-run window turned off; shutdown from inside, then
+  the window closed by its button. **The "stopped by itself" at ~22:40Z** was a start that never booted (System log by
+  record order); the agent's wait loop had printed "SSH up after 220 s" unconditionally. Helpers since fail loudly.
+- **Linux VM** (Apple Virtualization): its view drops every synthetic modifier key (`Ab1!@` arrived as `ab112`), so the
+  SSH bootstrap was the owner's one `curl … | bash` line; automatic sign-in proven (+16 s); a sudoers rule for
+  `systemctl poweroff -i` / `reboot -i` only (GNOME refuses a shutdown while signed in); Chromium needs
+  `--password-store=basic` (the keyring stays locked after automatic sign-in); Firefox snap refreshed 154 → 160.
+- **Both:** clipboard sharing off (the agent's, matching the spec's "sharing off"; the owner agreed); **`utmctl` is never
+  polled** (each call brings UTM forward, which the owner saw as UTM "firing up and shutting down"; the agent's
+  practice, which the owner told it to keep).
+- **The macOS test user "Navi Test"** (created by the owner 2026-11-17 02:43Z, uid 503, Standard): a LaunchAgent job
+  runner in its session; jobs dropped by the owner's account into `/Users/Shared/navi-lab/jobs/inbox`; outputs read as
+  data only. FileVault is on, so every cycle checks the session and the Discord line says "Mac: Navi Test not signed in,
+  Mac cells skipped" (all four branches measured). **The boundary proof** found the owner's home readable by the test
+  user (mode 755: `~/.docker/config.json`, `~/.claude`, `~/.gemini`, Desktop, Documents): the agent recommended
+  `chmod 700 ~`, which the owner ran (confirmed 2026-11-19).
+- **Safari paths:** `safaridriver` sessions start with an empty cookie store every time, so the AppleScript path in a
+  normal window was chosen under the spec's rule (later superseded by the redesign); a script file written into
+  Userscripts' folder (`~/NaviLab/userscripts`, the agent's choice; the owner set it in the picker) ran with no click
+  (measured with Navi Test on console).
+- **Tampermonkey:** Firefox installs with no click through geckodriver; Chrome's Web Store install needs the owner's
+  two clicks and "Allow User Scripts".
+- **The sites under automation (2026-11-17 03:47-04:05Z) [live]:** ChatGPT, Gemini, Grok and Perplexity signed in on
+  every path (Chrome WebDriver left ChatGPT on Cloudflare's page); **claude.ai showed Cloudflare's challenge on every
+  measured Chrome path and on Firefox WebDriver**, stricter after ~10 visits. The agent stopped and asked. **The
+  owner's decision (dated 2026-11-16 local):** no automated claude.ai access on any path (Anthropic's Consumer Terms §3;
+  "an unchallenged path doesn't make it allowed"); the other four paused pending a terms review. **The terms review**
+  (two agents per site; private `docs/site-terms.md`): all five restrict automated access (ChatGPT unclear, leaning
+  prohibited); table in DEC-065.
 
-### 3. Stage 2, the flaky tests (`c5abeea`, `40ba5d5`, 2026-11-11 03:08–04:00Z)
-- **J15** [mock, `--only J15`, the three engines side by side]:
-  - The cause: the fixture's pin was `pinMs: 1`, so a scroll in the wheel's own `Date.now()` millisecond was never
-    pulled back, and the jump truly landed.
-  - The fix: the mock's `jumpModel.pinEvery`, which pulls every scroll back, wheel or not.
-  - Before: chromium 3/30 failed, each `resolved=10 toast=no`; firefox and webkit 0/30. After: 0/90.
-  - With the race forced lost (`pinMs: 100000`), the old pin fails with the flake's signature and `pinEvery` passes.
-  - J15 still FAILS on v12.14 and `71eda09`; the whole probe is 29/29 per engine.
-- **U10** [a trace harness, a scratch copy of U10's scenario logging requests, `pushState` and repaints with the page's
-  clock, Firefox, 25 runs]:
-  - The cause: the probe routed back to A before B's index (10 ms in the mock) landed. B's load finished superseded,
-    the userscript held no conversation, the return was not a switch, and the same-org usage cooldown stayed warm, so
-    no request #2 was sent. The case U10 exists for never happened, and the wait timed out.
-  - The 3 failures routed back 6–10 ms after B's index request, the 22 passes 13–20 ms after.
-  - **The agent judged the cause the probe's, not the userscript's** (the panel still showed correct numbers; the
-    owner was told before the fix).
-  - The fix: the GM stub counts delivered conversation responses (`window.__acnIndexAnswered`), and U10 waits for B's.
-  - Before: firefox 2/30 timed out, chromium and webkit 0/30. After: 0/90.
-  - U10 still FAILS (`pct=42`) on `5eee8ac` and on a guard-reverted mutant.
-- **Review:** Tiers 1–2 in session for each (under 50 lines), no findings; recorded in the review file.
+### 4. The redesign (the owner, 2026-11-17 20:41Z) — `docs/specs/live-test-system-redesign.md`, `9d146de`
+Ten decisions (DEC-065): the owner starts every session and is present (no schedule, timer or automatic wake); the
+matrix is unchanged (40 runs); a run = the runner opens the test chat in a normal browser, a checker userscript checks
+outcomes and reports to a receiver on the Mac, the runner closes the browser; no WebDriver, remote debugging or agent on
+an AI site; nothing hidden (no stealth, no challenge solving; a site that objects stops); read-only (the owner makes
+every test chat by hand); Claude included with a stop rule (the owner asks Anthropic for permission separately); a
+session's length doesn't matter; the CI against copies stays, kept current from live structure captures (decision 8);
+the fix loop unchanged in spirit; later: health checks inside Navi, a remote data file, "context window not known yet".
+**Experiment 1:** one page load per site per browser in stages A (Mac), B (Windows VM), C (Linux VM), each on the
+owner's "go"; stop rules; what to bring back (the table, durations, drift, manual steps, Discord, a recommendation).
 
-### 4. Stage 3, the mocks: scoped, not refreshed (`39f7aba`, `116d10b`)
-- `docs/mock-refresh-scope.md`: the 18 mocks ranked by risk, with the live reads a refresh would need. The top five
-  are `gemini-history`, `chatgpt-windowed`, `claude-virtualized`, `perplexity-windowed` and `claude.html`. No live
-  reads were made.
-- **A finding:** `claude.html` still uses `data-testid="user-human-turn"` and `user_message`, both measured at 0 live on
-  2026-07-26, so the suite's "Claude" entry passes only through the userscript's fallback selectors.
-- **The owner (2026-11-11):** "No other mock refresh for now: the live verification layer (the next spec) is what will
-  catch site drift"; `claude.html`'s entry is logged in ROADMAP to retire or replace in a later PR.
+### 5. Experiment 1 preparation (2026-11-17 20:42Z to 11-18 04:36Z) [local, mock]
+- **Built** (private repo): `exp1/receiver.js` (127.0.0.1 and 192.168.64.1, port 8790; one-shot claims; validated
+  reports stored as data), `exp1/navi-checker.user.js` 0.2.0 (`8b99ceb`: load, navigate, one jump, one bookmark made,
+  read back and deleted; sign-in/challenge/warning signals; the page structure with text replaced by filler; clicks only
+  on Navi's UI; adversarial review's 2 blockers and 6 should-fix fixed; 17 mock runs per engine pass), `exp1/run-stage.js`
+  (`2e69ebb`), Tampermonkey by browser policy in the Windows and Linux VMs.
+- **Where the Mac's browsers render** [local, Navi Test in the background]: Safari 24/48/48 fps and Firefox 48/48/48,
+  visible; **Chrome 4/8/8, turning hidden**. With Chrome's three occlusion switches: 54/53/54. **The owner's decisions
+  (2026-11-17):** the switches are acceptable ("they change nothing a site can identify"; cells labelled "background
+  session, occlusion switches on"); Stage A in Navi Test; nothing in the owner's account or with Navi Test active; the
+  owner builds a macOS VM, "Navi Mac", to evaluate in parallel.
+- **Navi Mac evaluated** (2026-11-18 02:36-03:09Z) [local]: all three browsers visible with no switches, even with the
+  window minimized; cold start 18 s; the owner set it to 6 GB (the agent edited the config at the owner's request).
+- **The owner's test chats:** one per site in Navi Test's Safari, three questions each (`NAVI-T1` to `T3`); addresses
+  kept only in the untracked `local/exp1/chats.json`. Perplexity's chat lives at `/session/<id>`, which v12.19 does not
+  recognise (expected drift).
 
-### 5. The PR, the babysit, the merge (2026-11-11 17:35Z → 11-12 17:42Z)
-- **PR #95 opened** on the owner's instruction (17:36Z) with the drafted body: before/after timings and a 46-row
-  table mapping each probe × engine to its new job, with PASS counts.
-- **`/babysit-pr-cycle`** (the owner named it): Codex clean on opening (`has_any_findings: false`) and on the
-  confirming `@codex review` ("Didn't find any major issues. Breezy!" on `116d10bf58`). 2 rounds, 0 fixes.
-- **The PR's run 43069811015** [CI]: 20/20, `ci-ok` green, 11.77 min. `webkit on macos-latest` was created 17:36:44Z
-  and started 17:41:47Z (GitHub's Mac capacity; 3 of 5 macOS slots and 18 of 20 jobs in use).
-- **Merged** 2026-11-12 17:12:20Z as `d3f3d16` (`--match-head-commit 116d10b…`) after the owner confirmed `ci-ok` in
-  the ruleset.
-- **`main`'s first run 43266934908** [CI]:
-  - Attempt 1: `firefox` and `webkit on macos-latest` queued 15 minutes with no runner and 0 steps, then were
-    cancelled, annotated "The job was not acquired by Runner of type hosted even after multiple attempts" and "Due to
-    capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times".
-  - `ci-ok` failed on both of its checks. GitHub reported `needs.test-other.result` as **`abandoned`**, a value
-    outside the documented set, and the per-leg check named both legs.
-  - Attempt 2 (`gh run rerun --failed`, 17:30Z): 20/20, `ci-ok` green at 17:41:52Z.
-  - Also measured: `jobs?filter=latest` on the re-run attempt lists every job, the carried-over successes under
-    `run_attempt` 2. That settles Tier 3 round 2's open question; `ci-ok`'s newest-attempt logic handles either shape.
-- **How often this happens** [CI, the last 60 runs, 2026-10-31 → 11-12, 680 job executions, read 2026-11-12]:
-  - jobs that never got a runner in 2 of 60 runs, all macOS, both right after a merge to `main`;
-  - macOS jobs waiting more than 2 minutes: 19 of 201; more than 10 minutes: 1.
-- **The owner then removed the nine old checks.** On their question ("will it be like this all the time?"), the
-  agent offered two options. The owner logged option 1 for later (ROADMAP), not built:
-  - option 1, an automatic re-run for runner-capacity failures only;
-  - option 2, fewer macOS jobs.
+### 6. Stage A in Navi Test, and Safari's background rendering (2026-11-18 04:37-17:21Z)
+- **The run** (`exp1-A-2026-11-18T0437`) [live]: 6 of 15 cells, then **the agent paused the runner** (04:50:37Z): two
+  Safari cells lost to the runner's 180 s cap (shorter than the checker's 300 s deadline), Chrome / Claude sent no
+  report, Safari's pages reported hidden. No stop rule fired. **The owner's decision ("Option 4"):** stop Stage A there;
+  before any further site visit, fix the cap, prove the local round trip under the real managers, explain Safari's
+  hidden pages, and **make the local round trip a required pre-check for every browser before any site visit**.
+- **Found [local]:** the cap is now 420 s; Chrome's missing report was the agent's fault (launchers it had given the
+  owner put the installs into copied profiles the runner no longer used; launchers deleted); Userscripts ignores an
+  `@match` with a port (checker 0.3.1); the pre-check is built into the runner (checker 0.3.0); `--cells` opens exactly
+  the approved cells.
+- **Safari in background Navi Test draws hidden at 0 fps**: WebKit marks a page hidden while its window is occluded, and
+  macOS occludes an off-console session's windows within ~160 ms. Hypotheses tested and **refuted**: who created the
+  window; an on-console launch (9/9 hidden); "busy at the switch", the owner's idea (4/4 hidden). The 2026-11-17 visible
+  runs (Safari process 53256) stay **unexplained**; that process also read hidden two minutes after its launch, so it
+  became visible later (sleep/wake or the dock are the leading candidates). A read-only research workflow ranked them.
+  The agent stated two causes before testing them; both corrections are recorded.
+- **The owner's decision (2026-11-18 17:21Z):** "I'm done with Safari testing in Navi Test. The Mac's cells move to the
+  Navi Mac VM." No lock, display-sleep, dock or sleep tests. Navi Test frozen (state and a repro script recorded); the
+  two copied profiles deleted; an example.com probe added to every pre-check; 10 Claude loads accepted.
 
-### 6. Mistakes, kept because they generalize (all five in `agent_docs/conventions.md`, "Lessons Learned": the owner, 2026-11-12, "add all four lessons", then "add the fifth lesson")
-- **A claim widened past its sample.** A U10 comment drafted as "every failure routed back before that index landed,
-  every pass after" rested on 2 failing and 3 passing traces. A scripted check over 25 runs found a pass that also
-  routed back before the *repaint*. The precise claim (the gap from the index request) replaced it before the commit.
-  Write counts, not "every", until a scripted check over the whole sample agrees.
-- **A doc line that contradicted what the owner was told.** DEC-064 first listed the skipped stage-end local run as
-  "not run", after the agent had told the owner it would leave that out unless told otherwise. Caught on re-reading
-  and removed (`fc0f1f5`). Re-read the docs against the conversation's promises before committing.
-- **A memory saved that the owner had not asked for.** The agent saved the owner's one-time skip as a rule; the owner
-  asked for it to be reverted entirely, and it was, timestamp included. Do not turn a one-time call into a rule or a
-  memory unless the owner says so.
-- **The template-literal escaping trap, once more:** a scratch harness's regex inside the probe's template literal lost
-  its backslashes (`\/` → `/`), and the injected script never ran. The probe's own comments record the trap; use string
-  methods, not backslash regexes, inside those literals.
-- **A workflow's trigger is not evidence that it runs** (found in the docs sweep, 2026-11-12): the plan, DEC-064, the workflow and the lane script all counted a concurrency slot for
-  `claude-code-review.yml` on every PR push, from its `on: pull_request` trigger. `gh workflow list` shows it
-  `disabled_manually` (last run 2026-02-23), so it takes none. Also corrected: the 18 suite and probe jobs run at once
-  (`changes` before them, `ci-ok` after), so a run's peak is 18 of 20, not 19.
+### 7. Navi Mac preparation (2026-11-18 17:25-20:49Z) [local, example.com]
+- **Userscripts installed by copying the app** from this Mac (`ditto`, signature intact, no Apple Account); the owner's
+  four clicks enabled it. A new script runs only after Userscripts rebuilds its index, which (from its v4.8.6 source)
+  happens on install or when a Safari window gains focus, not on the popup click: the runner does
+  `open -a Finder; open -a Safari`.
+- **Checker 0.3.2** (`f2928b0`): the example.com probe.
+- **Never force-close a browser:** a Safari killed with `killall` restored and reloaded its last tab at the next start;
+  every browser now quits normally (the quit Apple Event). The VM locked itself after 20 idle minutes (macOS 26's screen
+  saver; Chrome's pages went hidden): idle time 0, sleep 0.
+- **The owner's 15 sign-ins**, then **"the VM browsers were slow and laggy"** (the owner): measured, the Mac had
+  compressed or swapped out almost all of the idle VM (6.18 GB footprint, 0.17 GB resident; 1 GB touch 1.44 s cold vs
+  0.16 s warm). The agent's first "not tight" was wrong and is corrected. After the owner signed Navi Test out and moved
+  the VM window to the built-in screen, macOS still compresses an idle VM (normal behaviour); the stage is unaffected
+  (cold pre-check 12-17 s, 58-61 fps). VM stays at 6 GB.
 
-### 7. `/update-project-docs` (the owner named it, 2026-11-12: "update all the docs in repo while we are in this session")
-- **The sweep for claims the rebuild made stale,** in every doc that states the present (archived handoffs, review
-  records and past log entries left as written):
-  - `agent_docs/testing.md`: setup `npm install` → `npm ci` and how to move the pin; `test:probes` no longer stops at U10;
-    J15 marked fixed in the history block; `--part` beside `--only`; the per-probe PASS-line baseline table.
-  - `TESTING.md`: Requirements (Node 20+, the pinned Playwright via `npm ci`, not the old sandbox's global install);
-    the caps since the rebuild; the local WebKit paragraph (not reproduced on 2026-11-11).
-  - `probes/README.md`: where the probes run in CI. `tests/run-tests.sh`: its comment said `npm install playwright`,
-    which would rewrite the pin.
-  - The `claude-code-review.yml` slot (above), in DEC-064, the workflow, the lane script and `agent_docs/testing.md`.
-- **The session documented in full:** CHANGELOG's entry; DEC-064 with the docs-only edge cases and the actions
-  upgrade's release notes; TROUBLESHOOTING's J15, U10, local WebKit, Mac runner and Playwright-pin entries; ROADMAP;
-  `agent_docs/git-workflow.md`; `agent_docs/conventions.md` (five lessons, and archived handoffs as dated records).
+### 8. Stage A in Navi Mac (2026-11-18 20:49-20:59Z, `exp1-A-navimac-2026-11-18T2049`) [live]
+15 of 15 accepted, pre-checks 6 of 6, 9 min 54 s. ChatGPT's jump failed in all three browsers (Navi's "not currently
+rendered"; Chrome 9 px above the view); Chrome / Grok landed 144 px above the view; Perplexity's bookmark had no key
+(`/session/`); Safari / Claude's jump was skipped (window reported covered for 33 s). **The owner's decision
+(2026-11-18 21:27Z):** "no fine-tuning of the checks now, and no Navi fixes. We build the whole pipeline first
+(Windows, Linux, the full session, the fix loop, the CI), then calibrate the checks, then run it as if for the first
+time." The jump findings are "found by an uncalibrated checker, not confirmed" (by hand, in the owner's own Safari,
+ChatGPT's and Claude's jumps work; in Chrome, Grok's works); Perplexity's is a probable real bug, **reserved as the
+first end-to-end test of the finished pipeline**. The owner's two notes for the calibration: the test chats are too
+short (they fit one screen), and the checker acts too fast (wait for load, retry like a person, judge with tolerance;
+Grok's first click after load needed a moment).
+
+### 9. Stage B, the Windows VM (prep 21:28-21:44Z; run 22:36-22:48Z, `exp1-B-2026-11-18T2236`) [live]
+Prep: display-off and sleep timers to never; **Firefox had registered itself to start at every Windows sign-in**
+(removed; a Firefox setting stops it); the runner's Windows stage (open and close through tasks in navi's session,
+`taskkill` without `/f`). The owner's steps (Allow User Scripts, installs, 15 sign-ins; "don't check the state right
+after the click"). Run: 15 of 15 accepted, 11 min 29 s; ChatGPT refused in Chrome and Edge, landed in Firefox; Grok
+144 px above in Chrome and Edge.
+
+### 10. Stage C, the Linux VM (prep 23:02-23:10Z; runs 2026-11-19 01:34-02:08Z) [live]
+- Prep: GNOME's idle blank, dim and screen saver off; Chromium's menu entry given `--password-store=basic` so the
+  owner's sign-ins land in the store the runner reads. The owner also reported Navi's button hard to see under "auto"
+  appearance on ChatGPT (ROADMAP item 15).
+- **First run stopped** (`…T0134`): the owner unplugged the USB-C dock at 01:34:51Z, Chromium's viewport went 763 →
+  1,645 px; the owner judged it inaccurate. **Full re-run on the owner's choice** ("as if I just finished setting it
+  up"; 12 Claude loads): Chromium 5 of 5 accepted; **Firefox's example.com probe got no report, so the pre-check blocked
+  all five Firefox cells** — Firefox's "closed unexpectedly while starting… Troubleshoot Mode" prompt, which the owner
+  saw on screen, caused by the agent's rapid open/quit cycles (`recent_crashes` 4 > 3). **Fix in all three VMs**
+  (`toolkit.startup.max_resumed_crashes` -1), verified. Navi Mac's macOS "reopen apps" list was starting Firefox at boot:
+  removed. **The five Firefox cells, on the owner's go** (`…T0205`): 5 of 5 accepted, 2 min 18 s.
+
+### 11. The report (2026-11-19 02:10Z) and after
+- **40/40 accepted, 22 all-pass; durations 9 min 54 s + 11 min 29 s + 3 min 58 s + 2 min 18 s = 27 min 39 s** (runner
+  start to VM shutdown; the VMs were already running); drift per site; manual steps and which recur; 4 Discord
+  messages (three wording bugs, fixed). **The agent's recommendation: go, with changes** (calibrate; CI copies from
+  captures; harness lessons permanent; cut recurring clicks; keep Navi Mac; Perplexity as the fix loop's first test).
+  The owner's order (pipeline first) stands over the agent's.
+- **Keeping the scripts current (discussion only):** the owner asked whether the agent could install updates itself
+  by typing or clicking; the agent explained why not (the Apple VM views drop Shift; clicks would take over the owner's
+  desktop) and the owner chose Tampermonkey's own updates at the most frequent setting. Advised: "Userscript Update"
+  every 6 hours and "Externals Update Interval" always in the seven VM Tampermonkeys (not reported as set). Neither
+  script has `@require`, `@resource`, `@updateURL` or `@downloadURL` (the agent first said Navi had one: wrong).
+
+### 12. Context, docs and handoff (2026-11-18 05:53Z; 2026-11-19 02:44Z onward)
+- The context was compacted twice (the owner, 2026-11-18 05:53Z; by accident 2026-11-19 02:44Z); each time the agent
+  re-read the session's whole transcript, the memory and the canonical docs before continuing.
+- **`/update-project-docs`** (the owner named it, 2026-11-19): DEC-065's "Where this stands" block, the Phase 1 and
+  terms sections, the boundary finding, the standing harness rules, the recommendation and a corrections section;
+  CHANGELOG; 17 TROUBLESHOOTING entries; DOM-REFERENCE's November 2026 subsections for all five sites; ROADMAP item 5
+  and items 16-20; TESTING.md and `agent_docs/testing.md`; in the private repo the README, `docs/runbook.md`,
+  `docs/experiment-1-results.md`, `docs/exp1-structure-drift.md` (`bc4844b`). Four drafting agents worked from the
+  files on disk; six audit agents then checked every fact in the transcript against both repos, and every finding was
+  fixed or recorded (several were real errors in the earlier record, kept as corrections next to what they correct).
+- **`/baton-handoff`** (this file): the skill no longer asks about other channels (the owner's instruction).
+
+### 13. Mistakes, kept because they generalize (proposed for `agent_docs/conventions.md`; the owner has not decided)
+- **A hypothesis that fits the logs was reported as the cause before a run decided it** (Safari's on/off-console
+  launch; refuted within the hour). Label an idea untested until a run decides it.
+- **A test read in the wrong process or profile:** the "owner's window" test ran in a Safari the agent's script had
+  started; the launchers sent the owner's installs to profiles the runner did not use. Check which process or profile a
+  test actually ran in before reading its result.
+- **"Unreadable" reported where the read was a true absence** (Tampermonkey storage before Stage A). Verify a negative
+  read with a positive control.
+- **Frame rates on an empty page and a VM's resident size were read as "not tight"**; the owner's experience of lag was
+  the better evidence. Responsiveness needs its own measure; a VM's memory is its footprint.
+- **Harness faults of the agent's making:** a cap shorter than the work's deadline; force-closing a browser (session
+  restore reloads); rapid open/quit cycles (Firefox's startup-crash prompt); a process match by command line that
+  matched the agent's own shell; a wait loop that printed success after timing out (twice).
+- **Synthetic keystrokes carried a secret** (the Linux VM's password, twice, 2026-11-16) before the owner's rule.
 
 ---
 
 ## C. Architecture snapshot
 
-Unchanged for the userscript (v12.19; see the prior handoff and DEC-063). CI changed: see §A and DEC-064.
-- **Workflow:** `.github/workflows/cross-platform-tests.yml`, with jobs `changes`, `test-ubuntu`, `test-other`,
-  `probes` and `ci-ok`.
-- **Scripts:** `.github/scripts/docs-only.sh` runs from the base branch's copy; `.github/scripts/probe-lanes.sh` holds
-  the groups and lanes, with each probe's CI time in comments.
-- **A job added to the workflow** must go into `ci-ok`'s `needs:` and its expected-names list; an unknown job fails
-  the gate.
-- **Engine placement is unchanged:** the string probes on chromium only, every other probe on all three engines,
-  ubuntu only.
+The userscript: unchanged (v12.19; DEC-063, DEC-064). The live test system as it stands (private repo, branch
+`phase-a/stage-0`):
+
+```
+this Mac (owner's account)                          a VM (user navi, signed in automatically)
+  exp1/run-stage.js  ── SSH: open page normally ──▶  browser + manager + Navi v12.19 + checker 0.3.2
+       │  arm / disarm (control key)                     │ GM_xmlhttpRequest (one-shot claim, one report)
+       ▼                                                 ▼
+  exp1/receiver.js  ◀── 127.0.0.1 / 192.168.64.1:8790 ── checker: load, navigate, jump, bookmark,
+       │  local/exp1/results/<runId>/*.json + structure     signals, structure (text → filler)
+       ▼
+  table + one Discord message (webhook from the Keychain); VM shut down from inside, window closed
+```
+
+- **Stages:** `A` (Navi Test, frozen), `A-navimac`, `B` (Windows), `C` (Linux); options `--precheck-only`, `--keep-vm`,
+  `--cells`, `--browsers`, `--dry-run`, `--mechanics`, `--precheck-host` (runbook §4).
+- **Per cell:** quit the browser, arm, open, wait up to 420 s, close normally, memory sample, stop rules.
+- **Not built yet from the spec:** the admin build, the baseline, the fix loop and its Routine, the CI against copies,
+  the full checker (DEC-065's inventory), auto-merge (off).
 
 ---
 
 ## D. Key principles established
 
-- **`ci-ok` is the only required check** (the owner, 2026-11-11/12). Never override it; a cancelled or failed job is
-  re-run with `gh run rerun <run-id> --failed` once the whole run has finished, after reading why it failed. A
-  runner-capacity cancel (0 steps, "not acquired by Runner") is GitHub's, not a finding.
-- **Each fix gets its own check where one is possible** (the owner, 2026-11-11): a gate that fails without the fix,
-  or a stubbed test of the gate script. This session's fixes all have one (the mutants, the stub cases, the forced
-  race, the old builds).
-- **Verify each review finding before fixing it** (the owner, 2026-11-11: "not every comment is a defect"). Tier 3
-  round 2 had one CRITICAL out of reach and one WARN by design; both were reported, not "fixed".
-- **No retries anywhere** (the owner, 2026-11-11): no test or probe is retried; the lanes keep running after a failed
-  probe and report it. Option 1 (logged) would re-run only jobs that never started.
-- **Archived handoffs are dated records** (the owner, 2026-11-12): never edit them, not even for a rename. The v12.19
-  handoff was archived unchanged, with the old ruleset name in it.
-- **A finding about CI timing is a [CI] finding:** CI stays mock evidence, never browser evidence.
+DEC-065's "Standing harness rules" is the full list. In short:
+- **The owner's (2026-11-17/18):** attended sessions only; one page load per site per browser per stage, no reloads, no
+  retries, no re-run without the owner's go; stop rules per site; **no site visit in a browser before it passes the
+  pre-check** (local page + example.com); nothing hidden from the sites; read-only; no Navi fixes or check tuning until
+  the pipeline exists; the owner makes the test chats; Claude's visits capped per experiment by the owner.
+- **The agent's practices (from measured failures):** never force-close a browser; quit before each cell; no browser
+  may start by itself (Windows Firefox autostart, Navi Mac's reopen list); Firefox's Troubleshoot prompt off; no idle
+  lock, blank or sleep in any VM; the display unchanged during a session; the cap longer than the checker's deadline;
+  `--cells` for partial runs; no probing a VM mid-cell; `utmctl` never polled; VM waits fail loudly.
+- **A result of an uncalibrated checker is a lead, not a finding** (the owner, 2026-11-18).
 
 ---
 
 ## E. Git state
 
-`main` is at `d3f3d16` (the PR #95 merge).
+**Public repo** (`ai-conversation-navigator`): `main` is at `d3f3d16` (PR #95), unchanged this session.
+- **Current branch: `ci/live-verification-layer`**, cut from `d3f3d16`: `d6bddbd` (the prior handoff), then this
+  session's docs only (35 commits, each pushed as it was written): the spec `6911977`, the redesign `9d146de`, 32
+  DEC-065 drafts (`1f33619` … `c1b1062`), ROADMAP item 15 `1fd9b48`; then the docs-pass + handoff commit (this file, the prior handoff archived
+  unchanged, CHANGELOG, DECISIONS, TROUBLESHOOTING, DOM-REFERENCE, ROADMAP, TESTING.md, `agent_docs/testing.md`).
+  Pushed; no PR.
+- **The owner's untracked files: never `git add` them:** `.playwright-mcp/`, `docs/CONTEXT-TRACKING-AUDIT.md`,
+  `docs/IMAGE-GALLERY-DOM-FIX.md`, `docs/V10.10-TASKS.md`, `docs/V10.11-TASKS.md`; the stash `stash@{0}` is theirs.
 
-| Commit | What |
-|---|---|
-| `8f998c0` | the v12.19 handoff, post-merge lines (rode along) |
-| `68b9d19`, `3e74e00`, `b339623` | the pin; `--part`; the workflow and its two scripts |
-| `931ce64`, `77f7fee` | Tier 3 rounds 1 and 2's fixes |
-| `3e43e53`, `46ace41` | the probe README line; the review record |
-| `c5abeea`, `40ba5d5` | J15's pin; U10's wait |
-| `39f7aba`, `fc0f1f5`, `116d10b` | the docs (DEC-064 …); one line dropped; the owner's mock decision |
-| `d3f3d16` | **merge of PR #95** |
+**Private repo** (`ai-conversation-navigator-private-lab`): branch **`phase-a/stage-0`**, `22b4465` (initial) …
+`2eb2d8a` (the last tooling commit) → **`bc4844b`** (the docs). Pushed; no PR; `main` is the initial commit.
+`local/` is git-ignored and holds the raw results, captures, logs, `chats.json` (the test chat addresses) and
+`control.key`; never commit it.
 
-- **Current branch: `ci/live-verification-layer`,** cut from `d3f3d16`. One commit: this handoff, the v12.19 handoff
-  archived unchanged, the post-merge lines and the `/update-project-docs` sweep (DEC-064, CHANGELOG, TROUBLESHOOTING,
-  ROADMAP, `agent_docs/git-workflow.md`, `agent_docs/testing.md`, `agent_docs/conventions.md`, TESTING.md,
-  `probes/README.md`), plus comment-only corrections in `.github/workflows/cross-platform-tests.yml`,
-  `.github/scripts/probe-lanes.sh` and `tests/run-tests.sh` (no behaviour changes). Pushed; no PR. The owner's next PR
-  is opened from it.
-- **Remote branches:** `main`, `ci/rebuild-parallel-probes` at `116d10b` (merged; left in place), older merged ones.
-  `ci/gate-proof-throwaway` was deleted after the proof. No open PR.
-- **Merges use merge commits** (`gh pr merge --merge --match-head-commit <full sha>`). The ruleset `main-protection`
-  (id 12827500) requires `ci-ok` only, with no bypass actors and "up to date before merging" on.
-- **The owner's own untracked files: never `git add` them.** `.playwright-mcp/`, `docs/CONTEXT-TRACKING-AUDIT.md`,
-  `docs/IMAGE-GALLERY-DOM-FIX.md`, `docs/V10.10-TASKS.md`, `docs/V10.11-TASKS.md`. An old stash (`stash@{0}`, on
-  `a70de21`) is the owner's; leave it.
-- **Port 8765 is the owner's**; serve builds on another port.
+**`vibecoding-loadout`** (the owner's skills repo): `skills/baton-handoff/` edited at the owner's request, uncommitted;
+an unrelated `claude/settings.json` change there is the owner's.
 
 ---
 
@@ -281,106 +312,122 @@ Unchanged for the userscript (v12.19; see the prior handoff and DEC-063). CI cha
 | Path | Why |
 |---|---|
 | `HANDOFF.md` | this file |
-| DEC-064 | the CI rebuild's decisions, measurements, limitations |
-| `.github/workflows/cross-platform-tests.yml`, `.github/scripts/` | the 20 jobs, the gate, the lanes, docs-only |
-| `agent_docs/testing.md` → "CI/CD"; `TESTING.md` → "CI: reading the rebuilt workflow" | the layout and how to read a red `ci-ok` |
-| `agent_docs/git-workflow.md` | the PR procedure; the ruleset (`ci-ok` only) |
-| `docs/mock-refresh-scope.md` | the 18 mocks ranked by risk, for when site drift is next addressed |
-| `ROADMAP.md`, Current Status and "Next" | the next spec, then Grok; option 1; `claude.html` |
-| `reviews/review-2026-11-11-ci-rebuild.md` | Tier 1–3 record of this PR |
-| `docs/acceptance-checklist.md`, DEC-062 | the consolidated pass at about v12.20 (no steps from this PR) |
+| DEC-065 ("Where this stands" first; "Standing harness rules"; "Corrections and additions") | every decision and measurement of the live test system |
+| `docs/specs/live-test-system-spec.md`, `docs/specs/live-test-system-redesign.md` | the owner's spec and the redesign that supersedes parts of it |
+| TROUBLESHOOTING, "THE LIVE TEST SYSTEM" group (17 entries) | each problem's debugging story |
+| DOM-REFERENCE, each site's "November 2026: Experiment 1's structure captures" | the live structure, for the CI copies and selector work |
+| ROADMAP items 5, 15-20 | status and the logged follow-ups |
+| private `README.md`, `docs/runbook.md` | how to run and maintain the pipeline (machines, receiver, checker, runner, gotchas) |
+| private `docs/experiment-1-results.md`, `docs/exp1-structure-drift.md` | the per-cell record; the drift per site |
+| private `docs/check-inventory.md` | the reference list of checks for the calibration |
+| private `exp1/` | the receiver, checker, runner and per-VM scripts |
+| `~/.claude/projects/<this project's folder>/navi-live-test-resume/RESUME.md` (on this Mac) | the resume pack (machine-local; the repos are the truth) |
 
 ---
 
 ## G. What comes next
 
-### 1. The owner's next spec: a live verification layer (a different CI approach), in a new session
-The owner (2026-11-11): "a couple of different things that I might give it to you as a spec after this, which I think
-it might take our CI build and all of those things to the next level"; "the live verification layer (the next spec)
-is what will catch site drift". The spec has not been shared, and nothing happened in another channel (the owner,
-2026-11-12). **Wait for the owner's prompt; do not start from guesses.** Its own PR, from `ci/live-verification-layer`
-(rename it if the spec names another). Inputs it will likely want:
-- `docs/mock-refresh-scope.md`: which mocks model what, when each was last measured live, which gates load each.
-- DEC-031 and DEC-062: acceptance is the owner's, on Safari + Userscripts, Chrome + Tampermonkey and Firefox +
-  Tampermonkey; CI is mock evidence.
-- The measurement-context rules in CLAUDE.md and TESTING.md: a live check is scoped to its manager, browser, tab
-  visibility and account.
+### 1. Wait for the owner's plan for the rest of the pipeline
+The owner (2026-11-19): "I'll come back with the plan for the rest of the pipeline." **Do not start from guesses.**
+The owner's order so far (2026-11-18): build the whole pipeline (Windows, Linux, the full session, the fix loop, the
+CI), then calibrate the checks, then run it as if for the first time. When the plan arrives, a read-only Phase 1
+first, measure before reasoning, and the owner decides before changes. Inputs the plan will likely need, all recorded:
+- **The CI against copies** (redesign decision 8): the 40 structure captures and the per-site drift (DOM-REFERENCE,
+  private `docs/exp1-structure-drift.md`); the redesign file names "one site's copy built from the captured structure,
+  proven with planted bugs" as the next experiment.
+- **The fix loop's first end-to-end test:** Perplexity bookmarks on `/session/` chats (ROADMAP item 16; v12.19's index
+  adapter matches `/search/` only).
+- **The calibration list:** longer test chats on all five sites (designed with the full check list), wait for the page
+  to finish loading, retries the way a person would, landing tolerance, Grok's first-click behaviour; the code-level
+  gaps found in the docs pass (a site stop holds only within one run; the account-message stop and Claude's cap are not
+  in code; "signed out" whenever Navigate counts 0; two unused helpers that still force-kill) — DEC-065 corrections.
+- **Recurring clicks to cut:** checker updates in the seven Tampermonkeys (an update URL on the receiver, a version
+  gate in the pre-check, perhaps a shell + `@require`); measure how long sign-ins last.
+- **Harness items proposed, not built:** a boot-time "no browser running" check; the VM's viewport and screen size in
+  the pre-check; a Windows Update policy in Navi Windows; checking Navi Windows' WebDAV sharing mode.
 
-### 2. Grok on all three browsers (ROADMAP "Next" item 5), once the owner is on the Linux machine
-Unchanged from the prior handoff: redo the code search signed in, then DOM-REFERENCE data steps 2–3; a read-only
-Phase 1 first.
+### 2. The owner's open steps
+Codex review on the private repo (steps in DEC-065, "Open with the owner"); Tampermonkey's update settings in the seven
+VM Tampermonkeys; a re-check of Navi Mac's reopen list after its next stage; deciding on the lessons in §B.13 for
+`agent_docs/conventions.md` (and whether CLAUDE.md's measurement-context list should name "which macOS session the
+browser runs in"); whether to delete `/Users/Shared/navi-chats.txt` (the five test chat addresses, readable by every
+local user; the agent left it).
 
-### 3. The consolidated acceptance pass at about v12.20 (DEC-062)
-The owner's, from `docs/acceptance-checklist.md`. PR #95 added no steps (no userscript change).
+### 3. Grok on all three browsers (ROADMAP item 6)
+After the pipeline, unless the owner says otherwise. New input: Grok's page was rebuilt; v12.19 finds its questions
+only through its last-resort rule, and Chrome/Edge land its jump 144 px above the view (uncalibrated).
 
-### 4. Logged for later (ROADMAP), unordered
-- **Option 1, an automatic re-run for runner-capacity failures** (the owner, 2026-11-12, logged, not built): a small
-  separate workflow with `actions: write`. It re-runs only when every failed job has 0 steps (never got a runner),
-  once per run, on the first attempt only, never for a job that ran and failed.
-- **`claude.html`'s suite entry:** retire or replace it (pre-July markup, passes through fallback selectors).
-- The image tag pinned by digest; `--slow` and the `abort` / `none` probe modes in CI (never run there).
-- The local mac WebKit failure's cause (not reproduced on 2026-11-11; candidates untested).
-- TROUBLESHOOTING's J15 wording question (the race is gone, so it matters less).
-- Everything in the prior handoff's §G.4 "Later" list (Perplexity attachment images, item 0d, item 12 step 2, item
-  13's v12.19 residuals, a Windows spot-check).
+### 4. The consolidated acceptance pass at about v12.20 (DEC-062)
+Unchanged. This session added no acceptance steps (no userscript change).
+
+### 5. Logged for later (ROADMAP), unordered
+ROADMAP items 15 (light/dark under "auto"), 17 (the jump findings), 18 (stale mocks), 19 (the "Navi" rename; never the
+`@name`/`@namespace`), 20 (the redesign's later list); everything in the prior handoff's §G.4.
 
 ---
 
 ## H. Operational context + owner rules
 
 Carried over, still in force:
-- **Equal priority:** Safari, Chrome and Firefox (DEC-047). **Acceptance results** go in DEC-031 only, exactly as
-  reported.
-- **Merges:** only on the owner's explicit OK for that PR; never push to `main`. Re-run a stalled job (read why
-  first), never override, never add a bypass actor. **The owner changes the ruleset; the agent gives the steps.**
-- **Live work in the owner's accounts is read-only.** Ask before anything that sends; any POST, a read RPC included,
-  counts as sending. Chats by id prefix only (the repo is public).
-- **CLAUDE.md:** show the diff, commit only on approval. Its lines are rules: no version tags, no mechanisms.
-- **Scope:** build the minimal version of the spec. Log findings outside it to ROADMAP or TROUBLESHOOTING.
-- **Proof:** a gate that fails on the previous version, plus mutants. Ask before a long run, with an estimate.
-- **Every claim carries its measurement context.** Safari + Userscripts is the owner's to verify.
-- **The Tier 3 cap is 5.** After a clean Codex review, post `@codex review` once more.
-- **`/babysit-pr-cycle`, `/baton-handoff`, `/update-project-docs`:** only when the owner names them.
-- **The per-stage test rule** (CLAUDE.md rule 7): each step its own gates, the full suite once per stage.
-- **Git:** explicit `git add` paths, never `-A`; never add the owner's untracked files.
-- **After each merge:** remind the owner of the optional 5-minute Safari smoke check.
+- **Equal priority:** Safari, Chrome and Firefox (DEC-047). Acceptance results go in DEC-031 only, exactly as reported.
+- **Merges:** only on the owner's explicit OK for that PR (public and private alike); never push to `main`. Re-run a
+  stalled job, never override; the owner changes the ruleset. `ci-ok` is `main`'s one required check.
+- **Live work in the owner's accounts is read-only**; any POST counts as sending. Chats by id prefix only in public.
+- **CLAUDE.md:** show the diff, commit only on approval; its lines are rules. **Archived handoffs** are never edited.
+- **Scope:** findings outside the task go to ROADMAP or TROUBLESHOOTING. Ask before a long run, with an estimate.
+- **Every claim carries its measurement context** (now also: OS, browser, manager + version, Navi version, account tier).
+- **Skills** (`/babysit-pr-cycle`, `/baton-handoff`, `/update-project-docs`): only when the owner names them.
+- **Git:** explicit `git add` paths, never `-A`; never the owner's untracked files. Port 8765 is the owner's.
 
-New this session (the owner, 2026-11-11/12; §D has the detail):
-- `ci-ok` is the only required check; the owner added it before the merge and removed the nine after `main`'s first
-  green run.
-- Each fix gets its own check where possible; verify each Codex finding before fixing; no retries anywhere.
-- Archived handoffs are dated records, never edited.
-- **The handoff rides on the next PR's branch,** no docs-only PR (the owner, 2026-11-12).
-- **The owner's next CI work is a separate PR and session** (the owner, 2026-11-11, paraphrased): PR #95 stayed its
-  own, and the next CI approach gets a new session and its own PR.
+New this session (the owner's, 2026-11-16 to 11-19; DEC-065 has each with its date):
+- **No screenshots of the owner's screen or account without asking;** only VM windows (by window id) or the test user.
+- **Never type a secret through synthetic keystrokes into a window on the owner's desktop**; a typed password is the
+  owner's step. **Never automate a sign-in.**
+- **Nothing runs in the owner's personal browsers or accounts** unless the owner asks for it at that moment.
+- **Nothing about the test accounts in either repo** (no email address, password, cookie, session file, webhook URL,
+  chat address or chat content); secrets live in the Keychain.
+- **The security boundary:** nothing the owner's account runs may live in a folder the test user can write; the test
+  user's outputs are data, never executed.
+- **The redesign's rules** (§B.4, §D): attended, normal browsers, nothing hidden, read-only, stop rules, one load per
+  cell, the pre-check gate, no re-run without the owner's go, example.com only as the probe.
+- **No Navi fixes and no check tuning until the pipeline is built; Navi v12.19 and checker 0.3.2 frozen.**
+- **Code for the live test system goes in the private repo; only public docs go on the public branch.**
+- **Keep a resume pack outside `/tmp` and push often** (the Mac sleeps and travels).
+- **The handoff covers this Claude Code session only** (2026-11-19): `/baton-handoff` never asks about other channels.
 
 ---
 
 ## I. Deferred / future work
 
 Not queued; §G comes first.
-- **Mock refresh:** deferred by the owner in favour of the live verification layer. The scope doc's ranking and read
-  counts stand if it is ever done (#1–#5: about 7 page visits, about 6 GETs, 2 `hNvQHb` POSTs).
-- **Option 2, fewer macOS jobs** (e.g. WebKit only on macOS): offered, not chosen.
-- **The docs-only fast path's first CI proof:** waits for the first docs-only PR to `main`. The owner chose no
-  docs-only PR for this handoff, so it may wait a while; the local proof (18 cases) stands meanwhile.
+- **From the first spec, superseded or waiting:** the admin build and its diagnostics, the baseline and "no new
+  failures", canaries (now hand-made by the owner), the daily summary, auto-merge (built off), Phase B (the Windows PC
+  and the DGX Spark as the main testers, the VMs as stand-ins), an x86_64 Linux with Google Chrome.
+- **The Safari-in-Navi-Test question:** the untested candidates (lock/unlock, display sleep, the dock replug, a real
+  sleep) and a repro script (`stage0/mac/27-safari-hidden-repro.sh`); the owner ended that line (2026-11-18).
+- **The redesign's later list** (ROADMAP item 20) and the product rename (item 19).
 
 ---
 
 ## J. Risk caveats / known limitations
 
-- **A PR can edit the workflow so `ci-ok` passes** (true of every `pull_request` workflow; Tier 3 round 2). The guard
-  is human: read a workflow diff before merging.
-- **GitHub's Mac capacity:** about 1 run in 30 loses a macOS job to "not acquired by Runner" (2 of 60). It turns
-  `ci-ok` red until `gh run rerun --failed`, as one of the nine old checks would have. Option 1 would automate that.
-- **`needs.<job>.result` can be `abandoned`** (observed on `main`'s first run), outside GitHub's documented set. `ci-ok`
-  accepts only `success`, or `skipped` when docs-only, so an undocumented value fails it.
-- **The image tag `v1.65.0-noble` is mutable** (not digest-pinned). Inside the container GitHub's default shell is
-  `sh`; every step there is POSIX or names bash.
-- **`ci-ok` runs ~10–40 s on a cancelled run** by design (a skipped required check would count as passing).
-- **Mocks model sites as last measured** (`docs/mock-refresh-scope.md`); `claude.html` models a structure Claude no
-  longer has. CI stays mock evidence.
-- **Merged without acceptance:** v12.15–v12.19 (unchanged; the consolidated pass at about v12.20).
+- **The checker is uncalibrated.** Its jump results disagree with the owner's hand checks and with themselves (Linux
+  Firefox's ChatGPT jump passed once and failed once). Never report them as Navi failures before the calibration.
+- **3-question test chats prove little about Layer 4** (virtualization): three sites show signs of windowed lists that
+  such short chats cannot exercise.
+- **`npm test`'s mocks are stale on all five sites:** green mock runs exercise paths the live sites no longer take, and
+  several sites hang on one working selector (DOM-REFERENCE). CI stays mock evidence.
+- **Site terms:** all five restrict automated access; the design rests on the owner being present and starting every
+  session. A challenge or notice stops that site; an account message stops everything.
+- **This Mac's memory (16 GB):** macOS compresses an idle VM out of RAM; using a VM by hand lags at first. One VM at a
+  time.
+- **Display changes spoil a session** (the dock unplug); nothing in the pre-check catches it yet.
+- **Windows Update can restart Navi Windows mid-session** (no policy set). **Navi Windows' WebDAV sharing mode** is
+  unchecked.
+- **Sign-ins can lapse** (40 across the VMs): the checker's signed-in signal would show it; how long they last is
+  unmeasured.
+- **Navi Test is frozen, not torn down:** its profiles hold the test logins; it is signed out.
+- **Merged without acceptance:** v12.15-v12.19 (unchanged; the consolidated pass at about v12.20).
 
 ---
 
@@ -388,71 +435,62 @@ Not queued; §G comes first.
 
 ```
 Pick up AI Conversation Navigator from the handoff at HANDOFF.md on the branch
-ci/live-verification-layer (2026-11-12: the CI rebuild merged as d3f3d16, PR #95;
-ci-ok is main-protection's only required check; next: my next spec, then Grok).
+ci/live-verification-layer (2026-11-19: the live test system's Experiment 1 is
+complete — 40/40 live page loads accepted, no stop rule; next: my plan for the rest
+of the pipeline).
 
 CLAUDE.md auto-loads. Read HANDOFF.md before touching anything, especially §G (what
-comes next), §H (owner rules) and §J (risk caveats). DEC-064 has the CI design.
+comes next), §H (owner rules) and §J (risk caveats), then DEC-065 ("Where this stands"
+first, then "Standing harness rules"). The tooling is in the private repo
+../ai-conversation-navigator-private-lab (branch phase-a/stage-0): read its README.md
+and docs/runbook.md before running anything there.
 
 FIRST, CHECK STATE — do not assume:
   git fetch origin
   git log --oneline --first-parent -3 origin/main
   git branch --show-current && git status --short
   gh pr list --state open
-main should be at d3f3d16 (the merge of PR #95). You should be on
-ci/live-verification-layer, one commit ahead of main (this handoff, the v12.19
-handoff archived unchanged, the post-merge docs, comment-only fixes in .github/ and
-tests/run-tests.sh), plus my five untracked files, never added. No PR should be open. If that is not what you see, stop and tell me.
+  git -C ../ai-conversation-navigator-private-lab log --oneline -1
+main should be at d3f3d16. You should be on ci/live-verification-layer, ahead of main
+by docs-only commits ending with this handoff (2026-11-19), plus my five untracked
+files, never added. The private repo should be on phase-a/stage-0 at bc4844b
+or later. No PR should be open. All three VMs should be off. If that is not what you
+see, stop and tell me.
 
-THIS SESSION: wait for my spec (a live verification layer: my next CI approach). Do
-not start from guesses about it. When it arrives: a read-only Phase 1 first, measure
-before reasoning, and wait for my decision before changes. Its own PR from this branch
-(rename the branch if the spec names another). After it: Grok, once I'm on my Linux
-machine. No release until every platform works on all supported browsers.
+THIS SESSION: wait for my plan for the rest of the pipeline. Do not start from guesses.
+When it arrives: a read-only Phase 1 first, measure before reasoning, and wait for my
+decision before changes. Navi v12.19 and checker 0.3.2 stay frozen, and no Navi fixes or
+check tuning, until the whole pipeline is built. Code goes in the private repo; only
+public docs go on this branch.
 
-CI (DEC-064): 20 jobs; ci-ok is the one required check on main-protection. A job
-GitHub never gave a runner (0 steps, "not acquired by Runner") turns ci-ok red: read
-why, then `gh run rerun <id> --failed` once the run has finished. Never override.
-A job added to the workflow goes into ci-ok's needs: and its expected list.
+LIVE SESSIONS (DEC-065): I start every session and stay. One page load per site per
+browser per stage, no reloads, no retries, no re-run without my go. A browser gets no
+site visit before it passes the pre-check (local page + example.com). Stop rules: a
+challenge, forced sign-out, warning or unusual-activity notice stops that site
+everywhere; an account message about automated use stops everything. Never force-close
+a browser. Nothing hidden from the sites; nothing sent; I make the test chats.
 
-ACCEPTANCE (DEC-062): one consolidated pass at about v12.20, from
-docs/acceptance-checklist.md. Append a PR's steps there if it has any. After each
-merge, remind me of the optional 5-minute Safari smoke check.
-
-STANDING RULE: Safari, Chrome and Firefox are equal priority (DEC-047). Before any
-live measurement, confirm which userscript version is installed in that browser
-(DEC-027): Chrome has 12.19 (597ebfe), Firefox 12.14. This Mac runs Playwright
-1.65.0, the same browser builds as CI.
-
-PROCESS (HANDOFF §D, agent_docs/git-workflow.md): each build step runs its own gates,
-the full suite once per stage (CLAUDE.md rule 7); Tier 3 capped at 5 rounds; each fix
-gets its own check where possible; verify each review finding before fixing; no
-retries anywhere; if the userscript changes, reinstall in my Chrome and retest live;
-open the PR; /babysit-pr-cycle when I name it, plus one confirming @codex review;
-re-read the whole transcript and memory before /update-project-docs or
-/baton-handoff. If I say I'm away, take over my Chrome and push through. If the laptop
-may sleep, keep a resume pack outside /tmp.
+ACCEPTANCE (DEC-062): one consolidated pass at about v12.20. Safari, Chrome and Firefox
+are equal priority (DEC-047). My own browsers: Chrome has 12.19 (597ebfe), Firefox 12.14.
 
 DO NOT:
 - Merge anything without my explicit OK for that PR, or push to main.
-- Change main's required checks or the ruleset yourself; tell me the exact steps.
+- Visit an AI site, start a live session or start a VM's browsers on a site without my go.
+- Take screenshots of my screen or account without asking (VM windows only).
+- Type a secret through synthetic keystrokes, or automate a sign-in.
+- Run anything in my personal browsers or accounts unless I ask at that moment.
+- Put anything about the test accounts in either repo (no email, password, cookie,
+  webhook URL, chat address or chat content).
+- Report an uncalibrated checker's failure as a Navi failure.
 - Commit a CLAUDE.md change before I approve the diff.
-- Report anything you cannot drive yourself (Safari + Userscripts) as verified.
-- Cite green CI as real-browser evidence.
 - Credit me with a decision you made: say whose it was, with the date.
 - Turn a one-time call of mine into a rule or a memory unless I say so.
 - Fix findings outside the task's scope. Log them to ROADMAP or TROUBLESHOOTING.
 - Add long verification runs without asking first, with a time estimate.
-- Edit an archived handoff (docs/handoffs/): they are dated records.
-- Send, edit, regenerate, delete or share anything in my live accounts without asking;
-  any POST, a read RPC included, counts as sending.
-- Create or delete bookmarks (or other navigator data) in my real browser profiles
-  without asking.
-- Read or write GM storage except through acnGetValue / acnSetValue /
-  acnUpdateValue (collections through acnUpdateValue).
-- Name my chats by title or quote their content: id prefixes only (the repo is public).
+- Edit an archived handoff (docs/handoffs/).
 
-RULES: execute and narrate. Explicit `git add` paths, never -A; never add my
-untracked files (HANDOFF §E). Port 8765 is mine; serve builds on another port. Take
-times from a clock. Every claim carries its measurement context.
+RULES: execute and narrate. Explicit `git add` paths, never -A; never add my untracked
+files (HANDOFF §E). Port 8765 is mine. Take times from a clock. Every claim carries its
+measurement context. Keep the resume pack outside /tmp and push often. If the context
+gets compacted, re-read the session's transcript before continuing.
 ```

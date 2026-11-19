@@ -299,6 +299,16 @@ frequency and host, not on `got null`: TROUBLESHOOTING, "OPEN — Local mac WebK
 - **claude-code-review.yml:** Automated code review. **Disabled on GitHub** (`disabled_manually`; last run 2026-02-23),
   so it runs nothing and takes no concurrency slot (checked 2026-11-12)
 
+## Live sessions (the live test system, DEC-065)
+
+Besides the mock suite and the agent's live check in the owner's Chrome, there are **attended live sessions** on free
+test accounts in three UTM VMs (macOS, Windows, Linux; 8 browsers). The owner starts each one and stays; a checker
+userscript reports outcomes to a receiver on the Mac; one page load per site per browser; stop rules per site. The
+tooling is in the private lab repo (`README.md`, `docs/runbook.md`); the design, rules and results are in DEC-065 and
+TESTING.md, "Live sessions in the test VMs". Experiment 1 (2026-11-18/19): 40/40 accepted; its checker is not yet
+calibrated, so its jump failures are unconfirmed. **Never start a live session or visit an AI site from a VM without
+the owner's go for that session.**
+
 ## Related Documentation
 
 For deeper testing and debugging context, see these root-level files:
