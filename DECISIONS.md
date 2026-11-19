@@ -5912,6 +5912,27 @@ scripts, cookies for all five sites).
 - **The owner's other observation (2026-11-19), logged as ROADMAP item 15, not acted on:** light/dark detection when a
   site or the system is set to "auto" (ChatGPT: white background, white Navi button).
 
+### Experiment 1 complete (2026-11-19 02:08Z): the report, then stop (the owner's instruction)
+- **Stage C's Linux Firefox cells (exp1-C-2026-11-19T0205, the owner's go, with the Troubleshoot-prompt fix):**
+  pre-check and example.com probe passed (61 fps); Claude, Gemini, Grok all pass; ChatGPT jump refused by Navi (0.29 s,
+  question in view; the same cell passed in the stopped first run); Perplexity bookmark no key. 2 min 18 s; Discord
+  posted. The fix held: Firefox started with no prompt right after the pre-check's quit.
+- **The 40 counted cells** (Navi Mac exp1-A-navimac-2026-11-18T2049, Windows exp1-B-2026-11-18T2236, Linux Chromium
+  exp1-C-2026-11-19T0147, Linux Firefox exp1-C-2026-11-19T0205): **40 of 40 accepted, signed in, Navi 12.19, no stop
+  rule, 22 with every check passing.** Load 40/40, Navigate 40/40. Jump: ChatGPT 2 of 8 (Navi refused in 5, landed
+  9 px above the view in 1), Grok 5 of 8 (Chrome on macOS and Windows and Edge landed 144 px above), Claude 7 of 8
+  (Safari skipped: window covered), Gemini 8/8, Perplexity 8/8. Bookmark: Perplexity 0 of 8 (no key, `/session/`),
+  every other site 8/8. Uncalibrated, not confirmed, except Perplexity's (probable bug, reserved).
+- **Durations (runner, VM start to shutdown):** Stage A in Navi Mac 9 min 54 s; Stage B 11 min 29 s; Stage C 3 min
+  58 s + 2 min 18 s; counted total 27 min 39 s. Not counted: Stage A in Navi Test (stopped after 6 cells) and Stage C's
+  first run (stopped, display change). Claude loads in the experiment: 12 (the owner's accepted total).
+- **Structure drift:** the 40 captures agree with each other on every verified marker across OSes and browsers (only
+  Windows Chrome and Edge get Gemini's narrow layout); against the CI's mock pages, the `npm test` mocks are stale on all
+  five sites (details in the report; per-site analysis `local/exp1/drift-*.{md,json}`, private).
+- **Discord messages posted: 4** (Stage A in Navi Mac, Stage B, Stage C re-run, Stage C Firefox). Two wording bugs in
+  them, both fixed in the runner: "21 cells" counted the pre-checks; "5 without a report" counted cells that were not
+  visited.
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
