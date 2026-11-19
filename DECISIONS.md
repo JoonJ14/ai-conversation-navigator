@@ -5244,7 +5244,7 @@ owner's, committed as `6911977`). Public docs on `ci/live-verification-layer`; a
 proves a change is needed, which would stop for the owner (spec). **Replaces** the "live verification layer (the next
 spec)" placeholder in ROADMAP and the 2026-11-12 handoff's "spec 1, a built-in self-test", which the owner rejected.
 
-### Where this stands (2026-11-19, about 13:30Z; Phase 1 built and rehearsed, its proof not run) — read this first
+### Where this stands (2026-11-19, about 17:30Z; Phase 1 built and rehearsed, the owner's answers built in, its proof not run) — read this first
 This DEC is a running, chronological record (each section dated; corrections stay next to what they correct, both
 results kept). This block and the last sections are the current state.
 - **Status:** Experiment 1 is complete (2026-11-19 02:08Z): **40 of 40 page loads accepted**, signed in to the test
@@ -5253,9 +5253,12 @@ results kept). This block and the last sections are the current state.
   22:26 CST** (`docs/specs/live-test-pipeline-build-plan.md`; its decisions are recorded below under "The pipeline
   build plan"): six phases, the first being "the full session from one start". **Phase 1 is built, reviewed (71
   findings, fixed) and rehearsed again in the three VMs on local pages** (private repo, branch
-  `pipeline/phase-1-full-session` at `b3eafff`; see the last two sections of this DEC). Its proof, a 40-cell session
-  on the five sites, waits for the owner. No AI site has been visited since Experiment 1; every site visit waits for a
-  session the owner starts.
+  `pipeline/phase-1-full-session` at `1a50efc`, with the work after the owner's answers on top, not committed when this
+  was written; see the last three sections of this DEC). **The pipeline's choices 1 to 13 were approved by the owner,
+  2026-11-19, and choice 14 was decided by the owner: no** (the last section, "The owner's answers to the pipeline's
+  choices (2026-11-19)", which also has what was built for the owner's three notes, the facts on the checker on the
+  sign-in hosts, and the named display setups). Its proof, a 40-cell session on the five sites, waits for the owner's
+  go. No AI site has been visited since Experiment 1; every site visit waits for a session the owner starts.
 - **Frozen:** Navi v12.19 (the published build, byte-identical to `main`): no Navi fixes until Phase 6. The four
   checks of checker 0.3.2 (load, navigate, one jump, one bookmark): no tuning until Phase 5; Phase 1's checker carries
   them unchanged (a test compares the code line by line) and changes only how the checker is delivered and what it
@@ -5293,12 +5296,15 @@ results kept). This block and the last sections are the current state.
   `ai-conversation-navigator-private-lab` if access is limited to selected repositories; then on chatgpt.com/codex,
   Settings → Code review → on for that repo; the agent could not check the app's access: `gh api /user/installations`
   needs a GitHub App token, HTTP 403); the build plan's Phase 3 depends on it (`/babysit-pr-cycle` on private-repo
-  PRs); a re-check of Navi Mac's reopen list (Phase 1's boot check now does it at every boot); the owner's steps
-  before Phase 1's proof (the display normal values or `--display-unchecked-ok`, the Mac's screen lock, Navi Windows
-  Firefox's Externals setting, a yes or no on the choices waiting for the owner): "Phase 1: the review, its fixes and
-  the rehearsals after them", part 6. **Closed:** `chmod 700 ~` (the owner, 2026-11-18 20:55 CST; measured below);
+  PRs); a re-check of Navi Mac's reopen list (Phase 1's boot check now does it at every boot). **Still the owner's
+  before Phase 1's proof** (the last section, part 7): the display values recorded per display setup with the owner's
+  OK (or the session started with `--display-unchecked-ok`); the owner's go for the session; a look at Navi Windows
+  Firefox's Externals setting; the nudge (installed, its time chosen); Codex review on the private lab repo (above);
+  and the owner's reply on question 4, where both of the owner's statements about the sign-in hosts are false as
+  worded (the last section, part 4). **Closed:** `chmod 700 ~` (the owner, 2026-11-18 20:55 CST; measured below);
   the owner's one-time steps for Phase 1 in the seven VM Tampermonkeys (reported done 2026-11-19, 06:07 to 06:37Z;
-  see "Phase 1 of the build plan").
+  see "Phase 1 of the build plan"); the pipeline's 14 items (choices 1 to 13 approved by the owner, 2026-11-19; choice
+  14 decided by the owner: no; the last section).
 
 ### The owner's decisions (the spec; 2026-11-12 unless dated otherwise)
 - **Three separate pieces:** the public navigator (the only thing users get; never any test code), the checker (tests
@@ -6555,7 +6561,11 @@ The owner's, 2026-11-19 (quoted as written):
   then on every delegated agent that writes code, tests, reviews or docs runs on Opus 5.5; a review already running on
   the session's own model was stopped and started again on Opus.
 
-The orchestrator's (Claude, 2026-11-19; none approved by the owner yet; "told" gives the time the owner was told):
+The orchestrator's (Claude, 2026-11-19; none approved by the owner when this was written; "told" gives the time the
+owner was told). Five of them were approved by the owner on 2026-11-19, as items of the owner's list in "The owner's
+answers to the pipeline's choices (2026-11-19)": Gemini first (choice 5), the jump check's "uncalibrated" list (6), the
+no-report pause (2), the re-sign-in off for every real site (1) and a browser that does not quit leaving its VM running
+(9). The others below stay the orchestrator's, none approved by name:
 - Phase 1's code goes on a new private branch, `pipeline/phase-1-full-session`; public docs stay on
   `ci/live-verification-layer` (told 05:18Z).
 - **Gemini runs first in every browser,** under the plan's "run Gemini first in each browser if that is what it takes"
@@ -6793,31 +6803,37 @@ What changed that the owner will notice:
   step in flight and closes down in order; a second one aborts, but only once the VM step in flight returns (each VM
   step has its own limit, up to 10 min).
 
-**3. Choices made in the fixes that wait for the owner's confirmation.** Each one is the orchestrator's (Claude),
-2026-11-19, not approved:
-- **A challenge on Google's page also stops Gemini.** When a challenge, warning or unusual-activity notice shows on
-  Google's own page during another site's sign-in, that site stops in every remaining cell, re-sign-ins stop for the
-  session, and Gemini is not opened again either. The plan names only "that site"; the review proposed Gemini as the
+**3. Choices made in the fixes, put to the owner.** Each one is the orchestrator's (Claude), 2026-11-19. Not approved
+when this was written; **approved by the owner, 2026-11-19**, except where a line below says otherwise (the numbers
+are those of the owner's list: "The owner's answers to the pipeline's choices (2026-11-19)"):
+- **A challenge on Google's page also stops Gemini** (choice 3). When a challenge, warning or unusual-activity notice
+  shows on Google's own page during another site's sign-in, that site stops in every remaining cell, re-sign-ins stop
+  for the session, and Gemini is not opened again either. The plan names only "that site"; the review proposed Gemini as the
   fail-closed reading (the same account, on Google's own site).
-- **Windows Firefox's windowless background-update task is named and waited for.** At boot, a `firefox.exe` whose
-  command line carries `--backgroundtask` (or a child of one) is named as that task, and the boot check waits up to
-  60 s for it to end instead of stopping at once. Any other `firefox.exe`, or one whose command line cannot be read,
+- **Windows Firefox's windowless background-update task is named and waited for** (choice 10). At boot, a
+  `firefox.exe` whose command line carries `--backgroundtask` (or a child of one) is named as that task, and the boot
+  check waits up to 60 s for it to end instead of stopping at once. Any other `firefox.exe`, or one whose command line cannot be read,
   still stops the stage at once, and so does a task still running after 60 s.
-- **An unclassified Google page sets Google "unknown".** When a site's page went to Google's page without a click and
-  that page showed neither a usable chooser nor a sign-in ask, the cell is "needs sign-in (unknown)" and Google's state
-  in that browser becomes "unknown", so no further click is made there in that session.
-- **A live session refuses to start on a locked Mac screen,** and stops before a stage whose start reads it locked.
-- **The three waits:** 32 s for Linux Chromium after a load's last page or report (from one measurement of each case:
-  a cookie set 6 s before the close was lost, one set 45 s before was kept; the boundary is not measured); 32 s after
-  a granted click, in every browser (from that measurement and Safari's lost fixture cookie, part 4); 30 s for the
-  warm-up stay (from the pre-check run of 11:53Z, part 4). Each is to be measured again per browser.
+- **An unclassified Google page sets Google "unknown"** (choice 4). When a site's page went to Google's page without a
+  click and that page showed neither a usable chooser nor a sign-in ask, the cell is "needs sign-in (unknown)" and
+  Google's state in that browser becomes "unknown", so no further click is made there in that session.
+- **A live session refuses to start on a locked Mac screen,** and stops before a stage whose start reads it locked
+  (choice 8).
+- **The three waits** (choices 11, 12 and 13): 32 s for Linux Chromium after a load's last page or report (from one
+  measurement of each case: a cookie set 6 s before the close was lost, one set 45 s before was kept; the boundary is
+  not measured); 32 s after a granted click, in every browser (from that measurement and Safari's lost fixture cookie,
+  part 4); 30 s for the warm-up stay (from the pre-check run of 11:53Z, part 4). Each is to be measured again per browser.
 - **The proposal not applied:** counting a site that went straight to Google's account chooser as "site only" even
   when Gemini in that browser said Google was out or gave no answer (the chooser may be a better sign of Google's
   sign-in that needs no extra load, which the plan asks to be told about). As built, the chooser counts as "site only"
-  only when Gemini said "in"; otherwise the cell takes Gemini's kind.
+  only when Gemini said "in"; otherwise the cell takes Gemini's kind. **The owner's decision, 2026-11-19 (choice 14):
+  no** ("Choice 14: no. Keep it as it is. Google's account chooser can list signed-out accounts, so the chooser alone
+  is not proof."). It stays as built.
 - Also the orchestrator's, named as the pipeline's choice in the code: a close is clean only on an exact "closed";
   what the first and the second Ctrl-C do; and refusing a live session without display values (review findings 36 and
-  64; the plan asks for the comparison with the normal values and says nothing about running without them).
+  64; the plan asks for the comparison with the normal values and says nothing about running without them). The first
+  is part of choice 9 and the last is choice 7, both approved by the owner, 2026-11-19 (choice 7 now works per named
+  display setup: the next section, part 5). What the two Ctrl-C presses do was not among the 14 items.
 
 **4. Measurements, 11:53 to 13:23Z.** Real VMs; local pages, the local fixture and example.com; no AI site. One run
 each unless the row says otherwise. The Mac's screen was locked from between 11:58 and 12:02Z on (the opening of this
@@ -6862,6 +6878,10 @@ section).
   and states, never an address). Lesson: a reason names what was seen, not how a wait ended.
 
 **6. What Phase 1's proof needs now.**
+- *Partly out of date since about 17:30Z: the owner answered the choices of part 3 and the three told at 05:18Z on
+  2026-11-19 (choices 1 to 13 approved, choice 14 no), and the display values are now recorded per named display
+  setup. What is still the owner's is in the next section, "The owner's answers to the pipeline's choices
+  (2026-11-19)", part 7.*
 - **The owner's steps.** Record the display normal values (a `--precheck-only` run with the Mac's screen unlocked and
   the VM windows where the session will have them, then `node pipeline/display-record.js <runId> --owner-ok`), or start
   the session with `--display-unchecked-ok`. Find which setting locks the Mac's screen after about three hours without
@@ -6880,3 +6900,268 @@ section).
   Windows Firefox's background task (none has been run); whether Safari and Linux Chromium keep a sign-in with the new
   waits beyond these runs (Linux Chromium in one fixture run, Safari in two Safari-only runs); the boundary of Linux
   Chromium's 32 s; the lock read with the Mac's screen unlocked.
+
+### The owner's answers to the pipeline's choices (2026-11-19)
+**State at the time of writing (2026-11-19, about 17:30Z):** on 2026-11-19 the orchestrator listed 14 numbered items to
+the owner: 13 choices it had made while building and fixing Phase 1, and one question. The owner answered them, with
+three notes and two questions of the owner's own. What followed was built by Opus agents under the orchestrator in the
+private lab repo, under `pipeline/` on the branch `pipeline/phase-1-full-session`, on top of `1a50efc` (not committed
+when this was written), and checked on the test harness only: no VM, no AI site, no Discord post (part 6). The proof
+session has not run, and no AI site has been visited since Experiment 1. Navi is unchanged (v12.19); the four checks
+are checker 0.3.2's, unchanged and uncalibrated. Times are UTC.
+
+**1. The 14 items as listed to the owner.** Each choice is the orchestrator's; the two sections above give the reasons.
+1. The re-sign-in click is off on every real site until the owner switches that site on.
+2. A cell with no report pauses its site for the rest of the session.
+3. A challenge on Google's own page also stops Gemini.
+4. An unreadable Google page counts as "unknown" (Google's state in that browser becomes "unknown").
+5. Gemini runs first in each browser.
+6. Changes in the jump check are listed as "uncalibrated" until Phase 5.
+7. With no recorded display values, a live session refuses unless it is started with `--display-unchecked-ok`.
+8. With the Mac's screen locked, a live session refuses.
+9. A browser that does not quit leaves its VM running and stops the session; a close is clean only on exactly "closed".
+10. Windows Firefox's windowless background-update task is named and waited for, up to 60 s.
+11. Linux Chromium is closed no earlier than 32 s after its last report.
+12. Any browser stays open 32 s after a granted re-sign-in click.
+13. A browser stays open 30 s after a stale checker load on the local pre-check page.
+14. A question: should Google's account chooser by itself count as the sign that Google is signed in? (The proposal
+    "not applied" in the previous section, part 3.)
+
+**2. The owner's answers, dated 2026-11-19, quoted in full:**
+
+> My answers to your choices, dated 2026-11-19:
+>
+> 1. Choices 1 to 13: yes, with three notes.
+>    a. Choice 1 (re-sign-in off until I switch a site on): at a site's first real sign-out, show me the record and the
+>    exact pages the click would touch before I switch it on.
+>    b. Choice 2 (a no-report cell pauses its site): in the Discord message, say whether the checker reached the
+>    receiver at all for that cell.
+>    c. Choice 9 (a browser that does not quit): tell me in Discord at once which VM and browser are still open, so I
+>    can close it by hand.
+> 2. Choice 14: no. Keep it as it is. Google's account chooser can list signed-out accounts, so the chooser alone is
+>    not proof.
+> 3. The smaller defaults: no objection.
+>
+> Two questions before the proof session:
+>
+> 4. Which hosts does the installed checker shell match? If it matches Google's sign-in host, confirm that the logic
+>    does nothing there unless a re-sign-in was granted for that cell, and nothing at all while every site's switch is
+>    off.
+> 5. Display values: I use this Mac with and without the dock and external monitor. Can the record hold more than one
+>    named setup? If not, tell me what happens when I start a session in the other setup.
+>
+> Then show me the eight display readings and wait for my OK and my go for the proof session.
+
+So choices 1 to 13 are **approved by the owner, 2026-11-19**. Each stays the orchestrator's choice, now approved (the
+code's wording, and the one place it was not yet changed: part 3, last item). Choice 14 is **the owner's decision:
+no**, for the reason quoted. "The smaller defaults" answers a list of smaller defaults that the orchestrator
+sent with the 14 items; that list is not in the sources this section was written from, so no default is named here as
+approved.
+
+**3. What was built for the three notes, and for choice 14.**
+- **Note a: the re-sign-in preview** (new `pipeline/lib/resign-preview.js`). When a cell on a real site ends "needs
+  sign-in (site only)" while that site's switch is off, the runner builds a preview from that cell's own reports and
+  the sign-in ledger. It sends the preview to Discord at once (it is not a stop), puts one line per preview in the end
+  message (at most three) and the whole of it in `summary.md` and `session.json` (`resignPreviews`). Nothing is clicked
+  or opened for it. It is built for every such cell, the site's first real sign-out included. Gemini and the local
+  fixture never get one, and neither does a sign-out of kind "Google itself" or "unknown": with the switch on, no click
+  would be allowed there either, since a click needs Google known to be signed in in that browser. The preview names the
+  sign-in it would replace (from the ledger); page 1, the site's page as host and path, each id cut to its first 4
+  characters, no query; the one control the logic would click there; page 2, Google's sign-in page, "not seen yet"
+  unless a page of that cell showed it, with the rule the logic follows there; what is not known; and the file and the
+  exact JSON that switch the site on, which stays the owner's step. To name the control, the served logic now records,
+  when exactly one Google button shows on a site's page or on the site's own sign-in host, that button's tag, its label
+  and the host of its link target (`signIn.surface.control`). The label is the button's whole text, which has to match
+  one of five fixed phrases ("Continue with Google" and the like) for the button to count, so it cannot name an account;
+  the receiver keeps at most 60 characters of it and reduces any address to its host. This change is outside the
+  FROZEN block (the frozen check still passes), and it changed the served logic's hash from `4e2252a616c1c773` to
+  `49c493aec30fc178`: each of the seven Tampermonkey browsers will report a stale checker until its manager refreshes
+  the logic, so the next pre-check per browser may need its warm-up loads. Example, as printed by the test driver with
+  a planted signed-out Claude page; the chat address there was invented, its 4 characters are replaced below, and the
+  switch file is shown as a real run names it:
+  ```
+  **Navi session session-2026-11-19T1718 — RE-SIGN-IN PREVIEW (nothing was clicked; for you to judge before you switch claude on)**
+  claude in Navi Mac, chrome (cell navimac-chrome-claude) is signed out (site only), and re-sign-in is switched OFF for claude: nothing was clicked. If you switch it on, a later cell like this one would do this:
+  - The sign-in it would replace: no date is recorded in the sign-in ledger for this browser and site (from the sign-in ledger).
+  - Page 1: claude.ai/chat/<4 characters>… (the site's page this cell was on, read signed out).
+  - The one control the logic would click there: <button> "Continue with Google", not a link.
+  - Page 2: accounts.google.com (Google's sign-in page): not seen yet: it is only reached by the click; there the logic would click the test account's row only when exactly one usable row shows and nothing else is asked; it stops at any password, passkey, two-factor, verify or permission prompt, a captcha or an error: those are the owner's step.
+  - After the account click: the site's page comes back and reports its state; if it reads signed in, the test chat is opened once more (one more load, counted) to run the checks.
+  - Not known: where the button leads (it is not a link, so only the click shows it); what Google's page will show; whether this browser keeps the new sign-in: the two clicks were measured only on the local fixture, never on a real site.
+  To switch claude on (your step; the pipeline never does it): write {"sites":{"claude":true}} into local/pipeline/resign.json (in the private lab). It applies from the next start.
+  ```
+- **Note b: whether the checker reached the receiver.** The receiver now also counts, on the arm, the requests from
+  pages the arm does not concern (`otherAsks`: the host when it is one the pipeline knows, otherwise "another host";
+  never a path). A cell with no report says in its outcome, its row (`receiverReach`) and its stop message, sent at
+  once, either "the checker did not reach the receiver (no page claimed in N s)" or "the checker reached the receiver:
+  …", followed by the pages that were claimed (role, whether on the chat path, whether they reported), the requests
+  the receiver refused, and the requests from pages the cell does not concern. "Did not reach" is the receiver's view:
+  it cannot tell a checker that never ran from one whose requests never got through. Two examples, from the test
+  driver with planted faults:
+  ```
+  grok in navimac-chrome: no checker ran on the page the browser landed on — the checker did not reach the receiver (no page claimed in 91 s). grok is not opened again this session (it may be a page the checker cannot see).
+  perplexity in navimac-chrome: no report — the checker reached the receiver: 1 page claimed (site page on the chat path, the checks page: no report), none reported (the wait ended: the load's time limit; 1 page claimed, 0 reported: site page on the chat path (the checks page): no report). perplexity is not opened again this session (it may be a page the checker cannot see).
+  ```
+  The second lists the page twice; that is redundant, not wrong.
+- **Note c: a browser left open.** Every path that leaves a VM up because a browser did not quit, or may not have,
+  now names the VM and each such browser in a message sent at once: a cell's close, a pre-check's close, Safari's
+  preparation, a failed VM start with a browser found running, the boot check (a browser running, or the process list
+  not read) and a runner error after a browser did not quit (a new message). The end message, the nudge's waiting list
+  (`vm-left-running`), `summary.md` and `session.json` (`leftOpen`) name them too. Example, from the test driver with
+  a planted browser that does not quit:
+  ```
+  Navi Mac: the browser chrome did not quit. The rest of this VM's cells are skipped. STILL OPEN in Navi Mac: chrome. The VM Navi Mac is LEFT RUNNING so that you can close chrome by hand (quit it the normal way: the pipeline never closes a browser by force, and shutting the VM down would). Afterwards run: node pipeline/session.js --cleanup (it shuts the VM down only once no browser runs in it). The session stops here.
+  (The session has stopped.)
+  ```
+  When the close gave no clear answer, the line reads "MAY STILL BE OPEN in Navi Mac: chrome (the runner could not
+  tell whether it quit)."
+- **Choice 14: no change in behaviour.** As built before, a site that went straight to Google's account chooser counts
+  as "site only" only when Gemini's cell in that browser said Google was "in"; otherwise the cell takes Gemini's kind.
+  The code now quotes the owner's decision where that case is classified.
+- **The approvals in the code.** Comments and messages for the approved choices now say "approved by the owner on
+  2026-11-19". Not yet changed: choice 10's wording in `pipeline/vm/README.md` and in the Windows boot-check script
+  (`pipeline/vm/naviwin-boot-check.ps1`, which runs inside Navi Windows) still says it waits for the owner's
+  confirmation.
+
+**4. Question 4: what the installed checker shell matches, and what it does on the sign-in hosts.** From an Opus
+agent's fact sheet. Context: the code path read at `1a50efc` (the code, not its comments), plus one run of the
+receiver contract's pure functions in a scratch folder. Nothing was run in a browser, on a VM or on any site. What a
+userscript manager does with `@noframes`, with its cached `@require` copy or with its sandbox `window` was not measured.
+Read again against the working tree when this section was written, after part 3's change: the rules that claim a page
+and grant a click are unchanged, and the one change on these hosts is part 3's control field, which is recorded on
+`auth.openai.com` and `accounts.x.ai` and never on Google's page.
+- **The hosts.** The installed shell (1.0.0; frozen, installed in the seven Tampermonkey browsers; Safari's file
+  carries the same header without `@require`) matches every path (`/*`) of: the five sites (`claude.ai`,
+  `chatgpt.com`, `gemini.google.com`, `grok.com`, `www.perplexity.ai`); three sign-in hosts, `accounts.google.com`,
+  `auth.openai.com` and `accounts.x.ai` (the last two assigned to ChatGPT and Grok from general knowledge, not
+  measured); the receiver's local pages (127.0.0.1 and 192.168.64.1, with and without port 8790); and `example.com`.
+  It has no `@include` and no `@exclude`; it grants only the two request functions; it may connect only to 127.0.0.1
+  and 192.168.64.1; it carries `@noframes` and runs at document-idle. So it does match Google's sign-in host.
+- **"the logic does nothing there unless a re-sign-in was granted for that cell": false as worded.** While any cell is
+  armed (any of the five sites, its first load or the reload after a re-sign-in), every load of `accounts.google.com`
+  that asks the receiver is claimed as Google's page, and the served logic runs its passive read there: it waits 3 s;
+  reads the page's title, its visible text (tested against fixed patterns, never sent), its frames, alert-like
+  elements, password, email and identifier fields, account rows and buttons; writes "[Navi checker]" lines to the
+  page's console; and posts one report to the Mac's receiver with counts and kinds only (no page text, no page
+  structure, no account name). It does not click. What is true: it never clicks on Google's page without a grant. Its
+  only click there needs the receiver's `proceed: true` for that page load, and the receiver grants the account click
+  only after it granted the site's Google button in the same arm.
+- **"nothing at all while every site's switch is off": false as worded.** With every switch off: (a) on every load of
+  the three sign-in hosts, in a session or not, the installed shell sets one flag on its window and sends up to two
+  requests to the receiver's addresses (never to the site), carrying the host, the path without its query, the shell
+  version and the logic hash; with no session running both fail and nothing more happens; (b) during a session, while
+  a cell is armed, Google's page is read and reported as above, and so is `auth.openai.com` in a ChatGPT cell and
+  `accounts.x.ai` in a Grok cell. The arm is not tied to a browser, so while a cell is armed such a load from any
+  browser with this shell that reaches the receiver is handled the same way. What is true: with every switch off,
+  nothing is ever clicked on any sign-in host. The logic never asks (the receiver's answer says `allowed: false`), and
+  the receiver would refuse if it did. Gemini's cell never gets a click, whatever the switches say.
+- **A smaller change, not made.** One line in the receiver's contract (`pipeline/lib/formats.js`, `roleOf`), outside
+  the frozen files: claim Google's host only after the receiver has granted that cell's click on the site's Google
+  button. The receiver would then answer "not armed" on Google's page until that grant, the shell would stop, and the
+  logic would never run there. That makes the first statement true for the logic as worded, and the second true for
+  the logic, since that grant can only come with the site's switch on. It would take effect at the next receiver start,
+  with no reinstall. It would not make the second statement true as worded: the shell's own request to the Mac on every
+  Google page load comes from the frozen, installed shell's `@match`, and removing it means changing that shell and
+  reinstalling it in seven browsers, which would also remove the account-chooser click for good. What the one-line
+  change would cost, in every cell without a granted site click (every cell while every switch is off): Gemini's own
+  sign-out evidence when Gemini sends the browser to Google's page (that cell would become "no checker ran on the page
+  the browser landed on", Gemini would be paused for the session, and Google's state in that browser would stay
+  "unknown", so no other site there could get a re-sign-in click); the "Google itself" / "site only" / "unknown"
+  reading of a cell whose site went to Google's page by itself (such a cell would become "no report" and pause its
+  site); and choice 3's stop, which would see only Google pages reached after a granted site click. The same change
+  for `auth.openai.com` and `accounts.x.ai` is not recommended: those pages are ChatGPT's and Grok's sign-out evidence,
+  and their one possible click is the first re-sign-in click, so they must be claimed before any grant.
+- **Put to the owner:** both statements are false as worded, and the owner decides whether to keep the checker's
+  reading of the sign-in hosts as it is or to make the one-line change. No answer is recorded yet, and nothing was
+  changed on the strength of the fact sheet.
+
+**5. Question 5: named display setups, as built.** The answer is yes: the record now holds any number of named setups.
+- **The record.** `pipeline/vm/display-normal.json` (tracked; not created yet) holds named setups (a name is 1 to 40
+  letters, digits, ".", "_" or "-"). Each holds the Mac's own screens when it was recorded (how many, each one's size in
+  pixels and its scale, in a fixed order: the setup's signature), when and from which run it was recorded, and each
+  browser's normal values (viewport, pixel ratio, screen size).
+- **The Mac's screens** are read by the new `machine/mac/screens.js` (AppKit's list of screens through `osascript`:
+  geometry only, no window, no picture, no permission needed), with a 10 s limit, at the session's start and at each
+  stage's start; every read is kept in `session.json` (`macScreens`). One read on this Mac by the builder on 2026-11-19
+  (the time was not reported, the dock and monitors as they were then) took 0.18 s and returned "4 screens:
+  2940x1912@2, 1920x1080@1, 1920x1080@1, 1920x1080@1".
+- **Recording a setup** (the owner's step, with the owner's OK): a `--precheck-only` run in that setup (the VMs, the
+  local page and example.com, no AI site), with the Mac's screen unlocked and the VM windows where the session will
+  have them; then `node pipeline/display-record.js <runId> --setup <name>` prints the run's values next to that
+  setup's and writes nothing, and with `--owner-ok` it writes that setup and only that one. It refuses, writing
+  nothing: a run whose record says the Mac's screen was locked at any read; a run with no reading of the Mac's
+  screens, a reading that failed, or screens that changed between its stages; a test-driver run; a name already
+  recorded with other screens; and screens another setup already holds.
+- **What that means for the readings so far:** no run before this change read the Mac's screens, so none of the
+  display readings of 2026-11-19 in the sections above can be recorded with it. They can be shown to the owner; each
+  setup's normal values come from a new `--precheck-only` run in that setup.
+- **How a session chooses.** `--display-setup <name>` uses that setup: an unknown name is refused (exit 3), and a setup
+  recorded with other screens is still used, with a note. Without the option, the session uses the setup whose recorded
+  screens equal the Mac's present ones; if two match, it is refused (exit 3) and asks for the name (the recording step
+  refuses to make two). The setup's name is in `session.json` (`displaySetup`), in the end message ("Display: …") and
+  in every display stop. The comparison rule and its tolerance are unchanged (the screen size exactly, the viewport
+  within 24 px or 3%, the pixel ratio exactly).
+- **A session started in a setup that is not recorded** (the owner's "if not" case): when the Mac's present screens
+  match no recorded setup, or could not be read, and no name is given, a live session on the real VMs is refused
+  before anything starts (exit 3). The message names the present screens and the recorded setups and says how to
+  record this one. There are three ways on, each the owner's call: record this setup first; name a recorded setup
+  with `--display-setup` (every report is then compared with that setup's values, so a VM whose display differs from
+  them stops its stage); or start with `--display-unchecked-ok` (each browser is then compared only within its own
+  stage, and the end message names those browsers). A rehearsal and the test driver only note it.
+- **Screens that change during a session.** At each stage's start the Mac's screens are read again. If they differ from
+  the session's start, that stage is not started, its cells are skipped, and a stop message goes out at once, for
+  example "Navi Windows: not started: the Mac's screens changed since the session's start (2 screens: 3024x1964@2,
+  2560x1440@1 -> 1 screen: 3024x1964@2; display setup "docked", matched by the Mac's screens). …" (the test driver's
+  invented screens). Each later stage is checked the same way. A read that fails at a stage's start is a note, not a
+  stop. A change within a stage is caught as before, by comparing every report with the setup's values.
+- **What the signature leaves out:** the screens' arrangement and which screen holds the menu bar. By the rule above, a
+  VM window centred on another screen of the same setup would read as a display difference (not measured).
+- An old single-set file would be read as a setup named "default" with no screens, used only with `--display-setup
+  default`; no such file exists.
+
+**6. The checks after the build (16:42 to 17:22Z).** Context: the Mac (macOS 26.6.2), Node 24.22.2, Playwright 1.65.0
+with Chromium 158.0.8127.18, Firefox 159.0 and WebKit 27.2; no userscript manager, no VM, no AI site, no Discord post;
+throwaway folders and invented chat addresses; load average 5 to 9. Harness evidence only, never browser evidence.
+- **Results.** Unit tests 244 of 244 (the 222 before and 22 new; the builder had seen the new ones fail on a scratch
+  copy of `1a50efc`); after the verifier's repairs, 243 pass and 1 is skipped (the real screens read, now opt-in). The
+  receiver's HTTP tests 20 of 20. The mock-page specs 53 of 53 in Chromium and in Firefox and 52 of 53 in WebKit, the
+  contract 13 of 13 in each: WebKit's Perplexity run crashed in the harness's own reading of the mock's truth, with
+  three engines running in parallel, before the checker ran, and passed 3 of 3 when run again alone. The test driver's
+  smoke run 45 of 45 (Chromium), twice. The simulated 40-cell session 40 of 40 accepted (697 s).
+- **Planted faults, each as expected:** the preview for a signed-out Claude with no switch file; both kinds of "no
+  report"; a browser that did not quit, and one whose close gave no answer (exit 2 for both, the VM left up); the
+  setups "docked" and "laptop" (recorded from the test driver's two invented screen sets) each matched by its screens;
+  an unknown setup name refused; a named setup on other screens used, with its note; the screens changed before Navi
+  Windows' stage (that stage stopped); and the live refusal on screens no setup holds (exit 3). `display-record.js` refused the test driver's runs as such; its other rules were reached on
+  copies of those runs' `session.json` with the test-driver mark taken out of their mode, so those results show the
+  rules, not a VM's values.
+- **The verifier's repairs:** a stop message that leaves a VM up ended "The session stops here." and then "(The session
+  goes on with what the stop does not cover.)", because the stop flag was set after the message (now set before it;
+  the message ends "(The session has stopped.)"); a message that is not posted is now printed in full in the log; two
+  new planted faults, so that a cell with no report can be tested at all; the real screens read in the unit tests made
+  opt-in (`NAVI_TEST_REAL_SCREENS=1`).
+- **Mistake.** The verifier's first unit run executed `machine/mac/screens.js` once (one read-only read of the Mac's
+  screens), through a unit test that made the real call by default, while the agents' rules for that round said that
+  nothing under `machine/mac/` is executed. Change: that test now makes the real call only with
+  `NAVI_TEST_REAL_SCREENS=1`. The builder's own read (part 5) is the other run of that file on 2026-11-19; whether the
+  builder's instructions allowed it is not in the sources of this section.
+
+**7. What is still the owner's before the proof session.**
+- The display values, recorded per display setup with the owner's OK (part 5), or the session started with
+  `--display-unchecked-ok`.
+- The owner's go for the proof session (the 40-cell session on the five sites, with the owner at the computer), and
+  for its second start.
+- A look at Navi Windows Firefox's Tampermonkey Externals setting (it injected the same old copy in three runs).
+- The morning nudge: installing it and choosing its time.
+- Codex review on the private lab repo.
+- The owner's reply on question 4 (part 4).
+
+Also open, none of them needed before the proof session as built: switching the re-sign-in on per site, after its
+preview; which setting locks the Mac's screen after about three hours without input (a live session refuses while it
+is locked); the capture rule for Phase 2 and whether it applies in the proof session; Firefox's background update in
+Navi Windows and crash-restore in the three VMs.
+
+**8. Not measured** (none of this may be read as known): the screens read and the choice of a setup with a real VM, and
+with the dock unplugged; whether a VM's readings follow a setup as recorded; the preview on a real site's page (the
+control's tag, label and link host have been read only on the fixture's button); `otherAsks` from a real browser;
+every left-open path with a real browser and VM; how the seven Tampermonkeys take the new logic build.
