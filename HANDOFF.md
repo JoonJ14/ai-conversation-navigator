@@ -394,7 +394,9 @@ Carried over, still in force:
 New this session (the owner's, 2026-11-16 to 11-19; DEC-065 has each with its date):
 - **No screenshots of the owner's screen or account without asking;** only VM windows (by window id) or the test user.
 - **Never type a secret through synthetic keystrokes into a window on the owner's desktop**; a typed password is the
-  owner's step. **Never automate a sign-in.**
+  owner's step. **Never automate a sign-in**, with one exception since the owner's build plan (2026-11-18, decision 13,
+  DEC-065): the two re-sign-in clicks when a site signed the test account out while Google is still signed in in that
+  browser (clicks only, never typing, one attempt; anything else that appears is the owner's step).
 - **Nothing runs in the owner's personal browsers or accounts** unless the owner asks for it at that moment.
 - **Nothing about the test accounts in either repo** (no email address, password, cookie, session file, webhook URL,
   chat address or chat content); secrets live in the Keychain.
@@ -489,7 +491,8 @@ DO NOT:
 - Merge anything without my explicit OK for that PR, or push to main.
 - Visit an AI site, start a live session or start a VM's browsers on a site without my go.
 - Take screenshots of my screen or account without asking (VM windows only).
-- Type a secret through synthetic keystrokes, or automate a sign-in.
+- Type a secret through synthetic keystrokes, or automate a sign-in (one exception
+  since 2026-11-18: the build plan's decision 13, DEC-065).
 - Run anything in my personal browsers or accounts unless I ask at that moment.
 - Put anything about the test accounts in either repo (no email, password, cookie,
   webhook URL, chat address or chat content).

@@ -1814,6 +1814,26 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
 20. **Later, from the redesign (the owner, 2026-11-17, decision 10):** health checks inside Navi during real use; a
     remote data file for selectors and the model table; an unknown model shows "context window not known yet", never a
     guessed number.
+21. **Found while building the live-test pipeline (not fixed; Navi stays at v12.19 until Phase 6; logged
+    2026-11-19).** Noticed in Navi's own code and tooling during Phase 1 of the owner's build plan (DEC-065) and
+    deliberately left alone (the plan's decision 2: no Navi fixes until Phase 6). Each was read from the source, not run
+    in a browser:
+    - **A regex lookbehind, which is not ES5.** `ai-conversation-navigator.user.js:14855`, in Summary's
+      `_sumExtractKeyPoints`: `text.split(/(?<=[.!?])\s+|(?<=\n)\s*/)`. Lookbehind is ES2018 syntax, against CLAUDE.md
+      rule 1; it is the only one in the file. Because of it, the private lab's selector-inventory generator can parse
+      v12.19 with acorn only at ecmaVersion 2018 or later (found 2026-11-19). What it does in a browser was not checked.
+    - **`GM_addStyle` is granted and never used.** `@grant GM_addStyle` at line 22 is the only occurrence of the name
+      in the file.
+    - **Six planted bugs in `probes/` no longer apply to v12.19.** Four of the 46 transport-ladder mutants in
+      `probes/build-ladder-mutants.js` (M21 at lines 49-51, M34 at 141-143, M08 at 164-166, M09 at 167-169) and two of
+      the 18 answer-bookmark mutants in `probes/run-answer-mutants.js` (M14 at lines 75-78, M16 at 84-88) anchor on
+      text that v12.19 no longer contains: the request headers and `fetch` options became variables (line 1676;
+      `fetch(origin + path, init)` at 1810), the origin check compares with `expected` (1765), and the two bookmark
+      conditions changed (13374, 13073). Each mutant needs exactly one match, so building them stops; re-anchor or
+      retire them before the batteries are next relied on. (The lab's fact sheet counted 6 of 64 by applying the
+      anchors in memory, 2026-11-19; re-read here with a text search. `probes/build-tokenizer-variants.js` needing a
+      pre-v12.7 source is already stated in its own header.)
+    - The Perplexity `/session/` bookmark finding is item 16, reserved for Phase 6 by the owner's decision 2.
 
 ---
 
