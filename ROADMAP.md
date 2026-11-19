@@ -1740,6 +1740,16 @@ All platform-specific data is consolidated into a single `PLATFORMS` registry. A
         says the glide "left the target 4,240 px below the view, 2 of 4 times"; the first miss was 6,139 px and the
         4,240 px one was a later run (DEC-057). Fix it in the next code PR (a docs-only PR does not touch the script).
 
+15. **Light/dark detection when a site or the system is set to "auto" — for later (the owner, 2026-11-19).** The
+    owner's observation (not yet measured by the agent): setting up the test VMs, the owner chose "auto" appearance
+    (follow the system) where asked. Navi seemed not to pick that up well: especially on ChatGPT, the page background
+    was white and Navi's button was white too, hard to see. Until now the owner's sites were explicitly light or dark.
+    What is wanted: detect the colour actually drawn behind the button (in "auto" a page is light by day and dark by
+    night) rather than a light/dark setting, and keep the button and its glyph in contrast both ways (a dark button with
+    a light glyph on a light page, the reverse on a dark page). The owner did not recall whether Navi already flips the
+    button both ways; check before changing anything. Not investigated; no Navi change now (the owner's 2026-11-18
+    decision: build the live test pipeline first). Context: Navi v12.19, the VM browsers, during the sign-ins.
+
 ---
 
 ## Platform Risk Model — Four Layers of Breakage
