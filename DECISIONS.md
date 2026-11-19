@@ -5881,6 +5881,37 @@ autostart entries; GNOME does not save sessions) and neither browser reopens old
   browser's main process; both handle it as a clean quit); never forced (NOT-QUIT stops that browser's cells).
   Rehearsal and restore check: 8 pages, none loaded twice, all visible 49-53 fps.
 
+### Experiment 1, Stage C: the Linux VM (2026-11-19, the owner's go; Navi v12.19, checker 0.3.2 unchanged)
+Before the go, installs and sign-ins were verified from the VM's files (Chromium: Allow User Scripts on, both scripts,
+every sign-in cookie in the basic store `v10`, so the owner's sign-ins and the runner share one store; Firefox: both
+scripts, cookies for all five sites).
+- **First run, stopped (exp1-C-2026-11-19T0134).** The owner unplugged the USB-C dock at 01:34:51Z, 2 s after the
+  Chromium / Claude cell's checks; the VM's display was rearranged and Chromium's viewport went from 763 to 1,645 px
+  tall (the owner saw the page "super zoomed out"). The owner judged the results inaccurate; the agent stopped the run
+  cleanly (receiver disarmed, browsers quit normally). Cells run: Chromium Claude, ChatGPT, Gemini, Grok, Perplexity;
+  Firefox Claude, ChatGPT (all accepted, no stop rule); Firefox Gemini was armed but never loaded (Firefox's history).
+- **Full re-run (exp1-C-2026-11-19T0147), the owner's choice "as if I just finished setting it up"** (12 Claude loads in
+  the experiment instead of 10): the display checked first (Chromium viewport 763 px again). Chromium: pre-check and
+  probe passed; **Claude, ChatGPT, Gemini, Grok all pass; Perplexity bookmark fail** (no key, `/session/`). **Firefox:
+  local pre-check passed, the example.com probe got no report in 90 s, so the required pre-check blocked all five
+  Firefox cells (not visited).** Duration 3 min 58 s; Discord posted (HTTP 204).
+- **Why the probe failed (the owner saw it on screen):** Firefox's startup-crash prompt ("Firefox closed unexpectedly
+  while starting… Troubleshoot Mode / Refresh") blocked the start: the probe's Firefox ran 90 s on 2.6 s of CPU and
+  loaded nothing (no history visit). Firefox counts a quit made while it still considers itself starting as a startup
+  crash (`toolkit.startup.recent_crashes` was 4; the limit is 3). The agent's rapid open/quit cycles (rehearsal, restore
+  check, pre-checks, and stopping the first run mid-start) caused it. **Fix (the owner asked for one), in all three
+  VMs' Firefox:** `user.js` sets `toolkit.startup.max_resumed_crashes` -1 (never offer Troubleshoot Mode) and resets
+  the counter. Tested in the Linux VM: three deliberate quits 2 s into the start, then two normal starts, no prompt,
+  visible 46-51 fps. Local behaviour only, nothing a site can see.
+- **Navi Mac started Firefox by itself at sign-in** (found while applying the fix; no page was loaded: no receiver
+  request, no history visit since Stage A). macOS 26's "reopen apps" list
+  (`~/Library/Group Containers/group.com.apple.loginwindow.persistent-apps/persistantApps`) still held Firefox from the
+  shutdown right after Stage A (written 14:59 CST); a shell `shutdown` never rewrites it. Removed (backup in the VM),
+  and `com.apple.loginwindow TALLogoutSavesState` set false; a clean boot then started no browser. To re-check after
+  the next Navi Mac stage.
+- **The owner's other observation (2026-11-19), logged as ROADMAP item 15, not acted on:** light/dark detection when a
+  site or the system is set to "auto" (ChatGPT: white background, white Navi button).
+
 ### Rules the owner added for this work (2026-11-16)
 - No screenshot of the owner's screen or account without asking; only VM windows (captured by window id) or the test
   user. (The one full-screen capture, a permission test, was deleted unopened.)
