@@ -380,7 +380,7 @@ changes from `221c02c`.
   `docs/IMAGE-GALLERY-DOM-FIX.md`, `docs/V10.10-TASKS.md`, `docs/V10.11-TASKS.md`.
 - **The owner's Python server on port 8765** is theirs (listening on 127.0.0.1:8765, 2026-11-10). This session served
   builds on 8799.
-- **The v12.19 resume pack** (`~/.claude/projects/-Users-joonjung-Desktop-side-projects-ai-conversation-navigator/
+- **The v12.19 resume pack** (`~/.claude/projects/<this project's folder>/
   v12-19-resume/`) is history now: the digest, the audit, `proposals.md`, the milestone logs, the 14 per-step review
   records.
 
