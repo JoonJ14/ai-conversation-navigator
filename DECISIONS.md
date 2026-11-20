@@ -5312,7 +5312,7 @@ results kept). This block and the last sections are the current state.
   needs a GitHub App token, HTTP 403); the build plan's Phase 3 depends on it (`/babysit-pr-cycle` on private-repo
   PRs); a re-check of Navi Mac's reopen list (Phase 1's boot check now does it at every boot). **Still the
   owner's** (the last section, parts 8 and 9): the go for Phase 2; the morning nudge (built, not installed, its time
-  to be chosen); Codex review on the private lab repo (above); whether the two Discord messages arrived. **Left open by
+  to be chosen); Codex review on the private lab repo (above). **Left open by
   the owner:** the focus question (20:22Z). **Closed:** the owner's go for Phase 1's proof, given by starting it, and
   Navi Windows Firefox's Externals setting, set to "Always" by the owner (reported 21:24:56Z; the last section, part
   6); `chmod 700 ~` (the
@@ -7835,7 +7835,7 @@ step I had to do by hand."
 | "all 40 cells" | 40 of 40 accepted in each start; 0 stopped, 0 need sign-in, 0 without a usable report, 0 not visited | In each start one ChatGPT cell's bookmark check could not be judged (part 3) |
 | "VMs up and down" | Each start ran its three stages in turn (Navi Mac, Navi Windows, Navi Linux), one VM at a time, each booted, checked and shut down | First start: Navi Linux's window stayed mostly on the Mac's built-in screen, and only `session.json` says so (part 7) |
 | "the table" | `summary.md` of each start: 8 pre-check rows and 40 cell rows, then the comparison with the baseline | None found |
-| "the Discord message" | `discord.txt` of each start, built at its end | Whether each post succeeded is printed only in the owner's terminal and is not in `session.json`; the owner has not said whether the messages arrived. Both texts end at the message's length limit (part 7) |
+| "the Discord message" | `discord.txt` of each start, built at its end | Both messages arrived: the owner pasted each into the session afterwards (posted 5:33 PM and 6:08 PM Central on 2026-11-19, one message per start). Whether a post succeeded is otherwise printed only in the owner's terminal and was not in `session.json` for these two runs. Both texts end at the message's length limit (part 7) |
 | "nothing left running" | Both: the receiver stopped, no VM running (0 VM processes), nothing listed as left open | None found |
 | "A second start right after also works" | `session-2026-11-19T2338` started at 23:38:48Z, 5 min 49 s after the first ended, and passed the same parts | None found |
 | Fixture case 1: a site-only sign-out fixed and reported with its age | Local fixture, all eight browsers (part 4): signed back in, reported with the age of the sign-in it replaced (0.8 days) | The fixture's flow is two clicks (the site's button and the account on Google's chooser, as the plan's decision 13 allows), not one. Safari needed two more runs. Shown with served logic `4e2252a616c1c773`, not the proof's `45ca834892817a21`; local pages only |
@@ -7971,7 +7971,8 @@ In the proof itself: one command per start and nothing else, as far as the sourc
   owner switched applications is not recorded. The focus question stays open by the owner's choice (20:22:42Z).
 - **One ChatGPT cell per start could not be judged** (part 3).
 - **The Discord messages.** Whether each post succeeded is printed only in the owner's terminal and is not in
-  `session.json`; the owner has not yet said whether the messages arrived. Both texts end with "… (cut)" at the
+  `session.json`. Both arrived, one message per start: the owner pasted them into the session afterwards (5:33 PM and
+  6:08 PM Central), the first ending "… (cut)" after its "Other changes" line. Both texts end with "… (cut)" at the
   message's length limit. In the second, the cut falls inside the line of uncalibrated changes, so the end of that line
   and the "Other changes" line (the not-judgeable ChatGPT bookmark) are not in the message; what the first one's cut left
   out is not in the record.
@@ -7979,7 +7980,6 @@ In the proof itself: one command per start and nothing else, as far as the sourc
 **8. What this proof does not show.**
 - A real sign-out, and a re-sign-in, on a real site; how long sign-ins last.
 - A stop rule firing on a real site, and its immediate Discord message.
-- That a Discord message arrived.
 - The three fixture cases with the proof's served logic `45ca834892817a21`.
 - The undocked display setup (not recorded), and the window rules with X90G-R or every external monitor unplugged.
 - The morning nudge (built, not installed: the owner's step).
