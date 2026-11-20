@@ -5244,7 +5244,7 @@ owner's, committed as `6911977`). Public docs on `ci/live-verification-layer`; a
 proves a change is needed, which would stop for the owner (spec). **Replaces** the "live verification layer (the next
 spec)" placeholder in ROADMAP and the 2026-11-12 handoff's "spec 1, a built-in self-test", which the owner rejected.
 
-### Where this stands (2026-11-20, after 00:08Z; Phase 1 built and its proof run twice by the owner on the five sites; Phase 2 waits for the owner's go) — read this first
+### Where this stands (2026-11-20, after 02:25Z; Phase 1 accepted by the owner; Phase 2 started under the owner's go; the loader waits for the owner's answer on the 4(b) finding) — read this first
 This DEC is a running, chronological record (each section dated; corrections stay next to what they correct, both
 results kept). This block and the last sections are the current state.
 - **Status:** Experiment 1 is complete (2026-11-19 02:08Z): **40 of 40 page loads accepted**, signed in to the test
@@ -5253,23 +5253,27 @@ results kept). This block and the last sections are the current state.
   22:26 CST** (`docs/specs/live-test-pipeline-build-plan.md`; its decisions are recorded below under "The pipeline
   build plan"): six phases, the first being "the full session from one start". **Phase 1 is built, reviewed (71
   findings, fixed) and rehearsed again in the three VMs on local pages** (private repo, branch
-  `pipeline/phase-1-full-session`, code committed up to `0869a8a`; see the five sections before the last). **The pipeline's
+  `pipeline/phase-1-full-session`, code committed up to `0869a8a`; see the five sections before "Phase 1: the proof"). **The pipeline's
   choices 1 to 13 were approved by the owner, 2026-11-19, and choice 14 was decided by the owner: no** ("The owner's
   answers to the pipeline's choices (2026-11-19)"). **The owner's seven instructions of 2026-11-19 (17:49Z) are built
   and measured** ("The owner's instructions of 2026-11-19 on windows, displays and the sign-in hosts"): the VM windows go on an external monitor, with one home monitor per
   display setup (the owner's desktop 20, the monitor X90G-R); a report from the three sign-in hosts can carry only
   numbers and fixed kinds; Navi Linux's and Navi Mac's screens are pinned at scale 1 in UTM's settings (Navi Windows'
   cannot be, and its window is to be set to the recorded size instead); a pre-check on the pinned screens passed 8 of 8
-  (19:46 to 20:02Z, local pages and example.com, one run). **The display setup "docked" is recorded** (20:57Z, the section before the last) on the owner's
+  (19:46 to 20:02Z, local pages and example.com, one run). **The display setup "docked" is recorded** (20:57Z, "The docked display setup recorded") on the owner's
   conditional OK of 20:18Z: from a trial run that put all three windows on the home monitor, with Windows Firefox at a
   page height of 618 and its cause beside it (Firefox's own saved window size, not a bar). The one planned pre-check
   with the record in force passed 8 of 8 (20:57 to 21:08Z, local pages and example.com, one run). **Phase 1's proof ran
-  twice, each started by the owner with one command** (the last section): `session-2026-11-19T2305` (23:05:07 to
+  twice, each started by the owner with one command** ("Phase 1: the proof"): `session-2026-11-19T2305` (23:05:07 to
   23:32:59Z, 1672 s) and `session-2026-11-19T2338` (23:38:48Z to 00:08:27Z on 2026-11-20, 1778 s). Each: 8 of 8
   pre-checks, 40 of 40 cells accepted on the five real sites (24, then 28, with every check passing), no stop, no
   sign-out, no new failure against the baseline, nothing left running; one run each. The three sign-in cases were shown
-  on the local fixture earlier that day. **Phase 2 waits for the owner's go,** and the fifteen decisions of the design
-  draft for Phases 2 to 6 wait with it. Every site visit still waits for a session the owner starts.
+  on the local fixture earlier that day. **The owner accepted Phase 1 and gave the go for Phase 2,** with answers to
+  the fifteen decisions of the design draft for Phases 2 to 6 and seven leftovers (dated 2026-11-19, sent 02:18Z on
+  2026-11-20; "Phase 1 accepted, and the owner's go for Phase 2 with the answers"). Phase 2 started at about 02:25Z on
+  local pages (the round trip on the Gemini mock; no VM, no site). **The loader waits for the owner's answer** on the
+  orchestrator's finding that 4(b) cannot be met with Navi installed the normal way in the seven Tampermonkey browsers
+  (the same section, part 3). Every site visit still waits for a session the owner starts.
 - **Frozen:** Navi v12.19 (the published build, byte-identical to `main`): no Navi fixes until Phase 6. The four
   checks of checker 0.3.2 (load, navigate, one jump, one bookmark): no tuning until Phase 5; Phase 1's checker carries
   them unchanged (a test compares the code line by line) and changes only how the checker is delivered and what it
@@ -5296,11 +5300,13 @@ results kept). This block and the last sections are the current state.
 - **Findings waiting for the pipeline** (none to be worked on before its phase): Perplexity bookmarks on `/session/`
   chats (a probable real bug, reserved by the owner for Phase 6, the first real run); the jump findings of an
   uncalibrated checker (ChatGPT; Grok in Google Chrome and Edge; Safari / Claude), unconfirmed until Phase 5 (both
-  kinds seen again in the proof's two runs, the last section, part 3); the CI's
+  kinds seen again in the proof's two runs, "Phase 1: the proof", part 3; per cell across three runs in "Phase 5 notes
+  from Phase 1"); the CI's
   mock pages are stale on all five sites (Phases 2 and 3); light/dark detection under "auto" (ROADMAP item 15).
-- **Not built yet** (Phase 1 is built and its proof has run): the CI from captures (Phase 2); the CI upkeep
-  loop and the CI fix loop (Phase 3); the loader, the admin build, the code fix loop and the auto-merge switch, off
-  (Phase 4); the full check list and the calibration (Phase 5). Superseded by the redesign: the schedule,
+- **Not built yet** (Phase 1 is built and accepted): the CI from captures, with the loader and the admin build's
+  recorder brought into it by the owner's answers 3 and 4 (Phase 2, started); the CI upkeep loop and the CI fix loop
+  (Phase 3); the code fix loop and the auto-merge switch, off (Phase 4); the full check list and the calibration
+  (Phase 5). Superseded by the redesign: the schedule,
   WebDriver/remote debugging on AI sites, runner-created canaries, the live-send check, scratch chats.
 - **HANDOFF.md** is the 2026-11-19 handoff. It was written before the build plan arrived: where the two differ, the
   plan is the owner's decision (the owner, 2026-11-18). The differences are listed under "The pipeline build plan",
@@ -5309,13 +5315,15 @@ results kept). This block and the last sections are the current state.
   github.com, avatar → Settings → Applications → Installed GitHub Apps → ChatGPT Codex Connector → Configure, add
   `ai-conversation-navigator-private-lab` if access is limited to selected repositories; then on chatgpt.com/codex,
   Settings → Code review → on for that repo; the agent could not check the app's access: `gh api /user/installations`
-  needs a GitHub App token, HTTP 403); the build plan's Phase 3 depends on it (`/babysit-pr-cycle` on private-repo
+  needs a GitHub App token, HTTP 403; the owner asked for these steps again on 2026-11-20, item 21); the build plan's
+  Phase 3 depends on it (`/babysit-pr-cycle` on private-repo
   PRs); a re-check of Navi Mac's reopen list (Phase 1's boot check now does it at every boot). **Still the
-  owner's** (the last section, parts 8 and 9): the go for Phase 2; the morning nudge (built, not installed, its time
-  to be chosen); Codex review on the private lab repo (above). **Left open by
-  the owner:** the focus question (20:22Z). **Closed:** the owner's go for Phase 1's proof, given by starting it, and
-  Navi Windows Firefox's Externals setting, set to "Always" by the owner (reported 21:24:56Z; the last section, part
-  6); `chmod 700 ~` (the
+  owner's:** the answer on the 4(b) finding; entering the name and email in the Keychain (answer 12); the morning
+  nudge (built, not installed, its time to be chosen); Codex review on the private lab repo (above). **Left open by
+  the owner:** the focus question (20:22Z). **Closed:** the go for Phase 2 (02:18Z on 2026-11-20, with the answers);
+  the owner's go for Phase 1's proof, given by starting it, and
+  Navi Windows Firefox's Externals setting, set to "Always" by the owner (reported 21:24:56Z; "Phase 1: the proof",
+  part 6); `chmod 700 ~` (the
   owner, 2026-11-18 20:55 CST; measured below); the owner's one-time steps for Phase 1 in the seven VM Tampermonkeys
   (reported done 2026-11-19, 06:07 to 06:37Z; see "Phase 1 of the build plan"); the pipeline's 14 items (choices 1 to
   13 approved by the owner, 2026-11-19; choice 14 decided by the owner: no; "The owner's answers to the pipeline's
@@ -5325,7 +5333,7 @@ results kept). This block and the last sections are the current state.
   "immediately", not sleep: the orchestrator's read; changing it is the owner's call; the same section, part 8); the
   OK on the eight display readings (20:18Z, its condition on Windows Firefox met as case c) and the recording of the
   docked setup (20:57Z); the installed shell's path on the wire (20:18Z: "discarding it on the Mac is enough. No new
-  shell."; the section before the last).
+  shell."; "The docked display setup recorded").
 
 ### The owner's decisions (the spec; 2026-11-12 unless dated otherwise)
 - **Three separate pieces:** the public navigator (the only thing users get; never any test code), the checker (tests
@@ -7991,3 +7999,296 @@ In the proof itself: one command per start and nothing else, as far as the sourc
 go." This section is that report. **The owner's go for Phase 2 has not been given,** and the fifteen decisions of the
 orchestrator's design draft for Phases 2 to 6 (private lab repo, `docs/pipeline-architecture.md`, section 1.6) wait
 with it. The baseline is unchanged; it changes only with the owner's OK.
+
+### Phase 1 accepted, and the owner's go for Phase 2 with the answers (2026-11-19)
+**State at the time of writing (2026-11-20, about 02:30Z):** the owner accepted Phase 1 and gave the go for Phase 2 in
+one message, dated 2026-11-19 by the owner and sent at 02:18:13Z on 2026-11-20 (20:18 Central on 2026-11-19). It
+answers the fifteen decisions of the orchestrator's design draft for Phases 2 to 6 (the private lab repo,
+`docs/pipeline-architecture.md`, section 1.6), lists seven leftovers from Phase 1 (items 15 to 21) and names one later
+use (item 22, the last section). Under that go the orchestrator started Phase 2 work at about 02:25Z, on local pages
+only (part 5), and put one finding to the owner before building the loader (part 3). Item 15 was running in the VMs,
+on local pages, when this was written. No AI site has been visited since the proof's second start ended (00:08:27Z).
+Navi is v12.19; the four checks are checker 0.3.2's, unchanged and uncalibrated. Times are UTC.
+
+**1. The owner's message, quoted in full** (02:18:13Z, pasted as one block; blank lines added around the two items
+numbered 11 so that each shows on its own line; no word changed). The owner had asked at 02:00:15Z: "give me the 15
+design decisions again of what they are." The list shown in reply is not in the sources of this section; as the owner
+notes, it had two items numbered 11.
+
+> Phase 1 is accepted. My go for Phase 2 comes with these answers, dated 2026-11-19. The numbers are yours from
+> section 1.6. Your list has two items numbered 11, so I name them.
+>
+> The 15 decisions
+>
+> 1. What a capture keeps: yes. The privacy scan still runs on every capture, and an attribute value that holds text
+>    or an id is treated like text or an id.
+> 2. Where a copy comes from: (a). Confirm the 40 judged cells still capture and run the selector check as now, for
+>    the comparison.
+> 3. Recorder loads: (a), one per site per session. This changes my decision 6: the admin build is now also used for
+>    this one routine load. It is still never the build a result is judged on.
+>    a. Prove the admin build is the public build plus the layer and nothing else: take the layer out again, and the
+>    result must be the public file byte for byte. Check this when it is built and at each session start. If it
+>    fails, the admin build is not used and Discord says so.
+>    b. Each recorder load also runs the same outcome checks, not judged. If the admin build's result differs from
+>    the public build's result for the same site in the same browser, report it.
+> 4. Before the loader exists: (b), bring the loader forward into Phase 2. I don't want a Safari-only swap that gets
+>    thrown away, and I don't want the normal Navi install in Safari touched. If (b) costs much more than you
+>    assumed, or breaks something, tell me before you build it.
+>    a. Rotate the recorder load across browsers, so layout variants such as Gemini's narrow layout get a copy.
+>    b. Every judged cell must prove it ran the public build by its hash, not only its version. A cell that can't
+>    prove it is not judged.
+> 5. Loader arrangement: decide from the local measurement, as the plan says. With 4(b) that measurement moves into
+>    Phase 2.
+> 6. Shared storage: (a), the read-only check.
+> 7. Copies: (a), a separate branch in the private repo. A session may commit and push copies to that branch only.
+> 8. Limits on the fix-loop agent: (a), a separate Mac user and a broker. Show me the broker's full list of what it
+>    allows before it is used, and give me my one-time steps in one list. Don't reuse the frozen Navi Test user.
+> 9. The CI fix loop never hand-edits a stored copy: confirmed.
+> 10. What starts the code fix loop: confirmed.
+>
+> 11 (the auto-merge label): confirmed.
+>
+> 11 (the "unstable" rule): leave it off until Phase 5.
+>
+> 12. Local list for the privacy scan: yes. I type the name and email in myself. They go in the Keychain, never in a
+>     file in or near a repo, and never to you. The scan reports only yes or no and where, never the matched text.
+> 13. Perplexity in Phase 6: (a).
+> 14. The re-sign-in switch: settled.
+>
+> Leftovers from Phase 1, none blocking
+>
+> 15. Re-run the three sign-in fixture cases with the proof's checker logic, with the screen unlocked.
+> 16. Who owns /Users/Shared/navi-lab and the node program under it, and can the Mac's "navi" user write anywhere in
+>     that path? My rule: nothing my account runs lives where the test user can write.
+> 17. Safari's second tab is still unexplained. Have the pre-check read how many tabs are open where it can, and flag
+>     any cell with more than one.
+> 18. Put one table in DEC-065: the jump result per cell across three runs, Experiment 1 and today's two starts.
+> 19. The ChatGPT cell that could not be judged (Linux Firefox in the first start, Safari in the second): record in
+>     DEC-065 what the checker saw on the page each time, for Phase 5.
+> 20. For Phase 5, record this: my one-time steps changed Firefox's saved window size in the Windows VM, and that
+>     changed the page height. The runner should set each browser's window size itself.
+> 21. Give me the steps for switching on Codex review for the private repo again.
+>
+> Later, not in this plan
+>
+> 22. Record this in DEC-065 as a later use of the same machinery: testing a new feature before it is published. A
+>     feature build is a candidate like a fix is, served by the loader, with its admin build generated the same way,
+>     and it may come from a local branch that isn't pushed yet. Keep the design general enough for that. Build
+>     nothing extra for it now.
+
+**2. Each answer, mapped to the design's decision.** The answers are the owner's. The design numbers its decisions 1
+to 15; the owner's numbering is kept as the owner wrote it, and each answer is matched to the design's decision by its
+title. "The plan" is the owner's build plan (`docs/specs/live-test-pipeline-build-plan.md`, cited by line); "the
+design" is the draft named above, cited by section. The last column is the docs agent's reading of each answer against
+the design and the plan, for the orchestrator to build from.
+
+| Owner's number | The design's decision (its title) | What the answer settles or changes |
+|---|---|---|
+| 1 | 1, "Capture rule v2" (0.2) | Approved, so the plan's Phase 2 item 1 ("Settle what a capture keeps") follows rule v2. The privacy scan runs on every capture, as designed. Added by the owner: an attribute value that holds text or an id is treated like text or an id. The design keeps some values whole (a value an inventory selector matches, a value compared with a literal, `class` and the like) and already puts id stand-ins inside most of them; what is new is that a kept value holding text is reduced like text, and that the id rule covers every kept value |
+| 2 | 2, "PROPOSAL: a copy comes from a recorder load, not from a judged cell" | Option (a): a copy's page and data come from one recorder load, and plan L159 ("A capture may only replace a copy if its cell loaded signed in with no objection and it agrees with the other browsers' captures") is read that way. The owner asks for a confirmation that the 40 judged cells still capture and run the selector check as in Phase 1; their records serve the comparison (the design: the change test and the agreement gate) |
+| 3 | 3, "PROPOSAL: how often recorder loads run" | Option (a): one recorder load per site per session, after the judged cells, so a session is 45 loads, 9 per site (plan L43 says 40, 8 per site; design 1.5). **It changes the owner's plan decision 6** (plan L21: the admin build "is used only to look inside after a failure … It is never the build a result is judged on"): the admin build is now also used for this one routine load, and is still never the build a result is judged on. New with 3a: the admin build with its layer taken out must equal the public file byte for byte, checked when it is built and at each session start; on a failure the admin build is not used and Discord says so. New with 3b: each recorder load also runs the same outcome checks, not judged, and a result that differs from the public build's for the same site in the same browser is reported. The design's recorder load ran no checks and no clicks (0.5) |
+| 4 | 4, "PROPOSAL (phase order): where recorder loads run before the loader exists" | Option (b): **the loader moves into Phase 2**, from the plan's Phase 4 ("The loader first, on local pages only", plan L186-192), with its local measurements (design 4.1 item 9); its one-time installs become Phase 2 owner steps. The design's Safari file swap (0.5) is dropped, and the normal Navi install in Safari is not touched. 4a: the recorder load rotates across browsers, so layout variants such as Gemini's narrow layout get a copy. 4b: a judged cell must prove by its hash that it ran the public build, not only by its version, or it is not judged (the design had "by install source" for regular sessions, 0.4). The owner's condition ("tell me before you build it") led to part 3 |
+| 5 | 5, "The loader's arrangement (plan decision 7), taken after the local measurements, not before" | As the plan says: arrangement 1 (Navi installed normally, the loader serving an empty script in regular sessions) or arrangement 2 (the loader only) is chosen from the loader's local measurements, now in Phase 2. The design's optional live check (+7 loads per site) is not taken up. Part 3's finding, if the owner accepts it, settles this as the loader only in the seven Tampermonkey browsers |
+| 6 | 6, "Storage shared by every build the loader serves" | Option (a), the read-only check: before each fix-check load, and before the first regular-session load in each browser after a fix check, the loader reports a count and hash of Navi's stored keys from the local page; a cell whose storage is not as expected is "not comparable: storage carried over" and goes to the owner |
+| 7 | 7, "Where the copies live" | Option (a): a branch of its own in the private lab repo (the design's `ci-copies`), with history. Added by the owner: a session may commit and push copies to that branch only. The design notes that the CI's workflow file under `.github/` in that repo is an owner-approved diff (plan L81); the answer does not name it, so it is still to be shown to the owner as a diff |
+| 8 | 8, "The fix-loop agent's boundary" | Option (a), for Phase 3: the fix-loop agent runs as a separate macOS user in its own clone, and a broker in the owner's account does every push, PR and Discord post. Added by the owner: the broker's full list of what it allows is shown to the owner before it is used; the owner's one-time steps come as one list; the frozen Navi Test user is not reused |
+| 9 | 9, "A reading of plan L170" | Confirmed: the CI fix loop never hand-edits a stored copy; it regenerates the copy from its stored input records with the current builder |
+| 10 | 10, "A reading of plan L166 against L213" | Confirmed: only a new live failure (not in the baseline) starts the code fix loop; the Perplexity `/session/` bookmark rows stay "known" until Phase 6 |
+| 11 (the auto-merge label) | 12, "The label rule's reading" | Confirmed: "small and touches only site-shape code" is judged on the userscript's diff without its two version lines; a header change is always "needs approval" |
+| 11 (the "unstable" rule) | 11, "PROPOSAL, switched off: an 'unstable' rule for fix checks" | Stays off until Phase 5, as proposed |
+| 12 | 13, "A local list of the account's name and email" | Option (a), changed by the owner: the owner types the name and email in; they are kept in the Keychain, not in a file under `local/` as the design had it, never in a file in or near a repo and never given to the orchestrator; the scan reports only yes or no and where, never the matched text |
+| 13 | 14, "What Perplexity serves for a `/session/` chat" (Phase 6) | Option (a): the fix check's one admin load is the admin build of the fix candidate, which departs from the order of plan L44, now with the owner's answer |
+| 14 | 15, "Carried from Phase 1: switching the re-sign-in click on, site by site" | Settled as before: the switch stays off on every real site until the owner switches a site on, after being shown that site's first real sign-out record and the pages the click would touch (the owner's note a, 16:13Z on 2026-11-19) |
+| 21 | "Also needed from the owner, not a design choice": Codex review on the private lab repo | The steps, part 4 |
+
+**3. The orchestrator's finding on 4(b), put to the owner before the loader is built.** The orchestrator's (Claude),
+2026-11-20, under the owner's condition in item 4 ("If (b) costs much more than you assumed, or breaks something, tell
+me before you build it"). As the orchestrator put it:
+- With Navi installed the normal way in the seven Tampermonkey browsers, 4(b) (every judged cell proves the public
+  build by its hash) cannot be met. No outside reader of the injected copy exists. Reading the installed copy from
+  Tampermonkey's store on disk is unmeasured, and would prove what is installed, not what ran. Tampermonkey updates an
+  installed script only while the browser stays open around its check interval, and the pipeline's browsers are open
+  for well under a minute per cell, so after a Navi release the installed copies would stay old and every cell would
+  become "not judged".
+- So in those seven browsers the loader would deliver the public build, with its stamp, to judged cells too (the
+  plan's decision 7 allows "the VMs use the loader only"), and the normal install there would be removed (an owner
+  step). That gives up "updating from GitHub as users get it" in those browsers.
+- Safari: the normal install stays untouched, as the owner asked. Its hash can be read from its file on disk at each
+  stage start. Safari gets no recorder load: a second Navi file beside the untouched one would share Userscripts'
+  content world, which is unmeasured. So Navi Mac's recorder load runs in Chrome there.
+- The loader is not built until the owner answers.
+
+The context of its parts, from the record. Tampermonkey's update behaviour is from its documentation and user reports,
+not measured ("After the report: keeping the scripts current in the VMs"). The time a browser is open per cell is
+measured: in the two starts of the proof, each of the 80 cells took 13 to 53 s from the runner arming it to the
+browser's close, none over 60 s (each start's `session.json`). If the owner accepts the finding, decision 5 is settled
+before the loader's local measurements, as the loader only in the seven Tampermonkey browsers, and the rotation of 4a
+runs over those seven, with no recorder load in Safari. A note from the docs agent, from the record only: the checker's
+file copied into Userscripts' folder was not injected until Userscripts rebuilt its list on a focus change ("Phase 1
+of the build plan", parts 4 and 5); whether what Userscripts injects is always the Navi file on disk is not measured,
+so a hash read from that file shows what is installed in Safari, the same limit the finding names for Tampermonkey's
+store.
+
+**4. The leftovers from Phase 1 (items 15 to 21), and their state at the time of writing.**
+
+| Item | What the owner asked (short) | State (2026-11-20, about 02:30Z) |
+|---|---|---|
+| 15 | The three sign-in fixture cases again, with the proof's checker logic and the screen unlocked | Running: a fixture run in all eight VM browsers with the proof's logic, the Mac's screen unlocked (the orchestrator's). Result in the next update |
+| 16 | Who owns `/Users/Shared/navi-lab` and its node program, and can the "navi" user write anywhere in that path | Measured, read-only, below. The owner's rule holds as measured |
+| 17 | The pre-check reads how many tabs are open where it can, and flags a cell with more than one (Safari's second tab is unexplained) | Not built yet. Planned: read the number of tabs from each browser's saved session where it can be read after the close, and flag a cell with more than one |
+| 18 | One table: the jump result per cell across Experiment 1 and the two starts | Done: the next section, part 1 |
+| 19 | What the checker saw on the not-judgeable ChatGPT page each time | Done: the next section, part 2 |
+| 20 | Firefox's saved window size in the Windows VM, for Phase 5 | Done: the next section, part 3 |
+| 21 | The steps for Codex review on the private repo, again | Below; the owner's step |
+
+**Item 16.** The orchestrator's finding (2026-11-20, 02:20Z, read-only): `/Users/Shared/navi-lab`, its `node` folder
+and the node program are owned by the owner's account, mode 755, with no ACLs; nothing under `node/` is writable by
+any other user. `/Users/Shared` is world-writable with the sticky bit, so the Mac's "navi" user (uid 503, in group
+staff) cannot rename, replace or delete `navi-lab`. The only files there owned by "navi" are 612 old outputs in
+`jobs/out` from the frozen Navi Test job runner (2026-11-17/18), which the owner's account does not execute. Read again
+by the docs agent (about 02:28Z, read-only: `ls -le`, `find`, `stat`, `id`), the same in every point, with one detail
+added for "anywhere in that path": the tree holds exactly two ACL entries, both for the "navi" user and both on the
+frozen job runner's folders. `jobs/out` grants it list, add_file, search, add_subdirectory and delete_child (and three
+read rights); `jobs/inbox` grants it list, search and delete_child (and three read rights). So "navi" can add and
+delete entries in `jobs/out` and delete entries in `jobs/inbox`, and nowhere else: no entry in the tree is writable by
+group or others, `app/`, `bin/` and `node/` hold no ACL and only the owner's files, and "navi" is not in group wheel
+(the group of `navi-lab`). The 612 files' modification times run from 2026-11-17 02:54Z to 2026-11-18 17:24Z. The
+owner's rule, "nothing my account runs lives where the test user can write", holds as measured: the two folders
+"navi" can write hold the frozen job runner's data, which the owner's side reads and never executes.
+
+**Item 21, the steps** (the owner's; the same as in "Where this stands"):
+1. On github.com: avatar → Settings → Applications → Installed GitHub Apps → ChatGPT Codex Connector → Configure. If
+   its access is limited to selected repositories, add the private lab repo.
+2. On chatgpt.com/codex: Settings → Code review → on for that repo.
+
+The orchestrator cannot check the app's access itself (`gh api /user/installations` needs a GitHub App token: HTTP
+403). Without it, `/babysit-pr-cycle` on a private-repo PR waits for ever and every CI fix loop ends "stuck" (the
+design, section 1.6).
+
+**5. Phase 2 started.** The orchestrator's, from about 02:25Z on 2026-11-20, under the owner's go: the round trip on
+one site (the design's section 4.1, item 1) on the local Gemini mock, with the id stand-ins, the privacy scan with the
+Keychain list, the admin build and its strip check (answer 3a), the recorder, the fixture builder and the CI run. No VM
+and no AI site. The loader is not built until the owner answers part 3. Results in a later section.
+
+**6. Open with the owner after this message:** the answer on the 4(b) finding (part 3); item 21; entering the name and
+email in the Keychain (answer 12, the owner's step; not reported done in the sources); from before, the morning
+nudge's install and the focus question.
+
+### Phase 5 notes from Phase 1
+**State at the time of writing (2026-11-20, about 02:30Z):** the notes the owner asked for in items 18 to 20 (the
+section above), kept for Phase 5, when the checks are calibrated. Nothing here is judged now. Read from the baseline
+(`pipeline/baseline/baseline.json` in the private lab repo, seeded from Experiment 1 and unchanged since), the two
+starts' `session.json` and `summary.md`, and the per-cell reports of the two ChatGPT cells of part 2, by a script of
+the docs agent that printed only cell names, check results, counts and kinds, with any id masked. No page text, chat
+address or id is in this section.
+
+**1. The jump check per cell across three runs (item 18).** **Uncalibrated until Phase 5: every entry is what the
+checker recorded, and none is a Navi failure claim.** The words are the checker's; "fail" is written "not passing" in
+"Phase 1: the proof". Conditions: Experiment 1 is Navi v12.19 with checker 0.3.2, its four counted runs
+(`exp1-A-navimac-2026-11-18T2049`, `exp1-B-2026-11-18T2236`, `exp1-C-2026-11-19T0147`, `exp1-C-2026-11-19T0205`); the
+two starts are `session-2026-11-19T2305` and `session-2026-11-19T2338`, Navi v12.19 (sha256 `1a46e54a8e104e9b`),
+checker shell 1.0.0 with served logic `45ca834892817a21`, which carries checker 0.3.2's four checks unchanged; the
+browsers and managers as in "Phase 1: the proof". One run each.
+
+*The 30 cells where all three runs agree:*
+
+| In all three runs | Cells |
+|---|---|
+| pass (27) | Claude in seven browsers (all but Navi Mac Safari); Gemini in seven (all but Navi Windows Edge); Perplexity in all eight; Grok in Navi Mac Safari, Navi Windows Firefox, Navi Linux Chromium and Navi Linux Firefox; ChatGPT in Navi Linux Chromium |
+| fail (3) | Grok in Navi Mac Chrome, Navi Windows Chrome and Navi Windows Edge |
+
+*The 10 cells where the runs differ:*
+
+| Cell | Experiment 1 | First start | Second start |
+|---|---|---|---|
+| Navi Mac Safari, ChatGPT | fail | pass | fail (not judgeable, part 2) |
+| Navi Mac Chrome, ChatGPT | fail | pass | pass |
+| Navi Mac Firefox, ChatGPT | fail | pass | pass |
+| Navi Windows Chrome, ChatGPT | fail | fail | pass |
+| Navi Windows Edge, ChatGPT | fail | pass | pass |
+| Navi Windows Firefox, ChatGPT | pass | fail | pass |
+| Navi Linux Firefox, ChatGPT | fail (pass also seen, in `exp1-C-2026-11-19T0134`, a run not counted) | fail (not judgeable, part 2) | pass |
+| Navi Mac Firefox, Grok | pass | fail | pass |
+| Navi Windows Edge, Gemini | pass | fail | pass |
+| Navi Mac Safari, Claude | skip | pass | pass |
+
+Totals: Experiment 1, 30 pass, 9 fail, 1 skip; the first start, 32 pass, 8 fail; the second start, 36 pass, 4 fail.
+Seven of the ten cells that differ are ChatGPT's, and only one ChatGPT cell (Navi Linux Chromium) gave the same result
+in all three runs.
+
+**2. The ChatGPT cell that could not be judged (item 19).** A different cell in each start: Navi Linux Firefox
+(Firefox 160.0-1, Tampermonkey 5.5.0) in the first, the 38th of 40 cells, at 23:31:38Z, in the last stage; Navi Mac
+Safari (Safari 26.6.2, Userscripts 4.8.6) in the second, the 3rd of 40, at 23:41:59Z, in the first stage. Each was the
+third site of its browser (the order is Gemini, Claude, ChatGPT, Grok, Perplexity). The same cell passed every judged
+check in the other start. What the checker saw, as counts and kinds:
+
+| | First start, Navi Linux Firefox | Second start, Navi Mac Safari | The other seven ChatGPT cells of the same start |
+|---|---|---|---|
+| Navi | present, v12.19; load pass | the same | the same |
+| Navigate (Navi's own list) | pass: 3 of 3 questions, first and last "ok", no banner | the same | the same |
+| The selector check | 42 of 47 selectors matched nothing; Navi's question chain and answer chain found no working link | 38 of 47 matched nothing; no working link in either chain | 19 of 47 matched nothing; the question chain's link at L628 and the answer chain's at L648 (the inventory's labels), in both starts |
+| Selectors that also matched Navi's own elements | three, 1 element each | three, 4 each | three, 4 each, in both starts |
+| The page capture | 337 nodes, 43,945 bytes | 559 nodes, 71,791 bytes | 135,172 to 138,068 bytes (first start) and 135,046 to 138,035 (second), by file size |
+| Questions the checker found on the page; sign-in state | 0; "unknown" | 0; "unknown" | "in" in every cell |
+| The sign-in surface | 0 Google buttons, 0 sign-in buttons, 0 account rows, 0 signed-out rows, 0 prompts; no sign-in button and not on a sign-in path | the same | (not compared) |
+| Objection signals | no challenge, warning banner, unusual-activity notice or automated-use message | the same | no site objected in either start (each start's summary) |
+| The jump check's detail (it holds no id) | `gave-up via=none top=null vh=708 marker=no resolved=[] jt=none flash=none`, with Navi's message "That message is not currently rendered — scroll toward it and try again"; 1 click, target not in view, 251 ms | the same, with `vh=676`; 1 click, not in view, 217 ms | first start: 5 of 7 pass; Navi Windows Chrome and Firefox gave up with the marker found (`via=marker-bubble`, `marker=ok`) and the same message. Second start: 7 of 7 pass |
+| The bookmark check | "ground-truth-unavailable": "site question selector matched nothing" | the same | pass |
+| Page height | 708, as in the same browser's passing cell of the second start | 676, as in the same browser's passing cell of the first start | |
+| Stall: the 100 ms timer's worst lateness; its ticks; the checker's longest own synchronous step | 1,736 ms; 23 ticks; 39 ms | 3,782 ms; 15 ticks; 943 ms | first start 482 to 2,896 ms, 33 to 73 ticks, 5 to 19 ms; second start 65 to 2,733 ms, 52 to 112 ticks, 6 to 569 ms |
+| The Mac's memory pressure, highest | normal | warning | normal or warning; never critical; no cell marked as lag |
+
+What this shows, in these two cells only: Navi's own list held all three questions, while the page held none of the
+conversation that Navi's selectors or the checker's question reads find, the capture was a third and about a half of
+the usual size, and nothing on the page looked signed out or objecting. The page height was the same as in that
+browser's passing cell. Which data source Navi's list came from is not in the record (the design's "every result says
+which data source Navi used", 0.3, is Phase 2 work). Whether the page had not yet drawn the conversation or had
+dropped it is not established. It is not a Navi failure claim; when the checker looks is Phase 5's question.
+
+**3. The Windows Firefox window size (item 20), in the owner's words:** "For Phase 5, record this: my one-time steps
+changed Firefox's saved window size in the Windows VM, and that changed the page height. The runner should set each
+browser's window size itself." Beside it, from the record ("The docked display setup recorded", part 2): Firefox's
+saved main window in Navi Windows is 894x699, last written at 06:29:06Z on 2026-11-19, during the owner's one-time
+steps; every Phase 1 report since 06:31:55Z that day read a page 618 high, against 683 in Experiment 1's Stage B, where
+the window size was not recorded. That record found a smaller window saved during those steps consistent with every
+record without proving it; the owner's statement is the owner's account of it. What exists today: the runner places
+the VMs' windows on the Mac (and sets Navi Windows' window to its recorded size); a browser's own window inside a VM
+opens at the size that browser saved. The owner's instruction for Phase 5, that the runner sets each browser's window
+size itself, is not built.
+
+**4. The very zoomed-out VM.** The owner's earlier observation for Phase 5 ("Sometimes a VM comes up very zoomed out,
+the whole chat fits on one screen, and a jump has nothing to move.") is recorded in "The owner's instructions of
+2026-11-19 on windows, displays and the sign-in hosts", part 1, "The observation for Phase 5", with the two points kept
+beside it there.
+
+**5. The timing of the two ChatGPT cells.** From the runner arming the cell to the browser's close: 33 s for Navi Linux
+Firefox in the first start (the other ChatGPT cells of that start 16 to 44 s), and 50 s for Navi Mac Safari in the
+second, the longest ChatGPT cell of either start (the others in that start 15 to 44 s). In the page, from the checker
+shell's start to its report: 6.8 s and 8.8 s. The checks began 98 ms and 36 ms after the load check ended (the
+sign-in reads took 75 ms and 31 ms of that), and the navigate check took 3,413 ms and 1,983 ms. The same in-page
+figures for the other cells are in their per-cell reports, which were not read for this section.
+
+### A later use of the same machinery: testing a feature before it is published
+**State at the time of writing (2026-11-20, about 02:30Z):** recorded at the owner's request (item 22 of "Phase 1
+accepted, and the owner's go for Phase 2 with the answers"); nothing is built for it.
+
+**The owner's words, 2026-11-19:** "Record this in DEC-065 as a later use of the same machinery: testing a new feature
+before it is published. A feature build is a candidate like a fix is, served by the loader, with its admin build
+generated the same way, and it may come from a local branch that isn't pushed yet. Keep the design general enough for
+that. Build nothing extra for it now."
+
+**How the design already covers it** (the private lab repo, `docs/pipeline-architecture.md`):
+- **Served by the loader.** The plan's decision 7 has the loader deliver "the Navi build under test", so "an
+  unreleased build can be checked live right after the fix without reinstalling in seven browsers". In the design the
+  receiver would serve each build as one file with a stamp of its hash and role, read back from the injected copy
+  (0.4). A feature build is one more build in that slot: the stamp would name which build ran, as for a fix candidate.
+- **Its admin build generated the same way.** The plan has the admin build made by "a build step in the private repo
+  [that] takes the public source at a given commit and adds the diagnostics layer" (plan L196). The design's gate would
+  re-pin the anchors against a candidate before a fix check (Phase 4, "Its gate"), and answer 3a's strip check (the
+  layer taken out gives back the source byte for byte) would apply to any source it is built from.
+- **From a local branch not pushed yet.** The generator takes a source file or a commit, not a published address (the
+  orchestrator's reading of "at a given commit"), so a commit on an unpushed local branch serves as well as a merged
+  one. One point to keep in mind, already in the design (section 5, item 8): the selector inventory's version gate stops
+  at a new `@version` until its overrides are re-read, so a feature build with a version bump needs that review before
+  a CI run of its selector check.
+- **Build nothing extra for it now** (the owner's words).
