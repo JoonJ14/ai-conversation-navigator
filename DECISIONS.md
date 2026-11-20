@@ -5244,7 +5244,7 @@ owner's, committed as `6911977`). Public docs on `ci/live-verification-layer`; a
 proves a change is needed, which would stop for the owner (spec). **Replaces** the "live verification layer (the next
 spec)" placeholder in ROADMAP and the 2026-11-12 handoff's "spec 1, a built-in self-test", which the owner rejected.
 
-### Where this stands (2026-11-20, after 02:25Z; Phase 1 accepted by the owner; Phase 2 started under the owner's go; the loader waits for the owner's answer on the 4(b) finding) — read this first
+### Where this stands (2026-11-20, about 07:30Z; Phase 2 being built under the owner's working rules; no AI site visited since 00:08Z): read this first
 This DEC is a running, chronological record (each section dated; corrections stay next to what they correct, both
 results kept). This block and the last sections are the current state.
 - **Status:** Experiment 1 is complete (2026-11-19 02:08Z): **40 of 40 page loads accepted**, signed in to the test
@@ -5270,10 +5270,15 @@ results kept). This block and the last sections are the current state.
   sign-out, no new failure against the baseline, nothing left running; one run each. The three sign-in cases were shown
   on the local fixture earlier that day. **The owner accepted Phase 1 and gave the go for Phase 2,** with answers to
   the fifteen decisions of the design draft for Phases 2 to 6 and seven leftovers (dated 2026-11-19, sent 02:18Z on
-  2026-11-20; "Phase 1 accepted, and the owner's go for Phase 2 with the answers"). Phase 2 started at about 02:25Z on
-  local pages (the round trip on the Gemini mock; no VM, no site). **The loader waits for the owner's answer** on the
-  orchestrator's finding that 4(b) cannot be met with Navi installed the normal way in the seven Tampermonkey browsers
-  (the same section, part 3). Every site visit still waits for a session the owner starts.
+  2026-11-20; "Phase 1 accepted, and the owner's go for Phase 2 with the answers"). Phase 2 started at about 02:25Z.
+  **The owner then set working rules for Phases 2 to 4 and decided the loader** (02:30Z and 02:33Z; the last section,
+  "Phase 2: the owner's working rules, decisions and the build so far"): the orchestrator decides and records
+  everything that does not need the owner, and in the seven Tampermonkey browsers the loader alone delivers Navi,
+  proven by hash, while Safari's normal install stays untouched. **Built since, on mocks, the test driver and the VMs'
+  local pages only:** the round trip on one site, then on all five in three engines; the loader wired into the
+  receiver and the runner, every judged cell proven by hash in the test driver; leftovers 15 (all 40 fixture cells as
+  expected) and 17 (the tab count). The recorders for every site and the loader's integration were not committed at
+  07:30Z. Every site visit still waits for a session the owner starts, announced once (that section, part 8).
 - **Frozen:** Navi v12.19 (the published build, byte-identical to `main`): no Navi fixes until Phase 6. The four
   checks of checker 0.3.2 (load, navigate, one jump, one bookmark): no tuning until Phase 5; Phase 1's checker carries
   them unchanged (a test compares the code line by line) and changes only how the checker is delivered and what it
@@ -5303,24 +5308,29 @@ results kept). This block and the last sections are the current state.
   kinds seen again in the proof's two runs, "Phase 1: the proof", part 3; per cell across three runs in "Phase 5 notes
   from Phase 1"); the CI's
   mock pages are stale on all five sites (Phases 2 and 3); light/dark detection under "auto" (ROADMAP item 15).
-- **Not built yet** (Phase 1 is built and accepted): the CI from captures, with the loader and the admin build's
-  recorder brought into it by the owner's answers 3 and 4 (Phase 2, started); the CI upkeep loop and the CI fix loop
-  (Phase 3); the code fix loop and the auto-merge switch, off (Phase 4); the full check list and the calibration
-  (Phase 5). Superseded by the redesign: the schedule,
+- **Not built yet** (Phase 1 is built and accepted): the CI from real captures (Phase 2: the round
+  trip and the loader are built and verified in the harness, not yet run in a VM or on a site); the CI upkeep loop and
+  the CI fix loop (Phase 3: foundations committed in the private lab repo, `46634d8`, harness only; the broker for
+  the fix-loop agent is a proposal that needs the owner's approval before it is used); the code fix loop and the
+  auto-merge switch, off (Phase 4: its machinery committed, `45fff64`, harness only); the general forms the owner
+  asked for on 2026-11-20 (a design, `13d4dc0`, built after the Phase 2 work lands); the full check list and the
+  calibration (Phase 5; a draft list, `8eef58f`, is with the owner, who moved the list and the long chats back to
+  Phase 5 on 2026-11-20). Superseded by the redesign: the schedule,
   WebDriver/remote debugging on AI sites, runner-created canaries, the live-send check, scratch chats.
 - **HANDOFF.md** is the 2026-11-19 handoff. It was written before the build plan arrived: where the two differ, the
   plan is the owner's decision (the owner, 2026-11-18). The differences are listed under "The pipeline build plan",
   "What this changes in the record above".
-- **Open with the owner:** Codex review on the private repo (asked 2026-11-16; not confirmed; the steps: on
-  github.com, avatar → Settings → Applications → Installed GitHub Apps → ChatGPT Codex Connector → Configure, add
-  `ai-conversation-navigator-private-lab` if access is limited to selected repositories; then on chatgpt.com/codex,
-  Settings → Code review → on for that repo; the agent could not check the app's access: `gh api /user/installations`
-  needs a GitHub App token, HTTP 403; the owner asked for these steps again on 2026-11-20, item 21); the build plan's
-  Phase 3 depends on it (`/babysit-pr-cycle` on private-repo
-  PRs); a re-check of Navi Mac's reopen list (Phase 1's boot check now does it at every boot). **Still the
-  owner's:** the answer on the 4(b) finding; entering the name and email in the Keychain (answer 12); the morning
-  nudge (built, not installed, its time to be chosen); Codex review on the private lab repo (above). **Left open by
-  the owner:** the focus question (20:22Z). **Closed:** the go for Phase 2 (02:18Z on 2026-11-20, with the answers);
+- **Open with the owner:** the broker proposal and the fixed prompt the loops start with (approval before use; the
+  proposal was being revised at 07:30Z); the owner's one batched list (removing the normal Navi and installing the
+  loader in the seven Tampermonkey browsers), after the Phase 2 work is committed and rehearsed; the final feature
+  check list and the long test chats (Phase 5, the owner's); one session on the real sites, announced once; a
+  re-check of Navi Mac's reopen list (Phase 1's boot check now does it at every boot). **Left open by the owner:** the
+  focus question (20:22Z on 2026-11-19). **Closed:** the answer on the 4(b) finding (02:33Z on 2026-11-20: the loader
+  only, in the seven Tampermonkey browsers; no recorder load in Safari); the privacy scan's name and email, typed into
+  the Keychain by the owner (reported 05:57Z); the morning nudge, installed by the owner (reported 02:42Z); Codex
+  review on the private lab repo, switched on by the owner (reported 02:42Z; the proof will be Codex's comment on the
+  first private-repo PR; the steps, item 21, are in "Phase 1 accepted, and the owner's go for Phase 2 with the
+  answers", part 4); the go for Phase 2 (02:18Z on 2026-11-20, with the answers);
   the owner's go for Phase 1's proof, given by starting it, and
   Navi Windows Firefox's Externals setting, set to "Always" by the owner (reported 21:24:56Z; "Phase 1: the proof",
   part 6); `chmod 700 ~` (the
@@ -8156,7 +8166,8 @@ group or others, `app/`, `bin/` and `node/` hold no ACL and only the owner's fil
 owner's rule, "nothing my account runs lives where the test user can write", holds as measured: the two folders
 "navi" can write hold the frozen job runner's data, which the owner's side reads and never executes.
 
-**Item 21, the steps** (the owner's; the same as in "Where this stands"):
+**Item 21, the steps** (the owner's; the same as in "Where this stands" when this was written; since about 07:30Z on
+2026-11-20 they are only here):
 1. On github.com: avatar → Settings → Applications → Installed GitHub Apps → ChatGPT Codex Connector → Configure. If
    its access is limited to selected repositories, add the private lab repo.
 2. On chatgpt.com/codex: Settings → Code review → on for that repo.
@@ -8292,3 +8303,405 @@ that. Build nothing extra for it now."
   at a new `@version` until its overrides are re-read, so a feature build with a version bump needs that review before
   a CI run of its selector check.
 - **Build nothing extra for it now** (the owner's words).
+
+### Phase 2: the owner's working rules, decisions and the build so far (2026-11-19 and 20)
+**State at the time of writing (2026-11-20, about 07:30Z):** Phase 2 is being built under the owner's go of 02:18Z
+("Phase 1 accepted, and the owner's go for Phase 2 with the answers"), in the lab's mock harness, with the test driver
+(`session.js --driver sim`, no VM) and in the VMs on local pages and example.com only (item 15's and item 17's runs in
+all three, and one measurement in Navi Linux, parts 4 and 5). No AI site has been visited since
+the proof's second start ended (00:08:27Z), as far as the orchestrator's notes show. Navi is v12.19 (sha256
+`1a46e54a8e104e9b`), frozen; the four checks are checker 0.3.2's, unchanged and uncalibrated. In the private lab repo
+(branch `pipeline/phase-1-full-session`) these are committed: the loader's foundations (`87c0712`), item 17's tab
+counts (`ce22ce3`, `96339c4`) and the round trip on one site (`5203762`); the night's later commits are outside this
+section ("Where this stands"). **Not committed when this was written:** the recorders for every site and the loader
+wired into the receiver and the runner (parts 6 and 7), built by two Opus agents in parallel and attacked by a third
+(06:00 to 07:20Z). Times are UTC. The owner's local time is Central (UTC-6), so the owner's "2026-11-19" covers
+messages sent up to 06:00Z on 2026-11-20. "The orchestrator" is Claude (Opus 5.5), which runs the build and its
+agents.
+
+**1. The owner's working rules** (sent 02:30:13Z on 2026-11-20, dated 2026-11-19 by the owner; pasted as one block,
+quoted in full, no word changed):
+
+> Three additions to how we work from here, dated 2026-11-19. They don't change any of the answers I sent.
+>
+> 1. Pace. This replaces "wait for my go at the end of each phase" for Phases 2, 3 and 4.
+>    a. At the end of each of those phases: run its proof, write the report, send me a short Discord note, and carry
+>    on to the next.
+>    b. Stop and wait for me only for:
+>       - a session on the real sites, which is always mine to start;
+>       - my one-time steps, batched into one list;
+>       - anything that changes a line of my plan or one of my answers;
+>       - the broker's list of what it allows, and the fixed prompt the loops start you with;
+>       - anything that would merge, publish, or switch on auto-merge or a re-sign-in;
+>       - anything that costs money or needs a new account.
+>    c. For everything else: decide, record it in DEC-065 as your choice with the reason, and continue. I review those
+>    choices together at Phase 5.
+>    d. When you need a session from me, tell me once what it will collect or prove, so one session serves as many
+>    open proofs as possible.
+>    e. Stop before Phase 5. That one needs me.
+>
+> 2. How you bring me decisions.
+>    a. Bring me only choices that change my plan, touch the real sites, or touch security. Decide the rest yourself
+>    under 1c.
+>    b. A few at a time, not fifteen. For each: the choice in one line, your pick, and the reason in one line.
+>    c. Say first which ones change my plan.
+>
+> 3. A status page.
+>    a. Keep one short page current at the top of the resume pack: which phase you are in, what is done, what is
+>    running, and what is waiting for me.
+>    b. Put the "waiting for me" list in the morning nudge too, once it is installed.
+
+What followed, from the orchestrator's notes: rule 1c is why each choice in part 3 is marked as the orchestrator's;
+for rule 3a the orchestrator keeps a one-page status file at the top of its resume pack (outside both repos), started
+at 02:30Z; rule 3b is the nudge's "owner" list (part 3d). The two decisions open at that moment were put to the owner
+again in the one-line form of rule 2b, and the owner answered them three minutes later (part 2).
+
+**2. The owner's two decisions and the Safari answer** (sent 02:33:03Z on 2026-11-20, dated 2026-11-19 by the owner;
+quoted in full, no word changed):
+
+> Your two open decisions, dated 2026-11-19:
+>
+> 1. Loader only in the seven Tampermonkey browsers: yes, with two conditions.
+>    a. The public build the loader serves must be the file users get. Fetch it from GitHub's update address at each
+>    session start, and put its hash and commit in the report.
+>    b. With a loader, Tampermonkey reads the site list and permissions from the loader's header. Have the pre-check
+>    compare the loader's header with the header of the build being served. If they differ, refuse with a clear
+>    reason and give me the reinstall steps.
+>    Batch my steps (remove normal Navi, install the loader) into one list.
+>
+> 2. No recorder load in Safari: yes. Navi Mac's recorder load runs in Chrome.
+>
+> 3. One thing your report didn't cover. Fix checks and the admin look after a failure must still work in Safari;
+> that is where the past browser-specific bugs were. Tell me how they will. A file swap is acceptable for those two
+> cases only, as long as the Navi file's hash is checked before every judged stage and again after the swap back.
+
+This settles the finding of "Phase 1 accepted, and the owner's go for Phase 2 with the answers", part 3: in the seven
+Tampermonkey browsers the loader alone delivers Navi (the build plan's decision 7 allows "the VMs use the loader
+only"), so the owner's answer 5 is settled there before the loader's local measurements; Safari keeps its normal
+install, untouched. How each part is met, as built (parts 7 and 8 give the detail):
+- **1a, the file users get.** Navi v12.19's header has no `@updateURL` or `@downloadURL`, so users install from the
+  README's install link (GitHub's raw address of the userscript on `main`); that Tampermonkey then checks the same
+  address for updates is the agents' reading, not measured. At each session start `pipeline/lib/public-build.js`
+  fetches that link, asks GitHub's commits API for the latest commit on `main` that changed the file, fetches the file
+  at that commit, and requires the two bodies to be byte-identical; sha256, commit and version go in the start lines,
+  `session.json`, `summary.md` and the Discord text. Redirects are followed by hand and each hop is checked before it
+  is contacted: https only, GitHub's three hosts only. **The first real fetch** (02:54:24Z, one, read-only, by the
+  foundations agent): sha256 `1a46e54a8e104e9b…`, the v12.19 hash the pipeline has used; commit `221c02c2a807`, the
+  commit that last changed the file (`docs(v12.19)`), not the merge commit `b0fee35`, which is how GitHub's history by
+  path answers; 1,081,778 bytes; the README link redirected once, to raw.githubusercontent.com.
+- **1b, the header comparison.** `pipeline/loader/header.js` compares the keys Tampermonkey enforces: the sites
+  (`@match`, `@include`, `@exclude`, `@exclude-match`), the permissions (`@grant`), the network (`@connect`), the code
+  (`@require`, `@resource`) and the injection (`@run-at`, `@inject-into`, `@sandbox`, `@noframes`). Only the loader's
+  own additions are left out: its two `@connect` lines for the receiver, its two `@match` lines for the receiver's
+  local pages, and its `@require` per role. The loader generated from v12.19 compares as the same as v12.19, and as
+  the admin build of that time (the foundations report, about 02:57Z).
+- **The batched list:** `session.js --owner-steps` (part 8).
+- **2.** No recorder load is ever planned in Safari (`LOADER.notIn` in `pipeline/lib/config.js`); the rotation covers
+  the seven Tampermonkey browsers. Whether Navi Mac Firefox may take a turn is open (part 3f).
+- **3, fix checks and admin looks in Safari.** The orchestrator's design, as told to the owner (02:34Z): keep the
+  public file; write the candidate or admin build into the same file name; refresh Userscripts' list with the measured
+  focus routine; run; write the public file back; refresh; then the file's hash on disk must be the public build's and
+  Userscripts' list must list it. Any mismatch refuses Safari's judged cells and says so in Discord; a session that
+  finds a swapped file restores it first and says so. Owed: a proof on local pages that the swapped file is what ran.
+  Built and unit-tested, used by no session mode yet (fix checks come in Phase 4). **An open question** the docs agent
+  raised (02:37Z) and the orchestrator took up: a hash of the file on disk proves what is installed, not what ran, if
+  Userscripts caches a script's code until it rebuilds its list (Phase 1 saw stale matches until a focus change;
+  whether code is cached is not measured). The orchestrator's plan: measure it on local pages with a test script, not
+  Navi; if it caches, the check before a judged stage also forces a list rebuild and checks the list's entry. As
+  built, the hash is read right after the index refresh; the measurement is still owed.
+
+**3. The orchestrator's decisions, for the owner's review at Phase 5** (the owner's rule 1c; from the orchestrator's
+notes of 2026-11-20).
+
+*a. The loader's design (02:38Z), the orchestrator's.* The problem it solves: Tampermonkey injects the `@require`
+copy it cached at the previous run, one load late (measured with the checker on 2026-11-19, "Phase 1 of the build
+plan"), so switching one `@require` between the public and the admin build per load would always run the previous
+load's build. The design: one loader per Tampermonkey browser, its header generated from Navi's (the same sites,
+grants, connects and run-at; its own name and namespace; the receiver added to `@connect`; one `@require` per role).
+Each role file is one stamp statement, `window.__naviBuilds[role] = {hash, role, fn: function () {<Navi's bytes,
+unchanged>}}`. Navi is one IIFE, so the wrapper changes nothing (checked for each build, not assumed). The loader asks
+the receiver which role this page load is for, runs only that role's function, and reports the role, the hash of what
+ran, the hash served and its own header's hash. A stale cached role file runs nothing and is reported, and Tampermonkey
+refreshes it after the load (a warm-up). Roles: public, admin, and candidate (fix checks; later the owner's feature
+testing). The reason: once both cached copies are current a switch costs nothing, and every load says by hash what
+ran.
+
+Built by an Opus agent in new files (`87c0712`: `pipeline/loader/`, `pipeline/lib/public-build.js`; 42 unit tests).
+Its departures from the design, kept in the commit, with the agent's reasons: no newline between the stamp and Navi's
+bytes, so Navi's line numbers stay the same in stack traces; the candidate's `@require` is in the header now, served
+empty until a candidate exists, because adding it later would change the header and need a second reinstall in seven
+browsers; the comparison also covers `@require`, `@resource` and `@exclude-match`; `@updateURL`, `@downloadURL`,
+`@installURL` and localized names are left out of the copied header, so Tampermonkey can never replace the loader
+with Navi's own file; a Navi header without `@grant GM_xmlhttpRequest` is refused; every build must be one IIFE called
+with `()`; the report carries a SHA-256 of the code that ran (`codeHash`, computed in the browser after Navi has
+started, so Navi is not delayed) and the installed header as Tampermonkey gives it (`GM_info.scriptMetaStr`); an error
+Navi throws at start is reported and rethrown, so the console shows it as under a normal install; the receiver refuses
+again at each page load when the loader's fingerprint differs from the served build's; the loader's `@version` is a
+constant 1.0.0, so Tampermonkey never updates it unattended.
+
+*b. The loader's ten open points* (the foundations report's "cannot work as written, or needs a decision") and what
+was done with each:
+
+| # | The point | What was done |
+|---|---|---|
+| 1 | Warm-ups would cost a site load: with no local `@match` the loader never runs on a local page, and Tampermonkey refreshes a script's copies only after that script runs | **The orchestrator's:** the loader carries the receiver's two `/navi/` page patterns in its `@match`, left out of the comparison, so a warm-up on the local pre-check page refreshes its copies; never a site load |
+| 2 | The normal Navi install must go in the seven Tampermonkey browsers: each script has its own sandbox `window` there, so Navi's duplicate guard cannot stop a second copy (the agent's inference) | **The owner's** step in the batched list (part 8, step 3). Not verified by any check yet (part 7, open 1) |
+| 3 | Every `@require` must answer 200 at install and at each refresh (the agent's understanding, not measured) | **The orchestrator's:** the receiver serves an empty role file (200) for a role with no build, and runs during the owner's install steps |
+| 4 | Storage is shared by every role and starts empty: the loader's GM storage is its own, and nothing of the normal install carries over | Met by the owner's answer 6 (a), the read-only storage check, built (part 7) |
+| 5 | Navi starts later, by the receiver's round trip (at most 4 s per address plus a 2 s backstop) | **The orchestrator's:** recorded per load as `runAtMs`. In the test driver Navi started 16 to 25 ms after the loader; the real figure is a VM measurement |
+| 6 | Frames: Navi has no `@noframes`, so the loader runs in every matching frame | **The orchestrator's:** only top-frame loader reports count |
+| 7 | The integration: role files built with the loader's additions, the served public hash checked against the fetch, loader reports joined to checker reports, judged cells refused on a public-build failure | Built (part 7) |
+| 8 | Not measured: `GM_info.scriptMetaStr` in Tampermonkey 5.5.x; `Function.prototype.toString` of a 1 MB function and SubtleCrypto in the sandbox; whether Tampermonkey checks the loader's install address for updates | Fallbacks built (proof by the stamp when no in-browser hash is possible; the fingerprint when there is no header text); the measurements are in part 8 |
+| 9 | Windows Firefox might never pick up a changed copy (in Phase 1 it injected an old checker copy after three loads) | **The orchestrator's:** not expected now: its Externals is "Always" since the owner's change, after which it took the checker's logic after one warm-up (21:26Z on 2026-11-19), and again in item 17's run (part 5) |
+| 10 | Right after a merge GitHub's raw cache may serve the old file, so the fetch says "mismatch" | **The orchestrator's:** the session start retries every 30 s for up to 5 min, then refuses its judged cells with that reason |
+
+*c. The round trip's open items* (the list in `5203762`'s commit message, from its verifier), the orchestrator's
+decision on each (04:39Z), and how each was closed (built by the two lanes, checked by the verifier of 06:00 to
+07:20Z; mock and test-driver evidence only):
+
+| Open item | The orchestrator's decision | Closed by |
+|---|---|---|
+| A page/data mismatch that is really on the page gave no copy: Navi's degrade empties its index before the recorder's pull | A fifth admin-build anchor, before Navi's degrade, so the recorder keeps the index | Built: anchor `ix-degrade` with the record `ix.degrade`, the recorder keeping the index. The recorded-mismatch round trip passes on the four sites that have a page/data comparison, in three engines (part 6) |
+| The strip check at session start was not wired | `build-admin.js --check --reviewed --with-recorder` at each session start | Built. The verifier's fault `admin:tamper` (one byte changed between the build and its check) failed the check: none of the five recorder loads opened, and the console, `summary.md` and the Discord text said "ADMIN BUILD NOT USED" |
+| A numeric id under 16 digits passed the scan; strings in records got no text test | Typed records: no free string anywhere; numbers only in count and time fields; a numeric id must be a verified stand-in | Built: a schema per record in `pipeline/lib/formats.js`, and a stand-in kind for ids inside records (numbers and short strings included). In 494 fuzzed mutations every free string, 13-digit number, raw id string and unknown field was refused. Left: a number of up to 9 digits passes in a count field by design (counts take 0 to 1e9), so a raw id that short, written into a count field, would pass; only the recorders' reviewed code prevents it |
+| The fixture's output hash did not cover `fixture.json` | It covers `fixture.json` | Built (builder v2); unit test |
+
+*d. The nudge's owner list (`094155b`, the orchestrator's, for the owner's rule 3b).* A waiting-list kind "owner",
+shown first in the morning note, for what the build waits for from the owner. Only
+`pipeline/nudge/owner-items.js` sets it, replacing that kind whole; the session runner never writes it; the
+orchestrator keeps it in step with the status page's "waiting for me". The owner reported installing the nudge at
+02:42Z (daily at 08:00 Central), and at 06:08Z pasted a note it had posted at 12:07 AM Central, which listed four
+things waiting for the owner; the owner also reported allowing node's access to the Desktop folder.
+
+*e. Other choices of the orchestrator in this period:*
+- Item 17's Safari read waits up to 12 s and reads a missing last-quit report as "not written yet" (`96339c4`; part 5).
+- The privacy scan's Keychain item takes one line with entries separated by ";" (the macOS prompt takes one line);
+  the owner types the value, never the pipeline (part 8).
+- Codex review on the private lab repo: the owner reported switching it on (02:42Z: automatic review and automatic
+  security review on for the repo). The orchestrator cannot read those settings; the proof will be Codex's comment on
+  the first private-repo PR. No setting change wanted.
+- Work order: the integration after the round trip, so no two agents edit one file at a time; the VMs never run on
+  uncommitted, half-edited code (03:18Z).
+
+*f. Choices made by the two build lanes (Opus agents), not yet reviewed by the orchestrator when this was written.*
+Recorded so the orchestrator and, at Phase 5, the owner can review them:
+- **The recorder rotation:** over the seven Tampermonkey browsers in stage order (Navi Mac Chrome and Firefox; Navi
+  Windows Chrome, Edge and Firefox; Navi Linux Chromium and Firefox). Each site starts at its own place and moves one
+  browser on in each session in which its load opened; the state is kept in the private `local/` folder. The lane
+  read the owner's "Navi Mac's recorder load runs in Chrome" as "never in Safari", so Navi Mac Firefox also takes
+  turns (in the test driver's first full run, Claude's recorder load ran there). The lane asked for confirmation.
+  **As built this departs from the owner's words as written; it is not settled.**
+- **Recorder load timing:** after that browser's five judged cells, not right after the same site's cell, so no admin
+  load comes between judged loads in a browser.
+- **No public build at a session's start:** the judged cells are not opened at all, so no site load is spent on a
+  result that cannot be judged.
+- **Safari restore:** only a swap recorded in the swap journal is restored. A non-public Navi file with no journal
+  entry is left alone as the owner's install; its cells are not judged and it becomes a waiting item.
+- **The storage expectation:** the snapshot taken before the first non-public load since that browser's last judged
+  load; a read that is missing counts as "not comparable".
+- **Both role copies** (public and admin) must be current before a browser's first site load.
+- **The recorders lane:** a record made before the session key arrives is held and recorded later, marked "late",
+  instead of being dropped as "no key yet"; a string in a layer summary is kept as its length instead of refusing the
+  record; `.id` gets the id rule on every site, because the source cannot tell an element's `.id` from an object's
+  (187 such reads).
+
+**4. Item 15: the three sign-in fixture cases with the proof's logic** (run `fixture-2026-11-20T0221`, 02:21 to
+02:51Z, 30 min 4 s; all three VMs; the local sign-in fixture only, no AI site; the Mac's screen unlocked; logic
+`45ca834892817a21`, the proof's; one run; read from the run's `summary.md`). 8 of 8 pre-checks (Safari by its file,
+the seven Tampermonkey browsers by `require`, Navi Windows Firefox included). **All 40 fixture cells as expected in all
+eight browsers:** 16 accepted (8 Gemini signed in; 8 Claude "re-signed in" by the two allowed clicks, each row
+saying "the sign-in it replaced was 1.4 days old"), and 24 need sign-in (8 ChatGPT, where Google's stand-in page
+asked for a password and no further click was made; 8 Gemini with Google signed out, "the owner's step"; 8 Grok with
+Google signed out, "no re-sign-in tried"). Cells took 6 to 83 s (Linux Chromium's Claude cell 83 s, with its 32 s quiet
+wait). From the orchestrator's report: Navi Mac's window opened on the built-in screen and was put on X90G-R; the
+receiver was stopped and no VM was left running. Against 2026-11-19 (12:20Z, screen locked): 39 of 40 then, the one
+miss Safari's Claude cell; here Safari's Claude cell re-signed in like the others.
+
+**5. Item 17: the tab count, as built** (`ce22ce3`, by an Opus agent; `96339c4`, the orchestrator's). The owner's
+words: "Safari's second tab is still unexplained. Have the pre-check read how many tabs are open where it can, and
+flag any cell with more than one." After every close that answered exactly "closed", and once before a browser's
+first open, the runner reads that browser's own last-quit record inside the VM and gets back counts only: Safari's
+`ReportSafariTabState` (read with Python's `plistlib`, no consent prompt) and Firefox's session file (LZ4-decoded in
+the VM; no address leaves it), by `pipeline/vm/tab-count.sh` in Navi Mac and Navi Linux and
+`pipeline/vm/naviwin-tab-count.ps1` in Navi Windows. Chrome, Edge and Chromium are "not read" (their session files are
+a binary command log). More than one tab is a note in the cell's line, `summary.md` and the Discord text, never a stop.
+Unit tests 19 of 19.
+
+**Its first VM run** (`precheck-2026-11-20T0438`, 04:38 to 04:49Z; the three VMs; local pages and example.com; logic
+`582a15a47e64312a`; one run; the orchestrator's report): 8 of 8 pre-checks; the changed logic reached every
+Tampermonkey browser after one warm-up load (the Chromium family with the 30 s stay; the Firefoxes by fetch on the
+first load, then by `require`); the windows on X90G-R. Tab reads: Navi Mac Firefox and Navi Windows Firefox read 1 tab
+at every close (the Windows reader's first run); Chrome, Edge and Chromium "not read", as designed; Safari read 1 tab
+before its first open and at the probe's close, but found no last-quit report after the index refresh's quit and the
+pre-check's quit, which `96339c4` handles (wait up to 12 s; a missing report is "not written yet"). **Navi Linux
+Firefox read "not updated" at every close:** its close (a SIGTERM) is not a clean quit, Firefox counted 23 crashes in a
+row, and the only session file was a periodic save from 02:51Z holding 2 tabs, which the "before" read flagged.
+
+**What followed for Linux Firefox** (the owner's answer of 06:05Z on 2026-11-20, three sentences of it quoted, and two
+checks by Opus agents, one read-only and one on example.com only). The owner: "Linux Firefox: the runner closes it by a signal and Firefox counts that as a
+crash. My rule is a normal quit, because a crashed browser can restore a tab, and on a real site that is a load nobody
+counted." and "Check the records of Experiment 1 and both proof starts: did Linux Firefox ever load a site page the
+runner didn't ask for? Tell me either way." and "Fix it with a clean quit. Turning off crash-restore alone is not
+enough."
+- The records check (an Opus agent, read-only, counts only): no such load in Experiment 1 or in either proof start.
+  One window cannot be decided: 15 checker requests from Navi Linux during the owner's own sign-ins (01:23:22 to
+  01:30:58Z on 2026-11-19, before any Stage C run), whose browser the record does not hold.
+- The measurement (an Opus agent, 05:48 to 06:05Z on 2026-11-20; Navi Linux, Firefox 160.0-1 snap, example.com
+  only): SIGTERM never gave a clean quit, whether sent to the main process (9 closes) or to the whole process group
+  (1 close): no session file and no quit checkpoint after any; when one signal close followed a clean quit, Firefox
+  reopened the previous tab by itself at the next start (twice, at 05:56Z and 06:01Z), so a normal quit followed by
+  one signal close could reload the last site page; a window close sent as Alt+F4 through GNOME's own remote-desktop
+  interface (Mutter's D-Bus API) quit Firefox cleanly in 4 of 4 runs.
+- The orchestrator's decision: build that window close into the runner, with a focus check (Alt+F4 goes to whichever
+  window has the focus), and "NOT-QUIT" after 20 s, never a signal as a fallback. Not built when this was written;
+  until it is, no real-site session closes Linux Firefox by a signal (the orchestrator's note, under the owner's rule).
+
+**6. The round trip, mocks and harness only.** Context for every result in this part: this Mac (macOS 26.6.2, Apple
+M2), Node 24.22.2, Playwright 1.65.0 with Chromium 158.0.8127.18, Firefox 159.0 and WebKit 27.2, jsdom 28.1.0; the
+public repo's local three-question mock of each site, served at the site's real address by interception with
+everything else aborted; the receiver played in-process; no AI site, no VM, no GitHub, no Keychain read, no Discord.
+None of it is real-browser or live-site evidence.
+
+*One site, Gemini* (`5203762`, committed 04:38Z; the design's section 4.1 item 1; built by Opus agents, then attacked
+by a separate one). The parts: self-checking id stand-ins (SipHash-2-4 keyed by a 128-bit session key held in memory
+only, checked against the published vectors and OpenSSL) and content-free filler text; the privacy scan on every
+capture and data record, which refuses by kind and place and never prints what it found, with the owner's name and
+email read from the Keychain item `navi-scan-identities` only when the pipeline runs in the lab's own folder; the
+admin build generated from the public source with one-line insertions at reviewed anchors and a diagnostics layer,
+changing only `@name` and `@namespace` in the header, stripping back to the public file byte for byte and refused for
+any `@version` its anchors were not reviewed against; a record arm, which alone gets the session key and a recorder
+token; capture v2 in record loads only; the receiver's gate and scan before anything is stored; the fixture builder
+with its self-check; the CI run of the unchanged public Navi on a fixture. Results: on the copy every check gave the
+same (result, data source) as on the mock, in Chromium, Firefox and WebKit, with the copy's data served at 0 and at
+1,500 ms; a planted page/data mismatch took Navi's mismatch path on the copy as on a mock that really shows the unequal
+text; the record load's four outcome checks, not judged, equalled the public build's (the owner's answer 3b); the
+judged cells were unchanged (Experiment 1's 16 reference specs in three engines; 20 of 20 structure files
+byte-identical to the previous logic's); the session key was in no written file or log. Unit tests 478 pass, 1
+skipped; receiver 21 of 21; mock pages 59 of 59 in each engine; test driver 45 of 45. Its verifier broke two things,
+both repaired before the commit: an edit inside an inserted line passed the strip check (now `--check --reviewed`
+rebuilds from the reviewed parts and compares), and a reload's data record could be paired with the first load's page
+(both stored files now carry the load's slot, and the builder refuses a mismatch). Served logic `582a15a47e64312a`.
+
+*Every site* (the recorders lane, built after `5203762`; checked by the verifier, 06:00 to 07:20Z; not committed when
+this was written):
+- **Keep-lists generated, not written by hand:** the selector-inventory generator now also takes a census of Navi's
+  attribute reads outside selectors and fails closed; the rules and kept attributes per site: Claude 21 and 18,
+  ChatGPT 24 and 20, Gemini 17 and 13 (the earlier hand list is a subset), Grok 16 and 14, Perplexity 18 and 14. It
+  found 36 reads outside selectors (7 reviewed by hand and pinned) and 187 `.id` reads. Inventory `ad0875b0d44eeba7`.
+- **Recorders** in the admin build, at ten anchors in all (six new): Claude's org list (per org only whether it has a
+  uuid, is uuid-shaped and can chat; never an org id or name) and conversation; ChatGPT's session (its status,
+  whether a token is present and whether its expiry is valid; never the token) and conversation; Perplexity's thread
+  pages; Gemini's parse, as before; Grok has no index adapter, so its recorder load records the page and two counts
+  only. Every id becomes a stand-in the receiver can verify with the session key; texts become lengths beside Navi's
+  own comparison results.
+- **The round trip on all five sites in three engines** (`round-trip.js --site all --engine all
+  --also-recorded-mismatch`, 25 min 31 s, exit 0): 15 of 15 site and engine pairs passed the round trip; the planted
+  inequality passed on the four sites with a page/data comparison (Grok has none); the recorded mismatch (the
+  inequality really on the page) passed on those four; each record load's four outcome checks equalled the live
+  mock's. **A limit of this evidence:** on the three-question mocks the four checks do not react to the Claude,
+  ChatGPT or Perplexity inequalities (they stayed pass, from the index, on the live counterpart too); there the
+  inequality is proven only by the comparison self-checks. One difference the lane noted: a Claude copy asks the
+  invented org list where the live mock found its org without asking.
+- **Not measured:** the recorders' cost and their 64 KB per-record limit on long real chats (a long Claude
+  conversation may be recorded as "over"); request durations; the recorder's pull across a real manager's script
+  worlds; anything in Tampermonkey or Userscripts.
+- Hashes: served logic `f528bb2507e1afe0` (after the verifier's zone-count repair, part 7; the lanes had left
+  `86e4fd6ab0c49768`); the admin build (v12.19, the layer and five recorder files)
+  `3fb0afed16d406b580739e9456df1518cd8b30556273cd65485f42b3dc296438`, 1,166,855 bytes, which strips to the public
+  `1a46e54a…` and rebuilds identically.
+
+**7. The loader as wired** (the loader lane, built after `5203762`; checked by the verifier, 06:00 to 07:20Z; not
+committed when this was written; test driver and harness only).
+- **Session start:** the public build is fetched (part 2, 1a), with a GitHub "mismatch" retried every 30 s for up to
+  5 min; on a failure the judged cells are not opened and the start lines, `summary.md` and Discord say why. The
+  admin build is generated from those exact bytes and must pass `--check --reviewed --with-recorder`, or no recorder
+  load runs and the session says "ADMIN BUILD NOT USED". The runner checks that the receiver serves exactly those
+  hashes.
+- **The receiver** serves the loader (`/navi/loader.user.js`, generated from the public build, with its warm-up
+  `@match` lines; HTTP 503 with the reason when there is no public build), one role file per role
+  (`/navi/build/public.js`, `admin.js`, `candidate.js`; an empty role file with 200 for a role with no build), and
+  answers `/navi/loader/which`: a judged arm gets the public role, a record arm the admin role, the pre-check page is
+  a warm-up (nothing runs), and the example.com probe and the fixture get nothing. Each loader report
+  (`POST /navi/loader/report`) is validated, judged against the served hash, its installed header compared with the
+  public build's (only the header's hash and the differences are kept), joined to the checker's claim of the same
+  load (top frame only) and stored beside the cell's report.
+- **The loader body** reads Navi's six stored keys before any build runs, read-only, and reports a count and a hash.
+- **The pre-check, in a Tampermonkey browser:** no loader report refuses the browser ("no loader"); an installed
+  header that differs refuses it with the owner's reinstall steps (in `summary.md`, and "LOADER REINSTALL NEEDED" in
+  Discord); role copies that are not the served builds get warm-up loads, with the 30 s stay, until both are current.
+- **Judged cells:** a cell is judged only when its build is proven by hash. In a Tampermonkey browser: the loader's
+  top-frame report shows the public role ran and its hashes match, by the code that ran ("by code") or, where the
+  browser cannot hash it, by the stamp. In Safari: the Navi file's hash, read over SSH after the stage's index refresh,
+  equals the public build's ("by file"). Otherwise the outcome is "not judged: <why>", counted apart in the summary
+  and in Discord. The verifier added one more: a page with more than one Navi zone is "not judged".
+- **Safari:** the read before each stage (sha256, `@version`, whether Userscripts' list holds the file and whether it
+  is disabled); the swap and swap back with a journal, built and tested against a temporary folder, used by no
+  session mode.
+- **Recorder loads:** one per site per session, in the record role, in a browser chosen by the rotation (part 3f),
+  after that browser's judged cells; counted as "recorder" in the site's loads (so 45 loads a session, 9 per site);
+  its outcome compared with the same site's judged cell in the same browser and any difference reported. After the
+  verifier's repair, a recorder load whose admin build was not proven, or whose judged cell was not judged, says
+  "admin build NOT PROVEN" or "not compared" instead of "same".
+- **Storage (the owner's answer 6 a):** the first judged load in a browser after a non-public load must find Navi's
+  stored keys as they were, or it is "not comparable: storage carried over".
+- **The test driver** plays the loader (install, role files, cached copies refreshed at quit, Safari's file read and
+  swapped by the real functions), with faults for each refusal.
+
+The verifier's results (the same context as part 6, plus the test driver): unit tests 612, 611 pass, 1 skipped (the
+lanes had left 11 failing expectations of the old structure, which it updated); receiver 21 of 21; test driver smoke 45
+of 45; mock pages 62 of 62 in each engine; `5203762`'s judged-cell behaviour unchanged (20 of 20 structure files
+byte-identical; Experiment 1's 16 specs as before in three engines). **A full 40-cell run in the test driver:** 8 of 8
+pre-checks, 40 of 40 accepted and proven (35 Tampermonkey cells by code, the 5 Safari cells by file), 5 recorder loads
+each with its admin build proven by code and "same result as the public build", 45 site loads; a second start moved
+the rotation one browser on and its 5 storage checks read "same". Of its eight attacks, six held by its table: the
+admin build can never be judged and no recorder load opens in Safari; a strip-check failure stops every recorder load
+and says so; a GitHub mismatch, a redirect off GitHub, a network failure and an HTTP 503 each refuse the judged cells;
+the typed records and a grep of about 700 written files (none of the mock texts or the invented identity); the round
+trip on every site; judged cells unchanged. Attack 1 held for a stale copy, the admin role, a swapped Safari file, a
+header mismatch and a missing loader, each of which kept the cell from being judged, but not for one case; attack 8
+held only in part:
+- **Open 1, not caught:** a normal Navi install left next to the loader. With fault `navitoo`, two v12.19 instances
+  ran on the page and 5 cells were accepted, "proven by code": the proof shows the public build ran, not that it ran
+  alone. The zone count does not help, because v12.19 adopts a Navi zone that is already on the page, and the boot
+  check cannot tell either, because the loader's cached copies also carry Navi's header. The fix needs the boot check
+  to tell an installed script from a cached `@require` copy, which can only be built and tested in the VMs.
+- **The owner's list, partly verified:** step 2 by the shell's version, step 4 by the loader's report, header and
+  copies, step 5 by the boot check; step 1 only indirectly (the warm-ups must refresh the copies); **step 3, removing
+  the normal Navi, not at all** (open 1).
+Also open from the verifier: the storage check covers only the first judged load after a non-public load, as
+designed; with no public build at a session's start the receiver serves no loader, so `--owner-steps` cannot install
+it in that session; the owner's list prints the Keychain step every time, although the owner has done it; the "Check
+Interval" and "Config mode" of step 1 are read nowhere. Loader header sha256 `010b7cdc…6960b` (with the warm-up
+lines), fingerprint of the compared keys `dbb17eed…d8c4`.
+
+**8. What remains before the session on the real sites** (the orchestrator's plan, 04:39Z and later notes; the
+owner's rules 1b and 1d):
+1. **Commit** the recorders and the loader's integration, then a rehearsal in the VMs on local pages with the loader
+   not yet installed, in which every Tampermonkey browser should be refused "no loader" (the refusal path, on real
+   managers).
+2. **The owner's one batched list** (`session.js --owner-steps`, per VM; Navi Mac's text lists Chrome and Firefox and
+   ends "Safari needs nothing from you"). As the loader lane printed it, for each Tampermonkey browser: (1) the
+   Tampermonkey settings of Phase 1 ("Config mode" Advanced, "Externals" Always, "Check Interval" Every 6 Hours);
+   (2) the checker shell's install, as in Phase 1; (3) delete the row "AI Conversation Navigator" (the normal Navi)
+   and only that row; (4) "Install from URL" `http://192.168.64.1:8790/navi/loader.user.js`, check that the page names
+   "Navi loader (test VMs)" and press Install (Reinstall if installed before) to accept its permissions; (5) quit the
+   browser the normal way. No AI site is opened for this. Then the pre-checks verify each browser. The list also
+   prints the privacy scan's Keychain command on the Mac, `security add-generic-password -a navi -s
+   navi-scan-identities -w`, typed by the owner; **the owner has done that step** (reported 05:57Z; the value is never
+   read by the orchestrator). Before the list goes to the owner, open 1 above bears on step 3.
+3. **The local measurements, in the VMs, local pages only:** Tampermonkey's caching and refresh of the role copies
+   under "Externals: Always" (Navi Windows Firefox included); whether `GM_info.scriptMetaStr`, SubtleCrypto and
+   `Function.prototype.toString` of a 1 MB function work in each browser's sandbox (proof by code, or only by the
+   stamp); `GM_getValue` reads under the loader; the loader's reports from the pre-check page; an install while the
+   receiver serves the empty candidate file; the real `runAtMs`; Safari's file read over SSH, its swap and swap back on
+   local pages proving the swapped file is what ran, and Userscripts' code cache with a test script; detecting a
+   leftover normal install (open 1). The real GitHub fetch at a session start, including the raw cache right after a
+   merge, shows itself at the first session.
+4. **Linux Firefox's clean quit** in the runner (part 5): the owner's rule; required before the next real session.
+5. **Then one session on the real sites, announced once** (the owner's rule 1d): the orchestrator tells the owner once
+   what it will collect and prove, so one session serves as many open proofs as possible; the start is the owner's.
+
+Apart from the Linux Firefox answer in part 5 and the Keychain step in part 8, the owner's messages of 2026-11-20 from
+05:45Z on are not recorded in this section; among them is the change of order at 06:36Z (Phases 2 to 4 first, with
+the three-question chats and the four checks; the full check list and the long chats back in Phase 5; the general
+forms built now).
