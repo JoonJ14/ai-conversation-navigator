@@ -5244,7 +5244,7 @@ owner's, committed as `6911977`). Public docs on `ci/live-verification-layer`; a
 proves a change is needed, which would stop for the owner (spec). **Replaces** the "live verification layer (the next
 spec)" placeholder in ROADMAP and the 2026-11-12 handoff's "spec 1, a built-in self-test", which the owner rejected.
 
-### Where this stands (2026-11-20, about 07:30Z; Phase 2 being built under the owner's working rules; no AI site visited since 00:08Z): read this first
+### Where this stands (2026-11-20, about 10:05Z; Phases 2 to 4 being built under the owner's working rules and change of order; no AI site visited since 00:08Z): read this first
 This DEC is a running, chronological record (each section dated; corrections stay next to what they correct, both
 results kept). This block and the last sections are the current state.
 - **Status:** Experiment 1 is complete (2026-11-19 02:08Z): **40 of 40 page loads accepted**, signed in to the test
@@ -5271,14 +5271,21 @@ results kept). This block and the last sections are the current state.
   on the local fixture earlier that day. **The owner accepted Phase 1 and gave the go for Phase 2,** with answers to
   the fifteen decisions of the design draft for Phases 2 to 6 and seven leftovers (dated 2026-11-19, sent 02:18Z on
   2026-11-20; "Phase 1 accepted, and the owner's go for Phase 2 with the answers"). Phase 2 started at about 02:25Z.
-  **The owner then set working rules for Phases 2 to 4 and decided the loader** (02:30Z and 02:33Z; the last section,
+  **The owner then set working rules for Phases 2 to 4 and decided the loader** (02:30Z and 02:33Z; the section
   "Phase 2: the owner's working rules, decisions and the build so far"): the orchestrator decides and records
   everything that does not need the owner, and in the seven Tampermonkey browsers the loader alone delivers Navi,
   proven by hash, while Safari's normal install stays untouched. **Built since, on mocks, the test driver and the VMs'
   local pages only:** the round trip on one site, then on all five in three engines; the loader wired into the
   receiver and the runner, every judged cell proven by hash in the test driver; leftovers 15 (all 40 fixture cells as
-  expected) and 17 (the tab count). The recorders for every site and the loader's integration were not committed at
-  07:30Z. Every site visit still waits for a session the owner starts, announced once (that section, part 8).
+  expected) and 17 (the tab count). These are committed in the private lab repo (`ad118fe`, about 07:34Z), followed
+  by the broker and the loop launcher in dry-run form with the revised broker proposal (`b6f9440`, 08:21Z). **The
+  owner's change of order (06:36Z):** Phases 2 to 4 first, with the three-question chats and the four checks; the full
+  check list and the long chats back to Phase 5; the general forms built now. **Built since, not committed at 10:05Z**
+  (the last section, "The general model and the Linux Firefox clean quit"; the test driver and mocks, plus one run in
+  Navi Linux on example.com): the general model, with which the runner behaves as before on today's data (0
+  differences in the test driver's 40 cells); Linux Firefox's clean quit (12 of 12 closes clean in Navi Linux, never a
+  signal); the scan's short-name rule; an install check that cannot refuse in the real VMs yet; the router fixes.
+  Every site visit still waits for a session the owner starts, announced once (the "Phase 2" section, part 8).
 - **Frozen:** Navi v12.19 (the published build, byte-identical to `main`): no Navi fixes until Phase 6. The four
   checks of checker 0.3.2 (load, navigate, one jump, one bookmark): no tuning until Phase 5; Phase 1's checker carries
   them unchanged (a test compares the code line by line) and changes only how the checker is delivered and what it
@@ -5311,9 +5318,10 @@ results kept). This block and the last sections are the current state.
 - **Not built yet** (Phase 1 is built and accepted): the CI from real captures (Phase 2: the round
   trip and the loader are built and verified in the harness, not yet run in a VM or on a site); the CI upkeep loop and
   the CI fix loop (Phase 3: foundations committed in the private lab repo, `46634d8`, harness only; the broker for
-  the fix-loop agent is a proposal that needs the owner's approval before it is used); the code fix loop and the
-  auto-merge switch, off (Phase 4: its machinery committed, `45fff64`, harness only); the general forms the owner
-  asked for on 2026-11-20 (a design, `13d4dc0`, built after the Phase 2 work lands); the full check list and the
+  the fix-loop agent, built in dry-run form, `b6f9440`, needs the owner's approval before it is used); the code fix
+  loop and the auto-merge switch, off (Phase 4: its machinery committed, `45fff64`, harness only); in the general
+  forms the owner asked for on 2026-11-20 (built in the harness, the last section), the runner does not yet run
+  fix-check loads, call the router or make jobs; the full check list and the
   calibration (Phase 5; a draft list, `8eef58f`, is with the owner, who moved the list and the long chats back to
   Phase 5 on 2026-11-20). Superseded by the redesign: the schedule,
   WebDriver/remote debugging on AI sites, runner-created canaries, the live-send check, scratch chats.
@@ -5321,8 +5329,9 @@ results kept). This block and the last sections are the current state.
   plan is the owner's decision (the owner, 2026-11-18). The differences are listed under "The pipeline build plan",
   "What this changes in the record above".
 - **Open with the owner:** the broker proposal and the fixed prompt the loops start with (approval before use; the
-  proposal was being revised at 07:30Z); the owner's one batched list (removing the normal Navi and installing the
-  loader in the seven Tampermonkey browsers), after the Phase 2 work is committed and rehearsed; the final feature
+  proposal revised and committed with its dry-run build, `b6f9440`); the owner's one batched list (removing the
+  normal Navi and installing the loader in the seven Tampermonkey browsers), after the Phase 2 work is committed and
+  rehearsed; the final feature
   check list and the long test chats (Phase 5, the owner's); one session on the real sites, announced once; a
   re-check of Navi Mac's reopen list (Phase 1's boot check now does it at every boot). **Left open by the owner:** the
   focus question (20:22Z on 2026-11-19). **Closed:** the answer on the 4(b) finding (02:33Z on 2026-11-20: the loader
@@ -8704,4 +8713,343 @@ owner's rules 1b and 1d):
 Apart from the Linux Firefox answer in part 5 and the Keychain step in part 8, the owner's messages of 2026-11-20 from
 05:45Z on are not recorded in this section; among them is the change of order at 06:36Z (Phases 2 to 4 first, with
 the three-question chats and the four checks; the full check list and the long chats back in Phase 5; the general
-forms built now).
+forms built now). The next section records it in full.
+
+### The general model and the Linux Firefox clean quit (2026-11-20)
+**State at the time of writing (2026-11-20, about 10:05Z):** the owner's change of order (part 1) is being built.
+Four lanes (Opus agents) built the general forms, Linux Firefox's clean quit, the scan's short-name rule with an install
+check, and the outcome router's fixes, in one workflow started after `ad118fe` was committed (about 07:34Z); a verifier
+(another Opus agent) integrated and checked them from 08:20 to 10:05Z. All of it is in the private lab repo's working
+tree on branch `pipeline/phase-1-full-session`, on top of `b6f9440` (`ad118fe` plus the broker and loop launcher
+commit, which touches no file the runner reads), and **was not committed when this was written**. No AI site was
+visited. The only VM use was Navi Linux on example.com for the clean quit (07:39 to 08:15Z); everything else ran in
+the lab's mock harness, the test driver (`session.js --driver sim`, no VM) and unit tests on this Mac. Navi is v12.19
+(sha256 `1a46e54a8e104e9b`), frozen; the four checks are checker 0.3.2's, unchanged and uncalibrated.
+
+**1. The owner's change of order** (sent 06:36:39Z on 2026-11-20, dated 2026-11-20 by the owner; pasted as one block,
+quoted in full, no word changed):
+
+> A change of order, dated 2026-11-20. It replaces two earlier answers of mine: "the full feature check list now" and
+> "bring the long test chats forward".
+>
+> 1. Push through the big pieces first, with the three-question chats and the four checks as they are:
+>    - Phase 2: the CI built from captures, fed by the admin build.
+>    - Phase 3: the CI upkeep loop and the CI fix loop.
+>    - Phase 4: the code fix loop, through to a reviewed PR and the Discord message.
+>
+> 2. The full check list and the long chats go back to Phase 5.
+>    - Don't build the new checks now, and don't wait for long chats.
+>    - I'm editing your draft with Claude chat and will send the final list later.
+>    - Don't decide the draft's open questions yet, including the three that change my plan. They come back with the
+>    final list.
+>
+> 3. But build with the draft in mind. You know what is coming, so where a choice today would have to be rebuilt later,
+> take the general form now. In particular:
+>    a. More than one chat per site. Key everything by chat as well as by site and browser: the chat list, the cells, the
+>    captures and copies, the baseline. A session should be a list of loads, each one a site, a browser, a chat and a
+>    build. Long and short chats, recorder loads and fix checks are then all the same kind of thing.
+>    b. Many checks per load. Each check is a separate unit with its own id, result, time and context, and its own row
+>    in the baseline and in Discord. Adding a check must not touch the others.
+>    c. More results than pass and fail: not judged, cannot see (in the CI), known, uncalibrated, skipped with a reason.
+>    The loops decide per check what starts them.
+>    d. Each check says where it may run: live, CI only, or never live. The same check code runs live and in the CI
+>    wherever both apply.
+>    e. Per-chat settings kept on the Mac: how many questions, which positions are special, the search words, the
+>    standing bookmarks.
+>    f. Long chats in the copies. A copy must be able to hold 40 questions and long answers, and the site's data
+>    arriving over several requests, not only one response.
+>    g. Navi's stored state between loads. Standing bookmarks will live in the test browsers on purpose. The storage
+>    check for fix checks must be able to expect them, and the CI must be able to start a copy with stored bookmarks.
+>    h. Time limits as settings, not constants. A long-chat cell with every check on will need more than five minutes.
+>    i. The CI must be able to run any Navi build on a copy, including an older release, for the v12.18 against v12.19
+>    proof.
+>    j. Small helpers inside a VM that report only numbers, as the tab count does. The Export file will need one.
+>
+> 4. Record in DEC-065 what you chose for each of these. If one would cost much more than the simple form, tell me in
+> the short decision form. Otherwise don't stop.
+>
+> 5. The pace rules stand. Stop only for what needs me: the broker proposal, my one batched list of steps, and a session
+> on the real sites.
+
+What followed, from the orchestrator's notes: the orchestrator wrote the general form as one design the same hour (the
+private lab repo's `docs/general-model.md`, committed `13d4dc0`), to be built after the Phase 2 work landed, with a
+verifier proving that the runner behaves as before on today's data. Its reading at 06:38Z: no item would cost much
+more than the simple form, so none was put to the owner in the short decision form (point 4). The draft check list's
+open questions, the three that change the plan among them, stay undecided (point 2): nothing in this section decides
+one, adds a check or a chat, or loads a site.
+
+**2. What was chosen for each of the owner's items (a) to (j).** Every choice in this part is **the orchestrator's,
+under rule 1c, for the owner's review at Phase 5**: the design is the orchestrator's (`docs/general-model.md`), built by
+the general-model lane (item j's driver part by the clean-quit lane), with the verifier's repairs named where they
+changed it. "Today's data" means the five three-question chats and the four frozen checks; with them, the runner
+behaves as before (part 7).
+
+- **(a) More than one chat per site.** *Chosen:* a session is a list of loads, each with a load id, VM, browser, site,
+  chat, role, build, its checks and its time limit, made by a plan builder (`pipeline/lib/loads.js` `buildPlan`) from
+  the chat list and the check registry. Roles: judged, record, and the fix checks' fixcheck-current, fixcheck-fixed,
+  admin-look and fullrun-fixed. Builds: public, admin, a candidate by its sha256, a release by its version. A load id is
+  `<env>-<browser>-<site>-<chatId>-<role>`; a chat id is `<site>-<name>`, today `<site>-short` for each site. A cell is
+  one browser and one chat: the short chat keeps today's cell name `<env>-<browser>-<site>`, and any other chat is
+  `<env>-<browser>-<chatId>`. The baseline is now version 2, one row per (env, browser, site, chatId, checkId):
+  `pipeline/baseline/migrate-v2.js` turned Experiment 1's 40 cells of four checks into 160 rows, every entry kept with
+  its result, and checks before it writes that the rows give back version 1 exactly. The load ledger records each load's chat and load
+  id; jobs (format 2) and the change test are keyed by chat too. *Why:* keeping the short chat's cell name leaves every
+  name already written (Experiment 1's results, the baseline, the waiting list, the Discord lines) as it is; with the
+  chat as a field of a load, long chats, recorder loads and fix checks become entries of one list, as the owner asked.
+  *Not yet:* the runner executes judged and record loads only; the fix-check roles exist in the plan builder and the
+  red-then-green judge (Phase 4's machinery), not in `session.js`. The copies branch is still laid out by site and
+  layout variant (`copies/<site>/<variant>/`, one copy per site, which is today's short chat); a second chat of a site
+  needs the copies tool's path rule widened. *The verifier's repairs, from its attack:* a chat id ending in a word the
+  runner appends to cell names (`-record`, `-reload`, `-precheck`, `-probe`, `-w<n>`) is refused, because a chat named
+  `claude-record` got the same cell name as the short chat's recorder load; a fix-check load's cell now carries its
+  chat (two chats of one site in one browser had shared a cell); a format-2 job plans the chat its key names, not
+  always the short one; the red-then-green judge reads each chat's own baseline row.
+- **(b) Many checks per load.** *Chosen:* a check registry in the checker's served logic, outside the FROZEN block.
+  Each entry has an id, a label, a title, a version, where it may run, what the chat must have, and a time budget. The
+  frozen four are entries: `load.ok`, `nav.count-on-open`, `jump.q1-from-bottom` and `bm.q1-add-delete`, version
+  0.3.2, allowed live and in the CI, budgets 60, 50, 20 and 90 s. Their code is called unchanged from the FROZEN block,
+  which stays byte-identical (a unit test compares it). Each check's result carries its id, version, kind, reason, start
+  and end times and context. The receiver keeps a report's checks by the registry's labels, the frozen four first.
+  *Why:* adding a check is then one registry entry and its baseline rows, and no other check, file format or message
+  changes. The served logic's hash changed (`d483c5b39beece4f`; it was `f528bb2507e1afe0`); the installed shell 1.0.0
+  did not, so nothing needs reinstalling. *Shown by the verifier* (a scratch copy with a fifth, dummy check and its 40
+  baseline rows, in the test driver, Navi Linux's 10 cells): the four checks' results and details identical in all 10
+  cells, `summary.md` identical, the Discord text different only by the logic hash, each load's limit 430 s; the only
+  unit tests that failed in that copy were the 8 that pin today's data. *Open:* the `summary.md` table has fixed
+  columns for the four checks, so a fifth check's result shows there only through the baseline lines.
+- **(c) More results than pass and fail.** *Chosen:* seven result kinds, `pass`, `fail`, `not-judged`, `cannot-see`,
+  `known`, `uncalibrated` and `skipped` (`pipeline/lib/formats.js` `resultKind`). Today's outcomes map onto them: a
+  load not usable for judging (its build not proven by hash, storage carried over, the display changed) is not-judged;
+  the checker's `skip` is skipped, and its `ground-truth-unavailable` is not-judged; any raw result of an uncalibrated
+  check (jump, until Phase 5) is uncalibrated; `fail`, `error` and `invalid` are known when the baseline row for the
+  same key is a failure, and fail otherwise; a CI result the copy cannot reproduce is cannot-see. The outcome router
+  takes these kinds and decides per check what starts a loop (part 6). *Why:* the owner's list, with not-judged
+  covering every case where the build or the state could not be proven, so such a load never reads as a pass or a
+  fail. *Not yet:* the session does not call the router or make jobs (Phase 3's wiring).
+- **(d) Where each check may run.** *Chosen:* each registry entry says `both`, `ci-only`, `never-live` (it would send
+  or type into a site) or `live-only` (the CI cannot see it). The runner runs a check live only where that allows it.
+  The CI's arm says `context: 'ci'`, and the same logic bundle the receiver serves runs there, so the same check code
+  runs live and in the CI. A check whose needs the chat lacks (too few questions, a special position it does not have)
+  is skipped with that reason, never failed. The frozen four are `both`.
+- **(e) Per-chat settings on the Mac.** *Chosen:* `local/pipeline/chats.json` in the private lab folder (mode 600,
+  never in a repo), version 1, one entry per chat: its id, site, kind (short or long), address, number of questions (1
+  to 500), marker pattern, special positions (a position and one kind from a fixed list: picture, duplicate,
+  long-answer, code, table, file, edited, branch, other), search words (up to 50), standing bookmarks (question or
+  answer, by position), whether sessions load it (every or never; a rotation rule comes with Phase 5) and its extra
+  seconds (item h). An unknown field is refused, so a typo is never read as a default; every refusal names the chat
+  and the field, never the value; the address is used only to open the page and is never printed. Experiment 1's chat
+  file is read once into this form, one `<site>-short` chat per site with the three-question settings, and written
+  only when a session actually starts (the verifier's repair: a dry run or a refused start had written it). The
+  owner's file has not been written yet; the first real run writes it. A test run never reads the owner's file.
+- **(f) Long chats in the copies.** *Chosen:* a copy's data is an ordered list of request and response pairs, keyed by
+  what Navi asks (`pipeline/ci/copy-data.js`): Gemini's history read and each of its cursor pages, Perplexity's thread
+  and its cursor pages, Claude's org list then the conversation, ChatGPT's session then the conversation; up to 400
+  pairs, each response a file of the copy. A copy built today is read into the same list, so nothing already built
+  changes. The CI answers each request by its key; a request the copy has no pair for is refused and logged, and each
+  check that did not pass is then cannot-see with that reason. *Not shown:* a copy of a long chat (none exists until
+  Phase 5); the recorders' 64 KB limit per record on a long real chat (open since the previous section, part 6).
+- **(g) Navi's stored state between loads.** *Chosen:* a copy may carry Navi's six stored keys (string values, ids as
+  stand-ins), and the CI seeds Navi's store with them before Navi starts (`run-ci.js`, from the copy or from
+  `--storage <file>`), so a copy can start with standing bookmarks; a copy built today carries none and runs with an
+  empty store, as before. On the live side the chat list holds each chat's standing bookmarks, and the design has the
+  storage check expect them per chat. *Not yet:* the live storage check does not read the standing bookmarks; it still
+  compares Navi's six keys as built in Phase 2 (no chat has standing bookmarks today).
+- **(h) Time limits as settings.** *Chosen:* a load's limit is computed and written with the load: a base of 200 s,
+  plus its checks' budgets, plus the chat's extra seconds; at least the 420 s floor (Experiment 1 lost two cells to a
+  180 s limit) and at most a ceiling of 1800 s (`pipeline/lib/config.js` `LIMITS` and `loadLimitS`). Today:
+  200 + 60 + 50 + 20 + 90 = 420 s, the limit every cell had. *Why:* the base covers the browser's start, the page, the
+  claim, the report and the margin above the checker's own 300 s deadline; the budgets come from the checker's own
+  limits per check. *Shown* (test driver): 430 s with the dummy check of item b, and 540 s for an invented long Claude
+  chat given 120 s extra (the verifier's two-chat run).
+- **(i) Any Navi build on a copy.** *Chosen:* `run-ci.js --build public | admin | file:<path> | commit:<sha> |
+  release:<vX.Y>`. Public is the public repo's `main` as committed, read with `git show`; admin is its strip-checked
+  admin build; a release is its tag when one exists, otherwise the last commit on `main` whose header carries that
+  `@version` (the public repo has tags only for v7.8, v8.0, v11.5 and v12.1). Nothing is fetched, and each result
+  records the build, where it came from, its sha256, commit and version. *Measured* read-only on this Mac (2026-11-20):
+  `release:v12.18` resolves to `ab7ea21` (sha256 `b8934332b5d79033…`), and `release:v12.19` and `public` to `b0fee35`
+  (`1a46e54a8e104e9b…`, the frozen v12.19). *Not shown:* the v12.18 against v12.19 run itself, which needs the long
+  Gemini chat's copy (Phase 5).
+- **(j) Small helpers inside a VM.** *Chosen:* one driver function runs any helper (`pipeline/lib/driver-vm.js`
+  `runHelper`), from a registry that gives each helper's files, arguments and output schema. A helper prints exactly
+  one JSON line of numbers and fixed kinds; the schema's types are booleans, whole numbers, numbers, kinds from a list
+  and reasons from a list. An unknown field, a nested value, two result lines or a missing field refuses the whole
+  line; a reason keeps only its id and fixed words, and text that matches no listed reason is refused; a refusal never
+  repeats what the helper printed. Unix helpers run through `bash -s` with checked arguments; on Windows the helper is
+  copied once with scp, then run. The tab count is the first helper (15 fixed reasons); the Export file's counter
+  (Phase 5) will be the next. *Shown:* the tab read judged as before through the helper (unit tests; the verifier
+  replaced three pins on the old call text with a run through the real reader with stand-in ssh and scp), and in Navi
+  Linux during the clean quit's proof (part 3: Firefox's last quit read from its session file, 1 window, 1 tab).
+
+**3. Linux Firefox's clean quit.** The owner's rule (sent 06:05:04Z on 2026-11-20, item 3 of a pasted block, quoted in
+full, no word changed):
+
+> 3. Linux Firefox: the runner closes it by a signal and Firefox counts that as a crash. My rule is a normal quit,
+> because a crashed browser can restore a tab, and on a real site that is a load nobody counted.
+>    a. Check the records of Experiment 1 and both proof starts: did Linux Firefox ever load a site page the runner
+>    didn't ask for? Tell me either way.
+>    b. Fix it with a clean quit. Turning off crash-restore alone is not enough.
+
+The answer to 3a and the first measurement are in the previous section, part 5.
+
+*How it closes now* (`pipeline/vm/navilinux-close.sh`, built by the clean-quit lane, an Opus agent; the final file's
+sha256 begins `ff8a7a5079e29631`). It sends Alt+F4, GNOME's close key, as key events through GNOME's own
+remote-desktop interface (`org.gnome.Mutter.RemoteDesktop` on the session bus: a session is created and started, Alt
+and F4 are pressed and released, the session is stopped). Then it waits up to 20 s for Firefox's main process to end
+and prints `closed`, or `NOT-QUIT` with its reason. It never sends a signal, and there is no signal fallback (the
+orchestrator's decision of the previous section, part 5). Alt+F4 goes to whichever window has the keyboard, and GNOME
+Shell 50 lets the VM's own user read no focused window (measured: `GetWindows` and `GetRunningApplications` refused,
+no introspection setting, accessibility off). So the script confirms focus by elimination. The key is sent only when,
+read just before it: exactly one Firefox main process runs and is a client of the compositor; no Chromium runs; the
+screen shield and the overview are down; and every client of the compositor (its Wayland socket, an X socket, a
+socket pair with the shell) is Firefox or one of the session services measured connected with no browser running
+(evolution-alarm-notify, ibus-extension-gtk3, snapd-desktop-integration, update-notifier, the two xdg-desktop-portal
+services, glycin image loaders, and gjs only with the desktop icons' command line). A check that can pass by itself
+is read again every second for up to 30 s first, because right after a boot the shell runs nautilus and the control
+center's shortcuts provider for 23 to 70 s (two boots measured). The worst case, 30 + 1 + 20 s, is inside the
+driver's 60 s limit for a close. Not covered: a window that one of the listed services shows by itself. If it had the
+keyboard, it would close instead, Firefox would still run, and the answer is NOT-QUIT; nothing is forced. Linux
+Chromium keeps Experiment 1's close (SIGTERM to its main process). The VM's `stage-open.sh` quits a running browser by
+SIGTERM before it opens one, so the driver's open of Linux Firefox runs the clean quit first and calls `stage-open.sh`
+only after an exact `closed`. The list of session services, the 30 s re-read and leaving the VM running on a NOT-QUIT
+are the orchestrator's choices (rule 1c), for the owner's review at Phase 5.
+
+*The proof* (the clean-quit lane, 07:39 to 08:15Z on 2026-11-20; Navi Linux: Ubuntu 26.04, GNOME Shell 50.1 on
+Wayland, Firefox 160.0-1 snap; example.com only, no AI site, no receiver; one VM at a time; the raw outputs are in the
+orchestrator's resume pack outside both repos, `linux-firefox-clean-quit-proof.md`). Four versions of the script ran;
+the last is the file as left.
+- **12 closes sent the key, and all 12 quit cleanly**, each 0.1 to 0.5 s after the remote-desktop session ended (1.0
+  to 1.5 s after it was created). Each wrote `sessionstore.jsonlz4` at the close and Firefox's quit checkpoints, and
+  Firefox removed its recovery files; nothing sent a signal. Five of the 12 ran through the lab's driver (its open,
+  close and tab-count helper), three of them with the final file. After the first one, Firefox's crash counter, left at
+  2 by the earlier SIGTERM closes, read 0 at the next start, which showed one tab.
+- **The checks refused the key 5 times**, and each time nothing was sent and Firefox stayed open: twice with another
+  program (a calculator) open in front of Firefox, once with Chromium running too, and twice 31 to 57 s after a boot
+  (the shortcuts provider still connected; this is why the third version waits).
+- **The boot check at the end** (read-only, 08:15:16Z): `firefoxLastExitClean` true, `firefoxWouldReopenTabs` false,
+  `firefoxRecentCrashes` 0, no problems.
+- **The lane's own mistake, one SIGTERM** (07:47:06Z, example.com only): its harness called `stage-open.sh` while
+  Firefox still ran, which ended Firefox by SIGTERM; Firefox restarted and reopened the old tab by itself (crash counter
+  1). The next clean quit reset it. This is the case behind the open order above.
+- **Chromium, 4 closes by today's SIGTERM:** each wrote `exit_type` `SessionEnded`, which is not its crash mark, and
+  the next starts showed one tab and no restore question, so Chromium's close stays. Not measured: whether Chromium's
+  cookie store is written at that close (its 32 s quiet time before the close stays).
+- **Seen in the VM:** GNOME's orange remote-control indicator in the VM's own top bar, for about 0.7 s per close.
+
+*In the runner* (the verifier; test driver only): a new fault, `focusunclear`, answers the script's NOT-QUIT text.
+With it, Navi Linux Firefox's pre-check failed ("the browser did not quit cleanly (a restored tab could load again)",
+with the script's own reason), a stop message went out, the VM was left running with Firefox open for the owner to
+close by hand, the waiting list got `vm-left-running`, and the run exited 2. The script itself (no key and NOT-QUIT for
+every check that cannot be confirmed, Chromium unchanged, nothing printed but fixed words, process names and numbers)
+is tested against stand-in tools in `pipeline/test/unit-quit-linux.test.js`. **Not yet run:** a session through
+`session.js` in Navi Linux with the clean quit; the orchestrator's plan puts it in the next VM rehearsal on local
+pages. Until then the note of the previous section, part 5, stands: no real-site session closes Linux Firefox by a
+signal.
+
+**4. The scan's short-name rule** (the scan-and-install-check lane, an Opus agent; unit tests only; the orchestrator's
+choice, rule 1c, for the owner's review at Phase 5). The privacy scan matches the owner's name and email (the Keychain
+list the owner typed) inside longer words, inside addresses and in reversed word order. An entry that is short, or
+that is part of the pipeline's own words, would match inside ordinary words, inside Navi's own name and UI and inside
+the test markers, and refuse captures for the pipeline's own text. *Chosen* (`pipeline/capture/identities.js`,
+`scan.js`): an entry that is not an email is matched only as a whole word when it has fewer than 6 letters and digits,
+or when it occurs inside "navigator", "acn" or a test marker ("navit" and 1 to 3 digits). A whole word is its words in
+either order, any case, with nothing but non-letters between them and no letter or digit right before or after. A
+test marker (NAVI-T and 1 to 3 digits, any case) is blanked before matching, so it never matches. Inside Navi's own UI
+(the element `#acn-zone` and everything in it, and the value of any `acn-*` or `data-acn-*` attribute) whole-word
+entries are not tested; longer entries and emails are matched there and everywhere else as before. Entries under 3
+characters are still ignored and counted, and the scan still reports only the kind and the place, never what matched.
+*Why:* a whole-word match still finds a real name in page text, attributes, addresses or JSON, while the pipeline's
+own words no longer refuse a capture. *Shown:* `pipeline/test/unit-scan-names.test.js`, 8 tests. *Not yet:* the owner
+asked (05:57Z) that the list be checked later against how the real sites show it; that waits for a session.
+
+**5. The install check** (the same lane; the verifier made its fault work end to end). *The problem:* the previous
+section's open 1, a normal Navi left installed beside the loader, is caught neither by the zone count nor by the proof
+by hash. *Chosen* (`pipeline/lib/install-check.js`, pure, called by the pre-check for every browser under the loader):
+a boot-check reading that the normal Navi ("AI Conversation Navigator") is installed refuses that browser before its
+cells, with the owner's step 3 of the batched list in its own words (on the console, in `summary.md` and
+`session.json`, and one Discord line, "NORMAL NAVI BESIDE THE LOADER in <browser>"); a reading that it is not installed
+passes; Safari is never checked (it keeps its normal install, the owner's rule); a browser not under the loader is
+outside this check. A reading that cannot tell is let through by default, and refused only with an option no session
+uses yet. *Why let it through* (the orchestrator's choice, rule 1c, for the owner's review at Phase 5): today's boot
+checks read only whether Navi's name occurs anywhere in Tampermonkey's storage, and the loader's cached copies of the
+build carry Navi's header too, so that reading cannot tell an install from a cached copy; refusing on it would refuse
+every loader browser. *Shown* (test driver): with the fault `naviinstalled`, Navi Linux Chromium's pre-check was
+refused with the removal step and its 5 cells were not visited. **It cannot refuse anything in the real VMs yet:** no
+boot-check script reads Tampermonkey's installed-script entries, so every loader browser reads "cannot tell" and is let
+through. What the boot checks must add, measured in each VM on local pages: that reading per browser, in three states
+(the normal Navi only; the loader only, after a load that cached its copies; both). The lane did not change the
+boot-check scripts, which were the clean-quit lane's while its VM run lasted. The verifier's repairs: the driver's
+boot-check reader now passes the reading on (before, the refusal could never fire), and the test driver knows the
+fault `naviinstalled`. Still not caught by the zone count: a normal Navi of the same version beside the loader (fault
+`navitoo`).
+
+**6. The router fixes** (the router lane, an Opus agent; unit tests and temporary bare repos only, nothing pushed).
+They close the findings of the independent check of Phase 3's foundations (`46634d8`) and move the router and the jobs
+to the general model's kinds and keys:
+- A job key is (site, chat, check id, layout variant, kind); an open job written the old way still matches. A new
+  `pipeline/upkeep/general.js` holds the vocabulary (the seven kinds, the frozen four's ids and their names without
+  dots, the default chat) and reads `lib/formats.js` only through its exports.
+- An "index degraded" whose baseline row has no `indexDegraded` field is never read as new (it routes as no baseline,
+  report only). The baseline has no such field today, so index degraded cannot start a loop until it has one.
+- A call that leaves out the list of uncalibrated checks is refused, so the jump check cannot lose its protection by
+  omission.
+- Perplexity's bookmark reserve holds for every path kind except exactly `search`.
+- A live `error` or `invalid` is a failure, as `resultKind` maps them (before, a live `error` was "nothing to
+  compare"); a live pass with a CI result of cannot-see counts as "only checked live"; a job group with a cell the CI
+  reproduced reads `fail-fail-same`.
+- A code-fix job is refused unless it rests on a new live failure: a baseline that is uncalibrated, missing or already
+  a failure (while the live record is not degraded) refuses it (job format 2).
+
+*Two choices made in that lane, recorded as the orchestrator's (rule 1c), for the owner's review at Phase 5*
+(`pipeline/upkeep/README.md`, choices 6 and 7):
+- **A wrong copy whose `fixture.json` was edited is withdrawn, not regenerated.** The independent check hand-edited
+  one reference count in a copy's `fixture.json`; regeneration rebuilt the copy with the references read from that
+  same edited file, the next copy check said ok, and the change test then said the site had changed: a site change
+  that never happened would have been announced. Now a `fixture.json` that no longer matches its own seal, or has none, makes the copy "no
+  valid copy" (withdraw); edited page or data files are still "copy wrong" and regenerated from the stored inputs.
+  *Why:* the references are an input that the stored files do not hold, so nothing trustworthy is left to regenerate
+  them from, and the owner's answer 9 confirmed that the CI fix loop never hand-edits a stored copy. A withdrawn copy is
+  visible ("not comparable: no valid copy") and costs that site's CI comparison until the next recorder load replaces
+  it; a false site change would not look false. *Residual:* an edit that also recomputes the seal is not caught by the
+  copy check; the copies branch's history and the scan record's file hashes are the anchors for that.
+- **A new live failure with no CI to compare starts the code fix loop, with live checking only** (row `fail-no-ci`).
+  Before, "no valid copy" and "nothing to compare" came first, so a new live failure on a site or chat without a
+  usable copy only reported, every session. Now those rows come after the open-job, reserved, uncalibrated, known,
+  no-baseline, possibly-lag and flips rows, and a new live failure that passes them all starts a code-fix job (case
+  live-only, no CI fix asked, because there is no copy to work on). A wrong copy still comes first: regeneration closes
+  it in the same upkeep run. *Why:* the plan (its lines 167 and 213) wants a new live failure fixed, and the owner's
+  answer 10 confirmed the design's rule that a new live failure starts the code fix loop; the earlier order was the
+  orchestrator's own design, so this follows the plan rather than changing it.
+
+**7. What is verified, and in what context.** The verifier's runs, 08:20 to 10:05Z on 2026-11-20 (lab
+`pipeline/test/README.md`, "Results, 2026-11-20 08:20-10:05Z"): this Mac (macOS 26.6.2, Apple M2), Node 24.22.2,
+Playwright 1.65.0 with Chromium 158.0.8127.18, Firefox 159.0 and WebKit 27.2; a throwaway local folder, invented chat
+addresses and `--no-discord` in every run; port 8790 only under the lock, and nothing listening and no lock file
+afterwards; no VM, AI site, Keychain, Discord or GitHub write. Mock and test-driver evidence only, not real-browser
+evidence; the clean quit's own proof (part 3) is the only VM evidence, on example.com.
+
+| What | Result |
+|---|---|
+| Unit tests, as the lanes left them | 741: 739 pass, 1 fail (three pins on the tab reader's old call text), 1 skipped |
+| Unit tests, after the verifier's repairs (twice) | 749: 748 pass, 0 fail, 1 skipped (the opt-in read of the Mac's real screens) |
+| The same behaviour on today's data: the full test-driver session, two starts, `ad118fe` (extracted to a scratch folder) against the integrated tree | 0 differences per load and check (40 cells x 4 checks, 8 pre-checks, 5 recorder loads, the baseline lists, loads per site, storage checks, what was left running); both trees 40 of 40 accepted and 5 of 5 recorder loads "same", exit 0; `summary.md` identical except the Mac's memory-pressure word in 4 rows; the Discord text identical except the logic hash |
+| Mock pages in three engines | 62 of 62 in each, contract 13 of 13; the results identical across the engines; Experiment 1's 16 specs give exactly checker 0.3.2's results |
+| The round trip, all five sites, three engines, with the recorded mismatch | 15 of 15 passed, the planted inequality passed, the recorded mismatch passed, exit 0 |
+| The receiver; the test driver's smoke run | 21 of 21; 45 of 45 steps in each engine |
+| Faults `naviinstalled` and `focusunclear` (Navi Linux only) | parts 5 and 3: refused with the removal step; NOT-QUIT, a stop, the VM left running; exit 2 |
+| Two chats per site (Navi Linux only, invented long chats) | 20 of 20 accepted; all 20 load ids and cells and all 80 (env, browser, site, chatId, checkId) result keys distinct; the long chats' 40 results "No baseline yet", never new; a baseline proposed from that run (on a scratch copy) has 200 rows, every key unique |
+| A fix-check plan over two chats | the plan, cells, load ids and the red-then-green judgement work per chat; tested through the plan builder and the judge with invented results, because the runner cannot execute fix-check loads yet |
+| A fifth, dummy check (a scratch copy) | item 2(b) |
+
+**8. What remains, and what is open** (the orchestrator's plan; it replaces nothing in the previous section's part 8
+except where said):
+1. **Commit** the four lanes' work and the verifier's repairs, with explicit paths.
+2. **Phase 3's and Phase 4's wiring:** the session calling the router and making jobs; the runner executing
+   fix-check loads; the baseline's `indexDegraded` field; the copies branch by chat; the live storage check reading
+   standing bookmarks; `summary.md` showing any registered check.
+3. **In the VMs, local pages only:** the clean quit inside a `session.js` run in Navi Linux; the boot checks reading
+   Tampermonkey's installed-script entries, so the install check can refuse (three states per browser); with the
+   local measurements of the previous section's part 8, item 3.
+4. **The owner's one batched list**, then **one session on the real sites, announced once** (unchanged).
+5. **Open:** a normal Navi of the same version beside the loader is still not seen by the zone count (fault
+   `navitoo`); the broker's vendored copy of the scan's identity matcher (`pipeline/broker/vendor/identities.js`) is
+   the old one, which is the broker lane's file.
