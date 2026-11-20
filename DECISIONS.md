@@ -5244,7 +5244,7 @@ owner's, committed as `6911977`). Public docs on `ci/live-verification-layer`; a
 proves a change is needed, which would stop for the owner (spec). **Replaces** the "live verification layer (the next
 spec)" placeholder in ROADMAP and the 2026-11-12 handoff's "spec 1, a built-in self-test", which the owner rejected.
 
-### Where this stands (2026-11-19, after 21:08Z; Phase 1 built, rehearsed with pinned displays and a recorded display setup, its proof waiting for the owner's go) — read this first
+### Where this stands (2026-11-20, after 00:08Z; Phase 1 built and its proof run twice by the owner on the five sites; Phase 2 waits for the owner's go) — read this first
 This DEC is a running, chronological record (each section dated; corrections stay next to what they correct, both
 results kept). This block and the last sections are the current state.
 - **Status:** Experiment 1 is complete (2026-11-19 02:08Z): **40 of 40 page loads accepted**, signed in to the test
@@ -5253,20 +5253,23 @@ results kept). This block and the last sections are the current state.
   22:26 CST** (`docs/specs/live-test-pipeline-build-plan.md`; its decisions are recorded below under "The pipeline
   build plan"): six phases, the first being "the full session from one start". **Phase 1 is built, reviewed (71
   findings, fixed) and rehearsed again in the three VMs on local pages** (private repo, branch
-  `pipeline/phase-1-full-session`, committed up to `0869a8a`; see the last five sections of this DEC). **The pipeline's
+  `pipeline/phase-1-full-session`, code committed up to `0869a8a`; see the five sections before the last). **The pipeline's
   choices 1 to 13 were approved by the owner, 2026-11-19, and choice 14 was decided by the owner: no** ("The owner's
   answers to the pipeline's choices (2026-11-19)"). **The owner's seven instructions of 2026-11-19 (17:49Z) are built
-  and measured** (the section before the last): the VM windows go on an external monitor, with one home monitor per
+  and measured** ("The owner's instructions of 2026-11-19 on windows, displays and the sign-in hosts"): the VM windows go on an external monitor, with one home monitor per
   display setup (the owner's desktop 20, the monitor X90G-R); a report from the three sign-in hosts can carry only
   numbers and fixed kinds; Navi Linux's and Navi Mac's screens are pinned at scale 1 in UTM's settings (Navi Windows'
   cannot be, and its window is to be set to the recorded size instead); a pre-check on the pinned screens passed 8 of 8
-  (19:46 to 20:02Z, local pages and example.com, one run). **The display setup "docked" is recorded** (20:57Z, the last section) on the owner's
+  (19:46 to 20:02Z, local pages and example.com, one run). **The display setup "docked" is recorded** (20:57Z, the section before the last) on the owner's
   conditional OK of 20:18Z: from a trial run that put all three windows on the home monitor, with Windows Firefox at a
   page height of 618 and its cause beside it (Firefox's own saved window size, not a bar). The one planned pre-check
-  with the record in force passed 8 of 8 (20:57 to 21:08Z, local pages and example.com, one run). **Phase 1's proof, a
-  40-cell session on the five sites, waits for the owner's go** (the owner will check Navi Windows Firefox's Externals
-  setting before giving it). No AI site has been visited since Experiment 1; every site visit waits for a session the
-  owner starts.
+  with the record in force passed 8 of 8 (20:57 to 21:08Z, local pages and example.com, one run). **Phase 1's proof ran
+  twice, each started by the owner with one command** (the last section): `session-2026-11-19T2305` (23:05:07 to
+  23:32:59Z, 1672 s) and `session-2026-11-19T2338` (23:38:48Z to 00:08:27Z on 2026-11-20, 1778 s). Each: 8 of 8
+  pre-checks, 40 of 40 cells accepted on the five real sites (24, then 28, with every check passing), no stop, no
+  sign-out, no new failure against the baseline, nothing left running; one run each. The three sign-in cases were shown
+  on the local fixture earlier that day. **Phase 2 waits for the owner's go,** and the fifteen decisions of the design
+  draft for Phases 2 to 6 wait with it. Every site visit still waits for a session the owner starts.
 - **Frozen:** Navi v12.19 (the published build, byte-identical to `main`): no Navi fixes until Phase 6. The four
   checks of checker 0.3.2 (load, navigate, one jump, one bookmark): no tuning until Phase 5; Phase 1's checker carries
   them unchanged (a test compares the code line by line) and changes only how the checker is delivered and what it
@@ -5292,9 +5295,10 @@ results kept). This block and the last sections are the current state.
   DOM-REFERENCE's "November 2026: Experiment 1's structure captures" subsections; ROADMAP item 5 (and items 15-20).
 - **Findings waiting for the pipeline** (none to be worked on before its phase): Perplexity bookmarks on `/session/`
   chats (a probable real bug, reserved by the owner for Phase 6, the first real run); the jump findings of an
-  uncalibrated checker (ChatGPT; Grok in Google Chrome and Edge; Safari / Claude), unconfirmed until Phase 5; the CI's
+  uncalibrated checker (ChatGPT; Grok in Google Chrome and Edge; Safari / Claude), unconfirmed until Phase 5 (both
+  kinds seen again in the proof's two runs, the last section, part 3); the CI's
   mock pages are stale on all five sites (Phases 2 and 3); light/dark detection under "auto" (ROADMAP item 15).
-- **Not built yet** (Phase 1 is built; its proof session has not run): the CI from captures (Phase 2); the CI upkeep
+- **Not built yet** (Phase 1 is built and its proof has run): the CI from captures (Phase 2); the CI upkeep
   loop and the CI fix loop (Phase 3); the loader, the admin build, the code fix loop and the auto-merge switch, off
   (Phase 4); the full check list and the calibration (Phase 5). Superseded by the redesign: the schedule,
   WebDriver/remote debugging on AI sites, runner-created canaries, the live-send check, scratch chats.
@@ -5306,19 +5310,22 @@ results kept). This block and the last sections are the current state.
   `ai-conversation-navigator-private-lab` if access is limited to selected repositories; then on chatgpt.com/codex,
   Settings → Code review → on for that repo; the agent could not check the app's access: `gh api /user/installations`
   needs a GitHub App token, HTTP 403); the build plan's Phase 3 depends on it (`/babysit-pr-cycle` on private-repo
-  PRs); a re-check of Navi Mac's reopen list (Phase 1's boot check now does it at every boot). **Still the owner's
-  before Phase 1's proof** (the last section, part 6): the owner's go for the session, after the owner's look at Navi
-  Windows Firefox's Externals setting; the nudge (installed, its time chosen); Codex review on the private lab repo
-  (above). **Left open by the owner:** the focus question (20:22Z). **Closed:** `chmod 700 ~` (the
+  PRs); a re-check of Navi Mac's reopen list (Phase 1's boot check now does it at every boot). **Still the
+  owner's** (the last section, parts 8 and 9): the go for Phase 2; the morning nudge (built, not installed, its time
+  to be chosen); Codex review on the private lab repo (above); whether the two Discord messages arrived. **Left open by
+  the owner:** the focus question (20:22Z). **Closed:** the owner's go for Phase 1's proof, given by starting it, and
+  Navi Windows Firefox's Externals setting, set to "Always" by the owner (reported 21:24:56Z; the last section, part
+  6); `chmod 700 ~` (the
   owner, 2026-11-18 20:55 CST; measured below); the owner's one-time steps for Phase 1 in the seven VM Tampermonkeys
   (reported done 2026-11-19, 06:07 to 06:37Z; see "Phase 1 of the build plan"); the pipeline's 14 items (choices 1 to
   13 approved by the owner, 2026-11-19; choice 14 decided by the owner: no; "The owner's answers to the pipeline's
   choices (2026-11-19)"); the owner's reply on question 4 (17:49Z: "option 1, keep the read-only look", with two
-  additions, both built; the section before the last, part 3); which setting locked the Mac's screen at about 12:00Z
-  (its screen saver after 10,800 s idle with the lock set to "immediately", not sleep: the orchestrator's read;
-  changing it is the owner's call; the section before the last, part 8); the OK on the eight display readings (20:18Z,
-  its condition on Windows Firefox met as case c) and the recording of the docked setup (20:57Z); the installed
-  shell's path on the wire (20:18Z: "discarding it on the Mac is enough. No new shell."; the last section).
+  additions, both built; "The owner's instructions of 2026-11-19 on windows, displays and the sign-in hosts", part 3);
+  which setting locked the Mac's screen at about 12:00Z (its screen saver after 10,800 s idle with the lock set to
+  "immediately", not sleep: the orchestrator's read; changing it is the owner's call; the same section, part 8); the
+  OK on the eight display readings (20:18Z, its condition on Windows Firefox met as case c) and the recording of the
+  docked setup (20:57Z); the installed shell's path on the wire (20:18Z: "discarding it on the Mac is enough. No new
+  shell."; the section before the last).
 
 ### The owner's decisions (the spec; 2026-11-12 unless dated otherwise)
 - **Three separate pieces:** the public navigator (the only thing users get; never any test code), the checker (tests
@@ -7786,3 +7793,201 @@ wire (the owner: "No new shell.").
 unplugged, and with every external monitor unplugged; size mode "window" changing a real window's size (both runs
 found Navi Windows' window already at 1107x897); whether the pinned screens and the recorded values hold through a
 session; the window size behind Experiment 1's 683.
+
+### Phase 1: the proof (2026-11-19)
+**State at the time of writing (2026-11-20, after 00:08Z):** the owner started the proof session twice, each time with
+one command in the owner's own terminal: `session-2026-11-19T2305` and, right after it, `session-2026-11-19T2338`.
+Both ran all 40 cells on the five real sites in the eight VM browsers and ended with nothing left running. The three
+sign-in cases were shown earlier the same day on the local fixture (local pages only). The owner's go for Phase 2 has
+not been given. Times are UTC, as the records give them. The records of each start are its folder under the private
+lab repo's untracked `local/pipeline/results/`: `summary.md` (the table), `session.json` (the full record) and
+`discord.txt` (the Discord text). This section names no chat and no account.
+
+**What these two runs are.** They are browser evidence on the five real sites, under the conditions below, one run
+each. Nothing in this section rests on a harness result.
+
+**The conditions of every result in this section** (from both records; the same in both starts):
+- Navi v12.19, sha256 `1a46e54a8e104e9b` (expected from the selector inventory); every cell of both starts reported
+  version 12.19.
+- Checker shell 1.0.0, served logic `45ca834892817a21` (frozen for each session by its receiver), selector inventory
+  `1fcae9ae335bb6cb`. The four checks are checker 0.3.2's, unchanged; the jump check is uncalibrated until Phase 5.
+- Navi Mac (macOS 26.6.2): Safari 26.6.2 with Userscripts 4.8.6 (the checker by file copy), Chrome 158.0.8127.37 with
+  Tampermonkey 5.5.1, Firefox 160.0.1 with Tampermonkey 5.5.0. Navi Windows (Windows 11 Pro 10.0.26300, ARM64):
+  Chrome 157.0.8103.79 and Edge 157.0.4341.60 with Tampermonkey 5.5.1, Firefox 160.0.1 with Tampermonkey 5.5.0. Navi
+  Linux (Ubuntu 26.04.1 LTS, aarch64): Chromium 157.0.8103.50 with Tampermonkey 5.5.1, Firefox 160.0-1 with
+  Tampermonkey 5.5.0. The browser versions are as each start's boot checks read them.
+- All seven Tampermonkey browsers took the served logic by `require` with no warm-up load in both starts, Navi Windows
+  Firefox included. In the earlier Phase 1 runs of 2026-11-19 that browser ran it only by its own fetch, after three
+  warm-up loads; the owner then set its Externals setting to "Always" (part 6). Two runs, so this is not yet a rule.
+- The Mac: the display setup "docked" matched by its screens at the start of both (4 screens: 2940x1912 at scale 2
+  and three 1920x1080 at scale 1), the same at every stage; the Mac's screen unlocked at all four reads of each start;
+  every cell's page "visible"; memory pressure "warning" or "normal" at every sample, never "critical".
+
+**1. The plan's proof, part by part.** The plan, Phase 1: "I start it once and touch nothing: all 40 cells, VMs up and
+down, the table, the Discord message, nothing left running. A second start right after also works. On a local
+fixture, show three cases: a site-only sign-out fixed by one click and reported with its age; an unexpected prompt,
+where you stop and report it as my step; and a Google sign-out, reported as my step. Report the duration and every
+step I had to do by hand."
+
+| Part | Shown by | Where it falls short |
+|---|---|---|
+| "I start it once and touch nothing" | Each start was one command in the owner's terminal; no other step by the owner is in the sources (part 6) | The first try, at 21:24:23Z, was refused before any VM started (part 7). The records cannot show whether the owner used the Mac during a run: the frontmost application changed in both (part 7) |
+| "all 40 cells" | 40 of 40 accepted in each start; 0 stopped, 0 need sign-in, 0 without a usable report, 0 not visited | In each start one ChatGPT cell's bookmark check could not be judged (part 3) |
+| "VMs up and down" | Each start ran its three stages in turn (Navi Mac, Navi Windows, Navi Linux), one VM at a time, each booted, checked and shut down | First start: Navi Linux's window stayed mostly on the Mac's built-in screen, and only `session.json` says so (part 7) |
+| "the table" | `summary.md` of each start: 8 pre-check rows and 40 cell rows, then the comparison with the baseline | None found |
+| "the Discord message" | `discord.txt` of each start, built at its end | Whether each post succeeded is printed only in the owner's terminal and is not in `session.json`; the owner has not said whether the messages arrived. Both texts end at the message's length limit (part 7) |
+| "nothing left running" | Both: the receiver stopped, no VM running (0 VM processes), nothing listed as left open | None found |
+| "A second start right after also works" | `session-2026-11-19T2338` started at 23:38:48Z, 5 min 49 s after the first ended, and passed the same parts | None found |
+| Fixture case 1: a site-only sign-out fixed and reported with its age | Local fixture, all eight browsers (part 4): signed back in, reported with the age of the sign-in it replaced (0.8 days) | The fixture's flow is two clicks (the site's button and the account on Google's chooser, as the plan's decision 13 allows), not one. Safari needed two more runs. Shown with served logic `4e2252a616c1c773`, not the proof's `45ca834892817a21`; local pages only |
+| Fixture case 2: an unexpected prompt, stopped and reported as the owner's step | Local fixture, all eight browsers (part 4) | Same served logic and local pages only |
+| Fixture case 3: a Google sign-out, reported as the owner's step | Local fixture, all eight browsers (part 4) | Same |
+| "Report the duration" | 1672 s (27 min 52 s) and 1778 s (29 min 38 s) | None |
+| "every step I had to do by hand" | Part 6 | None found in the sources |
+
+**2. The two starts side by side.** Each start is one run.
+
+| | First start | Second start |
+|---|---|---|
+| Run | `session-2026-11-19T2305` | `session-2026-11-19T2338` |
+| Started by | the owner, one command | the owner, one command |
+| Times | 23:05:07Z to 23:32:59Z, 2026-11-19 | 23:38:48Z, 2026-11-19, to 00:08:27Z, 2026-11-20 |
+| Duration | 1672 s (27 min 52 s) | 1778 s (29 min 38 s) |
+| Pre-checks | 8 of 8 passed | 8 of 8 passed |
+| Cells | 40 of 40 accepted; 0 stopped, 0 need sign-in, 0 without a usable report, 0 not visited | the same |
+| Every check passing | 24 cells | 28 cells |
+| Load | 40 of 40 pass | 40 of 40 pass |
+| Navigate | 40 of 40 pass | 40 of 40 pass |
+| Bookmark | 31 pass; 8 fail (Perplexity, all eight browsers); 1 not judgeable (Navi Linux Firefox, ChatGPT) | 31 pass; 8 fail (Perplexity, all eight browsers); 1 not judgeable (Navi Mac Safari, ChatGPT) |
+| Jump (uncalibrated) | 32 pass, 8 not passing | 36 pass, 4 not passing |
+| Signed in | 39 cells "in", 1 "unknown" (the not-judgeable cell) | the same, in the other cell |
+| Against the baseline | new failures none; fixed none; 8 known (the Perplexity bookmarks); jump 8 changed and 5 unchanged (not judged); 1 other change not judged | new failures none; fixed none; 8 known; jump 6 changed and 4 unchanged (not judged); 1 other change not judged |
+| Stop rules, site objections | none fired; no site objected | the same |
+| Sign-outs, re-sign-ins, re-sign-in previews | 0, 0, 0 | 0, 0, 0 |
+| Loads per site that Central day | 8 each | 16 each (8 from this start) |
+| Left running | receiver stopped, no VM | receiver stopped, no VM |
+| VM windows on the home monitor (X90G-R, the owner's desktop 20) | Navi Mac and Navi Windows; Navi Linux not (part 7) | all three |
+| Frontmost application on the Mac | Terminal, then UTM (part 7) | Terminal, then UTM, then Safari (part 7) |
+| Discord text | built | built |
+
+By site, the jump check passed: ChatGPT 5 of 8 and then 7 of 8, Grok 4 of 8 and then 5 of 8, Gemini 7 of 8 and then
+8 of 8, Claude and Perplexity 8 of 8 in both. Experiment 1 (Navi v12.19, checker 0.3.2, four counted runs of
+2026-11-18/19): ChatGPT 2 of 8, Grok 5 of 8, Claude 7 of 8 (Safari skipped), Gemini and Perplexity 8 of 8, and 22 cells
+with every check passing.
+
+**3. The cells that were not all-pass in either start.** Seventeen cells. Experiment 1's column is the baseline
+(`pipeline/baseline/baseline.json` in the private lab repo, seeded from Experiment 1, unchanged since).
+
+*The bookmark check:*
+
+| Cell | First start | Second start | Experiment 1 |
+|---|---|---|---|
+| Perplexity in all eight browsers (Navi Mac Safari, Chrome, Firefox; Navi Windows Chrome, Edge, Firefox; Navi Linux Chromium, Firefox) | fail ("flag still nokey after 10 s; not clicked") | fail (the same) | fail (the same) |
+| Navi Linux Firefox, ChatGPT | not judgeable ("site question selector matched nothing") | pass | pass |
+| Navi Mac Safari, ChatGPT | pass | not judgeable (the same words) | pass |
+
+The eight Perplexity cells are the known one: Perplexity's missing bookmark key on `/session/` chats, a probable real
+bug that the owner reserved for Phase 6. Both runs list them as known, not new.
+
+*The jump check, set apart:* it is uncalibrated until Phase 5. A result below is what the checker recorded; none of it
+is a Navi failure claim, and the comparison does not judge it.
+
+| Cell | First start | Second start | Experiment 1 | What the checker recorded when not passing |
+|---|---|---|---|---|
+| Navi Mac Chrome, Grok | not passing | not passing | fail | "halfway", the target at top -144 (both starts) |
+| Navi Windows Chrome, Grok | not passing | not passing | fail | the same (both starts) |
+| Navi Windows Edge, Grok | not passing | not passing | fail | the same (both starts) |
+| Navi Mac Firefox, Grok | not passing | pass | pass | "halfway", top -144 |
+| Navi Windows Edge, Gemini | not passing | pass | pass | "halfway", top -497 |
+| Navi Windows Chrome, ChatGPT | not passing | pass | fail | "gave-up", Navi's message "That message is not currently rendered" |
+| Navi Windows Firefox, ChatGPT | not passing | pass | pass | the same |
+| Navi Linux Firefox, ChatGPT | not passing (the not-judgeable cell) | pass | fail (pass also seen) | "gave-up", no marker, Navi's message "That message is not currently rendered" |
+| Navi Mac Safari, ChatGPT | pass | not passing (the not-judgeable cell) | fail | the same |
+
+The jump check was not passing in both starts only for Grok in Navi Mac Chrome, Navi Windows Chrome and Navi Windows
+Edge (Tampermonkey 5.5.1 in each). The other jump results differed between the two starts. Four cells passed in both
+starts where Experiment 1 did not: Navi Mac Chrome, Navi Mac Firefox and Navi Windows Edge on ChatGPT (fail in
+Experiment 1) and Navi Mac Safari on Claude (skipped in Experiment 1).
+
+*The cell that could not be judged* was a different ChatGPT cell in each start: Navi Linux Firefox in the first, Navi
+Mac Safari in the second. In both, Navi loaded and listed 3 of 3 questions (navigate pass), but the page's own
+conversation was not in the page when the checker looked: 42 of 47 selectors matched nothing in the first and 38 of
+47 in the second (19 of 47 in the other ChatGPT cells), no question or answer was found, the sign-in state read
+"unknown", and the jump ended with Navi's "not currently rendered" message. The same cell passed in the other start.
+It comes and goes; when the checker looks is Phase 5's question. It is not a Navi failure claim.
+
+**4. The three local fixture cases.** Local pages only, no AI site; the served logic was then `4e2252a616c1c773`
+(before the changes that led to `45ca834892817a21`); the Mac's screen locked, so no VM window was placed. Recorded in
+"Phase 1: the review, its fixes and the rehearsals after them", part 4.
+- Run `fixture-2026-11-19T1220` (12:20:52 to 12:45:27Z, all eight browsers, one run): 8 of 8 pre-checks; 40 fixture
+  cells, 39 as expected.
+  - Case 1, a site-only sign-out: Claude's fixture page signed back in by the two clicks, each cell reporting "re-signed
+    in (the sign-in it replaced was 0.8 days old)", in 7 of 8 browsers. In Safari the reload after the clicks gave no
+    usable report (the one cell not as expected).
+  - Case 2, an unexpected prompt: after the site's button, Google's stand-in page asked for a password; no further click
+    was made, and the cell was reported as needing sign-in, the owner's step ("no click asked: prompts"), in all eight.
+  - Case 3, a Google sign-out: Gemini on Google's stand-in sign-in page (it asked for the account's identifier) reported
+    as "the owner's step", and the signed-out Grok page reported with "no re-sign-in tried", in all eight.
+- Runs `fixture-2026-11-19T1314` and `fixture-2026-11-19T1318` (Safari only, after the change that makes a load wait
+  32 s after a granted click): Claude re-signed in, the age reported (0.8 days), the reload signed in; cases 2 and 3 as
+  above; each run 2 of 5 accepted and 3 need sign-in, as expected.
+
+**5. Sign-outs and re-sign-ins on the real sites.** None in 80 loads (40 per start): every cell read "in" except the
+two not-judgeable cells, which read "unknown", and neither start listed a sign-out. No re-sign-in was attempted: the
+re-sign-in switch is off on every site and no sign-out occurred. By the orchestrator's account the sign-ins were about
+one day old; the records read for this section do not carry their age, since a sign-in's age is reported with a
+sign-out. What this shows: on 2026-11-19, in these eight browsers, sign-ins of that age held through two sessions. It
+does not show how long sign-ins last, how often sign-outs happen, or how a re-sign-in goes on a real site.
+
+**6. Every step the owner did by hand in Phase 1.**
+- The one-time steps in the seven Tampermonkey browsers: the checker shell's install, Userscript Update every 6 hours,
+  Externals "Always" (reported done 2026-11-19, 06:07 to 06:37Z; see "Phase 1 of the build plan").
+- Correcting Navi Windows Firefox's Externals setting to "Always". The owner, 21:24:56Z: "ive set the windows firefox
+  externals setting as always. i think ive set it to everyday before this, my mistake sorry."
+- The answers to the pipeline's choices (16:13Z), the seven instructions (17:49Z) and the conditional OK on the display
+  readings (20:18:03Z), recorded in the three sections before this one.
+- Each start, one command in the owner's terminal: 21:24:23Z (refused, part 7), 23:05:07Z and 23:38:48Z. The owner
+  pasted the first two outputs at 23:06:03Z.
+
+In the proof itself: one command per start and nothing else, as far as the sources show.
+
+**7. What went wrong or fell short.**
+- **The first try was refused.** At 21:24:23Z (`session-2026-11-19T2124`) the runner stopped before its first stage:
+  "a VM that is not this session's first is already running (2 VM processes): one VM at a time." The VM was the one
+  the owner had opened for the Externals change. No VM was started by the runner and no site was visited. The owner
+  noticed it only at the next start (23:06:03Z: "i ran the command and this was the result last time and i didnt
+  notice."). By the orchestrator's account, the pipeline's cleanup then shut that VM down; no browser was open in it.
+- **Navi Linux's window, first start.** It came up on the Mac's built-in screen (found at 59,34). The runner asked for
+  1569,101 on X90G-R, and macOS put it at 317,224; the runner's notes: "macOS put it at 317,224 (asked for 1569,101)"
+  and "AFTER THE MOVE THE WINDOW IS MOSTLY ON THE BUILT-IN SCREEN (macOS put it there; asked for an external
+  monitor)". It stayed there for that stage. Navi Linux's screen is pinned in UTM's settings, and both Linux
+  pre-checks read the same values as in the second start (Chromium 1541x763 and Firefox 1280x708 on 1608x882, ratio
+  1), so no reading was affected. These notes are only in `session.json`: neither `summary.md` nor the Discord text
+  mentions them. In the second start the same window, again found on the built-in screen, was put where asked.
+- **The frontmost application changed in both starts.** First start: Terminal at the start and after Navi Mac's
+  window placement, UTM from before Navi Mac's shutdown to the end. Each pair of reads around a pipeline step was
+  equal, and neither the summary nor the Discord text has a focus line. Second start: Terminal, then UTM across Navi
+  Mac's window placement (the Discord text: "Focus: the Mac's frontmost app CHANGED across the pipeline's own steps:
+  Navi Mac window placement (Terminal -> UTM)"), then Safari from before Navi Mac's shutdown to the end. Whether the
+  owner switched applications is not recorded. The focus question stays open by the owner's choice (20:22:42Z).
+- **One ChatGPT cell per start could not be judged** (part 3).
+- **The Discord messages.** Whether each post succeeded is printed only in the owner's terminal and is not in
+  `session.json`; the owner has not yet said whether the messages arrived. Both texts end with "… (cut)" at the
+  message's length limit. In the second, the cut falls inside the line of uncalibrated changes, so the end of that line
+  and the "Other changes" line (the not-judgeable ChatGPT bookmark) are not in the message; what the first one's cut left
+  out is not in the record.
+
+**8. What this proof does not show.**
+- A real sign-out, and a re-sign-in, on a real site; how long sign-ins last.
+- A stop rule firing on a real site, and its immediate Discord message.
+- That a Discord message arrived.
+- The three fixture cases with the proof's served logic `45ca834892817a21`.
+- The undocked display setup (not recorded), and the window rules with X90G-R or every external monitor unplugged.
+- The morning nudge (built, not installed: the owner's step).
+- A live session with a locked screen, or with memory pressure "critical" (lag marking).
+- Anything from the jump check beyond what an uncalibrated check records, and anything that needs more than one run of
+  each start.
+
+**9. What the plan says comes next.** The plan: "At the end of each phase: show the proof, report, and wait for my
+go." This section is that report. **The owner's go for Phase 2 has not been given,** and the fifteen decisions of the
+orchestrator's design draft for Phases 2 to 6 (private lab repo, `docs/pipeline-architecture.md`, section 1.6) wait
+with it. The baseline is unchanged; it changes only with the owner's OK.
