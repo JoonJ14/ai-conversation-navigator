@@ -5244,7 +5244,7 @@ owner's, committed as `6911977`). Public docs on `ci/live-verification-layer`; a
 proves a change is needed, which would stop for the owner (spec). **Replaces** the "live verification layer (the next
 spec)" placeholder in ROADMAP and the 2026-11-12 handoff's "spec 1, a built-in self-test", which the owner rejected.
 
-### Where this stands (2026-11-20, about 21:45Z; Phases 2 to 4 built, their proofs run without a site, then the loops' repair round in the simulator, under the owner's working rules and change of order; no AI site visited since 00:08Z): read this first
+### Where this stands (2026-11-21, about 04:40Z, the evening of 2026-11-20 in Central; Phases 2 to 4 built, their proofs run without a site, two repair rounds and the last build before the first session of Phase 2, all in the simulator, under the owner's working rules and change of order; no AI site visited since 00:08Z on 2026-11-20): read this first
 This DEC is a running, chronological record (each section dated; corrections stay next to what they correct, both
 results kept). This block and the last sections are the current state.
 - **Status:** Experiment 1 is complete (2026-11-19 02:08Z): **40 of 40 page loads accepted**, signed in to the test
@@ -5293,13 +5293,25 @@ results kept). This block and the last sections are the current state.
   carried through in simulation with the real CI, from a planted bug served as current to "ready to merge", closed
   unmerged with nothing merged; the boot checks reading Tampermonkey's installed scripts (in all seven browsers the
   normal Navi installed, the loader not); an attack that found 11 holes (holes 1 to 3 high; hole 10 closed while it
-  ran). **Then the loops' repair round, 16:06 to about 21:41Z, not committed at about 21:45Z** (the last section; the
-  simulator, mocks and stand-ins on this Mac, no site): the 11 holes closed, with the orchestrator's decisions D1 (a
-  capture replaces a copy only if every other accepted browser agrees, as the plan words it), D2 (`push.js` runs the copy
-  check) and D3 (the selector inventory of the build that is served), each for the owner's review at Phase 5; the Phase
-  3 and 4 proofs and the regressions run again; a re-attack found 6 new holes, of which 4 were fixed. Left: 2 low holes
-  and a false "Site changed" that D3 causes when Navi's own selectors change.
-  Every site visit still waits for a session the owner starts, announced once (the "Phase 2" section, part 8).
+  ran). **Then the loops' repair round, 16:06 to about 21:41Z, committed as `636c618` at 22:11Z** (the section before
+  the last; the simulator, mocks and stand-ins on this Mac, no site): the 11 holes closed, with the orchestrator's
+  decisions D1 (a capture replaces a copy only if every other accepted browser agrees, as the plan words it), D2
+  (`push.js` runs the copy check) and D3 (the selector inventory of the build that is served), each for the owner's
+  review at Phase 5; the Phase 3 and 4 proofs and the regressions run again; a re-attack found 6 new holes, of which 4
+  were fixed. **Then** (the last section, "Before the first session of Phase 2"; the simulator, mocks and stand-ins on
+  this Mac, no site): a second repair round with the orchestrator's decisions D4 to D9, which closed what the first left
+  (the false "Site changed" from D3, the broker's Codex read-back, the CI fix allowlist under `pipeline/test/`, Safari's
+  storage inside a fix check), committed as `2dcc15e` at 02:38Z on 2026-11-21 without its re-check, by the owner's rule;
+  **the owner's answers of the evening** (02:12 to 02:28Z): the broker's choices 1 to 10 and 12 yes (4 with a condition
+  on the release docs, 11 not yet), a Claude Doc of the proposal before approving its use, one install script, the
+  layouts, the planted-bug count next to `npm test` (6 of 15; the new CI 9; either 11; neither 4), no more attack rounds
+  before the real session, simulated runs on their own port, and new verification rules; then the four changes those
+  answers asked for (own ports, layout groups, the release-docs list, the install script) and **the full chain once,
+  all of it passing** (unit 900 tests twice, 0 failing; mocks and round trip in three engines; the sessions against
+  `2dcc15e`; the Phase 3 proof with the layout rule; the Phase 4 proof to "ready to merge", closed unmerged); the first
+  attempts of three parts were lost to the receiver's fixed 10 s start wait under heavy load, and one smoke run to its
+  pre-check cap, all passing when run again at a lower load. That build is not committed at about 04:40Z. Every site
+  visit still waits for a session the owner starts, announced once (the "Phase 2" section, part 8).
 - **Frozen:** Navi v12.19 (the published build, byte-identical to `main`): no Navi fixes until Phase 6. The four
   checks of checker 0.3.2 (load, navigate, one jump, one bookmark): no tuning until Phase 5; Phase 1's checker carries
   them unchanged (a test compares the code line by line) and changes only how the checker is delivered and what it
@@ -5332,26 +5344,28 @@ results kept). This block and the last sections are the current state.
 - **Not built yet, or not run for real** (Phase 1 is built and accepted): Phases 2 to 4 have run only in simulation
   (no copy from a real recorder load yet, no real upkeep, dispatch, admin look or fix check; the loader installed
   nowhere); the broker for the fix-loop agent, built in dry-run form (`b6f9440`), needs the owner's approval before it
-  is used, and the auto-merge switch stays off; the full check list and the
+  is used (the owner answered its choices on 2026-11-20, and reviews the proposal in a Claude Doc before approving its
+  use; its install script has never been run), and the auto-merge switch stays off; the full check list and the
   calibration (Phase 5; a draft list, `8eef58f`, is with the owner, who moved the list and the long chats back to
   Phase 5 on 2026-11-20). Superseded by the redesign: the schedule,
   WebDriver/remote debugging on AI sites, runner-created canaries, the live-send check, scratch chats.
 - **HANDOFF.md** is the 2026-11-19 handoff. It was written before the build plan arrived: where the two differ, the
   plan is the owner's decision (the owner, 2026-11-18). The differences are listed under "The pipeline build plan",
   "What this changes in the record above".
-- **Open with the owner:** the broker proposal and the fixed prompt the loops start with (approval before use; the
-  proposal revised and committed with its dry-run build, `b6f9440`; two phrases changed since by the verifier's repair
-  3 of "Phase 3: the upkeep loop and the CI fix loop, built"); the two questions the proofs raised (whether a session
-  regenerates the selector inventory from the build it serves, the Phase 2 proof, part 5; whether `push.js` runs the
-  copy check, Phase 3, part 5), now decided by the orchestrator as D3 and D2 for the owner's review at Phase 5 ("The
-  loops' repair round", part 2); from that round, for the broker proposal and the fixed prompt (part 9): the broker
-  returns no Codex reading to the loop yet, and the CI fix allowlist now refuses six prefixes under `pipeline/test/`
-  that the proposal and the prompt still allow; the owner's one batched list (removing the
-  normal Navi and installing the loader in the seven Tampermonkey browsers), after the Phase 2 work is committed and
-  rehearsed; the final feature
-  check list and the long test chats (Phase 5, the owner's); one session on the real sites, announced once; a
-  re-check of Navi Mac's reopen list (Phase 1's boot check now does it at every boot). **Left open by the owner:** the
-  focus question (20:22Z on 2026-11-19). **Closed:** the answer on the 4(b) finding (02:33Z on 2026-11-20: the loader
+- **Open with the owner** (as of about 04:40Z on 2026-11-21; "Before the first session of Phase 2", part 9): approving
+  the broker's use after reviewing the proposal in its Claude Doc (sent 03:58Z: the allow list, the two fixed prompts
+  with D7's read action and D8's list, the owner's three steps, the install script); the answer on choice 11 (the diff
+  and the reason sent 02:32Z); the owner's loader steps (removing the normal Navi and installing the loader in the seven
+  Tampermonkey browsers; the receiver's port free for them since 02:37:01Z), then the orchestrator's pre-check of the
+  eight browsers, then one session on the real sites, which the owner starts, announced once; the orchestrator's
+  decisions D1 to D9 and the lanes' choices, for the owner's review at Phase 5; the final feature check list and the
+  long test chats (Phase 5, the owner's); a re-check of Navi Mac's reopen list (Phase 1's boot check now does it at
+  every boot). **Left open by the owner:** the focus question (20:22Z on 2026-11-19). **Closed:** the broker's choices
+  1 to 10 and 12 (the owner, 2026-11-20 evening: yes, choice 4 with the release-docs condition, built); the two PR
+  labels and the test branch (created by the orchestrator, reported 02:32Z on 2026-11-21); the two questions the proofs
+  raised (whether a session regenerates the selector inventory from the build it serves; whether `push.js` runs the
+  copy check), decided by the orchestrator as D3 and D2 for the owner's review at Phase 5; the answer on the 4(b)
+  finding (02:33Z on 2026-11-20: the loader
   only, in the seven Tampermonkey browsers; no recorder load in Safari); the privacy scan's name and email, typed into
   the Keychain by the owner (reported 05:57Z); the morning nudge, installed by the owner (reported 02:42Z); Codex
   review on the private lab repo, switched on by the owner (reported 02:42Z; the proof will be Codex's comment on the
@@ -9195,7 +9209,7 @@ Safari, and Navi Mac's in Chrome (the owner's decision of 02:33Z).
 | All sites | capture rule v2's open snapshot (text lengths, marker positions, the kept attribute values, id stand-ins, the settle), the geometry (viewport, scroller box, scroll height and top), request durations; the `markers` and `scroller` fields in the judged cells | Navigate without inferred markers; whether a jump is comparable |
 | Claude | the org list and the conversation, and the 404 shape for orgs without chats | the index path |
 | ChatGPT | the session and the conversation; the bubble and author-role attributes, the `data-turn-key` stand-ins, the content-search keys | every check but Load; the refusal |
-| Gemini | the history read (`hNvQHb`) and the turn containers' ids as stand-ins; the narrow layout, from Windows Chrome or Edge | the index check, the bookmark flag, the narrow layout |
+| Gemini | the history read (`hNvQHb`) and the turn containers' ids as stand-ins; the narrow layout, from Windows Chrome or Edge (Phase 1's proof sessions read it in Windows Edge and Windows Firefox instead, and each layout group now gets its own copy: "Before the first session of Phase 2", part 4) | the index check, the bookmark flag, the narrow layout |
 | Perplexity | the recorder's "no request" note on `/session/`; the kept `[data-message-bubble]` and `data-workflow-entry`; a `/search/` chat's thread data, if the owner adds such a chat | the `/session/` bookmark failure; the index path on `/search/` |
 | Grok | the page only | the 144 px jump, which needs the Chromium-family browsers' geometry |
 
@@ -9843,3 +9857,504 @@ owner's review at Phase 5:
 - **`unit-quit-linux`'s two timing tests** fail under load on the lab and on the pristine `519e4b6` alike; not touched.
 - **Waits, as before:** the broker's approval; the owner's batched steps; a session on the real sites. None of this
   round's changes has met a real page.
+
+### Before the first session of Phase 2: the owner's answers of 2026-11-20 evening and the last build
+**State and context.** The loops' repair round (the section before this one) was committed in the private lab repo as
+`636c618` (22:11Z on 2026-11-20, branch `pipeline/phase-1-full-session`) and recorded here as `5462820`. The
+orchestrator then started a second repair round on what that round left, with its decisions D4 to D9 (part 2). While
+it ran, the owner sent three messages (part 1; the evening of 2026-11-20 in Central, 02:12 to 02:28Z on 2026-11-21).
+Under the owner's rule 4 of that evening, the second round was stopped at its safe point, after its verifier and
+without its read-only re-check, and committed as `2dcc15e` (02:38Z). The receiver's port was free from 02:37:01Z, and
+the owner was told at 02:37Z that the loader steps could start. From 02:39Z one workflow of Opus agents built what the
+answers asked for: four build lanes (part 3, until about 03:10Z), each running only the tests of what it changed (the
+owner's rule 1); then the full chain once, its five parts side by side, each on its own port (rule 2; part 6, about
+03:10 to 04:24Z); then this section. That work is in the lab's working tree on top of `2dcc15e` (21 files changed or
+new), **not committed when this was written** (about 04:40Z). Under rule 3 (a round past one hour) the orchestrator
+sent two short Discord notes, each saying what was left and how long it would take: at 02:30Z for the second repair
+round and at 03:39Z for this build. Context of every claim in this section, unless a part says otherwise:
+- this Mac (macOS 26.6.2, Apple M2), Node 24.22.2, Playwright 1.65.0; Chromium 158.0.8127.18 headless stands in for
+  every browser of the test driver; Firefox 159.0 and WebKit 27.2 ran only in the mock runs, the round trip and the
+  smoke runs; the parts ran side by side, so the Mac was loaded (load averages from about 18 to 232; each part gives
+  its own);
+- the test driver's mock pages and local fixture, invented chats, throwaway local folders and display files,
+  `--no-discord`; the second repair round used port 8790 only under the lock; this build and its full chain never used
+  port 8790, which was the owner's for the loader steps: every simulated run had a port of its own (part 3.1);
+- git only in scratch repositories with a local bare repository as "the remote"; the broker's dry-run client, a stub
+  agent, stub review tiers, a stub Codex, an in-memory GitHub; the lanes' Discord texts built and collected, never sent;
+- in the agents' runs: no VM, no AI site, no GitHub write, no Keychain read, nothing installed, no sudo; the frozen
+  files unchanged; the public repo read only;
+- **simulator, mock and stand-in evidence only, never real-browser evidence. No site.**
+
+The second round's reports (`close2-reports.md`, and the verifier's full record as the last section of
+`phase3-phase4-sim-proof.md`) are in the orchestrator's resume pack outside both repos; this build's lane and chain
+reports are kept with the orchestrator's session, also outside both repos. This section is written from them.
+
+**1. The owner's answers (the owner's words, dated 2026-11-20; quoted in full).** The owner's last three messages
+before this section:
+- 02:12:45Z: "status update".
+- 02:26:42Z, the broker's choices, the layouts, the planted bugs and the pace:
+
+> The broker's 12 choices, dated 2026-11-20:
+>
+> 1. Choices 1, 2, 3, 5, 6, 7, 8, 9, 10 and 12: yes, as picked.
+>
+> 2. Choice 4: yes, with one condition. My rule is that docs go in the same PR, so a normal fix always touches the
+> changelog and the other release docs. Those files must not rule out "would auto-merge", or the label never appears.
+> List which doc files a normal fix touches and allow exactly those.
+>
+> 3. Choice 11: not yet. Show me the diff and the reason in two lines. These PRs are written with nobody watching, so I
+> want to know why a review comes off.
+>
+> 4. Put the broker proposal into a Claude Doc and send me the link, including the read-back action and the prompt
+> change you added since. I'll go through the allow list, the two fixed prompts and my steps before I approve its use.
+>
+> 5. Cut my broker steps down before you give me the list:
+>    a. One script I run once for everything on the Mac that needs my password: the navifix user, the group, the sudo
+>    rule and installing the files. It should say what it is about to do and ask before each part.
+>    b. The two tokens stay as my own steps, with exact instructions.
+>    c. Create the two PR labels and the test branch yourself, and tell me when you have.
+>
+> Two things from the overnight work:
+>
+> 6. "A copy is replaced only if it agrees with every other browser's capture." Chrome and Edge on Windows get Gemini's
+> narrow layout, so their captures never agree with the other six. Make the agreement hold among browsers with the same
+> layout, and tell me how many layouts each site has today.
+>
+> 7. The planted bugs: how many of the 15 does today's public npm test catch? The plan asks for that number next to the
+> new CI's result.
+>
+> Pace:
+>
+> 8. After the round now running, no more attack rounds before the real session. From here an attacker's finding gets
+> fixed right away only if it could cause a wrong merge, a site load nobody counted, or a leak of account details. Log
+> everything else for Phase 5.
+>
+> 9. Give simulated runs their own port, different from the receiver's real one, so my loader steps and my sessions are
+> never refused because a simulation is running.
+>
+> 10. Tell me when the port is free. I'll do the loader steps then, and after your pre-check I'll start the real
+> session.
+
+- 02:28:34Z, the verification rules:
+
+> Verification is taking most of the time. Change how you verify, starting with the round now running:
+>
+> 1. After a change, run only the tests for what changed plus one simulated session. Run the full chain (three engines,
+> two sessions, the Phase 3 and 4 proofs) once before a real session, not after every round.
+> 2. Run the verifier's independent parts side by side, each on its own port. Use as many agents as that takes.
+> 3. If any round passes one hour, send me a Discord note with what is left and how long it needs, and keep going unless
+> I say stop.
+> 4. If the round now running is not finished within the hour, stop it at the next safe point, commit what passes, and
+> free the port for my loader steps.
+
+The twelve choices, as the orchestrator put them to the owner at 16:07Z on 2026-11-20 (each with its pick), and the
+owner's answer:
+
+| Choice | As put to the owner | The owner's answer |
+|---|---|---|
+| 1 | A CI fix that would change code outside the CI's folders (the capture code included) stops "stuck" for the owner | yes |
+| 2 | Tier 3 inside a loop runs as a Claude subagent, not the owner's Codex CLI; GitHub Codex still reviews every PR | yes |
+| 3 | A copy a CI fix regenerated reaches the CI only through a second PR that the owner merges | yes |
+| 4 | Fix branches cannot change HANDOFF.md, `agent_docs/` or package files; a change outside the userscript, tests and probes rules out "would auto-merge" | yes, on the condition about the release docs (built, part 3.3) |
+| 5 | Limits per job: 4 hours, 600 turns, an estimated 60 USD cap, tuned after Phase 3's proof | yes |
+| 6 | The go request shows the head commit, the header verdict and the diff size, all computed by the broker; the session loads only that file | yes |
+| 7 | A new fine-grained GitHub token for the two repositories, with no Workflows or Administration permission | yes |
+| 8 | The loop commits under its own name, with an address that cannot belong to anyone | yes |
+| 9 | The loops' Claude token comes from the owner's subscription and is kept in the owner's Keychain | yes |
+| 10 | The agent sees PR comments only from the owner and Codex | yes |
+| 11 | The public repo's Claude code review skips fix branches (a `.github/` change, so it needs the owner's approved diff) | not yet: the diff and the reason first |
+| 12 | Close the world-readable private files in the Mac's shared folder | yes (part 4 of the install script, part 3.4) |
+
+What the orchestrator answered and did (02:32 to 03:58Z):
+- **5c, done:** the labels `would-auto-merge` and `needs-approval` in both repositories, and the test branch
+  `test/loop-proof` in the public repo from `main` at `2dbf1f4`.
+- **Choice 4's list,** taken from the last 11 fix PRs on the public `main`: `CHANGELOG.md`, `README.md`, `DECISIONS.md`,
+  `DOM-REFERENCE.md`, `TROUBLESHOOTING.md`, `ROADMAP.md`, `TESTING.md`; the feature docs at the top level of `docs/` (not
+  `docs/specs/` or `docs/handoffs/`); a new `reviews/review-<date>-<topic>.md` file. Still ruled out: `CLAUDE.md`,
+  `agent_docs/`, `HANDOFF.md`, `package.json`, `.github/`. One side effect, said to the owner: past fixes added their
+  new probe to `package.json` and the CI workflow, which a loop cannot do, so such a fix gets "needs approval".
+- **Choice 11, the diff and the reason:** one line added to the `claude-review` job of the public repo's code review
+  workflow, `if: ${{ !startsWith(github.head_ref, 'fix/') }}`. Why: on a `fix/` PR the diff the unattended loop wrote
+  is read by a second agent that holds the owner's Claude token and can write to PRs and issues, so text planted in the
+  diff could steer it. What still reviews: Codex reviews every fix PR without any of the owner's secrets, and Tiers 1
+  to 3 run inside the loop; keeping the extra review is also reasonable if weighed the other way. Not applied; the
+  owner's answer is open.
+- **Item 6:** the layout counts (part 4) and the rule built in part 3.2. **Item 7:** the numbers in part 5.
+- **Items 9 and 10:** simulated runs on their own port (part 3.1); the port free since 02:37:01Z, the owner told at
+  02:37Z, with the loader steps: `node pipeline/session.js --owner-steps --only <vm>` for each VM in turn, then steps 3
+  to 5 in each Tampermonkey browser (remove "AI Conversation Navigator", install the loader from the printed address,
+  quit the browser); Safari needs nothing.
+- **Item 8:** no attack round after the second repair round; that round's own read-only re-check was skipped under
+  rule 4.
+- **Item 4:** the broker proposal as a Claude Doc, sent to the owner at 03:58Z, filled with the proposal's text as it
+  stands in the lab (with D7's read action and the prompt changes of D7 and D8, the release-docs list, the install
+  script as an appendix); one question left in it for the owner, on the 90-day expiry the proposal assumes for the
+  broker's GitHub token.
+
+**2. The second repair round: the orchestrator's decisions D4 to D9** (Claude, 2026-11-20). Each is the orchestrator's
+choice under the owner's rule 1c, recorded for the owner's review at Phase 5; none changes a plan line. Quoted as they
+were given to the lanes, each with its reason (the open item it answers) and what was built. Three lanes built them on
+disjoint files (the change test and the inventory: D4 to D6; the broker, its allowlist and the prompts: D7 and D8; the
+fix check's storage, the texts and the header: D9), then a verifier integrated them and ran the regressions and the
+affected proof steps (23:06 to 02:40Z by its record). The broker lane never returned a final report; the
+verifier checked D7 and D8 through their tests and chain A. The round's read-only re-check of the earlier probes and of
+D4 to D9 was **not run**, by the owner's rule 4, and its docs step is this part.
+- **D4:** "A site change is judged only under ONE selector inventory. When the inventory a copy's references were
+  recorded with differs from the session's (a new Navi build), the change test first re-evaluates the stored copy's page
+  with the session's inventory (in a real engine, through the CI's own machinery, offline) and compares the live records
+  with those fresh references; only a difference under the same inventory is a site change. If the stored page cannot
+  be re-evaluated, the change test says "not-judged: references from another selector inventory" (Discord line), never
+  "site changed" and never silent." Why: the first item of the repair round's part 9, the false "Site changed" that D3
+  caused when Navi's own selectors change (the change test matched selectors by their source line across two
+  inventories); comparing only records read under one inventory would have left the change test blind after every
+  release. Built (`upkeep/change-test.js`, `upkeep/run.js`): the CI run that re-evaluates the stored page is the same
+  run the upkeep's CI step reuses, so there is no extra run; a site change found that way says "(against the stored page
+  re-evaluated with the session's selector inventory <hash>)"; "not judged" goes into the "Upkeep:" head line. The
+  CI's own change test is unchanged, so its selector check still catches P02.
+- **D5:** "A build whose only difference from a reviewed build is its two version lines (// @version and var
+  ACN_VERSION) keeps the reviewed inventory state (not "needs review")." Why: a fix candidate and a release always bump
+  those two lines (the verifier's V1 of the repair round), so with D3 such a build would read "needs review" on exactly
+  the builds the selector check exists for; the repair round's selectors lane had already left the version gate out per
+  build (part 8), and D5 states the rule and limits it to the two lines. Built (`selectors/build-inventory.js`,
+  `selectors/inventory-for.js`): the reviewed build is the one the committed inventory's header names; a build equal to
+  it byte for byte once its two version lines are put back is "version reviewed", with a note; a bump plus any other
+  change is judged as before, and refused in the strict mode. The inventory's hash still changes with the version, so D4
+  re-evaluates every copy after such a release, at no extra CI run.
+- **D6:** "D1's "unconfirmed" capture (no other accepted capture of that site in the same variant): it never replaces a
+  stored copy; when no copy exists it is stored as the first copy marked "unconfirmed", the CI runs on it, and its
+  results are reported as "unconfirmed copy": a CI failure on it never routes as "reproducing" until a later session
+  confirms the copy." Why: under D1 a site with only one accepted browser in a session could store no first copy at all,
+  so the CI had nothing for it; the mark gives the CI a copy without trusting it. Built (`upkeep/run.js`,
+  `upkeep/outcomes.js`): the mark is sealed in the copy's `fixture.json`, so the copy check covers it; a withdrawn copy
+  counts as stored; a new router row `fail-fail-unconfirmed` (a code fix with live checking only, no CI fix request);
+  a later session confirms the copy under D1's rule (with D4's re-evaluation when needed) and rebuilds it from its own
+  inputs with the mark set to confirmed. It covers only "no second browser": when other browsers exist but none can
+  confirm or contradict, the capture is still refused.
+- **D7:** "The broker gets one more READ action, codex-verdict: for a PR the job owns, it returns only {headSha,
+  verdict: clean|findings|none|pending, at}, from the broker's own GitHub read; the loop's label and "ready to merge"
+  use only that. Add it to the proposal's allow list (section 3.4) and the dry-run client; the real client stays
+  unwired." Why: the repair round's part 9, "the broker returns no Codex reading to the loop", so on the real path
+  every label would have been "needs approval". Built (the broker, its helper and schema, the two fixed prompts, the
+  session side's loop and its stand-ins, the dispatch's stub agent; the proposal's 3.1, 3.4, 4.4 and a new 8.3): the
+  read writes nothing and is refused for another job's PR, a fork head or any other argument; the loop's user and the
+  owner's side may send it; on the session side an answer that is not exactly those three fields, a failed read, no
+  broker, or a reading for another commit than the PR's head gives "needs approval", and "ready to merge" is sent only
+  when the answer is `clean` for the head. The real client stays unwired.
+- **D8:** "A ci-fix PR may change only pipeline/ci/ and the CI's own tests (an explicit list of pipeline/test/ files
+  that test pipeline/ci/: name them), never a session-side test; pipeline/loop/prompt-ci-fix.md says exactly that; the
+  proposal's section 3.2 and 4.4 match." Why: the re-attack's N6 (the rest of hole 11's class) and the mismatch the
+  repair round left (part 9: the prompt and the proposal allowed all of `pipeline/test/`, the dry-run broker and the
+  hook refused six prefixes there). Built (the broker's rules and path checks, the edit hook, the CI fix prompt, the
+  proposal's 0, 3.2, 4.2, 4.4.1, 6.2, 6.3, 7.1 and 8.3): under `pipeline/test/` a CI fix may change only
+  `unit-ci-builder.test.js`, `unit-general-ci.test.js` and `unit-recorders-builder.test.js`; any other file there is
+  refused as "a test that is not one of the CI's own tests"; the kept list `pipeline/upkeep/only-live.json` stays; a new
+  CI test file under `pipeline/test/` is the owner's to add.
+- **D9:** "Safari's carry-over mark applies to the loads AFTER the swap back (the next regular session), never inside a
+  fix check; inside a fix check each load's own storage report (6a) against the expected state decides "not-judged:
+  storage carried over". The expected state comes from the chat list's standingBookmarks (empty today) through the
+  loader's storage report; the mark clears when a later regular session's storage report matches the expected state,
+  and the Discord text says so in one line, also when Safari's cells are already not judged for another reason." Why:
+  the re-attack's N5 and the design call the repair round left (part 8: applied inside a fix check, the mark would make
+  every Safari fix-check load "not comparable"; not applied, carried-over storage there went unseen). Built
+  (`session.js`): every load in a browser inside a fix check is compared with one expected state (an expectation still
+  waiting from an earlier non-public load; else the state a regular session recorded under the chat list's current
+  standing bookmarks; else the fix check's first load in that browser, with a note); a load that differs is "not
+  judged: storage carried over", and the store stays carried over for every later load in that browser; the fix loop
+  never uses such a load as evidence. Safari's mark is never read inside a fix check; a Safari load is compared only if
+  its page sends a storage report, and none does today, so it is judged with one note. The lane recorded the expected
+  state per browser as the standing bookmarks' key with the loader's storage hash, count and method, because the
+  loader's report is one hash over all six Navi keys, which a hash of the bookmarks alone can never match (the lane's
+  choice). Since no Safari storage report exists, in practice only the owner's `--safari-storage-cleared` ends the mark.
+- **Also, from the same brief:** the red-then-green judge calls an excluded load "not judged with the current build" (or
+  "with the fixed build"), never "not reproduced", in its reasons and in the evidence lines; the session's header line
+  names the inventory actually served, printed once it is generated. The GitHub label names are the broker's
+  (`would-auto-merge`, `needs-approval`); the spaced "would auto-merge" and "needs approval" in the earlier sections of
+  this DEC are the session side's text, as the repair round's hole 6 paragraph says; no earlier line was changed.
+
+The verifier's results (the context above; load average 18 to 95; port 8790 under the lock):
+
+| Run | Result | Time |
+|---|---|---|
+| The 12 changed or new test files, each alone, on `636c618` and now | 31 failures in 10 files on `636c618` (two files only adjusted to the new rules pass on both); 0 now | |
+| Unit suite, three runs (twice with the lanes integrated, once after the repairs W1 and W2) | 882 tests each: 879 pass, 0 fail, 3 skipped | 617, 616, 570 s |
+| The full test-driver session, start 1, against `636c618` | 0 differences (40 cells, 160 checks, 5 recorder loads, 8 pre-checks); `discord.txt` the same; `summary.md` differs only in the header line, which now names the served inventory, and in the jobs folder's path | 806 / 795 s |
+| Mock pages in three engines; the round trip; the receiver; the smoke run | every run passes, identical across the engines; 15 of 15; 21 of 21; 45 of 45 in each engine | |
+| D4, with P01 served and the live pages unchanged (the upkeep on a finished P01 session, against copies stored under v12.19's inventory; the real `run-ci.js` in Chromium, offline) | `636c618`: "Site changed: grok default: count:L691 4-7→0, count:chain:question 3→0, win:question 691→-1 in all 8 judged cells"; now no "Site changed" line: every copy judged under P01's inventory after its stored page was re-evaluated, and the CI 4 of 4 on each | |
+| D4, a Gemini copy whose stored page is the site as it "was", under P01's inventory | still announced: "Site changed: gemini default: count:L4980 0→3, count:L746 0→3, count:L760 0→3, win:question 747→746 in all 8 judged cells (against the stored page re-evaluated with the session's selector inventory de85da73cc49)"; no Grok change | |
+| Chain A (P01 served; the real CI on the Grok copy; the stub fix bumps the version to 12.20) | 40 of 40, 16 new failures, 2 code-fix jobs "reproducing", no "Site changed" line; the admin look 8 of 8; the CI red then green; the live fix check 56 of 56 proven, none excluded (each loader browser matched its expected state: 0 keys, no standing bookmarks); Safari judged without the storage check, proven by file and page version, its mark named in Discord as not read in this fix check; D5: the candidate (v12.19 with only its version lines at 12.20) keeps the reviewed inventory; the label from `codex-verdict`, clean on the PR's head: `would-auto-merge`; "ready to merge" built, not sent; closed unmerged, nothing merged, the switch off | 3613 s |
+| The next regular session after chain A (`--only navimac`) | Safari's 5 cells not judged (its file is the plant the chain leaves), and Discord names the mark and its clear in one line; Chrome and Firefox 10 of 10 accepted | 332 s |
+| Chain B (Linux Chromium's storage carried over, in the live fix check only) | 56 records, 49 proven; 7 Linux Chromium loads "not judged: storage carried over" (every load after the change); the judge says "not judged", never "not reproduced"; `needs-approval`; stopped "stuck", closed unmerged, nothing merged | 2302 s |
+| D6 (`--only navilinux`, three sessions) | Linux Chromium alone: `636c618` stored nothing ("not confirmed: no second browser"); now 5 copies stored UNCONFIRMED and the CI run on them. Then P01 served, Chromium alone: 2 code-fix jobs `fail-fail-unconfirmed`, live only, never "reproducing". Then both Linux browsers: all 5 confirmed and rebuilt with the mark confirmed | 520, 421, 427 s |
+
+The verifier's two repairs, each with a test red before and green after: **W1** (`fixloop/label.js`): chain B's label
+still said "not reproduced" and "did not turn it green" for excluded loads; it now says "not judged". **W2**
+(`fixloop/loop/run.js resultsFromRunner`): the session's "not judged" flag was dropped on the real path; it is now
+carried (7 of chain B's 56 records). Chain B was not run again after them; they are shown by their tests and by
+re-mapping chain B's stored results. **Not working, or not shown:** D9 in a real browser is unmeasured (if Navi itself
+writes one of its stored keys during an ordinary load on a real site, every later fix-check load in that browser reads
+"not judged"; the mocks write none: measure at the first live fix check); `session.json` keeps neither D4's "not
+judged" and inventory nor D6's mark (summary.md and Discord do; a logged residual); a first copy is still listed under
+"Copies replaced:" (with "stored as the first copy, UNCONFIRMED"); D8's list names three CI tests, while six other test
+files that load `pipeline/ci/` test the session side, so a CI fix that breaks one of them stops "outside the
+allowlist" (the lane's choice, for the owner's review).
+
+**3. This round's four changes** (one per answer that needed code; each with a test that fails on `2dcc15e` and passes
+now; no full suite and no session inside a lane, by the owner's rule 1).
+
+**3.1 Simulated runs on their own port** (item 9).
+- `pipeline/lib/config.js`: port 8790 stays the real receiver's, the address the frozen checker shell, the loader and
+  the recorder name. A simulated run's receiver (`session.js --driver sim`, the smoke run, the receiver's tests, any
+  test that starts a receiver) takes `NAVI_PIPELINE_PORT`, refused for 8790, 8765 and anything outside 1024 to 65535,
+  or else a free port from the OS; it listens on 127.0.0.1 only and keeps its lock in its own throwaway
+  `NAVI_PIPELINE_LOCAL`. A receiver with a throwaway folder and no port is refused, so a test can never fall back to
+  8790; a port without a throwaway folder is refused too. A lock is one line naming the process, the port, who holds it
+  and since when (mode 600): a live holder refuses the start, a lock whose process is gone (or one hand-written in the
+  old form) is replaced with a note, and only its holder removes it.
+- `pipeline/receiver.js` decides its port before it reads or writes any file; a refused start exits 2 with "NOT
+  STARTED" and writes nothing; `/navi/health` reports the port.
+- `pipeline/session.js` (port and lock only): the VM driver refuses `NAVI_PIPELINE_PORT` and uses 8790 with the real
+  lock, **which a VM-driver run now takes and removes itself** (before, the runner never read or wrote it; part 7);
+  `--driver sim --cleanup` looks only at its own folder's locks.
+- `pipeline/test/driver-sim.js`: in the test driver's browsers the pages keep the address `http://127.0.0.1:8790` that
+  the frozen shell names, and Node answers those requests from the run's own port. Why not a redirect: Playwright's
+  `route.continue` with a new address left the page on the other port after a redirect in all three engines, which
+  would break the shell's `@match`. Loopback now goes to the dead proxy too, so no browser opens a connection to 8790.
+- Red on `2dcc15e` with a stand-in listener holding 8790: two smoke runs side by side both stopped ("something already
+  listens on 127.0.0.1:8790"); the receiver's tests 1 of 21 passing (the new file 1 of 23); the new
+  `unit-sim-port.test.js` 0 of 5; `2dcc15e`'s runs made 4 connections to the stand-in. Now, with the same stand-in:
+  three smoke runs side by side (two on free ports, one on a named port) 39 of 39 steps each, the receiver's tests 23
+  of 23 at the same time, the new test 5 of 5, and 0 connections to 8790. The other tests that start a receiver stay
+  green.
+
+**3.2 Layout groups for the copy rule** (item 6).
+- New `pipeline/upkeep/layout.js`: a record's reading is its bucketed counts and chain winners, the change test's own
+  reading, with the markers and the scroller left out. The judged records of one site and chat in one session with the
+  same reading form a layout group, named `l-` plus the first 10 hex digits of a sha256 of the reading (the same reading
+  gave the same name in both of Phase 1's proof sessions). Each session's groups are matched to the stored copies: the
+  same reading first, then the most browsers in common. A stored copy keeps its folder name when the site changes it,
+  so a replacement lands in place and D4 still finds its copy. A record outside every group (not accepted, or no
+  selector record) goes with the group of its reading, else with the copy holding its browser, else with the largest
+  group.
+- `pipeline/upkeep/run.js`: every real session groups by layout. D1's agreement and D6's "no second browser" now hold
+  within a group: a capture replaces its group's copy only if at least one other accepted browser of the same group
+  agrees and none of that group disagrees; with no second browser in its group it is D6's unconfirmed first copy. A
+  recorder load whose reading matches no group is refused (`2dcc15e` would have stored it as an unconfirmed first
+  copy). The Discord head line gains "layouts: <site> <n>, …", summary.md one "- layouts of <site>" line per site and
+  chat, and the result a `layouts` field. `pipeline/upkeep/README.md` has a new section, "Layout groups".
+- Tests: `unit-upkeep-run.test.js` 25 of 25 now. Of its 3 new tests, 2 fail on `2dcc15e` at their first behaviour
+  assertion ("a browser of another layout no longer blocks": refused with "does not agree with the other browsers:
+  navilinux-firefox (count:L3935, win:question)…"; "a recorder load matching no group's reading replaces nothing":
+  `2dcc15e`'s gate passed it), and the third only because its module did not exist there.
+
+**3.3 The release docs a normal fix touches** (choice 4's condition).
+- `pipeline/broker/lib/rules.js` holds one list, read by both the label and the broker's rules for fix branches: the
+  release docs (`CHANGELOG.md`, `README.md`, `DECISIONS.md`, `DOM-REFERENCE.md`, `TROUBLESHOOTING.md`, `ROADMAP.md`,
+  `TESTING.md`), a doc at the top level of `docs/`, and a new `reviews/review-<date>-<topic>.md`. The push allowlist
+  gains `ROADMAP.md`, `TESTING.md` and new review files. A new rule per file and change: the userscript only changed;
+  mock pages under `tests/mock-pages/` in any way; the release docs and the docs at the top of `docs/` added or changed,
+  never deleted; a review file only added; other tests and probes refused (the broker's hole 4); anything else "a file
+  a normal fix does not touch".
+- `pipeline/fixloop/label.js`: its own list of what comes along is gone; every file but the userscript is judged by the
+  broker's path rules for a fix branch, then by that rule; a rename counts as a deletion plus an addition; a binary file
+  never comes along. A behaviour change: tests and probes other than mock pages, `agent_docs/`, `HANDOFF.md`,
+  `docs/specs/` and an edit to an old review file now give "needs approval" (on `2dcc15e` the label let them through).
+- Tests: the label's tests 5 of 30 failing on `2dcc15e`, 30 of 30 now; the tests of the code that uses these files 63 of
+  63.
+- **Not done in this round:** the broker's own would-auto-merge check (`broker/lib/paths.js` and the broker's list of
+  changed paths) still reads file names only, so it refuses a doc at the top of `docs/` and a new review file that the
+  label allows, and it does not see a deletion. The Phase 4 proof shows the effect (part 6). It cannot cause a merge:
+  the merge check requires both the broker's label and the session side's (the repair round's N2), and the auto-merge
+  switch is off.
+
+**3.4 The owner's one install script and the token steps** (item 5).
+- New `pipeline/broker/install/install-navifix.sh` (bash 3.2) with its README. It installs every file from the lab
+  commit it is run at (read out of git, never from the working tree), refuses to run when its own file differs from that
+  commit, refuses any other commit with `--expect <commit>`, and prints the commit and the sha256 of every file it
+  installs before part 1; git is used read-only. Eight parts: the loop's macOS user and its own group; the broker's
+  group; the folders and their modes; choice 12's closing of the world-readable files (it warns before asking when the
+  owner's own account would lose read access to one); the root-owned loop files with their Node and Claude Code copies;
+  the clean test dependencies (the one network step); the sudo rule, checked before it is installed and again after
+  (removed if the second check fails; the main sudoers file is never edited); the broker and its LaunchAgent. Each part
+  prints exactly the commands it will run and asks y/N; only `y` runs them; it then checks again and says "done" or "NOT
+  done". A part with nothing left says "already done", so a second run changes nothing; a part that needs an earlier
+  one says so and runs nothing. `--dry-run` prints every part and runs nothing. It never reads, prints or stores a token,
+  a password or a webhook, and ends with a check of what was installed and the owner's two remaining steps.
+- `docs/broker-proposal.md` (the lab's; not approved): section 5 is now three owner steps (the script with its exact
+  command; the loop's Claude token, with exact commands, never pasted to Claude; the broker's fine-grained GitHub token,
+  with the exact GitHub screens, the two repositories, the permissions and the expiry), then the tests of 6.1 that the
+  orchestrator runs; the labels and the test branch recorded as done; the release-docs list in 3.2 and 7.4; every change
+  listed in a new 8.4.
+- Test: the new `unit-install-navifix.test.js`, 0 of 7 on `2dcc15e` (the script did not exist), 7 of 7 now, with a
+  stand-in for every system command and every path under a throwaway folder. **Never run for real:** no sudo, no real
+  user, nothing installed. Only the owner's run can show the real system tools on macOS 26.6.2, the home folder they
+  make, whether a Keychain prompt appears for the LaunchAgent, the downloads of the dependency part, and the boundary
+  checks on the real accounts.
+
+**4. Layouts per site today** (the owner's item 6). Measured by the layout lane with `layout.js` on the saved selector
+records of Phase 1's two proof sessions (`session-2026-11-19T2305` and `session-2026-11-19T2338`, the five real sites in
+the eight VM browsers, accepted cells only); read from the private records, printing only selector ids, buckets and
+browser names; no site visited for this.
+
+| Site | T2305 | T2338 | The groups |
+|---|---|---|---|
+| Gemini | 2 | 2 | six wide; **Windows Edge and Windows Firefox narrow** (their links L14977, L15024, L15196 read 8-15 instead of 16-31) |
+| Claude | 2 | 2 | the three Mac browsers, and the other five; they differ in L7371 (`.sr-only`), 32-63 in one group and 16-31 in the other |
+| ChatGPT | 2 | 1 | in T2305 Windows Edge alone, its images (L15189, L16539, L16793, L4579) 3 instead of 2; the cell that could not be judged (T2305 Linux Firefox, T2338 Mac Safari) is in no group |
+| Grok | 3 | 3 | the same members and names in both sessions |
+| Perplexity | 4 | 3 | three groups in both sessions; the extra one in T2305 is Linux Chromium alone, whose button counts (L3284, L3288) crossed into 64-127 that session |
+
+- **Grok:** the main group is Mac Safari, Mac Firefox, Windows Firefox and both Linux browsers; Mac Chrome and Windows
+  Edge differ in two image counts (8-15 instead of 4-7); Windows Chrome alone differs in three link counts and two image
+  counts. The question and answer chains and every chain winner are the same everywhere. The lane's verdict: not random
+  (the groups are identical in both sessions), and not a layout of the chat either, since only page-wide link and image
+  counts differ; it looks like each browser's own page state.
+- **Perplexity:** both Linux browsers read two image counts higher, and Mac Chrome one `.sr-only` count, in both
+  sessions (stable); T2305's fourth group is count noise. None of the differences touches the message structure.
+- **The owner's statement and the measurement differ, and both are kept.** The owner's message (and Experiment 1's
+  structure-drift analysis of 2026-11-19, on the 40 structure captures of 2026-11-18 and 19, "Experiment 1 complete")
+  says Windows **Chrome** and Edge get Gemini's narrow layout. These two later sessions, read through the change test's
+  selector reading, put Windows **Firefox** and Edge in the narrow group and Windows Chrome with the five wide browsers.
+  The contexts differ in the session, the kind of reading and the windows (the docked display setup was recorded on
+  2026-11-19 between them); which difference explains it is not measured. The Phase 2 proof's list of what the next
+  session must collect (part 4 there) names "Windows Chrome or Edge" for the narrow layout; with this rule each layout
+  group collects its own copy, whichever browsers it holds.
+- ChatGPT reads 2 layouts in T2305, not the 1 the orchestrator's brief expected.
+
+**5. The planted bugs: today's public `npm test` next to the new CI** (the owner's item 7). No new run: this combines
+two recorded measurements, and every CI count is on copies derived from the public repo's mock pages (the round trip's
+mock copies), not on copies from real recorder loads.
+
+| What catches it | Count | Plants |
+|---|---|---|
+| Today's public `npm test` (`tests/test-all-platforms.js`, Chromium; "Phase 2: the proof without a site", part 1) | 6 of 15 | P01, P04, P05, P08, P09, P12 |
+| The new CI: its four outcome checks (8; the same part 1) and its selector check with the inventory of the build it runs (P02; D3, measured on the round trip's Claude copy, "The loops' repair round", part 3) | 9 of 15 | P01, P02, P03, P04, P05, P10, P12, P13, P15 |
+| Either | 11 of 15 | the nine, plus P08 and P09 (`npm test` only) |
+| Neither | 4 | P06 (bookmark overwrite), P07 (Export drop on ChatGPT, Perplexity and Gemini), P11 (transport fallback skipped), P14 (Claude bookmark keyed by DOM index) |
+
+The plan's bar, every planted bug caught, is still not met; the four need Phase 5's checks or copy variants (named in
+the Phase 2 proof's table). P02 is caught only by the CI's selector verdict ("changed" while every outcome check
+passes), and nothing in the upkeep or the fix loops reads that verdict yet (the repair round, part 9).
+
+**6. The full chain, once before the real session** (the owner's rules 1 and 2; five parts side by side, about 03:10 to
+04:24Z, each on a port of its own; the lab at `2dcc15e` plus the four lanes' 21 files, whose sha256 were the same
+before and after the runs; public Navi v12.19 `1a46e54a8e104e9b`, checker shell 1.0.0, logic `d483c5b39beece4f`,
+inventory `ad0875b0d44eeba7`, admin build `3fb0afed16d406b5` unless a row says otherwise). Nothing was repaired: no lab
+file was changed by a chain part.
+
+| Part | Context | Result | Time |
+|---|---|---|---|
+| Unit suite, twice | unit tests and stand-ins only, no engine; own folders and ports 47923 and 47924 as a backstop (the tests pick their own); load 30 to 107 | 900 tests each: 897 pass, 0 fail, 3 skipped (the three opt-in tests); the two runs identical by test name and outcome; the two `unit-quit-linux` timing tests passed both times above load 100 | 951, 971 s |
+| Mock pages in three engines | in-process receiver, no port; load 54 to 201 | the contract 13 of 13 and 62 of 62 spec runs pass in Chromium, Firefox and WebKit; identical across the engines | 875, 1170, 917 s |
+| Experiment 1's 16 reference specs | checker 0.3.2 run again in each engine from byte-identical copies of `exp1/` (its stored Firefox and WebKit outputs are from checker 0.2.0, so not a reference) | 0.3.2: 16 of 16 in each engine; the new shell and logic gave the same four results as 0.3.2 and the README table in all 48 spec and engine pairs, and the same detail texts with the numbers masked | 297, 380, 317 s |
+| The round trip, every site in three engines, with the recorded-mismatch check | no port; a read-only sample of port 8790 every 2.3 s from 03:14 to 03:47Z found nothing | 15 of 15 pairs: round trip, record load equal to live; planted and recorded-mismatch 12 of 12 (Grok has no plant) | 1924 s |
+| The receiver's tests | port 47911 | 23 of 23 | 23 s |
+| The smoke run in three engines | ports 47912 to 47915 | Chromium 47 of 47, WebKit 47 of 47; Firefox first 39 of 42 with 3 failed (its pre-check step reached its 40 s cap at load about 120, and the steps that depend on it failed or were skipped), then 47 of 47 at load 40 to 70 | 159, 167; 312 then 225 s |
+| The full test-driver session, start 1 and start 2, against a reference from `2dcc15e` | ports 47941 and 47942; the reference is `2dcc15e` with the port lane's four files carried in (without them it could only run on 8790), so it covers the other lanes; the port lane's effect was compared with an earlier full run on 8790 (the tree before `2dcc15e`, about 3 hours earlier); a watcher on 8790 once a second | start 1's first attempts: both "RUNNER ERROR: the receiver did not come up within 10 s" at load 119 to 122, 0 of 40 visited, `2dcc15e`'s reference and the tree alike. Again below load 40: the tree 8 of 8 pre-checks, 40 of 40 accepted with every check passing, 5 of 5 recorder loads "same"; the reference the same except its Gemini recorder load in Navi Mac Chrome, whose jump took 20 s and never landed (read as timing under load; not in start 2): 1 difference. The tree against the earlier 8790 run: 0 differences. Start 2: 0 differences. The watcher saw nothing; no lock left | start 1: 883 s (the tree), 908 s (the reference); start 2: 843, 834 s |
+| The Phase 3 proof | ports 48613 and 48614; the real `run-ci.js`; a local bare repo as the copies' remote, only `ci-copies` written | below | |
+| The Phase 4 proof | port 47933; P01 `9c2d91e3`, the fixed build v12.20 `39314e41`, logic `559f487e1d5932d0`, inventory `de85da73cc49c1af`; the real `run-ci.js` on the Grok copy Phase 3 stored, offline | below | |
+
+Differences the lanes made on purpose (summary.md only; per-load and per-check data unchanged): the upkeep's units are
+named by layout group (`l-` and 10 hex digits) instead of `default`, and there are 6 instead of 5, because Gemini splits
+in two in the test driver; summary.md gains the five "- layouts of <site>" lines. That split comes from the test
+driver: Navi Mac Safari reads `count:L3420` (Navi's `script:not([src])` lookup) as 8-15 where the other seven read
+16-31, in both trees and in `2dcc15e`'s own records, so it is how the test driver injects Navi for Safari, not the lane;
+in the real sessions Mac Safari is in the wide group (part 4). No "layouts:" line reached Discord, because the session
+passes the upkeep's head line to Discord only when a copy exists.
+
+The Phase 3 proof (`--only navilinux` unless a row says otherwise):
+
+| Step | Result | Time |
+|---|---|---|
+| S1: first copies | 10 of 10 accepted, recorder loads 5 of 5 "same"; 5 copies stored, each named by its layout group, each "from navilinux-chromium (agrees with navilinux-firefox)"; the CI 4 of 4 on four copies, 3 of 4 on Gemini (below) | 739 s |
+| S2: a stale Gemini copy (planted, its copy check still ok) | "Site changed: gemini l-c129700ca0: count:L746 32-63→3, win:question 747→746 in all 2 judged cells"; replaced in the same folder from navilinux-firefox (agreeing with navilinux-chromium), the old copy kept in the branch's history; the CI 4 of 4 on the new copy | 440 s |
+| S3: a wrong Grok copy (a hand edit; copy check `copy-wrong`) | "Copy wrong: grok … (never announced as a site change)"; 0 code-fix jobs, 1 CI fix job; its dry-run dispatch ended "stuck, broker-refused": the stub scenario, written before D8, still changed `pipeline/test/regen-note.test.js`, which D8 refuses (the broker was right). With the change moved into `pipeline/ci/`, the same job dispatched again without a session: "ready to merge", both stand-in PRs (to `main` and to `ci-copies`) open and unmerged, 0 merge calls, 0 pushes to either branch, the switch read "off" before and after | 588 s |
+| S4: signed out (ChatGPT, no copy) and half loaded (Claude, a stale copy) | Claude's change announced, not replaced (the capture did not settle); ChatGPT not stored (the recorder load was not opened); nothing committed; evidence added to the open CI fix job, no second CI fix job, no code-fix job | 415 s |
+| B1: the layout rule (`--only naviwin,navilinux`; Gemini made narrow in Windows Edge and Windows Firefox by a stand-in) | 25 of 25 accepted; "layouts of gemini: 2" (3 wide, 2 narrow; the readings differ only on L14977, L15024 and L15196); the narrow copy stored "from naviwin-firefox (agrees with naviwin-edge)"; the wide group had no eligible recorder load in that session; the other four sites one layout each, confirmed by the other 4 browsers; the CI 4 of 4 | 777 s |
+| B2: the same, the next session | the narrow copy found "by reading", unchanged, the CI 4 of 4; the wide copy stored "from navilinux-chromium (agrees with navilinux-firefox, naviwin-chrome)"; `ci-copies` holds both Gemini copies | 736 s |
+
+The narrow stand-in adds nine links below the chat on those two browsers' Gemini pages; it moves the same three
+selectors the real sessions show, with invented counts (0 against 8-15 here; 16-31 against 8-15 live). One recorder
+load per site per session, so the two copies came from two sessions (the rotation file seeded for it). Failures: S3's
+dispatch (above); S1's Gemini CI jump failed while live passed, routed "uncalibrated" with no job, and passed in three
+re-runs of the CI on that copy at load about 38 (it failed at load 70 to 80: likely timing, not proven). The part's
+first try of all six sessions failed with "the receiver did not come up within 10 s" at load 117 to 195: started alone
+at load about 117, the receiver took 13 s with the selector inventory rebuilt from the served build at its start (D3,
+already in `2dcc15e`), against 1 s without it, while `session.js` waits a fixed 10 s. Not repaired; the part then
+started each session only below load 45.
+
+The Phase 4 proof (the chain script, a scratch copy with one option added so that the stub fix also edits
+`CHANGELOG.md` and `DOM-REFERENCE.md` and adds a new review file):
+
+| Step | Result |
+|---|---|
+| Run 1 (03:13Z) | exit 2 after 438 s: "RUNNER ERROR: the receiver did not come up within 10 s" at load 210 to 232, all 40 cells not visited, no job, so the chain stopped; the receiver's log was empty (it had not refused); started by hand once the load was about 110, it listened after 1 s. The fixed 10 s wait, not a regression |
+| Run 2 (03:21 to 04:23Z) | exit 0 after 3746 s |
+| The CI with the current build (real) | load pass, navigate fail, jump skipped, bookmark fail |
+| P01 served as current | 40 of 40 cells, 16 new failures (Grok's Navigate and Bookmark in all 8 browsers); the CI agrees 4 of 4 on every stored copy; 2 code-fix jobs, row `fail-fail-same`, case "reproducing" |
+| The investigation; the admin look | cause "navi-change" (the earlier build passes on the same copy); the admin-look request "needs go", 8 loads; the look 8 of 8 proven by hash and reproduced, Safari swapped and swapped back |
+| The stub fix and the CI | on a local clone: the revert, the version bumped to 12.20, a docs commit; the real CI red then green (P01 fails Navigate and Bookmark; v12.19 and the fixed build pass all four), nothing new red on the copy |
+| Review, PR, go request | stub tiers clean (Tier 3, 2 rounds); a PR to a test branch of the local bare repo; the go request with loads per site: 56 (Gemini 8, Claude 8, ChatGPT 8, Grok 24, Perplexity 8) |
+| The live fix check | 56 of 56 proven, none excluded; the current build fails and the fixed build passes in 16 pairs; the full run of 40 loads, no new failure; Safari proven by file hash, page version (12.19, then 12.20) and read-back, swapped back to the public build |
+| Codex, the label, the end | `codex-verdict` clean, its head commit the PR's; the label "would auto-merge" with no reasons, `CHANGELOG.md`, `DOM-REFERENCE.md` and the new review file coming along; "ready to merge" built (3 parts), not sent; the PR closed unmerged, nothing merged, the switch off, its file absent; no lock left |
+
+Two findings from run 2: the label and the broker disagree on the new review file (part 3.3): the broker's name-only
+check returns false for it, so on the real path the broker would answer "needs approval" for this exact PR, which only
+blocks; and Gemini has two layout groups in the test driver (above), so the upkeep said "Not replaced: gemini
+l-d5251205a3 (no copy yet)" and "CI not run (no copy)" for the Safari group.
+
+**7. Choices the lanes made in this round**, recorded as the orchestrator's under rule 1c, for the owner's review at
+Phase 5:
+- **A VM-driver run now takes and removes the real lock** (`local/pipeline/port-8790.lock`) itself; a lock held by a
+  live process blocks its start, a dead or hand-written one is replaced with a note. Before this round the runner never
+  read or wrote it. This is the one change of the round on the owner's real path, and it is untested there: the
+  owner's next run with the VM driver is the first to show it. If the VM path is to stay as it was, the lock call comes
+  out of the VM driver's port step.
+- **The test driver keeps the 8790 address inside its browsers** and answers it from Node (part 3.1), so the frozen
+  shell's `@match` and `@require` stay as they are.
+- **A layout group's reading** leaves the markers and the scroller out, and its name is a hash of the reading, so the
+  same layout gets the same folder in every session; a stored copy keeps its folder name when its group's reading
+  changes. A record that is in no group goes with the group of its reading, else with its browser's copy, else with the
+  largest group.
+- **Tests and probes other than mock pages need approval** in the label now, matching the broker; before, the label let
+  them through.
+- **The install script adds the lab's own `npm ci`** to the dependency part (the CI's extractor needs `acorn`), makes
+  the user with its own group in one command and re-checks it, and removes each `everyone` ACL entry of the closed
+  places by its index.
+- From the second repair round: the expected storage state per browser (D9 above); D6 limited to "no second browser";
+  D8's list of three CI tests.
+
+**8. Left open, and why** (logged for Phase 5 under the owner's pace rule; none of these can cause a wrong merge, a
+site load nobody counted or a leak of account details):
+- **The broker's own would-auto-merge check reads names only** (part 3.3): it blocks fixes the label allows and does
+  not see deletions; the merge check needs both labels, and the switch is off. The fix is in the broker's path check and
+  its list of changed paths (with the change status), and its message.
+- **The receiver's fixed 10 s start wait** against the inventory rebuild at its start (13 s at load about 117): when
+  it is too short, the session stops before any cell, with nothing visited. **It matters for the real session if the
+  Mac is that loaded** at its start.
+- **A one-count jitter at a bucket edge splits a layout group** (Edge's images 2 to 3, Perplexity's buttons 61 to 64),
+  giving a one-browser group and so an unconfirmed copy. Leaving the page-wide counts (links, images, buttons,
+  `.sr-only`) out of the reading would remove that noise, and also the only signals that separate Gemini's and Claude's
+  real layouts. Not decided.
+- **One cause now gives one job per layout group:** Grok failing in all eight browsers would give 3 code-fix loops; the
+  trigger and the fix loop were not checked for it (in the test driver Grok has one group).
+- **`session.json` drops the new `layouts` field** (summary.md has it, Discord only when a copy exists), as it drops D4's
+  "not judged" and D6's mark: logged residuals, since nothing reads them from `session.json`.
+- **Every test-driver run shows Gemini with two layouts** (Safari's `count:L3420`, part 6).
+- **A legacy copy named `default`** is kept by the group that matches it best, tested only with invented copies; a
+  stored copy that no group claims is only listed as unclaimed, and nothing retires it.
+- **D4's copy fidelity:** D4 assumes a stored page reproduces what its references described (measured on the Grok and
+  Gemini copies); a copy that does not would read as a false site change after a build change.
+- From the second round: D9 unmeasured in a real browser; the wording items; D8's list against the six session-side
+  test files (part 2).
+- The lab's README and `pipeline/test/README.md`'s file table still describe the old port protocol in places; the
+  lab's runbook is current (its 10.9, 10.10 and a new 10.26).
+
+**9. What waits for the owner.**
+1. **The broker's use:** approving it after the owner's review of the Claude Doc (the allow list, the two fixed
+   prompts, the owner's three steps). Until then nothing dispatches for real, nothing is installed, and the auto-merge
+   switch stays off.
+2. **Choice 11:** the owner's answer, now that the diff and the reason are with the owner (sent 02:32Z).
+3. **The real session:** the owner's loader steps (the port free for them since 02:37:01Z; whether they are done is not
+   recorded here), then the orchestrator's pre-check of the eight browsers on a local page and example.com, then the one
+   session on the real sites, which the owner starts, announced once with everything it collects and proves.
+4. At Phase 5: D1 to D9 and the lanes' choices above.
