@@ -134,9 +134,11 @@ NODE_PATH=/opt/node22/lib/node_modules node tests/test-all-platforms.js
 
 | Code | Meaning |
 |------|---------|
-| `0`  | All tests passed |
-| `1`  | One or more tests failed (check the detailed report) |
+| `0`  | All tests passed, a FLAKY entry included (failed once, passed on its retry; see "Retries and flakes") |
+| `1`  | One or more tests failed, on the retry too (GENUINE), or with `--no-retry` (check the detailed report) |
 | `2`  | Fatal error (browser failed to launch, script file not found, etc.) |
+
+`--no-retry` runs every entry once, for local debugging: a failed entry is reported as it failed, not run again.
 
 ### When to run what (CLAUDE.md rule 7, since 2026-11-07)
 
@@ -1522,6 +1524,64 @@ To test just one platform, temporarily comment out the others in the `PLATFORMS`
 for (const platform of PLATFORMS.filter(p => p.name === 'Bolt.new')) {
 ```
 
+### Retries and flakes (the owner, 2026-11-21; DEC-066)
+
+The owner: "when those fail, we need to be able to, just retry, if it's not a code issue, if it's a GitHub runner or a
+timeout issue or anything else ... if it keeps happening, then, it might be a code issue". Three layers, each
+announced, none silent:
+
+1. **The suite retries a failed entry once** (`tests/test-all-platforms.js`). Right after an entry with a failed test,
+   the log prints `[retry] <entry>: N test(s) failed on the first run; running the entry once more in a fresh browser
+   context` and the first run's failure lines, then runs the entry again in a new browser context (a relaunched
+   browser if the first run left it disconnected). The new context starts from the storage the first run started
+   from (`storageState`: the localStorage and cookies earlier entries left on the shared context), so a failure that
+   carried state causes fails the retry too.
+   - **FLAKY**: the retry passed, and every test that failed on the first run was asserted again and passed (a
+     first-run failure the retry never asserts makes the retry fail with `RETRY: every first-run failure passes on
+     the retry`; `No runtime errors` and `FIXTURE PRESENCE: …` are exempt, since they exist only when they fail).
+     The entry counts as passed and the run can exit 0. The detailed report shows the
+     retry's tests and, under `[FLAKY]`, the first run's failure lines; the summary has a `Retries:` line; a
+     `::warning title=Flaky test::<entry> :: <test>: first run: <failure line>; timing: <readings>` annotation goes
+     on the job (the readings: `vis=`/`raf10=` from the failure line when it has them, and both runs' entry times);
+     `tests/output/flaky.json` records it (rewritten on every run, ignored by git).
+   - **GENUINE**: the retry failed too. Exit 1; both runs' failure lines are printed. *Deterministic* is added when
+     both runs failed the same assertions with the same values, durations aside: a code issue, most likely.
+   - Every failed test of the final result also gets a `::error title=Test failed::` annotation, which the flake log
+     quotes when a re-run passes.
+   - After 3 GENUINE entries on one engine, the remaining failed entries are not retried (`[retry] … not retried`): a
+     broken build would otherwise double the job.
+   - `--no-retry` turns it off. **The self-test:** `ACN_RETRY_SELFTEST=first` (run 1 fails, the same test passes on
+     the retry, FLAKY, exit 0), `twice` (both fail with different values, GENUINE, exit 1), `same` (identical, GENUINE
+     deterministic, exit 1) or `vanish` (run 1 fails, the retry never asserts that test, GENUINE, exit 1) plants a
+     failure in the first selected entry, e.g. `ACN_RETRY_SELFTEST=first node tests/test-all-platforms.js --platform
+     Grok`. The harness refuses it in CI (exit 2).
+2. **The probe lanes retry a failed probe once** (`.github/scripts/probe-lanes.sh`), in a fresh node process and so a
+   fresh browser, with the same FLAKY / GENUINE (deterministic: the same `FAIL` lines twice) verdicts and annotations,
+   and a retry column in the job's table. `bash .github/scripts/probe-lanes.sh <group> <browser> --no-retry` turns it
+   off. `npm run test:probes` runs the probes directly and never retries.
+3. **`.github/workflows/ci-rerun.yml` re-runs a failed run once.** When "Cross-Platform Tests" fails on attempt 1, it
+   runs `gh run rerun <id> --failed` (with `ci-ok`), waits for attempt 2, and never re-runs again (it reads the run's current attempt first and does nothing past
+   attempt 1, so a repeated event or a human's re-run never leads to an attempt 3). This covers what the
+   harness cannot retry: a runner never acquired, a stalled install, a job timeout. It never checks out the tested
+   code. It only runs from the default branch (`workflow_run`), so a branch's copy does nothing until merged.
+
+**The flake log.** When a run ends green after a failed attempt, or any of its jobs annotated a flaky test,
+`ci-rerun.yml` posts one comment per event on the issue titled **"CI flake log"** (label `ci-flake`; created if
+missing): the run link, the job, the test, the attempts and the timing readings. A run red on both attempts posts
+nothing; it stays red for a human. **How to read it:** one comment is a flake. The same job and test in comment after
+comment is the "if it keeps happening" case: read the timing readings first (healthy `raf10` with a miss points at
+the code; seconds or `-1` at the runner, DEC-036), then fix it like any failure, since a flake that recurs still
+needs a fix.
+
+**What a retry does not change:** no assertion and no budget is loosened (DEC-025, DEC-036). A FLAKY verdict means
+"failed once on identical bytes, passed on a fresh context", not "fine".
+
+**The jump sweep reads after the jump is over (DEC-066).** TEST J's read waits, bounded at 5 s, for Navi's landing
+after the settle loop (a toast, the stamp cleared, the landing's second stamp, or 400 ms with nothing moving) and
+asserts the same exact row. Its pass line says how the reads settled (`landed N, quiet N`); a failure line adds
+`settled=<how>+<ms> course=[busy@… idle@… stamp=N@… toast=…@…]`, each event with its ms from the click. A `null`
+with no `stamp` in the course is the settle loop giving up; a `stamp` then `clear` is the landing.
+
 ### CI: reading the rebuilt workflow (since the CI rebuild, DEC-064)
 
 - **`ci-ok` is the one required check.** When it is red, its log names each job that did not pass, twice: once from
@@ -1529,14 +1589,16 @@ for (const platform of PLATFORMS.filter(p => p.name === 'Bolt.new')) {
   job; `ci-ok` itself only reports.
 - **A probe job runs two lanes at once,** so its log interleaves them. Every line carries its lane and probe
   (`[A check-feature-gaps]   PASS  G1 …`), each probe logs `start` and `exit N after S s`, and the job ends with a
-  table: lane | probe | exit | seconds. A lane keeps going after a failed probe, so the table lists every probe's
-  result; nothing is retried.
+  table: lane | probe | exit | seconds | retry. A lane keeps going after a failed probe, so the table lists every
+  probe's result; a failed probe is run once more (the retry column says FLAKY or GENUINE; "Retries and flakes"
+  above).
 - **`check-gemini-index` runs as two halves** (`--part 1` in lane A, `--part 2` in lane B); together they report 83
   lines, the whole run's 81 plus R1 and E once more (probes/README.md).
 - **A docs-only PR** shows the suite and probe jobs as skipped and `ci-ok` green; `changes` logs why ("all N changed
   files are docs") and lists the files. Anything else, and every push to `main`, runs everything.
 - **Re-running** a failed job (`gh run rerun <run-id> --failed`, once the run has finished) re-runs `ci-ok` with it;
-  `ci-ok` judges each job by its newest attempt.
+  `ci-ok` judges each job by its newest attempt. Since DEC-066, `ci-rerun.yml` does this once by itself when a run's
+  first attempt fails ("Retries and flakes" above); a run red on attempt 2 is the one to read.
 - **A job with 0 steps and "The job was not acquired by Runner of type hosted even after multiple attempts"** never
   ran: GitHub had no runner for it (macOS arm64, about 1 run in 30, often right after a merge to `main`). `ci-ok` is
   red with that job "cancelled" (the aggregate may read `abandoned`). It is not a finding: re-run the failed jobs
@@ -1567,7 +1629,8 @@ How to respond:
    the engine was throttling rAF (which starves the mock's render loop and makes the product's
    jump give up honestly); `-1` means rAF stopped outright.
 3. **Re-run the job once** (`gh run rerun <run-id> --failed`). A fresh runner has consistently
-   come back green in ~6 minutes on the same commit.
+   come back green in ~6 minutes on the same commit. Since DEC-066 the suite retries the entry itself and
+   `ci-rerun.yml` re-runs a failed first attempt once, so a red that reaches a human has already failed twice.
 4. If it fails again with healthy `raf10` numbers and exact-but-wrong rows rather than nulls,
    it is NOT this signature — treat it as a real finding (the Windows rule below applies:
    a runner-specific failure is usually a real statement about an assertion).

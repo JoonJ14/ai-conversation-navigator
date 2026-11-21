@@ -6241,3 +6241,120 @@ The agent's practices (from measured failures):
 - Nothing the owner's account runs may live in a folder the test user can write; the test user's outputs are data
   the owner's side reads, never executes. The owner's home folder, readable by the test user at first, is mode 700 since
   2026-11-18 20:55 CST (the owner's `chmod 700 ~`).
+
+---
+
+## DEC-066: A Failed Test Is Retried Once, Visibly: the Suite and Probe Lanes Retry In-Job, `ci-rerun.yml` Re-runs a Failed Run Once, and Every Flake Goes in One Issue (2026-11-21)
+
+**Date:** 2026-11-21 | **Stage:** CI, branch `ci/test-retry-and-rerun` | The userscript is untouched. **Supersedes** the
+"auto-retry: rejected for now" of DEC-036 and the "Retries anywhere: they hide real failures" of DEC-064, on the
+owner's request; both rejections were about a retry nobody sees, and this one is announced, annotated and logged.
+
+### The owner's request (2026-11-21, verbatim)
+"yeah, we need a way that we can retry, if there's a test that failed, especially in the main, Chromium on macOS have
+failed, which, but then, I see, they might have caused the CAO-K to also fail, but it also said failing after four
+seconds, so I'm not really sure, so, when those fail, we need to be able to, just retry, if it's not a code issue, if
+it's a GitHub runner or a timeout issue or anything else, we should be able to retest those or recall those runs and
+see, if it's, if it keeps happening, then, it might be a code issue, but even if it's not, we might need, need a way
+to fix them, because, I can't have a failed test on CI."
+
+("CAO-K" is `ci-ok`: it failed 4 s after it started because it only reports the jobs it needs, and one had failed.)
+Offered a retry inside the test harness or an automatic re-run of failed jobs, the owner chose **both**.
+
+### What started it
+Main run 44457020951 (`2dbf1f4`, the merge of PR #96, 2026-11-19 04:15Z, attempt 1): `chromium on macos-latest`
+failed 1 of 560 tests, one jump of 147 in the 294-row acceptance entry (TROUBLESHOOTING has the entry), and `ci-ok`
+went red with it. The userscript and `tests/` are byte-identical to PR #96's head `33ba064` (green 11 minutes earlier)
+and to PR #97's `b57cc50` (green, 2026-11-21): the same bytes passed and failed, so no code hypothesis survives
+(DEC-036's identity rule). The run was never re-run, so `main` stayed red until the next push.
+
+### Decision
+1. **The suite retries a failed entry once** (`tests/test-all-platforms.js`, `RETRY`): in a fresh browser context, on
+   a relaunched browser if the first run left it disconnected, seeded with the storage the first run started from
+   (`storageState`, taken before each entry: the suite's context is shared, so localStorage and cookies from earlier
+   entries are part of the first run's conditions; an empty context would pass a returning-user bug as FLAKY, which
+   the verifier showed with a planted one). **FLAKY** = the retry passed and re-asserted every test that failed on the
+   first run (one it never asserts fails the retry; `No runtime errors` and `FIXTURE PRESENCE: …` exist only when they
+   fail and are exempt): the entry counts as
+   passed, both runs' failure lines are printed, a `::warning title=Flaky test::` annotation names the entry, the
+   test, the first run's failure line and its timing readings (`vis=`/`raf10=` when the line has them, and both runs'
+   entry times), and `tests/output/flaky.json` records it (rewritten on every run). **GENUINE** = it failed again:
+   exit 1, both runs' failures printed, called *deterministic* when both runs failed the same assertions with the same
+   values (durations masked). Every failed test of the final result gets a `::error title=Test failed::` annotation, so
+   a later re-run can name it. After 3 GENUINE entries on one engine the rest are not retried (a broken build would
+   otherwise double the job). `--no-retry` turns it off for local debugging. `ACN_RETRY_SELFTEST=first|twice|same|vanish`
+   plants a failure to show the machinery; the harness exits 2 if it is set in CI.
+2. **The probe lanes retry a failed probe once** (`.github/scripts/probe-lanes.sh`): a fresh node process, so a fresh
+   browser. The same verdicts and annotations; the job's table gains a retry column; `--no-retry` as the third
+   argument.
+3. **`ci-rerun.yml`** (new), on `workflow_run` of "Cross-Platform Tests": a run that **failed on attempt 1** gets
+   `gh run rerun <id> --failed` once (with `ci-ok`, which needs the failed jobs, so it judges the newest attempt as
+   before), and the job waits for that attempt. Never a second time (`run_attempt == 1` only, in the event and, read again before
+   the re-run, in the run itself: a repeated event queued behind the first job finds attempt 2 and does nothing). It never checks out or
+   runs the tested code; it only calls GitHub's API (`actions: write`, `checks: read`, `issues: write`,
+   `contents: read`).
+4. **The flake log:** when the run ends green after a failed attempt, or any of its jobs annotated a flaky test, one
+   comment per event goes on the one issue titled "CI flake log" (label `ci-flake`; created if missing, reopened if
+   closed): the run link, the job, the test, the attempts, the timing readings. Each comment carries a marker
+   (`ci-flake-log: run=… job=… kind=…`), so an event is never posted twice. A run that fails on both attempts posts
+   nothing: it stays red for a human. The owner's "if it keeps happening, then, it might be a code issue" is read off
+   that issue: the same job and test in repeated comments.
+5. **The jump sweep reads its verdict after the jump is over** (the observation fix, DEC-025's rule): see below.
+
+### The observation fix, and what it is not
+The sweep (TEST J, `jumpEveryQuestion`) read `data-acn-jump-resolved` at the first poll after `data-acn-jumping`
+cleared. Read from the code: Navi clears busy and stamps the row, and only then lands it (`ciLandSettled` →
+`orbLandIn`: instant writes `IX_JUMP_SETTLE_MS` = 350 ms apart, up to 4); the landing stamps the row again when it
+lands, or clears the stamp and toasts when it does not. So the old read fell inside the landing, and its outcome
+depended on where a 110 ms poll fell: machine speed. Now the sweep waits, bounded at 5 s after the first verdict, for
+the jump to be over (a toast, the stamp cleared, the landing's second stamp, or 400 ms with neither the stamp nor the
+scroller moving) and reads then; the assertion is the same exact row. Its failure line now also gives how the read
+settled and the jump's course (busy, idle, stamps, toast, each with its ms from the click), so the next miss says
+whether the settle loop or the landing gave up. The jump time the budget assertion averages still ends at the first
+verdict, as before; budgets unchanged (DEC-036).
+
+Measured [Playwright Chromium 1254 headless, this Mac, the 294-row entry, a scratch copy of the userscript, never
+committed, through `ACN_SCRIPT`]:
+- **Planted A** (row 122 stamped as 124, Q62's exact miss turned into a wrong row): old read 1/147 failed, new read
+  1/147 failed (`expected row 122, got 124`); with the retry on: GENUINE, deterministic.
+- **Planted B** (the landing's stamp names the next row): old read **3/147** failed, new read **146/147**. The old
+  read caught a landing that lands on the wrong row only when a poll happened to fall after it: the race, measured.
+- Unplanted: 147/147 exact; the entry went from 57.0 s to 103.9 s (146 reads ended on the landing's second stamp, 1
+  on the quiet rule, at most 721 ms after the first verdict).
+
+**What it is not:** a fix for Q62. That miss read `null` at busy-clear, and by the same code reading a `null` there
+is a give-up before the landing (the settle loop's own caps, `iteration-cap` / `nudge-cap` / `no-progress` /
+`no-local-match`, all under the 5 s hard cap), because the landing's first step runs in the same task as the stamp and
+cannot clear it before a poll. That reading is from the code, not measured: the old line recorded no toast and no
+course. Not reproduced here: 6 instrumented sweeps of the entry (882 jumps; unthrottled, and CDP CPU throttling at
+4x and 20x, where the averages, 341-446 ms, matched the failing run's 435 ms) gave 0 misses, 0 stamps changed after
+the read, 0 toasts. It is the product giving up on a slow runner (`raf10=625ms` against ~160 ms healthy) about once in
+several hundred runs of the entry, which is what the retry is for, and the flake log is how a recurrence becomes
+visible.
+
+### Alternatives considered
+- **Only the workflow re-run.** Rejected as the only part: a re-run repeats a 6-10 minute job for one entry, and gives
+  no per-test record of what flaked. It stays, for what the harness cannot retry: a runner never acquired, an
+  install, a job timeout.
+- **Only the harness retry.** Rejected as the only part for the same list in reverse.
+- **Retry each failed test inside the entry.** Rejected: an entry's tests share one page, and many depend on the state
+  the earlier ones left; only the whole entry, from a fresh context, is a clean second run.
+- **Loosen the jump assertion or its budgets** ("close to the row", a longer cap). Rejected, as in DEC-025 and DEC-036.
+- **Retry without a record** (DEC-036's worry, and DEC-064's). Not done: the log, the annotation, flaky.json and the
+  issue make every retry visible.
+
+### Risks and what is not done
+- **A real intermittent bug can now pass CI as FLAKY.** That is the trade the owner chose; the flake log is the guard,
+  so it has to be read.
+- **The stricter read can turn a landing failure the old read hid into a red** (then FLAKY or GENUINE). That is the
+  point; none appeared in the measurements above.
+- **The sweep is slower:** on this Mac the 294-row entry went from 57.0 s to 103.9 s, and the whole `npm test` (Chromium)
+  took 428 s, 560/560, against 345 s recorded on 2026-11-07 (agent_docs/testing.md; another day, so only indicative).
+  CI's times are to be read from the first runs.
+- **`ci-rerun.yml` has not run on GitHub.** `workflow_run` fires only for a workflow file on the default branch, so its
+  first run is after the merge. Its two scripts were run here against a fake `gh` (a re-run that passed, one that
+  failed again, a green run with and without a flake, an unfinished re-run, and the same events twice: posted once).
+  Whether GitHub also sends a `workflow_run` event for the re-run's own completion is not known here; either way the
+  markers keep the log to one comment per event.
+- **The re-run is not skipped for a superseded PR run** (a newer push already running): it costs runner time, not
+  correctness.

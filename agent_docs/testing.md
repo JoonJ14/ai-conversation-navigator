@@ -31,7 +31,16 @@ npm run test:screenshots
 
 # Shell wrapper
 ./tests/run-tests.sh
+
+# Every entry once: no retry of a failed entry (local debugging)
+node tests/test-all-platforms.js --no-retry
 ```
+
+A failed entry is run once more in a fresh browser context, seeded with the storage the first run started from:
+FLAKY (exit 0, a warning annotation and `tests/output/flaky.json`) if that passes with every first-run failure
+re-asserted, GENUINE (exit 1) if not. The probe lanes do the same per probe, and
+`ci-rerun.yml` re-runs a failed CI run once and logs flakes in the "CI flake log" issue (TESTING.md, "Retries and
+flakes"; DEC-066).
 
 ## When to run the whole suite (CLAUDE.md rule 7, since 2026-11-07)
 

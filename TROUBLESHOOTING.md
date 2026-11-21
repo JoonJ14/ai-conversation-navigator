@@ -476,6 +476,71 @@ still the owner's Firefox + Tampermonkey visible tab: **the live re-measure is o
 
 ---
 
+## RESOLVED (CI) — one jump of 147 missed on `chromium on macos-latest` on `main`, and `ci-ok` went red with it: the same bytes passed before and after (2026-11-19)
+
+**Phase:** CI, main run 44457020951 | **Severity:** Medium — `main` red with no code change; the run was never
+re-run, so it stayed red until the next push | **Status:** handled by the retry and the re-run (DEC-066); the miss
+itself not reproduced
+
+### Symptom
+[GitHub Actions, run 44457020951, push of `2dbf1f4` (the merge of PR #96) to `main`, attempt 1, 2026-11-19 04:15-04:24Z;
+job `chromium on macos-latest` (job 135334473894): `cpus 5, memory 15.0 GB`, Chrome for Testing 158.0.8127.18,
+Playwright 1.65.0 (chromium 1254), node 22.23.4]
+- 559 of 560 passed. The one failure, in `Claude (294 rows, N=10 unrendered)` (72.9 s):
+  `ACCEPTANCE: every targeted question reaches its exact row: 1/147 failed — Q62: expected row 122, got null
+  busySeen=true idx=null "Q#62Question number 62: how do" (2938ms, vis=visible, raf10=625ms)`.
+  The same entry's budget check passed: `avg 435ms (<=1500), max 2938ms (<=6500)`.
+- The other 19 jobs green. `ci-ok` failed 4 s after it started (04:24:47-04:24:51Z): it only reports the jobs it
+  needs, and one had failed. The owner read that, rightly, as "failing after four seconds".
+
+### Measurement context
+- **The same bytes passed.** `ai-conversation-navigator.user.js` and `tests/` are identical between `2dbf1f4`, PR
+  #96's head `33ba064` (run 44455754924, 11 minutes earlier) and PR #97's `b57cc50` (run 44934979583, 2026-11-21).
+  On those runs and on `main`'s `b0a6df9` (run 44936401351) the same job passed this entry in 65.3 s, 63.4 s and
+  69.2 s, averages 386, 376 and 414 ms. A pass and a fail on identical input refute any code hypothesis (DEC-036).
+- **The runner was slow at that moment:** `raf10=625ms` is 10 animation frames in 625 ms, against ~160-170 ms healthy
+  (DEC-036), about 3.7 times slower; the entry took 72.9 s against 63-69 s on the green runs.
+- **Not reproduced on this Mac** [Playwright Chromium 1254, headless, page realm]: 6 instrumented sweeps of the entry
+  (882 jumps), unthrottled and under CDP CPU throttling at 4x and 20x (averages 332-446 ms, the failing run's 435 ms
+  inside that range): 0 misses.
+
+### Diagnosis
+- Read from the code, not measured (the failure line had no toast or course to tell): a `null` at the first poll
+  after busy cleared means no row was ever stamped, so Navi's settle loop gave up on its own (its iteration, nudge or
+  progress caps; 2.9 s is under its 5 s hard cap) and showed its failure toast. That is the product's honest give-up
+  on a slow host, the DEC-036 class, at a rate of about one jump in several hundred runs of the entry.
+- Found on the way, and measured: the sweep's read itself raced Navi's landing. Busy covers only the settle loop;
+  Navi then lands the row with up to 4 writes 350 ms apart and stamps it again, or clears the stamp and toasts. A
+  read at the first poll after busy cleared fell inside that landing. With a planted wrong-row landing (a scratch
+  copy of the userscript, through `ACN_SCRIPT`), the old read caught 3 of 147 misses; the new one 146 of 147.
+
+### Solutions considered
+- **Loosen the assertion or the budget:** rejected (DEC-025, DEC-036): the row stays exact.
+- **Re-run by hand:** what TESTING.md said to do; nobody did it this time, and the owner does not want a red CI.
+- **A retry in the harness and an automatic re-run of failed jobs:** the owner chose both (DEC-066).
+
+### Fix
+- The suite runs a failed entry once more in a fresh browser context; FLAKY if that passes (warning annotation,
+  `tests/output/flaky.json`), GENUINE if not. The probe lanes do the same per probe.
+- `.github/workflows/ci-rerun.yml` re-runs a run's failed jobs once when attempt 1 fails, and logs each flake as a
+  comment on the "CI flake log" issue.
+- The sweep reads its verdict after the jump is over (bounded at 5 s), and its failure line now carries how the read
+  settled and the jump's course, so a recurrence of this miss says which part of Navi gave up.
+
+### Results & verification
+- [this Mac, Playwright Chromium] `ACN_RETRY_SELFTEST=first`: FLAKY, exit 0, the annotation and flaky.json written;
+  `twice`: GENUINE, exit 1; `same`: GENUINE (deterministic), exit 1; in CI the variable is refused (exit 2).
+- [this Mac, Playwright Chromium, the verifier] Two holes found and closed before the push. A planted returning-user
+  bug (Navi gives up on `/code/` when an earlier claude.ai entry left a localStorage key) came back FLAKY, exit 0,
+  from the empty retry context; with the retry context seeded from the entry's starting `storageState` it is GENUINE
+  (deterministic), exit 1. A first-run failure the retry never asserted also counted as FLAKY (the old `first`
+  self-test was that shape); now `vanish` shows it GENUINE, exit 1, and `first` re-asserts the test and stays FLAKY.
+- The planted wrong row (Q62 stamped as row 124): GENUINE, deterministic, on both the old and the new read.
+- Not verified yet: `ci-rerun.yml` on GitHub (it runs only from the default branch, so first after the merge); its
+  scripts were run against a fake `gh`.
+
+---
+
 ## THE LIVE TEST SYSTEM (DEC-065, private lab repo) — Stage 0 and Experiment 1 on this Mac and its three VMs: what the next 17 entries share (2026-11-12 to 2026-11-19)
 
 **What this work is.** The owner's live test system for Navi (the navigator): the public navigator, a checker
